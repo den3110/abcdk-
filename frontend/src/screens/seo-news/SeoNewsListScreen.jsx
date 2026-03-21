@@ -190,16 +190,16 @@ export default function SeoNewsListScreen() {
       {/* --- HERO BANNER --- */}
       <Box
         sx={{
-          py: { xs: 2, md: 3 },
-          px: { xs: 1, md: 2 },
+          py: { xs: 1.5, md: 3 },
+          px: { xs: 0, md: 2 },
         }}
       >
         <Container maxWidth="lg">
           <Box
             sx={{
               borderRadius: { xs: 2, md: 2 },
-              px: { xs: 2, md: 4 },
-              py: { xs: 2.5, md: 4 },
+              px: { xs: 1.5, md: 4 },
+              py: { xs: 2, md: 4 },
               position: "relative",
               overflow: "hidden",
               border: "none",
@@ -483,7 +483,7 @@ export default function SeoNewsListScreen() {
       </Box>
 
       {/* --- CONTENT --- */}
-      <Container id="news-feed" maxWidth="lg" sx={{ py: { xs: 4, md: 8 } }}>
+      <Container id="news-feed" maxWidth="lg" sx={{ py: { xs: 3, md: 8 }, px: { xs: 1.5, md: 3 } }}>
         {isLoading || isFetching ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
             <CircularProgress />

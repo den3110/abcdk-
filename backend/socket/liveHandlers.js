@@ -496,6 +496,16 @@ function emitMatchRealtimeUpdate(io, matchId, type, doc) {
     type,
     data: dto,
   });
+
+  const bracketId = String(doc?.bracket?._id || doc?.bracket || "").trim();
+  if (bracketId) {
+    io.to(`draw:${bracketId}`).emit("draw:match:update", {
+      type,
+      bracketId,
+      matchId: String(matchId),
+      data: dto,
+    });
+  }
 }
 
 export async function startMatch(matchId, refereeId, io) {

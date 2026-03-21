@@ -319,7 +319,6 @@ export default function TournamentCheckin() {
         matchIds.forEach((mid) => {
           if (!joinedRef.current.has(mid)) {
             socket.emit("match:join", { matchId: mid });
-            socket.emit("match:snapshot:request", { matchId: mid });
             joinedRef.current.add(mid);
           }
         });
@@ -417,14 +416,8 @@ export default function TournamentCheckin() {
       if (!mid) return;
       setSelectedMatchId(String(mid));
       setViewerOpen(true);
-      try {
-        socket?.emit?.("match:join", { matchId: String(mid) });
-        socket?.emit?.("match:snapshot:request", { matchId: String(mid) });
-      } catch {
-        // ignore viewer socket sync errors
-      }
     },
-    [socket]
+    []
   );
   const closeViewer = useCallback(() => {
     setViewerOpen(false);

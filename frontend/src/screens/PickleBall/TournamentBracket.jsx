@@ -2143,6 +2143,7 @@ export default function TournamentBracket() {
 
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
+  const subscribedBracketsRef = useRef(new Set());
 
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
@@ -2214,41 +2215,24 @@ export default function TournamentBracket() {
     const bracketIds = (brackets || []).map((b) => String(b._id));
     const subscribeDrawRooms = () => {
       try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:subscribe", { bracketId: bid })
-        );
-      } catch (e) {
-        console.log(e);
-      }
-    };
-    const unsubscribeDrawRooms = () => {
-      try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:unsubscribe", { bracketId: bid })
-        );
+        const nextSet = new Set(bracketIds);
+        nextSet.forEach((bid) => {
+          if (!subscribedBracketsRef.current.has(bid)) {
+            socket.emit("draw:subscribe", { bracketId: bid });
+          }
+        });
+        subscribedBracketsRef.current.forEach((bid) => {
+          if (!nextSet.has(bid)) {
+            socket.emit("draw:unsubscribe", { bracketId: bid });
+          }
+        });
+        subscribedBracketsRef.current = nextSet;
       } catch (e) {
         console.log(e);
       }
     };
 
     // ---- join tất cả phòng match của giải để nhận "match:update" ----
-    const matchIds = (allMatchesFetched || [])
-      .map((m) => String(m._id))
-      .filter(Boolean);
-    const joined = new Set();
-    const joinAllMatches = () => {
-      try {
-        matchIds.forEach((mid) => {
-          if (!joined.has(mid)) {
-            socket.emit("match:join", { matchId: mid });
-            socket.emit("match:snapshot:request", { matchId: mid });
-            joined.add(mid);
-          }
-        });
-      } catch (e) {
-        console.log(e);
-      }
-    };
 
     // ---- handlers ----
     const onUpsert = (payload) => queueUpsert(payload); // nhận cả match:update & match:snapshot
@@ -2268,19 +2252,15 @@ export default function TournamentBracket() {
     // ---- wire up ----
     const onConnected = () => {
       subscribeDrawRooms();
-      joinAllMatches();
     };
 
     socket.on("connect", onConnected);
 
     // BE phát vào room match:<id> với "match:update" {type,data}
-    socket.on("match:update", onUpsert);
+    socket.on("draw:match:update", onUpsert);
     // snapshot khi join 1 match
-    socket.on("match:snapshot", onUpsert);
     // tương thích cũ nếu đôi khi bạn còn emit cái này
-    socket.on("score:updated", onUpsert);
 
-    socket.on("match:deleted", onRemove);
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
 
@@ -2289,13 +2269,9 @@ export default function TournamentBracket() {
 
     return () => {
       socket.off("connect", onConnected);
-      socket.off("match:update", onUpsert);
-      socket.off("match:snapshot", onUpsert);
-      socket.off("score:updated", onUpsert);
-      socket.off("match:deleted", onRemove);
+      socket.off("draw:match:update", onUpsert);
       socket.off("draw:refilled", onRefilled);
       socket.off("bracket:updated", onRefilled);
-      unsubscribeDrawRooms();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -2313,6 +2289,16 @@ export default function TournamentBracket() {
   ]);
 
   // Giữ nhãn sân ổn định theo matchId
+  useEffect(() => {
+    if (!socket) return;
+    return () => {
+      subscribedBracketsRef.current.forEach((bid) =>
+        socket.emit("draw:unsubscribe", { bracketId: bid })
+      );
+      subscribedBracketsRef.current = new Set();
+    };
+  }, [socket]);
+
   const courtLabelRef = useRef(new Map());
   const getStickyCourt = useCallback((m) => {
     const id = String(m?._id || "");

@@ -105,9 +105,11 @@ import {
   resetMatchScores,
 } from "../controllers/admin/adminMatchController.js";
 import {
+  advanceCourtMatchListHttp,
   assignNextHttp,
   assignSpecificHttp,
   buildGroupsQueueHttp,
+  clearCourtMatchListHttp,
   deleteAllCourts,
   deleteOneCourt,
   fetchSchedulerMatches,
@@ -115,6 +117,7 @@ import {
   getSchedulerState,
   listCourtsByTournament,
   resetCourtsHttp,
+  setCourtMatchListHttp,
   setCourtReferee,
   upsertCourts,
 } from "../controllers/admin/adminCourtController.js";
@@ -150,6 +153,11 @@ import {
   listPresenceUsers,
   searchPresenceUsers,
 } from "../controllers/admin/adminStatsController.js";
+import {
+  getAdminPushDispatchDetail,
+  getAdminPushSummary,
+  listAdminPushDispatches,
+} from "../controllers/admin/adminPushDispatchController.js";
 import { searchUsersForRefereeAssign } from "../controllers/admin/refereeController.js";
 import { uploadSingleAiImportFile } from "../middleware/uploadMiddleware.js";
 import { suggestAndCommit, suggestPlan } from "./planSuggest.js";
@@ -662,6 +670,27 @@ router.post(
   freeCourtHttp
 );
 
+router.put(
+  "/tournaments/:tournamentId/courts/:courtId/match-list",
+  protect,
+  authorize("admin"),
+  setCourtMatchListHttp
+);
+
+router.delete(
+  "/tournaments/:tournamentId/courts/:courtId/match-list",
+  protect,
+  authorize("admin"),
+  clearCourtMatchListHttp
+);
+
+router.post(
+  "/tournaments/:tournamentId/courts/:courtId/match-list/advance",
+  protect,
+  authorize("admin"),
+  advanceCourtMatchListHttp
+);
+
 // Realtime panel (FE gá»i Ä‘á»ƒ láº¥y state ban Ä‘áº§u / fallback polling)
 router.get(
   "/tournaments/:tournamentId/scheduler/state",
@@ -812,6 +841,20 @@ router.get(
   protect,
   authorize("admin"),
   getPresenceOfUser
+);
+
+router.get("/push/summary", protect, requireAdminAndSuperUser, getAdminPushSummary);
+router.get(
+  "/push/dispatches",
+  protect,
+  requireAdminAndSuperUser,
+  listAdminPushDispatches
+);
+router.get(
+  "/push/dispatches/:id",
+  protect,
+  requireAdminAndSuperUser,
+  getAdminPushDispatchDetail
 );
 
 router.get("/fb-live-config", protect, authorize("admin"), getConfig);

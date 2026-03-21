@@ -6,6 +6,8 @@ import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStatusUrl,
   buildRecordingRawStreamUrl,
+  buildRecordingTemporaryPlaybackUrl,
+  buildRecordingTemporaryPlaylistUrl,
 } from "../services/liveRecordingV2Export.service.js";
 import {
   probeRecordingDriveFile,
@@ -16,9 +18,12 @@ import {
   buildRecordingPrefix,
   buildRecordingSegmentObjectKey,
   completeRecordingMultipartUpload,
+  createRecordingObjectDownloadUrl,
   createRecordingMultipartUpload,
   createRecordingMultipartUploadPartUrl,
   createRecordingSegmentUploadUrl,
+  getRecordingStorageTarget,
+  getRecordingStorageTargets,
   getRecordingMultipartPartSizeBytes,
   isRecordingR2Configured,
 } from "../services/liveRecordingV2Storage.service.js";
@@ -59,12 +64,108 @@ function getSegmentMeta(segment) {
   return meta;
 }
 
+function toNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function estimateRecordingR2SourceBytes(recording) {
+  return (recording?.segments || []).reduce((sum, segment) => {
+    const segmentMeta = getSegmentMeta(segment);
+    const completedPartBytes = Array.isArray(segmentMeta.completedParts)
+      ? segmentMeta.completedParts.reduce(
+          (partSum, part) => partSum + toNumber(part?.sizeBytes),
+          0
+        )
+      : 0;
+
+    if (segment?.uploadStatus === "uploaded") {
+      return sum + toNumber(segment?.sizeBytes);
+    }
+
+    return sum + completedPartBytes;
+  }, 0);
+}
+
+async function selectRecordingStorageTarget(preferredTargetId = "") {
+  const targets = getRecordingStorageTargets();
+  if (!targets.length) return null;
+
+  const normalizedPreferred = asTrimmed(preferredTargetId);
+  if (normalizedPreferred) {
+    const preferred = targets.find((target) => target.id === normalizedPreferred);
+    if (preferred) return preferred;
+  }
+
+  if (targets.length === 1) return targets[0];
+
+  const recordings = await LiveRecordingV2.find({})
+    .select("r2TargetId segments")
+    .lean();
+
+  const usedBytesByTarget = new Map(targets.map((target) => [target.id, 0]));
+
+  for (const recording of recordings) {
+    const targetId =
+      asTrimmed(recording?.r2TargetId) || asTrimmed(targets[0]?.id);
+    if (!targetId || !usedBytesByTarget.has(targetId)) continue;
+    usedBytesByTarget.set(
+      targetId,
+      (usedBytesByTarget.get(targetId) || 0) + estimateRecordingR2SourceBytes(recording)
+    );
+  }
+
+  const rankedTargets = targets
+    .map((target) => {
+      const usedBytes = usedBytesByTarget.get(target.id) || 0;
+      const capacityBytes = Number(target.capacityBytes) || null;
+      const remainingBytes =
+        capacityBytes && capacityBytes > 0
+          ? Math.max(0, capacityBytes - usedBytes)
+          : Number.POSITIVE_INFINITY;
+      const utilization =
+        capacityBytes && capacityBytes > 0 ? usedBytes / capacityBytes : usedBytes;
+
+      return {
+        ...target,
+        _usedBytes: usedBytes,
+        _remainingBytes: remainingBytes,
+        _utilization: utilization,
+      };
+    })
+    .sort((a, b) => {
+      const aHasRoom = !Number.isFinite(a._remainingBytes) || a._remainingBytes > 0;
+      const bHasRoom = !Number.isFinite(b._remainingBytes) || b._remainingBytes > 0;
+      if (aHasRoom !== bHasRoom) return aHasRoom ? -1 : 1;
+      if (a._utilization !== b._utilization) {
+        return a._utilization - b._utilization;
+      }
+      if (a._usedBytes !== b._usedBytes) {
+        return a._usedBytes - b._usedBytes;
+      }
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+  const picked = rankedTargets[0] || null;
+  if (!picked) return null;
+
+  return {
+    id: picked.id,
+    label: picked.label,
+    endpoint: picked.endpoint,
+    bucketName: picked.bucketName,
+    capacityBytes: picked.capacityBytes,
+  };
+}
+
 function findRecordingSegment(recording, segmentIndex) {
   return (recording.segments || []).find((segment) => segment.index === segmentIndex);
 }
 
 function shouldPreserveExportState(recording) {
-  return ["exporting", "ready", "failed"].includes(String(recording?.status || ""));
+  return ["pending_export_window", "exporting", "ready", "failed"].includes(
+    String(recording?.status || "")
+  );
 }
 
 function buildRecordingLinks(recordingId) {
@@ -74,6 +175,8 @@ function buildRecordingLinks(recordingId) {
       playbackUrl: null,
       rawStreamUrl: null,
       rawStatusUrl: null,
+      temporaryPlaybackUrl: null,
+      temporaryPlaylistUrl: null,
     };
   }
 
@@ -90,6 +193,14 @@ function buildRecordingLinks(recordingId) {
     playbackUrl: safeBuild(buildRecordingPlaybackUrl, "playbackUrl"),
     rawStreamUrl: safeBuild(buildRecordingRawStreamUrl, "rawStreamUrl"),
     rawStatusUrl: safeBuild(buildRecordingRawStatusUrl, "rawStatusUrl"),
+    temporaryPlaybackUrl: safeBuild(
+      buildRecordingTemporaryPlaybackUrl,
+      "temporaryPlaybackUrl"
+    ),
+    temporaryPlaylistUrl: safeBuild(
+      buildRecordingTemporaryPlaylistUrl,
+      "temporaryPlaylistUrl"
+    ),
   };
 }
 
@@ -104,9 +215,211 @@ function ensureRecordingPlaybackUrl(recording) {
   };
 }
 
+function isRecordingTemporaryPlaybackReady(recording) {
+  if (!recording?.finalizedAt) return false;
+  return (
+    getUploadedRecordingSegments(recording).length > 0 &&
+    getPendingRecordingSegments(recording).length === 0
+  );
+}
+
+function buildTemporaryPlaybackTitle(recording) {
+  const matchId = asTrimmed(recording?.match);
+  const recordingId = asTrimmed(recording?._id);
+  return `Recording ${recordingId || "-"}${matchId ? ` - Match ${matchId}` : ""}`;
+}
+
+function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
+  const title = buildTemporaryPlaybackTitle(recording);
+  const safeTitle = title
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+  return `<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #050816;
+        color: #e5eefb;
+        font-family: Arial, sans-serif;
+      }
+      .wrap {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+      }
+      .player {
+        width: 100%;
+        max-width: 1280px;
+        margin: 0 auto;
+      }
+      video {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        border-radius: 12px;
+      }
+      .meta {
+        width: 100%;
+        max-width: 1280px;
+        margin: 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        font-size: 14px;
+        opacity: 0.9;
+      }
+      .status {
+        width: 100%;
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(59, 130, 246, 0.12);
+      }
+      .status.error {
+        background: rgba(239, 68, 68, 0.18);
+      }
+      .hint {
+        opacity: 0.72;
+      }
+      a {
+        color: #8cc2ff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="player">
+        <video id="video" controls autoplay playsinline preload="metadata"></video>
+      </div>
+      <div class="meta">
+        <div><strong>${safeTitle}</strong></div>
+        <div id="segmentMeta">Dang tai danh sach segment...</div>
+      </div>
+      <div id="status" class="status">Dang tai temp playback tu R2...</div>
+    </div>
+    <script>
+      const playlistUrl = ${JSON.stringify(playlistUrl)};
+      const fallbackPlaybackUrl = ${JSON.stringify(playbackUrl)};
+      const video = document.getElementById("video");
+      const statusEl = document.getElementById("status");
+      const segmentMetaEl = document.getElementById("segmentMeta");
+      let playlist = [];
+      let currentIndex = 0;
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.className = isError ? "status error" : "status";
+      }
+
+      function setSegmentMeta() {
+        if (!playlist.length) {
+          segmentMetaEl.textContent = "Khong co segment nao de phat";
+          return;
+        }
+        const current = playlist[currentIndex] || playlist[0];
+        segmentMetaEl.textContent =
+          "Segment " +
+          (currentIndex + 1) +
+          "/" +
+          playlist.length +
+          " - #" +
+          current.index +
+          " - " +
+          (current.durationSeconds || 0) +
+          "s";
+      }
+
+      function playIndex(index) {
+        if (!playlist[index]) {
+          setStatus("Da phat xong recording tam.");
+          return;
+        }
+
+        currentIndex = index;
+        setSegmentMeta();
+        const item = playlist[index];
+        setStatus(
+          "Dang phat segment " +
+            (index + 1) +
+            "/" +
+            playlist.length +
+            " tu R2..."
+        );
+        video.src = item.url;
+        video.play().catch(() => {});
+      }
+
+      video.addEventListener("ended", () => {
+        playIndex(currentIndex + 1);
+      });
+
+      video.addEventListener("error", () => {
+        const failedSegment = playlist[currentIndex];
+        const failedLabel = failedSegment ? "#" + failedSegment.index : "hien tai";
+        setStatus("Khong the phat segment " + failedLabel + ".", true);
+      });
+
+      async function bootstrap() {
+        try {
+          const response = await fetch(playlistUrl, {
+            credentials: "omit",
+            cache: "no-store",
+          });
+          const payload = await response.json();
+          if (!response.ok || payload?.ok === false) {
+            throw new Error(payload?.message || "Khong tai duoc playlist temp.");
+          }
+          if (payload?.redirectUrl) {
+            window.location.replace(payload.redirectUrl);
+            return;
+          }
+          playlist = Array.isArray(payload?.segments) ? payload.segments : [];
+          if (!playlist.length) {
+            throw new Error(payload?.message || "Recording tam chua co segment.");
+          }
+          playIndex(0);
+        } catch (error) {
+          setStatus(error?.message || "Khong the mo temp playback.", true);
+          if (fallbackPlaybackUrl && window.location.href !== fallbackPlaybackUrl) {
+            const link = document.createElement("a");
+            link.href = fallbackPlaybackUrl;
+            link.textContent = "Thu mo playback URL";
+            link.target = "_top";
+            statusEl.innerHTML = "";
+            statusEl.appendChild(document.createTextNode(error?.message || "Khong the mo temp playback."));
+            statusEl.appendChild(document.createElement("br"));
+            statusEl.appendChild(link);
+          }
+        }
+      }
+
+      bootstrap();
+    </script>
+  </body>
+</html>`;
+}
+
 function serializeRecording(recording) {
   if (!recording) return null;
   const links = ensureRecordingPlaybackUrl(recording);
+  const temporaryPlaybackReady = isRecordingTemporaryPlaybackReady(recording);
   return {
     id: String(recording._id),
     matchId: String(recording.match),
@@ -117,17 +430,23 @@ function serializeRecording(recording) {
     recordingSessionId: recording.recordingSessionId,
     durationSeconds: recording.durationSeconds || 0,
     sizeBytes: recording.sizeBytes || 0,
+    r2TargetId: recording.r2TargetId || null,
+    r2BucketName: recording.r2BucketName || null,
     driveFileId: recording.driveFileId || null,
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
     playbackUrl: links.playbackUrl,
     rawStreamUrl: links.rawStreamUrl,
     rawStatusUrl: links.rawStatusUrl,
+    temporaryPlaybackUrl: links.temporaryPlaybackUrl,
+    temporaryPlaylistUrl: links.temporaryPlaylistUrl,
+    temporaryPlaybackReady,
     rawStreamAvailable: Boolean(recording.driveFileId || recording.driveRawUrl),
     driveAuthMode: recording?.meta?.exportPipeline?.driveAuthMode || null,
     exportAttempts: recording.exportAttempts || 0,
     error: recording.error || null,
     finalizedAt: recording.finalizedAt || null,
+    scheduledExportAt: recording.scheduledExportAt || null,
     readyAt: recording.readyAt || null,
     createdAt: recording.createdAt || null,
     updatedAt: recording.updatedAt || null,
@@ -167,6 +486,17 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
   let recording = await LiveRecordingV2.findOne({
     recordingSessionId,
   });
+  const configuredExistingStorageTarget = recording?.r2TargetId
+    ? getRecordingStorageTarget(recording.r2TargetId)
+    : null;
+  if (recording?.r2TargetId && !configuredExistingStorageTarget) {
+    return res.status(503).json({
+      message: `Recording storage target "${recording.r2TargetId}" is no longer configured`,
+    });
+  }
+  const selectedStorageTarget = recording
+    ? configuredExistingStorageTarget || (await selectRecordingStorageTarget())
+    : await selectRecordingStorageTarget();
 
   if (!recording) {
     recording = await LiveRecordingV2.create({
@@ -181,6 +511,8 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
       quality,
       recordingSessionId,
       status: "recording",
+      r2TargetId: selectedStorageTarget?.id || null,
+      r2BucketName: selectedStorageTarget?.bucketName || null,
       r2Prefix: buildRecordingPrefix({
         recordingId: new mongoose.Types.ObjectId(),
         matchId,
@@ -195,6 +527,15 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
   } else {
     recording.mode = mode;
     recording.quality = quality;
+    if (!recording.r2TargetId && selectedStorageTarget?.id) {
+      recording.r2TargetId = selectedStorageTarget.id;
+      recording.r2BucketName = selectedStorageTarget.bucketName || null;
+    } else if (recording.r2TargetId) {
+      const configuredTarget = getRecordingStorageTarget(recording.r2TargetId);
+      if (configuredTarget?.bucketName) {
+        recording.r2BucketName = configuredTarget.bucketName;
+      }
+    }
     recording.status =
       recording.status === "ready" ? "recording" : recording.status || "recording";
     if (!recording.playbackUrl) {
@@ -240,6 +581,7 @@ export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   const upload = await createRecordingSegmentUploadUrl({
     objectKey,
     contentType,
+    storageTargetId: recording.r2TargetId,
   });
 
   const existing = recording.segments.find((segment) => segment.index === segmentIndex);
@@ -310,6 +652,7 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
     const multipart = await createRecordingMultipartUpload({
       objectKey,
       contentType,
+      storageTargetId: recording.r2TargetId,
     });
     uploadId = multipart.uploadId;
     partSizeBytes = multipart.partSizeBytes;
@@ -395,6 +738,7 @@ export const presignMultipartLiveRecordingSegmentPartV2 = asyncHandler(
       objectKey: segment.objectKey,
       uploadId,
       partNumber,
+      storageTargetId: recording.r2TargetId,
     });
 
     return res.json({
@@ -428,61 +772,15 @@ export const reportMultipartLiveRecordingSegmentProgressV2 = asyncHandler(
       return res.status(400).json({ message: "partNumber must be >= 1" });
     }
 
-    const recording = await LiveRecordingV2.findById(recordingId);
-    if (!recording) {
-      return res.status(404).json({ message: "Recording not found" });
-    }
-
-    const segment = findRecordingSegment(recording, segmentIndex);
-    if (!segment) {
-      return res.status(404).json({ message: "Recording segment not found" });
-    }
-    if (segment.uploadStatus === "uploaded") {
-      return res.json({ ok: true, uploaded: true, recording: serializeRecording(recording) });
-    }
-
-    const segmentMeta = getSegmentMeta(segment);
-    const existingParts = Array.isArray(segmentMeta.completedParts)
-      ? segmentMeta.completedParts
-      : [];
-    const nextParts = [
-      ...existingParts.filter(
-        (part) => Number(part?.partNumber) !== partNumber
-      ),
-      {
-        partNumber,
-        etag,
-        sizeBytes,
-        uploadedAt: new Date().toISOString(),
-      },
-    ].sort((a, b) => Number(a.partNumber) - Number(b.partNumber));
-    const completedBytes = nextParts.reduce(
-      (sum, part) => sum + (Number(part?.sizeBytes) || 0),
-      0
-    );
-
-    segment.uploadStatus = "uploading_parts";
-    segment.meta = {
-      ...segmentMeta,
-      completedParts: nextParts,
-      completedPartCount: nextParts.length,
-      completedBytes,
-      totalSizeBytes:
-        totalSizeBytes > 0
-          ? totalSizeBytes
-          : Number(segmentMeta.totalSizeBytes) || Number(segment.sizeBytes) || 0,
-      lastPartUploadedAt: new Date().toISOString(),
-    };
-    if (!shouldPreserveExportState(recording)) {
-      recording.status = "uploading";
-      recording.error = null;
-    }
-    await recording.save();
-    await publishRecordingMonitor(recording, "multipart_part_progress");
-
     return res.json({
       ok: true,
-      recording: serializeRecording(recording),
+      accepted: true,
+      recordingId,
+      segmentIndex,
+      partNumber,
+      etag,
+      sizeBytes,
+      totalSizeBytes,
     });
   }
 );
@@ -534,6 +832,7 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
       objectKey: segment.objectKey,
       uploadId,
       parts,
+      storageTargetId: recording.r2TargetId,
     });
 
     segment.uploadStatus = "uploaded";
@@ -627,6 +926,7 @@ export const abortMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
       await abortRecordingMultipartUpload({
         objectKey: segment.objectKey,
         uploadId,
+        storageTargetId: recording.r2TargetId,
       });
     } catch (error) {
       const message = String(error?.message || "");
@@ -752,6 +1052,7 @@ export const finalizeLiveRecordingV2 = asyncHandler(async (req, res) => {
   return res.json({
     ok: true,
     queued: true,
+    scheduledForWindow: recording.status === "pending_export_window",
     recording: serializeRecording(recording),
   });
 });
@@ -815,6 +1116,7 @@ export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
       : {};
 
   const allowedRetry =
+    recording.status === "pending_export_window" ||
     recording.status === "failed" ||
     currentPipeline.stage === "stale_no_job" ||
     currentPipeline.staleReason === "stale_no_job" ||
@@ -822,7 +1124,7 @@ export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
 
   if (!allowedRetry) {
     return res.status(409).json({
-      message: "Only failed or stale exporting recordings can be retried",
+      message: "Only failed, stale, or pending-window recordings can be retried",
     });
   }
 
@@ -835,7 +1137,9 @@ export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
   await queueLiveRecordingExport(recording, {
     publishReason: "recording_export_retried",
     replaceTerminalJob: true,
+    replacePendingJob: true,
     currentPipeline,
+    ignoreWindow: true,
   });
 
   return res.json({
@@ -856,9 +1160,9 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(async (req, res) =
     return res.status(404).json({ message: "Recording not found" });
   }
 
-  if (recording.status !== "uploading") {
+  if (!["uploading", "pending_export_window"].includes(recording.status)) {
     return res.status(409).json({
-      message: "Only uploading recordings can be moved to exporting",
+      message: "Only uploading or pending-window recordings can be moved to exporting",
     });
   }
 
@@ -878,8 +1182,13 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(async (req, res) =
   }
 
   await queueLiveRecordingExport(recording, {
-    publishReason: "recording_export_forced_from_uploading",
-    forceFromUploading: true,
+    publishReason:
+      recording.status === "pending_export_window"
+        ? "recording_export_forced_from_pending_window"
+        : "recording_export_forced_from_uploading",
+    forceFromUploading: recording.status === "uploading",
+    replacePendingJob: recording.status === "pending_export_window",
+    ignoreWindow: true,
   });
 
   return res.json({
@@ -911,6 +1220,9 @@ export const playLiveRecordingV2 = asyncHandler(async (req, res) => {
       return res.redirect(recording.drivePreviewUrl);
     }
   }
+  if (isRecordingTemporaryPlaybackReady(recording)) {
+    return res.redirect(buildRecordingTemporaryPlaybackUrl(recording._id));
+  }
 
   return res.status(409).json({
     ok: false,
@@ -918,6 +1230,114 @@ export const playLiveRecordingV2 = asyncHandler(async (req, res) => {
     message: "Recording is not ready yet",
     recording: serializeRecording(recording),
   });
+});
+
+export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId).lean();
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  if (recording.driveFileId || recording.driveRawUrl) {
+    return res.json({
+      ok: true,
+      ready: true,
+      redirectUrl: buildRecordingPlaybackUrl(recording._id),
+      recording: serializeRecording(recording),
+    });
+  }
+
+  if (!isRecordingTemporaryPlaybackReady(recording)) {
+    return res.status(409).json({
+      ok: false,
+      status: recording.status,
+      message: "Recording temporary playback is not ready yet",
+      recording: serializeRecording(recording),
+    });
+  }
+
+  const uploadedSegments = getUploadedRecordingSegments(recording);
+  const segments = await Promise.all(
+    uploadedSegments.map(async (segment) => {
+      const download = await createRecordingObjectDownloadUrl({
+        objectKey: segment.objectKey,
+        expiresInSeconds: 60 * 60 * 12,
+        storageTargetId: recording.r2TargetId,
+      });
+
+      return {
+        index: segment.index,
+        objectKey: segment.objectKey,
+        durationSeconds: segment.durationSeconds || 0,
+        sizeBytes: segment.sizeBytes || 0,
+        isFinal: Boolean(segment.isFinal),
+        url: download.downloadUrl,
+        expiresInSeconds: download.expiresInSeconds,
+      };
+    })
+  );
+
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "private, max-age=30, stale-while-revalidate=30");
+
+  return res.json({
+    ok: true,
+    ready: true,
+    playbackUrl: buildRecordingPlaybackUrl(recording._id),
+    temporaryPlaybackUrl: buildRecordingTemporaryPlaybackUrl(recording._id),
+    temporaryPlaylistUrl: buildRecordingTemporaryPlaylistUrl(recording._id),
+    recording: serializeRecording(recording),
+    segments,
+  });
+});
+
+export const playLiveRecordingTemporaryV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId).lean();
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  if (recording.driveFileId || recording.driveRawUrl) {
+    return res.redirect(buildRecordingPlaybackUrl(recording._id));
+  }
+
+  if (!isRecordingTemporaryPlaybackReady(recording)) {
+    return res.status(409).json({
+      ok: false,
+      status: recording.status,
+      message: "Recording temporary playback is not ready yet",
+      recording: serializeRecording(recording),
+    });
+  }
+
+  const playlistUrl = buildRecordingTemporaryPlaylistUrl(recording._id);
+  const playbackUrl = buildRecordingPlaybackUrl(recording._id);
+
+  res.removeHeader("X-Frame-Options");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src * data: blob:; style-src 'self' 'unsafe-inline'; frame-ancestors *"
+  );
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Cache-Control", "private, max-age=30, stale-while-revalidate=30");
+  res.type("html");
+  return res.send(
+    buildTemporaryPlaybackHtml({
+      recording,
+      playlistUrl,
+      playbackUrl,
+    })
+  );
 });
 
 function applyRawVideoHeaders(res, headers = {}, recordingId) {

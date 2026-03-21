@@ -11,7 +11,9 @@ import {
   getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
   playLiveRecordingV2,
+  getLiveRecordingTemporaryPlaylistV2,
   getLiveRecordingRawStatusV2,
+  playLiveRecordingTemporaryV2,
   presignMultipartLiveRecordingSegmentPartV2,
   presignLiveRecordingSegmentV2,
   reportMultipartLiveRecordingSegmentProgressV2,
@@ -42,6 +44,8 @@ router.post(
   forceUploadingRecordingToExportV2
 );
 router.get("/by-match/:matchId", getLiveRecordingByMatchV2);
+router.get("/:id/temp/playlist", getLiveRecordingTemporaryPlaylistV2);
+router.get("/:id/temp", playLiveRecordingTemporaryV2);
 router.get("/:id/play", playLiveRecordingV2);
 router.get("/:id/raw", streamLiveRecordingRawV2);
 router.get("/:id/raw/status", getLiveRecordingRawStatusV2);

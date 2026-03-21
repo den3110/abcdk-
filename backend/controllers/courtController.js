@@ -1,5 +1,13 @@
 // controllers/courtController.js (ví dụ)
 import Court from "../models/courtModel.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+import { enrichCourtsWithManualAssignment } from "../services/courtManualAssignment.service.js";
+
+const COURT_DETAILS_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.COURT_DETAILS_CACHE_TTL_MS || 2000)
+);
+const courtDetailsCache = createShortTtlCache(COURT_DETAILS_CACHE_TTL_MS);
 
 // giống cái normalize trong matchModel để tránh case isBreak = false
 const BREAK_DEFAULT = {
@@ -30,6 +38,12 @@ const normalizeBreak = (val) => {
 export const getCourtById = async (req, res) => {
   try {
     const { courtId } = req.params;
+    const cached = courtDetailsCache.get(courtId);
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+      res.setHeader("X-PKT-Cache", "HIT");
+      return res.json(cached);
+    }
 
     const court = await Court.findById(courtId)
       .populate("tournament", "name status")
@@ -64,12 +78,28 @@ export const getCourtById = async (req, res) => {
       });
     }
 
-    // ✅ đảm bảo isBreak luôn là object để FE không bị văng
-    if (court.currentMatch) {
-      court.currentMatch.isBreak = normalizeBreak(court.currentMatch.isBreak);
+    let payload = court;
+
+    const [decoratedCourt] = await enrichCourtsWithManualAssignment([court]);
+    if (decoratedCourt) {
+      payload = {
+        ...court,
+        manualAssignment: decoratedCourt.manualAssignment,
+        nextMatch: decoratedCourt.nextMatch || null,
+        remainingCount: decoratedCourt.remainingCount || 0,
+        listEnabled: !!decoratedCourt.listEnabled,
+      };
     }
 
-    res.json(court);
+    // ✅ đảm bảo isBreak luôn là object để FE không bị văng
+    if (payload.currentMatch) {
+      payload.currentMatch.isBreak = normalizeBreak(payload.currentMatch.isBreak);
+    }
+
+    courtDetailsCache.set(courtId, payload);
+    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+    res.setHeader("X-PKT-Cache", "MISS");
+    res.json(payload);
   } catch (error) {
     console.error("Error getting court:", error);
     res.status(500).json({

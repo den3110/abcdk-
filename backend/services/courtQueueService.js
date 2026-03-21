@@ -1,10 +1,57 @@
-// services/courtQueueService.js
 import mongoose from "mongoose";
 import Court from "../models/courtModel.js";
 import Match from "../models/matchModel.js";
 import Registration from "../models/registrationModel.js";
+import {
+  MANUAL_ASSIGNMENT_DONE,
+  MANUAL_ASSIGNMENT_PENDING,
+  MANUAL_ASSIGNMENT_SKIPPED,
+  getCurrentManualAssignmentItem,
+  getManualReservationMap,
+  getUpcomingManualAssignmentItems,
+  isManualAssignmentEnabled,
+} from "./courtManualAssignment.service.js";
 
-/** Helper: build Map registrationId -> [userIds...] */
+const FINISHED_LIKE = new Set(["finished", "cancelled", "canceled"]);
+const ACTIVE_MATCH_STATUSES = ["assigned", "live"];
+const ASSIGNABLE_MATCH_STATUSES = ["scheduled", "queued", "assigned"];
+
+const toIdString = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value._id) return String(value._id);
+  return String(value);
+};
+
+const toObjectId = (value) => new mongoose.Types.ObjectId(String(value));
+const withSession = (query, session) => (session ? query.session(session) : query);
+
+const courtLabelOf = (court) =>
+  court?.name ||
+  court?.label ||
+  court?.title ||
+  court?.code ||
+  (court?._id ? `Court-${String(court._id).slice(-4)}` : "");
+
+const baseUnassignUpdate = (nextStatus) => ({
+  $set: {
+    status: nextStatus,
+    court: null,
+    courtLabel: "",
+    assignedAt: null,
+  },
+});
+
+const getUnassignedStatus = (match, { preferQueued = true } = {}) => {
+  if (!match || FINISHED_LIKE.has(String(match.status || "").toLowerCase())) {
+    return String(match?.status || "finished");
+  }
+  if (preferQueued && (match.queueOrder != null || match.courtCluster)) {
+    return "queued";
+  }
+  return "scheduled";
+};
+
 async function buildRegUsersMap(regIds) {
   if (!regIds.size) return new Map();
   const regs = await Registration.find({ _id: { $in: [...regIds] } })
@@ -18,15 +65,555 @@ async function buildRegUsersMap(regIds) {
   );
 }
 
-/**
- * Xếp hàng đợi vòng bảng theo thứ tự interleaved: A1,B1,C1,... rồi A2,B2,...
- * - Ưu tiên lọc theo BRACKET (nếu truyền vào).
- * - Khi đưa vào queue: gắn courtCluster = clusterKey (thường = String(bracketId)).
- */
+async function markManualItemStateOnCourtDoc(courtDoc, matchId, nextState, session) {
+  if (!courtDoc || !matchId || !courtDoc.manualAssignment?.items?.length) {
+    return false;
+  }
+
+  let changed = false;
+  const now = new Date();
+
+  for (const item of courtDoc.manualAssignment.items) {
+    if (toIdString(item.matchId) !== toIdString(matchId)) continue;
+    if (item.state === nextState) continue;
+    item.state = nextState;
+    item.actedAt = now;
+    changed = true;
+  }
+
+  if (!changed) return false;
+
+  courtDoc.manualAssignment.updatedAt = now;
+  await courtDoc.save({ session });
+  return true;
+}
+
+async function updateManualAssignmentStateByIds(
+  courtId,
+  matchIds,
+  nextState,
+  session
+) {
+  const ids = [...new Set((matchIds || []).map(toIdString).filter(Boolean))];
+  if (!ids.length) return false;
+
+  const courtDoc = await withSession(Court.findById(courtId), session);
+  if (!courtDoc) return false;
+
+  let changed = false;
+  const now = new Date();
+  for (const item of courtDoc.manualAssignment?.items || []) {
+    if (!ids.includes(toIdString(item.matchId))) continue;
+    if (item.state === nextState) continue;
+    item.state = nextState;
+    item.actedAt = now;
+    changed = true;
+  }
+
+  if (!changed) return false;
+
+  courtDoc.manualAssignment.updatedAt = now;
+  await courtDoc.save({ session });
+  return true;
+}
+
+async function findAssignableManualItem(court, session) {
+  const upcoming = getUpcomingManualAssignmentItems(court);
+  if (!upcoming.length) {
+    return { item: null, staleMatchIds: [] };
+  }
+
+  const ids = upcoming.map((item) => item.matchId).filter(Boolean);
+  const matches = await withSession(
+    Match.find({ _id: { $in: ids } }).select("_id status court"),
+    session
+  ).lean();
+
+  const matchMap = new Map(matches.map((match) => [toIdString(match._id), match]));
+  const staleMatchIds = [];
+
+  for (const item of upcoming) {
+    const match = matchMap.get(toIdString(item.matchId));
+    if (!match || FINISHED_LIKE.has(String(match.status || "").toLowerCase())) {
+      staleMatchIds.push(toIdString(item.matchId));
+      continue;
+    }
+    if (match.court && toIdString(match.court) !== toIdString(court._id)) {
+      continue;
+    }
+    return { item, staleMatchIds };
+  }
+
+  return { item: null, staleMatchIds };
+}
+
+async function assignManualNextToCourt({ tournamentId, court, clusterKey, session }) {
+  if (!isManualAssignmentEnabled(court)) return null;
+
+  const { item, staleMatchIds } = await findAssignableManualItem(court, session);
+  if (staleMatchIds.length) {
+    await updateManualAssignmentStateByIds(
+      court._id,
+      staleMatchIds,
+      MANUAL_ASSIGNMENT_SKIPPED,
+      session
+    );
+  }
+
+  if (!item) return null;
+
+  const cid = toObjectId(court._id);
+  const next = await withSession(
+    Match.findOneAndUpdate(
+      {
+        _id: item.matchId,
+        tournament: toObjectId(tournamentId),
+        status: { $in: ASSIGNABLE_MATCH_STATUSES },
+        $or: [{ court: null }, { court: cid }],
+      },
+      {
+        $set: {
+          status: "assigned",
+          court: cid,
+          courtLabel: courtLabelOf(court),
+          assignedAt: new Date(),
+          courtCluster: clusterKey,
+        },
+      },
+      { new: true }
+    ),
+    session
+  );
+
+  if (!next) return null;
+
+  await withSession(
+    Court.updateOne(
+      { _id: cid },
+      { $set: { status: "assigned", currentMatch: next._id } }
+    ),
+    session
+  );
+
+  return next.toObject();
+}
+
+async function getEngagedParticipants({ tournamentId, clusterKey, session }) {
+  const matches = await withSession(
+    Match.find({
+      tournament: toObjectId(tournamentId),
+      courtCluster: clusterKey,
+      status: { $in: ACTIVE_MATCH_STATUSES },
+    }).select("participants"),
+    session
+  ).lean();
+
+  return new Set(
+    matches
+      .flatMap((match) => match.participants || [])
+      .filter(Boolean)
+      .map(String)
+  );
+}
+
+function buildParticipantsFreeFilter(engagedParticipants) {
+  if (!engagedParticipants.size) return {};
+  return {
+    participants: {
+      $not: { $elemMatch: { $in: [...engagedParticipants] } },
+    },
+  };
+}
+
+function buildReservedMatchFilter(reservedMatchIds) {
+  if (!reservedMatchIds.length) return {};
+  return { _id: { $nin: reservedMatchIds.map((id) => toObjectId(id)) } };
+}
+
+async function getClusterKeyForCourt(court, fallbackCluster = "Main") {
+  return String(court?.cluster || fallbackCluster || "Main");
+}
+
+async function releaseCurrentMatchFromCourt(
+  courtDoc,
+  currentMatch,
+  { session, manualSkip = false }
+) {
+  if (!courtDoc || !currentMatch) return;
+
+  const currentItem = getCurrentManualAssignmentItem(courtDoc);
+  if (manualSkip && currentItem) {
+    await markManualItemStateOnCourtDoc(
+      courtDoc,
+      currentMatch._id,
+      MANUAL_ASSIGNMENT_SKIPPED,
+      session
+    );
+  }
+
+  const nextStatus = getUnassignedStatus(currentMatch, {
+    preferQueued: !manualSkip,
+  });
+  await withSession(
+    Match.updateOne(
+      { _id: currentMatch._id },
+      baseUnassignUpdate(nextStatus)
+    ),
+    session
+  );
+}
+
+async function runAssignSpecific({
+  tournamentId,
+  courtId,
+  matchId,
+  bracket = null,
+  replace = true,
+  cluster = null,
+  session,
+}) {
+  const [court, match] = await Promise.all([
+    withSession(
+      Court.findOne({
+        _id: courtId,
+        tournament: tournamentId,
+        isActive: true,
+      }),
+      session
+    ),
+    withSession(
+      Match.findOne({ _id: matchId, tournament: tournamentId }),
+      session
+    ),
+  ]);
+
+  if (!court) {
+    throw new Error("Khong tim thay san hop le.");
+  }
+  if (!match) {
+    throw new Error("Khong tim thay tran can gan.");
+  }
+  if (bracket && toIdString(match.bracket) !== toIdString(bracket)) {
+    throw new Error("Tran va bracket khong khop.");
+  }
+  if (FINISHED_LIKE.has(String(match.status || "").toLowerCase())) {
+    throw new Error("Tran da ket thuc; khong the gan.");
+  }
+
+  const reservationMap = await getManualReservationMap({
+    tournamentId,
+    excludeCourtId: courtId,
+    bracketId: bracket || match.bracket || null,
+    session,
+  });
+  const reserved = reservationMap.get(toIdString(matchId));
+  if (reserved) {
+    throw new Error(
+      `Tran dang nam trong list cua san ${reserved.courtName || reserved.courtId}.`
+    );
+  }
+
+  if (toIdString(match.court) === toIdString(court._id)) {
+    return {
+      court,
+      match,
+      replacedMatchId: null,
+      previousCourtId: null,
+      clusterKey: String(court.cluster || cluster || bracket || "Main"),
+    };
+  }
+
+  if (
+    court.currentMatch &&
+    toIdString(court.currentMatch) !== toIdString(match._id) &&
+    !replace
+  ) {
+    throw new Error("San dang co tran. Thieu quyen thay the.");
+  }
+
+  let replacedMatchId = null;
+
+  if (
+    court.currentMatch &&
+    toIdString(court.currentMatch) !== toIdString(match._id)
+  ) {
+    const currentOnCourt = await withSession(
+      Match.findById(court.currentMatch),
+      session
+    );
+    if (currentOnCourt && !FINISHED_LIKE.has(String(currentOnCourt.status || "").toLowerCase())) {
+      await withSession(
+        Match.updateOne(
+          { _id: currentOnCourt._id },
+          baseUnassignUpdate(getUnassignedStatus(currentOnCourt, { preferQueued: true }))
+        ),
+        session
+      );
+      replacedMatchId = toIdString(currentOnCourt._id);
+    }
+  }
+
+  let previousCourtId = null;
+  if (match.court && toIdString(match.court) !== toIdString(court._id)) {
+    previousCourtId = toIdString(match.court);
+    const previousCourt = await withSession(
+      Court.findById(match.court).select("_id currentMatch status"),
+      session
+    );
+    if (
+      previousCourt &&
+      toIdString(previousCourt.currentMatch) === toIdString(match._id)
+    ) {
+      previousCourt.status = "idle";
+      previousCourt.currentMatch = null;
+      await previousCourt.save({ session });
+    }
+  }
+
+  const clusterKey = String(cluster || court.cluster || bracket || "Main");
+
+  match.status = "assigned";
+  match.court = court._id;
+  match.courtLabel = courtLabelOf(court);
+  match.courtCluster = clusterKey;
+  match.assignedAt = new Date();
+  await match.save({ session });
+
+  court.status = "assigned";
+  court.currentMatch = match._id;
+  await court.save({ session });
+
+  return {
+    court,
+    match,
+    replacedMatchId,
+    previousCourtId,
+    clusterKey,
+  };
+}
+
+export async function assignSpecificMatchToCourt(params) {
+  if (params?.session) {
+    return runAssignSpecific(params);
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const result = await runAssignSpecific({ ...params, session });
+    await session.commitTransaction();
+    session.endSession();
+    return result;
+  } catch (error) {
+    await session.abortTransaction().catch(() => {});
+    session.endSession();
+    throw error;
+  }
+}
+
+async function loadCourtForManualList({ tournamentId, courtId, session }) {
+  const court = await withSession(
+    Court.findOne({
+      _id: courtId,
+      tournament: tournamentId,
+    }),
+    session
+  );
+
+  if (!court) {
+    throw new Error("Khong tim thay san.");
+  }
+
+  return court;
+}
+
+async function validateManualListMatches({
+  tournamentId,
+  courtId,
+  bracketId,
+  matchIds,
+  session,
+}) {
+  const uniqueIds = [...new Set((matchIds || []).map(toIdString).filter(Boolean))];
+  if (!uniqueIds.every((id) => mongoose.Types.ObjectId.isValid(id))) {
+    throw new Error("Danh sach tran khong hop le.");
+  }
+
+  const matches = await withSession(
+    Match.find({
+      _id: { $in: uniqueIds.map((id) => toObjectId(id)) },
+      tournament: toObjectId(tournamentId),
+    }).select("_id bracket status court queueOrder courtCluster"),
+    session
+  ).lean();
+
+  if (matches.length !== uniqueIds.length) {
+    throw new Error("Co tran khong ton tai trong giai dau nay.");
+  }
+
+  const reservationMap = await getManualReservationMap({
+    tournamentId,
+    excludeCourtId: courtId,
+    bracketId,
+    session,
+  });
+
+  for (const match of matches) {
+    if (bracketId && toIdString(match.bracket) !== toIdString(bracketId)) {
+      throw new Error("Chi duoc chon tran trong bracket hien tai.");
+    }
+    if (FINISHED_LIKE.has(String(match.status || "").toLowerCase())) {
+      throw new Error("Khong the dua tran da ket thuc vao list.");
+    }
+    if (
+      match.court &&
+      toIdString(match.court) !== toIdString(courtId) &&
+      ACTIVE_MATCH_STATUSES.includes(String(match.status || "").toLowerCase())
+    ) {
+      throw new Error("Co tran dang nam o san khac.");
+    }
+    const reserved = reservationMap.get(toIdString(match._id));
+    if (reserved) {
+      throw new Error(
+        `Tran dang nam trong list cua san ${reserved.courtName || reserved.courtId}.`
+      );
+    }
+  }
+
+  return uniqueIds;
+}
+
+export async function setCourtMatchList({
+  tournamentId,
+  courtId,
+  bracketId,
+  matchIds,
+  userId = null,
+}) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const court = await loadCourtForManualList({ tournamentId, courtId, session });
+    const uniqueIds = await validateManualListMatches({
+      tournamentId,
+      courtId,
+      bracketId,
+      matchIds,
+      session,
+    });
+
+    const pendingIds = uniqueIds.filter(
+      (id) => id !== toIdString(court.currentMatch)
+    );
+
+    const nextManualAssignment =
+      pendingIds.length > 0
+        ? {
+            enabled: true,
+            bracketId: toObjectId(bracketId),
+            fallbackToAuto: true,
+            items: pendingIds.map((id, index) => ({
+              matchId: toObjectId(id),
+              order: index,
+              state: MANUAL_ASSIGNMENT_PENDING,
+              actedAt: null,
+            })),
+            updatedBy:
+              userId && mongoose.Types.ObjectId.isValid(String(userId))
+                ? toObjectId(userId)
+                : null,
+            updatedAt: new Date(),
+          }
+        : {
+            enabled: false,
+            bracketId: null,
+            fallbackToAuto: true,
+            items: [],
+            updatedBy:
+              userId && mongoose.Types.ObjectId.isValid(String(userId))
+                ? toObjectId(userId)
+                : null,
+            updatedAt: new Date(),
+          };
+
+    court.manualAssignment = nextManualAssignment;
+    await court.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    let assignedMatch = null;
+    if (!court.currentMatch && court.status === "idle" && pendingIds.length > 0) {
+      assignedMatch = await assignNextToCourt({
+        tournamentId,
+        courtId,
+        cluster: String(court.cluster || bracketId || "Main"),
+      });
+    }
+
+    return {
+      courtId: toIdString(court._id),
+      assignedMatch,
+    };
+  } catch (error) {
+    await session.abortTransaction().catch(() => {});
+    session.endSession();
+    throw error;
+  }
+}
+
+export async function clearCourtMatchList({
+  tournamentId,
+  courtId,
+  userId = null,
+}) {
+  const court = await loadCourtForManualList({ tournamentId, courtId });
+  court.manualAssignment = {
+    enabled: false,
+    bracketId: null,
+    fallbackToAuto: true,
+    items: [],
+    updatedBy:
+      userId && mongoose.Types.ObjectId.isValid(String(userId))
+        ? toObjectId(userId)
+        : null,
+    updatedAt: new Date(),
+  };
+  await court.save();
+  return { courtId: toIdString(court._id) };
+}
+
+export async function advanceCourtMatchList({
+  tournamentId,
+  courtId,
+  action = "skip_current",
+}) {
+  if (action !== "skip_current") {
+    throw new Error("Unsupported action.");
+  }
+
+  const court = await Court.findOne({
+    _id: courtId,
+    tournament: tournamentId,
+  })
+    .select("_id tournament cluster status currentMatch manualAssignment")
+    .lean();
+
+  if (!court) {
+    throw new Error("Khong tim thay san.");
+  }
+
+  const match = await freeCourtAndAssignNext({ courtId });
+  return {
+    courtId: toIdString(court._id),
+    match,
+  };
+}
+
 export async function buildGroupsRotationQueue({
   tournamentId,
-  bracket, // optional: bracketId (string/ObjectId)
-  cluster = "Main", // fallback cho mode cũ
+  bracket,
+  cluster = "Main",
 }) {
   const tid = new mongoose.Types.ObjectId(tournamentId);
   const clusterKey = bracket ? String(bracket) : cluster;
@@ -34,13 +621,12 @@ export async function buildGroupsRotationQueue({
   const matchFilter = {
     tournament: tid,
     format: "group",
-    status: { $in: ["scheduled", "queued", "assigned"] }, // giữ assigned
+    status: { $in: ["scheduled", "queued", "assigned"] },
   };
 
   if (bracket) {
     matchFilter.bracket = new mongoose.Types.ObjectId(bracket);
   } else {
-    // mode cũ: dựa theo courtCluster đã gán
     matchFilter.courtCluster = clusterKey;
   }
 
@@ -48,259 +634,272 @@ export async function buildGroupsRotationQueue({
     .select("_id pool rrRound round order status pairA pairB")
     .lean();
 
-  // nhóm theo pool.name
-  const byPool = matches.reduce((acc, m) => {
-    const key = (m.pool && m.pool.name) || "?";
-    (acc[key] ||= []).push(m);
+  const byPool = matches.reduce((acc, match) => {
+    const key = (match.pool && match.pool.name) || "?";
+    (acc[key] ||= []).push(match);
     return acc;
   }, {});
 
-  // sắp trong từng pool theo rrRound/round rồi order
-  const rk = (m) => (Number.isInteger(m.rrRound) ? m.rrRound : m.round || 0);
+  const rk = (match) =>
+    (Number.isInteger(match.rrRound) ? match.rrRound : match.round) || 0;
+
   Object.values(byPool).forEach((arr) =>
     arr.sort((a, b) => rk(a) - rk(b) || (a.order || 0) - (b.order || 0))
   );
 
-  // interleave: A1,B1,C1..., A2,B2,C2...
   const pools = Object.keys(byPool).sort();
-  const maxLen = Math.max(0, ...Object.values(byPool).map((a) => a.length));
+  const maxLen = Math.max(0, ...Object.values(byPool).map((arr) => arr.length));
   const linear = [];
-  for (let i = 0; i < maxLen; i++) {
-    for (const p of pools) {
-      const m = byPool[p][i];
-      if (m) linear.push(m);
+  for (let index = 0; index < maxLen; index += 1) {
+    for (const pool of pools) {
+      const match = byPool[pool][index];
+      if (match) linear.push(match);
     }
   }
 
-  // denorm participants (để tránh double-book khi assign)
   const regIds = new Set();
-  for (const m of linear) {
-    if (m.pairA) regIds.add(String(m.pairA));
-    if (m.pairB) regIds.add(String(m.pairB));
+  for (const match of linear) {
+    if (match.pairA) regIds.add(String(match.pairA));
+    if (match.pairB) regIds.add(String(match.pairB));
   }
   const regUsers = await buildRegUsersMap(regIds);
 
   let order = 1;
   const bulk = [];
-  for (const m of linear) {
-    if (m.status === "assigned") continue; // không đụng trận đang gán
+  for (const match of linear) {
+    if (match.status === "assigned") continue;
     const participants = [
-      ...(regUsers.get(String(m.pairA)) || []),
-      ...(regUsers.get(String(m.pairB)) || []),
+      ...(regUsers.get(String(match.pairA)) || []),
+      ...(regUsers.get(String(match.pairB)) || []),
     ];
     bulk.push({
       updateOne: {
-        filter: { _id: m._id },
+        filter: { _id: match._id },
         update: {
           $set: {
             status: "queued",
             queueOrder: order++,
-            courtCluster: clusterKey, // QUAN TRỌNG: ghim cụm (thường = String(bracketId))
+            courtCluster: clusterKey,
             ...(participants.length ? { participants } : {}),
           },
         },
       },
     });
   }
-  if (bulk.length) await Match.bulkWrite(bulk);
+
+  if (bulk.length) {
+    await Match.bulkWrite(bulk);
+  }
+
   return { totalQueued: bulk.length, pools: pools.length };
 }
 
-/**
- * Gán trận tiếp theo vào 1 sân đang idle (tôn trọng thứ tự, tránh trùng VĐV đang bận).
- * Thứ tự ưu tiên:
- *  1) Trận QUEUED theo courtCluster (đúng chuẩn).
- *  2) Trận QUEUED theo BRACKET của sân nhưng chưa có courtCluster (data cũ).
- *  3) Trận SCHEDULED theo BRACKET của sân → assign thẳng (không cần queued).
- */
-
-// đây là hàm gán nhé
 export async function assignNextToCourt({
   tournamentId,
   courtId,
   cluster = "Main",
+  session = null,
 }) {
-  const tid = new mongoose.Types.ObjectId(tournamentId);
-  const cid = new mongoose.Types.ObjectId(courtId);
+  const tid = toObjectId(tournamentId);
+  const cid = toObjectId(courtId);
 
-  const court = await Court.findById(cid)
-    .select("tournament isActive status name bracket cluster")
-    .lean();
-  if (!court) return null; // court không tồn tại
-  if (String(court.tournament) !== String(tid)) return null; // sai giải
-  if (!court.isActive) return null; // sân đã deactivate
-  if (court.status !== "idle") return null; // không idle thì thôi
+  const court = await withSession(
+    Court.findById(cid).select(
+      "tournament isActive status name bracket cluster currentMatch manualAssignment"
+    ),
+    session
+  ).lean();
 
-  // danh sách user đang bận (đang assigned/live) trong cùng cụm
-  const engaged = new Set(
-    (
-      await Match.find({
+  if (!court) return null;
+  if (toIdString(court.tournament) !== toIdString(tid)) return null;
+  if (!court.isActive) return null;
+  if (court.status !== "idle") return null;
+
+  const clusterKey = await getClusterKeyForCourt(court, cluster);
+
+  const manualAssigned = await assignManualNextToCourt({
+    tournamentId,
+    court,
+    clusterKey,
+    session,
+  });
+  if (manualAssigned) {
+    return manualAssigned;
+  }
+
+  if (
+    isManualAssignmentEnabled(court) &&
+    court.manualAssignment?.fallbackToAuto === false
+  ) {
+    return null;
+  }
+
+  const engagedParticipants = await getEngagedParticipants({
+    tournamentId,
+    clusterKey,
+    session,
+  });
+
+  const reservationMap = await getManualReservationMap({
+    tournamentId,
+    excludeCourtId: courtId,
+    session,
+  });
+  const reservedMatchIds = [...reservationMap.keys()];
+
+  let next = await withSession(
+    Match.findOneAndUpdate(
+      {
         tournament: tid,
-        courtCluster: cluster,
-        status: { $in: ["assigned", "live"] },
-      })
-        .select("participants")
-        .lean()
-    )
-      .flatMap((m) => m.participants || [])
-      .map(String)
-  );
-
-  // ===== Try 1: QUEUED theo courtCluster
-  let next = await Match.findOneAndUpdate(
-    {
-      tournament: tid,
-      court: null,
-      courtCluster: cluster,
-      status: "queued",
-      ...(engaged.size
-        ? { participants: { $not: { $elemMatch: { $in: [...engaged] } } } }
-        : {}),
-    },
-    {
-      $set: {
-        status: "assigned",
-        court: cid,
-        courtLabel: court.name || "",
-        assignedAt: new Date(),
-        courtCluster: cluster, // đảm bảo đồng bộ
+        court: null,
+        courtCluster: clusterKey,
+        status: "queued",
+        ...buildParticipantsFreeFilter(engagedParticipants),
+        ...buildReservedMatchFilter(reservedMatchIds),
       },
-    },
-    { sort: { queueOrder: 1 }, new: true }
+      {
+        $set: {
+          status: "assigned",
+          court: cid,
+          courtLabel: courtLabelOf(court),
+          assignedAt: new Date(),
+          courtCluster: clusterKey,
+        },
+      },
+      { sort: { queueOrder: 1 }, new: true }
+    ),
+    session
   );
 
-  // ===== Try 2: QUEUED theo BRACKET của sân nhưng chưa có courtCluster
-  if (!next) {
-    const bid = court.bracket
-      ? new mongoose.Types.ObjectId(court.bracket)
+  const bracketId =
+    court.bracket && mongoose.Types.ObjectId.isValid(String(court.bracket))
+      ? toObjectId(court.bracket)
       : null;
-    if (bid) {
-      next = await Match.findOneAndUpdate(
+
+  if (!next && bracketId) {
+    next = await withSession(
+      Match.findOneAndUpdate(
         {
           tournament: tid,
           court: null,
-          bracket: bid,
+          bracket: bracketId,
           status: "queued",
           $or: [
             { courtCluster: { $exists: false } },
             { courtCluster: null },
             { courtCluster: "" },
           ],
-          ...(engaged.size
-            ? { participants: { $not: { $elemMatch: { $in: [...engaged] } } } }
-            : {}),
+          ...buildParticipantsFreeFilter(engagedParticipants),
+          ...buildReservedMatchFilter(reservedMatchIds),
         },
         {
           $set: {
             status: "assigned",
             court: cid,
-            courtLabel: court.name || "",
+            courtLabel: courtLabelOf(court),
             assignedAt: new Date(),
-            courtCluster: cluster,
+            courtCluster: clusterKey,
           },
         },
         { sort: { queueOrder: 1 }, new: true }
-      );
-    }
+      ),
+      session
+    );
   }
 
-  // ===== Try 3: SCHEDULED theo BRACKET (không cần queued)
-  if (!next) {
-    const bid = court.bracket
-      ? new mongoose.Types.ObjectId(court.bracket)
-      : null;
-    if (bid) {
-      // Lấy một ít ứng viên theo thứ tự tự nhiên
-      const candidates = await Match.find({
+  if (!next && bracketId) {
+    const candidates = await withSession(
+      Match.find({
         tournament: tid,
         court: null,
-        bracket: bid,
+        bracket: bracketId,
         status: "scheduled",
+        ...buildReservedMatchFilter(reservedMatchIds),
       })
         .sort({ rrRound: 1, round: 1, order: 1, createdAt: 1 })
         .limit(12)
-        .select("_id pairA pairB participants")
-        .lean();
+        .select("_id pairA pairB participants"),
+      session
+    ).lean();
 
-      // Bổ sung participants nếu thiếu bằng cách tra Registration
-      const regIds = new Set();
-      for (const m of candidates) {
-        if (!m.participants?.length) {
-          if (m.pairA) regIds.add(String(m.pairA));
-          if (m.pairB) regIds.add(String(m.pairB));
-        }
+    const regIds = new Set();
+    for (const match of candidates) {
+      if (!match.participants?.length) {
+        if (match.pairA) regIds.add(String(match.pairA));
+        if (match.pairB) regIds.add(String(match.pairB));
       }
-      const regUsers = await buildRegUsersMap(regIds);
+    }
+    const regUsers = await buildRegUsersMap(regIds);
 
-      let chosen = null;
-      for (const m of candidates) {
-        const parts = m.participants?.length
-          ? m.participants.map(String)
-          : [
-              ...(regUsers.get(String(m.pairA)) || []),
-              ...(regUsers.get(String(m.pairB)) || []),
-            ];
-        const conflict = parts && parts.some((u) => engaged.has(String(u)));
-        if (!conflict) {
-          chosen = { _id: m._id, participants: parts };
-          break;
-        }
+    let chosen = null;
+    for (const match of candidates) {
+      const participants = match.participants?.length
+        ? match.participants.map(String)
+        : [
+            ...(regUsers.get(String(match.pairA)) || []),
+            ...(regUsers.get(String(match.pairB)) || []),
+          ];
+      const hasConflict = participants.some((participant) =>
+        engagedParticipants.has(String(participant))
+      );
+      if (!hasConflict) {
+        chosen = { _id: match._id, participants };
+        break;
       }
+    }
 
-      if (chosen) {
-        // Tạo queueOrder mới (không bắt buộc, giúp sorting/analytics)
-        const maxQ = await Match.find({
-          tournament: tid,
-          courtCluster: cluster,
-        })
+    if (chosen) {
+      const maxQueued = await withSession(
+        Match.find({ tournament: tid, courtCluster: clusterKey })
           .sort({ queueOrder: -1 })
           .limit(1)
-          .select("queueOrder")
-          .lean();
-        const nextQ = (maxQ?.[0]?.queueOrder || 0) + 1;
+          .select("queueOrder"),
+        session
+      ).lean();
+      const nextQueueOrder = (maxQueued?.[0]?.queueOrder || 0) + 1;
 
-        // Atomically assign nếu vẫn còn scheduled & chưa có court
-        next = await Match.findOneAndUpdate(
+      next = await withSession(
+        Match.findOneAndUpdate(
           { _id: chosen._id, court: null, status: "scheduled" },
           {
             $set: {
               status: "assigned",
               court: cid,
-              courtLabel: court.name || "",
+              courtLabel: courtLabelOf(court),
               assignedAt: new Date(),
-              courtCluster: cluster,
-              queueOrder: nextQ,
-              ...(chosen.participants?.length
+              courtCluster: clusterKey,
+              queueOrder: nextQueueOrder,
+              ...(chosen.participants.length
                 ? { participants: chosen.participants }
                 : {}),
             },
           },
           { new: true }
-        );
-      }
+        ),
+        session
+      );
     }
   }
 
   if (!next) return null;
 
-  await Court.updateOne(
-    { _id: cid },
-    { $set: { status: "assigned", currentMatch: next._id } }
+  await withSession(
+    Court.updateOne(
+      { _id: cid },
+      { $set: { status: "assigned", currentMatch: next._id } }
+    ),
+    session
   );
 
   return next.toObject();
 }
 
-/**
- * Lấp đầy tất cả sân idle trong 1 cụm (theo order).
- * Dùng assignNextToCourt (đã hỗ trợ lấy từ scheduled).
- */
 export async function fillIdleCourtsForCluster({
   tournamentId,
   cluster = "Main",
   maxAssign = Infinity,
 }) {
-  const tid = new mongoose.Types.ObjectId(tournamentId);
+  const tid = toObjectId(tournamentId);
 
   const idleCourts = await Court.find({
     tournament: tid,
@@ -313,15 +912,14 @@ export async function fillIdleCourtsForCluster({
     .lean();
 
   let assignedNow = 0;
-  for (const c of idleCourts) {
+  for (const court of idleCourts) {
     if (assignedNow >= maxAssign) break;
-    const ok = await assignNextToCourt({
+    const assigned = await assignNextToCourt({
       tournamentId,
-      courtId: c._id,
+      courtId: court._id,
       cluster,
     });
-    if (ok) assignedNow++;
-    else continue; // có thể sân này kẹt do trùng VĐV, thử sân kế tiếp
+    if (assigned) assignedNow += 1;
   }
 
   const remainingQueued = await Match.countDocuments({
@@ -331,66 +929,172 @@ export async function fillIdleCourtsForCluster({
     court: null,
   });
 
-  return { assignedNow, idleCourtsChecked: idleCourts.length, remainingQueued };
+  return {
+    assignedNow,
+    idleCourtsChecked: idleCourts.length,
+    remainingQueued,
+  };
 }
 
-/**
- * Free sân rồi gán trận kế (thường gọi khi admin bấm "Free")
- */
 export async function freeCourtAndAssignNext({ courtId }) {
-  const court = await Court.findById(courtId)
-    .select("_id tournament cluster")
-    .lean();
-  if (!court) return null;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  let tournamentId = null;
+  let clusterKey = "Main";
 
-  await Court.updateOne(
-    { _id: courtId },
-    { $set: { status: "idle", currentMatch: null } }
-  );
+  try {
+    const courtDoc = await withSession(
+      Court.findById(courtId).select(
+        "_id tournament cluster status currentMatch manualAssignment"
+      ),
+      session
+    );
+    if (!courtDoc) {
+      await session.abortTransaction().catch(() => {});
+      session.endSession();
+      return null;
+    }
+
+    tournamentId = toIdString(courtDoc.tournament);
+    clusterKey = String(courtDoc.cluster || "Main");
+
+    let currentMatch = null;
+    if (courtDoc.currentMatch) {
+      currentMatch = await withSession(
+        Match.findById(courtDoc.currentMatch).select(
+          "_id status queueOrder courtCluster"
+        ),
+        session
+      );
+    }
+
+    const manualSkip = isManualAssignmentEnabled(courtDoc);
+    if (currentMatch) {
+      await releaseCurrentMatchFromCourt(courtDoc, currentMatch, {
+        session,
+        manualSkip,
+      });
+    }
+
+    courtDoc.status = "idle";
+    courtDoc.currentMatch = null;
+    await courtDoc.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+  } catch (error) {
+    await session.abortTransaction().catch(() => {});
+    session.endSession();
+    throw error;
+  }
 
   return assignNextToCourt({
-    tournamentId: court.tournament,
+    tournamentId,
     courtId,
-    cluster: court.cluster || "Main", // theo thiết kế: cluster = String(bracketId)
+    cluster: clusterKey,
   });
 }
 
-/**
- * Gọi sau khi 1 trận finished để free sân và gán tiếp.
- * Trả về { tournamentId, clusterKey, assigned } để socket/controller biết mà broadcast.
- */
 export async function onMatchFinished({ matchId }) {
-  const m = await Match.findById(matchId)
-    .select("court tournament courtCluster")
+  const match = await Match.findById(matchId)
+    .select("_id court tournament courtCluster")
     .lean();
-  // if (!m || !m.court)
-  //   return { tournamentId: null, clusterKey: null, assigned: false };
 
-  // // Nếu match thiếu courtCluster, đọc cluster từ Court (cluster hiện là String(bracketId))
-  // const courtDoc = await Court.findById(m.court)
-  //   .select("cluster isActive")
-  //   .lean();
-  // const clusterKey = m.courtCluster || courtDoc?.cluster || "Main";
+  if (!match) {
+    return { tournamentId: null, clusterKey: null, assigned: false };
+  }
 
-  // await Court.updateOne(
-  //   { _id: m.court },
-  //   { $set: { status: "idle", currentMatch: null } }
-  // );
+  if (!match.court) {
+    return {
+      tournamentId: match.tournament,
+      clusterKey: match.courtCluster || null,
+      assigned: false,
+    };
+  }
 
-  // // if (!courtDoc?.isActive) {
-  // //   // sân bị deactivate (ví dụ upsert loại bỏ sân này) → dừng tại đây, không auto-assign
-  // //   return { tournamentId: m.tournament, clusterKey, assigned: false };
-  // // }
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  // const assigned = await assignNextToCourt({
-  //   tournamentId: m.tournament,
-  //   courtId: m.court,
-  //   cluster: clusterKey,
-  // });
+  let clusterKey = String(match.courtCluster || "Main");
+  let shouldAssignNext = false;
+
+  try {
+    const courtDoc = await withSession(
+      Court.findById(match.court).select(
+        "_id tournament cluster currentMatch status manualAssignment"
+      ),
+      session
+    );
+
+    if (!courtDoc) {
+      await withSession(
+        Match.updateOne(
+          { _id: match._id },
+          { $set: { court: null, courtLabel: "", assignedAt: null } }
+        ),
+        session
+      );
+      await session.commitTransaction();
+      session.endSession();
+      return {
+        tournamentId: match.tournament,
+        clusterKey,
+        assigned: false,
+      };
+    }
+
+    clusterKey = String(courtDoc.cluster || clusterKey || "Main");
+
+    if (toIdString(courtDoc.currentMatch) !== toIdString(match._id)) {
+      await session.commitTransaction();
+      session.endSession();
+      return {
+        tournamentId: match.tournament,
+        clusterKey,
+        assigned: false,
+      };
+    }
+
+    await markManualItemStateOnCourtDoc(
+      courtDoc,
+      match._id,
+      MANUAL_ASSIGNMENT_DONE,
+      session
+    );
+
+    courtDoc.status = "idle";
+    courtDoc.currentMatch = null;
+    await courtDoc.save({ session });
+
+    await withSession(
+      Match.updateOne(
+        { _id: match._id },
+        { $set: { court: null, courtLabel: "", assignedAt: null } }
+      ),
+      session
+    );
+
+    shouldAssignNext = true;
+
+    await session.commitTransaction();
+    session.endSession();
+  } catch (error) {
+    await session.abortTransaction().catch(() => {});
+    session.endSession();
+    throw error;
+  }
+
+  const assigned = shouldAssignNext
+    ? await assignNextToCourt({
+        tournamentId: match.tournament,
+        courtId: match.court,
+        cluster: clusterKey,
+      })
+    : null;
 
   return {
-    tournamentId: m.tournament,
-    // clusterKey,
-    // assigned: !!assigned,
+    tournamentId: match.tournament,
+    clusterKey,
+    assigned: !!assigned,
   };
 }

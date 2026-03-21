@@ -1,12 +1,21 @@
 // src/controllers/overlayController.js
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
+import Court from "../models/courtModel.js";
 import expressAsyncHandler from "express-async-handler";
 import { Sponsor } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
 import UserMatch from "../models/userMatchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+import { getManualAssignmentItems } from "../services/courtManualAssignment.service.js";
+
+const OVERLAY_MATCH_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.OVERLAY_MATCH_CACHE_TTL_MS || 2000)
+);
+const overlayMatchCache = createShortTtlCache(OVERLAY_MATCH_CACHE_TTL_MS);
 // ===== Helpers =====
 const gamesToWin = (bestOf) => Math.floor((Number(bestOf) || 3) / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
@@ -88,6 +97,13 @@ function gameWinner(g, rules) {
 export async function getOverlayMatch(req, res) {
   try {
     const { id } = req.params;
+    const cached = overlayMatchCache.get(id);
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+      res.setHeader("X-PKT-Cache", "HIT");
+      return res.json(cached);
+    }
+
     const normalizePublicAssetUrl = (value) =>
       toPublicUrl(req, value, { absolute: false });
 
@@ -689,7 +705,7 @@ export async function getOverlayMatch(req, res) {
     /* ==========================
      * Response
      * ========================== */
-    res.json({
+    const payload = {
       matchId: String(m._id),
       status: (m.status || "").toUpperCase(),
       winner: m.winner || "",
@@ -893,7 +909,12 @@ export async function getOverlayMatch(req, res) {
       },
 
       isBreak,
-    });
+    };
+
+    overlayMatchCache.set(id, payload);
+    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+    res.setHeader("X-PKT-Cache", "MISS");
+    res.json(payload);
   } catch (err) {
     console.error("GET /overlay/match error:", err);
     res.status(500).json({ message: "Server error" });
@@ -947,6 +968,45 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid courtId" });
   }
   const cid = new mongoose.Types.ObjectId(courtId);
+
+  const court = await Court.findById(cid)
+    .select("currentMatch manualAssignment")
+    .lean();
+
+  if (court?.manualAssignment?.enabled) {
+    const pendingIds = getManualAssignmentItems(court)
+      .filter((item) => item.state === "pending")
+      .map((item) => String(item.matchId))
+      .filter(Boolean);
+
+    if (pendingIds.length) {
+      const cursorId =
+        after && mongoose.Types.ObjectId.isValid(after)
+          ? String(after)
+          : String(court.currentMatch || "");
+
+      const startIndex = cursorId ? pendingIds.findIndex((id) => id === cursorId) : -1;
+      const candidateIds =
+        startIndex >= 0
+          ? pendingIds.slice(startIndex + 1)
+          : pendingIds.filter((id) => id !== String(court.currentMatch || ""));
+
+      if (candidateIds.length) {
+        const manualCandidates = await Match.find({
+          _id: { $in: candidateIds },
+          status: { $nin: [FINISHED, "cancelled", "canceled"] },
+        })
+          .select("_id")
+          .lean();
+
+        const availableSet = new Set(manualCandidates.map((match) => String(match._id)));
+        const nextManualId = candidateIds.find((id) => availableSet.has(id));
+        if (nextManualId) {
+          return res.json({ matchId: nextManualId });
+        }
+      }
+    }
+  }
 
   // Lấy toàn bộ ứng viên trên cùng sân, chưa finished
   const candidates = await Match.find({

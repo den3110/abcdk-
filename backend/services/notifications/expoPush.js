@@ -3,6 +3,7 @@ import { Expo } from "expo-server-sdk";
 import PushToken from "../../models/pushTokenModel.js";
 import dotenv from "dotenv";
 import SystemSettings from "../../models/systemSettingsModel.js";
+import { buildSendSummary } from "../pushDispatchService.js";
 dotenv.config();
 
 const expo = new Expo({
@@ -35,6 +36,24 @@ function log(level, msg, extra) {
   } else {
     // console.log(prefix, msg);
   }
+}
+
+function pickMessageOptions(opts = {}) {
+  const allowed = [
+    "badge",
+    "ttl",
+    "expiration",
+    "priority",
+    "channelId",
+    "mutableContent",
+  ];
+
+  return allowed.reduce((acc, key) => {
+    if (opts?.[key] !== undefined && opts?.[key] !== null && opts?.[key] !== "") {
+      acc[key] = opts[key];
+    }
+    return acc;
+  }, {});
 }
 
 /** Build 1 message từ 1 row (hoặc token string) */
@@ -222,18 +241,27 @@ async function sendChunkWithFallback(projectKey, chunk, messages, offset) {
 /** Gửi 1 nhóm (cùng project) các rows */
 async function sendGroup(projectKey, rows = [], basePayload = {}, opts = {}) {
   const messages = [];
+  const messageOptions = pickMessageOptions(opts);
   for (const r of rows) {
-    const m = buildMessage(r, basePayload, opts);
+    const m = buildMessage(r, basePayload, messageOptions);
     if (m) messages.push(m);
   }
   if (!messages.length) {
     log("info", "Empty message group, skip", { projectKey });
-    return { tickets: [], ticketResults: [], receiptResults: [] };
+    return {
+      tickets: [],
+      ticketResults: [],
+      receiptResults: [],
+      summary: buildSendSummary({ rows: [], ticketResults: [], receiptResults: [] }).summary,
+      sampleFailures: [],
+      rows: [],
+    };
   }
 
   const ticketResults = [];
   const chunks = expo.chunkPushNotifications(messages);
   log("debug", "Group chunked", { projectKey, chunks: chunks.length });
+  let disabledTokens = 0;
 
   let offset = 0;
   for (const chunk of chunks) {
@@ -275,6 +303,7 @@ async function sendGroup(projectKey, rows = [], basePayload = {}, opts = {}) {
           { token: r.token },
           { $set: { enabled: false, lastError: err, updatedAt: new Date() } }
         );
+        disabledTokens += 1;
       }
     }
   }
@@ -313,6 +342,7 @@ async function sendGroup(projectKey, rows = [], basePayload = {}, opts = {}) {
               },
             }
           );
+          disabledTokens += 1;
           log("info", "Disable token by receipt error", {
             token: maskToken(hit.token),
           });
@@ -323,10 +353,20 @@ async function sendGroup(projectKey, rows = [], basePayload = {}, opts = {}) {
     }
   }
 
+  const { summary, sampleFailures } = buildSendSummary({
+    rows,
+    ticketResults,
+    receiptResults: receiptBulks,
+    disabledTokens,
+  });
+
   return {
     tickets: ticketResults.map((r) => r.ticket),
     ticketResults,
     receiptResults: receiptBulks,
+    summary,
+    sampleFailures,
+    rows,
   };
 }
 
@@ -335,15 +375,28 @@ async function sendGroup(projectKey, rows = [], basePayload = {}, opts = {}) {
 export async function sendToTokens(
   tokensOrRows = [],
   basePayload = {},
-  opts = {}
+  opts = {},
+  runtime = {}
 ) {
   if (!tokensOrRows.length)
-    return { tickets: [], ticketResults: [], receiptResults: [] };
+    return {
+      tickets: [],
+      ticketResults: [],
+      receiptResults: [],
+      summary: buildSendSummary({ rows: [], ticketResults: [], receiptResults: [] }).summary,
+      sampleFailures: [],
+    };
 
   const sys = await SystemSettings.findById("system").lean();
   if (sys?.notifications?.systemPushEnabled === false) {
     log("info", "sendToTokens: aborted because systemPushEnabled is false");
-    return { tickets: [], ticketResults: [], receiptResults: [] };
+    return {
+      tickets: [],
+      ticketResults: [],
+      receiptResults: [],
+      summary: buildSendSummary({ rows: [], ticketResults: [], receiptResults: [] }).summary,
+      sampleFailures: [],
+    };
   }
 
   log("info", "sendToTokens: start", { count: tokensOrRows.length });
@@ -351,13 +404,43 @@ export async function sendToTokens(
   // Nhóm theo project để không trộn DEV/PROD/white-label trong cùng request
   const groups = groupByProject(tokensOrRows);
 
-  const all = { tickets: [], ticketResults: [], receiptResults: [] };
+  const all = {
+    tickets: [],
+    ticketResults: [],
+    receiptResults: [],
+    summary: buildSendSummary({ rows: [], ticketResults: [], receiptResults: [] }).summary,
+    sampleFailures: [],
+  };
+  let processedTokens = 0;
+  let processedBatches = 0;
   for (const g of groups) {
     log("info", "Sending group", { projectKey: g.key, count: g.rows.length });
     const res = await sendGroup(g.key, g.rows, basePayload, opts);
     all.tickets.push(...res.tickets);
     all.ticketResults.push(...res.ticketResults);
     all.receiptResults.push(...res.receiptResults);
+    processedTokens += res.rows.length;
+    processedBatches += 1;
+    const snapshot = buildSendSummary({
+      rows: tokensOrRows,
+      ticketResults: all.ticketResults,
+      receiptResults: all.receiptResults,
+      disabledTokens: all.summary.disabledTokens + Number(res.summary?.disabledTokens || 0),
+    });
+    all.summary = snapshot.summary;
+    all.sampleFailures = snapshot.sampleFailures;
+    if (runtime?.tracker?.onProgress) {
+      await runtime.tracker.onProgress({
+        progress: {
+          totalTokens: tokensOrRows.length,
+          processedTokens,
+          processedBatches,
+          totalBatches: groups.length,
+        },
+        summary: all.summary,
+        sampleFailures: all.sampleFailures,
+      });
+    }
   }
 
   log("info", "sendToTokens: done", {
@@ -368,14 +451,33 @@ export async function sendToTokens(
   return all;
 }
 
-export async function sendToUserIds(userIds = [], basePayload = {}, opts = {}) {
+export async function sendToUserIds(
+  userIds = [],
+  basePayload = {},
+  opts = {},
+  runtime = {}
+) {
   if (!userIds.length)
-    return { tokens: 0, tickets: [], ticketResults: [], receiptResults: [] };
+    return {
+      tokens: 0,
+      tickets: [],
+      ticketResults: [],
+      receiptResults: [],
+      summary: buildSendSummary({ rows: [], ticketResults: [], receiptResults: [] }).summary,
+      sampleFailures: [],
+    };
 
   const sys = await SystemSettings.findById("system").lean();
   if (sys?.notifications?.systemPushEnabled === false) {
     log("info", "sendToUserIds: aborted because systemPushEnabled is false");
-    return { tokens: 0, tickets: [], ticketResults: [], receiptResults: [] };
+    return {
+      tokens: 0,
+      tickets: [],
+      ticketResults: [],
+      receiptResults: [],
+      summary: buildSendSummary({ rows: [], ticketResults: [], receiptResults: [] }).summary,
+      sampleFailures: [],
+    };
   }
 
   log("info", "sendToUserIds: load tokens", { users: userIds.length });
@@ -406,13 +508,27 @@ export async function sendToUserIds(userIds = [], basePayload = {}, opts = {}) {
     tokens: uniqueRows.length,
   });
 
-  if (!uniqueRows.length)
-    return { tokens: 0, tickets: [], ticketResults: [], receiptResults: [] };
+  if (runtime?.tracker?.onResolvedAudience) {
+    await runtime.tracker.onResolvedAudience({
+      totalUsers: userIds.length,
+      totalTokens: uniqueRows.length,
+    });
+  }
 
-  const res = await sendToTokens(uniqueRows, basePayload, opts);
+  if (!uniqueRows.length)
+    return {
+      tokens: 0,
+      tickets: [],
+      ticketResults: [],
+      receiptResults: [],
+      summary: buildSendSummary({ rows: [], ticketResults: [], receiptResults: [] }).summary,
+      sampleFailures: [],
+    };
+
+  const res = await sendToTokens(uniqueRows, basePayload, opts, runtime);
   return { tokens: uniqueRows.length, ...res };
 }
 
-export async function sendToUser(userId, basePayload = {}, opts = {}) {
-  return sendToUserIds([userId], basePayload, opts);
+export async function sendToUser(userId, basePayload = {}, opts = {}, runtime = {}) {
+  return sendToUserIds([userId], basePayload, opts, runtime);
 }

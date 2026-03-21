@@ -52,7 +52,14 @@ const liveRecordingV2Schema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["recording", "uploading", "exporting", "ready", "failed"],
+      enum: [
+        "recording",
+        "uploading",
+        "pending_export_window",
+        "exporting",
+        "ready",
+        "failed",
+      ],
       default: "recording",
       index: true,
     },
@@ -62,6 +69,8 @@ const liveRecordingV2Schema = new mongoose.Schema(
     },
     durationSeconds: { type: Number, default: 0 },
     sizeBytes: { type: Number, default: 0 },
+    r2TargetId: { type: String, default: null, index: true },
+    r2BucketName: { type: String, default: null },
     r2ManifestKey: { type: String, default: null },
     r2Prefix: { type: String, default: null },
     driveFileId: { type: String, default: null },
@@ -70,6 +79,7 @@ const liveRecordingV2Schema = new mongoose.Schema(
     playbackUrl: { type: String, default: null },
     exportAttempts: { type: Number, default: 0 },
     finalizedAt: { type: Date, default: null },
+    scheduledExportAt: { type: Date, default: null, index: true },
     readyAt: { type: Date, default: null },
     error: { type: String, default: null },
     meta: {

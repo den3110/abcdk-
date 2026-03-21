@@ -1,5 +1,10 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
-import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
+import Match from "../models/matchModel.js";
+import {
+  buildRecordingPlaybackUrl,
+  buildRecordingTemporaryPlaybackUrl,
+} from "./liveRecordingV2Export.service.js";
+import { getLiveRecordingExportWindowDecision } from "./liveRecordingExportWindow.service.js";
 import {
   buildRecordingManifestObjectKey,
   putRecordingManifest,
@@ -38,11 +43,13 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
   const {
     publishReason = "recording_export_queued",
     replaceTerminalJob = false,
+    replacePendingJob = false,
     currentPipeline = null,
     forceFromUploading = false,
     forceReason = "",
     latestSegmentActivityAt = null,
     segmentTimeoutMinutes = null,
+    ignoreWindow = false,
   } = options;
 
   const recording =
@@ -59,6 +66,19 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
   if (!uploadedSegments.length) {
     throw new Error("Recording has no uploaded segments");
   }
+  const queuedAt = new Date();
+  const exportWindow = ignoreWindow
+    ? {
+        enabled: false,
+        shouldQueueNow: true,
+        delayMs: 0,
+        scheduledAt: null,
+        scheduledAtIso: null,
+        timezone: null,
+        windowStart: null,
+        windowEnd: null,
+      }
+    : getLiveRecordingExportWindowDecision(queuedAt);
 
   const manifestKey = buildRecordingManifestObjectKey({
     recordingId: recording._id,
@@ -67,13 +87,16 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
 
   await putRecordingManifest({
     objectKey: manifestKey,
+    storageTargetId: recording.r2TargetId,
     manifest: {
       recordingId: String(recording._id),
       matchId: String(recording.match),
       courtId: recording.courtId ? String(recording.courtId) : null,
       mode: recording.mode,
       quality: recording.quality,
-      finalizedAt: new Date().toISOString(),
+      r2TargetId: recording.r2TargetId || null,
+      r2BucketName: recording.r2BucketName || null,
+      finalizedAt: queuedAt.toISOString(),
       segments: uploadedSegments.map((segment) => ({
         index: segment.index,
         objectKey: segment.objectKey,
@@ -84,15 +107,23 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
     },
   });
 
-  const queuedAt = new Date();
+  const temporaryPlaybackUrl = buildRecordingTemporaryPlaybackUrl(recording._id);
   recording.r2ManifestKey = manifestKey;
   recording.finalizedAt = queuedAt;
-  recording.status = "exporting";
+  recording.status = exportWindow.shouldQueueNow
+    ? "exporting"
+    : "pending_export_window";
+  recording.scheduledExportAt = exportWindow.shouldQueueNow
+    ? null
+    : exportWindow.scheduledAt || null;
+  recording.readyAt = null;
   recording.error = null;
   recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
 
   const queuedJob = await enqueueLiveRecordingExport(recording._id, {
     replaceTerminalJob,
+    replacePendingJob,
+    delayMs: exportWindow.shouldQueueNow ? 0 : exportWindow.delayMs,
   });
   const nextMeta = getRecordingMeta(recording);
   const existingPipeline =
@@ -102,10 +133,16 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
 
   nextMeta.exportPipeline = {
     ...existingPipeline,
-    stage: "queued",
-    label: "Dang cho worker",
+    stage: exportWindow.shouldQueueNow ? "queued" : "delayed_until_window",
+    label: exportWindow.shouldQueueNow ? "Dang cho worker" : "Dang cho khung gio dem",
     queuedAt,
     queueJobId: queuedJob?.id ? String(queuedJob.id) : null,
+    scheduledExportAt: exportWindow.shouldQueueNow
+      ? null
+      : exportWindow.scheduledAt || null,
+    windowStart: exportWindow.windowStart || null,
+    windowEnd: exportWindow.windowEnd || null,
+    timezone: exportWindow.timezone || null,
     updatedAt: queuedAt,
     error: null,
   };
@@ -116,6 +153,11 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
   if (forceFromUploading) {
     nextMeta.exportPipeline.manualTransitionAt = queuedAt;
     nextMeta.exportPipeline.manualTransitionSource = "uploading";
+  }
+  if (replacePendingJob || ignoreWindow || sourceStatus === "pending_export_window") {
+    nextMeta.exportPipeline.manualTransitionAt = queuedAt;
+    nextMeta.exportPipeline.manualTransitionSource =
+      sourceStatus === "pending_export_window" ? "pending_export_window" : sourceStatus || "manual";
   }
   if (forceReason) {
     nextMeta.exportPipeline.forceReason = forceReason;
@@ -141,6 +183,11 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
 
   recording.meta = nextMeta;
   await recording.save();
+  await Match.findByIdAndUpdate(recording.match, {
+    $set: {
+      video: temporaryPlaybackUrl,
+    },
+  }).catch(() => {});
   await publishRecordingMonitor(recording, publishReason);
 
   return recording;

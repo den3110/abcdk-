@@ -1076,7 +1076,6 @@ export default function TournamentSchedule() {
       );
       joinedMatchesRef.current.forEach((mid) => {
         socket.emit("match:join", { matchId: mid });
-        socket.emit("match:snapshot:request", { matchId: mid });
       });
     };
     socket.on("connect", onConnected);
@@ -1131,7 +1130,6 @@ export default function TournamentSchedule() {
     );
     added.forEach((mid) => {
       socket.emit("match:join", { matchId: mid });
-      socket.emit("match:snapshot:request", { matchId: mid });
     });
     removed.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
     joinedMatchesRef.current = nextSet;

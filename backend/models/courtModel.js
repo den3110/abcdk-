@@ -2,6 +2,32 @@
 import mongoose from "mongoose";
 const { Schema, Types } = mongoose;
 
+const manualAssignmentItemSchema = new Schema(
+  {
+    matchId: { type: Types.ObjectId, ref: "Match", required: true },
+    order: { type: Number, default: 0 },
+    state: {
+      type: String,
+      enum: ["pending", "done", "skipped"],
+      default: "pending",
+    },
+    actedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const manualAssignmentSchema = new Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    bracketId: { type: Types.ObjectId, ref: "Bracket", default: null },
+    fallbackToAuto: { type: Boolean, default: true },
+    items: { type: [manualAssignmentItemSchema], default: [] },
+    updatedBy: { type: Types.ObjectId, ref: "User", default: null },
+    updatedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const courtSchema = new Schema(
   {
     tournament: {
@@ -60,6 +86,18 @@ const courtSchema = new Schema(
     defaultReferees: [
       { type: Types.ObjectId, ref: "User", default: undefined },
     ],
+
+    manualAssignment: {
+      type: manualAssignmentSchema,
+      default: () => ({
+        enabled: false,
+        bracketId: null,
+        fallbackToAuto: true,
+        items: [],
+        updatedBy: null,
+        updatedAt: null,
+      }),
+    },
   },
   { timestamps: true }
 );

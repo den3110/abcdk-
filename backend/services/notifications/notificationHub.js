@@ -8,6 +8,16 @@ import { asId } from "../../utils/ids.js";
 import { sendToUserIds } from "./expoPush.js";
 import SupportTicket from "../../models/supportTicketModel.js"; // ✅ THÊM
 import mongoose from "mongoose";
+import SystemSettings from "../../models/systemSettingsModel.js";
+import {
+  buildPushDispatchTracker,
+  createPushDispatch,
+  markPushDispatchCompleted,
+  markPushDispatchFailed,
+  markPushDispatchRunning,
+  markPushDispatchSkipped,
+  updatePushDispatchProgress,
+} from "../pushDispatchService.js";
 
 /** ───────── Registry định nghĩa từng event ───────── */
 
@@ -1174,9 +1184,85 @@ async function filterBySubscription(users, { topicType, topicId, category }) {
 export async function publishNotification(eventName, ctx = {}, opts = {}) {
   const resolveAudience = implicitAudienceResolvers[eventName];
   const buildPayload = payloadBuilders[eventName];
+  let dispatchId = opts?.dispatchMeta?.dispatchId
+    ? String(opts.dispatchMeta.dispatchId)
+    : null;
   if (!resolveAudience || !buildPayload) {
     throw new Error(`Unsupported event: ${eventName}`);
   }
+
+  const zeroSummary = {
+    tokens: 0,
+    ticketOk: 0,
+    ticketError: 0,
+    receiptOk: 0,
+    receiptError: 0,
+    disabledTokens: 0,
+    errorBreakdown: {},
+    byPlatform: {},
+    platforms: [],
+  };
+  const payload = await buildPayload(ctx);
+  const dispatchPayload = {
+    ...payload,
+    url: payload?.data?.url || ctx?.url || "",
+    badge: opts?.badge,
+    ttl: opts?.ttl,
+  };
+  const baseTarget = {
+    scope: ctx?.scope || opts?.dispatchMeta?.scope || "",
+    topicType: ctx?.topicType || "",
+    topicId: ctx?.topicId ?? "",
+    userId:
+      ctx?.userId ||
+      (ctx?.topicType === "user" ? ctx?.topicId : "") ||
+      opts?.dispatchMeta?.userId ||
+      "",
+    filters: opts?.dispatchMeta?.filters || {},
+    audienceCount: 0,
+  };
+
+  try {
+    if (!dispatchId) {
+      const dispatch = await createPushDispatch({
+        sourceKind: opts?.dispatchMeta?.sourceKind || "system_event",
+        eventName,
+        triggeredBy: opts?.dispatchMeta?.triggeredBy || null,
+        payload: dispatchPayload,
+        target: baseTarget,
+        context: ctx,
+        status: "running",
+        note: opts?.dispatchMeta?.note || "",
+      });
+      dispatchId = String(dispatch._id);
+    } else {
+      await markPushDispatchRunning(dispatchId, {
+        triggeredBy: opts?.dispatchMeta?.triggeredBy,
+        payload: dispatchPayload,
+        target: baseTarget,
+        context: ctx,
+      });
+    }
+
+    const sys = await SystemSettings.findById("system").lean();
+    if (sys?.notifications?.systemPushEnabled === false) {
+      await markPushDispatchSkipped(dispatchId, {
+        payload: dispatchPayload,
+        target: baseTarget,
+        context: ctx,
+        summary: zeroSummary,
+        note: "system_push_disabled",
+      });
+      return {
+        ok: true,
+        dispatchId,
+        status: "skipped",
+        reason: "system_push_disabled",
+        audience: 0,
+        sent: 0,
+        summary: zeroSummary,
+      };
+    }
 
   // 1) Gom audience ngầm định + directUserIds (nếu có)
   const implicit = await resolveAudience(ctx);
@@ -1192,7 +1278,23 @@ export async function publishNotification(eventName, ctx = {}, opts = {}) {
     });
   }
 
-  if (!audience.length) return { ok: true, audience: 0, sent: 0 };
+    if (!audience.length) {
+      await markPushDispatchSkipped(dispatchId, {
+        payload: dispatchPayload,
+        target: baseTarget,
+        context: ctx,
+        summary: zeroSummary,
+        note: "empty_audience",
+      });
+      return {
+        ok: true,
+        dispatchId,
+        status: "skipped",
+        audience: 0,
+        sent: 0,
+        summary: zeroSummary,
+      };
+    }
 
   // 3) Idempotent: loại user đã nhận eventKey
   const eventKey = makeEventKey(eventName, ctx);
@@ -1204,21 +1306,61 @@ export async function publishNotification(eventName, ctx = {}, opts = {}) {
     .lean();
   const already = new Set(existing.map((x) => String(x.user)));
   const remain = audience.filter((u) => !already.has(u));
-  if (!remain.length)
+  if (!remain.length) {
+    await markPushDispatchSkipped(dispatchId, {
+      payload: dispatchPayload,
+      target: { ...baseTarget, audienceCount: audience.length },
+      context: ctx,
+      summary: zeroSummary,
+      note: "all_audience_already_notified",
+    });
     return {
       ok: true,
+      dispatchId,
+      status: "skipped",
       audience: audience.length,
       sent: 0,
       skipped: audience.length,
+      summary: zeroSummary,
     };
+  }
 
   // 4) Build payload & gửi qua expo-server-sdk của bạn
-  const payload = await buildPayload(ctx);
-  const { tokens, ticketResults, receiptResults } = await sendToUserIds(
-    remain,
-    payload,
-    opts
-  );
+  await updatePushDispatchProgress(dispatchId, {
+    target: { ...baseTarget, audienceCount: remain.length },
+  });
+
+  const tracker = buildPushDispatchTracker({
+    dispatchId,
+    onResolvedAudience: async ({ totalUsers, totalTokens } = {}) => {
+      await updatePushDispatchProgress(dispatchId, {
+        target: {
+          ...baseTarget,
+          audienceCount: Number(totalUsers || remain.length || 0),
+        },
+        progress: {
+          totalTokens: Number(totalTokens || 0),
+          processedTokens: 0,
+          processedBatches: 0,
+          totalBatches: Number(totalTokens || 0) > 0 ? 1 : 0,
+        },
+      });
+    },
+    onProgress: async ({ progress, summary, sampleFailures } = {}) => {
+      await updatePushDispatchProgress(dispatchId, {
+        progress,
+        summary,
+        sampleFailures,
+        target: {
+          ...baseTarget,
+          audienceCount: remain.length,
+        },
+      });
+    },
+  });
+
+  const { tokens, ticketResults, receiptResults, summary, sampleFailures } =
+    await sendToUserIds(remain, payload, opts, { tracker });
 
   // 5) Ghi log idempotent (bulk upsert)
   const ops = remain.map((u) => ({
@@ -1241,12 +1383,61 @@ export async function publishNotification(eventName, ctx = {}, opts = {}) {
     } catch (_) {}
   }
 
+  if (Number(summary?.tokens || 0) === 0) {
+    await markPushDispatchSkipped(dispatchId, {
+      payload: dispatchPayload,
+      target: { ...baseTarget, audienceCount: remain.length },
+      context: ctx,
+      summary,
+      sampleFailures,
+      note: "no_active_tokens",
+    });
+    return {
+      ok: true,
+      dispatchId,
+      status: "skipped",
+      audience: audience.length,
+      sentToNew: remain.length,
+      tokensUsed: 0,
+      ticketsOk: 0,
+      receiptsPacks: 0,
+      summary,
+      sampleFailures,
+    };
+  }
+
+  await markPushDispatchCompleted(dispatchId, {
+    payload: dispatchPayload,
+    target: { ...baseTarget, audienceCount: remain.length },
+    context: ctx,
+    summary,
+    sampleFailures,
+    progress: {
+      totalTokens: Number(summary?.tokens || 0),
+      processedTokens: Number(summary?.tokens || 0),
+      processedBatches: 1,
+      totalBatches: 1,
+    },
+  });
+
   return {
     ok: true,
+    dispatchId,
+    status: "completed",
     audience: audience.length,
     sentToNew: remain.length,
     tokensUsed: tokens,
     ticketsOk: ticketResults.filter((t) => t.ticket?.status === "ok").length,
     receiptsPacks: receiptResults.length,
+    summary,
+    sampleFailures,
   };
+  } catch (error) {
+    if (dispatchId) {
+      await markPushDispatchFailed(dispatchId, {
+        note: error?.message || "publish_notification_failed",
+      });
+    }
+    throw error;
+  }
 }

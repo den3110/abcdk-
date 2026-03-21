@@ -1,9 +1,23 @@
 // controllers/liveMatchesController.js
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+
+const LIVE_MATCHES_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.LIVE_MATCHES_CACHE_TTL_MS || 3000)
+);
+const liveMatchesCache = createShortTtlCache(LIVE_MATCHES_CACHE_TTL_MS);
 
 export async function listLiveMatches(req, res) {
   try {
+    const cached = liveMatchesCache.get("default");
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+      res.setHeader("X-PKT-Cache", "HIT");
+      return res.json(cached);
+    }
+
     const LIMIT = 20;
 
     /* ================== IGNORE ALL FE FILTERS ================== */
@@ -246,7 +260,7 @@ export async function listLiveMatches(req, res) {
       };
     });
 
-    res.json({
+    const payload = {
       count: items.length,
       countLive,
       items,
@@ -261,7 +275,12 @@ export async function listLiveMatches(req, res) {
         },
         at: new Date().toISOString(),
       },
-    });
+    };
+
+    liveMatchesCache.set("default", payload);
+    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+    res.setHeader("X-PKT-Cache", "MISS");
+    res.json(payload);
   } catch (e) {
     console.error("listLiveMatches error:", e);
     res.status(500).json({ error: e.message });
@@ -292,6 +311,8 @@ export async function deleteLiveVideoForMatch(req, res) {
     if (!updated) {
       return res.status(404).json({ message: "Match không tồn tại" });
     }
+
+    liveMatchesCache.clear();
 
     return res.json({
       message: "Đã xoá thông tin video khỏi match",

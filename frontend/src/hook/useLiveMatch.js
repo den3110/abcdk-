@@ -33,13 +33,26 @@ export function useLiveMatch(matchId, token) {
     if (!socket || !matchId) return;
     mountedRef.current = true;
 
+    const isForThisMatch = (payload) => {
+      const incomingId = String(
+        payload?.data?._id ??
+          payload?.data?.id ??
+          payload?._id ??
+          payload?.id ??
+          payload?.matchId ??
+          payload?.match?._id ??
+          ""
+      );
+      return !incomingId || incomingId === String(matchId);
+    };
+
     const onSnapshot = (payload) => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || !isForThisMatch(payload)) return;
       setState({ loading: false, data: payload });
     };
 
     const onUpdate = (evt) => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || !isForThisMatch(evt)) return;
       setState((prev) => {
         // evt có thể là { data, patch } tuỳ server. Ở đây ưu tiên evt.data + version
         const incoming = evt?.data ?? evt;
@@ -54,8 +67,8 @@ export function useLiveMatch(matchId, token) {
 
     // 🔥 CHỈNH SỬA: nhận sự kiện tăng/giảm điểm nhẹ từ server và cập nhật ngay UI
     const onScoreUpdated = (evt) => {
-      console.log("evt", evt);
-      setState({loading: false, data: evt})
+      if (!mountedRef.current || !isForThisMatch(evt)) return;
+      setState({ loading: false, data: evt?.data ?? evt });
     };
 
     // Join phòng và lắng nghe sự kiện
@@ -65,7 +78,6 @@ export function useLiveMatch(matchId, token) {
     socket.on("score:updated", onScoreUpdated);
 
     // Optionally xin snapshot ngay (nếu server hỗ trợ)
-    socket.emit?.("match:snapshot:request", { matchId });
 
     return () => {
       mountedRef.current = false;

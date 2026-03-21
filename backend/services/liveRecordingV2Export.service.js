@@ -38,15 +38,23 @@ function getPlaybackApiBase() {
 }
 
 export function buildRecordingPlaybackUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/play`;
+  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/play`;
 }
 
 export function buildRecordingRawStreamUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw`;
+  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/raw`;
 }
 
 export function buildRecordingRawStatusUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw/status`;
+  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/raw/status`;
+}
+
+export function buildRecordingTemporaryPlaybackUrl(recordingId) {
+  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/temp`;
+}
+
+export function buildRecordingTemporaryPlaylistUrl(recordingId) {
+  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/temp/playlist`;
 }
 
 function asMutableMeta(meta) {
@@ -67,6 +75,17 @@ function buildSourceCleanupObjectKeys(recording) {
   }
 
   return [...objectKeys];
+}
+
+function shouldDeleteRecordingSourceAfterExport() {
+  const raw = String(
+    process.env.LIVE_RECORDING_DELETE_R2_SOURCE_AFTER_EXPORT || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (!raw) return false;
+  return ["1", "true", "yes", "on"].includes(raw);
 }
 
 async function updateExportPipelineState(
@@ -247,6 +266,8 @@ export async function exportLiveRecordingV2(recordingId) {
     courtId: recording.courtId ? String(recording.courtId) : null,
     mode: recording.mode,
     quality: recording.quality,
+    r2TargetId: recording.r2TargetId || null,
+    r2BucketName: recording.r2BucketName || null,
     finalizedAt: recording.finalizedAt?.toISOString() || new Date().toISOString(),
     segments: uploadedSegments.map((segment) => ({
       index: segment.index,
@@ -259,11 +280,13 @@ export async function exportLiveRecordingV2(recordingId) {
 
   await putRecordingManifest({
     objectKey: manifestKey,
+    storageTargetId: recording.r2TargetId,
     manifest: manifestPayload,
   });
 
   recording.r2ManifestKey = manifestKey;
   recording.status = "exporting";
+  recording.scheduledExportAt = null;
   recording.exportAttempts = (recording.exportAttempts || 0) + 1;
   recording.error = null;
   await updateExportPipelineState(
@@ -291,6 +314,7 @@ export async function exportLiveRecordingV2(recordingId) {
       await downloadRecordingObjectToFile({
         objectKey: segment.objectKey,
         targetPath: localSegmentPath,
+        storageTargetId: recording.r2TargetId,
       });
       segmentPaths.push(localSegmentPath);
     }
@@ -346,66 +370,83 @@ export async function exportLiveRecordingV2(recordingId) {
     recording.drivePreviewUrl = driveInfo.previewUrl;
     recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
     recording.error = null;
-    await updateExportPipelineState(
-      recording,
-      "cleaning_r2",
-      {
-        driveUploadedAt: new Date(),
-        label: "Dang don segment tren R2",
-        driveAuthMode: driveInfo.driveAuthMode || driveStatus.mode || null,
-      },
-      "recording_drive_uploaded"
-    );
-
     await Match.findByIdAndUpdate(recording.match, {
       $set: {
         video: recording.playbackUrl,
       },
     }).catch(() => {});
 
-    try {
-      const cleanupResult = await deleteExportedRecordingSegments(recording, {
-        includeManifest: true,
-      });
+    if (shouldDeleteRecordingSourceAfterExport()) {
+      await updateExportPipelineState(
+        recording,
+        "cleaning_r2",
+        {
+          driveUploadedAt: new Date(),
+          label: "Dang don segment tren R2",
+          driveAuthMode: driveInfo.driveAuthMode || driveStatus.mode || null,
+        },
+        "recording_drive_uploaded"
+      );
 
+      try {
+        const cleanupResult = await deleteExportedRecordingSegments(recording, {
+          includeManifest: true,
+        });
+
+        const nextMeta = asMutableMeta(recording.meta);
+        nextMeta.sourceCleanup = {
+          status: "completed",
+          deletedAt: new Date(),
+          deletedObjectCount: cleanupResult.deletedObjectCount,
+          deletedManifest: cleanupResult.deletedManifest,
+          objectKeys: cleanupResult.objectKeys,
+        };
+
+        recording.meta = nextMeta;
+        recording.r2ManifestKey = null;
+        recording.status = "ready";
+        recording.readyAt = new Date();
+        await recording.save();
+        await publishLiveRecordingMonitorUpdate({
+          reason: "recording_source_cleanup_completed",
+          recordingIds: [String(recording._id)],
+        });
+      } catch (cleanupError) {
+        const nextMeta = asMutableMeta(recording.meta);
+        nextMeta.sourceCleanup = {
+          status: "failed",
+          attemptedAt: new Date(),
+          error: cleanupError?.message || String(cleanupError),
+        };
+
+        recording.meta = nextMeta;
+        recording.status = "ready";
+        recording.readyAt = new Date();
+        await recording.save().catch(() => {});
+        await publishLiveRecordingMonitorUpdate({
+          reason: "recording_source_cleanup_failed",
+          recordingIds: [String(recording._id)],
+        }).catch(() => {});
+        console.error(
+          `[recording-export] source cleanup failed for recording ${String(recording._id)}:`,
+          cleanupError
+        );
+      }
+    } else {
       const nextMeta = asMutableMeta(recording.meta);
       nextMeta.sourceCleanup = {
-        status: "completed",
-        deletedAt: new Date(),
-        deletedObjectCount: cleanupResult.deletedObjectCount,
-        deletedManifest: cleanupResult.deletedManifest,
-        objectKeys: cleanupResult.objectKeys,
+        status: "retained",
+        retainedAt: new Date(),
+        reason: "config_keep_r2_source",
       };
-
       recording.meta = nextMeta;
-      recording.r2ManifestKey = null;
       recording.status = "ready";
       recording.readyAt = new Date();
       await recording.save();
       await publishLiveRecordingMonitorUpdate({
-        reason: "recording_source_cleanup_completed",
+        reason: "recording_source_cleanup_retained",
         recordingIds: [String(recording._id)],
       });
-    } catch (cleanupError) {
-      const nextMeta = asMutableMeta(recording.meta);
-      nextMeta.sourceCleanup = {
-        status: "failed",
-        attemptedAt: new Date(),
-        error: cleanupError?.message || String(cleanupError),
-      };
-
-      recording.meta = nextMeta;
-      recording.status = "ready";
-      recording.readyAt = new Date();
-      await recording.save().catch(() => {});
-      await publishLiveRecordingMonitorUpdate({
-        reason: "recording_source_cleanup_failed",
-        recordingIds: [String(recording._id)],
-      }).catch(() => {});
-      console.error(
-        `[recording-export] source cleanup failed for recording ${String(recording._id)}:`,
-        cleanupError
-      );
     }
 
     const completedMeta = asMutableMeta(recording.meta);
@@ -469,7 +510,7 @@ export async function deleteExportedRecordingSegments(
       ? recordingOrId
       : await LiveRecordingV2.findById(recordingOrId).lean();
 
-  if (!recording || recording.status !== "ready") {
+  if (!recording) {
     return {
       deletedObjectCount: 0,
       deletedManifest: false,
@@ -489,11 +530,16 @@ export async function deleteExportedRecordingSegments(
     };
   }
 
-  await deleteRecordingObjects(objectKeys);
+  const deleteResult = await deleteRecordingObjects(objectKeys, {
+    storageTargetId: recording.r2TargetId,
+  });
 
   return {
-    deletedObjectCount: objectKeys.length,
+    deletedObjectCount: Number(deleteResult?.deletedObjectCount) || 0,
     deletedManifest: includeManifest && Boolean(recording.r2ManifestKey),
-    objectKeys,
+    objectKeys:
+      Array.isArray(deleteResult?.deletedKeys) && deleteResult.deletedKeys.length
+        ? deleteResult.deletedKeys
+        : objectKeys,
   };
 }

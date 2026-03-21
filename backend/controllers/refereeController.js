@@ -1509,6 +1509,14 @@ export const patchWinner = asyncHandler(async (req, res) => {
   io?.to(`match:${id}`).emit("match:update", dto);
   io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
   io?.to(`match:${id}`).emit("match:patched", { matchId: id });
+  if (match?.bracket) {
+    io?.to(`draw:${String(match.bracket)}`).emit("draw:match:update", {
+      type: clearing ? "winner:clear" : "winner:update",
+      bracketId: String(match.bracket),
+      matchId: String(match._id),
+      data: dto,
+    });
+  }
 
   // === EMIT ra room scheduler (trang điều phối sân đang join) ===
   const schedRoom = `scheduler:${String(match.tournament)}:${String(

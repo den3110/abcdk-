@@ -7,12 +7,24 @@ import Bracket from "../../models/bracketModel.js";
 import User from "../../models/userModel.js";
 import {
   buildGroupsRotationQueue,
+  setCourtMatchList,
+  clearCourtMatchList,
+  advanceCourtMatchList,
+  assignSpecificMatchToCourt,
   assignNextToCourt,
   freeCourtAndAssignNext,
   fillIdleCourtsForCluster,
 } from "../../services/courtQueueService.js";
 import { getCourtLivePresenceSummaryMap } from "../../services/courtLivePresence.service.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
+import {
+  MATCH_LITE_SELECT,
+  PAIR_SELECT,
+  enrichCourtsWithManualAssignment,
+  getManualReservationMap,
+  toMatchLite,
+} from "../../services/courtManualAssignment.service.js";
+import { buildSchedulerStatePayload } from "../../services/broadcastState.js";
 const { Types } = mongoose;
 /**
  * Upsert danh sách sân cho 1 giải + bracket
@@ -75,6 +87,19 @@ function groupFirstComparator(a, b) {
   return String(a._id).localeCompare(String(b._id));
 }
 
+async function emitSchedulerState(req, tournamentId, bracket, cluster = null) {
+  const io = req.app?.get?.("io");
+  if (!io || !tournamentId) return;
+  await buildSchedulerStatePayload(tournamentId, { bracket, cluster }).then(
+    ({ clusterKey, courts, matches }) => {
+      io.to(`tour:${tournamentId}:${clusterKey}`).emit("scheduler:state", {
+        courts,
+        matches,
+      });
+    }
+  );
+}
+
 /**
  * Upsert courts theo BRACKET
  * - Params:   :tournamentId
@@ -83,7 +108,7 @@ function groupFirstComparator(a, b) {
  */
 export const upsertCourts = asyncHandler(async (req, res) => {
   const { tournamentId } = req.params;
-  const { names, count, cluster } = req.body || {};
+  const { names, count, cluster, bracket } = req.body || {};
 
   const toBool = (v) => {
     if (typeof v === "boolean") return v;
@@ -110,7 +135,7 @@ export const upsertCourts = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid tournament id" });
   }
   const tid = new mongoose.Types.ObjectId(tournamentId);
-  const clusterKey = String(cluster ?? "Main").trim() || "Main";
+  const clusterKey = String(cluster ?? bracket ?? "Main").trim() || "Main";
 
   // Chuẩn hoá danh sách tên sân
   let desired = [];
@@ -239,6 +264,7 @@ export const buildGroupsQueueHttp = asyncHandler(async (req, res) => {
   const clusterKey = String(bracket);
   const out = await buildGroupsRotationQueue({
     tournamentId,
+    bracket,
     cluster: clusterKey,
   });
   res.json(out);
@@ -262,8 +288,10 @@ export const assignNextHttp = asyncHandler(async (req, res) => {
 });
 
 export const freeCourtHttp = asyncHandler(async (req, res) => {
-  const { courtId } = req.params;
+  const { courtId, tournamentId } = req.params;
+  const { bracket = null } = req.body || {};
   const match = await freeCourtAndAssignNext({ courtId });
+  await emitSchedulerState(req, tournamentId, bracket);
   res.json({ match });
 });
 
@@ -275,25 +303,9 @@ export const getSchedulerState = asyncHandler(async (req, res) => {
       .status(400)
       .json({ message: "Thiếu hoặc sai 'bracket' (ObjectId)" });
   }
-  const clusterKey = String(bracket);
-
-  const [courts, matches] = await Promise.all([
-    Court.find({ tournament: tournamentId, bracket, isActive: true })
-      .sort({ order: 1 })
-      .lean(),
-    // ⚠️ Hiện tại service/match đang dùng 'courtCluster' → tạm reuse clusterKey = bracketId
-    Match.find({
-      tournament: tournamentId,
-      courtCluster: clusterKey,
-      status: { $in: ["queued", "assigned", "live"] },
-    })
-      .select(
-        "_id status queueOrder court courtLabel participants pool rrRound round order"
-      )
-      .sort({ status: 1, queueOrder: 1 })
-      .lean(),
-  ]);
-
+  const { courts, matches } = await buildSchedulerStatePayload(tournamentId, {
+    bracket,
+  });
   res.json({ courts, matches });
 });
 
@@ -329,142 +341,119 @@ export const assignSpecificHttp = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Sai 'matchId'." });
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    // 1) Tìm court + match
-    const [court, match] = await Promise.all([
-      Court.findOne({
-        _id: courtId,
-        tournament: tournamentId,
-        bracket,
-        isActive: true,
-      }).session(session),
-      Match.findOne({ _id: matchId, tournament: tournamentId }).session(
-        session
-      ),
-    ]);
+    const result = await assignSpecificMatchToCourt({
+      tournamentId,
+      courtId,
+      matchId,
+      bracket,
+      replace,
+      cluster: String(bracket),
+    });
 
-    if (!court) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: "Không tìm thấy sân hợp lệ." });
-    }
-    if (!match) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: "Không tìm thấy trận cần gán." });
-    }
-    if (String(match.bracket || "") !== String(bracket)) {
-      await session.abortTransaction();
-      return res.status(400).json({ message: "Trận và bracket không khớp." });
-    }
-    if (String(match.status || "") === "finished") {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({ message: "Trận đã kết thúc; không thể gán." });
-    }
-
-    // 2) Nếu trận đã đang ở đúng sân -> idempotent
-    if (String(match.court || "") === String(courtId)) {
-      await session.commitTransaction();
-      session.endSession();
-      return res.json({
-        message: "Trận đã được gán ở sân này.",
-        court,
-        match,
-      });
-    }
-
-    // 3) Nếu sân đang có trận "assigned" hoặc "live"
-    const currentOnCourt = await Match.findOne({
-      tournament: tournamentId,
-      court: courtId,
-      status: { $in: ["assigned", "live"] },
-    })
-      .select("_id status")
-      .session(session);
-
-    if (currentOnCourt && !replace) {
-      await session.abortTransaction();
-      return res.status(409).json({
-        message: "Sân đang có trận. Thiếu quyền thay thế (replace=false).",
-      });
-    }
-
-    // 3a) Gỡ trận đang chiếm sân (nếu có)
-    if (currentOnCourt) {
-      await Match.updateOne(
-        { _id: currentOnCourt._id },
-        {
-          $unset: { court: "", courtLabel: "" },
-          $set: { status: "queued" }, // đưa lại hàng đợi
-        },
-        { session }
-      );
-    }
-
-    // 3b) Nếu trận mục tiêu đang ở sân khác -> gỡ khỏi sân cũ
-    if (match.court && String(match.court) !== String(courtId)) {
-      await Match.updateOne(
-        { _id: match._id },
-        { $unset: { court: "", courtLabel: "" } },
-        { session }
-      );
-
-      // Set sân cũ (nếu còn) về idle nếu không còn trận assigned/live
-      const oldCourtId = match.court;
-      const stillBusy = await Match.exists({
-        tournament: tournamentId,
-        court: oldCourtId,
-        status: { $in: ["assigned", "live"] },
-      }).session(session);
-      if (!stillBusy) {
-        await Court.updateOne(
-          { _id: oldCourtId },
-          { $set: { status: "idle", currentMatch: null } },
-          { session }
-        );
-      }
-    }
-
-    // 4) Gán trận mục tiêu vào sân
-    const label = courtLabelOf(court);
-    await Match.updateOne(
-      { _id: match._id },
-      {
-        $set: {
-          court: courtId,
-          courtLabel: label,
-          status: "assigned",
-          courtCluster: String(bracket), // giữ cluster theo bracket để UI/state đọc được
-        },
-      },
-      { session }
-    );
-
-    await Court.updateOne(
-      { _id: courtId },
-      { $set: { status: "assigned", currentMatch: match._id } },
-      { session }
-    );
-
-    const [updatedMatch, updatedCourt] = await Promise.all([
-      Match.findById(match._id).session(session),
-      Court.findById(courtId).session(session),
-    ]);
-
-    await session.commitTransaction();
-    session.endSession();
+    await emitSchedulerState(req, tournamentId, bracket);
 
     return res.json({
-      message: "Đã gán trận vào sân thành công.",
-      court: updatedCourt,
-      match: updatedMatch,
+      message: "Da gan tran vao san thanh cong.",
+      court: result.court,
+      match: result.match,
     });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    throw err;
+  } catch (error) {
+    return res.status(400).json({ message: error.message || "Gan tran that bai." });
+  }
+});
+
+export const setCourtMatchListHttp = asyncHandler(async (req, res) => {
+  const { tournamentId, courtId } = req.params;
+  const { bracket, matchIds = [] } = req.body || {};
+
+  if (!mongoose.isValidObjectId(tournamentId)) {
+    return res.status(400).json({ message: "Sai tournamentId." });
+  }
+  if (!mongoose.isValidObjectId(courtId)) {
+    return res.status(400).json({ message: "Sai courtId." });
+  }
+  if (!mongoose.isValidObjectId(bracket)) {
+    return res.status(400).json({ message: "Sai bracket." });
+  }
+  if (!Array.isArray(matchIds)) {
+    return res.status(400).json({ message: "matchIds phai la mang." });
+  }
+
+  try {
+    const result = await setCourtMatchList({
+      tournamentId,
+      courtId,
+      bracketId: bracket,
+      matchIds,
+      userId: req.user?._id || null,
+    });
+
+    await emitSchedulerState(req, tournamentId, bracket);
+
+    return res.json({
+      ok: true,
+      courtId,
+      assignedMatch: result.assignedMatch || null,
+    });
+  } catch (error) {
+    return res.status(400).json({ message: error.message || "Luu list that bai." });
+  }
+});
+
+export const clearCourtMatchListHttp = asyncHandler(async (req, res) => {
+  const { tournamentId, courtId } = req.params;
+  const { bracket = null } = req.body || {};
+
+  if (!mongoose.isValidObjectId(tournamentId)) {
+    return res.status(400).json({ message: "Sai tournamentId." });
+  }
+  if (!mongoose.isValidObjectId(courtId)) {
+    return res.status(400).json({ message: "Sai courtId." });
+  }
+
+  try {
+    await clearCourtMatchList({
+      tournamentId,
+      courtId,
+      userId: req.user?._id || null,
+    });
+
+    await emitSchedulerState(req, tournamentId, bracket);
+
+    return res.json({ ok: true, courtId });
+  } catch (error) {
+    return res.status(400).json({ message: error.message || "Xoa list that bai." });
+  }
+});
+
+export const advanceCourtMatchListHttp = asyncHandler(async (req, res) => {
+  const { tournamentId, courtId } = req.params;
+  const { bracket, action = "skip_current" } = req.body || {};
+
+  if (!mongoose.isValidObjectId(tournamentId)) {
+    return res.status(400).json({ message: "Sai tournamentId." });
+  }
+  if (!mongoose.isValidObjectId(courtId)) {
+    return res.status(400).json({ message: "Sai courtId." });
+  }
+
+  try {
+    const result = await advanceCourtMatchList({
+      tournamentId,
+      courtId,
+      action,
+    });
+
+    await emitSchedulerState(req, tournamentId, bracket);
+
+    return res.json({
+      ok: true,
+      courtId,
+      match: result.match || null,
+    });
+  } catch (error) {
+    return res.status(400).json({ message: error.message || "Skip tran that bai." });
   }
 });
 
@@ -528,15 +517,6 @@ export const resetCourtsHttp = asyncHandler(async (req, res) => {
   }
 });
 
-export const MATCH_BASE_SELECT =
-  "_id tournament bracket format type status queueOrder " +
-  "court courtLabel pool rrRound round order code labelKey " +
-  "scheduledAt startedAt finishedAt";
-
-const PAIR_SELECT =
-  "displayName name nickname nickName shortName code " +
-  "player1.fullName player1.nickName player2.fullName player2.nickName participants";
-
 export const displayLabelKey = (m) => {
   if (!m?.labelKey) return "";
   const isGroup = m.format === "group" || m.type === "group" || !!m.pool?.name;
@@ -562,7 +542,7 @@ export const nameOfPair = (pair) => {
   return [n1, n2].filter(Boolean).join(" & ");
 };
 
-export async function fetchSchedulerMatches({
+export async function fetchSchedulerMatchesLite({
   tournamentId,
   bracket,
   clusterKey,
@@ -576,7 +556,7 @@ export async function fetchSchedulerMatches({
   };
 
   let matches = await Match.find(baseFilter)
-    .select(MATCH_BASE_SELECT)
+    .select(MATCH_LITE_SELECT)
     .populate({ path: "pairA", select: PAIR_SELECT })
     .populate({ path: "pairB", select: PAIR_SELECT })
     .sort({ status: 1, queueOrder: 1 })
@@ -587,37 +567,85 @@ export async function fetchSchedulerMatches({
   );
   if (missingIds.length) {
     const extra = await Match.find({ _id: { $in: missingIds } })
-      .select(MATCH_BASE_SELECT)
+      .select(MATCH_LITE_SELECT)
       .populate({ path: "pairA", select: PAIR_SELECT })
       .populate({ path: "pairB", select: PAIR_SELECT })
       .lean();
     matches = matches.concat(extra);
   }
 
-  return matches.map((m) => ({
-    _id: m._id,
-    status: m.status,
-    queueOrder: m.queueOrder,
-    court: m.court,
-    courtLabel: m.courtLabel,
-    pool: m.pool,
-    rrRound: m.rrRound,
-    round: m.round,
-    order: m.order,
-    code: m.code,
-    labelKey: m.labelKey,
-    labelKeyDisplay: displayLabelKey(m),
-    type: m.type,
-    format: m.format,
-    scheduledAt: m.scheduledAt,
-    startedAt: m.startedAt,
-    finishedAt: m.finishedAt,
-    pairA: m.pairA || null,
-    pairB: m.pairB || null,
-    pairAName: m.pairA ? nameOfPair(m.pairA) : "",
-    pairBName: m.pairB ? nameOfPair(m.pairB) : "",
-  }));
+  const reservationMap = await getManualReservationMap({
+    tournamentId,
+    bracketId: bracket || null,
+  });
+
+  return matches.map((m) => {
+    const lite = toMatchLite(m);
+    const reservation = reservationMap.get(String(m._id));
+    return {
+      ...lite,
+      labelKeyDisplay: displayLabelKey(m),
+      manualAssignmentCourtId: reservation?.courtId || null,
+      manualAssignmentCourtName: reservation?.courtName || "",
+      manualAssignmentReserved: !!reservation,
+    };
+  });
 }
+
+export const fetchSchedulerMatches = asyncHandler(async (req, res) => {
+  const {
+    tournamentId,
+    bracket,
+    cluster = "Main",
+    includeCurrent = "1",
+    statuses = "scheduled,queued,assigned,live",
+  } = req.query || {};
+
+  if (!mongoose.isValidObjectId(tournamentId)) {
+    return res.status(400).json({ message: "Sai tournamentId." });
+  }
+
+  const bracketId =
+    bracket && mongoose.isValidObjectId(bracket) ? String(bracket) : null;
+  const clusterKey = bracketId || String(cluster || "Main");
+  const normalizedStatuses = String(statuses || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let includeIds = [];
+  if (String(includeCurrent) === "1") {
+    const courts = await Court.find({
+      tournament: tournamentId,
+      cluster: clusterKey,
+    })
+      .select("currentMatch manualAssignment")
+      .lean();
+
+    includeIds = [
+      ...new Set(
+        courts.flatMap((court) => [
+          ...(court.currentMatch ? [String(court.currentMatch)] : []),
+          ...((court.manualAssignment?.items || []).map((item) =>
+            String(item.matchId)
+          ) || []),
+        ])
+      ),
+    ];
+  }
+
+  const matches = await fetchSchedulerMatchesLite({
+    tournamentId,
+    bracket: bracketId,
+    clusterKey,
+    includeIds,
+    statuses: normalizedStatuses.length
+      ? normalizedStatuses
+      : ["scheduled", "queued", "assigned", "live"],
+  });
+
+  return res.json({ matches });
+});
 
 /**
  * GET /api/admin/tournaments/:tid/courts?bracket=<bid>&q=&cluster=&limit=&page=
@@ -707,9 +735,9 @@ function makeCodes(match, bracket) {
 export async function listCourtsByTournament(req, res) {
   try {
     const { tid } = req.params;
-    // Giữ tham số 'bracket' để tương thích ngược nhưng ❌ KHÔNG dùng
+    const { bracket } = req.query || {};
     const {
-      /* bracket: _bid, */ q = "",
+      q = "",
       cluster = "",
       limit,
       page,
@@ -736,7 +764,7 @@ export async function listCourtsByTournament(req, res) {
       where.name = { $regex: qTrim.replace(/\s+/g, ".*"), $options: "i" };
     }
 
-    const clusterTrim = String(cluster || "").trim();
+    const clusterTrim = String(cluster || bracket || "").trim();
     if (clusterTrim) {
       // cluster là string; giữ nhánh ObjectId để tương thích dữ liệu cũ nếu có
       if (mongoose.Types.ObjectId.isValid(clusterTrim)) {
@@ -881,6 +909,8 @@ export async function listCourtsByTournament(req, res) {
         c.currentMatch.displayCode = displayCode;
       }
     }
+
+    docs = await enrichCourtsWithManualAssignment(docs);
 
     try {
       const presenceSummaryMap = await getCourtLivePresenceSummaryMap(

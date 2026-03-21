@@ -566,6 +566,19 @@ export default function TournamentOverviewPage() {
     };
   }, [socket, brackets, allMatches, refetchMatches, refetchBrackets]);
 
+  useEffect(() => {
+    if (!socket) return;
+    return () => {
+      joinedRef.current.forEach((mid) =>
+        socket.emit("match:leave", { matchId: mid })
+      );
+      (brackets || []).forEach((b) =>
+        socket.emit("draw:unsubscribe", { bracketId: b._id })
+      );
+      joinedRef.current = new Set();
+    };
+  }, [socket, brackets]);
+
   const openMatch = () => {};
 
   const anyError =

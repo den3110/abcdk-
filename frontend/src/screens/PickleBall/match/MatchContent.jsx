@@ -373,6 +373,12 @@ function providerLabel(kind, fallback = "Link") {
 function isNonEmptyString(x) {
   return typeof x === "string" && x.trim().length > 0;
 }
+function isFacebookUrl(url) {
+  const u = safeURL(url);
+  if (!u) return false;
+  const host = u.hostname.toLowerCase();
+  return host.includes("facebook.com") || host.includes("fb.watch");
+}
 function normalizeStreams(m) {
   const out = [];
   const seen = new Set();
@@ -391,7 +397,30 @@ function normalizeStreams(m) {
     seen.add(u);
   };
 
-  if (isNonEmptyString(m?.video)) pushUrl(m.video, { primary: true });
+  const fb = m?.facebookLive || {};
+  const normalizedMatchStatus = String(m?.status || "")
+    .trim()
+    .toLowerCase();
+  const normalizedFbStatus = String(fb?.status || "")
+    .trim()
+    .toLowerCase();
+  const finishedLike =
+    ["finished", "ended", "stopped"].includes(normalizedMatchStatus) ||
+    ["finished", "ended", "stopped"].includes(normalizedFbStatus);
+  const primaryVideo = isNonEmptyString(m?.video) ? m.video.trim() : "";
+  const preferFinishedFacebookVideo =
+    finishedLike &&
+    isFacebookUrl(primaryVideo) &&
+    isNonEmptyString(fb?.video_permalink_url) &&
+    fb.video_permalink_url.trim() !== primaryVideo;
+
+  if (preferFinishedFacebookVideo) {
+    pushUrl(fb.video_permalink_url, {
+      label: "Facebook Video",
+      primary: true,
+    });
+  }
+  if (primaryVideo) pushUrl(primaryVideo, { primary: !preferFinishedFacebookVideo });
   const singles = [
     ["Video", m?.videoUrl],
     ["Stream", m?.stream],
@@ -408,6 +437,23 @@ function normalizeStreams(m) {
     ["URL", m?.sources?.url],
   ];
   for (const [label, val] of singles) pushUrl(val, { label });
+
+  const facebookSingles = finishedLike
+    ? [
+        ["Facebook Video", fb?.video_permalink_url],
+        ["Facebook Watch", fb?.watch_url],
+        ["Facebook Live", fb?.permalink_url],
+        ["Facebook Raw", fb?.raw_permalink_url],
+        ["Facebook Embed", fb?.embed_url],
+      ]
+    : [
+        ["Facebook Watch", fb?.watch_url],
+        ["Facebook Live", fb?.permalink_url],
+        ["Facebook Video", fb?.video_permalink_url],
+        ["Facebook Raw", fb?.raw_permalink_url],
+        ["Facebook Embed", fb?.embed_url],
+      ];
+  for (const [label, val] of facebookSingles) pushUrl(val, { label });
 
   const asStrArray = (arr) =>
     Array.isArray(arr) ? arr.filter(isNonEmptyString) : [];

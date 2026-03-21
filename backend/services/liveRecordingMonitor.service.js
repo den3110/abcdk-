@@ -4,8 +4,13 @@ import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStatusUrl,
   buildRecordingRawStreamUrl,
+  buildRecordingTemporaryPlaybackUrl,
 } from "./liveRecordingV2Export.service.js";
 import { getRecordingDriveSettings } from "./driveRecordings.service.js";
+import {
+  getRecordingStorageConfiguredCapacityTotalBytes,
+  getRecordingStorageUsageSummary,
+} from "./liveRecordingV2Storage.service.js";
 import {
   getLiveRecordingMonitorMeta,
   publishLiveRecordingMonitorUpdate,
@@ -74,12 +79,7 @@ function toNumber(value, fallback = 0) {
 }
 
 function getConfiguredRecordingR2StorageTotalBytes() {
-  const configured = Number(
-    process.env.R2_RECORDINGS_STORAGE_TOTAL_BYTES ||
-      process.env.R2_STORAGE_TOTAL_BYTES ||
-      0
-  );
-  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : null;
+  return getRecordingStorageConfiguredCapacityTotalBytes();
 }
 
 function getExportStaleThresholdMs() {
@@ -221,6 +221,12 @@ function buildStatusMeta(status) {
       return { code: "recording", color: "error", label: "Recording" };
     case "uploading":
       return { code: "uploading", color: "warning", label: "Uploading" };
+    case "pending_export_window":
+      return {
+        code: "pending_export_window",
+        color: "secondary",
+        label: "Cho khung gio dem",
+      };
     case "exporting":
       return { code: "exporting", color: "info", label: "Exporting" };
     case "ready":
@@ -256,21 +262,36 @@ function estimateRecordingR2SourceBytes(recording) {
   }, 0);
 }
 
-function buildR2StorageSummary(recordings = []) {
+async function buildR2StorageSummary(recordings = []) {
   const totalBytes = getConfiguredRecordingR2StorageTotalBytes();
-  const usedBytes = recordings.reduce(
+  const estimatedUsedBytes = recordings.reduce(
     (sum, recording) => sum + estimateRecordingR2SourceBytes(recording),
     0
   );
+  const estimatedRecordingsWithSourceOnR2 = recordings.filter(
+    (recording) => estimateRecordingR2SourceBytes(recording) > 0
+  ).length;
+
+  let usedBytes = estimatedUsedBytes;
+  let recordingsWithSourceOnR2 = estimatedRecordingsWithSourceOnR2;
+  let actualUsage = null;
+  let scanError = null;
+
+  try {
+    actualUsage = await getRecordingStorageUsageSummary();
+    usedBytes = Number(actualUsage?.usedBytes) || 0;
+    recordingsWithSourceOnR2 =
+      Number(actualUsage?.recordingsWithSourceOnR2) || 0;
+  } catch (error) {
+    scanError = error?.message || String(error);
+  }
+
   const remainingBytes =
     totalBytes != null ? Math.max(0, totalBytes - usedBytes) : null;
   const percentUsed =
     totalBytes && totalBytes > 0
       ? Math.max(0, Math.min(100, Math.round((usedBytes / totalBytes) * 100)))
       : null;
-  const recordingsWithSourceOnR2 = recordings.filter(
-    (recording) => estimateRecordingR2SourceBytes(recording) > 0
-  ).length;
 
   return {
     usedBytes,
@@ -279,6 +300,15 @@ function buildR2StorageSummary(recordings = []) {
     percentUsed,
     configured: totalBytes != null,
     recordingsWithSourceOnR2,
+    estimatedUsedBytes,
+    estimatedRecordingsWithSourceOnR2,
+    source: actualUsage?.source || "db_estimate",
+    scannedAt: actualUsage?.scannedAt || null,
+    objectCount: Number(actualUsage?.objectCount) || 0,
+    targetBreakdown: Array.isArray(actualUsage?.targets)
+      ? actualUsage.targets
+      : [],
+    scanError,
   };
 }
 
@@ -354,7 +384,13 @@ function buildExportPipelineInfo(recording, context = {}) {
       : false;
 
   let stage = exportPipeline.stage || null;
-  if (recording?.status === "exporting") {
+  if (recording?.status === "pending_export_window") {
+    if (delayed && !stage) stage = "delayed_until_window";
+    else if (waiting && !stage) stage = "queued";
+    else if (!stage) {
+      stage = recentlyUpdated ? "awaiting_queue_sync" : "stale_no_job";
+    }
+  } else if (recording?.status === "exporting") {
     if (inWorker && !stage) stage = "downloading";
     else if (active && !stage) stage = "downloading";
     else if (waiting && !stage) stage = "queued";
@@ -369,6 +405,7 @@ function buildExportPipelineInfo(recording, context = {}) {
   }
 
   const stageLabels = {
+    delayed_until_window: "Dang cho khung gio dem",
     queued: "Đang chờ worker",
     queued_retry: "Đang đợi retry",
     awaiting_queue_sync: "Đang đồng bộ trạng thái queue",
@@ -382,8 +419,18 @@ function buildExportPipelineInfo(recording, context = {}) {
     worker_offline: "Worker đang offline",
   };
 
+  const scheduledExportAtMs =
+    Number(recording?.scheduledExportAt ? new Date(recording.scheduledExportAt).getTime() : 0) ||
+    Number(exportPipeline?.scheduledExportAt ? new Date(exportPipeline.scheduledExportAt).getTime() : 0) ||
+    Number(delayed?.scheduledAt) ||
+    0;
+
   let detail = "";
-  if (stage === "queued" && waiting?.position) {
+  if (stage === "delayed_until_window") {
+    detail = scheduledExportAtMs
+      ? `Du kien export luc ${new Date(scheduledExportAtMs).toISOString()}`
+      : "Dang doi toi khung gio export dem.";
+  } else if (stage === "queued" && waiting?.position) {
     detail = `Queue #${waiting.position}`;
   } else if (stage === "queued_retry" && delayed?.position) {
     detail = `Retry queue #${delayed.position}`;
@@ -407,6 +454,7 @@ function buildExportPipelineInfo(recording, context = {}) {
     detail,
     driveAuthMode: exportPipeline.driveAuthMode || null,
     queuePosition: waiting?.position || delayed?.position || null,
+    staleReason: exportPipeline.staleReason || null,
     jobId:
       exportPipeline.queueJobId ||
       waiting?.jobId ||
@@ -421,6 +469,10 @@ function buildExportPipelineInfo(recording, context = {}) {
     driveUploadedAt: exportPipeline.driveUploadedAt || null,
     completedAt: exportPipeline.completedAt || null,
     failedAt: exportPipeline.failedAt || null,
+    scheduledExportAt:
+      recording?.scheduledExportAt ||
+      exportPipeline.scheduledExportAt ||
+      (scheduledExportAtMs ? new Date(scheduledExportAtMs) : null),
     updatedAt: exportPipeline.updatedAt || null,
   };
 }
@@ -638,6 +690,13 @@ function buildRow(recording, context = {}) {
     sizeBytes: toNumber(recording.sizeBytes),
     exportAttempts: toNumber(recording.exportAttempts),
     playbackUrl: buildRecordingPlaybackUrl(recording._id),
+    temporaryPlaybackUrl: buildRecordingTemporaryPlaybackUrl(recording._id),
+    temporaryPlaybackReady: Boolean(
+      recording.finalizedAt &&
+        segmentSummary.uploadedSegments > 0 &&
+        segmentSummary.uploadingSegments === 0 &&
+        segmentSummary.failedSegments === 0
+    ),
     rawStreamUrl: buildRecordingRawStreamUrl(recording._id),
     rawStatusUrl: buildRecordingRawStatusUrl(recording._id),
     rawStreamAvailable: Boolean(recording.driveFileId || recording.driveRawUrl),
@@ -646,6 +705,10 @@ function buildRow(recording, context = {}) {
     driveFileId: recording.driveFileId || null,
     driveAuthMode,
     r2SourceBytes: estimateRecordingR2SourceBytes(recording),
+    r2TargetId: recording.r2TargetId || null,
+    r2BucketName: recording.r2BucketName || null,
+    scheduledExportAt:
+      recording.scheduledExportAt || exportPipeline.scheduledExportAt || null,
     sourceCleanupStatus: recording?.meta?.sourceCleanup?.status || null,
     exportPipeline,
     error: recording.error || "",
@@ -657,9 +720,10 @@ function sortRows(rows) {
   const priority = {
     recording: 0,
     uploading: 1,
-    exporting: 2,
-    failed: 3,
-    ready: 4,
+    pending_export_window: 2,
+    exporting: 3,
+    failed: 4,
+    ready: 5,
   };
   return [...rows].sort((a, b) => {
     const pa = priority[a.status] ?? 99;
@@ -735,10 +799,11 @@ export async function buildLiveRecordingMonitorSnapshot() {
       acc.total += 1;
       if (row.status === "recording") acc.recording += 1;
       if (row.status === "uploading") acc.uploading += 1;
+      if (row.status === "pending_export_window") acc.pendingExportWindow += 1;
       if (row.status === "exporting") acc.exporting += 1;
       if (row.status === "ready") acc.ready += 1;
       if (row.status === "failed") acc.failed += 1;
-      if (["recording", "uploading", "exporting"].includes(row.status)) {
+      if (["recording", "uploading", "pending_export_window", "exporting"].includes(row.status)) {
         acc.active += 1;
       }
       acc.totalDurationSeconds += toNumber(row.durationSeconds);
@@ -757,6 +822,7 @@ export async function buildLiveRecordingMonitorSnapshot() {
       active: 0,
       recording: 0,
       uploading: 0,
+      pendingExportWindow: 0,
       exporting: 0,
       ready: 0,
       failed: 0,
@@ -768,7 +834,7 @@ export async function buildLiveRecordingMonitorSnapshot() {
     }
   );
 
-  summary.r2Storage = buildR2StorageSummary(recordings);
+  summary.r2Storage = await buildR2StorageSummary(recordings);
 
   return {
     summary,

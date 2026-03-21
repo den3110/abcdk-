@@ -1720,7 +1720,6 @@ export default function TournamentManagePage() {
         matchIds.forEach((mid) => {
           if (!joinedRef.current.has(mid)) {
             socket.emit("match:join", { matchId: mid });
-            socket.emit("match:snapshot:request", { matchId: mid });
             joinedRef.current.add(mid);
           }
         });

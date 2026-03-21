@@ -62,11 +62,14 @@ export async function getLiveRecordingExportQueueSnapshot() {
   delayedJobs.forEach((job, index) => {
     const recordingId = toRecordingKey(job?.data?.recordingId);
     if (!recordingId || delayedByRecordingId[recordingId]) return;
+    const timestamp = Number(job?.timestamp) || 0;
+    const delay = Number(job?.opts?.delay) || 0;
     delayedByRecordingId[recordingId] = {
       position: index + 1,
       jobId: job?.id ? String(job.id) : null,
-      timestamp: Number(job?.timestamp) || null,
-      delay: Number(job?.opts?.delay) || null,
+      timestamp: timestamp || null,
+      delay: delay || null,
+      scheduledAt: timestamp > 0 ? timestamp + delay : null,
     };
   });
 
@@ -87,17 +90,34 @@ export async function getLiveRecordingExportJob(recordingId) {
 
 export async function enqueueLiveRecordingExport(
   recordingId,
-  { replaceTerminalJob = false } = {}
+  {
+    replaceTerminalJob = false,
+    delayMs = 0,
+    replacePendingJob = false,
+  } = {}
 ) {
   const jobId = buildExportJobId(recordingId);
+  const normalizedDelayMs =
+    Number.isFinite(Number(delayMs)) && Number(delayMs) > 0 ? Math.round(Number(delayMs)) : 0;
 
-  if (replaceTerminalJob) {
-    const existingJob = await liveRecordingExportQueue.getJob(jobId);
-    if (existingJob) {
-      const state = await existingJob.getState().catch(() => null);
-      if (["completed", "failed"].includes(state)) {
-        await existingJob.remove().catch(() => {});
-      }
+  const existingJob = await liveRecordingExportQueue.getJob(jobId);
+  if (existingJob) {
+    const state = await existingJob.getState().catch(() => null);
+
+    if (state === "active") {
+      return existingJob;
+    }
+
+    const shouldRemoveTerminal =
+      replaceTerminalJob && ["completed", "failed"].includes(state);
+    const shouldRemovePending =
+      replacePendingJob &&
+      ["waiting", "waiting-children", "delayed", "prioritized"].includes(state);
+
+    if (shouldRemoveTerminal || shouldRemovePending) {
+      await existingJob.remove().catch(() => {});
+    } else {
+      return existingJob;
     }
   }
 
@@ -106,6 +126,7 @@ export async function enqueueLiveRecordingExport(
     { recordingId: String(recordingId) },
     {
       jobId,
+      ...(normalizedDelayMs > 0 ? { delay: normalizedDelayMs } : {}),
       attempts: 5,
       backoff: {
         type: "exponential",

@@ -20,7 +20,7 @@ import Court from "../models/courtModel.js";
 import Bracket from "../models/bracketModel.js";
 import {
   assignNextToCourt,
-  onMatchFinished,
+  assignSpecificMatchToCourt,
   buildGroupsRotationQueue,
   fillIdleCourtsForCluster,
 } from "../services/courtQueueService.js";
@@ -34,7 +34,11 @@ import {
   sweepStaleSockets,
 } from "../services/presenceService.js";
 import { canManageTournament } from "../utils/tournamentAuth.js";
-import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
+import {
+  ensureAdmin,
+  ensureAdminAndSuperUser,
+  ensureReferee,
+} from "../utils/socketAuth.js";
 import UserMatch from "../models/userMatchModel.js";
 import { computeStageInfoForMatchDoc } from "../controllers/refereeController.js";
 import { buildFbPageMonitorSnapshot } from "../services/fbPageMonitor.service.js";
@@ -76,10 +80,12 @@ const COURT_LIVE_ROOM_PREFIX = "court-live:watch:";
 const COURT_LIVE_RECONCILE_TICK_MS = 15000;
 const COURT_LIVE_DEBOUNCE_MS = 300;
 const LIVE_RECORDING_MONITOR_ROOM = "recordings-v2:watchers";
+const PUSH_MONITOR_ROOM = "push-monitor:watchers";
 const LIVE_RECORDING_MONITOR_TICK_MS = 15000;
 const LIVE_RECORDING_MONITOR_DEBOUNCE_MS = 300;
 const LIVE_RECORDING_MONITOR_REDIS_URL =
   process.env.REDIS_URL || "redis://127.0.0.1:6379";
+const MATCH_SNAPSHOT_DEDUPE_MS = 750;
 
 async function emitFbPageMonitorSnapshot(io, options = {}) {
   const { socketId = null } =
@@ -732,6 +738,74 @@ const buildMatchSnapshotDto = async (matchId, userMatch) => {
   return toDTO(decorateServeAndSlots(m));
 };
 
+const getSocketMatchSnapshotTracker = (socket) => {
+  if (!(socket.data.matchSnapshotTracker instanceof Map)) {
+    socket.data.matchSnapshotTracker = new Map();
+  }
+  return socket.data.matchSnapshotTracker;
+};
+
+const getSocketMatchRoomRefs = (socket) => {
+  if (!(socket.data.matchRoomRefs instanceof Map)) {
+    socket.data.matchRoomRefs = new Map();
+  }
+  return socket.data.matchRoomRefs;
+};
+
+const emitMatchSnapshotToSocket = async (
+  socket,
+  matchId,
+  userMatch,
+  { force = false } = {}
+) => {
+  const normalizedMatchId = String(matchId || "").trim();
+  if (!normalizedMatchId) return null;
+
+  const tracker = getSocketMatchSnapshotTracker(socket);
+  const prev = tracker.get(normalizedMatchId) || {
+    lastEmittedAt: 0,
+    promise: null,
+  };
+
+  if (prev.promise) return prev.promise;
+
+  if (
+    !force &&
+    prev.lastEmittedAt > 0 &&
+    Date.now() - prev.lastEmittedAt < MATCH_SNAPSHOT_DEDUPE_MS
+  ) {
+    return null;
+  }
+
+  const task = (async () => {
+    const dto = await buildMatchSnapshotDto(normalizedMatchId, userMatch);
+    if (dto) {
+      socket.emit("match:snapshot", dto);
+    }
+    return dto;
+  })();
+
+  tracker.set(normalizedMatchId, {
+    lastEmittedAt: prev.lastEmittedAt || 0,
+    promise: task,
+  });
+
+  try {
+    const dto = await task;
+    tracker.set(normalizedMatchId, {
+      lastEmittedAt: dto ? Date.now() : prev.lastEmittedAt || 0,
+      promise: null,
+    });
+    return dto;
+  } catch (error) {
+    tracker.set(normalizedMatchId, {
+      lastEmittedAt: prev.lastEmittedAt || 0,
+      promise: null,
+    });
+    throw error;
+  }
+};
+
 /**
  * Khởi tạo Socket.IO server
  * @param {import('http').Server} httpServer
@@ -998,6 +1072,23 @@ export function initSocket(
       }
     });
 
+    socket.on("push-monitor:watch", async () => {
+      try {
+        if (!(await ensureAdminAndSuperUser(socket))) return;
+        socket.join(PUSH_MONITOR_ROOM);
+      } catch (e) {
+        console.error("[socket] push-monitor:watch error:", e);
+      }
+    });
+
+    socket.on("push-monitor:unwatch", () => {
+      try {
+        socket.leave(PUSH_MONITOR_ROOM);
+      } catch (e) {
+        console.error("[socket] push-monitor:unwatch error:", e);
+      }
+    });
+
     // heartbeat từ client (app/web gửi mỗi 10s)
     socket.on("presence:ping", async () => {
       try {
@@ -1008,16 +1099,30 @@ export function initSocket(
     });
 
     // ========= MATCH ROOMS =========
-    socket.on("match:join", async ({ matchId }) => {
+    socket.on("match:join", async ({ matchId, userMatch } = {}) => {
       try {
-        if (!matchId) return;
+        const normalizedMatchId = String(matchId || "").trim();
+        if (!normalizedMatchId) return;
 
         // vẫn join room match:... cho cả 2 loại
-        await socket.join(`match:${matchId}`);
+        const roomRefs = getSocketMatchRoomRefs(socket);
+        const nextRefCount = (roomRefs.get(normalizedMatchId) || 0) + 1;
+        roomRefs.set(normalizedMatchId, nextRefCount);
+        if (nextRefCount === 1) {
+          await socket.join(`match:${normalizedMatchId}`);
+        }
         socket.emit("match:joined", {
-          matchId: String(matchId),
+          matchId: normalizedMatchId,
           joinedAt: new Date().toISOString(),
+          refs: nextRefCount,
         });
+
+        await emitMatchSnapshotToSocket(
+          socket,
+          normalizedMatchId,
+          userMatch
+        );
+        return;
 
         let m = null;
         let isUserMatch = false;
@@ -1384,11 +1489,8 @@ export function initSocket(
 
     socket.on("match:snapshot:request", async ({ matchId, userMatch } = {}) => {
       try {
-        if (!matchId) return;
-        const dto = await buildMatchSnapshotDto(matchId, userMatch);
-        if (dto) {
-          socket.emit("match:snapshot", dto);
-        }
+        await emitMatchSnapshotToSocket(socket, matchId, userMatch);
+        return;
       } catch (e) {
         console.error(
           "[socket match:snapshot:request] fatal error:",
@@ -1421,11 +1523,6 @@ export function initSocket(
     socket.on("match:finish", async ({ matchId, winner, reason }) => {
       if (!ensureReferee(socket)) return;
       await finishMatch(matchId, winner, reason, socket.user?._id, io);
-      try {
-        await onMatchFinished({ matchId });
-      } catch (e) {
-        console.error("[scheduler] onMatchFinished error:", e?.message);
-      }
       // 👇 phát lại state cho cụm/bracket chứa trận
       try {
         const m = await Match.findById(matchId)
@@ -1446,14 +1543,6 @@ export function initSocket(
       async ({ matchId, winner, reason = "forfeit" }) => {
         if (!ensureReferee(socket)) return;
         await forfeitMatch(matchId, winner, reason, socket.user?._id, io);
-        try {
-          await onMatchFinished({ matchId });
-        } catch (e) {
-          console.error(
-            "[scheduler] onMatchFinished (forfeit) error:",
-            e?.message
-          );
-        }
       }
     );
 
@@ -2356,10 +2445,9 @@ export function initSocket(
     // ===== socket handler (request current state) =====
     socket.on(
       "scheduler:requestState",
-      ({ tournamentId, cluster = "Main" }) => {
+      ({ tournamentId, bracket, cluster = "Main" }) => {
         if (!tournamentId) return;
-        // Courts giờ theo GIẢI (không phụ thuộc bracket)
-        broadcastState(io, tournamentId, { cluster });
+        broadcastState(io, tournamentId, { bracket, cluster });
       }
     );
 
@@ -2438,36 +2526,58 @@ export function initSocket(
           session.startTransaction();
 
           try {
-            // (A) Xoá hết các trận ĐANG ĐƯỢC GÁN VÀO SÂN trong phạm vi bracket/cluster
-            // - Chỉ xoá những trận còn "sống" (không xoá finished/canceled)
-            // - Lọc theo bracket (nếu có) hoặc theo cluster
-            const deleteFilter = {
+            const activeMatches = await Match.find({
               tournament: tournamentId,
               ...(bracket ? { bracket } : { courtCluster: clusterKey }),
-              court: { $ne: null }, // đang có sân gán
+              court: { $ne: null },
               status: { $nin: ["finished", "cancelled", "canceled"] },
+            })
+              .select("_id queueOrder courtCluster")
+              .session(session)
+              .lean();
+
+            for (const match of activeMatches) {
+              await Match.updateOne(
+                { _id: match._id },
+                {
+                  $set: {
+                    status:
+                      match.queueOrder != null || match.courtCluster
+                        ? "queued"
+                        : "scheduled",
+                    court: null,
+                    courtLabel: "",
+                    assignedAt: null,
+                  },
+                },
+                { session }
+              );
+            }
+
+            const courtsFilter = {
+              tournament: tournamentId,
+              cluster: clusterKey,
             };
-
-            const deleteAssignedRes = await Match.deleteMany(deleteFilter, {
-              session,
-            });
-
-            // (B) Clear currentMatch ở các sân trong phạm vi
-            const courtsFilter = bracket
-              ? { tournament: tournamentId, bracket }
-              : { tournament: tournamentId, cluster: clusterKey };
 
             const clearedCourtsRes = await Court.updateMany(
               courtsFilter,
-              { $unset: { currentMatch: "" } },
+              {
+                $set: {
+                  status: "idle",
+                  currentMatch: null,
+                  "manualAssignment.enabled": false,
+                  "manualAssignment.bracketId": null,
+                  "manualAssignment.fallbackToAuto": true,
+                  "manualAssignment.items": [],
+                  "manualAssignment.updatedAt": new Date(),
+                },
+              },
               { session }
             );
 
-            // (C) Commit transaction
             await session.commitTransaction();
             session.endSession();
 
-            // (D) Tuỳ chọn: build lại queue & lấp sân trống
             if (rebuild) {
               try {
                 await buildGroupsRotationQueue({
@@ -2487,7 +2597,6 @@ export function initSocket(
               }
             }
 
-            // (E) Phát lại state cho room đang xem cụm/bracket đó
             await broadcastState(io, tournamentId, {
               bracket,
               cluster: clusterKey,
@@ -2495,7 +2604,7 @@ export function initSocket(
 
             ack?.({
               ok: true,
-              deletedAssignedMatches: deleteAssignedRes?.deletedCount ?? 0,
+              unassignedMatches: activeMatches.length,
               clearedCourts: clearedCourtsRes?.modifiedCount ?? 0,
               rebuilt: Boolean(rebuild),
             });
@@ -2514,15 +2623,28 @@ export function initSocket(
 
     socket.on("match:leave", ({ matchId, userMatch }) => {
       try {
-        if (!matchId) return;
+        const normalizedMatchId = String(matchId || "").trim();
+        if (!normalizedMatchId) return;
 
         // rời room match cho cả match thường & userMatch
-        // socket.leave(`match:${matchId}`);
+        const roomRefs = getSocketMatchRoomRefs(socket);
+        const nextRefCount = Math.max(
+          0,
+          (roomRefs.get(normalizedMatchId) || 0) - 1
+        );
+        if (nextRefCount === 0) {
+          roomRefs.delete(normalizedMatchId);
+          getSocketMatchSnapshotTracker(socket).delete(normalizedMatchId);
+          socket.leave(`match:${normalizedMatchId}`);
+        } else {
+          roomRefs.set(normalizedMatchId, nextRefCount);
+        }
 
         console.log(
           "[socket] match:leave",
-          matchId,
-          userMatch ? "(userMatch)" : ""
+          normalizedMatchId,
+          userMatch ? "(userMatch)" : "",
+          `refs=${nextRefCount}`
         );
       } catch (e) {
         console.error("[socket match:leave] error:", e?.message || e);
@@ -2673,181 +2795,68 @@ export function initSocket(
             ack?.({ ok: false, message: "Invalid bracket id" });
             return;
           }
+          const result = await assignSpecificMatchToCourt({
+            tournamentId,
+            bracket,
+            courtId,
+            matchId,
+            replace,
+            cluster: resolveClusterKey(bracket, cluster),
+          });
 
-          // Load court + match
-          const [court, match] = await Promise.all([
-            Court.findById(courtId).lean(),
-            Match.findById(matchId).lean(),
-          ]);
+          const clusterKey = result.clusterKey;
+          const mDoc = result.match;
 
-          if (!court) return ack?.({ ok: false, message: "Court not found" });
-          if (!match) return ack?.({ ok: false, message: "Match not found 5" });
+          await broadcastState(io, String(tournamentId), {
+            bracket: bracket || mDoc.bracket,
+            cluster: clusterKey,
+          });
 
-          if (
-            String(court.tournament) !== String(tournamentId) ||
-            String(match.tournament) !== String(tournamentId)
-          ) {
-            return ack?.({ ok: false, message: "Tournament mismatch" });
-          }
-
-          // Nếu client truyền bracket thì kiểm tra khớp
-          if (bracket && String(match.bracket) !== String(bracket)) {
-            return ack?.({ ok: false, message: "Match not in bracket" });
-          }
-          // Nếu sân có bracket ràng buộc thì bắt buộc khớp với match
-          if (
-            court.bracket &&
-            String(court.bracket) !== String(match.bracket)
-          ) {
-            return ack?.({
-              ok: false,
-              message: "Court belongs to another bracket",
-            });
-          }
-
-          if (["live", "finished"].includes(match.status)) {
-            return ack?.({
-              ok: false,
-              message: `Cannot assign a ${match.status} match`,
-            });
-          }
-
-          const clusterKey =
-            court.cluster || resolveClusterKey(bracket, cluster);
-
-          const session = await mongoose.startSession();
-          session.startTransaction();
-          // ghi nhận để emit sau khi commit
-          let replacedMatchId = null; // trận đang chiếm sân, bị đẩy ra (nếu có)
-          let prevCourtIdOfMoving = null; // sân cũ của match được chuyển (nếu có)
           try {
-            // 0) Nếu sân đang bận và không replace
-            if (
-              court.currentMatch &&
-              String(court.currentMatch) !== String(match._id) &&
-              !replace
-            ) {
-              throw new Error("Court is busy. Pass replace=true to override.");
-            }
-
-            // 1) Nếu sân đang có trận khác -> đẩy về queued & gỡ gán
-            if (
-              court.currentMatch &&
-              String(court.currentMatch) !== String(match._id)
-            ) {
-              const prev = await Match.findById(court.currentMatch).session(
-                session
+            const mNew = await populateMatchForEmit(mDoc._id);
+            if (mNew) {
+              io.to(`match:${String(mNew._id)}`).emit(
+                "match:snapshot",
+                toDTO(decorateServeAndSlots(mNew))
               );
-              if (prev && prev.status !== "finished") {
-                prev.status = "queued";
-                prev.set("court", undefined, { strict: false });
-                prev.set("courtLabel", undefined, { strict: false });
-                prev.set("queueOrder", undefined, { strict: false });
-                await prev.save({ session });
-                replacedMatchId = String(prev._id); // <— ghi nhớ để emit sau commit
-              }
-            }
-
-            // 2) Nếu trận đang nằm ở sân khác -> gỡ currentMatch ở sân cũ
-            if (match.court && String(match.court) !== String(court._id)) {
-              prevCourtIdOfMoving = String(match.court);
-              const prevCourt = await Court.findById(match.court).session(
-                session
+              io.to(`match:${String(mNew._id)}`).emit(
+                "match:update",
+                toDTO(decorateServeAndSlots(mNew))
               );
-              if (
-                prevCourt &&
-                String(prevCourt.currentMatch) === String(match._id)
-              ) {
-                prevCourt.set("currentMatch", undefined, { strict: false });
-                await prevCourt.save({ session });
-              }
             }
+          } catch (e) {
+            console.error("[emit] new match snapshot error:", e?.message);
+          }
 
-            // 3) Cập nhật match -> assigned vào court
-            const courtLabelGuess =
-              court.name ||
-              court.label ||
-              (Number.isInteger(court.order) ? `Sân ${court.order}` : "Sân");
-            const mDoc = await Match.findById(match._id).session(session);
-            mDoc.status = "assigned";
-            mDoc.court = court._id;
-            mDoc.courtLabel = courtLabelGuess;
-            mDoc.courtCluster = clusterKey;
-            mDoc.set("queueOrder", undefined, { strict: false }); // bỏ thứ tự hàng đợi
-            await mDoc.save({ session });
-
-            // 4) Cập nhật court.currentMatch
-            const cDoc = await Court.findById(court._id).session(session);
-            cDoc.currentMatch = mDoc._id;
-            await cDoc.save({ session });
-
-            await session.commitTransaction();
-            session.endSession();
-
-            // 5) Phát lại state cho phòng xem cụm/bracket
-            await broadcastState(io, String(tournamentId), {
-              bracket: mDoc.bracket,
-              cluster: clusterKey,
-            });
-
-            // 6) Emit snapshot full object cho TRẬN MỚI (đã được gán sân)
+          if (result.replacedMatchId) {
             try {
-              const mNew = await populateMatchForEmit(mDoc._id);
-              if (mNew) {
-                // Phát cho tất cả client đang join match:<id>
-                io.to(`match:${String(mNew._id)}`).emit(
+              const mOld = await populateMatchForEmit(result.replacedMatchId);
+              if (mOld) {
+                mOld.court = null;
+                mOld.courtLabel = undefined;
+                io.to(`match:${String(mOld._id)}`).emit(
                   "match:snapshot",
-                  toDTO(decorateServeAndSlots(mNew))
+                  toDTO(decorateServeAndSlots(mOld))
                 );
-                // (tuỳ chọn) thêm "match:update" nếu FE cũng lắng event này
-                io.to(`match:${String(mNew._id)}`).emit(
+                io.to(`match:${String(mOld._id)}`).emit(
                   "match:update",
-                  toDTO(decorateServeAndSlots(mNew))
+                  toDTO(decorateServeAndSlots(mOld))
                 );
               }
             } catch (e) {
-              console.error("[emit] new match snapshot error:", e?.message);
+              console.error("[emit] old match snapshot error:", e?.message);
             }
-
-            // 7) Emit snapshot full object cho TRẬN CŨ (bị đẩy khỏi sân)
-            if (replacedMatchId) {
-              try {
-                const mOld = await populateMatchForEmit(replacedMatchId);
-                if (mOld) {
-                  // đảm bảo trạng thái & court đã clear (phòng khi populate mang theo cache)
-                  mOld.status = "queued";
-                  mOld.court = null;
-                  mOld.courtLabel = undefined;
-
-                  io.to(`match:${String(mOld._id)}`).emit(
-                    "match:snapshot",
-                    toDTO(decorateServeAndSlots(mOld))
-                  );
-                  io.to(`match:${String(mOld._id)}`).emit(
-                    "match:update",
-                    toDTO(decorateServeAndSlots(mOld))
-                  );
-                }
-              } catch (e) {
-                console.error("[emit] old match snapshot error:", e?.message);
-              }
-            }
-
-            ack?.({
-              ok: true,
-              courtId: String(court._id),
-              matchId: String(mDoc._id),
-              status: mDoc.status,
-              courtLabel: mDoc.courtLabel,
-              cluster: clusterKey,
-              replaced: Boolean(replace),
-            });
-          } catch (err) {
-            await session.abortTransaction().catch(() => {});
-            session.endSession();
-            console.error("[scheduler] assignSpecific error:", err?.message);
-            ack?.({ ok: false, message: err?.message || "Assign failed" });
           }
+
+          ack?.({
+            ok: true,
+            courtId: String(result.court._id),
+            matchId: String(mDoc._id),
+            status: mDoc.status,
+            courtLabel: mDoc.courtLabel,
+            cluster: clusterKey,
+            replaced: Boolean(replace),
+          });
         } catch (e) {
           console.error("[scheduler] assignSpecific outer error:", e?.message);
           ack?.({ ok: false, message: e?.message || "Assign failed" });

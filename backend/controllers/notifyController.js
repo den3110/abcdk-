@@ -7,9 +7,16 @@ import {
 } from "../services/notifications/notificationHub.js";
 // ⚠️ Nếu bạn để broadcastToAllTokens trong notificationService cũ, giữ nguyên path dưới.
 //    Nếu file ở src/services/notificationService.js thì sửa lại path cho đúng dự án của bạn.
-import { broadcastToAllTokens } from "../services/notifications/notificationService.js";
+import { agenda } from "../jobs/agenda.js";
 import Tournament from "../models/tournamentModel.js";
-import User from "../models/userModel.js"
+import User from "../models/userModel.js";
+import {
+  createPushDispatch,
+  markPushDispatchFailed,
+  markPushDispatchJob,
+} from "../services/pushDispatchService.js";
+
+const ADMIN_GLOBAL_BROADCAST_JOB = "notify.admin.global-broadcast";
 
 // POST /api/events/match/:matchId/start-soon
 // body: { label?: string, eta?: string }  // ví dụ: label="R1#3 • Sân 2 • 10:30", eta="15′"
@@ -110,6 +117,7 @@ export async function notifyTournamentScheduleUpdated(req, res) {
 // }
 
 export async function notifyGlobalBroadcast(req, res) {
+  let dispatch = null;
   try {
     const {
       scope = "all",
@@ -127,36 +135,59 @@ export async function notifyGlobalBroadcast(req, res) {
       return res.status(400).json({ message: "title & body are required" });
     }
 
-    // 🆕 mode 1: gửi cho người đã subscribe topic "global"
-    if (scope === "subscribers") {
-      const out = await publishNotification(EVENTS.SYSTEM_BROADCAST, {
-        topicType: "global",
-        topicId: null, // null cho "global"
-        category: CATEGORY.SYSTEM,
-        title,
-        body,
-        url,
-      });
-      return res.json({
-        ok: true,
-        scope,
-        event: EVENTS.SYSTEM_BROADCAST,
-        ...out,
-      });
-    }
-
-    // mode 2 (mặc định): broadcast tới TẤT CẢ token trong DB (lọc theo platform/version)
     const filters = { platform, minVersion, maxVersion };
-    const payload = {
+    dispatch = await createPushDispatch({
+      sourceKind: "admin_broadcast",
+      eventName: EVENTS.SYSTEM_BROADCAST,
+      triggeredBy: req.user?._id || null,
+      payload: { title, body, url, badge, ttl },
+      target: {
+        scope,
+        topicType: scope === "subscribers" ? "global" : "",
+        topicId: scope === "subscribers" ? "global" : "",
+        filters,
+      },
+      context: {
+        scope,
+        platform,
+        minVersion,
+        maxVersion,
+      },
+      status: "queued",
+    });
+
+    const job = agenda.create(ADMIN_GLOBAL_BROADCAST_JOB, {
+      dispatchId: String(dispatch._id),
+      scope,
       title,
       body,
-      data: url ? { url } : {}, // deep-link
-    };
-    const sendOpts = { badge, ttl };
+      url,
+      platform,
+      minVersion,
+      maxVersion,
+      badge,
+      ttl,
+      triggeredBy: req.user?._id ? String(req.user._id) : null,
+    });
+    await job.save();
+    await markPushDispatchJob(dispatch._id, {
+      jobName: ADMIN_GLOBAL_BROADCAST_JOB,
+      jobId: job?.attrs?._id ? String(job.attrs._id) : "",
+    });
 
-    const out = await broadcastToAllTokens(filters, payload, sendOpts);
-    return res.json({ ok: true, scope, ...out });
+    return res.status(202).json({
+      ok: true,
+      scope,
+      event: EVENTS.SYSTEM_BROADCAST,
+      dispatchId: String(dispatch._id),
+      status: "queued",
+    });
   } catch (e) {
+    if (dispatch?._id) {
+      await markPushDispatchFailed(dispatch._id, {
+        note: e?.message || "admin_global_broadcast_enqueue_failed",
+      });
+    }
     return res.status(500).json({ message: e.message });
   }
 }
@@ -200,16 +231,30 @@ export async function notifyUserBroadcast(req, res) {
 
     // 🧩 Cách 1 (recommend): đi qua notificationHub với topicType "user"
     // → bạn handle trong notificationHub: topicType === "user" thì lấy tokens theo userId rồi bắn push
-    const out = await publishNotification(event, {
-      topicType: "user",
-      topicId: String(userId),
-      category: CATEGORY.SYSTEM, // hoặc CATEGORY.DIRECT nếu bạn có
-      title,
-      body,
-      url,
-      badge,
-      ttl,
-    });
+    const out = await publishNotification(
+      event,
+      {
+        scope: "user",
+        userId: String(userId),
+        topicType: "user",
+        topicId: String(userId),
+        category: CATEGORY.SYSTEM, // hoặc CATEGORY.DIRECT nếu bạn có
+        title,
+        body,
+        url,
+        badge,
+        ttl,
+      },
+      {
+        badge,
+        ttl,
+        dispatchMeta: {
+          sourceKind: "admin_direct",
+          triggeredBy: req.user?._id || null,
+          userId: String(userId),
+        },
+      }
+    );
 
     return res.json({
       ok: true,
