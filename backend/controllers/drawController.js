@@ -19,6 +19,7 @@ import {
   EVENTS,
   publishNotification,
 } from "../services/notifications/notificationHub.js";
+import { emitTournamentInvalidate } from "../socket/tournamentRealtime.js";
 
 const asId = (x) => new mongoose.Types.ObjectId(String(x));
 
@@ -1517,6 +1518,11 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
 
   const io = req.app.get("io");
   emitTerminal(io, sess, "committed");
+  emitTournamentInvalidate(io, {
+    tournamentId: sess.tournament,
+    bracketId: sess.bracket,
+    reason: "draw_committed",
+  });
 
   res.json({ ok: true, created, session: sess });
 });
@@ -1766,6 +1772,12 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
       createdIds.push(String(doc._id));
     }
 
+    const io = req.app.get("io");
+    emitTournamentInvalidate(io, {
+      tournamentId: br.tournament,
+      bracketId: br._id,
+      reason: "group_matches_generated_manual",
+    });
     res.json({ ok: true, mode, created, matchIds: createdIds });
     try {
       // 🔔 Gửi notif slot/bảng cho VĐV (fire-and-forget, không block response)
@@ -1823,6 +1835,12 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
     }
   }
 
+  const io = req.app.get("io");
+  emitTournamentInvalidate(io, {
+    tournamentId: br.tournament,
+    bracketId: br._id,
+    reason: "group_matches_generated_auto",
+  });
   res.json({
     ok: true,
     mode: "auto",

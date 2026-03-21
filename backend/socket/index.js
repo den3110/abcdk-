@@ -54,6 +54,10 @@ import {
   registerLiveRecordingMonitorPublisher,
   setLiveRecordingMonitorMeta,
 } from "../services/liveRecordingMonitorEvents.service.js";
+import {
+  emitTournamentInvalidate,
+  emitTournamentMatchUpdate,
+} from "./tournamentRealtime.js";
 
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
@@ -750,6 +754,50 @@ const getSocketMatchRoomRefs = (socket) => {
     socket.data.matchRoomRefs = new Map();
   }
   return socket.data.matchRoomRefs;
+};
+
+const getSocketScopedRoomRefs = (socket, scope) => {
+  if (!(socket.data.scopedRoomRefs instanceof Map)) {
+    socket.data.scopedRoomRefs = new Map();
+  }
+  const key = String(scope || "").trim();
+  if (!key) return new Map();
+  if (!(socket.data.scopedRoomRefs.get(key) instanceof Map)) {
+    socket.data.scopedRoomRefs.set(key, new Map());
+  }
+  return socket.data.scopedRoomRefs.get(key);
+};
+
+const updateSocketScopedRoomRef = (
+  socket,
+  scope,
+  rawId,
+  action,
+  roomFactory = (id) => `${scope}:${id}`
+) => {
+  const normalizedId = String(rawId || "").trim();
+  if (!normalizedId) return 0;
+
+  const refs = getSocketScopedRoomRefs(socket, scope);
+  const current = refs.get(normalizedId) || 0;
+
+  if (action === "leave") {
+    const next = Math.max(0, current - 1);
+    if (next === 0) {
+      refs.delete(normalizedId);
+      socket.leave(roomFactory(normalizedId));
+    } else {
+      refs.set(normalizedId, next);
+    }
+    return next;
+  }
+
+  const next = current + 1;
+  refs.set(normalizedId, next);
+  if (current === 0) {
+    socket.join(roomFactory(normalizedId));
+  }
+  return next;
 };
 
 const emitMatchSnapshotToSocket = async (
@@ -1782,17 +1830,11 @@ export function initSocket(
           snap = await postprocessSnapshotLikeJoin(snap);
           const dto = toDTO(decorateServeAndSlots(snap));
 
-          // broadcast
-          io.to(`match:${matchId}`).emit("match:snapshot", dto);
-          if (dto?.bracket?._id) {
-            io.to(`bracket:${dto.bracket._id}`).emit("match:snapshot", dto);
-          }
-          if (dto?.tournament?._id) {
-            io.to(`tournament:${dto.tournament._id}`).emit(
-              "match:snapshot",
-              dto
-            );
-          }
+          emitTournamentMatchUpdate(io, dto, dto, {
+            type: "serve:set",
+            matchId,
+            emitMatchSnapshot: true,
+          });
 
           ack?.({ ok: true, data: dto });
         } catch (e) {
@@ -2288,8 +2330,11 @@ export function initSocket(
         dto.stageName = stageInfo.stageName; // dùng luôn stageName, không map gì thêm
       }
 
-      // unified channel để FE bắt được và hiển thị ngay
-      io.to(`match:${matchId}`).emit("score:updated", dto);
+      emitTournamentMatchUpdate(io, dto, dto, {
+        type: "score:set",
+        matchId,
+        emitScoreUpdated: true,
+      });
     });
 
     // (Giữ compatibility nếu FE còn dùng)
@@ -2419,8 +2464,11 @@ export function initSocket(
       //   type: "score",
       //   data: dto,
       // });
-      // (tuỳ chọn giữ tương thích cũ)
-      io.to(`match:${matchId}`).emit("score:updated", dto);
+      emitTournamentMatchUpdate(io, dto, dto, {
+        type: "score:inc",
+        matchId,
+        emitScoreUpdated: true,
+      });
     });
     // ========= SCHEDULER (Tournament + Bracket/Cluster) =========
     socket.on(
@@ -2600,6 +2648,11 @@ export function initSocket(
             await broadcastState(io, tournamentId, {
               bracket,
               cluster: clusterKey,
+            });
+            emitTournamentInvalidate(io, {
+              tournamentId,
+              bracketId: bracket,
+              reason: rebuild ? "scheduler_reset_rebuild" : "scheduler_reset",
             });
 
             ack?.({
@@ -2815,13 +2868,14 @@ export function initSocket(
           try {
             const mNew = await populateMatchForEmit(mDoc._id);
             if (mNew) {
-              io.to(`match:${String(mNew._id)}`).emit(
-                "match:snapshot",
-                toDTO(decorateServeAndSlots(mNew))
-              );
-              io.to(`match:${String(mNew._id)}`).emit(
-                "match:update",
-                toDTO(decorateServeAndSlots(mNew))
+              emitTournamentMatchUpdate(
+                io,
+                mNew,
+                toDTO(decorateServeAndSlots(mNew)),
+                {
+                  type: "court:assign",
+                  emitMatchSnapshot: true,
+                }
               );
             }
           } catch (e) {
@@ -2834,13 +2888,14 @@ export function initSocket(
               if (mOld) {
                 mOld.court = null;
                 mOld.courtLabel = undefined;
-                io.to(`match:${String(mOld._id)}`).emit(
-                  "match:snapshot",
-                  toDTO(decorateServeAndSlots(mOld))
-                );
-                io.to(`match:${String(mOld._id)}`).emit(
-                  "match:update",
-                  toDTO(decorateServeAndSlots(mOld))
+                emitTournamentMatchUpdate(
+                  io,
+                  mOld,
+                  toDTO(decorateServeAndSlots(mOld)),
+                  {
+                    type: "court:unassign",
+                    emitMatchSnapshot: true,
+                  }
                 );
               }
             } catch (e) {
@@ -2864,19 +2919,54 @@ export function initSocket(
       }
     );
 
-    // ========= DRAW rooms (giữ tương thích cũ) =========
-    socket.on("draw:join", ({ bracketId }) => {
-      if (bracketId) socket.join(`draw:${String(bracketId)}`);
-    });
-    socket.on("draw:leave", ({ bracketId }) => {
-      if (bracketId) socket.leave(`draw:${String(bracketId)}`);
-    });
-    socket.on("draw:subscribe", ({ bracketId }) => {
-      if (bracketId) socket.join(`draw:${String(bracketId)}`);
-    });
-    socket.on("draw:unsubscribe", ({ bracketId }) => {
-      if (bracketId) socket.leave(`draw:${String(bracketId)}`);
-    });
+    // ========= DRAW / TOURNAMENT rooms =========
+    const joinDrawRoom = ({ bracketId } = {}) => {
+      if (!bracketId) return;
+      updateSocketScopedRoomRef(
+        socket,
+        "draw",
+        bracketId,
+        "join",
+        (id) => `draw:${id}`
+      );
+    };
+    const leaveDrawRoom = ({ bracketId } = {}) => {
+      if (!bracketId) return;
+      updateSocketScopedRoomRef(
+        socket,
+        "draw",
+        bracketId,
+        "leave",
+        (id) => `draw:${id}`
+      );
+    };
+    const joinTournamentRoom = ({ tournamentId } = {}) => {
+      if (!tournamentId) return;
+      updateSocketScopedRoomRef(
+        socket,
+        "tournament",
+        tournamentId,
+        "join",
+        (id) => `tournament:${id}`
+      );
+    };
+    const leaveTournamentRoom = ({ tournamentId } = {}) => {
+      if (!tournamentId) return;
+      updateSocketScopedRoomRef(
+        socket,
+        "tournament",
+        tournamentId,
+        "leave",
+        (id) => `tournament:${id}`
+      );
+    };
+
+    socket.on("draw:join", joinDrawRoom);
+    socket.on("draw:leave", leaveDrawRoom);
+    socket.on("draw:subscribe", joinDrawRoom);
+    socket.on("draw:unsubscribe", leaveDrawRoom);
+    socket.on("tournament:subscribe", joinTournamentRoom);
+    socket.on("tournament:unsubscribe", leaveTournamentRoom);
 
     socket.on("disconnect", async () => {
       try {

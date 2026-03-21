@@ -85,6 +85,7 @@ import {
 
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import VideoDialog from "../../components/VideoDialog";
 import AssignCourtDialog from "../../components/AssignCourtDialog";
 import AssignRefDialog from "../../components/AssignRefDialog";
@@ -1662,9 +1663,22 @@ export default function TournamentManagePage() {
 
   // Socket realtime
   const socket = useSocket();
-  const joinedRef = useRef(new Set());
   const matchRefetchTimer = useRef(null);
   const bracketRefetchTimer = useRef(null);
+  const tournamentRoomIds = useMemo(
+    () => (id ? [String(id)] : []),
+    [id]
+  );
+  const tournamentIdsRef = useRef(new Set());
+  useEffect(() => {
+    tournamentIdsRef.current = new Set(tournamentRoomIds);
+  }, [tournamentRoomIds]);
+
+  useSocketRoomSet(socket, tournamentRoomIds, {
+    subscribeEvent: "tournament:subscribe",
+    unsubscribeEvent: "tournament:unsubscribe",
+    payloadKey: "tournamentId",
+  });
 
   const scheduleMatchesRefetch = useCallback(() => {
     if (matchRefetchTimer.current) return;
@@ -1704,72 +1718,33 @@ export default function TournamentManagePage() {
 
   useEffect(() => {
     if (!socket) return;
-
-    const bracketIds = (brackets || [])
-      .map((b) => String(b._id))
-      .filter(Boolean);
-    const matchIds = (allMatchesBase || [])
-      .map((m) => String(m._id))
-      .filter(Boolean);
-
-    const subscribeRooms = () => {
-      try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:subscribe", { bracketId: bid })
-        );
-        matchIds.forEach((mid) => {
-          if (!joinedRef.current.has(mid)) {
-            socket.emit("match:join", { matchId: mid });
-            joinedRef.current.add(mid);
-          }
-        });
-      } catch { }
-    };
-
-    const onConnected = () => subscribeRooms();
     const onMatchSnapshot = (p) => applySnapshot(p);
-    const onScoreUpdated = (p) => applySnapshot(p);
     const onMatchUpdated = (p) => {
       applySnapshot(p);
-      scheduleMatchesRefetch();
     };
-    const onMatchDeleted = () => scheduleMatchesRefetch();
-    const onRefilled = () => {
+    const onInvalidate = (payload) => {
+      const tournamentId = String(payload?.tournamentId || "").trim();
+      if (tournamentId && !tournamentIdsRef.current.has(tournamentId)) {
+        return;
+      }
       scheduleBracketsRefetch();
       scheduleMatchesRefetch();
     };
 
-    socket.on("connect", onConnected);
-    socket.on("match:snapshot", onMatchSnapshot);
-    socket.on("score:updated", onScoreUpdated);
-    socket.on("match:updated", onMatchUpdated);
-    socket.on("match:deleted", onMatchDeleted);
-    socket.on("draw:refilled", onRefilled);
-    socket.on("bracket:updated", onRefilled);
-
-    subscribeRooms();
+    socket.on("tournament:match:update", onMatchSnapshot);
+    socket.on("match:update", onMatchUpdated);
+    socket.on("tournament:invalidate", onInvalidate);
 
     return () => {
-      socket.off("connect", onConnected);
-      socket.off("match:snapshot", onMatchSnapshot);
-      socket.off("score:updated", onScoreUpdated);
-      socket.off("match:updated", onMatchUpdated);
-      socket.off("match:deleted", onMatchDeleted);
-      socket.off("draw:refilled", onRefilled);
-      socket.off("bracket:updated", onRefilled);
-      try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:unsubscribe", { bracketId: bid })
-        );
-      } catch { }
+      socket.off("tournament:match:update", onMatchSnapshot);
+      socket.off("match:update", onMatchUpdated);
+      socket.off("tournament:invalidate", onInvalidate);
       if (matchRefetchTimer.current) clearTimeout(matchRefetchTimer.current);
       if (bracketRefetchTimer.current)
         clearTimeout(bracketRefetchTimer.current);
     };
   }, [
     socket,
-    brackets,
-    allMatchesBase,
     applySnapshot,
     scheduleMatchesRefetch,
     scheduleBracketsRefetch,

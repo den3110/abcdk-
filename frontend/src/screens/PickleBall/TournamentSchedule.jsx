@@ -44,6 +44,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
 import { skipToken } from "@reduxjs/toolkit/query";
@@ -946,7 +947,6 @@ export default function TournamentSchedule() {
   const {
     data: matchesResp,
     isLoading: mLoading,
-    refetch: refetchMatches,
   } = useListPublicMatchesByTournamentQuery({
     tid: id,
     params: { limit: 1000 },
@@ -954,7 +954,6 @@ export default function TournamentSchedule() {
   const {
     data: brackets = [],
     isLoading: bLoading,
-    refetch: refetchBrackets,
   } = useListTournamentBracketsQuery(id, {
     refetchOnMountOrArgChange: true,
     refetchOnFocus: true,
@@ -1055,6 +1054,17 @@ export default function TournamentSchedule() {
     return { added, removed, nextSet };
   };
 
+  const tournamentRoomIds = useMemo(
+    () => (id ? [String(id)] : []),
+    [id]
+  );
+
+  useSocketRoomSet(socket, tournamentRoomIds, {
+    subscribeEvent: "tournament:subscribe",
+    unsubscribeEvent: "tournament:unsubscribe",
+    payloadKey: "tournamentId",
+  });
+
   useEffect(() => {
     if (!socket) return;
     const onUpsert = (payload) => queueUpsert(payload);
@@ -1066,77 +1076,22 @@ export default function TournamentSchedule() {
         setLiveBump((x) => x + 1);
       }
     };
-    const onRefilled = () => {
-      refetchMatches();
-      refetchBrackets();
-    };
-    const onConnected = () => {
-      subscribedBracketsRef.current.forEach((bid) =>
-        socket.emit("draw:subscribe", { bracketId: bid })
-      );
-      joinedMatchesRef.current.forEach((mid) => {
-        socket.emit("match:join", { matchId: mid });
-      });
-    };
-    socket.on("connect", onConnected);
-    socket.on("match:update", onUpsert);
-    socket.on("match:snapshot", onUpsert);
-    socket.on("score:updated", onUpsert);
+    socket.on("tournament:match:update", onUpsert);
     socket.on("match:deleted", onRemove);
-    socket.on("draw:refilled", onRefilled);
-    socket.on("bracket:updated", onRefilled);
     return () => {
-      socket.off("connect", onConnected);
-      socket.off("match:update", onUpsert);
-      socket.off("match:snapshot", onUpsert);
-      socket.off("score:updated", onUpsert);
+      socket.off("tournament:match:update", onUpsert);
       socket.off("match:deleted", onRemove);
-      socket.off("draw:refilled", onRefilled);
-      socket.off("bracket:updated", onRefilled);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [socket, queueUpsert, refetchMatches, refetchBrackets]);
+  }, [socket, queueUpsert]);
 
   useEffect(() => {
-    if (!socket) return;
-    const nextIds =
-      (brackets || []).map((b) => String(b._id)).filter(Boolean) ?? [];
-    const { added, removed, nextSet } = diffSet(
-      subscribedBracketsRef.current,
-      nextIds
-    );
-    added.forEach((bid) => socket.emit("draw:subscribe", { bracketId: bid }));
-    removed.forEach((bid) =>
-      socket.emit("draw:unsubscribe", { bracketId: bid })
-    );
-    subscribedBracketsRef.current = nextSet;
-    return () => {
-      nextSet.forEach((bid) =>
-        socket.emit("draw:unsubscribe", { bracketId: bid })
-      );
-    };
-  }, [socket, bracketsKey]);
-
-  useEffect(() => {
-    if (!socket) return;
-    const nextIds =
-      (matchesResp?.list || []).map((m) => String(m._id)).filter(Boolean) ?? [];
-    const { added, removed, nextSet } = diffSet(
-      joinedMatchesRef.current,
-      nextIds
-    );
-    added.forEach((mid) => {
-      socket.emit("match:join", { matchId: mid });
-    });
-    removed.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
-    joinedMatchesRef.current = nextSet;
-    return () => {
-      nextSet.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
-    };
-  }, [socket, matchesKey]);
+    subscribedBracketsRef.current = new Set();
+    joinedMatchesRef.current = new Set();
+  }, [bracketsKey, matchesKey]);
 
   // Aggregation
   const matches = useMemo(

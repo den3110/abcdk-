@@ -18,6 +18,7 @@ import Court from "../models/courtModel.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 import { broadcastState } from "../services/broadcastState.js";
 import UserMatch from "../models/userMatchModel.js";
+import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
   const { pointsToWin = 11, winByTwo = true } = rules || {};
@@ -1412,7 +1413,10 @@ export const patchStatus = asyncHandler(async (req, res) => {
           }
         : baseDto;
 
-    io?.to(`match:${String(match._id)}`).emit("match:snapshot", payload);
+    emitTournamentMatchUpdate(io, match, payload, {
+      type: "snapshot",
+      emitMatchSnapshot: true,
+    });
   }
 
   // ★★★ Gửi thông báo cho người chơi khi TRẬN BẮT ĐẦU (chỉ lần đầu vào live) ★★★
@@ -1505,18 +1509,13 @@ export const patchWinner = asyncHandler(async (req, res) => {
   const dto = toDTO(decorateServeAndSlots(mFull));
 
   // === EMIT ra room trận (client xem live) ===
-  io?.to(`match:${id}`).emit("score:updated", dto);
-  io?.to(`match:${id}`).emit("match:update", dto);
+  emitTournamentMatchUpdate(io, match, dto, {
+    type: clearing ? "winner:clear" : "winner:update",
+    matchId: id,
+    emitScoreUpdated: true,
+  });
   io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
   io?.to(`match:${id}`).emit("match:patched", { matchId: id });
-  if (match?.bracket) {
-    io?.to(`draw:${String(match.bracket)}`).emit("draw:match:update", {
-      type: clearing ? "winner:clear" : "winner:update",
-      bracketId: String(match.bracket),
-      matchId: String(match._id),
-      data: dto,
-    });
-  }
 
   // === EMIT ra room scheduler (trang điều phối sân đang join) ===
   const schedRoom = `scheduler:${String(match.tournament)}:${String(
@@ -2760,8 +2759,10 @@ export async function assignCourtToMatch(req, res, next) {
       const mFull = await populateMatchForEmit(matchId);
       if (!mFull) return;
       const dto = toDTO(decorateServeAndSlots(mFull));
-      io.to(`match:${String(mFull._id)}`).emit("match:snapshot", dto);
-      // io.to(`match:${String(mFull._id)}`).emit("match:update", dto);
+      emitTournamentMatchUpdate(io, mFull, dto, {
+        type: "snapshot",
+        emitMatchSnapshot: true,
+      });
     } catch (e) {
       console.error("[emit] match snapshot error:", e?.message);
     }
@@ -2998,8 +2999,10 @@ export async function unassignCourtFromMatch(req, res, next) {
       const mFull = await populateMatchForEmit(matchId);
       if (!mFull) return;
       const dto = toDTO(decorateServeAndSlots(mFull));
-      io.to(`match:${String(mFull._id)}`).emit("match:snapshot", dto);
-      io.to(`match:${String(mFull._id)}`).emit("match:update", dto);
+      emitTournamentMatchUpdate(io, mFull, dto, {
+        type: "snapshot",
+        emitMatchSnapshot: true,
+      });
     } catch (e) {
       console.error("[emit] match snapshot error:", e?.message);
     }

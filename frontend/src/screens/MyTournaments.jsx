@@ -55,6 +55,7 @@ import { useNavigate } from "react-router-dom";
 import { useListMyTournamentsQuery } from "../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./PickleBall/match/ResponsiveMatchViewer";
 import { useSocket } from "../context/SocketContext";
+import { useSocketRoomSet } from "../hook/useSocketRoomSet";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import {
@@ -1057,6 +1058,21 @@ export default function MyTournamentsPage() {
     });
     return { added, removed, nextSet };
   };
+
+  const tournamentRoomIds = useMemo(
+    () =>
+      (tournamentsRaw || [])
+        .map((t) => String(t?._id))
+        .filter(Boolean),
+    [tournamentsRaw]
+  );
+
+  useSocketRoomSet(socket, tournamentRoomIds, {
+    subscribeEvent: "tournament:subscribe",
+    unsubscribeEvent: "tournament:unsubscribe",
+    payloadKey: "tournamentId",
+  });
+
   useEffect(() => {
     if (!socket) return;
     const onUpsert = (payload) => queueUpsert(payload);
@@ -1068,79 +1084,23 @@ export default function MyTournamentsPage() {
         setLiveBump((x) => x + 1);
       }
     };
-    const onRefilled = () => {
-      refetch();
-    };
-    const onConnected = () => {
-      subscribedBracketsRef.current.forEach((bid) =>
-        socket.emit("draw:subscribe", { bracketId: bid })
-      );
-      joinedMatchesRef.current.forEach((mid) => {
-        socket.emit("match:join", { matchId: mid });
-      });
-    };
-    socket.on("connect", onConnected);
-    socket.on("match:update", onUpsert);
-    socket.on("match:snapshot", onUpsert);
-    socket.on("match:patched", onUpsert);
-    socket.on("score:updated", onUpsert);
-    socket.on("score:update", onUpsert);
+
+    socket.on("tournament:match:update", onUpsert);
     socket.on("match:deleted", onRemove);
-    socket.on("draw:refilled", onRefilled);
-    socket.on("bracket:updated", onRefilled);
     return () => {
-      socket.off("connect", onConnected);
-      socket.off("match:update", onUpsert);
-      socket.off("match:snapshot", onUpsert);
-      socket.off("match:patched", onUpsert);
-      socket.off("score:updated", onUpsert);
-      socket.off("score:update", onUpsert);
+      socket.off("tournament:match:update", onUpsert);
       socket.off("match:deleted", onRemove);
-      socket.off("draw:refilled", onRefilled);
-      socket.off("bracket:updated", onRefilled);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, queueUpsert, refetch]);
+  }, [socket, queueUpsert]);
   useEffect(() => {
-    if (!socket) return;
-    const nextIds = allBracketIdsKey ? allBracketIdsKey.split(",") : [];
-    const { added, removed, nextSet } = diffSet(
-      subscribedBracketsRef.current,
-      nextIds
-    );
-    added.forEach((bid) => socket.emit("draw:subscribe", { bracketId: bid }));
-    removed.forEach((bid) =>
-      socket.emit("draw:unsubscribe", { bracketId: bid })
-    );
-    subscribedBracketsRef.current = nextSet;
-    return () => {
-      nextSet.forEach((bid) =>
-        socket.emit("draw:unsubscribe", { bracketId: bid })
-      );
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, allBracketIdsKey]);
-  useEffect(() => {
-    if (!socket) return;
-    const nextIds = allMatchIdsKey ? allMatchIdsKey.split(",") : [];
-    const { added, removed, nextSet } = diffSet(
-      joinedMatchesRef.current,
-      nextIds
-    );
-    added.forEach((mid) => {
-      socket.emit("match:join", { matchId: mid });
-    });
-    removed.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
-    joinedMatchesRef.current = nextSet;
-    return () => {
-      nextSet.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, allMatchIdsKey]);
+    subscribedBracketsRef.current = new Set();
+    joinedMatchesRef.current = new Set();
+  }, [allBracketIdsKey, allMatchIdsKey]);
 
   const tournamentsLive = useMemo(() => {
     const getLive = (m) => liveMapRef.current.get(String(m?._id)) || m;

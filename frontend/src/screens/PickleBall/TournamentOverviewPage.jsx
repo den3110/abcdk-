@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -48,6 +48,7 @@ import {
   useAdminListMatchesByTournamentQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatDate as formatLocaleDate, formatTime as formatLocaleTime } from "../../i18n/format";
 import SEOHead from "../../components/SEOHead";
@@ -393,13 +394,11 @@ export default function TournamentOverviewPage() {
     data: brackets = [],
     isLoading: brLoading,
     error: brErr,
-    refetch: refetchBrackets,
   } = useAdminGetBracketsQuery(id);
   const {
     data: matchPage,
     isLoading: mLoading,
     error: mErr,
-    refetch: refetchMatches,
   } = useAdminListMatchesByTournamentQuery({
     tid: id,
     page: 1,
@@ -410,7 +409,81 @@ export default function TournamentOverviewPage() {
   const loadingRegs = regsLoading;
   const loadingBr = brLoading;
   const loadingMatches = mLoading;
-  const allMatches = useMemo(() => matchPage?.list || [], [matchPage]);
+  const allMatchesInitial = useMemo(() => matchPage?.list || [], [matchPage]);
+  const liveMapRef = useRef(new Map());
+  const pendingRef = useRef(new Map());
+  const rafRef = useRef(null);
+  const [liveBump, setLiveBump] = useState(0);
+
+  const flushPending = useCallback(() => {
+    if (!pendingRef.current.size) return;
+    const liveMap = liveMapRef.current;
+    for (const [matchId, incoming] of pendingRef.current) {
+      const current = liveMap.get(matchId);
+      const nextVersion = Number(
+        incoming?.liveVersion ?? incoming?.version ?? 0
+      );
+      const currentVersion = Number(
+        current?.liveVersion ?? current?.version ?? 0
+      );
+      const merged =
+        !current || nextVersion >= currentVersion
+          ? { ...(current || {}), ...incoming }
+          : current;
+      liveMap.set(matchId, merged);
+    }
+    pendingRef.current.clear();
+    setLiveBump((x) => x + 1);
+  }, []);
+
+  const queueUpsert = useCallback(
+    (payload) => {
+      const incoming = payload?.data ?? payload?.match ?? payload;
+      if (!incoming?._id) return;
+      pendingRef.current.set(String(incoming._id), incoming);
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        flushPending();
+      });
+    },
+    [flushPending]
+  );
+
+  const apiSig = useMemo(() => {
+    const signatures = allMatchesInitial.map((match) => {
+      const id = String(match?._id || "");
+      const version =
+        match?.liveVersion ??
+        match?.version ??
+        (match?.updatedAt ? new Date(match.updatedAt).getTime() : 0);
+      return `${id}:${version}`;
+    });
+    signatures.sort();
+    return signatures.join("|");
+  }, [allMatchesInitial]);
+
+  const prevApiSigRef = useRef("");
+  useEffect(() => {
+    if (apiSig === prevApiSigRef.current) return;
+    prevApiSigRef.current = apiSig;
+    const nextMap = new Map();
+    for (const match of allMatchesInitial) {
+      if (match?._id) nextMap.set(String(match._id), match);
+    }
+    liveMapRef.current = nextMap;
+    setLiveBump((x) => x + 1);
+  }, [apiSig, allMatchesInitial]);
+
+  const allMatches = useMemo(
+    () =>
+      Array.from(liveMapRef.current.values()).filter(
+        (match) =>
+          String(match?.tournament?._id || match?.tournament || id) ===
+          String(id)
+      ),
+    [id, liveBump]
+  );
 
   // Permissions
   const isAdmin = !!(
@@ -521,63 +594,35 @@ export default function TournamentOverviewPage() {
 
   // Socket (Giữ nguyên logic Socket, đảm bảo cập nhật realtime)
   const socket = useSocket();
-  const joinedRef = useRef(new Set());
-  const refetchTimerRef = useRef(null);
-  useEffect(() => {
-    if (!socket) return;
-    const scheduleRefetch = () => {
-      if (!refetchTimerRef.current)
-        refetchTimerRef.current = setTimeout(() => {
-          refetchTimerRef.current = null;
-          refetchMatches?.();
-        }, 500);
-    };
-    const onConn = () => {
-      (brackets || []).forEach((b) =>
-        socket.emit("draw:subscribe", { bracketId: b._id })
-      );
-      (allMatches || []).forEach((m) => {
-        if (!joinedRef.current.has(m._id)) {
-          socket.emit("match:join", { matchId: m._id });
-          joinedRef.current.add(m._id);
-        }
-      });
-    };
-    const onUpd = () => scheduleRefetch();
-    const onRefill = () => {
-      refetchBrackets?.();
-      scheduleRefetch();
-    };
-    socket.on("connect", onConn);
-    socket.on("match:update", onUpd);
-    socket.on("score:updated", onUpd);
-    socket.on("match:deleted", onUpd);
-    socket.on("draw:refilled", onRefill);
-    socket.on("bracket:updated", onRefill);
-    onConn();
-    return () => {
-      socket.off("connect", onConn);
-      socket.off("match:update", onUpd);
-      socket.off("score:updated", onUpd);
-      socket.off("match:deleted", onUpd);
-      socket.off("draw:refilled", onRefill);
-      socket.off("bracket:updated", onRefill);
-      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
-    };
-  }, [socket, brackets, allMatches, refetchMatches, refetchBrackets]);
+  const tournamentRoomIds = useMemo(() => (id ? [String(id)] : []), [id]);
 
+  useSocketRoomSet(socket, tournamentRoomIds, {
+    subscribeEvent: "tournament:subscribe",
+    unsubscribeEvent: "tournament:unsubscribe",
+    payloadKey: "tournamentId",
+  });
   useEffect(() => {
     if (!socket) return;
-    return () => {
-      joinedRef.current.forEach((mid) =>
-        socket.emit("match:leave", { matchId: mid })
-      );
-      (brackets || []).forEach((b) =>
-        socket.emit("draw:unsubscribe", { bracketId: b._id })
-      );
-      joinedRef.current = new Set();
+    const onUpd = (payload) => queueUpsert(payload);
+    const onRemove = (payload) => {
+      const matchId = String(payload?.id ?? payload?._id ?? "");
+      if (!matchId) return;
+      if (liveMapRef.current.has(matchId)) {
+        liveMapRef.current.delete(matchId);
+        setLiveBump((x) => x + 1);
+      }
     };
-  }, [socket, brackets]);
+    socket.on("tournament:match:update", onUpd);
+    socket.on("match:deleted", onRemove);
+    return () => {
+      socket.off("tournament:match:update", onUpd);
+      socket.off("match:deleted", onRemove);
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [socket, queueUpsert]);
 
   const openMatch = () => {};
 

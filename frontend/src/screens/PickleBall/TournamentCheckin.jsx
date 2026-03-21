@@ -49,6 +49,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 
 import { useSocket } from "../../context/SocketContext";
+import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatTime } from "../../i18n/format";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
@@ -102,12 +103,10 @@ export default function TournamentCheckin() {
   const {
     data: matchesResp = [],
     isLoading: matchesLoading,
-    refetch: refetchMatchesAll,
   } = useGetTournamentMatchesForCheckinQuery(id);
   const {
     data: brackets = [],
     isLoading: bracketsLoading,
-    refetch: refetchBrackets,
   } = useListTournamentBracketsQuery(id, {
     refetchOnMountOrArgChange: true,
     refetchOnFocus: true,
@@ -275,58 +274,19 @@ export default function TournamentCheckin() {
     [bracketIds]
   );
 
-  const refetchMatchesAllRef = useRef(refetchMatchesAll);
-  const refetchBracketsRef = useRef(refetchBrackets);
-  const refetchSearchRef = useRef(refetchSearch);
-  const submittedQRef = useRef(submittedQ);
+  const tournamentRoomIds = useMemo(
+    () => (id ? [String(id)] : []),
+    [id]
+  );
 
-  useEffect(() => {
-    refetchMatchesAllRef.current = refetchMatchesAll;
-  }, [refetchMatchesAll]);
-  useEffect(() => {
-    refetchBracketsRef.current = refetchBrackets;
-  }, [refetchBrackets]);
-  useEffect(() => {
-    refetchSearchRef.current = refetchSearch;
-  }, [refetchSearch]);
-  useEffect(() => {
-    submittedQRef.current = submittedQ;
-  }, [submittedQ]);
+  useSocketRoomSet(socket, tournamentRoomIds, {
+    subscribeEvent: "tournament:subscribe",
+    unsubscribeEvent: "tournament:unsubscribe",
+    payloadKey: "tournamentId",
+  });
 
-  const joinedRef = useRef(new Set());
   useEffect(() => {
     if (!socket) return;
-    const subscribeDrawRooms = () => {
-      try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:subscribe", { bracketId: bid })
-        );
-      } catch {
-        // ignore subscribe errors during reconnect
-      }
-    };
-    const unsubscribeDrawRooms = () => {
-      try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:unsubscribe", { bracketId: bid })
-        );
-      } catch {
-        // ignore unsubscribe errors during teardown
-      }
-    };
-    const joinAllMatches = () => {
-      try {
-        matchIds.forEach((mid) => {
-          if (!joinedRef.current.has(mid)) {
-            socket.emit("match:join", { matchId: mid });
-            joinedRef.current.add(mid);
-          }
-        });
-      } catch {
-        // ignore socket join errors during reconnect
-      }
-    };
-
     const onUpsert = (payload) => queueUpsert(payload);
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
@@ -336,48 +296,19 @@ export default function TournamentCheckin() {
         setLiveBump((x) => x + 1);
       }
     };
-    const onRefilled = () => {
-      refetchMatchesAllRef.current?.();
-      refetchBracketsRef.current?.();
-      if (submittedQRef.current) refetchSearchRef.current?.();
-    };
-    const onConnected = () => {
-      subscribeDrawRooms();
-      joinAllMatches();
-    };
 
-    socket.on("connect", onConnected);
-    socket.on("match:update", onUpsert);
-    socket.on("match:snapshot", onUpsert);
-    socket.on("score:updated", onUpsert);
+    socket.on("tournament:match:update", onUpsert);
     socket.on("match:deleted", onRemove);
-    socket.on("draw:refilled", onRefilled);
-    socket.on("bracket:updated", onRefilled);
-    if (socket.connected) onConnected();
 
     return () => {
-      socket.off("connect", onConnected);
-      socket.off("match:update", onUpsert);
-      socket.off("match:snapshot", onUpsert);
-      socket.off("score:updated", onUpsert);
+      socket.off("tournament:match:update", onUpsert);
       socket.off("match:deleted", onRemove);
-      socket.off("draw:refilled", onRefilled);
-      socket.off("bracket:updated", onRefilled);
-      unsubscribeDrawRooms();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [
-    socket,
-    id,
-    bracketIdsSig,
-    matchIdsSig,
-    queueUpsert,
-    bracketIds,
-    matchIds,
-  ]);
+  }, [socket, id, bracketIdsSig, matchIdsSig, queueUpsert]);
 
   const matches = useMemo(
     () =>

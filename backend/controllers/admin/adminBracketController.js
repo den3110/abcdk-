@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import Bracket from "../../models/bracketModel.js";
 import Registration from "../../models/registrationModel.js";
 import Match from "../../models/matchModel.js";
+import { emitTournamentInvalidate } from "../../socket/tournamentRealtime.js";
 
 const oid = (v) => new mongoose.Types.ObjectId(String(v));
 
@@ -401,6 +402,16 @@ export async function generateGroupMatchesForTeam(req, res) {
       return { ok: true, created: docs.length };
     });
 
+    if (result?.created > 0) {
+      emitTournamentInvalidate(req.app.get("io"), {
+        tournamentId:
+          (
+            await Bracket.findById(bracketId).select("tournament").lean()
+          )?.tournament,
+        bracketId,
+        reason: "group_matches_generated_for_team",
+      });
+    }
     res.json(result);
   } catch (e) {
     res.status(400).json({ ok: false, message: e.message });

@@ -11,6 +11,7 @@ import {
   EVENTS,
   publishNotification,
 } from "../../services/notifications/notificationHub.js";
+import { emitTournamentMatchUpdate } from "../../socket/tournamentRealtime.js";
 
 /** Chuẩn hoá DTO match (đủ dữ liệu để render) */
 const toDTO = (m) => ({
@@ -586,7 +587,10 @@ export async function assignMatchToCourt(req, res) {
       m.displayCode = displayCode;
       m.roundCode = code;
 
-      io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+      emitTournamentMatchUpdate(io, m, toDTO(m), {
+        type: "snapshot",
+        emitMatchSnapshot: true,
+      });
 
       // 🔔 Gửi thông báo push cho tất cả VĐV của 2 đội
       try {
@@ -945,7 +949,10 @@ export async function clearMatchCourt(req, res) {
       }
 
       // Emit snapshot với mã trận chuẩn
-      io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+      emitTournamentMatchUpdate(io, m, toDTO(m), {
+        type: "snapshot",
+        emitMatchSnapshot: true,
+      });
     }
 
     return res.json({ ok: true, match: updatedMatch });

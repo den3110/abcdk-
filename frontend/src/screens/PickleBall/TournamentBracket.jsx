@@ -68,6 +68,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
 import {
@@ -2118,13 +2119,11 @@ export default function TournamentBracket() {
     data: brackets = [],
     isLoading: l2,
     error: e2,
-    refetch: refetchBrackets,
   } = useListTournamentBracketsQuery(tourId);
   const {
     data: allMatchesFetched = [],
     isLoading: l3,
     error: e3,
-    refetch: refetchMatches,
   } = useListTournamentMatchesQuery(
     { tournamentId: tourId },
     {
@@ -2143,7 +2142,11 @@ export default function TournamentBracket() {
 
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
-  const subscribedBracketsRef = useRef(new Set());
+  const bracketIds = useMemo(
+    () => (brackets || []).map((b) => String(b._id)).filter(Boolean),
+    [brackets]
+  );
+  const bracketIdsRef = useRef(new Set());
 
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
@@ -2198,6 +2201,16 @@ export default function TournamentBracket() {
     setLiveBump((x) => x + 1);
   }, [allMatchesFetched]);
 
+  useEffect(() => {
+    bracketIdsRef.current = new Set(bracketIds);
+  }, [bracketIds]);
+
+  useSocketRoomSet(socket, bracketIds, {
+    subscribeEvent: "draw:subscribe",
+    unsubscribeEvent: "draw:unsubscribe",
+    payloadKey: "bracketId",
+  });
+
   // useEffect(() => {
   //   const mp = new Map();
   //   for (const m of allMatchesFetched) {
@@ -2210,31 +2223,6 @@ export default function TournamentBracket() {
 
   useEffect(() => {
     if (!socket) return;
-
-    // ---- subscribe draw theo bracketId (không phải tournamentId) ----
-    const bracketIds = (brackets || []).map((b) => String(b._id));
-    const subscribeDrawRooms = () => {
-      try {
-        const nextSet = new Set(bracketIds);
-        nextSet.forEach((bid) => {
-          if (!subscribedBracketsRef.current.has(bid)) {
-            socket.emit("draw:subscribe", { bracketId: bid });
-          }
-        });
-        subscribedBracketsRef.current.forEach((bid) => {
-          if (!nextSet.has(bid)) {
-            socket.emit("draw:unsubscribe", { bracketId: bid });
-          }
-        });
-        subscribedBracketsRef.current = nextSet;
-      } catch (e) {
-        console.log(e);
-      }
-    };
-
-    // ---- join tất cả phòng match của giải để nhận "match:update" ----
-
-    // ---- handlers ----
     const onUpsert = (payload) => queueUpsert(payload); // nhận cả match:update & match:snapshot
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
@@ -2244,60 +2232,16 @@ export default function TournamentBracket() {
         setLiveBump((x) => x + 1);
       }
     };
-    const onRefilled = () => {
-      refetchBrackets();
-      refetchMatches();
-    };
-
-    // ---- wire up ----
-    const onConnected = () => {
-      subscribeDrawRooms();
-    };
-
-    socket.on("connect", onConnected);
-
-    // BE phát vào room match:<id> với "match:update" {type,data}
     socket.on("draw:match:update", onUpsert);
-    // snapshot khi join 1 match
-    // tương thích cũ nếu đôi khi bạn còn emit cái này
-
-    socket.on("draw:refilled", onRefilled);
-    socket.on("bracket:updated", onRefilled);
-
-    // chạy ngay lần đầu
-    onConnected();
 
     return () => {
-      socket.off("connect", onConnected);
       socket.off("draw:match:update", onUpsert);
-      socket.off("draw:refilled", onRefilled);
-      socket.off("bracket:updated", onRefilled);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    socket,
-    tourId,
-    brackets,
-    allMatchesFetched,
-    refetchBrackets,
-    refetchMatches,
-    queueUpsert,
-  ]);
-
-  // Giữ nhãn sân ổn định theo matchId
-  useEffect(() => {
-    if (!socket) return;
-    return () => {
-      subscribedBracketsRef.current.forEach((bid) =>
-        socket.emit("draw:unsubscribe", { bracketId: bid })
-      );
-      subscribedBracketsRef.current = new Set();
-    };
-  }, [socket]);
+  }, [socket, queueUpsert, tourId]);
 
   const courtLabelRef = useRef(new Map());
   const getStickyCourt = useCallback((m) => {

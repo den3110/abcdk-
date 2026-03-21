@@ -17,6 +17,7 @@ import {
   startOrRenewLease,
 } from "../services/liveSessionLease.service.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
+import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 // controllers/matchController.js
 const getMatchesByTournament = asyncHandler(async (req, res) => {
   const raw = await Match.find({ tournament: req.params.id })
@@ -2040,7 +2041,10 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
           status: m.status,
         });
 
-        io.to(`match:${String(m._id)}`).emit("match:snapshot", dto);
+        emitTournamentMatchUpdate(io, m, dto, {
+          type: "snapshot",
+          emitMatchSnapshot: true,
+        });
       }
     }
   } catch (err) {

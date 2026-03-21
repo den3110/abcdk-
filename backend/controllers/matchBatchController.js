@@ -5,6 +5,10 @@ import Bracket from "../models/bracketModel.js";
 import mongoose from "mongoose";
 import User from "../models/userModel.js";
 import { toDTO } from "../socket/liveHandlers.js";
+import {
+  emitTournamentInvalidate,
+  emitTournamentMatchUpdate,
+} from "../socket/tournamentRealtime.js";
 
 /** POST /admin/matches/batch/update-referee
  * body: { ids: [matchId...], referee: userId }
@@ -182,7 +186,10 @@ export const batchAssignReferee = expressAsyncHandler(async (req, res) => {
     });
 
     // 5.2) báo đầy đủ để FE refetch UI
-    io?.to(`match:${String(m._id)}`).emit("match:snapshot", toDTO(m));
+    emitTournamentMatchUpdate(io, m, toDTO(m), {
+      type: "snapshot",
+      emitMatchSnapshot: true,
+    });
   }
 
   res.json({
@@ -205,6 +212,25 @@ export const batchDeleteMatches = expressAsyncHandler(async (req, res) => {
     _id: { $in: ids },
     bracket: bracketId,
   });
+
+  try {
+    const io = req.app.get("io");
+    const bracket = await Bracket.findById(bracketId).select("tournament").lean();
+    ids.forEach((id) => {
+      io?.to(`match:${String(id)}`).emit("match:deleted", {
+        id: String(id),
+        bracketId: String(bracketId),
+        tournamentId: bracket?.tournament ? String(bracket.tournament) : undefined,
+      });
+    });
+    emitTournamentInvalidate(io, {
+      tournamentId: bracket?.tournament,
+      bracketId,
+      reason: "matches_deleted",
+    });
+  } catch (error) {
+    console.error("[batchDeleteMatches] emit invalidate error:", error);
+  }
   res.json({ deleted: result.deletedCount || 0 });
 });
 
@@ -454,7 +480,10 @@ export const batchSetLiveUrl = expressAsyncHandler(async (req, res) => {
     if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
     // emit snapshot đầy đủ
-    io?.to(`match:${String(m._id)}`).emit("match:snapshot", toDTO(m));
+    emitTournamentMatchUpdate(io, m, toDTO(m), {
+      type: "snapshot",
+      emitMatchSnapshot: true,
+    });
   }
 
   res.json({

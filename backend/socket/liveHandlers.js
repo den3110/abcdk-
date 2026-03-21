@@ -8,6 +8,7 @@ import latestSnapshot from "../utils/getLastestSnapshot.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import { onMatchFinished } from "../services/courtQueueService.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
+import { emitTournamentMatchUpdate } from "./tournamentRealtime.js";
 
 // ===== CAP-AWARE helpers =====
 function isFinitePos(n) {
@@ -491,21 +492,11 @@ function onLostRallyNextServe(prev) {
 function emitMatchRealtimeUpdate(io, matchId, type, doc) {
   if (!io || !matchId || !doc) return;
   const dto = toDTO(decorateServeAndSlots(doc));
-  io.to(`match:${matchId}`).emit("score:updated", dto);
-  io.to(`match:${matchId}`).emit("match:update", {
+  emitTournamentMatchUpdate(io, doc, dto, {
     type,
-    data: dto,
+    matchId,
+    emitScoreUpdated: true,
   });
-
-  const bracketId = String(doc?.bracket?._id || doc?.bracket || "").trim();
-  if (bracketId) {
-    io.to(`draw:${bracketId}`).emit("draw:match:update", {
-      type,
-      bracketId,
-      matchId: String(matchId),
-      data: dto,
-    });
-  }
 }
 
 export async function startMatch(matchId, refereeId, io) {
