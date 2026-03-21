@@ -14,7 +14,8 @@ export function useSocketRoomSet(
   ids,
   { subscribeEvent, unsubscribeEvent, payloadKey }
 ) {
-  const subscribedRef = useRef(new Set());
+  const desiredRef = useRef(new Set());
+  const joinedRef = useRef(new Set());
   const normalizedIds = useMemo(() => normalizeIds(ids), [ids]);
   const idsKey = useMemo(() => normalizedIds.join("|"), [normalizedIds]);
 
@@ -25,38 +26,55 @@ export function useSocketRoomSet(
       setLike.forEach((id) => socket.emit(eventName, { [payloadKey]: id }));
     };
 
-    const onConnect = () => emitAll(subscribeEvent, subscribedRef.current);
+    const onConnect = () => {
+      emitAll(subscribeEvent, desiredRef.current);
+      joinedRef.current = new Set(desiredRef.current);
+    };
+    const onDisconnect = () => {
+      joinedRef.current = new Set();
+    };
     socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
     if (socket.connected) onConnect();
 
     return () => {
       socket.off("connect", onConnect);
-      emitAll(unsubscribeEvent, subscribedRef.current);
-      subscribedRef.current = new Set();
+      socket.off("disconnect", onDisconnect);
+      if (socket.connected) {
+        emitAll(unsubscribeEvent, joinedRef.current);
+      }
+      desiredRef.current = new Set();
+      joinedRef.current = new Set();
     };
   }, [socket, subscribeEvent, unsubscribeEvent, payloadKey]);
 
   useEffect(() => {
     if (!socket || !subscribeEvent || !unsubscribeEvent || !payloadKey) return;
 
-    const current = subscribedRef.current;
-    const next = new Set(idsKey ? idsKey.split("|") : []);
+    const desired = new Set(idsKey ? idsKey.split("|") : []);
+    desiredRef.current = desired;
 
-    next.forEach((id) => {
+    if (!socket.connected) {
+      return;
+    }
+
+    const current = joinedRef.current;
+
+    desired.forEach((id) => {
       if (!current.has(id)) {
         socket.emit(subscribeEvent, { [payloadKey]: id });
       }
     });
     current.forEach((id) => {
-      if (!next.has(id)) {
+      if (!desired.has(id)) {
         socket.emit(unsubscribeEvent, { [payloadKey]: id });
       }
     });
 
-    subscribedRef.current = next;
+    joinedRef.current = new Set(desired);
   }, [socket, idsKey, subscribeEvent, unsubscribeEvent, payloadKey]);
 
-  return subscribedRef;
+  return desiredRef;
 }
 
 export default useSocketRoomSet;

@@ -2125,7 +2125,7 @@ export default function TournamentBracket() {
     isLoading: l3,
     error: e3,
   } = useListTournamentMatchesQuery(
-    { tournamentId: tourId },
+    { tournamentId: tourId, view: "bracket" },
     {
       refetchOnMountOrArgChange: true,
       refetchOnFocus: true,

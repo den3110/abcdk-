@@ -11,8 +11,17 @@ import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { ensureTournamentCardImageUrl } from "../utils/tournamentImageVariant.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
+const TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS || 2000)
+);
+const tournamentBracketMatchesCache = createShortTtlCache(
+  TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS
+);
+
 const normalizeTournamentPublicUrls = async (req, tournament) => {
   if (!tournament || typeof tournament !== "object") return tournament;
 
@@ -31,6 +40,412 @@ const normalizeTournamentPublicUrls = async (req, tournament) => {
     image: await ensureTournamentCardImageUrl(req, tournament.image),
     overlay,
   };
+};
+
+const buildBracketMatchFastCacheKey = (tournamentId) =>
+  `bracket:${String(tournamentId || "").trim()}`;
+
+const getTournamentBracketBaseByBracketId = async (tournamentId) => {
+  const objectId = new mongoose.Types.ObjectId(tournamentId);
+  const allBrackets = await Bracket.find({ tournament: tournamentId })
+    .select("_id type stage order prefill ko meta config drawRounds")
+    .lean();
+
+  const roundsAgg = await Match.aggregate([
+    { $match: { tournament: objectId } },
+    { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
+  ]);
+
+  const maxRoundByBracket = new Map(
+    roundsAgg.map((row) => [String(row._id), Number(row.maxRound) || 0])
+  );
+
+  const typeKey = (type) => String(type || "").toLowerCase();
+  const isGroupish = (type) => {
+    const key = typeKey(type);
+    return key === "group" || key === "round_robin" || key === "gsl";
+  };
+  const teamsFromRoundKey = (key) => {
+    if (!key) return 0;
+    const upper = String(key).toUpperCase();
+    if (upper === "F") return 2;
+    if (upper === "SF") return 4;
+    if (upper === "QF") return 8;
+    const matched = /^R(\d+)$/i.exec(upper);
+    return matched ? parseInt(matched[1], 10) : 0;
+  };
+  const ceilPow2 = (value) =>
+    Math.pow(2, Math.ceil(Math.log2(Math.max(1, value || 1))));
+  const readBracketScale = (bracket) => {
+    const fromKey =
+      teamsFromRoundKey(bracket?.ko?.startKey) ||
+      teamsFromRoundKey(bracket?.prefill?.roundKey);
+    const fromPrefillPairs = Array.isArray(bracket?.prefill?.pairs)
+      ? bracket.prefill.pairs.length * 2
+      : 0;
+    const fromPrefillSeeds = Array.isArray(bracket?.prefill?.seeds)
+      ? bracket.prefill.seeds.length * 2
+      : 0;
+    const candidates = [
+      bracket?.drawScale,
+      bracket?.targetScale,
+      bracket?.maxSlots,
+      bracket?.capacity,
+      bracket?.size,
+      bracket?.scale,
+      bracket?.meta?.drawSize,
+      bracket?.meta?.scale,
+      fromKey,
+      fromPrefillPairs,
+      fromPrefillSeeds,
+    ]
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value >= 2);
+    return candidates.length ? ceilPow2(Math.max(...candidates)) : 0;
+  };
+  const roundsCountForBracket = (bracket) => {
+    const type = typeKey(bracket?.type);
+    const bracketId = String(bracket?._id || "");
+    if (isGroupish(type)) return 1;
+
+    if (["roundelim", "po", "playoff"].includes(type)) {
+      let value =
+        Number(bracket?.meta?.maxRounds) ||
+        Number(bracket?.config?.roundElim?.maxRounds) ||
+        0;
+      if (!value) value = maxRoundByBracket.get(bracketId) || 1;
+      return Math.max(1, value);
+    }
+
+    const fromMatches = maxRoundByBracket.get(bracketId) || 0;
+    if (fromMatches) return Math.max(1, fromMatches);
+
+    const firstPairs =
+      (Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length) ||
+      (Array.isArray(bracket?.prefill?.pairs) && bracket.prefill.pairs.length) ||
+      0;
+    if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
+
+    const scale = readBracketScale(bracket);
+    if (scale) return Math.ceil(Math.log2(scale));
+
+    const drawRounds = Number(bracket?.drawRounds || 0);
+    return drawRounds ? Math.max(1, drawRounds) : 1;
+  };
+
+  const groupBrackets = allBrackets.filter((bracket) => isGroupish(bracket.type));
+  const nonGroupBrackets = allBrackets.filter(
+    (bracket) => !isGroupish(bracket.type)
+  );
+  const stageValue = (bracket) =>
+    Number.isFinite(bracket?.stage) ? Number(bracket.stage) : 9999;
+
+  const buckets = [];
+  if (groupBrackets.length) {
+    buckets.push({
+      key: "group",
+      isGroup: true,
+      brackets: groupBrackets,
+      spanRounds: 1,
+      stageHint: 1,
+      orderHint: Math.min(
+        ...groupBrackets.map((bracket) => Number(bracket?.order ?? 0))
+      ),
+    });
+  }
+
+  const byStage = new Map();
+  for (const bracket of nonGroupBrackets) {
+    const stage = stageValue(bracket);
+    if (!byStage.has(stage)) byStage.set(stage, []);
+    byStage.get(stage).push(bracket);
+  }
+
+  const stageKeys = Array.from(byStage.keys()).sort((a, b) => a - b);
+  for (const stage of stageKeys) {
+    const brackets = byStage.get(stage);
+    const span =
+      Math.max(...brackets.map((bracket) => roundsCountForBracket(bracket))) || 1;
+    buckets.push({
+      key: `stage-${stage}`,
+      isGroup: false,
+      brackets,
+      spanRounds: span,
+      stageHint: stage,
+      orderHint: Math.min(
+        ...brackets.map((bracket) => Number(bracket?.order ?? 0))
+      ),
+    });
+  }
+
+  buckets.sort((a, b) => {
+    if (a.isGroup && !b.isGroup) return -1;
+    if (!a.isGroup && b.isGroup) return 1;
+    if (a.stageHint !== b.stageHint) return a.stageHint - b.stageHint;
+    return a.orderHint - b.orderHint;
+  });
+
+  const baseByBracketId = new Map();
+  let accumulated = 0;
+  for (const bucket of buckets) {
+    for (const bracket of bucket.brackets) {
+      baseByBracketId.set(String(bracket._id), accumulated);
+    }
+    accumulated += bucket.spanRounds;
+  }
+
+  return { baseByBracketId };
+};
+
+const enrichBracketMatchList = async (tournamentId, listRaw) => {
+  const { baseByBracketId } = await getTournamentBracketBaseByBracketId(
+    tournamentId
+  );
+
+  const safeInt = (value) => {
+    const next = Number(value);
+    return Number.isFinite(next) ? next : undefined;
+  };
+  const alphaToNum = (value) => {
+    const matched = String(value || "")
+      .trim()
+      .match(/^[A-Za-z]/);
+    if (!matched) return undefined;
+    return matched[0].toUpperCase().charCodeAt(0) - 64;
+  };
+  const typeKey = (type) => String(type || "").toLowerCase();
+  const isGroupish = (type) => {
+    const key = typeKey(type);
+    return key === "group" || key === "round_robin" || key === "gsl";
+  };
+  const getGroupNo = (match, bracket) => {
+    const poolName =
+      match?.pool?.name || match?.pool?.key || match?.groupCode || "";
+    if (poolName) {
+      const numeric = String(poolName).match(/\d+/);
+      if (numeric) return parseInt(numeric[0], 10);
+      const alpha = alphaToNum(poolName);
+      if (alpha) return alpha;
+    }
+
+    const groups = Array.isArray(bracket?.groups) ? bracket.groups : [];
+    if (groups.length) {
+      if (match?.pool?.id) {
+        const groupIndex = groups.findIndex(
+          (group) => String(group?._id) === String(match.pool.id)
+        );
+        if (groupIndex >= 0) return groupIndex + 1;
+      }
+      if (poolName) {
+        const groupIndex = groups.findIndex(
+          (group) =>
+            String(group?.name || "")
+              .trim()
+              .toUpperCase() === String(poolName).trim().toUpperCase()
+        );
+        if (groupIndex >= 0) return groupIndex + 1;
+      }
+    }
+
+    const directCandidates = [
+      match?.groupNo,
+      match?.groupIndex,
+      match?.groupIdx,
+      match?.group,
+      match?.meta?.groupNo,
+      match?.meta?.groupIndex,
+      match?.meta?.pool,
+      match?.group?.no,
+      match?.group?.index,
+      match?.group?.order,
+      match?.pool?.index,
+      match?.pool?.no,
+      match?.pool?.order,
+    ];
+    for (const candidate of directCandidates) {
+      const numeric = safeInt(candidate);
+      if (typeof numeric === "number") return numeric <= 0 ? 1 : numeric;
+    }
+    return undefined;
+  };
+  const getGroupOrder = (match) => {
+    const matched = String(match?.labelKey || "").match(/#(\d+)\s*$/);
+    if (matched) return parseInt(matched[1], 10);
+    const orderInGroup =
+      safeInt(match?.orderInGroup) ?? safeInt(match?.meta?.orderInGroup);
+    if (typeof orderInGroup === "number") return orderInGroup + 1;
+    const order = safeInt(match?.order);
+    if (typeof order === "number") return order + 1;
+    return 1;
+  };
+  const getKnockoutOrder = (match) => {
+    const matched = String(match?.labelKey || "").match(/#(\d+)\s*$/);
+    if (matched) return parseInt(matched[1], 10);
+    const order =
+      safeInt(match?.order) ??
+      safeInt(match?.meta?.order) ??
+      safeInt(match?.matchNo) ??
+      safeInt(match?.index) ??
+      0;
+    return order + 1;
+  };
+
+  return listRaw.map((rawMatch) => {
+    const match = normalizeMatchDisplayShape(rawMatch);
+    const bracket = match.bracket || {};
+    const bracketId = String(bracket?._id || "");
+    const groupStage = isGroupish(bracket?.type);
+
+    const baseRound = baseByBracketId.get(bracketId) ?? 0;
+    const localRound = groupStage
+      ? 1
+      : Number.isFinite(match.round)
+      ? match.round
+      : 1;
+    const globalRound = baseRound + localRound;
+
+    let code;
+    if (groupStage) {
+      const groupNo = getGroupNo(match, bracket);
+      const groupOrder = getGroupOrder(match);
+      code = `V1-${groupNo ? `B${groupNo}` : "B?"}-T${groupOrder}`;
+    } else {
+      code = `V${globalRound}-T${getKnockoutOrder(match)}`;
+    }
+
+    const fallbackVideo =
+      match?.facebookLive?.video_permalink_url ||
+      match?.facebookLive?.permalink_url ||
+      "";
+
+    return {
+      ...match,
+      video:
+        typeof match?.video === "string" && match.video.trim()
+          ? match.video.trim()
+          : fallbackVideo,
+      courtId: match?.court?._id || match?.court || null,
+      courtName: match?.court?.name || match?.courtLabel || "",
+      courtStatus: match?.court?.status || "",
+      courtOrder: Number.isFinite(match?.court?.order)
+        ? match.court.order
+        : null,
+      courtBracket: match?.court?.bracket || null,
+      courtCluster: match?.court?.cluster || match?.courtCluster || "",
+      globalRound,
+      globalCode: `V${globalRound}`,
+      code,
+    };
+  });
+};
+
+const listTournamentMatchesBracketView = async (req, res) => {
+  const { id } = req.params;
+  const cacheKey = buildBracketMatchFastCacheKey(id);
+  const cached = tournamentBracketMatchesCache.get(cacheKey);
+  if (cached) {
+    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+    res.setHeader("X-PKT-Cache", "HIT");
+    return res.json(cached);
+  }
+
+  const listRaw = await Match.find({ tournament: id })
+    .select(
+      [
+        "tournament",
+        "bracket",
+        "format",
+        "pool",
+        "round",
+        "order",
+        "stageIndex",
+        "labelKey",
+        "meta.groupNo",
+        "meta.groupIndex",
+        "meta.pool",
+        "meta.orderInGroup",
+        "meta.order",
+        "seedA",
+        "seedB",
+        "pairA",
+        "pairB",
+        "previousA",
+        "previousB",
+        "rules",
+        "currentGame",
+        "gameScores",
+        "status",
+        "winner",
+        "scheduledAt",
+        "startedAt",
+        "finishedAt",
+        "assignedAt",
+        "court",
+        "courtLabel",
+        "courtCluster",
+        "queueOrder",
+        "serve",
+        "liveVersion",
+        "video",
+        "facebookLive.permalink_url",
+        "facebookLive.video_permalink_url",
+        "createdAt",
+      ].join(" ")
+    )
+    .populate({
+      path: "tournament",
+      select: "name image eventType nameDisplayMode",
+    })
+    .populate({
+      path: "bracket",
+      select: [
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        "noRankDelta",
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        "overlay",
+      ].join(" "),
+    })
+    .populate({
+      path: "pairA",
+      select: "player1 player2 label teamName",
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 label teamName",
+    })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    .populate({
+      path: "court",
+      select:
+        "name number code label zone area venue building floor cluster status bracket order",
+    })
+    .sort({ round: 1, order: 1, createdAt: 1 })
+    .lean();
+
+  const payload = await enrichBracketMatchList(id, listRaw);
+  tournamentBracketMatchesCache.set(cacheKey, payload);
+  res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+  res.setHeader("X-PKT-Cache", "MISS");
+  return res.json(payload);
 };
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
 // @route   GET /api/tournaments?sportType=&groupId=
@@ -666,6 +1081,11 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     const { id } = req.params;
     if (!isId(id))
       return res.status(400).json({ message: "Invalid tournament id" });
+
+    const view = String(req.query.view || "").trim().toLowerCase();
+    if (view === "bracket") {
+      return await listTournamentMatchesBracketView(req, res);
+    }
 
     const {
       bracket,
