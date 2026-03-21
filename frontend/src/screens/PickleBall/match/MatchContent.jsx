@@ -966,13 +966,25 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     m?.tournament?.id ||
     null;
 
+  const needsGroupSeedResolution = useMemo(
+    () =>
+      (!m?.pairA && m?.seedA?.type === "groupRank") ||
+      (!m?.pairB && m?.seedB?.type === "groupRank"),
+    [m?.pairA, m?.pairB, m?.seedA?.type, m?.seedB?.type]
+  );
+
   const { data: brackets = [], isFetching: fetchingBrackets } =
-    useListTournamentBracketsQuery(tournamentId ? tournamentId : skipToken);
+    useListTournamentBracketsQuery(
+      tournamentId && needsGroupSeedResolution ? tournamentId : skipToken
+    );
   const { data: allMatchesFetched = [], isFetching: fetchingMatches } =
-    useListTournamentMatchesQuery(tournamentId ? { tournamentId } : skipToken, {
-      refetchOnFocus: false,
-      refetchOnReconnect: true,
-    });
+    useListTournamentMatchesQuery(
+      tournamentId && needsGroupSeedResolution ? { tournamentId } : skipToken,
+      {
+        refetchOnFocus: false,
+        refetchOnReconnect: true,
+      }
+    );
 
   const byBracket = useMemo(() => {
     const m = {};
@@ -1002,7 +1014,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const socket = socketCtx?.socket || socketCtx;
 
   const loading = Boolean(isLoading || liveLoading);
-  const globalLoading = Boolean(loading || fetchingBrackets || fetchingMatches);
+  const globalLoading = Boolean(
+    loading ||
+      (needsGroupSeedResolution && (fetchingBrackets || fetchingMatches))
+  );
 
   const {
     lockedId,
