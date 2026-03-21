@@ -904,18 +904,6 @@ function EditTeamsDialog({
   );
 }
 
-/* ====================== Anti-flicker ====================== */
-function useDelayedFlag(flag, ms = 250) {
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    let t;
-    if (flag) t = setTimeout(() => setShow(true), ms);
-    else setShow(false);
-    return () => clearTimeout(t);
-  }, [flag, ms]);
-  return show;
-}
-
 /* ====================== LOCK: chỉ cập nhật đúng match đang mở ====================== */
 function useLockedMatch(m, { loading }) {
   const [lockedId, setLockedId] = useState(() => (m?._id ? String(m._id) : ""));
@@ -1019,6 +1007,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const {
     lockedId,
     view: mm,
+    waiting,
   } = useLockedMatch(m, { loading: globalLoading });
 
   const groupDoneByStage = useMemo(() => {
@@ -1096,9 +1085,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     [groupDoneByStage, mm?.bracket?.stage, mm?.stage]
   );
 
-  const booting = globalLoading || !lockedId;
-  const showSpinnerDelayed = useDelayedFlag(booting, 250);
-  const showErrorDelayed = useDelayedFlag(!booting && !mm, 600);
+  const showSpinner = waiting;
+  const showError = !waiting && !mm;
 
   const [localPatch, setLocalPatch] = useState(null);
   useEffect(() => {
@@ -1463,14 +1451,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [socket, lockedId]);
 
   /* ====================== Render ====================== */
-  if (showSpinnerDelayed) {
+  if (showSpinner) {
     return (
       <Box py={4} textAlign="center">
         <CircularProgress />
       </Box>
     );
   }
-  if (showErrorDelayed) {
+  if (showError) {
     return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
   }
   if (!mm) {

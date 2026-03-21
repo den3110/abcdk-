@@ -243,13 +243,21 @@ const makeMatchCode = (m, brackets) => {
 function useLockedDialogMatch({
   open,
   matchId,
+  initialMatch,
   base,
   live,
   isLoadingBase,
   isLoadingLive,
 }) {
   const lockedId = String(matchId || "");
-  const [mm, setMm] = useState(null);
+  const pickInitial = () => {
+    const pick = (cand) => {
+      const id = String(cand?._id || cand?.id || "");
+      return id && id === lockedId ? cand : null;
+    };
+    return pick(live) || pick(base) || pick(initialMatch) || null;
+  };
+  const [mm, setMm] = useState(() => pickInitial());
 
   // Reset khi đổi match hoặc đóng dialog
   useEffect(() => {
@@ -257,8 +265,13 @@ function useLockedDialogMatch({
       setMm(null);
       return;
     }
-    // khi mở lại thì cho phép nhận dữ liệu mới đúng id
-    // (mm sẽ được set ở effect dưới)
+    setMm((prev) => {
+      const seeded = pickInitial();
+      if (!seeded) return prev;
+      return prev && String(prev?._id || prev?.id || "") === lockedId
+        ? prev
+        : seeded;
+    });
   }, [open, lockedId]);
 
   // Nhận dữ liệu nhưng chỉ khi _id trùng matchId
@@ -290,7 +303,7 @@ function useLockedDialogMatch({
 /* =========================
  * ResponsiveMatchViewer (đã khóa theo matchId)
  * ========================= */
-function ResponsiveMatchViewer({ open, matchId, onClose }) {
+function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userInfo } = useSelector((s) => s.auth || {});
@@ -313,6 +326,7 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
   const { mm, loading } = useLockedDialogMatch({
     open,
     matchId,
+    initialMatch,
     base,
     live,
     isLoadingBase,

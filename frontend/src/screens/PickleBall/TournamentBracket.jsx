@@ -2316,6 +2316,7 @@ export default function TournamentBracket() {
   // Modal viewer
   const [open, setOpen] = useState(false);
   const [activeMatchId, setActiveMatchId] = useState(null);
+  const [activeMatchPreview, setActiveMatchPreview] = useState(null);
   const isByeMatchObj = (m) => {
     if (!m) return false;
     const byeA =
@@ -2330,6 +2331,7 @@ export default function TournamentBracket() {
   const openMatch = (m) => {
     if (!m || isByeMatchObj(m)) return; // chặn mở nếu BYE
     setActiveMatchId(m._id);
+    setActiveMatchPreview(m);
     setOpen(true);
   };
   const closeMatch = () => setOpen(false);
@@ -4271,6 +4273,7 @@ export default function TournamentBracket() {
       <ResponsiveMatchViewer
         open={open}
         matchId={activeMatchId}
+        initialMatch={activeMatchPreview}
         onClose={closeMatch}
       />
     </Box>

@@ -26,7 +26,6 @@ import {
 
 import { logout } from "../slices/authSlice";
 import { useLogoutMutation } from "../slices/usersApiSlice";
-import { useGetLiveMatchesQuery } from "../slices/liveApiSlice";
 import { useThemeMode } from "../context/ThemeContext.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import LogoAnimationMorph from "./LogoAnimationMorph.jsx";
@@ -192,23 +191,7 @@ export default function Header() {
     return now >= CLUB_BADGE_START && now <= CLUB_BADGE_END;
   }, []);
 
-  const liveQueryArgs = {
-    keyword: "",
-    page: 0,
-    limit: 1,
-    statuses: "scheduled,queued,assigned,live",
-    excludeFinished: true,
-    windowMs: 8 * 3600 * 1000,
-  };
-
-  const { data: liveData } = useGetLiveMatchesQuery(liveQueryArgs, {
-    pollingInterval: 15000,
-    refetchOnFocus: true,
-    refetchOnReconnect: true,
-  });
-
   const liveCount = 0;
-  console.log(liveData);
 
   const isActive = (path) => {
     if (path === "/" && location.pathname !== "/") return false;
