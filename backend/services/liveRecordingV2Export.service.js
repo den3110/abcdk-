@@ -34,27 +34,27 @@ function getPlaybackApiBase() {
     return explicitBase.replace(/\/+$/, "");
   }
 
-  return `${getAppHost()}/api`;
+  return getAppHost();
 }
 
 export function buildRecordingPlaybackUrl(recordingId) {
-  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/play`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/play`;
 }
 
 export function buildRecordingRawStreamUrl(recordingId) {
-  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/raw`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw`;
 }
 
 export function buildRecordingRawStatusUrl(recordingId) {
-  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/raw/status`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw/status`;
 }
 
 export function buildRecordingTemporaryPlaybackUrl(recordingId) {
-  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/temp`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/temp`;
 }
 
 export function buildRecordingTemporaryPlaylistUrl(recordingId) {
-  return `${getPlaybackApiBase()}/live/recordings/v2/${String(recordingId)}/temp/playlist`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/temp/playlist`;
 }
 
 function asMutableMeta(meta) {

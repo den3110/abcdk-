@@ -13,7 +13,9 @@
     "create-admin": "node scripts/createAdmin.js",
     "cccd:worker": "node backend/worker/index.js",
     "recording:worker": "node backend/worker/liveRecordingExport.worker.js",
-    "seo-news:backfill-images": "node backend/scripts/backfillSeoNewsImages.js"
+    "seo-news:backfill-images": "node backend/scripts/backfillSeoNewsImages.js",
+    "recording:r2-cleanup": "node backend/scripts/cleanupExportedRecordingR2.js",
+    "recording:url-backfill": "node backend/scripts/backfillLiveRecordingPlaybackUrls.js"
   },
   "author": "Brad Traversy",
   "license": "MIT",
