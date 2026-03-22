@@ -3,6 +3,7 @@ import Match from "../models/matchModel.js";
 import mongoose from "mongoose";
 import Registration from "../models/registrationModel.js";
 import Bracket from "../models/bracketModel.js";
+import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import UserMatch from "../models/userMatchModel.js";
 import {
@@ -16,9 +17,73 @@ import {
   releaseFacebookPagePoolAfterEnd,
   startOrRenewLease,
 } from "../services/liveSessionLease.service.js";
+import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.service.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 // controllers/matchController.js
+
+function isFacebookVideoUrl(url) {
+  const value = String(url || "").trim().toLowerCase();
+  return value.includes("facebook.com") || value.includes("fb.watch");
+}
+
+function isInternalRecordingVideoUrl(url) {
+  return /\/api\/live\/recordings\/v2\/[^/]+\/(?:play|temp|raw)(?:\/status)?(?:\?|$)/i.test(
+    String(url || "").trim()
+  );
+}
+
+function isRecordingPlaybackReady(recording) {
+  if (!recording) return false;
+  if (recording.driveFileId || recording.driveRawUrl || recording.status === "ready") {
+    return true;
+  }
+
+  const segments = Array.isArray(recording.segments) ? recording.segments : [];
+  const uploadedCount = segments.filter(
+    (segment) => segment?.uploadStatus === "uploaded"
+  ).length;
+
+  return (
+    Boolean(recording.finalizedAt) &&
+    uploadedCount > 0 &&
+    uploadedCount === segments.length
+  );
+}
+
+async function resolvePreferredRecordingPlaybackVideo(matchId, currentVideo = "") {
+  const normalizedCurrentVideo = String(currentVideo || "").trim();
+  const canAutoReplaceCurrentVideo =
+    !normalizedCurrentVideo ||
+    isFacebookVideoUrl(normalizedCurrentVideo) ||
+    isInternalRecordingVideoUrl(normalizedCurrentVideo);
+
+  if (!canAutoReplaceCurrentVideo) {
+    return {
+      nextVideo: normalizedCurrentVideo,
+      shouldPersist: false,
+    };
+  }
+
+  const recording = await LiveRecordingV2.findOne({ match: matchId })
+    .select("_id status driveFileId driveRawUrl finalizedAt segments.uploadStatus createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
+
+  if (!isRecordingPlaybackReady(recording)) {
+    return {
+      nextVideo: normalizedCurrentVideo,
+      shouldPersist: false,
+    };
+  }
+
+  const playbackUrl = buildRecordingPlaybackUrl(recording._id);
+  return {
+    nextVideo: playbackUrl,
+    shouldPersist: playbackUrl !== normalizedCurrentVideo,
+  };
+}
+
 const getMatchesByTournament = asyncHandler(async (req, res) => {
   const raw = await Match.find({ tournament: req.params.id })
     .populate([
@@ -1410,6 +1475,31 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     .lean();
 
   if (!m) return res.status(404).json({ message: "Match not found" });
+
+  const currentVideoBeforeAutoHeal = String(m.video || "").trim();
+  const preferredVideo = await resolvePreferredRecordingPlaybackVideo(
+    m._id,
+    currentVideoBeforeAutoHeal
+  );
+
+  if (preferredVideo.nextVideo) {
+    m.video = preferredVideo.nextVideo;
+  }
+
+  if (preferredVideo.shouldPersist) {
+    const matchVideoSelector = currentVideoBeforeAutoHeal
+      ? { _id: m._id, video: currentVideoBeforeAutoHeal }
+      : {
+          _id: m._id,
+          $or: [{ video: { $exists: false } }, { video: null }, { video: "" }],
+        };
+
+    Match.updateOne(matchVideoSelector, {
+      $set: {
+        video: preferredVideo.nextVideo,
+      },
+    }).catch(() => {});
+  }
 
   // chuẩn hoá tên
   if (m.pairA) {

@@ -198,13 +198,14 @@ export async function cleanupExpiredSocket(socketId) {
 export async function sweepStaleSockets({ batch = 500 } = {}) {
   let cleaned = 0;
   try {
-    let cursor = 0; // node-redis v4+/v5 trả cursor dạng Number
+    let cursor = "0";
+    const scanCount = String(Math.max(1, Number(batch || 500)));
     do {
-      const res = await r.scan(cursor, {
+      const res = await r.scan(String(cursor), {
         MATCH: "presence:socket2user:*",
-        COUNT: batch,
+        COUNT: scanCount,
       });
-      cursor = res.cursor;
+      cursor = String(res?.cursor ?? "0");
       const keys = res.keys || [];
       if (keys.length) {
         const socketIds = keys.map((k) =>
@@ -223,7 +224,7 @@ export async function sweepStaleSockets({ batch = 500 } = {}) {
           }
         }
       }
-    } while (cursor !== 0);
+    } while (cursor !== "0");
   } catch (e) {
     console.error("[presence] sweepStaleSockets error:", e);
   }
