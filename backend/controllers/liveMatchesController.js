@@ -371,6 +371,3 @@ export async function deleteLiveVideoForMatch(req, res) {
     return res.status(500).json({ message: e.message || "Server error" });
   }
 }
-    const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(
-      rows.map((match) => String(match?._id || "")).filter(Boolean)
-    );
