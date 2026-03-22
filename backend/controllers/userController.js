@@ -33,6 +33,10 @@ import { makeLoginOtpToken } from "./userLoginController.js";
 import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
 import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
 import { syncRegistrationProfileSnapshot } from "../services/registrationProfileSync.service.js";
+import {
+  buildFallbackPublicProfileSummary,
+  buildPublicProfileSummary,
+} from "../services/publicProfileSummary.service.js";
 
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
@@ -2317,6 +2321,11 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
       throw new Error("Không tìm thấy người dùng");
     }
 
+    const summary = await buildPublicProfileSummary(userDoc).catch((error) => {
+      console.warn("[getPublicProfile] summary error:", error?.message || error);
+      return buildFallbackPublicProfileSummary(userDoc);
+    });
+
     const u = userDoc.toObject({ getters: true, virtuals: true });
     const { loginMeta, ...rest } = u;
     const history = loginMeta?.loginHistory ?? [];
@@ -2425,6 +2434,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
       joinedAt: rest.createdAt,
       lastLoginAt: lastLogin || null,
       loginHistory: history,
+      summary,
       spc: {
         single: spcSingle,
         double: spcDouble,
@@ -2435,7 +2445,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
 
   // Non-admin: giữ API cũ, không đính SPC
   const user = await User.findById(req.params.id).select(
-    "nickname gender name province createdAt bio avatar cccdStatus"
+    "nickname gender name province createdAt bio avatar cccdStatus levelPoint"
   );
 
   if (!user) {
@@ -2452,6 +2462,10 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     bio: user.bio || "",
     avatar: user.avatar || "",
     cccdStatus: user.cccdStatus || "unverified",
+    summary: await buildPublicProfileSummary(user).catch((error) => {
+      console.warn("[getPublicProfile] summary error:", error?.message || error);
+      return buildFallbackPublicProfileSummary(user);
+    }),
   });
 });
 

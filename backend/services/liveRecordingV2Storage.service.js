@@ -12,6 +12,10 @@ import {
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import {
+  getLiveMultiSourceTargetPublicBaseUrlSync,
+  getLiveServer2ManifestNameSync,
+} from "./liveMultiSourceConfig.service.js";
 
 const DEFAULT_RECORDING_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
@@ -69,6 +73,10 @@ function normalizeRecordingStorageTarget(rawTarget = {}, index = 0) {
   const accessKeyId = asTrimmed(rawTarget.accessKeyId);
   const secretAccessKey = asTrimmed(rawTarget.secretAccessKey);
   const bucketName = asTrimmed(rawTarget.bucketName || rawTarget.bucket);
+  const publicBaseUrl =
+    asTrimmed(rawTarget.publicBaseUrl) ||
+    asTrimmed(rawTarget.cdnBaseUrl) ||
+    asTrimmed(process.env.LIVE_RECORDING_PUBLIC_CDN_BASE_URL);
   const enabled = rawTarget.enabled !== false;
 
   if (!enabled || !endpoint || !accessKeyId || !secretAccessKey || !bucketName) {
@@ -85,6 +93,7 @@ function normalizeRecordingStorageTarget(rawTarget = {}, index = 0) {
     accessKeyId,
     secretAccessKey,
     bucketName,
+    publicBaseUrl,
     capacityBytes:
       parsePositiveInteger(
         rawTarget.capacityBytes || rawTarget.capacity || rawTarget.maxBytes
@@ -207,6 +216,7 @@ export function getRecordingStorageTargets() {
     label: target.label,
     endpoint: target.endpoint,
     bucketName: target.bucketName,
+    publicBaseUrl: target.publicBaseUrl || null,
     capacityBytes: target.capacityBytes,
   }));
 }
@@ -220,6 +230,7 @@ export function getRecordingStorageTarget(storageTargetId = null) {
     label: target.label,
     endpoint: target.endpoint,
     bucketName: target.bucketName,
+    publicBaseUrl: target.publicBaseUrl || null,
     capacityBytes: target.capacityBytes,
   };
 }
@@ -246,6 +257,14 @@ export function isRecordingR2Configured() {
 
 export function getRecordingBucketName(storageTargetId = null) {
   return requireRecordingStorageTarget(storageTargetId).bucketName;
+}
+
+export function getRecordingPublicBaseUrl(storageTargetId = null) {
+  const target = requireRecordingStorageTarget(storageTargetId);
+  return getLiveMultiSourceTargetPublicBaseUrlSync(
+    target?.id,
+    target?.publicBaseUrl || ""
+  );
 }
 
 export function invalidateRecordingStorageUsageCache() {
@@ -275,6 +294,24 @@ export function buildRecordingManifestObjectKey({ recordingId, matchId }) {
   return `${prefix}/manifest.json`;
 }
 
+export function buildRecordingLiveManifestObjectKey({ recordingId, matchId }) {
+  const prefix = buildRecordingPrefix({ recordingId, matchId });
+  const manifestName = getLiveServer2ManifestNameSync();
+  return `${prefix}/${manifestName}`;
+}
+
+export function buildRecordingPublicObjectUrl({
+  objectKey,
+  storageTargetId = null,
+}) {
+  if (!objectKey) return null;
+  const baseUrl = getRecordingPublicBaseUrl(storageTargetId);
+  if (!baseUrl) return null;
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  const normalizedObjectKey = String(objectKey).replace(/^\/+/, "");
+  return `${normalizedBase}/${normalizedObjectKey}`;
+}
+
 export async function createRecordingSegmentUploadUrl({
   objectKey,
   contentType = "video/mp4",
@@ -288,6 +325,7 @@ export async function createRecordingSegmentUploadUrl({
     Bucket: target.bucketName,
     Key: objectKey,
     ContentType: contentType,
+    CacheControl: "public, max-age=31536000, immutable",
   });
 
   const uploadUrl = await getSignedUrl(client, command, {
@@ -301,6 +339,38 @@ export async function createRecordingSegmentUploadUrl({
     method: "PUT",
     headers: {
       "Content-Type": contentType,
+    },
+    storageTargetId: target.id,
+    bucketName: target.bucketName,
+  };
+}
+
+export async function createRecordingLiveManifestUploadUrl({
+  objectKey,
+  expiresInSeconds = 60 * 60 * 12,
+  storageTargetId = null,
+}) {
+  const target = requireRecordingStorageTarget(storageTargetId);
+  const client = getRecordingS3Client(target.id);
+
+  const command = new PutObjectCommand({
+    Bucket: target.bucketName,
+    Key: objectKey,
+    ContentType: "application/json; charset=utf-8",
+    CacheControl: "public, max-age=2, stale-while-revalidate=4",
+  });
+
+  const uploadUrl = await getSignedUrl(client, command, {
+    expiresIn: expiresInSeconds,
+  });
+
+  return {
+    uploadUrl,
+    objectKey,
+    expiresInSeconds,
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
     },
     storageTargetId: target.id,
     bucketName: target.bucketName,
@@ -360,6 +430,7 @@ export async function createRecordingMultipartUpload({
     Bucket: target.bucketName,
     Key: objectKey,
     ContentType: contentType,
+    CacheControl: "public, max-age=31536000, immutable",
   });
   const response = await client.send(command);
   if (!response.UploadId) {

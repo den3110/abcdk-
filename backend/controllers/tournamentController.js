@@ -12,6 +12,10 @@ import { ensureTournamentCardImageUrl } from "../utils/tournamentImageVariant.js
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import {
+  attachPublicStreamsToMatch,
+  getLatestRecordingsByMatchIds,
+} from "../services/publicStreams.service.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS = Math.max(
@@ -252,6 +256,9 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
   const { baseByBracketId } = await getTournamentBracketBaseByBracketId(
     tournamentId
   );
+  const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(
+    listRaw.map((match) => String(match?._id || "")).filter(Boolean)
+  );
 
   const safeInt = (value) => {
     const next = Number(value);
@@ -369,7 +376,7 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
       match?.facebookLive?.permalink_url ||
       "";
 
-    return {
+    const enrichedMatch = {
       ...match,
       video:
         typeof match?.video === "string" && match.video.trim()
@@ -387,6 +394,10 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
       globalCode: `V${globalRound}`,
       code,
     };
+    return attachPublicStreamsToMatch(
+      enrichedMatch,
+      latestRecordingsByMatchId.get(String(match?._id || ""))
+    );
   });
 };
 

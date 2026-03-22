@@ -12,5 +12,4 @@ const ConfigSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-ConfigSchema.index({ key: 1 }, { unique: true });
 export default mongoose.model("Config", ConfigSchema);

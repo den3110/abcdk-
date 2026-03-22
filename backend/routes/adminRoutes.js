@@ -93,6 +93,10 @@ import {
   getCacheSummary,
 } from "../controllers/admin/adminCacheController.js";
 import {
+  getAdminLivePlaybackConfig,
+  updateAdminLivePlaybackConfig,
+} from "../controllers/admin/adminLivePlaybackController.js";
+import {
   batchAssignReferee,
   batchDeleteMatches,
   batchSetLiveUrl,
@@ -530,6 +534,18 @@ router.post(
   protect,
   requireAdminAndSuperUser,
   clearAllCacheGroupsHttp
+);
+router.get(
+  "/live-playback/config",
+  protect,
+  requireAdminAndSuperUser,
+  getAdminLivePlaybackConfig
+);
+router.put(
+  "/live-playback/config",
+  protect,
+  requireAdminAndSuperUser,
+  updateAdminLivePlaybackConfig
 );
 
 router.post(

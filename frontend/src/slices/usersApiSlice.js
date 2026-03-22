@@ -3,6 +3,12 @@ import { setCredentials } from "./authSlice";
 
 const USERS_URL = "/api/users";
 
+const normalizeUserScopedArg = (arg) => {
+  if (typeof arg === "string") return { id: arg };
+  if (arg && typeof arg === "object") return arg;
+  return {};
+};
+
 export const userApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     login: builder.mutation({
@@ -36,13 +42,34 @@ export const userApiSlice = apiSlice.injectEndpoints({
       query: (id) => `${USERS_URL}/${id}/public`,
     }),
     getRatingHistory: builder.query({
-      query: (id) => `/api/users/${id}/ratings`,
-      providesTags: (result, error, userId) => [
-        { type: "RatingHistory", id: userId },
-      ],
+      query: (arg) => {
+        const { id, page, limit, all } = normalizeUserScopedArg(arg);
+        return {
+          url: `${USERS_URL}/${id}/ratings`,
+          params: {
+            ...(page ? { page } : {}),
+            ...(limit ? { limit } : {}),
+            ...(all ? { all: 1 } : {}),
+          },
+        };
+      },
+      providesTags: (result, error, arg) => {
+        const { id } = normalizeUserScopedArg(arg);
+        return [{ type: "RatingHistory", id }];
+      },
     }),
     getMatchHistory: builder.query({
-      query: (id) => `/api/users/${id}/matches`,
+      query: (arg) => {
+        const { id, page, limit, all } = normalizeUserScopedArg(arg);
+        return {
+          url: `${USERS_URL}/${id}/matches`,
+          params: {
+            ...(page ? { page } : {}),
+            ...(limit ? { limit } : {}),
+            ...(all ? { all: 1 } : {}),
+          },
+        };
+      },
     }),
     getProfile: builder.query({
       query: () => "/api/users/profile",
@@ -102,11 +129,19 @@ export const userApiSlice = apiSlice.injectEndpoints({
       ],
     }),
     getUserAchievements: builder.query({
-      query: (userId) => `/api/users/${userId}/achievements`,
-      providesTags: (res, err, id) => [
-        { type: "User", id },
-        { type: "Achievements", id },
-      ],
+      query: (arg) => {
+        const { id, userId } = normalizeUserScopedArg(arg);
+        const resolvedId = userId || id;
+        return `${USERS_URL}/${resolvedId}/achievements`;
+      },
+      providesTags: (res, err, arg) => {
+        const { id, userId } = normalizeUserScopedArg(arg);
+        const resolvedId = userId || id;
+        return [
+          { type: "User", id: resolvedId },
+          { type: "Achievements", id: resolvedId },
+        ];
+      },
     }),
     // OTP tạm tắt
     // verifyRegisterOtp: builder.mutation({

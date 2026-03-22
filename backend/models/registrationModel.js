@@ -70,7 +70,7 @@ const playerSchema = new mongoose.Schema(
 const registrationSchema = new mongoose.Schema(
   {
     // 🔢 Mã đăng ký tự tăng, duy nhất toàn hệ thống
-    code: { type: Number, index: true, unique: true, sparse: true },
+    code: { type: Number },
 
     tournament: {
       type: mongoose.Schema.Types.ObjectId,

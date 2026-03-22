@@ -15,13 +15,16 @@ import {
 } from "../services/driveRecordings.service.js";
 import {
   abortRecordingMultipartUpload,
+  buildRecordingLiveManifestObjectKey,
   buildRecordingPrefix,
   buildRecordingSegmentObjectKey,
   completeRecordingMultipartUpload,
+  createRecordingLiveManifestUploadUrl,
   createRecordingObjectDownloadUrl,
   createRecordingMultipartUpload,
   createRecordingMultipartUploadPartUrl,
   createRecordingSegmentUploadUrl,
+  getRecordingPublicBaseUrl,
   getRecordingStorageTarget,
   getRecordingStorageTargets,
   getRecordingMultipartPartSizeBytes,
@@ -39,6 +42,11 @@ import {
   publishRecordingMonitor,
   queueLiveRecordingExport,
 } from "../services/liveRecordingV2Transition.service.js";
+import {
+  buildRecordingLivePlayback,
+  getLiveServer2DelaySeconds,
+  isLiveMultiSourceEnabled,
+} from "../services/publicStreams.service.js";
 
 function isValidObjectId(value) {
   return mongoose.isValidObjectId(String(value || ""));
@@ -276,6 +284,27 @@ function ensureRecordingPlaybackUrl(recording) {
   };
 }
 
+function buildSerializedLivePlayback(recording) {
+  if (!recording || !isLiveMultiSourceEnabled()) return null;
+  const livePlayback = buildRecordingLivePlayback(recording);
+  if (!livePlayback) return null;
+  return {
+    ...livePlayback,
+    manifestObjectKey:
+      livePlayback.manifestObjectKey ||
+      buildRecordingLiveManifestObjectKey({
+        recordingId: recording._id,
+        matchId: recording.match,
+      }),
+    publicBaseUrl:
+      livePlayback.publicBaseUrl ||
+      getRecordingPublicBaseUrl(recording.r2TargetId) ||
+      null,
+    delaySeconds:
+      livePlayback.delaySeconds || getLiveServer2DelaySeconds(),
+  };
+}
+
 function isRecordingTemporaryPlaybackReady(recording) {
   if (!recording?.finalizedAt) return false;
   return (
@@ -481,6 +510,7 @@ function serializeRecording(recording) {
   if (!recording) return null;
   const links = ensureRecordingPlaybackUrl(recording);
   const temporaryPlaybackReady = isRecordingTemporaryPlaybackReady(recording);
+  const livePlayback = buildSerializedLivePlayback(recording);
   return {
     id: String(recording._id),
     matchId: String(recording.match),
@@ -502,6 +532,7 @@ function serializeRecording(recording) {
     temporaryPlaybackUrl: links.temporaryPlaybackUrl,
     temporaryPlaylistUrl: links.temporaryPlaylistUrl,
     temporaryPlaybackReady,
+    livePlayback,
     rawStreamAvailable: Boolean(recording.driveFileId || recording.driveRawUrl),
     driveAuthMode: recording?.meta?.exportPipeline?.driveAuthMode || null,
     exportAttempts: recording.exportAttempts || 0,
@@ -686,6 +717,58 @@ export const presignLiveRecordingSegmentBatchV2 = asyncHandler(async (req, res) 
     recordingId: String(recording._id),
     count: segments.length,
     segments,
+  });
+});
+
+export const presignLiveRecordingManifestV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is required" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const livePlayback = buildSerializedLivePlayback(recording);
+  if (!livePlayback?.manifestObjectKey) {
+    return res.status(409).json({
+      message: "Public CDN live playback is not configured for this recording",
+    });
+  }
+  if (!livePlayback?.publicBaseUrl || !livePlayback?.manifestUrl) {
+    return res.status(409).json({
+      message: "LIVE_RECORDING_PUBLIC_CDN_BASE_URL is not configured",
+    });
+  }
+
+  const upload = await createRecordingLiveManifestUploadUrl({
+    objectKey: livePlayback.manifestObjectKey,
+    storageTargetId: recording.r2TargetId,
+  });
+
+  if (!recording.meta || typeof recording.meta !== "object") {
+    recording.meta = {};
+  }
+  recording.meta.livePlayback = {
+    ...(recording.meta.livePlayback || {}),
+    enabled: true,
+    manifestObjectKey: livePlayback.manifestObjectKey,
+    manifestUrl: livePlayback.manifestUrl,
+    publicBaseUrl: livePlayback.publicBaseUrl,
+    delaySeconds: livePlayback.delaySeconds,
+    status: livePlayback.status,
+    finalPlaybackUrl: livePlayback.finalPlaybackUrl || null,
+  };
+  await recording.save();
+
+  return res.json({
+    ok: true,
+    recordingId: String(recording._id),
+    livePlayback: buildSerializedLivePlayback(recording),
+    upload,
   });
 });
 

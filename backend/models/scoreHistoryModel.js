@@ -16,4 +16,6 @@ const scoreHistorySchema = new mongoose.Schema(
   { timestamps: true, strict: true }
 );
 
+scoreHistorySchema.index({ user: 1, scoredAt: -1 });
+
 export default mongoose.model("ScoreHistory", scoreHistorySchema);

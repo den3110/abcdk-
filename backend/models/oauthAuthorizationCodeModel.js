@@ -6,7 +6,6 @@ const oauthAuthorizationCodeSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
       trim: true,
     },
     clientId: {
@@ -45,7 +44,6 @@ const oauthAuthorizationCodeSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
     },
     usedAt: {
       type: Date,

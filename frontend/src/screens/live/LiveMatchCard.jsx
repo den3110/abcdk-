@@ -78,6 +78,92 @@ const byPriority = (a, b) =>
   (({ youtube: 1, facebook: 2 }[a.provider] || 99) -
   ({ youtube: 1, facebook: 2 }[b.provider] || 99));
 
+function buildCanonicalSessions(match = {}) {
+  const defaultStreamKey =
+    typeof match?.defaultStreamKey === "string" ? match.defaultStreamKey : "";
+  const streams = Array.isArray(match?.streams) ? match.streams : [];
+  return streams
+    .filter(
+      (stream) =>
+        stream &&
+        typeof stream === "object" &&
+        (typeof stream?.playUrl === "string" || typeof stream?.openUrl === "string")
+    )
+    .sort((a, b) => Number(a?.priority || 99) - Number(b?.priority || 99))
+    .map((stream) => {
+      const playUrl =
+        typeof stream?.playUrl === "string" ? stream.playUrl.trim() : "";
+      const openUrl =
+        typeof stream?.openUrl === "string" ? stream.openUrl.trim() : "";
+      const url = playUrl || openUrl;
+      const kind = String(stream?.kind || "").trim().toLowerCase();
+      const isPrimary =
+        (defaultStreamKey && String(stream?.key || "") === defaultStreamKey) ||
+        Boolean(stream?.primary);
+      if (!url) return null;
+      if (kind === "facebook") {
+        return {
+          key: stream?.key || "server1",
+          provider: "facebook",
+          label: stream?.displayLabel || "Server 1",
+          providerLabel: stream?.providerLabel || "Facebook",
+          watchUrl: url,
+          embedUrl: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&width=1280`,
+          canEmbedInline: true,
+          primary: isPrimary,
+          ready: stream?.ready !== false,
+          delaySeconds: Number(stream?.delaySeconds || 0),
+        };
+      }
+      if (kind === "file" || kind === "hls") {
+        return {
+          key: stream?.key || "stream",
+          provider: kind,
+          label: stream?.displayLabel || "Video",
+          providerLabel: stream?.providerLabel || "PickleTour",
+          watchUrl: openUrl || url,
+          embedUrl: url,
+          canEmbedInline: true,
+          mediaKind: kind,
+          primary: isPrimary,
+          ready: stream?.ready !== false,
+          delaySeconds: Number(stream?.delaySeconds || 0),
+        };
+      }
+      if (kind === "delayed_manifest") {
+        return {
+          key: stream?.key || "server2",
+          provider: "server2",
+          label: stream?.displayLabel || "Server 2",
+          providerLabel: stream?.providerLabel || "PickleTour CDN",
+          watchUrl: openUrl || "",
+          manifestUrl: url,
+          canEmbedInline: false,
+          primary: isPrimary,
+          ready: stream?.ready !== false,
+          delaySeconds: Number(stream?.delaySeconds || 0),
+          disabledReason:
+            typeof stream?.disabledReason === "string"
+              ? stream.disabledReason
+              : "",
+        };
+      }
+      return {
+        key: stream?.key || "stream",
+        provider: kind || "stream",
+        label: stream?.displayLabel || "Stream",
+        providerLabel: stream?.providerLabel || "Stream",
+        watchUrl: openUrl || url,
+        embedUrl: url,
+        canEmbedInline: false,
+        primary: isPrimary,
+        ready: stream?.ready !== false,
+        delaySeconds: Number(stream?.delaySeconds || 0),
+      };
+    })
+    .filter(Boolean);
+}
+
 export default function LiveMatchCard({ item, onDeleted }) {
   const theme = useTheme();
   const smDown = useMediaQuery(theme.breakpoints.down("sm"));
@@ -87,11 +173,13 @@ export default function LiveMatchCard({ item, onDeleted }) {
 
   const [deleteLiveVideo, { isLoading: isDeleting }] =
     useDeleteLiveVideoMutation();
+  const [activeSessionKey, setActiveSessionKey] = React.useState("");
 
   const m = item || {};
   const fb = m.facebookLive || {};
 
   // build 1 session từ facebookLive
+  const canonicalSessions = buildCanonicalSessions(m);
   const fbWatch =
     fb.video_permalink_url ||
     fb.permalink_url ||
@@ -101,21 +189,43 @@ export default function LiveMatchCard({ item, onDeleted }) {
       : fb.id
       ? `https://www.facebook.com/watch/?v=${fb.id}`
       : "");
-  const sessions = fbWatch
-    ? [
-        {
-          provider: "facebook",
-          watchUrl: fbWatch,
-          embedHtml: fb.embed_html || "",
-          embedUrl: fb.embed_url || "",
-          pageId: fb.pageId || "",
-          liveId: fb.id || "",
-          videoId: fb.videoId || "",
-        },
-      ]
-    : [];
-  const primary = sessions[0] || null;
-  const hasEmbed = Boolean(primary?.embedHtml || primary?.embedUrl);
+  const sessions =
+    canonicalSessions.length > 0
+      ? canonicalSessions
+      : fbWatch
+      ? [
+          {
+            key: "server1",
+            provider: "facebook",
+            label: "Server 1",
+            providerLabel: "Facebook",
+            watchUrl: fbWatch,
+            embedHtml: fb.embed_html || "",
+            embedUrl:
+              fb.embed_url ||
+              `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(fbWatch)}&show_text=false&width=1280`,
+            pageId: fb.pageId || "",
+            liveId: fb.id || "",
+            videoId: fb.videoId || "",
+            canEmbedInline: true,
+            primary: true,
+            ready: true,
+            delaySeconds: 0,
+          },
+        ]
+      : [];
+  const primary =
+    sessions.find((session) => session.primary) || sessions[0] || null;
+  const activeSession =
+    sessions.find(
+      (session) => activeSessionKey && session.key === activeSessionKey
+    ) ||
+    primary ||
+    null;
+  const hasEmbed = Boolean(
+    activeSession?.canEmbedInline &&
+      (activeSession?.embedUrl || activeSession?.mediaKind === "file")
+  );
 
   const hasVideoInfo =
     Boolean(
@@ -126,7 +236,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
         fb.watch_url ||
         fb.embed_url ||
         fb.embed_html
-    ) || Boolean(primary);
+    ) || sessions.length > 0;
 
   const isLive = String(m.status || "").toLowerCase() === "live";
 
@@ -165,6 +275,13 @@ export default function LiveMatchCard({ item, onDeleted }) {
   React.useEffect(() => {
     setEmbedTick((t) => t + 1);
   }, [fb.embed_html, fb.embed_url, fbWatch]);
+
+  const primaryOpenLabel =
+    activeSession?.provider === "facebook"
+      ? "Xem trên Facebook"
+      : activeSession?.label || activeSession?.providerLabel || "Mở video";
+  const primaryOpenIcon =
+    activeSession?.provider === "facebook" ? <FacebookIcon /> : <VideocamIcon />;
 
   const bullet = (
     <Box component="span" sx={{ mx: 1, color: "text.disabled" }}>
@@ -261,14 +378,23 @@ export default function LiveMatchCard({ item, onDeleted }) {
                 </IconButton>
               </Tooltip>
 
-              {primary?.embedHtml ? (
+              {activeSession?.mediaKind === "file" ||
+              activeSession?.mediaKind === "hls" ? (
+                <video
+                  src={activeSession.embedUrl}
+                  controls
+                  autoPlay={isLive}
+                  playsInline
+                  style={{ width: "100%", aspectRatio: "16/9", border: 0 }}
+                />
+              ) : activeSession?.embedHtml ? (
                 <Box
                   sx={{ width: "100%", aspectRatio: "16 / 9" }}
-                  dangerouslySetInnerHTML={{ __html: primary.embedHtml }}
+                  dangerouslySetInnerHTML={{ __html: activeSession.embedHtml }}
                 />
               ) : (
                 <iframe
-                  src={primary.embedUrl}
+                  src={activeSession.embedUrl}
                   title={m.code || "fb-live"}
                   allow="autoplay; encrypted-media; picture-in-picture"
                   allowFullScreen
@@ -342,6 +468,37 @@ export default function LiveMatchCard({ item, onDeleted }) {
               )}
             </Stack>
 
+            {sessions.length > 0 && (
+              <Stack direction="row" spacing={0.75} sx={{ mt: 1 }} flexWrap="wrap">
+                {sessions.map((session) => (
+                  <Chip
+                    key={session.key || session.watchUrl || session.manifestUrl}
+                    size="small"
+                    variant={
+                      session.key &&
+                      activeSession?.key &&
+                      session.key === activeSession.key
+                        ? "filled"
+                        : "outlined"
+                    }
+                    color={
+                      session.key &&
+                      activeSession?.key &&
+                      session.key === activeSession.key
+                        ? "primary"
+                        : "default"
+                    }
+                    onClick={() => setActiveSessionKey(session.key || "")}
+                    label={
+                      session.key === "server2" && session.delaySeconds
+                        ? `${session.label} +${session.delaySeconds}s`
+                        : session.label || session.providerLabel || "Server"
+                    }
+                  />
+                ))}
+              </Stack>
+            )}
+
             <Typography
               variant="body2"
               color="text.secondary"
@@ -387,7 +544,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
             }}
           >
             <Box sx={{ minWidth: 0 }}>
-              {primary ? (
+              {activeSession ? (
                 <>
                   <Stack
                     direction="row"
@@ -399,9 +556,10 @@ export default function LiveMatchCard({ item, onDeleted }) {
                       fullWidth
                       variant="contained"
                       color="primary"
-                      startIcon={<FacebookIcon />}
+                      disabled={!activeSession.watchUrl}
+                      startIcon={primaryOpenIcon}
                       endIcon={<OpenInNewIcon />}
-                      href={primary.watchUrl}
+                      href={activeSession.watchUrl}
                       target="_blank"
                       rel="noreferrer"
                       sx={{
@@ -410,8 +568,10 @@ export default function LiveMatchCard({ item, onDeleted }) {
                         minWidth: 0,
                         maxWidth: "100%",
                       }}
-                      title={`Xem trên Facebook${
-                        primary.watchUrl ? ` (${hostOf(primary.watchUrl)})` : ""
+                      title={`${primaryOpenLabel}${
+                        activeSession.watchUrl
+                          ? ` (${hostOf(activeSession.watchUrl)})`
+                          : ""
                       }`}
                     >
                       <Box
@@ -423,26 +583,26 @@ export default function LiveMatchCard({ item, onDeleted }) {
                           maxWidth: "100%",
                         }}
                       >
-                        Xem trên Facebook
+                        {primaryOpenLabel}
                       </Box>
                     </Button>
-                    {primary.watchUrl && (
+                    {activeSession.watchUrl && (
                       <Tooltip title="Copy link">
                         <IconButton
                           color="default"
-                          onClick={() => copy(primary.watchUrl)}
+                          onClick={() => copy(activeSession.watchUrl)}
                         >
                           <ContentCopyIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     )}
-                    {(primary.embedHtml || primary.embedUrl) && (
+                    {(activeSession.embedHtml || activeSession.embedUrl) && (
                       <Tooltip title="Copy embed">
                         <IconButton
                           color="default"
                           onClick={() =>
                             copy(
-                              primary.embedHtml || primary.embedUrl,
+                              activeSession.embedHtml || activeSession.embedUrl,
                               "Đã copy embed!"
                             )
                           }

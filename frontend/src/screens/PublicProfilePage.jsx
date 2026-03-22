@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Box,
@@ -32,6 +32,7 @@ import {
   alpha,
 } from "@mui/material";
 import { useSelector } from "react-redux";
+import { skipToken } from "@reduxjs/toolkit/query";
 
 // Icons
 import ShareIcon from "@mui/icons-material/Share";
@@ -338,10 +339,27 @@ export default function PublicProfilePage() {
     return hand || t("common.unavailable");
   };
 
+  const [pageMatch, setPageMatch] = useState(1);
+  const matchPerPage = 8;
+  const [pageRate, setPageRate] = useState(1);
+  const ratePerPage = 10;
+  const needsMatches = tab === 1;
+  const needsRatings = tab === 2;
+
+  useEffect(() => {
+    setTab(0);
+    setPageMatch(1);
+    setPageRate(1);
+  }, [id]);
+
   // Queries
   const baseQ = useGetPublicProfileQuery(id);
-  const rateQ = useGetRatingHistoryQuery(id);
-  const matchQ = useGetMatchHistoryQuery(id);
+  const rateQ = useGetRatingHistoryQuery(
+    needsRatings ? { id, page: pageRate, limit: ratePerPage } : skipToken
+  );
+  const matchQ = useGetMatchHistoryQuery(
+    needsMatches ? { id, page: pageMatch, limit: matchPerPage } : skipToken
+  );
 
   const base = useMemo(() => baseQ.data || {}, [baseQ.data]);
   const ratingRaw = useMemo(
@@ -355,6 +373,10 @@ export default function PublicProfilePage() {
     () => (Array.isArray(matchQ.data) ? matchQ.data : matchQ.data?.items || []),
     [matchQ.data]
   );
+  const ratingTotal = rateQ.data?.total ?? 0;
+  const matchTotal = matchQ.data?.total ?? 0;
+  const summaryScore = base?.summary?.score || {};
+  const summaryMatches = base?.summary?.matches || {};
 
   // Auth viewer (để biết có phải admin / chính chủ không)
   const { userInfo } = useSelector((state) => state.auth || {});
@@ -370,6 +392,8 @@ export default function PublicProfilePage() {
 
   // ✅ latestSingle / latestDouble giống bản cũ (ưu tiên history, fallback levelPoint)
   const latestSingle = useMemo(() => {
+    const fromSummary = Number(summaryScore?.single);
+    if (Number.isFinite(fromSummary)) return fromSummary;
     if (ratingRaw.length) {
       const v = Number(ratingRaw[0]?.single);
       if (Number.isFinite(v)) return v;
@@ -378,9 +402,11 @@ export default function PublicProfilePage() {
       base?.levelPoint?.single ?? base?.levelPoint?.score ?? undefined;
     const v2 = Number(fallback);
     return Number.isFinite(v2) ? v2 : NaN;
-  }, [ratingRaw, base]);
+  }, [ratingRaw, summaryScore?.single, base]);
 
   const latestDouble = useMemo(() => {
+    const fromSummary = Number(summaryScore?.double);
+    if (Number.isFinite(fromSummary)) return fromSummary;
     if (ratingRaw.length) {
       const v = Number(ratingRaw[0]?.double);
       if (Number.isFinite(v)) return v;
@@ -388,11 +414,33 @@ export default function PublicProfilePage() {
     const fallback = base?.levelPoint?.double ?? undefined;
     const v2 = Number(fallback);
     return Number.isFinite(v2) ? v2 : NaN;
-  }, [ratingRaw, base]);
+  }, [ratingRaw, summaryScore?.double, base]);
 
   // Derived stats
   const uid = base?._id || id;
   const { totalMatches, wins, winRate } = useMemo(() => {
+    const totalFromSummary = Number(summaryMatches?.total);
+    const winsFromSummary = Number(summaryMatches?.wins);
+    const rateFromSummary = Number(summaryMatches?.winRate);
+
+    if (
+      Number.isFinite(totalFromSummary) ||
+      Number.isFinite(winsFromSummary) ||
+      Number.isFinite(rateFromSummary)
+    ) {
+      const total = Number.isFinite(totalFromSummary) ? totalFromSummary : 0;
+      const w = Number.isFinite(winsFromSummary) ? winsFromSummary : 0;
+      return {
+        totalMatches: total,
+        wins: w,
+        winRate: Number.isFinite(rateFromSummary)
+          ? Math.round(rateFromSummary)
+          : total
+            ? Math.round((w / total) * 100)
+            : 0,
+      };
+    }
+
     let total = 0;
     let w = 0;
     for (const m of matchRaw) {
@@ -404,22 +452,10 @@ export default function PublicProfilePage() {
     }
     const rate = total ? Math.round((w / total) * 100) : 0;
     return { totalMatches: total, wins: w, winRate: rate };
-  }, [matchRaw, uid]);
+  }, [matchRaw, uid, summaryMatches]);
 
-  // Pagination state
-  const [pageMatch, setPageMatch] = useState(1);
-  const matchPerPage = 8;
-  const matchPaged = matchRaw.slice(
-    (pageMatch - 1) * matchPerPage,
-    pageMatch * matchPerPage
-  );
-
-  const [pageRate, setPageRate] = useState(1);
-  const ratePerPage = 10;
-  const ratePaged = ratingRaw.slice(
-    (pageRate - 1) * ratePerPage,
-    pageRate * ratePerPage
-  );
+  const matchPaged = matchRaw;
+  const ratePaged = ratingRaw;
 
   // Share
   const handleShare = async () => {
@@ -638,7 +674,15 @@ export default function PublicProfilePage() {
 
   const MatchHistoryTab = (
     <Stack spacing={2}>
-      {matchPaged.length === 0 ? (
+      {matchQ.isLoading || (matchQ.isFetching && !matchRaw.length) ? (
+        <MatchSkeleton isMobile={isMobile} />
+      ) : matchQ.error ? (
+        <Alert severity="error" sx={{ borderRadius: 3 }}>
+          {matchQ.error?.data?.message ||
+            matchQ.error?.error ||
+            t("publicProfile.values.noMatches")}
+        </Alert>
+      ) : matchPaged.length === 0 ? (
         <Alert severity="info" sx={{ borderRadius: 3 }}>
           {t("publicProfile.values.noMatches")}
         </Alert>
@@ -765,10 +809,10 @@ export default function PublicProfilePage() {
           );
         })
       )}
-      {matchRaw.length > matchPerPage && (
+      {matchTotal > matchPerPage && (
         <Stack alignItems="center">
           <Pagination
-            count={Math.ceil(matchRaw.length / matchPerPage)}
+            count={Math.ceil(matchTotal / matchPerPage)}
             page={pageMatch}
             onChange={(_, p) => setPageMatch(p)}
             color="primary"
@@ -781,6 +825,15 @@ export default function PublicProfilePage() {
 
   const RatingHistoryTab = (
     <Stack spacing={2}>
+      {rateQ.isLoading || (rateQ.isFetching && !ratingRaw.length) ? (
+        <RatingSkeleton isMobile={isMobile} />
+      ) : rateQ.error ? (
+        <Alert severity="error" sx={{ borderRadius: 3 }}>
+          {rateQ.error?.data?.message ||
+            rateQ.error?.error ||
+            t("publicProfile.values.noRatingHistory")}
+        </Alert>
+      ) : (
       <TableContainer
         component={Paper}
         variant="outlined"
@@ -845,10 +898,11 @@ export default function PublicProfilePage() {
           </TableBody>
         </Table>
       </TableContainer>
-      {ratingRaw.length > ratePerPage && (
+      )}
+      {ratingTotal > ratePerPage && (
         <Stack alignItems="center">
           <Pagination
-            count={Math.ceil(ratingRaw.length / ratePerPage)}
+            count={Math.ceil(ratingTotal / ratePerPage)}
             page={pageRate}
             onChange={(_, p) => setPageRate(p)}
             color="primary"

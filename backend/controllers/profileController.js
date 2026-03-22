@@ -8,14 +8,42 @@ import Bracket from "../models/bracketModel.js";
 import User from "../models/userModel.js";
 import mongoose from "mongoose";
 
+const MAX_PROFILE_PAGE_SIZE = 1000;
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function isTruthyQuery(value) {
+  return ["1", "true", "yes"].includes(String(value ?? "").toLowerCase());
+}
+
+function resolvePaging(query, fallbackLimit) {
+  const wantsAll = isTruthyQuery(query?.all);
+  const limit = wantsAll
+    ? MAX_PROFILE_PAGE_SIZE
+    : Math.min(
+        MAX_PROFILE_PAGE_SIZE,
+        parsePositiveInt(query?.limit ?? query?.pageSize, fallbackLimit)
+      );
+  const page = wantsAll ? 1 : parsePositiveInt(query?.page, 1);
+
+  return {
+    wantsAll,
+    page,
+    limit,
+    skip: wantsAll ? 0 : limit * (page - 1),
+  };
+}
+
 /**
  * GET /api/score-history/:id?page=1
  * Trả về lịch sử chấm điểm của một user (id = VĐV)
  * Mặc định pageSize = 10; nếu không cần phân trang, bỏ toàn bộ phần `page/pageSize`.
  */
 export const getRatingHistory = asyncHandler(async (req, res) => {
-  const pageSize = 10;
-  const page = Number(req.query.page) || 1;
+  const { wantsAll, page, limit, skip } = resolvePaging(req.query, 10);
 
   const isAdmin = !!(
     req.user &&
@@ -84,9 +112,9 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
   const total = await ScoreHistory.countDocuments(filter);
 
   const rows = await ScoreHistory.find(filter)
-    .sort({ scoredAt: -1 })
-    .skip(pageSize * (page - 1))
-    .limit(pageSize)
+    .sort({ scoredAt: -1, _id: -1 })
+    .skip(skip)
+    .limit(limit)
     .select("scoredAt single double note scorer user")
     .populate("scorer", "name email")
     .populate("user", "name nickname email avatar")
@@ -130,7 +158,14 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     };
   });
 
-  res.json({ history, total, pageSize, page });
+  res.json({
+    history,
+    total,
+    page,
+    limit,
+    pageSize: limit,
+    all: wantsAll,
+  });
 });
 
 /* -------- helpers -------- */
@@ -197,15 +232,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   const userId = String(req.params.id);
 
   // >>> Phân trang (GIỮ NGUYÊN)
-  const page = Math.max(1, parseInt(req.query.page ?? "1", 10));
-  const limit = Math.min(
-    100,
-    Math.max(1, parseInt(req.query.limit ?? "1000", 10))
-  );
-  const sliceRange = (arr) => {
-    const start = (page - 1) * limit;
-    return arr.slice(start, start + limit);
-  };
+  const { page, limit, skip } = resolvePaging(req.query, 10);
 
   // ✅ FIX: helper check ObjectId
   const isOID = (v) => mongoose.Types.ObjectId.isValid(String(v ?? ""));
@@ -222,21 +249,28 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   const myRegIds = myRegs.map((r) => r._id);
 
   // 2) Lấy các trận của mình và đã kết thúc
-  const matches = await Match.find({
+  const matchFilter = {
     $and: [
       { $or: [{ pairA: { $in: myRegIds } }, { pairB: { $in: myRegIds } }] },
       { status: "finished" },
     ],
-  })
-    .sort({ finishedAt: -1, createdAt: -1 })
-    .select(
-      "_id code tournament bracket pairA pairB gameScores winner finishedAt scheduledAt round order status video"
-    )
-    .populate("tournament", "name eventType _id")
-    .populate("bracket", "type stage _id createdAt")
-    .lean();
+  };
 
-  if (!matches.length) return res.json({ items: [], total: 0, page, limit });
+  const [total, matches] = await Promise.all([
+    Match.countDocuments(matchFilter),
+    Match.find(matchFilter)
+      .sort({ finishedAt: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .select(
+        "_id code tournament bracket pairA pairB gameScores winner finishedAt scheduledAt round order status video"
+      )
+      .populate("tournament", "name eventType _id")
+      .populate("bracket", "type stage _id createdAt")
+      .lean(),
+  ]);
+
+  if (!matches.length) return res.json({ items: [], total, page, limit });
 
   // 🔧 Gom tất cả pair ids để nạp registrations tương ứng
   const allPairIds = [];
@@ -427,7 +461,5 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   });
 
   // >>> Trả về theo phân trang (GIỮ NGUYÊN)
-  const total = out.length;
-  const items = sliceRange(out);
-  return res.json({ items, total, page, limit });
+  return res.json({ items: out, total, page, limit });
 });

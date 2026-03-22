@@ -19,4 +19,5 @@ export const CACHE_GROUP_IDS = Object.freeze({
   cmsContact: "cmsContact",
   newsList: "newsList",
   newsDetail: "newsDetail",
+  liveMultiSourceConfig: "liveMultiSourceConfig",
 });

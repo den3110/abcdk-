@@ -382,6 +382,8 @@ function isFacebookUrl(url) {
 function normalizeStreams(m) {
   const out = [];
   const seen = new Set();
+  const defaultStreamKey =
+    typeof m?.defaultStreamKey === "string" ? m.defaultStreamKey.trim() : "";
 
   const pushUrl = (url, { label, primary = false } = {}) => {
     if (!isNonEmptyString(url)) return;
@@ -396,6 +398,76 @@ function normalizeStreams(m) {
     });
     seen.add(u);
   };
+
+  const pushCanonicalStream = (stream) => {
+    const playUrl = isNonEmptyString(stream?.playUrl) ? stream.playUrl.trim() : "";
+    if (!playUrl) return false;
+    const dedupeKey =
+      stream?.key && typeof stream.key === "string"
+        ? `key:${stream.key}`
+        : `url:${playUrl}`;
+    if (seen.has(dedupeKey) || seen.has(playUrl)) return true;
+
+    const kind = String(stream?.kind || "").trim().toLowerCase();
+    const det =
+      kind === "delayed_manifest"
+        ? {
+            kind: "delayed_manifest",
+            canEmbed: true,
+            embedUrl: playUrl,
+            aspect: "16:9",
+          }
+        : detectEmbed(playUrl);
+    out.push({
+      key: stream?.key || null,
+      label:
+        stream?.displayLabel ||
+        stream?.label ||
+        providerLabel(det.kind, "Link"),
+      url: playUrl,
+      openUrl:
+        typeof stream?.openUrl === "string" && stream.openUrl.trim()
+          ? stream.openUrl.trim()
+          : "",
+      primary:
+        Boolean(stream?.primary) ||
+        (defaultStreamKey && String(stream?.key || "") === defaultStreamKey),
+      providerLabel: stream?.providerLabel || providerLabel(det.kind, "Link"),
+      delaySeconds: Number(stream?.delaySeconds || 0),
+      ready: stream?.ready !== false,
+      disabledReason:
+        typeof stream?.disabledReason === "string"
+          ? stream.disabledReason
+          : "",
+      status: typeof stream?.status === "string" ? stream.status : "",
+      meta: stream?.meta || {},
+      ...det,
+    });
+    seen.add(dedupeKey);
+    seen.add(playUrl);
+    return true;
+  };
+
+  const canonicalStreams = Array.isArray(m?.streams)
+    ? m.streams.filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          (isNonEmptyString(item?.playUrl) || isNonEmptyString(item?.openUrl))
+      )
+    : [];
+  if (canonicalStreams.length > 0) {
+    canonicalStreams
+      .slice()
+      .sort(
+        (a, b) =>
+          Number(a?.priority || 99) - Number(b?.priority || 99)
+      )
+      .forEach((stream) => {
+        pushCanonicalStream(stream);
+      });
+    return out;
+  }
 
   const fb = m?.facebookLive || {};
   const normalizedMatchStatus = String(m?.status || "")
@@ -522,6 +594,142 @@ function loadHlsFromCDN() {
   return __hlsLoaderPromise;
 }
 
+function DelayedManifestPlayer({ stream, ratio, setRatio }) {
+  const videoRef = useRef(null);
+  const [items, setItems] = useState([]);
+  const [currentUrl, setCurrentUrl] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    let timerId = null;
+
+    const applyManifest = (manifest) => {
+      const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
+      const playable = segments
+        .map((segment) => ({
+          key: `segment:${segment?.index ?? ""}`,
+          url: typeof segment?.url === "string" ? segment.url.trim() : "",
+        }))
+        .filter((segment) => segment.url);
+      const finalPlaybackUrl =
+        typeof manifest?.finalPlaybackUrl === "string"
+          ? manifest.finalPlaybackUrl.trim()
+          : "";
+      if (finalPlaybackUrl) {
+        playable.push({
+          key: "final",
+          url: finalPlaybackUrl,
+        });
+      }
+      setItems(playable);
+      setCurrentUrl((previousUrl) => {
+        if (previousUrl && playable.some((item) => item.url === previousUrl)) {
+          return previousUrl;
+        }
+        return playable[0]?.url || "";
+      });
+      setLoading(false);
+      if (!playable.length) {
+        setError(
+          stream?.disabledReason ||
+            "Server 2 dang chuan bi du lieu video tre."
+        );
+      } else {
+        setError("");
+      }
+    };
+
+    const fetchManifest = async () => {
+      try {
+        const resp = await fetch(stream.embedUrl, { cache: "no-store" });
+        if (!resp.ok) {
+          throw new Error(`Manifest HTTP ${resp.status}`);
+        }
+        const manifest = await resp.json();
+        if (cancelled) return;
+        applyManifest(manifest);
+      } catch (fetchError) {
+        if (cancelled) return;
+        setLoading(false);
+        setError(
+          fetchError?.message || "Khong tai duoc delayed manifest tu CDN."
+        );
+      } finally {
+        if (!cancelled) {
+          const refreshSeconds =
+            Number(stream?.meta?.refreshSeconds || 6) > 0
+              ? Number(stream?.meta?.refreshSeconds || 6)
+              : 6;
+          timerId = window.setTimeout(fetchManifest, refreshSeconds * 1000);
+        }
+      }
+    };
+
+    setItems([]);
+    setCurrentUrl("");
+    setLoading(true);
+    setError("");
+    fetchManifest();
+
+    return () => {
+      cancelled = true;
+      if (timerId) window.clearTimeout(timerId);
+    };
+  }, [stream?.embedUrl, stream?.disabledReason, stream?.meta?.refreshSeconds]);
+
+  const handleEnded = useCallback(() => {
+    setCurrentUrl((previousUrl) => {
+      const currentIndex = items.findIndex((item) => item.url === previousUrl);
+      if (currentIndex >= 0 && currentIndex < items.length - 1) {
+        return items[currentIndex + 1].url;
+      }
+      return previousUrl;
+    });
+  }, [items]);
+
+  if (loading) {
+    return (
+      <Alert severity="info">
+        Dang tai delayed stream tu PickleTour CDN...
+      </Alert>
+    );
+  }
+
+  if (!currentUrl) {
+    return <Alert severity="info">{error || "Server 2 dang chuan bi."}</Alert>;
+  }
+
+  return (
+    <>
+      <AspectBox ratio={ratio}>
+        <video
+          key={currentUrl}
+          ref={videoRef}
+          src={currentUrl}
+          controls
+          autoPlay
+          playsInline
+          style={{ width: "100%", height: "100%" }}
+          onEnded={handleEnded}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            if (v.videoWidth && v.videoHeight) {
+              setRatio(v.videoWidth / v.videoHeight);
+            }
+          }}
+        />
+      </AspectBox>
+      {error && (
+        <Alert severity="info" sx={{ mt: 1 }}>
+          {error}
+        </Alert>
+      )}
+    </>
+  );
+}
+
 function StreamPlayer({ stream }) {
   const videoRef = useRef(null);
   const [hlsError, setHlsError] = useState("");
@@ -634,6 +842,14 @@ function StreamPlayer({ stream }) {
             </Alert>
           )}
         </>
+      );
+    case "delayed_manifest":
+      return (
+        <DelayedManifestPlayer
+          stream={stream}
+          ratio={ratio}
+          setRatio={setRatio}
+        />
       );
     case "file":
       return (
@@ -1395,6 +1611,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         next.streams = streamsArr;
         next.meta = { ...(next.meta || {}), streams: streamsArr };
       }
+      if (typeof snap.defaultStreamKey === "string" && snap.defaultStreamKey.trim()) {
+        next.defaultStreamKey = snap.defaultStreamKey.trim();
+      }
       return next;
     });
   };
@@ -1494,6 +1713,32 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       {/* Khu video */}
       {activeStream && (
         <Stack spacing={1}>
+          {streams.length > 1 && (
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {streams.map((stream, index) => {
+                const selected = index === activeIdx;
+                const subtitle =
+                  stream.key === "server2" && stream.delaySeconds
+                    ? `${stream.providerLabel || "PickleTour"} +${stream.delaySeconds}s`
+                    : stream.providerLabel || "";
+                return (
+                  <Button
+                    key={stream.key || `${stream.url}-${index}`}
+                    size="small"
+                    variant={selected ? "contained" : "outlined"}
+                    color={stream.ready ? "primary" : "inherit"}
+                    onClick={() => setActiveIdx(index)}
+                  >
+                    {stream.label}
+                    {subtitle ? ` - ${subtitle}` : ""}
+                  </Button>
+                );
+              })}
+            </Stack>
+          )}
+          {!activeStream.ready && activeStream.disabledReason && (
+            <Alert severity="info">{activeStream.disabledReason}</Alert>
+          )}
           <Stack direction="row" spacing={1} flexWrap="wrap">
             {activeStream.canEmbed && (
               <Button
@@ -1510,7 +1755,16 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               size="small"
               endIcon={<OpenInNewIcon />}
               component={MuiLink}
-              href={activeStream.url}
+              href={
+                activeStream.openUrl ||
+                (activeStream.kind === "delayed_manifest"
+                  ? ""
+                  : activeStream.url)
+              }
+              disabled={
+                !activeStream.openUrl &&
+                activeStream.kind === "delayed_manifest"
+              }
               target="_blank"
               rel="noreferrer"
               underline="none"

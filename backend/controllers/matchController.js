@@ -18,6 +18,7 @@ import {
   startOrRenewLease,
 } from "../services/liveSessionLease.service.js";
 import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.service.js";
+import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 // controllers/matchController.js
@@ -62,11 +63,30 @@ async function resolvePreferredRecordingPlaybackVideo(matchId, currentVideo = ""
     return {
       nextVideo: normalizedCurrentVideo,
       shouldPersist: false,
+      recording: null,
     };
   }
 
   const recording = await LiveRecordingV2.findOne({ match: matchId })
-    .select("_id status driveFileId driveRawUrl finalizedAt segments.uploadStatus createdAt")
+    .select(
+      [
+        "_id",
+        "match",
+        "status",
+        "r2TargetId",
+        "driveFileId",
+        "driveRawUrl",
+        "drivePreviewUrl",
+        "playbackUrl",
+        "finalizedAt",
+        "segments.index",
+        "segments.uploadStatus",
+        "segments.durationSeconds",
+        "segments.objectKey",
+        "meta.livePlayback",
+        "createdAt",
+      ].join(" ")
+    )
     .sort({ createdAt: -1 })
     .lean();
 
@@ -74,6 +94,7 @@ async function resolvePreferredRecordingPlaybackVideo(matchId, currentVideo = ""
     return {
       nextVideo: normalizedCurrentVideo,
       shouldPersist: false,
+      recording,
     };
   }
 
@@ -81,6 +102,7 @@ async function resolvePreferredRecordingPlaybackVideo(matchId, currentVideo = ""
   return {
     nextVideo: playbackUrl,
     shouldPersist: playbackUrl !== normalizedCurrentVideo,
+    recording,
   };
 }
 
@@ -1481,6 +1503,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     m._id,
     currentVideoBeforeAutoHeal
   );
+  const latestRecording = preferredVideo.recording || null;
 
   if (preferredVideo.nextVideo) {
     m.video = preferredVideo.nextVideo;
@@ -1600,7 +1623,12 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     console.error("[getMatchPublic] prevBracket error:", e?.message || e);
   }
 
-  return res.json({ ...m, code: m.codeDisplay });
+  return res.json(
+    attachPublicStreamsToMatch(
+      { ...m, code: m.codeDisplay },
+      latestRecording
+    )
+  );
 });
 
 export { getMatchesByTournament };

@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -56,6 +56,7 @@ import TableChartIcon from "@mui/icons-material/TableChart";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import InboxIcon from "@mui/icons-material/Inbox";
 import { useSelector } from "react-redux";
+import { skipToken } from "@reduxjs/toolkit/query";
 
 import {
   useGetPublicProfileQuery,
@@ -437,6 +438,22 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     setSnack({ open: true, message: msg, severity });
   const closeSnack = () => setSnack((s) => ({ ...s, open: false }));
 
+  const [ratingPage, setRatingPage] = useState(1);
+  const ratingPerPage = 10;
+  const [matchPage, setMatchPage] = useState(1);
+  const matchPerPage = 10;
+
+  useEffect(() => {
+    if (!open) return;
+    setTab(0);
+    setRatingPage(1);
+    setMatchPage(1);
+  }, [open, userId]);
+
+  const wantsRatings = Boolean(open && userId && tab === 1);
+  const wantsMatches = Boolean(open && userId && tab === 2);
+  const wantsAchievements = Boolean(open && userId && tab === 3);
+
   async function copyText(text) {
     const t = String(text ?? "");
     try {
@@ -498,9 +515,20 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   );
 
   /* --- queries --- */
-  const baseQ = useGetPublicProfileQuery(userId, { skip: !open });
-  const rateQ = useGetRatingHistoryQuery(userId, { skip: !open }); // {history,total,page,pageSize} (hoặc items)
-  const matchQ = useGetMatchHistoryQuery(userId, { skip: !open });
+  const baseQ = useGetPublicProfileQuery(open && userId ? userId : skipToken);
+  const rateQ = useGetRatingHistoryQuery(
+    wantsRatings
+      ? { id: userId, page: ratingPage, limit: ratingPerPage }
+      : skipToken
+  );
+  const matchQ = useGetMatchHistoryQuery(
+    wantsMatches
+      ? { id: userId, page: matchPage, limit: matchPerPage }
+      : skipToken
+  );
+  const achQ = useGetUserAchievementsQuery(
+    wantsAchievements ? userId : skipToken
+  );
 
   // ---- trạng thái từng API (cả loading & refetching) ----
   const baseLoading = baseQ.isLoading || baseQ.isFetching;
@@ -518,32 +546,16 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     (s) => !!(s?.auth?.userInfo?.isAdmin || s?.auth?.userInfo?.role === "admin")
   );
 
-  /* --- local pagination --- */
-  const ratingRaw = Array.isArray(rateQ.data?.history)
+  /* --- backend pagination --- */
+  const ratingPaged = Array.isArray(rateQ.data?.history)
     ? rateQ.data.history
     : rateQ.data?.items || [];
-  const ratingTotal = rateQ.data?.total ?? ratingRaw.length;
+  const ratingTotal = rateQ.data?.total ?? 0;
 
-  const matchRaw = Array.isArray(matchQ.data)
+  const matchPaged = Array.isArray(matchQ.data)
     ? matchQ.data
     : matchQ.data?.items || [];
-  const matchTotal = matchQ.data?.total ?? matchRaw.length;
-
-  const [ratingPage, setRatingPage] = useState(1);
-  const [ratingPerPage] = useState(10);
-
-  const [matchPage, setMatchPage] = useState(1);
-  const [matchPerPage] = useState(10);
-
-  const ratingPaged = useMemo(() => {
-    const start = (ratingPage - 1) * ratingPerPage;
-    return ratingRaw.slice(start, start + ratingPerPage);
-  }, [ratingRaw, ratingPage, ratingPerPage]);
-
-  const matchPaged = useMemo(() => {
-    const start = (matchPage - 1) * matchPerPage;
-    return matchRaw.slice(start, start + matchPerPage);
-  }, [matchRaw, matchPage, matchPerPage]);
+  const matchTotal = matchQ.data?.total ?? 0;
 
   /* --- match detail modal --- */
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1740,8 +1752,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   }
 
   function AchievementsSection() {
-    const { data, isLoading, isFetching, error, refetch } =
-      useGetUserAchievementsQuery(userId, { skip: !open });
+    const { data, isLoading, isFetching, error, refetch } = achQ;
 
     if (isLoading || isFetching) return <AchievementsSkeleton />;
     if (error)
@@ -2358,14 +2369,32 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           dividers
           sx={{ p: { xs: 2, md: 3 }, bgcolor: "background.default" }}
         >
-          {/* Luôn render từng section; mỗi section tự show skeleton khi API gọi */}
-          <InfoSection />
-          <Divider sx={{ my: 3 }} />
-          <RatingTable />
-          <Divider sx={{ my: 3 }} />
-          <MatchSection isMobileView={false} />
-          <AchievementsSection />
-          <Divider sx={{ my: 3 }} />
+          <Tabs
+            value={tab}
+            onChange={(_, v) => setTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            sx={{
+              mb: 2,
+              "& .MuiTab-wrapper": {
+                whiteSpace: "nowrap",
+                textTransform: "none",
+              },
+            }}
+          >
+            <Tab label="Thông tin" />
+            <Tab label="Điểm trình" />
+            <Tab label="Thi đấu" />
+            <Tab label="Thành tích" />
+          </Tabs>
+
+          <Box sx={{ minHeight: 420 }}>
+            {tab === 0 && <InfoSection />}
+            {tab === 1 && <RatingTable />}
+            {tab === 2 && <MatchSection isMobileView={false} />}
+            {tab === 3 && <AchievementsSection />}
+          </Box>
         </DialogContent>
 
         <DialogActions sx={{ p: 2 }}>

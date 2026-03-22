@@ -98,6 +98,7 @@ import otaRoutes from "./routes/otaRoutes.js";
 import expoUpdatesRoutes from "./routes/expoUpdatesRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
+import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -283,6 +284,7 @@ const startServer = async () => {
   try {
     // Ã°Å¸â€Â¹ Connect DB first
     await connectDB();
+    await loadLiveMultiSourceConfig();
 
     // Ã°Å¸â€Â¹ mount GraphQL trÃ†Â°Ã¡Â»â€ºc fallback routes (*)
     await setupGraphQL(app);

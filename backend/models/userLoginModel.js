@@ -38,7 +38,6 @@ const userLoginSchema = new mongoose.Schema(
       ref: "User",
       required: true,
       unique: true,
-      index: true,
     },
     lastLoginAt: { type: Date },
     loginHistory: { type: [LoginEventSchema], default: [] }, // giữ tên cũ để đỡ sửa code

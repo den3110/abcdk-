@@ -101,7 +101,6 @@ const matchSchema = new Schema(
         "roundElim",
       ],
       default: "knockout",
-      index: true,
     },
     branch: {
       type: String,
@@ -200,7 +199,7 @@ const matchSchema = new Schema(
     queueOrder: { type: Number, default: null, index: true },
     assignedAt: { type: Date, default: null },
     participants: [
-      { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+      { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     ],
 
     // 🆕 Người tạo trận (trận user tự tạo)
@@ -264,7 +263,7 @@ const matchSchema = new Schema(
     ratingAppliedAt: { type: Date, default: null },
 
     // Stage & label
-    stageIndex: { type: Number, default: 1, index: true },
+    stageIndex: { type: Number, default: 1 },
     labelKey: { type: String, default: "" },
     meta: { type: Schema.Types.Mixed, default: {} },
     live: {
@@ -1544,6 +1543,8 @@ matchSchema.index({ bracket: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, bracket: 1, round: 1, order: 1 });
 matchSchema.index({ tournament: 1, status: 1, updatedAt: -1 });
+matchSchema.index({ pairA: 1, status: 1, finishedAt: -1 });
+matchSchema.index({ pairB: 1, status: 1, finishedAt: -1 });
 matchSchema.index({ court: 1, status: 1 });
 matchSchema.index({ status: 1, queueOrder: 1, courtCluster: 1 });
 matchSchema.index({ participants: 1 });
@@ -1559,14 +1560,6 @@ matchSchema.index(
 matchSchema.index(
   { "facebookLive.videoId": 1 },
   { partialFilterExpression: { "facebookLive.videoId": { $type: "string" } } }
-);
-matchSchema.index(
-  { "facebookLive.permalink_url": 1 },
-  {
-    partialFilterExpression: {
-      "facebookLive.permalink_url": { $type: "string" },
-    },
-  }
 );
 matchSchema.index(
   { "facebookLive.permalink_url": 1 },

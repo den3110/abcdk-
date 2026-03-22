@@ -1,8 +1,13 @@
 // controllers/liveMatchesController.js
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
+import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import {
+  attachPublicStreamsToMatch,
+  getLatestRecordingsByMatchIds,
+} from "../services/publicStreams.service.js";
 
 const LIVE_MATCHES_CACHE_TTL_MS = Math.max(
   1000,
@@ -35,6 +40,37 @@ export async function listLiveMatches(req, res) {
         { "facebookLive.id": { $exists: true, $ne: "" } },
       ],
     };
+    const recordingCandidates = await LiveRecordingV2.find({
+      status: {
+        $in: [
+          "recording",
+          "uploading",
+          "pending_export_window",
+          "exporting",
+          "ready",
+        ],
+      },
+    })
+      .select("match createdAt")
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+    const recordingMatchIds = [
+      ...new Set(
+        recordingCandidates.map((recording) => String(recording?.match || "")).filter(Boolean)
+      ),
+    ];
+    const candidateQuery =
+      recordingMatchIds.length > 0
+        ? {
+            $or: [
+              hasFacebookQuery,
+              {
+                _id: { $in: recordingMatchIds },
+              },
+            ],
+          }
+        : hasFacebookQuery;
 
     const populatePairs = (q) =>
       q
@@ -55,20 +91,20 @@ export async function listLiveMatches(req, res) {
 
     /* ================== countLive (ALL live matches) ================== */
     const countLive = await Match.countDocuments({
-      ...hasFacebookQuery,
+      ...candidateQuery,
       status: "live",
     });
 
     /* ================== pin: get 1 latest live match ================== */
     const liveRows = await populatePairs(
-      Match.find({ ...hasFacebookQuery, status: "live" })
+      Match.find({ ...candidateQuery, status: "live" })
     )
       .sort({ updatedAt: -1 })
       .limit(1)
       .lean();
 
     /* ================== latest 20 matches ================== */
-    const latestRows = await populatePairs(Match.find(hasFacebookQuery))
+    const latestRows = await populatePairs(Match.find(candidateQuery))
       .sort({ updatedAt: -1 })
       .limit(LIMIT)
       .lean();
@@ -231,7 +267,7 @@ export async function listLiveMatches(req, res) {
       const { displayCode, vIndex, bIndex, tIndex, bKeyAlpha } =
         buildDisplayForMatch(m);
 
-      return {
+      const baseItem = {
         _id: m._id,
         tournament: m.tournament,
         bracket: m.bracket,
@@ -264,6 +300,10 @@ export async function listLiveMatches(req, res) {
         createdAt: m.createdAt,
         __pinnedLive: pinnedLiveIds.has(String(m._id)),
       };
+      return attachPublicStreamsToMatch(
+        baseItem,
+        latestRecordingsByMatchId.get(String(m._id))
+      );
     });
 
     const payload = {
@@ -274,6 +314,7 @@ export async function listLiveMatches(req, res) {
         source: "match-only",
         filter: {
           hasFacebook: true,
+          hasServer2: recordingMatchIds.length > 0,
           limit: LIMIT,
           pinnedLive: true,
           pinnedLiveCount: liveRows.length,
@@ -330,3 +371,6 @@ export async function deleteLiveVideoForMatch(req, res) {
     return res.status(500).json({ message: e.message || "Server error" });
   }
 }
+    const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(
+      rows.map((match) => String(match?._id || "")).filter(Boolean)
+    );
