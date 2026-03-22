@@ -426,6 +426,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   /* --- responsive --- */
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isCompactMatchLayout = useMediaQuery("(max-width: 1850px)");
   const [tab, setTab] = useState(0);
 
   /* --- copy & snackbar (nâng cấp có severity) --- */
@@ -2392,7 +2393,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           <Box sx={{ minHeight: 420 }}>
             {tab === 0 && <InfoSection />}
             {tab === 1 && <RatingTable />}
-            {tab === 2 && <MatchSection isMobileView={false} />}
+            {tab === 2 && (
+              <MatchSection isMobileView={Boolean(isCompactMatchLayout)} />
+            )}
             {tab === 3 && <AchievementsSection />}
           </Box>
         </DialogContent>
