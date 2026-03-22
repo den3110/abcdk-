@@ -14,6 +14,7 @@ import {
   getLiveRecordingTemporaryPlaylistV2,
   getLiveRecordingRawStatusV2,
   playLiveRecordingTemporaryV2,
+  presignLiveRecordingSegmentBatchV2,
   presignMultipartLiveRecordingSegmentPartV2,
   presignLiveRecordingSegmentV2,
   reportMultipartLiveRecordingSegmentProgressV2,
@@ -26,6 +27,7 @@ import {
 const router = express.Router();
 
 router.post("/start", protect, startLiveRecordingV2);
+router.post("/segments/presign-batch", protect, presignLiveRecordingSegmentBatchV2);
 router.post("/segments/presign", protect, presignLiveRecordingSegmentV2);
 router.post("/segments/complete", protect, completeLiveRecordingSegmentV2);
 router.post("/segments/multipart/start", protect, startMultipartLiveRecordingSegmentV2);

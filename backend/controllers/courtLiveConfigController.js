@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import Court from "../models/courtModel.js";
 import FacebookPageConnection from "../models/facebookPageConnectionModel.js";
+import { clearCourtPresentationCaches } from "../services/cacheInvalidation.service.js";
 
 /* ---------- helpers ---------- */
 
@@ -288,6 +289,7 @@ export async function setCourtLiveConfig(req, res) {
     }
 
     await court.save();
+    await clearCourtPresentationCaches();
 
     return res.json({
       success: true,
@@ -368,6 +370,7 @@ export async function bulkSetCourtLiveConfig(req, res) {
       return res.status(400).json({ message: "No valid items" });
     }
 
+    await clearCourtPresentationCaches();
     return res.json({ success: true, updated });
   } catch (e) {
     console.error(e);

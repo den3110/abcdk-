@@ -5,6 +5,7 @@ import User from "../../models/userModel.js";
 import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import { softResetChainFrom } from "../../services/matchChainReset.js";
+import { clearMatchPresentationCaches } from "../../services/cacheInvalidation.service.js";
 import applyRatingsForMatch from "../../utils/applyRatingsForMatch.js";
 import { applyRatingForFinishedMatch } from "../../utils/applyRatingForFinishedMatch.js";
 import { onMatchFinished } from "../../services/courtQueueService.js";
@@ -285,6 +286,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
       select: "name nickname email phone avatar role",
     });
 
+  await clearMatchPresentationCaches();
   res.status(201).json(populated);
 });
 
@@ -501,6 +503,7 @@ export const refereeUpdateScore = expressAsyncHandler(async (req, res) => {
   if (note !== undefined) match.note = note;
 
   await match.save();
+  await clearMatchPresentationCaches();
   res.json(match);
 });
 
@@ -517,6 +520,7 @@ export const adminAssignReferee = expressAsyncHandler(async (req, res) => {
 
   match.referee = refereeId || undefined;
   await match.save();
+  await clearMatchPresentationCaches();
   res.json(match);
 });
 
@@ -1559,6 +1563,7 @@ export const adminDeleteMatch = expressAsyncHandler(async (req, res) => {
     }).exec();
   }
 
+  await clearMatchPresentationCaches();
   res.json({ message: "Match deleted", deletedId: matchId });
 });
 
@@ -1770,6 +1775,7 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
       select: "name nickname email phone avatar role",
     });
 
+  await clearMatchPresentationCaches();
   res.json(populated);
 });
 

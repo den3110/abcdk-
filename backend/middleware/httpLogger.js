@@ -1,26 +1,28 @@
-// src/middleware/httpLogger.js
 import { logger } from "../services/logger.js";
+import { recordRequestMetric } from "../services/requestMetrics.service.js";
 
 export function httpLogger(req, res, next) {
   const start = Date.now();
-
-  // lấy userId nếu bạn gắn vào req rồi
-      const userId = req.user?._id || req.user?.id || null;
-  const requestId =
-    req.headers["x-request-id"] ||
-    req.id ||
-    null;
+  const requestId = req.headers["x-request-id"] || req.id || null;
 
   res.on("finish", () => {
     const duration = Date.now() - start;
+    const userId = req.user?._id || req.user?.id || null;
+    const url = req.originalUrl || req.url;
 
-    // không await, cho chạy nền
+    recordRequestMetric({
+      method: req.method,
+      url,
+      statusCode: res.statusCode,
+      durationMs: duration,
+    });
+
     logger.info("HTTP access", {
       type: "http_access",
       requestId,
       userId: userId ? String(userId) : null,
       method: req.method,
-      url: req.originalUrl || req.url,
+      url,
       status: res.statusCode,
       durationMs: duration,
       ip:

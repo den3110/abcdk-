@@ -30,6 +30,9 @@ import {
   buildAdminTournamentImageProxyUrl,
   unwrapAdminTournamentImageProxySource,
 } from "../../utils/adminTournamentImageProxy.js";
+import {
+  clearTournamentPresentationCaches,
+} from "../../services/cacheInvalidation.service.js";
 
 dotenv.config();
 
@@ -815,6 +818,8 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     createdBy: req.user._id,
   });
 
+  await clearTournamentPresentationCaches();
+
   // Trả về ngay cho client
   res.status(201).json(t);
 
@@ -1120,6 +1125,8 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       );
     })
     .finally(async () => {
+      await clearTournamentPresentationCaches();
+
       // Trả kết quả update cho client trước
       res.json(t);
 
@@ -1277,6 +1284,7 @@ export const deleteTournament = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
+  await clearTournamentPresentationCaches();
   res.json({ message: "Tournament removed" });
 });
 
@@ -1329,6 +1337,9 @@ export const finishTournament = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
+  if (r.ok) {
+    await clearTournamentPresentationCaches();
+  }
   res.json(r);
 });
 
@@ -1346,6 +1357,9 @@ export const finishExpiredTournaments = expressAsyncHandler(
     for (const { _id } of ids) {
       const r = await finalizeOneTournament(_id);
       if (r.ok) finished++;
+    }
+    if (finished > 0) {
+      await clearTournamentPresentationCaches();
     }
     res.json({ checked: ids.length, finished });
   }
@@ -1895,6 +1909,7 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
     if (k in req.body) t.overlay[k] = req.body[k];
   }
   await t.save();
+  await clearTournamentPresentationCaches();
   res.json({ ok: true, overlay: t.overlay });
 });
 
@@ -2145,6 +2160,8 @@ export const updateTournamentTimeoutPerGame = async (req, res) => {
       { $set: { timeoutPerGame: v } },
       { runValidators: true }
     );
+
+    await clearTournamentPresentationCaches();
 
     return res.json({
       ok: true,

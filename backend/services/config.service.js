@@ -1,9 +1,19 @@
 // services/config.service.js
 import Config from "../models/configModel.js";
 import { encryptToken, decryptToken } from "./secret.service.js";
+import { CACHE_GROUP_IDS } from "./cacheGroups.js";
+import { registerCacheGroup } from "./cacheRegistry.service.js";
 
 const CACHE = new Map(); // key -> { val, till }
 const TTL_MS = 30 * 1000; // 30s
+const cacheStats = {
+  hits: 0,
+  misses: 0,
+  lastHitAt: null,
+  lastMissAt: null,
+  lastSetAt: null,
+  lastClearAt: null,
+};
 
 // Những key luôn được lưu dạng secret (bắt buộc mã hoá)
 const SECRET_KEYS = new Set([
@@ -38,14 +48,23 @@ function now() {
 }
 function cacheSet(key, val) {
   CACHE.set(key, { val, till: now() + TTL_MS });
+  cacheStats.lastSetAt = new Date();
 }
 function cacheGet(key) {
   const hit = CACHE.get(key);
-  if (!hit) return null;
-  if (hit.till < now()) {
-    CACHE.delete(key);
+  if (!hit) {
+    cacheStats.misses += 1;
+    cacheStats.lastMissAt = new Date();
     return null;
   }
+  if (hit.till < now()) {
+    CACHE.delete(key);
+    cacheStats.misses += 1;
+    cacheStats.lastMissAt = new Date();
+    return null;
+  }
+  cacheStats.hits += 1;
+  cacheStats.lastHitAt = new Date();
   return hit.val;
 }
 
@@ -113,7 +132,37 @@ export function invalidateCfg(key) {
 // (tuỳ chọn) invalidate toàn bộ cache
 export function invalidateAllCfg() {
   CACHE.clear();
+  cacheStats.lastClearAt = new Date();
 }
+
+function getConfigCacheStats() {
+  const nowTs = now();
+  for (const [key, entry] of CACHE.entries()) {
+    if (entry.till < nowTs) CACHE.delete(key);
+  }
+  return {
+    entries: CACHE.size,
+    ttlMs: TTL_MS,
+    hits: cacheStats.hits,
+    misses: cacheStats.misses,
+    lastHitAt: cacheStats.lastHitAt,
+    lastMissAt: cacheStats.lastMissAt,
+    lastSetAt: cacheStats.lastSetAt,
+    lastClearAt: cacheStats.lastClearAt,
+    updatedAt: new Date(),
+  };
+}
+
+registerCacheGroup({
+  id: CACHE_GROUP_IDS.configValues,
+  label: "System config values",
+  category: "config",
+  scope: "internal",
+  kind: "map-ttl",
+  ttlMs: TTL_MS,
+  getStats: getConfigCacheStats,
+  clear: invalidateAllCfg,
+});
 
 // ───────────────────────────────────────────────────────────────────────────────
 // WRITE

@@ -1,5 +1,5 @@
 // src/services/logger.js
-import { es } from "./esClient.js";
+import { es, ES_ENABLED } from "./esClient.js";
 
 const SERVICE_NAME = process.env.SERVICE_NAME || "pickletour-api";
 const ENV = process.env.NODE_ENV || "development";
@@ -12,6 +12,7 @@ function getLogIndex() {
 }
 
 async function logToES(doc) {
+  if (!ES_ENABLED) return;
   try {
     await es.index({
       index: getLogIndex(),

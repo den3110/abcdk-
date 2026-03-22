@@ -16,6 +16,7 @@ import {
   fillIdleCourtsForCluster,
 } from "../../services/courtQueueService.js";
 import { getCourtLivePresenceSummaryMap } from "../../services/courtLivePresence.service.js";
+import { clearCourtPresentationCaches } from "../../services/cacheInvalidation.service.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
 import {
   MATCH_LITE_SELECT,
@@ -25,7 +26,23 @@ import {
   toMatchLite,
 } from "../../services/courtManualAssignment.service.js";
 import { buildSchedulerStatePayload } from "../../services/broadcastState.js";
+import { CACHE_GROUP_IDS } from "../../services/cacheGroups.js";
+import { createShortTtlCache } from "../../utils/shortTtlCache.js";
 const { Types } = mongoose;
+
+const ADMIN_TOURNAMENT_COURTS_CACHE_TTL_MS = Math.max(
+  2000,
+  Number(process.env.ADMIN_TOURNAMENT_COURTS_CACHE_TTL_MS || 5000)
+);
+const adminTournamentCourtsCache = createShortTtlCache(
+  ADMIN_TOURNAMENT_COURTS_CACHE_TTL_MS,
+  {
+    id: CACHE_GROUP_IDS.adminTournamentCourts,
+    label: "Admin tournament courts",
+    category: "admin",
+    scope: "private",
+  }
+);
 /**
  * Upsert danh sách sân cho 1 giải + bracket
  * Sau khi lưu: build queue (tạm reuse 'cluster' = bracketId) + fill ngay các sân idle
@@ -243,6 +260,7 @@ export const upsertCourts = asyncHandler(async (req, res) => {
     .sort({ order: 1 })
     .lean();
 
+  await clearCourtPresentationCaches();
   return res.json({
     items,
     meta: {
@@ -267,6 +285,7 @@ export const buildGroupsQueueHttp = asyncHandler(async (req, res) => {
     bracket,
     cluster: clusterKey,
   });
+  await clearCourtPresentationCaches();
   res.json(out);
 });
 
@@ -284,6 +303,7 @@ export const assignNextHttp = asyncHandler(async (req, res) => {
     courtId,
     cluster: clusterKey,
   });
+  await clearCourtPresentationCaches();
   res.json({ match });
 });
 
@@ -292,6 +312,7 @@ export const freeCourtHttp = asyncHandler(async (req, res) => {
   const { bracket = null } = req.body || {};
   const match = await freeCourtAndAssignNext({ courtId });
   await emitSchedulerState(req, tournamentId, bracket);
+  await clearCourtPresentationCaches();
   res.json({ match });
 });
 
@@ -353,6 +374,7 @@ export const assignSpecificHttp = asyncHandler(async (req, res) => {
 
     await emitSchedulerState(req, tournamentId, bracket);
 
+    await clearCourtPresentationCaches();
     return res.json({
       message: "Da gan tran vao san thanh cong.",
       court: result.court,
@@ -391,6 +413,7 @@ export const setCourtMatchListHttp = asyncHandler(async (req, res) => {
 
     await emitSchedulerState(req, tournamentId, bracket);
 
+    await clearCourtPresentationCaches();
     return res.json({
       ok: true,
       courtId,
@@ -421,6 +444,7 @@ export const clearCourtMatchListHttp = asyncHandler(async (req, res) => {
 
     await emitSchedulerState(req, tournamentId, bracket);
 
+    await clearCourtPresentationCaches();
     return res.json({ ok: true, courtId });
   } catch (error) {
     return res.status(400).json({ message: error.message || "Xoa list that bai." });
@@ -447,6 +471,7 @@ export const advanceCourtMatchListHttp = asyncHandler(async (req, res) => {
 
     await emitSchedulerState(req, tournamentId, bracket);
 
+    await clearCourtPresentationCaches();
     return res.json({
       ok: true,
       courtId,
@@ -505,6 +530,7 @@ export const resetCourtsHttp = asyncHandler(async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
+    await clearCourtPresentationCaches();
     return res.json({
       message: "Đã reset toàn bộ sân & gỡ gán các trận.",
       matchesUnassigned: unassignRes?.modifiedCount || 0,
@@ -756,6 +782,26 @@ export async function listCourtsByTournament(req, res) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
+    const shouldBypassCache = String(heal || "") === "1";
+    const cacheKey = [
+      "admin-courts",
+      String(me?._id || me?.id || "anon"),
+      tid,
+      String(bracket || ""),
+      String(cluster || ""),
+      String(q || ""),
+      String(limit || ""),
+      String(page || ""),
+    ].join(":");
+    if (!shouldBypassCache) {
+      const cached = adminTournamentCourtsCache.get(cacheKey);
+      if (cached) {
+        res.setHeader("Cache-Control", "private, max-age=5, stale-while-revalidate=10");
+        res.setHeader("X-PKT-Cache", "HIT");
+        return res.json(cached);
+      }
+    }
+
     // ----- Truy vấn COURTS theo GIẢI (không theo bracket) -----
     const where = { tournament: tid };
 
@@ -928,6 +974,11 @@ export async function listCourtsByTournament(req, res) {
       );
     }
 
+    if (!shouldBypassCache) {
+      adminTournamentCourtsCache.set(cacheKey, docs);
+      res.setHeader("Cache-Control", "private, max-age=5, stale-while-revalidate=10");
+      res.setHeader("X-PKT-Cache", "MISS");
+    }
     return res.json(docs);
   } catch (err) {
     console.error("[listCourtsByTournament] error:", err);
@@ -1038,6 +1089,7 @@ export const deleteAllCourts = async (req, res) => {
         // ignore realtime errors
       }
 
+      await clearCourtPresentationCaches();
       return res.json({
         ok: true,
         deleted: Number(del.deletedCount || 0),
@@ -1107,6 +1159,7 @@ export const deleteOneCourt = asyncHandler(async (req, res) => {
 
     // Emit realtime cho cluster đã bị ảnh hưởng
 
+    await clearCourtPresentationCaches();
     return res.json({
       ok: true,
       deleted: Number(del?.deletedCount || 0),
@@ -1174,6 +1227,7 @@ export const setCourtReferee = async (req, res) => {
       court.defaultReferees = [];
       await court.save();
 
+      await clearCourtPresentationCaches();
       return res.json({
         message: "Đã xoá tất cả trọng tài mặc định của sân.",
         court,
@@ -1206,6 +1260,7 @@ export const setCourtReferee = async (req, res) => {
     // Nếu muốn trả kèm info chi tiết cho FE:
     // await court.populate("defaultReferees", "name nickname email phone");
 
+    await clearCourtPresentationCaches();
     return res.json({
       message: "Đã cập nhật trọng tài mặc định cho sân.",
       court,

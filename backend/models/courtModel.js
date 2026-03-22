@@ -102,4 +102,8 @@ const courtSchema = new Schema(
   { timestamps: true }
 );
 
+courtSchema.index({ tournament: 1, status: 1, cluster: 1 });
+courtSchema.index({ tournament: 1, isActive: 1, status: 1, order: 1 });
+courtSchema.index({ tournament: 1, currentMatch: 1 });
+
 export default mongoose.model("Court", courtSchema);

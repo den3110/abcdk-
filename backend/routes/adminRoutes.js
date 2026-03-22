@@ -84,8 +84,14 @@ import {
 } from "../controllers/admin/adminAiImportController.js";
 import {
   getDashboardMetrics,
+  getPeakRuntimeMetrics,
   getDashboardSeries,
 } from "../controllers/admin/adminDashboardController.js";
+import {
+  clearAllCacheGroupsHttp,
+  clearCacheGroupById,
+  getCacheSummary,
+} from "../controllers/admin/adminCacheController.js";
 import {
   batchAssignReferee,
   batchDeleteMatches,
@@ -500,6 +506,30 @@ router.get(
   protect,
   authorize("admin"),
   getDashboardSeries
+);
+router.get(
+  "/dashboard/peak-runtime",
+  protect,
+  authorize("admin"),
+  getPeakRuntimeMetrics
+);
+router.get(
+  "/cache/summary",
+  protect,
+  requireAdminAndSuperUser,
+  getCacheSummary
+);
+router.post(
+  "/cache/:cacheId/clear",
+  protect,
+  requireAdminAndSuperUser,
+  clearCacheGroupById
+);
+router.post(
+  "/cache/clear-all",
+  protect,
+  requireAdminAndSuperUser,
+  clearAllCacheGroupsHttp
 );
 
 router.post(

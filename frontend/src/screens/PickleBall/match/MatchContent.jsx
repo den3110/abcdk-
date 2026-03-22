@@ -980,10 +980,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const { data: allMatchesFetched = [], isFetching: fetchingMatches } =
     useListTournamentMatchesQuery(
       tournamentId && needsGroupSeedResolution ? { tournamentId } : skipToken,
-      {
-        refetchOnFocus: false,
-        refetchOnReconnect: true,
-      }
     );
 
   const byBracket = useMemo(() => {

@@ -1542,6 +1542,9 @@ matchSchema.index({
 matchSchema.index({ tournament: 1, createdAt: -1 });
 matchSchema.index({ bracket: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
+matchSchema.index({ tournament: 1, bracket: 1, round: 1, order: 1 });
+matchSchema.index({ tournament: 1, status: 1, updatedAt: -1 });
+matchSchema.index({ court: 1, status: 1 });
 matchSchema.index({ status: 1, queueOrder: 1, courtCluster: 1 });
 matchSchema.index({ participants: 1 });
 matchSchema.index({ referee: 1 });

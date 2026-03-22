@@ -39,7 +39,6 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import {
   useGetTournamentQuery,
   useListPublicMatchesByTournamentQuery,
-  useListTournamentBracketsQuery,
   useVerifyManagerQuery,
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
@@ -949,18 +948,8 @@ export default function TournamentSchedule() {
     isLoading: mLoading,
   } = useListPublicMatchesByTournamentQuery({
     tid: id,
-    params: { limit: 1000 },
   });
-  const {
-    data: brackets = [],
-    isLoading: bLoading,
-  } = useListTournamentBracketsQuery(id, {
-    refetchOnMountOrArgChange: true,
-    refetchOnFocus: true,
-    refetchOnReconnect: true,
-  });
-
-  const isLoading = tLoading || mLoading || bLoading;
+  const isLoading = tLoading || mLoading;
 
   // Realtime Logic
   const socket = useSocket();
@@ -968,26 +957,6 @@ export default function TournamentSchedule() {
   const [liveBump, setLiveBump] = useState(0);
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
-  const subscribedBracketsRef = useRef(new Set());
-  const joinedMatchesRef = useRef(new Set());
-  const bracketsKey = useMemo(
-    () =>
-      (brackets || [])
-        .map((b) => String(b._id))
-        .filter(Boolean)
-        .sort()
-        .join(","),
-    [brackets]
-  );
-  const matchesKey = useMemo(
-    () =>
-      ((matchesResp?.list || []).map((m) => String(m._id)) || [])
-        .filter(Boolean)
-        .sort()
-        .join(","),
-    [matchesResp]
-  );
-
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const mp = liveMapRef.current;
@@ -1088,11 +1057,6 @@ export default function TournamentSchedule() {
     };
   }, [socket, queueUpsert]);
 
-  useEffect(() => {
-    subscribedBracketsRef.current = new Set();
-    joinedMatchesRef.current = new Set();
-  }, [bracketsKey, matchesKey]);
-
   // Aggregation
   const matches = useMemo(
     () =>
@@ -1101,81 +1065,14 @@ export default function TournamentSchedule() {
       ),
     [id, liveBump]
   );
-  const byBracket = useMemo(() => {
-    const m = {};
-    (brackets || []).forEach((b) => (m[b._id] = []));
-    (matches || []).forEach((mt) => {
-      const bid = mt?.bracket?._id || mt?.bracket;
-      if (!bid) return;
-      if (!m[bid]) m[bid] = [];
-      m[bid].push(mt);
-    });
-    return m;
-  }, [brackets, matches]);
-  const baseRoundStartMap = useMemo(() => {
-    const mp = new Map();
-    (brackets || []).forEach((b) => {
-      mp.set(
-        String(b._id),
-        computeBaseRoundStart(brackets || [], byBracket, b)
-      );
-    });
-    return mp;
-  }, [brackets, byBracket]);
-  const groupMaps = useMemo(() => {
-    const mp = new Map();
-    (brackets || []).forEach((b) => mp.set(String(b._id), buildGroupIndex(b)));
-    return mp;
-  }, [brackets]);
-  const groupNumberFromMatch = useCallback(
-    (m) => {
-      const bid = String(m?.bracket?._id || m?.bracket || "");
-      const maps = groupMaps.get(bid);
-      if (!maps) return null;
-      const aId = m?.pairA?._id && String(m.pairA._id);
-      const bId = m?.pairB?._id && String(m.pairB._id);
-      const ga = aId && maps.byRegId.get(aId);
-      const gb = bId && maps.byRegId.get(bId);
-      if (ga && gb && ga === gb) return maps.order.get(ga) ?? null;
-      return null;
-    },
-    [groupMaps]
-  );
-  const codeStickyRef = useRef(new Map());
   const unassignedCourtLabel = t("tournaments.schedule.court.unassigned");
   const pendingTeamLabel = t("tournaments.schedule.match.pendingTeam");
   const matchesWithCode = useMemo(() => {
     return (matches || []).map((m) => {
-      const T = normMatchNo(m);
-      let label = t("tournaments.schedule.fallbackMatchCode");
-      if (isGroupMatch(m)) {
-        const stageNo = Number(m?.bracket?.stage ?? m?.stage ?? 1) || 1;
-        const bFromMap = groupNumberFromMatch(m);
-        const B = (bFromMap != null ? String(bFromMap) : normGroup(m)) || "";
-        const parts = [];
-        if (stageNo) parts.push(`V${stageNo}`);
-        if (B) parts.push(`B${B}`);
-        if (T) parts.push(`T${T}`);
-        const candidate = parts.length
-          ? parts.join("-")
-          : t("tournaments.schedule.fallbackMatchCode");
-        const prev = codeStickyRef.current.get(m._id);
-        const candHasB = candidate.includes("-B");
-        const prevHasB = typeof prev === "string" && prev.includes("-B");
-        label = !candHasB && prevHasB ? prev : candidate;
-        if (!prev || candHasB) codeStickyRef.current.set(m._id, label);
-      } else {
-        const bid = String(m?.bracket?._id || m?.bracket || "");
-        const base = baseRoundStartMap.get(bid) || 1;
-        const rNum = Number(m?.round ?? 1);
-        const Vdisp = Number.isFinite(rNum) ? base + (rNum - 1) : rNum || 1;
-        const parts = [];
-        if (Vdisp) parts.push(`V${Vdisp}`);
-        if (T) parts.push(`T${T}`);
-        label = parts.length
-          ? parts.join("-")
-          : t("tournaments.schedule.fallbackMatchCode");
-      }
+      const label =
+        (typeof m?.code === "string" && m.code.trim()) ||
+        (typeof m?.globalCode === "string" && m.globalCode.trim()) ||
+        t("tournaments.schedule.fallbackMatchCode");
       return {
         ...m,
         tournament: {
@@ -1186,7 +1083,7 @@ export default function TournamentSchedule() {
         __displayCode: label,
       };
     });
-  }, [matches, baseRoundStartMap, eventType, groupNumberFromMatch, t, displayMode]);
+  }, [matches, eventType, t, displayMode]);
   const allSorted = useMemo(() => {
     return [...matchesWithCode].sort((a, b) => {
       const ak = orderKey(a);

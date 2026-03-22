@@ -7,19 +7,64 @@ import TournamentManager from "../models/tournamentManagerModel.js";
 import Registration from "../models/registrationModel.js";
 import Court from "../models/courtModel.js";
 import { sleep } from "../utils/sleep.js";
-import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { ensureTournamentCardImageUrl } from "../utils/tournamentImageVariant.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS || 2000)
 );
+const TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS || 2000)
+);
+const TOURNAMENT_DETAIL_CACHE_TTL_MS = Math.max(
+  3000,
+  Number(process.env.TOURNAMENT_DETAIL_CACHE_TTL_MS || 10000)
+);
+const TOURNAMENT_BRACKETS_CACHE_TTL_MS = Math.max(
+  3000,
+  Number(process.env.TOURNAMENT_BRACKETS_CACHE_TTL_MS || 10000)
+);
 const tournamentBracketMatchesCache = createShortTtlCache(
-  TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS
+  TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS,
+  {
+    id: CACHE_GROUP_IDS.tournamentBracketMatches,
+    label: "Tournament bracket matches",
+    category: "tournament",
+    scope: "public",
+  }
+);
+const tournamentScheduleMatchesCache = createShortTtlCache(
+  TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS,
+  {
+    id: CACHE_GROUP_IDS.tournamentScheduleMatches,
+    label: "Tournament schedule matches",
+    category: "tournament",
+    scope: "public",
+  }
+);
+const tournamentDetailCache = createShortTtlCache(
+  TOURNAMENT_DETAIL_CACHE_TTL_MS,
+  {
+    id: CACHE_GROUP_IDS.tournamentDetail,
+    label: "Tournament public detail",
+    category: "tournament",
+    scope: "public",
+  }
+);
+const tournamentBracketsCache = createShortTtlCache(
+  TOURNAMENT_BRACKETS_CACHE_TTL_MS,
+  {
+    id: CACHE_GROUP_IDS.tournamentBrackets,
+    label: "Tournament public brackets",
+    category: "tournament",
+    scope: "public",
+  }
 );
 
 const normalizeTournamentPublicUrls = async (req, tournament) => {
@@ -44,6 +89,12 @@ const normalizeTournamentPublicUrls = async (req, tournament) => {
 
 const buildBracketMatchFastCacheKey = (tournamentId) =>
   `bracket:${String(tournamentId || "").trim()}`;
+const buildScheduleMatchFastCacheKey = (tournamentId) =>
+  `schedule:${String(tournamentId || "").trim()}`;
+const buildTournamentDetailCacheKey = (tournamentId) =>
+  `detail:${String(tournamentId || "").trim()}`;
+const buildTournamentBracketsCacheKey = (tournamentId) =>
+  `brackets:${String(tournamentId || "").trim()}`;
 
 const getTournamentBracketBaseByBracketId = async (tournamentId) => {
   const objectId = new mongoose.Types.ObjectId(tournamentId);
@@ -447,6 +498,94 @@ const listTournamentMatchesBracketView = async (req, res) => {
   res.setHeader("X-PKT-Cache", "MISS");
   return res.json(payload);
 };
+
+const listTournamentMatchesScheduleView = async (req, res) => {
+  const { id } = req.params;
+  const cacheKey = buildScheduleMatchFastCacheKey(id);
+  const cached = tournamentScheduleMatchesCache.get(cacheKey);
+  if (cached) {
+    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+    res.setHeader("X-PKT-Cache", "HIT");
+    return res.json(cached);
+  }
+
+  const listRaw = await Match.find({ tournament: id })
+    .select(
+      [
+        "tournament",
+        "bracket",
+        "format",
+        "pool",
+        "round",
+        "order",
+        "stageIndex",
+        "labelKey",
+        "meta.groupNo",
+        "meta.groupIndex",
+        "meta.pool",
+        "meta.orderInGroup",
+        "meta.order",
+        "seedA",
+        "seedB",
+        "pairA",
+        "pairB",
+        "currentGame",
+        "gameScores",
+        "status",
+        "winner",
+        "scheduledAt",
+        "startedAt",
+        "finishedAt",
+        "assignedAt",
+        "court",
+        "courtLabel",
+        "courtCluster",
+        "queueOrder",
+        "serve",
+        "liveVersion",
+        "video",
+        "facebookLive.permalink_url",
+        "facebookLive.video_permalink_url",
+        "createdAt",
+        "updatedAt",
+      ].join(" ")
+    )
+    .populate({
+      path: "tournament",
+      select: "name image eventType nameDisplayMode",
+    })
+    .populate({
+      path: "bracket",
+      select: "name type stage order groups._id groups.name",
+    })
+    .populate({
+      path: "pairA",
+      select: "player1 player2 label teamName",
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 label teamName",
+    })
+    .populate({
+      path: "court",
+      select: "name cluster status order",
+    })
+    .sort({ round: 1, order: 1, createdAt: 1 })
+    .lean();
+
+  const list = await enrichBracketMatchList(id, listRaw);
+  const payload = {
+    total: list.length,
+    page: 1,
+    limit: list.length,
+    list,
+  };
+
+  tournamentScheduleMatchesCache.set(cacheKey, payload);
+  res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+  res.setHeader("X-PKT-Cache", "MISS");
+  return res.json(payload);
+};
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
 // @route   GET /api/tournaments?sportType=&groupId=
 // @access  Public
@@ -731,96 +870,110 @@ const getTournaments = asyncHandler(async (req, res) => {
 const getTournamentById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  // Validate ID
   if (!mongoose.Types.ObjectId.isValid(id)) {
     res.status(400);
     throw new Error("Invalid ID");
   }
 
-  // Lấy tournament
-  const tour = await Tournament.findById(id).lean();
-  if (!tour) {
-    res.status(404);
-    throw new Error("Tournament not found");
+  const cacheKey = buildTournamentDetailCacheKey(id);
+  let cached = tournamentDetailCache.get(cacheKey);
+
+  if (!cached) {
+    const tour = await Tournament.findById(id).lean();
+    if (!tour) {
+      res.status(404);
+      throw new Error("Tournament not found");
+    }
+
+    const [managerRows, registrationsCount, checkedInCount, paidCount] =
+      await Promise.all([
+        TournamentManager.find({ tournament: id }).select("user role").lean(),
+        Registration.countDocuments({ tournament: id }),
+        Registration.countDocuments({
+          tournament: id,
+          checkinAt: { $ne: null },
+        }),
+        Registration.countDocuments({
+          tournament: id,
+          "payment.status": "Paid",
+        }),
+      ]);
+
+    const managers = managerRows.map((r) => ({ user: r.user, role: r.role }));
+    const now = new Date();
+    const startInstant = tour.startAt || tour.startDate;
+    const endInstant = tour.endAt || tour.endDate;
+
+    let status = "upcoming";
+    if (tour.finishedAt) status = "finished";
+    else if (startInstant && now < new Date(startInstant)) status = "upcoming";
+    else if (endInstant && now > new Date(endInstant)) status = "finished";
+    else status = "ongoing";
+
+    const bankShortName =
+      tour.bankShortName || tour.qrBank || tour.bankCode || tour.bank || "";
+    const bankAccountNumber =
+      tour.bankAccountNumber || tour.qrAccount || tour.bankAccount || "";
+    const bankAccountName =
+      tour.bankAccountName ||
+      tour.accountName ||
+      tour.paymentAccountName ||
+      tour.beneficiaryName ||
+      "";
+    const registrationFee = (() => {
+      const raw = tour.registrationFee ?? tour.fee ?? tour.entryFee ?? 0;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
+    })();
+
+    const normalizedTour = await normalizeTournamentPublicUrls(req, tour);
+
+    cached = {
+      ...normalizedTour,
+      status,
+      managers,
+      _managerUserIds: managerRows.map((r) => String(r.user)),
+      stats: {
+        registrationsCount,
+        checkedInCount,
+        paidCount,
+      },
+      bankShortName,
+      bankAccountNumber,
+      bankAccountName,
+      registrationFee,
+      qrBank: bankShortName,
+      qrAccount: bankAccountNumber,
+      fee: registrationFee,
+      entryFee: registrationFee,
+    };
+    tournamentDetailCache.set(cacheKey, cached);
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=10, stale-while-revalidate=20"
+    );
+    res.setHeader("X-PKT-Cache", "MISS");
+  } else {
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=10, stale-while-revalidate=20"
+    );
+    res.setHeader("X-PKT-Cache", "HIT");
   }
 
   const meId = req.user?._id ? String(req.user._id) : null;
-
-  // Managers
-  const managerRows = await TournamentManager.find({ tournament: id })
-    .select("user role")
-    .lean();
-
-  const managers = managerRows.map((r) => ({ user: r.user, role: r.role }));
-
-  const amOwner = !!(meId && String(tour.createdBy) === meId);
+  const amOwner = !!(meId && String(cached.createdBy) === meId);
   const amManager =
-    amOwner || (!!meId && managerRows.some((r) => String(r.user) === meId));
+    amOwner ||
+    (!!meId &&
+      Array.isArray(cached._managerUserIds) &&
+      cached._managerUserIds.includes(meId));
 
-  // ---- Derive status runtime (upcoming/ongoing/finished)
-  const now = new Date();
-  const startInstant = tour.startAt || tour.startDate;
-  const endInstant = tour.endAt || tour.endDate;
-
-  let status = "upcoming";
-  if (tour.finishedAt) status = "finished";
-  else if (startInstant && now < new Date(startInstant)) status = "upcoming";
-  else if (endInstant && now > new Date(endInstant)) status = "finished";
-  else status = "ongoing";
-
-  // ---- Stats: đăng ký / check-in / đã thanh toán
-  const [registrationsCount, checkedInCount, paidCount] = await Promise.all([
-    Registration.countDocuments({ tournament: id }),
-    Registration.countDocuments({ tournament: id, checkinAt: { $ne: null } }),
-    Registration.countDocuments({
-      tournament: id,
-      "payment.status": "Paid",
-    }),
-  ]);
-
-  // ---- Chuẩn hoá thông tin thanh toán (SePay VietQR)
-  const bankShortName =
-    tour.bankShortName || tour.qrBank || tour.bankCode || tour.bank || "";
-  const bankAccountNumber =
-    tour.bankAccountNumber || tour.qrAccount || tour.bankAccount || "";
-  const bankAccountName =
-    tour.bankAccountName ||
-    tour.accountName ||
-    tour.paymentAccountName ||
-    tour.beneficiaryName ||
-    "";
-  const registrationFee = (() => {
-    const raw = tour.registrationFee ?? tour.fee ?? tour.entryFee ?? 0;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
-  })();
-
-  // Trả về
-  const normalizedTour = await normalizeTournamentPublicUrls(req, tour);
-
+  const { _managerUserIds, ...payload } = cached;
   res.json({
-    ...normalizedTour,
-    status, // trạng thái tính theo thời điểm hiện tại
-    managers,
+    ...payload,
     amOwner,
     amManager,
-    stats: {
-      registrationsCount,
-      checkedInCount,
-      paidCount,
-    },
-
-    // payment fields (mới)
-    bankShortName,
-    bankAccountNumber,
-    bankAccountName,
-    registrationFee,
-
-    // alias cũ để tương thích ngược (UI/logic cũ)
-    qrBank: bankShortName,
-    qrAccount: bankAccountNumber,
-    fee: registrationFee,
-    entryFee: registrationFee,
   });
 });
 
@@ -876,6 +1029,17 @@ export const listTournamentBrackets = asyncHandler(async (req, res, next) => {
     const { id } = req.params;
     if (!isId(id)) {
       return res.status(400).json({ message: "Invalid tournament id" });
+    }
+
+    const cacheKey = buildTournamentBracketsCacheKey(id);
+    const cached = tournamentBracketsCache.get(cacheKey);
+    if (cached) {
+      res.setHeader(
+        "Cache-Control",
+        "public, max-age=10, stale-while-revalidate=20"
+      );
+      res.setHeader("X-PKT-Cache", "HIT");
+      return res.json(cached);
     }
 
     const rows = await Bracket.aggregate([
@@ -1054,6 +1218,12 @@ export const listTournamentBrackets = asyncHandler(async (req, res, next) => {
       return out;
     });
 
+    tournamentBracketsCache.set(cacheKey, list);
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=10, stale-while-revalidate=20"
+    );
+    res.setHeader("X-PKT-Cache", "MISS");
     res.json(list);
   } catch (err) {
     next(err);
@@ -1085,6 +1255,9 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     const view = String(req.query.view || "").trim().toLowerCase();
     if (view === "bracket") {
       return await listTournamentMatchesBracketView(req, res);
+    }
+    if (view === "schedule") {
+      return await listTournamentMatchesScheduleView(req, res);
     }
 
     const {
@@ -1473,47 +1646,113 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     next(err);
   }
 });
-
-
-  export async function searchTournaments(req, res, next) {
+export async function searchTournaments(req, res, next) {
   try {
     const q = (req.query.q || "").trim();
-    const status = req.query.status; // optional: upcoming/ongoing/finished
+    const status = String(req.query.status || "").trim().toLowerCase(); // optional: upcoming/ongoing/finished
     const sportType = req.query.sportType; // optional
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+    const escapeRegex = (value = "") =>
+      String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const tokens = q.split(/\s+/).filter(Boolean).map(escapeRegex);
 
-    const must = [];
-    if (q) {
-      must.push({
-        multi_match: {
-          query: q,
-          fields: ["name^3", "code^2", "location", "searchText"],
-        },
-      });
+    const mongoQuery = {};
+    if (sportType !== undefined && sportType !== "") {
+      const sportTypeNumber = Number(sportType);
+      if (Number.isFinite(sportTypeNumber)) {
+        mongoQuery.sportType = sportTypeNumber;
+      }
     }
-
     if (status) {
-      must.push({ term: { status } });
+      mongoQuery.status = status;
     }
-    if (sportType) {
-      must.push({ term: { sportType: Number(sportType) } });
+    if (tokens.length) {
+      mongoQuery.$and = tokens.map((token) => ({
+        $or: [
+          { name: { $regex: token, $options: "i" } },
+          { code: { $regex: token, $options: "i" } },
+          { location: { $regex: token, $options: "i" } },
+        ],
+      }));
     }
 
-    const result = await es.search({
-      index: ES_TOURNAMENT_INDEX,
-      size: 20,
-      query: must.length
-        ? { bool: { must } }
-        : { match_all: {} },
-      sort: [{ startAt: "asc" }],
-    });
+    const rawRows = await Tournament.find(mongoQuery)
+      .select(
+        [
+          "name",
+          "code",
+          "location",
+          "status",
+          "sportType",
+          "groupId",
+          "image",
+          "eventType",
+          "timezone",
+          "regOpenDate",
+          "registrationDeadline",
+          "startDate",
+          "endDate",
+          "startAt",
+          "endAt",
+          "scoringScope",
+          "locationGeo",
+          "createdAt",
+          "updatedAt",
+          "finishedAt",
+        ].join(" ")
+      )
+      .sort({ startAt: 1, createdAt: -1 })
+      .limit(tokens.length ? limit * 4 : limit)
+      .lean();
+
+    const now = new Date();
+    const computeRuntimeStatus = (tournament) => {
+      if (tournament?.finishedAt) return "finished";
+      const startInstant = tournament?.startAt || tournament?.startDate;
+      const endInstant = tournament?.endAt || tournament?.endDate;
+      if (startInstant && now < new Date(startInstant)) return "upcoming";
+      if (endInstant && now > new Date(endInstant)) return "finished";
+      return "ongoing";
+    };
+    const normalizedQuery = q.toLowerCase();
+    const scoreTournament = (tournament) => {
+      if (!normalizedQuery) return 0;
+      const code = String(tournament?.code || "").toLowerCase();
+      const name = String(tournament?.name || "").toLowerCase();
+      const location = String(tournament?.location || "").toLowerCase();
+      let score = 0;
+      if (code === normalizedQuery) score += 200;
+      if (name === normalizedQuery) score += 160;
+      if (code.startsWith(normalizedQuery)) score += 100;
+      if (name.startsWith(normalizedQuery)) score += 80;
+      if (location.startsWith(normalizedQuery)) score += 40;
+      if (code.includes(normalizedQuery)) score += 25;
+      if (name.includes(normalizedQuery)) score += 20;
+      if (location.includes(normalizedQuery)) score += 10;
+      return score;
+    };
+
+    const filteredRows = rawRows
+      .map((row) => ({
+        ...row,
+        status: computeRuntimeStatus(row),
+        _searchScore: scoreTournament(row),
+      }))
+      .filter((row) => !status || row.status === status)
+      .sort((a, b) => {
+        if (b._searchScore !== a._searchScore) {
+          return b._searchScore - a._searchScore;
+        }
+        const aStart = a.startAt ? new Date(a.startAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const bStart = b.startAt ? new Date(b.startAt).getTime() : Number.MAX_SAFE_INTEGER;
+        if (aStart !== bStart) return aStart - bStart;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      })
+      .slice(0, limit);
 
     const items = await Promise.all(
-      result.hits.hits.map((hit) =>
-        normalizeTournamentPublicUrls(req, {
-          id: hit._id,
-          score: hit._score,
-          ...hit._source,
-        })
+      filteredRows.map(async ({ _searchScore, ...row }) =>
+        normalizeTournamentPublicUrls(req, row)
       )
     );
 

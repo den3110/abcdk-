@@ -2,12 +2,18 @@
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 
 const LIVE_MATCHES_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.LIVE_MATCHES_CACHE_TTL_MS || 3000)
 );
-const liveMatchesCache = createShortTtlCache(LIVE_MATCHES_CACHE_TTL_MS);
+const liveMatchesCache = createShortTtlCache(LIVE_MATCHES_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.liveMatches,
+  label: "Live matches list",
+  category: "live",
+  scope: "public",
+});
 
 export async function listLiveMatches(req, res) {
   try {

@@ -1,5 +1,28 @@
 // src/controllers/newsPublicController.js
 import NewsArticle from "../models/newsArticlesModel.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+
+const NEWS_LIST_CACHE_TTL_MS = Math.max(
+  15_000,
+  Number(process.env.NEWS_LIST_CACHE_TTL_MS || 60_000)
+);
+const NEWS_DETAIL_CACHE_TTL_MS = Math.max(
+  60_000,
+  Number(process.env.NEWS_DETAIL_CACHE_TTL_MS || 300_000)
+);
+const newsListCache = createShortTtlCache(NEWS_LIST_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.newsList,
+  label: "News list",
+  category: "public",
+  scope: "public",
+});
+const newsDetailCache = createShortTtlCache(NEWS_DETAIL_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.newsDetail,
+  label: "News detail",
+  category: "public",
+  scope: "public",
+});
 
 /** ===== Helpers: chuẩn hoá URL ảnh uploads bắt đầu bằng ../ ===== */
 
@@ -75,6 +98,13 @@ function normalizeArticleForResponse(article) {
  */
 export const getNewsList = async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 100);
+  const cacheKey = `news:list:${limit}`;
+  const cached = newsListCache.get(cacheKey);
+  if (cached) {
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=60");
+    res.setHeader("X-PKT-Cache", "HIT");
+    return res.json(cached);
+  }
 
   const items = await NewsArticle.find({ status: "published" })
     .sort({ originalPublishedAt: -1, createdAt: -1 })
@@ -86,6 +116,9 @@ export const getNewsList = async (req, res) => {
 
   const normalized = items.map((it) => normalizeArticleForResponse(it));
 
+  newsListCache.set(cacheKey, normalized);
+  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=60");
+  res.setHeader("X-PKT-Cache", "MISS");
   res.json(normalized);
 };
 
@@ -94,8 +127,17 @@ export const getNewsList = async (req, res) => {
  * Lấy chi tiết 1 bài viết theo slug
  */
 export const getNewsDetail = async (req, res) => {
+  const slug = String(req.params.slug || "").trim();
+  const cacheKey = `news:detail:${slug}`;
+  const cached = newsDetailCache.get(cacheKey);
+  if (cached) {
+    res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=300");
+    res.setHeader("X-PKT-Cache", "HIT");
+    return res.json(cached);
+  }
+
   const article = await NewsArticle.findOne({
-    slug: req.params.slug,
+    slug,
     status: "published",
   }).lean();
 
@@ -104,5 +146,8 @@ export const getNewsDetail = async (req, res) => {
   }
 
   const normalized = normalizeArticleForResponse(article);
+  newsDetailCache.set(cacheKey, normalized);
+  res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=300");
+  res.setHeader("X-PKT-Cache", "MISS");
   res.json(normalized);
 };

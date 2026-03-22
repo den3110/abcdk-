@@ -4,6 +4,7 @@ import Bracket from "../../models/bracketModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import Match from "../../models/matchModel.js";
 import Registration from "../../models/registrationModel.js";
+import { clearTournamentPresentationCaches } from "../../services/cacheInvalidation.service.js";
 
 // ===== Helpers =====
 const isPow2 = (n) => Number.isInteger(n) && n >= 1 && (n & (n - 1)) === 0;
@@ -139,6 +140,7 @@ export const adminCreateBracket = expressAsyncHandler(async (req, res) => {
     createdBy: req.user?._id,
   });
 
+  await clearTournamentPresentationCaches();
   res.status(201).json(bracket);
 });
 
@@ -272,6 +274,7 @@ export const adminUpdateBracket = expressAsyncHandler(async (req, res) => {
   }
 
   await br.save();
+  await clearTournamentPresentationCaches();
   res.json(br);
 });
 
@@ -284,6 +287,7 @@ export const deleteBracketCascade = expressAsyncHandler(async (req, res) => {
   await Match.deleteMany({ bracket: br._id });
   await br.deleteOne();
 
+  await clearTournamentPresentationCaches();
   res.json({ message: "Bracket deleted (and its matches)" });
 });
 

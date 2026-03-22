@@ -1,5 +1,25 @@
 // backend/controllers/cmsController.js
 import CmsBlock from "../models/cmsBlockModel.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import { clearCmsPresentationCaches } from "../services/cacheInvalidation.service.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+
+const CMS_BLOCK_CACHE_TTL_MS = Math.max(
+  15_000,
+  Number(process.env.CMS_BLOCK_CACHE_TTL_MS || 60_000)
+);
+const cmsHeroCache = createShortTtlCache(CMS_BLOCK_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.cmsHero,
+  label: "CMS hero block",
+  category: "public",
+  scope: "public",
+});
+const cmsContactCache = createShortTtlCache(CMS_BLOCK_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.cmsContact,
+  label: "CMS contact block",
+  category: "public",
+  scope: "public",
+});
 
 const DEFAULTS = {
   hero: {
@@ -77,10 +97,28 @@ function extractPayload(body) {
   return null;
 }
 
+function getBlockCache(slug) {
+  if (slug === "hero") return cmsHeroCache;
+  if (slug === "contact") return cmsContactCache;
+  return null;
+}
+
 async function getBlock(req, res, slug) {
   try {
+    const cache = getBlockCache(slug);
+    const cached = cache?.get(slug);
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=60");
+      res.setHeader("X-PKT-Cache", "HIT");
+      return res.json(cached);
+    }
+
     const doc = await CmsBlock.findOne({ slug }).lean();
-    return res.json(normalize(slug, doc));
+    const payload = normalize(slug, doc);
+    cache?.set(slug, payload);
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=60");
+    res.setHeader("X-PKT-Cache", "MISS");
+    return res.json(payload);
   } catch (err) {
     return res.status(500).json({ message: err.message || "Internal Server Error" });
   }
@@ -105,6 +143,8 @@ async function updateBlock(req, res, slug) {
       { $set: { data: merged, updatedBy: req.user?._id } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).lean();
+
+    await clearCmsPresentationCaches();
 
     return res.json(normalize(slug, updated));
   } catch (err) {

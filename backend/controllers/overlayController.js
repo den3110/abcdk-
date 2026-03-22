@@ -10,12 +10,31 @@ import Tournament from "../models/tournamentModel.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { getManualAssignmentItems } from "../services/courtManualAssignment.service.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 
 const OVERLAY_MATCH_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.OVERLAY_MATCH_CACHE_TTL_MS || 2000)
 );
-const overlayMatchCache = createShortTtlCache(OVERLAY_MATCH_CACHE_TTL_MS);
+const NEXT_MATCH_BY_COURT_CACHE_TTL_MS = Math.max(
+  1000,
+  Number(process.env.NEXT_MATCH_BY_COURT_CACHE_TTL_MS || 2000)
+);
+const overlayMatchCache = createShortTtlCache(OVERLAY_MATCH_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.overlayMatch,
+  label: "Overlay match payload",
+  category: "live",
+  scope: "public",
+});
+const nextMatchByCourtCache = createShortTtlCache(
+  NEXT_MATCH_BY_COURT_CACHE_TTL_MS,
+  {
+    id: CACHE_GROUP_IDS.overlayNextCourt,
+    label: "Overlay next match by court",
+    category: "live",
+    scope: "public",
+  }
+);
 // ===== Helpers =====
 const gamesToWin = (bestOf) => Math.floor((Number(bestOf) || 3) / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
@@ -968,6 +987,13 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid courtId" });
   }
   const cid = new mongoose.Types.ObjectId(courtId);
+  const cacheKey = `next:${courtId}:${String(after || "").trim()}`;
+  const cached = nextMatchByCourtCache.get(cacheKey);
+  if (cached) {
+    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+    res.setHeader("X-PKT-Cache", "HIT");
+    return res.json(cached);
+  }
 
   const court = await Court.findById(cid)
     .select("currentMatch manualAssignment")
@@ -1002,7 +1028,11 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
         const availableSet = new Set(manualCandidates.map((match) => String(match._id)));
         const nextManualId = candidateIds.find((id) => availableSet.has(id));
         if (nextManualId) {
-          return res.json({ matchId: nextManualId });
+          const payload = { matchId: nextManualId };
+          nextMatchByCourtCache.set(cacheKey, payload);
+          res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+          res.setHeader("X-PKT-Cache", "MISS");
+          return res.json(payload);
         }
       }
     }
@@ -1019,7 +1049,11 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
     .lean();
 
   if (!candidates.length) {
-    return res.json({ matchId: null });
+    const payload = { matchId: null };
+    nextMatchByCourtCache.set(cacheKey, payload);
+    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+    res.setHeader("X-PKT-Cache", "MISS");
+    return res.json(payload);
   }
 
   candidates.sort(lexCmp);
@@ -1029,11 +1063,19 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
     const idx = candidates.findIndex((m) => String(m._id) === String(after));
     if (idx >= 0) {
       const next = candidates[idx + 1];
-      return res.json({ matchId: next ? String(next._id) : null });
+      const payload = { matchId: next ? String(next._id) : null };
+      nextMatchByCourtCache.set(cacheKey, payload);
+      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+      res.setHeader("X-PKT-Cache", "MISS");
+      return res.json(payload);
     }
     // Nếu "after" không nằm trong tập (vì đã finished/khác sân), ta lấy phần tử đầu
   }
 
   // Mặc định: trả trận "đầu hàng" theo tiêu chí sort
-  return res.json({ matchId: String(candidates[0]._id) });
+  const payload = { matchId: String(candidates[0]._id) };
+  nextMatchByCourtCache.set(cacheKey, payload);
+  res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+  res.setHeader("X-PKT-Cache", "MISS");
+  return res.json(payload);
 });

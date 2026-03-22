@@ -3,7 +3,6 @@ import asyncHandler from "express-async-handler";
 import UserMatch from "../models/userMatchModel.js";
 import User from "../models/userModel.js";
 import crypto from "crypto";
-import { es, ES_USER_INDEX } from "../services/esClient.js";
 
 /**
  * Helper: build score from gameScores
@@ -373,91 +372,69 @@ export const deleteUserMatch = asyncHandler(async (req, res) => {
 export const searchPlayersForUserMatch = asyncHandler(async (req, res) => {
   const { search = "", limit = 20 } = req.query;
   const lim = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
-
-  if (!search) {
+  const keyword = String(search || "").trim();
+  if (!keyword) {
     return res.json({ items: [] });
   }
+  const tokens = keyword.split(/\s+/).filter(Boolean).map(escapeRegex);
+  const tokenFilters = tokens.map((token) => ({
+    $or: [
+      { nickname: { $regex: token, $options: "i" } },
+      { name: { $regex: token, $options: "i" } },
+      { province: { $regex: token, $options: "i" } },
+      { email: { $regex: token, $options: "i" } },
+      { phone: { $regex: token, $options: "i" } },
+    ],
+  }));
 
-  let items = [];
+  const users = await User.find({
+    isDeleted: { $ne: true },
+    ...(tokenFilters.length ? { $and: tokenFilters } : {}),
+  })
+    .select("_id name nickname avatar province email phone")
+    .limit(tokens.length ? lim * 4 : lim)
+    .lean();
 
-  // ----- Ưu tiên search bằng Elasticsearch -----
-  try {
-    // nếu bạn đang dùng esClient export const es = new Client(...)
-    // thì ở đầu file nhớ:
-    // import { es, ES_USER_INDEX } from "../../src/services/esClient.js";
-    const indexName = process.env.ES_USERS_INDEX || ES_USER_INDEX || "users";
+  const normalizedKeyword = keyword.toLowerCase();
+  const scoreUser = (user) => {
+    const nickname = String(user?.nickname || "").toLowerCase();
+    const name = String(user?.name || "").toLowerCase();
+    const province = String(user?.province || "").toLowerCase();
+    const email = String(user?.email || "").toLowerCase();
+    const phone = String(user?.phone || "").toLowerCase();
+    let score = 0;
+    if (nickname === normalizedKeyword) score += 200;
+    if (name === normalizedKeyword) score += 180;
+    if (phone === normalizedKeyword) score += 160;
+    if (nickname.startsWith(normalizedKeyword)) score += 100;
+    if (name.startsWith(normalizedKeyword)) score += 80;
+    if (phone.startsWith(normalizedKeyword)) score += 70;
+    if (email.startsWith(normalizedKeyword)) score += 50;
+    if (province.startsWith(normalizedKeyword)) score += 25;
+    if (nickname.includes(normalizedKeyword)) score += 20;
+    if (name.includes(normalizedKeyword)) score += 15;
+    if (phone.includes(normalizedKeyword)) score += 15;
+    if (email.includes(normalizedKeyword)) score += 10;
+    return score;
+  };
 
-    const esRes = await es.search({
-      index: indexName,
-      size: lim,
-      query: {
-        bool: {
-          must: [
-            {
-              multi_match: {
-                query: search,
-                fields: [
-                  "nickname^4",
-                  "name^3",
-                  "province^1",
-                  "email^0.5",
-                  "phone^0.5",
-                ],
-                fuzziness: "AUTO",
-              },
-            },
-          ],
-          filter: [
-            { term: { isDeleted: false } }, // mapping bool
-          ],
-        },
-      },
-    });
-
-    items = (esRes.hits?.hits || []).map((hit) => {
-      const src = hit._source || {};
-      return {
-        // 👇 dùng luôn document id của ES (đã map = Mongo _id khi bulk)
-        userId: hit._id,
-        name: src.name || "",
-        nickname: src.nickname || "",
-        avatar: src.avatar || "",
-        province: src.province || "",
-        score: hit._score ?? undefined,
-      };
-    });
-  } catch (err) {
-    console.error(
-      "[userMatch] ES searchPlayersForUserMatch failed, fallback Mongo:",
-      err?.message || err
-    );
-  }
-
-  // ----- Fallback Mongo (phòng khi ES lỗi / chưa index) -----
-  if (!items.length) {
-    const regex = new RegExp(escapeRegex(search), "i");
-
-    const users = await User.find({
-      isDeleted: { $ne: true },
-      $or: [
-        { nickname: regex },
-        { name: regex },
-        { phone: regex },
-        { email: regex },
-      ],
+  const items = users
+    .map((user) => ({
+      userId: String(user._id),
+      name: user.name || "",
+      nickname: user.nickname || "",
+      avatar: user.avatar || "",
+      province: user.province || "",
+      _score: scoreUser(user),
+    }))
+    .sort((a, b) => {
+      if (b._score !== a._score) return b._score - a._score;
+      return String(a.nickname || a.name || "").localeCompare(
+        String(b.nickname || b.name || "")
+      );
     })
-      .select("_id name nickname avatar province")
-      .limit(lim)
-      .lean();
-
-    items = users.map((u) => ({
-      userId: String(u._id),
-      name: u.name || "",
-      nickname: u.nickname || "",
-      avatar: u.avatar || "",
-      province: u.province || "",
-    }));
-  }
+    .slice(0, lim)
+    .map(({ _score, ...item }) => item);
 
   res.json({ items });
 });

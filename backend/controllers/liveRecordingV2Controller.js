@@ -162,6 +162,67 @@ function findRecordingSegment(recording, segmentIndex) {
   return (recording.segments || []).find((segment) => segment.index === segmentIndex);
 }
 
+async function presignRecordingSegmentEntries({
+  recording,
+  segmentIndexes = [],
+  contentType = "video/mp4",
+}) {
+  const normalizedIndexes = [...new Set(segmentIndexes)]
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value >= 0)
+    .sort((a, b) => a - b);
+
+  if (!normalizedIndexes.length) {
+    return [];
+  }
+
+  const entries = [];
+  let mutated = false;
+
+  for (const segmentIndex of normalizedIndexes) {
+    const objectKey = buildRecordingSegmentObjectKey({
+      recordingId: recording._id,
+      matchId: recording.match,
+      segmentIndex,
+    });
+
+    const upload = await createRecordingSegmentUploadUrl({
+      objectKey,
+      contentType,
+      storageTargetId: recording.r2TargetId,
+    });
+
+    const existing = recording.segments.find((segment) => segment.index === segmentIndex);
+    if (existing) {
+      if (existing.uploadStatus !== "uploaded") {
+        existing.objectKey = objectKey;
+        existing.uploadStatus = "presigned";
+        mutated = true;
+      }
+    } else {
+      recording.segments.push({
+        index: segmentIndex,
+        objectKey,
+        uploadStatus: "presigned",
+        isFinal: false,
+      });
+      mutated = true;
+    }
+
+    entries.push({
+      segmentIndex,
+      objectKey,
+      upload,
+    });
+  }
+
+  if (mutated) {
+    await recording.save();
+  }
+
+  return entries;
+}
+
 function shouldPreserveExportState(recording) {
   return ["pending_export_window", "exporting", "ready", "failed"].includes(
     String(recording?.status || "")
@@ -572,35 +633,59 @@ export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Recording not found" });
   }
 
-  const objectKey = buildRecordingSegmentObjectKey({
-    recordingId: recording._id,
-    matchId: recording.match,
-    segmentIndex,
-  });
-
-  const upload = await createRecordingSegmentUploadUrl({
-    objectKey,
+  const [entry] = await presignRecordingSegmentEntries({
+    recording,
+    segmentIndexes: [segmentIndex],
     contentType,
-    storageTargetId: recording.r2TargetId,
   });
-
-  const existing = recording.segments.find((segment) => segment.index === segmentIndex);
-  if (!existing) {
-    recording.segments.push({
-      index: segmentIndex,
-      objectKey,
-      uploadStatus: "presigned",
-      isFinal: false,
-    });
-    await recording.save();
-  }
 
   return res.json({
     ok: true,
     recordingId: String(recording._id),
-    segmentIndex,
-    objectKey,
-    upload,
+    segmentIndex: entry.segmentIndex,
+    objectKey: entry.objectKey,
+    upload: entry.upload,
+  });
+});
+
+export const presignLiveRecordingSegmentBatchV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+  const startSegmentIndex = Number(req.body?.startSegmentIndex);
+  const requestedCount = Number(req.body?.count);
+  const contentType = asTrimmed(req.body?.contentType) || "video/mp4";
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is required" });
+  }
+
+  let segmentIndexes = Array.isArray(req.body?.segmentIndexes)
+    ? req.body.segmentIndexes
+    : [];
+
+  if (!segmentIndexes.length) {
+    if (!Number.isInteger(startSegmentIndex) || startSegmentIndex < 0) {
+      return res.status(400).json({ message: "startSegmentIndex must be >= 0" });
+    }
+    const count = Math.max(1, Math.min(25, Number.isFinite(requestedCount) ? requestedCount : 10));
+    segmentIndexes = Array.from({ length: count }, (_, index) => startSegmentIndex + index);
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const segments = await presignRecordingSegmentEntries({
+    recording,
+    segmentIndexes,
+    contentType,
+  });
+
+  return res.json({
+    ok: true,
+    recordingId: String(recording._id),
+    count: segments.length,
+    segments,
   });
 });
 

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { DateTime } from "luxon";
 import DrawSettingsSchema from "./drawSettingsSchema.js";
-import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
+import { es, ES_ENABLED, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
 
 /* ------------ Sub-schemas ------------ */
 const TeleSchema = new mongoose.Schema(
@@ -265,7 +265,7 @@ function buildTournamentSearchDoc(doc) {
 }
 
 async function indexTournamentToES(doc) {
-  if (!doc?._id) return;
+  if (!ES_ENABLED || !doc?._id) return;
   const body = buildTournamentSearchDoc(doc);
 
   try {
@@ -280,7 +280,7 @@ async function indexTournamentToES(doc) {
 }
 
 async function deleteTournamentFromES(id) {
-  if (!id) return;
+  if (!ES_ENABLED || !id) return;
   try {
     await es.delete({
       index: ES_TOURNAMENT_INDEX,
@@ -387,6 +387,10 @@ tournamentSchema.statics.syncToSearch = async function (tournamentId) {
 };
 
 tournamentSchema.statics.reindexAllToSearch = async function () {
+  if (!ES_ENABLED) {
+    console.log("[Tournament] reindexAllToSearch skipped because ES is disabled");
+    return;
+  }
   console.log("[Tournament] reindexAllToSearch START");
 
   const cursor = this.find().cursor();

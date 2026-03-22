@@ -344,7 +344,7 @@ function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) 
 
   const { data: brackets = [], refetch: refetchBrackets } =
     useListTournamentBracketsQuery(tournamentId, {
-      skip: !tournamentId,
+      skip: !open || !tournamentId,
     });
 
   const code = mm ? makeMatchCode(mm, brackets) : "";

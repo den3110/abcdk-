@@ -93,6 +93,7 @@ const liveRecordingV2Schema = new mongoose.Schema(
 );
 
 liveRecordingV2Schema.index({ match: 1, createdAt: -1 });
+liveRecordingV2Schema.index({ status: 1, finalizedAt: -1, match: 1 });
 
 const LiveRecordingV2 = mongoose.model(
   "LiveRecordingV2",

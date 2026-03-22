@@ -4,6 +4,7 @@ import NewsLinkCandidate from "../models/newsLinkCandicateModel.js";
 import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";
 import { runCrawlEngine } from "../services/crawlEngine.js";
 import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
+import { clearNewsPresentationCaches } from "../services/cacheInvalidation.service.js";
 
 /**
  * GET /api/admin/news/settings
@@ -67,6 +68,7 @@ export const runNewsSyncNow = async (req, res) => {
   try {
     const discovery = await discoverFeaturedArticles();
     const crawl = await runCrawlEngine();
+    await clearNewsPresentationCaches();
 
     // crawl đã bao gồm:
     // { crawled, skipped, failed, errorsByType, failedSamples }
@@ -91,6 +93,7 @@ export const runNewsSyncNowV2 = async (req, res) => {
   try {
     const discovery = await discoverFeaturedArticlesV2();
     const crawl = await runCrawlEngine();
+    await clearNewsPresentationCaches();
 
     // crawl đã bao gồm:
     // { crawled, skipped, failed, errorsByType, failedSamples }

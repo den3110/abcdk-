@@ -11,6 +11,7 @@ import {
   EVENTS,
   publishNotification,
 } from "../../services/notifications/notificationHub.js";
+import { clearMatchPresentationCaches } from "../../services/cacheInvalidation.service.js";
 import { emitTournamentMatchUpdate } from "../../socket/tournamentRealtime.js";
 
 /** Chuẩn hoá DTO match (đủ dữ liệu để render) */
@@ -320,6 +321,7 @@ export const resetMatchScores = asyncHandler(async (req, res) => {
     // socket optional, không chặn request
   }
 
+  await clearMatchPresentationCaches();
   return res.json({
     message: "Đã reset tỉ số về 0–0 (xoá toàn bộ gameScores).",
     matchId: match._id,
@@ -682,6 +684,7 @@ export async function assignMatchToCourt(req, res) {
       });
     } catch (_) {}
 
+    await clearMatchPresentationCaches();
     return res.json({ ok: true, match: updatedMatch });
   } catch (err) {
     console.error("[assignMatchToCourt] error:", err);
@@ -955,6 +958,7 @@ export async function clearMatchCourt(req, res) {
       });
     }
 
+    await clearMatchPresentationCaches();
     return res.json({ ok: true, match: updatedMatch });
   } catch (err) {
     console.error("[clearMatchCourt] error:", err);

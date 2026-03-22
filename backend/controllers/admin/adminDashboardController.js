@@ -10,6 +10,9 @@ import Tournament from "../../models/tournamentModel.js";
 import Registration from "../../models/registrationModel.js";
 import Match from "../../models/matchModel.js";
 import User from "../../models/userModel.js";
+import { getPeakRuntimeMetricsSnapshot } from "../../services/requestMetrics.service.js";
+import { getLiveRecordingExportQueueSnapshot } from "../../services/liveRecordingV2Queue.service.js";
+import { getLiveRecordingWorkerHealth } from "../../services/liveRecordingWorkerHealth.service.js";
 // import Incident from "../models/incidentModel.js"; // nếu có
 
 const asDate = (d) => (d instanceof Date ? d : new Date(d));
@@ -205,5 +208,39 @@ export async function getDashboardSeries(req, res) {
     return res
       .status(500)
       .json({ message: e.message || "Internal Server Error" });
+  }
+}
+
+/** GET /api/admin/dashboard/peak-runtime */
+export async function getPeakRuntimeMetrics(req, res) {
+  try {
+    const [runtime, exportQueue, recordingWorker] = await Promise.all([
+      Promise.resolve(getPeakRuntimeMetricsSnapshot()),
+      getLiveRecordingExportQueueSnapshot().catch((error) => ({
+        ok: false,
+        message: error?.message || "Failed to load export queue snapshot",
+      })),
+      getLiveRecordingWorkerHealth().catch((error) => ({
+        ok: false,
+        alive: false,
+        status: "error",
+        message: error?.message || "Failed to load recording worker health",
+      })),
+    ]);
+
+    return res.json({
+      ok: true,
+      runtime,
+      recordingExport: {
+        queue: exportQueue,
+        worker: recordingWorker,
+      },
+      updatedAt: new Date(),
+    });
+  } catch (e) {
+    return res.status(500).json({
+      ok: false,
+      message: e.message || "Internal Server Error",
+    });
   }
 }

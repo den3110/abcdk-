@@ -3,18 +3,35 @@ import { Client } from "@elastic/elasticsearch";
 
 const ES_NODE = process.env.ES_NODE || "http://localhost:9200";
 const ES_TOURNAMENT_INDEX = process.env.ES_TOURNAMENT_INDEX || "tournaments";
-
-// 👇 thêm index cho users
 const ES_USER_INDEX = process.env.ES_USER_INDEX || "users";
+const ES_ENABLED = String(process.env.ES_ENABLED || "false").toLowerCase() === "true";
 
-export const es = new Client({
-  node: ES_NODE,
-  // Nếu sau này bật auth:
-  // auth: {
-  //   username: process.env.ES_USERNAME,
-  //   password: process.env.ES_PASSWORD,
-  // },
+const createNoopEsClient = () => ({
+  async search() {
+    return { hits: { hits: [] } };
+  },
+  async index() {
+    return {};
+  },
+  async delete() {
+    return {};
+  },
+  indices: {
+    async refresh() {
+      return {};
+    },
+  },
 });
 
-// export tất cả constant
-export { ES_TOURNAMENT_INDEX, ES_USER_INDEX };
+export const es = ES_ENABLED
+  ? new Client({
+      node: ES_NODE,
+      // Nếu sau này bật auth:
+      // auth: {
+      //   username: process.env.ES_USERNAME,
+      //   password: process.env.ES_PASSWORD,
+      // },
+    })
+  : createNoopEsClient();
+
+export { ES_ENABLED, ES_TOURNAMENT_INDEX, ES_USER_INDEX };

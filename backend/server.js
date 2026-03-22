@@ -131,6 +131,7 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
+app.use(httpLogger);
 
 app.use(
   "/api/admin/system",
@@ -173,7 +174,6 @@ app.use(loadSettings);
 app.use(attachJwtIfPresent);
 app.use(maintainanceTrigger);
 app.use(versionGate);
-app.use(httpLogger);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);

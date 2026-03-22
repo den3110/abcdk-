@@ -5,7 +5,23 @@ import mongoose from "mongoose";
 import { Sponsor, SPONSOR_TIERS } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
 import Tournament from "../models/tournamentModel.js"; // ✅ NEW
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+
+const PUBLIC_OVERLAY_CONFIG_CACHE_TTL_MS = Math.max(
+  10_000,
+  Number(process.env.PUBLIC_OVERLAY_CONFIG_CACHE_TTL_MS || 30_000)
+);
+const publicOverlayConfigCache = createShortTtlCache(
+  PUBLIC_OVERLAY_CONFIG_CACHE_TTL_MS,
+  {
+    id: CACHE_GROUP_IDS.publicOverlayConfig,
+    label: "Public overlay config",
+    category: "public",
+    scope: "public",
+  }
+);
 
 /* ---------- helpers ---------- */
 const parseBoolQP = (v) => {
@@ -42,6 +58,18 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
     tidRaw && mongoose.Types.ObjectId.isValid(tidRaw)
       ? new mongoose.Types.ObjectId(tidRaw)
       : null;
+  const cacheKey = JSON.stringify({
+    limit,
+    featured: featured == null ? "" : featured,
+    tier: String(tierQP || ""),
+    tid: String(tid || ""),
+  });
+  const cached = publicOverlayConfigCache.get(cacheKey);
+  if (cached) {
+    res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=30");
+    res.setHeader("X-PKT-Cache", "HIT");
+    return res.json(cached);
+  }
 
   // Logo từ CMS (giữ nguyên như bạn đang làm)
   const FALLBACK_LOGO = "https://placehold.co/240x60/png?text=PickleTour";
@@ -59,12 +87,16 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
 
   // ✅ default: chưa có tid -> không có sponsors, không có ảnh giải
   if (!tid) {
-    return res.json({
+    const payload = {
       webLogoUrl: toPublicUrl(req, webLogoUrl, { absolute: false }),
       webLogoAlt,
       sponsors: [],
       tournamentImageUrl: null, // ✅ NEW
-    });
+    };
+    publicOverlayConfigCache.set(cacheKey, payload);
+    res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=30");
+    res.setHeader("X-PKT-Cache", "MISS");
+    return res.json(payload);
   }
 
   // Có tid -> chỉ lấy sponsor gắn đúng giải + ảnh giải
@@ -103,12 +135,16 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
     refLink: toPublicUrl(req, s.refLink, { absolute: false }),
   }));
 
-  return res.json({
+  const payload = {
     webLogoUrl: toPublicUrl(req, webLogoUrl, { absolute: false }),
     webLogoAlt,
     tournamentImageUrl: toPublicUrl(req, tournamentImageUrl, {
       absolute: false,
     }),
     sponsors,
-  });
+  };
+  publicOverlayConfigCache.set(cacheKey, payload);
+  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=30");
+  res.setHeader("X-PKT-Cache", "MISS");
+  return res.json(payload);
 });

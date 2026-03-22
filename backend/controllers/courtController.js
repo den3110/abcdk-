@@ -2,12 +2,18 @@
 import Court from "../models/courtModel.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { enrichCourtsWithManualAssignment } from "../services/courtManualAssignment.service.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 
 const COURT_DETAILS_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.COURT_DETAILS_CACHE_TTL_MS || 2000)
 );
-const courtDetailsCache = createShortTtlCache(COURT_DETAILS_CACHE_TTL_MS);
+const courtDetailsCache = createShortTtlCache(COURT_DETAILS_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.courtDetails,
+  label: "Court detail payload",
+  category: "live",
+  scope: "public",
+});
 
 // giống cái normalize trong matchModel để tránh case isBreak = false
 const BREAK_DEFAULT = {

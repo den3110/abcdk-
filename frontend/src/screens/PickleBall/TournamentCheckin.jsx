@@ -107,11 +107,7 @@ export default function TournamentCheckin() {
   const {
     data: brackets = [],
     isLoading: bracketsLoading,
-  } = useListTournamentBracketsQuery(id, {
-    refetchOnMountOrArgChange: true,
-    refetchOnFocus: true,
-    refetchOnReconnect: true,
-  });
+  } = useListTournamentBracketsQuery(id);
 
   const evType = normType(tour?.eventType);
   const isSingles = evType === "single";

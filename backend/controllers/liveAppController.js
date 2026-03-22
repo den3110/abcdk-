@@ -2,6 +2,10 @@ import { createFacebookLiveForMatch } from "./adminMatchLiveController.js";
 import IORedis from "ioredis";
 import Match from "../models/matchModel.js";
 import { randomUUID } from "crypto";
+import {
+  buildLiveAppCourtRuntime,
+  buildLiveAppMatchRuntime,
+} from "../services/liveAppRuntime.service.js";
 
 const pendingByMatchId = new Map();
 const redis = process.env.REDIS_URL ? new IORedis(process.env.REDIS_URL) : null;
@@ -161,5 +165,43 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       watch_url,
       permalink_url,
     },
+  });
+};
+
+export const getCourtRuntimeForLiveApp = async (req, res) => {
+  const courtId = String(req.params?.courtId || "").trim();
+  if (!courtId) {
+    return res.status(400).json({ message: "courtId is required" });
+  }
+
+  const runtime = await buildLiveAppCourtRuntime(courtId);
+  if (!runtime) {
+    return res.status(404).json({ message: "Court not found" });
+  }
+
+  res.setHeader("Cache-Control", "private, max-age=1, stale-while-revalidate=2");
+  res.setHeader("X-PKT-Cache", runtime?._cache?.hit ? "HIT" : "MISS");
+  return res.json({
+    ...runtime,
+    _cache: undefined,
+  });
+};
+
+export const getMatchRuntimeForLiveApp = async (req, res) => {
+  const matchId = String(req.params?.matchId || "").trim();
+  if (!matchId) {
+    return res.status(400).json({ message: "matchId is required" });
+  }
+
+  const runtime = await buildLiveAppMatchRuntime(matchId);
+  if (!runtime) {
+    return res.status(404).json({ message: "Match not found" });
+  }
+
+  res.setHeader("Cache-Control", "private, max-age=2, stale-while-revalidate=3");
+  res.setHeader("X-PKT-Cache", runtime?._cache?.hit ? "HIT" : "MISS");
+  return res.json({
+    ...runtime,
+    _cache: undefined,
   });
 };

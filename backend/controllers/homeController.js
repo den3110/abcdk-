@@ -3,6 +3,19 @@ import User from "../models/userModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Match from "../models/matchModel.js";
 import Club from "../models/clubModel.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+
+const PUBLIC_HOME_CACHE_TTL_MS = Math.max(
+  5000,
+  Number(process.env.PUBLIC_HOME_CACHE_TTL_MS || 15000)
+);
+const publicHomeCache = createShortTtlCache(PUBLIC_HOME_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.publicHome,
+  label: "Public home summary",
+  category: "public",
+  scope: "public",
+});
 
 const clampInt = (value, fallback, min, max) => {
   const n = parseInt(value, 10);
@@ -31,6 +44,19 @@ export const getHomeSummary = async (req, res) => {
     const includeStats = String(req.query.stats || "1") !== "0";
     const includeClubs = String(req.query.clubs || "1") !== "0";
     const clubsLimit = clampInt(req.query.clubsLimit, 6, 1, 24);
+    const cacheKey = [
+      "home",
+      includeStats ? "stats" : "no-stats",
+      includeClubs ? "clubs" : "no-clubs",
+      clubsLimit,
+    ].join(":");
+    const cached = publicHomeCache.get(cacheKey);
+
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=15");
+      res.setHeader("X-PKT-Cache", "HIT");
+      return res.json(cached);
+    }
 
     const statsPromise = includeStats
       ? Promise.all([
@@ -73,11 +99,16 @@ export const getHomeSummary = async (req, res) => {
 
     const [stats, clubs] = await Promise.all([statsPromise, clubsPromise]);
 
-    return res.json({
+    const payload = {
       stats: stats || undefined,
       clubs: includeClubs ? clubs : undefined,
       asOf: new Date().toISOString(),
-    });
+    };
+
+    publicHomeCache.set(cacheKey, payload);
+    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=15");
+    res.setHeader("X-PKT-Cache", "MISS");
+    return res.json(payload);
   } catch (err) {
     console.error("getHomeSummary error:", err);
     return res.status(500).json({ message: "Failed to load home summary" });

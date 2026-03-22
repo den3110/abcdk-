@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { Sponsor } from "../models/sponsorModel.js";
 import Tournament from "../models/tournamentModel.js";
+import { clearSponsorPresentationCaches } from "../services/cacheInvalidation.service.js";
 
 function parseBool(v) {
   if (v === undefined) return undefined;
@@ -163,6 +164,7 @@ export async function adminCreateSponsor(req, res, next) {
       weight: Number.isFinite(+weight) ? +weight : 0,
       tournaments: validTids,
     });
+    await clearSponsorPresentationCaches();
     res.status(201).json(doc);
   } catch (err) {
     next(err);
@@ -231,6 +233,7 @@ export async function adminUpdateSponsor(req, res, next) {
       path: "tournaments",
       select: "name status startDate endDate",
     });
+    await clearSponsorPresentationCaches();
     res.json(saved);
   } catch (err) {
     next(err);
@@ -243,6 +246,7 @@ export async function adminDeleteSponsor(req, res, next) {
     const r = await Sponsor.deleteOne({ _id: id });
     if (!r.deletedCount)
       return res.status(404).json({ message: "Sponsor not found" });
+    await clearSponsorPresentationCaches();
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -267,6 +271,7 @@ export async function adminReorderSponsors(req, res, next) {
     if (!ops.length) return res.json({ ok: true, updated: 0 });
 
     const r = await Sponsor.bulkWrite(ops);
+    await clearSponsorPresentationCaches();
     res.json({ ok: true, updated: r.modifiedCount || 0 });
   } catch (err) {
     next(err);

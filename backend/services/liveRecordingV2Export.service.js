@@ -124,6 +124,12 @@ function buildTempRoot() {
   return path.resolve(raw);
 }
 
+function getFfmpegThreads() {
+  const raw = Number(process.env.LIVE_RECORDING_FFMPEG_THREADS || 1);
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  return Math.max(1, Math.floor(raw));
+}
+
 async function ensureDir(dirPath) {
   await fs.mkdir(dirPath, { recursive: true });
   return dirPath;
@@ -131,8 +137,9 @@ async function ensureDir(dirPath) {
 
 async function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegStatic, args, {
+    const child = spawn(ffmpegStatic, ["-threads", String(getFfmpegThreads()), ...args], {
       stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true,
     });
     let stderr = "";
     child.stderr.on("data", (chunk) => {

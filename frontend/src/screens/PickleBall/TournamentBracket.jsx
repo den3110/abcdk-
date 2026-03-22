@@ -2124,14 +2124,7 @@ export default function TournamentBracket() {
     data: allMatchesFetched = [],
     isLoading: l3,
     error: e3,
-  } = useListTournamentMatchesQuery(
-    { tournamentId: tourId, view: "bracket" },
-    {
-      refetchOnMountOrArgChange: true,
-      refetchOnFocus: true,
-      refetchOnReconnect: true,
-    }
-  );
+  } = useListTournamentMatchesQuery({ tournamentId: tourId, view: "bracket" });
 
   const loading = l1 || l2 || l3;
   const error = e1 || e2 || e3;

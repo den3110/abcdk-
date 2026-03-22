@@ -118,7 +118,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
 
     getTournament: builder.query({
       query: (id) => `/api/tournaments/${id}`,
-      keepUnusedDataFor: 0,
+      keepUnusedDataFor: 60,
       providesTags: (res, err, id) => [{ type: "Tournaments", id }],
     }),
 
@@ -159,7 +159,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         if (res?.list && Array.isArray(res.list)) return res.list;
         return [];
       },
-      keepUnusedDataFor: 0,
+      keepUnusedDataFor: 60,
     }),
 
     // GET /api/tournaments/:id/matches  (user route)
@@ -174,11 +174,12 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         if (res?.list && Array.isArray(res.list)) return res.list;
         return [];
       },
-      keepUnusedDataFor: 0,
+      keepUnusedDataFor: 45,
     }),
 
     getMatchPublic: builder.query({
       query: (matchId) => `/api/tournaments/matches/${matchId}`,
+      keepUnusedDataFor: 30,
       providesTags: (res, err, id) => [{ type: "Match", id }],
     }),
 
@@ -377,14 +378,13 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     }),
     listPublicMatchesByTournament: builder.query({
       query: ({ tid, params }) => {
-        // backend nên trả danh sách đã tối ưu cho hiển thị (simple fields)
         const search = new URLSearchParams({
           ...(params || {}),
-          public: 1,
-          pageSize: 500,
+          view: "schedule",
         }).toString();
         return `/api/tournaments/${tid}/matches?${search}`;
       },
+      keepUnusedDataFor: 30,
       providesTags: (r, e, { tid }) => [{ type: "TournamentMatches", id: tid }],
     }),
     adminGetBrackets: builder.query({
