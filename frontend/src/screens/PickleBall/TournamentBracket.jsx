@@ -2645,7 +2645,14 @@ export default function TournamentBracket() {
             const code = `V${stageNo}-B${labelNumeric}-T${idx + 1}`;
             const aName = resolveSideLabel(m, "A");
             const bName = resolveSideLabel(m, "B");
-            const time = formatBracketTime(pickGroupKickoffTime(m), locale);
+            const kickoff = pickGroupKickoffTime(m);
+            const time = formatBracketTime(kickoff, locale);
+            const timeShort = kickoff
+              ? new Date(kickoff).toLocaleTimeString(locale, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "";
             const court = courtName(m);
             const score = scoreLabel(m);
             const video = hasVideo(m);
@@ -2662,6 +2669,7 @@ export default function TournamentBracket() {
               aName,
               bName,
               time,
+              timeShort,
               court,
               score,
               match: m,
@@ -2685,6 +2693,7 @@ export default function TournamentBracket() {
             state: "planned",
             match: null,
             video: false,
+            timeShort: "",
             isMine: false,
             isMineA: false,
             isMineB: false,
@@ -3828,452 +3837,321 @@ export default function TournamentBracket() {
       );
     }
 
-    const flatMatches = groupEntries.flatMap((group) =>
-      group.matchRows.map((row) => ({
-        ...row,
-        groupLabel: group.label,
-        groupCodeLabel: group.codeLabel,
-        groupIsMine: group.isMine,
-      }))
-    );
-
-    const flatStandings = groupEntries
-      .flatMap((group) =>
-        group.standingRows.map((row) => ({
-          ...row,
-          groupLabel: group.label,
-          groupCodeLabel: group.codeLabel,
-          groupIsMine: group.isMine,
-        }))
-      )
-      .sort((a, b) => {
-        if (a.groupLabel !== b.groupLabel) {
-          return String(a.groupLabel).localeCompare(String(b.groupLabel));
-        }
-        const aRank = Number(a.rank);
-        const bRank = Number(b.rank);
-        return (
-          (Number.isFinite(aRank) ? aRank : Number.MAX_SAFE_INTEGER) -
-          (Number.isFinite(bRank) ? bRank : Number.MAX_SAFE_INTEGER)
-        );
-      });
-
-    const totals = flatMatches.reduce(
-      (acc, row) => {
-        acc.matches += 1;
-        acc[row.state || "planned"] = (acc[row.state || "planned"] || 0) + 1;
-        return acc;
-      },
-      { matches: 0, live: 0, done: 0, ready: 0, planned: 0 }
-    );
-
-    const renderStateChip = (row) => {
-      const state = row.state || "planned";
-      const label =
-        state === "live"
-          ? t("tournaments.bracket.stateTip.live")
-          : state === "done"
-          ? t("tournaments.bracket.stateTip.done")
-          : state === "ready"
-          ? t("tournaments.bracket.stateTip.ready")
-          : t("tournaments.bracket.stateTip.planned");
-      const badge = codeBadge(row.match);
-
-      return (
-        <Chip
-          size="small"
-          label={label}
-          variant={badge.border ? "outlined" : "filled"}
-          sx={{
-            fontWeight: 700,
-            bgcolor: badge.border ? "transparent" : badge.bg,
-            color: badge.fg,
-            minWidth: 84,
-          }}
-        />
-      );
+    const splitScore = (score) => {
+      const text = String(score || "").trim();
+      const match = text.match(/(\d+)\s*-\s*(\d+)/);
+      if (match) return [match[1], match[2]];
+      return ["0", "0"];
     };
 
     return (
-      <Stack spacing={2}>
-        <Paper
-          variant="outlined"
-          sx={{
-            p: { xs: 1.5, md: 2 },
-            borderRadius: 2.5,
-            background:
-              "linear-gradient(135deg, rgba(25,118,210,0.12), rgba(25,118,210,0.03))",
-            borderColor: "rgba(25,118,210,0.28)",
-          }}
-        >
-          <Stack
-            direction={{ xs: "column", lg: "row" }}
-            spacing={2}
-            alignItems={{ xs: "flex-start", lg: "center" }}
-            justifyContent="space-between"
-          >
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                {t("tournaments.bracket.boardOverviewTitle")}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {t("tournaments.bracket.boardOverviewHint")}
-              </Typography>
-            </Box>
-
-            <Box
+      <Box
+        sx={{
+          display: "grid",
+          gap: 2.5,
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+        }}
+      >
+        {groupEntries.map((group) => (
+          <Stack key={group.key} spacing={1.5}>
+            <Paper
+              variant="outlined"
               sx={{
-                display: "grid",
-                gap: 1,
-                width: "100%",
-                gridTemplateColumns: {
-                  xs: "repeat(2, minmax(0, 1fr))",
-                  md: "repeat(5, minmax(0, 1fr))",
-                },
+                borderRadius: 3,
+                overflow: "hidden",
+                bgcolor: "#11161d",
+                borderColor: group.isMine
+                  ? "rgba(25,118,210,0.55)"
+                  : "rgba(255,255,255,0.14)",
+                boxShadow: group.isMine
+                  ? "0 0 0 1px rgba(25,118,210,.16), 0 12px 30px rgba(0,0,0,.24)"
+                  : "0 12px 30px rgba(0,0,0,.16)",
               }}
             >
-              {[
-                {
-                  label: t("tournaments.bracket.boardMetricGroups"),
-                  value: groupEntries.length,
-                },
-                {
-                  label: t("tournaments.bracket.boardMetricTeams"),
-                  value: flatStandings.length,
-                },
-                {
-                  label: t("tournaments.bracket.boardMetricMatches"),
-                  value: totals.matches,
-                },
-                {
-                  label: t("tournaments.bracket.boardMetricLive"),
-                  value: totals.live,
-                },
-                {
-                  label: t("tournaments.bracket.boardMetricDone"),
-                  value: totals.done,
-                },
-              ].map((item) => (
-                <Paper
-                  key={item.label}
-                  variant="outlined"
+              <Box
+                sx={{
+                  px: 2,
+                  py: 1,
+                  textAlign: "center",
+                  bgcolor: "primary.main",
+                  color: "primary.contrastText",
+                  borderBottom: "1px solid rgba(255,255,255,0.12)",
+                }}
+              >
+                <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1 }}>
+                  {group.label}
+                </Typography>
+              </Box>
+
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                flexWrap="wrap"
+                sx={{
+                  px: 1.5,
+                  py: 1,
+                  bgcolor: "rgba(255,255,255,0.03)",
+                  borderBottom: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                {group.codeLabel ? (
+                  <Typography variant="caption" color="rgba(255,255,255,0.72)">
+                    {t("tournaments.bracket.groupCode", {
+                      value: group.codeLabel,
+                    })}
+                  </Typography>
+                ) : null}
+                <Typography variant="caption" color="rgba(255,255,255,0.72)">
+                  {t("tournaments.bracket.groupTeamCount", {
+                    count: group.teamCount,
+                  })}
+                </Typography>
+                {group.isMine ? (
+                  <Typography
+                    variant="caption"
+                    sx={{ color: "success.light", fontWeight: 700 }}
+                  >
+                    {t("tournaments.bracket.myGroup")}
+                  </Typography>
+                ) : null}
+              </Stack>
+
+              <TableContainer>
+                <Table
+                  size="small"
                   sx={{
-                    p: 1.2,
-                    borderRadius: 2,
-                    bgcolor: "background.paper",
+                    tableLayout: "fixed",
+                    "& .MuiTableCell-root": {
+                      borderColor: "rgba(86, 155, 219, 0.55)",
+                      px: 1,
+                      py: 0.8,
+                    },
                   }}
                 >
-                  <Typography variant="caption" color="text.secondary">
-                    {item.label}
-                  </Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 800, mt: 0.25 }}>
-                    {item.value}
-                  </Typography>
-                </Paper>
-              ))}
-            </Box>
-          </Stack>
-        </Paper>
-
-        <Box
-          sx={{
-            display: "grid",
-            gap: 2,
-            gridTemplateColumns: { xs: "1fr", xl: "1.05fr 1.35fr" },
-          }}
-        >
-          <Paper
-            variant="outlined"
-            sx={{ borderRadius: 2.5, overflow: "hidden" }}
-          >
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1}
-              justifyContent="space-between"
-              alignItems={{ xs: "flex-start", md: "center" }}
-              sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}
-            >
-              <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                  {t("tournaments.bracket.boardStandingsTitle")}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {t("tournaments.bracket.boardStandingsHint")}
-                </Typography>
-              </Box>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip
-                  size="small"
-                  variant="outlined"
-                  label={t("tournaments.bracket.standingsWinPoints", {
-                    count: groupEntries[0]?.pointsCfg?.win ?? 3,
-                  })}
-                />
-                <Chip
-                  size="small"
-                  variant="outlined"
-                  label={t("tournaments.bracket.standingsLossPoints", {
-                    count: groupEntries[0]?.pointsCfg?.loss ?? 0,
-                  })}
-                />
-                <Chip
-                  size="small"
-                  variant="outlined"
-                  label={t("tournaments.bracket.standingsDiffHint")}
-                />
-              </Stack>
-            </Stack>
-
-            <TableContainer sx={{ maxHeight: { xl: 720 } }}>
-              <Table size="small" stickyHeader={isMdUp}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {t("tournaments.bracket.columns.group")}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 56 }}>
-                      #
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {t("tournaments.bracket.columns.team")}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 72 }}>
-                      {t("tournaments.bracket.columns.played")}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 72 }}>
-                      {t("tournaments.bracket.columns.win")}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 72 }}>
-                      {t("tournaments.bracket.columns.draw")}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 72 }}>
-                      {t("tournaments.bracket.columns.loss")}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>
-                      {t("tournaments.bracket.columns.points")}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 92 }}>
-                      {t("tournaments.bracket.columns.diff")}
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {flatStandings.map((row) => (
-                    <TableRow
-                      key={`${row.groupLabel}-${row.id}`}
-                      sx={{
-                        ...(row.isMine
-                          ? {
-                              bgcolor: "rgba(25,118,210,0.08)",
-                              "&:hover": { bgcolor: "rgba(25,118,210,0.12)" },
+                  <TableBody>
+                    {group.matchRows.length ? (
+                      group.matchRows.map((row) => {
+                        const [scoreA, scoreB] = splitScore(row.score);
+                        const state = statusColors(row.match);
+                        return (
+                          <TableRow
+                            key={row._id}
+                            hover={!row.isPlaceholder}
+                            onClick={() =>
+                              !row.isPlaceholder && row.match
+                                ? openMatch(row.match)
+                                : null
                             }
-                          : {}),
-                      }}
-                    >
-                      <TableCell>
-                        <Stack direction="row" spacing={0.75} alignItems="center">
-                          <Chip
-                            size="small"
-                            label={row.groupLabel}
-                            color={row.groupIsMine ? "success" : "default"}
-                            variant={row.groupIsMine ? "filled" : "outlined"}
-                          />
-                          {row.groupCodeLabel ? (
-                            <Typography variant="caption" color="text.secondary">
-                              {row.groupCodeLabel}
-                            </Typography>
-                          ) : null}
-                        </Stack>
-                      </TableCell>
-                      <TableCell align="center" sx={{ fontWeight: 700 }}>
-                        {row.rank}
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: row.isMine ? 700 : 600 }}>
-                        {row.name}
-                      </TableCell>
-                      <TableCell align="center">{row.played}</TableCell>
-                      <TableCell align="center">{row.win}</TableCell>
-                      <TableCell align="center">{row.draw}</TableCell>
-                      <TableCell align="center">{row.loss}</TableCell>
-                      <TableCell align="center" sx={{ fontWeight: 800 }}>
-                        {row.pts}
-                      </TableCell>
-                      <TableCell
-                        align="center"
-                        sx={{
-                          fontWeight: 700,
-                          color:
-                            row.diff > 0
-                              ? "success.main"
-                              : row.diff < 0
-                              ? "error.main"
-                              : "text.secondary",
-                        }}
-                      >
-                        {row.diff > 0 ? `+${row.diff}` : row.diff}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-
-          <Paper
-            variant="outlined"
-            sx={{ borderRadius: 2.5, overflow: "hidden" }}
-          >
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1}
-              justifyContent="space-between"
-              alignItems={{ xs: "flex-start", md: "center" }}
-              sx={{ px: 2, py: 1.5, borderBottom: "1px solid", borderColor: "divider" }}
-            >
-              <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                  {t("tournaments.bracket.boardScheduleTitle")}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {t("tournaments.bracket.boardScheduleHint")}
-                </Typography>
-              </Box>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip size="small" variant="outlined" label={`LIVE ${totals.live}`} />
-                <Chip size="small" variant="outlined" label={t("tournaments.bracket.colorDone")} />
-              </Stack>
-            </Stack>
-
-            <TableContainer sx={{ maxHeight: { xl: 720 } }}>
-              <Table size="small" stickyHeader={isMdUp}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {t("tournaments.bracket.columns.group")}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 136 }}>
-                      {t("tournaments.bracket.columns.code")}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>
-                      {t("tournaments.bracket.columns.match")}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 116 }}>
-                      {t("tournaments.bracket.columns.status")}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 176 }}>
-                      {t("tournaments.bracket.columns.time")}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 132 }}>
-                      {t("tournaments.bracket.columns.court")}
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 104 }}>
-                      {t("tournaments.bracket.columns.score")}
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {flatMatches.length ? (
-                    flatMatches.map((row) => (
-                      <TableRow
-                        key={`${row.groupLabel}-${row._id}`}
-                        hover={!row.isPlaceholder}
-                        onClick={() =>
-                          !row.isPlaceholder && row.match ? openMatch(row.match) : null
-                        }
-                        sx={{
-                          cursor:
-                            !row.isPlaceholder && row.match ? "pointer" : "default",
-                          ...(row.isMine
-                            ? {
-                                bgcolor: "rgba(25,118,210,0.06)",
-                                "&:hover": { bgcolor: "rgba(25,118,210,0.1)" },
-                              }
-                            : {}),
-                        }}
-                      >
-                        <TableCell>
-                          <Chip
-                            size="small"
-                            label={row.groupLabel}
-                            color={row.groupIsMine ? "success" : "default"}
-                            variant={row.groupIsMine ? "filled" : "outlined"}
-                          />
-                        </TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          <Box
                             sx={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 0.75,
+                              cursor:
+                                !row.isPlaceholder && row.match
+                                  ? "pointer"
+                                  : "default",
+                              bgcolor: row.isMine
+                                ? "rgba(25,118,210,0.10)"
+                                : "rgba(255,255,255,0.02)",
+                              "&:hover": {
+                                bgcolor:
+                                  !row.isPlaceholder && row.match
+                                    ? "rgba(255,255,255,0.06)"
+                                    : undefined,
+                              },
                             }}
                           >
-                            <Chip
-                              size="small"
-                              label={row.code}
+                            <TableCell
                               sx={{
-                                fontWeight: 700,
-                                bgcolor: codeBadge(row.match).bg,
-                                color: codeBadge(row.match).fg,
-                                ...(codeBadge(row.match).border
-                                  ? {
-                                      border: "1px solid",
-                                      borderColor: "divider",
-                                    }
-                                  : {}),
-                              }}
-                            />
-                            {row.video ? (
-                              <Tooltip title={t("tournaments.bracket.videoTooltip")} arrow>
-                                <VideoIcon sx={{ fontSize: 18, color: "error.main" }} />
-                              </Tooltip>
-                            ) : null}
-                          </Box>
-                        </TableCell>
-                        <TableCell sx={{ minWidth: 260 }}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: row.isMine ? 700 : 500 }}
-                          >
-                            <span
-                              style={{
-                                fontWeight: row.isMineA ? 700 : 500,
-                                color: row.isMineA ? "#1976d2" : "inherit",
+                                width: 78,
+                                bgcolor: "#18212c",
+                                color: "#fff",
+                                verticalAlign: "top",
+                                borderLeft: `4px solid ${state.bg}`,
                               }}
                             >
-                              {row.aName}
-                            </span>{" "}
-                            <span style={{ opacity: 0.56 }}>vs</span>{" "}
-                            <span
-                              style={{
-                                fontWeight: row.isMineB ? 700 : 500,
-                                color: row.isMineB ? "#1976d2" : "inherit",
+                              <Typography
+                                variant="subtitle2"
+                                sx={{ fontWeight: 800, lineHeight: 1.1 }}
+                              >
+                                {row.timeShort || "—"}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  display: "block",
+                                  mt: 0.4,
+                                  color: "rgba(255,255,255,0.82)",
+                                  lineHeight: 1.1,
+                                }}
+                              >
+                                {row.code}
+                              </Typography>
+                            </TableCell>
+
+                            <TableCell
+                              sx={{
+                                bgcolor: "#a3a3a3",
+                                color: "#0e1116",
+                                verticalAlign: "middle",
                               }}
                             >
-                              {row.bName}
-                            </span>
-                          </Typography>
-                        </TableCell>
-                        <TableCell>{renderStateChip(row)}</TableCell>
-                        <TableCell>{row.time || "—"}</TableCell>
-                        <TableCell>{row.court || "—"}</TableCell>
-                        <TableCell sx={{ fontWeight: 800 }}>
-                          {row.score || "—"}
+                              <Stack spacing={0.35}>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: row.isMineA ? 800 : 500,
+                                    color: row.isMineA ? "primary.dark" : "inherit",
+                                  }}
+                                >
+                                  {row.aName}
+                                </Typography>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: row.isMineB ? 800 : 500,
+                                    color: row.isMineB ? "primary.dark" : "inherit",
+                                  }}
+                                >
+                                  {row.bName}
+                                </Typography>
+                              </Stack>
+                            </TableCell>
+
+                            <TableCell
+                              align="center"
+                              sx={{
+                                width: 44,
+                                bgcolor: "#f0d7a1",
+                                color: "success.dark",
+                                fontWeight: 900,
+                                fontSize: 28,
+                                lineHeight: 1,
+                              }}
+                            >
+                              {scoreA}
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              sx={{
+                                width: 44,
+                                bgcolor: "#f0d7a1",
+                                color: "success.dark",
+                                fontWeight: 900,
+                                fontSize: 28,
+                                lineHeight: 1,
+                                borderLeft: "1px solid rgba(86, 155, 219, 0.3)",
+                              }}
+                            >
+                              {scoreB}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={4} align="center">
+                          {t("tournaments.bracket.noMatches")}
                         </TableCell>
                       </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={7} align="center">
-                        {t("tournaments.bracket.noMatches")}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Box>
-      </Stack>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+
+            <Paper
+              variant="outlined"
+              sx={{
+                borderRadius: 3,
+                overflow: "hidden",
+                bgcolor: "#11161d",
+                borderColor: "rgba(255,255,255,0.14)",
+              }}
+            >
+              <TableContainer>
+                <Table
+                  size="small"
+                  sx={{
+                    tableLayout: "fixed",
+                    "& .MuiTableCell-root": {
+                      borderColor: "rgba(86, 155, 219, 0.55)",
+                      px: 1,
+                      py: 0.8,
+                    },
+                  }}
+                >
+                  <TableBody>
+                    {group.standingRows.length ? (
+                      group.standingRows.map((row, idx) => (
+                        <TableRow
+                          key={row.id || `standing-${idx}`}
+                          sx={{
+                            bgcolor: row.isMine
+                              ? "rgba(25,118,210,0.10)"
+                              : "transparent",
+                          }}
+                        >
+                          <TableCell
+                            sx={{
+                              width: 40,
+                              bgcolor: "#18212c",
+                              color: "#fff",
+                              fontWeight: 800,
+                              textAlign: "center",
+                            }}
+                          >
+                            {row.rank}
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              bgcolor: "#0f141b",
+                              color: "#fff",
+                              fontWeight: row.isMine ? 800 : 500,
+                            }}
+                          >
+                            {row.name}
+                          </TableCell>
+                          <TableCell
+                            align="center"
+                            sx={{
+                              width: 42,
+                              bgcolor: "#f0d7a1",
+                              color: "success.dark",
+                              fontWeight: 900,
+                              fontSize: 28,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {row.pts}
+                          </TableCell>
+                          <TableCell
+                            align="center"
+                            sx={{
+                              width: 42,
+                              bgcolor: "#f0d7a1",
+                              color: "success.dark",
+                              fontWeight: 900,
+                              fontSize: 28,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {row.diff > 0 ? `+${row.diff}` : row.diff}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={4} align="center">
+                          {t("tournaments.bracket.noStandings")}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          </Stack>
+        ))}
+      </Box>
     );
   };
 

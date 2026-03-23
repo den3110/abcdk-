@@ -1,3 +1,2 @@
-2026/03/23-12:57:33.852 78b0 Reusing MANIFEST C:\Users\giang\code\mern-auth\docs\profile\.chrome-pdf-profile\Default\Site Characteristics Database/MANIFEST-000001
-2026/03/23-12:57:33.852 78b0 Recovering log #3
-2026/03/23-12:57:33.853 78b0 Reusing old log C:\Users\giang\code\mern-auth\docs\profile\.chrome-pdf-profile\Default\Site Characteristics Database/000003.log 
+2026/03/23-13:09:15.909 4258 Creating DB C:\Users\giang\code\mern-auth\docs\profile\.chrome-pdf-profile\Default\Site Characteristics Database since it was missing.
+2026/03/23-13:09:15.915 4258 Reusing MANIFEST C:\Users\giang\code\mern-auth\docs\profile\.chrome-pdf-profile\Default\Site Characteristics Database/MANIFEST-000001
