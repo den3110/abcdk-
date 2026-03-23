@@ -17,10 +17,10 @@ import {
   getLiveMultiSourceTargetPublicBaseUrlSync,
   getLiveServer2ManifestNameSync,
 } from "./liveMultiSourceConfig.service.js";
+import { getRuntimeRecordingStorageTargetsSync } from "./liveRecordingStorageTargetsConfig.service.js";
 
 const DEFAULT_RECORDING_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
-const DEFAULT_RECORDING_TARGET_ID = "default";
 const MAX_DELETE_OBJECTS_PER_REQUEST = 1000;
 const DEFAULT_RECORDING_STORAGE_SCAN_TTL_MS = 15_000;
 const MIN_RECORDING_STORAGE_SCAN_TTL_MS = 5_000;
@@ -68,106 +68,14 @@ function parseRecordingIdFromObjectKey(objectKey) {
   return matched?.[1] || "";
 }
 
-function normalizeRecordingStorageTarget(rawTarget = {}, index = 0) {
-  const endpoint = asTrimmed(rawTarget.endpoint);
-  const accessKeyId = asTrimmed(rawTarget.accessKeyId);
-  const secretAccessKey = asTrimmed(rawTarget.secretAccessKey);
-  const bucketName = asTrimmed(rawTarget.bucketName || rawTarget.bucket);
-  const publicBaseUrl =
-    asTrimmed(rawTarget.publicBaseUrl) ||
-    asTrimmed(rawTarget.cdnBaseUrl) ||
-    asTrimmed(process.env.LIVE_RECORDING_PUBLIC_CDN_BASE_URL);
-  const enabled = rawTarget.enabled !== false;
-
-  if (!enabled || !endpoint || !accessKeyId || !secretAccessKey || !bucketName) {
-    return null;
-  }
-
-  const id =
-    asTrimmed(rawTarget.id) || `${DEFAULT_RECORDING_TARGET_ID}_${index + 1}`;
-
-  return {
-    id,
-    label: asTrimmed(rawTarget.label) || id,
-    endpoint,
-    accessKeyId,
-    secretAccessKey,
-    bucketName,
-    publicBaseUrl,
-    capacityBytes:
-      parsePositiveInteger(
-        rawTarget.capacityBytes || rawTarget.capacity || rawTarget.maxBytes
-      ) || null,
-  };
-}
-
-function getExplicitRecordingTargetsFromEnv() {
-  const raw = asTrimmed(
-    process.env.R2_RECORDINGS_TARGETS_JSON || process.env.R2_RECORDINGS_TARGETS
-  );
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      console.warn(
-        "[live-recording-r2] R2_RECORDINGS_TARGETS_JSON must be a JSON array."
-      );
-      return [];
-    }
-
-    return parsed
-      .map((target, index) => normalizeRecordingStorageTarget(target, index))
-      .filter(Boolean);
-  } catch (error) {
-    console.warn(
-      "[live-recording-r2] Failed to parse R2_RECORDINGS_TARGETS_JSON:",
-      error?.message || error
-    );
-    return [];
-  }
-}
-
-function buildFallbackRecordingTarget() {
-  const endpoint =
-    asTrimmed(process.env.R2_RECORDINGS_ENDPOINT) || asTrimmed(process.env.R2_ENDPOINT);
-  const accessKeyId =
-    asTrimmed(process.env.R2_RECORDINGS_ACCESS_KEY_ID) ||
-    asTrimmed(process.env.R2_ACCESS_KEY_ID);
-  const secretAccessKey =
-    asTrimmed(process.env.R2_RECORDINGS_SECRET_ACCESS_KEY) ||
-    asTrimmed(process.env.R2_SECRET_ACCESS_KEY);
-  const bucketName =
-    asTrimmed(process.env.R2_RECORDINGS_BUCKET_NAME) ||
-    asTrimmed(process.env.R2_BUCKET_NAME);
-
-  return normalizeRecordingStorageTarget(
-    {
-      id: DEFAULT_RECORDING_TARGET_ID,
-      label: asTrimmed(process.env.R2_RECORDINGS_TARGET_LABEL) || "default",
-      endpoint,
-      accessKeyId,
-      secretAccessKey,
-      bucketName,
-      capacityBytes:
-        parsePositiveInteger(process.env.R2_RECORDINGS_STORAGE_TOTAL_BYTES) ||
-        parsePositiveInteger(process.env.R2_STORAGE_TOTAL_BYTES),
-    },
-    0
-  );
-}
-
-const configuredRecordingTargets = (() => {
-  const explicitTargets = getExplicitRecordingTargetsFromEnv();
-  if (explicitTargets.length) return explicitTargets;
-
-  const fallbackTarget = buildFallbackRecordingTarget();
-  return fallbackTarget ? [fallbackTarget] : [];
-})();
-
 const recordingS3ClientCache = new Map();
 
+function getConfiguredRecordingTargets() {
+  return getRuntimeRecordingStorageTargetsSync();
+}
+
 function getRecordingStorageTargetInternal(storageTargetId = null) {
+  const configuredRecordingTargets = getConfiguredRecordingTargets();
   if (!configuredRecordingTargets.length) return null;
 
   const normalizedTargetId = asTrimmed(storageTargetId);
@@ -191,7 +99,13 @@ function requireRecordingStorageTarget(storageTargetId = null) {
 
 function getRecordingS3Client(storageTargetId = null) {
   const target = requireRecordingStorageTarget(storageTargetId);
-  const cacheKey = target.id;
+  const cacheKey = [
+    target.id,
+    target.endpoint,
+    target.bucketName,
+    target.accessKeyId,
+    target.secretAccessKey,
+  ].join("|");
   if (recordingS3ClientCache.has(cacheKey)) {
     return recordingS3ClientCache.get(cacheKey);
   }
@@ -211,6 +125,7 @@ function getRecordingS3Client(storageTargetId = null) {
 }
 
 export function getRecordingStorageTargets() {
+  const configuredRecordingTargets = getConfiguredRecordingTargets();
   return configuredRecordingTargets.map((target) => ({
     id: target.id,
     label: target.label,
@@ -236,6 +151,7 @@ export function getRecordingStorageTarget(storageTargetId = null) {
 }
 
 export function getRecordingStorageConfiguredCapacityTotalBytes() {
+  const configuredRecordingTargets = getConfiguredRecordingTargets();
   const explicitCapacities = configuredRecordingTargets
     .map((target) => target.capacityBytes)
     .filter((value) => Number.isFinite(value) && value > 0);
@@ -252,7 +168,7 @@ export function getRecordingStorageConfiguredCapacityTotalBytes() {
 }
 
 export function isRecordingR2Configured() {
-  return configuredRecordingTargets.length > 0;
+  return getConfiguredRecordingTargets().length > 0;
 }
 
 export function getRecordingBucketName(storageTargetId = null) {
@@ -645,6 +561,7 @@ export async function putRecordingManifest({
 async function scanRecordingStorageUsageUncached({
   prefix = "",
 } = {}) {
+  const configuredRecordingTargets = getConfiguredRecordingTargets();
   const targetSummaries = [];
   const uniqueRecordingIds = new Set();
   let usedBytes = 0;

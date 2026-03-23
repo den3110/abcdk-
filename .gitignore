@@ -13,6 +13,7 @@ node_modules
 dist
 dist-ssr
 *.local
+tmp-codex-export
 
 # Editor directories and files
 .vscode/*

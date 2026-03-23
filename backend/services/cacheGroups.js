@@ -20,4 +20,5 @@ export const CACHE_GROUP_IDS = Object.freeze({
   newsList: "newsList",
   newsDetail: "newsDetail",
   liveMultiSourceConfig: "liveMultiSourceConfig",
+  liveRecordingStorageTargetsConfig: "liveRecordingStorageTargetsConfig",
 });

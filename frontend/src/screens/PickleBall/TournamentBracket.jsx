@@ -117,8 +117,8 @@ function computeMetaBar(brackets, tour) {
   const regSet = new Set();
   (brackets || []).forEach((b) =>
     (b?.groups || []).forEach((g) =>
-      (g?.regIds || []).forEach((rid) => rid && regSet.add(String(rid)))
-    )
+      (g?.regIds || []).forEach((rid) => rid && regSet.add(String(rid))),
+    ),
   );
   const totalTeamsFromGroups = regSet.size;
   const totalTeamsFromTour =
@@ -133,7 +133,7 @@ function computeMetaBar(brackets, tour) {
       (r) =>
         r?.checkedIn === true ||
         r?.checkin === true ||
-        String(r?.checkin?.status || "").toLowerCase() === "checked-in"
+        String(r?.checkin?.status || "").toLowerCase() === "checked-in",
     ).length;
   } else if (Number.isFinite(tour?.stats?.checkedInCount)) {
     checkedIn = Number(tour.stats.checkedInCount) || 0;
@@ -142,8 +142,8 @@ function computeMetaBar(brackets, tour) {
     totalTeams > 0
       ? `${checkedIn}/${totalTeams}`
       : checkedIn
-      ? String(checkedIn)
-      : "—";
+        ? String(checkedIn)
+        : "—";
 
   const locationText =
     pickName(tour?.venue) ||
@@ -156,7 +156,7 @@ function computeMetaBar(brackets, tour) {
 export const safePairName = (
   pair,
   eventType = "double",
-  displayMode = "nickname"
+  displayMode = "nickname",
 ) => getTournamentPairName(pair, eventType, displayMode);
 
 export const preferName = (p, displayMode = "nickname") =>
@@ -171,7 +171,7 @@ export const preferNick = (p) =>
 export const pairLabelWithNick = (
   pair,
   eventType = "double",
-  displayMode = "nickname"
+  displayMode = "nickname",
 ) => getTournamentPairName(pair, eventType, displayMode);
 
 export const nameWithNick = (p, displayMode = "nickname") =>
@@ -458,7 +458,7 @@ function HeightSyncProvider({ roundsKey, children }) {
           return h > cur ? { ...prev, [r]: h } : prev;
         }),
     }),
-    [maxByRound]
+    [maxByRound],
   );
   useEffect(() => setMaxByRound({}), [roundsKey]);
   return (
@@ -500,7 +500,7 @@ function scoreForSide(m, side) {
   // đúng 1 set → hiển thị điểm của set đó
   if (n === 1) {
     const g = games[0] || {};
-    return side === "A" ? g.a ?? "" : g.b ?? "";
+    return side === "A" ? (g.a ?? "") : (g.b ?? "");
   }
 
   // fallback: scoreA/scoreB nếu có
@@ -569,7 +569,7 @@ const CustomSeed = ({
   const wrapRef = useRef(null);
   const sync = useContext(HeightSyncContext);
   useResizeHeight(wrapRef, (h) =>
-    sync.report(roundNo, Math.max(h, SEED_MIN_H))
+    sync.report(roundNo, Math.max(h, SEED_MIN_H)),
   );
   const syncedMinH = Math.max(SEED_MIN_H, sync.get(roundNo));
 
@@ -599,8 +599,8 @@ const CustomSeed = ({
     borderLeft: isHoverRow
       ? `6px solid ${PRIMARY}`
       : isWin
-      ? `5px solid ${RED}`
-      : "4px solid transparent",
+        ? `5px solid ${RED}`
+        : "4px solid transparent",
     padding: "6px 8px 6px 10px",
     whiteSpace: "normal",
     overflow: "visible",
@@ -781,29 +781,30 @@ const CustomSeed = ({
             {isByeMatch
               ? ""
               : m
-              ? resultLabel(m).replace(
-                  "Đang diễn ra",
-                  tLang("tournaments.bracket.result.live")
-                )
-                  .replace(
-                    "Đội A thắng",
-                    tLang("tournaments.bracket.result.teamAWin")
-                  )
-                  .replace(
-                    "Đội B thắng",
-                    tLang("tournaments.bracket.result.teamBWin")
-                  )
-                  .replace(
-                    "Hoà/Không xác định",
-                    tLang("tournaments.bracket.result.draw")
-                  )
-                  .replace(
-                    "Chưa diễn ra",
-                    tLang("tournaments.bracket.result.pending")
-                  )
-              : isPlaceholder
-              ? tLang("tournaments.bracket.pendingTeam")
-              : tLang("tournaments.bracket.result.pending")}
+                ? resultLabel(m)
+                    .replace(
+                      "Đang diễn ra",
+                      tLang("tournaments.bracket.result.live"),
+                    )
+                    .replace(
+                      "Đội A thắng",
+                      tLang("tournaments.bracket.result.teamAWin"),
+                    )
+                    .replace(
+                      "Đội B thắng",
+                      tLang("tournaments.bracket.result.teamBWin"),
+                    )
+                    .replace(
+                      "Hoà/Không xác định",
+                      tLang("tournaments.bracket.result.draw"),
+                    )
+                    .replace(
+                      "Chưa diễn ra",
+                      tLang("tournaments.bracket.result.pending"),
+                    )
+                : isPlaceholder
+                  ? tLang("tournaments.bracket.pendingTeam")
+                  : tLang("tournaments.bracket.result.pending")}
           </div>
         </div>
       </SeedItem>
@@ -1003,7 +1004,7 @@ function TeamHistoryDialog({
   const titleName = safePairName(teamRow?.pair, eventType, displayMode) || "—";
   const groupLabel =
     bracket?.groups?.find?.(
-      (g) => String(g.name || g.code || g._id || "") === String(groupKey)
+      (g) => String(g.name || g.code || g._id || "") === String(groupKey),
     )?.name ||
     groupKey ||
     "—";
@@ -1126,7 +1127,7 @@ function computeGroupTablesForBracket(
   bracket,
   matches,
   eventType,
-  displayMode = "nickname"
+  displayMode = "nickname",
 ) {
   const { byKey, byRegId } = buildGroupIndex(bracket);
   const PWIN = bracket?.config?.roundRobin?.points?.win ?? 3;
@@ -1290,7 +1291,7 @@ function computeGroupTablesForBracket(
   for (const [key, { label, regSet }] of byKey.entries()) {
     const rowsMap = stats.get(key) || new Map();
     const filteredRows = Array.from(rowsMap.values()).filter((r) =>
-      regSet.has(String(r.id))
+      regSet.has(String(r.id)),
     );
     filteredRows.forEach((r) => {
       r.setDiff = r.sf - r.sa;
@@ -1444,13 +1445,13 @@ function buildStandingsWithFallback(
   bracket,
   matchesReal,
   eventType,
-  displayMode = "nickname"
+  displayMode = "nickname",
 ) {
   const real = computeGroupTablesForBracket(
     bracket,
     matchesReal,
     eventType,
-    displayMode
+    displayMode,
   ) || {
     groups: [],
     points: { win: 3, draw: 1, loss: 0 },
@@ -1486,14 +1487,14 @@ function buildRoundElimRounds(
   bracket,
   brMatches,
   resolveSideLabel,
-  pendingTeamLabel = "Chưa có đội"
+  pendingTeamLabel = "Chưa có đội",
 ) {
   const r1FromPrefill =
     Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length
       ? bracket.prefill.seeds.length
       : 0;
   const r1FromMatches = (brMatches || []).filter(
-    (m) => (m.round || 1) === 1
+    (m) => (m.round || 1) === 1,
   ).length;
   const r1Pairs = Math.max(1, r1FromPrefill || r1FromMatches || 1);
 
@@ -1505,7 +1506,7 @@ function buildRoundElimRounds(
     const maxR =
       Math.max(
         0,
-        ...((brMatches || []).map((m) => Number(m.round || 1)) || [])
+        ...((brMatches || []).map((m) => Number(m.round || 1)) || []),
       ) || 1;
     k = Math.max(1, maxR);
   }
@@ -1560,7 +1561,7 @@ function buildRoundElimRounds(
 
 function buildEmptyRoundsByScale(
   scale /* 2^n */,
-  pendingTeamLabel = "Chưa có đội"
+  pendingTeamLabel = "Chưa có đội",
 ) {
   const rounds = [];
   let matches = Math.max(1, Math.floor(scale / 2));
@@ -1587,7 +1588,7 @@ function buildEmptyRoundsByScale(
 function buildRoundsFromPrefill(
   prefill,
   koMeta,
-  pendingTeamLabel = "Chưa có đội"
+  pendingTeamLabel = "Chưa có đội",
 ) {
   const useSeeds =
     prefill && Array.isArray(prefill.seeds) && prefill.seeds.length > 0;
@@ -1663,17 +1664,17 @@ function buildRoundsWithPlaceholders(
     extendForward = true,
     expectedFirstRoundPairs = 0,
     pendingTeamLabel = "Chưa có đội",
-  } = {}
+  } = {},
 ) {
   const real = (brMatches || [])
     .slice()
     .sort(
       (a, b) =>
-        (a.round || 1) - (b.round || 1) || (a.order || 0) - (b.order || 0)
+        (a.round || 1) - (b.round || 1) || (a.order || 0) - (b.order || 0),
     );
 
   const roundsHave = Array.from(new Set(real.map((m) => m.round || 1))).sort(
-    (a, b) => a - b
+    (a, b) => a - b,
   );
   const lastRound = roundsHave.length ? Math.max(...roundsHave) : 1;
 
@@ -1773,7 +1774,7 @@ function roundsCountForBracket(bracket, matchesOfThis = []) {
       const maxR =
         Math.max(
           0,
-          ...(matchesOfThis || []).map((m) => Number(m.round || 1))
+          ...(matchesOfThis || []).map((m) => Number(m.round || 1)),
         ) || 1;
       k = Math.max(1, maxR);
     }
@@ -2104,12 +2105,12 @@ export default function TournamentBracket() {
   const zoomIn = useCallback(
     () =>
       setZoom((z) => clamp(parseFloat((z + Z_STEP).toFixed(2)), Z_MIN, Z_MAX)),
-    []
+    [],
   );
   const zoomOut = useCallback(
     () =>
       setZoom((z) => clamp(parseFloat((z - Z_STEP).toFixed(2)), Z_MIN, Z_MAX)),
-    []
+    [],
   );
   const zoomReset = useCallback(() => setZoom(1), []);
   const {
@@ -2140,7 +2141,7 @@ export default function TournamentBracket() {
   const rafRef = useRef(null);
   const bracketIds = useMemo(
     () => (brackets || []).map((b) => String(b._id)).filter(Boolean),
-    [brackets]
+    [brackets],
   );
   const bracketIdsRef = useRef(new Set());
 
@@ -2185,7 +2186,7 @@ export default function TournamentBracket() {
         flushPending();
       });
     },
-    [flushPending]
+    [flushPending],
   );
 
   useEffect(() => {
@@ -2269,16 +2270,16 @@ export default function TournamentBracket() {
   const matchesMerged = useMemo(
     () =>
       Array.from(liveMapRef.current.values()).filter(
-        (m) => String(m.tournament?._id || m.tournament) === String(tourId)
+        (m) => String(m.tournament?._id || m.tournament) === String(tourId),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tourId, liveBump]
+    [tourId, liveBump],
   );
 
   // NEW: tập regId (pairId) mà user thuộc về
   const myRegIdsAll = useMemo(
     () => collectMyRegistrationIds(me, tour, matchesMerged),
-    [me, tour, matchesMerged]
+    [me, tour, matchesMerged],
   );
 
   const byBracket = useMemo(() => {
@@ -2335,7 +2336,7 @@ export default function TournamentBracket() {
   const current = brackets?.[tab] || null;
   const currentMatches = useMemo(
     () => (current ? byBracket[current._id] || [] : []),
-    [byBracket, current]
+    [byBracket, current],
   );
 
   // NEW: danh sách key tất cả bảng ở stage hiện tại
@@ -2396,7 +2397,7 @@ export default function TournamentBracket() {
   }, [matchesMerged]);
   const baseRoundStartForCurrent = useMemo(
     () => computeBaseRoundStart(brackets, byBracket, current),
-    [brackets, byBracket, current]
+    [brackets, byBracket, current],
   );
 
   // Map stage → Map(groupKeyNorm → done)
@@ -2426,10 +2427,10 @@ export default function TournamentBracket() {
         const arr = ms.filter((m) => keySet.has(_norm(keyOf(m))));
 
         const finishedCount = arr.filter(
-          (m) => String(m?.status || "").toLowerCase() === "finished"
+          (m) => String(m?.status || "").toLowerCase() === "finished",
         ).length;
         const anyUnfinished = arr.some(
-          (m) => String(m?.status || "").toLowerCase() !== "finished"
+          (m) => String(m?.status || "").toLowerCase() !== "finished",
         );
         const expected = expectedRRMatches(br, g);
 
@@ -2453,7 +2454,7 @@ export default function TournamentBracket() {
       if (!seed || seed.type !== "groupRank") return false;
 
       const stageFromSeed = Number(
-        seed?.ref?.stage ?? seed?.ref?.stageIndex ?? NaN
+        seed?.ref?.stage ?? seed?.ref?.stageIndex ?? NaN,
       );
       const prevStage = Number(current?.stage)
         ? Number(current.stage) - 1
@@ -2463,7 +2464,7 @@ export default function TournamentBracket() {
         : prevStage;
 
       const groupCode = String(
-        seed?.ref?.groupCode ?? seed?.ref?.group ?? ""
+        seed?.ref?.groupCode ?? seed?.ref?.group ?? "",
       ).trim();
       if (!Number.isFinite(stageNo) || !groupCode) {
         // Thiếu dữ liệu tham chiếu → coi như chặn (hiện như cũ)
@@ -2476,7 +2477,7 @@ export default function TournamentBracket() {
       const done = stageMap.get(_norm(groupCode));
       return done !== true; // chỉ cho pass khi done===true
     },
-    [groupDoneByStage, current?.stage]
+    [groupDoneByStage, current?.stage],
   );
 
   // Đặt bên trong TournamentBracket (dùng chung matchIndex, tour?.eventType, baseRoundStartForCurrent, seedLabel, pairLabelWithNick, isByeMatchObj)
@@ -2532,7 +2533,8 @@ export default function TournamentBracket() {
               return fromSeed;
 
             const winPair = pm[`pair${winSide}`];
-            if (winPair) return pairLabelWithNick(winPair, eventType, displayMode);
+            if (winPair)
+              return pairLabelWithNick(winPair, eventType, displayMode);
           }
 
           const rPrev = Number(pm?.round ?? 1);
@@ -2567,7 +2569,7 @@ export default function TournamentBracket() {
       isSeedBlockedByUnfinishedGroup,
       pendingTeamLabel,
       displayMode,
-    ]
+    ],
   );
   // Prefill rounds for KO
   const prefillRounds = useMemo(() => {
@@ -2575,7 +2577,7 @@ export default function TournamentBracket() {
     const r = buildRoundsFromPrefill(
       current.prefill,
       current?.ko,
-      pendingTeamLabel
+      pendingTeamLabel,
     );
     return r && r.length ? r : null;
   }, [current, pendingTeamLabel]);
@@ -2583,7 +2585,7 @@ export default function TournamentBracket() {
   // Group indexing for mapping matches → group
   const { byRegId: groupIndex } = useMemo(
     () => buildGroupIndex(current || {}),
-    [current]
+    [current],
   );
   const matchGroupLabel = useCallback(
     (m) => {
@@ -2593,7 +2595,7 @@ export default function TournamentBracket() {
       const gb = bId && groupIndex.get(bId);
       return ga && gb && ga === gb ? ga : null;
     },
-    [groupIndex]
+    [groupIndex],
   );
 
   // Standings data (real & fallback)
@@ -2603,7 +2605,7 @@ export default function TournamentBracket() {
       current,
       currentMatches,
       tour?.eventType,
-      displayMode
+      displayMode,
     );
   }, [current, currentMatches, tour?.eventType, displayMode]);
 
@@ -2615,7 +2617,7 @@ export default function TournamentBracket() {
     const { starts, sizeOf } = buildGroupStarts(current);
     const sData = standingsData || { groups: [] };
     const standingsByKey = new Map(
-      (sData.groups || []).map((group) => [String(group.key), group])
+      (sData.groups || []).map((group) => [String(group.key), group]),
     );
 
     return groupsRaw
@@ -2635,7 +2637,7 @@ export default function TournamentBracket() {
           .sort(
             (a, b) =>
               (a.round || 1) - (b.round || 1) ||
-              (a.order || 0) - (b.order || 0)
+              (a.order || 0) - (b.order || 0),
           );
 
         let matchRows = [];
@@ -2704,7 +2706,7 @@ export default function TournamentBracket() {
           const pts = Number(row.pts ?? 0);
           const diff = Number.isFinite(row.pointDiff)
             ? row.pointDiff
-            : row.setDiff ?? 0;
+            : (row.setDiff ?? 0);
           return {
             id: row.id || `row-${idx}`,
             name: row.pair
@@ -2727,7 +2729,7 @@ export default function TournamentBracket() {
             acc[stateKey] = (acc[stateKey] || 0) + 1;
             return acc;
           },
-          { live: 0, done: 0, ready: 0, planned: 0 }
+          { live: 0, done: 0, ready: 0, planned: 0 },
         );
 
         return {
@@ -2762,14 +2764,17 @@ export default function TournamentBracket() {
   ]);
 
   // KO placeholder builder
-  const buildEmptyRoundsForKO = useCallback((koBracket) => {
-    const scaleFromBracket = readBracketScale(koBracket);
-    if (scaleFromBracket)
-      return buildEmptyRoundsByScale(scaleFromBracket, pendingTeamLabel);
-    const fallback = 4;
-    const scale = ceilPow2(fallback);
-    return buildEmptyRoundsByScale(scale, pendingTeamLabel);
-  }, [pendingTeamLabel]);
+  const buildEmptyRoundsForKO = useCallback(
+    (koBracket) => {
+      const scaleFromBracket = readBracketScale(koBracket);
+      if (scaleFromBracket)
+        return buildEmptyRoundsByScale(scaleFromBracket, pendingTeamLabel);
+      const fallback = 4;
+      const scale = ceilPow2(fallback);
+      return buildEmptyRoundsByScale(scale, pendingTeamLabel);
+    },
+    [pendingTeamLabel],
+  );
 
   const liveSpotlight = useMemo(() => {
     if (!current || current.type !== "group") return [];
@@ -2781,8 +2786,12 @@ export default function TournamentBracket() {
         const bo = Number(b?.court?.order ?? 9999);
         if (ao !== bo) return ao - bo;
 
-        const at = new Date(a.startedAt || a.scheduledAt || a.assignedAt || 0).getTime();
-        const bt = new Date(b.startedAt || b.scheduledAt || b.assignedAt || 0).getTime();
+        const at = new Date(
+          a.startedAt || a.scheduledAt || a.assignedAt || 0,
+        ).getTime();
+        const bt = new Date(
+          b.startedAt || b.scheduledAt || b.assignedAt || 0,
+        ).getTime();
         if (at !== bt) return at - bt;
 
         const aOrder = Number(a?.order ?? 0);
@@ -2804,7 +2813,7 @@ export default function TournamentBracket() {
       (current?.groups || []).map((g, gi) => {
         const key = String(g.name || g.code || g._id || String(gi + 1));
         return [key, gi + 1];
-      })
+      }),
     );
 
     // Tính thứ tự trận trong từng bảng (giống logic ở phần "Trận trong bảng")
@@ -2822,7 +2831,7 @@ export default function TournamentBracket() {
         .slice()
         .sort(
           (a, b) =>
-            (a.round || 1) - (b.round || 1) || (a.order ?? 0) - (b.order ?? 0)
+            (a.round || 1) - (b.round || 1) || (a.order ?? 0) - (b.order ?? 0),
         )
         .forEach((m, idx) => {
           seqIndexByMatchId.set(String(m._id), idx + 1);
@@ -3065,7 +3074,9 @@ export default function TournamentBracket() {
     return (
       <Box p={3}>
         <Alert severity="error">
-          {error?.data?.message || error?.error || t("tournaments.bracket.loadError")}
+          {error?.data?.message ||
+            error?.error ||
+            t("tournaments.bracket.loadError")}
         </Alert>
       </Box>
     );
@@ -3083,12 +3094,17 @@ export default function TournamentBracket() {
       b.type === "group"
         ? t("tournaments.bracket.typeGroup")
         : b.type === "roundElim"
-        ? t("tournaments.bracket.typeRoundElim")
-        : t("tournaments.bracket.typeKnockout");
+          ? t("tournaments.bracket.typeRoundElim")
+          : t("tournaments.bracket.typeKnockout");
     return (
       <Stack key={b._id} direction="row" spacing={1} alignItems="center">
         <Typography>{toText(b.name)}</Typography>
-        <Chip size="small" label={typeLabel} color="default" variant="outlined" />
+        <Chip
+          size="small"
+          label={typeLabel}
+          color="default"
+          variant="outlined"
+        />
       </Stack>
     );
   });
@@ -3131,7 +3147,7 @@ export default function TournamentBracket() {
         {filteredGroups.map((g, gi) => {
           // LƯU Ý: vì đã filter, gi không còn là index gốc. Lấy key theo groupsRaw:
           const realGi = (groupsRaw || []).findIndex(
-            (x) => groupKeyOf(x, 0) === groupKeyOf(g, 0) // đơn giản hóa: name/code/_id đều ra cùng key
+            (x) => groupKeyOf(x, 0) === groupKeyOf(g, 0), // đơn giản hóa: name/code/_id đều ra cùng key
           );
           const key = groupKeyOf(g, realGi >= 0 ? realGi : gi);
           const labelNumeric = (realGi >= 0 ? realGi : gi) + 1;
@@ -3145,7 +3161,7 @@ export default function TournamentBracket() {
             .sort(
               (a, b) =>
                 (a.round || 1) - (b.round || 1) ||
-                (a.order || 0) - (b.order || 0)
+                (a.order || 0) - (b.order || 0),
             );
 
           // Map trận ra rows hiển thị
@@ -3200,7 +3216,7 @@ export default function TournamentBracket() {
           // BXH cho bảng này
           const sData = standingsData || { groups: [] };
           const gStand = (sData.groups || []).find(
-            (x) => String(x.key) === String(key)
+            (x) => String(x.key) === String(key),
           );
           const pointsCfg = sData.points || { win: 3, draw: 1, loss: 0 };
 
@@ -3331,30 +3347,33 @@ export default function TournamentBracket() {
                                   state === "live"
                                     ? t("tournaments.bracket.stateTip.live")
                                     : state === "done"
-                                    ? t("tournaments.bracket.stateTip.done")
-                                    : state === "ready"
-                                    ? t("tournaments.bracket.stateTip.ready")
-                                    : t("tournaments.bracket.stateTip.planned");
-                                const tip =
-                                  `${stateLabel}${
-                                    r.score
-                                      ? ` • ${t(
-                                          "tournaments.bracket.stateTip.score"
-                                        )}: ${r.score}`
-                                      : ""
-                                  }${
-                                    r.court
-                                      ? ` • ${t(
-                                          "tournaments.bracket.stateTip.court"
-                                        )}: ${r.court}`
-                                      : ""
-                                  }${
-                                    r.time
-                                      ? ` • ${t(
-                                          "tournaments.bracket.stateTip.time"
-                                        )}: ${r.time}`
-                                      : ""
-                                  }`;
+                                      ? t("tournaments.bracket.stateTip.done")
+                                      : state === "ready"
+                                        ? t(
+                                            "tournaments.bracket.stateTip.ready",
+                                          )
+                                        : t(
+                                            "tournaments.bracket.stateTip.planned",
+                                          );
+                                const tip = `${stateLabel}${
+                                  r.score
+                                    ? ` • ${t(
+                                        "tournaments.bracket.stateTip.score",
+                                      )}: ${r.score}`
+                                    : ""
+                                }${
+                                  r.court
+                                    ? ` • ${t(
+                                        "tournaments.bracket.stateTip.court",
+                                      )}: ${r.court}`
+                                    : ""
+                                }${
+                                  r.time
+                                    ? ` • ${t(
+                                        "tournaments.bracket.stateTip.time",
+                                      )}: ${r.time}`
+                                    : ""
+                                }`;
                                 return (
                                   <Box
                                     sx={{
@@ -3383,7 +3402,9 @@ export default function TournamentBracket() {
 
                                     {r.video && (
                                       <Tooltip
-                                        title={t("tournaments.bracket.videoTooltip")}
+                                        title={t(
+                                          "tournaments.bracket.videoTooltip",
+                                        )}
                                         arrow
                                       >
                                         <VideoIcon
@@ -3629,12 +3650,16 @@ export default function TournamentBracket() {
                       {gStand?.rows?.length ? (
                         gStand.rows.map((row, idx) => {
                           const name = row.pair
-                            ? safePairName(row.pair, tour?.eventType, displayMode)
+                            ? safePairName(
+                                row.pair,
+                                tour?.eventType,
+                                displayMode,
+                              )
                             : row.name || "—";
                           const pts = Number(row.pts ?? 0);
                           const diff = Number.isFinite(row.pointDiff)
                             ? row.pointDiff
-                            : row.setDiff ?? 0;
+                            : (row.setDiff ?? 0);
                           const rank = row.rank || idx + 1;
                           return (
                             <TableRow key={row.id || `row-${idx}`}>
@@ -3674,7 +3699,7 @@ export default function TournamentBracket() {
                       const pts = Number(row.pts ?? 0);
                       const diff = Number.isFinite(row.pointDiff)
                         ? row.pointDiff
-                        : row.setDiff ?? 0;
+                        : (row.setDiff ?? 0);
                       const rank = row.rank || idx + 1;
                       return (
                         <Paper
@@ -3812,19 +3837,35 @@ export default function TournamentBracket() {
               bgcolor: dk ? "#0d1117" : "#fff",
               border: "1px solid",
               borderColor: group.isMine
-                ? dk ? "rgba(56,139,253,0.5)" : "rgba(25,118,210,0.4)"
-                : dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+                ? dk
+                  ? "rgba(56,139,253,0.5)"
+                  : "rgba(25,118,210,0.4)"
+                : dk
+                  ? "rgba(255,255,255,0.08)"
+                  : "rgba(0,0,0,0.08)",
               boxShadow: group.isMine
-                ? dk ? "0 0 20px rgba(56,139,253,.12)" : "0 0 16px rgba(25,118,210,.12)"
-                : dk ? "0 4px 24px rgba(0,0,0,.2)" : "0 2px 12px rgba(0,0,0,.06)",
+                ? dk
+                  ? "0 0 20px rgba(56,139,253,.12)"
+                  : "0 0 16px rgba(25,118,210,.12)"
+                : dk
+                  ? "0 4px 24px rgba(0,0,0,.2)"
+                  : "0 2px 12px rgba(0,0,0,.06)",
               transition: "box-shadow .2s, border-color .2s",
               "&:hover": {
                 borderColor: group.isMine
-                  ? dk ? "rgba(56,139,253,0.65)" : "rgba(25,118,210,0.55)"
-                  : dk ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.14)",
+                  ? dk
+                    ? "rgba(56,139,253,0.65)"
+                    : "rgba(25,118,210,0.55)"
+                  : dk
+                    ? "rgba(255,255,255,0.16)"
+                    : "rgba(0,0,0,0.14)",
                 boxShadow: group.isMine
-                  ? dk ? "0 0 28px rgba(56,139,253,.18)" : "0 0 20px rgba(25,118,210,.16)"
-                  : dk ? "0 8px 32px rgba(0,0,0,.28)" : "0 4px 20px rgba(0,0,0,.1)",
+                  ? dk
+                    ? "0 0 28px rgba(56,139,253,.18)"
+                    : "0 0 20px rgba(25,118,210,.16)"
+                  : dk
+                    ? "0 8px 32px rgba(0,0,0,.28)"
+                    : "0 4px 20px rgba(0,0,0,.1)",
               },
             }}
           >
@@ -3845,7 +3886,8 @@ export default function TournamentBracket() {
                   left: 0,
                   right: 0,
                   height: 1,
-                  background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)",
+                  background:
+                    "linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)",
                 },
               }}
             >
@@ -3881,7 +3923,10 @@ export default function TournamentBracket() {
               {group.codeLabel ? (
                 <Typography
                   variant="caption"
-                  sx={{ color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)", fontSize: "0.7rem" }}
+                  sx={{
+                    color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)",
+                    fontSize: "0.7rem",
+                  }}
                 >
                   {t("tournaments.bracket.groupCode", {
                     value: group.codeLabel,
@@ -3890,7 +3935,10 @@ export default function TournamentBracket() {
               ) : null}
               <Typography
                 variant="caption"
-                sx={{ color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)", fontSize: "0.7rem" }}
+                sx={{
+                  color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)",
+                  fontSize: "0.7rem",
+                }}
               >
                 {t("tournaments.bracket.groupTeamCount", {
                   count: group.teamCount,
@@ -3915,150 +3963,204 @@ export default function TournamentBracket() {
               <Table
                 size="small"
                 sx={{
-                    "& .MuiTableCell-root": {
-                      borderColor: dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
-                      px: 0.75,
-                      py: 0.6,
+                  "& .MuiTableCell-root": {
+                    borderColor: dk
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.06)",
+                    px: 0.75,
+                    py: 0.6,
                   },
                 }}
               >
                 <TableBody>
                   {group.matchRows.length ? (
                     group.matchRows.map((row) => {
-                        const [scoreA, scoreB] = splitScore(row.score);
-                        const state = statusColors(row.match);
-                        const isFinished = String(row.match?.status || "").toLowerCase() === "finished";
-                        const isLive = String(row.match?.status || "").toLowerCase() === "live";
-                        return (
-                          <TableRow
-                            key={row._id}
-                            onClick={() =>
+                      const [scoreA, scoreB] = splitScore(row.score);
+                      const state = statusColors(row.match);
+                      const isFinished =
+                        String(row.match?.status || "").toLowerCase() ===
+                        "finished";
+                      const isLive =
+                        String(row.match?.status || "").toLowerCase() ===
+                        "live";
+                      return (
+                        <TableRow
+                          key={row._id}
+                          onClick={() =>
+                            !row.isPlaceholder && row.match
+                              ? openMatch(row.match)
+                              : null
+                          }
+                          sx={{
+                            cursor:
                               !row.isPlaceholder && row.match
-                                ? openMatch(row.match)
-                                : null
-                            }
-                            sx={{
-                              cursor:
+                                ? "pointer"
+                                : "default",
+                            bgcolor: row.isMine
+                              ? dk
+                                ? "rgba(56,139,253,0.08)"
+                                : "rgba(25,118,210,0.06)"
+                              : "transparent",
+                            transition: "background .15s",
+                            "&:hover": {
+                              bgcolor:
                                 !row.isPlaceholder && row.match
-                                  ? "pointer"
-                                  : "default",
-                              bgcolor: row.isMine
-                                ? dk ? "rgba(56,139,253,0.08)" : "rgba(25,118,210,0.06)"
-                                : "transparent",
-                              transition: "background .15s",
-                              "&:hover": {
-                                bgcolor:
-                                  !row.isPlaceholder && row.match
-                                    ? dk ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"
-                                    : undefined,
-                              },
+                                  ? dk
+                                    ? "rgba(255,255,255,0.04)"
+                                    : "rgba(0,0,0,0.03)"
+                                  : undefined,
+                            },
+                          }}
+                        >
+                          {/* Time + Code cell */}
+                          <TableCell
+                            sx={{
+                              width: 72,
+                              bgcolor: dk ? "#161b22" : "#f6f8fa",
+                              color: dk ? "#e6edf3" : "#24292f",
+                              verticalAlign: "top",
+                              borderLeft: `3px solid ${state.bg}`,
+                              py: 0.75,
                             }}
                           >
-                            {/* Time + Code cell */}
-                            <TableCell
+                            <Typography
                               sx={{
-                                width: 72,
-                                bgcolor: dk ? "#161b22" : "#f6f8fa",
+                                fontWeight: 700,
+                                fontSize: "0.8rem",
+                                lineHeight: 1.2,
                                 color: dk ? "#e6edf3" : "#24292f",
-                                verticalAlign: "top",
-                                borderLeft: `3px solid ${state.bg}`,
-                                py: 0.75,
                               }}
                             >
+                              {row.timeShort || "—"}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                display: "block",
+                                mt: 0.25,
+                                color: dk
+                                  ? "rgba(255,255,255,0.45)"
+                                  : "rgba(0,0,0,0.4)",
+                                fontSize: "0.65rem",
+                                lineHeight: 1.1,
+                                fontFamily: "monospace",
+                              }}
+                            >
+                              {row.code}
+                            </Typography>
+                          </TableCell>
+
+                          {/* Team names cell */}
+                          <TableCell
+                            sx={{
+                              bgcolor: dk ? "#21262d" : "#fff",
+                              color: dk ? "#e6edf3" : "#24292f",
+                              verticalAlign: "middle",
+                              py: 0.6,
+                            }}
+                          >
+                            <Stack spacing={0.15}>
                               <Typography
                                 sx={{
-                                  fontWeight: 700,
-                                  fontSize: "0.8rem",
-                                  lineHeight: 1.2,
-                                  color: dk ? "#e6edf3" : "#24292f",
+                                  fontSize: "0.78rem",
+                                  fontWeight: row.isMineA ? 700 : 400,
+                                  color: row.isMineA
+                                    ? dk
+                                      ? "#58a6ff"
+                                      : "#1565c0"
+                                    : dk
+                                      ? "#e6edf3"
+                                      : "#24292f",
+                                  lineHeight: 1.25,
                                 }}
                               >
-                                {row.timeShort || "—"}
+                                {row.aName}
                               </Typography>
                               <Typography
                                 sx={{
-                                  display: "block",
-                                  mt: 0.25,
-                                  color: dk ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)",
-                                  fontSize: "0.65rem",
-                                  lineHeight: 1.1,
-                                  fontFamily: "monospace",
+                                  fontSize: "0.78rem",
+                                  fontWeight: row.isMineB ? 700 : 400,
+                                  color: row.isMineB
+                                    ? dk
+                                      ? "#58a6ff"
+                                      : "#1565c0"
+                                    : dk
+                                      ? "#c9d1d9"
+                                      : "#57606a",
+                                  lineHeight: 1.25,
                                 }}
                               >
-                                {row.code}
+                                {row.bName}
                               </Typography>
-                            </TableCell>
+                            </Stack>
+                          </TableCell>
 
-                            {/* Team names cell */}
-                            <TableCell
-                              sx={{
-                                bgcolor: dk ? "#21262d" : "#fff",
-                                color: dk ? "#e6edf3" : "#24292f",
-                                verticalAlign: "middle",
-                                py: 0.6,
-                              }}
-                            >
-                              <Stack spacing={0.15}>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.78rem",
-                                    fontWeight: row.isMineA ? 700 : 400,
-                                    color: row.isMineA ? (dk ? "#58a6ff" : "#1565c0") : (dk ? "#e6edf3" : "#24292f"),
-                                    lineHeight: 1.25,
-                                  }}
-                                >
-                                  {row.aName}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    fontSize: "0.78rem",
-                                    fontWeight: row.isMineB ? 700 : 400,
-                                    color: row.isMineB ? (dk ? "#58a6ff" : "#1565c0") : (dk ? "#c9d1d9" : "#57606a"),
-                                    lineHeight: 1.25,
-                                  }}
-                                >
-                                  {row.bName}
-                                </Typography>
-                              </Stack>
-                            </TableCell>
-
-                            {/* Score A */}
-                            <TableCell
-                              align="center"
-                              sx={{
-                                width: 32,
-                                bgcolor: isLive ? "#b45309" : isFinished ? (dk ? "#1e6823" : "#2e7d32") : (dk ? "#30363d" : "#e1e4e8"),
-                                color: isFinished || isLive ? "#fff" : (dk ? "#8b949e" : "#57606a"),
-                                fontWeight: 700,
-                                fontSize: "0.9rem",
-                                lineHeight: 1,
-                                fontVariantNumeric: "tabular-nums",
-                              }}
-                            >
-                              {scoreA}
-                            </TableCell>
-                            {/* Score B */}
-                            <TableCell
-                              align="center"
-                              sx={{
-                                width: 32,
-                                bgcolor: isLive ? "#b45309" : isFinished ? (dk ? "#1e6823" : "#2e7d32") : (dk ? "#30363d" : "#e1e4e8"),
-                                color: isFinished || isLive ? "#fff" : (dk ? "#8b949e" : "#57606a"),
-                                fontWeight: 700,
-                                fontSize: "0.9rem",
-                                lineHeight: 1,
-                                fontVariantNumeric: "tabular-nums",
-                                borderLeft: `1px solid ${dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
-                              }}
-                            >
-                              {scoreB}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
+                          {/* Score A */}
+                          <TableCell
+                            align="center"
+                            sx={{
+                              width: 32,
+                              bgcolor: isLive
+                                ? "#b45309"
+                                : isFinished
+                                  ? dk
+                                    ? "#1e6823"
+                                    : "#2e7d32"
+                                  : dk
+                                    ? "#30363d"
+                                    : "#e1e4e8",
+                              color:
+                                isFinished || isLive
+                                  ? "#fff"
+                                  : dk
+                                    ? "#8b949e"
+                                    : "#57606a",
+                              fontWeight: 700,
+                              fontSize: "0.9rem",
+                              lineHeight: 1,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {scoreA}
+                          </TableCell>
+                          {/* Score B */}
+                          <TableCell
+                            align="center"
+                            sx={{
+                              width: 32,
+                              bgcolor: isLive
+                                ? "#b45309"
+                                : isFinished
+                                  ? dk
+                                    ? "#1e6823"
+                                    : "#2e7d32"
+                                  : dk
+                                    ? "#30363d"
+                                    : "#e1e4e8",
+                              color:
+                                isFinished || isLive
+                                  ? "#fff"
+                                  : dk
+                                    ? "#8b949e"
+                                    : "#57606a",
+                              fontWeight: 700,
+                              fontSize: "0.9rem",
+                              lineHeight: 1,
+                              fontVariantNumeric: "tabular-nums",
+                              borderLeft: `1px solid ${dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
+                            }}
+                          >
+                            {scoreB}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
+                      <TableCell
+                        colSpan={4}
+                        align="center"
+                        sx={{ color: "text.secondary" }}
+                      >
                         {t("tournaments.bracket.noMatches")}
                       </TableCell>
                     </TableRow>
@@ -4097,102 +4199,127 @@ export default function TournamentBracket() {
                 size="small"
                 sx={{
                   "& .MuiTableCell-root": {
-                    borderColor: dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
-                      px: 0.75,
-                      py: 0.6,
-                    },
+                    borderColor: dk
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.06)",
+                    px: 0.75,
+                    py: 0.6,
+                  },
                 }}
               >
                 <TableBody>
                   {group.standingRows.length ? (
-                      group.standingRows.map((row, idx) => {
-                        const rankColors = [
-                          { bg: "#ffd700", color: "#1a1a00" },
-                          { bg: "#c0c0c0", color: "#1a1a1a" },
-                          { bg: "#cd7f32", color: "#fff" },
-                        ];
-                        const rankStyle = rankColors[idx] || {
-                          bg: dk ? "#30363d" : "#e1e4e8",
-                          color: dk ? "#e6edf3" : "#24292f",
-                        };
-                        return (
-                          <TableRow
-                            key={row.id || `standing-${idx}`}
+                    group.standingRows.map((row, idx) => {
+                      const rankColors = [
+                        { bg: "#ffd700", color: "#1a1a00" },
+                        { bg: "#c0c0c0", color: "#1a1a1a" },
+                        { bg: "#cd7f32", color: "#fff" },
+                      ];
+                      const rankStyle = rankColors[idx] || {
+                        bg: dk ? "#30363d" : "#e1e4e8",
+                        color: dk ? "#e6edf3" : "#24292f",
+                      };
+                      return (
+                        <TableRow
+                          key={row.id || `standing-${idx}`}
+                          sx={{
+                            bgcolor: row.isMine
+                              ? dk
+                                ? "rgba(56,139,253,0.08)"
+                                : "rgba(25,118,210,0.06)"
+                              : "transparent",
+                          }}
+                        >
+                          <TableCell
                             sx={{
-                              bgcolor: row.isMine
-                                ? dk ? "rgba(56,139,253,0.08)" : "rgba(25,118,210,0.06)"
-                                : "transparent",
+                              width: 36,
+                              textAlign: "center",
+                              p: 0.5,
                             }}
                           >
-                            <TableCell
+                            <Box
                               sx={{
-                                width: 36,
-                                textAlign: "center",
-                                p: 0.5,
-                              }}
-                            >
-                              <Box
-                                sx={{
-                                  width: 24,
-                                  height: 24,
-                                  borderRadius: "50%",
-                                  bgcolor: rankStyle.bg,
-                                  color: rankStyle.color,
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  fontWeight: 800,
-                                  fontSize: "0.7rem",
-                                  lineHeight: 1,
-                                }}
-                              >
-                                {row.rank}
-                              </Box>
-                            </TableCell>
-                            <TableCell
-                              sx={{
-                                bgcolor: dk ? "#161b22" : "#fafbfc",
-                                color: row.isMine ? (dk ? "#58a6ff" : "#1565c0") : (dk ? "#e6edf3" : "#24292f"),
-                                fontWeight: row.isMine ? 700 : 400,
-                                fontSize: "0.78rem",
-                              }}
-                            >
-                              {row.name}
-                            </TableCell>
-                            <TableCell
-                              align="center"
-                              sx={{
-                                width: 36,
-                                bgcolor: dk ? "#1e6823" : "#2e7d32",
-                                color: "#fff",
-                                fontWeight: 700,
-                                fontSize: "0.85rem",
+                                width: 24,
+                                height: 24,
+                                borderRadius: "50%",
+                                bgcolor: rankStyle.bg,
+                                color: rankStyle.color,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontWeight: 800,
+                                fontSize: "0.7rem",
                                 lineHeight: 1,
-                                fontVariantNumeric: "tabular-nums",
                               }}
                             >
-                              {row.pts}
-                            </TableCell>
-                            <TableCell
-                              align="center"
-                              sx={{
-                                width: 40,
-                                bgcolor: dk ? "#161b22" : "#fafbfc",
-                                color: row.diff > 0 ? (dk ? "#3fb950" : "#2e7d32") : row.diff < 0 ? (dk ? "#f85149" : "#d32f2f") : (dk ? "#8b949e" : "#9e9e9e"),
-                                fontWeight: 600,
-                                fontSize: "0.8rem",
-                                lineHeight: 1,
-                                fontVariantNumeric: "tabular-nums",
-                              }}
-                            >
-                              {row.diff > 0 ? `+${row.diff}` : row.diff}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
+                              {row.rank}
+                            </Box>
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              bgcolor: dk ? "#161b22" : "#fafbfc",
+                              color: row.isMine
+                                ? dk
+                                  ? "#58a6ff"
+                                  : "#1565c0"
+                                : dk
+                                  ? "#e6edf3"
+                                  : "#24292f",
+                              fontWeight: row.isMine ? 700 : 400,
+                              fontSize: "0.78rem",
+                            }}
+                          >
+                            {row.name}
+                          </TableCell>
+                          <TableCell
+                            align="center"
+                            sx={{
+                              width: 36,
+                              bgcolor: dk ? "#1e6823" : "#2e7d32",
+                              color: "#fff",
+                              fontWeight: 700,
+                              fontSize: "0.85rem",
+                              lineHeight: 1,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {row.pts}
+                          </TableCell>
+                          <TableCell
+                            align="center"
+                            sx={{
+                              width: 40,
+                              bgcolor: dk ? "#161b22" : "#fafbfc",
+                              color:
+                                row.diff > 0
+                                  ? dk
+                                    ? "#3fb950"
+                                    : "#2e7d32"
+                                  : row.diff < 0
+                                    ? dk
+                                      ? "#f85149"
+                                      : "#d32f2f"
+                                    : dk
+                                      ? "#8b949e"
+                                      : "#9e9e9e",
+                              fontWeight: 600,
+                              fontSize: "0.8rem",
+                              lineHeight: 1,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {row.diff > 0 ? `+${row.diff}` : row.diff}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
+                      <TableCell
+                        colSpan={4}
+                        align="center"
+                        sx={{ color: "text.secondary" }}
+                      >
                         {t("tournaments.bracket.noStandings")}
                       </TableCell>
                     </TableRow>
@@ -4503,7 +4630,8 @@ export default function TournamentBracket() {
                     color={groupSelected.size === 0 ? "default" : "primary"}
                     variant="outlined"
                     label={t("tournaments.bracket.selectedGroups", {
-                      count: groupSelected.size === 0 ? "0" : groupSelected.size,
+                      count:
+                        groupSelected.size === 0 ? "0" : groupSelected.size,
                     })}
                   />
                   <Chip
@@ -4619,7 +4747,7 @@ export default function TournamentBracket() {
               current,
               currentMatches,
               resolveSideLabel,
-              pendingTeamLabel
+              pendingTeamLabel,
             );
             const roundsKeyRE = `${current._id}:${reRounds.length}:${reRounds
               .map((r) => r.seeds.length)
@@ -4715,11 +4843,11 @@ export default function TournamentBracket() {
               current.prefill.seeds.length
                 ? current.prefill.seeds.length
                 : Array.isArray(current?.prefill?.pairs) &&
-                  current.prefill.pairs.length
-                ? current.prefill.pairs.length
-                : scaleForCurrent
-                ? Math.floor(scaleForCurrent / 2)
-                : 0;
+                    current.prefill.pairs.length
+                  ? current.prefill.pairs.length
+                  : scaleForCurrent
+                    ? Math.floor(scaleForCurrent / 2)
+                    : 0;
 
             const roundsToRender =
               currentMatches.length > 0
@@ -4727,17 +4855,17 @@ export default function TournamentBracket() {
                     currentMatches,
                     resolveSideLabel,
                     {
-                  minRounds: minRoundsForCurrent,
-                  extendForward: true,
-                  expectedFirstRoundPairs,
-                  pendingTeamLabel,
-                }
-              )
+                      minRounds: minRoundsForCurrent,
+                      extendForward: true,
+                      expectedFirstRoundPairs,
+                      pendingTeamLabel,
+                    },
+                  )
                 : prefillRounds
-                ? prefillRounds
-                : current.drawRounds && current.drawRounds > 0
-                ? buildEmptyRoundsByScale(2 ** current.drawRounds)
-                : buildEmptyRoundsForKO(current);
+                  ? prefillRounds
+                  : current.drawRounds && current.drawRounds > 0
+                    ? buildEmptyRoundsByScale(2 ** current.drawRounds)
+                    : buildEmptyRoundsForKO(current);
 
             const roundsKeyKO = `${current._id}:${
               roundsToRender.length
@@ -4789,7 +4917,13 @@ export default function TournamentBracket() {
                 {championPair && (
                   <Alert severity="success" sx={{ mb: 1 }}>
                     {t("tournaments.bracket.champion")}{" "}
-                    <b>{pairLabelWithNick(championPair, tour?.eventType, displayMode)}</b>
+                    <b>
+                      {pairLabelWithNick(
+                        championPair,
+                        tour?.eventType,
+                        displayMode,
+                      )}
+                    </b>
                   </Alert>
                 )}
 
@@ -4839,7 +4973,9 @@ export default function TournamentBracket() {
                         ? t("tournaments.bracket.prefillVirtualSuffix")
                         : "",
                       start:
-                        current?.ko?.startKey || current?.prefill?.roundKey || "?",
+                        current?.ko?.startKey ||
+                        current?.prefill?.roundKey ||
+                        "?",
                     })}
                   </Typography>
                 )}
