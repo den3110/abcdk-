@@ -19,6 +19,7 @@ export default function UnifiedStreamPlayer({
   remountKey = "",
   onEnded,
   previewOnlyUntilPlay = false,
+  useNativeControls = false,
 }) {
   if (!source) {
     return null;
@@ -41,6 +42,7 @@ export default function UnifiedStreamPlayer({
         autoplay={autoplay}
         onEnded={onEnded}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
+        useNativeControls={useNativeControls}
       />
     );
   }
@@ -52,6 +54,7 @@ export default function UnifiedStreamPlayer({
         source={source}
         autoplay={autoplay}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
+        useNativeControls={useNativeControls}
       />
     );
   }

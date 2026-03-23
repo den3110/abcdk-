@@ -8,6 +8,7 @@ export default function DelayedManifestPlayer({
   source,
   autoplay = true,
   previewOnlyUntilPlay = false,
+  useNativeControls = false,
 }) {
   const [items, setItems] = useState([]);
   const [currentUrl, setCurrentUrl] = useState("");
@@ -128,6 +129,7 @@ export default function DelayedManifestPlayer({
         onEnded={handleEnded}
         autoplay={autoplay}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
+        useNativeControls={useNativeControls}
       />
       {error ? (
         <Alert severity="info" sx={{ mt: 1 }}>

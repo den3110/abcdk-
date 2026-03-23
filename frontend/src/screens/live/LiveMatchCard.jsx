@@ -455,6 +455,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
                 autoplay={isLive}
                 remountKey={`embed-${m._id || "x"}-${embedTick}`}
                 previewOnlyUntilPlay={!isLive}
+                useNativeControls={!isLive}
               />
             </Box>
           ) : null}

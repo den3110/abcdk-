@@ -55,6 +55,7 @@ export default function NativeVideoPlayer({
   onEnded,
   autoplay = true,
   previewOnlyUntilPlay = false,
+  useNativeControls = false,
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
@@ -416,12 +417,13 @@ export default function NativeVideoPlayer({
             onMouseLeave={() => {
               if (isPlaying) setShowChrome(false);
             }}
-            onClick={togglePlay}
+            onClick={showPreviewOverlay ? togglePlay : undefined}
           >
             <video
               ref={videoRef}
               playsInline
               preload="metadata"
+              controls={Boolean(useNativeControls && !showPreviewOverlay)}
               style={{
                 width: "100%",
                 height: "100%",
@@ -453,189 +455,222 @@ export default function NativeVideoPlayer({
                   position: "absolute",
                   inset: 0,
                   zIndex: 2,
-                  display: "grid",
-                  placeItems: "center",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
                   cursor: "pointer",
                   bgcolor: "rgba(0,0,0,0.18)",
                   backdropFilter: "blur(1px)",
                 }}
                 onClick={togglePlay}
               >
-                <IconButton
-                  aria-label="Phát video"
+                <Stack
+                  direction="row"
+                  spacing={1}
                   sx={{
-                    width: { xs: 72, sm: 86 },
-                    height: { xs: 72, sm: 86 },
-                    color: "#fff",
-                    bgcolor: "rgba(15,23,42,0.7)",
-                    border: "1px solid rgba(255,255,255,0.16)",
-                    boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
-                    "&:hover": {
-                      bgcolor: "rgba(30,41,59,0.82)",
-                    },
+                    px: { xs: 0.75, sm: 1.25 },
+                    pt: { xs: 0.75, sm: 1.25 },
+                    alignItems: "center",
                   }}
                 >
-                  <PlayIcon sx={{ fontSize: { xs: 42, sm: 50 } }} />
-                </IconButton>
+                  <Chip
+                    size="small"
+                    label={title}
+                    sx={{
+                      bgcolor: "rgba(15,23,42,0.76)",
+                      color: "#fff",
+                      fontWeight: 700,
+                    }}
+                  />
+                  {subtitle ? (
+                    <Typography
+                      variant="caption"
+                      sx={{ color: "rgba(255,255,255,0.84)" }}
+                    >
+                      {subtitle}
+                    </Typography>
+                  ) : null}
+                </Stack>
+
+                <Box sx={{ display: "grid", placeItems: "center", flex: 1 }}>
+                  <IconButton
+                    aria-label="Phát video"
+                    sx={{
+                      width: { xs: 72, sm: 86 },
+                      height: { xs: 72, sm: 86 },
+                      color: "#fff",
+                      bgcolor: "rgba(15,23,42,0.7)",
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+                      "&:hover": {
+                        bgcolor: "rgba(30,41,59,0.82)",
+                      },
+                    }}
+                  >
+                    <PlayIcon sx={{ fontSize: { xs: 42, sm: 50 } }} />
+                  </IconButton>
+                </Box>
               </Box>
             ) : null}
 
-            <Box
-              sx={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
-                pointerEvents: "none",
-                opacity: showChrome && !showPreviewOverlay ? 1 : 0,
-                transition: "opacity 160ms ease",
-                background:
-                  "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.08) 28%, rgba(0,0,0,0.08) 72%, rgba(0,0,0,0.8) 100%)",
-              }}
-            >
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{
-                  px: { xs: 0.75, sm: 1.25 },
-                  pt: { xs: 0.75, sm: 1.25 },
-                  alignItems: "center",
-                }}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <Chip
-                  size="small"
-                  label={title}
-                  sx={{
-                    pointerEvents: "auto",
-                    bgcolor: "rgba(15,23,42,0.76)",
-                    color: "#fff",
-                    fontWeight: 700,
-                  }}
-                />
-                {subtitle ? (
-                  <Typography
-                    variant="caption"
-                    sx={{ color: "rgba(255,255,255,0.84)" }}
-                  >
-                    {subtitle}
-                  </Typography>
-                ) : null}
-              </Stack>
-
+            {!useNativeControls ? (
               <Box
                 sx={{
-                  px: { xs: 0.75, sm: 1.25 },
-                  pb: { xs: 0.75, sm: 1 },
-                  pointerEvents: "auto",
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                  pointerEvents: "none",
+                  opacity: showChrome && !showPreviewOverlay ? 1 : 0,
+                  transition: "opacity 160ms ease",
+                  background:
+                    "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.08) 28%, rgba(0,0,0,0.08) 72%, rgba(0,0,0,0.8) 100%)",
                 }}
-                onClick={(event) => event.stopPropagation()}
               >
-                <Slider
-                  size="small"
-                  min={0}
-                  max={100}
-                  value={seekPercent}
-                  onChange={handleSeekChange}
-                  onChangeCommitted={handleSeekCommit}
-                  sx={{
-                    color: "#3b82f6",
-                    mb: 0.5,
-                    "& .MuiSlider-rail": { opacity: 0.24, color: "#fff" },
-                  }}
-                />
                 <Stack
-                  direction={{ xs: "column", sm: "row" }}
-                  spacing={{ xs: 0.5, sm: 1 }}
-                  alignItems={{ xs: "stretch", sm: "center" }}
-                  justifyContent="space-between"
+                  direction="row"
+                  spacing={1}
+                  sx={{
+                    px: { xs: 0.75, sm: 1.25 },
+                    pt: { xs: 0.75, sm: 1.25 },
+                    alignItems: "center",
+                  }}
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  <Stack
-                    direction="row"
-                    spacing={0.25}
-                    alignItems="center"
-                    sx={{ minWidth: 0, justifyContent: { xs: "space-between", sm: "flex-start" } }}
-                  >
-                    <IconButton sx={{ color: "#fff" }} onClick={togglePlay}>
-                      {isPlaying ? <PauseIcon /> : <PlayIcon />}
-                    </IconButton>
-                    <IconButton
-                      sx={{ color: "#fff" }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        seekBy(-10);
-                      }}
-                    >
-                      <Replay10Icon />
-                    </IconButton>
-                    <IconButton
-                      sx={{ color: "#fff" }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        seekBy(10);
-                      }}
-                    >
-                      <Forward10Icon />
-                    </IconButton>
+                  <Chip
+                    size="small"
+                    label={title}
+                    sx={{
+                      pointerEvents: "auto",
+                      bgcolor: "rgba(15,23,42,0.76)",
+                      color: "#fff",
+                      fontWeight: 700,
+                    }}
+                  />
+                  {subtitle ? (
                     <Typography
                       variant="caption"
-                      sx={{
-                        color: "rgba(255,255,255,0.88)",
-                        minWidth: { xs: 72, sm: 88 },
-                        fontVariantNumeric: "tabular-nums",
-                        fontSize: { xs: "0.7rem", sm: "0.75rem" },
-                        whiteSpace: "nowrap",
-                      }}
+                      sx={{ color: "rgba(255,255,255,0.84)" }}
                     >
-                      {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
+                      {subtitle}
                     </Typography>
-                  </Stack>
-
-                  <Stack
-                    direction="row"
-                    spacing={0.75}
-                    alignItems="center"
-                    justifyContent={{ xs: "space-between", sm: "flex-end" }}
-                    sx={{ width: { xs: "100%", sm: "auto" } }}
-                  >
-                    <IconButton sx={{ color: "#fff" }} onClick={toggleMute}>
-                      {isMuted || volume === 0 ? <VolumeOffIcon /> : <VolumeUpIcon />}
-                    </IconButton>
-                    <Slider
-                      size="small"
-                      min={0}
-                      max={100}
-                      value={Math.round((isMuted ? 0 : volume) * 100)}
-                      onChange={handleVolumeChange}
-                      sx={{
-                        width: 88,
-                        color: "#fff",
-                        "& .MuiSlider-rail": { opacity: 0.2 },
-                        display: { xs: "none", sm: "block" },
-                      }}
-                    />
-                    <Button
-                      size="small"
-                      variant="text"
-                      startIcon={<SpeedIcon />}
-                      onClick={cyclePlaybackRate}
-                      sx={{
-                        color: "#fff",
-                        minWidth: 72,
-                        textTransform: "none",
-                        display: { xs: "none", sm: "inline-flex" },
-                      }}
-                    >
-                      {playbackRate}x
-                    </Button>
-                    <IconButton sx={{ color: "#fff" }} onClick={toggleFullscreen}>
-                      {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-                    </IconButton>
-                  </Stack>
+                  ) : null}
                 </Stack>
+
+                <Box
+                  sx={{
+                    px: { xs: 0.75, sm: 1.25 },
+                    pb: { xs: 0.75, sm: 1 },
+                    pointerEvents: "auto",
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <Slider
+                    size="small"
+                    min={0}
+                    max={100}
+                    value={seekPercent}
+                    onChange={handleSeekChange}
+                    onChangeCommitted={handleSeekCommit}
+                    sx={{
+                      color: "#3b82f6",
+                      mb: 0.5,
+                      "& .MuiSlider-rail": { opacity: 0.24, color: "#fff" },
+                    }}
+                  />
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={{ xs: 0.5, sm: 1 }}
+                    alignItems={{ xs: "stretch", sm: "center" }}
+                    justifyContent="space-between"
+                  >
+                    <Stack
+                      direction="row"
+                      spacing={0.25}
+                      alignItems="center"
+                      sx={{ minWidth: 0, justifyContent: { xs: "space-between", sm: "flex-start" } }}
+                    >
+                      <IconButton sx={{ color: "#fff" }} onClick={togglePlay}>
+                        {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                      </IconButton>
+                      <IconButton
+                        sx={{ color: "#fff" }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          seekBy(-10);
+                        }}
+                      >
+                        <Replay10Icon />
+                      </IconButton>
+                      <IconButton
+                        sx={{ color: "#fff" }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          seekBy(10);
+                        }}
+                      >
+                        <Forward10Icon />
+                      </IconButton>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: "rgba(255,255,255,0.88)",
+                          minWidth: { xs: 72, sm: 88 },
+                          fontVariantNumeric: "tabular-nums",
+                          fontSize: { xs: "0.7rem", sm: "0.75rem" },
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
+                      </Typography>
+                    </Stack>
+
+                    <Stack
+                      direction="row"
+                      spacing={0.75}
+                      alignItems="center"
+                      justifyContent={{ xs: "space-between", sm: "flex-end" }}
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
+                    >
+                      <IconButton sx={{ color: "#fff" }} onClick={toggleMute}>
+                        {isMuted || volume === 0 ? <VolumeOffIcon /> : <VolumeUpIcon />}
+                      </IconButton>
+                      <Slider
+                        size="small"
+                        min={0}
+                        max={100}
+                        value={Math.round((isMuted ? 0 : volume) * 100)}
+                        onChange={handleVolumeChange}
+                        sx={{
+                          width: 88,
+                          color: "#fff",
+                          "& .MuiSlider-rail": { opacity: 0.2 },
+                          display: { xs: "none", sm: "block" },
+                        }}
+                      />
+                      <Button
+                        size="small"
+                        variant="text"
+                        startIcon={<SpeedIcon />}
+                        onClick={cyclePlaybackRate}
+                        sx={{
+                          color: "#fff",
+                          minWidth: 72,
+                          textTransform: "none",
+                          display: { xs: "none", sm: "inline-flex" },
+                        }}
+                      >
+                        {playbackRate}x
+                      </Button>
+                      <IconButton sx={{ color: "#fff" }} onClick={toggleFullscreen}>
+                        {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+                      </IconButton>
+                    </Stack>
+                  </Stack>
+                </Box>
               </Box>
-            </Box>
+            ) : null}
           </Box>
         </AspectMediaFrame>
       </Paper>
