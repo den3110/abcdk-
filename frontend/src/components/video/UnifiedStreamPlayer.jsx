@@ -18,6 +18,7 @@ export default function UnifiedStreamPlayer({
   autoplay = true,
   remountKey = "",
   onEnded,
+  previewOnlyUntilPlay = false,
 }) {
   if (!source) {
     return null;
@@ -39,6 +40,7 @@ export default function UnifiedStreamPlayer({
         subtitle={source.providerLabel || ""}
         autoplay={autoplay}
         onEnded={onEnded}
+        previewOnlyUntilPlay={previewOnlyUntilPlay}
       />
     );
   }
@@ -49,6 +51,7 @@ export default function UnifiedStreamPlayer({
         key={key}
         source={source}
         autoplay={autoplay}
+        previewOnlyUntilPlay={previewOnlyUntilPlay}
       />
     );
   }

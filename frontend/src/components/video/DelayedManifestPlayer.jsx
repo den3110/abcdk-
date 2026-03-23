@@ -7,6 +7,7 @@ import NativeVideoPlayer from "./NativeVideoPlayer";
 export default function DelayedManifestPlayer({
   source,
   autoplay = true,
+  previewOnlyUntilPlay = false,
 }) {
   const [items, setItems] = useState([]);
   const [currentUrl, setCurrentUrl] = useState("");
@@ -126,6 +127,7 @@ export default function DelayedManifestPlayer({
         subtitle={source?.providerLabel || "PickleTour Video"}
         onEnded={handleEnded}
         autoplay={autoplay}
+        previewOnlyUntilPlay={previewOnlyUntilPlay}
       />
       {error ? (
         <Alert severity="info" sx={{ mt: 1 }}>

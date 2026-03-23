@@ -54,6 +54,7 @@ export default function NativeVideoPlayer({
   subtitle = "",
   onEnded,
   autoplay = true,
+  previewOnlyUntilPlay = false,
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
@@ -74,6 +75,9 @@ export default function NativeVideoPlayer({
   const [showChrome, setShowChrome] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [showPreviewOverlay, setShowPreviewOverlay] = useState(
+    Boolean(previewOnlyUntilPlay && !autoplay)
+  );
 
   const revealChrome = useCallback(() => {
     setShowChrome(true);
@@ -91,6 +95,10 @@ export default function NativeVideoPlayer({
   useEffect(() => {
     setRatio(initialRatio);
   }, [initialRatio, src]);
+
+  useEffect(() => {
+    setShowPreviewOverlay(Boolean(previewOnlyUntilPlay && !autoplay));
+  }, [autoplay, previewOnlyUntilPlay, src]);
 
   useEffect(() => {
     isSeekingRef.current = isSeeking;
@@ -287,6 +295,9 @@ export default function NativeVideoPlayer({
       const video = videoRef.current;
       if (!video) return;
 
+      if (showPreviewOverlay) {
+        setShowPreviewOverlay(false);
+      }
       revealChrome();
 
       try {
@@ -299,7 +310,7 @@ export default function NativeVideoPlayer({
         setShowChrome(true);
       }
     },
-    [revealChrome]
+    [revealChrome, showPreviewOverlay]
   );
 
   const seekBy = useCallback(
@@ -427,11 +438,47 @@ export default function NativeVideoPlayer({
                   display: "grid",
                   placeItems: "center",
                   bgcolor: "rgba(0,0,0,0.32)",
+                  opacity: showPreviewOverlay ? 0 : 1,
+                  pointerEvents: "none",
+                  transition: "opacity 160ms ease",
                 }}
               >
                 <CircularProgress size={34} />
               </Box>
             )}
+
+            {showPreviewOverlay ? (
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  zIndex: 2,
+                  display: "grid",
+                  placeItems: "center",
+                  cursor: "pointer",
+                  bgcolor: "rgba(0,0,0,0.18)",
+                  backdropFilter: "blur(1px)",
+                }}
+                onClick={togglePlay}
+              >
+                <IconButton
+                  aria-label="Phát video"
+                  sx={{
+                    width: { xs: 72, sm: 86 },
+                    height: { xs: 72, sm: 86 },
+                    color: "#fff",
+                    bgcolor: "rgba(15,23,42,0.7)",
+                    border: "1px solid rgba(255,255,255,0.16)",
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+                    "&:hover": {
+                      bgcolor: "rgba(30,41,59,0.82)",
+                    },
+                  }}
+                >
+                  <PlayIcon sx={{ fontSize: { xs: 42, sm: 50 } }} />
+                </IconButton>
+              </Box>
+            ) : null}
 
             <Box
               sx={{
@@ -441,7 +488,7 @@ export default function NativeVideoPlayer({
                 flexDirection: "column",
                 justifyContent: "space-between",
                 pointerEvents: "none",
-                opacity: showChrome ? 1 : 0,
+                opacity: showChrome && !showPreviewOverlay ? 1 : 0,
                 transition: "opacity 160ms ease",
                 background:
                   "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.08) 28%, rgba(0,0,0,0.08) 72%, rgba(0,0,0,0.8) 100%)",
@@ -450,7 +497,11 @@ export default function NativeVideoPlayer({
               <Stack
                 direction="row"
                 spacing={1}
-                sx={{ px: 1.25, pt: 1.25, alignItems: "center" }}
+                sx={{
+                  px: { xs: 0.75, sm: 1.25 },
+                  pt: { xs: 0.75, sm: 1.25 },
+                  alignItems: "center",
+                }}
                 onClick={(event) => event.stopPropagation()}
               >
                 <Chip
@@ -474,7 +525,11 @@ export default function NativeVideoPlayer({
               </Stack>
 
               <Box
-                sx={{ px: 1.25, pb: 1, pointerEvents: "auto" }}
+                sx={{
+                  px: { xs: 0.75, sm: 1.25 },
+                  pb: { xs: 0.75, sm: 1 },
+                  pointerEvents: "auto",
+                }}
                 onClick={(event) => event.stopPropagation()}
               >
                 <Slider
@@ -491,12 +546,17 @@ export default function NativeVideoPlayer({
                   }}
                 />
                 <Stack
-                  direction="row"
-                  spacing={1}
-                  alignItems="center"
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={{ xs: 0.5, sm: 1 }}
+                  alignItems={{ xs: "stretch", sm: "center" }}
                   justifyContent="space-between"
                 >
-                  <Stack direction="row" spacing={0.25} alignItems="center">
+                  <Stack
+                    direction="row"
+                    spacing={0.25}
+                    alignItems="center"
+                    sx={{ minWidth: 0, justifyContent: { xs: "space-between", sm: "flex-start" } }}
+                  >
                     <IconButton sx={{ color: "#fff" }} onClick={togglePlay}>
                       {isPlaying ? <PauseIcon /> : <PlayIcon />}
                     </IconButton>
@@ -522,15 +582,23 @@ export default function NativeVideoPlayer({
                       variant="caption"
                       sx={{
                         color: "rgba(255,255,255,0.88)",
-                        minWidth: 88,
+                        minWidth: { xs: 72, sm: 88 },
                         fontVariantNumeric: "tabular-nums",
+                        fontSize: { xs: "0.7rem", sm: "0.75rem" },
+                        whiteSpace: "nowrap",
                       }}
                     >
                       {formatMediaTime(currentTime)} / {formatMediaTime(duration)}
                     </Typography>
                   </Stack>
 
-                  <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Stack
+                    direction="row"
+                    spacing={0.75}
+                    alignItems="center"
+                    justifyContent={{ xs: "space-between", sm: "flex-end" }}
+                    sx={{ width: { xs: "100%", sm: "auto" } }}
+                  >
                     <IconButton sx={{ color: "#fff" }} onClick={toggleMute}>
                       {isMuted || volume === 0 ? <VolumeOffIcon /> : <VolumeUpIcon />}
                     </IconButton>
@@ -544,6 +612,7 @@ export default function NativeVideoPlayer({
                         width: 88,
                         color: "#fff",
                         "& .MuiSlider-rail": { opacity: 0.2 },
+                        display: { xs: "none", sm: "block" },
                       }}
                     />
                     <Button
@@ -555,6 +624,7 @@ export default function NativeVideoPlayer({
                         color: "#fff",
                         minWidth: 72,
                         textTransform: "none",
+                        display: { xs: "none", sm: "inline-flex" },
                       }}
                     >
                       {playbackRate}x
