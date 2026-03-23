@@ -824,21 +824,6 @@ export default function RankingList() {
   }, [urlPage, urlKeyword, searchParams]);
 
   useEffect(() => {
-    if (urlPage !== page || (urlKeyword || "") !== (keyword || "")) {
-      return;
-    }
-    const curPageParam = searchParams.get("page");
-    const desiredPageParam = page > 0 ? String(page + 1) : null;
-    if (curPageParam !== desiredPageParam) {
-      const next = new URLSearchParams(searchParams);
-      if (desiredPageParam) next.set("page", desiredPageParam);
-      else next.delete("page");
-      setSearchParams(next, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
-
-  useEffect(() => {
     const handler = setTimeout(() => {
       if ((searchInput || "") !== (keyword || "")) {
         dispatch(setKeyword(searchInput || ""));
@@ -888,6 +873,19 @@ export default function RankingList() {
     next.delete("page");
     setSearchParams(next);
   }, [searchInput, keyword, dispatch, searchParams, setSearchParams]);
+
+  const handlePageChange = useCallback(
+    (_event, nextPageNumber) => {
+      const nextPage = Math.max(0, Number(nextPageNumber || 1) - 1);
+      dispatch(setPage(nextPage));
+
+      const nextParams = new URLSearchParams(searchParams);
+      if (nextPage > 0) nextParams.set("page", String(nextPage + 1));
+      else nextParams.delete("page");
+      setSearchParams(nextParams);
+    },
+    [dispatch, searchParams, setSearchParams]
+  );
 
   const [openProfile, setOpenProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
@@ -1824,7 +1822,7 @@ export default function RankingList() {
             <Pagination
               count={totalPages}
               page={page + 1}
-              onChange={(_, v) => dispatch(setPage(v - 1))}
+              onChange={handlePageChange}
               color="primary"
               disabled={isFetching}
             />
