@@ -24,7 +24,6 @@ function AuthSessionSync() {
   // Keep userInfo (role/permissions) fresh without forcing re-login.
   useGetProfileQuery(undefined, {
     skip: !isLoggedIn,
-    pollingInterval: 60 * 1000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });

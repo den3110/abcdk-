@@ -537,7 +537,14 @@ export default function ProfileScreen() {
     }, 1500);
   }, []);
 
-  const { data: user, isLoading: fetching, refetch } = useGetProfileQuery();
+  const { data: user, isLoading: fetching, refetch } = useGetProfileQuery(
+    undefined,
+    {
+      refetchOnMountOrArgChange: true,
+      refetchOnFocus: true,
+      refetchOnReconnect: true,
+    }
+  );
   const [updateProfile, { isLoading }] = useUpdateUserMutation();
   const [logoutApiCall, { isLoading: isLoggingOut }] = useLogoutMutation();
   const [uploadCccd, { isLoading: upLoad }] = useUploadCccdMutation();

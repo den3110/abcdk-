@@ -28,6 +28,38 @@ const containerGutters = {
   },
 };
 
+const buildScrollbarStyles = ({
+  thumb,
+  thumbHover,
+  track,
+  corner,
+  width = 12,
+}) => ({
+  "*": {
+    scrollbarWidth: "thin",
+    scrollbarColor: `${thumb} ${track}`,
+  },
+  "*::-webkit-scrollbar": {
+    width,
+    height: width,
+  },
+  "*::-webkit-scrollbar-track": {
+    background: track,
+  },
+  "*::-webkit-scrollbar-thumb": {
+    backgroundColor: thumb,
+    borderRadius: 999,
+    border: `3px solid ${track}`,
+    minHeight: 32,
+  },
+  "*::-webkit-scrollbar-thumb:hover": {
+    backgroundColor: thumbHover,
+  },
+  "*::-webkit-scrollbar-corner": {
+    background: corner,
+  },
+});
+
 // Light Theme (default)
 export const lightTheme = createTheme({
   palette: {
@@ -69,6 +101,15 @@ export const lightTheme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        ...buildScrollbarStyles({
+          thumb: "rgba(82, 97, 115, 0.56)",
+          thumbHover: "rgba(58, 72, 89, 0.82)",
+          track: "rgba(13, 110, 253, 0.06)",
+          corner: "#f8f9fa",
+        }),
+        html: {
+          scrollBehavior: "smooth",
+        },
         body: {
           backgroundColor: "#f8f9fa",
           color: "#212529",
@@ -139,6 +180,15 @@ export const darkTheme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        ...buildScrollbarStyles({
+          thumb: "rgba(135, 153, 173, 0.45)",
+          thumbHover: "rgba(171, 189, 209, 0.7)",
+          track: "rgba(255, 255, 255, 0.06)",
+          corner: "#121212",
+        }),
+        html: {
+          scrollBehavior: "smooth",
+        },
         body: {
           backgroundColor: "#121212",
           color: "#e9ecef",
