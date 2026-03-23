@@ -9,7 +9,6 @@ import {
   useLayoutEffect,
   useContext,
   createContext,
-  useDeferredValue,
 } from "react";
 import PropTypes from "prop-types";
 import {
@@ -2772,78 +2771,27 @@ export default function TournamentBracket() {
     return buildEmptyRoundsByScale(scale, pendingTeamLabel);
   }, [pendingTeamLabel]);
 
-  function useStableLiveSpotlight(current, currentMatches) {
-    const enabled = !!(current && current.type === "group");
-    // Lưu thứ tự các match LIVE theo id, chỉ thay khi ra/vào danh sách
-    const orderRef = useRef([]); // array of ids theo thứ tự hiển thị
-    const metaRef = useRef(new Map()); // optional: lưu meta nhẹ (court.order) nếu muốn tinh chỉnh
+  const liveSpotlight = useMemo(() => {
+    if (!current || current.type !== "group") return [];
+    return (currentMatches || [])
+      .filter((m) => String(m.status || "").toLowerCase() === "live")
+      .slice()
+      .sort((a, b) => {
+        const ao = Number(a?.court?.order ?? 9999);
+        const bo = Number(b?.court?.order ?? 9999);
+        if (ao !== bo) return ao - bo;
 
-    // Lọc match LIVE (KHÔNG sort theo updatedAt để tránh nhảy)
-    const liveNow = useMemo(() => {
-      if (!enabled) return [];
-      return (currentMatches || []).filter(
-        (m) => String(m.status || "").toLowerCase() === "live"
-      );
-    }, [enabled, currentMatches]);
+        const at = new Date(a.startedAt || a.scheduledAt || a.assignedAt || 0).getTime();
+        const bt = new Date(b.startedAt || b.scheduledAt || b.assignedAt || 0).getTime();
+        if (at !== bt) return at - bt;
 
-    // Map id -> match cho truy hồi nhanh
-    const id2m = useMemo(() => {
-      const mp = new Map();
-      liveNow.forEach((m) => mp.set(String(m._id), m));
-      return mp;
-    }, [liveNow]);
+        const aOrder = Number(a?.order ?? 0);
+        const bOrder = Number(b?.order ?? 0);
+        if (aOrder !== bOrder) return aOrder - bOrder;
 
-    // Comparator KHỞI TẠO (chỉ dùng cho trận mới xuất hiện lần đầu)
-    const cmpInit = useCallback((a, b) => {
-      const ao = a?.court?.order ?? 9999;
-      const bo = b?.court?.order ?? 9999;
-      if (ao !== bo) return ao - bo;
-
-      // Ưu tiên lịch dự kiến/được gán — ổn định hơn updatedAt
-      const at = new Date(a.scheduledAt || a.assignedAt || 0).getTime();
-      const bt = new Date(b.scheduledAt || b.assignedAt || 0).getTime();
-      return at - bt;
-    }, []);
-
-    // Cập nhật orderRef ổn định theo liveNow
-    useEffect(() => {
-      if (!enabled) return;
-      const curIds = new Set(liveNow.map((m) => String(m._id)));
-
-      // 1) Bỏ các id không còn LIVE
-      orderRef.current = orderRef.current.filter((id) => curIds.has(id));
-
-      // 2) Thêm các id mới (sort 1 lần theo cmpInit rồi append)
-      const missing = liveNow
-        .filter((m) => !orderRef.current.includes(String(m._id)))
-        .sort(cmpInit)
-        .map((m) => String(m._id));
-
-      if (missing.length) {
-        orderRef.current.push(...missing);
-      }
-
-      // (Optional) Lưu meta nhẹ để sau này nếu muốn đổi court mạnh thì có thể
-      const meta = metaRef.current;
-      liveNow.forEach((m) => {
-        meta.set(String(m._id), { courtOrder: m?.court?.order ?? null });
+        return String(a?._id || "").localeCompare(String(b?._id || ""));
       });
-    }, [enabled, liveNow, cmpInit]);
-
-    // Xuất danh sách theo thứ tự ổn định
-    return useMemo(
-      () =>
-        enabled
-          ? orderRef.current.map((id) => id2m.get(id)).filter(Boolean)
-          : [],
-      [enabled, id2m]
-    );
-  }
-
-  // Giữ thứ tự ổn định, không đổi vị trí chỉ vì updatedAt thay đổi
-  const liveSpotlightStable = useStableLiveSpotlight(current, currentMatches);
-  // Làm mượt: tránh re-render liên tiếp khi socket dồn cập nhật
-  const liveSpotlight = useDeferredValue(liveSpotlightStable);
+  }, [current, currentMatches]);
 
   // Render “LIVE spotlight” cho vòng bảng
   const renderLiveSpotlight = () => {
