@@ -688,6 +688,79 @@ export async function getRecordingStorageUsageSummary({
   return scanPromise;
 }
 
+export async function listRecordingObjects({
+  storageTargetId = null,
+  prefix = "",
+  limit = null,
+} = {}) {
+  const target = requireRecordingStorageTarget(storageTargetId);
+  const client = getRecordingS3Client(target.id);
+  const normalizedPrefix = String(prefix || "").trim();
+  const maxItems =
+    Number.isFinite(Number(limit)) && Number(limit) > 0
+      ? Math.floor(Number(limit))
+      : null;
+
+  const objects = [];
+  let totalBytes = 0;
+  let continuationToken = undefined;
+  let truncated = false;
+
+  do {
+    const response = await client.send(
+      new ListObjectsV2Command({
+        Bucket: target.bucketName,
+        Prefix: normalizedPrefix || undefined,
+        ContinuationToken: continuationToken,
+        MaxKeys: MAX_DELETE_OBJECTS_PER_REQUEST,
+      })
+    );
+
+    for (const item of response?.Contents || []) {
+      const object = {
+        key: String(item?.Key || ""),
+        sizeBytes: Number(item?.Size) || 0,
+        lastModified: item?.LastModified || null,
+        etag: item?.ETag ? String(item.ETag).replace(/^"+|"+$/g, "") : null,
+      };
+      if (!object.key) continue;
+
+      objects.push(object);
+      totalBytes += object.sizeBytes;
+
+      if (maxItems && objects.length >= maxItems) {
+        truncated = true;
+        return {
+          targetId: target.id,
+          targetLabel: target.label,
+          bucketName: target.bucketName,
+          prefix: normalizedPrefix,
+          truncated,
+          objectCount: objects.length,
+          totalBytes,
+          objects,
+        };
+      }
+    }
+
+    continuationToken =
+      response?.IsTruncated && response?.NextContinuationToken
+        ? response.NextContinuationToken
+        : undefined;
+  } while (continuationToken);
+
+  return {
+    targetId: target.id,
+    targetLabel: target.label,
+    bucketName: target.bucketName,
+    prefix: normalizedPrefix,
+    truncated,
+    objectCount: objects.length,
+    totalBytes,
+    objects,
+  };
+}
+
 export async function downloadRecordingObjectToFile({
   objectKey,
   targetPath,

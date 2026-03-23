@@ -15,6 +15,7 @@
     "recording:worker": "node backend/worker/liveRecordingExport.worker.js",
     "seo-news:backfill-images": "node backend/scripts/backfillSeoNewsImages.js",
     "recording:r2-cleanup": "node backend/scripts/cleanupExportedRecordingR2.js",
+    "recording:r2-clear-all": "node backend/scripts/clearRecordingR2Storage.js",
     "recording:url-backfill": "node backend/scripts/backfillLiveRecordingPlaybackUrls.js"
   },
   "author": "Brad Traversy",
