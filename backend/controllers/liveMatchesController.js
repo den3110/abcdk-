@@ -19,6 +19,25 @@ const liveMatchesCache = createShortTtlCache(LIVE_MATCHES_CACHE_TTL_MS, {
   category: "live",
   scope: "public",
 });
+const MATCH_CARD_SELECT = [
+  "_id",
+  "tournament",
+  "bracket",
+  "court",
+  "courtLabel",
+  "status",
+  "currentGame",
+  "labelKey",
+  "facebookLive",
+  "pairA",
+  "pairB",
+  "gameScores",
+  "updatedAt",
+  "createdAt",
+  "round",
+  "order",
+  "pool",
+].join(" ");
 
 export async function listLiveMatches(req, res) {
   try {
@@ -34,12 +53,14 @@ export async function listLiveMatches(req, res) {
     /* ================== IGNORE ALL FE FILTERS ================== */
     // bỏ qua q.status, q.statuses, q.windowMs...
 
-    const hasFacebookQuery = {
-      $or: [
-        { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
-        { "facebookLive.id": { $exists: true, $ne: "" } },
-      ],
-    };
+    const candidateClauses = [
+      { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
+      { "facebookLive.id": { $exists: true, $ne: "" } },
+      { video: { $exists: true, $ne: "" } },
+      { playbackUrl: { $exists: true, $ne: "" } },
+      { streamUrl: { $exists: true, $ne: "" } },
+      { liveUrl: { $exists: true, $ne: "" } },
+    ];
     const recordingCandidates = await LiveRecordingV2.find({
       status: {
         $in: [
@@ -51,7 +72,7 @@ export async function listLiveMatches(req, res) {
         ],
       },
     })
-      .select("match createdAt")
+      .select("match")
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
@@ -60,20 +81,16 @@ export async function listLiveMatches(req, res) {
         recordingCandidates.map((recording) => String(recording?.match || "")).filter(Boolean)
       ),
     ];
-    const candidateQuery =
-      recordingMatchIds.length > 0
-        ? {
-            $or: [
-              hasFacebookQuery,
-              {
-                _id: { $in: recordingMatchIds },
-              },
-            ],
-          }
-        : hasFacebookQuery;
+    if (recordingMatchIds.length > 0) {
+      candidateClauses.push({
+        _id: { $in: recordingMatchIds },
+      });
+    }
+    const candidateQuery = { $or: candidateClauses };
 
     const populatePairs = (q) =>
       q
+        .select(MATCH_CARD_SELECT)
         .populate({
           path: "pairA",
           populate: [
@@ -319,6 +336,7 @@ export async function listLiveMatches(req, res) {
         filter: {
           hasFacebook: true,
           hasServer2: recordingMatchIds.length > 0,
+          hasLegacyPlayback: true,
           limit: LIMIT,
           pinnedLive: true,
           pinnedLiveCount: liveRows.length,

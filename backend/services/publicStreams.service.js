@@ -103,12 +103,13 @@ function pickFinalServer2Url(recording) {
 }
 
 export function buildRecordingServer2State(recording) {
-  if (!recording || !isLiveMultiSourceEnabled()) return null;
+  if (!recording) return null;
 
   const matchId = asTrimmed(recording?.match);
   const recordingId = asTrimmed(recording?._id);
   if (!matchId || !recordingId) return null;
 
+  const multiSourceEnabled = isLiveMultiSourceEnabled();
   const delaySeconds = getLiveServer2DelaySeconds();
   const manifestObjectKey =
     asTrimmed(recording?.meta?.livePlayback?.manifestObjectKey) ||
@@ -116,30 +117,34 @@ export function buildRecordingServer2State(recording) {
       recordingId,
       matchId,
     });
-  let manifestUrl = asTrimmed(recording?.meta?.livePlayback?.manifestUrl);
-  let publicBaseUrl = asTrimmed(recording?.meta?.livePlayback?.publicBaseUrl);
-  try {
-    if (!manifestUrl) {
-      manifestUrl = asTrimmed(
-        buildRecordingPublicObjectUrl({
-          objectKey: manifestObjectKey,
-          storageTargetId: recording?.r2TargetId,
-        })
-      );
+  let manifestUrl = "";
+  let publicBaseUrl = "";
+  if (multiSourceEnabled) {
+    manifestUrl = asTrimmed(recording?.meta?.livePlayback?.manifestUrl);
+    publicBaseUrl = asTrimmed(recording?.meta?.livePlayback?.publicBaseUrl);
+    try {
+      if (!manifestUrl) {
+        manifestUrl = asTrimmed(
+          buildRecordingPublicObjectUrl({
+            objectKey: manifestObjectKey,
+            storageTargetId: recording?.r2TargetId,
+          })
+        );
+      }
+      if (!publicBaseUrl) {
+        publicBaseUrl = asTrimmed(
+          buildRecordingPublicObjectUrl({
+            objectKey: "_",
+            storageTargetId: recording?.r2TargetId,
+          })
+        )
+          .replace(/\/_$/, "")
+          .replace(/\/+$/, "");
+      }
+    } catch {
+      manifestUrl = manifestUrl || "";
+      publicBaseUrl = publicBaseUrl || "";
     }
-    if (!publicBaseUrl) {
-      publicBaseUrl = asTrimmed(
-        buildRecordingPublicObjectUrl({
-          objectKey: "_",
-          storageTargetId: recording?.r2TargetId,
-        })
-      )
-        .replace(/\/_$/, "")
-        .replace(/\/+$/, "");
-    }
-  } catch {
-    manifestUrl = manifestUrl || "";
-    publicBaseUrl = publicBaseUrl || "";
   }
 
   const finalPlaybackUrl =
@@ -148,6 +153,7 @@ export function buildRecordingServer2State(recording) {
   const uploadedSegments = normalizeUploadedSegments(recording);
   const uploadedDurationSeconds = sumUploadedDurationSeconds(recording);
   const delayedReady =
+    multiSourceEnabled &&
     Boolean(manifestUrl) &&
     uploadedSegments.length > 0 &&
     uploadedDurationSeconds >= delaySeconds;
@@ -158,6 +164,10 @@ export function buildRecordingServer2State(recording) {
       Boolean(recording?.driveRawUrl) ||
       Boolean(recording?.drivePreviewUrl));
 
+  if (!finalReady && !multiSourceEnabled) {
+    return null;
+  }
+
   let status = "pending";
   let ready = false;
   if (finalReady) {
@@ -166,12 +176,15 @@ export function buildRecordingServer2State(recording) {
   } else if (delayedReady) {
     status = "ready";
     ready = true;
-  } else if (uploadedSegments.length > 0) {
+  } else if (multiSourceEnabled && uploadedSegments.length > 0) {
     status = "preparing";
   }
 
   return {
-    providerLabel: "PickleTour CDN",
+    providerLabel:
+      finalReady && !multiSourceEnabled
+        ? "PickleTour Playback"
+        : "PickleTour CDN",
     key: "server2",
     displayLabel: "Server 2",
     manifestObjectKey,
@@ -183,7 +196,7 @@ export function buildRecordingServer2State(recording) {
     uploadedSegmentCount: uploadedSegments.length,
     ready,
     status,
-    disabledReason: !ready && !finalReady
+    disabledReason: !ready && multiSourceEnabled && !finalReady
       ? "Dang chuan bi luong tre tu PickleTour CDN."
       : null,
   };
@@ -298,13 +311,17 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   }
 
   const status = asTrimmed(match?.status).toLowerCase();
+  const facebookStatus = asTrimmed(match?.facebookLive?.status).toLowerCase();
+  const shouldPreferServer2 =
+    isFinishedLikeStatus(status) || isFinishedLikeStatus(facebookStatus);
   let defaultStreamKey = streams[0]?.key || null;
   if (status === "live") {
     defaultStreamKey =
       streams.find((stream) => stream.key === "server1" && stream.ready)?.key ||
       streams.find((stream) => stream.key === "server2")?.key ||
       defaultStreamKey;
-  } else if (isFinishedLikeStatus(status)) {
+  }
+  if (shouldPreferServer2) {
     defaultStreamKey =
       streams.find((stream) => stream.key === "server2" && stream.ready)?.key ||
       streams.find((stream) => stream.key === "server1")?.key ||

@@ -67,6 +67,12 @@ function hostOf(url) {
   }
 }
 
+function isFinishedLikeStatus(status) {
+  return ["finished", "ended", "stopped"].includes(
+    String(status || "").trim().toLowerCase()
+  );
+}
+
 const providerMeta = (p) =>
   p === "youtube"
     ? { label: "YouTube", icon: <FacebookIcon />, color: "error" }
@@ -230,8 +236,50 @@ export default function LiveMatchCard({ item, onDeleted }) {
           },
         ]
       : [];
+  const finishedLike =
+    isFinishedLikeStatus(m.status) || isFinishedLikeStatus(fb.status);
+  const readyServer2 =
+    sessions.find((session) => session.key === "server2" && session.ready) || null;
+  const preferredSession =
+    (finishedLike && readyServer2) ||
+    sessions.find((session) => session.primary && session.ready !== false) ||
+    sessions.find((session) => session.ready !== false) ||
+    sessions[0] ||
+    null;
+  React.useEffect(() => {
+    if (!sessions.length) {
+      if (activeSessionKey) {
+        setActiveSessionKey("");
+      }
+      return;
+    }
+
+    const currentSession = sessions.find(
+      (session) => activeSessionKey && session.key === activeSessionKey
+    );
+
+    if (!activeSessionKey) {
+      if (preferredSession?.key) {
+        setActiveSessionKey(preferredSession.key);
+      }
+      return;
+    }
+
+    if (!currentSession) {
+      setActiveSessionKey(preferredSession?.key || "");
+      return;
+    }
+
+    if (
+      currentSession.ready === false &&
+      readyServer2 &&
+      currentSession.key !== readyServer2.key
+    ) {
+      setActiveSessionKey(readyServer2.key);
+    }
+  }, [activeSessionKey, preferredSession, readyServer2, sessions]);
   const primary =
-    sessions.find((session) => session.primary) || sessions[0] || null;
+    preferredSession;
   const activeSession =
     sessions.find(
       (session) => activeSessionKey && session.key === activeSessionKey
