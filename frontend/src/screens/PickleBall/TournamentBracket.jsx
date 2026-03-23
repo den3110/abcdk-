@@ -3844,65 +3844,107 @@ export default function TournamentBracket() {
       return ["0", "0"];
     };
 
+    const dk = theme.palette.mode === "dark";
+
     return (
       <Box
         sx={{
           display: "grid",
           gap: 2.5,
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
         }}
       >
         {groupEntries.map((group) => (
           <Stack key={group.key} spacing={1.5}>
+            {/* ── Match Card ── */}
             <Paper
-              variant="outlined"
+              elevation={dk ? 0 : 2}
               sx={{
                 borderRadius: 3,
                 overflow: "hidden",
-                bgcolor: "#11161d",
+                bgcolor: dk ? "#0d1117" : "#fff",
+                border: "1px solid",
                 borderColor: group.isMine
-                  ? "rgba(25,118,210,0.55)"
-                  : "rgba(255,255,255,0.14)",
+                  ? dk ? "rgba(56,139,253,0.5)" : "rgba(25,118,210,0.4)"
+                  : dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
                 boxShadow: group.isMine
-                  ? "0 0 0 1px rgba(25,118,210,.16), 0 12px 30px rgba(0,0,0,.24)"
-                  : "0 12px 30px rgba(0,0,0,.16)",
+                  ? dk ? "0 0 20px rgba(56,139,253,.12)" : "0 0 16px rgba(25,118,210,.12)"
+                  : dk ? "0 4px 24px rgba(0,0,0,.2)" : "0 2px 12px rgba(0,0,0,.06)",
+                transition: "box-shadow .2s, border-color .2s",
+                "&:hover": {
+                  borderColor: group.isMine
+                    ? dk ? "rgba(56,139,253,0.65)" : "rgba(25,118,210,0.55)"
+                    : dk ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.14)",
+                  boxShadow: group.isMine
+                    ? dk ? "0 0 28px rgba(56,139,253,.18)" : "0 0 20px rgba(25,118,210,.16)"
+                    : dk ? "0 8px 32px rgba(0,0,0,.28)" : "0 4px 20px rgba(0,0,0,.1)",
+                },
               }}
             >
+              {/* Group Header */}
               <Box
                 sx={{
                   px: 2,
-                  py: 1,
+                  py: 1.2,
                   textAlign: "center",
-                  bgcolor: "primary.main",
-                  color: "primary.contrastText",
-                  borderBottom: "1px solid rgba(255,255,255,0.12)",
+                  background: group.isMine
+                    ? "linear-gradient(135deg, #1565c0 0%, #1976d2 50%, #42a5f5 100%)"
+                    : "linear-gradient(135deg, #1a73e8 0%, #1565c0 100%)",
+                  position: "relative",
+                  "&::after": {
+                    content: '""',
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 1,
+                    background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)",
+                  },
                 }}
               >
-                <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1 }}>
+                <Typography
+                  variant="subtitle1"
+                  sx={{
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    color: "#fff",
+                    letterSpacing: 0.5,
+                    textTransform: "uppercase",
+                    fontSize: "0.95rem",
+                  }}
+                >
                   {group.label}
                 </Typography>
               </Box>
 
+              {/* Meta info row */}
               <Stack
                 direction="row"
                 spacing={1}
                 useFlexGap
                 flexWrap="wrap"
+                alignItems="center"
                 sx={{
                   px: 1.5,
-                  py: 1,
-                  bgcolor: "rgba(255,255,255,0.03)",
-                  borderBottom: "1px solid rgba(255,255,255,0.08)",
+                  py: 0.75,
+                  bgcolor: dk ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                  borderBottom: `1px solid ${dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
                 }}
               >
                 {group.codeLabel ? (
-                  <Typography variant="caption" color="rgba(255,255,255,0.72)">
+                  <Typography
+                    variant="caption"
+                    sx={{ color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)", fontSize: "0.7rem" }}
+                  >
                     {t("tournaments.bracket.groupCode", {
                       value: group.codeLabel,
                     })}
                   </Typography>
                 ) : null}
-                <Typography variant="caption" color="rgba(255,255,255,0.72)">
+                <Typography
+                  variant="caption"
+                  sx={{ color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)", fontSize: "0.7rem" }}
+                >
                   {t("tournaments.bracket.groupTeamCount", {
                     count: group.teamCount,
                   })}
@@ -3910,21 +3952,26 @@ export default function TournamentBracket() {
                 {group.isMine ? (
                   <Typography
                     variant="caption"
-                    sx={{ color: "success.light", fontWeight: 700 }}
+                    sx={{
+                      color: dk ? "#4caf50" : "#2e7d32",
+                      fontWeight: 700,
+                      fontSize: "0.7rem",
+                    }}
                   >
-                    {t("tournaments.bracket.myGroup")}
+                    ★ {t("tournaments.bracket.myGroup")}
                   </Typography>
                 ) : null}
               </Stack>
 
+              {/* Match rows */}
               <TableContainer>
                 <Table
                   size="small"
                   sx={{
                     "& .MuiTableCell-root": {
-                      borderColor: "rgba(86, 155, 219, 0.55)",
-                      px: 1,
-                      py: 0.8,
+                      borderColor: dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+                      px: 0.75,
+                      py: 0.6,
                     },
                   }}
                 >
@@ -3933,10 +3980,11 @@ export default function TournamentBracket() {
                       group.matchRows.map((row) => {
                         const [scoreA, scoreB] = splitScore(row.score);
                         const state = statusColors(row.match);
+                        const isFinished = String(row.match?.status || "").toLowerCase() === "finished";
+                        const isLive = String(row.match?.status || "").toLowerCase() === "live";
                         return (
                           <TableRow
                             key={row._id}
-                            hover={!row.isPlaceholder}
                             onClick={() =>
                               !row.isPlaceholder && row.match
                                 ? openMatch(row.match)
@@ -3948,66 +3996,78 @@ export default function TournamentBracket() {
                                   ? "pointer"
                                   : "default",
                               bgcolor: row.isMine
-                                ? "rgba(25,118,210,0.10)"
-                                : "rgba(255,255,255,0.02)",
+                                ? dk ? "rgba(56,139,253,0.08)" : "rgba(25,118,210,0.06)"
+                                : "transparent",
+                              transition: "background .15s",
                               "&:hover": {
                                 bgcolor:
                                   !row.isPlaceholder && row.match
-                                    ? "rgba(255,255,255,0.06)"
+                                    ? dk ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"
                                     : undefined,
                               },
                             }}
                           >
+                            {/* Time + Code cell */}
                             <TableCell
                               sx={{
-                                width: 78,
-                                bgcolor: "#18212c",
-                                color: "#fff",
+                                width: 72,
+                                bgcolor: dk ? "#161b22" : "#f6f8fa",
+                                color: dk ? "#e6edf3" : "#24292f",
                                 verticalAlign: "top",
-                                borderLeft: `4px solid ${state.bg}`,
+                                borderLeft: `3px solid ${state.bg}`,
+                                py: 0.75,
                               }}
                             >
                               <Typography
-                                variant="subtitle2"
-                                sx={{ fontWeight: 800, lineHeight: 1.1 }}
+                                sx={{
+                                  fontWeight: 700,
+                                  fontSize: "0.8rem",
+                                  lineHeight: 1.2,
+                                  color: dk ? "#e6edf3" : "#24292f",
+                                }}
                               >
                                 {row.timeShort || "—"}
                               </Typography>
                               <Typography
-                                variant="caption"
                                 sx={{
                                   display: "block",
-                                  mt: 0.4,
-                                  color: "rgba(255,255,255,0.82)",
+                                  mt: 0.25,
+                                  color: dk ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)",
+                                  fontSize: "0.65rem",
                                   lineHeight: 1.1,
+                                  fontFamily: "monospace",
                                 }}
                               >
                                 {row.code}
                               </Typography>
                             </TableCell>
 
+                            {/* Team names cell */}
                             <TableCell
                               sx={{
-                                bgcolor: "#a3a3a3",
-                                color: "#0e1116",
+                                bgcolor: dk ? "#21262d" : "#fff",
+                                color: dk ? "#e6edf3" : "#24292f",
                                 verticalAlign: "middle",
+                                py: 0.6,
                               }}
                             >
-                              <Stack spacing={0.35}>
+                              <Stack spacing={0.15}>
                                 <Typography
-                                  variant="body2"
                                   sx={{
-                                    fontWeight: row.isMineA ? 800 : 500,
-                                    color: row.isMineA ? "primary.dark" : "inherit",
+                                    fontSize: "0.78rem",
+                                    fontWeight: row.isMineA ? 700 : 400,
+                                    color: row.isMineA ? (dk ? "#58a6ff" : "#1565c0") : (dk ? "#e6edf3" : "#24292f"),
+                                    lineHeight: 1.25,
                                   }}
                                 >
                                   {row.aName}
                                 </Typography>
                                 <Typography
-                                  variant="body2"
                                   sx={{
-                                    fontWeight: row.isMineB ? 800 : 500,
-                                    color: row.isMineB ? "primary.dark" : "inherit",
+                                    fontSize: "0.78rem",
+                                    fontWeight: row.isMineB ? 700 : 400,
+                                    color: row.isMineB ? (dk ? "#58a6ff" : "#1565c0") : (dk ? "#c9d1d9" : "#57606a"),
+                                    lineHeight: 1.25,
                                   }}
                                 >
                                   {row.bName}
@@ -4015,29 +4075,33 @@ export default function TournamentBracket() {
                               </Stack>
                             </TableCell>
 
+                            {/* Score A */}
                             <TableCell
                               align="center"
                               sx={{
-                                width: 36,
-                                bgcolor: "#f0d7a1",
-                                color: "success.dark",
-                                fontWeight: 800,
-                                fontSize: 16,
+                                width: 32,
+                                bgcolor: isLive ? "#b45309" : isFinished ? (dk ? "#1e6823" : "#2e7d32") : (dk ? "#30363d" : "#e1e4e8"),
+                                color: isFinished || isLive ? "#fff" : (dk ? "#8b949e" : "#57606a"),
+                                fontWeight: 700,
+                                fontSize: "0.9rem",
                                 lineHeight: 1,
+                                fontVariantNumeric: "tabular-nums",
                               }}
                             >
                               {scoreA}
                             </TableCell>
+                            {/* Score B */}
                             <TableCell
                               align="center"
                               sx={{
-                                width: 36,
-                                bgcolor: "#f0d7a1",
-                                color: "success.dark",
-                                fontWeight: 800,
-                                fontSize: 16,
+                                width: 32,
+                                bgcolor: isLive ? "#b45309" : isFinished ? (dk ? "#1e6823" : "#2e7d32") : (dk ? "#30363d" : "#e1e4e8"),
+                                color: isFinished || isLive ? "#fff" : (dk ? "#8b949e" : "#57606a"),
+                                fontWeight: 700,
+                                fontSize: "0.9rem",
                                 lineHeight: 1,
-                                borderLeft: "1px solid rgba(86, 155, 219, 0.3)",
+                                fontVariantNumeric: "tabular-nums",
+                                borderLeft: `1px solid ${dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
                               }}
                             >
                               {scoreB}
@@ -4047,7 +4111,7 @@ export default function TournamentBracket() {
                       })
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={4} align="center">
+                        <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
                           {t("tournaments.bracket.noMatches")}
                         </TableCell>
                       </TableRow>
@@ -4057,13 +4121,14 @@ export default function TournamentBracket() {
               </TableContainer>
             </Paper>
 
+            {/* ── Standings Card ── */}
             <Paper
-              variant="outlined"
+              elevation={dk ? 0 : 1}
               sx={{
                 borderRadius: 3,
                 overflow: "hidden",
-                bgcolor: "#11161d",
-                borderColor: "rgba(255,255,255,0.14)",
+                bgcolor: dk ? "#0d1117" : "#fff",
+                border: `1px solid ${dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
               }}
             >
               <TableContainer>
@@ -4071,74 +4136,102 @@ export default function TournamentBracket() {
                   size="small"
                   sx={{
                     "& .MuiTableCell-root": {
-                      borderColor: "rgba(86, 155, 219, 0.55)",
-                      px: 1,
-                      py: 0.8,
+                      borderColor: dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+                      px: 0.75,
+                      py: 0.6,
                     },
                   }}
                 >
                   <TableBody>
                     {group.standingRows.length ? (
-                      group.standingRows.map((row, idx) => (
-                        <TableRow
-                          key={row.id || `standing-${idx}`}
-                          sx={{
-                            bgcolor: row.isMine
-                              ? "rgba(25,118,210,0.10)"
-                              : "transparent",
-                          }}
-                        >
-                          <TableCell
+                      group.standingRows.map((row, idx) => {
+                        const rankColors = [
+                          { bg: "#ffd700", color: "#1a1a00" },
+                          { bg: "#c0c0c0", color: "#1a1a1a" },
+                          { bg: "#cd7f32", color: "#fff" },
+                        ];
+                        const rankStyle = rankColors[idx] || {
+                          bg: dk ? "#30363d" : "#e1e4e8",
+                          color: dk ? "#e6edf3" : "#24292f",
+                        };
+                        return (
+                          <TableRow
+                            key={row.id || `standing-${idx}`}
                             sx={{
-                              width: 40,
-                              bgcolor: "#18212c",
-                              color: "#fff",
-                              fontWeight: 800,
-                              textAlign: "center",
+                              bgcolor: row.isMine
+                                ? dk ? "rgba(56,139,253,0.08)" : "rgba(25,118,210,0.06)"
+                                : "transparent",
                             }}
                           >
-                            {row.rank}
-                          </TableCell>
-                          <TableCell
-                            sx={{
-                              bgcolor: "#0f141b",
-                              color: "#fff",
-                              fontWeight: row.isMine ? 800 : 500,
-                            }}
-                          >
-                            {row.name}
-                          </TableCell>
-                          <TableCell
-                            align="center"
-                            sx={{
-                              width: 36,
-                              bgcolor: "#f0d7a1",
-                              color: "success.dark",
-                              fontWeight: 800,
-                              fontSize: 16,
-                              lineHeight: 1,
-                            }}
-                          >
-                            {row.pts}
-                          </TableCell>
-                          <TableCell
-                            align="center"
-                            sx={{
-                              width: 36,
-                              bgcolor: "#f0d7a1",
-                              color: "success.dark",
-                              fontWeight: 800,
-                              fontSize: 16,
-                              lineHeight: 1,
-                            }}
-                          >
-                            {row.diff > 0 ? `+${row.diff}` : row.diff}
-                          </TableCell>
-                        </TableRow>
-                      ))
+                            <TableCell
+                              sx={{
+                                width: 36,
+                                textAlign: "center",
+                                p: 0.5,
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: "50%",
+                                  bgcolor: rankStyle.bg,
+                                  color: rankStyle.color,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontWeight: 800,
+                                  fontSize: "0.7rem",
+                                  lineHeight: 1,
+                                }}
+                              >
+                                {row.rank}
+                              </Box>
+                            </TableCell>
+                            <TableCell
+                              sx={{
+                                bgcolor: dk ? "#161b22" : "#fafbfc",
+                                color: row.isMine ? (dk ? "#58a6ff" : "#1565c0") : (dk ? "#e6edf3" : "#24292f"),
+                                fontWeight: row.isMine ? 700 : 400,
+                                fontSize: "0.78rem",
+                              }}
+                            >
+                              {row.name}
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              sx={{
+                                width: 36,
+                                bgcolor: dk ? "#1e6823" : "#2e7d32",
+                                color: "#fff",
+                                fontWeight: 700,
+                                fontSize: "0.85rem",
+                                lineHeight: 1,
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {row.pts}
+                            </TableCell>
+                            <TableCell
+                              align="center"
+                              sx={{
+                                width: 40,
+                                bgcolor: dk ? "#161b22" : "#fafbfc",
+                                color: row.diff > 0 ? (dk ? "#3fb950" : "#2e7d32") : row.diff < 0 ? (dk ? "#f85149" : "#d32f2f") : (dk ? "#8b949e" : "#9e9e9e"),
+                                fontWeight: 600,
+                                fontSize: "0.8rem",
+                                lineHeight: 1,
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {row.diff > 0 ? `+${row.diff}` : row.diff}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={4} align="center">
+                        <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
                           {t("tournaments.bracket.noStandings")}
                         </TableCell>
                       </TableRow>
