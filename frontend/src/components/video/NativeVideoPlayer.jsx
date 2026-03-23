@@ -437,15 +437,20 @@ export default function NativeVideoPlayer({
                 sx={{
                   position: "absolute",
                   inset: 0,
-                  display: "grid",
-                  placeItems: "center",
-                  bgcolor: "rgba(0,0,0,0.32)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                   opacity: showPreviewOverlay ? 0 : 1,
                   pointerEvents: "none",
                   transition: "opacity 160ms ease",
+                  zIndex: 1,
                 }}
               >
-                <CircularProgress size={34} />
+                <CircularProgress
+                  size={72}
+                  thickness={3}
+                  sx={{ color: "rgba(255,255,255,0.9)" }}
+                />
               </Box>
             )}
 
@@ -498,7 +503,7 @@ export default function NativeVideoPlayer({
                   ) : null}
                 </Stack>
 
-                <Box sx={{ display: "grid", placeItems: "center", flex: 1 }}>
+                <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
                   <IconButton
                     aria-label="Phát video"
                     sx={{
@@ -508,6 +513,7 @@ export default function NativeVideoPlayer({
                       bgcolor: "rgba(15,23,42,0.7)",
                       border: "1px solid rgba(255,255,255,0.16)",
                       boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+                      pointerEvents: "auto",
                       "&:hover": {
                         bgcolor: "rgba(30,41,59,0.82)",
                       },
@@ -572,63 +578,74 @@ export default function NativeVideoPlayer({
                 </Stack>
 
                 {/* ── CENTER ACTIONS ── */}
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  justifyContent="center"
-                  spacing={{ xs: 4, sm: 8 }}
-                  sx={{ flex: 1, pointerEvents: "auto" }}
-                  onClick={(event) => event.stopPropagation()}
+                <Box
+                  sx={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                  }}
                 >
-                  <IconButton
-                    sx={{
-                      color: "#fff",
-                      bgcolor: "rgba(0,0,0,0.3)",
-                      "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
-                      width: { xs: 48, sm: 60 },
-                      height: { xs: 48, sm: 60 },
-                    }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      seekBy(-10);
-                    }}
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="center"
+                    spacing={{ xs: 4, sm: 8 }}
+                    sx={{ pointerEvents: "auto" }}
+                    onClick={(event) => event.stopPropagation()}
                   >
-                    <Replay10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
-                  </IconButton>
+                    <IconButton
+                      sx={{
+                        color: "#fff",
+                        bgcolor: "rgba(0,0,0,0.3)",
+                        "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
+                        width: { xs: 48, sm: 60 },
+                        height: { xs: 48, sm: 60 },
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        seekBy(-10);
+                      }}
+                    >
+                      <Replay10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
+                    </IconButton>
 
-                  <IconButton
-                    sx={{
-                      color: "#fff",
-                      bgcolor: "rgba(0,0,0,0.4)",
-                      "&:hover": { bgcolor: "rgba(0,0,0,0.6)" },
-                      width: { xs: 64, sm: 80 },
-                      height: { xs: 64, sm: 80 },
-                    }}
-                    onClick={togglePlay}
-                  >
-                    {isPlaying ? (
-                      <PauseIcon sx={{ fontSize: { xs: 42, sm: 54 } }} />
-                    ) : (
-                      <PlayIcon sx={{ fontSize: { xs: 42, sm: 54 } }} />
-                    )}
-                  </IconButton>
+                    <IconButton
+                      sx={{
+                        color: "#fff",
+                        bgcolor: "rgba(0,0,0,0.4)",
+                        "&:hover": { bgcolor: "rgba(0,0,0,0.6)" },
+                        width: { xs: 64, sm: 80 },
+                        height: { xs: 64, sm: 80 },
+                      }}
+                      onClick={togglePlay}
+                    >
+                      {isPlaying ? (
+                        <PauseIcon sx={{ fontSize: { xs: 42, sm: 54 } }} />
+                      ) : (
+                        <PlayIcon sx={{ fontSize: { xs: 42, sm: 54 } }} />
+                      )}
+                    </IconButton>
 
-                  <IconButton
-                    sx={{
-                      color: "#fff",
-                      bgcolor: "rgba(0,0,0,0.3)",
-                      "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
-                      width: { xs: 48, sm: 60 },
-                      height: { xs: 48, sm: 60 },
-                    }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      seekBy(10);
-                    }}
-                  >
-                    <Forward10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
-                  </IconButton>
-                </Stack>
+                    <IconButton
+                      sx={{
+                        color: "#fff",
+                        bgcolor: "rgba(0,0,0,0.3)",
+                        "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
+                        width: { xs: 48, sm: 60 },
+                        height: { xs: 48, sm: 60 },
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        seekBy(10);
+                      }}
+                    >
+                      <Forward10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
+                    </IconButton>
+                  </Stack>
+                </Box>
 
                 {/* ── BOTTOM BAR ── */}
                 <Box
