@@ -349,16 +349,22 @@ router
 
 router
   .route("/tournaments/registrations/:regId/payment")
+  .all(protect, authorize("admin"))
   .put(adminUpdatePayment);
 
-router.route("/tournaments/registrations/:regId/checkin").put(adminCheckin);
+router
+  .route("/tournaments/registrations/:regId/checkin")
+  .all(protect, authorize("admin"))
+  .put(adminCheckin);
 
 router
   .route("/tournaments/registrations/:regId/history")
+  .all(protect, authorize("admin"))
   .get(adminGetRegistrationHistory);
 
 router
   .route("/tournaments/registrations/:regId")
+  .all(protect, authorize("admin"))
   .patch(adminUpdateRegistration)
   .delete(adminDeleteRegistration);
 

@@ -26,7 +26,11 @@ export const getUsers = asyncHandler(async (req, res) => {
   const keyword = req.query.keyword
     ? {
         $or: [
+          { fullName: { $regex: req.query.keyword, $options: "i" } },
           { name: { $regex: req.query.keyword, $options: "i" } },
+          { nickname: { $regex: req.query.keyword, $options: "i" } },
+          { nickName: { $regex: req.query.keyword, $options: "i" } },
+          { phone: { $regex: req.query.keyword, $options: "i" } },
           { email: { $regex: req.query.keyword, $options: "i" } },
         ],
       }
