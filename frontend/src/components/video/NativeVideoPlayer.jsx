@@ -59,6 +59,7 @@ export default function NativeVideoPlayer({
   const videoRef = useRef(null);
   const hideChromeTimerRef = useRef(null);
   const isSeekingRef = useRef(false);
+  const onEndedRef = useRef(onEnded);
 
   const [ratio, setRatio] = useState(initialRatio);
   const [hlsError, setHlsError] = useState("");
@@ -94,6 +95,10 @@ export default function NativeVideoPlayer({
   useEffect(() => {
     isSeekingRef.current = isSeeking;
   }, [isSeeking]);
+
+  useEffect(() => {
+    onEndedRef.current = onEnded;
+  }, [onEnded]);
 
   useEffect(() => {
     revealChrome();
@@ -160,7 +165,7 @@ export default function NativeVideoPlayer({
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onCanPlay = () => setIsReady(true);
-    const onEndedInternal = () => onEnded?.();
+    const onEndedInternal = () => onEndedRef.current?.();
     const onError = () => {
       if (kind === "hls") {
         setHlsError("Khong phat duoc luong HLS nay.");
@@ -267,7 +272,7 @@ export default function NativeVideoPlayer({
         // noop
       }
     };
-  }, [src, kind, onEnded, autoplay]);
+  }, [src, kind, autoplay]);
 
   const seekPercent =
     duration > 0

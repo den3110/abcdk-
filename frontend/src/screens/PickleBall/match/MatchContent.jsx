@@ -1001,8 +1001,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
 
   // Streams
-  const streams = normalizeStreams(
-    localPatch ? { ...mm, ...localPatch } : mm || {}
+  const streams = useMemo(
+    () => normalizeStreams(localPatch ? { ...mm, ...localPatch } : mm || {}),
+    [mm, localPatch]
   );
   const [activeIdx, setActiveIdx] = useState(() => {
     const arr = streams;
@@ -1396,7 +1397,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       {/* Header trạng thái */}
       <Alert icon={<PlayIcon />} severity="info">
         {status === "live"
-          ? normalizeStreams(localPatch ? { ...mm, ...localPatch } : mm).length
+          ? streams.length
             ? "Trận đang live — bạn có thể mở liên kết hoặc xem trong nền."
             : "Trận đang live — chưa có link."
           : status === "finished"
