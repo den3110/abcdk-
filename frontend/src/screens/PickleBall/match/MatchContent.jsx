@@ -53,6 +53,7 @@ import {
 import { toast } from "react-toastify";
 import { depLabel, seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
+import { UnifiedStreamPlayer } from "../../../components/video";
 import { useAdminPatchMatchMutation } from "../../../slices/matchesApiSlice";
 import { useLocation, useParams } from "react-router-dom";
 import { skipToken } from "@reduxjs/toolkit/query";
@@ -548,333 +549,9 @@ function normalizeStreams(m) {
   return out;
 }
 
-const supportsAR =
-  typeof CSS !== "undefined" && typeof CSS.supports === "function"
-    ? CSS.supports("aspect-ratio", "1 / 1")
-    : false;
-
-function AspectBox({ ratio = 16 / 9, children }) {
-  const pct = ratio > 0 ? (1 / ratio) * 100 : 56.25;
-  return (
-    <Box
-      sx={{
-        position: "relative",
-        width: "100%",
-        ...(supportsAR ? { aspectRatio: `${ratio}` } : { pt: `${pct}%` }),
-        bgcolor: "black",
-        borderRadius: 1,
-        overflow: "hidden",
-      }}
-    >
-      <Box sx={{ position: "absolute", inset: 0 }}>{children}</Box>
-    </Box>
-  );
+function getStreamIdentity(stream) {
+  return stream?.key || stream?.url || stream?.embedUrl || "";
 }
-
-let __hlsLoaderPromise = null;
-function loadHlsFromCDN() {
-  if (__hlsLoaderPromise) return __hlsLoaderPromise;
-  __hlsLoaderPromise = new Promise((resolve, reject) => {
-    const exist = document.querySelector("script[data-hlsjs]");
-    if (exist) {
-      exist.addEventListener("load", () => resolve(window.Hls));
-      exist.addEventListener("error", reject);
-      if (window.Hls) return resolve(window.Hls);
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/hls.js@1.5.16/dist/hls.min.js";
-    s.async = true;
-    s.defer = true;
-    s.setAttribute("data-hlsjs", "1");
-    s.onload = () => resolve(window.Hls);
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-  return __hlsLoaderPromise;
-}
-
-function DelayedManifestPlayer({ stream, ratio, setRatio }) {
-  const videoRef = useRef(null);
-  const [items, setItems] = useState([]);
-  const [currentUrl, setCurrentUrl] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    let timerId = null;
-
-    const applyManifest = (manifest) => {
-      const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
-      const playable = segments
-        .map((segment) => ({
-          key: `segment:${segment?.index ?? ""}`,
-          url: typeof segment?.url === "string" ? segment.url.trim() : "",
-        }))
-        .filter((segment) => segment.url);
-      const finalPlaybackUrl =
-        typeof manifest?.finalPlaybackUrl === "string"
-          ? manifest.finalPlaybackUrl.trim()
-          : "";
-      if (finalPlaybackUrl) {
-        playable.push({
-          key: "final",
-          url: finalPlaybackUrl,
-        });
-      }
-      setItems(playable);
-      setCurrentUrl((previousUrl) => {
-        if (previousUrl && playable.some((item) => item.url === previousUrl)) {
-          return previousUrl;
-        }
-        return playable[0]?.url || "";
-      });
-      setLoading(false);
-      if (!playable.length) {
-        setError(
-          stream?.disabledReason ||
-            "Server 2 dang chuan bi du lieu video tre."
-        );
-      } else {
-        setError("");
-      }
-    };
-
-    const fetchManifest = async () => {
-      try {
-        const resp = await fetch(stream.embedUrl, { cache: "no-store" });
-        if (!resp.ok) {
-          throw new Error(`Manifest HTTP ${resp.status}`);
-        }
-        const manifest = await resp.json();
-        if (cancelled) return;
-        applyManifest(manifest);
-      } catch (fetchError) {
-        if (cancelled) return;
-        setLoading(false);
-        setError(
-          fetchError?.message || "Khong tai duoc delayed manifest tu CDN."
-        );
-      } finally {
-        if (!cancelled) {
-          const refreshSeconds =
-            Number(stream?.meta?.refreshSeconds || 6) > 0
-              ? Number(stream?.meta?.refreshSeconds || 6)
-              : 6;
-          timerId = window.setTimeout(fetchManifest, refreshSeconds * 1000);
-        }
-      }
-    };
-
-    setItems([]);
-    setCurrentUrl("");
-    setLoading(true);
-    setError("");
-    fetchManifest();
-
-    return () => {
-      cancelled = true;
-      if (timerId) window.clearTimeout(timerId);
-    };
-  }, [stream?.embedUrl, stream?.disabledReason, stream?.meta?.refreshSeconds]);
-
-  const handleEnded = useCallback(() => {
-    setCurrentUrl((previousUrl) => {
-      const currentIndex = items.findIndex((item) => item.url === previousUrl);
-      if (currentIndex >= 0 && currentIndex < items.length - 1) {
-        return items[currentIndex + 1].url;
-      }
-      return previousUrl;
-    });
-  }, [items]);
-
-  if (loading) {
-    return (
-      <Alert severity="info">
-        Dang tai delayed stream tu PickleTour CDN...
-      </Alert>
-    );
-  }
-
-  if (!currentUrl) {
-    return <Alert severity="info">{error || "Server 2 dang chuan bi."}</Alert>;
-  }
-
-  return (
-    <>
-      <AspectBox ratio={ratio}>
-        <video
-          key={currentUrl}
-          ref={videoRef}
-          src={currentUrl}
-          controls
-          autoPlay
-          playsInline
-          style={{ width: "100%", height: "100%" }}
-          onEnded={handleEnded}
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget;
-            if (v.videoWidth && v.videoHeight) {
-              setRatio(v.videoWidth / v.videoHeight);
-            }
-          }}
-        />
-      </AspectBox>
-      {error && (
-        <Alert severity="info" sx={{ mt: 1 }}>
-          {error}
-        </Alert>
-      )}
-    </>
-  );
-}
-
-function StreamPlayer({ stream }) {
-  const videoRef = useRef(null);
-  const [hlsError, setHlsError] = useState("");
-  const [ratio, setRatio] = useState(
-    stream?.aspect === "9:16" ? 9 / 16 : 16 / 9
-  );
-
-  useEffect(() => {
-    setRatio(stream?.aspect === "9:16" ? 9 / 16 : 16 / 9);
-  }, [stream?.aspect, stream?.embedUrl]);
-
-  useEffect(() => {
-    setHlsError("");
-    if (!stream) return;
-
-    if (stream.kind === "hls" && videoRef.current) {
-      const video = videoRef.current;
-
-      const onMeta = () => {
-        if (video.videoWidth && video.videoHeight) {
-          setRatio(video.videoWidth / video.videoHeight);
-        }
-      };
-
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = stream.embedUrl;
-        video.addEventListener("loadedmetadata", onMeta, { once: true });
-        return () => {
-          video.removeEventListener("loadedmetadata", onMeta);
-        };
-      }
-
-      let hls;
-      let cancelled = false;
-
-      (async () => {
-        try {
-          const HlsCtor = await loadHlsFromCDN();
-          if (!cancelled && HlsCtor?.isSupported()) {
-            hls = new HlsCtor({ enableWorker: true });
-            hls.loadSource(stream.embedUrl);
-            hls.attachMedia(video);
-            video.addEventListener("loadedmetadata", onMeta);
-          } else if (!cancelled) {
-            setHlsError("Trình duyệt không hỗ trợ HLS.");
-          }
-        } catch (e) {
-          if (!cancelled) setHlsError("Không tải được trình phát HLS (CDN).");
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-        try {
-          video.removeEventListener("loadedmetadata", onMeta);
-          hls?.destroy();
-        } catch {
-          // ignore teardown errors from partially initialized players
-        }
-      };
-    }
-  }, [stream]);
-
-  if (!stream || !stream.canEmbed) return null;
-
-  switch (stream.kind) {
-    case "yt":
-    case "vimeo":
-    case "twitch":
-    case "facebook":
-    case "iframe":
-      return (
-        <AspectBox ratio={ratio}>
-          <iframe
-            key={stream.embedUrl}
-            src={stream.embedUrl}
-            title="Video"
-            allow={stream.allow || "autoplay; fullscreen; picture-in-picture"}
-            allowFullScreen
-            style={{ width: "100%", height: "100%", border: 0 }}
-          />
-        </AspectBox>
-      );
-    case "hls":
-      return (
-        <>
-          <AspectBox ratio={ratio}>
-            <video
-              key={stream.embedUrl}
-              ref={videoRef}
-              controls
-              autoPlay
-              playsInline
-              style={{ width: "100%", height: "100%" }}
-              onLoadedMetadata={(e) => {
-                const v = e.currentTarget;
-                if (v.videoWidth && v.videoHeight) {
-                  setRatio(v.videoWidth / v.videoHeight);
-                }
-              }}
-            />
-          </AspectBox>
-          {hlsError && (
-            <Alert severity="warning" sx={{ mt: 1 }}>
-              {hlsError}{" "}
-              <MuiLink href={stream.url} target="_blank" rel="noreferrer">
-                Mở link trực tiếp
-              </MuiLink>
-              .
-            </Alert>
-          )}
-        </>
-      );
-    case "delayed_manifest":
-      return (
-        <DelayedManifestPlayer
-          stream={stream}
-          ratio={ratio}
-          setRatio={setRatio}
-        />
-      );
-    case "file":
-      return (
-        <AspectBox ratio={ratio}>
-          <video
-            key={stream.embedUrl}
-            src={stream.embedUrl}
-            controls
-            autoPlay
-            playsInline
-            style={{ width: "100%", height: "100%" }}
-            onLoadedMetadata={(e) => {
-              const v = e.currentTarget;
-              if (v.videoWidth && v.videoHeight) {
-                setRatio(v.videoWidth / v.videoHeight);
-              }
-            }}
-          />
-        </AspectBox>
-      );
-    default:
-      return null;
-  }
-}
-
 /* ====================== PlayerLink & team helpers ====================== */
 function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
   if (!person) return null;
@@ -1318,7 +995,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const [localPatch, setLocalPatch] = useState(null);
   useEffect(() => {
     setLocalPatch(null);
-  }, [lockedId]);
+  }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const status = localPatch?.status || mm?.status || "scheduled";
   const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
@@ -1337,6 +1014,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     return 0;
   });
   const [showPlayer, setShowPlayer] = useState(false);
+  const prevStreamsLenRef = useRef(0);
+  const lastActiveStreamIdentityRef = useRef("");
+  const activeStream =
+    activeIdx >= 0 && activeIdx < streams.length ? streams[activeIdx] : null;
 
   // Reset chọn stream khi đổi trận
   useEffect(() => {
@@ -1351,13 +1032,15 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     };
     setActiveIdx(pick());
     setShowPlayer(false);
-  }, [lockedId, mm]);
+    prevStreamsLenRef.current = 0;
+    lastActiveStreamIdentityRef.current = "";
+  }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-bật player khi lần đầu có stream
-  const prevStreamsLenRef = useRef(0);
   useEffect(() => {
     const curr = streams || [];
     const prevLen = prevStreamsLenRef.current;
+    const previousIdentity = lastActiveStreamIdentityRef.current;
 
     if (prevLen === 0 && curr.length > 0) {
       const pick = () => {
@@ -1369,7 +1052,17 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       };
       const idx = pick();
       setActiveIdx(idx);
-      if (curr[idx]?.canEmbed) setShowPlayer(false);
+    }
+
+    if (previousIdentity) {
+      const preservedIdx = curr.findIndex(
+        (item) => getStreamIdentity(item) === previousIdentity
+      );
+      if (preservedIdx >= 0 && preservedIdx !== activeIdx) {
+        setActiveIdx(preservedIdx);
+        prevStreamsLenRef.current = curr.length;
+        return;
+      }
     }
 
     if (activeIdx >= curr.length) {
@@ -1377,10 +1070,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     }
 
     prevStreamsLenRef.current = curr.length;
-  }, [streams, activeIdx]);
+  }, [streams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const activeStream =
-    activeIdx >= 0 && activeIdx < streams.length ? streams[activeIdx] : null;
+  useEffect(() => {
+    lastActiveStreamIdentityRef.current = getStreamIdentity(activeStream);
+  }, [activeStream]);
 
   // Overlay URL
   const overlayUrl =
@@ -1774,7 +1468,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           </Stack>
 
           {showPlayer && activeStream.canEmbed && (
-            <StreamPlayer stream={activeStream} />
+            <UnifiedStreamPlayer source={activeStream} />
           )}
         </Stack>
       )}

@@ -4,6 +4,7 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: es01
+    profiles: ["search"]
     environment:
       - discovery.type=single-node          # chạy 1 node cho dev
       - xpack.security.enabled=false        # tắt security cho dễ test local
@@ -17,6 +18,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:8.15.0
     container_name: kb01
+    profiles: ["search"]
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:
@@ -38,6 +40,7 @@ services:
   redis-commander:
     image: ghcr.io/joeferner/redis-commander:latest
     container_name: redis-commander
+    profiles: ["ops"]
     depends_on:
       - redis
     environment:

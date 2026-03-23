@@ -31,6 +31,19 @@ pm2 scale pickletour-recording-worker 0
 pm2 scale pickletour-recording-worker 1
 ```
 
+Docker Compose profiles:
+
+```bash
+# mac dinh cho box live: chi can Redis
+docker compose up -d redis
+
+# chi bat search stack khi can test
+docker compose --profile search up -d elasticsearch kibana
+
+# chi bat Redis Commander khi can debug
+docker compose --profile ops up -d redis-commander
+```
+
 Y nghia:
 
 - ban ngay: co the scale worker ve `0` neu muon cat hoan toan ffmpeg export

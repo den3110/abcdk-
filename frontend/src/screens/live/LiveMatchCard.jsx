@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 // LiveMatchCard.jsx
 import React from "react";
 import {
@@ -14,8 +15,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  useMediaQuery,
-  useTheme,
   Snackbar,
   Alert,
 } from "@mui/material";
@@ -27,6 +26,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ReplayIcon from "@mui/icons-material/Replay";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useSelector } from "react-redux";
+import { UnifiedStreamPlayer } from "../../components/video";
 import { useDeleteLiveVideoMutation } from "../../slices/liveApiSlice";
 
 function timeAgo(date) {
@@ -74,14 +74,11 @@ const providerMeta = (p) =>
     ? { label: "Facebook", icon: <FacebookIcon />, color: "primary" }
     : { label: p || "Stream", icon: <VideocamIcon />, color: "secondary" };
 
-const byPriority = (a, b) =>
-  (({ youtube: 1, facebook: 2 }[a.provider] || 99) -
-  ({ youtube: 1, facebook: 2 }[b.provider] || 99));
-
 function buildCanonicalSessions(match = {}) {
   const defaultStreamKey =
     typeof match?.defaultStreamKey === "string" ? match.defaultStreamKey : "";
   const streams = Array.isArray(match?.streams) ? match.streams : [];
+
   return streams
     .filter(
       (stream) =>
@@ -101,44 +98,55 @@ function buildCanonicalSessions(match = {}) {
         (defaultStreamKey && String(stream?.key || "") === defaultStreamKey) ||
         Boolean(stream?.primary);
       if (!url) return null;
+
       if (kind === "facebook") {
         return {
           key: stream?.key || "server1",
           provider: "facebook",
+          kind: "iframe",
           label: stream?.displayLabel || "Server 1",
           providerLabel: stream?.providerLabel || "Facebook",
+          openUrl: url,
           watchUrl: url,
           embedUrl: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&width=1280`,
+          allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
           canEmbedInline: true,
           primary: isPrimary,
           ready: stream?.ready !== false,
           delaySeconds: Number(stream?.delaySeconds || 0),
+          aspect: stream?.aspect || "16:9",
         };
       }
+
       if (kind === "file" || kind === "hls") {
         return {
           key: stream?.key || "stream",
           provider: kind,
+          kind,
           label: stream?.displayLabel || "Video",
           providerLabel: stream?.providerLabel || "PickleTour",
+          openUrl: openUrl || url,
           watchUrl: openUrl || url,
           embedUrl: url,
           canEmbedInline: true,
-          mediaKind: kind,
           primary: isPrimary,
           ready: stream?.ready !== false,
           delaySeconds: Number(stream?.delaySeconds || 0),
+          aspect: stream?.aspect || "16:9",
         };
       }
+
       if (kind === "delayed_manifest") {
         return {
           key: stream?.key || "server2",
           provider: "server2",
+          kind: "delayed_manifest",
           label: stream?.displayLabel || "Server 2",
           providerLabel: stream?.providerLabel || "PickleTour CDN",
+          openUrl: openUrl || "",
           watchUrl: openUrl || "",
-          manifestUrl: url,
-          canEmbedInline: false,
+          embedUrl: url,
+          canEmbedInline: true,
           primary: isPrimary,
           ready: stream?.ready !== false,
           delaySeconds: Number(stream?.delaySeconds || 0),
@@ -146,28 +154,32 @@ function buildCanonicalSessions(match = {}) {
             typeof stream?.disabledReason === "string"
               ? stream.disabledReason
               : "",
+          meta: stream?.meta || {},
+          aspect: stream?.aspect || "16:9",
         };
       }
+
       return {
         key: stream?.key || "stream",
         provider: kind || "stream",
+        kind: "iframe",
         label: stream?.displayLabel || "Stream",
         providerLabel: stream?.providerLabel || "Stream",
+        openUrl: openUrl || url,
         watchUrl: openUrl || url,
         embedUrl: url,
-        canEmbedInline: false,
+        allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+        canEmbedInline: true,
         primary: isPrimary,
         ready: stream?.ready !== false,
         delaySeconds: Number(stream?.delaySeconds || 0),
+        aspect: stream?.aspect || "16:9",
       };
     })
     .filter(Boolean);
 }
 
 export default function LiveMatchCard({ item, onDeleted }) {
-  const theme = useTheme();
-  const smDown = useMediaQuery(theme.breakpoints.down("sm"));
-
   const { userInfo } = useSelector((state) => state.auth || {});
   const isAdmin = Boolean(userInfo?.isAdmin || userInfo?.role === "admin");
 
@@ -197,13 +209,16 @@ export default function LiveMatchCard({ item, onDeleted }) {
           {
             key: "server1",
             provider: "facebook",
+            kind: fb.embed_html ? "iframe_html" : "iframe",
             label: "Server 1",
             providerLabel: "Facebook",
+            openUrl: fbWatch,
             watchUrl: fbWatch,
             embedHtml: fb.embed_html || "",
             embedUrl:
               fb.embed_url ||
               `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(fbWatch)}&show_text=false&width=1280`,
+            allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
             pageId: fb.pageId || "",
             liveId: fb.id || "",
             videoId: fb.videoId || "",
@@ -211,6 +226,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
             primary: true,
             ready: true,
             delaySeconds: 0,
+            aspect: "16:9",
           },
         ]
       : [];
@@ -224,7 +240,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
     null;
   const hasEmbed = Boolean(
     activeSession?.canEmbedInline &&
-      (activeSession?.embedUrl || activeSession?.mediaKind === "file")
+      (activeSession?.embedHtml || activeSession?.embedUrl)
   );
 
   const hasVideoInfo =
@@ -351,12 +367,6 @@ export default function LiveMatchCard({ item, onDeleted }) {
                 bgcolor: "action.hover",
                 borderBottom: "1px solid",
                 borderColor: "divider",
-                "& iframe": {
-                  width: "100%",
-                  aspectRatio: "16 / 9",
-                  height: "auto",
-                  border: 0,
-                },
               }}
             >
               {/* nút reload tay */}
@@ -378,29 +388,11 @@ export default function LiveMatchCard({ item, onDeleted }) {
                 </IconButton>
               </Tooltip>
 
-              {activeSession?.mediaKind === "file" ||
-              activeSession?.mediaKind === "hls" ? (
-                <video
-                  src={activeSession.embedUrl}
-                  controls
-                  autoPlay={isLive}
-                  playsInline
-                  style={{ width: "100%", aspectRatio: "16/9", border: 0 }}
-                />
-              ) : activeSession?.embedHtml ? (
-                <Box
-                  sx={{ width: "100%", aspectRatio: "16 / 9" }}
-                  dangerouslySetInnerHTML={{ __html: activeSession.embedHtml }}
-                />
-              ) : (
-                <iframe
-                  src={activeSession.embedUrl}
-                  title={m.code || "fb-live"}
-                  allow="autoplay; encrypted-media; picture-in-picture"
-                  allowFullScreen
-                  style={{ width: "100%", aspectRatio: "16/9", border: 0 }}
-                />
-              )}
+              <UnifiedStreamPlayer
+                source={activeSession}
+                autoplay={isLive}
+                remountKey={`embed-${m._id || "x"}-${embedTick}`}
+              />
             </Box>
           ) : null}
 
@@ -472,7 +464,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
               <Stack direction="row" spacing={0.75} sx={{ mt: 1 }} flexWrap="wrap">
                 {sessions.map((session) => (
                   <Chip
-                    key={session.key || session.watchUrl || session.manifestUrl}
+                    key={session.key || session.watchUrl || session.embedUrl}
                     size="small"
                     variant={
                       session.key &&
