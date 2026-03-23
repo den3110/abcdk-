@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hồ Sơ PickleTour</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 15mm 14mm 16mm 14mm;
+      }
+
+      :root {
+        --brand: #0f67c6;
+        --brand-dark: #0b4f97;
+        --ink: #17314d;
+        --muted: #5f7388;
+        --line: #d8e2ec;
+        --soft: #eff6fd;
+        --panel: #f7fbff;
+        --accent: #e7f1fb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+        color: var(--ink);
+        background: white;
+        font-size: 11.5px;
+        line-height: 1.5;
+      }
+
+      .page {
+        page-break-after: always;
+      }
+
+      .page:last-child {
+        page-break-after: auto;
+      }
+
+      .cover {
+        min-height: 268mm;
+        position: relative;
+        padding: 16mm 0 0;
+      }
+
+      .hero {
+        background: linear-gradient(140deg, #0f67c6 0%, #2f92ea 45%, #d8ecff 100%);
+        border-radius: 24px;
+        padding: 22px 24px 20px;
+        color: white;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero:after {
+        content: "";
+        position: absolute;
+        right: -60px;
+        top: -60px;
+        width: 220px;
+        height: 220px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.14);
+      }
+
+      .eyebrow {
+        display: inline-block;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 700;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+        margin-bottom: 12px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+        line-height: 1.15;
+      }
+
+      .lead {
+        margin: 0;
+        max-width: 510px;
+        font-size: 12.5px;
+        line-height: 1.62;
+        color: rgba(255, 255, 255, 0.95);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 16px;
+        margin-top: 18px;
+        align-items: start;
+      }
+
+      .hero-card {
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 18px;
+        padding: 14px 14px 12px;
+        backdrop-filter: blur(6px);
+      }
+
+      .hero-card h3 {
+        margin: 0 0 8px;
+        font-size: 12px;
+      }
+
+      .hero-card p,
+      .hero-card li {
+        color: rgba(255, 255, 255, 0.94);
+      }
+
+      .hero-card ul {
+        margin: 0;
+        padding-left: 16px;
+      }
+
+      .summary-shot {
+        width: 100%;
+        height: 220px;
+        object-fit: cover;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: white;
+      }
+
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .stat {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 13px 12px 11px;
+      }
+
+      .stat .value {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--brand-dark);
+        line-height: 1.1;
+      }
+
+      .stat .label {
+        margin-top: 6px;
+        font-size: 10.5px;
+        color: var(--muted);
+      }
+
+      .subnote {
+        margin-top: 10px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .section {
+        margin-top: 14px;
+      }
+
+      .section-title {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--brand-dark);
+        margin: 0 0 8px;
+        padding-left: 10px;
+        border-left: 4px solid var(--brand);
+      }
+
+      .section p {
+        margin: 0 0 8px;
+        text-align: justify;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px;
+      }
+
+      .panel h3 {
+        margin: 0 0 8px;
+        font-size: 12.5px;
+        color: var(--brand-dark);
+      }
+
+      .panel ul {
+        margin: 0;
+        padding-left: 16px;
+      }
+
+      .panel li {
+        margin-bottom: 6px;
+      }
+
+      .image-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .shot-card {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+
+      .shot-card img {
+        width: 100%;
+        display: block;
+        object-fit: cover;
+      }
+
+      .shot-large img {
+        height: 320px;
+      }
+
+      .stack {
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .stack .shot-card img {
+        height: 154px;
+      }
+
+      .caption {
+        padding: 9px 11px 10px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+
+      .feature {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 12px 12px 11px;
+      }
+
+      .feature h4 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        color: var(--brand-dark);
+      }
+
+      .feature p {
+        margin: 0;
+        font-size: 10.6px;
+        color: var(--muted);
+        text-align: left;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-size: 10.5px;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 8px 9px;
+        vertical-align: top;
+      }
+
+      th {
+        width: 31%;
+        text-align: left;
+        background: var(--accent);
+        color: var(--brand-dark);
+      }
+
+      .footer-note {
+        margin-top: 10px;
+        padding: 10px 12px;
+        background: #f9fbfd;
+        border: 1px dashed #b6c9da;
+        border-radius: 14px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page cover">
+      <div class="hero">
+        <div class="eyebrow">Ho So Truyen Thong</div>
+        <h1>PickleTour</h1>
+        <p class="lead">
+          Nền tảng số phục vụ quản lý, vận hành và truyền dẫn thông tin cho hệ
+          sinh thái Pickleball tại Việt Nam. PickleTour kết nối người chơi, câu
+          lạc bộ, ban tổ chức, trọng tài và bộ phận vận hành trên cùng một lớp
+          dữ liệu thống nhất.
+        </p>
+
+        <div class="hero-grid">
+          <div class="hero-card">
+            <h3>Điểm nhấn cốt lõi</h3>
+            <ul>
+              <li>Website public, mobile app và admin cùng vận hành trên một hệ thống.</li>
+              <li>Quy trình xuyên suốt từ đăng ký, lịch đấu, bracket, kết quả tới live score.</li>
+              <li>Phù hợp cho truyền thông sự kiện nhờ có lớp hiển thị trực tiếp và nội dung cộng đồng.</li>
+            </ul>
+          </div>
+          <img class="summary-shot" src="./visuals/01-home.png" alt="Trang chủ PickleTour" />
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat">
+          <div class="value">352</div>
+          <div class="label">Tài khoản người dùng đã ghi nhận</div>
+        </div>
+        <div class="stat">
+          <div class="value">30</div>
+          <div class="label">Giải đấu đã và đang có dữ liệu vận hành</div>
+        </div>
+        <div class="stat">
+          <div class="value">1.502</div>
+          <div class="label">Lượt đăng ký tham gia giải trên hệ thống</div>
+        </div>
+        <div class="stat">
+          <div class="value">320</div>
+          <div class="label">Trận đấu hoàn tất đã được ghi nhận</div>
+        </div>
+      </div>
+
+      <div class="subnote">
+        Số liệu được truy vấn trực tiếp từ cơ sở dữ liệu hệ thống vào 12:03 ngày
+        23/03/2026 (ICT). Ngoài ra, hệ thống ghi nhận 665 lượt đăng ký đã có
+        trạng thái thanh toán, 2 CLB có dữ liệu trên hệ thống và 1 CLB public tại
+        thời điểm chốt số liệu.
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Tóm tắt điều hành</h2>
+        <p>
+          PickleTour không chỉ đóng vai trò như một ứng dụng đăng ký giải đấu mà
+          còn là một lớp hạ tầng số giúp đồng bộ dữ liệu thi đấu, tổ chức nội
+          dung trực tiếp và tạo đầu mối kết nối cộng đồng Pickleball trên môi
+          trường số. Điều này tạo ra lợi thế rõ ràng cho các hoạt động tổ chức
+          giải và phối hợp truyền thông.
+        </p>
+        <p>
+          Từ góc nhìn báo cáo lãnh đạo truyền thông, PickleTour thể hiện khả năng
+          gom nhiều nghiệp vụ vào cùng một nền tảng: quản lý giải đấu, cập nhật
+          kết quả, hiển thị live score, hỗ trợ livestream, quản lý cộng đồng và
+          vận hành hỗ trợ người dùng. Cấu trúc này phù hợp để triển khai như một
+          nền tảng số đồng hành cùng các giải đấu và sự kiện Pickleball.
+        </p>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="section">
+        <h2 class="section-title">Bài toán và giá trị mang lại</h2>
+        <div class="two-col">
+          <div class="panel">
+            <h3>Bài toán thực tế</h3>
+            <ul>
+              <li>Đăng ký giải đấu phân tán, khó kiểm soát và khó tổng hợp.</li>
+              <li>Lịch thi đấu, bracket và kết quả thay đổi nhưng thiếu đầu mối đồng bộ.</li>
+              <li>Thông tin trận đấu và diễn biến trực tiếp khó truyền tải kịp thời cho người xem.</li>
+              <li>Kênh hỗ trợ, thông báo và xác thực người dùng chưa được chuẩn hóa.</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>Giá trị PickleTour tạo ra</h3>
+            <ul>
+              <li>Chuẩn hóa quy trình từ đăng ký, điều hành giải tới truyền thông sau giải.</li>
+              <li>Tạo nguồn dữ liệu tập trung cho ban tổ chức, trọng tài và người theo dõi.</li>
+              <li>Tăng tính minh bạch về lịch, kết quả, bảng xếp hạng và hoạt động cộng đồng.</li>
+              <li>Giảm phụ thuộc vào các luồng xử lý thủ công và kênh cập nhật rời rạc.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Visual sản phẩm đã chụp trực tiếp</h2>
+        <div class="image-grid">
+          <div class="shot-card shot-large">
+            <img src="./visuals/02-tournaments.png" alt="Danh sách giải đấu" />
+            <div class="caption">
+              Trang danh sách giải đấu public tại
+              <strong>pickletour.vn/pickle-ball/tournaments</strong>.
+            </div>
+          </div>
+          <div class="stack">
+            <div class="shot-card">
+              <img src="./visuals/03-rankings.png" alt="Bảng xếp hạng" />
+              <div class="caption">
+                Trang bảng xếp hạng public tại
+                <strong>pickletour.vn/pickle-ball/rankings</strong>.
+              </div>
+            </div>
+            <div class="shot-card">
+              <img src="./visuals/04-clubs.png" alt="Câu lạc bộ" />
+              <div class="caption">
+                Trang câu lạc bộ public tại <strong>pickletour.vn/clubs</strong>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Năng lực cốt lõi của sản phẩm</h2>
+        <div class="feature-grid">
+          <div class="feature">
+            <h4>Quản lý giải đấu</h4>
+            <p>
+              Tạo giải, quản lý nội dung thi đấu, lịch đấu, bracket, check-in và
+              các màn hình điều hành theo từng giải.
+            </p>
+          </div>
+          <div class="feature">
+            <h4>Live score và cập nhật trận</h4>
+            <p>
+              Ghi nhận trạng thái trận đấu theo thời gian thực, cập nhật điểm số,
+              kết quả và các màn hình hiển thị liên quan.
+            </p>
+          </div>
+          <div class="feature">
+            <h4>Referee và điều hành sân đấu</h4>
+            <p>
+              Hỗ trợ vai trò trọng tài, quản lý trận theo sân và phục vụ các luồng
+              điều hành thực địa trong quá trình thi đấu.
+            </p>
+          </div>
+          <div class="feature">
+            <h4>Livestream và nội dung trực tiếp</h4>
+            <p>
+              Có lớp tích hợp phục vụ livestream, kết nối Facebook và các luồng
+              recording/video cho nội dung trận đấu.
+            </p>
+          </div>
+          <div class="feature">
+            <h4>Cộng đồng và câu lạc bộ</h4>
+            <p>
+              Hỗ trợ CLB, hồ sơ công khai, hoạt động cộng đồng, bảng xếp hạng và
+              lớp hiện diện số cho người chơi.
+            </p>
+          </div>
+          <div class="feature">
+            <h4>KYC, thông báo và hỗ trợ</h4>
+            <p>
+              Hỗ trợ KYC bằng CCCD, thông báo mobile, email support, ticket nội bộ
+              và các lớp chính sách công khai.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="section">
+        <h2 class="section-title">Mức độ sẵn sàng triển khai</h2>
+        <div class="two-col">
+          <div class="panel">
+            <h3>Hạ tầng sản phẩm</h3>
+            <ul>
+              <li>Website public tại <strong>https://pickletour.vn</strong>.</li>
+              <li>Ứng dụng mobile PickleTour trên iOS/Android.</li>
+              <li>Admin để vận hành nội dung, liên hệ và dữ liệu giải đấu.</li>
+              <li>Deep link/app link gắn với domain PickleTour.</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>Điểm chạm công khai và minh bạch</h3>
+            <ul>
+              <li>Trang chủ, giải đấu, bảng xếp hạng, câu lạc bộ và tin tức.</li>
+              <li>Các trang Cookies, Quyền riêng tư và Điều khoản sử dụng.</li>
+              <li>Email hỗ trợ công khai: <strong>support@pickletour.vn</strong>.</li>
+              <li>Analytics, Crashlytics, notifications và các cấu hình mobile readiness.</li>
+            </ul>
+          </div>
+        </div>
+
+        <table>
+          <tr>
+            <th>Domain public</th>
+            <td>https://pickletour.vn</td>
+          </tr>
+          <tr>
+            <th>Ứng dụng mobile</th>
+            <td>Phiên bản app 1.0.25; iOS build 28; Android versionCode 13</td>
+          </tr>
+          <tr>
+            <th>Hỗ trợ liên hệ</th>
+            <td>support@pickletour.vn</td>
+          </tr>
+          <tr>
+            <th>Chính sách công khai</th>
+            <td>Cookies, Privacy, Terms đã có trong giao diện public</td>
+          </tr>
+          <tr>
+            <th>Ngôn ngữ giao diện</th>
+            <td>Việt/Anh ở lớp public</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Thông tin chủ thể và liên hệ</h2>
+        <table>
+          <tr>
+            <th>Tên thương hiệu</th>
+            <td>PickleTour</td>
+          </tr>
+          <tr>
+            <th>Website</th>
+            <td>https://pickletour.vn</td>
+          </tr>
+          <tr>
+            <th>Email hỗ trợ</th>
+            <td>support@pickletour.vn</td>
+          </tr>
+          <tr>
+            <th>Tên pháp nhân/chủ quản</th>
+            <td>[Điền trước khi phát hành đối ngoại]</td>
+          </tr>
+          <tr>
+            <th>Mã số thuế</th>
+            <td>[Điền trước khi phát hành đối ngoại]</td>
+          </tr>
+          <tr>
+            <th>Người đại diện / chức danh</th>
+            <td>[Điền trước khi phát hành đối ngoại]</td>
+          </tr>
+          <tr>
+            <th>Địa chỉ / hotline / store links</th>
+            <td>[Điền trước khi phát hành đối ngoại]</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">Kết luận</h2>
+        <p>
+          PickleTour thể hiện rõ định hướng của một nền tảng số phục vụ cả vận
+          hành giải đấu và truyền thông sự kiện Pickleball. Điểm mạnh không nằm
+          ở một tính năng đơn lẻ mà ở khả năng gom dữ liệu, quy trình và điểm
+          chạm truyền thông về cùng một hệ thống thống nhất.
+        </p>
+        <p>
+          Với trạng thái sản phẩm hiện tại, PickleTour phù hợp để được xem xét
+          như một giải pháp công nghệ có thể hỗ trợ tổ chức, hiển thị và truyền
+          dẫn thông tin cho hệ sinh thái Pickleball. Bước hoàn thiện tiếp theo
+          trước khi phát hành hồ sơ chính thức ra ngoài là xác nhận khối pháp
+          nhân, store links và các minh chứng đối tác/truyền thông công khai.
+        </p>
+      </div>
+
+      <div class="footer-note">
+        Ghi chú nguồn dữ liệu: số liệu trong hồ sơ này được truy vấn nội bộ từ cơ
+        sở dữ liệu hệ thống vào 12:03 ngày 23/03/2026 (ICT). Visual được chụp trực
+        tiếp ngày 23/03/2026 từ các trang public của PickleTour bằng trình duyệt
+        headless và lưu tại thư mục <strong>docs/profile/visuals</strong>.
+      </div>
+    </section>
+  </body>
+</html>

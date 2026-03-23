@@ -18,6 +18,9 @@ Nền tảng được xây dựng theo hướng kết nối nhiều vai trò tro
 - **Dữ liệu thi đấu được cập nhật tập trung:** từ đăng ký, lịch thi đấu, bracket, kết quả đến live score và thông báo.
 - **Phù hợp cho truyền thông sự kiện thể thao:** hỗ trợ hiển thị kết quả trực tiếp, livestream, nội dung cộng đồng và các điểm chạm số trước, trong và sau giải đấu.
 
+**Chỉ số hệ thống đã xác minh nội bộ:** `352` tài khoản người dùng, `30` giải đấu, `1.502` lượt đăng ký, `320` trận hoàn tất, `665` lượt đăng ký đã ghi nhận thanh toán.  
+**Thời điểm chốt số liệu:** 12:03 ngày 23/03/2026 (ICT), truy vấn trực tiếp từ cơ sở dữ liệu hệ thống.
+
 **Visual chính đề xuất khi dàn trang:** ảnh màn hình trang giải đấu hoặc trang tổng quan giải trên PickleTour, ưu tiên giao diện có đầy đủ tên giải, lịch, bracket hoặc khối thông tin vận hành.
 
 ## 3. Giới thiệu nền tảng
@@ -115,23 +118,26 @@ Mức độ sẵn sàng này cho thấy PickleTour phù hợp để đóng vai t
 
 | Chỉ số | Giá trị công bố |
 | --- | --- |
-| Số người dùng đã đăng ký | [Điền: Số liệu xác thực] |
-| Số giải đấu đã/đang vận hành | [Điền: Số liệu xác thực] |
-| Số trận đấu đã ghi nhận | [Điền: Số liệu xác thực] |
-| Số câu lạc bộ công khai trên nền tảng | [Điền: Số liệu xác thực] |
-| Số đối tác/BTC đã triển khai | [Điền: Số liệu xác thực] |
-| Lượt tải ứng dụng | [Điền: Số liệu xác thực nếu công bố] |
+| Số người dùng đã đăng ký | 352 tài khoản |
+| Số giải đấu đã/đang vận hành | 30 giải đấu |
+| Số trận đấu đã hoàn tất | 320 trận |
+| Lượt đăng ký tham gia giải | 1.502 lượt đăng ký |
+| Lượt đăng ký đã ghi nhận thanh toán | 665 lượt |
+| Số câu lạc bộ công khai trên nền tảng | 1 CLB public tại thời điểm truy vấn |
+| Số câu lạc bộ đang có dữ liệu trên hệ thống | 2 CLB |
+| Lượt tải ứng dụng | [Điền: Số liệu store nếu công bố đối ngoại] |
 | Mốc truyền thông nổi bật | [Điền: Bài báo, đối tác, chương trình, sự kiện] |
 
-**Nguyên tắc sử dụng:** Chỉ điền các số liệu đã có nguồn xác thực nội bộ hoặc đối tác. Nếu chưa đủ căn cứ công bố, giữ nguyên placeholder.
+**Nguồn số liệu:** Truy vấn nội bộ từ hệ thống PickleTour vào 12:03 ngày 23/03/2026 (ICT).  
+**Nguyên tắc sử dụng:** Chỉ các số liệu nêu trên đã được xác minh từ hệ thống; các chỉ số khác chưa đủ căn cứ công bố tiếp tục giữ placeholder.
 
 ## 8. Gợi ý visual khi dàn trang PDF
 
-1. **Visual 1:** màn hình tổng quan hoặc chi tiết giải đấu, ưu tiên bố cục có tên giải, lịch và trạng thái vận hành.
-2. **Visual 2:** màn hình live score hoặc referee để thể hiện khả năng cập nhật trận đấu theo thời gian thực.
-3. **Visual 3:** màn hình câu lạc bộ hoặc bảng xếp hạng để thể hiện lớp cộng đồng và dữ liệu sau giải.
+1. **Visual 1:** ảnh chụp trang chủ public của PickleTour tại `https://pickletour.vn/`.
+2. **Visual 2:** ảnh chụp trang danh sách giải đấu tại `https://pickletour.vn/pickle-ball/tournaments`.
+3. **Visual 3:** ảnh chụp trang bảng xếp hạng hoặc câu lạc bộ tại `https://pickletour.vn/pickle-ball/rankings` và `https://pickletour.vn/clubs`.
 
-Không sử dụng ảnh chụp đoạn chat làm visual chính của profile. Nếu cần đưa bối cảnh triển khai thực tế, nên dùng ở phụ lục hoặc chú thích ngắn, không đặt ở trang mở đầu.
+Các visual đã được chụp trực tiếp ngày 23/03/2026 và lưu tại thư mục `docs/profile/visuals`. Không sử dụng ảnh chụp đoạn chat làm visual chính của profile. Nếu cần đưa bối cảnh triển khai thực tế, nên dùng ở phụ lục hoặc chú thích ngắn, không đặt ở trang mở đầu.
 
 ## 9. Kết luận
 
