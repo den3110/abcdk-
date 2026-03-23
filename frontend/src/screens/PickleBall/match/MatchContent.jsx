@@ -553,6 +553,48 @@ function getStreamIdentity(stream) {
   return stream?.key || stream?.url || stream?.embedUrl || "";
 }
 
+function mergeRenderableStreams(existing, incoming) {
+  const current = Array.isArray(existing) ? existing : [];
+  const next = Array.isArray(incoming) ? incoming : [];
+  if (!next.length) return current;
+  if (!current.length) return next;
+
+  const makeKey = (item, index) => {
+    const identity = getStreamIdentity(item);
+    if (identity) return identity;
+    const openUrl =
+      typeof item?.openUrl === "string" && item.openUrl.trim()
+        ? item.openUrl.trim()
+        : "";
+    if (openUrl) return `open:${openUrl}`;
+    return `idx:${index}`;
+  };
+
+  const merged = new Map();
+  current.forEach((item, index) => {
+    merged.set(makeKey(item, index), item);
+  });
+  next.forEach((item, index) => {
+    const key = makeKey(item, current.length + index);
+    const previous = merged.get(key);
+    merged.set(
+      key,
+      previous && item && typeof item === "object"
+        ? {
+            ...previous,
+            ...item,
+            meta:
+              previous?.meta || item?.meta
+                ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
+                : undefined,
+          }
+        : item
+    );
+  });
+
+  return Array.from(merged.values());
+}
+
 function mergeCanonicalStreamLists(existing, incoming) {
   const current = Array.isArray(existing) ? existing : [];
   const next = Array.isArray(incoming) ? incoming : [];
@@ -1049,12 +1091,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
 
   // Streams
-  const streams = useMemo(
+  const normalizedStreams = useMemo(
     () => normalizeStreams(localPatch ? { ...mm, ...localPatch } : mm || {}),
     [mm, localPatch]
   );
+  const [stableStreams, setStableStreams] = useState(() => normalizedStreams);
+  const streams = stableStreams;
   const [activeIdx, setActiveIdx] = useState(() => {
-    const arr = streams;
+    const arr = normalizedStreams;
     if (!arr.length) return -1;
     const primary = arr.findIndex((s) => s.primary);
     if (primary >= 0) return primary;
@@ -1071,6 +1115,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   // Reset chọn stream khi đổi trận
   useEffect(() => {
     const arr = normalizeStreams(mm || {});
+    setStableStreams(arr);
     const pick = () => {
       if (!arr.length) return -1;
       const p = arr.findIndex((s) => s.primary);
@@ -1086,6 +1131,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-bật player khi lần đầu có stream
+  useEffect(() => {
+    setStableStreams((prev) => mergeRenderableStreams(prev, normalizedStreams));
+  }, [normalizedStreams]);
+
   useEffect(() => {
     const curr = streams || [];
     const prevLen = prevStreamsLenRef.current;
