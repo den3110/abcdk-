@@ -142,6 +142,14 @@ const pickArray = (incoming, fallback) => {
   return Array.isArray(fallback) ? fallback : incoming;
 };
 
+const pickRicherArray = (incoming, fallback) => {
+  const next = Array.isArray(incoming) ? incoming : [];
+  const prev = Array.isArray(fallback) ? fallback : [];
+  if (!next.length) return prev;
+  if (!prev.length) return next;
+  return next.length >= prev.length ? next : prev;
+};
+
 const mergeNestedObject = (previous, incoming) => {
   if (isPlainObject(previous) && isPlainObject(incoming)) {
     return { ...previous, ...incoming };
@@ -168,13 +176,13 @@ function mergeLockedMatchPayload(previous, incoming) {
       previous.defaultStreamKey
     ),
     gameScores: pickArray(incoming.gameScores, previous.gameScores),
-    streams: pickArray(incoming.streams, previous.streams),
-    videos: pickArray(incoming.videos, previous.videos),
+    streams: pickRicherArray(incoming.streams, previous.streams),
+    videos: pickRicherArray(incoming.videos, previous.videos),
     links: isPlainObject(incoming.links)
       ? {
           ...(isPlainObject(previous.links) ? previous.links : {}),
           ...incoming.links,
-          items: pickArray(incoming.links?.items, previous.links?.items),
+          items: pickRicherArray(incoming.links?.items, previous.links?.items),
           video: pickString(incoming.links?.video, previous.links?.video),
           stream: pickString(incoming.links?.stream, previous.links?.stream),
           url: pickString(incoming.links?.url, previous.links?.url),
@@ -184,7 +192,10 @@ function mergeLockedMatchPayload(previous, incoming) {
       ? {
           ...(isPlainObject(previous.sources) ? previous.sources : {}),
           ...incoming.sources,
-          items: pickArray(incoming.sources?.items, previous.sources?.items),
+          items: pickRicherArray(
+            incoming.sources?.items,
+            previous.sources?.items
+          ),
           video: pickString(incoming.sources?.video, previous.sources?.video),
           stream: pickString(incoming.sources?.stream, previous.sources?.stream),
           url: pickString(incoming.sources?.url, previous.sources?.url),
@@ -197,7 +208,10 @@ function mergeLockedMatchPayload(previous, incoming) {
           video: pickString(incoming.meta?.video, previous.meta?.video),
           videoUrl: pickString(incoming.meta?.videoUrl, previous.meta?.videoUrl),
           stream: pickString(incoming.meta?.stream, previous.meta?.stream),
-          streams: pickArray(incoming.meta?.streams, previous.meta?.streams),
+          streams: pickRicherArray(
+            incoming.meta?.streams,
+            previous.meta?.streams
+          ),
         }
       : previous.meta,
     tournament: mergeNestedObject(previous.tournament, incoming.tournament),

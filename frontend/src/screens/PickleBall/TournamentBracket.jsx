@@ -81,6 +81,17 @@ import {
 } from "../../utils/tournamentName";
 
 const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
+const GROUP_VIEW_STORAGE_KEY = "pickletour:tournament-bracket:group-view-mode";
+
+function readStoredGroupViewMode() {
+  if (typeof window === "undefined") return "classic";
+  try {
+    const raw = window.localStorage.getItem(GROUP_VIEW_STORAGE_KEY);
+    return raw === "board" ? "board" : "classic";
+  } catch {
+    return "classic";
+  }
+}
 
 function HighlightProvider({ children }) {
   const [hovered, setHovered] = useState(null);
@@ -2361,12 +2372,23 @@ export default function TournamentBracket() {
   // NEW: state bộ lọc
   const [groupSelected, setGroupSelected] = useState(() => new Set());
   const [onlyMine, setOnlyMine] = useState(false);
-  const [groupViewMode, setGroupViewMode] = useState("classic");
+  const [groupViewMode, setGroupViewMode] = useState(() =>
+    readStoredGroupViewMode(),
+  );
   // Khi đổi sang stage group khác: mặc định chọn tất cả
   useEffect(() => {
     setGroupSelected(new Set(allGroupKeys));
     setOnlyMine(false);
   }, [current?._id, allGroupKeys]); // reset theo stage
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(GROUP_VIEW_STORAGE_KEY, groupViewMode);
+    } catch {
+      // ignore storage errors
+    }
+  }, [groupViewMode]);
 
   const toggleGroupKey = useCallback((key) => {
     setGroupSelected((prev) => {
