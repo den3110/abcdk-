@@ -325,7 +325,7 @@ function detectEmbed(url) {
     return { kind: "file", canEmbed: true, embedUrl: url, aspect };
   }
 
-  if (/\/api\/live\/recordings\/v2\/[^/]+\/play(?:\?|$)/i.test(url)) {
+  if (/\/api\/live\/recordings\/v2\/[^/]+\/(?:play|raw)(?:\?|$)/i.test(url)) {
     return { kind: "file", canEmbed: true, embedUrl: url, aspect };
   }
 
@@ -1412,10 +1412,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Stack direction="row" spacing={1} flexWrap="wrap">
               {streams.map((stream, index) => {
                 const selected = index === activeIdx;
-                const subtitle =
-                  stream.key === "server2" && stream.delaySeconds
-                    ? `${stream.providerLabel || "PickleTour"} +${stream.delaySeconds}s`
-                    : stream.providerLabel || "";
+                const subtitle = stream.providerLabel || "";
                 return (
                   <Button
                     key={stream.key || `${stream.url}-${index}`}

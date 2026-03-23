@@ -193,49 +193,63 @@ export default function LiveMatchCard({ item, onDeleted }) {
     useDeleteLiveVideoMutation();
   const [activeSessionKey, setActiveSessionKey] = React.useState("");
 
-  const m = item || {};
-  const fb = m.facebookLive || {};
+  const m = React.useMemo(() => item || {}, [item]);
+  const fb = React.useMemo(() => m.facebookLive || {}, [m]);
 
   // build 1 session từ facebookLive
-  const canonicalSessions = buildCanonicalSessions(m);
-  const fbWatch =
-    fb.video_permalink_url ||
-    fb.permalink_url ||
-    fb.watch_url ||
-    (fb.videoId
-      ? `https://www.facebook.com/watch/?v=${fb.videoId}`
-      : fb.id
-      ? `https://www.facebook.com/watch/?v=${fb.id}`
-      : "");
-  const sessions =
-    canonicalSessions.length > 0
-      ? canonicalSessions
-      : fbWatch
-      ? [
-          {
-            key: "server1",
-            provider: "facebook",
-            kind: fb.embed_html ? "iframe_html" : "iframe",
-            label: "Server 1",
-            providerLabel: "Facebook",
-            openUrl: fbWatch,
-            watchUrl: fbWatch,
-            embedHtml: fb.embed_html || "",
-            embedUrl:
-              fb.embed_url ||
-              `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(fbWatch)}&show_text=false&width=1280`,
-            allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
-            pageId: fb.pageId || "",
-            liveId: fb.id || "",
-            videoId: fb.videoId || "",
-            canEmbedInline: true,
-            primary: true,
-            ready: true,
-            delaySeconds: 0,
-            aspect: "16:9",
-          },
-        ]
-      : [];
+  const canonicalSessions = React.useMemo(() => buildCanonicalSessions(m), [m]);
+  const fbWatch = React.useMemo(
+    () =>
+      fb.video_permalink_url ||
+      fb.permalink_url ||
+      fb.watch_url ||
+      (fb.videoId
+        ? `https://www.facebook.com/watch/?v=${fb.videoId}`
+        : fb.id
+        ? `https://www.facebook.com/watch/?v=${fb.id}`
+        : ""),
+    [fb.id, fb.permalink_url, fb.videoId, fb.video_permalink_url, fb.watch_url]
+  );
+  const sessions = React.useMemo(
+    () =>
+      canonicalSessions.length > 0
+        ? canonicalSessions
+        : fbWatch
+        ? [
+            {
+              key: "server1",
+              provider: "facebook",
+              kind: fb.embed_html ? "iframe_html" : "iframe",
+              label: "Server 1",
+              providerLabel: "Facebook",
+              openUrl: fbWatch,
+              watchUrl: fbWatch,
+              embedHtml: fb.embed_html || "",
+              embedUrl:
+                fb.embed_url ||
+                `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(fbWatch)}&show_text=false&width=1280`,
+              allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+              pageId: fb.pageId || "",
+              liveId: fb.id || "",
+              videoId: fb.videoId || "",
+              canEmbedInline: true,
+              primary: true,
+              ready: true,
+              delaySeconds: 0,
+              aspect: "16:9",
+            },
+          ]
+        : [],
+    [
+      canonicalSessions,
+      fb.embed_html,
+      fb.embed_url,
+      fb.id,
+      fb.pageId,
+      fb.videoId,
+      fbWatch,
+    ]
+  );
   const finishedLike =
     isFinishedLikeStatus(m.status) || isFinishedLikeStatus(fb.status);
   const readyServer2 =
@@ -529,11 +543,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
                         : "default"
                     }
                     onClick={() => setActiveSessionKey(session.key || "")}
-                    label={
-                      session.key === "server2" && session.delaySeconds
-                        ? `${session.label} +${session.delaySeconds}s`
-                        : session.label || session.providerLabel || "Server"
-                    }
+                    label={session.label || session.providerLabel || "Server"}
                   />
                 ))}
               </Stack>

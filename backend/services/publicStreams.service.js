@@ -3,7 +3,10 @@ import {
   buildRecordingLiveManifestObjectKey,
   buildRecordingPublicObjectUrl,
 } from "./liveRecordingV2Storage.service.js";
-import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
+import {
+  buildRecordingPlaybackUrl,
+  buildRecordingRawStreamUrl,
+} from "./liveRecordingV2Export.service.js";
 import {
   getLiveServer2DelaySecondsSync,
   isLiveMultiSourceEnabledSync,
@@ -61,7 +64,7 @@ function detectLegacyKind(url) {
   if (isFacebookUrl(normalized)) return "facebook";
   if (normalized.includes(".m3u8")) return "hls";
   if (/\.(mp4|webm|ogv?)(\?|$)/i.test(normalized)) return "file";
-  if (/\/api\/live\/recordings\/v2\/[^/]+\/play(?:\?|$)/i.test(normalized)) {
+  if (/\/api\/live\/recordings\/v2\/[^/]+\/(?:play|raw)(?:\?|$)/i.test(normalized)) {
     return "file";
   }
   return "iframe";
@@ -92,6 +95,10 @@ function sumUploadedDurationSeconds(recording) {
 }
 
 function pickFinalServer2Url(recording) {
+  const hasRawStream = Boolean(recording?.driveFileId || recording?.driveRawUrl);
+  if (hasRawStream && recording?._id) {
+    return buildRecordingRawStreamUrl(recording._id);
+  }
   const driveRawUrl = asTrimmed(recording?.driveRawUrl);
   const drivePreviewUrl = asTrimmed(recording?.drivePreviewUrl);
   const playbackUrl = asTrimmed(recording?.playbackUrl);
@@ -168,6 +175,7 @@ export function buildRecordingServer2State(recording) {
     return null;
   }
 
+  const effectiveDelaySeconds = finalReady ? 0 : delaySeconds;
   let status = "pending";
   let ready = false;
   if (finalReady) {
@@ -181,17 +189,14 @@ export function buildRecordingServer2State(recording) {
   }
 
   return {
-    providerLabel:
-      finalReady && !multiSourceEnabled
-        ? "PickleTour Playback"
-        : "PickleTour CDN",
+    providerLabel: finalReady ? "PickleTour Video" : "PickleTour CDN",
     key: "server2",
     displayLabel: "Server 2",
     manifestObjectKey,
     manifestUrl: manifestUrl || null,
     publicBaseUrl: publicBaseUrl || null,
     finalPlaybackUrl: finalPlaybackUrl || null,
-    delaySeconds,
+    delaySeconds: effectiveDelaySeconds,
     uploadedDurationSeconds,
     uploadedSegmentCount: uploadedSegments.length,
     ready,
@@ -227,8 +232,12 @@ export function buildRecordingLivePlayback(recording) {
 
 export function buildPublicStreamsForMatch(match = {}, recording = null) {
   const streams = [];
+  const finishedLike =
+    isFinishedLikeStatus(match?.status) ||
+    isFinishedLikeStatus(match?.facebookLive?.status);
+  const server2 = buildRecordingServer2State(recording);
   const facebookOpenUrl = selectFacebookOpenUrl(match);
-  if (facebookOpenUrl) {
+  if (facebookOpenUrl && !(finishedLike && server2?.ready)) {
     streams.push({
       key: "server1",
       displayLabel: "Server 1",
@@ -243,7 +252,6 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     });
   }
 
-  const server2 = buildRecordingServer2State(recording);
   if (server2 && (server2.manifestUrl || server2.finalPlaybackUrl)) {
     streams.push({
       key: server2.key,
@@ -378,8 +386,34 @@ export async function getLatestRecordingsByMatchIds(matchIds = []) {
         "createdAt",
       ].join(" ")
     )
-    .sort({ match: 1, createdAt: -1 })
     .lean();
+
+  const recordingRank = (recording) => {
+    const status = asTrimmed(recording?.status).toLowerCase();
+    const hasRaw = Boolean(recording?.driveFileId || recording?.driveRawUrl);
+    const hasPlayable = Boolean(
+      hasRaw || recording?.drivePreviewUrl || recording?.playbackUrl || recording?._id
+    );
+
+    if (hasRaw) return 500;
+    if (status === "ready" && hasPlayable) return 450;
+    if (status === "ready") return 400;
+    if (status === "exporting") return 300;
+    if (status === "pending_export_window") return 250;
+    if (status === "uploading") return 200;
+    if (status === "recording") return 150;
+    return 100;
+  };
+
+  recordings.sort((a, b) => {
+    const matchCmp = asTrimmed(a?.match).localeCompare(asTrimmed(b?.match));
+    if (matchCmp !== 0) return matchCmp;
+
+    const rankCmp = recordingRank(b) - recordingRank(a);
+    if (rankCmp !== 0) return rankCmp;
+
+    return new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime();
+  });
 
   const byMatchId = new Map();
   for (const recording of recordings) {

@@ -49,7 +49,7 @@ export default function DelayedManifestPlayer({
 
       if (!playable.length) {
         setError(
-          source?.disabledReason || "Server 2 dang chuan bi du lieu video tre."
+          source?.disabledReason || "Server 2 dang chuan bi du lieu video."
         );
       } else {
         setError("");
@@ -108,7 +108,7 @@ export default function DelayedManifestPlayer({
   }, [items]);
 
   if (loading) {
-    return <Alert severity="info">Dang tai delayed stream tu PickleTour CDN...</Alert>;
+    return <Alert severity="info">Dang tai video tu PickleTour...</Alert>;
   }
 
   if (!currentUrl) {
@@ -123,7 +123,7 @@ export default function DelayedManifestPlayer({
         fallbackUrl={source?.openUrl || source?.url || currentUrl}
         initialRatio={resolveAspectRatio(source?.aspect)}
         title={source?.label || "Server 2"}
-        subtitle={source?.providerLabel || "PickleTour CDN delayed playback"}
+        subtitle={source?.providerLabel || "PickleTour Video"}
         onEnded={handleEnded}
         autoplay={autoplay}
       />
