@@ -7,6 +7,7 @@ import React, {
   useMemo,
   memo,
   useRef,
+  useLayoutEffect,
 } from "react";
 import {
   Container,
@@ -800,7 +801,7 @@ export default function RankingList() {
     [searchParams]
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (urlPage !== page) dispatch(setPage(urlPage));
     if ((urlKeyword || "") !== (keyword || ""))
       dispatch(setKeyword(urlKeyword));
