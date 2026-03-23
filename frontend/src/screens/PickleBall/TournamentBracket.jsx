@@ -42,6 +42,8 @@ import {
   Button,
   DialogActions,
   Skeleton,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import { useSelector } from "react-redux"; // NEW
 import {
@@ -58,6 +60,8 @@ import {
   ZoomOut as ZoomOutIcon,
   RestartAlt as ResetZoomIcon,
   FilterList as FilterListIcon,
+  ViewAgenda as ViewAgendaIcon,
+  TableRows as TableRowsIcon,
 } from "@mui/icons-material";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import { useParams, useSearchParams } from "react-router-dom";

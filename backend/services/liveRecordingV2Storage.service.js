@@ -21,7 +21,6 @@ import {
 const DEFAULT_RECORDING_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RECORDING_TARGET_ID = "default";
-const RECORDING_STORAGE_USAGE_PREFIX = "recordings/v2/";
 const MAX_DELETE_OBJECTS_PER_REQUEST = 1000;
 const DEFAULT_RECORDING_STORAGE_SCAN_TTL_MS = 15_000;
 const MIN_RECORDING_STORAGE_SCAN_TTL_MS = 5_000;
@@ -644,7 +643,7 @@ export async function putRecordingManifest({
 }
 
 async function scanRecordingStorageUsageUncached({
-  prefix = RECORDING_STORAGE_USAGE_PREFIX,
+  prefix = "",
 } = {}) {
   const targetSummaries = [];
   const uniqueRecordingIds = new Set();
@@ -689,11 +688,23 @@ async function scanRecordingStorageUsageUncached({
           : undefined;
     } while (continuationToken);
 
+    const capacityBytes = Number(target.capacityBytes) || null;
+    const remainingBytes =
+      capacityBytes != null ? Math.max(0, capacityBytes - targetUsedBytes) : null;
+    const percentUsed =
+      capacityBytes && capacityBytes > 0
+        ? Math.max(0, Math.min(100, Math.round((targetUsedBytes / capacityBytes) * 100)))
+        : null;
+
     targetSummaries.push({
       id: target.id,
       label: target.label,
       bucketName: target.bucketName,
+      publicBaseUrl: target.publicBaseUrl || null,
+      capacityBytes,
       usedBytes: targetUsedBytes,
+      remainingBytes,
+      percentUsed,
       objectCount: targetObjectCount,
       recordingsWithSourceOnR2: targetRecordingIds.size,
     });
@@ -711,7 +722,7 @@ async function scanRecordingStorageUsageUncached({
 
 export async function getRecordingStorageUsageSummary({
   forceRefresh = false,
-  prefix = RECORDING_STORAGE_USAGE_PREFIX,
+  prefix = "",
 } = {}) {
   if (!isRecordingR2Configured()) {
     return {

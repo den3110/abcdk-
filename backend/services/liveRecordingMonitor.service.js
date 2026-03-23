@@ -9,6 +9,7 @@ import {
 import { getRecordingDriveSettings } from "./driveRecordings.service.js";
 import {
   getRecordingStorageConfiguredCapacityTotalBytes,
+  getRecordingStorageTargets,
   getRecordingStorageUsageSummary,
 } from "./liveRecordingV2Storage.service.js";
 import {
@@ -264,6 +265,7 @@ function estimateRecordingR2SourceBytes(recording) {
 
 async function buildR2StorageSummary(recordings = []) {
   const totalBytes = getConfiguredRecordingR2StorageTotalBytes();
+  const configuredTargets = getRecordingStorageTargets();
   const estimatedUsedBytes = recordings.reduce(
     (sum, recording) => sum + estimateRecordingR2SourceBytes(recording),
     0
@@ -292,6 +294,58 @@ async function buildR2StorageSummary(recordings = []) {
     totalBytes && totalBytes > 0
       ? Math.max(0, Math.min(100, Math.round((usedBytes / totalBytes) * 100)))
       : null;
+  const scannedTargetsById = new Map(
+    (Array.isArray(actualUsage?.targets) ? actualUsage.targets : []).map((target) => [
+      String(target?.id || ""),
+      target,
+    ])
+  );
+  const targetBreakdown = configuredTargets.map((target) => {
+    const scannedTarget = scannedTargetsById.get(String(target.id || ""));
+
+    if (scannedTarget) {
+      return {
+        ...target,
+        ...scannedTarget,
+        configured: Number.isFinite(Number(scannedTarget?.capacityBytes || target?.capacityBytes)),
+        measured: true,
+      };
+    }
+
+    if (actualUsage) {
+      const capacityBytes =
+        Number.isFinite(Number(target?.capacityBytes)) && Number(target.capacityBytes) > 0
+          ? Number(target.capacityBytes)
+          : null;
+      return {
+        ...target,
+        capacityBytes,
+        usedBytes: 0,
+        remainingBytes: capacityBytes,
+        percentUsed: capacityBytes ? 0 : null,
+        objectCount: 0,
+        recordingsWithSourceOnR2: 0,
+        configured: capacityBytes != null,
+        measured: true,
+      };
+    }
+
+    return {
+      ...target,
+      capacityBytes:
+        Number.isFinite(Number(target?.capacityBytes)) && Number(target.capacityBytes) > 0
+          ? Number(target.capacityBytes)
+          : null,
+      usedBytes: null,
+      remainingBytes: null,
+      percentUsed: null,
+      objectCount: null,
+      recordingsWithSourceOnR2: null,
+      configured:
+        Number.isFinite(Number(target?.capacityBytes)) && Number(target.capacityBytes) > 0,
+      measured: false,
+    };
+  });
 
   return {
     usedBytes,
@@ -305,9 +359,11 @@ async function buildR2StorageSummary(recordings = []) {
     source: actualUsage?.source || "db_estimate",
     scannedAt: actualUsage?.scannedAt || null,
     objectCount: Number(actualUsage?.objectCount) || 0,
-    targetBreakdown: Array.isArray(actualUsage?.targets)
-      ? actualUsage.targets
-      : [],
+    configuredTargetCount: configuredTargets.length,
+    scannedTargetCount: Array.isArray(actualUsage?.targets)
+      ? actualUsage.targets.length
+      : 0,
+    targetBreakdown,
     scanError,
   };
 }
