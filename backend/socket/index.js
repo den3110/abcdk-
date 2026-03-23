@@ -11,7 +11,7 @@ import {
   undoLast,
   finishMatch,
   forfeitMatch,
-  toDTO,
+  toRealtimePublicMatchDTO,
   setServe,
 } from "./liveHandlers.js";
 
@@ -739,7 +739,7 @@ const buildMatchSnapshotDto = async (matchId, userMatch) => {
     }
   }
 
-  return toDTO(decorateServeAndSlots(m));
+  return await toRealtimePublicMatchDTO(m);
 };
 
 const getSocketMatchSnapshotTracker = (socket) => {
@@ -1529,7 +1529,7 @@ export function initSocket(
         }
 
         // giữ nguyên emit cũ
-        socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
+        socket.emit("match:snapshot", await toRealtimePublicMatchDTO(m));
       } catch (e) {
         console.error("[socket match:join] fatal error:", e?.message || e);
       }
@@ -1828,7 +1828,7 @@ export function initSocket(
           }
 
           snap = await postprocessSnapshotLikeJoin(snap);
-          const dto = toDTO(decorateServeAndSlots(snap));
+          const dto = await toRealtimePublicMatchDTO(snap);
 
           emitTournamentMatchUpdate(io, dto, dto, {
             type: "serve:set",
@@ -2322,7 +2322,7 @@ export function initSocket(
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
       // giữ nguyên DTO của bạn
-      const dto = toDTO(decorateServeAndSlots(m));
+      const dto = await toRealtimePublicMatchDTO(m);
 
       // 👉 Lấy stageName chuẩn từ helper
       const stageInfo = computeStageInfoForMatchDoc(m);
@@ -2457,7 +2457,7 @@ export function initSocket(
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
       // giữ nguyên DTO của bạn
-      const dto = toDTO(decorateServeAndSlots(m));
+      const dto = await toRealtimePublicMatchDTO(m);
 
       // unified channel để FE bắt được và hiển thị ngay
       // io.to(`match:${matchId}`).emit("match:update", {
@@ -2868,15 +2868,10 @@ export function initSocket(
           try {
             const mNew = await populateMatchForEmit(mDoc._id);
             if (mNew) {
-              emitTournamentMatchUpdate(
-                io,
-                mNew,
-                toDTO(decorateServeAndSlots(mNew)),
-                {
-                  type: "court:assign",
-                  emitMatchSnapshot: true,
-                }
-              );
+              emitTournamentMatchUpdate(io, mNew, await toRealtimePublicMatchDTO(mNew), {
+                type: "court:assign",
+                emitMatchSnapshot: true,
+              });
             }
           } catch (e) {
             console.error("[emit] new match snapshot error:", e?.message);
@@ -2888,15 +2883,10 @@ export function initSocket(
               if (mOld) {
                 mOld.court = null;
                 mOld.courtLabel = undefined;
-                emitTournamentMatchUpdate(
-                  io,
-                  mOld,
-                  toDTO(decorateServeAndSlots(mOld)),
-                  {
-                    type: "court:unassign",
-                    emitMatchSnapshot: true,
-                  }
-                );
+                emitTournamentMatchUpdate(io, mOld, await toRealtimePublicMatchDTO(mOld), {
+                  type: "court:unassign",
+                  emitMatchSnapshot: true,
+                });
               }
             } catch (e) {
               console.error("[emit] old match snapshot error:", e?.message);

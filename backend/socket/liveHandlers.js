@@ -9,6 +9,10 @@ import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatc
 import { onMatchFinished } from "../services/courtQueueService.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 import { emitTournamentMatchUpdate } from "./tournamentRealtime.js";
+import {
+  attachPublicStreamsToMatch,
+  getLatestRecordingsByMatchIds,
+} from "../services/publicStreams.service.js";
 
 // ===== CAP-AWARE helpers =====
 function isFinitePos(n) {
@@ -481,6 +485,79 @@ const gamesToWin = (bestOf) => Math.floor(bestOf / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);
 
+const normalizeRealtimeFacebookLive = (facebookLive) => {
+  if (!facebookLive || typeof facebookLive !== "object") return null;
+  return {
+    ...facebookLive,
+    permalink_url:
+      facebookLive.permalink_url ||
+      facebookLive.permalinkUrl ||
+      facebookLive.liveUrl ||
+      facebookLive.watch_url ||
+      facebookLive.watchUrl ||
+      "",
+    video_permalink_url:
+      facebookLive.video_permalink_url ||
+      facebookLive.videoPermalinkUrl ||
+      "",
+    watch_url:
+      facebookLive.watch_url ||
+      facebookLive.watchUrl ||
+      facebookLive.permalink_url ||
+      facebookLive.permalinkUrl ||
+      facebookLive.liveUrl ||
+      "",
+    raw_permalink_url:
+      facebookLive.raw_permalink_url ||
+      facebookLive.rawPermalinkUrl ||
+      "",
+    embed_url:
+      facebookLive.embed_url ||
+      facebookLive.embedUrl ||
+      "",
+  };
+};
+
+export async function toRealtimePublicMatchDTO(matchDoc) {
+  if (!matchDoc) return null;
+
+  const decorated = decorateServeAndSlots(matchDoc);
+  const dto = toDTO(decorated);
+  const matchId = String(dto?._id || matchDoc?._id || "").trim();
+
+  let recording = null;
+  if (matchId && !matchDoc?.isUserMatch) {
+    try {
+      const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds([
+        matchId,
+      ]);
+      recording = latestRecordingsByMatchId.get(matchId) || null;
+    } catch (error) {
+      console.error(
+        "[socket realtime dto] recording lookup error:",
+        error?.message || error
+      );
+    }
+  }
+
+  return attachPublicStreamsToMatch(
+    {
+      ...dto,
+      video:
+        dto?.video ||
+        decorated?.video ||
+        decorated?.videoUrl ||
+        decorated?.meta?.video ||
+        undefined,
+      playbackUrl: decorated?.playbackUrl,
+      streamUrl: decorated?.streamUrl,
+      liveUrl: decorated?.liveUrl,
+      facebookLive: normalizeRealtimeFacebookLive(decorated?.facebookLive),
+    },
+    recording
+  );
+}
+
 // ✅ helper: đội mất bóng -> đổi lượt theo luật pickleball đơn giản
 function onLostRallyNextServe(prev) {
   // nếu đang server #1 thua -> chuyển #2 (cùng đội)
@@ -489,9 +566,10 @@ function onLostRallyNextServe(prev) {
   return { side: prev.side === "A" ? "B" : "A", server: 1 };
 }
 
-function emitMatchRealtimeUpdate(io, matchId, type, doc) {
+async function emitMatchRealtimeUpdate(io, matchId, type, doc) {
   if (!io || !matchId || !doc) return;
-  const dto = toDTO(decorateServeAndSlots(doc));
+  const dto = await toRealtimePublicMatchDTO(doc);
+  if (!dto) return;
   emitTournamentMatchUpdate(io, doc, dto, {
     type,
     matchId,
@@ -522,7 +600,7 @@ export async function startMatch(matchId, refereeId, io) {
 
   const doc = await loadMatchWithNickForEmit(m._id);
   if (!doc) return;
-  emitMatchRealtimeUpdate(io, matchId, "start", doc);
+  await emitMatchRealtimeUpdate(io, matchId, "start", doc);
 }
 
 // chua dung
@@ -826,7 +904,7 @@ export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
       select: "name number code label zone area venue building floor",
     })
     .lean();
-  emitMatchRealtimeUpdate(io, matchId, "point", doc);
+  await emitMatchRealtimeUpdate(io, matchId, "point", doc);
 }
 
 export async function undoLast(matchId, by, io) {
@@ -867,7 +945,7 @@ export async function undoLast(matchId, by, io) {
 
       const doc = await loadMatchWithNickForEmit(m._id);
       if (!doc) return;
-      emitMatchRealtimeUpdate(io, matchId, "undo", doc);
+      await emitMatchRealtimeUpdate(io, matchId, "undo", doc);
       return;
     }
   }
@@ -1020,7 +1098,7 @@ export async function setServe(matchId, side, server, serverId, by, io) {
   // phát update
   const doc = await loadMatchWithNickForEmit(m._id);
   if (!doc) return;
-  emitMatchRealtimeUpdate(io, matchId, "serve", doc);
+  await emitMatchRealtimeUpdate(io, matchId, "serve", doc);
 }
 
 export async function finishMatch(matchId, winner, reason, by, io) {
@@ -1060,7 +1138,7 @@ export async function finishMatch(matchId, winner, reason, by, io) {
   // (tuỳ chọn) nếu bạn có meta.streams muốn đính kèm
   if (!doc.streams && doc.meta?.streams) doc.streams = doc.meta.streams;
 
-  emitMatchRealtimeUpdate(io, matchId, "finish", doc);
+  await emitMatchRealtimeUpdate(io, matchId, "finish", doc);
 }
 
 export async function forfeitMatch(matchId, winner, reason, by, io) {

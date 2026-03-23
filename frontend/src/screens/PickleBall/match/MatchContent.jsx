@@ -113,6 +113,9 @@ function isMatchEqual(a, b) {
   if (!a || !b) return false;
   if (a._id !== b._id) return false;
   if (a.status !== b.status) return false;
+  if ((a.video || "") !== (b.video || "")) return false;
+  if ((a.videoUrl || "") !== (b.videoUrl || "")) return false;
+  if ((a.defaultStreamKey || "") !== (b.defaultStreamKey || "")) return false;
 
   const ra = a.rules || {};
   const rb = b.rules || {};
@@ -123,6 +126,39 @@ function isMatchEqual(a, b) {
   const gsA = JSON.stringify(a.gameScores || []);
   const gsB = JSON.stringify(b.gameScores || []);
   if (gsA !== gsB) return false;
+
+  const streamFingerprint = (match) => {
+    const canonical = Array.isArray(match?.streams)
+      ? match.streams.map((stream, index) => ({
+          key:
+            stream?.key ||
+            stream?.playUrl ||
+            stream?.openUrl ||
+            stream?.url ||
+            `idx:${index}`,
+          ready: stream?.ready,
+          status: stream?.status || "",
+        }))
+      : [];
+    if (canonical.length) return JSON.stringify(canonical);
+
+    const legacyList = [
+      ...(Array.isArray(match?.meta?.streams) ? match.meta.streams : []),
+      ...(Array.isArray(match?.links?.items) ? match.links.items : []),
+      ...(Array.isArray(match?.sources?.items) ? match.sources.items : []),
+    ].map((stream, index) =>
+      stream?.url ||
+      stream?.href ||
+      stream?.src ||
+      stream?.playUrl ||
+      stream?.openUrl ||
+      `idx:${index}`
+    );
+
+    return JSON.stringify(legacyList);
+  };
+
+  if (streamFingerprint(a) !== streamFingerprint(b)) return false;
 
   if (ts(a.scheduledAt) !== ts(b.scheduledAt)) return false;
   if (ts(a.startedAt) !== ts(b.startedAt)) return false;
