@@ -129,6 +129,115 @@ const extractIndexFromToken = (token) => {
   return null;
 };
 
+const isPlainObject = (value) =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const pickString = (incoming, fallback) => {
+  if (typeof incoming === "string" && incoming.trim()) return incoming;
+  return fallback;
+};
+
+const pickArray = (incoming, fallback) => {
+  if (Array.isArray(incoming) && incoming.length > 0) return incoming;
+  return Array.isArray(fallback) ? fallback : incoming;
+};
+
+const mergeNestedObject = (previous, incoming) => {
+  if (isPlainObject(previous) && isPlainObject(incoming)) {
+    return { ...previous, ...incoming };
+  }
+  if (isPlainObject(incoming)) return incoming;
+  return previous ?? incoming ?? null;
+};
+
+function mergeLockedMatchPayload(previous, incoming) {
+  if (!incoming) return previous || null;
+  if (!previous) return incoming;
+
+  return {
+    ...previous,
+    ...incoming,
+    status: pickString(incoming.status, previous.status),
+    video: pickString(incoming.video, previous.video),
+    videoUrl: pickString(incoming.videoUrl, previous.videoUrl),
+    stream: pickString(incoming.stream, previous.stream),
+    link: pickString(incoming.link, previous.link),
+    url: pickString(incoming.url, previous.url),
+    defaultStreamKey: pickString(
+      incoming.defaultStreamKey,
+      previous.defaultStreamKey
+    ),
+    gameScores: pickArray(incoming.gameScores, previous.gameScores),
+    streams: pickArray(incoming.streams, previous.streams),
+    videos: pickArray(incoming.videos, previous.videos),
+    links: isPlainObject(incoming.links)
+      ? {
+          ...(isPlainObject(previous.links) ? previous.links : {}),
+          ...incoming.links,
+          items: pickArray(incoming.links?.items, previous.links?.items),
+          video: pickString(incoming.links?.video, previous.links?.video),
+          stream: pickString(incoming.links?.stream, previous.links?.stream),
+          url: pickString(incoming.links?.url, previous.links?.url),
+        }
+      : previous.links,
+    sources: isPlainObject(incoming.sources)
+      ? {
+          ...(isPlainObject(previous.sources) ? previous.sources : {}),
+          ...incoming.sources,
+          items: pickArray(incoming.sources?.items, previous.sources?.items),
+          video: pickString(incoming.sources?.video, previous.sources?.video),
+          stream: pickString(incoming.sources?.stream, previous.sources?.stream),
+          url: pickString(incoming.sources?.url, previous.sources?.url),
+        }
+      : previous.sources,
+    meta: isPlainObject(incoming.meta)
+      ? {
+          ...(isPlainObject(previous.meta) ? previous.meta : {}),
+          ...incoming.meta,
+          video: pickString(incoming.meta?.video, previous.meta?.video),
+          videoUrl: pickString(incoming.meta?.videoUrl, previous.meta?.videoUrl),
+          stream: pickString(incoming.meta?.stream, previous.meta?.stream),
+          streams: pickArray(incoming.meta?.streams, previous.meta?.streams),
+        }
+      : previous.meta,
+    tournament: mergeNestedObject(previous.tournament, incoming.tournament),
+    bracket: mergeNestedObject(previous.bracket, incoming.bracket),
+    pool: mergeNestedObject(previous.pool, incoming.pool),
+    rules: mergeNestedObject(previous.rules, incoming.rules),
+    pairA: mergeNestedObject(previous.pairA, incoming.pairA),
+    pairB: mergeNestedObject(previous.pairB, incoming.pairB),
+    liveBy: mergeNestedObject(previous.liveBy, incoming.liveBy),
+    previousA: mergeNestedObject(previous.previousA, incoming.previousA),
+    previousB: mergeNestedObject(previous.previousB, incoming.previousB),
+    facebookLive: isPlainObject(incoming.facebookLive)
+      ? {
+          ...(isPlainObject(previous.facebookLive) ? previous.facebookLive : {}),
+          ...incoming.facebookLive,
+          permalink_url: pickString(
+            incoming.facebookLive?.permalink_url,
+            previous.facebookLive?.permalink_url
+          ),
+          video_permalink_url: pickString(
+            incoming.facebookLive?.video_permalink_url,
+            previous.facebookLive?.video_permalink_url
+          ),
+          watch_url: pickString(
+            incoming.facebookLive?.watch_url,
+            previous.facebookLive?.watch_url
+          ),
+          embed_url: pickString(
+            incoming.facebookLive?.embed_url,
+            previous.facebookLive?.embed_url
+          ),
+          raw_permalink_url: pickString(
+            incoming.facebookLive?.raw_permalink_url,
+            previous.facebookLive?.raw_permalink_url
+          ),
+        }
+      : previous.facebookLive,
+  };
+}
+
 const groupNameCandidates = (g) =>
   [g?.name, g?.label, g?.groupName, g?.groupLabel, g?.title, g?.key].filter(
     Boolean
@@ -250,12 +359,19 @@ function useLockedDialogMatch({
   isLoadingLive,
 }) {
   const lockedId = String(matchId || "");
+  const pick = (cand) => {
+    const id = String(cand?._id || cand?.id || "");
+    return id && id === lockedId ? cand : null;
+  };
+  const buildMerged = () => {
+    let merged = null;
+    [initialMatch, base, live].forEach((cand) => {
+      merged = mergeLockedMatchPayload(merged, pick(cand));
+    });
+    return merged;
+  };
   const pickInitial = () => {
-    const pick = (cand) => {
-      const id = String(cand?._id || cand?.id || "");
-      return id && id === lockedId ? cand : null;
-    };
-    return pick(live) || pick(base) || pick(initialMatch) || null;
+    return buildMerged();
   };
   const [mm, setMm] = useState(() => pickInitial());
 
@@ -266,34 +382,26 @@ function useLockedDialogMatch({
       return;
     }
     setMm((prev) => {
-      const seeded = pickInitial();
+      const seeded = buildMerged();
       if (!seeded) return prev;
-      return prev && String(prev?._id || prev?.id || "") === lockedId
-        ? prev
-        : seeded;
+      if (!prev) return seeded;
+      return mergeLockedMatchPayload(prev, seeded);
     });
-  }, [open, lockedId]);
+  }, [open, lockedId, initialMatch, base, live]);
 
   // Nhận dữ liệu nhưng chỉ khi _id trùng matchId
   useEffect(() => {
     if (!open || !lockedId) return;
 
-    const pick = (cand) => {
-      const id = String(cand?._id || cand?.id || "");
-      return id && id === lockedId ? cand : null;
-    };
-
-    // Ưu tiên live nếu đúng id, nếu không thì base
-    const next = pick(live) || pick(base);
+    const next = buildMerged();
     if (!next) return;
 
     setMm((prev) => {
-      // nếu cùng id thì cập nhật, không cần so sánh sâu
       if (!prev) return next;
       const prevId = String(prev?._id || prev?.id || "");
-      return prevId === lockedId ? next : prev;
+      return prevId === lockedId ? mergeLockedMatchPayload(prev, next) : prev;
     });
-  }, [open, lockedId, base, live]);
+  }, [open, lockedId, initialMatch, base, live]);
 
   const loading = (!mm && (isLoadingBase || isLoadingLive)) || (!mm && open);
 
