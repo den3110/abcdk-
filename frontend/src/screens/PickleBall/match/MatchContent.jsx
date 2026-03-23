@@ -1147,10 +1147,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const lastActiveStreamIdentityRef = useRef("");
   const activeStream =
     activeIdx >= 0 && activeIdx < streams.length ? streams[activeIdx] : null;
-
   // Reset chọn stream khi đổi trận
   useEffect(() => {
-    const arr = normalizeStreams(mm || {});
+    // Use m prop directly: mm state may be stale at this point
+    const source = mm || m || {};
+    const arr = normalizeStreams(source);
     setStableStreams(arr);
     const pick = () => {
       if (!arr.length) return -1;
@@ -1162,9 +1163,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     };
     setActiveIdx(pick());
     setShowPlayer(false);
-    prevStreamsLenRef.current = 0;
+    prevStreamsLenRef.current = arr.length;
     lastActiveStreamIdentityRef.current = "";
-  }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lockedId, m, mm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-bật player khi lần đầu có stream
   useEffect(() => {
