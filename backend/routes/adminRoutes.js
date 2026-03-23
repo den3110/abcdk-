@@ -43,9 +43,12 @@ import {
   upsertTournamentReferees,
 } from "../controllers/admin/adminTournamentController.js";
 import {
+  adminCreateRegistration,
   adminCheckin,
   adminDeleteRegistration,
+  adminGetRegistrationHistory,
   adminUpdatePayment,
+  adminUpdateRegistration,
   getRegistrationsAdmin,
 } from "../controllers/admin/adminRegistrationController.js";
 import {
@@ -351,7 +354,12 @@ router
 router.route("/tournaments/registrations/:regId/checkin").put(adminCheckin);
 
 router
+  .route("/tournaments/registrations/:regId/history")
+  .get(adminGetRegistrationHistory);
+
+router
   .route("/tournaments/registrations/:regId")
+  .patch(adminUpdateRegistration)
   .delete(adminDeleteRegistration);
 
 // create bracket for a tournament
@@ -383,6 +391,12 @@ router.get(
   protect,
   authorize("admin"),
   getRegistrationsAdmin
+);
+router.post(
+  "/tournaments/:id/registrations",
+  protect,
+  authorize("admin"),
+  adminCreateRegistration
 );
 
 // Admin: list all matches

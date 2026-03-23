@@ -1555,9 +1555,21 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
       {/* Khu video */}
       {activeStream && (
-        <Stack spacing={1}>
+        <Stack spacing={1.5}>
+          {/* ── Server Tabs ── */}
           {streams.length > 1 && (
-            <Stack direction="row" spacing={1} flexWrap="wrap">
+            <Box
+              sx={{
+                display: "flex",
+                gap: 0.5,
+                p: 0.5,
+                borderRadius: 2,
+                bgcolor: (theme) =>
+                  theme.palette.mode === "dark"
+                    ? "rgba(255,255,255,0.04)"
+                    : "rgba(0,0,0,0.04)",
+              }}
+            >
               {streams.map((stream, index) => {
                 const selected = index === activeIdx;
                 const subtitle =
@@ -1569,35 +1581,85 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   <Button
                     key={stream.key || `${stream.url}-${index}`}
                     size="small"
-                    variant={selected ? "contained" : "outlined"}
-                    color={stream.ready ? "primary" : "inherit"}
+                    disableElevation
+                    variant={selected ? "contained" : "text"}
                     onClick={() => setActiveIdx(index)}
+                    sx={{
+                      flex: 1,
+                      borderRadius: 1.5,
+                      textTransform: "none",
+                      fontWeight: selected ? 700 : 500,
+                      fontSize: "0.8rem",
+                      py: 0.75,
+                      transition: "all .2s",
+                      ...(selected
+                        ? {
+                            bgcolor: "primary.main",
+                            color: "#fff",
+                            boxShadow: "0 2px 8px rgba(25,118,210,0.25)",
+                          }
+                        : {
+                            color: "text.secondary",
+                            "&:hover": {
+                              bgcolor: (theme) =>
+                                theme.palette.mode === "dark"
+                                  ? "rgba(255,255,255,0.08)"
+                                  : "rgba(0,0,0,0.06)",
+                            },
+                          }),
+                    }}
                   >
                     {stream.label}
-                    {subtitle ? ` - ${subtitle}` : ""}
+                    {subtitle ? ` · ${subtitle}` : ""}
                   </Button>
                 );
               })}
-            </Stack>
+            </Box>
           )}
+
           {!activeStream.ready && activeStream.disabledReason && (
-            <Alert severity="info">{activeStream.disabledReason}</Alert>
+            <Alert severity="info" sx={{ borderRadius: 2 }}>
+              {activeStream.disabledReason}
+            </Alert>
           )}
+
+          {/* ── Video Action Buttons ── */}
           <Stack direction="row" spacing={1} flexWrap="wrap">
             {activeStream.canEmbed && (
               <Button
                 size="small"
+                disableElevation
                 variant={showPlayer ? "contained" : "outlined"}
                 onClick={() => setShowPlayer((v) => !v)}
                 startIcon={<PlayIcon />}
+                sx={{
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 600,
+                  fontSize: "0.8rem",
+                  px: 2,
+                  ...(showPlayer
+                    ? {
+                        background:
+                          "linear-gradient(135deg, #1976d2, #42a5f5)",
+                        boxShadow: "0 2px 8px rgba(25,118,210,0.3)",
+                        "&:hover": {
+                          background:
+                            "linear-gradient(135deg, #1565c0, #1e88e5)",
+                        },
+                      }
+                    : {
+                        borderColor: "primary.main",
+                      }),
+                }}
               >
-                {showPlayer ? "Thu gọn video" : "Xem video trong nền"}
+                {showPlayer ? "Thu gọn" : "Xem video trong nền"}
               </Button>
             )}
             <Button
               variant="outlined"
               size="small"
-              endIcon={<OpenInNewIcon />}
+              endIcon={<OpenInNewIcon sx={{ fontSize: "0.9rem !important" }} />}
               component={MuiLink}
               href={
                 activeStream.openUrl ||
@@ -1612,6 +1674,17 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               target="_blank"
               rel="noreferrer"
               underline="none"
+              sx={{
+                borderRadius: 2,
+                textTransform: "none",
+                fontWeight: 600,
+                fontSize: "0.8rem",
+                px: 2,
+                borderColor: (theme) =>
+                  theme.palette.mode === "dark"
+                    ? "rgba(255,255,255,0.15)"
+                    : "rgba(0,0,0,0.15)",
+              }}
             >
               Mở link trực tiếp
             </Button>
@@ -1625,9 +1698,22 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
       {/* Overlay */}
       {overlayUrl && canSeeOverlay && (
-        <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 1.5,
+            borderRadius: 2.5,
+            borderColor: (theme) =>
+              theme.palette.mode === "dark"
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(0,0,0,0.08)",
+          }}
+        >
           <Stack spacing={1.25}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            <Typography
+              variant="subtitle2"
+              sx={{ fontWeight: 700, fontSize: "0.85rem" }}
+            >
               Overlay tỉ số trực tiếp
             </Typography>
 
@@ -1642,6 +1728,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 value={overlayUrl}
                 InputProps={{
                   readOnly: true,
+                  sx: { borderRadius: 2, fontSize: "0.8rem" },
                   endAdornment: (
                     <InputAdornment position="end">
                       <IconButton
@@ -1664,9 +1751,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   ),
                 }}
               />
-
               <Button
                 size="small"
+                disableElevation
                 variant="contained"
                 color="primary"
                 startIcon={<OpenInNewIcon />}
@@ -1675,28 +1762,50 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 target="_blank"
                 rel="noreferrer"
                 underline="none"
-                sx={{ color: "white !important", whiteSpace: "nowrap" }}
+                sx={{
+                  color: "white !important",
+                  whiteSpace: "nowrap",
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 600,
+                  fontSize: "0.8rem",
+                }}
               >
                 Mở overlay
               </Button>
             </Stack>
-            <Stack>
-              <Button
-                size="small"
-                variant="contained"
-                color="primary"
-                startIcon={<OpenInNewIcon />}
-                component={MuiLink}
-                href={overlayUrl + "&overlay=1&isactivebreak=1"}
-                target="_blank"
-                rel="noreferrer"
-                underline="none"
-                sx={{ color: "white !important", whiteSpace: "nowrap" }}
-              >
-                Mở overlay đầy đủ
-              </Button>
-            </Stack>
-            <Typography variant="caption" color="text.secondary">
+            <Button
+              size="small"
+              disableElevation
+              variant="contained"
+              color="primary"
+              startIcon={<OpenInNewIcon />}
+              component={MuiLink}
+              href={overlayUrl + "&overlay=1&isactivebreak=1"}
+              target="_blank"
+              rel="noreferrer"
+              underline="none"
+              sx={{
+                color: "white !important",
+                whiteSpace: "nowrap",
+                borderRadius: 2,
+                textTransform: "none",
+                fontWeight: 600,
+                fontSize: "0.8rem",
+                background: "linear-gradient(135deg, #1976d2, #42a5f5)",
+                boxShadow: "0 2px 8px rgba(25,118,210,0.25)",
+                "&:hover": {
+                  background: "linear-gradient(135deg, #1565c0, #1e88e5)",
+                },
+              }}
+            >
+              Mở overlay đầy đủ
+            </Button>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontSize: "0.7rem" }}
+            >
               Dán link vào OBS/StreamYard (Browser Source) để hiển thị tỉ số.
             </Typography>
 
