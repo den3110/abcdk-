@@ -3921,7 +3921,6 @@ export default function TournamentBracket() {
                 <Table
                   size="small"
                   sx={{
-                    tableLayout: "fixed",
                     "& .MuiTableCell-root": {
                       borderColor: "rgba(86, 155, 219, 0.55)",
                       px: 1,
@@ -4019,11 +4018,11 @@ export default function TournamentBracket() {
                             <TableCell
                               align="center"
                               sx={{
-                                width: 44,
+                                width: 36,
                                 bgcolor: "#f0d7a1",
                                 color: "success.dark",
-                                fontWeight: 900,
-                                fontSize: 28,
+                                fontWeight: 800,
+                                fontSize: 16,
                                 lineHeight: 1,
                               }}
                             >
@@ -4032,11 +4031,11 @@ export default function TournamentBracket() {
                             <TableCell
                               align="center"
                               sx={{
-                                width: 44,
+                                width: 36,
                                 bgcolor: "#f0d7a1",
                                 color: "success.dark",
-                                fontWeight: 900,
-                                fontSize: 28,
+                                fontWeight: 800,
+                                fontSize: 16,
                                 lineHeight: 1,
                                 borderLeft: "1px solid rgba(86, 155, 219, 0.3)",
                               }}
@@ -4071,7 +4070,6 @@ export default function TournamentBracket() {
                 <Table
                   size="small"
                   sx={{
-                    tableLayout: "fixed",
                     "& .MuiTableCell-root": {
                       borderColor: "rgba(86, 155, 219, 0.55)",
                       px: 1,
@@ -4113,11 +4111,11 @@ export default function TournamentBracket() {
                           <TableCell
                             align="center"
                             sx={{
-                              width: 42,
+                              width: 36,
                               bgcolor: "#f0d7a1",
                               color: "success.dark",
-                              fontWeight: 900,
-                              fontSize: 28,
+                              fontWeight: 800,
+                              fontSize: 16,
                               lineHeight: 1,
                             }}
                           >
@@ -4126,11 +4124,11 @@ export default function TournamentBracket() {
                           <TableCell
                             align="center"
                             sx={{
-                              width: 42,
+                              width: 36,
                               bgcolor: "#f0d7a1",
                               color: "success.dark",
-                              fontWeight: 900,
-                              fontSize: 28,
+                              fontWeight: 800,
+                              fontSize: 16,
                               lineHeight: 1,
                             }}
                           >

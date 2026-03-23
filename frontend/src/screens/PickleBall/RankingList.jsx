@@ -802,9 +802,12 @@ export default function RankingList() {
   );
 
   useLayoutEffect(() => {
-    if (urlPage !== page) dispatch(setPage(urlPage));
-    if ((urlKeyword || "") !== (keyword || ""))
-      dispatch(setKeyword(urlKeyword));
+    const nextKeyword = urlKeyword || "";
+    const keywordChanged = nextKeyword !== (keyword || "");
+    const pageChanged = urlPage !== page;
+
+    if (keywordChanged) dispatch(setKeyword(nextKeyword));
+    if (pageChanged) dispatch(setPage(urlPage));
     if ((urlKeyword || "") !== (searchInput || ""))
       setSearchInput(urlKeyword || "");
 
@@ -821,6 +824,9 @@ export default function RankingList() {
   }, [urlPage, urlKeyword, searchParams]);
 
   useEffect(() => {
+    if (urlPage !== page || (urlKeyword || "") !== (keyword || "")) {
+      return;
+    }
     const curPageParam = searchParams.get("page");
     const desiredPageParam = page > 0 ? String(page + 1) : null;
     if (curPageParam !== desiredPageParam) {
