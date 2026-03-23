@@ -3855,129 +3855,128 @@ export default function TournamentBracket() {
         }}
       >
         {groupEntries.map((group) => (
-          <Stack key={group.key} spacing={1.5}>
-            {/* ── Match Card ── */}
-            <Paper
-              elevation={dk ? 0 : 2}
-              sx={{
-                borderRadius: 3,
-                overflow: "hidden",
-                bgcolor: dk ? "#0d1117" : "#fff",
-                border: "1px solid",
+          <Paper
+            key={group.key}
+            elevation={dk ? 0 : 2}
+            sx={{
+              borderRadius: 3,
+              overflow: "hidden",
+              bgcolor: dk ? "#0d1117" : "#fff",
+              border: "1px solid",
+              borderColor: group.isMine
+                ? dk ? "rgba(56,139,253,0.5)" : "rgba(25,118,210,0.4)"
+                : dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+              boxShadow: group.isMine
+                ? dk ? "0 0 20px rgba(56,139,253,.12)" : "0 0 16px rgba(25,118,210,.12)"
+                : dk ? "0 4px 24px rgba(0,0,0,.2)" : "0 2px 12px rgba(0,0,0,.06)",
+              transition: "box-shadow .2s, border-color .2s",
+              "&:hover": {
                 borderColor: group.isMine
-                  ? dk ? "rgba(56,139,253,0.5)" : "rgba(25,118,210,0.4)"
-                  : dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+                  ? dk ? "rgba(56,139,253,0.65)" : "rgba(25,118,210,0.55)"
+                  : dk ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.14)",
                 boxShadow: group.isMine
-                  ? dk ? "0 0 20px rgba(56,139,253,.12)" : "0 0 16px rgba(25,118,210,.12)"
-                  : dk ? "0 4px 24px rgba(0,0,0,.2)" : "0 2px 12px rgba(0,0,0,.06)",
-                transition: "box-shadow .2s, border-color .2s",
-                "&:hover": {
-                  borderColor: group.isMine
-                    ? dk ? "rgba(56,139,253,0.65)" : "rgba(25,118,210,0.55)"
-                    : dk ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.14)",
-                  boxShadow: group.isMine
-                    ? dk ? "0 0 28px rgba(56,139,253,.18)" : "0 0 20px rgba(25,118,210,.16)"
-                    : dk ? "0 8px 32px rgba(0,0,0,.28)" : "0 4px 20px rgba(0,0,0,.1)",
+                  ? dk ? "0 0 28px rgba(56,139,253,.18)" : "0 0 20px rgba(25,118,210,.16)"
+                  : dk ? "0 8px 32px rgba(0,0,0,.28)" : "0 4px 20px rgba(0,0,0,.1)",
+              },
+            }}
+          >
+            {/* Group Header */}
+            <Box
+              sx={{
+                px: 2,
+                py: 1.2,
+                textAlign: "center",
+                background: group.isMine
+                  ? "linear-gradient(135deg, #1565c0 0%, #1976d2 50%, #42a5f5 100%)"
+                  : "linear-gradient(135deg, #1a73e8 0%, #1565c0 100%)",
+                position: "relative",
+                "&::after": {
+                  content: '""',
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: 1,
+                  background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)",
                 },
               }}
             >
-              {/* Group Header */}
-              <Box
+              <Typography
+                variant="subtitle1"
                 sx={{
-                  px: 2,
-                  py: 1.2,
-                  textAlign: "center",
-                  background: group.isMine
-                    ? "linear-gradient(135deg, #1565c0 0%, #1976d2 50%, #42a5f5 100%)"
-                    : "linear-gradient(135deg, #1a73e8 0%, #1565c0 100%)",
-                  position: "relative",
-                  "&::after": {
-                    content: '""',
-                    position: "absolute",
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 1,
-                    background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)",
-                  },
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  color: "#fff",
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                  fontSize: "0.95rem",
                 }}
               >
-                <Typography
-                  variant="subtitle1"
-                  sx={{
-                    fontWeight: 800,
-                    lineHeight: 1,
-                    color: "#fff",
-                    letterSpacing: 0.5,
-                    textTransform: "uppercase",
-                    fontSize: "0.95rem",
-                  }}
-                >
-                  {group.label}
-                </Typography>
-              </Box>
+                {group.label}
+              </Typography>
+            </Box>
 
-              {/* Meta info row */}
-              <Stack
-                direction="row"
-                spacing={1}
-                useFlexGap
-                flexWrap="wrap"
-                alignItems="center"
-                sx={{
-                  px: 1.5,
-                  py: 0.75,
-                  bgcolor: dk ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
-                  borderBottom: `1px solid ${dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
-                }}
-              >
-                {group.codeLabel ? (
-                  <Typography
-                    variant="caption"
-                    sx={{ color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)", fontSize: "0.7rem" }}
-                  >
-                    {t("tournaments.bracket.groupCode", {
-                      value: group.codeLabel,
-                    })}
-                  </Typography>
-                ) : null}
+            {/* Meta info row */}
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              flexWrap="wrap"
+              alignItems="center"
+              sx={{
+                px: 1.5,
+                py: 0.75,
+                bgcolor: dk ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
+                borderBottom: `1px solid ${dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
+              }}
+            >
+              {group.codeLabel ? (
                 <Typography
                   variant="caption"
                   sx={{ color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)", fontSize: "0.7rem" }}
                 >
-                  {t("tournaments.bracket.groupTeamCount", {
-                    count: group.teamCount,
+                  {t("tournaments.bracket.groupCode", {
+                    value: group.codeLabel,
                   })}
                 </Typography>
-                {group.isMine ? (
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: dk ? "#4caf50" : "#2e7d32",
-                      fontWeight: 700,
-                      fontSize: "0.7rem",
-                    }}
-                  >
-                    ★ {t("tournaments.bracket.myGroup")}
-                  </Typography>
-                ) : null}
-              </Stack>
-
-              {/* Match rows */}
-              <TableContainer>
-                <Table
-                  size="small"
+              ) : null}
+              <Typography
+                variant="caption"
+                sx={{ color: dk ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)", fontSize: "0.7rem" }}
+              >
+                {t("tournaments.bracket.groupTeamCount", {
+                  count: group.teamCount,
+                })}
+              </Typography>
+              {group.isMine ? (
+                <Typography
+                  variant="caption"
                   sx={{
+                    color: dk ? "#4caf50" : "#2e7d32",
+                    fontWeight: 700,
+                    fontSize: "0.7rem",
+                  }}
+                >
+                  ★ {t("tournaments.bracket.myGroup")}
+                </Typography>
+              ) : null}
+            </Stack>
+
+            {/* ── Match rows ── */}
+            <TableContainer>
+              <Table
+                size="small"
+                sx={{
                     "& .MuiTableCell-root": {
                       borderColor: dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
                       px: 0.75,
                       py: 0.6,
-                    },
-                  }}
-                >
-                  <TableBody>
-                    {group.matchRows.length ? (
-                      group.matchRows.map((row) => {
+                  },
+                }}
+              >
+                <TableBody>
+                  {group.matchRows.length ? (
+                    group.matchRows.map((row) => {
                         const [scoreA, scoreB] = splitScore(row.score);
                         const state = statusColors(row.match);
                         const isFinished = String(row.match?.status || "").toLowerCase() === "finished";
@@ -4109,41 +4108,55 @@ export default function TournamentBracket() {
                           </TableRow>
                         );
                       })
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
-                          {t("tournaments.bracket.noMatches")}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Paper>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
+                        {t("tournaments.bracket.noMatches")}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
 
-            {/* ── Standings Card ── */}
-            <Paper
-              elevation={dk ? 0 : 1}
+            {/* ── BXH Section Divider ── */}
+            <Box
               sx={{
-                borderRadius: 3,
-                overflow: "hidden",
-                bgcolor: dk ? "#0d1117" : "#fff",
-                border: `1px solid ${dk ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
+                px: 1.5,
+                py: 0.6,
+                bgcolor: dk ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)",
+                borderTop: `1px solid ${dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
+                borderBottom: `1px solid ${dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
               }}
             >
-              <TableContainer>
-                <Table
-                  size="small"
-                  sx={{
-                    "& .MuiTableCell-root": {
-                      borderColor: dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  fontSize: "0.7rem",
+                  color: dk ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.45)",
+                }}
+              >
+                {t("tournaments.bracket.standingsTitle")}
+              </Typography>
+            </Box>
+
+            {/* ── Standings rows ── */}
+            <TableContainer>
+              <Table
+                size="small"
+                sx={{
+                  "& .MuiTableCell-root": {
+                    borderColor: dk ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
                       px: 0.75,
                       py: 0.6,
                     },
-                  }}
-                >
-                  <TableBody>
-                    {group.standingRows.length ? (
+                }}
+              >
+                <TableBody>
+                  {group.standingRows.length ? (
                       group.standingRows.map((row, idx) => {
                         const rankColors = [
                           { bg: "#ffd700", color: "#1a1a00" },
@@ -4229,18 +4242,17 @@ export default function TournamentBracket() {
                           </TableRow>
                         );
                       })
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
-                          {t("tournaments.bracket.noStandings")}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Paper>
-          </Stack>
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ color: "text.secondary" }}>
+                        {t("tournaments.bracket.noStandings")}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
         ))}
       </Box>
     );
