@@ -134,6 +134,10 @@ export async function listLiveMatches(req, res) {
       });
     }
 
+    const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(
+      rows.map((match) => String(match?._id || "")).filter(Boolean)
+    );
+
     /* ================== brackets ================== */
     const tourIds = [
       ...new Set(
