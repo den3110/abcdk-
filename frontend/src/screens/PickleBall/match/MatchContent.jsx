@@ -552,6 +552,54 @@ function normalizeStreams(m) {
 function getStreamIdentity(stream) {
   return stream?.key || stream?.url || stream?.embedUrl || "";
 }
+
+function mergeCanonicalStreamLists(existing, incoming) {
+  const current = Array.isArray(existing) ? existing : [];
+  const next = Array.isArray(incoming) ? incoming : [];
+  if (!next.length) return current;
+
+  const makeKey = (item, index) => {
+    if (!item || typeof item !== "object") return `idx:${index}`;
+    const key =
+      typeof item.key === "string" && item.key.trim() ? item.key.trim() : "";
+    if (key) return `key:${key}`;
+    const playUrl =
+      typeof item.playUrl === "string" && item.playUrl.trim()
+        ? item.playUrl.trim()
+        : "";
+    if (playUrl) return `play:${playUrl}`;
+    const openUrl =
+      typeof item.openUrl === "string" && item.openUrl.trim()
+        ? item.openUrl.trim()
+        : "";
+    if (openUrl) return `open:${openUrl}`;
+    return `idx:${index}`;
+  };
+
+  const merged = new Map();
+  current.forEach((item, index) => {
+    merged.set(makeKey(item, index), item);
+  });
+  next.forEach((item, index) => {
+    const key = makeKey(item, current.length + index);
+    const previous = merged.get(key);
+    merged.set(
+      key,
+      previous && item && typeof item === "object"
+        ? {
+            ...previous,
+            ...item,
+            meta:
+              previous?.meta || item?.meta
+                ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
+                : undefined,
+          }
+        : item
+    );
+  });
+
+  return Array.from(merged.values());
+}
 /* ====================== PlayerLink & team helpers ====================== */
 function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
   if (!person) return null;
@@ -1296,6 +1344,13 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
     setLocalPatch((p) => {
       const next = { ...(p || {}) };
+      const currentSource = p ? { ...mm, ...p } : mm || {};
+      const existingStreams =
+        currentSource.streams ||
+        currentSource.meta?.streams ||
+        currentSource.links?.items ||
+        currentSource.sources?.items ||
+        [];
       if (hasVideo) {
         const v = candidates[0];
         next.video = v;
@@ -1303,10 +1358,17 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         next.meta = { ...(next.meta || {}), video: v };
       }
       if (hasStreams) {
-        next.streams = streamsArr;
-        next.meta = { ...(next.meta || {}), streams: streamsArr };
+        const mergedStreams = mergeCanonicalStreamLists(
+          existingStreams,
+          streamsArr
+        );
+        next.streams = mergedStreams;
+        next.meta = { ...(next.meta || {}), streams: mergedStreams };
       }
-      if (typeof snap.defaultStreamKey === "string" && snap.defaultStreamKey.trim()) {
+      if (
+        typeof snap.defaultStreamKey === "string" &&
+        snap.defaultStreamKey.trim()
+      ) {
         next.defaultStreamKey = snap.defaultStreamKey.trim();
       }
       return next;
