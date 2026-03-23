@@ -1,7 +1,7 @@
 // routes/cccd.routes.js
 import express from "express";
 import multer from "multer";
-import { extractCCCD, getCCCDResult } from "../controllers/cccd.controller.js";
+import { extractCCCD, getCCCDResult, extractKycCCCD } from "../controllers/cccd.controller.js";
 import { extractCCCDOpenAI } from "../controllers/cccd.controller.js";
 
 const router = express.Router();
@@ -11,6 +11,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.post("/extract", upload.single("image"), extractCCCD);
 
 router.post("/extract-openai", upload.single("image"), extractCCCDOpenAI);
+
+router.post("/extract-kyc", upload.single("image"), extractKycCCCD);
 
 // GET /api/cccd/result/:id
 router.get("/result/:id", getCCCDResult);

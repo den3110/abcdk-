@@ -326,19 +326,11 @@ function normDOB(value) {
   return null;
 }
 
-async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
+export async function openaiExtractFromDataUrl(imageOrDataUrl, detail = "low") {
   if (!process.env.OPENAI_API_KEY && !process.env.CLIPROXY_API_KEY)
     throw new Error("Missing OPENAI_API_KEY");
 
-  // Nếu URL local/private -> tải buffer và đổi sang data URL
-  let imagePart;
-  if (isHttpUrl(imageUrl) && !isLocalish(imageUrl)) {
-    imagePart = { type: "image_url", image_url: { url: imageUrl, detail } };
-  } else {
-    const { buffer, contentType } = await fetchImageAsBuffer(imageUrl);
-    const dataUrl = bufferToDataUrl(buffer, contentType);
-    imagePart = { type: "image_url", image_url: { url: dataUrl, detail } };
-  }
+  const imagePart = { type: "image_url", image_url: { url: imageOrDataUrl, detail } };
 
   const systemPrompt = [
     "Bạn là trình TRÍCH XUẤT CHÍNH XÁC CAO từ ảnh Căn cước công dân Việt Nam.",
@@ -392,7 +384,19 @@ async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
     fullName: data.fullName ? normName(data.fullName) : null,
     dob: normDOB(data.dob),
     _usage: resp.usage,
+    raw: data,
   };
+}
+
+async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
+  let imageOrDataUrl;
+  if (isHttpUrl(imageUrl) && !isLocalish(imageUrl)) {
+    imageOrDataUrl = imageUrl;
+  } else {
+    const { buffer, contentType } = await fetchImageAsBuffer(imageUrl);
+    imageOrDataUrl = bufferToDataUrl(buffer, contentType);
+  }
+  return openaiExtractFromDataUrl(imageOrDataUrl, detail);
 }
 
 function buildMatchReport(extracted, user) {

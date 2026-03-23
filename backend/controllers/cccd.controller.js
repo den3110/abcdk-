@@ -7,6 +7,7 @@ import os from "os";
 import crypto from "crypto";
 import { parseQRPayload, mapQRToFields } from "../utils/cccdParsing.js";
 import { openai, OPENAI_VISION_MODEL } from "../lib/openaiClient.js";
+import { openaiExtractFromDataUrl } from "../services/telegram/telegramNotifyKyc.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_NAME = process.env.CCCD_QUEUE_NAME || "cccd-ocr";
@@ -231,3 +232,22 @@ export async function extractCCCDOpenAI(req, res) {
     });
   }
 }
+
+export async function extractKycCCCD(req, res) {
+  try {
+    if (!req.file) return res.status(400).json({ message: "Thiếu file ảnh" });
+    const dataUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    
+    // Call the exact same function used by the Telegram bot
+    const extracted = await openaiExtractFromDataUrl(dataUrl, "auto");
+    
+    return res.json({ source: "openai-kyc", ...extracted });
+  } catch (err) {
+    console.error("[extractKycCCCD] error:", err);
+    return res.status(500).json({
+      message: "Lỗi extract KYC qua OpenAI",
+      error: String(err?.message || err),
+    });
+  }
+}
+
