@@ -70,6 +70,19 @@ function detectLegacyKind(url) {
   return "iframe";
 }
 
+function extractInternalRecordingRoute(url) {
+  const normalized = asTrimmed(url);
+  if (!normalized) return null;
+  const match = normalized.match(
+    /\/api\/live\/recordings\/v2\/([^/?#]+)\/(play|raw)(?:\?|$)/i
+  );
+  if (!match) return null;
+  return {
+    recordingId: asTrimmed(match[1]),
+    variant: asTrimmed(match[2]).toLowerCase(),
+  };
+}
+
 function selectLegacyPlaybackUrl(match = {}) {
   return [
     match?.video,
@@ -279,10 +292,29 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   const legacyPlaybackUrl = selectLegacyPlaybackUrl(match);
   if (legacyPlaybackUrl) {
     const normalizedLegacyUrl = legacyPlaybackUrl.trim();
+    const legacyRecordingRoute = extractInternalRecordingRoute(normalizedLegacyUrl);
     const duplicate = streams.some(
-      (stream) =>
-        asTrimmed(stream?.playUrl) === normalizedLegacyUrl ||
-        asTrimmed(stream?.openUrl) === normalizedLegacyUrl
+      (stream) => {
+        const streamPlayUrl = asTrimmed(stream?.playUrl);
+        const streamOpenUrl = asTrimmed(stream?.openUrl);
+        if (
+          streamPlayUrl === normalizedLegacyUrl ||
+          streamOpenUrl === normalizedLegacyUrl
+        ) {
+          return true;
+        }
+
+        if (!legacyRecordingRoute) return false;
+
+        const streamRoute =
+          extractInternalRecordingRoute(streamPlayUrl) ||
+          extractInternalRecordingRoute(streamOpenUrl);
+
+        return (
+          Boolean(streamRoute?.recordingId) &&
+          streamRoute.recordingId === legacyRecordingRoute.recordingId
+        );
+      }
     );
 
     if (!duplicate) {

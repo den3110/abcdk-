@@ -1412,7 +1412,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Stack direction="row" spacing={1} flexWrap="wrap">
               {streams.map((stream, index) => {
                 const selected = index === activeIdx;
-                const subtitle = stream.providerLabel || "";
+                const subtitle =
+                  String(stream.providerLabel || "").trim().toLowerCase() ===
+                  String(stream.label || "").trim().toLowerCase()
+                    ? ""
+                    : stream.providerLabel || "";
                 return (
                   <Button
                     key={stream.key || `${stream.url}-${index}`}
