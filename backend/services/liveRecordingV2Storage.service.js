@@ -6,6 +6,7 @@ import {
   CreateMultipartUploadCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  ListMultipartUploadsCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -546,6 +547,80 @@ export async function abortRecordingMultipartUpload({
   );
 
   return true;
+}
+
+export async function listRecordingMultipartUploads({
+  storageTargetId = null,
+  prefix = "",
+  limit = null,
+} = {}) {
+  const target = requireRecordingStorageTarget(storageTargetId);
+  const client = getRecordingS3Client(target.id);
+  const normalizedPrefix = String(prefix || "").trim();
+  const maxItems =
+    Number.isFinite(Number(limit)) && Number(limit) > 0
+      ? Math.floor(Number(limit))
+      : null;
+
+  const uploads = [];
+  let keyMarker = undefined;
+  let uploadIdMarker = undefined;
+  let truncated = false;
+
+  do {
+    const response = await client.send(
+      new ListMultipartUploadsCommand({
+        Bucket: target.bucketName,
+        Prefix: normalizedPrefix || undefined,
+        KeyMarker: keyMarker,
+        UploadIdMarker: uploadIdMarker,
+        MaxUploads: MAX_DELETE_OBJECTS_PER_REQUEST,
+      })
+    );
+
+    for (const item of response?.Uploads || []) {
+      const upload = {
+        key: String(item?.Key || ""),
+        uploadId: String(item?.UploadId || ""),
+        initiatedAt: item?.Initiated || null,
+      };
+      if (!upload.key || !upload.uploadId) continue;
+
+      uploads.push(upload);
+
+      if (maxItems && uploads.length >= maxItems) {
+        truncated = true;
+        return {
+          targetId: target.id,
+          targetLabel: target.label,
+          bucketName: target.bucketName,
+          prefix: normalizedPrefix,
+          truncated,
+          uploadCount: uploads.length,
+          uploads,
+        };
+      }
+    }
+
+    keyMarker =
+      response?.IsTruncated && response?.NextKeyMarker
+        ? response.NextKeyMarker
+        : undefined;
+    uploadIdMarker =
+      response?.IsTruncated && response?.NextUploadIdMarker
+        ? response.NextUploadIdMarker
+        : undefined;
+  } while (keyMarker || uploadIdMarker);
+
+  return {
+    targetId: target.id,
+    targetLabel: target.label,
+    bucketName: target.bucketName,
+    prefix: normalizedPrefix,
+    truncated,
+    uploadCount: uploads.length,
+    uploads,
+  };
 }
 
 export async function putRecordingManifest({

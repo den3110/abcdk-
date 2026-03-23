@@ -9,26 +9,13 @@ function parseCsv(value = "") {
     .filter(Boolean);
 }
 
-function formatBytes(bytes) {
-  const value = Number(bytes || 0);
-  if (!Number.isFinite(value) || value <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = value;
-  let unit = 0;
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit += 1;
-  }
-  return `${size.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
-}
-
 function parseArgs(argv = []) {
   const options = {
     execute: false,
     fullBucket: false,
     prefix: DEFAULT_RECORDING_PREFIX,
     targetIds: [],
-    sampleSize: 5,
+    sampleSize: 10,
   };
 
   for (const rawArg of argv) {
@@ -67,24 +54,26 @@ function parseArgs(argv = []) {
   return options;
 }
 
-function buildPreview(targetSummary, sampleSize) {
+function buildPreview(summary, sampleSize) {
   return {
-    targetId: targetSummary.targetId,
-    targetLabel: targetSummary.targetLabel,
-    bucketName: targetSummary.bucketName,
-    prefix: targetSummary.prefix || null,
-    objectCount: targetSummary.objectCount,
-    totalBytes: targetSummary.totalBytes,
-    totalBytesLabel: formatBytes(targetSummary.totalBytes),
-    sampleKeys: targetSummary.objects.slice(0, sampleSize).map((item) => item.key),
+    targetId: summary.targetId,
+    targetLabel: summary.targetLabel,
+    bucketName: summary.bucketName,
+    prefix: summary.prefix || null,
+    uploadCount: summary.uploadCount,
+    sampleUploads: summary.uploads.slice(0, sampleSize).map((item) => ({
+      key: item.key,
+      uploadId: item.uploadId,
+      initiatedAt: item.initiatedAt || null,
+    })),
   };
 }
 
 async function main() {
   const {
-    deleteRecordingObjects,
+    abortRecordingMultipartUpload,
     getRecordingStorageTargets,
-    listRecordingObjects,
+    listRecordingMultipartUploads,
   } = await import("../services/liveRecordingV2Storage.service.js");
 
   const options = parseArgs(process.argv.slice(2));
@@ -105,8 +94,7 @@ async function main() {
             targetIds: options.targetIds,
           },
           matchedTargetCount: 0,
-          totalObjectCount: 0,
-          totalBytes: 0,
+          totalUploadCount: 0,
           targets: [],
         },
         null,
@@ -118,7 +106,7 @@ async function main() {
 
   const targetSummaries = [];
   for (const target of selectedTargets) {
-    const summary = await listRecordingObjects({
+    const summary = await listRecordingMultipartUploads({
       storageTargetId: target.id,
       prefix: options.prefix,
     });
@@ -138,11 +126,7 @@ async function main() {
       sampleSize: options.sampleSize,
     },
     matchedTargetCount: preview.length,
-    totalObjectCount: preview.reduce((sum, item) => sum + item.objectCount, 0),
-    totalBytes: preview.reduce((sum, item) => sum + item.totalBytes, 0),
-    totalBytesLabel: formatBytes(
-      preview.reduce((sum, item) => sum + item.totalBytes, 0)
-    ),
+    totalUploadCount: preview.reduce((sum, item) => sum + item.uploadCount, 0),
     targets: preview,
   };
 
@@ -153,16 +137,33 @@ async function main() {
 
   const results = [];
   for (const summary of targetSummaries) {
-    const objectKeys = summary.objects.map((item) => item.key);
-    const cleanupResult = await deleteRecordingObjects(objectKeys, {
-      storageTargetId: summary.targetId,
-    });
+    let abortedCount = 0;
+    const failures = [];
+
+    for (const upload of summary.uploads) {
+      try {
+        await abortRecordingMultipartUpload({
+          objectKey: upload.key,
+          uploadId: upload.uploadId,
+          storageTargetId: summary.targetId,
+        });
+        abortedCount += 1;
+      } catch (error) {
+        failures.push({
+          key: upload.key,
+          uploadId: upload.uploadId,
+          error: error?.message || String(error),
+        });
+      }
+    }
+
     results.push({
       targetId: summary.targetId,
       bucketName: summary.bucketName,
-      deletedObjectCount: cleanupResult.deletedObjectCount,
-      deletedBytes: summary.totalBytes,
-      deletedBytesLabel: formatBytes(summary.totalBytes),
+      uploadCount: summary.uploadCount,
+      abortedCount,
+      failedCount: failures.length,
+      failures: failures.slice(0, 20),
     });
   }
 
@@ -171,14 +172,8 @@ async function main() {
       {
         ...baseResponse,
         executedTargetCount: results.length,
-        deletedObjectCount: results.reduce(
-          (sum, item) => sum + item.deletedObjectCount,
-          0
-        ),
-        deletedBytes: results.reduce((sum, item) => sum + item.deletedBytes, 0),
-        deletedBytesLabel: formatBytes(
-          results.reduce((sum, item) => sum + item.deletedBytes, 0)
-        ),
+        abortedCount: results.reduce((sum, item) => sum + item.abortedCount, 0),
+        failedCount: results.reduce((sum, item) => sum + item.failedCount, 0),
         results,
       },
       null,
