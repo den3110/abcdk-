@@ -2,17 +2,26 @@
 import TournamentManager from "../models/tournamentManagerModel.js";
 import User from "../models/userModel.js";
 import Tournament from "../models/tournamentModel.js";
+import Match from "../models/matchModel.js";
 import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 
-/** helper: kiểm tra quyền admin hoặc chủ giải (tuỳ bạn có field owner/organizer) */
+/** helper: admin hoặc người tạo giải mới được thêm/xoá manager */
 async function canManageManagers(reqUser, tournamentId) {
-  if (!reqUser) return false;
-  if (reqUser.role === "admin") return true;
-  // nếu bạn có field organizer/owner cho Tournament, mở comment bên dưới:
-  // const t = await Tournament.findById(tournamentId).select("organizer");
-  // if (t && String(t.organizer) === String(reqUser._id)) return true;
-  return false;
+  if (!reqUser || !tournamentId) return false;
+
+  const isAdmin =
+    reqUser.role === "admin" ||
+    reqUser.isAdmin === true ||
+    (Array.isArray(reqUser.roles) && reqUser.roles.includes("admin"));
+  if (isAdmin) return true;
+
+  const tournament = await Tournament.findById(tournamentId)
+    .select("createdBy")
+    .lean();
+  if (!tournament) return false;
+
+  return String(tournament.createdBy || "") === String(reqUser._id || "");
 }
 
 /** GET /api/tournaments/:id/managers */
@@ -117,5 +126,55 @@ export const verifyTournamentManager = asyncHandler(async (req, res) => {
     isManager,
     via: tm ? "manager" : isCreator ? "creator" : isAdmin ? "admin" : "none",
     managerRecord: tm || null,
+  });
+});
+
+/**
+ * GET /api/tournaments/:tid/is-referee?user=<userId>
+ * - Mac dinh dung req.user._id neu khong truyen ?user=
+ * - TRUE neu user nam trong scope referee cua giai
+ *   HOAC da duoc gan vao it nhat 1 tran cua giai
+ * - Khong suy luan tu role=referee
+ */
+export const verifyTournamentReferee = asyncHandler(async (req, res) => {
+  const tid = req.params.tid || req.params.id;
+  const userId = req.query.user || req.query.userId || req.user?._id;
+
+  if (!tid || !userId) {
+    res.status(400);
+    throw new Error("Thiếu tournament id hoặc user id");
+  }
+  if (!isOID(tid) || !isOID(userId)) {
+    res.status(400);
+    throw new Error("ID không hợp lệ");
+  }
+
+  const TID = OID(tid);
+  const UID = OID(userId);
+
+  const [scopeUser, assignedMatch] = await Promise.all([
+    User.findOne({
+      _id: UID,
+      isDeleted: { $ne: true },
+      "referee.tournaments": TID,
+    })
+      .select("_id role referee.tournaments")
+      .lean(),
+    Match.findOne({
+      tournament: TID,
+      referee: UID,
+    })
+      .select("_id referee tournament")
+      .lean(),
+  ]);
+
+  const isReferee = !!(scopeUser || assignedMatch);
+
+  res.json({
+    tournamentId: String(tid),
+    userId: String(userId),
+    isReferee,
+    via: scopeUser ? "tournament_scope" : assignedMatch ? "match_assignment" : "none",
+    matchId: assignedMatch?._id ? String(assignedMatch._id) : null,
   });
 });

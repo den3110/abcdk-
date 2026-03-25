@@ -11,6 +11,8 @@ const toPositiveInt = (v) => {
  * Ưu tiên: reg.payment.amount -> tour.registrationFee -> tour.fee -> tour.entryFee
  */
 export const getFeeAmount = (tour, reg) => {
+  if (tour?.isFreeRegistration === true) return 0;
+
   const regAmt = toPositiveInt(reg?.payment?.amount);
   if (regAmt) return regAmt;
 

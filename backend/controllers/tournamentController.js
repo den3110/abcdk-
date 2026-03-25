@@ -16,6 +16,10 @@ import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
 } from "../services/publicStreams.service.js";
+import {
+  buildTeamRoster,
+  buildTeamStandings,
+} from "../services/teamTournament.service.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS = Math.max(
@@ -438,6 +442,7 @@ const listTournamentMatchesBracketView = async (req, res) => {
         "gameScores",
         "status",
         "winner",
+        "referee",
         "scheduledAt",
         "startedAt",
         "finishedAt",
@@ -544,6 +549,7 @@ const listTournamentMatchesScheduleView = async (req, res) => {
         "gameScores",
         "status",
         "winner",
+        "referee",
         "scheduledAt",
         "startedAt",
         "finishedAt",
@@ -890,7 +896,10 @@ const getTournamentById = asyncHandler(async (req, res) => {
   let cached = tournamentDetailCache.get(cacheKey);
 
   if (!cached) {
-    const tour = await Tournament.findById(id).lean();
+    const tour = await Tournament.findById(id)
+      .populate("allowedCourtClusterIds", "name slug venueName isActive order")
+      .populate("teamConfig.factions.captainUser", "name nickname avatar phone")
+      .lean();
     if (!tour) {
       res.status(404);
       throw new Error("Tournament not found");
@@ -921,17 +930,22 @@ const getTournamentById = asyncHandler(async (req, res) => {
     else if (endInstant && now > new Date(endInstant)) status = "finished";
     else status = "ongoing";
 
-    const bankShortName =
-      tour.bankShortName || tour.qrBank || tour.bankCode || tour.bank || "";
-    const bankAccountNumber =
-      tour.bankAccountNumber || tour.qrAccount || tour.bankAccount || "";
-    const bankAccountName =
-      tour.bankAccountName ||
-      tour.accountName ||
-      tour.paymentAccountName ||
-      tour.beneficiaryName ||
-      "";
+    const isFreeRegistration = tour.isFreeRegistration === true;
+    const bankShortName = isFreeRegistration
+      ? ""
+      : tour.bankShortName || tour.qrBank || tour.bankCode || tour.bank || "";
+    const bankAccountNumber = isFreeRegistration
+      ? ""
+      : tour.bankAccountNumber || tour.qrAccount || tour.bankAccount || "";
+    const bankAccountName = isFreeRegistration
+      ? ""
+      : tour.bankAccountName ||
+        tour.accountName ||
+        tour.paymentAccountName ||
+        tour.beneficiaryName ||
+        "";
     const registrationFee = (() => {
+      if (isFreeRegistration) return 0;
       const raw = tour.registrationFee ?? tour.fee ?? tour.entryFee ?? 0;
       const n = Number(raw);
       return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
@@ -941,6 +955,28 @@ const getTournamentById = asyncHandler(async (req, res) => {
 
     cached = {
       ...normalizedTour,
+      allowedCourtClusters: Array.isArray(normalizedTour.allowedCourtClusterIds)
+        ? normalizedTour.allowedCourtClusterIds.map((cluster) => ({
+            _id: String(cluster?._id || cluster || ""),
+            name: String(cluster?.name || "").trim(),
+            slug: String(cluster?.slug || "").trim(),
+            venueName: String(cluster?.venueName || "").trim(),
+            isActive: cluster?.isActive !== false,
+            order: Number(cluster?.order || 0),
+          }))
+        : [],
+      tournamentMode: normalizedTour.tournamentMode || "standard",
+      teamConfig: {
+        factions: Array.isArray(normalizedTour?.teamConfig?.factions)
+          ? normalizedTour.teamConfig.factions.map((faction, index) => ({
+              _id: String(faction?._id || ""),
+              name: String(faction?.name || "").trim(),
+              order: Number(faction?.order ?? index),
+              isActive: faction?.isActive !== false,
+              captainUser: faction?.captainUser || null,
+            }))
+          : [],
+      },
       status,
       managers,
       _managerUserIds: managerRows.map((r) => String(r.user)),
@@ -953,6 +989,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
       bankAccountNumber,
       bankAccountName,
       registrationFee,
+      isFreeRegistration,
       qrBank: bankShortName,
       qrAccount: bankAccountNumber,
       fee: registrationFee,
@@ -1254,6 +1291,26 @@ const toObjectId = (id) => {
     return null;
   }
 };
+
+export const getTeamRoster = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isId(id)) {
+    res.status(400);
+    throw new Error("Invalid tournament id");
+  }
+  const payload = await buildTeamRoster(id);
+  res.json(payload);
+});
+
+export const getTeamStandings = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isId(id)) {
+    res.status(400);
+    throw new Error("Invalid tournament id");
+  }
+  const payload = await buildTeamStandings(id);
+  res.json(payload);
+});
 
 export { getTournaments, getTournamentById };
 

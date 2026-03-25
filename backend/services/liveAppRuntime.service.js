@@ -1,11 +1,15 @@
 import mongoose from "mongoose";
 import Court from "../models/courtModel.js";
+import CourtStation from "../models/courtStationModel.js";
 import Match from "../models/matchModel.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { getManualAssignmentItems } from "./courtManualAssignment.service.js";
 import { getCourtLivePresenceSummaryMap } from "./courtLivePresence.service.js";
+import { getCourtStationPresenceSummaryMap } from "./courtStationPresence.service.js";
 import { getLiveLeaseConfig } from "./liveSessionLease.service.js";
 import { CACHE_GROUP_IDS } from "./cacheGroups.js";
+import { resolveMatchCourtStationFields } from "./courtCluster.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 const COURT_RUNTIME_CACHE_TTL_MS = Math.max(
   1000,
@@ -189,6 +193,15 @@ function buildTournamentLogoUrl(match) {
   );
 }
 
+function buildResolvedCourtName(match) {
+  const resolved = resolveMatchCourtStationFields(match);
+  return (
+    resolved.courtStationName ||
+    pick(match?.court?.name) ||
+    pick(match?.court?.label)
+  );
+}
+
 function sortKey(match) {
   return [
     STATUS_RANK[match?.status] ?? 99,
@@ -307,8 +320,65 @@ function buildCourtRuntimePayload({ court, presence, nextMatchId, leaseConfig })
   };
 }
 
+function buildCourtStationRuntimePayload({
+  station,
+  presence,
+  leaseConfig,
+}) {
+  const currentMatchId = toIdString(station?.currentMatch) || null;
+  const queueItems = Array.isArray(station?.assignmentQueue?.items)
+    ? station.assignmentQueue.items
+    : [];
+  const queueCount = queueItems.length;
+  const nextQueuedMatchId =
+    toIdString(queueItems[0]?.matchId || queueItems[0]?.match?._id) || null;
+  const assignmentMode =
+    String(station?.assignmentMode || "").trim().toLowerCase() === "queue"
+      ? "queue"
+      : "manual";
+  const screenState = pick(presence?.screenState).toLowerCase();
+  const hasWaitingPresence = WAITING_SCREEN_STATES.has(screenState);
+  const waitingForAssignment =
+    !currentMatchId || station?.status === "idle" || hasWaitingPresence;
+  const recommendedPollIntervalMs = waitingForAssignment
+    ? COURT_RUNTIME_WAIT_POLL_MS
+    : COURT_RUNTIME_STEADY_POLL_MS;
+
+  return {
+    ok: true,
+    courtId: toIdString(station?._id),
+    courtStationId: toIdString(station?._id),
+    courtClusterId: toIdString(station?.clusterId?._id || station?.clusterId) || null,
+    courtClusterName: pick(station?.clusterId?.name),
+    tournamentId: toIdString(station?.currentTournament) || null,
+    bracketId: null,
+    name: pick(station?.name) || null,
+    status: pick(station?.status) || "idle",
+    isActive: station?.isActive !== false,
+    currentMatchId,
+    nextMatchId: nextQueuedMatchId,
+    assignmentMode,
+    queueCount,
+    listEnabled: assignmentMode === "queue",
+    remainingManualCount: queueCount,
+    recommendedPollIntervalMs,
+    cacheTtlMs: COURT_RUNTIME_CACHE_TTL_MS,
+    presence: presence || null,
+    presenceHints: {
+      occupied: Boolean(presence?.occupied),
+      screenState: presence?.screenState || null,
+      heartbeatIntervalMs: COURT_RUNTIME_WAIT_POLL_MS,
+    },
+    leaseHints: {
+      heartbeatIntervalMs: leaseConfig?.heartbeatIntervalMs || null,
+      leaseTimeoutMs: leaseConfig?.leaseTimeoutMs || null,
+    },
+  };
+}
+
 function buildMatchRuntimePayload(match) {
   const displayMode = resolveDisplayMode(match);
+  const { code, displayCode } = buildMatchCodePayload(match);
   const teamAName = teamDisplayName(match?.pairA, displayMode);
   const teamBName = teamDisplayName(match?.pairB, displayMode);
   const gameScores = buildGameScores(match);
@@ -320,8 +390,8 @@ function buildMatchRuntimePayload(match) {
 
   return {
     _id: toIdString(match?._id),
-    code: pick(match?.code) || null,
-    displayCode: pick(match?.code) || pick(match?.labelKey) || null,
+    code: pick(code) || null,
+    displayCode: pick(displayCode) || null,
     displayNameMode: displayMode,
     liveVersion: Number(match?.liveVersion || 0),
     teamAName,
@@ -332,7 +402,7 @@ function buildMatchRuntimePayload(match) {
     serveCount,
     status: pick(match?.status) || "scheduled",
     tournamentName: pick(match?.tournament?.name),
-    courtName: pick(match?.court?.name) || pick(match?.court?.label),
+    courtName: buildResolvedCourtName(match),
     tournamentLogoUrl: tournamentLogoUrl || null,
     stageName: buildStageName(match),
     phaseText: pick(match?.phase),
@@ -364,6 +434,10 @@ function buildMatchRuntimePayload(match) {
               : null,
         }
       : null,
+    courtStationId: resolveMatchCourtStationFields(match).courtStationId,
+    courtStationName: resolveMatchCourtStationFields(match).courtStationName,
+    courtClusterId: resolveMatchCourtStationFields(match).courtClusterId,
+    courtClusterName: resolveMatchCourtStationFields(match).courtClusterName,
   };
 }
 
@@ -378,6 +452,27 @@ export async function buildLiveAppCourtRuntime(courtId) {
     return {
       ...cached,
       _cache: { hit: true, ttlMs: COURT_RUNTIME_CACHE_TTL_MS },
+    };
+  }
+
+  const station = await CourtStation.findById(normalizedCourtId)
+    .populate("clusterId", "name slug")
+    .lean();
+  if (station) {
+    const [presenceMap, leaseConfig] = await Promise.all([
+      getCourtStationPresenceSummaryMap([normalizedCourtId]),
+      getLiveLeaseConfig().catch(() => null),
+    ]);
+
+    const payload = buildCourtStationRuntimePayload({
+      station,
+      presence: presenceMap.get(normalizedCourtId) || station?.presence?.liveScreenPresence || null,
+      leaseConfig,
+    });
+    courtRuntimeCache.set(normalizedCourtId, payload);
+    return {
+      ...payload,
+      _cache: { hit: false, ttlMs: COURT_RUNTIME_CACHE_TTL_MS },
     };
   }
 
@@ -423,7 +518,7 @@ export async function buildLiveAppMatchRuntime(matchId) {
 
   const match = await Match.findById(normalizedMatchId)
     .select(
-      "_id code labelKey liveVersion status format phase round rules gameScores currentGame serve isBreak tournament bracket pairA pairB court"
+      "_id code displayCode globalCode labelKey liveVersion status format phase pool group groupNo groupIndex rrRound round order matchNo index stageIndex rules gameScores currentGame serve isBreak tournament bracket pairA pairB court courtStation courtStationLabel courtClusterId courtClusterLabel"
     )
     .populate({
       path: "tournament",
@@ -436,6 +531,14 @@ export async function buildLiveAppMatchRuntime(matchId) {
     .populate({
       path: "court",
       select: "name label number",
+    })
+    .populate({
+      path: "courtStation",
+      select: "name code clusterId",
+      populate: {
+        path: "clusterId",
+        select: "name slug",
+      },
     })
     .populate({
       path: "pairA",

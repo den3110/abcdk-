@@ -31,6 +31,7 @@ import {
   DialogActions,
   Autocomplete,
   InputAdornment,
+  Skeleton,
 } from "@mui/material";
 import { useSelector } from "react-redux";
 import {
@@ -928,22 +929,16 @@ function useLockedMatch(m, { loading }) {
   const [lockedId, setLockedId] = useState(() => (m?._id ? String(m._id) : ""));
   const [view, setView] = useState(() => (m?._id ? m : null));
 
-  useEffect(() => {
-    if (!lockedId && m?._id) {
-      setLockedId(String(m._id));
+  // Pattern: Derived state during render. React will re-render before DOM paint.
+  // Tránh flash 1 frame lỗi do useEffect chạy chậm hơn render.
+  if (m?._id && !lockedId) {
+    setLockedId(String(m._id));
+    setView(m);
+  } else if (m?._id && lockedId && String(m._id) === lockedId) {
+    if (!isMatchEqual(view, m)) {
       setView(m);
     }
-  }, [m?._id, lockedId, m]);
-
-  useEffect(() => {
-    if (!m) return;
-    if (lockedId && String(m._id) === String(lockedId)) {
-      setView((prev) => (isMatchEqual(prev, m) ? prev : m));
-    } else if (!lockedId && m?._id) {
-      setLockedId(String(m._id));
-      setView(m);
-    }
-  }, [m, lockedId]);
+  }
 
   const waiting = loading && !view;
 
@@ -1222,7 +1217,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const scheduledAt = toDateSafe(mm?.scheduledAt || mm?.assignedAt);
   const finishedAt = toDateSafe(mm?.finishedAt);
   const startLabel =
-    status === "finished" || status === "live"
+    status === "live"
       ? startedAt
         ? `Bắt đầu: ${formatClock(startedAt)}`
         : scheduledAt
@@ -1526,9 +1521,15 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   /* ====================== Render ====================== */
   if (showSpinner) {
     return (
-      <Box py={4} textAlign="center">
-        <CircularProgress />
-      </Box>
+      <Stack spacing={2} sx={{ position: "relative", p: { xs: 1, md: 2 } }}>
+        <Skeleton variant="rounded" height={60} />
+        <Skeleton variant="rounded" height={140} />
+        <Skeleton variant="rounded" height={100} />
+        <Stack direction="row" spacing={1.5}>
+          <Skeleton variant="rounded" width={120} height={40} />
+          <Skeleton variant="rounded" width={120} height={40} />
+        </Stack>
+      </Stack>
     );
   }
   if (showError) {

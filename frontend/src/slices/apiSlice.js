@@ -175,6 +175,13 @@ export const apiSlice = createApi({
     "ClubMember",
     "JoinRequest",
     "AvatarOptimization",
+    "LiveCluster",
+    "LiveCourt",
+    "TournamentCourtClusters",
+    "TournamentCourtClusterRuntime",
+    "CourtClusterRuntime",
+    "TournamentManagers",
+    "Tournaments",
   ],
   endpoints: () => ({}),
 });

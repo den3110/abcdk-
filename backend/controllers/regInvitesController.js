@@ -93,6 +93,11 @@ async function alreadyRegistered(tourId, userIds) {
   return exist || null;
 }
 
+const buildFreeTournamentPayment = (tour) =>
+  tour?.isFreeRegistration === true
+    ? { status: "Paid", paidAt: new Date() }
+    : { status: "Unpaid" };
+
 function inRegWindow(tour) {
   const now = Date.now();
   const openAt =
@@ -370,6 +375,12 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
+  if (String(tour?.tournamentMode || "").toLowerCase() === "team") {
+    res.status(403);
+    throw new Error(
+      "Giải đồng đội chỉ cho phép đội trưởng hoặc quản lý giải thêm roster."
+    );
+  }
   const eventType = normET(tour.eventType);
   const isSingle = eventType === "single";
   const isDouble = eventType === "double";
@@ -437,7 +448,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       player2: isSingle ? null : snap(u2, s2),
       message,
       createdBy: me._id,
-      payment: { status: "Unpaid" },
+      payment: buildFreeTournamentPayment(tour),
       meta: { createdByAdmin: true },
     });
 
@@ -663,7 +674,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     player2: isSingle ? null : snap(u2, p2Score),
     message,
     createdBy: me._id,
-    payment: { status: "Unpaid" },
+    payment: buildFreeTournamentPayment(tour),
     meta: { autoByKyc: requireKyc === true, ageChecked: !!ar.enabled },
   });
 

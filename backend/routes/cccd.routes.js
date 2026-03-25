@@ -12,7 +12,7 @@ router.post("/extract", upload.single("image"), extractCCCD);
 
 router.post("/extract-openai", upload.single("image"), extractCCCDOpenAI);
 
-router.post("/extract-kyc", upload.single("image"), extractKycCCCD);
+router.post("/extract-kyc", upload.any(), extractKycCCCD);
 
 // GET /api/cccd/result/:id
 router.get("/result/:id", getCCCDResult);

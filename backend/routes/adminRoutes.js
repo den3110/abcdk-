@@ -33,11 +33,13 @@ import {
   finishTournament,
   getTournamentById,
   getTournaments,
+  listTournamentAllowedCourtClusterOptions,
   listTournamentRefereesInScope,
   planAuto,
   planCommit,
   planGet,
   planUpdate,
+  updateTournamentAllowedCourtClusters,
   updateTournamentOverlay,
   updateTournamentTimeoutPerGame,
   upsertTournamentReferees,
@@ -207,6 +209,26 @@ import {
   adminListLiveSessions,
   adminStopLiveSession,
 } from "../controllers/adminLiveController.js";
+import {
+  assignMatchToCourtStationHttp,
+  appendTournamentCourtStationQueueItemHttp,
+  assignTournamentMatchToCourtStationHttp,
+  createAdminCourtCluster,
+  createAdminCourtStation,
+  deleteAdminCourtCluster,
+  deleteAdminCourtStation,
+  freeTournamentCourtStationHttp,
+  freeCourtStationHttp,
+  getAdminCourtClusterRuntime,
+  getAdminCourtStationCurrentMatch,
+  getTournamentCourtClusterRuntime,
+  listAdminCourtClusters,
+  listAdminCourtStations,
+  removeTournamentCourtStationQueueItemHttp,
+  updateTournamentCourtStationAssignmentConfigHttp,
+  updateAdminCourtCluster,
+  updateAdminCourtStation,
+} from "../controllers/admin/adminCourtClusterController.js";
 import { exchangeLongUserToken } from "../controllers/adminFacebookController.js";
 import {
   getNewsCandidates,
@@ -256,14 +278,14 @@ router.get("/referees/search", protect, searchUsersForRefereeAssign);
 router.get("/tournaments/:tid/courts", protect, listCourtsByTournament);
 router.post("/courts/deleteAll", protect, deleteAllCourts);
 router.delete("/courts/:courtId", protect, deleteOneCourt);
-// POST   /api/admin/tournaments/:tid/matches/:mid/court  -> gÃ¡n sÃ¢n
+// POST   /api/admin/tournaments/:tid/matches/:mid/court  -> gán sân
 router.post(
   "/tournaments/:tid/matches/:mid/court",
   protect,
   assignMatchToCourt
 );
 
-// DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bá» gÃ¡n sÃ¢n
+// DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bá» gán sân
 router.delete("/tournaments/:tid/matches/:mid/court", protect, clearMatchCourt);
 
 router.get(
@@ -301,7 +323,56 @@ router.put(
   updateTournamentTimeoutPerGame
 );
 
-router.use(protect, authorize("admin")); // táº¥t cáº£ dÆ°á»›i Ä‘Ã¢y cáº§n admin
+router.get(
+  "/tournaments/:tournamentId/allowed-court-clusters/options",
+  protect,
+  isManagerTournament,
+  listTournamentAllowedCourtClusterOptions
+);
+router.put(
+  "/tournaments/:tournamentId/allowed-court-clusters",
+  protect,
+  isManagerTournament,
+  updateTournamentAllowedCourtClusters
+);
+router.get(
+  "/tournaments/:tournamentId/court-clusters/:clusterId/runtime",
+  protect,
+  isManagerTournament,
+  getTournamentCourtClusterRuntime
+);
+router.post(
+  "/tournaments/:tournamentId/court-stations/:stationId/assign-match",
+  protect,
+  isManagerTournament,
+  assignTournamentMatchToCourtStationHttp
+);
+router.put(
+  "/tournaments/:tournamentId/court-stations/:stationId/assignment-config",
+  protect,
+  isManagerTournament,
+  updateTournamentCourtStationAssignmentConfigHttp
+);
+router.post(
+  "/tournaments/:tournamentId/court-stations/:stationId/queue/items",
+  protect,
+  isManagerTournament,
+  appendTournamentCourtStationQueueItemHttp
+);
+router.delete(
+  "/tournaments/:tournamentId/court-stations/:stationId/queue/items/:matchId",
+  protect,
+  isManagerTournament,
+  removeTournamentCourtStationQueueItemHttp
+);
+router.post(
+  "/tournaments/:tournamentId/court-stations/:stationId/free",
+  protect,
+  isManagerTournament,
+  freeTournamentCourtStationHttp
+);
+
+router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
 router.get("/assets/tournament-image", getAdminTournamentImageProxy);
 
@@ -337,7 +408,7 @@ router.post("/score-history", createScoreHistory); // body { userId, ... }
 
 router
   .route("/tournaments/:id")
-  // .all(validateObjectId)           // (náº¿u dÃ¹ng)
+  // .all(validateObjectId)           // (nếu dùng)
   .get(getTournamentById) // GET    /api/admin/tournaments/:id
   .put(adminUpdateTournament) // PUT    /api/admin/tournaments/:id
   .delete(deleteTournament); // DELETE /api/admin/tournaments/:id
@@ -376,7 +447,7 @@ router.post(
   adminCreateBracket
 );
 
-// get lists of bracket cá»§a tournament
+// get lists of bracket của tournament
 router.get(
   "/tournaments/:id/brackets",
   protect,
@@ -384,7 +455,7 @@ router.get(
   getBracketsWithMatches
 );
 
-// get lists of bracket cá»§a tournament
+// get lists of bracket của tournament
 router.get(
   "/tournaments/:id/brackets/structure",
   protect,
@@ -502,7 +573,7 @@ router.put(
   finishTournament
 );
 
-// Xem trÆ°á»›c (khÃ´ng ghi DB)
+// Xem trước (không ghi DB)
 router.post(
   "/users/auto/preview",
   protect,
@@ -510,7 +581,7 @@ router.post(
   previewAutoUsers
 );
 
-// Táº¡o tháº­t (ghi DB)
+// Tạo thật (ghi DB)
 router.post("/users/auto/create", protect, authorize("admin"), createAutoUsers);
 router.patch(
   "/users/:id/password",
@@ -695,25 +766,25 @@ router.get(
 
 // relate court
 
-// Courts CRUD (upsert theo cá»¥m)
+// Courts CRUD (upsert theo cụm)
 // router.post("/tournaments/:id/courts", upsertCourts);
 
-// Build hÃ ng Ä‘á»£i vÃ²ng báº£ng (xoay lÆ°á»£t A1,B1,C1,D1,...)
+// Build hàng đợi vòng bảng (xoay lượt A1,B1,C1,D1,...)
 // router.post("/tournaments/:id/queue/groups:build", buildGroupsQueue);
 
-// GÃ¡n tráº­n káº¿ tiáº¿p há»£p lá»‡ vÃ o 1 sÃ¢n
+// Gán trận kế tiếp hợp lệ vào 1 sân
 // router.post(
 //   "/tournaments/:id/courts/:courtId/assign-next",
 //   assignNextToCourtCtrl
 // );
 
-// (Tuá»³ chá»n) Giáº£i phÃ³ng sÃ¢n + auto-assign
+// (Tuá»³ chá»n) Giải phóng sân + auto-assign
 // router.post("/courts/:courtId/free", freeCourtCtrl);
 
-// Táº¥t cáº£ endpoint yÃªu cáº§u quyá»n admin á»Ÿ middleware global cá»§a báº¡n
+// Táº¥t cáº£ endpoint yêu cầu quyá»n admin ở middleware global cá»§a bạn
 // router.post("/brackets/:bracketId/courts",protect, authorize("admin"), upsertBracketCourts);
 
-// Táº¥t cáº£ require admin
+// Tất cả require admin
 
 router.post(
   "/tournaments/:tournamentId/queue/groups/build",
@@ -769,7 +840,7 @@ router.get(
 router.post(
   "/tournaments/:tournamentId/courts/:courtId/assign-specific",
   protect,
-  authorize("admin"), // náº¿u báº¡n cÃ³ middleware
+  authorize("admin"), // nếu bạn có middleware
   assignSpecificHttp
 );
 
@@ -810,10 +881,10 @@ router.post(
   feedStageToNext
 );
 
-// Danh sÃ¡ch + filter
+// Danh sách + filter
 router.get("/evaluators/", protect, authorize("admin"), listEvaluators);
 
-// Cáº­p nháº­t pháº¡m vi cháº¥m
+// Cập nhật phạm vi chấm
 router.patch(
   "/evaluators/:id/scopes",
   protect,
@@ -923,11 +994,59 @@ router.get(
   getAdminPushDispatchDetail
 );
 
+router
+  .route("/court-clusters")
+  .get(protect, authorize("admin"), listAdminCourtClusters)
+  .post(protect, authorize("admin"), createAdminCourtCluster);
+
+router
+  .route("/court-clusters/:id")
+  .put(protect, authorize("admin"), updateAdminCourtCluster)
+  .delete(protect, authorize("admin"), deleteAdminCourtCluster);
+
+router.get(
+  "/court-clusters/:id/runtime",
+  protect,
+  authorize("admin"),
+  getAdminCourtClusterRuntime
+);
+
+router
+  .route("/court-clusters/:id/courts")
+  .get(protect, authorize("admin"), listAdminCourtStations)
+  .post(protect, authorize("admin"), createAdminCourtStation);
+
+router
+  .route("/court-clusters/:id/courts/:stationId")
+  .put(protect, authorize("admin"), updateAdminCourtStation)
+  .delete(protect, authorize("admin"), deleteAdminCourtStation);
+
+router.post(
+  "/court-stations/:id/assign-match",
+  protect,
+  authorize("admin"),
+  assignMatchToCourtStationHttp
+);
+
+router.post(
+  "/court-stations/:id/free",
+  protect,
+  authorize("admin"),
+  freeCourtStationHttp
+);
+
+router.get(
+  "/court-stations/:id/current-match",
+  protect,
+  authorize("admin"),
+  getAdminCourtStationCurrentMatch
+);
+
 router.get("/fb-live-config", protect, authorize("admin"), getConfig);
 router.put("/fb-live-config", protect, authorize("admin"), updateConfig);
 
 router.get("/config", protect, authorize("admin"), getAllConfig); // list (mask secret)
-router.get("/config/:key", protect, authorize("admin"), getConfigValue); // get 1 key (khÃ´ng mask â€” tuá»³ policy)
+router.get("/config/:key", protect, authorize("admin"), getConfigValue); // get 1 key (không mask — tuỳ policy)
 router.post("/config", protect, authorize("admin"), upsertConfig); // upsert { key, value, isSecret? }
 router.delete("/config/:key", protect, authorize("admin"), deleteConfig);
 
@@ -1005,7 +1124,7 @@ router.post(
   backfillUsersFromCccd
 );
 
-// NEW: AI CCCD cho tá»«ng user
+// NEW: AI CCCD cho từng user
 router.post(
   "/users/:id/ai-cccd",
   protect,

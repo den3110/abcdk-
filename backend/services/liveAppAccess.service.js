@@ -1,5 +1,6 @@
 import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
+import { listManageableCourtClustersForUser } from "./courtCluster.service.js";
 
 function normalizeText(value, fallback = "") {
   const text = String(value || "").trim();
@@ -64,6 +65,7 @@ export async function buildLiveAppBootstrapForUser(user) {
       canUseLiveApp: false,
       roleSummary: "anonymous",
       manageableTournaments: [],
+      manageableCourtClusters: [],
       reason: "unauthorized",
       message: "Bạn cần đăng nhập PickleTour để dùng app live.",
       user: null,
@@ -74,8 +76,12 @@ export async function buildLiveAppBootstrapForUser(user) {
   const manageableTournaments = isAdmin
     ? await listAdminTournaments()
     : await listManagedTournaments(user._id);
+  const manageableCourtClusters = await listManageableCourtClustersForUser(user);
 
-  const canUseLiveApp = isAdmin || manageableTournaments.length > 0;
+  const canUseLiveApp =
+    isAdmin ||
+    manageableTournaments.length > 0 ||
+    manageableCourtClusters.length > 0;
   const roleSummary = buildRoleSummary(user, manageableTournaments.length);
 
   return {
@@ -84,6 +90,7 @@ export async function buildLiveAppBootstrapForUser(user) {
     canUseLiveApp,
     roleSummary,
     manageableTournaments,
+    manageableCourtClusters,
     reason: canUseLiveApp ? null : "live_access_denied",
     message: canUseLiveApp
       ? null

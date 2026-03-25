@@ -22,6 +22,154 @@ const normalizeStr = (v) => {
   return s || null;
 };
 
+const VIETNAMESE_DIACRITIC_RE =
+  /[ăâđêôơưáàạảãấầậẩẫắằặẳẵéèẹẻẽếềệểễíìịỉĩóòọỏõốồộổỗớờợởỡúùụủũứừựửữýỳỵỷỹ]/i;
+
+const VN_LOCATION_KEYWORDS = [
+  "viet nam",
+  "vietnam",
+  "ha noi",
+  "hanoi",
+  "ho chi minh",
+  "tp hcm",
+  "tphcm",
+  "sai gon",
+  "saigon",
+  "da nang",
+  "can tho",
+  "hai phong",
+  "quan ",
+  "huyen ",
+  "phuong ",
+  "xa ",
+  "thi tran",
+  "thanh pho",
+  "tinh ",
+];
+
+const GENERIC_VENUE_KEYWORDS = [
+  "san",
+  "club",
+  "clb",
+  "pickleball",
+  "stadium",
+  "arena",
+  "court",
+  "center",
+  "centre",
+  "gym",
+  "resort",
+  "hotel",
+];
+
+const EXPLICIT_COUNTRY_HINTS = [
+  {
+    code: "KR",
+    needles: [
+      "seoul",
+      "south korea",
+      "korea",
+      "han quoc",
+      "busan",
+      "incheon",
+      "daegu",
+      "daejeon",
+    ],
+  },
+  {
+    code: "TH",
+    needles: ["bangkok", "thailand", "thai lan", "chiang mai", "pattaya", "phuket"],
+  },
+  {
+    code: "SG",
+    needles: ["singapore", "singapura"],
+  },
+  {
+    code: "MY",
+    needles: ["malaysia", "kuala lumpur", "johor", "penang"],
+  },
+  {
+    code: "ID",
+    needles: ["indonesia", "jakarta", "bali", "surabaya"],
+  },
+  {
+    code: "PH",
+    needles: ["philippines", "manila", "cebu"],
+  },
+  {
+    code: "JP",
+    needles: ["japan", "nhat ban", "tokyo", "osaka", "kyoto", "nagoya", "yokohama"],
+  },
+  {
+    code: "TW",
+    needles: ["taiwan", "taipei", "kaohsiung"],
+  },
+  {
+    code: "CN",
+    needles: ["china", "trung quoc", "beijing", "shanghai", "guangzhou", "shenzhen"],
+  },
+  {
+    code: "HK",
+    needles: ["hong kong"],
+  },
+  {
+    code: "US",
+    needles: [
+      "usa",
+      "united states",
+      "new york",
+      "los angeles",
+      "california",
+      "texas",
+      "las vegas",
+      "washington dc",
+    ],
+  },
+  {
+    code: "AU",
+    needles: ["australia", "sydney", "melbourne", "brisbane", "perth"],
+  },
+];
+
+const normalizeLookup = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const hasAnyNeedle = (haystack, needles = []) => needles.some((needle) => haystack.includes(needle));
+
+export function inferTournamentCountryHint(location, fallbackHint = "VN") {
+  const raw = String(location || "").trim();
+  if (!raw) return fallbackHint || null;
+
+  const normalized = normalizeLookup(raw);
+  if (!normalized) return fallbackHint || null;
+
+  for (const entry of EXPLICIT_COUNTRY_HINTS) {
+    if (hasAnyNeedle(normalized, entry.needles)) return entry.code;
+  }
+
+  if (
+    VIETNAMESE_DIACRITIC_RE.test(raw) ||
+    hasAnyNeedle(normalized, VN_LOCATION_KEYWORDS)
+  ) {
+    return "VN";
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const hasVenueMarker = hasAnyNeedle(normalized, GENERIC_VENUE_KEYWORDS);
+
+  if (!hasVenueMarker && words.length <= 2) {
+    return null;
+  }
+
+  return fallbackHint || null;
+}
+
 const buildSystemPrompt = (kind) => {
   const head =
     "You are a geocoding engine for a sports platform. " +
@@ -31,7 +179,8 @@ const buildSystemPrompt = (kind) => {
   const rules =
     "Rules:\n" +
     "- Prefer coordinates in WGS84.\n" +
-    "- Country hint is important: strongly assume the place is in that country.\n" +
+    "- If country hint is present, treat it as a prior, not an absolute rule.\n" +
+    "- If the location string clearly names a place in another country, follow the explicit place over the hint.\n" +
     "- If exact venue is unknown but you can identify city/province, use city/province center.\n" +
     "- Only return null lat/lon if you cannot identify even city/province.\n\n";
 
@@ -66,13 +215,13 @@ const buildSystemPrompt = (kind) => {
  */
 export async function geocodeTournamentLocation({
   location,
-  countryHint = "VN",
+  countryHint,
 } = {}) {
   const raw = String(location || "").trim();
   if (!raw) return { ...BASE_RESULT, raw: "" };
 
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn("[geocodeTournamentLocation] Missing OPENAI_API_KEY", {
+  if (!process.env.CLIPROXY_API_KEY && !process.env.OPENAI_API_KEY) {
+    console.warn("[geocodeTournamentLocation] Missing geocode API key", {
       location: raw,
     });
     return { ...BASE_RESULT, raw };
@@ -80,13 +229,16 @@ export async function geocodeTournamentLocation({
 
   try {
     const systemPrompt = buildSystemPrompt("tournament");
+    const resolvedCountryHint = normalizeStr(countryHint);
     const userPrompt =
       `Location string: "${raw}".\n` +
-      `Country hint (ISO 3166-1 alpha-2): "${countryHint || "VN"}".\n` +
+      (resolvedCountryHint
+        ? `Country hint (ISO 3166-1 alpha-2): "${resolvedCountryHint}".\n`
+        : "Country hint: not provided.\n") +
       "Return ONLY JSON, no explanation, no markdown.";
 
     const response = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: OPENAI_DEFAULT_MODEL,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -155,8 +307,8 @@ export async function geocodeClubLocation({
   const raw = String(location || "").trim();
   if (!raw) return { ...BASE_RESULT, raw: "" };
 
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn("[geocodeClubLocation] Missing OPENAI_API_KEY", {
+  if (!process.env.CLIPROXY_API_KEY && !process.env.OPENAI_API_KEY) {
+    console.warn("[geocodeClubLocation] Missing geocode API key", {
       location: raw,
     });
     return { ...BASE_RESULT, raw };

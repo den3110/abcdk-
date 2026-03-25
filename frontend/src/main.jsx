@@ -56,7 +56,7 @@ import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import "@fontsource-variable/montserrat";
 import { ThemeContextProvider } from "./context/ThemeContext.jsx";
 import { LanguageContextProvider } from "./context/LanguageContext.jsx";
-import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
+import LiveCourtClustersPage from "./screens/live/LiveCourtClustersPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
 import AppInitGate from "./components/AppInitGate.jsx";
@@ -130,7 +130,7 @@ const router = createBrowserRouter(
         </Route>
         <Route path="/clubs" element={<ClubsListPage />} />
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
-        <Route path="/live" element={<LiveMatchesPage />} />
+        <Route path="/live" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />

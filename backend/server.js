@@ -79,7 +79,7 @@ import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
 import { startOptimizedImageCleanupCron } from "./jobs/optimizedImageCleanupCron.js";
 import { startSeoNewsImageRegenerationWorker } from "./services/seoNewsImageQueue.service.js";
 import { startLiveRecordingAutoExportSweep } from "./services/liveRecordingMonitor.service.js";
-// Ã°Å¸â€Â¹ GraphQL layer
+// 🔹 GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
 import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
@@ -96,6 +96,7 @@ import slackEventsRoutes from "./routes/slackEventsRoutes.js";
 import head2headRoutes from "./routes/head2headRoutes.js";
 import otaRoutes from "./routes/otaRoutes.js";
 import expoUpdatesRoutes from "./routes/expoUpdatesRoutes.js";
+import openaiRoutes from "./routes/openaiRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
@@ -112,21 +113,21 @@ const WHITELIST = [
   "https://pickletour.vn"
 ];
 
-// connectDB(); // Ã¢ÂÅ’ Moved inside startServer for async await
+// connectDB(); // ❌ Moved inside startServer for async await for async await
 
 const app = express();
 
-// Security headers - chÃ¡ÂºÂ·n Clickjacking, XSS, MIME sniffing, etc.
+// Security headers - chặn Clickjacking, XSS, MIME sniffing, etc.
 app.use(
   helmet({
-    crossOriginResourcePolicy: false, // táº¯t máº·c Ä‘á»‹nh same-origin
+    crossOriginResourcePolicy: false, // tắt mặc định same-origin
   })
 );
 
 app.use(
   cors({
-    origin: WHITELIST, // Ã¢Å“â€¦ KHÃƒâ€NG dÃƒÂ¹ng '*'
-    credentials: true, // Ã¢Å“â€¦ PhÃ¡ÂºÂ£i bÃ¡ÂºÂ­t
+    origin: WHITELIST, // ✅ KHÔNG dùng '*'
+    credentials: true, // ✅ Phải bật
   }),
 );
 
@@ -140,11 +141,11 @@ app.use(
   protect,
   authorize("admin"),
   createProxyMiddleware({
-    target: "http://127.0.0.1:8003/api/admin/system", // Ã¢ÂÅ’ BÃ¡Â»Â phÃ¡ÂºÂ§n /api/admin/system Ã¡Â»Å¸ target
+    target: "http://127.0.0.1:8003/api/admin/system", // ❌ Bỏ phần /api/admin/system ở target
     changeOrigin: true,
 
     pathRewrite: {
-      "^/api/admin/system": "/api/admin/system", // Ã¢Å“â€¦ GiÃ¡Â»Â¯ nguyÃƒÂªn hoÃ¡ÂºÂ·c map sang path Go service expect
+      "^/api/admin/system": "/api/admin/system", // ✅ Giữ nguyên hoặc map sang path Go service expect
     },
     onProxyReq: (proxyReq, req, res) => {
       if (req.body && Object.keys(req.body).length > 0) {
@@ -156,7 +157,7 @@ app.use(
       }
     },
     onError: (err, req, res) => {
-      console.error("Ã¢ÂÅ’ Proxy error:", err);
+      console.error("❌ Proxy error:", err);
       res.status(500).json({ error: "Go service unavailable" });
     },
   }),
@@ -164,7 +165,7 @@ app.use(
 app.use("/api/live/recordings", liveRecordingRoutes);
 app.use("/api/live/recordings/v2", liveRecordingV2Routes);
 
-// body limit rÃ¡Â»â„¢ng hÃ†Â¡n cho HTML/JSON dÃƒÂ i
+// body limit rộng hơn cho HTML/JSON dài
 app.use(timezoneMiddleware);
 app.use(normalizeRequestDates);
 app.use(convertResponseDates);
@@ -179,17 +180,17 @@ app.use(versionGate);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
-// Ã°Å¸â€˜â€¡ KhÃ¡Â»Å¸i tÃ¡ÂºÂ¡o socket tÃƒÂ¡ch riÃƒÂªng
+// 👇 Khởi tạo socket tách riêng
 const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 
-// Cho controllers dÃƒÂ¹ng io: req.app.get('io')
+// Cho controllers dùng io: req.app.get('io')
 app.set("io", io);
 // app.set("trust proxy", true);
 
-// giá»¯ nhÆ° báº¡n Ä‘ang lÃ m, nhÆ°ng set thÃªm CORS náº¿u cáº§n
+// giữ như bạn đang làm, nhưng set thêm CORS nếu cần
 app.use("/uploads", express.static("uploads", {
   setHeaders: (res) => {
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoáº·c same-site
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoặc same-site
     res.setHeader("Access-Control-Allow-Origin", "*"); // optional
   },
 }));
@@ -249,46 +250,86 @@ app.use("/api/slack", slackEventsRoutes);
 app.use("/api/head2head", head2headRoutes);
 app.use("/api/ota", otaRoutes);
 app.use("/api/expo-updates", expoUpdatesRoutes);
+app.use("/api/openai", openaiRoutes);
+
+// ===== Geo proxy for language detection (avoids browser CORS issues) =====
+const geoCache = new Map();
+const GEO_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+app.get("/api/geo", async (req, res) => {
+  try {
+    const clientIp =
+      (req.headers["x-forwarded-for"] || "").split(",")[0].trim() ||
+      req.socket?.remoteAddress ||
+      "";
+    // Determine if IP is local/private (dev mode)
+    const isLocal = !clientIp || /^(127\.|::1|::ffff:127\.|localhost|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(clientIp);
+    // Use the client IP for production, omit for local (auto-detect server public IP)
+    const lookupUrl = isLocal
+      ? "https://api.country.is/"
+      : `https://api.country.is/${clientIp}`;
+    // Return cached result
+    const cacheKey = isLocal ? "__local__" : clientIp;
+    const cached = geoCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < GEO_CACHE_TTL) {
+      return res.json({ country: cached.country, cached: true });
+    }
+    // Query external API server-side (no CORS issue)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const geoRes = await fetch(lookupUrl, {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+    clearTimeout(timeout);
+    if (!geoRes.ok) throw new Error(`geo status ${geoRes.status}`);
+    const data = await geoRes.json();
+    const country = data?.country || "UNKNOWN";
+    geoCache.set(cacheKey, { country, ts: Date.now() });
+    res.json({ country });
+  } catch {
+    res.json({ country: "UNKNOWN" });
+  }
+});
 
 app.get("/dl/file/:id", async (req, res) => {
   try {
     const doc = await FileAsset.findById(req.params.id);
-    if (!doc) return res.status(404).send("File khÃƒÂ´ng tÃ¡Â»â€œn tÃ¡ÂºÂ¡i");
+    if (!doc) return res.status(404).send("File không tồn tại");
 
-    // TÃƒÂªn file hiÃ¡Â»Æ’n thÃ¡Â»â€¹ khi tÃ¡ÂºÂ£i vÃ¡Â»Â
+    // Tên file hiển thị khi tải về
     const downloadName = doc.originalName || doc.fileName || "download.bin";
 
-    // Header nÃ¡Â»â„¢i dung + ÃƒÂ©p tÃ¡ÂºÂ£i
+    // Header nội dung + ép tải
     res.setHeader("Content-Type", doc.mime || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="${encodeURIComponent(downloadName)}"`,
     );
 
-    // ChuyÃ¡Â»Æ’n nÃ¡Â»â„¢i bÃ¡Â»â„¢ cho Nginx Ã„â€˜Ã¡Â»Âc file tÃ¡Â»Â« Ã„â€˜Ã„Â©a (KHÃƒâ€NG qua Node)
-    // "fileName" lÃƒÂ  tÃƒÂªn Ã„â€˜ÃƒÂ£ lÃ†Â°u trong uploads/public
+    // Chuyển nội bộ cho Nginx đọc file từ đĩa (KHÔNG qua Node)
+    // "fileName" là tên đã lưu trong uploads/public
     const accelPath = `/_protected_uploads/${encodeURIComponent(doc.fileName)}`;
     res.setHeader("X-Accel-Redirect", accelPath);
 
-    // (tuÃ¡Â»Â³ chÃ¡Â»Ân) cho resume/caching
+    // (tuỳ chọn) cho resume/caching
     res.setHeader("Accept-Ranges", "bytes");
 
     res.end();
   } catch (e) {
     console.error("/dl/file error", e);
-    res.status(500).send("LÃ¡Â»â€”i tÃ¡ÂºÂ£i file");
+    res.status(500).send("Lỗi tải file");
   }
 });
 
-// Ã°Å¸â€Â¹ gom phÃ¡ÂºÂ§n start server + GraphQL vÃƒÂ o 1 hÃƒÂ m async
+// 🔹 gom phần start server + GraphQL vào 1 hàm async
 const startServer = async () => {
   try {
-    // Ã°Å¸â€Â¹ Connect DB first
+    // 🔹 Connect DB first
     await connectDB();
     await loadLiveMultiSourceConfig();
     await loadLiveRecordingStorageTargetsConfig();
 
-    // Ã°Å¸â€Â¹ mount GraphQL trÃ†Â°Ã¡Â»â€ºc fallback routes (*)
+    // 🔹 mount GraphQL trước fallback routes (*)
     await setupGraphQL(app);
 
     if (process.env.NODE_ENV === "production") {
@@ -313,29 +354,29 @@ const startServer = async () => {
 
     if (process.env.TELEGRAM_BOT_TOKEN) {
       try {
-        console.log("Ã¢Å“â€¦ Running KYC bot...");
+        console.log("✅ Running KYC bot...");
         initKycBot(app)
           .then((bot) => {
             if (bot) {
-              console.log("Ã¢Å“â€¦ KYC bot initialized successfully");
+              console.log("✅ KYC bot initialized successfully");
             } else {
-              console.warn("Ã¢Å¡Â Ã¯Â¸Â KYC bot returned null");
+              console.warn("⚠️ KYC bot returned null");
             }
           })
           .catch((e) => {
-            console.error("Ã¢ÂÅ’ KYC bot initialization failed:");
+            console.error("❌ KYC bot initialization failed:");
             console.error("Error name:", e?.name);
             console.error("Error message:", e?.message);
             console.error("Error stack:", e?.stack);
           });
       } catch (error) {
-        console.log("Ã¢ÂÅ’ Failed to start KYC bot:", error.message);
+        console.log("❌ Failed to start KYC bot:", error.message);
       }
     }
 
     server.listen(port, "0.0.0.0", async () => {
       try {
-        console.log(`Ã¢Å“â€¦ Server started on port ${port}`);
+        console.log(`✅ Server started on port ${port}`);
         startTournamentCrons();
         startFbRefreshCron();
         startFacebookBusyCron();
@@ -350,14 +391,14 @@ const startServer = async () => {
         initSeoNewsCron();
         initEmail();
         initNewsCron();
-        await startAgenda(); // Ã¢Å“â€¦ Await agenda start
+        await startAgenda(); // ✅ Await agenda start
         registerAutoHealJobs({ Tournament, Match });
       } catch (error) {
-        console.error(`Ã¢ÂÅ’ Error starting server: ${error.message}`);
+        console.error(`❌ Error starting server: ${error.message}`);
       }
     });
   } catch (err) {
-    console.error("Ã¢ÂÅ’ Failed to start server", err);
+    console.error("❌ Failed to start server", err);
     process.exit(1);
   }
 };

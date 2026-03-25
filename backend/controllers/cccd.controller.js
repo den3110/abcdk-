@@ -235,11 +235,25 @@ export async function extractCCCDOpenAI(req, res) {
 
 export async function extractKycCCCD(req, res) {
   try {
-    if (!req.file) return res.status(400).json({ message: "Thiếu file ảnh" });
-    const dataUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    const payloads = [];
+
+    if (req.files && Array.isArray(req.files)) {
+      for (const file of req.files) {
+        payloads.push(`data:${file.mimetype};base64,${file.buffer.toString("base64")}`);
+      }
+    } else if (req.file) {
+      payloads.push(`data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`);
+    }
+
+    if (req.body.imageUrl) payloads.push(req.body.imageUrl);
+    if (req.body.imageUrlBack) payloads.push(req.body.imageUrlBack);
+
+    if (payloads.length === 0) {
+      return res.status(400).json({ message: "Thiếu file ảnh hoặc tham số imageUrl/imageUrlBack" });
+    }
     
     // Call the exact same function used by the Telegram bot
-    const extracted = await openaiExtractFromDataUrl(dataUrl, "auto");
+    const extracted = await openaiExtractFromDataUrl(payloads, "auto");
     
     return res.json({ source: "openai-kyc", ...extracted });
   } catch (err) {
@@ -250,4 +264,5 @@ export async function extractKycCCCD(req, res) {
     });
   }
 }
+
 

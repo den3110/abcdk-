@@ -257,6 +257,8 @@ const CCCD_JSON_SCHEMA = {
       hometown: { type: ["string", "null"] },
       residence: { type: ["string", "null"] },
       expiry: { type: ["string", "null"], description: "yyyy-mm-dd" },
+      issueDate: { type: ["string", "null"], description: "yyyy-mm-dd" },
+      issuePlace: { type: ["string", "null"] },
       notes: { type: ["string", "null"] },
     },
     required: [
@@ -268,6 +270,8 @@ const CCCD_JSON_SCHEMA = {
       "hometown",
       "residence",
       "expiry",
+      "issueDate",
+      "issuePlace",
       "notes",
     ],
   },
@@ -326,11 +330,15 @@ function normDOB(value) {
   return null;
 }
 
-export async function openaiExtractFromDataUrl(imageOrDataUrl, detail = "low") {
+export async function openaiExtractFromDataUrl(imageOrDataUrls, detail = "low") {
   if (!process.env.OPENAI_API_KEY && !process.env.CLIPROXY_API_KEY)
     throw new Error("Missing OPENAI_API_KEY");
 
-  const imagePart = { type: "image_url", image_url: { url: imageOrDataUrl, detail } };
+  const urls = Array.isArray(imageOrDataUrls) ? imageOrDataUrls : [imageOrDataUrls];
+  const imageParts = urls.filter(Boolean).map((url) => ({
+    type: "image_url",
+    image_url: { url, detail },
+  }));
 
   const systemPrompt = [
     "Bạn là trình TRÍCH XUẤT CHÍNH XÁC CAO từ ảnh Căn cước công dân Việt Nam.",
@@ -343,28 +351,61 @@ export async function openaiExtractFromDataUrl(imageOrDataUrl, detail = "low") {
     "Không đọc từ mã QR, không đọc từ vùng mờ/che phản quang.",
     "Nếu idNumber khác độ dài chuẩn (ưu tiên 12), coi là không chắc → idNumber=null.",
     "fullName: viết HOA, BỎ DẤU (chuẩn hoá bởi hệ thống phía sau).",
+    "BẮT BUỘC: Chỉ trả về DUY NHẤT một JSON object, KHÔNG markdown, KHÔNG giải thích, KHÔNG ```json```, KHÔNG text thừa.",
   ].join(" ");
 
   const userPrompt = [
-    "Nhiệm vụ: Trích xuất JSON theo schema, với các field:",
-    "- idNumber (Số/No., chỉ số; nếu mơ hồ bất kỳ ký tự → null)",
-    "- fullName (HỌ VÀ TÊN, nguyên văn; nếu mờ → null)",
-    "- dob (Ngày sinh, format yyyy-mm-dd; nếu mờ → null)",
-    "Chỉ trả JSON đúng schema. Không mô tả thêm.",
-  ].join(" ");
+    "Nhiệm vụ: Trích xuất thông tin từ ảnh CCCD và trả về JSON object với các field sau:",
+    "- idNumber: string hoặc null (Số/No., chỉ số; nếu mơ hồ bất kỳ ký tự → null)",
+    "- fullName: string hoặc null (HỌ VÀ TÊN, nguyên văn; nếu mờ → null)",
+    "- dob: string hoặc null (Ngày sinh, format yyyy-mm-dd; nếu mờ → null)",
+    "- sex: string hoặc null (Giới tính)",
+    "- nationality: string hoặc null (Quốc tịch)",
+    "- hometown: string hoặc null (Quê quán)",
+    "- residence: string hoặc null (Nơi thường trú)",
+    "- expiry: string hoặc null (Có giá trị đến, format yyyy-mm-dd)",
+    "- issueDate: string hoặc null (Ngày cấp ở mặt sau; format yyyy-mm-dd)",
+    "- issuePlace: string hoặc null (Nơi cấp ở mặt sau)",
+    "- notes: string hoặc null (Ghi chú thêm nếu có)",
+    "Nếu cung cấp 2 ảnh, hãy đọc thông tin xuyên suốt cả 2 mặt.",
+    'Ví dụ output: {"idNumber":"012345678901","fullName":"NGUYEN VAN A","dob":"1990-01-15","sex":"Nam","nationality":"Việt Nam","hometown":null,"residence":null,"expiry":"2030-01-15","issueDate":null,"issuePlace":null,"notes":null}',
+  ].join("\n");
 
-  const resp = await openai.chat.completions.create({
-    model: OPENAI_VISION_MODEL,
-    temperature: 0,
-    response_format: { type: "json_schema", json_schema: CCCD_JSON_SCHEMA },
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: [{ type: "text", text: userPrompt }, imagePart],
-      },
-    ],
-  });
+  const MAX_RETRIES = 2;
+  let resp;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      resp = await openai.chat.completions.create({
+        model: OPENAI_VISION_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [{ type: "text", text: userPrompt }, ...imageParts],
+          },
+        ],
+      });
+
+      // Check if DeepSeek returned empty content → retry
+      const c = resp.choices?.[0]?.message?.content;
+      const hasContent = typeof c === "string" ? c.trim().length > 0 : false;
+      if (!hasContent && attempt < MAX_RETRIES) {
+        console.warn(`[cccd-openai] attempt ${attempt + 1}: empty response, retrying...`);
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      break; // success
+    } catch (err) {
+      const msg = String(err?.message || err?.error?.message || "");
+      const isRetryable = /pow|proof.of.work|upload.error|timeout|econnreset/i.test(msg);
+      if (isRetryable && attempt < MAX_RETRIES) {
+        console.warn(`[cccd-openai] attempt ${attempt + 1} failed (${msg.slice(0, 80)}), retrying in 2s...`);
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      throw err; // non-retryable or max retries reached
+    }
+  }
 
   const msg = resp.choices?.[0]?.message;
   const jsonText =
@@ -377,26 +418,42 @@ export async function openaiExtractFromDataUrl(imageOrDataUrl, detail = "low") {
   let data = {};
   try {
     data = JSON.parse(jsonText || "{}");
-  } catch {}
+  } catch {
+    const match = String(jsonText).match(/\{[\s\S]*\}/);
+    if (match) {
+      try { data = JSON.parse(match[0]); } catch {}
+    }
+  }
 
   return {
     idNumber: normId(data.idNumber),
     fullName: data.fullName ? normName(data.fullName) : null,
     dob: normDOB(data.dob),
+    issueDate: normDOB(data.issueDate),
     _usage: resp.usage,
     raw: data,
+    raw_text: jsonText, // for debugging
   };
 }
 
-async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
-  let imageOrDataUrl;
-  if (isHttpUrl(imageUrl) && !isLocalish(imageUrl)) {
-    imageOrDataUrl = imageUrl;
-  } else {
-    const { buffer, contentType } = await fetchImageAsBuffer(imageUrl);
-    imageOrDataUrl = bufferToDataUrl(buffer, contentType);
+async function openaiExtractFromImageUrl(imageUrlOrArray, detail = "low") {
+  const urls = Array.isArray(imageUrlOrArray) ? imageUrlOrArray : [imageUrlOrArray];
+  const processedUrls = [];
+  
+  for (const url of urls.filter(Boolean)) {
+    if (isHttpUrl(url) && !isLocalish(url)) {
+      processedUrls.push(url);
+    } else {
+      try {
+        const { buffer, contentType } = await fetchImageAsBuffer(url);
+        processedUrls.push(bufferToDataUrl(buffer, contentType));
+      } catch (e) {
+        console.error("fetchImageAsBuffer fail for:", url, e.message);
+      }
+    }
   }
-  return openaiExtractFromDataUrl(imageOrDataUrl, detail);
+  
+  return openaiExtractFromDataUrl(processedUrls, detail);
 }
 
 function buildMatchReport(extracted, user) {
@@ -439,7 +496,8 @@ export async function notifyNewKyc(user) {
 
   try {
     if (frontUrl && process.env.OPENAI_API_KEY) {
-      const extracted = await openaiExtractFromImageUrl(frontUrl, "auto");
+      // Pass both front and back if available
+      const extracted = await openaiExtractFromImageUrl([frontUrl, backUrl], "auto");
       auto.usage = extracted._usage || null;
       const report = buildMatchReport(extracted, user);
       auto.report = report;

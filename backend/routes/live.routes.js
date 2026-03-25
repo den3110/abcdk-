@@ -1,6 +1,14 @@
 // routes/live.routes.js
 import { Router } from "express";
-import { deleteLiveVideoForMatch, listLiveMatches } from "../controllers/liveMatchesController.js";
+import {
+  deleteLiveVideoForMatch,
+  listLiveMatches,
+} from "../controllers/liveMatchesController.js";
+import {
+  getPublicLiveClusterById,
+  getPublicLiveCourtById,
+  listPublicLiveClusters,
+} from "../controllers/liveClusterController.js";
 import { authorize, protect } from "../middleware/authMiddleware.js";
 
 const router = Router();
@@ -12,6 +20,9 @@ const router = Router();
 //   - statuses (CSV: "scheduled,queued,assigned,live")
 //   - concurrency (number, default 4)
 router.get("/matches", listLiveMatches);
+router.get("/clusters", listPublicLiveClusters);
+router.get("/clusters/:clusterId", getPublicLiveClusterById);
+router.get("/courts/:courtStationId", getPublicLiveCourtById);
 router.delete(
   "/matches/:matchId/video",
   protect,

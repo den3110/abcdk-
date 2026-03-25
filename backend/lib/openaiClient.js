@@ -2,10 +2,12 @@
 import OpenAI from "openai";
 import dotenv from "dotenv";
 dotenv.config();
+
+// Global client that may route through custom proxy (DeepSeek etc.)
 export const openai = new OpenAI({
   apiKey: process.env.CLIPROXY_API_KEY || process.env.OPENAI_API_KEY,
   baseURL: process.env.CLIPROXY_BASE_URL || undefined,
-  timeout: 15000, // 15 seconds timeout
+  timeout: 120_000, // 120 seconds - cần lâu hơn cho xử lý ảnh qua proxy
 });
 
 export const OPENAI_DEFAULT_MODEL =

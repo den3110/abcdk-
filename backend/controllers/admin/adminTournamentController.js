@@ -20,12 +20,16 @@ import { createForumTopic, createInviteLink } from "../../utils/telegram.js";
 import Match from "../../models/matchModel.js";
 import dotenv from "dotenv";
 import User from "../../models/userModel.js";
+import CourtCluster from "../../models/courtClusterModel.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
 import {
   EVENTS,
   publishNotification,
 } from "../../services/notifications/notificationHub.js";
-import { geocodeTournamentLocation } from "../../services/openaiGeocode.js";
+import {
+  geocodeTournamentLocation,
+  inferTournamentCountryHint,
+} from "../../services/openaiGeocode.js";
 import {
   buildAdminTournamentImageProxyUrl,
   unwrapAdminTournamentImageProxySource,
@@ -33,6 +37,11 @@ import {
 import {
   clearTournamentPresentationCaches,
 } from "../../services/cacheInvalidation.service.js";
+import { listCourtClusters } from "../../services/courtCluster.service.js";
+import {
+  normalizeTeamConfig,
+  normalizeTournamentMode,
+} from "../../services/teamTournament.service.js";
 
 dotenv.config();
 
@@ -69,6 +78,12 @@ const buildLocationGeoFromAI = (geo, fallbackLocation) => {
   };
 };
 
+const normalizeLocationForCompare = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
 /* -------------------------- Sanitize cấu hình -------------------------- */
 const SAFE_HTML = {
   allowedTags: sanitizeHtml.defaults.allowedTags.concat([
@@ -104,6 +119,8 @@ const FIELD_LABELS = {
   sportType: "Loại môn",
   groupId: "Nhóm",
   eventType: "Hình thức",
+  tournamentMode: "Loại giải",
+  teamConfig: "Cấu hình phe đấu",
   nameDisplayMode: "Kiểu hiển thị tên VĐV",
   regOpenDate: "Mở đăng ký",
   registrationDeadline: "Hạn đăng ký",
@@ -125,6 +142,8 @@ const FIELD_LABELS = {
   bankAccountNumber: "Số tài khoản",
   bankAccountName: "Tên chủ tài khoản",
   registrationFee: "Phí đăng ký (VND)",
+  isFreeRegistration: "Không thu phí",
+  allowedCourtClusterIds: "Cụm sân được phép dùng",
 
   requireKyc: "Yêu cầu KYC",
   ageRestriction: "Giới hạn tuổi",
@@ -238,6 +257,36 @@ const registrationFee = Joi.number()
   .min(0)
   .precision(0)
   .label(FIELD_LABELS.registrationFee);
+const allowedCourtClusterIds = Joi.array()
+  .items(
+    Joi.string()
+      .trim()
+      .pattern(/^[0-9a-fA-F]{24}$/)
+  )
+  .max(1)
+  .default([])
+  .label(FIELD_LABELS.allowedCourtClusterIds);
+
+const teamFactionSchema = Joi.object({
+  _id: Joi.string()
+    .trim()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .allow("", null),
+  name: Joi.string().trim().min(1).max(80).required().label("Tên phe"),
+  captainUser: Joi.string()
+    .trim()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .allow("", null)
+    .label("Đội trưởng"),
+  order: Joi.number().integer().min(0).default(0),
+  isActive: boolLoose.default(true),
+});
+
+const teamConfigSchema = Joi.object({
+  factions: Joi.array().items(teamFactionSchema).min(2).max(2).required(),
+})
+  .label(FIELD_LABELS.teamConfig)
+  .default({ factions: [] });
 
 /* ----- ageRestriction (giới hạn tuổi) + requireKyc ----- */
 const ageRestrictionCreate = Joi.object({
@@ -307,6 +356,10 @@ const createSchema = Joi.object({
     .valid("single", "double")
     .default("double")
     .label(FIELD_LABELS.eventType),
+  tournamentMode: Joi.string()
+    .valid("standard", "team")
+    .default("standard")
+    .label(FIELD_LABELS.tournamentMode),
   nameDisplayMode: Joi.string()
     .valid("nickname", "fullName")
     .default("nickname")
@@ -349,6 +402,9 @@ const createSchema = Joi.object({
   bankAccountNumber: bankAccountNumber.default(""),
   bankAccountName: bankAccountName.default(""),
   registrationFee: registrationFee.default(0),
+  isFreeRegistration: boolLoose.default(false).label(FIELD_LABELS.isFreeRegistration),
+  allowedCourtClusterIds,
+  teamConfig: teamConfigSchema,
 
   ageRestriction: ageRestrictionCreate,
 })
@@ -380,6 +436,9 @@ const updateSchema = Joi.object({
   eventType: Joi.string()
     .valid("single", "double")
     .label(FIELD_LABELS.eventType),
+  tournamentMode: Joi.string()
+    .valid("standard", "team")
+    .label(FIELD_LABELS.tournamentMode),
   nameDisplayMode: Joi.string()
     .valid("nickname", "fullName")
     .label(FIELD_LABELS.nameDisplayMode),
@@ -408,6 +467,9 @@ const updateSchema = Joi.object({
   bankAccountNumber,
   bankAccountName,
   registrationFee,
+  isFreeRegistration: boolLoose.label(FIELD_LABELS.isFreeRegistration),
+  allowedCourtClusterIds,
+  teamConfig: teamConfigSchema,
 
   ageRestriction: ageRestrictionUpdate,
 })
@@ -529,6 +591,75 @@ const validate = (schema, payload) => {
 };
 
 const isObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+const normalizeAllowedCourtClusterIds = (value) => {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) =>
+          item && typeof item === "object" && item._id
+            ? String(item._id).trim()
+            : String(item || "").trim()
+        )
+        .filter((item) => mongoose.Types.ObjectId.isValid(item))
+    )
+  ).slice(0, 1);
+};
+const normalizeIncomingTeamConfig = (incoming, existingConfig = {}) => {
+  const mode = normalizeTournamentMode(incoming?.tournamentMode);
+  if (mode !== "team") return { factions: [] };
+  return normalizeTeamConfig(incoming?.teamConfig, existingConfig);
+};
+const toBooleanLoose = (value) =>
+  !!(
+    value === true ||
+    value === "true" ||
+    value === 1 ||
+    value === "1" ||
+    value === "on"
+  );
+const normalizeIncomingPaymentConfig = (incoming) => {
+  if (Object.prototype.hasOwnProperty.call(incoming, "isFreeRegistration")) {
+    incoming.isFreeRegistration = toBooleanLoose(incoming.isFreeRegistration);
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
+    incoming.bankShortName = String(incoming.bankShortName || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountNumber")) {
+    incoming.bankAccountNumber = String(
+      incoming.bankAccountNumber || ""
+    ).replace(/\D/g, "");
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountName")) {
+    incoming.bankAccountName = String(incoming.bankAccountName || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "registrationFee")) {
+    const raw = String(incoming.registrationFee ?? "").replace(/[^0-9.-]/g, "");
+    const fee = Number(raw);
+    incoming.registrationFee =
+      Number.isFinite(fee) && fee >= 0 ? Math.floor(fee) : 0;
+  }
+
+  if (incoming.isFreeRegistration === true) {
+    incoming.bankShortName = "";
+    incoming.bankAccountNumber = "";
+    incoming.bankAccountName = "";
+    incoming.registrationFee = 0;
+  }
+};
+const mapAllowedCourtClusters = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((cluster) => ({
+      _id: String(cluster?._id || cluster || "").trim(),
+      name: String(cluster?.name || "").trim(),
+      slug: String(cluster?.slug || "").trim(),
+      venueName: String(cluster?.venueName || "").trim(),
+      isActive: cluster?.isActive !== false,
+      order: Number(cluster?.order || 0),
+    }))
+    .filter((cluster) => cluster._id);
 const parseSort = (s) =>
   String(s || "")
     .split(",")
@@ -724,25 +855,14 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
-    incoming.bankShortName = String(incoming.bankShortName || "").trim();
+  normalizeIncomingPaymentConfig(incoming);
+  if (Object.prototype.hasOwnProperty.call(incoming, "allowedCourtClusterIds")) {
+    incoming.allowedCourtClusterIds = normalizeAllowedCourtClusterIds(
+      incoming.allowedCourtClusterIds
+    );
   }
-  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountNumber")) {
-    incoming.bankAccountNumber = String(
-      incoming.bankAccountNumber || ""
-    ).replace(/\D/g, "");
-  }
-  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountName")) {
-    incoming.bankAccountName = String(incoming.bankAccountName || "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(incoming, "registrationFee")) {
-    const raw = String(incoming.registrationFee ?? "").replace(/[^0-9.-]/g, "");
-    const fee = Number(raw);
-    incoming.registrationFee =
-      Number.isFinite(fee) && fee >= 0 ? Math.floor(fee) : 0;
-  }
+  incoming.tournamentMode = normalizeTournamentMode(incoming.tournamentMode);
+  incoming.teamConfig = normalizeIncomingTeamConfig(incoming);
 
   if (incoming.ageRestriction) {
     const ar = incoming.ageRestriction || {};
@@ -813,10 +933,14 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   }
 
   // ✅ Tạo doc trước, không chờ geocode
-  const t = await Tournament.create({
+  const created = await Tournament.create({
     ...data,
     createdBy: req.user._id,
   });
+  const t = await Tournament.findById(created._id).populate(
+    "allowedCourtClusterIds",
+    "name slug venueName isActive order"
+  );
 
   await clearTournamentPresentationCaches();
 
@@ -840,9 +964,10 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   if (t.location) {
     setImmediate(async () => {
       try {
+        const countryHint = inferTournamentCountryHint(t.location);
         const geo = await geocodeTournamentLocation({
           location: t.location,
-          countryHint: "VN",
+          countryHint,
         });
 
         const locGeo = buildLocationGeoFromAI(geo, t.location);
@@ -852,6 +977,7 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
           { _id: t._id },
           { $set: { locationGeo: locGeo } }
         );
+        await clearTournamentPresentationCaches();
 
         console.log("[adminCreateTournament] locationGeo updated via AI", {
           tournamentId: String(t._id),
@@ -859,6 +985,7 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
           lon: locGeo.lon,
           displayName: locGeo.displayName,
           confidence: locGeo.confidence,
+          countryHint: countryHint || null,
         });
       } catch (e) {
         console.error(
@@ -980,24 +1107,12 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
-    incoming.bankShortName = String(incoming.bankShortName || "").trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountNumber")) {
-    incoming.bankAccountNumber = String(
-      incoming.bankAccountNumber || ""
-    ).replace(/\D/g, "");
-  }
-  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountName")) {
-    incoming.bankAccountName = String(incoming.bankAccountName || "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(incoming, "registrationFee")) {
-    const raw = String(incoming.registrationFee ?? "").replace(/[^0-9.-]/g, "");
-    const fee = Number(raw);
-    incoming.registrationFee =
-      Number.isFinite(fee) && fee >= 0 ? Math.floor(fee) : 0;
+  normalizeIncomingPaymentConfig(incoming);
+  if (
+    Object.prototype.hasOwnProperty.call(incoming, "tournamentMode") ||
+    Object.prototype.hasOwnProperty.call(incoming, "teamConfig")
+  ) {
+    incoming.tournamentMode = normalizeTournamentMode(incoming.tournamentMode);
   }
 
   if (incoming.ageRestriction) {
@@ -1065,15 +1180,55 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   if (payload._meta) delete payload._meta;
 
   // ✅ chỉ geocode nếu client gửi location mới
-  const shouldGeocode = !!payload.location;
+  const existing = await Tournament.findById(req.params.id).select(
+    "location tournamentMode teamConfig isFreeRegistration"
+  );
+  if (
+    Object.prototype.hasOwnProperty.call(incoming, "tournamentMode") ||
+    Object.prototype.hasOwnProperty.call(incoming, "teamConfig")
+  ) {
+    incoming.teamConfig = normalizeIncomingTeamConfig(
+      {
+        tournamentMode:
+          incoming.tournamentMode ||
+          existing?.tournamentMode ||
+          "standard",
+        teamConfig: incoming.teamConfig,
+      },
+      existing?.teamConfig || {}
+    );
+  }
+  if (!existing) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+  const nextIsFreeRegistration =
+    Object.prototype.hasOwnProperty.call(payload, "isFreeRegistration")
+      ? payload.isFreeRegistration === true
+      : existing.isFreeRegistration === true;
+  const switchedToFree =
+    existing.isFreeRegistration !== true && nextIsFreeRegistration === true;
+
+  const nextLocation =
+    typeof payload.location === "string" ? payload.location : existing.location;
+  const shouldResetLocationGeo =
+    typeof payload.location === "string" &&
+    normalizeLocationForCompare(payload.location) !==
+      normalizeLocationForCompare(existing.location);
+  const shouldGeocode =
+    typeof payload.location === "string" &&
+    normalizeLocationForCompare(nextLocation).length > 0;
 
   const updateDoc = { ...payload };
+  if (shouldResetLocationGeo) {
+    updateDoc.locationGeo = {};
+  }
 
   let t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: updateDoc },
     { new: true, runValidators: true, context: "query" }
-  );
+  ).populate("allowedCourtClusterIds", "name slug venueName isActive order");
   if (!t) {
     res.status(404);
     throw new Error("Tournament not found");
@@ -1125,6 +1280,38 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       );
     })
     .finally(async () => {
+      if (switchedToFree) {
+        const paidAt = new Date();
+        await Promise.all([
+          Registration.updateMany(
+            {
+              tournament: t._id,
+              "payment.status": { $ne: "Paid" },
+            },
+            {
+              $set: {
+                "payment.status": "Paid",
+                "payment.paidAt": paidAt,
+              },
+            }
+          ),
+          Registration.updateMany(
+            {
+              tournament: t._id,
+              "payment.status": "Paid",
+              $or: [
+                { "payment.paidAt": { $exists: false } },
+                { "payment.paidAt": null },
+              ],
+            },
+            {
+              $set: {
+                "payment.paidAt": paidAt,
+              },
+            }
+          ),
+        ]);
+      }
       await clearTournamentPresentationCaches();
 
       // Trả kết quả update cho client trước
@@ -1144,21 +1331,23 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       });
 
       // 🗺️ Geocode async nếu có location mới
-      if (shouldGeocode && payload.location) {
+      if (shouldGeocode && nextLocation) {
         setImmediate(async () => {
           try {
+            const countryHint = inferTournamentCountryHint(nextLocation);
             const geo = await geocodeTournamentLocation({
-              location: payload.location,
-              countryHint: "VN",
+              location: nextLocation,
+              countryHint,
             });
 
-            const locGeo = buildLocationGeoFromAI(geo, payload.location);
+            const locGeo = buildLocationGeoFromAI(geo, nextLocation);
             if (!locGeo) return;
 
             await Tournament.updateOne(
               { _id: t._id },
               { $set: { locationGeo: locGeo } }
             );
+            await clearTournamentPresentationCaches();
 
             console.log("[adminUpdateTournament] locationGeo updated via AI", {
               tournamentId: String(t._id),
@@ -1166,6 +1355,7 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
               lon: locGeo.lon,
               displayName: locGeo.displayName,
               confidence: locGeo.confidence,
+              countryHint: countryHint || null,
             });
           } catch (e) {
             console.error(
@@ -1173,7 +1363,7 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
               e?.message || e,
               {
                 tournamentId: String(t._id),
-                location: payload.location,
+                location: nextLocation,
               }
             );
           }
@@ -1264,7 +1454,10 @@ export const getTournamentById = expressAsyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Invalid ID");
   }
-  const t = await Tournament.findById(req.params.id);
+  const t = await Tournament.findById(req.params.id).populate(
+    "allowedCourtClusterIds",
+    "name slug venueName isActive order"
+  ).populate("teamConfig.factions.captainUser", "name nickname avatar phone");
   if (!t) {
     res.status(404);
     throw new Error("Tournament not found");
@@ -1273,6 +1466,95 @@ export const getTournamentById = expressAsyncHandler(async (req, res) => {
   payload.image = buildAdminTournamentImageProxyUrl(req, payload.image);
   res.json(payload);
 });
+
+export const listTournamentAllowedCourtClusterOptions = expressAsyncHandler(
+  async (req, res) => {
+    const { tournamentId } = req.params;
+    if (!isObjectId(tournamentId)) {
+      res.status(400);
+      throw new Error("Invalid tournamentId");
+    }
+
+    const tournament = await Tournament.findById(tournamentId)
+      .select("_id allowedCourtClusterIds")
+      .populate("allowedCourtClusterIds", "name slug venueName isActive order")
+      .lean();
+
+    if (!tournament) {
+      res.status(404);
+      throw new Error("Tournament not found");
+    }
+
+    const items = await listCourtClusters({});
+    const selectedIds = normalizeAllowedCourtClusterIds(
+      tournament.allowedCourtClusterIds
+    );
+
+    res.json({
+      tournamentId: String(tournament._id),
+      items,
+      selectedIds,
+      selectedItems: mapAllowedCourtClusters(tournament.allowedCourtClusterIds),
+    });
+  }
+);
+
+export const updateTournamentAllowedCourtClusters = expressAsyncHandler(
+  async (req, res) => {
+    const { tournamentId } = req.params;
+    if (!isObjectId(tournamentId)) {
+      res.status(400);
+      throw new Error("Invalid tournamentId");
+    }
+
+    const nextIds = normalizeAllowedCourtClusterIds(
+      req.body?.allowedCourtClusterIds
+    );
+
+    const existingClusters = await CourtCluster.find({ _id: { $in: nextIds } })
+      .select("_id name slug venueName isActive order")
+      .lean();
+
+    if (existingClusters.length !== nextIds.length) {
+      res.status(400);
+      throw new Error("Danh sach cum san khong hop le.");
+    }
+
+    const clusterMap = new Map(
+      existingClusters.map((cluster) => [String(cluster._id), cluster])
+    );
+    const orderedClusters = nextIds
+      .map((clusterId) => clusterMap.get(String(clusterId)))
+      .filter(Boolean);
+
+    const tournament = await Tournament.findByIdAndUpdate(
+      tournamentId,
+      {
+        $set: {
+          allowedCourtClusterIds: nextIds,
+        },
+      },
+      { new: true, runValidators: true, context: "query" }
+    ).populate("allowedCourtClusterIds", "name slug venueName isActive order");
+
+    if (!tournament) {
+      res.status(404);
+      throw new Error("Tournament not found");
+    }
+
+    await clearTournamentPresentationCaches();
+
+    res.json({
+      ok: true,
+      tournamentId: String(tournament._id),
+      allowedCourtClusterIds: nextIds,
+      allowedCourtClusters:
+        orderedClusters.length > 0
+          ? mapAllowedCourtClusters(orderedClusters)
+          : mapAllowedCourtClusters(tournament.allowedCourtClusterIds),
+    });
+  }
+);
 
 export const deleteTournament = expressAsyncHandler(async (req, res) => {
   if (!isObjectId(req.params.id)) {
@@ -2176,3 +2458,5 @@ export const updateTournamentTimeoutPerGame = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+// touch

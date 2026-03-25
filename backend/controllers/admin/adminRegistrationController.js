@@ -6,6 +6,7 @@ import Ranking from "../../models/rankingModel.js";
 import ScoreHistory from "../../models/scoreHistoryModel.js";
 import AuditLog from "../../models/auditLogModel.js";
 import { writeAuditLog } from "../../services/audit.service.js";
+import { findTeamFaction, isTeamTournament } from "../../services/teamTournament.service.js";
 
 function isSinglesEvent(eventType) {
   const normalized = String(eventType || "").trim().toLowerCase();
@@ -85,6 +86,7 @@ async function validateRegistrationInput({
   tournament,
   player1Id,
   player2Id,
+  teamFactionId = null,
   excludeRegId = null,
 }) {
   if (!player1Id) {
@@ -135,7 +137,16 @@ async function validateRegistrationInput({
     ? null
     : await buildPlayerSnapshot(player2Id, tournament.eventType);
 
-  return { player1, player2, singles };
+  const faction = isTeamTournament(tournament)
+    ? findTeamFaction(tournament, teamFactionId)
+    : null;
+  if (isTeamTournament(tournament) && !faction) {
+    const error = new Error("Giải đồng đội yêu cầu chọn phe hợp lệ");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return { player1, player2, singles, faction };
 }
 
 async function writeRegistrationAudit({
@@ -171,6 +182,7 @@ export const adminCreateRegistration = asyncHandler(async (req, res) => {
   const {
     player1Id,
     player2Id = null,
+    teamFactionId = null,
     message = "",
     paymentStatus = "Unpaid",
   } = req.body || {};
@@ -190,21 +202,26 @@ export const adminCreateRegistration = asyncHandler(async (req, res) => {
   if (!["Paid", "Unpaid"].includes(paymentStatus)) {
     return res.status(400).json({ message: "Invalid payment status" });
   }
+  const effectivePaymentStatus =
+    tournament.isFreeRegistration === true ? "Paid" : paymentStatus;
 
-  const { player1, player2 } = await validateRegistrationInput({
+  const { player1, player2, faction } = await validateRegistrationInput({
     tournament,
     player1Id,
     player2Id,
+    teamFactionId,
   });
 
   const registration = await Registration.create({
     tournament: id,
+    teamFactionId: faction?._id || null,
+    teamFactionName: faction?.name || "",
     player1,
     player2,
     message: String(message || "").trim(),
     payment: {
-      status: paymentStatus,
-      paidAt: paymentStatus === "Paid" ? new Date() : null,
+      status: effectivePaymentStatus,
+      paidAt: effectivePaymentStatus === "Paid" ? new Date() : null,
     },
     createdBy: req.user?._id || null,
   });
@@ -235,6 +252,7 @@ export const adminUpdateRegistration = asyncHandler(async (req, res) => {
   const {
     player1Id,
     player2Id = null,
+    teamFactionId = null,
     message,
     paymentStatus,
   } = req.body || {};
@@ -256,15 +274,19 @@ export const adminUpdateRegistration = asyncHandler(async (req, res) => {
     ? null
     : player2Id || registration.player2?.user;
 
-  const { player1, player2 } = await validateRegistrationInput({
+  const { player1, player2, faction } = await validateRegistrationInput({
     tournament,
     player1Id: nextPlayer1Id,
     player2Id: nextPlayer2Id,
+    teamFactionId:
+      teamFactionId || registration.teamFactionId || null,
     excludeRegId: registration._id,
   });
 
   registration.player1 = player1;
   registration.player2 = player2;
+  registration.teamFactionId = faction?._id || null;
+  registration.teamFactionName = faction?.name || "";
 
   if (typeof message === "string") {
     registration.message = message.trim();
@@ -274,9 +296,13 @@ export const adminUpdateRegistration = asyncHandler(async (req, res) => {
     if (!["Paid", "Unpaid"].includes(paymentStatus)) {
       return res.status(400).json({ message: "Invalid payment status" });
     }
-    registration.payment.status = paymentStatus;
+    const nextPaymentStatus =
+      tournament.isFreeRegistration === true ? "Paid" : paymentStatus;
+    registration.payment.status = nextPaymentStatus;
     registration.payment.paidAt =
-      paymentStatus === "Paid" ? registration.payment.paidAt || new Date() : null;
+      nextPaymentStatus === "Paid"
+        ? registration.payment.paidAt || new Date()
+        : null;
   }
 
   await registration.save();
@@ -308,6 +334,14 @@ export const adminUpdatePayment = asyncHandler(async (req, res) => {
   const registration = await Registration.findById(regId);
   if (!registration) {
     return res.status(404).json({ message: "Registration not found" });
+  }
+  const tournament = await Tournament.findById(registration.tournament).select(
+    "isFreeRegistration"
+  );
+  if (tournament?.isFreeRegistration === true && status !== "Paid") {
+    return res
+      .status(400)
+      .json({ message: "Giải miễn phí luôn ở trạng thái đã thanh toán" });
   }
 
   const before = registration.toObject({ depopulate: true });

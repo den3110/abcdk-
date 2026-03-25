@@ -1,0 +1,126 @@
+import { apiSlice } from "./apiSlice";
+
+export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
+  endpoints: (builder) => ({
+    getTournamentCourtClusterOptions: builder.query({
+      query: (tournamentId) =>
+        `/api/admin/tournaments/${tournamentId}/allowed-court-clusters/options`,
+      keepUnusedDataFor: 0,
+      providesTags: (result, error, tournamentId) => [
+        { type: "TournamentCourtClusters", id: tournamentId },
+      ],
+    }),
+    updateTournamentAllowedCourtClusters: builder.mutation({
+      query: ({ tournamentId, allowedCourtClusterIds }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/allowed-court-clusters`,
+        method: "PUT",
+        body: { allowedCourtClusterIds },
+      }),
+      invalidatesTags: (result, error, { tournamentId }) => [
+        { type: "TournamentCourtClusters", id: tournamentId },
+        { type: "Tournaments", id: tournamentId },
+      ],
+    }),
+    getTournamentCourtClusterRuntime: builder.query({
+      query: ({ tournamentId, clusterId }) =>
+        `/api/admin/tournaments/${tournamentId}/court-clusters/${clusterId}/runtime`,
+      keepUnusedDataFor: 0,
+      providesTags: (result, error, { tournamentId, clusterId }) => [
+        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${clusterId}` },
+      ],
+    }),
+    assignTournamentMatchToCourtStation: builder.mutation({
+      query: ({ tournamentId, stationId, matchId }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/court-stations/${stationId}/assign-match`,
+        method: "POST",
+        body: { matchId },
+      }),
+      invalidatesTags: (result, error, { tournamentId, stationId }) => [
+        { type: "TournamentCourtClusters", id: tournamentId },
+        { type: "Tournaments", id: tournamentId },
+        { type: "CourtClusterRuntime", id: stationId },
+      ],
+    }),
+    updateTournamentCourtStationAssignmentConfig: builder.mutation({
+      query: ({ tournamentId, stationId, assignmentMode, queueMatchIds }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/court-stations/${stationId}/assignment-config`,
+        method: "PUT",
+        body: { assignmentMode, queueMatchIds },
+      }),
+      invalidatesTags: (result, error, { tournamentId, stationId }) => [
+        { type: "TournamentCourtClusters", id: tournamentId },
+        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${stationId}` },
+        { type: "CourtClusterRuntime", id: stationId },
+      ],
+    }),
+    appendTournamentCourtStationQueueItem: builder.mutation({
+      query: ({ tournamentId, stationId, matchId }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/court-stations/${stationId}/queue/items`,
+        method: "POST",
+        body: { matchId },
+      }),
+      invalidatesTags: (result, error, { tournamentId, stationId }) => [
+        { type: "TournamentCourtClusters", id: tournamentId },
+        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${stationId}` },
+        { type: "CourtClusterRuntime", id: stationId },
+      ],
+    }),
+    removeTournamentCourtStationQueueItem: builder.mutation({
+      query: ({ tournamentId, stationId, matchId }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/court-stations/${stationId}/queue/items/${matchId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (result, error, { tournamentId, stationId }) => [
+        { type: "TournamentCourtClusters", id: tournamentId },
+        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${stationId}` },
+        { type: "CourtClusterRuntime", id: stationId },
+      ],
+    }),
+    freeTournamentCourtStation: builder.mutation({
+      query: ({ tournamentId, stationId }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/court-stations/${stationId}/free`,
+        method: "POST",
+      }),
+      invalidatesTags: (result, error, { tournamentId, stationId }) => [
+        { type: "TournamentCourtClusters", id: tournamentId },
+        { type: "Tournaments", id: tournamentId },
+        { type: "CourtClusterRuntime", id: stationId },
+      ],
+    }),
+    getAdminCourtClusterRuntime: builder.query({
+      query: (clusterId) => `/api/admin/court-clusters/${clusterId}/runtime`,
+      keepUnusedDataFor: 0,
+      providesTags: (result, error, clusterId) => [
+        { type: "CourtClusterRuntime", id: clusterId },
+      ],
+    }),
+    assignMatchToCourtStation: builder.mutation({
+      query: ({ stationId, matchId }) => ({
+        url: `/api/admin/court-stations/${stationId}/assign-match`,
+        method: "POST",
+        body: { matchId },
+      }),
+    }),
+    freeCourtStation: builder.mutation({
+      query: (stationId) => ({
+        url: `/api/admin/court-stations/${stationId}/free`,
+        method: "POST",
+      }),
+    }),
+  }),
+  overrideExisting: true,
+});
+
+export const {
+  useGetTournamentCourtClusterOptionsQuery,
+  useUpdateTournamentAllowedCourtClustersMutation,
+  useGetTournamentCourtClusterRuntimeQuery,
+  useAssignTournamentMatchToCourtStationMutation,
+  useUpdateTournamentCourtStationAssignmentConfigMutation,
+  useAppendTournamentCourtStationQueueItemMutation,
+  useRemoveTournamentCourtStationQueueItemMutation,
+  useFreeTournamentCourtStationMutation,
+  useGetAdminCourtClusterRuntimeQuery,
+  useAssignMatchToCourtStationMutation,
+  useFreeCourtStationMutation,
+} = courtClustersAdminApiSlice;

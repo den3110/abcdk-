@@ -6,8 +6,8 @@ export const uploadCccd = async (req, res) => {
 
   const { front, back } = req.files;
   const urls = {
-    front: `/${front[0].path.replace("\\", "/")}`,
-    back : `/${back[0].path.replace("\\", "/")}`,
+    front: `/${front[0].path.replace(/\\/g, "/")}`,
+    back : `/${back[0].path.replace(/\\/g, "/")}`,
   };
 
   req.user.cccdImages = urls;

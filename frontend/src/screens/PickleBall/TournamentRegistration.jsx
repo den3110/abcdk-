@@ -68,6 +68,7 @@ import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import { useUploadRealAvatarMutation } from "../../slices/uploadApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
+import TeamTournamentRegistrationView from "../../components/teamTournament/TeamTournamentRegistrationView";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatDate as formatLocaleDate } from "../../i18n/format";
 import { getFeeAmount } from "../../utils/fee";
@@ -341,8 +342,23 @@ const LazyAvatar = memo(({ src, alt, size = 40, onClick, sx }) => {
 });
 
 /* Chips */
-const PaymentChip = memo(({ status }) => {
+const PaymentChip = memo(({ status, isFreeTournament = false }) => {
   const { t } = useLanguage();
+  if (isFreeTournament) {
+    return (
+      <Chip
+        size="small"
+        label={t("tournaments.registration.payment.free")}
+        sx={{
+          bgcolor: alpha("#0288d1", 0.1),
+          color: "#01579b",
+          fontWeight: 600,
+          fontSize: "0.7rem",
+          height: 24,
+        }}
+      />
+    );
+  }
   const isPaid = status === "Paid";
   return (
     <Chip
@@ -657,6 +673,7 @@ const ActionButtons = memo(
   ({
     r,
     canManage,
+    isFreeTournament,
     isOwner,
     onTogglePayment,
     onCancel,
@@ -667,6 +684,7 @@ const ActionButtons = memo(
     <ActionButtonsInner
       r={r}
       canManage={canManage}
+      isFreeTournament={isFreeTournament}
       isOwner={isOwner}
       onTogglePayment={onTogglePayment}
       onCancel={onCancel}
@@ -680,6 +698,7 @@ const ActionButtons = memo(
 const ActionButtonsInner = ({
   r,
   canManage,
+  isFreeTournament,
   isOwner,
   onTogglePayment,
   onCancel,
@@ -696,7 +715,7 @@ const ActionButtonsInner = ({
       justifyContent="flex-end"
       alignItems="center"
     >
-      {canManage && (
+      {canManage && !isFreeTournament && (
         <Tooltip title={t("tournaments.registration.payment.toggleTooltip")}>
           <IconButton
             size="small"
@@ -713,23 +732,25 @@ const ActionButtonsInner = ({
         </Tooltip>
       )}
 
-      <Tooltip title={t("tournaments.registration.payment.qrTooltip")}>
-        <Button
-          size="small"
-          variant="text"
-          startIcon={<QrCode fontSize="small" />}
-          onClick={() => onOpenPayment(r)}
-          sx={{
-            color: "#1976d2",
-            bgcolor: alpha("#1976d2", 0.05),
-            textTransform: "none", // Giữ chữ thường, không viết hoa toàn bộ
-            minWidth: "auto", // Để nút gọn gàng
-            px: 1, // Padding ngang
-          }}
-        >
-          {t("tournaments.registration.actions.pay")}
-        </Button>
-      </Tooltip>
+      {!isFreeTournament ? (
+        <Tooltip title={t("tournaments.registration.payment.qrTooltip")}>
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<QrCode fontSize="small" />}
+            onClick={() => onOpenPayment(r)}
+            sx={{
+              color: "#1976d2",
+              bgcolor: alpha("#1976d2", 0.05),
+              textTransform: "none",
+              minWidth: "auto",
+              px: 1,
+            }}
+          >
+            {t("tournaments.registration.actions.pay")}
+          </Button>
+        </Tooltip>
+      ) : null}
 
       <Tooltip title={t("tournaments.registration.actions.complaint")}>
         <Button
@@ -940,7 +961,10 @@ const RegCard = memo(
               </Typography>
               <CheckinChip checkinAt={r.checkinAt} />
             </Stack>
-            <PaymentChip status={r.payment?.status} />
+            <PaymentChip
+              status={r.payment?.status}
+              isFreeTournament={props.isFreeTournament}
+            />
           </Stack>
 
           {/* Body */}
@@ -1228,6 +1252,7 @@ export default function TournamentRegistration() {
   const evType = normType(tour?.eventType);
   const isSingles = evType === "single";
   const isDoubles = evType === "double";
+  const isFreeTournament = tour?.isFreeRegistration === true;
   const cap = getScoreCap(tour, isSingles);
   const eachCap = Number(tour?.singleCap ?? 0);
   const delta = getMaxDelta(tour);
@@ -1263,6 +1288,7 @@ export default function TournamentRegistration() {
 
   const qrImgUrlFor = useCallback(
     (r) => {
+      if (tour?.isFreeRegistration === true) return null;
       const bank =
         tour?.bankShortName ||
         tour?.qrBank ||
@@ -1357,7 +1383,7 @@ export default function TournamentRegistration() {
 
   const handleCancel = useCallback(
     async (r) => {
-      if (!canManage && r?.payment?.status === "Paid")
+      if (!canManage && !isFreeTournament && r?.payment?.status === "Paid")
         return toast.info(t("tournaments.registration.toasts.paidContactOrganizer"));
       if (!window.confirm(t("tournaments.registration.toasts.cancelConfirm")))
         return;
@@ -1378,6 +1404,7 @@ export default function TournamentRegistration() {
     },
     [
       canManage,
+      isFreeTournament,
       adminDeleteReg,
       cancelReg,
       refetchRegs,
@@ -1389,7 +1416,7 @@ export default function TournamentRegistration() {
 
   const togglePayment = useCallback(
     async (r) => {
-      if (!canManage) return;
+      if (!canManage || isFreeTournament) return;
       try {
         const next = r?.payment?.status === "Paid" ? "Unpaid" : "Paid";
         await setPaymentStatus({ regId: r._id, status: next }).unwrap();
@@ -1400,7 +1427,15 @@ export default function TournamentRegistration() {
         toast.error(t("tournaments.registration.toasts.paymentError"));
       }
     },
-    [canManage, setPaymentStatus, refetchRegs, debouncedQ, refetchSearch, t]
+    [
+      canManage,
+      isFreeTournament,
+      setPaymentStatus,
+      refetchRegs,
+      debouncedQ,
+      refetchSearch,
+      t,
+    ]
   );
 
   const submitReplace = useCallback(async () => {
@@ -1481,9 +1516,13 @@ export default function TournamentRegistration() {
     setProfileDlg({ open: false, userId: null });
   }, []);
 
-  const handleOpenPayment = useCallback((reg) => {
-    setPaymentDlg({ open: true, reg });
-  }, []);
+  const handleOpenPayment = useCallback(
+    (reg) => {
+      if (isFreeTournament) return;
+      setPaymentDlg({ open: true, reg });
+    },
+    [isFreeTournament]
+  );
 
   const handleClosePayment = useCallback(() => {
     setPaymentDlg({ open: false, reg: null });
@@ -1628,6 +1667,18 @@ export default function TournamentRegistration() {
         </Alert>
       </Box>
     );
+
+  if (String(tour?.tournamentMode || "").toLowerCase() === "team") {
+    return (
+      <TeamTournamentRegistrationView
+        tournamentId={id}
+        tour={tour}
+        me={me}
+        canManage={canManage}
+        isAdmin={isAdmin}
+      />
+    );
+  }
 
   return (
     <Box sx={{ bgcolor: "background.default", minHeight: "100vh", pb: 6 }}>
@@ -1837,13 +1888,25 @@ export default function TournamentRegistration() {
               <Grid size={{ xs: 6, md: 3 }}>
                 <StatCard
                   icon={<MonetizationOn />}
-                  label={t("tournaments.registration.stats.paid")}
-                  value={paidCount}
-                  subValue={t("tournaments.registration.stats.completion", {
-                    value: activeList.length
-                      ? Math.round((paidCount / activeList.length) * 100)
-                      : 0,
-                  })}
+                  label={
+                    isFreeTournament
+                      ? t("tournaments.registration.stats.fee")
+                      : t("tournaments.registration.stats.paid")
+                  }
+                  value={
+                    isFreeTournament
+                      ? t("tournaments.registration.stats.freeValue")
+                      : paidCount
+                  }
+                  subValue={
+                    isFreeTournament
+                      ? t("tournaments.registration.stats.freeHint")
+                      : t("tournaments.registration.stats.completion", {
+                          value: activeList.length
+                            ? Math.round((paidCount / activeList.length) * 100)
+                            : 0,
+                        })
+                  }
                 />
               </Grid>
               <Grid size={{ xs: 6, md: 3 }}>
@@ -2267,6 +2330,7 @@ export default function TournamentRegistration() {
                             onOpenComplaint={handleOpenComplaint}
                             getPlayerAvatar={getPlayerAvatar}
                             displayMode={displayMode}
+                            isFreeTournament={isFreeTournament}
                             regCodeOf={regCodeOf}
                             busy={busy}
                           />
@@ -2445,7 +2509,7 @@ export default function TournamentRegistration() {
 
       {/* 4. QR Payment */}
       <Dialog
-        open={paymentDlg.open}
+        open={paymentDlg.open && !isFreeTournament}
         onClose={handleClosePayment}
         maxWidth="xs"
         fullWidth

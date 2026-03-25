@@ -1,5 +1,6 @@
 // src/screens/PickleBall/match/ResponsiveMatchViewer.jsx
-import React, { useEffect, useMemo, useState } from "react";
+/* eslint-disable react/prop-types */
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Chip,
@@ -19,6 +20,7 @@ import {
   useGetMatchPublicQuery,
   useListTournamentBracketsQuery,
 } from "../../../slices/tournamentsApiSlice";
+import { useGetLiveCourtQuery } from "../../../slices/liveApiSlice";
 import MatchContent from "./MatchContent";
 
 /* =========================
@@ -369,21 +371,23 @@ function useLockedDialogMatch({
   initialMatch,
   base,
   live,
+  courtMatch,
   isLoadingBase,
   isLoadingLive,
+  isLoadingCourt,
 }) {
   const lockedId = String(matchId || "");
-  const pick = (cand) => {
+  const pick = useCallback((cand) => {
     const id = String(cand?._id || cand?.id || "");
     return id && id === lockedId ? cand : null;
-  };
-  const buildMerged = () => {
+  }, [lockedId]);
+  const buildMerged = useCallback(() => {
     let merged = null;
-    [initialMatch, base, live].forEach((cand) => {
+    [initialMatch, courtMatch, base, live].forEach((cand) => {
       merged = mergeLockedMatchPayload(merged, pick(cand));
     });
     return merged;
-  };
+  }, [base, courtMatch, initialMatch, live, pick]);
   const pickInitial = () => {
     return buildMerged();
   };
@@ -392,8 +396,10 @@ function useLockedDialogMatch({
   // Reset khi đổi match hoặc đóng dialog
   useEffect(() => {
     if (!open || !lockedId) {
-      setMm(null);
-      return;
+      const t = setTimeout(() => {
+        setMm(null);
+      }, 300); // Đợi Dialog MUI ẩn hẳn (duration ~225ms) mới clear data để tránh flash lỗi "Không tải được dữ liệu"
+      return () => clearTimeout(t);
     }
     setMm((prev) => {
       const seeded = buildMerged();
@@ -401,7 +407,7 @@ function useLockedDialogMatch({
       if (!prev) return seeded;
       return mergeLockedMatchPayload(prev, seeded);
     });
-  }, [open, lockedId, initialMatch, base, live]);
+  }, [open, lockedId, initialMatch, base, live, courtMatch, buildMerged]);
 
   // Nhận dữ liệu nhưng chỉ khi _id trùng matchId
   useEffect(() => {
@@ -415,9 +421,11 @@ function useLockedDialogMatch({
       const prevId = String(prev?._id || prev?.id || "");
       return prevId === lockedId ? mergeLockedMatchPayload(prev, next) : prev;
     });
-  }, [open, lockedId, initialMatch, base, live]);
+  }, [open, lockedId, initialMatch, base, live, courtMatch, buildMerged]);
 
-  const loading = (!mm && (isLoadingBase || isLoadingLive)) || (!mm && open);
+  const loading =
+    (!mm && (isLoadingBase || isLoadingLive || isLoadingCourt)) ||
+    (!mm && open);
 
   return { mm, loading };
 }
@@ -425,34 +433,69 @@ function useLockedDialogMatch({
 /* =========================
  * ResponsiveMatchViewer (đã khóa theo matchId)
  * ========================= */
-function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) {
+function ResponsiveMatchViewer({
+  open,
+  matchId,
+  courtStationId: forcedCourtStationId = null,
+  initialMatch = null,
+  onClose,
+  zIndex,
+}) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userInfo } = useSelector((s) => s.auth || {});
   const token = userInfo?.token;
+
+  const { data: seedBase, refetch: refetchSeedBase } = useGetMatchPublicQuery(matchId, {
+    skip: !matchId || !open,
+  });
+  const activeCourtStationId = useMemo(
+    () =>
+      String(
+        forcedCourtStationId ||
+          initialMatch?.courtStationId ||
+          initialMatch?.courtStation?._id ||
+          seedBase?.courtStationId ||
+          ""
+      ).trim(),
+    [forcedCourtStationId, initialMatch, seedBase?.courtStationId]
+  );
+  const {
+    data: liveCourt,
+    isFetching: isFetchingCourt,
+    refetch: refetchLiveCourt,
+  } = useGetLiveCourtQuery(activeCourtStationId, {
+    skip: !open || !activeCourtStationId,
+    pollingInterval: 5000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+  const effectiveMatchId = liveCourt?.currentMatch?._id || matchId;
 
   // Queries
   const {
     data: base,
     isLoading: isLoadingBase,
     refetch: refetchBase,
-  } = useGetMatchPublicQuery(matchId, {
-    skip: !matchId || !open,
+  } = useGetMatchPublicQuery(effectiveMatchId, {
+    skip: !effectiveMatchId || !open,
   });
   const { loading: isLoadingLive, data: live } = useLiveMatch(
-    open ? matchId : null,
+    open ? effectiveMatchId : null,
     token
   );
 
   // LOCK: chỉ lấy data trùng matchId
   const { mm, loading } = useLockedDialogMatch({
     open,
-    matchId,
+    matchId: effectiveMatchId,
     initialMatch,
     base,
     live,
+    courtMatch: liveCourt?.currentMatch || null,
     isLoadingBase,
     isLoadingLive,
+    isLoadingCourt: isFetchingCourt,
   });
 
   // TournamentId cho brackets dựa trên match đã LOCK
@@ -502,10 +545,11 @@ function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) 
 
   const handleSaved = () => {
     // Refetch dữ liệu public + brackets; UI trong dialog không bị nhảy vì đã LOCK theo matchId
+    refetchSeedBase?.();
     refetchBase?.();
     refetchBrackets?.();
+    refetchLiveCourt?.();
   };
-
   if (isMobile) {
     return (
       <Drawer
@@ -513,6 +557,7 @@ function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) 
         open={open}
         onClose={onClose}
         keepMounted
+        sx={{ ...(zIndex ? { zIndex } : {}) }}
         PaperProps={{
           sx: {
             borderTopLeftRadius: 16,
@@ -558,7 +603,7 @@ function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) 
 
           <Box sx={{ overflowY: "auto", pr: { md: 1 }, pb: 1 }}>
             <MatchContent
-              key={String(matchId || "")} // remount khi đổi trận
+              key={String(effectiveMatchId || matchId || "")}
               m={mm}
               isLoading={loading}
               liveLoading={false}
@@ -571,7 +616,13 @@ function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) 
   }
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <Dialog 
+      open={open} 
+      onClose={onClose} 
+      fullWidth 
+      maxWidth="md"
+      sx={{ ...(zIndex ? { zIndex } : {}) }}
+    >
       <DialogTitle sx={{ pr: 6 }}>
         Trận đấu • {code}
         {StatusChip}
@@ -584,7 +635,7 @@ function ResponsiveMatchViewer({ open, matchId, initialMatch = null, onClose }) 
       </DialogTitle>
       <DialogContent dividers>
         <MatchContent
-          key={String(matchId || "")} // remount khi đổi trận
+          key={String(effectiveMatchId || matchId || "")}
           m={mm}
           isLoading={loading}
           liveLoading={false}

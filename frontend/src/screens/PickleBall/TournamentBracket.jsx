@@ -82,6 +82,7 @@ import {
 
 const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
 const GROUP_VIEW_STORAGE_KEY = "pickletour:tournament-bracket:group-view-mode";
+const EMPTY_LIST = [];
 
 function readStoredGroupViewMode() {
   if (typeof window === "undefined") return "classic";
@@ -2131,15 +2132,17 @@ export default function TournamentBracket() {
   } = useGetTournamentQuery(tourId);
   const displayMode = getTournamentNameDisplayMode(tour);
   const {
-    data: brackets = [],
+    data: bracketsData,
     isLoading: l2,
     error: e2,
   } = useListTournamentBracketsQuery(tourId);
+  const brackets = bracketsData ?? EMPTY_LIST;
   const {
-    data: allMatchesFetched = [],
+    data: allMatchesFetchedData,
     isLoading: l3,
     error: e3,
   } = useListTournamentMatchesQuery({ tournamentId: tourId, view: "bracket" });
+  const allMatchesFetched = allMatchesFetchedData ?? EMPTY_LIST;
 
   const loading = l1 || l2 || l3;
   const error = e1 || e2 || e3;

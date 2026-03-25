@@ -25,6 +25,20 @@ const AgeRestrictionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const TeamFactionSchema = new mongoose.Schema(
+  {
+    name: { type: String, trim: true, default: "" },
+    captainUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    order: { type: Number, default: 0 },
+    isActive: { type: Boolean, default: true },
+  },
+  { _id: true }
+);
+
 /**
  * ✅ NEW: toạ độ địa lý cho giải (dùng cho WeatherKit, map…)
  * - location: string địa chỉ hiển thị (đã có sẵn)
@@ -69,6 +83,12 @@ const tournamentSchema = new mongoose.Schema(
     startDate: { type: Date, required: true, default: Date.now },
     endDate: { type: Date, required: true, default: Date.now },
     eventType: { type: String, enum: ["single", "double"], default: "double" },
+    tournamentMode: {
+      type: String,
+      enum: ["standard", "team"],
+      default: "standard",
+      index: true,
+    },
     nameDisplayMode: {
       type: String,
       enum: ["nickname", "fullName"],
@@ -154,14 +174,28 @@ const tournamentSchema = new mongoose.Schema(
     },
     bankAccountName: { type: String, trim: true, default: "", maxlength: 64 },
     registrationFee: { type: Number, default: 0, min: 0 },
+    isFreeRegistration: { type: Boolean, default: false },
 
     tele: TeleSchema,
+
+    teamConfig: {
+      factions: {
+        type: [TeamFactionSchema],
+        default: [],
+      },
+    },
 
     requireKyc: { type: Boolean, default: true },
     ageRestriction: { type: AgeRestrictionSchema, default: () => ({}) },
 
     expected: { type: Number, default: 0 },
     matchesCount: { type: Number, default: 0 },
+    allowedCourtClusterIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "CourtCluster",
+      },
+    ],
 
     drawPlan: { type: mongoose.Schema.Types.Mixed, default: null },
   },

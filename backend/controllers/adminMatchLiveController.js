@@ -2214,8 +2214,8 @@ export const createFacebookLiveForMatch = async (req, res) => {
           pageName: bucketBusy.pageName,
           error:
             bucketBusy.reason === "pool_busy"
-              ? "Page owner Ä‘ang báº­n trÃªn page khÃ¡c trong pool."
-              : `Page owner Ä‘ang cÃ³ live/prepared trÃªn Facebook (live=${bucketBusy.liveCount || 0}, prepared=${bucketBusy.preparedCount || 0}).`,
+              ? "Page owner đang bận trên page khác trong pool."
+              : `Page owner đang có live/prepared trên Facebook (live=${bucketBusy.liveCount || 0}, prepared=${bucketBusy.preparedCount || 0}).`,
         });
         continue;
       }

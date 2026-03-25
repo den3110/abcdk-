@@ -17,14 +17,28 @@ import {
   getLiveMultiSourceTargetPublicBaseUrlSync,
   getLiveServer2ManifestNameSync,
 } from "./liveMultiSourceConfig.service.js";
-import { getRuntimeRecordingStorageTargetsSync } from "./liveRecordingStorageTargetsConfig.service.js";
+import {
+  getLiveRecordingStorageTargetsConfig,
+  getLiveRecordingStorageTargetsConfigSync,
+  getRuntimeRecordingStorageTargetsSync,
+} from "./liveRecordingStorageTargetsConfig.service.js";
 
 const DEFAULT_RECORDING_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
 const MAX_DELETE_OBJECTS_PER_REQUEST = 1000;
 const DEFAULT_RECORDING_STORAGE_SCAN_TTL_MS = 15_000;
 const MIN_RECORDING_STORAGE_SCAN_TTL_MS = 5_000;
+const DEFAULT_RECORDING_STORAGE_HEALTH_TTL_MS = 10_000;
+const MIN_RECORDING_STORAGE_HEALTH_TTL_MS = 3_000;
+const DEFAULT_RECORDING_STORAGE_HEALTH_TIMEOUT_MS = 5_000;
+const MIN_RECORDING_STORAGE_HEALTH_TIMEOUT_MS = 1_000;
+const MAX_RECORDING_STORAGE_HEALTH_TIMEOUT_MS = 20_000;
 let recordingStorageUsageCache = {
+  value: null,
+  expiresAt: 0,
+  promise: null,
+};
+let recordingStorageHealthCache = {
   value: null,
   expiresAt: 0,
   promise: null,
@@ -52,6 +66,29 @@ function getRecordingStorageScanTtlMs() {
   );
 }
 
+function getRecordingStorageHealthTtlMs() {
+  const configured = parsePositiveInteger(
+    process.env.LIVE_RECORDING_R2_HEALTH_TTL_MS
+  );
+  return Math.max(
+    MIN_RECORDING_STORAGE_HEALTH_TTL_MS,
+    configured || DEFAULT_RECORDING_STORAGE_HEALTH_TTL_MS
+  );
+}
+
+function getRecordingStorageHealthTimeoutMs() {
+  const configured = parsePositiveInteger(
+    process.env.LIVE_RECORDING_R2_HEALTH_TIMEOUT_MS
+  );
+  return Math.max(
+    MIN_RECORDING_STORAGE_HEALTH_TIMEOUT_MS,
+    Math.min(
+      MAX_RECORDING_STORAGE_HEALTH_TIMEOUT_MS,
+      configured || DEFAULT_RECORDING_STORAGE_HEALTH_TIMEOUT_MS
+    )
+  );
+}
+
 function chunkArray(items = [], size = 1) {
   const chunkSize = Math.max(1, Math.floor(size));
   const chunks = [];
@@ -72,6 +109,10 @@ const recordingS3ClientCache = new Map();
 
 function getConfiguredRecordingTargets() {
   return getRuntimeRecordingStorageTargetsSync();
+}
+
+function getAllConfiguredRecordingTargets() {
+  return getLiveRecordingStorageTargetsConfigSync().targets || [];
 }
 
 function getRecordingStorageTargetInternal(storageTargetId = null) {
@@ -99,6 +140,10 @@ function requireRecordingStorageTarget(storageTargetId = null) {
 
 function getRecordingS3Client(storageTargetId = null) {
   const target = requireRecordingStorageTarget(storageTargetId);
+  return getRecordingS3ClientForTarget(target);
+}
+
+function getRecordingS3ClientForTarget(target) {
   const cacheKey = [
     target.id,
     target.endpoint,
@@ -185,6 +230,11 @@ export function getRecordingPublicBaseUrl(storageTargetId = null) {
 
 export function invalidateRecordingStorageUsageCache() {
   recordingStorageUsageCache = {
+    value: null,
+    expiresAt: 0,
+    promise: null,
+  };
+  recordingStorageHealthCache = {
     value: null,
     expiresAt: 0,
     promise: null,
@@ -637,6 +687,116 @@ async function scanRecordingStorageUsageUncached({
   };
 }
 
+function buildUnprobeableRecordingStorageHealthTarget(
+  target,
+  message = "Missing endpoint, access key, secret key or bucket"
+) {
+  return {
+    id: target.id,
+    label: target.label,
+    bucketName: target.bucketName || "",
+    endpoint: target.endpoint || "",
+    enabled: target.enabled !== false,
+    probeable: false,
+    alive: false,
+    status: target.enabled === false ? "disabled" : "unprobeable",
+    latencyMs: null,
+    checkedAt: new Date(),
+    message,
+    errorCode: null,
+  };
+}
+
+async function probeRecordingStorageTarget(target) {
+  const hasRequiredFields = Boolean(
+    asTrimmed(target?.endpoint) &&
+      asTrimmed(target?.accessKeyId) &&
+      asTrimmed(target?.secretAccessKey) &&
+      asTrimmed(target?.bucketName)
+  );
+
+  if (!hasRequiredFields) {
+    return buildUnprobeableRecordingStorageHealthTarget(target);
+  }
+
+  const client = getRecordingS3ClientForTarget(target);
+  const timeoutMs = getRecordingStorageHealthTimeoutMs();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+
+  try {
+    await client.send(
+      new ListObjectsV2Command({
+        Bucket: target.bucketName,
+        MaxKeys: 1,
+      }),
+      {
+        abortSignal: controller.signal,
+      }
+    );
+
+    return {
+      id: target.id,
+      label: target.label,
+      bucketName: target.bucketName || "",
+      endpoint: target.endpoint || "",
+      enabled: target.enabled !== false,
+      probeable: true,
+      alive: true,
+      status: "alive",
+      latencyMs: Date.now() - startedAt,
+      checkedAt: new Date(),
+      message: "R2 reachable",
+      errorCode: null,
+    };
+  } catch (error) {
+    const isTimeout =
+      error?.name === "AbortError" ||
+      error?.code === "AbortError" ||
+      /abort/i.test(String(error?.message || ""));
+
+    return {
+      id: target.id,
+      label: target.label,
+      bucketName: target.bucketName || "",
+      endpoint: target.endpoint || "",
+      enabled: target.enabled !== false,
+      probeable: true,
+      alive: false,
+      status: "dead",
+      latencyMs: Date.now() - startedAt,
+      checkedAt: new Date(),
+      message: isTimeout
+        ? `Probe timeout after ${timeoutMs}ms`
+        : String(error?.message || error || "Probe failed"),
+      errorCode:
+        error?.name ||
+        error?.code ||
+        error?.Code ||
+        (isTimeout ? "AbortError" : "ProbeFailed"),
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function scanRecordingStorageHealthUncached() {
+  const configuredTargets = getAllConfiguredRecordingTargets();
+  const targets = await Promise.all(
+    configuredTargets.map((target) => probeRecordingStorageTarget(target))
+  );
+
+  return {
+    healthyTargetCount: targets.filter((target) => target.alive).length,
+    deadTargetCount: targets.filter((target) => target.status === "dead").length,
+    unprobeableTargetCount: targets.filter((target) => !target.probeable).length,
+    targets,
+    checkedAt: new Date(),
+    source: "r2_probe",
+  };
+}
+
 export async function getRecordingStorageUsageSummary({
   forceRefresh = false,
   prefix = "",
@@ -689,6 +849,61 @@ export async function getRecordingStorageUsageSummary({
   };
 
   return scanPromise;
+}
+
+export async function getRecordingStorageHealthSummary({
+  forceRefresh = false,
+} = {}) {
+  await getLiveRecordingStorageTargetsConfig();
+  const configuredTargets = getAllConfiguredRecordingTargets();
+  if (!configuredTargets.length) {
+    return {
+      healthyTargetCount: 0,
+      deadTargetCount: 0,
+      unprobeableTargetCount: 0,
+      targets: [],
+      checkedAt: new Date(),
+      source: "unconfigured",
+    };
+  }
+
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    recordingStorageHealthCache.value &&
+    now < recordingStorageHealthCache.expiresAt
+  ) {
+    return recordingStorageHealthCache.value;
+  }
+
+  if (!forceRefresh && recordingStorageHealthCache.promise) {
+    return recordingStorageHealthCache.promise;
+  }
+
+  const probePromise = scanRecordingStorageHealthUncached()
+    .then((summary) => {
+      recordingStorageHealthCache = {
+        value: summary,
+        expiresAt: Date.now() + getRecordingStorageHealthTtlMs(),
+        promise: null,
+      };
+      return summary;
+    })
+    .catch((error) => {
+      recordingStorageHealthCache = {
+        value: null,
+        expiresAt: 0,
+        promise: null,
+      };
+      throw error;
+    });
+
+  recordingStorageHealthCache = {
+    ...recordingStorageHealthCache,
+    promise: probePromise,
+  };
+
+  return probePromise;
 }
 
 export async function listRecordingObjects({

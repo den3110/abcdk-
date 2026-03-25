@@ -15,12 +15,12 @@ const isValidId = (v) => !!v && mongoose.isValidObjectId(String(v));
  |  2. Fallback header 'Authorization: Bearer <token>'
  * -------------------------------------------------------- */
 function extractToken(req) {
-  // 1) Cookie
-  if (req.cookies?.jwt) return req.cookies.jwt;
-
-  // 2) Header
+  // 1) Ưu tiên Header (trong trường hợp test bằng Postman/curl có set Header thủ công)
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
+
+  // 2) Fallback Cookie
+  if (req.cookies?.jwt) return req.cookies.jwt;
 
   return null;
 }

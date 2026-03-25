@@ -3,7 +3,7 @@ import { apiSlice } from "./apiSlice";
 export const adminApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     // =========================
-    // USER MANAGEMENT (cÅ©)
+    // USER MANAGEMENT (cũ)
     // =========================
     getUsers: builder.query({
       query: ({ page = 1, keyword = "", role = "", cccdStatus = "" }) =>
@@ -35,7 +35,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["User"],
     }),
 
-    /** âœ¨ Sá»¬A há»“ sÆ¡ (name, phone, â€¦) */
+    /** ✨ SỬA hồ sơ (name, phone, …) */
     updateUserInfo: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/users/${id}`,
@@ -44,7 +44,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    /** âœ¨ DUYá»†T hoáº·c Tá»ª CHá»I KYC */
+    /** âœ¨ DUYá»†T hoặc TỪ CHỐI KYC */
     reviewKyc: builder.mutation({
       query: ({ id, action }) => ({
         url: `/api/admin/users/${id}/kyc`,
@@ -62,9 +62,9 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     }),
 
     // =========================
-    // EVALUATOR MANAGEMENT (má»›i)
+    // EVALUATOR MANAGEMENT (mới)
     // =========================
-    /** Danh sÃ¡ch evaluator + filter */
+    /** Danh sách evaluator + filter */
     getEvaluators: builder.query({
       query: ({ page = 1, keyword = "", province, sport } = {}) => {
         const params = new URLSearchParams();
@@ -74,12 +74,12 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         if (sport) params.set("sport", sport);
         return `/api/admin/evaluators?${params.toString()}`;
       },
-      // dÃ¹ng chung tag "User" Ä‘á»ƒ tá»± Ä‘á»™ng refetch cÃ¡c báº£ng liÃªn quan
+      // dùng chung tag "User" để tự động refetch các bảng liên quan
       providesTags: ["User"],
       keepUnusedDataFor: 30,
     }),
 
-    /** Cáº­p nháº­t pháº¡m vi cháº¥m (nhiá»u tá»‰nh + nhiá»u mÃ´n) */
+    /** Cáº­p nháº­t pháº¡m vi cháº¥m (nhiá»u tá»‰nh + nhiều môn) */
     updateEvaluatorScopes: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/evaluators/${id}/scopes`,
@@ -97,7 +97,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    /** Demote evaluator -> role khÃ¡c (máº·c Ä‘á»‹nh: user) */
+    /** Demote evaluator -> role khác (mặc định: user) */
     demoteEvaluator: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/evaluators/${id}/demote`,
@@ -147,7 +147,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["AvatarOptimization"],
     }),
 
-    // âœ… ADD trong adminApiSlice.js
+    // ✅ ADD trong adminApiSlice.js
     getUserAudit: builder.query({
       query: ({ userId, page = 1, limit = 20, actorId, field }) => {
         const params = new URLSearchParams();

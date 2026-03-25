@@ -84,7 +84,7 @@ const matchSchema = new Schema(
     bracket: {
       type: Schema.Types.ObjectId,
       ref: "Bracket",
-      required: true,
+      default: null,
       index: true,
     },
 
@@ -133,6 +133,18 @@ const matchSchema = new Schema(
     /* Sau khi resolve seed → giữ như trước */
     pairA: { type: Schema.Types.ObjectId, ref: "Registration", default: null },
     pairB: { type: Schema.Types.ObjectId, ref: "Registration", default: null },
+    teamFactionAId: {
+      type: Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    teamFactionAName: { type: String, default: "" },
+    teamFactionBId: {
+      type: Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    teamFactionBName: { type: String, default: "" },
     previousA: { type: Schema.Types.ObjectId, ref: "Match", default: null },
     previousB: { type: Schema.Types.ObjectId, ref: "Match", default: null },
 
@@ -196,6 +208,20 @@ const matchSchema = new Schema(
     court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
     courtLabel: { type: String, default: "" },
     courtCluster: { type: String, default: "Main", index: true }, // cụm sân
+    courtStation: {
+      type: Schema.Types.ObjectId,
+      ref: "CourtStation",
+      default: null,
+      index: true,
+    },
+    courtStationLabel: { type: String, default: "" },
+    courtClusterId: {
+      type: Schema.Types.ObjectId,
+      ref: "CourtCluster",
+      default: null,
+      index: true,
+    },
+    courtClusterLabel: { type: String, default: "" },
     queueOrder: { type: Number, default: null, index: true },
     assignedAt: { type: Date, default: null },
     participants: [
@@ -1546,6 +1572,8 @@ matchSchema.index({ tournament: 1, status: 1, updatedAt: -1 });
 matchSchema.index({ pairA: 1, status: 1, finishedAt: -1 });
 matchSchema.index({ pairB: 1, status: 1, finishedAt: -1 });
 matchSchema.index({ court: 1, status: 1 });
+matchSchema.index({ courtStation: 1, status: 1 });
+matchSchema.index({ courtClusterId: 1, status: 1, updatedAt: -1 });
 matchSchema.index({ status: 1, queueOrder: 1, courtCluster: 1 });
 matchSchema.index({ participants: 1 });
 matchSchema.index({ referee: 1 });

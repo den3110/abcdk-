@@ -61,6 +61,18 @@ function asMutableMeta(meta) {
   return meta && typeof meta === "object" && !Array.isArray(meta) ? { ...meta } : {};
 }
 
+function asTrimmed(value) {
+  return String(value || "").trim();
+}
+
+function getSegmentStorageTargetId(segment, recording) {
+  return (
+    asTrimmed(segment?.storageTargetId) ||
+    asTrimmed(recording?.r2TargetId) ||
+    ""
+  );
+}
+
 function buildSourceCleanupObjectKeys(recording) {
   const objectKeys = new Set();
 
@@ -75,6 +87,30 @@ function buildSourceCleanupObjectKeys(recording) {
   }
 
   return [...objectKeys];
+}
+
+function groupRecordingObjectKeysByTarget(recording, { includeManifest = true } = {}) {
+  const grouped = new Map();
+
+  const pushObjectKey = (storageTargetId, objectKey) => {
+    const normalizedTargetId = asTrimmed(storageTargetId);
+    const normalizedObjectKey = asTrimmed(objectKey);
+    if (!normalizedTargetId || !normalizedObjectKey) return;
+    if (!grouped.has(normalizedTargetId)) {
+      grouped.set(normalizedTargetId, new Set());
+    }
+    grouped.get(normalizedTargetId).add(normalizedObjectKey);
+  };
+
+  for (const segment of recording?.segments || []) {
+    pushObjectKey(getSegmentStorageTargetId(segment, recording), segment?.objectKey);
+  }
+
+  if (includeManifest && recording?.r2ManifestKey) {
+    pushObjectKey(recording?.r2TargetId, recording.r2ManifestKey);
+  }
+
+  return grouped;
 }
 
 function shouldDeleteRecordingSourceAfterExport() {
@@ -279,6 +315,8 @@ export async function exportLiveRecordingV2(recordingId) {
     segments: uploadedSegments.map((segment) => ({
       index: segment.index,
       objectKey: segment.objectKey,
+      storageTargetId: getSegmentStorageTargetId(segment, recording) || null,
+      bucketName: asTrimmed(segment?.bucketName) || recording?.r2BucketName || null,
       sizeBytes: segment.sizeBytes,
       durationSeconds: segment.durationSeconds,
       isFinal: segment.isFinal,
@@ -321,7 +359,7 @@ export async function exportLiveRecordingV2(recordingId) {
       await downloadRecordingObjectToFile({
         objectKey: segment.objectKey,
         targetPath: localSegmentPath,
-        storageTargetId: recording.r2TargetId,
+        storageTargetId: getSegmentStorageTargetId(segment, recording),
       });
       segmentPaths.push(localSegmentPath);
     }
@@ -537,16 +575,21 @@ export async function deleteExportedRecordingSegments(
     };
   }
 
-  const deleteResult = await deleteRecordingObjects(objectKeys, {
-    storageTargetId: recording.r2TargetId,
+  const groupedObjectKeys = groupRecordingObjectKeysByTarget(recording, {
+    includeManifest,
   });
+  const deletedKeys = [];
+  for (const [storageTargetId, targetObjectKeys] of groupedObjectKeys.entries()) {
+    if (!targetObjectKeys.size) continue;
+    const deleteResult = await deleteRecordingObjects([...targetObjectKeys], {
+      storageTargetId,
+    });
+    deletedKeys.push(...(deleteResult?.deletedKeys || []));
+  }
 
   return {
-    deletedObjectCount: Number(deleteResult?.deletedObjectCount) || 0,
+    deletedObjectCount: deletedKeys.length,
     deletedManifest: includeManifest && Boolean(recording.r2ManifestKey),
-    objectKeys:
-      Array.isArray(deleteResult?.deletedKeys) && deleteResult.deletedKeys.length
-        ? deleteResult.deletedKeys
-        : objectKeys,
+    objectKeys: deletedKeys.length ? deletedKeys : objectKeys,
   };
 }

@@ -76,6 +76,14 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       query: (tourId) => `/api/tournaments/${tourId}/registrations`,
       keepUnusedDataFor: 0,
     }),
+    getTeamRoster: builder.query({
+      query: (tourId) => `/api/tournaments/${tourId}/team-roster`,
+      keepUnusedDataFor: 0,
+    }),
+    getTeamStandings: builder.query({
+      query: (tourId) => `/api/tournaments/${tourId}/team-standings`,
+      keepUnusedDataFor: 0,
+    }),
 
     /* ---------------------------- CREATE REGISTRATION ----------------------------- */
     createRegistration: builder.mutation({
@@ -90,6 +98,17 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { tourId }) => [
         { type: "Registrations", id: tourId },
         { type: "Tournaments", id: tourId },
+      ],
+    }),
+    createTeamMatch: builder.mutation({
+      query: ({ tourId, ...body }) => ({
+        url: `/api/tournaments/${tourId}/team-matches`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (result, error, { tourId }) => [
+        { type: "Tournaments", id: tourId },
+        { type: "Matches", id: tourId },
       ],
     }),
 
@@ -175,6 +194,45 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         return [];
       },
       keepUnusedDataFor: 45,
+    }),
+
+    listTournamentManagers: builder.query({
+      query: (tournamentId) => ({
+        url: `/api/tournaments/${tournamentId}/managers`,
+        method: "GET",
+      }),
+      transformResponse: (res) => {
+        if (Array.isArray(res)) return res;
+        if (res?.list && Array.isArray(res.list)) return res.list;
+        return [];
+      },
+      keepUnusedDataFor: 30,
+      providesTags: (_res, _err, tournamentId) => [
+        { type: "TournamentManagers", id: tournamentId },
+      ],
+    }),
+
+    addTournamentManager: builder.mutation({
+      query: ({ tournamentId, userId }) => ({
+        url: `/api/tournaments/${tournamentId}/managers`,
+        method: "POST",
+        body: { userId },
+      }),
+      invalidatesTags: (_res, _err, { tournamentId }) => [
+        { type: "TournamentManagers", id: tournamentId },
+        { type: "Tournaments", id: tournamentId },
+      ],
+    }),
+
+    removeTournamentManager: builder.mutation({
+      query: ({ tournamentId, userId }) => ({
+        url: `/api/tournaments/${tournamentId}/managers/${userId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (_res, _err, { tournamentId }) => [
+        { type: "TournamentManagers", id: tournamentId },
+        { type: "Tournaments", id: tournamentId },
+      ],
     }),
 
     getMatchPublic: builder.query({
@@ -632,7 +690,10 @@ export const {
   // đã có
   useGetTournamentsQuery,
   useGetRegistrationsQuery,
+  useGetTeamRosterQuery,
+  useGetTeamStandingsQuery,
   useCreateRegistrationMutation,
+  useCreateTeamMatchMutation,
   useUpdatePaymentMutation,
   useCheckinMutation,
   useGetTournamentQuery,
@@ -643,6 +704,9 @@ export const {
   useUserCheckinRegistrationMutation,
   useListTournamentBracketsQuery,
   useListTournamentMatchesQuery,
+  useListTournamentManagersQuery,
+  useAddTournamentManagerMutation,
+  useRemoveTournamentManagerMutation,
   useGetMatchPublicQuery,
   useCancelRegistrationMutation,
   useCreateRegInviteMutation,

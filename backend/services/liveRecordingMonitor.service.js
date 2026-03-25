@@ -180,6 +180,10 @@ function summarizeSegments(segments = []) {
     return {
       index: segment.index,
       objectKey: segment.objectKey || "",
+      storageTargetId:
+        String(segment?.storageTargetId || recording?.r2TargetId || "").trim() || null,
+      bucketName:
+        String(segment?.bucketName || recording?.r2BucketName || "").trim() || null,
       etag: segment.etag || "",
       uploadStatus: segment.uploadStatus,
       isFinal: Boolean(segment.isFinal),

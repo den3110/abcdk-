@@ -17,6 +17,7 @@ import {
 
 import Match from "../models/matchModel.js";
 import Court from "../models/courtModel.js";
+import CourtStation from "../models/courtStationModel.js";
 import Bracket from "../models/bracketModel.js";
 import {
   assignNextToCourt,
@@ -48,6 +49,8 @@ import {
 } from "../services/fbPageMonitorEvents.service.js";
 import { buildTournamentCourtLivePresenceSnapshot } from "../services/courtLivePresence.service.js";
 import { registerCourtLivePresencePublisher } from "../services/courtLivePresenceEvents.service.js";
+import { registerCourtStationPresencePublishers } from "../services/courtStationPresenceEvents.service.js";
+import { ensureCourtStationPresenceSweeperStarted } from "../services/courtStationPresence.service.js";
 import { buildLiveRecordingMonitorSnapshot } from "../services/liveRecordingMonitor.service.js";
 import {
   getLiveRecordingMonitorEventsChannel,
@@ -58,6 +61,11 @@ import {
   emitTournamentInvalidate,
   emitTournamentMatchUpdate,
 } from "./tournamentRealtime.js";
+import {
+  buildPublicLiveClusterDetail,
+  buildPublicLiveCourtDetail,
+} from "../services/courtCluster.service.js";
+import { registerCourtStationRuntimePublishers } from "../services/courtStationRuntimeEvents.service.js";
 
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
@@ -69,6 +77,10 @@ let fbPageMonitorPendingPageIds = new Set();
 let fbPageMonitorPendingHasEvent = false;
 let courtLiveTickerStarted = false;
 const courtLivePendingByTournamentId = new Map();
+let courtClusterTickerStarted = false;
+const courtClusterPendingById = new Map();
+let courtStationTickerStarted = false;
+const courtStationPendingById = new Map();
 let liveRecordingMonitorTickerStarted = false;
 let liveRecordingMonitorPublishTimer = null;
 let liveRecordingMonitorPendingReasons = new Set();
@@ -83,6 +95,12 @@ const FB_PAGE_MONITOR_DEBOUNCE_MS = 300;
 const COURT_LIVE_ROOM_PREFIX = "court-live:watch:";
 const COURT_LIVE_RECONCILE_TICK_MS = 15000;
 const COURT_LIVE_DEBOUNCE_MS = 300;
+const COURT_CLUSTER_ROOM_PREFIX = "court-cluster:watch:";
+const COURT_CLUSTER_RECONCILE_TICK_MS = 15000;
+const COURT_CLUSTER_DEBOUNCE_MS = 300;
+const COURT_STATION_ROOM_PREFIX = "court-station:watch:";
+const COURT_STATION_RECONCILE_TICK_MS = 15000;
+const COURT_STATION_DEBOUNCE_MS = 300;
 const LIVE_RECORDING_MONITOR_ROOM = "recordings-v2:watchers";
 const PUSH_MONITOR_ROOM = "push-monitor:watchers";
 const LIVE_RECORDING_MONITOR_TICK_MS = 15000;
@@ -256,6 +274,213 @@ function scheduleCourtLivePresencePublish(io, payload = {}) {
   entry.timer = setTimeout(() => {
     void flushNow();
   }, COURT_LIVE_DEBOUNCE_MS);
+}
+
+function courtClusterRoom(clusterId) {
+  return `${COURT_CLUSTER_ROOM_PREFIX}${String(clusterId || "").trim()}`;
+}
+
+function courtStationRoom(stationId) {
+  return `${COURT_STATION_ROOM_PREFIX}${String(stationId || "").trim()}`;
+}
+
+async function loadCourtStationCurrentMatchDto(stationId) {
+  const station = await CourtStation.findById(stationId)
+    .populate({
+      path: "currentMatch",
+      populate: [
+        { path: "tournament", select: "name image overlay eventType nameDisplayMode" },
+        { path: "bracket" },
+        {
+          path: "pairA",
+          populate: [
+            { path: "player1.user", select: "name nickname nickName fullName avatar" },
+            { path: "player2.user", select: "name nickname nickName fullName avatar" },
+          ],
+        },
+        {
+          path: "pairB",
+          populate: [
+            { path: "player1.user", select: "name nickname nickName fullName avatar" },
+            { path: "player2.user", select: "name nickname nickName fullName avatar" },
+          ],
+        },
+        { path: "referee", select: "name fullName nickname nickName" },
+        { path: "liveBy", select: "name fullName nickname nickName" },
+      ],
+    })
+    .lean();
+  if (!station?.currentMatch) return null;
+  return toRealtimePublicMatchDTO(station.currentMatch);
+}
+
+async function emitCourtClusterSnapshot(io, clusterId, socketId = null) {
+  const normalizedClusterId = String(clusterId || "").trim();
+  if (!normalizedClusterId) return;
+  try {
+    const snapshot = await buildPublicLiveClusterDetail(normalizedClusterId);
+    if (!snapshot) return;
+    if (socketId) {
+      io.to(socketId).emit("court-cluster:update", snapshot);
+      return;
+    }
+    io.to(courtClusterRoom(normalizedClusterId)).emit(
+      "court-cluster:update",
+      snapshot
+    );
+  } catch (error) {
+    console.error(
+      "[socket] court-cluster:update error:",
+      error?.message || error
+    );
+  }
+}
+
+function getCourtClusterPendingEntry(clusterId) {
+  const key = String(clusterId || "").trim();
+  if (!key) return null;
+  const current =
+    courtClusterPendingById.get(key) || {
+      timer: null,
+      reasons: new Set(),
+      stationIds: new Set(),
+      hasEvent: false,
+    };
+  courtClusterPendingById.set(key, current);
+  return current;
+}
+
+async function flushCourtClusterPublish(io, clusterId) {
+  const key = String(clusterId || "").trim();
+  if (!key) return;
+  const entry = courtClusterPendingById.get(key);
+  if (!entry) return;
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+    entry.timer = null;
+  }
+  courtClusterPendingById.delete(key);
+  const watchers = io.sockets.adapter.rooms.get(courtClusterRoom(key))?.size || 0;
+  if (!watchers) return;
+  await emitCourtClusterSnapshot(io, key);
+}
+
+function scheduleCourtClusterPublish(io, payload = {}) {
+  const clusterId = String(payload.clusterId || "").trim();
+  if (!clusterId) return;
+  const mode = payload.mode === "reconcile" ? "reconcile" : "event";
+  const entry = getCourtClusterPendingEntry(clusterId);
+  if (!entry) return;
+  entry.reasons.add(
+    String(payload.reason || "unknown_event").trim() || "unknown_event"
+  );
+  for (const stationId of Array.isArray(payload.stationIds) ? payload.stationIds : []) {
+    if (stationId) entry.stationIds.add(String(stationId));
+  }
+  if (mode === "event") entry.hasEvent = true;
+
+  const flushNow = async () => {
+    try {
+      await flushCourtClusterPublish(io, clusterId);
+    } catch (error) {
+      console.error("[socket] court-cluster flush error:", error);
+    }
+  };
+
+  if (mode === "reconcile") {
+    void flushNow();
+    return;
+  }
+
+  if (entry.timer) return;
+  entry.timer = setTimeout(() => {
+    void flushNow();
+  }, COURT_CLUSTER_DEBOUNCE_MS);
+}
+
+async function emitCourtStationSnapshot(io, stationId, socketId = null) {
+  const normalizedStationId = String(stationId || "").trim();
+  if (!normalizedStationId) return;
+  try {
+    const snapshot = await buildPublicLiveCourtDetail(normalizedStationId);
+    if (!snapshot) return;
+    const currentMatch = await loadCourtStationCurrentMatchDto(normalizedStationId);
+    const payload = {
+      ...snapshot,
+      currentMatch,
+    };
+    if (socketId) {
+      io.to(socketId).emit("court-station:update", payload);
+      return;
+    }
+    io.to(courtStationRoom(normalizedStationId)).emit(
+      "court-station:update",
+      payload
+    );
+  } catch (error) {
+    console.error(
+      "[socket] court-station:update error:",
+      error?.message || error
+    );
+  }
+}
+
+function getCourtStationPendingEntry(stationId) {
+  const key = String(stationId || "").trim();
+  if (!key) return null;
+  const current =
+    courtStationPendingById.get(key) || {
+      timer: null,
+      reasons: new Set(),
+      hasEvent: false,
+    };
+  courtStationPendingById.set(key, current);
+  return current;
+}
+
+async function flushCourtStationPublish(io, stationId) {
+  const key = String(stationId || "").trim();
+  if (!key) return;
+  const entry = courtStationPendingById.get(key);
+  if (!entry) return;
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+    entry.timer = null;
+  }
+  courtStationPendingById.delete(key);
+  const watchers = io.sockets.adapter.rooms.get(courtStationRoom(key))?.size || 0;
+  if (!watchers) return;
+  await emitCourtStationSnapshot(io, key);
+}
+
+function scheduleCourtStationPublish(io, payload = {}) {
+  const stationId = String(payload.stationId || "").trim();
+  if (!stationId) return;
+  const mode = payload.mode === "reconcile" ? "reconcile" : "event";
+  const entry = getCourtStationPendingEntry(stationId);
+  if (!entry) return;
+  entry.reasons.add(
+    String(payload.reason || "unknown_event").trim() || "unknown_event"
+  );
+  if (mode === "event") entry.hasEvent = true;
+
+  const flushNow = async () => {
+    try {
+      await flushCourtStationPublish(io, stationId);
+    } catch (error) {
+      console.error("[socket] court-station flush error:", error);
+    }
+  };
+
+  if (mode === "reconcile") {
+    void flushNow();
+    return;
+  }
+
+  if (entry.timer) return;
+  entry.timer = setTimeout(() => {
+    void flushNow();
+  }, COURT_STATION_DEBOUNCE_MS);
 }
 
 async function emitLiveRecordingMonitorSnapshot(io, options = {}) {
@@ -885,6 +1110,23 @@ export function initSocket(
   registerCourtLivePresencePublisher((payload) => {
     scheduleCourtLivePresencePublish(io, payload);
   });
+  registerCourtStationPresencePublishers({
+    publishCluster: (payload) => {
+      scheduleCourtClusterPublish(io, payload);
+    },
+    publishStation: (payload) => {
+      scheduleCourtStationPublish(io, payload);
+    },
+  });
+  registerCourtStationRuntimePublishers({
+    publishCluster: (payload) => {
+      scheduleCourtClusterPublish(io, payload);
+    },
+    publishStation: (payload) => {
+      scheduleCourtStationPublish(io, payload);
+    },
+  });
+  ensureCourtStationPresenceSweeperStarted();
   registerLiveRecordingMonitorPublisher((payload) => {
     scheduleLiveRecordingMonitorPublish(io, payload);
   });
@@ -1099,6 +1341,48 @@ export function initSocket(
         socket.leave(courtLiveRoom(tid));
       } catch (e) {
         console.error("[socket] court-live:unwatch error:", e);
+      }
+    });
+
+    socket.on("court-cluster:watch", async ({ clusterId } = {}) => {
+      try {
+        const cid = String(clusterId || "").trim();
+        if (!cid) return;
+        socket.join(courtClusterRoom(cid));
+        await emitCourtClusterSnapshot(io, cid, socket.id);
+      } catch (e) {
+        console.error("[socket] court-cluster:watch error:", e);
+      }
+    });
+
+    socket.on("court-cluster:unwatch", ({ clusterId } = {}) => {
+      try {
+        const cid = String(clusterId || "").trim();
+        if (!cid) return;
+        socket.leave(courtClusterRoom(cid));
+      } catch (e) {
+        console.error("[socket] court-cluster:unwatch error:", e);
+      }
+    });
+
+    socket.on("court-station:watch", async ({ stationId } = {}) => {
+      try {
+        const sid = String(stationId || "").trim();
+        if (!sid) return;
+        socket.join(courtStationRoom(sid));
+        await emitCourtStationSnapshot(io, sid, socket.id);
+      } catch (e) {
+        console.error("[socket] court-station:watch error:", e);
+      }
+    });
+
+    socket.on("court-station:unwatch", ({ stationId } = {}) => {
+      try {
+        const sid = String(stationId || "").trim();
+        if (!sid) return;
+        socket.leave(courtStationRoom(sid));
+      } catch (e) {
+        console.error("[socket] court-station:unwatch error:", e);
       }
     });
 
@@ -3018,6 +3302,50 @@ export function initSocket(
         console.error("[socket] court-live ticker error:", e);
       }
     }, COURT_LIVE_RECONCILE_TICK_MS);
+  }
+
+  if (!courtClusterTickerStarted) {
+    courtClusterTickerStarted = true;
+    setInterval(async () => {
+      try {
+        const rooms = Array.from(io.sockets.adapter.rooms.keys()).filter(
+          (room) => room.startsWith(COURT_CLUSTER_ROOM_PREFIX)
+        );
+        for (const room of rooms) {
+          const clusterId = room.slice(COURT_CLUSTER_ROOM_PREFIX.length);
+          if (!clusterId) continue;
+          scheduleCourtClusterPublish(io, {
+            clusterId,
+            reason: "fallback_reconcile",
+            mode: "reconcile",
+          });
+        }
+      } catch (e) {
+        console.error("[socket] court-cluster ticker error:", e);
+      }
+    }, COURT_CLUSTER_RECONCILE_TICK_MS);
+  }
+
+  if (!courtStationTickerStarted) {
+    courtStationTickerStarted = true;
+    setInterval(async () => {
+      try {
+        const rooms = Array.from(io.sockets.adapter.rooms.keys()).filter(
+          (room) => room.startsWith(COURT_STATION_ROOM_PREFIX)
+        );
+        for (const room of rooms) {
+          const stationId = room.slice(COURT_STATION_ROOM_PREFIX.length);
+          if (!stationId) continue;
+          scheduleCourtStationPublish(io, {
+            stationId,
+            reason: "fallback_reconcile",
+            mode: "reconcile",
+          });
+        }
+      } catch (e) {
+        console.error("[socket] court-station ticker error:", e);
+      }
+    }, COURT_STATION_RECONCILE_TICK_MS);
   }
 
   if (!liveRecordingMonitorTickerStarted) {

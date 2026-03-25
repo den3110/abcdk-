@@ -4,16 +4,28 @@ const LIMIT = 12;
 
 export const liveApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    getLiveClusters: builder.query({
+      query: () => "/api/live/clusters",
+      transformResponse: (resp) => resp?.items || [],
+      providesTags: (result = []) => [
+        ...result.map((item) => ({ type: "LiveCluster", id: item._id })),
+        { type: "LiveCluster", id: "LIST" },
+      ],
+    }),
+    getLiveCluster: builder.query({
+      query: (clusterId) => `/api/live/clusters/${clusterId}`,
+      providesTags: (result, error, clusterId) => [{ type: "LiveCluster", id: clusterId }],
+    }),
+    getLiveCourt: builder.query({
+      query: (courtStationId) => `/api/live/courts/${courtStationId}`,
+      providesTags: (result, error, courtStationId) => [{ type: "LiveCourt", id: courtStationId }],
+    }),
     getLiveMatches: builder.query({
       query: ({
         statuses = "scheduled,queued,assigned,live",
         excludeFinished, // ← bỏ default value
         windowMs = 8 * 3600 * 1000,
         concurrency = 4,
-        // FE-only
-        keyword = "",
-        page = 0,
-        limit = LIMIT,
       } = {}) => {
         // giữ nguyên params cũ cho khỏi ảnh hưởng nơi khác (backend sẽ ignore)
         const params = new URLSearchParams({
@@ -110,5 +122,10 @@ export const liveApiSlice = apiSlice.injectEndpoints({
   }),
 });
 
-export const { useGetLiveMatchesQuery, useDeleteLiveVideoMutation } =
-  liveApiSlice;
+export const {
+  useGetLiveClustersQuery,
+  useGetLiveClusterQuery,
+  useGetLiveCourtQuery,
+  useGetLiveMatchesQuery,
+  useDeleteLiveVideoMutation,
+} = liveApiSlice;

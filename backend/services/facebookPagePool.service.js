@@ -396,7 +396,7 @@ export function startFacebookBusyCron() {
             console.log(
               "[FB-CRON] schedule fast free (stale + graph idle):",
               label,
-              "â†’ match=",
+              "→ match=",
               matchIdStr
             );
           }

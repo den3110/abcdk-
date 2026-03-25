@@ -1,8 +1,10 @@
 // controllers/courtController.js (ví dụ)
 import Court from "../models/courtModel.js";
+import CourtStation from "../models/courtStationModel.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { enrichCourtsWithManualAssignment } from "../services/courtManualAssignment.service.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import { getCourtStationCurrentMatch } from "../services/courtCluster.service.js";
 
 const COURT_DETAILS_CACHE_TTL_MS = Math.max(
   1000,
@@ -49,6 +51,36 @@ export const getCourtById = async (req, res) => {
       res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
       res.setHeader("X-PKT-Cache", "HIT");
       return res.json(cached);
+    }
+
+    const station = await CourtStation.findById(courtId)
+      .populate("clusterId", "name slug")
+      .lean();
+    if (station) {
+      const stationPayload = await getCourtStationCurrentMatch(courtId);
+      const payload = {
+        _id: String(station._id),
+        id: String(station._id),
+        type: "court_station",
+        name: station.name,
+        label: station.name,
+        number: null,
+        clusterId: stationPayload?.cluster?._id || String(station.clusterId?._id || station.clusterId),
+        clusterName: stationPayload?.cluster?.name || station.clusterId?.name || "",
+        currentMatch: stationPayload?.currentMatch?._id
+          ? {
+              _id: stationPayload.currentMatch._id,
+              status: stationPayload.currentMatch.status,
+              code: stationPayload.currentMatch.code,
+              displayCode: stationPayload.currentMatch.displayCode,
+            }
+          : null,
+        nextMatch: null,
+      };
+      courtDetailsCache.set(courtId, payload);
+      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+      res.setHeader("X-PKT-Cache", "MISS");
+      return res.json(payload);
     }
 
     const court = await Court.findById(courtId)

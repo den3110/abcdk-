@@ -25,6 +25,7 @@ import {
   createRecordingMultipartUploadPartUrl,
   createRecordingSegmentUploadUrl,
   getRecordingPublicBaseUrl,
+  getRecordingStorageHealthSummary,
   getRecordingStorageTarget,
   getRecordingStorageTargets,
   getRecordingMultipartPartSizeBytes,
@@ -95,9 +96,79 @@ function estimateRecordingR2SourceBytes(recording) {
   }, 0);
 }
 
-async function selectRecordingStorageTarget(preferredTargetId = "") {
-  const targets = getRecordingStorageTargets();
+function getHealthyRecordingTargetIds(healthSummary) {
+  return new Set(
+    (healthSummary?.targets || [])
+      .filter((target) => target?.alive)
+      .map((target) => asTrimmed(target?.id))
+      .filter(Boolean)
+  );
+}
+
+function getSegmentStorageTargetId(segment, recording) {
+  return (
+    asTrimmed(segment?.storageTargetId) ||
+    asTrimmed(recording?.r2TargetId) ||
+    ""
+  );
+}
+
+function getSegmentStorageBucketName(segment, recording) {
+  return (
+    asTrimmed(segment?.bucketName) ||
+    asTrimmed(recording?.r2BucketName) ||
+    ""
+  );
+}
+
+function assignSegmentStorageTarget(segment, storageTarget) {
+  if (!segment) return;
+  segment.storageTargetId = storageTarget?.id || null;
+  segment.bucketName = storageTarget?.bucketName || null;
+}
+
+function appendRecordingStorageFailoverHistory(recording, entry = {}) {
+  const nextMeta = getRecordingMeta(recording);
+  const currentHistory = Array.isArray(nextMeta?.storageFailoverHistory)
+    ? nextMeta.storageFailoverHistory
+    : [];
+  nextMeta.storageFailoverHistory = [
+    ...currentHistory.slice(-19),
+    {
+      fromTargetId: asTrimmed(entry.fromTargetId) || null,
+      toTargetId: asTrimmed(entry.toTargetId) || null,
+      reason: asTrimmed(entry.reason) || "recording_write_target_reselected",
+      checkedAt: entry.checkedAt || new Date(),
+      detail: asTrimmed(entry.detail) || null,
+    },
+  ];
+  recording.meta = nextMeta;
+}
+
+async function selectRecordingStorageTarget(
+  preferredTargetId = "",
+  {
+    excludeTargetIds = [],
+    requireHealthy = false,
+    healthSummary = null,
+  } = {}
+) {
+  const excluded = new Set(
+    (excludeTargetIds || []).map((value) => asTrimmed(value)).filter(Boolean)
+  );
+  const healthyTargetIds = getHealthyRecordingTargetIds(healthSummary);
+  let targets = getRecordingStorageTargets().filter(
+    (target) => !excluded.has(asTrimmed(target?.id))
+  );
   if (!targets.length) return null;
+
+  if (requireHealthy) {
+    if (!healthyTargetIds.size) {
+      return null;
+    }
+    targets = targets.filter((target) => healthyTargetIds.has(asTrimmed(target?.id)));
+    if (!targets.length) return null;
+  }
 
   const normalizedPreferred = asTrimmed(preferredTargetId);
   if (normalizedPreferred) {
@@ -108,19 +179,36 @@ async function selectRecordingStorageTarget(preferredTargetId = "") {
   if (targets.length === 1) return targets[0];
 
   const recordings = await LiveRecordingV2.find({})
-    .select("r2TargetId segments")
+    .select("r2TargetId segments.storageTargetId segments.sizeBytes segments.meta segments.uploadStatus")
     .lean();
 
   const usedBytesByTarget = new Map(targets.map((target) => [target.id, 0]));
 
   for (const recording of recordings) {
-    const targetId =
-      asTrimmed(recording?.r2TargetId) || asTrimmed(targets[0]?.id);
-    if (!targetId || !usedBytesByTarget.has(targetId)) continue;
-    usedBytesByTarget.set(
-      targetId,
-      (usedBytesByTarget.get(targetId) || 0) + estimateRecordingR2SourceBytes(recording)
-    );
+    const perTargetBytes = new Map();
+    for (const segment of recording?.segments || []) {
+      const targetId =
+        asTrimmed(segment?.storageTargetId) ||
+        asTrimmed(recording?.r2TargetId) ||
+        asTrimmed(targets[0]?.id);
+      if (!targetId || !usedBytesByTarget.has(targetId)) continue;
+      const segmentMeta = getSegmentMeta(segment);
+      const completedPartBytes = Array.isArray(segmentMeta.completedParts)
+        ? segmentMeta.completedParts.reduce(
+            (partSum, part) => partSum + toNumber(part?.sizeBytes),
+            0
+          )
+        : 0;
+      const segmentBytes =
+        segment?.uploadStatus === "uploaded"
+          ? toNumber(segment?.sizeBytes)
+          : completedPartBytes;
+      perTargetBytes.set(targetId, (perTargetBytes.get(targetId) || 0) + segmentBytes);
+    }
+
+    for (const [targetId, bytes] of perTargetBytes.entries()) {
+      usedBytesByTarget.set(targetId, (usedBytesByTarget.get(targetId) || 0) + bytes);
+    }
   }
 
   const rankedTargets = targets
@@ -166,6 +254,88 @@ async function selectRecordingStorageTarget(preferredTargetId = "") {
   };
 }
 
+async function ensureRecordingStorageTargetForWrite(
+  recording,
+  {
+    forceHealthRefresh = false,
+    reason = "recording_write_target_check",
+  } = {}
+) {
+  const currentTargetId = asTrimmed(recording?.r2TargetId);
+  const configuredCurrentTarget = currentTargetId
+    ? getRecordingStorageTarget(currentTargetId)
+    : null;
+  const healthSummary = await getRecordingStorageHealthSummary({
+    forceRefresh: forceHealthRefresh,
+  }).catch(() => null);
+  const healthyTargetIds = getHealthyRecordingTargetIds(healthSummary);
+  const hasHealthProbe =
+    Array.isArray(healthSummary?.targets) && healthSummary.targets.length > 0;
+
+  if (
+    configuredCurrentTarget &&
+    (!hasHealthProbe || healthyTargetIds.has(configuredCurrentTarget.id))
+  ) {
+    if (recording.r2BucketName !== configuredCurrentTarget.bucketName) {
+      recording.r2BucketName = configuredCurrentTarget.bucketName || null;
+    }
+    return configuredCurrentTarget;
+  }
+
+  const replacementTarget = await selectRecordingStorageTarget("", {
+    excludeTargetIds: configuredCurrentTarget ? [configuredCurrentTarget.id] : [],
+    requireHealthy: hasHealthProbe,
+    healthSummary,
+  });
+
+  if (replacementTarget) {
+    const previousTargetId = currentTargetId || null;
+    recording.r2TargetId = replacementTarget.id;
+    recording.r2BucketName = replacementTarget.bucketName || null;
+    appendRecordingStorageFailoverHistory(recording, {
+      fromTargetId: previousTargetId,
+      toTargetId: replacementTarget.id,
+      reason,
+      checkedAt: new Date(),
+      detail: configuredCurrentTarget
+        ? `Current target ${configuredCurrentTarget.id} is unavailable`
+        : "Selected initial healthy target",
+    });
+    await recording.save();
+    await publishRecordingMonitor(
+      recording,
+      previousTargetId ? "recording_storage_failover" : "recording_storage_selected"
+    );
+    return replacementTarget;
+  }
+
+  if (configuredCurrentTarget) {
+    if (recording.r2BucketName !== configuredCurrentTarget.bucketName) {
+      recording.r2BucketName = configuredCurrentTarget.bucketName || null;
+    }
+    return configuredCurrentTarget;
+  }
+
+  const fallbackTarget =
+    (await selectRecordingStorageTarget("", { requireHealthy: hasHealthProbe, healthSummary })) ||
+    (await selectRecordingStorageTarget(""));
+
+  if (!fallbackTarget) return null;
+
+  recording.r2TargetId = fallbackTarget.id;
+  recording.r2BucketName = fallbackTarget.bucketName || null;
+  appendRecordingStorageFailoverHistory(recording, {
+    fromTargetId: null,
+    toTargetId: fallbackTarget.id,
+    reason,
+    checkedAt: new Date(),
+    detail: "Selected fallback target for write",
+  });
+  await recording.save();
+  await publishRecordingMonitor(recording, "recording_storage_selected");
+  return fallbackTarget;
+}
+
 function findRecordingSegment(recording, segmentIndex) {
   return (recording.segments || []).find((segment) => segment.index === segmentIndex);
 }
@@ -186,6 +356,14 @@ async function presignRecordingSegmentEntries({
 
   const entries = [];
   let mutated = false;
+  const activeStorageTarget =
+    (await ensureRecordingStorageTargetForWrite(recording, {
+      reason: "segment_single_put_presign",
+    })) || getRecordingStorageTarget(recording.r2TargetId);
+
+  if (!activeStorageTarget?.id) {
+    throw new Error("Recording R2 storage is not configured");
+  }
 
   for (const segmentIndex of normalizedIndexes) {
     const objectKey = buildRecordingSegmentObjectKey({
@@ -197,7 +375,7 @@ async function presignRecordingSegmentEntries({
     const upload = await createRecordingSegmentUploadUrl({
       objectKey,
       contentType,
-      storageTargetId: recording.r2TargetId,
+      storageTargetId: activeStorageTarget.id,
     });
 
     const existing = recording.segments.find((segment) => segment.index === segmentIndex);
@@ -205,12 +383,15 @@ async function presignRecordingSegmentEntries({
       if (existing.uploadStatus !== "uploaded") {
         existing.objectKey = objectKey;
         existing.uploadStatus = "presigned";
+        assignSegmentStorageTarget(existing, activeStorageTarget);
         mutated = true;
       }
     } else {
       recording.segments.push({
         index: segmentIndex,
         objectKey,
+        storageTargetId: activeStorageTarget.id,
+        bucketName: activeStorageTarget.bucketName || null,
         uploadStatus: "presigned",
         isFinal: false,
       });
@@ -511,6 +692,28 @@ function serializeRecording(recording) {
   const links = ensureRecordingPlaybackUrl(recording);
   const temporaryPlaybackReady = isRecordingTemporaryPlaybackReady(recording);
   const livePlayback = buildSerializedLivePlayback(recording);
+  const storageFailoverHistory = Array.isArray(recording?.meta?.storageFailoverHistory)
+    ? recording.meta.storageFailoverHistory
+        .map((entry) => ({
+          fromTargetId: asTrimmed(entry?.fromTargetId) || null,
+          toTargetId: asTrimmed(entry?.toTargetId) || null,
+          reason: asTrimmed(entry?.reason) || null,
+          checkedAt: entry?.checkedAt || null,
+          detail: asTrimmed(entry?.detail) || null,
+        }))
+        .filter(
+          (entry) =>
+            entry.fromTargetId ||
+            entry.toTargetId ||
+            entry.reason ||
+            entry.checkedAt ||
+            entry.detail
+        )
+    : [];
+  const latestStorageFailover =
+    storageFailoverHistory.length > 0
+      ? storageFailoverHistory[storageFailoverHistory.length - 1]
+      : null;
   return {
     id: String(recording._id),
     matchId: String(recording.match),
@@ -523,6 +726,8 @@ function serializeRecording(recording) {
     sizeBytes: recording.sizeBytes || 0,
     r2TargetId: recording.r2TargetId || null,
     r2BucketName: recording.r2BucketName || null,
+    latestStorageFailover,
+    storageFailoverHistory,
     driveFileId: recording.driveFileId || null,
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
@@ -545,6 +750,8 @@ function serializeRecording(recording) {
     segments: (recording.segments || []).map((segment) => ({
       index: segment.index,
       objectKey: segment.objectKey,
+      storageTargetId: getSegmentStorageTargetId(segment, recording) || null,
+      bucketName: getSegmentStorageBucketName(segment, recording) || null,
       uploadStatus: segment.uploadStatus,
       sizeBytes: segment.sizeBytes || 0,
       durationSeconds: segment.durationSeconds || 0,
@@ -587,8 +794,18 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
     });
   }
   const selectedStorageTarget = recording
-    ? configuredExistingStorageTarget || (await selectRecordingStorageTarget())
-    : await selectRecordingStorageTarget();
+    ? configuredExistingStorageTarget ||
+      (await selectRecordingStorageTarget("", {
+        requireHealthy: true,
+        healthSummary: await getRecordingStorageHealthSummary().catch(() => null),
+      })) ||
+      (await selectRecordingStorageTarget())
+    : (await selectRecordingStorageTarget("", {
+        requireHealthy: true,
+        healthSummary: await getRecordingStorageHealthSummary({
+          forceRefresh: true,
+        }).catch(() => null),
+      })) || (await selectRecordingStorageTarget());
 
   if (!recording) {
     recording = await LiveRecordingV2.create({
@@ -617,15 +834,22 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
     ensureRecordingPlaybackUrl(recording);
     await recording.save();
   } else {
+    const ensuredStorageTarget =
+      (await ensureRecordingStorageTargetForWrite(recording, {
+        reason: "recording_session_resume",
+      })) || configuredExistingStorageTarget;
     recording.mode = mode;
     recording.quality = quality;
-    if (!recording.r2TargetId && selectedStorageTarget?.id) {
-      recording.r2TargetId = selectedStorageTarget.id;
-      recording.r2BucketName = selectedStorageTarget.bucketName || null;
+    if (!recording.r2TargetId && (ensuredStorageTarget?.id || selectedStorageTarget?.id)) {
+      recording.r2TargetId = ensuredStorageTarget?.id || selectedStorageTarget?.id || null;
+      recording.r2BucketName =
+        ensuredStorageTarget?.bucketName || selectedStorageTarget?.bucketName || null;
     } else if (recording.r2TargetId) {
       const configuredTarget = getRecordingStorageTarget(recording.r2TargetId);
       if (configuredTarget?.bucketName) {
         recording.r2BucketName = configuredTarget.bucketName;
+      } else if (ensuredStorageTarget?.bucketName) {
+        recording.r2BucketName = ensuredStorageTarget.bucketName;
       }
     }
     recording.status =
@@ -732,6 +956,17 @@ export const presignLiveRecordingManifestV2 = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Recording not found" });
   }
 
+  const activeStorageTarget =
+    (await ensureRecordingStorageTargetForWrite(recording, {
+      reason: "live_manifest_presign",
+    })) || getRecordingStorageTarget(recording.r2TargetId);
+
+  if (!activeStorageTarget?.id) {
+    return res.status(503).json({
+      message: "Recording R2 storage is not configured",
+    });
+  }
+
   const livePlayback = buildSerializedLivePlayback(recording);
   if (!livePlayback?.manifestObjectKey) {
     return res.status(409).json({
@@ -746,7 +981,7 @@ export const presignLiveRecordingManifestV2 = asyncHandler(async (req, res) => {
 
   const upload = await createRecordingLiveManifestUploadUrl({
     objectKey: livePlayback.manifestObjectKey,
-    storageTargetId: recording.r2TargetId,
+    storageTargetId: activeStorageTarget.id,
   });
 
   if (!recording.meta || typeof recording.meta !== "object") {
@@ -789,6 +1024,15 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
     return res.status(404).json({ message: "Recording not found" });
   }
 
+  const activeStorageTarget =
+    (await ensureRecordingStorageTargetForWrite(recording, {
+      reason: "multipart_segment_start",
+    })) || getRecordingStorageTarget(recording.r2TargetId);
+
+  if (!activeStorageTarget?.id) {
+    return res.status(503).json({ message: "Recording R2 storage is not configured" });
+  }
+
   let segment = findRecordingSegment(recording, segmentIndex);
   const objectKey =
     segment?.objectKey ||
@@ -815,12 +1059,19 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
   let uploadId = asTrimmed(segmentMeta.uploadId);
   let partSizeBytes =
     Number(segmentMeta.partSizeBytes) || getRecordingMultipartPartSizeBytes();
+  const segmentStorageTargetId = getSegmentStorageTargetId(segment, recording);
+  const shouldRestartMultipartSession =
+    !uploadId ||
+    segment?.uploadStatus === "aborted" ||
+    segment?.uploadStatus === "failed" ||
+    !segmentStorageTargetId ||
+    segmentStorageTargetId !== activeStorageTarget.id;
 
-  if (!uploadId || segment?.uploadStatus === "aborted" || segment?.uploadStatus === "failed") {
+  if (shouldRestartMultipartSession) {
     const multipart = await createRecordingMultipartUpload({
       objectKey,
       contentType,
-      storageTargetId: recording.r2TargetId,
+      storageTargetId: activeStorageTarget.id,
     });
     uploadId = multipart.uploadId;
     partSizeBytes = multipart.partSizeBytes;
@@ -834,16 +1085,34 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
     startedAt:
       segmentMeta.startedAt || new Date().toISOString(),
     abortedAt: null,
+    completedParts: shouldRestartMultipartSession
+      ? []
+      : Array.isArray(segmentMeta.completedParts)
+      ? segmentMeta.completedParts
+      : [],
+    completedPartCount: shouldRestartMultipartSession
+      ? 0
+      : Number(segmentMeta.completedPartCount) || 0,
+    completedBytes: shouldRestartMultipartSession
+      ? 0
+      : Number(segmentMeta.completedBytes) || 0,
+    nextByteOffset: shouldRestartMultipartSession
+      ? 0
+      : Number(segmentMeta.nextByteOffset) || 0,
+    storageTargetId: activeStorageTarget.id,
   };
 
   if (segment) {
     segment.objectKey = objectKey;
+    assignSegmentStorageTarget(segment, activeStorageTarget);
     segment.uploadStatus = "uploading_parts";
     segment.meta = nextMeta;
   } else {
     recording.segments.push({
       index: segmentIndex,
       objectKey,
+      storageTargetId: activeStorageTarget.id,
+      bucketName: activeStorageTarget.bucketName || null,
       uploadStatus: "uploading_parts",
       isFinal: false,
       meta: nextMeta,
@@ -901,12 +1170,13 @@ export const presignMultipartLiveRecordingSegmentPartV2 = asyncHandler(
         .status(409)
         .json({ message: "Multipart upload has not been started for this segment" });
     }
+    const segmentStorageTargetId = getSegmentStorageTargetId(segment, recording);
 
     const upload = await createRecordingMultipartUploadPartUrl({
       objectKey: segment.objectKey,
       uploadId,
       partNumber,
-      storageTargetId: recording.r2TargetId,
+      storageTargetId: segmentStorageTargetId,
     });
 
     return res.json({
@@ -1000,10 +1270,14 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
       objectKey: segment.objectKey,
       uploadId,
       parts,
-      storageTargetId: recording.r2TargetId,
+      storageTargetId: getSegmentStorageTargetId(segment, recording),
     });
 
     segment.uploadStatus = "uploaded";
+    assignSegmentStorageTarget(
+      segment,
+      getRecordingStorageTarget(getSegmentStorageTargetId(segment, recording))
+    );
     segment.etag = asTrimmed(parts[parts.length - 1]?.etag) || null;
     segment.sizeBytes = sizeBytes;
     segment.durationSeconds = durationSeconds;
@@ -1094,7 +1368,7 @@ export const abortMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
       await abortRecordingMultipartUpload({
         objectKey: segment.objectKey,
         uploadId,
-        storageTargetId: recording.r2TargetId,
+        storageTargetId: getSegmentStorageTargetId(segment, recording),
       });
     } catch (error) {
       const message = String(error?.message || "");
@@ -1147,6 +1421,12 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   const existing = recording.segments.find((segment) => segment.index === segmentIndex);
   if (existing) {
     existing.objectKey = objectKey;
+    if (!getSegmentStorageTargetId(existing, recording)) {
+      assignSegmentStorageTarget(
+        existing,
+        getRecordingStorageTarget(recording.r2TargetId)
+      );
+    }
     existing.uploadStatus = "uploaded";
     existing.etag = etag;
     existing.sizeBytes = sizeBytes;
@@ -1154,9 +1434,16 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     existing.isFinal = isFinal;
     existing.uploadedAt = new Date();
   } else {
+    const activeStorageTarget =
+      getRecordingStorageTarget(recording.r2TargetId) ||
+      (await ensureRecordingStorageTargetForWrite(recording, {
+        reason: "segment_single_put_complete",
+      }));
     recording.segments.push({
       index: segmentIndex,
       objectKey,
+      storageTargetId: activeStorageTarget?.id || recording.r2TargetId || null,
+      bucketName: activeStorageTarget?.bucketName || recording.r2BucketName || null,
       uploadStatus: "uploaded",
       etag,
       sizeBytes,
@@ -1435,12 +1722,13 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(async (req, res)
       const download = await createRecordingObjectDownloadUrl({
         objectKey: segment.objectKey,
         expiresInSeconds: 60 * 60 * 12,
-        storageTargetId: recording.r2TargetId,
+        storageTargetId: getSegmentStorageTargetId(segment, recording),
       });
 
       return {
         index: segment.index,
         objectKey: segment.objectKey,
+        storageTargetId: getSegmentStorageTargetId(segment, recording) || null,
         durationSeconds: segment.durationSeconds || 0,
         sizeBytes: segment.sizeBytes || 0,
         isFinal: Boolean(segment.isFinal),

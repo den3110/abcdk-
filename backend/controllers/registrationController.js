@@ -16,17 +16,41 @@ import {
 } from "../services/notifications/notificationHub.js";
 import { writeAuditLog } from "../services/audit.service.js";
 import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
+import {
+  canManageTeamFaction,
+  findTeamFaction,
+  isTeamTournament,
+} from "../services/teamTournament.service.js";
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
 export const createRegistration = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { message, player1Id, player2Id } = req.body || {};
+  const { message, player1Id, player2Id, teamFactionId } = req.body || {};
 
   /* ─ 1) Tournament ─ */
   const tour = await Tournament.findById(id);
   if (!tour) {
     res.status(404);
     throw new Error("Tournament not found");
+  }
+  const teamMode = isTeamTournament(tour);
+  const activeFaction = teamMode ? findTeamFaction(tour, teamFactionId) : null;
+  if (teamMode && !activeFaction) {
+    res.status(400);
+    throw new Error("Giải đồng đội yêu cầu chọn phe hợp lệ");
+  }
+  if (teamMode) {
+    const allowed = await canManageTeamFaction({
+      user: req.user,
+      tournament: tour,
+      factionId: teamFactionId,
+    });
+    if (!allowed) {
+      res.status(403);
+      throw new Error(
+        "Chỉ đội trưởng của phe này hoặc quản lý giải mới được thêm roster"
+      );
+    }
   }
 
   // chuẩn hoá eventType: singles | doubles
@@ -231,9 +255,15 @@ export const createRegistration = asyncHandler(async (req, res) => {
 
   const reg = await Registration.create({
     tournament: id,
+    teamFactionId: teamMode ? activeFaction._id : null,
+    teamFactionName: teamMode ? activeFaction.name : "",
     message: message || "",
     player1,
     player2,
+    payment:
+      tour.isFreeRegistration === true
+        ? { status: "Paid", paidAt: new Date() }
+        : { status: "Unpaid" },
     createdBy: req.user._id,
   });
 
@@ -454,8 +484,15 @@ export const cancelRegistration = asyncHandler(async (req, res) => {
     throw new Error("Bạn không có quyền huỷ đăng ký này");
   }
 
-  // Chỉ khi chưa thanh toán
-  if (reg?.payment?.status === "Paid") {
+  const tournament = reg.tournament
+    ? await Tournament.findById(reg.tournament).select("isFreeRegistration").lean()
+    : null;
+
+  // Chỉ khi chưa thanh toán, trừ trường hợp giải miễn phí
+  if (
+    tournament?.isFreeRegistration !== true &&
+    reg?.payment?.status === "Paid"
+  ) {
     res.status(400);
     throw new Error("Đăng ký đã thanh toán, không thể huỷ");
   }
@@ -507,6 +544,13 @@ export const updateRegistrationPayment = asyncHandler(async (req, res) => {
   if (!allowed) {
     res.status(403);
     throw new Error("Forbidden");
+  }
+  const tournament = await Tournament.findById(reg.tournament).select(
+    "isFreeRegistration"
+  );
+  if (tournament?.isFreeRegistration === true && status !== "Paid") {
+    res.status(400);
+    throw new Error("Giải miễn phí luôn ở trạng thái đã thanh toán");
   }
 
   const update = {
@@ -574,8 +618,21 @@ export const deleteRegistration = asyncHandler(async (req, res) => {
 
   const isOwner = String(reg.createdBy || "") === String(req.user?._id || "");
   const allowedManager = await canManageTournament(req.user, reg.tournament);
+  let allowedCaptain = false;
+  if (!allowedManager) {
+    const tournament = await Tournament.findById(reg.tournament).select(
+      "_id tournamentMode teamConfig createdBy managers"
+    );
+    if (isTeamTournament(tournament)) {
+      allowedCaptain = await canManageTeamFaction({
+        user: req.user,
+        tournament,
+        factionId: reg.teamFactionId,
+      });
+    }
+  }
 
-  if (!isOwner && !allowedManager) {
+  if (!isOwner && !allowedManager && !allowedCaptain) {
     res.status(403);
     throw new Error("Forbidden");
   }

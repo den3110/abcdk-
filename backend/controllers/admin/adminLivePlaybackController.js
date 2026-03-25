@@ -8,6 +8,7 @@ import {
   saveLiveRecordingStorageTargetsConfig,
 } from "../../services/liveRecordingStorageTargetsConfig.service.js";
 import {
+  getRecordingStorageHealthSummary,
   getRecordingStorageTargets,
   invalidateRecordingStorageUsageCache,
 } from "../../services/liveRecordingV2Storage.service.js";
@@ -22,10 +23,26 @@ function asTrimmed(value) {
 }
 
 async function buildResponse() {
-  const config = await getLiveMultiSourceConfig();
-  const storageConfig = await getLiveRecordingStorageTargetsConfig();
+  const forceHealthRefresh = false;
+  return buildResponseWithOptions({ forceHealthRefresh });
+}
+
+async function buildResponseWithOptions({ forceHealthRefresh = false } = {}) {
+  const [config, storageConfig] = await Promise.all([
+    getLiveMultiSourceConfig(),
+    getLiveRecordingStorageTargetsConfig(),
+  ]);
+  const healthSummary = await getRecordingStorageHealthSummary({
+    forceRefresh: forceHealthRefresh,
+  });
   const runtimeTargets = getRecordingStorageTargets();
   const runtimeTargetById = new Map(runtimeTargets.map((target) => [target.id, target]));
+  const healthById = new Map(
+    (Array.isArray(healthSummary?.targets) ? healthSummary.targets : []).map((target) => [
+      target.id,
+      target,
+    ])
+  );
   const playbackOverrideById = new Map(
     (Array.isArray(config.targets) ? config.targets : []).map((target) => [
       target.id,
@@ -36,6 +53,7 @@ async function buildResponse() {
   const targets = storageConfig.targets.map((target) => {
     const override = playbackOverrideById.get(target.id) || null;
     const runtimeTarget = runtimeTargetById.get(target.id) || null;
+    const health = healthById.get(target.id) || null;
     const effectivePublicBaseUrl =
       asTrimmed(override?.publicBaseUrl) ||
       asTrimmed(target?.publicBaseUrl) ||
@@ -55,6 +73,16 @@ async function buildResponse() {
       overridePublicBaseUrl: override?.publicBaseUrl || "",
       effectivePublicBaseUrl,
       runtimeUsable: Boolean(runtimeTarget),
+      healthStatus: health?.status || "unknown",
+      healthAlive: Boolean(health?.alive),
+      healthProbeable: Boolean(health?.probeable),
+      healthLatencyMs:
+        Number.isFinite(Number(health?.latencyMs)) && Number(health?.latencyMs) >= 0
+          ? Number(health.latencyMs)
+          : null,
+      healthCheckedAt: health?.checkedAt || null,
+      healthMessage: health?.message || "",
+      healthErrorCode: health?.errorCode || "",
       manifestExampleUrl: effectivePublicBaseUrl
         ? `${effectivePublicBaseUrl}/recordings/v2/matches/<matchId>/<recordingId>/${config.manifestName}`
         : "",
@@ -72,6 +100,10 @@ async function buildResponse() {
       globalPublicBaseUrl: config.globalPublicBaseUrl || "",
       targetCount: targets.length,
       runtimeTargetCount: runtimeTargets.length,
+      healthyTargetCount: Number(healthSummary?.healthyTargetCount || 0),
+      deadTargetCount: Number(healthSummary?.deadTargetCount || 0),
+      unprobeableTargetCount: Number(healthSummary?.unprobeableTargetCount || 0),
+      healthCheckedAt: healthSummary?.checkedAt || null,
       targetWithEffectivePublicBaseCount: targets.filter(
         (target) => target.effectivePublicBaseUrl
       ).length,
@@ -81,7 +113,10 @@ async function buildResponse() {
 }
 
 export const getAdminLivePlaybackConfig = asyncHandler(async (req, res) => {
-  const payload = await buildResponse();
+  const forceHealthRefresh =
+    String(req.query.forceHealth || "").trim() === "1" ||
+    String(req.query.forceHealth || "").trim().toLowerCase() === "true";
+  const payload = await buildResponseWithOptions({ forceHealthRefresh });
   res.json(payload);
 });
 
@@ -112,7 +147,7 @@ export const updateAdminLivePlaybackConfig = asyncHandler(async (req, res) => {
     clearMatchPresentationCaches(),
     clearCourtPresentationCaches(),
   ]);
-  const payload = await buildResponse();
+  const payload = await buildResponseWithOptions({ forceHealthRefresh: true });
   res.json({
     message: "Live playback / recording storage config updated",
     ...payload,

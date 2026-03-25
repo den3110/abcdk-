@@ -77,6 +77,12 @@ const registrationSchema = new mongoose.Schema(
       ref: "Tournament",
       required: true,
     },
+    teamFactionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    teamFactionName: { type: String, default: "" },
     player1: { type: playerSchema, required: true },
     player2: { type: playerSchema, required: false, default: null },
     message: { type: String },
@@ -112,7 +118,9 @@ registrationSchema.virtual("users").get(function () {
 // ✅ validate theo loại giải
 registrationSchema.pre("validate", async function (next) {
   try {
-    const tour = await Tournament.findById(this.tournament).select("eventType");
+    const tour = await Tournament.findById(this.tournament).select(
+      "eventType tournamentMode teamConfig"
+    );
     if (!tour) return next(new Error("Tournament not found"));
 
     if (tour.eventType === "single") {
@@ -126,6 +134,47 @@ registrationSchema.pre("validate", async function (next) {
     }
 
     // 🔢 Tạo mã đăng ký nếu chưa có (áp dụng cho cả tài liệu cũ khi được update lại)
+    if (String(tour?.tournamentMode || "").toLowerCase() === "team") {
+      const factions = Array.isArray(tour?.teamConfig?.factions)
+        ? tour.teamConfig.factions
+        : [];
+      const faction =
+        factions.find(
+          (item) => String(item?._id || "") === String(this.teamFactionId || "")
+        ) || null;
+      if (!faction) {
+        return next(new Error("Team tournament requires a valid faction"));
+      }
+      this.teamFactionName = String(faction?.name || "").trim();
+
+      const userIds = [
+        this.player1?.user ? String(this.player1.user) : "",
+        this.player2?.user ? String(this.player2.user) : "",
+      ].filter(Boolean);
+      if (userIds.length) {
+        const duplicate = await this.constructor
+          .findOne({
+            tournament: this.tournament,
+            _id: { $ne: this._id },
+            $or: userIds.flatMap((userId) => [
+              { "player1.user": userId },
+              { "player2.user": userId },
+            ]),
+          })
+          .select("_id code")
+          .lean();
+
+        if (duplicate) {
+          return next(
+            new Error("Một vận động viên chỉ được xuất hiện một lần trong roster của giải đồng đội")
+          );
+        }
+      }
+    } else {
+      this.teamFactionId = null;
+      this.teamFactionName = "";
+    }
+
     if (this.isNew && this.code == null) {
       this.code = await getNextRegistrationCode();
     }
@@ -161,6 +210,7 @@ registrationSchema.index({ "player2.user": 1 });
 // hữu ích khi lọc theo tournament + user
 registrationSchema.index({ tournament: 1, "player1.user": 1 });
 registrationSchema.index({ tournament: 1, "player2.user": 1 });
+registrationSchema.index({ tournament: 1, teamFactionId: 1 });
 
 // 🔢 Đảm bảo duy nhất cho code, cho phép doc cũ thiếu code (sparse)
 registrationSchema.index({ code: 1 }, { unique: true, sparse: true });

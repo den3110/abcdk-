@@ -16,6 +16,18 @@ function asMutableMeta(meta) {
   return meta && typeof meta === "object" && !Array.isArray(meta) ? { ...meta } : {};
 }
 
+function asTrimmed(value) {
+  return String(value || "").trim();
+}
+
+function getSegmentStorageTargetId(segment, recording) {
+  return (
+    asTrimmed(segment?.storageTargetId) ||
+    asTrimmed(recording?.r2TargetId) ||
+    ""
+  );
+}
+
 export function getRecordingMeta(recording) {
   return asMutableMeta(recording?.meta);
 }
@@ -100,6 +112,8 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
       segments: uploadedSegments.map((segment) => ({
         index: segment.index,
         objectKey: segment.objectKey,
+        storageTargetId: getSegmentStorageTargetId(segment, recording) || null,
+        bucketName: asTrimmed(segment?.bucketName) || recording?.r2BucketName || null,
         sizeBytes: segment.sizeBytes,
         durationSeconds: segment.durationSeconds,
         isFinal: segment.isFinal,

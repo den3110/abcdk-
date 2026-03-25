@@ -7,12 +7,18 @@ import usersOfReg from "../utils/usersOfReg.js";
 import latestSnapshot from "../utils/getLastestSnapshot.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import { onMatchFinished } from "../services/courtQueueService.js";
+import { advanceCourtStationQueueOnMatchFinished } from "../services/courtCluster.service.js";
+import {
+  publishCourtClusterRuntimeUpdate,
+  publishCourtStationRuntimeUpdate,
+} from "../services/courtStationRuntimeEvents.service.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 import { emitTournamentMatchUpdate } from "./tournamentRealtime.js";
 import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
 } from "../services/publicStreams.service.js";
+import { resolveMatchCourtStationFields } from "../services/courtCluster.service.js";
 
 // ===== CAP-AWARE helpers =====
 function isFinitePos(n) {
@@ -186,6 +192,7 @@ export const normalizeMatchDisplayShape = (matchDoc) => {
     tournament,
     pairA: normalizePairDisplay(matchDoc?.pairA, displayMode),
     pairB: normalizePairDisplay(matchDoc?.pairB, displayMode),
+    ...resolveMatchCourtStationFields(matchDoc),
     displayNameMode: displayMode,
     liveVersion: matchDoc?.liveVersion ?? matchDoc?.version ?? 0,
     version: matchDoc?.liveVersion ?? matchDoc?.version ?? 0,
@@ -342,6 +349,7 @@ export const toDTO = (matchDoc) => {
         floor: m.court.floor,
       }
     : undefined;
+  const courtStationFields = resolveMatchCourtStationFields(m);
 
   // ================= Format & Pool =================
   const format = (m.format || "").toLowerCase() || undefined;
@@ -467,8 +475,12 @@ export const toDTO = (matchDoc) => {
     // Court
     court: courtObj || null,
     courtId: courtObj?._id || undefined,
-    courtName: courtObj?.name || undefined,
+    courtName: courtStationFields.courtStationName || courtObj?.name || undefined,
     courtNo: courtObj?.number ?? undefined,
+    courtStationId: courtStationFields.courtStationId || undefined,
+    courtStationName: courtStationFields.courtStationName || undefined,
+    courtClusterId: courtStationFields.courtClusterId || undefined,
+    courtClusterName: courtStationFields.courtClusterName || undefined,
 
     // hiển thị phụ
     label: m.label || undefined,
@@ -813,6 +825,21 @@ export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
     if (m.status === "finished" && !m.ratingApplied) {
       await applyRatingForFinishedMatch(m._id);
       await onMatchFinished({ matchId: m._id });
+      const stationAdvance = await advanceCourtStationQueueOnMatchFinished(m._id);
+      if (stationAdvance?.station?._id && stationAdvance?.station?.clusterId) {
+        await Promise.allSettled([
+          publishCourtClusterRuntimeUpdate({
+            clusterId: stationAdvance.station.clusterId,
+            stationIds: [stationAdvance.station._id],
+            reason: "match_finished_auto_advance",
+          }),
+          publishCourtStationRuntimeUpdate({
+            stationId: stationAdvance.station._id,
+            clusterId: stationAdvance.station.clusterId,
+            reason: "match_finished_auto_advance",
+          }),
+        ]);
+      }
     }
   } catch (err) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);
@@ -1126,6 +1153,21 @@ export async function finishMatch(matchId, winner, reason, by, io) {
     if (!m.ratingApplied) {
       await applyRatingForFinishedMatch(m._id);
       await onMatchFinished({ matchId: m._id });
+      const stationAdvance = await advanceCourtStationQueueOnMatchFinished(m._id);
+      if (stationAdvance?.station?._id && stationAdvance?.station?.clusterId) {
+        await Promise.allSettled([
+          publishCourtClusterRuntimeUpdate({
+            clusterId: stationAdvance.station.clusterId,
+            stationIds: [stationAdvance.station._id],
+            reason: "match_finished_auto_advance",
+          }),
+          publishCourtStationRuntimeUpdate({
+            stationId: stationAdvance.station._id,
+            clusterId: stationAdvance.station.clusterId,
+            reason: "match_finished_auto_advance",
+          }),
+        ]);
+      }
     }
   } catch (err) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);

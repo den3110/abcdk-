@@ -62,6 +62,15 @@ export default function SEOHead({
           {JSON.stringify(structuredData)}
         </script>
       ) : null}
+
+      {/* hreflang for multi-language SEO */}
+      {canonical ? (
+        <>
+          <link rel="alternate" hrefLang="vi" href={canonical} />
+          <link rel="alternate" hrefLang="en" href={canonical} />
+          <link rel="alternate" hrefLang="x-default" href={canonical} />
+        </>
+      ) : null}
     </Helmet>
   );
 }

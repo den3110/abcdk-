@@ -12,11 +12,23 @@ import {
   heartbeatCourtPresenceController,
   startCourtPresence,
 } from "../controllers/courtLivePresenceController.js";
+import {
+  getLiveAppCourtStationCurrentMatch,
+  listLiveAppCourtClusters,
+  listLiveAppCourtStations,
+} from "../controllers/liveAppClusterController.js";
 
 const router = express.Router();
 
 router.post("/matches/:matchId/live/create", createLiveSessionForLiveApp);
 router.get("/bootstrap", protect, getLiveAppBootstrap);
+router.get("/clusters", protect, listLiveAppCourtClusters);
+router.get("/clusters/:clusterId/courts", protect, listLiveAppCourtStations);
+router.get(
+  "/court-stations/:courtStationId/current-match",
+  protect,
+  getLiveAppCourtStationCurrentMatch
+);
 router.get("/courts/:courtId/runtime", protect, getCourtRuntimeForLiveApp);
 router.get("/matches/:matchId/runtime", protect, getMatchRuntimeForLiveApp);
 router.post("/courts/:courtId/presence/start", protect, startCourtPresence);

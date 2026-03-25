@@ -63,6 +63,7 @@ import {
   FileDownload as FileDownloadIcon,
   PictureAsPdf as PictureAsPdfIcon,
   Description as DescriptionIcon,
+  Group as ManagersIcon,
   Stadium as StadiumIcon,
   HowToReg as RefereeIcon,
   Movie as MovieIcon,
@@ -87,12 +88,14 @@ import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import VideoDialog from "../../components/VideoDialog";
-import AssignCourtDialog from "../../components/AssignCourtDialog";
+import AssignCourtStationDialog from "../../components/AssignCourtStationDialog";
 import AssignRefDialog from "../../components/AssignRefDialog";
-import CourtManagerDialog from "../../components/CourtManagerDialog";
+import TournamentCourtClusterDialog from "../../components/TournamentCourtClusterDialog";
 import ManageRefereesDialog from "../../components/RefereeManagerDialog";
+import TournamentManagersDialog from "../../components/TournamentManagersDialog";
 import LiveSetupDialog from "../../components/LiveSetupDialog";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
+import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatDateTime } from "../../i18n/format";
@@ -157,11 +160,8 @@ const personNickname = (p) =>
   p?.name ||
   "—";
 
-const pairLabel = (
-  pair,
-  eventType = "double",
-  displayMode = "nickname"
-) => getTournamentPairName(pair, eventType, displayMode, { separator: " / " });
+const pairLabel = (pair, eventType = "double", displayMode = "nickname") =>
+  getTournamentPairName(pair, eventType, displayMode, { separator: " / " });
 
 const TYPE_LABEL = (t) => {
   const key = String(t || "").toLowerCase();
@@ -260,11 +260,12 @@ const buildRefReportHTML = ({
     <tr>
       <td style="border:1px solid var(--border,black)"></td>
       ${Array.from(
-    { length: 22 },
-    (_, i) =>
-      `<td style="border:1px solid var(--border,black)">${i < 10 ? `&nbsp;${i}&nbsp;` : i
-      }</td>`
-  ).join("")}
+        { length: 22 },
+        (_, i) =>
+          `<td style="border:1px solid var(--border,black)">${
+            i < 10 ? `&nbsp;${i}&nbsp;` : i
+          }</td>`
+      ).join("")}
       <td style="border:1px solid var(--border,black)"></td>
       <td style="border:1px solid var(--border,black)"></td>
       <td style="border:1px solid var(--border,black)"></td>
@@ -287,28 +288,33 @@ const buildRefReportHTML = ({
   <body>
     <table class="no-border" style="width:100%">
       <tr class="no-border">
-        <td class="no-border" style="width:80px"><img style="width:96px" src="${logoUrl || "/logo.png"
-    }" alt="logo" /></td>
-        <td class="no-border" colspan="3"><div class="title" id="printTourname">${tourName || ""
-    }</div></td>
+        <td class="no-border" style="width:80px"><img style="width:96px" src="${
+          logoUrl || "/logo.png"
+        }" alt="logo" /></td>
+        <td class="no-border" colspan="3"><div class="title" id="printTourname">${
+          tourName || ""
+        }</div></td>
       </tr>
       <tr>
         <td rowspan="2">TRẬN ĐẤU:</td>
         <td rowspan="2"><div style="font-weight:700;font-size:22px" id="printMatchCode">${code}</div></td>
         <td style="width:100px">SÂN:</td>
-        <td style="min-width:150px"><b id="printMatchCourt">${court || ""
-    }</b></td>
+        <td style="min-width:150px"><b id="printMatchCourt">${
+          court || ""
+        }</b></td>
       </tr>
       <tr>
         <td style="width:100px">TRỌNG TÀI:</td>
-        <td style="min-width:150px"><b id="printMatchReferee">${referee || ""
-    }</b></td>
+        <td style="min-width:150px"><b id="printMatchReferee">${
+          referee || ""
+        }</b></td>
       </tr>
     </table>
     <br/>
     <table>
-      <tr><td>ĐỘI 1</td><td colspan="26"><b id="printTeam1">${team1 || ""
-    }</b></td></tr>
+      <tr><td>ĐỘI 1</td><td colspan="26"><b id="printTeam1">${
+        team1 || ""
+      }</b></td></tr>
       <tr><td>SERVER</td><td colspan="22">ĐIỂM</td><td colspan="2">TIMEOUT</td><td>TW/TF</td></tr>
       ${pointRow()}${pointRow()}${pointRow()}
     </table>
@@ -323,8 +329,9 @@ const buildRefReportHTML = ({
       </table>
     </div>
     <table>
-      <tr><td>ĐỘI 2</td><td colspan="26"><b id="printTeam21">${team2 || ""
-    }</b></td></tr>
+      <tr><td>ĐỘI 2</td><td colspan="26"><b id="printTeam21">${
+        team2 || ""
+      }</b></td></tr>
       <tr><td>SERVER</td><td colspan="22">ĐIỂM</td><td colspan="2">TIMEOUT</td><td>TW/TF</td></tr>
       ${pointRow()}${pointRow()}${pointRow()}
     </table>
@@ -353,12 +360,14 @@ const courtLabel = (m) => {
 
 const matchCode = (m) => {
   if (!m) return "—";
+  if (m.displayCode) return m.displayCode;
   if (m.code) return m.code;
+  if (m.globalCode) return m.globalCode;
   const r = Number.isFinite(m?.globalRound)
     ? m.globalRound
     : Number.isFinite(m?.round)
-      ? m.round
-      : "?";
+    ? m.round
+    : "?";
   const t = Number.isFinite(m?.order) ? m.order + 1 : undefined;
   return `V${r}${t ? `-T${t}` : ""}`;
 };
@@ -714,10 +723,14 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
         {matchCode(merged)}
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
-        <Typography noWrap>{pairLabel(merged?.pairA, eventType, displayMode)}</Typography>
+        <Typography noWrap>
+          {pairLabel(merged?.pairA, eventType, displayMode)}
+        </Typography>
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
-        <Typography noWrap>{pairLabel(merged?.pairB, eventType, displayMode)}</Typography>
+        <Typography noWrap>
+          {pairLabel(merged?.pairB, eventType, displayMode)}
+        </Typography>
       </TableCell>
       <TableCell sx={{ width: 96, whiteSpace: "nowrap", py: 0.5 }}>
         {courtLabel(merged)}
@@ -1037,7 +1050,9 @@ const BulkVideoDialogLocalized = React.memo(function BulkVideoDialogLocalized({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t("common.close", undefined, "Close")}</Button>
+        <Button onClick={onClose}>
+          {t("common.close", undefined, "Close")}
+        </Button>
         <Button
           variant="contained"
           startIcon={<MovieIcon />}
@@ -1065,6 +1080,7 @@ export default function TournamentManagePage() {
     data: tour,
     isLoading: tourLoading,
     error: tourErr,
+    refetch: refetchTour,
   } = useGetTournamentQuery(id);
   const displayMode = getTournamentNameDisplayMode(tour);
   const {
@@ -1103,6 +1119,13 @@ export default function TournamentManagePage() {
     return !!tour?.isManager;
   }, [tour, me]);
   const canManage = isAdmin || isManager;
+  const canManageManagers = useMemo(
+    () =>
+      isAdmin ||
+      String(tour?.createdBy?._id || tour?.createdBy || "") ===
+        String(me?._id || me?.id || ""),
+    [isAdmin, me?._id, me?.id, tour?.createdBy],
+  );
 
   // Tabs
   const typeOrderWeight = useCallback((t) => {
@@ -1183,7 +1206,9 @@ export default function TournamentManagePage() {
       else hasUnassigned = true;
     }
     const arr = Array.from(s).sort(naturalCompare);
-    return hasUnassigned ? [t("tournaments.manage.unassignedCourt"), ...arr] : arr;
+    return hasUnassigned
+      ? [t("tournaments.manage.unassignedCourt"), ...arr]
+      : arr;
   }, [allMatchesBase, naturalCompare, t]);
 
   useEffect(() => {
@@ -1238,21 +1263,15 @@ export default function TournamentManagePage() {
   );
 
   // Court/Ref manager
-  const [manageCourts, setManageCourts] = useState({
-    open: false,
-    bracketId: null,
-    bracketName: "",
-  });
+  const [managerMgrOpen, setManagerMgrOpen] = useState(false);
+  const [manageCourtClustersOpen, setManageCourtClustersOpen] = useState(false);
   const [refMgrOpen, setRefMgrOpen] = useState(false);
-  const openManageCourts = useCallback((bid = null, bname = "") => {
-    setManageCourts({
-      open: true,
-      bracketId: bid ? String(bid) : null,
-      bracketName: bname || "",
-    });
-  }, []);
+  const openManageCourts = useCallback(
+    () => setManageCourtClustersOpen(true),
+    []
+  );
   const closeManageCourts = useCallback(
-    () => setManageCourts((s) => ({ ...s, open: false })),
+    () => setManageCourtClustersOpen(false),
     []
   );
 
@@ -1321,8 +1340,8 @@ export default function TournamentManagePage() {
     const list = Array.isArray(refData?.items)
       ? refData.items
       : Array.isArray(refData)
-        ? refData
-        : [];
+      ? refData
+      : [];
     return list;
   }, [refData]);
 
@@ -1336,7 +1355,8 @@ export default function TournamentManagePage() {
   const submitBatchAssign = useCallback(async () => {
     const ids = Array.from(selectedMatchIds);
     const refs = pickedRefs.map(idOfRef).filter(Boolean);
-    if (!ids.length) return toast.info(t("tournaments.manage.noMatchesSelected"));
+    if (!ids.length)
+      return toast.info(t("tournaments.manage.noMatchesSelected"));
     if (!refs.length) {
       return toast.info(t("tournaments.manage.selectRefereesHint"));
     }
@@ -1350,7 +1370,9 @@ export default function TournamentManagePage() {
       setPickedRefs([]);
       await refetchMatches?.();
     } catch (e) {
-      toast.error(e?.data?.message || t("tournaments.manage.assignRefereesFailed"));
+      toast.error(
+        e?.data?.message || t("tournaments.manage.assignRefereesFailed")
+      );
     }
   }, [
     selectedMatchIds,
@@ -1366,7 +1388,8 @@ export default function TournamentManagePage() {
     async (urlParam) => {
       const ids = Array.from(selectedMatchIds);
       const url = (urlParam || "").trim();
-      if (!ids.length) return toast.info(t("tournaments.manage.noMatchesSelected"));
+      if (!ids.length)
+        return toast.info(t("tournaments.manage.noMatchesSelected"));
       if (!url) return toast.info(t("tournaments.manage.enterValidVideoUrl"));
       try {
         await batchSetLiveUrl({ ids, video: url }).unwrap();
@@ -1377,7 +1400,9 @@ export default function TournamentManagePage() {
         clearSelection();
         await refetchMatches?.();
       } catch (e) {
-        toast.error(e?.data?.message || t("tournaments.manage.assignVideoFailed"));
+        toast.error(
+          e?.data?.message || t("tournaments.manage.assignVideoFailed")
+        );
       }
     },
     [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection, t]
@@ -1414,7 +1439,7 @@ export default function TournamentManagePage() {
               w.focus?.();
               w.print?.();
             } else setTimeout(tryPrint, 100);
-          } catch { }
+          } catch {}
         };
         tryPrint();
       } catch (e) {
@@ -1590,7 +1615,8 @@ export default function TournamentManagePage() {
         const lbl = courtLabel(merged);
         const isUn = lbl === "—";
         const matchByCourt =
-          (isUn && courtFilter.includes(t("tournaments.manage.unassignedCourt"))) ||
+          (isUn &&
+            courtFilter.includes(t("tournaments.manage.unassignedCourt"))) ||
           (!!lbl && lbl !== "—" && courtFilter.includes(lbl));
         if (!matchByCourt) continue;
       }
@@ -1665,10 +1691,7 @@ export default function TournamentManagePage() {
   const socket = useSocket();
   const matchRefetchTimer = useRef(null);
   const bracketRefetchTimer = useRef(null);
-  const tournamentRoomIds = useMemo(
-    () => (id ? [String(id)] : []),
-    [id]
-  );
+  const tournamentRoomIds = useMemo(() => (id ? [String(id)] : []), [id]);
   const tournamentIdsRef = useRef(new Set());
   useEffect(() => {
     tournamentIdsRef.current = new Set(tournamentRoomIds);
@@ -1743,12 +1766,7 @@ export default function TournamentManagePage() {
       if (bracketRefetchTimer.current)
         clearTimeout(bracketRefetchTimer.current);
     };
-  }, [
-    socket,
-    applySnapshot,
-    scheduleMatchesRefetch,
-    scheduleBracketsRefetch,
-  ]);
+  }, [socket, applySnapshot, scheduleMatchesRefetch, scheduleBracketsRefetch]);
 
   /* ---------- Export ---------- */
   const [exportAnchor, setExportAnchor] = useState(null);
@@ -1849,7 +1867,10 @@ export default function TournamentManagePage() {
           h2: { fontSize: 12, bold: true },
         },
         footer: (currentPage, pageCount) => ({
-          text: t("tournaments.manage.exportPage", { current: currentPage, total: pageCount }),
+          text: t("tournaments.manage.exportPage", {
+            current: currentPage,
+            total: pageCount,
+          }),
           alignment: "left",
           margin: [30, 0, 0, 20],
           fontSize: 9,
@@ -1861,9 +1882,9 @@ export default function TournamentManagePage() {
         .replace(/[^\p{L}\p{N}]+/gu, "_")
         .replace(/^_+|_+$/g, "")
         .toLowerCase()}_${tab}_${new Date()
-          .toISOString()
-          .slice(0, 19)
-          .replace(/[:T]/g, "-")}.pdf`;
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-")}.pdf`;
 
       pdfMake.createPdf({ ...docDefinition, content }).download(fname);
     } catch (e) {
@@ -1919,9 +1940,9 @@ export default function TournamentManagePage() {
         sections.push(
           new Paragraph({
             text: t("tournaments.manage.exportSectionTitle", {
-            name: sec.bracket?.name || "Bracket",
-            type: getTypeLabel(t, sec.bracket?.type),
-          }),
+              name: sec.bracket?.name || "Bracket",
+              type: getTypeLabel(t, sec.bracket?.type),
+            }),
             heading: HeadingLevel.HEADING_2,
           })
         );
@@ -1932,9 +1953,12 @@ export default function TournamentManagePage() {
           t("tournaments.manage.exportHeaders.court"),
           t("tournaments.manage.exportHeaders.order"),
           t("tournaments.manage.exportHeaders.score"),
-        ].map((label) => new TableCell({
-          children: [new Paragraph({ text: label })],
-        }));
+        ].map(
+          (label) =>
+            new TableCell({
+              children: [new Paragraph({ text: label })],
+            })
+        );
         const rows = [
           new TableRow({ children: head }),
           ...sec.rows.map(
@@ -1965,9 +1989,9 @@ export default function TournamentManagePage() {
         .replace(/[^\p{L}\p{N}]+/gu, "_")
         .replace(/^_+|_+$/g, "")
         .toLowerCase()}_${tab}_${new Date()
-          .toISOString()
-          .slice(0, 19)
-          .replace(/[:T]/g, "-")}.docx`;
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-")}.docx`;
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -2030,6 +2054,16 @@ export default function TournamentManagePage() {
     );
   }
 
+  if (String(tour?.tournamentMode || "").toLowerCase() === "team") {
+    return (
+      <TeamTournamentManageView
+        tournamentId={id}
+        tour={tour}
+        canManage={canManage}
+      />
+    );
+  }
+
   /* ---------- UI ---------- */
   return (
     <Box p={{ xs: 2, md: 3 }}>
@@ -2066,6 +2100,17 @@ export default function TournamentManagePage() {
               justifyContent: "flex-end",
             }}
           >
+            {canManageManagers ? (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ManagersIcon />}
+                onClick={() => setManagerMgrOpen(true)}
+              >
+                {t("tournaments.manage.manageManagers")}
+              </Button>
+            ) : null}
+
             <Button
               variant="outlined"
               size="small"
@@ -2172,6 +2217,22 @@ export default function TournamentManagePage() {
                 onClose={closeActionMenu}
                 keepMounted
               >
+                {canManageManagers ? (
+                  <MenuItem
+                    onClick={() => {
+                      closeActionMenu();
+                      setManagerMgrOpen(true);
+                    }}
+                  >
+                    <ListItemIcon>
+                      <ManagersIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={t("tournaments.manage.manageManagers")}
+                    />
+                  </MenuItem>
+                ) : null}
+
                 <MenuItem
                   onClick={() => {
                     closeActionMenu();
@@ -2209,9 +2270,7 @@ export default function TournamentManagePage() {
                   <ListItemIcon>
                     <MovieIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText
-                    primary={t("tournaments.manage.liveSetup")}
-                  />
+                  <ListItemText primary={t("tournaments.manage.liveSetup")} />
                 </MenuItem>
 
                 <Divider />
@@ -2254,7 +2313,9 @@ export default function TournamentManagePage() {
                   to={`/tournament/${id}`}
                   onClick={closeActionMenu}
                 >
-                  <ListItemText primary={t("tournaments.manage.tournamentPage")} />
+                  <ListItemText
+                    primary={t("tournaments.manage.tournamentPage")}
+                  />
                 </MenuItem>
               </Menu>
             </Stack>
@@ -2302,9 +2363,15 @@ export default function TournamentManagePage() {
                 ),
               }}
             >
-              <MenuItem value="round">{t("tournaments.manage.sortRound")}</MenuItem>
-              <MenuItem value="order">{t("tournaments.manage.sortOrder")}</MenuItem>
-              <MenuItem value="time">{t("tournaments.manage.sortTime")}</MenuItem>
+              <MenuItem value="round">
+                {t("tournaments.manage.sortRound")}
+              </MenuItem>
+              <MenuItem value="order">
+                {t("tournaments.manage.sortOrder")}
+              </MenuItem>
+              <MenuItem value="time">
+                {t("tournaments.manage.sortTime")}
+              </MenuItem>
             </TextField>
             <TextField
               select
@@ -2313,8 +2380,12 @@ export default function TournamentManagePage() {
               value={sortDir}
               onChange={(e) => setSortDir(e.target.value)}
             >
-              <MenuItem value="asc">{t("tournaments.manage.directionAsc")}</MenuItem>
-              <MenuItem value="desc">{t("tournaments.manage.directionDesc")}</MenuItem>
+              <MenuItem value="asc">
+                {t("tournaments.manage.directionAsc")}
+              </MenuItem>
+              <MenuItem value="desc">
+                {t("tournaments.manage.directionDesc")}
+              </MenuItem>
             </TextField>
 
             {/* Lọc theo Sân */}
@@ -2696,10 +2767,11 @@ export default function TournamentManagePage() {
                         <Chip
                           size="small"
                           variant="outlined"
-                          label={`${list.filter((m) =>
-                            selectedMatchIds.has(String(m._id))
-                          ).length
-                            } đã chọn`}
+                          label={`${
+                            list.filter((m) =>
+                              selectedMatchIds.has(String(m._id))
+                            ).length
+                          } đã chọn`}
                         />
                       </Stack>
 
@@ -2743,13 +2815,16 @@ export default function TournamentManagePage() {
         getMatchCode={matchCode}
       />
 
-      <AssignCourtDialog
+      <AssignCourtStationDialog
         open={courtDlg.open}
         match={courtDlg.match}
         tournamentId={id}
+        allowedClusters={tour?.allowedCourtClusters || []}
+        canOverride={isAdmin}
         onClose={closeAssignCourt}
         onAssigned={() => {
           refetchMatches?.();
+          refetchTour?.();
         }}
       />
 
@@ -2764,14 +2839,15 @@ export default function TournamentManagePage() {
         }}
       />
 
-      {/* Court Manager TOÀN GIẢI */}
-      <CourtManagerDialog
-        open={manageCourts.open}
+      <TournamentCourtClusterDialog
+        open={manageCourtClustersOpen}
         onClose={closeManageCourts}
-        tournamentId={id}
-        bracketId={manageCourts.bracketId}
-        bracketName={manageCourts.bracketName}
-        tournamentName={tour?.name || ""}
+        tournament={tour}
+        canOverride={isAdmin}
+        onUpdated={() => {
+          refetchMatches?.();
+          refetchTour?.();
+        }}
       />
 
       <ManageRefereesDialog
@@ -2781,6 +2857,15 @@ export default function TournamentManagePage() {
         onChanged={() => {
           refetchMatches?.();
           refetchBrackets?.();
+        }}
+      />
+
+      <TournamentManagersDialog
+        open={managerMgrOpen}
+        tournamentId={id}
+        onClose={() => setManagerMgrOpen(false)}
+        onChanged={() => {
+          refetchTour?.();
         }}
       />
 

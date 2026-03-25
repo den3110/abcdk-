@@ -1,6 +1,8 @@
 import express from "express";
 import {
   getTournamentById,
+  getTeamRoster,
+  getTeamStandings,
   getTournaments,
   listTournamentBrackets,
   listTournamentMatches,
@@ -26,6 +28,7 @@ import {
   listManagers,
   removeManager,
   verifyTournamentManager,
+  verifyTournamentReferee,
 } from "../controllers/tournamentManagerController.js";
 import {
   createRegistrationInvite,
@@ -36,6 +39,7 @@ import {
   createComplaint,
   listComplaints,
 } from "../controllers/complaintsController.js";
+import { createTeamMatch } from "../controllers/teamTournamentController.js";
 
 const router = express.Router();
 
@@ -46,6 +50,9 @@ router
   .route("/:id/registrations")
   .post(protect, createRegistration)
   .get(optionalAuth, getRegistrations);
+router.get("/:id/team-roster", optionalAuth, getTeamRoster);
+router.get("/:id/team-standings", optionalAuth, getTeamStandings);
+router.post("/:id/team-matches", protect, createTeamMatch);
 
 // routes/tournamentRoutes.js
 router.get("/:id/checkin-matches", getTournamentMatchesForCheckin);
@@ -81,6 +88,7 @@ router.post(
 
 router.get("/:tournamentId/complaints", protect, listComplaints);
 router.get("/:tid/is-manager", protect, verifyTournamentManager);
+router.get("/:tid/is-referee", protect, verifyTournamentReferee);
 router.get("/search", searchTournaments);
 
 export default router;

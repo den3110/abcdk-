@@ -8,6 +8,7 @@ import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
 } from "../services/publicStreams.service.js";
+import { resolveMatchCourtStationFields } from "../services/courtCluster.service.js";
 
 const LIVE_MATCHES_CACHE_TTL_MS = Math.max(
   1000,
@@ -24,6 +25,10 @@ const MATCH_CARD_SELECT = [
   "tournament",
   "bracket",
   "court",
+  "courtStation",
+  "courtStationLabel",
+  "courtClusterId",
+  "courtClusterLabel",
   "courtLabel",
   "status",
   "currentGame",
@@ -294,6 +299,7 @@ export async function listLiveMatches(req, res) {
         bracket: m.bracket,
         court: m.court,
         courtLabel: m.courtLabel,
+        ...resolveMatchCourtStationFields(m),
         status: m.status,
         currentGame: m.currentGame ?? 0,
         labelKey: m.labelKey,
