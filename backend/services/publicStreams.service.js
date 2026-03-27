@@ -100,11 +100,11 @@ function buildFacebookStreamSource(match = {}) {
         fallbackMatchVideoUrl,
       ]
     : [
-        watchUrl,
         rawPermalinkUrl,
-        pageVideoUrl,
         permalinkUrl,
+        pageVideoUrl,
         videoPermalinkUrl,
+        watchUrl,
         legacyVideoUrl,
         fallbackMatchVideoUrl,
       ];

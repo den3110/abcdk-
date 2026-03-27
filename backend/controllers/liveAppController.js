@@ -13,6 +13,53 @@ const redis = process.env.REDIS_URL ? new IORedis(process.env.REDIS_URL) : null;
 const RELEASE_LOCK_LUA =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
+function asTrimmed(value) {
+  return String(value || "").trim();
+}
+
+function buildFacebookWatchUrl(liveId) {
+  const normalizedLiveId = asTrimmed(liveId);
+  return normalizedLiveId
+    ? `https://www.facebook.com/watch/?v=${encodeURIComponent(normalizedLiveId)}`
+    : "";
+}
+
+function buildFacebookPageVideoUrl(pageId, videoId, liveId) {
+  const normalizedPageId = asTrimmed(pageId);
+  const normalizedVideoId = asTrimmed(videoId) || asTrimmed(liveId);
+  return normalizedPageId && normalizedVideoId
+    ? `https://www.facebook.com/${encodeURIComponent(normalizedPageId)}/videos/${encodeURIComponent(normalizedVideoId)}/`
+    : "";
+}
+
+function resolveFacebookReuseUrls(facebookLive = {}, metaFacebook = {}) {
+  const pageId = asTrimmed(facebookLive?.pageId || metaFacebook?.pageId);
+  const liveId = asTrimmed(facebookLive?.id || metaFacebook?.liveId);
+  const videoId = asTrimmed(facebookLive?.videoId || metaFacebook?.videoId);
+  const watchUrl =
+    asTrimmed(
+      facebookLive?.watch_url ||
+        facebookLive?.watchUrl ||
+        metaFacebook?.watch_url ||
+        metaFacebook?.watchUrl
+    ) || buildFacebookWatchUrl(liveId);
+  const permalinkUrl =
+    asTrimmed(
+      facebookLive?.raw_permalink_url ||
+        facebookLive?.rawPermalinkUrl ||
+        facebookLive?.permalink_url ||
+        facebookLive?.permalinkUrl ||
+        metaFacebook?.permalink_url ||
+        metaFacebook?.permalinkUrl ||
+        metaFacebook?.rawPermalink
+    ) || buildFacebookPageVideoUrl(pageId, videoId, liveId) || watchUrl;
+
+  return {
+    watchUrl: watchUrl || null,
+    permalinkUrl: permalinkUrl || null,
+  };
+}
+
 async function acquireRedisLock(key, ttlMs, maxWaitMs) {
   if (!redis) return null;
   const token = randomUUID();
@@ -72,6 +119,7 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       fbLive &&
       (fbLive.secure_stream_url || (fbLive.server_url && fbLive.stream_key))
     ) {
+      const reuseUrls = resolveFacebookReuseUrls(fbLive, metaFb);
       payload = {
         facebook: {
           secure_stream_url: fbLive.secure_stream_url || null,
@@ -79,18 +127,8 @@ export const createLiveSessionForLiveApp = async (req, res) => {
           stream_key: fbLive.stream_key || null,
           pageId: fbLive.pageId || metaFb?.pageId || null,
           pageName: metaFb?.pageName || null,
-          watch_url:
-            fbLive.watch_url ||
-            fbLive.watchUrl ||
-            metaFb?.watch_url ||
-            metaFb?.watchUrl ||
-            null,
-          permalink_url:
-            fbLive.permalink_url ||
-            fbLive.permalinkUrl ||
-            metaFb?.permalink_url ||
-            metaFb?.permalinkUrl ||
-            null,
+          watch_url: reuseUrls.watchUrl,
+          permalink_url: reuseUrls.permalinkUrl,
         },
       };
       return;

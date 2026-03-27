@@ -1197,7 +1197,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     setShowPlayer(false);
     prevStreamsLenRef.current = arr.length;
     lastActiveStreamIdentityRef.current = "";
-  }, [lockedId, m, mm]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-bật player khi lần đầu có stream
   useEffect(() => {

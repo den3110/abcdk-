@@ -2148,32 +2148,42 @@ export const createFacebookLiveForMatch = async (req, res) => {
     // ============================================================
     const FacebookPage = (await import("../models/fbTokenModel.js")).default;
     const existingPageId = match.facebookLive?.pageId;
+    const preferredPageIds = await buildCandidatePageIds(req, t);
     const allEnabledPages = await FacebookPage.find({
       needsReauth: false,
       disabled: { $ne: true },
     }).sort({ lastCheckedAt: 1 });
     let candidatePages = [];
 
+    const isPageReusable = (page) =>
+      Boolean(page) &&
+      (!page.isBusy ||
+        (page.busyMatch && String(page.busyMatch) === String(match._id)));
+
+    const pushCandidatePage = (page) => {
+      if (!isPageReusable(page)) return;
+      if (!candidatePages.find((p) => p.pageId === page.pageId)) {
+        candidatePages.push(page);
+      }
+    };
+
+    for (const pageIdHint of preferredPageIds) {
+      pushCandidatePage(
+        allEnabledPages.find((page) => page.pageId === String(pageIdHint)) ||
+          null
+      );
+    }
+
     // ✅ Ưu tiên page đang dùng (nếu có) nhưng KHÔNG disabled
     const existingPage = existingPageId
       ? allEnabledPages.find((page) => page.pageId === existingPageId) || null
       : null;
-    if (existingPage) {
-      if (
-        !existingPage.isBusy ||
-        (existingPage.busyMatch &&
-          String(existingPage.busyMatch) === String(match._id))
-      ) {
-        candidatePages.push(existingPage);
-      }
-    }
+    pushCandidatePage(existingPage);
 
     // ✅ Lấy tất cả pages rảnh khác, không disabled
     for (const page of allEnabledPages) {
       if (page.isBusy) continue;
-      if (!candidatePages.find((p) => p.pageId === page.pageId)) {
-        candidatePages.push(page);
-      }
+      pushCandidatePage(page);
     }
 
     if (candidatePages.length === 0) {
