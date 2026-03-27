@@ -298,6 +298,13 @@ const displayOrder = (m) =>
 
 const matchCodeKO = (m) => `V${m?.round ?? "?"}-T${displayOrder(m)}`;
 
+const extractDisplayCodeText = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/\bV\d+(?:-B[^-\s]+)?-T\d+\b/i);
+  return match ? match[0].toUpperCase() : "";
+};
+
 const timeShort = (ts) => {
   if (!ts) return "";
   try {
@@ -1625,6 +1632,7 @@ function buildEmptyRoundsByScale(
 function buildRoundsFromPrefill(
   prefill,
   koMeta,
+  resolveSeedRefLabel = seedLabel,
   pendingTeamLabel = "Chưa có đội",
 ) {
   const useSeeds =
@@ -1645,8 +1653,8 @@ function buildRoundsFromPrefill(
       if (r === 1) {
         if (useSeeds) {
           const s = prefill.seeds[i] || {};
-          const nameA = seedLabel(s.A);
-          const nameB = seedLabel(s.B);
+          const nameA = resolveSeedRefLabel(s.A);
+          const nameB = resolveSeedRefLabel(s.B);
           return {
             id: `pf-${r}-${i}`,
             __match: null,
@@ -2476,6 +2484,32 @@ export default function TournamentBracket() {
   );
 
   // Map stage → Map(groupKeyNorm → done)
+  const baseRoundStartByBracketId = useMemo(() => {
+    const out = new Map();
+    let sum = 0;
+
+    for (const bracket of brackets || []) {
+      const bracketId = String(bracket?._id || "");
+      if (!bracketId) continue;
+      out.set(bracketId, sum + 1);
+      const ms = byBracket?.[bracket._id] || [];
+      sum += roundsCountForBracket(bracket, ms);
+    }
+
+    return out;
+  }, [brackets, byBracket]);
+  const firstBracketIdByStage = useMemo(() => {
+    const out = new Map();
+
+    for (const bracket of brackets || []) {
+      const bracketId = String(bracket?._id || "");
+      const stageNum = Number(bracket?.stage);
+      if (!bracketId || !Number.isFinite(stageNum) || out.has(stageNum)) continue;
+      out.set(stageNum, bracketId);
+    }
+
+    return out;
+  }, [brackets]);
   const groupDoneByStage = useMemo(() => {
     const stageMap = new Map();
 
@@ -2587,6 +2621,89 @@ export default function TournamentBracket() {
     },
     [matchRefIndex],
   );
+  const getDisplayCodeForMatch = useCallback(
+    (sourceMatch) => {
+      if (!sourceMatch) return "";
+
+      const tryStrings = [
+        sourceMatch?.displayCode,
+        sourceMatch?.code,
+        sourceMatch?.matchCode,
+        sourceMatch?.slotCode,
+        sourceMatch?.bracketCode,
+        sourceMatch?.labelKey,
+        sourceMatch?.meta?.code,
+        sourceMatch?.meta?.label,
+      ];
+      for (const value of tryStrings) {
+        const hit = extractDisplayCodeText(value);
+        if (hit) return hit;
+      }
+
+      const bracketId = String(
+        sourceMatch?.bracket?._id || sourceMatch?.bracket || "",
+      );
+      const baseRoundStart = baseRoundStartByBracketId.get(bracketId);
+      const roundNum = Number(sourceMatch?.round);
+      const orderNum = Number(sourceMatch?.order);
+
+      if (
+        Number.isFinite(baseRoundStart) &&
+        Number.isFinite(roundNum) &&
+        Number.isFinite(orderNum)
+      ) {
+        return `V${baseRoundStart + roundNum - 1}-T${orderNum + 1}`;
+      }
+
+      return "";
+    },
+    [baseRoundStartByBracketId],
+  );
+  const resolveSeedReferenceLabel = useCallback(
+    (seed, ownerMatch = null) => {
+      if (!seed || !seed.type) return seedLabel(seed);
+
+      const type = String(seed.type || "");
+      const isWinnerSeed =
+        type === "stageMatchWinner" || type === "matchWinner";
+      const isLoserSeed =
+        type === "stageMatchLoser" || type === "matchLoser";
+
+      if (!isWinnerSeed && !isLoserSeed) return seedLabel(seed);
+
+      const prefix = isLoserSeed ? "L" : "W";
+      const sourceMatch = findSourceMatchFromSeed(ownerMatch, seed);
+      const sourceCode = getDisplayCodeForMatch(sourceMatch);
+      if (sourceCode) return `${prefix}-${sourceCode}`;
+
+      const stageNum = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+      const roundNum = Number(seed?.ref?.round);
+      const orderNum = Number(seed?.ref?.order);
+      const bracketId = firstBracketIdByStage.get(stageNum);
+      const baseRoundStart = bracketId
+        ? baseRoundStartByBracketId.get(bracketId)
+        : null;
+
+      if (
+        Number.isFinite(baseRoundStart) &&
+        Number.isFinite(roundNum) &&
+        Number.isFinite(orderNum)
+      ) {
+        return `${prefix}-V${baseRoundStart + roundNum - 1}-T${orderNum + 1}`;
+      }
+
+      const rawCode = extractDisplayCodeText(seed?.label);
+      if (rawCode) return `${prefix}-${rawCode}`;
+
+      return seedLabel({ ...seed, label: "" });
+    },
+    [
+      findSourceMatchFromSeed,
+      getDisplayCodeForMatch,
+      firstBracketIdByStage,
+      baseRoundStartByBracketId,
+    ],
+  );
 
   // Đặt bên trong TournamentBracket (dùng chung matchIndex, tour?.eventType, baseRoundStartForCurrent, seedLabel, pairLabelWithNick, isByeMatchObj)
   const resolveSideLabel = useCallback(
@@ -2598,7 +2715,7 @@ export default function TournamentBracket() {
 
       // ⛔ Nếu seed đến từ GROUP và bảng chưa hoàn tất → KHÔNG fill tên đội
       if (seed && isSeedBlockedByUnfinishedGroup(seed)) {
-        return seedLabel(seed); // ví dụ "V{stage}-B{group}-T{rank}"
+        return resolveSeedReferenceLabel(seed, m); // ví dụ "V{stage}-B{group}-T{rank}"
       }
 
       // Có cặp thật rồi → ưu tiên tên cặp
@@ -2636,7 +2753,7 @@ export default function TournamentBracket() {
               return carried;
 
             const winSeed = pm[`seed${winSide}`];
-            const fromSeed = seedLabel(winSeed);
+            const fromSeed = resolveSeedReferenceLabel(winSeed, pm);
             if (fromSeed && !/^(BYE|TBD|Registration)$/.test(fromSeed))
               return fromSeed;
 
@@ -2645,9 +2762,9 @@ export default function TournamentBracket() {
               return pairLabelWithNick(winPair, eventType, displayMode);
           }
 
-          const rPrev = Number(pm?.round ?? 1);
-          const idxPrev = (pm?.order ?? 0) + 1;
-          return `W-V${rPrev}-T${idxPrev}`;
+          const carriedCode = getDisplayCodeForMatch(pm);
+          if (carriedCode) return `W-${carriedCode}`;
+          return resolveSeedReferenceLabel(seed, m);
         }
 
         // Trận trước đã xong và có winner → trả tên cặp thắng
@@ -2657,17 +2774,16 @@ export default function TournamentBracket() {
         }
 
         // Trận trước chưa xong → nhãn W-V{offset}-T{idx}
-        const r = Number(pm?.round ?? prev?.round ?? 1);
-        const idx = Number(pm?.order ?? prev?.order ?? 0) + 1;
-        const disp = Number.isFinite(r)
-          ? baseRoundStartForCurrent + (r - 1)
-          : r;
-        return `W-V${disp}-T${idx}`;
+        const carriedCode = getDisplayCodeForMatch(pm);
+        if (carriedCode) return `W-${carriedCode}`;
+        return resolveSeedReferenceLabel(seed, m);
       }
 
       // Không prev → rơi về nhãn seed gốc (groupRank/registration/…)
       if (seed && seed.type) {
-        const sourceRefLabel = normalizeSeedRefLabel(seedLabel(seed));
+        const sourceRefLabel = normalizeSeedRefLabel(
+          resolveSeedReferenceLabel(seed, m),
+        );
         const sourceMatch = findSourceMatchFromSeed(m, seed);
         const isWinnerSeed =
           seed?.type === "stageMatchWinner" || seed?.type === "matchWinner";
@@ -2691,19 +2807,20 @@ export default function TournamentBracket() {
 
         if ((isWinnerSeed || isLoserSeed) && sourceRefLabel) return sourceRefLabel;
 
-        return seedLabel(seed);
+        return resolveSeedReferenceLabel(seed, m);
       }
 
       return pendingTeamLabel;
     },
     [
       findSourceMatchFromSeed,
+      getDisplayCodeForMatch,
       matchIndex,
       tour?.eventType,
-      baseRoundStartForCurrent,
       isSeedBlockedByUnfinishedGroup,
       pendingTeamLabel,
       displayMode,
+      resolveSeedReferenceLabel,
     ],
   );
   // Prefill rounds for KO
@@ -2712,10 +2829,11 @@ export default function TournamentBracket() {
     const r = buildRoundsFromPrefill(
       current.prefill,
       current?.ko,
+      resolveSeedReferenceLabel,
       pendingTeamLabel,
     );
     return r && r.length ? r : null;
-  }, [current, pendingTeamLabel]);
+  }, [current, pendingTeamLabel, resolveSeedReferenceLabel]);
 
   // Group indexing for mapping matches → group
   const { byRegId: groupIndex } = useMemo(
