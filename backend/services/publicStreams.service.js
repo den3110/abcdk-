@@ -244,11 +244,19 @@ function detectLegacyKind(url) {
   return "iframe";
 }
 
+function isTemporaryRecordingPlaybackUrl(url) {
+  const normalized = asTrimmed(url);
+  if (!normalized) return false;
+  return /\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
+    normalized
+  );
+}
+
 function extractInternalRecordingRoute(url) {
   const normalized = asTrimmed(url);
   if (!normalized) return null;
   const match = normalized.match(
-    /\/api\/live\/recordings\/v2\/([^/?#]+)\/(play|raw)(?:\?|$)/i
+    /\/api\/live\/recordings\/v2\/([^/?#]+)\/(play|raw|temp)(?:\/playlist)?(?:\?|$)/i
   );
   if (!match) return null;
   return {
@@ -260,7 +268,7 @@ function extractInternalRecordingRoute(url) {
 function selectLegacyPlaybackUrl(match = {}) {
   return [match?.video, match?.playbackUrl, match?.streamUrl, match?.liveUrl]
     .map(asTrimmed)
-    .find(Boolean);
+    .find((url) => url && !isTemporaryRecordingPlaybackUrl(url));
 }
 
 function normalizeUploadedSegments(recording) {
@@ -484,7 +492,13 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     });
   }
 
-  if (server2 && (server2.manifestUrl || server2.finalPlaybackUrl)) {
+  const shouldRenderServer2 = Boolean(
+    server2 &&
+      (server2.manifestUrl || server2.finalPlaybackUrl) &&
+      (!finishedLike || server2.finalPlaybackUrl)
+  );
+
+  if (shouldRenderServer2) {
     pushUniqueStream(streams, {
       key: server2.key,
       displayLabel: server2.displayLabel,

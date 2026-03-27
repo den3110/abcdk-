@@ -624,7 +624,7 @@ function getStreamIdentity(stream) {
 function mergeRenderableStreams(existing, incoming) {
   const current = Array.isArray(existing) ? existing : [];
   const next = Array.isArray(incoming) ? incoming : [];
-  if (!next.length) return current;
+  if (!next.length) return [];
   if (!current.length) return next;
 
   const makeKey = (item, index) => {
@@ -638,29 +638,67 @@ function mergeRenderableStreams(existing, incoming) {
     return `idx:${index}`;
   };
 
-  const merged = new Map();
+  const previousByKey = new Map();
   current.forEach((item, index) => {
-    merged.set(makeKey(item, index), item);
-  });
-  next.forEach((item, index) => {
-    const key = makeKey(item, current.length + index);
-    const previous = merged.get(key);
-    merged.set(
-      key,
-      previous && item && typeof item === "object"
-        ? {
-            ...previous,
-            ...item,
-            meta:
-              previous?.meta || item?.meta
-                ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
-                : undefined,
-          }
-        : item,
-    );
+    previousByKey.set(makeKey(item, index), item);
   });
 
-  return Array.from(merged.values());
+  return next.map((item, index) => {
+    const key = makeKey(item, index);
+    const previous = previousByKey.get(key);
+    return previous && item && typeof item === "object"
+      ? {
+          ...previous,
+          ...item,
+          meta:
+            previous?.meta || item?.meta
+              ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
+              : undefined,
+        }
+      : item;
+  });
+}
+
+function stripLocalStreamPatch(patch) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return patch;
+  }
+
+  let changed = false;
+  const next = { ...patch };
+  [
+    "video",
+    "videoUrl",
+    "stream",
+    "link",
+    "url",
+    "streams",
+    "defaultStreamKey",
+  ].forEach((key) => {
+    if (key in next) {
+      delete next[key];
+      changed = true;
+    }
+  });
+
+  if (next.meta && typeof next.meta === "object" && !Array.isArray(next.meta)) {
+    const nextMeta = { ...next.meta };
+    ["video", "videoUrl", "stream", "streams"].forEach((key) => {
+      if (key in nextMeta) {
+        delete nextMeta[key];
+        changed = true;
+      }
+    });
+    if (Object.keys(nextMeta).length) {
+      next.meta = nextMeta;
+    } else {
+      delete next.meta;
+      changed = true;
+    }
+  }
+
+  if (!changed) return patch;
+  return Object.keys(next).length ? next : null;
 }
 
 function mergeCanonicalStreamLists(existing, incoming) {
@@ -1154,6 +1192,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   useEffect(() => {
     setLocalPatch(null);
   }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const normalizedStatus = String(mm?.status || "")
+      .trim()
+      .toLowerCase();
+    if (!["finished", "ended", "stopped"].includes(normalizedStatus)) return;
+    setLocalPatch((previous) => stripLocalStreamPatch(previous));
+  }, [mm?.status, mm?.streams, mm?.video, mm?.videoUrl, mm?.defaultStreamKey]);
 
   const status = localPatch?.status || mm?.status || "scheduled";
   const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
