@@ -563,11 +563,16 @@ function buildExportPipelineInfo(recording, context = {}) {
       stage = recentlyUpdated ? "awaiting_queue_sync" : "stale_no_job";
     }
   } else if (recording?.status === "exporting") {
-    if (inWorker && !stage) stage = "downloading";
-    else if (active && !stage) stage = "downloading";
-    else if (waiting && !stage) stage = "queued";
-    else if (delayed && !stage) stage = "queued_retry";
-    else if (!stage) {
+    // Always reconcile stored stage with live queue/worker state.
+    // The stored stage may be stale if the BullMQ job was cleaned up
+    // (by removeOnComplete/removeOnFail) without updating the recording.
+    if (inWorker) stage = stage || "downloading";
+    else if (active) stage = stage || "downloading";
+    else if (waiting) stage = "queued";
+    else if (delayed) stage = "queued_retry";
+    else {
+      // No job in queue and worker is not processing this recording.
+      // Override any stale stored stage (e.g., "queued") to reflect reality.
       stage = workerHealth?.alive
         ? recentlyUpdated
           ? "awaiting_queue_sync"
@@ -703,6 +708,30 @@ export async function reconcileStaleLiveRecordingExports({
 
     if (!shouldMarkExportAsStale(recording, exportPipeline)) {
       continue;
+    }
+
+    // If worker is alive, try to re-queue the export instead of failing it
+    if (workerHealth?.alive) {
+      try {
+        await queueLiveRecordingExport(recording, {
+          publishReason: "recording_export_auto_requeued",
+          replaceTerminalJob: true,
+          replacePendingJob: true,
+          forceReason: "stale_reconciliation",
+          ignoreWindow: true,
+        });
+        updatedRecordingIds.push(String(recording._id));
+        console.log(
+          `[live-recording-monitor] auto-requeued stale export for recording ${String(recording._id)}`
+        );
+        continue;
+      } catch (requeueError) {
+        console.warn(
+          `[live-recording-monitor] failed to auto-requeue recording ${String(recording._id)}:`,
+          requeueError?.message || requeueError
+        );
+        // Fall through to mark as failed
+      }
     }
 
     const nextMeta =
