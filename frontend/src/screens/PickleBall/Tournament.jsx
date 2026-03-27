@@ -225,6 +225,7 @@ export default function TournamentDashboard() {
   const {
     data: tournaments,
     isLoading,
+    isFetching,
     error,
   } = useGetTournamentsQuery({
     sportType,
@@ -788,7 +789,7 @@ export default function TournamentDashboard() {
             </Box>
           )}
 
-          {isLoading ? (
+          {isLoading || isFetching ? (
             <Grid container spacing={3}>
               {[...Array(8)].map((_, i) => (
                 <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={i}>

@@ -74,6 +74,7 @@ import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
+import LottieEmptyState from "../../components/LottieEmptyState";
 import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
@@ -3218,7 +3219,7 @@ export default function TournamentBracket() {
   if (!brackets.length) {
     return (
       <Box p={3}>
-        <Alert severity="info">{t("tournaments.bracket.empty")}</Alert>
+        <LottieEmptyState title={t("tournaments.bracket.empty")} />
       </Box>
     );
   }

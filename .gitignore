@@ -38,3 +38,4 @@ backend-go/coverage.out
 .go-mod-cache/
 
 backend-go
+.npm-cache

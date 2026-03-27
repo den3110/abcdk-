@@ -51,6 +51,7 @@ import ResponsiveMatchViewer from "./PickleBall/match/ResponsiveMatchViewer";
 import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
 import SEOHead from "../components/SEOHead";
+import LottieEmptyState from "../components/LottieEmptyState";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { formatDate, formatDateTime } from "../i18n/format.js";
 
@@ -1264,7 +1265,7 @@ export default function MyTournamentsPage() {
 
       {/* MAIN CONTENT */}
       <Container maxWidth="xl" sx={{ pt: 2, pb: 4 }}>
-        {isLoading ? (
+        {isLoading || isFetching ? (
           <Stack spacing={2}>
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton
@@ -1284,24 +1285,10 @@ export default function MyTournamentsPage() {
             </Button>
           </Box>
         ) : tournaments.length === 0 ? (
-          <Box
-            sx={{
-              py: 8,
-              display: "grid",
-              placeItems: "center",
-              textAlign: "center",
-            }}
-          >
-            <Typography fontSize={42} mb={0.5}>
-              🏆
-            </Typography>
-            <Typography fontWeight={600} variant="h6">
-              {translate("myTournaments.emptyTitle")}
-            </Typography>
-            <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-              {translate("myTournaments.emptyBody")}
-            </Typography>
-          </Box>
+          <LottieEmptyState
+            title={translate("myTournaments.emptyTitle")}
+            description={translate("myTournaments.emptyBody")}
+          />
         ) : isMdUp && viewMode === "list" ? (
           /* Giao diện LIST cho Desktop */
           <Stack spacing={1.5}>
