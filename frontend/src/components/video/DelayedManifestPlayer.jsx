@@ -326,14 +326,97 @@ export default function DelayedManifestPlayer({
       }
     };
 
+    const recordingId =
+      typeof source?.meta?.recordingId === "string"
+        ? source.meta.recordingId.trim()
+        : "";
+    const expectedSegmentCount =
+      Number(source?.meta?.uploadedSegmentCount || 0) || 0;
+    let usedBackendPlaylist = false;
+
+    const buildPlaylistUrl = () => {
+      if (!recordingId) return "";
+      const apiBase =
+        typeof window !== "undefined"
+          ? window.location.origin
+          : "";
+      return `${apiBase}/api/live/recordings/v2/${recordingId}/temp/playlist`;
+    };
+
+    const applyPlaylistSegments = (playlistData) => {
+      if (!playlistData?.segments?.length) return false;
+      const playable = playlistData.segments
+        .map((segment) => ({
+          key: `segment:${segment?.index ?? ""}`,
+          url: typeof segment?.url === "string" ? segment.url.trim() : "",
+          index: Number(segment?.index ?? -1),
+          durationSeconds: Number(segment?.durationSeconds || 2),
+          kind: "segment",
+        }))
+        .filter((seg) => seg.url);
+      if (!playable.length) return false;
+
+      setItems(() => {
+        if (!currentKeyRef.current) {
+          const nextKey = playable[0]?.key || "";
+          if (nextKey) {
+            currentKeyRef.current = nextKey;
+            setCurrentKey(nextKey);
+            waitingForNextRef.current = false;
+            setWaitingForNext(false);
+          }
+        }
+        return playable;
+      });
+      setManifestStatus("final");
+      setLoading(false);
+      setError("");
+      return true;
+    };
+
     const fetchManifest = async () => {
       try {
+        // First try R2 manifest
         const response = await fetch(source?.embedUrl, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`Manifest HTTP ${response.status}`);
         }
 
         const manifest = await response.json();
+        if (cancelled) return;
+
+        const manifestSegmentCount = Array.isArray(manifest?.segments)
+          ? manifest.segments.length
+          : 0;
+
+        // If R2 manifest has way fewer segments than expected AND we have
+        // a recordingId, switch to backend playlist for full segment list
+        if (
+          recordingId &&
+          expectedSegmentCount > 0 &&
+          manifestSegmentCount < expectedSegmentCount * 0.8 &&
+          !usedBackendPlaylist
+        ) {
+          const playlistUrl = buildPlaylistUrl();
+          if (playlistUrl) {
+            try {
+              const playlistResponse = await fetch(playlistUrl, {
+                cache: "no-store",
+              });
+              if (playlistResponse.ok) {
+                const playlistData = await playlistResponse.json();
+                if (!cancelled && applyPlaylistSegments(playlistData)) {
+                  usedBackendPlaylist = true;
+                  // Don't schedule another poll — we have the full list
+                  return;
+                }
+              }
+            } catch {
+              // Backend playlist failed, fall through to R2 manifest
+            }
+          }
+        }
+
         if (cancelled) return;
         applyManifest(manifest);
       } catch (fetchError) {
@@ -343,7 +426,7 @@ export default function DelayedManifestPlayer({
           fetchError?.message || "Không tải được delayed manifest từ CDN.",
         );
       } finally {
-        if (!cancelled) {
+        if (!cancelled && !usedBackendPlaylist) {
           const refreshSeconds =
             Number(source?.meta?.refreshSeconds || 6) > 0
               ? Number(source?.meta?.refreshSeconds || 6)

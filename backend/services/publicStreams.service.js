@@ -510,6 +510,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       ready: server2.ready,
       disabledReason: server2.disabledReason,
       meta: {
+        recordingId: String(recording?._id || "") || null,
         manifestUrl: server2.manifestUrl,
         manifestObjectKey: server2.manifestObjectKey,
         finalPlaybackUrl: server2.finalPlaybackUrl,

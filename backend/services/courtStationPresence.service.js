@@ -527,6 +527,64 @@ export async function endCourtStationPresence({
   });
 }
 
+export async function forceReleaseCourtStationPresence(
+  courtStationId,
+  { reason = "admin_force_release", publish = true } = {}
+) {
+  const normalizedStationId = safeString(courtStationId);
+  if (!normalizedStationId) {
+    return {
+      ok: false,
+      released: false,
+      reason: "court_station_missing",
+      stationId: "",
+      clusterId: "",
+    };
+  }
+
+  const station = await getStationDoc(normalizedStationId);
+  if (!station) {
+    return {
+      ok: false,
+      released: false,
+      reason: "court_station_not_found",
+      stationId: normalizedStationId,
+      clusterId: "",
+    };
+  }
+
+  const current = await ensurePresenceNotStale(
+    await readPresenceByStationId(normalizedStationId)
+  );
+
+  if (current) {
+    await releasePresence(current, reason, { publish: false });
+  }
+
+  await CourtStation.updateOne(
+    { _id: normalizedStationId },
+    {
+      $set: {
+        "presence.screenState": "",
+        "presence.liveScreenPresence": null,
+        "presence.lastSeenAt": new Date(),
+      },
+    }
+  ).catch(() => {});
+
+  if (publish) {
+    await publishPresence(station, reason);
+  }
+
+  return {
+    ok: true,
+    released: Boolean(current),
+    reason,
+    stationId: normalizedStationId,
+    clusterId: safeString(station.clusterId),
+  };
+}
+
 export async function extendCourtStationPreviewPresence({
   courtStationId,
   clientSessionId,
