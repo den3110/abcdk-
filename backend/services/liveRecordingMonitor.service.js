@@ -29,8 +29,50 @@ const AUTO_EXPORT_SWEEP_INTERVAL_MS = Math.max(
   30_000,
   Number(process.env.LIVE_RECORDING_AUTO_EXPORT_SWEEP_MS) || 60_000
 );
+const DEFAULT_MONITOR_SNAPSHOT_TTL_MS = 2_500;
 let liveRecordingAutoExportSweepTimer = null;
 let liveRecordingAutoExportSweepRunning = false;
+let liveRecordingMonitorSnapshotCache = {
+  value: null,
+  expiresAt: 0,
+  signature: "",
+  promise: null,
+};
+
+function getLiveRecordingMonitorSnapshotTtlMs() {
+  const configured = Number(process.env.LIVE_RECORDING_MONITOR_SNAPSHOT_TTL_MS);
+  if (Number.isFinite(configured) && configured >= 500) {
+    return Math.floor(configured);
+  }
+  return DEFAULT_MONITOR_SNAPSHOT_TTL_MS;
+}
+
+function getLiveRecordingMonitorSnapshotSignature() {
+  const meta = getLiveRecordingMonitorMeta();
+  const lastPublishAt = meta?.lastPublishAt
+    ? new Date(meta.lastPublishAt).getTime()
+    : 0;
+  const lastReconcileAt = meta?.lastReconcileAt
+    ? new Date(meta.lastReconcileAt).getTime()
+    : 0;
+
+  return [
+    lastPublishAt,
+    lastReconcileAt,
+    String(meta?.lastPublishMode || ""),
+    String(meta?.lastEventReason || ""),
+    String(meta?.lastEventMode || ""),
+  ].join("|");
+}
+
+export function invalidateLiveRecordingMonitorSnapshotCache() {
+  liveRecordingMonitorSnapshotCache = {
+    value: null,
+    expiresAt: 0,
+    signature: "",
+    promise: null,
+  };
+}
 
 function pickPersonName(person) {
   return (
@@ -838,9 +880,10 @@ function sortRows(rows) {
   });
 }
 
-export async function buildLiveRecordingMonitorSnapshot() {
-  const { workerHealth, queueSnapshot } =
-    await reconcileStaleLiveRecordingExports();
+async function buildLiveRecordingMonitorSnapshotUncached({
+  workerHealth,
+  queueSnapshot,
+} = {}) {
   const currentDriveSettings = await getRecordingDriveSettings().catch(() => ({
     mode: "serviceAccount",
   }));
@@ -973,4 +1016,58 @@ export async function buildLiveRecordingMonitorSnapshot() {
       generatedAt: new Date(),
     },
   };
+}
+
+export async function buildLiveRecordingMonitorSnapshot({
+  forceRefresh = false,
+} = {}) {
+  const { workerHealth, queueSnapshot } =
+    await reconcileStaleLiveRecordingExports();
+  const signature = getLiveRecordingMonitorSnapshotSignature();
+  const now = Date.now();
+
+  if (
+    !forceRefresh &&
+    liveRecordingMonitorSnapshotCache.value &&
+    liveRecordingMonitorSnapshotCache.signature === signature &&
+    now < liveRecordingMonitorSnapshotCache.expiresAt
+  ) {
+    return liveRecordingMonitorSnapshotCache.value;
+  }
+
+  if (
+    !forceRefresh &&
+    liveRecordingMonitorSnapshotCache.promise &&
+    liveRecordingMonitorSnapshotCache.signature === signature
+  ) {
+    return liveRecordingMonitorSnapshotCache.promise;
+  }
+
+  const snapshotPromise = buildLiveRecordingMonitorSnapshotUncached({
+    workerHealth,
+    queueSnapshot,
+  })
+    .then((snapshot) => {
+      liveRecordingMonitorSnapshotCache = {
+        value: snapshot,
+        expiresAt: Date.now() + getLiveRecordingMonitorSnapshotTtlMs(),
+        signature,
+        promise: null,
+      };
+      return snapshot;
+    })
+    .catch((error) => {
+      if (liveRecordingMonitorSnapshotCache.signature === signature) {
+        invalidateLiveRecordingMonitorSnapshotCache();
+      }
+      throw error;
+    });
+
+  liveRecordingMonitorSnapshotCache = {
+    ...liveRecordingMonitorSnapshotCache,
+    signature,
+    promise: snapshotPromise,
+  };
+
+  return snapshotPromise;
 }
