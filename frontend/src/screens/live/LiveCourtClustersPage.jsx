@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -11,6 +12,7 @@ import {
   OutlinedInput,
   Pagination,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
@@ -283,8 +285,11 @@ export default function LiveCourtClustersPage() {
                     sx={{
                       p: 2,
                       cursor: "pointer",
-                      border: "1px solid",
-                      borderColor: active ? "primary.main" : "divider",
+                      border: "2px solid",
+                      borderColor: active ? "primary.main" : "transparent",
+                      boxShadow: active ? 4 : 1,
+                      transition: "all 0.2s ease",
+                      "&:hover": { boxShadow: 4 },
                     }}
                   >
                     <Stack spacing={1}>
@@ -296,7 +301,23 @@ export default function LiveCourtClustersPage() {
                       </Typography>
                       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                         <Chip size="small" label={`${cluster.stationsCount || 0} sân`} />
-                        <Chip size="small" color="error" label={`${cluster.liveCount || 0} LIVE`} />
+                        <Chip
+                          size="small"
+                          color={cluster.liveCount > 0 ? "error" : "default"}
+                          label={`${cluster.liveCount || 0} LIVE`}
+                          sx={
+                            cluster.liveCount > 0
+                              ? {
+                                  animation: "pulseLive 1.5s infinite ease-in-out",
+                                  "@keyframes pulseLive": {
+                                    "0%": { opacity: 0.7 },
+                                    "50%": { opacity: 1, boxShadow: "0 0 8px rgba(211, 47, 47, 0.6)" },
+                                    "100%": { opacity: 0.7 },
+                                  },
+                                }
+                              : {}
+                          }
+                        />
                       </Stack>
                     </Stack>
                   </Card>
@@ -431,23 +452,28 @@ export default function LiveCourtClustersPage() {
               </Stack>
             </Stack>
 
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip
-                label="Tất cả giải"
-                variant={archiveTournamentId === "all" ? "filled" : "outlined"}
-                onClick={() => setArchiveTournamentId("all")}
-              />
-              {archiveTournaments.map((tournament) => (
-                <Chip
-                  key={tournament._id}
-                  label={`${tournament.name} (${tournament.count})`}
-                  variant={
-                    archiveTournamentId === tournament._id ? "filled" : "outlined"
-                  }
-                  onClick={() => setArchiveTournamentId(tournament._id)}
-                />
-              ))}
-            </Stack>
+            <Autocomplete
+              options={[{ _id: "all", name: "Tất cả giải", count: 0 }, ...archiveTournaments]}
+              getOptionLabel={(opt) =>
+                opt._id === "all" ? "Tất cả giải" : `${opt.name} (${opt.count} trận)`
+              }
+              value={
+                archiveTournamentId === "all"
+                  ? { _id: "all", name: "Tất cả giải", count: 0 }
+                  : archiveTournaments.find((t) => t._id === archiveTournamentId) || {
+                      _id: "all",
+                      name: "Tất cả giải",
+                      count: 0,
+                    }
+              }
+              onChange={(_, val) => setArchiveTournamentId(val ? val._id : "all")}
+              renderInput={(params) => (
+                <TextField {...params} label="Lọc theo giải đấu" placeholder="Gõ tên giải cần tìm..." />
+              )}
+              disableClearable
+              size="small"
+              sx={{ width: { xs: "100%", md: 400 } }}
+            />
 
             {isLoadingArchive ? (
               <Stack alignItems="center" sx={{ py: 6 }}>
