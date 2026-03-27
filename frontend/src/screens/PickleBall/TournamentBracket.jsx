@@ -731,7 +731,7 @@ const CustomSeed = ({
   const color = isByeMatch
     ? { bg: "#9e9e9e", fg: "#fff", key: "bye" }
     : statusColors(m);
-  const clickable = !!m && !isByeMatch;
+  const clickable = !!m;
   return (
     <Seed mobileBreakpoint={breakpoint} style={{ fontSize: 13 }}>
       <SeedItem
@@ -2411,6 +2411,12 @@ export default function TournamentBracket() {
     setActiveMatchPreview(m);
     setOpen(true);
   };
+  const openMatchModal = (m) => {
+    if (!m) return;
+    setActiveMatchId(m._id);
+    setActiveMatchPreview(m);
+    setOpen(true);
+  };
   const closeMatch = () => setOpen(false);
 
   const current = brackets?.[tab] || null;
@@ -3195,7 +3201,7 @@ export default function TournamentBracket() {
                   <TableRow
                     key={r.id}
                     hover
-                    onClick={() => openMatch(r.match)}
+                    onClick={() => openMatchModal(r.match)}
                     sx={{ cursor: "pointer" }}
                   >
                     <TableCell>{r.code}</TableCell>
@@ -3216,7 +3222,7 @@ export default function TournamentBracket() {
               <Paper
                 key={r.id}
                 variant="outlined"
-                onClick={() => openMatch(r.match)}
+                onClick={() => openMatchModal(r.match)}
                 sx={{
                   p: 1.25,
                   borderRadius: 2,
@@ -3607,7 +3613,7 @@ export default function TournamentBracket() {
                             hover={!r.isPlaceholder}
                             onClick={() =>
                               !r.isPlaceholder && r.match
-                                ? openMatch(r.match)
+                                ? openMatchModal(r.match)
                                 : null
                             }
                             sx={{
@@ -3751,7 +3757,7 @@ export default function TournamentBracket() {
                         variant="outlined"
                         onClick={() =>
                           !r.isPlaceholder && r.match
-                            ? openMatch(r.match)
+                            ? openMatchModal(r.match)
                             : null
                         }
                         sx={{
@@ -4274,7 +4280,7 @@ export default function TournamentBracket() {
                           key={row._id}
                           onClick={() =>
                             !row.isPlaceholder && row.match
-                              ? openMatch(row.match)
+                              ? openMatchModal(row.match)
                               : null
                           }
                           sx={{
@@ -5087,7 +5093,7 @@ export default function TournamentBracket() {
                             renderSeedComponent={(props) => (
                               <CustomSeed
                                 {...props}
-                                onOpen={openMatch}
+                                onOpen={openMatchModal}
                                 championMatchId={null}
                                 resolveSideLabel={resolveSideLabel}
                                 baseRoundStart={baseRoundStartForCurrent}
@@ -5250,7 +5256,7 @@ export default function TournamentBracket() {
                             renderSeedComponent={(props) => (
                               <CustomSeed
                                 {...props}
-                                onOpen={openMatch}
+                                onOpen={openMatchModal}
                                 championMatchId={finalMatchId}
                                 resolveSideLabel={resolveSideLabel}
                                 baseRoundStart={baseRoundStartForCurrent}
@@ -5298,7 +5304,7 @@ export default function TournamentBracket() {
                                   ],
                                 }}
                                 breakpoint={0}
-                                onOpen={openMatch}
+                                onOpen={openMatchModal}
                                 championMatchId={null}
                                 resolveSideLabel={resolveSideLabel}
                                 baseRoundStart={baseRoundStartForCurrent}
