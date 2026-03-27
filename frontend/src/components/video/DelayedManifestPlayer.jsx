@@ -284,7 +284,19 @@ export default function DelayedManifestPlayer({
         );
 
         if (!currentKeyRef.current) {
-          const nextKey = merged[0]?.key || "";
+          // For live manifests, start from near the tail (latest content)
+          // so viewers see the current score, not the beginning.
+          // For final/finished recordings, start from the beginning.
+          const isLive = mStatus !== "final";
+          const segmentItems = merged.filter((item) => item?.kind === "segment");
+          let startItem;
+          if (isLive && segmentItems.length > 2) {
+            // Start ~2 segments before the end to give buffer for prefetch
+            startItem = segmentItems[segmentItems.length - 2];
+          } else {
+            startItem = merged[0];
+          }
+          const nextKey = startItem?.key || merged[0]?.key || "";
           if (nextKey) {
             currentKeyRef.current = nextKey;
             setCurrentKey(nextKey);

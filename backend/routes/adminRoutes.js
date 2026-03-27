@@ -219,11 +219,14 @@ import {
   createAdminCourtStation,
   deleteAdminCourtCluster,
   deleteAdminCourtStation,
+  forceFreeAdminCourtStationHttp,
+  forceReleaseAdminCourtStationPresenceHttp,
   freeTournamentCourtStationHttp,
   freeCourtStationHttp,
   getAdminCourtClusterRuntime,
   getAdminCourtStationCurrentMatch,
   getTournamentCourtClusterRuntime,
+  listAdminCourtStationFreeManager,
   listAdminCourtClusters,
   listAdminCourtStations,
   removeTournamentCourtStationQueueItemHttp,
@@ -642,6 +645,12 @@ router.put(
   requireAdminAndSuperUser,
   updateAdminLivePlaybackConfig
 );
+router.get(
+  "/court-stations/free-manager",
+  protect,
+  requireAdminAndSuperUser,
+  listAdminCourtStationFreeManager
+);
 
 router.post(
   "/brackets/:bracketId/matches/batch-delete",
@@ -1049,6 +1058,18 @@ router.post(
   protect,
   authorize("admin"),
   freeCourtStationHttp
+);
+router.post(
+  "/court-stations/:id/force-free",
+  protect,
+  requireAdminAndSuperUser,
+  forceFreeAdminCourtStationHttp
+);
+router.post(
+  "/court-stations/:id/force-release-presence",
+  protect,
+  requireAdminAndSuperUser,
+  forceReleaseAdminCourtStationPresenceHttp
 );
 
 router.get(

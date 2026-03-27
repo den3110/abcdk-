@@ -756,6 +756,7 @@ export default function NativeVideoPlayer({
                 objectFit: "contain",
                 backgroundColor: "#000",
                 opacity: activeSlot === 0 ? 1 : 0,
+                transition: queueMode ? "opacity 80ms ease" : undefined,
                 pointerEvents:
                   activeSlot === 0 ? "auto" : "none",
               }}
@@ -778,6 +779,7 @@ export default function NativeVideoPlayer({
                   objectFit: "contain",
                   backgroundColor: "#000",
                   opacity: activeSlot === 1 ? 1 : 0,
+                  transition: "opacity 80ms ease",
                   pointerEvents: activeSlot === 1 ? "auto" : "none",
                   visibility: activeSlot === 1 || stagedNextReady ? "visible" : "hidden",
                 }}
