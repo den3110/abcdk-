@@ -196,6 +196,7 @@ import {
 } from "../controllers/youtubeSetupController.js";
 import {
   disconnectRecordingDriveOAuth,
+  recordingDrivePickerSession,
   getRecordingDriveOAuthStatus,
   recordingDriveOAuthInit,
 } from "../controllers/recordingDriveSetupController.js";
@@ -955,6 +956,12 @@ router.get(
   protect,
   authorize("admin"),
   recordingDriveOAuthInit
+);
+router.get(
+  "/recording-drive/picker/session",
+  protect,
+  authorize("admin"),
+  recordingDrivePickerSession
 );
 router.get(
   "/recording-drive/status",

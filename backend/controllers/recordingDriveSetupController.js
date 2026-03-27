@@ -1,12 +1,21 @@
 import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
 import {
-  ensureRecordingDriveOAuthFolder,
+  getRecordingDriveRuntimeConfig,
   getRecordingDriveStatus,
 } from "../services/driveRecordings.service.js";
 import SystemSettings from "../models/systemSettingsModel.js";
 
 const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+
+function asTrimmed(value) {
+  return String(value || "").trim();
+}
+
+function derivePickerAppId(clientId) {
+  const match = asTrimmed(clientId).match(/^(\d+)-/);
+  return match?.[1] || "";
+}
 
 
 async function makeRecordingDriveOAuth(req) {
@@ -110,8 +119,6 @@ export async function recordingDriveOAuthCallback(req, res) {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).catch(() => null);
 
-    await ensureRecordingDriveOAuthFolder({ forceCreate: false });
-
     const html = `
 <!doctype html><meta charset="utf-8" />
 <body style="font-family:system-ui;padding:24px">
@@ -161,6 +168,76 @@ export async function recordingDriveOAuthCallback(req, res) {
     return res
       .status(500)
       .send(`<pre style="white-space:pre-wrap">${e?.message || e}</pre>`);
+  }
+}
+
+export async function recordingDrivePickerSession(req, res) {
+  try {
+    const runtimeConfig = await getRecordingDriveRuntimeConfig();
+    if (runtimeConfig.mode !== "oauthUser") {
+      return res.status(400).json({
+        message: "Recording Drive dang o mode service account.",
+      });
+    }
+    if (!runtimeConfig.refreshToken) {
+      return res.status(400).json({
+        message: "My Drive OAuth chua ket noi.",
+      });
+    }
+
+    const oauth2 = await makeRecordingDriveOAuth(req);
+    oauth2.setCredentials({
+      refresh_token: runtimeConfig.refreshToken,
+    });
+
+    const accessTokenResponse = await oauth2.getAccessToken();
+    const accessToken = asTrimmed(
+      typeof accessTokenResponse === "string"
+        ? accessTokenResponse
+        : accessTokenResponse?.token ||
+            accessTokenResponse?.res?.data?.access_token ||
+            ""
+    );
+
+    if (!accessToken) {
+      throw new Error("Khong lay duoc access token cho Google Picker.");
+    }
+
+    const pickerApiKey = asTrimmed(
+      await getCfgStr(
+        "GOOGLE_DRIVE_PICKER_API_KEY",
+        process.env.GOOGLE_DRIVE_PICKER_API_KEY || ""
+      )
+    );
+    if (!pickerApiKey) {
+      throw new Error(
+        "Thieu GOOGLE_DRIVE_PICKER_API_KEY trong System Config hoac ENV."
+      );
+    }
+
+    const pickerAppId = asTrimmed(
+      await getCfgStr(
+        "GOOGLE_DRIVE_PICKER_APP_ID",
+        process.env.GOOGLE_DRIVE_PICKER_APP_ID ||
+          derivePickerAppId(runtimeConfig.clientId)
+      )
+    );
+    if (!pickerAppId) {
+      throw new Error(
+        "Thieu GOOGLE_DRIVE_PICKER_APP_ID trong System Config hoac ENV."
+      );
+    }
+
+    return res.json({
+      accessToken,
+      developerKey: pickerApiKey,
+      appId: pickerAppId,
+      folderId: runtimeConfig.folderId || "",
+    });
+  } catch (e) {
+    return res.status(400).json({
+      message: e?.message || "Get Google Picker session failed",
+    });
   }
 }
 
