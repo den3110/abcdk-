@@ -136,7 +136,7 @@ function hasCompletedSourceCleanup(recording) {
   return recording?.meta?.sourceCleanup?.status === "completed";
 }
 
-function summarizeSegments(segments = []) {
+function summarizeSegments(segments = [], recording = null) {
   const sortedSegments = [...segments].sort((a, b) => a.index - b.index);
   const uploadedSegments = sortedSegments.filter(
     (segment) => segment.uploadStatus === "uploaded"
@@ -752,7 +752,7 @@ function buildRow(recording, context = {}) {
   const bracketName = match?.bracket?.name || "";
   const bracketStage = match?.bracket?.stage || "";
   const courtLabel = buildCourtLabel(match, recording);
-  const segmentSummary = summarizeSegments(recording.segments || []);
+  const segmentSummary = summarizeSegments(recording.segments || [], recording);
   const statusMeta = buildStatusMeta(recording.status);
   const exportPipeline = buildExportPipelineInfo(recording, context);
   const driveAuthMode =
