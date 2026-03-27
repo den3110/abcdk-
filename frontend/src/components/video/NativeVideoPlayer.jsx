@@ -19,7 +19,6 @@ import {
   Pause as PauseIcon,
   PlayArrow as PlayIcon,
   Replay10 as Replay10Icon,
-  Speed as SpeedIcon,
   VolumeOff as VolumeOffIcon,
   VolumeUp as VolumeUpIcon,
 } from "@mui/icons-material";
@@ -56,6 +55,7 @@ export default function NativeVideoPlayer({
   autoplay = true,
   previewOnlyUntilPlay = false,
   useNativeControls = false,
+  liveMode = false,
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
@@ -341,19 +341,6 @@ export default function NativeVideoPlayer({
     revealChrome();
   };
 
-  const handleVolumeChange = (_event, nextValue) => {
-    const video = videoRef.current;
-    const nextVolume =
-      (Array.isArray(nextValue) ? nextValue[0] : nextValue) / 100;
-    setVolume(nextVolume);
-    setIsMuted(nextVolume === 0);
-    if (video) {
-      video.volume = nextVolume;
-      video.muted = nextVolume === 0;
-    }
-    revealChrome();
-  };
-
   const toggleMute = (event) => {
     event?.stopPropagation?.();
     const video = videoRef.current;
@@ -597,25 +584,27 @@ export default function NativeVideoPlayer({
                     direction="row"
                     alignItems="center"
                     justifyContent="center"
-                    spacing={{ xs: 4, sm: 8 }}
+                    spacing={liveMode ? { xs: 0, sm: 0 } : { xs: 4, sm: 8 }}
                     sx={{ pointerEvents: "auto" }}
                     onClick={(event) => event.stopPropagation()}
                   >
-                    <IconButton
-                      sx={{
-                        color: "#fff",
-                        bgcolor: "rgba(0,0,0,0.3)",
-                        "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
-                        width: { xs: 48, sm: 60 },
-                        height: { xs: 48, sm: 60 },
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        seekBy(-10);
-                      }}
-                    >
-                      <Replay10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
-                    </IconButton>
+                    {!liveMode ? (
+                      <IconButton
+                        sx={{
+                          color: "#fff",
+                          bgcolor: "rgba(0,0,0,0.3)",
+                          "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
+                          width: { xs: 48, sm: 60 },
+                          height: { xs: 48, sm: 60 },
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          seekBy(-10);
+                        }}
+                      >
+                        <Replay10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
+                      </IconButton>
+                    ) : null}
 
                     <IconButton
                       sx={{
@@ -629,26 +618,28 @@ export default function NativeVideoPlayer({
                     >
                       {isPlaying ? (
                         <PauseIcon sx={{ fontSize: { xs: 42, sm: 54 } }} />
-                      ) : (
-                        <PlayIcon sx={{ fontSize: { xs: 42, sm: 54 } }} />
-                      )}
+                        ) : (
+                          <PlayIcon sx={{ fontSize: { xs: 42, sm: 54 } }} />
+                        )}
                     </IconButton>
 
-                    <IconButton
-                      sx={{
-                        color: "#fff",
-                        bgcolor: "rgba(0,0,0,0.3)",
-                        "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
-                        width: { xs: 48, sm: 60 },
-                        height: { xs: 48, sm: 60 },
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        seekBy(10);
-                      }}
-                    >
-                      <Forward10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
-                    </IconButton>
+                    {!liveMode ? (
+                      <IconButton
+                        sx={{
+                          color: "#fff",
+                          bgcolor: "rgba(0,0,0,0.3)",
+                          "&:hover": { bgcolor: "rgba(0,0,0,0.5)" },
+                          width: { xs: 48, sm: 60 },
+                          height: { xs: 48, sm: 60 },
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          seekBy(10);
+                        }}
+                      >
+                        <Forward10Icon sx={{ fontSize: { xs: 28, sm: 36 } }} />
+                      </IconButton>
+                    ) : null}
                   </Stack>
                 </Box>
 
@@ -667,21 +658,37 @@ export default function NativeVideoPlayer({
                     spacing={1}
                     sx={{ mb: 0.75 }}
                   >
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: "#fff",
-                        fontVariantNumeric: "tabular-nums",
-                        fontWeight: 500,
-                        textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-                        fontSize: { xs: "0.75rem", sm: "0.8rem" },
-                      }}
-                    >
-                      {formatMediaTime(currentTime)}{" "}
-                      <span style={{ opacity: 0.7 }}>
-                        / {formatMediaTime(duration)}
-                      </span>
-                    </Typography>
+                    {liveMode ? (
+                      <Chip
+                        size="small"
+                        label="LIVE"
+                        color="error"
+                        sx={{
+                          height: 22,
+                          fontWeight: 700,
+                          letterSpacing: 0.4,
+                          "& .MuiChip-label": {
+                            px: 1,
+                          },
+                        }}
+                      />
+                    ) : (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: "#fff",
+                          fontVariantNumeric: "tabular-nums",
+                          fontWeight: 500,
+                          textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+                          fontSize: { xs: "0.75rem", sm: "0.8rem" },
+                        }}
+                      >
+                        {formatMediaTime(currentTime)}{" "}
+                        <span style={{ opacity: 0.7 }}>
+                          / {formatMediaTime(duration)}
+                        </span>
+                      </Typography>
+                    )}
 
                     <Box sx={{ flex: 1 }} />
 
@@ -721,31 +728,33 @@ export default function NativeVideoPlayer({
                     </IconButton>
                   </Stack>
 
-                  <Slider
-                    size="small"
-                    min={0}
-                    max={100}
-                    value={seekPercent}
-                    onChange={handleSeekChange}
-                    onChangeCommitted={handleSeekCommit}
-                    sx={{
-                      color: "#ff0000",
-                      p: "0 !important",
-                      height: 3,
-                      "& .MuiSlider-thumb": {
-                        width: 12,
-                        height: 12,
-                        transition: "0.2s",
-                        "&:hover, &.Mui-focusVisible, &.Mui-active": {
-                          boxShadow: "none",
-                          width: 16,
-                          height: 16,
+                  {!liveMode ? (
+                    <Slider
+                      size="small"
+                      min={0}
+                      max={100}
+                      value={seekPercent}
+                      onChange={handleSeekChange}
+                      onChangeCommitted={handleSeekCommit}
+                      sx={{
+                        color: "#ff0000",
+                        p: "0 !important",
+                        height: 3,
+                        "& .MuiSlider-thumb": {
+                          width: 12,
+                          height: 12,
+                          transition: "0.2s",
+                          "&:hover, &.Mui-focusVisible, &.Mui-active": {
+                            boxShadow: "none",
+                            width: 16,
+                            height: 16,
+                          },
                         },
-                      },
-                      "& .MuiSlider-rail": { opacity: 0.3, color: "#fff" },
-                      "& .MuiSlider-track": { border: "none" },
-                    }}
-                  />
+                        "& .MuiSlider-rail": { opacity: 0.3, color: "#fff" },
+                        "& .MuiSlider-track": { border: "none" },
+                      }}
+                    />
+                  ) : null}
                 </Box>
               </Box>
             ) : null}

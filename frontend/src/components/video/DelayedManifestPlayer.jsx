@@ -1,8 +1,79 @@
 /* eslint-disable react/prop-types */
 import { Alert } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAspectRatio } from "./AspectMediaFrame";
 import NativeVideoPlayer from "./NativeVideoPlayer";
+
+function normalizeManifestItems(manifest) {
+  const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
+  const playable = segments
+    .map((segment) => ({
+      key: `segment:${segment?.index ?? ""}`,
+      url: typeof segment?.url === "string" ? segment.url.trim() : "",
+      index: Number(segment?.index ?? -1),
+      durationSeconds: Number(segment?.durationSeconds || 0),
+      kind: "segment",
+    }))
+    .filter((segment) => segment.url);
+
+  const finalPlaybackUrl =
+    typeof manifest?.finalPlaybackUrl === "string"
+      ? manifest.finalPlaybackUrl.trim()
+      : "";
+
+  if (finalPlaybackUrl) {
+    playable.push({
+      key: "final",
+      url: finalPlaybackUrl,
+      index: Number.MAX_SAFE_INTEGER,
+      durationSeconds: 0,
+      kind: "final",
+    });
+  }
+
+  return playable;
+}
+
+function mergeManifestItems(previousItems, incomingItems, currentKey) {
+  const previous = Array.isArray(previousItems) ? previousItems : [];
+  const incoming = Array.isArray(incomingItems) ? incomingItems : [];
+  const byKey = new Map();
+
+  previous.forEach((item) => {
+    if (item?.key) {
+      byKey.set(item.key, item);
+    }
+  });
+  incoming.forEach((item) => {
+    if (item?.key) {
+      byKey.set(item.key, {
+        ...(byKey.get(item.key) || {}),
+        ...item,
+      });
+    }
+  });
+
+  const currentIndex = previous.findIndex((item) => item?.key === currentKey);
+  const preservedTail = currentIndex > 0 ? previous.slice(currentIndex) : previous;
+  const merged = [];
+  const seen = new Set();
+
+  preservedTail.forEach((item) => {
+    const resolved = byKey.get(item?.key);
+    if (!resolved || seen.has(resolved.key)) return;
+    merged.push(resolved);
+    seen.add(resolved.key);
+  });
+
+  incoming.forEach((item) => {
+    const resolved = byKey.get(item?.key) || item;
+    if (!resolved?.key || seen.has(resolved.key)) return;
+    merged.push(resolved);
+    seen.add(resolved.key);
+  });
+
+  return merged;
+}
 
 export default function DelayedManifestPlayer({
   source,
@@ -11,49 +82,182 @@ export default function DelayedManifestPlayer({
   useNativeControls = false,
 }) {
   const [items, setItems] = useState([]);
-  const [currentUrl, setCurrentUrl] = useState("");
+  const [currentKey, setCurrentKey] = useState("");
+  const [currentPlaybackUrl, setCurrentPlaybackUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [waitingForNext, setWaitingForNext] = useState(false);
+  const [prefetchedUrls, setPrefetchedUrls] = useState({});
+  const currentKeyRef = useRef("");
+  const waitingForNextRef = useRef(false);
+  const prefetchedUrlsRef = useRef({});
+  const prefetchCacheRef = useRef(new Map());
+  const prefetchControllersRef = useRef(new Map());
+
+  const currentItem = useMemo(() => {
+    if (!items.length) return null;
+    return (
+      items.find((item) => item?.key === currentKey) ||
+      items[0] ||
+      null
+    );
+  }, [currentKey, items]);
+
+  const currentUrl = currentItem?.url || "";
+
+  useEffect(() => {
+    currentKeyRef.current = currentKey;
+  }, [currentKey]);
+
+  useEffect(() => {
+    waitingForNextRef.current = waitingForNext;
+  }, [waitingForNext]);
+
+  useEffect(() => {
+    prefetchedUrlsRef.current = prefetchedUrls;
+  }, [prefetchedUrls]);
+
+  const clearPrefetchResources = useCallback(() => {
+    for (const controller of prefetchControllersRef.current.values()) {
+      controller.abort();
+    }
+    prefetchControllersRef.current.clear();
+    for (const blobUrl of prefetchCacheRef.current.values()) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    prefetchCacheRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    if (!currentItem?.key) {
+      setCurrentPlaybackUrl("");
+      return;
+    }
+
+    setCurrentPlaybackUrl(
+      prefetchedUrlsRef.current[currentItem.key] || currentItem.url || "",
+    );
+  }, [currentItem?.key, currentItem?.url]);
+
+  useEffect(() => {
+    const currentIndex = items.findIndex((item) => item?.key === currentKey);
+    const startIndex = currentIndex >= 0 ? currentIndex : 0;
+    const retainItems = items.slice(startIndex, startIndex + 4);
+    const retainKeys = new Set(retainItems.map((item) => item?.key).filter(Boolean));
+
+    for (const [key, controller] of prefetchControllersRef.current.entries()) {
+      if (!retainKeys.has(key)) {
+        controller.abort();
+        prefetchControllersRef.current.delete(key);
+      }
+    }
+
+    for (const [key, blobUrl] of prefetchCacheRef.current.entries()) {
+      if (!retainKeys.has(key)) {
+        URL.revokeObjectURL(blobUrl);
+        prefetchCacheRef.current.delete(key);
+        setPrefetchedUrls((previous) => {
+          if (!(key in previous)) return previous;
+          const next = { ...previous };
+          delete next[key];
+          return next;
+        });
+      }
+    }
+
+    retainItems.forEach((item) => {
+      if (!item?.key || !item?.url || item.kind === "final") return;
+      if (prefetchCacheRef.current.has(item.key)) return;
+      if (prefetchControllersRef.current.has(item.key)) return;
+
+      const controller = new AbortController();
+      prefetchControllersRef.current.set(item.key, controller);
+
+      fetch(item.url, {
+        cache: "force-cache",
+        signal: controller.signal,
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Segment HTTP ${response.status}`);
+          }
+          return response.blob();
+        })
+        .then((blob) => {
+          if (controller.signal.aborted) return;
+          const objectUrl = URL.createObjectURL(blob);
+          prefetchCacheRef.current.set(item.key, objectUrl);
+          setPrefetchedUrls((previous) => ({
+            ...previous,
+            [item.key]: objectUrl,
+          }));
+        })
+        .catch(() => {
+          // Fallback to direct CDN URL if prefetch fails.
+        })
+        .finally(() => {
+          prefetchControllersRef.current.delete(item.key);
+        });
+    });
+
+    return () => {
+      // noop: cleanup handled by retain/prune logic and source reset effect
+    };
+  }, [currentKey, items]);
 
   useEffect(() => {
     let cancelled = false;
     let timerId = null;
 
     const applyManifest = (manifest) => {
-      const segments = Array.isArray(manifest?.segments)
-        ? manifest.segments
-        : [];
-      const playable = segments
-        .map((segment) => ({
-          key: `segment:${segment?.index ?? ""}`,
-          url: typeof segment?.url === "string" ? segment.url.trim() : "",
-        }))
-        .filter((segment) => segment.url);
+      const playable = normalizeManifestItems(manifest);
+      const manifestStatus =
+        typeof manifest?.status === "string" ? manifest.status.trim() : "";
 
-      const finalPlaybackUrl =
-        typeof manifest?.finalPlaybackUrl === "string"
-          ? manifest.finalPlaybackUrl.trim()
-          : "";
+      setItems((previousItems) => {
+        const merged = mergeManifestItems(
+          previousItems,
+          playable,
+          currentKeyRef.current,
+        );
 
-      if (finalPlaybackUrl) {
-        playable.push({
-          key: "final",
-          url: finalPlaybackUrl,
-        });
-      }
-
-      setItems(playable);
-      setCurrentUrl((previousUrl) => {
-        if (previousUrl && playable.some((item) => item.url === previousUrl)) {
-          return previousUrl;
+        if (!currentKeyRef.current) {
+          const nextKey = merged[0]?.key || "";
+          if (nextKey) {
+            currentKeyRef.current = nextKey;
+            setCurrentKey(nextKey);
+            waitingForNextRef.current = false;
+            setWaitingForNext(false);
+          }
+        } else if (waitingForNextRef.current) {
+          const currentIndex = merged.findIndex(
+            (item) => item?.key === currentKeyRef.current,
+          );
+          if (currentIndex >= 0 && currentIndex < merged.length - 1) {
+            const nextKey = merged[currentIndex + 1]?.key || "";
+            if (nextKey) {
+              currentKeyRef.current = nextKey;
+              setCurrentKey(nextKey);
+              waitingForNextRef.current = false;
+              setWaitingForNext(false);
+            }
+          }
         }
-        return playable[0]?.url || "";
+
+        return merged;
       });
+
       setLoading(false);
 
-      if (!playable.length) {
+      if (!playable.length && !currentKeyRef.current) {
         setError(
           source?.disabledReason || "Server 2 dang chuan bi du lieu video.",
+        );
+      } else if (waitingForNextRef.current) {
+        setError(
+          manifestStatus === "final"
+            ? "Dang chuyen sang ban playback hoan chinh."
+            : "Dang doi segment tiep theo tu PickleTour CDN.",
         );
       } else {
         setError("");
@@ -88,9 +292,15 @@ export default function DelayedManifestPlayer({
     };
 
     setItems([]);
-    setCurrentUrl("");
+    setCurrentKey("");
     setLoading(true);
     setError("");
+    setWaitingForNext(false);
+    setCurrentPlaybackUrl("");
+    setPrefetchedUrls({});
+    currentKeyRef.current = "";
+    waitingForNextRef.current = false;
+    clearPrefetchResources();
     fetchManifest();
 
     return () => {
@@ -98,16 +308,29 @@ export default function DelayedManifestPlayer({
       if (timerId) {
         window.clearTimeout(timerId);
       }
+      clearPrefetchResources();
     };
-  }, [source?.embedUrl, source?.disabledReason, source?.meta?.refreshSeconds]);
+  }, [
+    clearPrefetchResources,
+    source?.embedUrl,
+    source?.disabledReason,
+    source?.meta?.refreshSeconds,
+  ]);
 
   const handleEnded = useCallback(() => {
-    setCurrentUrl((previousUrl) => {
-      const currentIndex = items.findIndex((item) => item.url === previousUrl);
+    setCurrentKey((previousKey) => {
+      const currentIndex = items.findIndex((item) => item.key === previousKey);
       if (currentIndex >= 0 && currentIndex < items.length - 1) {
-        return items[currentIndex + 1].url;
+        const nextKey = items[currentIndex + 1]?.key || previousKey;
+        currentKeyRef.current = nextKey;
+        waitingForNextRef.current = false;
+        setWaitingForNext(false);
+        return nextKey;
       }
-      return previousUrl;
+
+      waitingForNextRef.current = true;
+      setWaitingForNext(true);
+      return previousKey;
     });
   }, [items]);
 
@@ -122,7 +345,7 @@ export default function DelayedManifestPlayer({
   return (
     <>
       <NativeVideoPlayer
-        src={currentUrl}
+        src={currentPlaybackUrl}
         kind="file"
         fallbackUrl={source?.openUrl || source?.url || currentUrl}
         initialRatio={resolveAspectRatio(source?.aspect)}
@@ -132,6 +355,7 @@ export default function DelayedManifestPlayer({
         autoplay={autoplay}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
+        liveMode
       />
       {error ? (
         <Alert severity="info" sx={{ mt: 1 }}>
