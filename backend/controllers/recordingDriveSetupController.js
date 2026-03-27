@@ -1,12 +1,14 @@
 import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
 import {
+  getRecordingDriveSettings,
   getRecordingDriveRuntimeConfig,
   getRecordingDriveStatus,
 } from "../services/driveRecordings.service.js";
 import SystemSettings from "../models/systemSettingsModel.js";
 
-const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+const DRIVE_FILE_SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+const LEGACY_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"];
 
 function asTrimmed(value) {
   return String(value || "").trim();
@@ -15,6 +17,13 @@ function asTrimmed(value) {
 function derivePickerAppId(clientId) {
   const match = asTrimmed(clientId).match(/^(\d+)-/);
   return match?.[1] || "";
+}
+
+async function getRecordingDriveOAuthScopes() {
+  const settings = await getRecordingDriveSettings();
+  return settings.useModernPickerFlow === false
+    ? LEGACY_DRIVE_SCOPES
+    : DRIVE_FILE_SCOPES;
 }
 
 
@@ -38,11 +47,12 @@ export async function recordingDriveOAuthInit(req, res) {
   try {
     const oauth2 = await makeRecordingDriveOAuth(req);
     const who = encodeURIComponent(req.user?.email || "admin");
+    const scopes = await getRecordingDriveOAuthScopes();
     const authUrl = oauth2.generateAuthUrl({
       access_type: "offline",
       prompt: "consent",
       include_granted_scopes: true,
-      scope: DRIVE_SCOPES,
+      scope: scopes,
       state: who,
     });
     res.json({ authUrl });
@@ -182,6 +192,11 @@ export async function recordingDrivePickerSession(req, res) {
     if (!runtimeConfig.refreshToken) {
       return res.status(400).json({
         message: "My Drive OAuth chua ket noi.",
+      });
+    }
+    if (runtimeConfig.useModernPickerFlow === false) {
+      return res.status(400).json({
+        message: "Dang dung flow OAuth cu. Bat flow moi de dung Google Picker.",
       });
     }
 

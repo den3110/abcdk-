@@ -7,6 +7,7 @@ import { decryptToken } from "./secret.service.js";
 const RECORDING_DRIVE_DEFAULTS = {
   enabled: true,
   mode: "serviceAccount",
+  useModernPickerFlow: true,
   folderId: "",
   sharedDriveId: "",
 };
@@ -138,6 +139,10 @@ export async function getRecordingDriveSettings() {
         ? raw.enabled
         : RECORDING_DRIVE_DEFAULTS.enabled,
     mode: normalizeDriveMode(raw.mode || RECORDING_DRIVE_DEFAULTS.mode),
+    useModernPickerFlow:
+      typeof raw.useModernPickerFlow === "boolean"
+        ? raw.useModernPickerFlow
+        : RECORDING_DRIVE_DEFAULTS.useModernPickerFlow,
     folderId: asTrimmed(raw.folderId),
     sharedDriveId: asTrimmed(raw.sharedDriveId),
   };
@@ -161,6 +166,7 @@ export async function getRecordingDriveRuntimeConfig() {
     return {
       enabled: settings.enabled,
       mode,
+      useModernPickerFlow: settings.useModernPickerFlow !== false,
       folderId: asTrimmed(settings.folderId),
       sharedDriveId: "",
       clientId: asTrimmed(oauthUser.clientId),
@@ -177,6 +183,7 @@ export async function getRecordingDriveRuntimeConfig() {
   return {
     enabled: settings.enabled,
     mode,
+    useModernPickerFlow: settings.useModernPickerFlow !== false,
     folderId: pickResolvedFolderId(settings, serviceAccount),
     sharedDriveId: pickResolvedSharedDriveId(settings, serviceAccount),
     serviceAccountEmail: asTrimmed(serviceAccount.serviceAccountEmail),
@@ -273,7 +280,9 @@ function normalizeDriveError(error, runtimeConfig) {
     /not granted the app .*access to the file/i.test(message)
   ) {
     return new Error(
-      "Folder hien tai chua duoc cap quyen cho app Recording Drive. Hay chon lai dung folder bang Google Picker."
+      runtimeConfig?.useModernPickerFlow === false
+        ? "Folder hien tai khong truy cap duoc bang flow OAuth cu. Hay ket noi lai hoac chuyen sang flow moi."
+        : "Folder hien tai chua duoc cap quyen cho app Recording Drive. Hay chon lai dung folder bang Google Picker."
     );
   }
   if (/invalid_grant/i.test(message)) {
@@ -329,6 +338,7 @@ export async function getRecordingDriveStatus() {
   const base = {
     enabled: runtimeConfig.enabled,
     mode: runtimeConfig.mode,
+    useModernPickerFlow: runtimeConfig.useModernPickerFlow !== false,
     folderId: runtimeConfig.folderId || "",
     sharedDriveId: runtimeConfig.sharedDriveId || "",
     connected: false,
@@ -376,7 +386,9 @@ export async function getRecordingDriveStatus() {
         ready: false,
         accountEmail: runtimeConfig.connectedEmail || "",
         message:
-          "My Drive OAuth da ket noi. Hay chon dung folder bang Google Picker.",
+          runtimeConfig.useModernPickerFlow === false
+            ? "My Drive OAuth da ket noi. Hay nhap Folder ID roi luu."
+            : "My Drive OAuth da ket noi. Hay chon dung folder bang Google Picker.",
       };
     }
 

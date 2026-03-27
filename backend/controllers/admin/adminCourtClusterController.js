@@ -177,6 +177,11 @@ export const getTournamentCourtClusterRuntime = asyncHandler(
     ensureValidObjectId(req.params.tournamentId, "tournamentId");
     ensureValidObjectId(req.params.clusterId, "clusterId");
 
+    await ensureTournamentAllowsCluster(
+      req.params.tournamentId,
+      req.params.clusterId
+    );
+
     const payload = await buildCourtClusterRuntime(req.params.clusterId, {
       tournamentId: req.params.tournamentId,
     });

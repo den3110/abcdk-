@@ -30,10 +30,6 @@ const TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS || 2000)
 );
-const TOURNAMENT_DETAIL_CACHE_TTL_MS = Math.max(
-  3000,
-  Number(process.env.TOURNAMENT_DETAIL_CACHE_TTL_MS || 10000)
-);
 const TOURNAMENT_BRACKETS_CACHE_TTL_MS = Math.max(
   3000,
   Number(process.env.TOURNAMENT_BRACKETS_CACHE_TTL_MS || 10000)
@@ -52,15 +48,6 @@ const tournamentScheduleMatchesCache = createShortTtlCache(
   {
     id: CACHE_GROUP_IDS.tournamentScheduleMatches,
     label: "Tournament schedule matches",
-    category: "tournament",
-    scope: "public",
-  }
-);
-const tournamentDetailCache = createShortTtlCache(
-  TOURNAMENT_DETAIL_CACHE_TTL_MS,
-  {
-    id: CACHE_GROUP_IDS.tournamentDetail,
-    label: "Tournament public detail",
     category: "tournament",
     scope: "public",
   }
@@ -99,8 +86,6 @@ const buildBracketMatchFastCacheKey = (tournamentId) =>
   `bracket:${String(tournamentId || "").trim()}`;
 const buildScheduleMatchFastCacheKey = (tournamentId) =>
   `schedule:${String(tournamentId || "").trim()}`;
-const buildTournamentDetailCacheKey = (tournamentId) =>
-  `detail:${String(tournamentId || "").trim()}`;
 const buildTournamentBracketsCacheKey = (tournamentId) =>
   `brackets:${String(tournamentId || "").trim()}`;
 
@@ -895,134 +880,124 @@ const getTournamentById = asyncHandler(async (req, res) => {
     throw new Error("Invalid ID");
   }
 
-  const cacheKey = buildTournamentDetailCacheKey(id);
-  let cached = tournamentDetailCache.get(cacheKey);
-
-  if (!cached) {
-    const tour = await Tournament.findById(id)
-      .populate("allowedCourtClusterIds", "name slug venueName isActive order")
-      .populate("teamConfig.factions.captainUser", "name nickname avatar phone")
-      .lean();
-    if (!tour) {
-      res.status(404);
-      throw new Error("Tournament not found");
-    }
-
-    const [managerRows, registrationsCount, checkedInCount, paidCount] =
-      await Promise.all([
-        TournamentManager.find({ tournament: id }).select("user role").lean(),
-        Registration.countDocuments({ tournament: id }),
-        Registration.countDocuments({
-          tournament: id,
-          checkinAt: { $ne: null },
-        }),
-        Registration.countDocuments({
-          tournament: id,
-          "payment.status": "Paid",
-        }),
-      ]);
-
-    const managers = managerRows.map((r) => ({ user: r.user, role: r.role }));
-    const now = new Date();
-    const startInstant = tour.startAt || tour.startDate;
-    const endInstant = tour.endAt || tour.endDate;
-
-    let status = "upcoming";
-    if (tour.finishedAt) status = "finished";
-    else if (startInstant && now < new Date(startInstant)) status = "upcoming";
-    else if (endInstant && now > new Date(endInstant)) status = "finished";
-    else status = "ongoing";
-
-    const isFreeRegistration = tour.isFreeRegistration === true;
-    const bankShortName = isFreeRegistration
-      ? ""
-      : tour.bankShortName || tour.qrBank || tour.bankCode || tour.bank || "";
-    const bankAccountNumber = isFreeRegistration
-      ? ""
-      : tour.bankAccountNumber || tour.qrAccount || tour.bankAccount || "";
-    const bankAccountName = isFreeRegistration
-      ? ""
-      : tour.bankAccountName ||
-        tour.accountName ||
-        tour.paymentAccountName ||
-        tour.beneficiaryName ||
-        "";
-    const registrationFee = (() => {
-      if (isFreeRegistration) return 0;
-      const raw = tour.registrationFee ?? tour.fee ?? tour.entryFee ?? 0;
-      const n = Number(raw);
-      return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
-    })();
-
-    const normalizedTour = await normalizeTournamentPublicUrls(req, tour);
-
-    cached = {
-      ...normalizedTour,
-      allowedCourtClusters: Array.isArray(normalizedTour.allowedCourtClusterIds)
-        ? normalizedTour.allowedCourtClusterIds.map((cluster) => ({
-            _id: String(cluster?._id || cluster || ""),
-            name: String(cluster?.name || "").trim(),
-            slug: String(cluster?.slug || "").trim(),
-            venueName: String(cluster?.venueName || "").trim(),
-            isActive: cluster?.isActive !== false,
-            order: Number(cluster?.order || 0),
-          }))
-        : [],
-      tournamentMode: normalizedTour.tournamentMode || "standard",
-      teamConfig: {
-        factions: Array.isArray(normalizedTour?.teamConfig?.factions)
-          ? normalizedTour.teamConfig.factions.map((faction, index) => ({
-              _id: String(faction?._id || ""),
-              name: String(faction?.name || "").trim(),
-              order: Number(faction?.order ?? index),
-              isActive: faction?.isActive !== false,
-              captainUser: faction?.captainUser || null,
-            }))
-          : [],
-      },
-      status,
-      managers,
-      _managerUserIds: managerRows.map((r) => String(r.user)),
-      stats: {
-        registrationsCount,
-        checkedInCount,
-        paidCount,
-      },
-      bankShortName,
-      bankAccountNumber,
-      bankAccountName,
-      registrationFee,
-      isFreeRegistration,
-      qrBank: bankShortName,
-      qrAccount: bankAccountNumber,
-      fee: registrationFee,
-      entryFee: registrationFee,
-    };
-    tournamentDetailCache.set(cacheKey, cached);
-    res.setHeader(
-      "Cache-Control",
-      "public, max-age=10, stale-while-revalidate=20"
-    );
-    res.setHeader("X-PKT-Cache", "MISS");
-  } else {
-    res.setHeader(
-      "Cache-Control",
-      "public, max-age=10, stale-while-revalidate=20"
-    );
-    res.setHeader("X-PKT-Cache", "HIT");
+  const tour = await Tournament.findById(id)
+    .populate("allowedCourtClusterIds", "name slug venueName isActive order")
+    .populate("teamConfig.factions.captainUser", "name nickname avatar phone")
+    .lean();
+  if (!tour) {
+    res.status(404);
+    throw new Error("Tournament not found");
   }
 
+  const [managerRows, registrationsCount, checkedInCount, paidCount] =
+    await Promise.all([
+      TournamentManager.find({ tournament: id }).select("user role").lean(),
+      Registration.countDocuments({ tournament: id }),
+      Registration.countDocuments({
+        tournament: id,
+        checkinAt: { $ne: null },
+      }),
+      Registration.countDocuments({
+        tournament: id,
+        "payment.status": "Paid",
+      }),
+    ]);
+
+  const managers = managerRows.map((r) => ({ user: r.user, role: r.role }));
+  const now = new Date();
+  const startInstant = tour.startAt || tour.startDate;
+  const endInstant = tour.endAt || tour.endDate;
+
+  let status = "upcoming";
+  if (tour.finishedAt) status = "finished";
+  else if (startInstant && now < new Date(startInstant)) status = "upcoming";
+  else if (endInstant && now > new Date(endInstant)) status = "finished";
+  else status = "ongoing";
+
+  const isFreeRegistration = tour.isFreeRegistration === true;
+  const bankShortName = isFreeRegistration
+    ? ""
+    : tour.bankShortName || tour.qrBank || tour.bankCode || tour.bank || "";
+  const bankAccountNumber = isFreeRegistration
+    ? ""
+    : tour.bankAccountNumber || tour.qrAccount || tour.bankAccount || "";
+  const bankAccountName = isFreeRegistration
+    ? ""
+    : tour.bankAccountName ||
+      tour.accountName ||
+      tour.paymentAccountName ||
+      tour.beneficiaryName ||
+      "";
+  const registrationFee = (() => {
+    if (isFreeRegistration) return 0;
+    const raw = tour.registrationFee ?? tour.fee ?? tour.entryFee ?? 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
+  })();
+
+  const normalizedTour = await normalizeTournamentPublicUrls(req, tour);
+  const payload = {
+    ...normalizedTour,
+    allowedCourtClusters: Array.isArray(normalizedTour.allowedCourtClusterIds)
+      ? normalizedTour.allowedCourtClusterIds.map((cluster) => ({
+          _id: String(cluster?._id || cluster || ""),
+          name: String(cluster?.name || "").trim(),
+          slug: String(cluster?.slug || "").trim(),
+          venueName: String(cluster?.venueName || "").trim(),
+          isActive: cluster?.isActive !== false,
+          order: Number(cluster?.order || 0),
+        }))
+      : [],
+    tournamentMode: normalizedTour.tournamentMode || "standard",
+    teamConfig: {
+      factions: Array.isArray(normalizedTour?.teamConfig?.factions)
+        ? normalizedTour.teamConfig.factions.map((faction, index) => ({
+            _id: String(faction?._id || ""),
+            name: String(faction?.name || "").trim(),
+            order: Number(faction?.order ?? index),
+            isActive: faction?.isActive !== false,
+            captainUser: faction?.captainUser || null,
+          }))
+        : [],
+    },
+    status,
+    managers,
+    _managerUserIds: managerRows.map((r) => String(r.user)),
+    stats: {
+      registrationsCount,
+      checkedInCount,
+      paidCount,
+    },
+    bankShortName,
+    bankAccountNumber,
+    bankAccountName,
+    registrationFee,
+    isFreeRegistration,
+    qrBank: bankShortName,
+    qrAccount: bankAccountNumber,
+    fee: registrationFee,
+    entryFee: registrationFee,
+  };
+
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-PKT-Cache", "BYPASS");
+
   const meId = req.user?._id ? String(req.user._id) : null;
-  const amOwner = !!(meId && String(cached.createdBy) === meId);
+  const amOwner = !!(meId && String(payload.createdBy) === meId);
   const amManager =
     amOwner ||
     (!!meId &&
-      Array.isArray(cached._managerUserIds) &&
-      cached._managerUserIds.includes(meId));
+      Array.isArray(payload._managerUserIds) &&
+      payload._managerUserIds.includes(meId));
 
-  const { _managerUserIds, ...payload } = cached;
+  const { _managerUserIds, ...publicPayload } = payload;
   res.json({
-    ...payload,
+    ...publicPayload,
     amOwner,
     amManager,
   });

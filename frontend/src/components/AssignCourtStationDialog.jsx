@@ -480,11 +480,11 @@ export default function AssignCourtStationDialog({
 
           {!allowedClusterOptions.length && !isFetchingClusterOptions ? (
             <Alert severity="warning">
-              Giai nay chua co cum san duoc phep dung trong cau hinh giai.
+              Giải này chưa có cụm sân được phép dùng trong cấu hình giải.
             </Alert>
           ) : !normalizedTournamentId ? (
             <Alert severity="warning">
-              Thieu tournamentId, chua the gan san theo cum.
+              Thiếu tournamentId, chưa thể gán sân theo cụm.
             </Alert>
           ) : (
             <>

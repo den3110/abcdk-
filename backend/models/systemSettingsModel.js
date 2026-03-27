@@ -59,6 +59,7 @@ const SystemSettingsSchema = new mongoose.Schema(
         enum: ["serviceAccount", "oauthUser"],
         default: "serviceAccount",
       },
+      useModernPickerFlow: { type: Boolean, default: true },
       folderId: { type: String, default: "", trim: true },
       sharedDriveId: { type: String, default: "", trim: true },
     },

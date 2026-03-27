@@ -39,7 +39,14 @@ import {
 import {
   clearTournamentPresentationCaches,
 } from "../../services/cacheInvalidation.service.js";
-import { listCourtClusters } from "../../services/courtCluster.service.js";
+import {
+  cleanupTournamentAssignmentsForRemovedClusters,
+  listCourtClusters,
+} from "../../services/courtCluster.service.js";
+import {
+  publishCourtClusterRuntimeUpdate,
+  publishCourtStationRuntimeUpdate,
+} from "../../services/courtStationRuntimeEvents.service.js";
 import {
   normalizeTeamConfig,
   normalizeTournamentMode,
@@ -1523,6 +1530,21 @@ export const updateTournamentAllowedCourtClusters = expressAsyncHandler(
       req.body?.allowedCourtClusterIds
     );
 
+    const currentTournament = await Tournament.findById(tournamentId)
+      .select("_id allowedCourtClusterIds")
+      .lean();
+    if (!currentTournament) {
+      res.status(404);
+      throw new Error("Tournament not found");
+    }
+
+    const currentIds = normalizeAllowedCourtClusterIds(
+      currentTournament.allowedCourtClusterIds
+    );
+    const removedClusterIds = currentIds.filter(
+      (clusterId) => !nextIds.includes(clusterId)
+    );
+
     const existingClusters = await CourtCluster.find({ _id: { $in: nextIds } })
       .select("_id name slug venueName isActive order")
       .lean();
@@ -1554,12 +1576,35 @@ export const updateTournamentAllowedCourtClusters = expressAsyncHandler(
       throw new Error("Tournament not found");
     }
 
+    const cleanupResult = await cleanupTournamentAssignmentsForRemovedClusters(
+      tournamentId,
+      removedClusterIds
+    );
+
     await clearTournamentPresentationCaches();
+
+    await Promise.allSettled([
+      ...cleanupResult.touchedClusterIds.map((clusterId) =>
+        publishCourtClusterRuntimeUpdate({
+          clusterId,
+          stationIds: cleanupResult.touchedStationIds,
+          reason: "tournament_cluster_unlinked_cleanup",
+        })
+      ),
+      ...cleanupResult.touchedStationIds.map((stationId) =>
+        publishCourtStationRuntimeUpdate({
+          stationId,
+          reason: "tournament_cluster_unlinked_cleanup",
+        })
+      ),
+    ]);
 
     res.json({
       ok: true,
       tournamentId: String(tournament._id),
       allowedCourtClusterIds: nextIds,
+      removedClusterIds,
+      cleanup: cleanupResult,
       allowedCourtClusters:
         orderedClusters.length > 0
           ? mapAllowedCourtClusters(orderedClusters)

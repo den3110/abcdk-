@@ -1003,6 +1003,133 @@ async function maybeAssignNextQueuedMatch(stationId) {
   }
 }
 
+export async function cleanupTournamentAssignmentsForRemovedClusters(
+  tournamentId,
+  clusterIds = []
+) {
+  const normalizedTournamentId = toIdString(tournamentId);
+  const normalizedClusterIds = Array.from(
+    new Set(clusterIds.map((value) => toIdString(value)).filter(Boolean))
+  );
+
+  if (!normalizedTournamentId || !normalizedClusterIds.length) {
+    return {
+      touchedClusterIds: [],
+      touchedStationIds: [],
+      clearedCurrentMatchIds: [],
+      removedQueueMatchIds: [],
+    };
+  }
+
+  const stations = await CourtStation.find({
+    clusterId: { $in: normalizedClusterIds },
+  })
+    .select(
+      "_id clusterId assignmentMode assignmentQueue currentMatch currentTournament status"
+    )
+    .lean();
+
+  if (!stations.length) {
+    return {
+      touchedClusterIds: [],
+      touchedStationIds: [],
+      clearedCurrentMatchIds: [],
+      removedQueueMatchIds: [],
+    };
+  }
+
+  const relatedMatchIds = Array.from(
+    new Set(
+      stations
+        .flatMap((station) => [
+          toIdString(station?.currentMatch),
+          ...extractQueueMatchIds(station),
+        ])
+        .filter(Boolean)
+    )
+  );
+
+  const tournamentMatches = relatedMatchIds.length
+    ? await Match.find({
+        _id: { $in: relatedMatchIds },
+        tournament: normalizedTournamentId,
+      })
+        .select("_id")
+        .lean()
+    : [];
+
+  const tournamentMatchIdSet = new Set(
+    tournamentMatches.map((match) => toIdString(match?._id)).filter(Boolean)
+  );
+
+  const touchedClusterIds = new Set();
+  const touchedStationIds = new Set();
+  const clearedCurrentMatchIds = new Set();
+  const removedQueueMatchIds = new Set();
+
+  for (const station of stations) {
+    const stationId = toIdString(station?._id);
+    const clusterId = toIdString(station?.clusterId);
+    const currentMatchId = toIdString(station?.currentMatch);
+    const currentBelongsToTournament =
+      (currentMatchId && tournamentMatchIdSet.has(currentMatchId)) ||
+      toIdString(station?.currentTournament) === normalizedTournamentId;
+
+    const existingQueueItems = Array.isArray(station?.assignmentQueue?.items)
+      ? station.assignmentQueue.items
+      : [];
+    const nextQueueItems = normalizeAssignmentQueueItems(
+      existingQueueItems.filter((item) => {
+        const matchId = toIdString(item?.matchId);
+        const shouldKeep = !matchId || !tournamentMatchIdSet.has(matchId);
+        if (!shouldKeep && matchId) {
+          removedQueueMatchIds.add(matchId);
+        }
+        return shouldKeep;
+      })
+    );
+
+    const queueChanged = nextQueueItems.length !== existingQueueItems.length;
+    if (!currentBelongsToTournament && !queueChanged) {
+      continue;
+    }
+
+    const nextSet = {
+      assignmentQueue: { items: nextQueueItems },
+    };
+
+    if (currentBelongsToTournament) {
+      nextSet.currentMatch = null;
+      nextSet.currentTournament = null;
+      nextSet.status = "idle";
+      if (currentMatchId) clearedCurrentMatchIds.add(currentMatchId);
+    }
+
+    await CourtStation.updateOne({ _id: stationId }, { $set: nextSet });
+
+    if (currentBelongsToTournament && currentMatchId) {
+      await clearMatchStationFields(currentMatchId, stationId);
+    }
+
+    if (
+      normalizeAssignmentMode(station?.assignmentMode, "manual") === "queue" &&
+      currentBelongsToTournament
+    ) {
+      await maybeAssignNextQueuedMatch(stationId);
+    }
+
+    touchedClusterIds.add(clusterId);
+    touchedStationIds.add(stationId);
+  }
+
+  return {
+    touchedClusterIds: Array.from(touchedClusterIds),
+    touchedStationIds: Array.from(touchedStationIds),
+    clearedCurrentMatchIds: Array.from(clearedCurrentMatchIds),
+    removedQueueMatchIds: Array.from(removedQueueMatchIds),
+  };
+}
+
 async function listManagedTournamentIds(userId) {
   const managerRows = await TournamentManager.find({ user: userId })
     .select("tournament")

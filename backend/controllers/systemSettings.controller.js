@@ -40,6 +40,7 @@ const DEFAULTS = {
   recordingDrive: {
     enabled: true,
     mode: "serviceAccount",
+    useModernPickerFlow: true,
     folderId: "",
     sharedDriveId: "",
   },
