@@ -361,22 +361,40 @@ const buildRefReportHTML = ({
 
 const isMongoId = (s) => typeof s === "string" && /^[a-f0-9]{24}$/i.test(s);
 
-const courtLabel = (m) => {
-  const c = m?.courtAssigned || m?.assignedCourt || m?.court || null;
-  const directName =
-    m?.courtName || m?.courtLabel || m?.courtCode || m?.courtTitle || null;
-  if (directName && String(directName).trim()) return String(directName).trim();
-  if (!c) return "—";
-  if (typeof c === "string") {
-    if (!c.trim() || isMongoId(c)) return "—";
-    return c.trim();
+const namedCourtText = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return !text || isMongoId(text) ? "" : text;
   }
-  if (c.name) return c.name;
-  if (c.label) return c.label;
-  if (c.code) return c.code;
-  if (Number.isFinite(c.number)) return `Sân ${c.number}`;
-  if (Number.isFinite(c.no)) return `Sân ${c.no}`;
-  return "—";
+  if (typeof value === "object") {
+    return (
+      namedCourtText(value.name) ||
+      namedCourtText(value.label) ||
+      namedCourtText(value.code) ||
+      namedCourtText(value.title) ||
+      namedCourtText(value.displayName) ||
+      (Number.isFinite(value.number) ? `Sân ${value.number}` : "") ||
+      (Number.isFinite(value.no) ? `Sân ${value.no}` : "")
+    );
+  }
+  return "";
+};
+
+const courtLabel = (m) => {
+  return (
+    namedCourtText(m?.courtStationLabel) ||
+    namedCourtText(m?.courtStationName) ||
+    namedCourtText(m?.courtLabel) ||
+    namedCourtText(m?.courtName) ||
+    namedCourtText(m?.courtStation) ||
+    namedCourtText(m?.courtAssigned) ||
+    namedCourtText(m?.assignedCourt) ||
+    namedCourtText(m?.court) ||
+    namedCourtText(m?.courtCode) ||
+    namedCourtText(m?.courtTitle) ||
+    "—"
+  );
 };
 
 const matchCode = (m) => {

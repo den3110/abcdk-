@@ -1801,12 +1801,7 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(
     }
 
     const pendingSegments = getPendingRecordingSegments(recording);
-    if (pendingSegments.length) {
-      return res.status(409).json({
-        message: "Cannot move to exporting until all segments are uploaded",
-        pendingSegments: pendingSegments.length,
-      });
-    }
+    const skippedPendingSegments = pendingSegments.length;
 
     await queueLiveRecordingExport(recording, {
       publishReason:
@@ -1815,12 +1810,16 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(
           : "recording_export_forced_from_uploading",
       forceFromUploading: recording.status === "uploading",
       replacePendingJob: recording.status === "pending_export_window",
+      forceReason: skippedPendingSegments
+        ? "manual_force_export_with_pending_segments"
+        : "manual_force_export",
       ignoreWindow: true,
     });
 
     return res.json({
       ok: true,
       queued: true,
+      skippedPendingSegments,
       recording: serializeRecording(recording),
     });
   }

@@ -1039,12 +1039,13 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
   }
 
   // Lấy toàn bộ ứng viên trên cùng sân, chưa finished
+  // Query both old `court` and new `courtStation` fields for cluster migration
   const candidates = await Match.find({
-    court: cid,
+    $or: [{ court: cid }, { courtStation: cid }],
     status: { $ne: FINISHED },
   })
     .select(
-      "_id status queueOrder assignedAt scheduledAt startedAt round order createdAt court"
+      "_id status queueOrder assignedAt scheduledAt startedAt round order createdAt court courtStation"
     )
     .lean();
 

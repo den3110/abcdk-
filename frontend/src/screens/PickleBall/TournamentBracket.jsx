@@ -125,6 +125,28 @@ const toText = (v) => {
 
 // ✅ Lấy tên từ entity có thể là id/string/object
 const pickName = (maybe) => toText(maybe);
+const isObjectIdLike = (value) =>
+  typeof value === "string" && /^[a-f0-9]{24}$/i.test(value.trim());
+
+const asNamedText = (value) => {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return !text || isObjectIdLike(text) ? "" : text;
+  }
+  if (typeof value === "object") {
+    return (
+      asNamedText(value.name) ||
+      asNamedText(value.label) ||
+      asNamedText(value.title) ||
+      asNamedText(value.code) ||
+      asNamedText(value.displayName) ||
+      (Number.isFinite(value.number) ? `Sân ${value.number}` : "") ||
+      (Number.isFinite(value.no) ? `Sân ${value.no}` : "")
+    );
+  }
+  return "";
+};
 
 function computeMetaBar(brackets, tour) {
   const regSet = new Set();
@@ -322,7 +344,19 @@ const kickoffTime = (m) => {
   return m?.scheduledAt || m?.assignedAt || null;
 };
 
-const courtName = (mm) => pickName(mm?.court) || pickName(mm?.venue) || "";
+const courtName = (mm) =>
+  asNamedText(mm?.courtStationLabel) ||
+  asNamedText(mm?.courtStationName) ||
+  asNamedText(mm?.courtLabel) ||
+  asNamedText(mm?.courtName) ||
+  asNamedText(mm?.courtStation) ||
+  asNamedText(mm?.courtAssigned) ||
+  asNamedText(mm?.assignedCourt) ||
+  asNamedText(mm?.court) ||
+  asNamedText(mm?.courtCode) ||
+  asNamedText(mm?.courtTitle) ||
+  asNamedText(mm?.venue) ||
+  "";
 
 // nhận dạng có stream
 const hasVideo = (m) =>
@@ -343,7 +377,8 @@ const statusColors = (m) => {
   if (st === "live") return { bg: "#ef6c00", fg: "#fff", key: "live" };
   // chuẩn bị: đã có cặp & có assignedAt/court/scheduledAt gần
   const ready =
-    (m?.pairA || m?.pairB) && (m?.assignedAt || m?.court || m?.scheduledAt);
+    (m?.pairA || m?.pairB) &&
+    (m?.assignedAt || courtName(m) || m?.scheduledAt);
   if (ready) return { bg: "#f9a825", fg: "#111", key: "ready" }; // vàng
   return { bg: "#9e9e9e", fg: "#fff", key: "planned" }; // xám
 };
@@ -355,7 +390,7 @@ const matchStateKey = (m) => {
   if (st === "live") return "live";
   if (st === "finished") return "done";
   // "chuẩn bị" = đã gán sân nhưng chưa thi đấu
-  if (m.court) return "ready";
+  if (courtName(m)) return "ready";
   return "planned";
 };
 
@@ -686,7 +721,6 @@ const CustomSeed = ({
       return mm?.startedAt || mm?.scheduledAt || mm?.assignedAt || null;
     return mm?.scheduledAt || mm?.assignedAt || null;
   };
-  const courtName = (mm) => pickName(mm?.court) || pickName(mm?.venue) || "";
   const hasVideo = (mm) => {
     return !!(
       mm?.video ||
@@ -702,7 +736,7 @@ const CustomSeed = ({
     const st = String(mm?.status || "").toLowerCase();
     if (st === "finished") return { bg: "#2e7d32", fg: "#fff", key: "done" };
     if (st === "live") return { bg: "#ef6c00", fg: "#fff", key: "live" };
-    const ready = (mm?.pairA || mm?.pairB) && mm?.court;
+    const ready = (mm?.pairA || mm?.pairB) && courtName(mm);
     if (ready) return { bg: "#f9a825", fg: "#111", key: "ready" };
     return { bg: "#9e9e9e", fg: "#fff", key: "planned" };
   };

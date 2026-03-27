@@ -18,6 +18,7 @@ import {
 } from "./liveRecordingMonitorEvents.service.js";
 import { getLiveRecordingExportQueueSnapshot } from "./liveRecordingV2Queue.service.js";
 import { getLiveRecordingWorkerHealth } from "./liveRecordingWorkerHealth.service.js";
+import { getLiveRecordingExportWindowConfig } from "./liveRecordingExportWindow.service.js";
 import {
   getUploadedRecordingSegments,
   queueLiveRecordingExport,
@@ -133,6 +134,27 @@ function getExportStaleThresholdMs() {
     return Math.floor(configured);
   }
   return 5 * 60 * 1000;
+}
+
+function formatMonitorDateTime(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const timezone = getLiveRecordingExportWindowConfig().timezone || "Asia/Ho_Chi_Minh";
+  const parts = new Intl.DateTimeFormat("vi-VN", {
+    timeZone: timezone,
+    hour12: false,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.day || "??"}/${map.month || "??"} ${map.hour || "??"}:${map.minute || "??"}:${
+    map.second || "??"
+  }`;
 }
 
 async function getAutoExportNoSegmentMinutes() {
@@ -254,7 +276,6 @@ function summarizeSegments(segments = [], recording = null) {
   const detailedSegments = sortedSegments
     .map(buildSegmentProgress)
     .filter(Boolean);
-
   return {
     totalSegments: sortedSegments.length,
     uploadedSegments: uploadedSegments.length,
@@ -501,16 +522,44 @@ function buildExportPipelineInfo(recording, context = {}) {
   const updatedAtMs = recording?.updatedAt
     ? new Date(recording.updatedAt).getTime()
     : 0;
+  const nowMs = Date.now();
   const recentlyUpdated =
     Number.isFinite(updatedAtMs) && updatedAtMs > 0
-      ? Date.now() - updatedAtMs < 60 * 1000
+      ? nowMs - updatedAtMs < 60 * 1000
       : false;
+  const scheduledExportAtMs =
+    Number(
+      recording?.scheduledExportAt
+        ? new Date(recording.scheduledExportAt).getTime()
+        : 0
+    ) ||
+    Number(
+      exportPipeline?.scheduledExportAt
+        ? new Date(exportPipeline.scheduledExportAt).getTime()
+        : 0
+    ) ||
+    Number(delayed?.scheduledAt) ||
+    0;
+  const pendingWindowPastDue =
+    Number.isFinite(scheduledExportAtMs) &&
+    scheduledExportAtMs > 0 &&
+    nowMs >= scheduledExportAtMs;
+  const pendingWindowOverdue =
+    pendingWindowPastDue &&
+    nowMs - scheduledExportAtMs >= getExportStaleThresholdMs();
 
   let stage = exportPipeline.stage || null;
   if (recording?.status === "pending_export_window") {
-    if (delayed && !stage) stage = "delayed_until_window";
-    else if (waiting && !stage) stage = "queued";
-    else if (!stage) {
+    if (inWorker) stage = "downloading";
+    else if (active) stage = "downloading";
+    else if (waiting) stage = "queued";
+    else if (pendingWindowOverdue) {
+      stage = workerHealth?.alive ? "stale_no_job" : "worker_offline";
+    } else if (pendingWindowPastDue) {
+      stage = "awaiting_queue_sync";
+    } else if (delayed) {
+      stage = "delayed_until_window";
+    } else {
       stage = recentlyUpdated ? "awaiting_queue_sync" : "stale_no_job";
     }
   } else if (recording?.status === "exporting") {
@@ -542,24 +591,10 @@ function buildExportPipelineInfo(recording, context = {}) {
     worker_offline: "Worker đang offline",
   };
 
-  const scheduledExportAtMs =
-    Number(
-      recording?.scheduledExportAt
-        ? new Date(recording.scheduledExportAt).getTime()
-        : 0
-    ) ||
-    Number(
-      exportPipeline?.scheduledExportAt
-        ? new Date(exportPipeline.scheduledExportAt).getTime()
-        : 0
-    ) ||
-    Number(delayed?.scheduledAt) ||
-    0;
-
   let detail = "";
   if (stage === "delayed_until_window") {
     detail = scheduledExportAtMs
-      ? `Du kien export luc ${new Date(scheduledExportAtMs).toISOString()}`
+      ? `Du kien export luc ${formatMonitorDateTime(scheduledExportAtMs)}`
       : "Dang doi toi khung gio export dem.";
   } else if (stage === "queued" && waiting?.position) {
     detail = `Queue #${waiting.position}`;
@@ -580,6 +615,26 @@ function buildExportPipelineInfo(recording, context = {}) {
       "Không tìm thấy job nào trong queue cho recording này. Cần kiểm tra và retry export.";
   } else if (stage === "worker_offline") {
     detail = "Worker không có heartbeat nên chưa thể xử lý export này.";
+  }
+
+  if (stage === "awaiting_queue_sync") {
+    detail = pendingWindowPastDue
+      ? "Da toi gio export nhung queue/worker chua dong bo job nay."
+      : "Ban ghi vua vao exporting, dang cho queue/worker dong bo.";
+  } else if (stage === "stale_no_job") {
+    detail = pendingWindowPastDue
+      ? "Da qua gio export nhung khong thay job hop le trong queue. Can retry/force export."
+      : "Khong tim thay job nao trong queue cho recording nay. Can kiem tra va retry export.";
+  } else if (stage === "worker_offline") {
+    detail = pendingWindowPastDue
+      ? "Da qua gio export nhung worker dang offline, nen job chua duoc xu ly."
+      : "Worker khong co heartbeat nen chua the xu ly export nay.";
+  } else if (inWorker) {
+    detail = workerHealth?.worker?.currentJobStartedAt
+      ? `Worker bat dau ${formatMonitorDateTime(workerHealth.worker.currentJobStartedAt)}`
+      : "Worker dang xu ly";
+  } else if (active) {
+    detail = "Worker dang xu ly";
   }
 
   return {

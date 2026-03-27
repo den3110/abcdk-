@@ -1,8 +1,21 @@
 import { DateTime } from "luxon";
 
-const DEFAULT_WINDOW_TZ = "Asia/Saigon";
+const DEFAULT_WINDOW_TZ = "Asia/Ho_Chi_Minh";
 const DEFAULT_WINDOW_START = "00:00";
 const DEFAULT_WINDOW_END = "06:00";
+const LOCAL_EXPORT_TZ_ALIASES = new Set([
+  "asia/ho_chi_minh",
+  "asia/saigon",
+  "utc+7",
+  "utc+07",
+  "utc+07:00",
+  "gmt+7",
+  "gmt+07",
+  "gmt+07:00",
+  "+07",
+  "+07:00",
+  "ict",
+]);
 
 function asTrimmed(value) {
   return String(value || "").trim();
@@ -40,8 +53,23 @@ function isTruthy(value) {
   return ["1", "true", "yes", "on"].includes(normalized);
 }
 
+function normalizeExportWindowTimezone(value) {
+  const raw = asTrimmed(value);
+  if (!raw) return DEFAULT_WINDOW_TZ;
+
+  const normalized = raw.toLowerCase();
+  if (LOCAL_EXPORT_TZ_ALIASES.has(normalized)) {
+    return DEFAULT_WINDOW_TZ;
+  }
+
+  const probe = DateTime.now().setZone(raw);
+  return probe.isValid ? raw : DEFAULT_WINDOW_TZ;
+}
+
 export function getLiveRecordingExportWindowConfig() {
-  const timezone = asTrimmed(process.env.LIVE_RECORDING_EXPORT_WINDOW_TZ) || DEFAULT_WINDOW_TZ;
+  const timezone = normalizeExportWindowTimezone(
+    process.env.LIVE_RECORDING_EXPORT_WINDOW_TZ
+  );
   const start = parseWindowTime(
     process.env.LIVE_RECORDING_EXPORT_WINDOW_START,
     DEFAULT_WINDOW_START
