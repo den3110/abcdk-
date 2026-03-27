@@ -99,8 +99,24 @@ function extractPayload(body) {
 
 function getBlockCache(slug) {
   if (slug === "hero") return cmsHeroCache;
-  if (slug === "contact") return cmsContactCache;
   return null;
+}
+
+function applyBlockCacheHeaders(res, slug, state = "MISS") {
+  if (slug === "contact") {
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
+    res.setHeader("X-PKT-Cache", "BYPASS");
+    return;
+  }
+
+  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=60");
+  res.setHeader("X-PKT-Cache", state);
 }
 
 async function getBlock(req, res, slug) {
@@ -108,16 +124,14 @@ async function getBlock(req, res, slug) {
     const cache = getBlockCache(slug);
     const cached = cache?.get(slug);
     if (cached) {
-      res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=60");
-      res.setHeader("X-PKT-Cache", "HIT");
+      applyBlockCacheHeaders(res, slug, "HIT");
       return res.json(cached);
     }
 
     const doc = await CmsBlock.findOne({ slug }).lean();
     const payload = normalize(slug, doc);
     cache?.set(slug, payload);
-    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=60");
-    res.setHeader("X-PKT-Cache", "MISS");
+    applyBlockCacheHeaders(res, slug, cache ? "MISS" : "BYPASS");
     return res.json(payload);
   } catch (err) {
     return res.status(500).json({ message: err.message || "Internal Server Error" });

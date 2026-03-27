@@ -421,19 +421,8 @@ function useLockedDialogMatch({
     });
   }, [open, lockedId, initialMatch, base, live, courtMatch, buildMerged]);
 
-  // Nhận dữ liệu nhưng chỉ khi _id trùng matchId
-  useEffect(() => {
-    if (!open || !lockedId) return;
-
-    const next = buildMerged();
-    if (!next) return;
-
-    setMm((prev) => {
-      if (!prev) return next;
-      const prevId = String(prev?._id || prev?.id || "");
-      return prevId === lockedId ? mergeLockedMatchPayload(prev, next) : prev;
-    });
-  }, [open, lockedId, initialMatch, base, live, courtMatch, buildMerged]);
+  // Nhận dữ liệu — chỉ lấy data trùng matchId
+  // (đã gộp logic từ effect trước đó, không cần 2 effect chạy cùng deps)
 
   const loading =
     (!mm && (isLoadingBase || isLoadingLive || isLoadingCourt)) ||

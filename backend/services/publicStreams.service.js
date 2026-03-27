@@ -493,9 +493,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   }
 
   const shouldRenderServer2 = Boolean(
-    server2 &&
-      (server2.manifestUrl || server2.finalPlaybackUrl) &&
-      (!finishedLike || server2.finalPlaybackUrl)
+    server2 && (server2.manifestUrl || server2.finalPlaybackUrl)
   );
 
   if (shouldRenderServer2) {
@@ -518,6 +516,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         publicBaseUrl: server2.publicBaseUrl,
         uploadedDurationSeconds: server2.uploadedDurationSeconds,
         uploadedSegmentCount: server2.uploadedSegmentCount,
+        showLiveBadge: !finishedLike,
       },
     });
   }

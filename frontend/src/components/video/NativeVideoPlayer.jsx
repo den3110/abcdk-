@@ -56,6 +56,7 @@ export default function NativeVideoPlayer({
   previewOnlyUntilPlay = false,
   useNativeControls = false,
   liveMode = false,
+  queueModeEnabled = false,
   holdLastFrameOnSourceChange = false,
   stagedNextSrc = "",
   stagedNextToken = "",
@@ -96,7 +97,7 @@ export default function NativeVideoPlayer({
   const [frozenFrameUrl, setFrozenFrameUrl] = useState("");
   const [stagedNextReady, setStagedNextReady] = useState(false);
   const queueMode = Boolean(
-    liveMode &&
+    queueModeEnabled &&
       kind === "file" &&
       onAdvanceToStagedSource &&
       typeof onAdvanceToStagedSource === "function",

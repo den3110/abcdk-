@@ -58,6 +58,7 @@ export default function UnifiedStreamPlayer({
         autoplay={autoplay}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
+        showLiveBadge={source?.meta?.showLiveBadge !== false}
       />
     );
   }

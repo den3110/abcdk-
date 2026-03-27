@@ -412,6 +412,13 @@ function isFacebookUrl(url) {
   const host = u.hostname.toLowerCase();
   return host.includes("facebook.com") || host.includes("fb.watch");
 }
+
+function isTemporaryRecordingPlaybackUrl(url) {
+  return /\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
+    String(url || "").trim()
+  );
+}
+
 function normalizeStreams(m) {
   const out = [];
   const seen = new Set();
@@ -421,6 +428,7 @@ function normalizeStreams(m) {
   const pushUrl = (url, { label, primary = false } = {}) => {
     if (!isNonEmptyString(url)) return;
     const u = url.trim();
+    if (isTemporaryRecordingPlaybackUrl(u)) return;
     if (seen.has(u)) return;
     const det = detectEmbed(u);
     out.push({
@@ -624,7 +632,7 @@ function getStreamIdentity(stream) {
 function mergeRenderableStreams(existing, incoming) {
   const current = Array.isArray(existing) ? existing : [];
   const next = Array.isArray(incoming) ? incoming : [];
-  if (!next.length) return [];
+  if (!next.length) return current.length ? current : [];
   if (!current.length) return next;
 
   const makeKey = (item, index) => {
@@ -638,25 +646,44 @@ function mergeRenderableStreams(existing, incoming) {
     return `idx:${index}`;
   };
 
-  const previousByKey = new Map();
-  current.forEach((item, index) => {
-    previousByKey.set(makeKey(item, index), item);
+  // Build a Map from incoming data (keyed by identity)
+  const nextByKey = new Map();
+  next.forEach((item, index) => {
+    nextByKey.set(makeKey(item, index), item);
   });
 
-  return next.map((item, index) => {
+  // Start from existing — merge incoming data into matching items
+  const merged = new Map();
+  const usedKeys = new Set();
+
+  // 1. Keep all existing items, updating them with incoming data if available
+  current.forEach((item, index) => {
     const key = makeKey(item, index);
-    const previous = previousByKey.get(key);
-    return previous && item && typeof item === "object"
-      ? {
-          ...previous,
-          ...item,
-          meta:
-            previous?.meta || item?.meta
-              ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
-              : undefined,
-        }
-      : item;
+    const update = nextByKey.get(key);
+    if (update && typeof update === "object") {
+      merged.set(key, {
+        ...item,
+        ...update,
+        meta:
+          item?.meta || update?.meta
+            ? { ...(item?.meta || {}), ...(update?.meta || {}) }
+            : undefined,
+      });
+      usedKeys.add(key);
+    } else {
+      merged.set(key, item);
+    }
   });
+
+  // 2. Append any NEW items from incoming that weren't already in existing
+  next.forEach((item, index) => {
+    const key = makeKey(item, index);
+    if (!usedKeys.has(key) && !merged.has(key)) {
+      merged.set(key, item);
+    }
+  });
+
+  return Array.from(merged.values());
 }
 
 function stripLocalStreamPatch(patch) {

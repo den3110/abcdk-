@@ -34,6 +34,12 @@ function isInternalRecordingVideoUrl(url) {
   );
 }
 
+function isTemporaryRecordingVideoUrl(url) {
+  return /\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
+    String(url || "").trim()
+  );
+}
+
 function isRecordingPlaybackReady(recording) {
   if (!recording) return false;
   if (recording.driveFileId || recording.driveRawUrl || recording.status === "ready") {
@@ -91,6 +97,14 @@ async function resolvePreferredRecordingPlaybackVideo(matchId, currentVideo = ""
     .lean();
 
   if (!isRecordingPlaybackReady(recording)) {
+    if (isTemporaryRecordingVideoUrl(normalizedCurrentVideo)) {
+      return {
+        nextVideo: "",
+        shouldPersist: normalizedCurrentVideo !== "",
+        recording,
+      };
+    }
+
     return {
       nextVideo: normalizedCurrentVideo,
       shouldPersist: false,

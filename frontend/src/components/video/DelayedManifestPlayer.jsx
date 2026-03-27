@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAspectRatio } from "./AspectMediaFrame";
 import NativeVideoPlayer from "./NativeVideoPlayer";
 
-const PREFETCH_WINDOW_SEGMENTS = 6;
+const PREFETCH_WINDOW_SEGMENTS = 10;
 
 function normalizeManifestItems(manifest) {
   const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
@@ -82,6 +82,7 @@ export default function DelayedManifestPlayer({
   autoplay = true,
   previewOnlyUntilPlay = false,
   useNativeControls = false,
+  showLiveBadge = true,
 }) {
   const [items, setItems] = useState([]);
   const [currentKey, setCurrentKey] = useState("");
@@ -386,7 +387,8 @@ export default function DelayedManifestPlayer({
         autoplay={autoplay}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
-        liveMode
+        liveMode={showLiveBadge}
+        queueModeEnabled
         holdLastFrameOnSourceChange
         stagedNextSrc={stagedNextPlaybackUrl}
         stagedNextToken={stagedNextItem?.key || ""}
