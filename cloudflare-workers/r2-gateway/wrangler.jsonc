@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "r2-gateway",
+  "main": "src/index.js",
+  "compatibility_date": "2026-03-27",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "PATH_PREFIX": "",
+    "CACHE_TTL_SECONDS": "0",
+    "ALLOWED_ORIGINS_JSON": "[\"https://pickletour.vn\",\"https://admin.pickletour.vn\"]",
+    "TARGET_R2_01_URL": "https://pub-aaa.r2.dev",
+    "TARGET_R2_02_URL": "https://pub-bbb.r2.dev",
+    "TARGET_R2_03_URL": "",
+    "TARGET_R2_04_URL": "",
+    "TARGET_R2_05_URL": "",
+    "TARGET_R2_06_URL": "",
+    "TARGET_R2_07_URL": "",
+    "TARGET_R2_08_URL": "",
+    "TARGET_R2_09_URL": "",
+    "TARGET_R2_10_URL": ""
+  }
+}

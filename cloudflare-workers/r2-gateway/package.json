@@ -1,0 +1,14 @@
+{
+  "name": "r2-gateway-worker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Worker gateway for sharded R2 public URLs",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

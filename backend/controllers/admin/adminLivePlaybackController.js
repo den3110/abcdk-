@@ -63,6 +63,7 @@ async function buildResponseWithOptions({ forceHealthRefresh = false } = {}) {
     return {
       id: target.id,
       label: target.label,
+      accountName: target.accountName || "",
       enabled: target.enabled !== false,
       endpoint: target.endpoint,
       accessKeyId: target.accessKeyId || "",

@@ -47,6 +47,7 @@ function normalizeStorageTarget(target = {}, index = 0) {
   return {
     id,
     label: asTrimmed(target?.label) || id,
+    accountName: asTrimmed(target?.accountName),
     endpoint: asTrimmed(target?.endpoint),
     accessKeyId: asTrimmed(target?.accessKeyId),
     secretAccessKey: asTrimmed(target?.secretAccessKey),
@@ -119,6 +120,7 @@ function buildFallbackTargetFromEnv() {
     {
       id: DEFAULT_RECORDING_TARGET_ID,
       label: asTrimmed(process.env.R2_RECORDINGS_TARGET_LABEL) || "default",
+      accountName: asTrimmed(process.env.R2_RECORDINGS_ACCOUNT_NAME),
       endpoint,
       accessKeyId,
       secretAccessKey,

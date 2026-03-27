@@ -10,6 +10,8 @@ const RECORDING_DRIVE_DEFAULTS = {
   folderId: "",
   sharedDriveId: "",
 };
+const OAUTH_USER_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const SERVICE_ACCOUNT_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
 function normalizePrivateKey(raw) {
   return String(raw || "")
@@ -160,7 +162,7 @@ export async function getRecordingDriveRuntimeConfig() {
     return {
       enabled: settings.enabled,
       mode,
-      folderId: pickResolvedFolderId(settings, serviceAccount),
+      folderId: asTrimmed(settings.folderId),
       sharedDriveId: "",
       clientId: asTrimmed(oauthUser.clientId),
       clientSecret: asTrimmed(oauthUser.clientSecret),
@@ -237,7 +239,7 @@ async function buildDriveClient(
   const auth = new google.auth.JWT({
     email: runtimeConfig.serviceAccountEmail,
     key: runtimeConfig.privateKey,
-    scopes: ["https://www.googleapis.com/auth/drive"],
+    scopes: [SERVICE_ACCOUNT_DRIVE_SCOPE],
   });
 
   return {
@@ -248,6 +250,11 @@ async function buildDriveClient(
 }
 
 function normalizeDriveError(error, runtimeConfig) {
+  const reason = String(
+    error?.response?.data?.error?.errors?.[0]?.reason ||
+      error?.errors?.[0]?.reason ||
+      ""
+  ).trim();
   const message =
     error?.response?.data?.error?.message ||
     error?.errors?.[0]?.message ||
@@ -261,6 +268,14 @@ function normalizeDriveError(error, runtimeConfig) {
   }
   if (/File not found/i.test(message)) {
     return new Error("Folder dich khong truy cap duoc hoac khong ton tai.");
+  }
+  if (
+    reason === "appNotAuthorizedToFile" ||
+    /not granted the app .*access to the file/i.test(message)
+  ) {
+    return new Error(
+      "Folder hien tai chua duoc cap quyen cho app Recording Drive. Hay chon lai dung folder bang Google Picker."
+    );
   }
   if (/invalid_grant/i.test(message)) {
     if (runtimeConfig?.refreshTokenMalformed) {
@@ -312,6 +327,7 @@ async function validateDriveFolder(drive, runtimeConfig, usingSharedDrive) {
 
 export async function getRecordingDriveStatus() {
   const runtimeConfig = await getRecordingDriveRuntimeConfig();
+  let effectiveRuntimeConfig = runtimeConfig;
   const base = {
     enabled: runtimeConfig.enabled,
     mode: runtimeConfig.mode,
@@ -339,10 +355,7 @@ export async function getRecordingDriveStatus() {
   if (runtimeConfig.mode === "oauthUser") {
     const connected = Boolean(runtimeConfig.refreshToken);
     const configured = Boolean(
-      connected &&
-        runtimeConfig.clientId &&
-        runtimeConfig.clientSecret &&
-        runtimeConfig.folderId
+      connected && runtimeConfig.clientId && runtimeConfig.clientSecret
     );
 
     if (!connected) {
@@ -355,14 +368,28 @@ export async function getRecordingDriveStatus() {
     }
 
     try {
-      const { drive } = await buildDriveClient(runtimeConfig);
+      const { drive } = await buildDriveClient(
+        { ...runtimeConfig, folderId: runtimeConfig.folderId || "skip" },
+        { requireFolderId: false, requireSharedDriveId: false }
+      );
+      const ensuredFolder = await ensureRecordingDriveOAuthFolder({
+        runtimeConfig,
+        drive,
+      });
+      effectiveRuntimeConfig = {
+        ...runtimeConfig,
+        folderId: ensuredFolder.folderId || runtimeConfig.folderId,
+      };
       const [about, folderCheck] = await Promise.all([
-        drive.about.get({ fields: "user(displayName,emailAddress)" }),
-        validateDriveFolder(drive, runtimeConfig, false),
+        drive.about
+          .get({ fields: "user(displayName,emailAddress)" })
+          .catch(() => null),
+        validateDriveFolder(drive, effectiveRuntimeConfig, false),
       ]);
 
       return {
         ...base,
+        folderId: effectiveRuntimeConfig.folderId || "",
         connected: true,
         configured,
         ready: configured && folderCheck.ok,
@@ -377,6 +404,7 @@ export async function getRecordingDriveStatus() {
     } catch (error) {
       return {
         ...base,
+        folderId: effectiveRuntimeConfig.folderId || runtimeConfig.folderId || "",
         connected: true,
         configured,
         ready: false,
@@ -505,13 +533,36 @@ export async function uploadRecordingToDrive({
   mimeType = "video/mp4",
 }) {
   const runtimeConfig = await getRecordingDriveRuntimeConfig();
-  const { drive, usingSharedDrive, driveAuthMode } = await buildDriveClient(runtimeConfig);
+  let effectiveRuntimeConfig = runtimeConfig;
+  const { drive, usingSharedDrive, driveAuthMode } = await buildDriveClient(
+    {
+      ...runtimeConfig,
+      folderId:
+        runtimeConfig.mode === "oauthUser"
+          ? runtimeConfig.folderId || "skip"
+          : runtimeConfig.folderId,
+    },
+    {
+      requireFolderId: runtimeConfig.mode !== "oauthUser",
+    }
+  );
+
+  if (runtimeConfig.mode === "oauthUser") {
+    const ensuredFolder = await ensureRecordingDriveOAuthFolder({
+      runtimeConfig,
+      drive,
+    });
+    effectiveRuntimeConfig = {
+      ...runtimeConfig,
+      folderId: ensuredFolder.folderId,
+    };
+  }
 
   const createResp = await drive.files
     .create({
       requestBody: {
         name: fileName,
-        parents: [runtimeConfig.folderId],
+        parents: [effectiveRuntimeConfig.folderId],
       },
       media: {
         mimeType,
@@ -521,7 +572,7 @@ export async function uploadRecordingToDrive({
       fields: "id, webViewLink, webContentLink, size",
     })
     .catch((error) => {
-      throw normalizeDriveError(error, runtimeConfig);
+      throw normalizeDriveError(error, effectiveRuntimeConfig);
     });
 
   const fileId = createResp?.data?.id;
@@ -539,7 +590,7 @@ export async function uploadRecordingToDrive({
       },
     })
     .catch((error) => {
-      throw normalizeDriveError(error, runtimeConfig);
+      throw normalizeDriveError(error, effectiveRuntimeConfig);
     });
 
   return {

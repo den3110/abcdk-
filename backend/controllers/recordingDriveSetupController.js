@@ -1,9 +1,12 @@
 import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
-import { getRecordingDriveStatus } from "../services/driveRecordings.service.js";
+import {
+  ensureRecordingDriveOAuthFolder,
+  getRecordingDriveStatus,
+} from "../services/driveRecordings.service.js";
 import SystemSettings from "../models/systemSettingsModel.js";
 
-const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"];
+const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"];
 
 
 async function makeRecordingDriveOAuth(req) {
@@ -73,9 +76,11 @@ export async function recordingDriveOAuthCallback(req, res) {
     });
 
     const drive = google.drive({ version: "v3", auth: oauth2 });
-    const about = await drive.about.get({
-      fields: "user(displayName,emailAddress)",
-    });
+    const about = await drive.about
+      .get({
+        fields: "user(displayName,emailAddress)",
+      })
+      .catch(() => null);
 
     await setCfg({
       key: "GOOGLE_DRIVE_RECORDINGS_CONNECTED_EMAIL",
@@ -104,6 +109,8 @@ export async function recordingDriveOAuthCallback(req, res) {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).catch(() => null);
+
+    await ensureRecordingDriveOAuthFolder({ forceCreate: false });
 
     const html = `
 <!doctype html><meta charset="utf-8" />
