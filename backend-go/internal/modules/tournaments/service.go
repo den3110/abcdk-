@@ -761,6 +761,24 @@ func sliceValue(value any) []any {
 		return typed
 	case bson.A:
 		return []any(typed)
+	case []bson.M:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
+	case []string:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
+	case []primitive.ObjectID:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
 	default:
 		return []any{}
 	}
@@ -768,6 +786,8 @@ func sliceValue(value any) []any {
 
 func stringValue(value any) string {
 	switch typed := value.(type) {
+	case nil:
+		return ""
 	case string:
 		return typed
 	case primitive.ObjectID:
@@ -789,6 +809,12 @@ func intValueDefault(value any, fallback int) int {
 		return int(typed)
 	case float32:
 		return int(typed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil {
+			return fallback
+		}
+		return parsed
 	default:
 		return fallback
 	}
