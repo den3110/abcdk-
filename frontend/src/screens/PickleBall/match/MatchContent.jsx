@@ -446,15 +446,45 @@ function normalizeStreams(m) {
     const kind = String(stream?.kind || "")
       .trim()
       .toLowerCase();
-    const det =
-      kind === "delayed_manifest"
-        ? {
-            kind: "delayed_manifest",
-            canEmbed: true,
-            embedUrl: playUrl,
-            aspect: "16:9",
-          }
-        : detectEmbed(playUrl);
+    const explicitEmbedHtml = isNonEmptyString(stream?.embedHtml)
+      ? stream.embedHtml.trim()
+      : "";
+    const explicitEmbedUrl = isNonEmptyString(stream?.embedUrl)
+      ? stream.embedUrl.trim()
+      : "";
+    const explicitAspect = isNonEmptyString(stream?.aspect)
+      ? stream.aspect.trim()
+      : "";
+    let det;
+    if (kind === "delayed_manifest") {
+      det = {
+        kind: "delayed_manifest",
+        canEmbed: true,
+        embedUrl: playUrl,
+        aspect: explicitAspect || "16:9",
+      };
+    } else if (kind === "iframe_html" && explicitEmbedHtml) {
+      det = {
+        kind: "iframe_html",
+        canEmbed: true,
+        embedHtml: explicitEmbedHtml,
+        aspect: explicitAspect || "16:9",
+      };
+    } else if (explicitEmbedUrl) {
+      const detected = detectEmbed(explicitEmbedUrl);
+      det = {
+        ...detected,
+        kind: kind || detected.kind,
+        canEmbed: true,
+        embedUrl: explicitEmbedUrl,
+        allow:
+          (typeof stream?.allow === "string" && stream.allow.trim()) ||
+          detected.allow,
+        aspect: explicitAspect || detected.aspect || "16:9",
+      };
+    } else {
+      det = detectEmbed(playUrl);
+    }
     out.push({
       key: stream?.key || null,
       label:
@@ -476,6 +506,12 @@ function normalizeStreams(m) {
         typeof stream?.disabledReason === "string" ? stream.disabledReason : "",
       status: typeof stream?.status === "string" ? stream.status : "",
       meta: stream?.meta || {},
+      embedHtml: explicitEmbedHtml || det.embedHtml || "",
+      embedUrl: explicitEmbedUrl || det.embedUrl || "",
+      allow:
+        (typeof stream?.allow === "string" && stream.allow.trim()) ||
+        det.allow ||
+        "",
       ...det,
     });
     seen.add(dedupeKey);

@@ -101,6 +101,10 @@ function buildCanonicalSessions(match = {}) {
         typeof stream?.playUrl === "string" ? stream.playUrl.trim() : "";
       const openUrl =
         typeof stream?.openUrl === "string" ? stream.openUrl.trim() : "";
+      const embedHtml =
+        typeof stream?.embedHtml === "string" ? stream.embedHtml.trim() : "";
+      const explicitEmbedUrl =
+        typeof stream?.embedUrl === "string" ? stream.embedUrl.trim() : "";
       const url = playUrl || openUrl;
       const kind = String(stream?.kind || "")
         .trim()
@@ -110,6 +114,24 @@ function buildCanonicalSessions(match = {}) {
         Boolean(stream?.primary);
       if (!url) return null;
 
+      if (kind === "iframe_html" && embedHtml) {
+        return {
+          key: stream?.key || "server1",
+          provider: "facebook",
+          kind: "iframe_html",
+          label: stream?.displayLabel || "Server 1",
+          providerLabel: stream?.providerLabel || "Facebook",
+          openUrl: openUrl || url,
+          watchUrl: openUrl || url,
+          embedHtml,
+          canEmbedInline: true,
+          primary: isPrimary,
+          ready: stream?.ready !== false,
+          delaySeconds: Number(stream?.delaySeconds || 0),
+          aspect: stream?.aspect || "16:9",
+        };
+      }
+
       if (kind === "facebook") {
         return {
           key: stream?.key || "server1",
@@ -117,9 +139,11 @@ function buildCanonicalSessions(match = {}) {
           kind: "iframe",
           label: stream?.displayLabel || "Server 1",
           providerLabel: stream?.providerLabel || "Facebook",
-          openUrl: url,
-          watchUrl: url,
-          embedUrl: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&width=1280`,
+          openUrl: openUrl || url,
+          watchUrl: openUrl || url,
+          embedUrl:
+            explicitEmbedUrl ||
+            `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&width=1280`,
           allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
           canEmbedInline: true,
           primary: isPrimary,

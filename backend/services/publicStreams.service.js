@@ -38,31 +38,116 @@ function isFinishedLikeStatus(status) {
   return ["finished", "ended", "stopped"].includes(normalized);
 }
 
-function selectFacebookOpenUrl(match = {}) {
+function buildFacebookPageVideoUrl({ pageId, videoId, liveId }) {
+  const normalizedPageId = asTrimmed(pageId);
+  const normalizedVideoId = asTrimmed(videoId) || asTrimmed(liveId);
+  if (!normalizedPageId || !normalizedVideoId) return "";
+  return `https://www.facebook.com/${encodeURIComponent(normalizedPageId)}/videos/${encodeURIComponent(normalizedVideoId)}/`;
+}
+
+function buildFacebookLegacyVideoUrl({ videoId, liveId }) {
+  const normalizedVideoId = asTrimmed(videoId) || asTrimmed(liveId);
+  if (!normalizedVideoId) return "";
+  return `https://www.facebook.com/video.php?v=${encodeURIComponent(normalizedVideoId)}`;
+}
+
+function buildFacebookPluginEmbedUrl(url) {
+  const normalized = asTrimmed(url);
+  if (!normalized) return "";
+  return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(normalized)}&show_text=false&width=1280`;
+}
+
+function buildFacebookStreamSource(match = {}) {
   const fb = match?.facebookLive || {};
   const metaFb = match?.meta?.facebook || {};
   const finishedLike =
     isFinishedLikeStatus(match?.status) || isFinishedLikeStatus(fb?.status);
 
-  const orderedUrls = finishedLike
+  const pageId = asTrimmed(fb?.pageId || metaFb?.pageId);
+  const liveId = asTrimmed(fb?.id || metaFb?.liveId);
+  const videoId = asTrimmed(fb?.videoId || metaFb?.videoId);
+  const rawPermalinkUrl = asTrimmed(
+    fb?.raw_permalink_url || fb?.rawPermalinkUrl || metaFb?.rawPermalink
+  );
+  const videoPermalinkUrl = asTrimmed(
+    fb?.video_permalink_url ||
+      fb?.videoPermalinkUrl ||
+      metaFb?.videoPermalinkUrl ||
+      metaFb?.videoPermalink
+  );
+  const permalinkUrl = asTrimmed(
+    fb?.permalink_url || fb?.permalinkUrl || metaFb?.permalinkUrl
+  );
+  const watchUrl = asTrimmed(
+    fb?.watch_url || fb?.watchUrl || metaFb?.watch_url || metaFb?.watchUrl
+  );
+  const fallbackMatchVideoUrl = isFacebookUrl(match?.video)
+    ? asTrimmed(match?.video)
+    : "";
+  const pageVideoUrl = buildFacebookPageVideoUrl({ pageId, videoId, liveId });
+  const legacyVideoUrl = buildFacebookLegacyVideoUrl({ videoId, liveId });
+  const embedHtml = asTrimmed(fb?.embed_html || fb?.embedHtml);
+  const explicitEmbedUrl = asTrimmed(fb?.embed_url || fb?.embedUrl);
+
+  const openCandidates = finishedLike
     ? [
-        fb.video_permalink_url,
-        fb.watch_url,
-        fb.permalink_url,
-        metaFb.permalinkUrl,
-        fb.raw_permalink_url,
-        fb.embed_url,
+        videoPermalinkUrl,
+        pageVideoUrl,
+        rawPermalinkUrl,
+        permalinkUrl,
+        watchUrl,
+        legacyVideoUrl,
+        fallbackMatchVideoUrl,
       ]
     : [
-        fb.watch_url,
-        fb.permalink_url,
-        metaFb.permalinkUrl,
-        fb.video_permalink_url,
-        fb.raw_permalink_url,
-        fb.embed_url,
+        watchUrl,
+        rawPermalinkUrl,
+        pageVideoUrl,
+        permalinkUrl,
+        videoPermalinkUrl,
+        legacyVideoUrl,
+        fallbackMatchVideoUrl,
       ];
 
-  return orderedUrls.map(asTrimmed).find(Boolean) || "";
+  const embedCandidates = finishedLike
+    ? [
+        videoPermalinkUrl,
+        rawPermalinkUrl,
+        pageVideoUrl,
+        permalinkUrl,
+        legacyVideoUrl,
+        watchUrl,
+        fallbackMatchVideoUrl,
+      ]
+    : [
+        rawPermalinkUrl,
+        pageVideoUrl,
+        videoPermalinkUrl,
+        permalinkUrl,
+        legacyVideoUrl,
+        watchUrl,
+        fallbackMatchVideoUrl,
+      ];
+
+  const openUrl = openCandidates.map(asTrimmed).find(Boolean) || "";
+  const embedSourceUrl = embedCandidates.map(asTrimmed).find(Boolean) || "";
+
+  return {
+    openUrl,
+    embedSourceUrl,
+    embedHtml,
+    embedUrl: explicitEmbedUrl || buildFacebookPluginEmbedUrl(embedSourceUrl),
+    watchUrl,
+    permalinkUrl,
+    rawPermalinkUrl,
+    videoPermalinkUrl,
+    pageVideoUrl,
+    legacyVideoUrl,
+  };
+}
+
+function selectFacebookOpenUrl(match = {}) {
+  return buildFacebookStreamSource(match).openUrl;
 }
 
 function parseYouTubeVideoId(match = {}) {
@@ -369,19 +454,33 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     isFinishedLikeStatus(match?.status) ||
     isFinishedLikeStatus(match?.facebookLive?.status);
   const server2 = buildRecordingServer2State(recording);
-  const facebookOpenUrl = selectFacebookOpenUrl(match);
-  if (facebookOpenUrl && !(finishedLike && server2?.ready)) {
+  const facebookStream = buildFacebookStreamSource(match);
+  const facebookOpenUrl = facebookStream.openUrl;
+  const facebookPlayUrl =
+    facebookStream.embedSourceUrl || facebookOpenUrl || "";
+  if ((facebookOpenUrl || facebookPlayUrl) && !(finishedLike && server2?.ready)) {
     pushUniqueStream(streams, {
       key: "server1",
       displayLabel: "Server 1",
       providerLabel: "Facebook",
-      kind: "facebook",
+      kind: facebookStream.embedHtml ? "iframe_html" : "facebook",
       priority: 1,
       status: "ready",
-      playUrl: facebookOpenUrl,
-      openUrl: facebookOpenUrl,
+      playUrl: facebookPlayUrl,
+      openUrl: facebookOpenUrl || facebookPlayUrl,
+      embedHtml: facebookStream.embedHtml || "",
+      embedUrl: facebookStream.embedUrl || "",
+      allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
       delaySeconds: 0,
       ready: true,
+      meta: {
+        watchUrl: facebookStream.watchUrl,
+        permalinkUrl: facebookStream.permalinkUrl,
+        rawPermalinkUrl: facebookStream.rawPermalinkUrl,
+        videoPermalinkUrl: facebookStream.videoPermalinkUrl,
+        pageVideoUrl: facebookStream.pageVideoUrl,
+        legacyVideoUrl: facebookStream.legacyVideoUrl,
+      },
     });
   }
 
