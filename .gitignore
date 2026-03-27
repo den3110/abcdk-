@@ -39,4 +39,4 @@ backend-go/coverage.out
 
 backend-go
 .npm-cache
-.gocache
+**/.gocache
