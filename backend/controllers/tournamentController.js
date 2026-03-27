@@ -89,6 +89,301 @@ const buildScheduleMatchFastCacheKey = (tournamentId) =>
 const buildTournamentBracketsCacheKey = (tournamentId) =>
   `brackets:${String(tournamentId || "").trim()}`;
 
+const ROUND_ELIM_TYPES = new Set(["roundelim", "po", "playoff"]);
+const DEFAULT_MATCH_RULES = {
+  bestOf: 1,
+  pointsToWin: 11,
+  winByTwo: true,
+};
+const ROUND_ELIM_BYE_SEED = { type: "bye", ref: null, label: "BYE" };
+
+const clampMatchRules = (rule, fallback = DEFAULT_MATCH_RULES) => {
+  const source =
+    rule && typeof rule === "object" ? rule : fallback && typeof fallback === "object" ? fallback : {};
+  const bestOf = [1, 3, 5].includes(Number(source.bestOf))
+    ? Number(source.bestOf)
+    : Number(fallback?.bestOf || DEFAULT_MATCH_RULES.bestOf);
+  const pointsToWin = [11, 15, 21].includes(Number(source.pointsToWin))
+    ? Number(source.pointsToWin)
+    : Number(fallback?.pointsToWin || DEFAULT_MATCH_RULES.pointsToWin);
+  const winByTwo =
+    typeof source.winByTwo === "boolean"
+      ? source.winByTwo
+      : typeof fallback?.winByTwo === "boolean"
+        ? fallback.winByTwo
+        : DEFAULT_MATCH_RULES.winByTwo;
+  const capMode = String(source?.cap?.mode || fallback?.cap?.mode || "none");
+  const capPoints = Number.isFinite(Number(source?.cap?.points))
+    ? Number(source.cap.points)
+    : Number.isFinite(Number(fallback?.cap?.points))
+      ? Number(fallback.cap.points)
+      : null;
+
+  return {
+    bestOf,
+    pointsToWin,
+    winByTwo,
+    cap: { mode: capMode, points: capPoints },
+  };
+};
+
+const cloneRoundElimSeed = (seed, fallbackSeed = null) => {
+  if (!seed || typeof seed !== "object" || !seed.type) {
+    if (!fallbackSeed) return null;
+    return {
+      ...fallbackSeed,
+      ref:
+        fallbackSeed.ref && typeof fallbackSeed.ref === "object"
+          ? { ...fallbackSeed.ref }
+          : fallbackSeed.ref ?? null,
+    };
+  }
+
+  return {
+    type: String(seed.type),
+    ref:
+      seed.ref && typeof seed.ref === "object"
+        ? { ...seed.ref }
+        : seed.ref ?? null,
+    label: String(seed.label || fallbackSeed?.label || ""),
+  };
+};
+
+const defaultRoundElimRegistrationSeed = (index) => ({
+  type: "registration",
+  ref: {},
+  label: `Đội ${index}`,
+});
+
+const roundElimMatchesForRound = (drawSize, roundNum) => {
+  const totalTeams = Math.max(0, Number(drawSize || 0));
+  const round = Math.max(1, Number(roundNum || 1));
+  if (round === 1) return Math.max(1, Math.ceil(totalTeams / 2));
+  const prevMatches = roundElimMatchesForRound(totalTeams, round - 1);
+  return Math.floor(prevMatches / 2);
+};
+
+const getRoundElimRuleForRound = (bracket, roundNum) => {
+  const blueprint = bracket?.config?.blueprint || {};
+  const roundRules = Array.isArray(blueprint.roundRules) ? blueprint.roundRules : [];
+  const baseRule = clampMatchRules(
+    bracket?.config?.rules || blueprint.rules || null,
+    DEFAULT_MATCH_RULES
+  );
+  const roundRule = roundRules[Math.max(0, Number(roundNum || 1) - 1)];
+  return clampMatchRules(roundRule, baseRule);
+};
+
+const buildRoundElimSeedsForSlot = (bracket, drawSize, r1Pairs, roundNum, orderNum) => {
+  if (Number(roundNum) === 1) {
+    const prefillSeeds = Array.isArray(bracket?.prefill?.seeds)
+      ? bracket.prefill.seeds
+      : [];
+    const prefillEntry = prefillSeeds[orderNum] || {};
+    const idxA = orderNum * 2 + 1;
+    const idxB = orderNum * 2 + 2;
+
+    const fallbackA = defaultRoundElimRegistrationSeed(idxA);
+    const fallbackB =
+      idxB <= drawSize ? defaultRoundElimRegistrationSeed(idxB) : ROUND_ELIM_BYE_SEED;
+
+    return {
+      seedA: cloneRoundElimSeed(prefillEntry?.A, fallbackA) || fallbackA,
+      seedB: cloneRoundElimSeed(prefillEntry?.B, fallbackB) || fallbackB,
+    };
+  }
+
+  const prevPairs =
+    Number(roundNum) === 2
+      ? r1Pairs
+      : Math.max(0, roundElimMatchesForRound(drawSize, Number(roundNum) - 1));
+  const leftOrder = orderNum * 2;
+  const rightOrder = orderNum * 2 + 1;
+
+  return {
+    seedA: {
+      type: "stageMatchLoser",
+      ref: {
+        stageIndex: Number(bracket?.stage || 0),
+        round: Number(roundNum) - 1,
+        order: leftOrder,
+      },
+      label: `L-V${Number(roundNum) - 1}-T${leftOrder + 1}`,
+    },
+    seedB:
+      rightOrder < prevPairs
+        ? {
+            type: "stageMatchLoser",
+            ref: {
+              stageIndex: Number(bracket?.stage || 0),
+              round: Number(roundNum) - 1,
+              order: rightOrder,
+            },
+            label: `L-V${Number(roundNum) - 1}-T${rightOrder + 1}`,
+          }
+        : cloneRoundElimSeed(ROUND_ELIM_BYE_SEED, ROUND_ELIM_BYE_SEED),
+  };
+};
+
+const ensureRoundElimBracketMatches = async (tournamentId) => {
+  const brackets = await Bracket.find({
+    tournament: tournamentId,
+    type: { $in: Array.from(ROUND_ELIM_TYPES) },
+  })
+    .select("_id tournament type stage order prefill meta config")
+    .lean();
+
+  if (!brackets.length) return;
+
+  const existingMatches = await Match.find({
+    tournament: tournamentId,
+    bracket: { $in: brackets.map((bracket) => bracket._id) },
+  })
+    .select(
+      "_id bracket round order seedA seedB rules bestOf pointsToWin winByTwo capMode capPoints"
+    )
+    .lean();
+
+  const existingByKey = new Map(
+    existingMatches.map((match) => [
+      `${String(match.bracket)}:${Number(match.round || 1)}:${Number(match.order || 0)}`,
+      match,
+    ])
+  );
+
+  const ops = [];
+  const touchedBracketIds = new Set();
+
+  for (const bracket of brackets) {
+    const bracketId = String(bracket?._id || "");
+    if (!bracketId) continue;
+
+    const drawSize = Math.max(
+      0,
+      Number(
+        bracket?.config?.roundElim?.drawSize ||
+          bracket?.config?.blueprint?.drawSize ||
+          (Array.isArray(bracket?.prefill?.seeds) ? bracket.prefill.seeds.length * 2 : 0) ||
+          Number(bracket?.meta?.expectedFirstRoundMatches || 0) * 2 ||
+          bracket?.meta?.drawSize ||
+          0
+      )
+    );
+    const r1Pairs = Math.max(
+      1,
+      Number(
+        bracket?.meta?.expectedFirstRoundMatches ||
+          (Array.isArray(bracket?.prefill?.seeds) ? bracket.prefill.seeds.length : 0) ||
+          Math.ceil(drawSize / 2) ||
+          1
+      )
+    );
+    const maxRounds = Math.max(
+      1,
+      Number(
+        bracket?.meta?.maxRounds ||
+          bracket?.config?.roundElim?.maxRounds ||
+          bracket?.config?.roundElim?.cutRounds ||
+          bracket?.config?.blueprint?.maxRounds ||
+          1
+      )
+    );
+
+    for (let roundNum = 1; roundNum <= maxRounds; roundNum += 1) {
+      const expectedMatches =
+        roundNum === 1
+          ? r1Pairs
+          : Math.max(0, roundElimMatchesForRound(drawSize, roundNum));
+
+      if (roundNum > 1 && expectedMatches <= 0) break;
+
+      for (let orderNum = 0; orderNum < Math.max(1, expectedMatches); orderNum += 1) {
+        const key = `${bracketId}:${roundNum}:${orderNum}`;
+        const existingMatch = existingByKey.get(key) || null;
+        const seeds = buildRoundElimSeedsForSlot(
+          bracket,
+          drawSize,
+          r1Pairs,
+          roundNum,
+          orderNum
+        );
+        const roundRule = getRoundElimRuleForRound(bracket, roundNum);
+
+        if (!existingMatch) {
+          const doc = {
+            tournament: bracket.tournament,
+            bracket: bracket._id,
+            format: "roundElim",
+            round: roundNum,
+            order: orderNum,
+            seedA: seeds.seedA,
+            seedB: seeds.seedB,
+            rules: roundRule,
+            bestOf: roundRule.bestOf,
+            pointsToWin: roundRule.pointsToWin,
+            winByTwo: roundRule.winByTwo,
+            capMode: roundRule.cap?.mode ?? "none",
+            capPoints: roundRule.cap?.points ?? null,
+          };
+
+          ops.push({
+            updateOne: {
+              filter: {
+                tournament: bracket.tournament,
+                bracket: bracket._id,
+                round: roundNum,
+                order: orderNum,
+              },
+              update: { $setOnInsert: doc },
+              upsert: true,
+            },
+          });
+          touchedBracketIds.add(bracketId);
+          continue;
+        }
+
+        const patch = {};
+        if (!existingMatch?.seedA?.type && seeds.seedA) patch.seedA = seeds.seedA;
+        if (!existingMatch?.seedB?.type && seeds.seedB) patch.seedB = seeds.seedB;
+        if (!existingMatch?.rules && roundRule) patch.rules = roundRule;
+        if (!Number.isFinite(Number(existingMatch?.bestOf)))
+          patch.bestOf = roundRule.bestOf;
+        if (!Number.isFinite(Number(existingMatch?.pointsToWin)))
+          patch.pointsToWin = roundRule.pointsToWin;
+        if (typeof existingMatch?.winByTwo !== "boolean")
+          patch.winByTwo = roundRule.winByTwo;
+        if (!existingMatch?.capMode) patch.capMode = roundRule.cap?.mode ?? "none";
+        if (
+          existingMatch?.capPoints === undefined &&
+          roundRule.cap?.points !== undefined
+        ) {
+          patch.capPoints = roundRule.cap.points;
+        }
+
+        if (Object.keys(patch).length) {
+          ops.push({
+            updateOne: {
+              filter: { _id: existingMatch._id },
+              update: { $set: patch },
+            },
+          });
+          touchedBracketIds.add(bracketId);
+        }
+      }
+    }
+  }
+
+  if (!ops.length) return;
+
+  await Match.bulkWrite(ops, { ordered: false });
+
+  if (typeof Match.compileSeedsForBracket === "function") {
+    for (const bracketId of touchedBracketIds) {
+      await Match.compileSeedsForBracket(bracketId);
+    }
+  }
+};
+
 const getTournamentBracketBaseByBracketId = async (tournamentId) => {
   const objectId = new mongoose.Types.ObjectId(tournamentId);
   const allBrackets = await Bracket.find({ tournament: tournamentId })
@@ -399,6 +694,8 @@ const listTournamentMatchesBracketView = async (req, res) => {
     res.setHeader("X-PKT-Cache", "HIT");
     return res.json(cached);
   }
+
+  await ensureRoundElimBracketMatches(id);
 
   const listRaw = await Match.find({ tournament: id })
     .select(

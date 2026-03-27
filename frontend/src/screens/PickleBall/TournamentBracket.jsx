@@ -241,11 +241,9 @@ export const depLabel = (prev) => {
 
 const isThirdPlaceMatch = (m) => {
   if (!m) return false;
+  const type = String(m?.bracket?.type || m?.format || "").toLowerCase();
+  if (["roundelim", "po", "playoff"].includes(type)) return false;
   if (m.isThirdPlace === true || m?.meta?.thirdPlace === true) return true;
-  const loserSeedTypes = new Set(["stageMatchLoser", "matchLoser"]);
-  const seedAType = String(m?.seedA?.type || "");
-  const seedBType = String(m?.seedB?.type || "");
-  if (loserSeedTypes.has(seedAType) && loserSeedTypes.has(seedBType)) return true;
   const stageLabel = String(m?.meta?.stageLabel || m?.roundName || "").toLowerCase();
   return stageLabel.includes("hạng 3") || stageLabel.includes("3/4");
 };
@@ -709,12 +707,24 @@ const CustomSeed = ({
     return { bg: "#9e9e9e", fg: "#fff", key: "planned" };
   };
 
-  const code = m ? matchCodeKO(m) : "";
+  const code = m
+    ? [
+        m?.displayCode,
+        m?.code,
+        m?.matchCode,
+        m?.slotCode,
+        m?.globalCode,
+      ]
+        .map(extractDisplayCodeText)
+        .find(Boolean) || matchCodeKO(m)
+    : "";
   const isThirdPlace = isThirdPlaceMatch(m);
   const codeLabel = isThirdPlace ? "Hạng 3-4" : code;
   const codeTitle = isThirdPlace
     ? `${String(m?.meta?.stageLabel || "Tranh hạng 3/4")} (${code})`
     : code;
+  const codeLabelFinal = code;
+  const codeTitleFinal = code || String(m?.meta?.stageLabel || "");
   const t = m ? timeShort(kickoffTime(m)) : "";
   const c = m ? courtName(m) : "";
   const vid = m ? hasVideo(m) : false;
@@ -775,8 +785,8 @@ const CustomSeed = ({
               className="header-seed"
               style={{ "--seed-bg": color.bg, "--seed-fg": color.fg }}
             >
-              <span className="seed-code" title={codeTitle}>
-                {codeLabel}
+              <span className="seed-code" title={codeTitleFinal}>
+                {codeLabelFinal}
               </span>
 
               <span className="seed-meta">
@@ -1533,10 +1543,14 @@ function buildRoundElimRounds(
   resolveSideLabel,
   pendingTeamLabel = "Chưa có đội",
 ) {
-  const r1FromPrefill =
-    Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length
-      ? bracket.prefill.seeds.length
-      : 0;
+  const prefillSeeds = Array.isArray(bracket?.prefill?.seeds)
+    ? bracket.prefill.seeds
+    : [];
+  const prefillRoundOneTeams = prefillSeeds.map((entry) => ({
+    A: seedLabel(entry?.A) || pendingTeamLabel,
+    B: seedLabel(entry?.B) || pendingTeamLabel,
+  }));
+  const r1FromPrefill = prefillSeeds.length ? prefillSeeds.length : 0;
   const r1FromMatches = (brMatches || []).filter(
     (m) => (m.round || 1) === 1,
   ).length;
@@ -1569,7 +1583,13 @@ function buildRoundElimRounds(
       id: `re-${r}-${i}`,
       __match: null,
       __round: r,
-      teams: [{ name: pendingTeamLabel }, { name: pendingTeamLabel }],
+      teams:
+        r === 1 && prefillRoundOneTeams[i]
+          ? [
+              { name: prefillRoundOneTeams[i].A },
+              { name: prefillRoundOneTeams[i].B },
+            ]
+          : [{ name: pendingTeamLabel }, { name: pendingTeamLabel }],
     }));
 
     const ms = (brMatches || [])
@@ -1581,6 +1601,9 @@ function buildRoundElimRounds(
         ? m.order
         : seeds.findIndex((s) => s.__match === null);
       if (i < 0 || i >= seeds.length) i = Math.min(idx, seeds.length - 1);
+      const fallbackTeams = r === 1 ? prefillRoundOneTeams[i] || null : null;
+      const nameA = resolveSideLabel(m, "A");
+      const nameB = resolveSideLabel(m, "B");
 
       seeds[i] = {
         id: m._id || `re-${r}-${i}`,
@@ -1590,8 +1613,18 @@ function buildRoundElimRounds(
         __match: m,
         __round: r,
         teams: [
-          { name: resolveSideLabel(m, "A") },
-          { name: resolveSideLabel(m, "B") },
+          {
+            name:
+              !nameA || nameA === pendingTeamLabel
+                ? fallbackTeams?.A || pendingTeamLabel
+                : nameA,
+          },
+          {
+            name:
+              !nameB || nameB === pendingTeamLabel
+                ? fallbackTeams?.B || pendingTeamLabel
+                : nameB,
+          },
         ],
       };
     });
