@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAspectRatio } from "./AspectMediaFrame";
 import NativeVideoPlayer from "./NativeVideoPlayer";
 
+const PREFETCH_WINDOW_SEGMENTS = 6;
+
 function normalizeManifestItems(manifest) {
   const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
   const playable = segments
@@ -104,6 +106,22 @@ export default function DelayedManifestPlayer({
   }, [currentKey, items]);
 
   const currentUrl = currentItem?.url || "";
+  const currentItemIndex = useMemo(() => {
+    return items.findIndex((item) => item?.key === currentKey);
+  }, [currentKey, items]);
+  const stagedNextItem = useMemo(() => {
+    if (!items.length) return null;
+    if (currentItemIndex < 0) return items[1] || null;
+    return items[currentItemIndex + 1] || null;
+  }, [currentItemIndex, items]);
+  const stagedNextPlaybackUrl = useMemo(() => {
+    if (!stagedNextItem?.key) return "";
+    return (
+      prefetchedUrls[stagedNextItem.key] ||
+      stagedNextItem.url ||
+      ""
+    );
+  }, [prefetchedUrls, stagedNextItem]);
 
   useEffect(() => {
     currentKeyRef.current = currentKey;
@@ -142,7 +160,7 @@ export default function DelayedManifestPlayer({
   useEffect(() => {
     const currentIndex = items.findIndex((item) => item?.key === currentKey);
     const startIndex = currentIndex >= 0 ? currentIndex : 0;
-    const retainItems = items.slice(startIndex, startIndex + 4);
+    const retainItems = items.slice(startIndex, startIndex + PREFETCH_WINDOW_SEGMENTS);
     const retainKeys = new Set(retainItems.map((item) => item?.key).filter(Boolean));
 
     for (const [key, controller] of prefetchControllersRef.current.entries()) {
@@ -334,6 +352,19 @@ export default function DelayedManifestPlayer({
     });
   }, [items]);
 
+  const handleAdvanceToStagedSource = useCallback((nextKey) => {
+    const normalizedNextKey = String(nextKey || "").trim();
+    if (!normalizedNextKey) {
+      handleEnded();
+      return;
+    }
+
+    currentKeyRef.current = normalizedNextKey;
+    waitingForNextRef.current = false;
+    setWaitingForNext(false);
+    setCurrentKey(normalizedNextKey);
+  }, [handleEnded]);
+
   if (loading) {
     return <Alert severity="info">Dang tai video tu PickleTour...</Alert>;
   }
@@ -357,6 +388,9 @@ export default function DelayedManifestPlayer({
         useNativeControls={useNativeControls}
         liveMode
         holdLastFrameOnSourceChange
+        stagedNextSrc={stagedNextPlaybackUrl}
+        stagedNextToken={stagedNextItem?.key || ""}
+        onAdvanceToStagedSource={handleAdvanceToStagedSource}
       />
       {error ? (
         <Alert severity="info" sx={{ mt: 1 }}>

@@ -57,13 +57,24 @@ export default function NativeVideoPlayer({
   useNativeControls = false,
   liveMode = false,
   holdLastFrameOnSourceChange = false,
+  stagedNextSrc = "",
+  stagedNextToken = "",
+  onAdvanceToStagedSource = null,
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
+  const primaryVideoRef = useRef(null);
+  const secondaryVideoRef = useRef(null);
   const hideChromeTimerRef = useRef(null);
   const isSeekingRef = useRef(false);
   const onEndedRef = useRef(onEnded);
+  const onAdvanceToStagedSourceRef = useRef(onAdvanceToStagedSource);
   const previousSrcRef = useRef("");
+  const previousStagedNextSrcRef = useRef("");
+  const stagedNextReadyRef = useRef(false);
+  const activeSlotRef = useRef(0);
+  const slotSrcRef = useRef({ 0: "", 1: "" });
+  const switchingToStagedRef = useRef(false);
 
   const [ratio, setRatio] = useState(initialRatio);
   const [hlsError, setHlsError] = useState("");
@@ -78,10 +89,30 @@ export default function NativeVideoPlayer({
   const [showChrome, setShowChrome] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [activeSlot, setActiveSlot] = useState(0);
   const [showPreviewOverlay, setShowPreviewOverlay] = useState(
     Boolean(previewOnlyUntilPlay && !autoplay),
   );
   const [frozenFrameUrl, setFrozenFrameUrl] = useState("");
+  const [stagedNextReady, setStagedNextReady] = useState(false);
+  const queueMode = Boolean(
+    liveMode &&
+      kind === "file" &&
+      onAdvanceToStagedSource &&
+      typeof onAdvanceToStagedSource === "function",
+  );
+
+  const getVideoElementForSlot = useCallback((slot) => {
+    return slot === 0 ? primaryVideoRef.current : secondaryVideoRef.current;
+  }, []);
+
+  const getActiveVideoElement = useCallback(() => {
+    return getVideoElementForSlot(activeSlotRef.current);
+  }, [getVideoElementForSlot]);
+
+  const getInactiveVideoElement = useCallback(() => {
+    return getVideoElementForSlot(activeSlotRef.current === 0 ? 1 : 0);
+  }, [getVideoElementForSlot]);
 
   const revealChrome = useCallback(() => {
     setShowChrome(true);
@@ -138,6 +169,19 @@ export default function NativeVideoPlayer({
   }, [onEnded]);
 
   useEffect(() => {
+    onAdvanceToStagedSourceRef.current = onAdvanceToStagedSource;
+  }, [onAdvanceToStagedSource]);
+
+  useEffect(() => {
+    activeSlotRef.current = activeSlot;
+    videoRef.current = getActiveVideoElement();
+  }, [activeSlot, getActiveVideoElement]);
+
+  useEffect(() => {
+    videoRef.current = getActiveVideoElement();
+  }, [getActiveVideoElement]);
+
+  useEffect(() => {
     revealChrome();
     return () => {
       if (hideChromeTimerRef.current) {
@@ -162,18 +206,101 @@ export default function NativeVideoPlayer({
   }, []);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.playbackRate = playbackRate;
-  }, [playbackRate]);
+    const activeVideo = getActiveVideoElement();
+    const inactiveVideo = getInactiveVideoElement();
+    if (activeVideo) {
+      activeVideo.playbackRate = playbackRate;
+    }
+    if (inactiveVideo) {
+      inactiveVideo.playbackRate = playbackRate;
+    }
+  }, [getActiveVideoElement, getInactiveVideoElement, playbackRate]);
 
   useEffect(() => {
-    const video = videoRef.current;
+    const activeVideo = getActiveVideoElement();
+    const inactiveVideo = getInactiveVideoElement();
+    if (activeVideo) {
+      activeVideo.muted = isMuted;
+      activeVideo.volume = volume;
+    }
+    if (inactiveVideo) {
+      inactiveVideo.muted = isMuted;
+      inactiveVideo.volume = volume;
+    }
+  }, [getActiveVideoElement, getInactiveVideoElement, isMuted, volume]);
+
+  const advanceToStagedSource = useCallback(async () => {
+    if (!queueMode || switchingToStagedRef.current || !stagedNextReadyRef.current) {
+      return false;
+    }
+
+    const currentSlot = activeSlotRef.current;
+    const nextSlot = currentSlot === 0 ? 1 : 0;
+    const currentVideo = getVideoElementForSlot(currentSlot);
+    const nextVideo = getVideoElementForSlot(nextSlot);
+    const nextSrc = stagedNextSrc.trim();
+    const nextToken = String(stagedNextToken || "").trim();
+
+    if (!nextVideo || !nextSrc) {
+      return false;
+    }
+
+    switchingToStagedRef.current = true;
+    try {
+      nextVideo.currentTime = 0;
+      nextVideo.playbackRate = playbackRate;
+      nextVideo.muted = currentVideo?.muted ?? isMuted;
+      nextVideo.volume = currentVideo?.volume ?? volume;
+
+      if (autoplay) {
+        try {
+          await nextVideo.play();
+        } catch {
+          // Let the normal ended flow handle fallback if autoplay is blocked.
+        }
+      }
+
+      currentVideo?.pause();
+      setFrozenFrameUrl("");
+      setCurrentTime(0);
+      setDuration(Number.isFinite(nextVideo.duration) ? nextVideo.duration : 0);
+      setIsReady(nextVideo.readyState >= 2);
+      setIsPlaying(Boolean(autoplay && !nextVideo.paused));
+      stagedNextReadyRef.current = false;
+      setStagedNextReady(false);
+      previousStagedNextSrcRef.current = "";
+      activeSlotRef.current = nextSlot;
+      videoRef.current = nextVideo;
+      setActiveSlot(nextSlot);
+      onAdvanceToStagedSourceRef.current?.(nextToken);
+      return true;
+    } finally {
+      switchingToStagedRef.current = false;
+    }
+  }, [
+    autoplay,
+    getVideoElementForSlot,
+    isMuted,
+    playbackRate,
+    queueMode,
+    stagedNextSrc,
+    stagedNextToken,
+    volume,
+  ]);
+
+  useEffect(() => {
+    const video = queueMode
+      ? getVideoElementForSlot(activeSlotRef.current)
+      : videoRef.current;
     if (!video || !src) return;
 
     let hls;
     let cancelled = false;
-    const previousSrc = previousSrcRef.current;
+    const currentSlot = activeSlotRef.current;
+    const alreadyLoadedActiveSrc =
+      queueMode && slotSrcRef.current[currentSlot] === src;
+    const previousSrc =
+      queueMode && alreadyLoadedActiveSrc ? src : previousSrcRef.current;
 
     if (
       holdLastFrameOnSourceChange &&
@@ -189,12 +316,14 @@ export default function NativeVideoPlayer({
     previousSrcRef.current = src;
 
     setHlsError("");
-    setIsReady(false);
-    setCurrentTime(0);
-    setDuration(0);
-    setSeekValue(0);
-    setIsPlaying(Boolean(autoplay));
-    setShowChrome(true);
+    if (!alreadyLoadedActiveSrc) {
+      setIsReady(false);
+      setCurrentTime(0);
+      setDuration(0);
+      setSeekValue(0);
+      setIsPlaying(Boolean(autoplay));
+      setShowChrome(true);
+    }
 
     const syncAspect = () => {
       if (video.videoWidth && video.videoHeight) {
@@ -202,6 +331,13 @@ export default function NativeVideoPlayer({
       }
     };
     const syncTime = () => {
+      if (queueMode && stagedNextReadyRef.current && Number.isFinite(video.duration)) {
+        const remaining = Math.max(0, (video.duration || 0) - (video.currentTime || 0));
+        if (remaining <= 0.2) {
+          void advanceToStagedSource();
+          return;
+        }
+      }
       if (!isSeekingRef.current) {
         setCurrentTime(video.currentTime || 0);
       }
@@ -219,7 +355,12 @@ export default function NativeVideoPlayer({
       setIsReady(true);
       setFrozenFrameUrl("");
     };
-    const onEndedInternal = () => onEndedRef.current?.();
+    const onEndedInternal = async () => {
+      if (queueMode && (await advanceToStagedSource())) {
+        return;
+      }
+      onEndedRef.current?.();
+    };
     const onError = () => {
       if (kind === "hls") {
         setHlsError("Khong phat duoc luong HLS nay.");
@@ -261,7 +402,10 @@ export default function NativeVideoPlayer({
 
     if (kind === "hls") {
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = src;
+        if (!alreadyLoadedActiveSrc) {
+          video.src = src;
+          slotSrcRef.current[currentSlot] = src;
+        }
         startPlayback();
       } else {
         (async () => {
@@ -292,7 +436,10 @@ export default function NativeVideoPlayer({
         })();
       }
     } else {
-      video.src = src;
+      if (!alreadyLoadedActiveSrc) {
+        video.src = src;
+        slotSrcRef.current[currentSlot] = src;
+      }
       startPlayback();
     }
 
@@ -315,11 +462,13 @@ export default function NativeVideoPlayer({
       video.removeEventListener("canplay", onCanPlay);
       video.removeEventListener("ended", onEndedInternal);
       video.removeEventListener("error", onError);
-      video.removeAttribute("src");
-      try {
-        video.load();
-      } catch {
-        // noop
+      if (!queueMode) {
+        video.removeAttribute("src");
+        try {
+          video.load();
+        } catch {
+          // noop
+        }
       }
       try {
         hls?.destroy();
@@ -329,11 +478,93 @@ export default function NativeVideoPlayer({
     };
   }, [
     autoplay,
+    advanceToStagedSource,
     captureFrameSnapshot,
+    getVideoElementForSlot,
     holdLastFrameOnSourceChange,
     kind,
+    queueMode,
     showPreviewOverlay,
     src,
+  ]);
+
+  useEffect(() => {
+    if (!queueMode) {
+      stagedNextReadyRef.current = false;
+      setStagedNextReady(false);
+      previousStagedNextSrcRef.current = "";
+      return;
+    }
+
+    const normalizedNextSrc = String(stagedNextSrc || "").trim();
+    const inactiveSlot = activeSlotRef.current === 0 ? 1 : 0;
+    const nextVideo = getVideoElementForSlot(inactiveSlot);
+    if (!nextVideo || !normalizedNextSrc) {
+      stagedNextReadyRef.current = false;
+      setStagedNextReady(false);
+      previousStagedNextSrcRef.current = "";
+      return;
+    }
+
+    if (previousStagedNextSrcRef.current === normalizedNextSrc) {
+      return;
+    }
+
+    let cancelled = false;
+    previousStagedNextSrcRef.current = normalizedNextSrc;
+    stagedNextReadyRef.current = false;
+    setStagedNextReady(false);
+
+    const handleCanPlay = () => {
+      if (cancelled) return;
+      stagedNextReadyRef.current = true;
+      setStagedNextReady(true);
+    };
+    const handleLoadedMetadata = () => {
+      if (cancelled) return;
+      if (!isReady && nextVideo.videoWidth && nextVideo.videoHeight) {
+        setRatio(nextVideo.videoWidth / nextVideo.videoHeight);
+      }
+    };
+    const handleError = () => {
+      if (cancelled) return;
+      stagedNextReadyRef.current = false;
+      setStagedNextReady(false);
+    };
+
+    nextVideo.addEventListener("canplay", handleCanPlay);
+    nextVideo.addEventListener("loadedmetadata", handleLoadedMetadata);
+    nextVideo.addEventListener("error", handleError);
+    nextVideo.preload = "auto";
+    nextVideo.playbackRate = playbackRate;
+    nextVideo.muted = isMuted;
+    nextVideo.volume = volume;
+
+    if (slotSrcRef.current[inactiveSlot] !== normalizedNextSrc) {
+      nextVideo.pause();
+      nextVideo.src = normalizedNextSrc;
+      slotSrcRef.current[inactiveSlot] = normalizedNextSrc;
+      try {
+        nextVideo.load();
+      } catch {
+        // noop
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      nextVideo.removeEventListener("canplay", handleCanPlay);
+      nextVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      nextVideo.removeEventListener("error", handleError);
+    };
+  }, [
+    getVideoElementForSlot,
+    isMuted,
+    isReady,
+    playbackRate,
+    queueMode,
+    stagedNextSrc,
+    volume,
   ]);
 
   const seekPercent =
@@ -456,20 +687,52 @@ export default function NativeVideoPlayer({
             onClick={showPreviewOverlay ? togglePlay : undefined}
           >
             <video
-              ref={videoRef}
+              ref={primaryVideoRef}
               playsInline
               preload={
-                liveMode || holdLastFrameOnSourceChange ? "auto" : "metadata"
+                liveMode || holdLastFrameOnSourceChange || queueMode
+                  ? "auto"
+                  : "metadata"
               }
               crossOrigin={holdLastFrameOnSourceChange ? "anonymous" : undefined}
-              controls={Boolean(useNativeControls && !showPreviewOverlay)}
+              controls={Boolean(
+                useNativeControls && !showPreviewOverlay && (!queueMode || activeSlot === 0),
+              )}
               style={{
+                position: "absolute",
+                inset: 0,
                 width: "100%",
                 height: "100%",
                 objectFit: "contain",
                 backgroundColor: "#000",
+                opacity: activeSlot === 0 ? 1 : 0,
+                pointerEvents:
+                  activeSlot === 0 ? "auto" : "none",
               }}
             />
+
+            {queueMode ? (
+              <video
+                ref={secondaryVideoRef}
+                playsInline
+                preload="auto"
+                crossOrigin={
+                  holdLastFrameOnSourceChange ? "anonymous" : undefined
+                }
+                controls={false}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                  backgroundColor: "#000",
+                  opacity: activeSlot === 1 ? 1 : 0,
+                  pointerEvents: activeSlot === 1 ? "auto" : "none",
+                  visibility: activeSlot === 1 || stagedNextReady ? "visible" : "hidden",
+                }}
+              />
+            ) : null}
 
             {frozenFrameUrl && !isReady && !showPreviewOverlay ? (
               <Box
