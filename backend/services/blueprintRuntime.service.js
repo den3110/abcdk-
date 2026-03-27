@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import DrawSession from "../models/drawSessionModel.js";
 import Match from "../models/matchModel.js";
 
@@ -17,6 +18,29 @@ const toIdString = (value) => {
   } catch {
     return "";
   }
+};
+
+const toObjectIdString = (value) => {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return mongoose.isValidObjectId(trimmed) ? trimmed : "";
+  }
+
+  if (mongoose.isValidObjectId(value)) {
+    return String(value);
+  }
+
+  if (isPlainObject(value)) {
+    const nested =
+      value._id ?? value.id ?? value.registration ?? value.reg ?? value.value ?? null;
+    if (nested && nested !== value) {
+      return toObjectIdString(nested);
+    }
+  }
+
+  return "";
 };
 
 const ceilPow2 = (n) => {
@@ -132,12 +156,15 @@ function normalizeSeedSource(seed) {
   }
 
   if (type === "registration") {
+    const registrationId = toObjectIdString(
+      isPlainObject(seed.ref)
+        ? ref.registration ?? ref.reg ?? seed.registration ?? seed.reg
+        : seed.ref ?? seed.registration ?? seed.reg
+    );
     return {
       type,
       label,
-      ref: {
-        registration: toIdString(ref.registration || ref.reg || ""),
-      },
+      ref: registrationId ? { registration: registrationId } : {},
     };
   }
 

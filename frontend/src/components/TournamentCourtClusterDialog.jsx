@@ -225,12 +225,13 @@ SortableQueueItem.propTypes = {
 
 function StatCard({ label, value, tone = "default" }) {
   return (
-    <Paper
-      variant="outlined"
+    <Stack
+      direction="row"
+      spacing={1}
+      alignItems="center"
       sx={{
-        minWidth: 112,
         px: 1.5,
-        py: 1.25,
+        py: 0.5,
         borderRadius: 2,
         bgcolor: (theme) => {
           if (theme.palette.mode === "dark") {
@@ -240,11 +241,11 @@ function StatCard({ label, value, tone = "default" }) {
             if (tone === "info") return "rgba(3, 169, 244, 0.16)";
             return "rgba(255,255,255,0.05)";
           } else {
-            if (tone === "default") return "grey.50";
+            if (tone === "default") return "grey.100";
             if (tone === "success") return "success.light";
             if (tone === "warning") return "warning.light";
             if (tone === "info") return "info.light";
-            return "grey.50";
+            return "grey.100";
           }
         },
         color: (theme) => {
@@ -259,27 +260,15 @@ function StatCard({ label, value, tone = "default" }) {
             return `${tone}.dark`;
           }
         },
-        borderColor: (theme) => {
-          if (theme.palette.mode === "dark") {
-            if (tone === "default") return "rgba(255,255,255,0.12)";
-            if (tone === "success") return "rgba(76, 175, 80, 0.4)";
-            if (tone === "warning") return "rgba(255, 152, 0, 0.4)";
-            if (tone === "info") return "rgba(3, 169, 244, 0.4)";
-            return "rgba(255,255,255,0.12)";
-          } else {
-            if (tone === "default") return "grey.300";
-            return `${tone}.main`;
-          }
-        },
       }}
     >
-      <Typography variant="caption" sx={{ fontWeight: 600, opacity: 0.8 }}>
-        {label}
+      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+        {label}:
       </Typography>
-      <Typography variant="h6" fontWeight={800} sx={{ mt: -0.25 }}>
+      <Typography variant="subtitle2" fontWeight={800}>
         {value}
       </Typography>
-    </Paper>
+    </Stack>
   );
 }
 
@@ -785,35 +774,15 @@ export default function TournamentCourtClusterDialog({
 
         <Box sx={{ pt: 2 }}>
           <Stack spacing={2}>
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
-              <Stack spacing={1.5}>
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={1.5}
-                  justifyContent="space-between"
-                  alignItems={{ xs: "stretch", md: "flex-start" }}
-                >
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="subtitle1" fontWeight={800}>
-                      Cụm sân được phép dùng
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Mỗi giải chỉ chọn 1 cụm sân.
-                    </Typography>
-                  </Box>
-                  <Button
-                    variant="contained"
-                    onClick={saveAllowedCluster}
-                    disabled={!tournamentId || savingAllowed || !isClusterDirty}
-                  >
-                    {savingAllowed
-                      ? "Đang lưu..."
-                      : !isClusterDirty && selectedAllowedId
-                        ? "Đã lưu cụm này"
-                        : "Lưu cụm sân"}
-                  </Button>
-                </Stack>
-
+            <Paper elevation={0} sx={{ p: 1.5, borderRadius: 2, bgcolor: "action.hover" }}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={2}
+                alignItems={{ xs: "stretch", md: "center" }}
+              >
+                <Typography variant="body2" fontWeight={700} sx={{ whiteSpace: "nowrap" }}>
+                  Cụm sân giải đấu:
+                </Typography>
                 <Autocomplete
                   componentsProps={{ popper: { style: { zIndex: 1400 } } }}
                   options={clusterOptions}
@@ -836,11 +805,25 @@ export default function TournamentCourtClusterDialog({
                   renderInput={(params) => (
                     <TextField
                       {...params}
-                      label="Chọn cụm sân"
-                      placeholder="Tìm cụm sân"
+                      size="small"
+                      placeholder="Chọn cụm sân..."
+                      sx={{ bgcolor: "background.paper", borderRadius: 1 }}
                     />
                   )}
+                  sx={{ flex: 1, minWidth: 200 }}
                 />
+                <Button
+                  variant="contained"
+                  onClick={saveAllowedCluster}
+                  disabled={!tournamentId || savingAllowed || !isClusterDirty}
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  {savingAllowed
+                    ? "Đang lưu..."
+                    : !isClusterDirty && selectedAllowedId
+                      ? "Đã lưu cụm này"
+                      : "Lưu cụm sân"}
+                </Button>
               </Stack>
             </Paper>
 
@@ -1131,39 +1114,67 @@ export default function TournamentCourtClusterDialog({
                                   </Stack>
 
                                   {station?.currentMatch ? (
-                                    <Box>
-                                      <Typography
-                                        variant="body2"
-                                        fontWeight={700}
-                                      >
-                                        {teamLine(station.currentMatch)}
-                                      </Typography>
-                                      <Typography
-                                        variant="body2"
-                                        color="text.secondary"
-                                      >
-                                        {station?.currentMatch?.tournament
-                                          ?.name || "—"}{" "}
-                                        · {matchCode(station.currentMatch)}
-                                      </Typography>
-                                    </Box>
+                                    <Paper
+                                      variant="outlined"
+                                      sx={{
+                                        p: 1.25,
+                                        mt: 0.5,
+                                        borderRadius: 2,
+                                        borderColor: "warning.light",
+                                        bgcolor: (theme) =>
+                                          theme.palette.mode === "dark"
+                                            ? "rgba(255, 152, 0, 0.08)"
+                                            : "warning.50",
+                                      }}
+                                    >
+                                      <Stack spacing={0.75}>
+                                        <Stack
+                                          direction="row"
+                                          spacing={1}
+                                          justifyContent="space-between"
+                                          alignItems="flex-start"
+                                        >
+                                          <Typography variant="body2" fontWeight={700}>
+                                            <Typography
+                                              component="span"
+                                              variant="caption"
+                                              color="text.secondary"
+                                              sx={{ display: "block", mb: 0.25 }}
+                                            >
+                                              {station?.currentMatch?.tournament?.name || "—"}
+                                            </Typography>
+                                            {matchCode(station.currentMatch)}
+                                          </Typography>
+                                          <Chip size="small" color="warning" label="Hiện tại" sx={{ fontWeight: 600 }} />
+                                        </Stack>
+                                        <Typography variant="body2" color="text.primary" fontWeight={600}>
+                                          {teamLine(station.currentMatch)}
+                                        </Typography>
+                                        {occupiedByAnotherTournament && (
+                                          <Typography variant="caption" color="error.main" sx={{ mt: 0.5 }}>
+                                            Sân này đang thuộc giải khác. Chỉ admin mới được can thiệp.
+                                          </Typography>
+                                        )}
+                                      </Stack>
+                                    </Paper>
                                   ) : (
-                                    <Typography
-                                      variant="body2"
-                                      color="text.secondary"
+                                    <Paper
+                                      variant="outlined"
+                                      sx={{
+                                        p: 1.25,
+                                        mt: 0.5,
+                                        borderRadius: 2,
+                                        borderStyle: "dashed",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        bgcolor: "action.hover"
+                                      }}
                                     >
-                                      Sân đang trống.
-                                    </Typography>
-                                  )}
-
-                                  {occupiedByAnotherTournament && (
-                                    <Typography
-                                      variant="caption"
-                                      color="warning.main"
-                                    >
-                                      Sân này đang thuộc giải khác. Chỉ admin
-                                      mới được can thiệp.
-                                    </Typography>
+                                      <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                                        Sân đang trống.
+                                      </Typography>
+                                    </Paper>
                                   )}
                                 </Stack>
 
@@ -1175,11 +1186,11 @@ export default function TournamentCourtClusterDialog({
                                   <TextField
                                     select
                                     size="small"
-                                    label="Chế độ gán sân"
                                     disabled={clusterInteractionDisabled}
                                     SelectProps={{
                                       MenuProps: { sx: { zIndex: 1400 } },
                                     }}
+                                    sx={{ bgcolor: "background.paper", borderRadius: 1 }}
                                     value={assignmentMode}
                                     onChange={(event) => {
                                       addBusinessBreadcrumb(
@@ -1241,12 +1252,11 @@ export default function TournamentCourtClusterDialog({
                               </Stack>
 
                               {assignmentMode === "queue" ? (
-                                <Paper
-                                  variant="outlined"
+                                <Box
                                   sx={{
                                     p: 1.5,
                                     borderRadius: 2,
-                                    bgcolor: "background.default",
+                                    bgcolor: "action.hover",
                                   }}
                                 >
                                   <Stack spacing={1.25}>
@@ -1333,8 +1343,8 @@ export default function TournamentCourtClusterDialog({
                                         <TextField
                                           {...params}
                                           size="small"
-                                          label="Thêm trận vào danh sách"
-                                          placeholder="Chọn một hoặc nhiều trận"
+                                          placeholder="Tìm và thêm trận chờ vào danh sách sân..."
+                                          sx={{ bgcolor: "background.paper", "& .MuiOutlinedInput-root": { borderRadius: 1.5 } }}
                                         />
                                       )}
                                       renderOption={(
@@ -1853,21 +1863,21 @@ export default function TournamentCourtClusterDialog({
                                       </DndContext>
                                     )}
                                   </Stack>
-                                </Paper>
+                                </Box>
                               ) : (
-                                <Paper
-                                  variant="outlined"
+                                <Box
                                   sx={{
                                     p: 1.5,
                                     borderRadius: 2,
-                                    bgcolor: "background.default",
+                                    bgcolor: "action.hover",
                                   }}
                                 >
                                   <Chip
                                     size="small"
+                                    variant="outlined"
                                     label="Sân sẽ chờ người vận hành gán trận như hiện tại"
                                   />
-                                </Paper>
+                                </Box>
                               )}
                             </Stack>
                           </Paper>

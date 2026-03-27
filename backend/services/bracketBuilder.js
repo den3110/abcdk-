@@ -1,4 +1,5 @@
 // services/bracketBuilder.js
+import mongoose from "mongoose";
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 
@@ -30,6 +31,81 @@ function sanitizeRules(r) {
     : DEFAULT_RULES.pointsToWin;
   const w2 = !!r.winByTwo;
   return { bestOf: bo, pointsToWin: pt, winByTwo: w2 };
+}
+
+function toObjectIdString(value) {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return mongoose.isValidObjectId(trimmed) ? trimmed : "";
+  }
+
+  if (mongoose.isValidObjectId(value)) {
+    return String(value);
+  }
+
+  if (value && typeof value === "object") {
+    const nested =
+      value._id ?? value.id ?? value.registration ?? value.reg ?? value.value ?? null;
+    if (nested && nested !== value) return toObjectIdString(nested);
+  }
+
+  return "";
+}
+
+function sanitizeSeedSource(seed, fallback = null) {
+  if (!seed?.type) return fallback;
+
+  const type = String(seed.type);
+  const label = String(seed.label || "");
+  const ref = seed?.ref && typeof seed.ref === "object" ? seed.ref : {};
+
+  if (type === "bye") {
+    return { type: "bye", ref: null, label: label || "BYE" };
+  }
+
+  if (type === "registration") {
+    const registration = toObjectIdString(
+      ref.registration ?? ref.reg ?? seed.registration ?? seed.reg
+    );
+    return {
+      type,
+      ref: registration ? { registration } : {},
+      label,
+    };
+  }
+
+  if (type === "groupRank") {
+    return {
+      type,
+      ref: {
+        stage: Number(ref.stage ?? ref.stageIndex ?? 1) || 1,
+        groupCode: ref.groupCode ? String(ref.groupCode) : "",
+        rank: Number(ref.rank ?? ref.place ?? 0) || 0,
+        wildcardOrder: Number(ref.wildcardOrder ?? ref.pick ?? ref.index ?? 0) || 0,
+      },
+      label,
+    };
+  }
+
+  if (type === "stageMatchWinner" || type === "stageMatchLoser") {
+    return {
+      type,
+      ref: {
+        stageIndex: Number(ref.stageIndex ?? ref.stage ?? 0) || 0,
+        round: Number(ref.round ?? 0) || 0,
+        order: Number(ref.order ?? 0) || 0,
+      },
+      label,
+    };
+  }
+
+  return {
+    type,
+    ref,
+    label,
+  };
 }
 
 /* ====================== KO Builder (2^n) ====================== */
@@ -125,8 +201,10 @@ export async function buildKnockoutBracket({
   // Chuẩn hoá seeds cho R1: thiếu -> BYE
   const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
     const found = firstRoundSeeds.find((s) => Number(s.pair) === i + 1);
-    const A = found?.A && found.A.type ? found.A : SEED_BYE;
-    const B = found?.B && found.B.type ? found.B : SEED_BYE;
+    const A =
+      found?.A && found.A.type ? sanitizeSeedSource(found.A, SEED_BYE) || SEED_BYE : SEED_BYE;
+    const B =
+      found?.B && found.B.type ? sanitizeSeedSource(found.B, SEED_BYE) || SEED_BYE : SEED_BYE;
     return { pair: i + 1, A, B };
   });
 
@@ -319,11 +397,11 @@ export async function buildRoundElimBracket({
     const idxB = i * 2 + 2;
     const A =
       found.A && found.A.type
-        ? found.A
+        ? sanitizeSeedSource(found.A, { type: "registration", ref: {}, label: `Đội ${idxA}` })
         : { type: "registration", ref: {}, label: `Đội ${idxA}` };
     const B =
       found.B && found.B.type
-        ? found.B
+        ? sanitizeSeedSource(found.B, idxB <= N ? { type: "registration", ref: {}, label: `Đội ${idxB}` } : SEED_BYE)
         : idxB <= N
         ? { type: "registration", ref: {}, label: `Đội ${idxB}` }
         : SEED_BYE;

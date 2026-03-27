@@ -1127,6 +1127,11 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   }
 
   normalizeIncomingPaymentConfig(incoming);
+  if (Object.prototype.hasOwnProperty.call(incoming, "allowedCourtClusterIds")) {
+    incoming.allowedCourtClusterIds = normalizeAllowedCourtClusterIds(
+      incoming.allowedCourtClusterIds
+    );
+  }
   if (
     Object.prototype.hasOwnProperty.call(incoming, "tournamentMode") ||
     Object.prototype.hasOwnProperty.call(incoming, "teamConfig")
@@ -2310,6 +2315,14 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
 
     p.rules = normalizePlanRule(p.rules);
     p.roundRules = normalizePlanRoundRules(p.roundRules, p.rules, maxRounds);
+    const normalizedPo = normalizeBlueprintPlan({ po: p }).po;
+    if (normalizedPo) {
+      p.drawSize = normalizedPo.drawSize;
+      p.maxRounds = normalizedPo.maxRounds;
+      p.seeds = normalizedPo.seeds;
+      p.rules = normalizedPo.rules;
+      p.roundRules = normalizedPo.roundRules;
+    }
 
     nextPlan.po = p;
   }
@@ -2342,6 +2355,17 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
     } else if (k.thirdPlaceEnabled) {
       // nếu bật mà không gửi rule riêng -> để undefined, BE/builder có thể fallback về ko.finalRules hoặc ko.rules
       k.thirdPlaceRules = undefined;
+    }
+
+    const normalizedKo = normalizeBlueprintPlan({ ko: k }).ko;
+    if (normalizedKo) {
+      k.drawSize = normalizedKo.drawSize;
+      k.seeds = normalizedKo.seeds;
+      k.rules = normalizedKo.rules;
+      k.semiRules = normalizedKo.semiRules;
+      k.finalRules = normalizedKo.finalRules;
+      k.thirdPlaceEnabled = normalizedKo.thirdPlaceEnabled;
+      k.thirdPlaceRules = normalizedKo.thirdPlaceRules;
     }
 
     nextPlan.ko = k;

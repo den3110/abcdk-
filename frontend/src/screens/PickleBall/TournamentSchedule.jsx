@@ -336,13 +336,13 @@ const LiveMatchCard = ({
       onClick={() => onOpen(m._id)}
       sx={{
         p: 1.5,
-        bgcolor: "success.50",
+        bgcolor: "warning.50",
         border: "1px solid",
-        borderColor: "success.200",
+        borderColor: "warning.200",
         borderRadius: 2,
         cursor: "pointer",
         transition: "all 0.2s",
-        "&:hover": { boxShadow: 2, borderColor: "success.main" },
+        "&:hover": { boxShadow: 2, borderColor: "warning.main" },
         width: "100%",
         boxSizing: "border-box",
       }}
@@ -355,10 +355,17 @@ const LiveMatchCard = ({
       >
         <Chip
           label={t("tournaments.schedule.liveChip")}
-          color="success"
           size="small"
           icon={<PlayCircleOutlineIcon />}
-          sx={{ fontWeight: 700, height: 20, fontSize: "0.7rem", px: 0.5 }}
+          sx={{ 
+            bgcolor: "#f57c00", 
+            color: "#fff", 
+            fontWeight: 700, 
+            height: 20, 
+            fontSize: "0.7rem", 
+            px: 0.5,
+            "& .MuiChip-icon": { color: "#fff" }
+          }}
         />
         <Typography
           variant="caption"
@@ -378,11 +385,11 @@ const LiveMatchCard = ({
             name={teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
           />
         </Box>
-        <Divider sx={{ borderStyle: "dashed", borderColor: "success.300" }} />
+        <Divider sx={{ borderStyle: "dashed", borderColor: "warning.300" }} />
         <Typography
           variant="h6"
           align="center"
-          color="success.800"
+          color="warning.800"
           fontWeight={800}
         >
           {scoreText(m) || t("tournaments.schedule.match.scoreFallback")}
@@ -712,15 +719,35 @@ function MatchListItem({
 }) {
   const { t } = useLanguage();
   const theme = useTheme();
+  
   const finished = isFinished(m);
   const live = isLive(m);
+  const assigned = String(m?.status || "").toLowerCase() === "assigned";
+  
   const teamFallback = t("tournaments.schedule.match.pendingTeam");
-  const borderColor = live ? "success.main" : "divider";
+  
+  // Custom precise color logic fulfilling "live=orange, finish=green, assigned=yellow, pending=grey"
+  const isDark = theme.palette.mode === "dark";
+  const borderColor = live ? "#f57c00" : finished ? "success.main" : assigned ? "#fbc02d" : "divider";
+  
   const bgColor = live
-    ? theme.palette.mode === "dark"
-      ? "rgba(34, 197, 94, 0.1)"
-      : "#f0fdf4"
-    : "background.paper";
+    ? isDark ? "rgba(245, 124, 0, 0.1)" : "#fff3e0"
+    : assigned
+      ? isDark ? "rgba(251, 192, 45, 0.1)" : "#fffde7"
+      : finished
+        ? isDark ? "rgba(76, 175, 80, 0.05)" : "#f1f8e9"
+      : "background.paper";
+
+  const headColor = live
+    ? isDark ? "rgba(245, 124, 0, 0.2)" : "#ffe0b2"
+    : assigned
+      ? isDark ? "rgba(251, 192, 45, 0.15)" : "#fff9c4"
+      : finished
+        ? isDark ? "rgba(76, 175, 80, 0.15)" : "#dcedc8"
+      : "action.hover";
+
+  const headBorderColor = live ? "warning.200" : finished ? "success.200" : assigned ? "#ffeb3b" : "divider";
+  const highlightTextColor = live ? "#f57c00" : finished ? "success.main" : assigned ? "#fbc02d" : "text.secondary";
 
   return (
     <Paper
@@ -738,7 +765,7 @@ function MatchListItem({
         "&:hover": {
           transform: "translateY(-2px)",
           boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-          borderColor: live ? "success.main" : "primary.main",
+          borderColor: live ? "#e65100" : finished ? "success.dark" : assigned ? "#f9a825" : "primary.main",
         },
       }}
     >
@@ -746,9 +773,9 @@ function MatchListItem({
         sx={{
           px: 2,
           py: 0.75,
-          bgcolor: live ? "success.100" : "action.hover",
+          bgcolor: headColor,
           borderBottom: "1px solid",
-          borderColor: live ? "success.200" : "divider",
+          borderColor: headBorderColor,
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -775,7 +802,7 @@ function MatchListItem({
           <Typography
             variant="caption"
             fontWeight={600}
-            sx={{ color: live ? "success.700" : "text.secondary" }}
+            sx={{ color: live ? "#f57c00" : finished ? "success.700" : assigned ? "#f57f17" : "text.secondary" }}
           >
             {courtNameOf(m, t("tournaments.schedule.court.unassigned"))}
           </Typography>
@@ -816,15 +843,15 @@ function MatchListItem({
                 label={
                   scoreText(m) || t("tournaments.schedule.match.scoreFallback")
                 }
-                color={live ? "success" : "default"}
                 variant={live ? "filled" : "outlined"}
                 sx={{
+                  bgcolor: live ? "#f57c00" : undefined,
+                  color: live ? "#fff" : finished ? "success.main" : "text.disabled",
+                  borderColor: finished ? "success.main" : "divider",
                   fontWeight: 800,
                   fontSize: "1rem",
                   height: 32,
                   px: 1,
-                  borderColor: finished ? "text.disabled" : undefined,
-                  color: finished ? "text.primary" : undefined,
                 }}
               />
             ) : (
@@ -851,17 +878,19 @@ function MatchListItem({
               variant="caption"
               sx={{
                 mt: 0.5,
-                color: live ? "success.main" : "text.disabled",
+                color: highlightTextColor,
                 fontWeight: 600,
                 fontSize: "0.65rem",
                 textTransform: "uppercase",
               }}
             >
               {live
-                ? t("tournaments.schedule.match.status.live")
+                ? t("tournaments.schedule.match.status.live", { defaultValue: "Đang diễn ra" })
                 : finished
-                  ? t("tournaments.schedule.match.status.finished")
-                  : t("tournaments.schedule.match.status.pending")}
+                  ? t("tournaments.schedule.match.status.finished", { defaultValue: "Đã diễn ra" })
+                  : assigned
+                    ? t("tournaments.schedule.match.status.assigned", { defaultValue: "Đã gán sân" })
+                    : t("tournaments.schedule.match.status.pending", { defaultValue: "Chưa diễn ra" })}
             </Typography>
           </Box>
           <Box

@@ -285,7 +285,7 @@ export function buildRecordingServer2State(recording) {
     }
   }
 
-  const finalPlaybackUrl =
+  const candidateFinalPlaybackUrl =
     asTrimmed(recording?.meta?.livePlayback?.finalPlaybackUrl) ||
     pickFinalServer2Url(recording);
   const uploadedSegments = normalizeUploadedSegments(recording);
@@ -296,11 +296,12 @@ export function buildRecordingServer2State(recording) {
     uploadedSegments.length > 0 &&
     uploadedDurationSeconds >= delaySeconds;
   const finalReady =
-    Boolean(finalPlaybackUrl) &&
+    Boolean(candidateFinalPlaybackUrl) &&
     (recording?.status === "ready" ||
       Boolean(recording?.driveFileId) ||
       Boolean(recording?.driveRawUrl) ||
       Boolean(recording?.drivePreviewUrl));
+  const finalPlaybackUrl = finalReady ? candidateFinalPlaybackUrl : "";
 
   if (!finalReady && !multiSourceEnabled) {
     return null;

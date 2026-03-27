@@ -1,6 +1,29 @@
 // models/seedSourceSchema.js
 import mongoose from "mongoose";
 
+const normalizeObjectIdInput = (value) => {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return mongoose.isValidObjectId(trimmed) ? trimmed : null;
+  }
+
+  if (mongoose.isValidObjectId(value)) {
+    return value;
+  }
+
+  if (value && typeof value === "object") {
+    const nested =
+      value._id ?? value.id ?? value.registration ?? value.reg ?? value.matchId ?? null;
+    if (nested && nested !== value) {
+      return normalizeObjectIdInput(nested);
+    }
+  }
+
+  return null;
+};
+
 const seedSourceSchema = new mongoose.Schema(
   {
     type: {
@@ -33,14 +56,19 @@ const seedSourceSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
         ref: "Match",
         default: null,
+        set: normalizeObjectIdInput,
       },
       registration: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Registration",
         default: null,
+        set: normalizeObjectIdInput,
       },
       group: {
-        id: { type: mongoose.Schema.Types.ObjectId }, // id trong bracket.groups._id
+        id: {
+          type: mongoose.Schema.Types.ObjectId,
+          set: normalizeObjectIdInput,
+        }, // id trong bracket.groups._id
         name: { type: String }, // "A","B",...
       },
       rank: { type: Number }, // 1,2,3,..

@@ -100,18 +100,18 @@ const statusChip = (st, tFn) => {
     },
     queued: {
       label: tFn("tournaments.overview.status.queued"),
-      bg: "#e3f2fd",
-      text: "#0277bd",
+      bg: "#f5f5f5",
+      text: "#757575",
     },
     assigned: {
       label: tFn("tournaments.overview.status.assigned"),
-      bg: "#f3e5f5",
-      text: "#7b1fa2",
+      bg: "#fffde7",
+      text: "#fbc02d",
     },
     live: {
       label: tFn("tournaments.overview.status.live"),
-      bg: "#fff3e0",
-      text: "#ef6c00",
+      bg: "#f57c00",
+      text: "#ffffff",
     },
     finished: {
       label: tFn("tournaments.overview.status.finished"),

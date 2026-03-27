@@ -201,9 +201,9 @@ const getManageStatusMeta = (t, status) => {
       color: "default",
       label: t("tournaments.overview.status.scheduled"),
     },
-    queued: { color: "info", label: t("tournaments.overview.status.queued") },
+    queued: { color: "default", label: t("tournaments.overview.status.queued") },
     assigned: {
-      color: "secondary",
+      color: "warning",
       label: t("tournaments.overview.status.assigned"),
     },
     live: { color: "warning", label: t("tournaments.overview.status.live") },
@@ -217,6 +217,27 @@ const getManageStatusMeta = (t, status) => {
 
 const statusChipLocalized = (t, status) => {
   const meta = getManageStatusMeta(t, status);
+  const rawStatus = String(status || "").toLowerCase();
+
+  if (["live", "ongoing", "playing", "inprogress"].includes(rawStatus)) {
+    return (
+      <Chip
+        size="small"
+        label={meta.label}
+        sx={{ bgcolor: "#f57c00", color: "#fff", fontWeight: 600 }}
+      />
+    );
+  }
+  if (rawStatus === "assigned") {
+    return (
+      <Chip
+        size="small"
+        label={meta.label}
+        sx={{ bgcolor: "#fbc02d", color: "#000", fontWeight: 600 }}
+      />
+    );
+  }
+
   return <Chip size="small" color={meta.color} label={meta.label} />;
 };
 
@@ -384,6 +405,15 @@ const statusChip = (st) => {
     color: "default",
     label: st || "—",
   };
+  if (v.color === "warning") {
+    return (
+      <Chip
+        size="small"
+        label={v.label}
+        sx={{ bgcolor: "#f57c00", color: "#fff", fontWeight: 600 }}
+      />
+    );
+  }
   return <Chip size="small" color={v.color} label={v.label} />;
 };
 
