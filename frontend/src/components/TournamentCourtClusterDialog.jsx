@@ -27,6 +27,7 @@ import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import {
   useFreeTournamentCourtStationMutation,
+  useGetAdminCourtClusterRuntimeQuery,
   useGetTournamentCourtClusterOptionsQuery,
   useGetTournamentCourtClusterRuntimeQuery,
   useUpdateTournamentAllowedCourtClustersMutation,
@@ -219,6 +220,7 @@ function SortableQueueItem({ id, disabled, children }) {
 SortableQueueItem.propTypes = {
   id: PropTypes.string.isRequired,
   children: PropTypes.func.isRequired,
+  disabled: PropTypes.bool,
 };
 
 function StatCard({ label, value, tone = "default" }) {
@@ -353,19 +355,51 @@ export default function TournamentCourtClusterDialog({
     if (open) setSelectedAllowedId(initialAllowedId);
   }, [initialAllowedId, open]);
 
+  const isPreviewingUnsavedCluster =
+    Boolean(selectedAllowedId) && selectedAllowedId !== initialAllowedId;
+
   const {
-    data: runtime,
-    isLoading: isLoadingRuntime,
-    isFetching: isFetchingRuntime,
-    error: runtimeError,
-    refetch,
+    data: tournamentRuntime,
+    isLoading: isLoadingTournamentRuntime,
+    isFetching: isFetchingTournamentRuntime,
+    error: tournamentRuntimeError,
+    refetch: refetchTournamentRuntime,
   } = useGetTournamentCourtClusterRuntimeQuery(
     { tournamentId, clusterId: selectedAllowedId },
     {
-      skip: !open || !tournamentId || !selectedAllowedId,
+      skip:
+        !open ||
+        !tournamentId ||
+        !selectedAllowedId ||
+        isPreviewingUnsavedCluster,
       refetchOnMountOrArgChange: true,
     },
   );
+
+  const {
+    data: previewRuntime,
+    isLoading: isLoadingPreviewRuntime,
+    isFetching: isFetchingPreviewRuntime,
+    error: previewRuntimeError,
+    refetch: refetchPreviewRuntime,
+  } = useGetAdminCourtClusterRuntimeQuery(selectedAllowedId, {
+    skip: !open || !selectedAllowedId || !isPreviewingUnsavedCluster,
+    refetchOnMountOrArgChange: true,
+  });
+
+  const runtime = isPreviewingUnsavedCluster ? previewRuntime : tournamentRuntime;
+  const isLoadingRuntime = isPreviewingUnsavedCluster
+    ? isLoadingPreviewRuntime
+    : isLoadingTournamentRuntime;
+  const isFetchingRuntime = isPreviewingUnsavedCluster
+    ? isFetchingPreviewRuntime
+    : isFetchingTournamentRuntime;
+  const runtimeError = isPreviewingUnsavedCluster
+    ? previewRuntimeError
+    : tournamentRuntimeError;
+  const refetchRuntime = isPreviewingUnsavedCluster
+    ? refetchPreviewRuntime
+    : refetchTournamentRuntime;
 
   useSocketRoomSet(socket, selectedAllowedId ? [selectedAllowedId] : [], {
     subscribeEvent: "court-cluster:watch",
@@ -390,7 +424,7 @@ export default function TournamentCourtClusterDialog({
     const handleClusterUpdate = (payload) => {
       const payloadClusterId = sid(payload?.cluster?._id || payload?.clusterId);
       if (payloadClusterId === selectedAllowedId) {
-        refetch();
+        refetchRuntime();
       }
     };
 
@@ -401,7 +435,7 @@ export default function TournamentCourtClusterDialog({
           payload?.station?.clusterId,
       );
       if (payloadClusterId === selectedAllowedId) {
-        refetch();
+        refetchRuntime();
       }
     };
 
@@ -411,7 +445,7 @@ export default function TournamentCourtClusterDialog({
       socket.off("court-cluster:update", handleClusterUpdate);
       socket.off("court-station:update", handleStationUpdate);
     };
-  }, [open, refetch, selectedAllowedId, socket]);
+  }, [open, refetchRuntime, selectedAllowedId, socket]);
 
   useEffect(() => {
     if (!runtime?.stations) {
@@ -502,6 +536,7 @@ export default function TournamentCourtClusterDialog({
   const sharedTournaments = Array.isArray(runtime?.sharedTournaments)
     ? runtime.sharedTournaments
     : [];
+  const clusterInteractionDisabled = isPreviewingUnsavedCluster;
 
   const setDraft = (stationId, patch, { markDirty = true } = {}) => {
     setStationDrafts((current) => {
@@ -663,7 +698,7 @@ export default function TournamentCourtClusterDialog({
           dirty: false,
         },
       }));
-      await refetch();
+      await refetchRuntime();
       onUpdated?.();
     } catch (error) {
       toast.error(
@@ -680,7 +715,7 @@ export default function TournamentCourtClusterDialog({
     });
     try {
       await freeStation({ tournamentId, stationId }).unwrap();
-      await refetch();
+      await refetchRuntime();
       onUpdated?.();
     } catch (error) {
       toast.error(
@@ -885,6 +920,14 @@ export default function TournamentCourtClusterDialog({
                   </Stack>
 
                   <Divider />
+
+                  {isPreviewingUnsavedCluster && (
+                    <Alert severity="info">
+                      Đang xem trước thông tin của cụm sân này. Bấm{" "}
+                      <strong>Lưu cụm sân</strong> để áp dụng cho giải và bật
+                      các thao tác gán sân.
+                    </Alert>
+                  )}
 
                   {Boolean(runtimeError) && Boolean(runtime) && (
                     <Alert severity="warning">
@@ -1133,6 +1176,7 @@ export default function TournamentCourtClusterDialog({
                                     select
                                     size="small"
                                     label="Chế độ gán sân"
+                                    disabled={clusterInteractionDisabled}
                                     SelectProps={{
                                       MenuProps: { sx: { zIndex: 1400 } },
                                     }}
@@ -1169,6 +1213,7 @@ export default function TournamentCourtClusterDialog({
                                         variant="outlined"
                                         color="warning"
                                         disabled={
+                                          clusterInteractionDisabled ||
                                           freeing ||
                                           (!canOverride &&
                                             occupiedByAnotherTournament)
@@ -1182,7 +1227,11 @@ export default function TournamentCourtClusterDialog({
                                     )}
                                     <Button
                                       variant="contained"
-                                      disabled={savingConfig || !draft.dirty}
+                                      disabled={
+                                        clusterInteractionDisabled ||
+                                        savingConfig ||
+                                        !draft.dirty
+                                      }
                                       onClick={() => saveStationConfig(station)}
                                     >
                                       Lưu cấu hình
@@ -1249,6 +1298,7 @@ export default function TournamentCourtClusterDialog({
                                         popper: { style: { zIndex: 1400 } },
                                       }}
                                       multiple
+                                      disabled={clusterInteractionDisabled}
                                       disableCloseOnSelect
                                       options={selectorOptions}
                                       value={selectedPickerMatches}
@@ -1573,7 +1623,10 @@ export default function TournamentCourtClusterDialog({
                                       </Typography>
                                       <Button
                                         variant="outlined"
-                                        disabled={!draft.pickerMatchIds.length}
+                                        disabled={
+                                          clusterInteractionDisabled ||
+                                          !draft.pickerMatchIds.length
+                                        }
                                         onClick={() =>
                                           addQueueMatches(stationId)
                                         }
@@ -1593,6 +1646,7 @@ export default function TournamentCourtClusterDialog({
                                         sensors={dndSensors}
                                         collisionDetection={closestCenter}
                                         onDragEnd={({ active, over }) => {
+                                          if (clusterInteractionDisabled) return;
                                           if (
                                             !active?.id ||
                                             !over?.id ||
@@ -1644,11 +1698,12 @@ export default function TournamentCourtClusterDialog({
                                               (match, index) => {
                                                 const matchId = sid(match?._id);
                                                 const canManageThisMatch =
-                                                  canOverride ||
-                                                  sid(
-                                                    match?.tournament?._id ||
-                                                      match?.tournamentId,
-                                                  ) === tournamentId;
+                                                  !clusterInteractionDisabled &&
+                                                  (canOverride ||
+                                                    sid(
+                                                      match?.tournament?._id ||
+                                                        match?.tournamentId,
+                                                    ) === tournamentId);
                                                 return (
                                                   <SortableQueueItem
                                                     key={matchId}

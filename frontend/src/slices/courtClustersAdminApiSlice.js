@@ -112,6 +112,17 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
         { type: "CourtClusterRuntime", id: clusterId },
       ],
     }),
+    updateAdminCourtStation: builder.mutation({
+      query: ({ clusterId, stationId, ...body }) => ({
+        url: `/api/admin/court-clusters/${clusterId}/courts/${stationId}`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: (result, error, { clusterId, stationId }) => [
+        { type: "CourtClusterRuntime", id: clusterId },
+        { type: "CourtClusterRuntime", id: stationId },
+      ],
+    }),
     assignMatchToCourtStation: builder.mutation({
       query: ({ stationId, matchId }) => ({
         url: `/api/admin/court-stations/${stationId}/assign-match`,
@@ -139,6 +150,7 @@ export const {
   useRemoveTournamentCourtStationQueueItemMutation,
   useFreeTournamentCourtStationMutation,
   useGetAdminCourtClusterRuntimeQuery,
+  useUpdateAdminCourtStationMutation,
   useAssignMatchToCourtStationMutation,
   useFreeCourtStationMutation,
 } = courtClustersAdminApiSlice;
