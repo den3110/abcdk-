@@ -646,44 +646,44 @@ function mergeRenderableStreams(existing, incoming) {
     return `idx:${index}`;
   };
 
-  // Build a Map from incoming data (keyed by identity)
-  const nextByKey = new Map();
-  next.forEach((item, index) => {
-    nextByKey.set(makeKey(item, index), item);
-  });
-
-  // Start from existing — merge incoming data into matching items
-  const merged = new Map();
-  const usedKeys = new Set();
-
-  // 1. Keep all existing items, updating them with incoming data if available
+  const previousByKey = new Map();
   current.forEach((item, index) => {
+    previousByKey.set(makeKey(item, index), item);
+  });
+
+  // Primary pass: map incoming items, merging with matching existing items
+  const result = next.map((item, index) => {
     const key = makeKey(item, index);
-    const update = nextByKey.get(key);
-    if (update && typeof update === "object") {
-      merged.set(key, {
-        ...item,
-        ...update,
-        meta:
-          item?.meta || update?.meta
-            ? { ...(item?.meta || {}), ...(update?.meta || {}) }
-            : undefined,
-      });
-      usedKeys.add(key);
-    } else {
-      merged.set(key, item);
+    const previous = previousByKey.get(key);
+    return previous && item && typeof item === "object"
+      ? {
+          ...previous,
+          ...item,
+          meta:
+            previous?.meta || item?.meta
+              ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
+              : undefined,
+        }
+      : item;
+  });
+
+  // Second pass: append any existing items whose identity-based key
+  // is NOT present in the incoming array (prevents tabs from vanishing
+  // when data arrives in stages — e.g. facebookLive.watch_url loads late)
+  const nextIdentityKeys = new Set();
+  next.forEach((item) => {
+    const identity = getStreamIdentity(item);
+    if (identity) nextIdentityKeys.add(identity);
+  });
+
+  current.forEach((item) => {
+    const identity = getStreamIdentity(item);
+    if (identity && !nextIdentityKeys.has(identity)) {
+      result.push(item);
     }
   });
 
-  // 2. Append any NEW items from incoming that weren't already in existing
-  next.forEach((item, index) => {
-    const key = makeKey(item, index);
-    if (!usedKeys.has(key) && !merged.has(key)) {
-      merged.set(key, item);
-    }
-  });
-
-  return Array.from(merged.values());
+  return result;
 }
 
 function stripLocalStreamPatch(patch) {

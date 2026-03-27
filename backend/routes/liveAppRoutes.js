@@ -16,6 +16,7 @@ import {
   getLiveAppCourtStationCurrentMatch,
   listLiveAppCourtClusters,
   listLiveAppCourtStations,
+  listLiveAppTournamentCourtStations,
 } from "../controllers/liveAppClusterController.js";
 
 const router = express.Router();
@@ -24,6 +25,7 @@ router.post("/matches/:matchId/live/create", createLiveSessionForLiveApp);
 router.get("/bootstrap", protect, getLiveAppBootstrap);
 router.get("/clusters", protect, listLiveAppCourtClusters);
 router.get("/clusters/:clusterId/courts", protect, listLiveAppCourtStations);
+router.get("/tournaments/:tournamentId/courts", protect, listLiveAppTournamentCourtStations);
 router.get(
   "/court-stations/:courtStationId/current-match",
   protect,
