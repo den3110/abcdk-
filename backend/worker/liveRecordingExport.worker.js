@@ -5,6 +5,7 @@ import { QueueEvents, Worker } from "bullmq";
 import connectDB from "../config/db.js";
 import { liveRecordingExportConnection, getLiveRecordingExportQueueName } from "../services/liveRecordingV2Queue.service.js";
 import { exportLiveRecordingV2 } from "../services/liveRecordingV2Export.service.js";
+import { loadLiveRecordingStorageTargetsConfig } from "../services/liveRecordingStorageTargetsConfig.service.js";
 import {
   clearLiveRecordingWorkerHeartbeat,
   getLiveRecordingWorkerHeartbeatConfig,
@@ -58,6 +59,12 @@ queueEvents.on("completed", ({ jobId }) => {
 });
 
 await connectDB();
+await loadLiveRecordingStorageTargetsConfig().catch((error) => {
+  console.warn(
+    "[live-recording-export-worker] failed to preload storage targets config:",
+    error?.message || error
+  );
+});
 
 const worker = new Worker(
   QUEUE_NAME,
@@ -71,6 +78,12 @@ const worker = new Worker(
     currentJobStartedAt = new Date().toISOString();
     await heartbeat("busy");
     try {
+      await loadLiveRecordingStorageTargetsConfig().catch((error) => {
+        console.warn(
+          "[live-recording-export-worker] failed to refresh storage targets config before export:",
+          error?.message || error
+        );
+      });
       await exportLiveRecordingV2(recordingId);
       lastCompletedAt = new Date().toISOString();
       lastFailedReason = null;
