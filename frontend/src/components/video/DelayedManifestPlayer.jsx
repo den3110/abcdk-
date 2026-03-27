@@ -4,78 +4,62 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAspectRatio } from "./AspectMediaFrame";
 import NativeVideoPlayer from "./NativeVideoPlayer";
 
-const PREFETCH_WINDOW_SEGMENTS = 10;
+/** Number of segments per batch (~2s per segment → ~20s per batch). */
+const BATCH_SIZE = 10;
+
+/** How many batches to fetch ahead of the currently playing batch. */
+const PREFETCH_AHEAD_BATCHES = 2;
+
+/* ────────────────────────── manifest helpers ────────────────────────── */
 
 function normalizeManifestItems(manifest) {
   const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
-  const playable = segments
+  return segments
     .map((segment) => ({
-      key: `segment:${segment?.index ?? ""}`,
       url: typeof segment?.url === "string" ? segment.url.trim() : "",
       index: Number(segment?.index ?? -1),
-      durationSeconds: Number(segment?.durationSeconds || 0),
-      kind: "segment",
+      durationSeconds: Number(segment?.durationSeconds || 2),
     }))
     .filter((segment) => segment.url);
+}
 
-  const finalPlaybackUrl =
-    typeof manifest?.finalPlaybackUrl === "string"
-      ? manifest.finalPlaybackUrl.trim()
-      : "";
-
-  if (finalPlaybackUrl) {
-    playable.push({
-      key: "final",
-      url: finalPlaybackUrl,
-      index: Number.MAX_SAFE_INTEGER,
-      durationSeconds: 0,
-      kind: "final",
+/**
+ * Split flat segment array into batches.
+ * Each batch = { startIndex, segments[], totalDuration }
+ */
+function buildBatches(segments) {
+  const batches = [];
+  for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+    const slice = segments.slice(i, i + BATCH_SIZE);
+    batches.push({
+      startIndex: i,
+      segments: slice,
+      totalDuration: slice.reduce((s, seg) => s + seg.durationSeconds, 0),
     });
   }
-
-  return playable;
+  return batches;
 }
 
-function mergeManifestItems(previousItems, incomingItems, currentKey) {
-  const previous = Array.isArray(previousItems) ? previousItems : [];
-  const incoming = Array.isArray(incomingItems) ? incomingItems : [];
-  const byKey = new Map();
-
-  previous.forEach((item) => {
-    if (item?.key) {
-      byKey.set(item.key, item);
-    }
+/**
+ * Fetch all segments in a batch concurrently and return a single blob URL.
+ * Returns { blobUrl, duration } or null on failure.
+ */
+async function fetchBatch(batch, signal) {
+  const fetches = batch.segments.map(async (seg) => {
+    const res = await fetch(seg.url, { cache: "force-cache", signal });
+    if (!res.ok) throw new Error(`Segment HTTP ${res.status}`);
+    return res.arrayBuffer();
   });
-  incoming.forEach((item) => {
-    if (item?.key) {
-      byKey.set(item.key, {
-        ...(byKey.get(item.key) || {}),
-        ...item,
-      });
-    }
-  });
-
-  const currentIndex = previous.findIndex((item) => item?.key === currentKey);
-  const preservedTail = currentIndex > 0 ? previous.slice(currentIndex) : previous;
-  const merged = [];
-  const seen = new Set();
-
-  preservedTail.forEach((item) => {
-    const resolved = byKey.get(item?.key);
-    if (!resolved || seen.has(resolved.key)) return;
-    merged.push(resolved);
-    seen.add(resolved.key);
-  });
-
-  incoming.forEach((item) => {
-    const resolved = byKey.get(item?.key) || item;
-    if (!resolved?.key || seen.has(resolved.key)) return;
-    merged.push(resolved);
-    seen.add(resolved.key);
-  });
-
-  return merged;
+  const buffers = await Promise.all(fetches);
+  if (signal?.aborted) return null;
+  const blob = new Blob(buffers, { type: "video/mp4" });
+  return {
+    blobUrl: URL.createObjectURL(blob),
+    duration: batch.totalDuration,
+  };
 }
+
+/* ────────────────────────── component ────────────────────────── */
 
 export default function DelayedManifestPlayer({
   source,
@@ -84,199 +68,159 @@ export default function DelayedManifestPlayer({
   useNativeControls = false,
   showLiveBadge = true,
 }) {
-  const [items, setItems] = useState([]);
-  const [currentKey, setCurrentKey] = useState("");
-  const [currentPlaybackUrl, setCurrentPlaybackUrl] = useState("");
+  // ─── state ───
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [waitingForNext, setWaitingForNext] = useState(false);
-  const [prefetchedUrls, setPrefetchedUrls] = useState({});
-  const currentKeyRef = useRef("");
-  const waitingForNextRef = useRef(false);
-  const prefetchedUrlsRef = useRef({});
-  const prefetchCacheRef = useRef(new Map());
-  const prefetchControllersRef = useRef(new Map());
 
-  const currentItem = useMemo(() => {
-    if (!items.length) return null;
-    return (
-      items.find((item) => item?.key === currentKey) ||
-      items[0] ||
-      null
-    );
-  }, [currentKey, items]);
+  // All segments from manifest
+  const [allSegments, setAllSegments] = useState([]);
+  // Manifest status ("live" | "final" | …)
+  const [manifestStatus, setManifestStatus] = useState("");
+  // Fetched batch blob URLs:  batchIndex → { blobUrl, duration }
+  const [batchCache, setBatchCache] = useState({});
+  // Currently playing batch index
+  const [activeBatchIdx, setActiveBatchIdx] = useState(0);
+  // Time offset: sum of all previous batches' durations
+  const [timeOffset, setTimeOffset] = useState(0);
 
-  const currentUrl = currentItem?.url || "";
-  const currentItemIndex = useMemo(() => {
-    return items.findIndex((item) => item?.key === currentKey);
-  }, [currentKey, items]);
-  const stagedNextItem = useMemo(() => {
-    if (!items.length) return null;
-    if (currentItemIndex < 0) return items[1] || null;
-    return items[currentItemIndex + 1] || null;
-  }, [currentItemIndex, items]);
-  const stagedNextPlaybackUrl = useMemo(() => {
-    if (!stagedNextItem?.key) return "";
-    return (
-      prefetchedUrls[stagedNextItem.key] ||
-      stagedNextItem.url ||
-      ""
-    );
-  }, [prefetchedUrls, stagedNextItem]);
+  const batchCacheRef = useRef({});
+  const activeBatchIdxRef = useRef(0);
+  const fetchControllersRef = useRef(new Map());
+  const manifestTimerRef = useRef(null);
 
-  useEffect(() => {
-    currentKeyRef.current = currentKey;
-  }, [currentKey]);
+  // ─── derived ───
+  const batches = useMemo(() => buildBatches(allSegments), [allSegments]);
 
-  useEffect(() => {
-    waitingForNextRef.current = waitingForNext;
-  }, [waitingForNext]);
+  const totalDuration = useMemo(
+    () => allSegments.reduce((s, seg) => s + seg.durationSeconds, 0),
+    [allSegments],
+  );
 
-  useEffect(() => {
-    prefetchedUrlsRef.current = prefetchedUrls;
-  }, [prefetchedUrls]);
+  const activeBatch = batches[activeBatchIdx] ?? null;
+  const activeBlobUrl = batchCache[activeBatchIdx]?.blobUrl || "";
 
-  const clearPrefetchResources = useCallback(() => {
-    for (const controller of prefetchControllersRef.current.values()) {
-      controller.abort();
+  // Next batch (for queue-mode staged source)
+  const nextBatchIdx = activeBatchIdx + 1;
+  const nextBlobUrl =
+    nextBatchIdx < batches.length
+      ? batchCache[nextBatchIdx]?.blobUrl || ""
+      : "";
+
+  // Cumulative start time for each batch (for seek mapping)
+  const cumulativeStartTimes = useMemo(() => {
+    const starts = [];
+    let acc = 0;
+    for (const b of batches) {
+      starts.push(acc);
+      acc += b.totalDuration;
     }
-    prefetchControllersRef.current.clear();
-    for (const blobUrl of prefetchCacheRef.current.values()) {
-      URL.revokeObjectURL(blobUrl);
+    return starts;
+  }, [batches]);
+
+  // ─── sync refs ───
+  useEffect(() => {
+    batchCacheRef.current = batchCache;
+  }, [batchCache]);
+  useEffect(() => {
+    activeBatchIdxRef.current = activeBatchIdx;
+  }, [activeBatchIdx]);
+
+  // ─── cleanup all blob URLs ───
+  const cleanupAllBlobs = useCallback(() => {
+    for (const ctrl of fetchControllersRef.current.values()) ctrl.abort();
+    fetchControllersRef.current.clear();
+    for (const entry of Object.values(batchCacheRef.current)) {
+      if (entry?.blobUrl) URL.revokeObjectURL(entry.blobUrl);
     }
-    prefetchCacheRef.current.clear();
+    setBatchCache({});
+    batchCacheRef.current = {};
   }, []);
 
-  useEffect(() => {
-    if (!currentItem?.key) {
-      setCurrentPlaybackUrl("");
-      return;
-    }
-
-    setCurrentPlaybackUrl(
-      prefetchedUrlsRef.current[currentItem.key] || currentItem.url || "",
-    );
-  }, [currentItem?.key, currentItem?.url]);
-
-  useEffect(() => {
-    const currentIndex = items.findIndex((item) => item?.key === currentKey);
-    const startIndex = currentIndex >= 0 ? currentIndex : 0;
-    const retainItems = items.slice(startIndex, startIndex + PREFETCH_WINDOW_SEGMENTS);
-    const retainKeys = new Set(retainItems.map((item) => item?.key).filter(Boolean));
-
-    for (const [key, controller] of prefetchControllersRef.current.entries()) {
-      if (!retainKeys.has(key)) {
-        controller.abort();
-        prefetchControllersRef.current.delete(key);
-      }
-    }
-
-    for (const [key, blobUrl] of prefetchCacheRef.current.entries()) {
-      if (!retainKeys.has(key)) {
-        URL.revokeObjectURL(blobUrl);
-        prefetchCacheRef.current.delete(key);
-        setPrefetchedUrls((previous) => {
-          if (!(key in previous)) return previous;
-          const next = { ...previous };
-          delete next[key];
-          return next;
-        });
-      }
-    }
-
-    retainItems.forEach((item) => {
-      if (!item?.key || !item?.url || item.kind === "final") return;
-      if (prefetchCacheRef.current.has(item.key)) return;
-      if (prefetchControllersRef.current.has(item.key)) return;
+  // ─── fetch a single batch and store it ───
+  const ensureBatchFetched = useCallback(
+    async (batchIdx) => {
+      if (batchIdx < 0 || batchIdx >= batches.length) return;
+      // Already cached or in-flight?
+      if (batchCacheRef.current[batchIdx]) return;
+      const key = `batch:${batchIdx}`;
+      if (fetchControllersRef.current.has(key)) return;
 
       const controller = new AbortController();
-      prefetchControllersRef.current.set(item.key, controller);
+      fetchControllersRef.current.set(key, controller);
 
-      fetch(item.url, {
-        cache: "force-cache",
-        signal: controller.signal,
-      })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Segment HTTP ${response.status}`);
-          }
-          return response.blob();
-        })
-        .then((blob) => {
-          if (controller.signal.aborted) return;
-          const objectUrl = URL.createObjectURL(blob);
-          prefetchCacheRef.current.set(item.key, objectUrl);
-          setPrefetchedUrls((previous) => ({
-            ...previous,
-            [item.key]: objectUrl,
-          }));
-        })
-        .catch(() => {
-          // Fallback to direct CDN URL if prefetch fails.
-        })
-        .finally(() => {
-          prefetchControllersRef.current.delete(item.key);
+      try {
+        const result = await fetchBatch(
+          batches[batchIdx],
+          controller.signal,
+        );
+        if (!result || controller.signal.aborted) return;
+        setBatchCache((prev) => {
+          const next = { ...prev, [batchIdx]: result };
+          batchCacheRef.current = next;
+          return next;
         });
-    });
+      } catch {
+        // Will retry on next cycle
+      } finally {
+        fetchControllersRef.current.delete(key);
+      }
+    },
+    [batches],
+  );
 
-    return () => {
-      // noop: cleanup handled by retain/prune logic and source reset effect
-    };
-  }, [currentKey, items]);
+  // ─── prefetch window: active + N ahead ───
+  useEffect(() => {
+    if (!batches.length) return;
+    const toFetch = [];
+    for (
+      let i = activeBatchIdx;
+      i < Math.min(batches.length, activeBatchIdx + 1 + PREFETCH_AHEAD_BATCHES);
+      i++
+    ) {
+      toFetch.push(i);
+    }
+    toFetch.forEach((idx) => ensureBatchFetched(idx));
 
+    // Prune old batches behind activeBatchIdx - 1
+    const pruneThreshold = activeBatchIdx - 1;
+    if (pruneThreshold >= 0) {
+      setBatchCache((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const key of Object.keys(next)) {
+          const idx = Number(key);
+          if (idx < pruneThreshold) {
+            if (next[idx]?.blobUrl) URL.revokeObjectURL(next[idx].blobUrl);
+            delete next[idx];
+            changed = true;
+          }
+        }
+        if (changed) batchCacheRef.current = next;
+        return changed ? next : prev;
+      });
+    }
+  }, [activeBatchIdx, batches.length, ensureBatchFetched]);
+
+  // ─── manifest polling ───
   useEffect(() => {
     let cancelled = false;
-    let timerId = null;
 
     const applyManifest = (manifest) => {
       const playable = normalizeManifestItems(manifest);
-      const manifestStatus =
+      const status =
         typeof manifest?.status === "string" ? manifest.status.trim() : "";
 
-      setItems((previousItems) => {
-        const merged = mergeManifestItems(
-          previousItems,
-          playable,
-          currentKeyRef.current,
-        );
-
-        if (!currentKeyRef.current) {
-          const nextKey = merged[0]?.key || "";
-          if (nextKey) {
-            currentKeyRef.current = nextKey;
-            setCurrentKey(nextKey);
-            waitingForNextRef.current = false;
-            setWaitingForNext(false);
-          }
-        } else if (waitingForNextRef.current) {
-          const currentIndex = merged.findIndex(
-            (item) => item?.key === currentKeyRef.current,
-          );
-          if (currentIndex >= 0 && currentIndex < merged.length - 1) {
-            const nextKey = merged[currentIndex + 1]?.key || "";
-            if (nextKey) {
-              currentKeyRef.current = nextKey;
-              setCurrentKey(nextKey);
-              waitingForNextRef.current = false;
-              setWaitingForNext(false);
-            }
-          }
-        }
-
-        return merged;
+      setManifestStatus(status);
+      setAllSegments((prev) => {
+        // Only grow — never shrink the list (live mode: new segments appear)
+        if (playable.length <= prev.length) return prev;
+        return playable;
       });
-
       setLoading(false);
 
-      if (!playable.length && !currentKeyRef.current) {
+      if (!playable.length) {
         setError(
-          source?.disabledReason || "Server 2 dang chuan bi du lieu video.",
-        );
-      } else if (waitingForNextRef.current) {
-        setError(
-          manifestStatus === "final"
-            ? "Dang chuyen sang ban playback hoan chinh."
-            : "Dang doi segment tiep theo tu PickleTour CDN.",
+          source?.disabledReason || "Server 2 đang chuẩn bị dữ liệu video.",
         );
       } else {
         setError("");
@@ -286,100 +230,124 @@ export default function DelayedManifestPlayer({
     const fetchManifest = async () => {
       try {
         const response = await fetch(source?.embedUrl, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`Manifest HTTP ${response.status}`);
-        }
-
+        if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
         const manifest = await response.json();
         if (cancelled) return;
         applyManifest(manifest);
       } catch (fetchError) {
         if (cancelled) return;
         setLoading(false);
-        setError(
-          fetchError?.message || "Khong tai duoc delayed manifest tu CDN.",
-        );
+        setError(fetchError?.message || "Không tải được manifest từ CDN.");
       } finally {
         if (!cancelled) {
           const refreshSeconds =
             Number(source?.meta?.refreshSeconds || 6) > 0
               ? Number(source?.meta?.refreshSeconds || 6)
               : 6;
-          timerId = window.setTimeout(fetchManifest, refreshSeconds * 1000);
+          manifestTimerRef.current = window.setTimeout(
+            fetchManifest,
+            refreshSeconds * 1000,
+          );
         }
       }
     };
 
-    setItems([]);
-    setCurrentKey("");
+    // Reset everything
+    setAllSegments([]);
+    setActiveBatchIdx(0);
+    activeBatchIdxRef.current = 0;
+    setTimeOffset(0);
     setLoading(true);
     setError("");
-    setWaitingForNext(false);
-    setCurrentPlaybackUrl("");
-    setPrefetchedUrls({});
-    currentKeyRef.current = "";
-    waitingForNextRef.current = false;
-    clearPrefetchResources();
+    setManifestStatus("");
+    cleanupAllBlobs();
     fetchManifest();
 
     return () => {
       cancelled = true;
-      if (timerId) {
-        window.clearTimeout(timerId);
+      if (manifestTimerRef.current) {
+        window.clearTimeout(manifestTimerRef.current);
+        manifestTimerRef.current = null;
       }
-      clearPrefetchResources();
+      cleanupAllBlobs();
     };
   }, [
-    clearPrefetchResources,
+    cleanupAllBlobs,
     source?.embedUrl,
     source?.disabledReason,
     source?.meta?.refreshSeconds,
   ]);
 
+  // ─── auto-update timeOffset when activeBatchIdx changes ───
+  useEffect(() => {
+    setTimeOffset(cumulativeStartTimes[activeBatchIdx] || 0);
+  }, [activeBatchIdx, cumulativeStartTimes]);
+
+  // ─── handle batch ended → advance to next ───
   const handleEnded = useCallback(() => {
-    setCurrentKey((previousKey) => {
-      const currentIndex = items.findIndex((item) => item.key === previousKey);
-      if (currentIndex >= 0 && currentIndex < items.length - 1) {
-        const nextKey = items[currentIndex + 1]?.key || previousKey;
-        currentKeyRef.current = nextKey;
-        waitingForNextRef.current = false;
-        setWaitingForNext(false);
-        return nextKey;
+    setActiveBatchIdx((prev) => {
+      const next = prev + 1;
+      if (next < batches.length) {
+        activeBatchIdxRef.current = next;
+        return next;
       }
-
-      waitingForNextRef.current = true;
-      setWaitingForNext(true);
-      return previousKey;
+      // No more batches
+      return prev;
     });
-  }, [items]);
+  }, [batches.length]);
 
-  const handleAdvanceToStagedSource = useCallback((nextKey) => {
-    const normalizedNextKey = String(nextKey || "").trim();
-    if (!normalizedNextKey) {
-      handleEnded();
-      return;
-    }
+  const handleAdvanceToStagedSource = useCallback(
+    (token) => {
+      const idx = Number(String(token || "").replace("batch:", ""));
+      if (Number.isFinite(idx) && idx >= 0 && idx < batches.length) {
+        activeBatchIdxRef.current = idx;
+        setActiveBatchIdx(idx);
+      } else {
+        handleEnded();
+      }
+    },
+    [batches.length, handleEnded],
+  );
 
-    currentKeyRef.current = normalizedNextKey;
-    waitingForNextRef.current = false;
-    setWaitingForNext(false);
-    setCurrentKey(normalizedNextKey);
-  }, [handleEnded]);
+  // ─── seek handler: map global time → batch ───
+  const handleSeekToBatch = useCallback(
+    (globalTime) => {
+      for (let i = cumulativeStartTimes.length - 1; i >= 0; i--) {
+        if (globalTime >= cumulativeStartTimes[i]) {
+          if (i !== activeBatchIdxRef.current) {
+            activeBatchIdxRef.current = i;
+            setActiveBatchIdx(i);
+          }
+          return cumulativeStartTimes[i];
+        }
+      }
+      return 0;
+    },
+    [cumulativeStartTimes],
+  );
 
+  // ─── render ───
   if (loading) {
-    return <Alert severity="info">Dang tai video tu PickleTour...</Alert>;
+    return <Alert severity="info">Đang tải video từ PickleTour...</Alert>;
   }
 
-  if (!currentUrl) {
-    return <Alert severity="info">{error || "Server 2 dang chuan bi."}</Alert>;
+  if (!activeBlobUrl && !allSegments.length) {
+    return (
+      <Alert severity="info">{error || "Server 2 đang chuẩn bị."}</Alert>
+    );
+  }
+
+  if (!activeBlobUrl) {
+    return <Alert severity="info">Đang tải batch video...</Alert>;
   }
 
   return (
     <>
       <NativeVideoPlayer
-        src={currentPlaybackUrl}
+        key={`batch-${activeBatchIdx}`}
+        src={activeBlobUrl}
         kind="file"
-        fallbackUrl={source?.openUrl || source?.url || currentUrl}
+        fallbackUrl={source?.openUrl || source?.url || ""}
         initialRatio={resolveAspectRatio(source?.aspect)}
         title={source?.label || "Server 2"}
         subtitle={source?.providerLabel || "PickleTour Video"}
@@ -387,12 +355,15 @@ export default function DelayedManifestPlayer({
         autoplay={autoplay}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
-        liveMode={showLiveBadge}
-        queueModeEnabled
+        liveMode={showLiveBadge && manifestStatus !== "final"}
+        queueModeEnabled={Boolean(nextBlobUrl)}
         holdLastFrameOnSourceChange
-        stagedNextSrc={stagedNextPlaybackUrl}
-        stagedNextToken={stagedNextItem?.key || ""}
+        stagedNextSrc={nextBlobUrl}
+        stagedNextToken={`batch:${nextBatchIdx}`}
         onAdvanceToStagedSource={handleAdvanceToStagedSource}
+        totalDuration={totalDuration > 0 ? totalDuration : undefined}
+        totalTimeOffset={timeOffset}
+        onSeekGlobal={handleSeekToBatch}
       />
       {error ? (
         <Alert severity="info" sx={{ mt: 1 }}>

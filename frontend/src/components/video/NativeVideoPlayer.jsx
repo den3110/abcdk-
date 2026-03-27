@@ -61,6 +61,9 @@ export default function NativeVideoPlayer({
   stagedNextSrc = "",
   stagedNextToken = "",
   onAdvanceToStagedSource = null,
+  totalDuration: totalDurationProp,
+  totalTimeOffset = 0,
+  onSeekGlobal = null,
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
@@ -568,8 +571,21 @@ export default function NativeVideoPlayer({
     volume,
   ]);
 
+  // Global duration/time for batch playback
+  const displayDuration =
+    Number.isFinite(totalDurationProp) && totalDurationProp > 0
+      ? totalDurationProp
+      : duration;
+  const displayCurrentTime =
+    Number.isFinite(totalDurationProp) && totalDurationProp > 0
+      ? totalTimeOffset + currentTime
+      : currentTime;
   const seekPercent =
-    duration > 0 ? (isSeeking ? seekValue : (currentTime / duration) * 100) : 0;
+    displayDuration > 0
+      ? isSeeking
+        ? seekValue
+        : (displayCurrentTime / displayDuration) * 100
+      : 0;
 
   const togglePlay = useCallback(
     async (event) => {
@@ -598,14 +614,32 @@ export default function NativeVideoPlayer({
   const seekBy = useCallback(
     (delta) => {
       const video = videoRef.current;
-      if (!video || !duration) return;
+      if (!video) return;
       revealChrome();
-      video.currentTime = Math.min(
-        duration,
-        Math.max(0, (video.currentTime || 0) + delta),
-      );
+      const useGlobal =
+        Number.isFinite(totalDurationProp) && totalDurationProp > 0;
+      if (useGlobal && onSeekGlobal) {
+        const globalTarget = Math.min(
+          totalDurationProp,
+          Math.max(0, totalTimeOffset + (video.currentTime || 0) + delta),
+        );
+        // Check if target falls within current batch
+        const batchEnd = totalTimeOffset + (duration || 0);
+        if (globalTarget >= totalTimeOffset && globalTarget < batchEnd) {
+          video.currentTime = globalTarget - totalTimeOffset;
+        } else {
+          const newOffset = onSeekGlobal(globalTarget);
+          // After batch switch, the new component will mount at t=0
+          // The seek within the new batch is approximate (can't seek within a blob)
+        }
+      } else {
+        video.currentTime = Math.min(
+          duration,
+          Math.max(0, (video.currentTime || 0) + delta),
+        );
+      }
     },
-    [duration, revealChrome],
+    [duration, onSeekGlobal, revealChrome, totalDurationProp, totalTimeOffset],
   );
 
   const handleSeekChange = (_event, nextValue) => {
@@ -616,11 +650,26 @@ export default function NativeVideoPlayer({
 
   const handleSeekCommit = (_event, nextValue) => {
     const video = videoRef.current;
-    if (!video || !duration) return;
+    if (!video) return;
     const percent = Array.isArray(nextValue) ? nextValue[0] : nextValue;
-    const nextTime = (percent / 100) * duration;
-    video.currentTime = nextTime;
-    setCurrentTime(nextTime);
+    const useGlobal =
+      Number.isFinite(totalDurationProp) && totalDurationProp > 0;
+    const targetGlobal = (percent / 100) * displayDuration;
+
+    if (useGlobal && onSeekGlobal) {
+      const batchEnd = totalTimeOffset + (duration || 0);
+      if (targetGlobal >= totalTimeOffset && targetGlobal < batchEnd) {
+        const localTime = targetGlobal - totalTimeOffset;
+        video.currentTime = localTime;
+        setCurrentTime(localTime);
+      } else {
+        onSeekGlobal(targetGlobal);
+      }
+    } else {
+      const nextTime = (percent / 100) * duration;
+      video.currentTime = nextTime;
+      setCurrentTime(nextTime);
+    }
     setSeekValue(percent);
     setIsSeeking(false);
     revealChrome();
@@ -1021,9 +1070,9 @@ export default function NativeVideoPlayer({
                           fontSize: { xs: "0.75rem", sm: "0.8rem" },
                         }}
                       >
-                        {formatMediaTime(currentTime)}{" "}
+                        {formatMediaTime(displayCurrentTime)}{" "}
                         <span style={{ opacity: 0.7 }}>
-                          / {formatMediaTime(duration)}
+                          / {formatMediaTime(displayDuration)}
                         </span>
                       </Typography>
                     )}
