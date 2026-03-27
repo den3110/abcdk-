@@ -176,9 +176,6 @@ export default function TournamentDashboard() {
     params.get("from") ? dayjs(params.get("from")) : null,
     params.get("to") ? dayjs(params.get("to")) : null,
   ]);
-  const deferredTab = useDeferredValue(tab);
-  const deferredKeyword = useDeferredValue(debouncedKeyword);
-  const deferredDateRange = useDeferredValue(dateRange);
 
   // --- Sync Logic ---
   useEffect(() => {
@@ -245,13 +242,13 @@ export default function TournamentDashboard() {
   // --- Filtering ---
   const filtered = useMemo(() => {
     if (!tournaments) return [];
-    const [from, to] = deferredDateRange;
+    const [from, to] = dateRange;
 
     return tournaments
-      .filter((t) => t.status === deferredTab)
+      .filter((t) => t.status === tab)
       .filter((t) =>
-        deferredKeyword
-          ? t.name?.toLowerCase().includes(deferredKeyword)
+        debouncedKeyword
+          ? t.name?.toLowerCase().includes(debouncedKeyword)
           : true,
       )
       .filter((t) => {
@@ -262,8 +259,7 @@ export default function TournamentDashboard() {
         if (to && tStart.isAfter(to, "day")) return false;
         return true;
       });
-  }, [tournaments, deferredTab, deferredKeyword, deferredDateRange]);
-  const deferredFiltered = useDeferredValue(filtered);
+  }, [tournaments, tab, debouncedKeyword, dateRange]);
 
   const handleChangeTab = (_, v) => {
     setTab(v);
@@ -287,10 +283,10 @@ export default function TournamentDashboard() {
       : "--";
 
   const emptyStateDescription = useMemo(() => {
-    const statusLabel = String(statusMeta[deferredTab]?.label || "").toLowerCase();
-    const hasDateFilter = Boolean(deferredDateRange[0] || deferredDateRange[1]);
+    const statusLabel = String(statusMeta[tab]?.label || "").toLowerCase();
+    const hasDateFilter = Boolean(dateRange[0] || dateRange[1]);
 
-    if (deferredKeyword) {
+    if (debouncedKeyword) {
       return translate("tournaments.dashboard.emptySearchDescription", {
         status: statusLabel,
       });
@@ -305,7 +301,7 @@ export default function TournamentDashboard() {
     return translate("tournaments.dashboard.emptyDefaultDescription", {
       status: statusLabel,
     });
-  }, [deferredDateRange, deferredKeyword, deferredTab, statusMeta, translate]);
+  }, [dateRange, debouncedKeyword, tab, statusMeta, translate]);
 
   // --- COMPONENT: Action Buttons (Đăng ký TO NHẤT + bỏ Check-in) ---
   const Actions = ({ t }) => {
@@ -803,7 +799,7 @@ export default function TournamentDashboard() {
             </Grid>
           ) : (
             <ZoomProvider maskOpacity={0.8}>
-              {deferredFiltered.length === 0 ? (
+              {filtered.length === 0 ? (
                 <LottieEmptyState
                   title={translate("tournaments.dashboard.empty")}
                   description={emptyStateDescription}
@@ -811,7 +807,7 @@ export default function TournamentDashboard() {
                 />
               ) : (
                 <Grid container spacing={3}>
-                  {deferredFiltered.map((t) => (
+                  {filtered.map((t) => (
                     <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
                       <Box
                         height="100%"
