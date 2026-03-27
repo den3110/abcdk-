@@ -356,6 +356,7 @@ export default function DelayedManifestPlayer({
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
         liveMode
+        holdLastFrameOnSourceChange
       />
       {error ? (
         <Alert severity="info" sx={{ mt: 1 }}>

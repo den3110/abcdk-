@@ -56,12 +56,14 @@ export default function NativeVideoPlayer({
   previewOnlyUntilPlay = false,
   useNativeControls = false,
   liveMode = false,
+  holdLastFrameOnSourceChange = false,
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
   const hideChromeTimerRef = useRef(null);
   const isSeekingRef = useRef(false);
   const onEndedRef = useRef(onEnded);
+  const previousSrcRef = useRef("");
 
   const [ratio, setRatio] = useState(initialRatio);
   const [hlsError, setHlsError] = useState("");
@@ -79,6 +81,7 @@ export default function NativeVideoPlayer({
   const [showPreviewOverlay, setShowPreviewOverlay] = useState(
     Boolean(previewOnlyUntilPlay && !autoplay),
   );
+  const [frozenFrameUrl, setFrozenFrameUrl] = useState("");
 
   const revealChrome = useCallback(() => {
     setShowChrome(true);
@@ -92,6 +95,31 @@ export default function NativeVideoPlayer({
       }, 2200);
     }
   }, [isPlaying]);
+
+  const captureFrameSnapshot = useCallback(() => {
+    if (!holdLastFrameOnSourceChange) return "";
+    const video = videoRef.current;
+    if (
+      !video ||
+      video.readyState < 2 ||
+      !video.videoWidth ||
+      !video.videoHeight
+    ) {
+      return "";
+    }
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      if (!context) return "";
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.86);
+    } catch {
+      return "";
+    }
+  }, [holdLastFrameOnSourceChange]);
 
   useEffect(() => {
     setRatio(initialRatio);
@@ -145,6 +173,20 @@ export default function NativeVideoPlayer({
 
     let hls;
     let cancelled = false;
+    const previousSrc = previousSrcRef.current;
+
+    if (
+      holdLastFrameOnSourceChange &&
+      previousSrc &&
+      previousSrc !== src &&
+      !showPreviewOverlay
+    ) {
+      const snapshot = captureFrameSnapshot();
+      if (snapshot) {
+        setFrozenFrameUrl(snapshot);
+      }
+    }
+    previousSrcRef.current = src;
 
     setHlsError("");
     setIsReady(false);
@@ -173,12 +215,16 @@ export default function NativeVideoPlayer({
     };
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
-    const onCanPlay = () => setIsReady(true);
+    const onCanPlay = () => {
+      setIsReady(true);
+      setFrozenFrameUrl("");
+    };
     const onEndedInternal = () => onEndedRef.current?.();
     const onError = () => {
       if (kind === "hls") {
         setHlsError("Khong phat duoc luong HLS nay.");
       }
+      setFrozenFrameUrl("");
     };
 
     video.addEventListener("loadedmetadata", syncAspect);
@@ -281,7 +327,14 @@ export default function NativeVideoPlayer({
         // noop
       }
     };
-  }, [src, kind, autoplay]);
+  }, [
+    autoplay,
+    captureFrameSnapshot,
+    holdLastFrameOnSourceChange,
+    kind,
+    showPreviewOverlay,
+    src,
+  ]);
 
   const seekPercent =
     duration > 0 ? (isSeeking ? seekValue : (currentTime / duration) * 100) : 0;
@@ -405,7 +458,10 @@ export default function NativeVideoPlayer({
             <video
               ref={videoRef}
               playsInline
-              preload="metadata"
+              preload={
+                liveMode || holdLastFrameOnSourceChange ? "auto" : "metadata"
+              }
+              crossOrigin={holdLastFrameOnSourceChange ? "anonymous" : undefined}
               controls={Boolean(useNativeControls && !showPreviewOverlay)}
               style={{
                 width: "100%",
@@ -415,7 +471,25 @@ export default function NativeVideoPlayer({
               }}
             />
 
-            {!isReady && (
+            {frozenFrameUrl && !isReady && !showPreviewOverlay ? (
+              <Box
+                component="img"
+                src={frozenFrameUrl}
+                alt=""
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                  backgroundColor: "#000",
+                  zIndex: 0.5,
+                  pointerEvents: "none",
+                }}
+              />
+            ) : null}
+
+            {!isReady && !frozenFrameUrl && (
               <Box
                 sx={{
                   position: "absolute",
