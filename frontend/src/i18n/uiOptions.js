@@ -72,4 +72,3 @@ export function getRoleLabel(t, role) {
 export function getProvincePlaceholder(t) {
   return t("profile.provincePlaceholder");
 }
-

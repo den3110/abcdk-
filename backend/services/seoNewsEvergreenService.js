@@ -2,22 +2,20 @@
 import slugify from "slugify";
 
 import SeoNewsArticle from "../models/seoNewsArticleModel.js";
-import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
+import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
 import {
   sanitizeSeoNewsHtml,
   stripSeoNewsHtmlToText,
 } from "./seoNewsSanitizerService.js";
+import {
+  getSeoNewsArticleGenerationRuntime,
+} from "./seoNewsArticleGenerationGateway.js";
 import {
   reviewSeoNewsArticle,
   SEO_NEWS_REVIEW_PASS_SCORE,
 } from "./seoNewsReviewService.js";
 import { resolveSeoNewsImages } from "./seoNewsImageService.js";
 import { evaluateSeoNewsRelevance } from "./seoNewsRelevanceService.js";
-
-const GENERATOR_MODEL =
-  process.env.SEO_NEWS_GENERATOR_MODEL ||
-  OPENAI_DEFAULT_MODEL ||
-  "gpt-5-codex-mini";
 
 const EVERGREEN_TOPICS = [
   "Hướng dẫn người mới bắt đầu với pickleball",
@@ -148,7 +146,7 @@ function hasVietnameseDiacritics(value = "") {
   );
 }
 
-async function generateOneEvergreen({ topic, keywords }) {
+async function generateOneEvergreen({ topic, keywords, settings }) {
   const payload = {
     topic,
     keywords,
@@ -157,8 +155,18 @@ async function generateOneEvergreen({ topic, keywords }) {
   };
 
   try {
-    const response = await openai.responses.create({
-      model: GENERATOR_MODEL,
+    const articleGenerationRuntime = await getSeoNewsArticleGenerationRuntime({
+      selectedModel: settings?.articleGenerationModel,
+    });
+    if (
+      !articleGenerationRuntime.client ||
+      !articleGenerationRuntime.effectiveModel
+    ) {
+      throw new Error("seo_news_article_generation_not_configured");
+    }
+
+    const response = await articleGenerationRuntime.client.responses.create({
+      model: articleGenerationRuntime.effectiveModel,
       instructions: GENERATION_PROMPT,
       input: [{ role: "user", content: JSON.stringify(payload) }],
       text: {
@@ -201,6 +209,7 @@ async function generateOneEvergreen({ topic, keywords }) {
       title: String(parsed.title || "").trim() || fallback.title,
       summary: String(parsed.summary || "").trim() || fallback.summary,
       contentHtml: String(parsed.contentHtml || "").trim() || fallback.contentHtml,
+      generatorModel: articleGenerationRuntime.effectiveModel,
       tags: Array.isArray(parsed.tags)
         ? parsed.tags
             .map((tag) => String(tag || "").trim())
@@ -222,17 +231,21 @@ export async function generateSeoNewsEvergreenArticles({
   runId,
   forcePublish = false,
 } = {}) {
+  const activeSettings =
+    settings ||
+    (await SeoNewsSettings.findOne({ key: "default" })) ||
+    (await SeoNewsSettings.create({ key: "default" }));
   const wanted = Math.max(0, Number(count) || 0);
   const keywords = [
-    ...(settings?.mainKeywords || []),
-    ...(settings?.extraKeywords || []),
+    ...(activeSettings?.mainKeywords || []),
+    ...(activeSettings?.extraKeywords || []),
   ]
     .map((x) => String(x || "").trim())
     .filter(Boolean)
     .slice(0, 12);
 
   const passScore =
-    Number(settings?.reviewPassScore) || SEO_NEWS_REVIEW_PASS_SCORE;
+    Number(activeSettings?.reviewPassScore) || SEO_NEWS_REVIEW_PASS_SCORE;
 
   const stats = {
     requested: wanted,
@@ -248,7 +261,11 @@ export async function generateSeoNewsEvergreenArticles({
   for (let i = 0; i < wanted; i += 1) {
     try {
       const topic = pickTopic(Date.now() + i);
-      const generated = await generateOneEvergreen({ topic, keywords });
+      const generated = await generateOneEvergreen({
+        topic,
+        keywords,
+        settings: activeSettings,
+      });
       const cleanHtml = sanitizeSeoNewsHtml(generated.contentHtml || "");
       const contentText = stripSeoNewsHtmlToText(cleanHtml);
       const slug = toSlug(generated.title);
@@ -260,7 +277,7 @@ export async function generateSeoNewsEvergreenArticles({
         tags: generated.tags,
         sourceName: "PickleTour AI Agent",
         sourceUrl: null,
-        settings,
+        settings: activeSettings,
       });
 
       let review = await reviewSeoNewsArticle({
@@ -296,7 +313,7 @@ export async function generateSeoNewsEvergreenArticles({
         (!Array.isArray(review.criticalFlags) || review.criticalFlags.length === 0);
 
       const status =
-        reviewPass && (forcePublish || settings?.autoPublish !== false)
+        reviewPass && (forcePublish || activeSettings?.autoPublish !== false)
           ? "published"
           : "draft";
 
@@ -307,7 +324,7 @@ export async function generateSeoNewsEvergreenArticles({
         sourceUrl: null,
         origin: "generated",
         preferredImageUrl: generated.heroImageUrl || generated.thumbImageUrl,
-        settings,
+        settings: activeSettings,
         articleKey: slug,
       });
 
@@ -339,7 +356,7 @@ export async function generateSeoNewsEvergreenArticles({
           .digest("hex"),
         review,
         workflow: {
-          generatorModel: GENERATOR_MODEL,
+          generatorModel: generated.generatorModel || null,
           reviewerModel: review.checkerModel,
           runId: String(runId || "manual"),
         },
@@ -359,8 +376,6 @@ export async function generateSeoNewsEvergreenArticles({
 
   return stats;
 }
-
-export { GENERATOR_MODEL as SEO_NEWS_GENERATOR_MODEL };
 
 
 

@@ -16,7 +16,7 @@ const store = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(
       apiSlice.middleware,
-      rtkQueryLogoutListener.middleware
+      rtkQueryLogoutListener.middleware,
     ),
   devTools: true,
 });

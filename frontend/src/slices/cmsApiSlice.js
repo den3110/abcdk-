@@ -6,9 +6,10 @@ export const cmsApiSlice = apiSlice.injectEndpoints({
     getHeroContent: builder.query({
       query: () => ({ url: "/api/cms/hero", method: "GET" }),
       providesTags: ["CMS_HERO"],
-      transformResponse: (res) => res?.data || res?.data === undefined ? res?.data : res?.data,
+      transformResponse: (res) =>
+        res?.data || res?.data === undefined ? res?.data : res?.data,
     }),
-     // 🆕 Contact
+    // 🆕 Contact
     getContactContent: builder.query({
       query: () => ({ url: "/api/cms/contact", method: "GET" }),
       transformResponse: (res) => res?.data ?? res,
@@ -17,4 +18,5 @@ export const cmsApiSlice = apiSlice.injectEndpoints({
   }),
 });
 
-export const { useGetHeroContentQuery, useGetContactContentQuery } = cmsApiSlice;
+export const { useGetHeroContentQuery, useGetContactContentQuery } =
+  cmsApiSlice;

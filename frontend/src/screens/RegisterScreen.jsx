@@ -27,6 +27,7 @@ import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { addBusinessBreadcrumb } from "../utils/sentry";
 
 /* Icons */
 import Visibility from "@mui/icons-material/Visibility";
@@ -156,12 +157,15 @@ export default function RegisterScreen() {
 
   const genderOptions = useMemo(
     () => [
-      { value: "unspecified", label: t("auth.register.genderOptions.unspecified") },
+      {
+        value: "unspecified",
+        label: t("auth.register.genderOptions.unspecified"),
+      },
       { value: "male", label: t("auth.register.genderOptions.male") },
       { value: "female", label: t("auth.register.genderOptions.female") },
       { value: "other", label: t("auth.register.genderOptions.other") },
     ],
-    [t]
+    [t],
   );
 
   const showErr = (f) => touched[f] && !!errors[f];
@@ -176,52 +180,56 @@ export default function RegisterScreen() {
     setErrors(() => validate({ ...form }));
   };
 
-  const validate = useCallback((d) => {
-    const e = {};
-    if (!d.name.trim()) e.name = t("auth.register.validation.empty");
-    else if (d.name.trim().length < 2)
-      e.name = t("auth.register.validation.minChars", { count: 2 });
+  const validate = useCallback(
+    (d) => {
+      const e = {};
+      if (!d.name.trim()) e.name = t("auth.register.validation.empty");
+      else if (d.name.trim().length < 2)
+        e.name = t("auth.register.validation.minChars", { count: 2 });
 
-    if (!d.nickname.trim()) e.nickname = t("auth.register.validation.empty");
-    else if (d.nickname.trim().length < 2)
-      e.nickname = t("auth.register.validation.minChars", { count: 2 });
+      if (!d.nickname.trim()) e.nickname = t("auth.register.validation.empty");
+      else if (d.nickname.trim().length < 2)
+        e.nickname = t("auth.register.validation.minChars", { count: 2 });
 
-    if (!/^0\d{9}$/.test(d.phone.trim()))
-      e.phone = t("auth.register.validation.invalidPhone");
+      if (!/^0\d{9}$/.test(d.phone.trim()))
+        e.phone = t("auth.register.validation.invalidPhone");
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim()))
-      e.email = t("auth.register.validation.invalidEmail");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim()))
+        e.email = t("auth.register.validation.invalidEmail");
 
-    if (!d.password) e.password = t("auth.register.validation.required");
-    else if (d.password.length < 6)
-      e.password = t("auth.register.validation.minChars", { count: 6 });
-    if (d.password !== d.confirmPassword)
-      e.confirmPassword = t("auth.register.validation.passwordMismatch");
+      if (!d.password) e.password = t("auth.register.validation.required");
+      else if (d.password.length < 6)
+        e.password = t("auth.register.validation.minChars", { count: 6 });
+      if (d.password !== d.confirmPassword)
+        e.confirmPassword = t("auth.register.validation.passwordMismatch");
 
-    if (!d.dob) e.dob = t("auth.register.validation.required");
-    else {
-      const day = new Date(d.dob);
-      if (Number.isNaN(day)) e.dob = t("auth.register.validation.invalidDob");
-      else if (day > new Date()) e.dob = t("auth.register.validation.futureDob");
-      else if (new Date(d.dob) < new Date("1940-01-01"))
-        e.dob = t("auth.register.validation.minDob");
-    }
+      if (!d.dob) e.dob = t("auth.register.validation.required");
+      else {
+        const day = new Date(d.dob);
+        if (Number.isNaN(day)) e.dob = t("auth.register.validation.invalidDob");
+        else if (day > new Date())
+          e.dob = t("auth.register.validation.futureDob");
+        else if (new Date(d.dob) < new Date("1940-01-01"))
+          e.dob = t("auth.register.validation.minDob");
+      }
 
-    if (!d.province) e.province = t("auth.register.validation.required");
+      if (!d.province) e.province = t("auth.register.validation.required");
 
-    if (!["male", "female", "unspecified", "other"].includes(d.gender))
-      e.gender = t("auth.register.validation.invalidGender");
+      if (!["male", "female", "unspecified", "other"].includes(d.gender))
+        e.gender = t("auth.register.validation.invalidGender");
 
-    if (!d.cccd.trim()) e.cccd = t("auth.register.validation.required");
-    else if (!/^\d{12}$/.test(d.cccd.trim()))
-      e.cccd = t("auth.register.validation.invalidCccd");
+      if (!d.cccd.trim()) e.cccd = t("auth.register.validation.required");
+      else if (!/^\d{12}$/.test(d.cccd.trim()))
+        e.cccd = t("auth.register.validation.invalidCccd");
 
-    if (!avatarFile) e.avatar = t("auth.register.validation.avatarRequired");
-    if (avatarFile && avatarFile.size > MAX_FILE_SIZE)
-      e.avatar = t("auth.register.validation.avatarTooLarge");
+      if (!avatarFile) e.avatar = t("auth.register.validation.avatarRequired");
+      if (avatarFile && avatarFile.size > MAX_FILE_SIZE)
+        e.avatar = t("auth.register.validation.avatarTooLarge");
 
-    return e;
-  }, [avatarFile, t]);
+      return e;
+    },
+    [avatarFile, t],
+  );
 
   useEffect(() => {
     setErrors(validate(form));
@@ -265,13 +273,20 @@ export default function RegisterScreen() {
       return;
     }
 
+    addBusinessBreadcrumb("auth.register.submit", {
+      province: form.province,
+      gender: form.gender,
+      hasAvatar: Boolean(avatarFile),
+    });
+
     try {
       // 1) Upload avatar
       let avatarUrl = "";
       if (avatarFile) {
         const up = await uploadAvatar(avatarFile).unwrap();
         avatarUrl = up?.url || "";
-        if (!avatarUrl) throw new Error(t("auth.register.errors.avatarUploadFailed"));
+        if (!avatarUrl)
+          throw new Error(t("auth.register.errors.avatarUploadFailed"));
       }
 
       // 2) Register
@@ -295,7 +310,8 @@ export default function RegisterScreen() {
       toast.success(t("auth.register.success"));
       navigate("/");
     } catch (err) {
-      const msg = err?.data?.message || err?.message || t("auth.register.errors.failed");
+      const msg =
+        err?.data?.message || err?.message || t("auth.register.errors.failed");
       const map = {
         Email: t("auth.register.errors.emailUsed"),
         "Số điện thoại": t("auth.register.errors.phoneUsed"),
@@ -358,7 +374,9 @@ export default function RegisterScreen() {
                         if (file.size > MAX_FILE_SIZE) {
                           setErrors((p) => ({
                             ...p,
-                            avatar: t("auth.register.validation.avatarTooLarge"),
+                            avatar: t(
+                              "auth.register.validation.avatarTooLarge",
+                            ),
                           }));
                           jumpAndHighlight(avatarRef, setHighlightAvatar);
                           return;

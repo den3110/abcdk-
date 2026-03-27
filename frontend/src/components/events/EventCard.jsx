@@ -1,18 +1,31 @@
 /* eslint-disable react/prop-types */
 import React from "react";
-import { Card, CardHeader, CardContent, Stack, Typography, Button, Chip } from "@mui/material";
+import {
+  Card,
+  CardHeader,
+  CardContent,
+  Stack,
+  Typography,
+  Button,
+  Chip,
+} from "@mui/material";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
-import { useDeleteEventMutation, useRsvpEventMutation } from "../../slices/clubsApiSlice";
+import {
+  useDeleteEventMutation,
+  useRsvpEventMutation,
+} from "../../slices/clubsApiSlice";
 
 const fmt = (s) => dayjs(s).format("HH:mm, DD/MM/YYYY");
 
 const getApiErrMsg = (e) =>
-  e?.data?.message || e?.error || (typeof e?.data === "string" ? e.data : "Có lỗi xảy ra.");
+  e?.data?.message ||
+  e?.error ||
+  (typeof e?.data === "string" ? e.data : "Có lỗi xảy ra.");
 
 export default function EventCard({ clubId, event, canManage, onChanged }) {
   const [rsvp, { isLoading: rsvping }] = useRsvpEventMutation();
-  const [del,  { isLoading: deleting }] = useDeleteEventMutation();
+  const [del, { isLoading: deleting }] = useDeleteEventMutation();
 
   const goingCount = event?.stats?.going || 0;
   const capacity = event?.capacity || 0;
@@ -20,7 +33,13 @@ export default function EventCard({ clubId, event, canManage, onChanged }) {
   const handleRsvp = async (status) => {
     try {
       await rsvp({ id: clubId, eventId: event._id, status }).unwrap();
-      toast.success(status === "going" ? "Đã RSVP tham gia" : status === "not_going" ? "Đã chọn không tham gia" : "Đã huỷ RSVP");
+      toast.success(
+        status === "going"
+          ? "Đã RSVP tham gia"
+          : status === "not_going"
+            ? "Đã chọn không tham gia"
+            : "Đã huỷ RSVP",
+      );
       onChanged?.();
     } catch (e) {
       toast.error(getApiErrMsg(e));
@@ -43,7 +62,11 @@ export default function EventCard({ clubId, event, canManage, onChanged }) {
       <CardHeader
         title={event.title}
         subheader={`${fmt(event.startTime)} – ${fmt(event.endTime)} • ${event.location || "—"}`}
-        action={capacity ? <Chip size="small" label={`${goingCount}/${capacity}`} /> : null}
+        action={
+          capacity ? (
+            <Chip size="small" label={`${goingCount}/${capacity}`} />
+          ) : null
+        }
       />
       <CardContent>
         <Typography sx={{ mb: 2 }} color="text.secondary">
@@ -52,13 +75,26 @@ export default function EventCard({ clubId, event, canManage, onChanged }) {
 
         <Stack direction="row" spacing={1} flexWrap="wrap">
           {/* RSVP */}
-          <Button size="small" variant="contained" disabled={rsvping} onClick={() => handleRsvp("going")}>
+          <Button
+            size="small"
+            variant="contained"
+            disabled={rsvping}
+            onClick={() => handleRsvp("going")}
+          >
             Tham gia
           </Button>
-          <Button size="small" disabled={rsvping} onClick={() => handleRsvp("not_going")}>
+          <Button
+            size="small"
+            disabled={rsvping}
+            onClick={() => handleRsvp("not_going")}
+          >
             Không tham gia
           </Button>
-          <Button size="small" disabled={rsvping} onClick={() => handleRsvp("none")}>
+          <Button
+            size="small"
+            disabled={rsvping}
+            onClick={() => handleRsvp("none")}
+          >
             Huỷ RSVP
           </Button>
 
@@ -72,7 +108,12 @@ export default function EventCard({ clubId, event, canManage, onChanged }) {
           </Button>
 
           {canManage && (
-            <Button size="small" color="error" disabled={deleting} onClick={handleDelete}>
+            <Button
+              size="small"
+              color="error"
+              disabled={deleting}
+              onClick={handleDelete}
+            >
               Xoá
             </Button>
           )}

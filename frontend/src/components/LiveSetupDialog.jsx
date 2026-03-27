@@ -130,7 +130,7 @@ export default function LiveSetupDialog({
           ? buildCourtLiveUrl(tid, bid ?? null, court)
           : buildCourtLiveUrl(tid, court)
         : `/streaming/${court._id}`,
-    [buildCourtLiveUrl]
+    [buildCourtLiveUrl],
   );
 
   /* 1) Courts theo giải */
@@ -141,15 +141,15 @@ export default function LiveSetupDialog({
     refetch: refetchCourts,
   } = useAdminListCourtsByTournamentQuery(
     { tid: tournamentId },
-    { skip: !open || !tournamentId }
+    { skip: !open || !tournamentId },
   );
 
   const courts = React.useMemo(() => {
     const items = Array.isArray(courtsResp)
       ? courtsResp
       : Array.isArray(courtsResp?.items)
-      ? courtsResp.items
-      : [];
+        ? courtsResp.items
+        : [];
     return items.map((c) => ({
       ...c,
       _id: String(c._id),
@@ -175,7 +175,7 @@ export default function LiveSetupDialog({
     refetch: refetchMatches,
   } = useAdminListMatchesByTournamentQuery(
     { tid: tournamentId, page: 1, pageSize: 1000 },
-    { skip: !open || !tournamentId }
+    { skip: !open || !tournamentId },
   );
 
   // 🔁 GỌI API MỖI LẦN MỞ
@@ -188,7 +188,7 @@ export default function LiveSetupDialog({
 
   const matchesAll = React.useMemo(
     () => (Array.isArray(matchPage?.list) ? matchPage.list : []),
-    [matchPage]
+    [matchPage],
   );
 
   const matchesByCourtId = React.useMemo(() => {
@@ -197,7 +197,7 @@ export default function LiveSetupDialog({
     for (const m of matchesAll) {
       let assigned = false;
       const mid = extractCourtId(
-        m?.courtAssigned || m?.assignedCourt || m?.court
+        m?.courtAssigned || m?.assignedCourt || m?.court,
       );
       if (mid && map.has(String(mid))) {
         map.get(String(mid)).push(m);
@@ -493,7 +493,7 @@ export default function LiveSetupDialog({
                                 to={buildLiveUrl(
                                   tournamentId,
                                   bracketId ?? null,
-                                  c
+                                  c,
                                 )}
                                 target="_blank"
                                 rel="noopener"
@@ -640,7 +640,7 @@ export default function LiveSetupDialog({
                             to={buildLiveUrl(
                               tournamentId,
                               bracketId ?? null,
-                              c
+                              c,
                             )}
                             target="_blank"
                             rel="noopener"

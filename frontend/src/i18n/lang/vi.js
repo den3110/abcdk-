@@ -1260,6 +1260,12 @@ export default {
       datePlaceholder: "Lọc theo ngày",
       loadError: "Lỗi tải dữ liệu: {message}",
       empty: "Không tìm thấy giải đấu nào phù hợp.",
+      emptySearchDescription:
+        "Thử đổi từ khóa tìm kiếm hoặc bỏ bớt bộ lọc để xem thêm giải đấu {status}.",
+      emptyDateDescription:
+        "Không có giải đấu {status} trong khoảng ngày này. Hãy đổi khoảng ngày hoặc xóa bộ lọc để mở rộng kết quả.",
+      emptyDefaultDescription:
+        "Danh sách giải đấu {status} sẽ tự hiện ở đây khi có dữ liệu phù hợp.",
       locationFallback: "Chưa cập nhật",
       registeredTeams: "Số đội đăng ký",
     },
@@ -1959,8 +1965,7 @@ export default {
       alerts: {
         unverified:
           "Hoàn tất số CCCD và tải đủ hai mặt ảnh để bắt đầu quy trình xác minh.",
-        pending:
-          "Yêu cầu của bạn đang được xử lý.",
+        pending: "Yêu cầu của bạn đang được xử lý.",
         verified:
           "Hồ sơ KYC đã hoàn tất. Số CCCD hiện đã khóa để đảm bảo tính nhất quán.",
         rejected:

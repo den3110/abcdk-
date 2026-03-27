@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Box,
   Button,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   MenuItem,
   Paper,
   Stack,
@@ -18,6 +22,7 @@ import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import {
   useAppendTournamentCourtStationQueueItemMutation,
+  useRemoveTournamentCourtStationQueueItemMutation,
   useAssignTournamentMatchToCourtStationMutation,
   useFreeTournamentCourtStationMutation,
   useGetTournamentCourtClusterOptionsQuery,
@@ -25,7 +30,11 @@ import {
 } from "../slices/courtClustersAdminApiSlice";
 import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
-import { getTournamentNameDisplayMode, getTournamentPairName } from "../utils/tournamentName";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPairName,
+} from "../utils/tournamentName";
+import { addBusinessBreadcrumb } from "../utils/sentry";
 import ResponsiveModal from "./ResponsiveModal";
 import ResponsiveMatchViewer from "../screens/PickleBall/match/ResponsiveMatchViewer";
 
@@ -46,7 +55,9 @@ const matchCode = (match) =>
   "—";
 
 const matchEventType = (match) =>
-  String(match?.tournament?.eventType || match?.eventType || "").toLowerCase() === "single"
+  String(
+    match?.tournament?.eventType || match?.eventType || "",
+  ).toLowerCase() === "single"
     ? "single"
     : "double";
 
@@ -54,10 +65,15 @@ const matchDisplayMode = (match) => getTournamentNameDisplayMode(match);
 
 const teamSlotLabel = (match, team, slot) =>
   text(
-    getTournamentPairName(team, matchEventType(match), matchDisplayMode(match), {
-      separator: " / ",
-      fallback: "",
-    })
+    getTournamentPairName(
+      team,
+      matchEventType(match),
+      matchDisplayMode(match),
+      {
+        separator: " / ",
+        fallback: "",
+      },
+    ),
   ) ||
   text(team?.name) ||
   `Chưa có đội ${slot}`;
@@ -66,17 +82,18 @@ const teamLine = (match) =>
   `${teamSlotLabel(match, match?.pairA, "A")} vs ${teamSlotLabel(
     match,
     match?.pairB,
-    "B"
+    "B",
   )}`;
 
-const tournamentTitle = (match) => text(match?.tournament?.name) || "Giải không xác định";
+const tournamentTitle = (match) =>
+  text(match?.tournament?.name) || "Giải không xác định";
 
 const stationStatusLabel = (status) => {
   switch (String(status || "").toLowerCase()) {
     case "idle":
       return "Sẵn sàng";
     case "assigned":
-      return "Đã gán trận";
+      return "Đã được gán trận";
     case "live":
       return "Đang live";
     case "maintenance":
@@ -105,6 +122,9 @@ export default function AssignCourtStationDialog({
   const [selectedClusterId, setSelectedClusterId] = useState("");
   const [viewerMatch, setViewerMatch] = useState(null);
   const [queueDetailStationId, setQueueDetailStationId] = useState("");
+  const [confirmQueueStationId, setConfirmQueueStationId] = useState("");
+  const [confirmRemoveType, setConfirmRemoveType] = useState(null);
+  const openTraceRef = useRef("");
 
   const {
     data: clusterOptionsData,
@@ -117,17 +137,31 @@ export default function AssignCourtStationDialog({
 
   const allowedClusterOptions = useMemo(() => {
     const selectedIds = Array.isArray(clusterOptionsData?.selectedIds)
-      ? clusterOptionsData.selectedIds.map((value) => sid(value)).filter(Boolean)
+      ? clusterOptionsData.selectedIds
+          .map((value) => sid(value))
+          .filter(Boolean)
       : [];
     const items = Array.isArray(clusterOptionsData?.items)
       ? clusterOptionsData.items
       : [];
     const selectedItems = items.filter((cluster) =>
-      selectedIds.includes(sid(cluster?._id || cluster?.id))
+      selectedIds.includes(sid(cluster?._id || cluster?.id)),
     );
     if (selectedItems.length) return selectedItems;
-    return (Array.isArray(allowedClusters) ? allowedClusters : []).filter(Boolean);
-  }, [allowedClusters, clusterOptionsData?.items, clusterOptionsData?.selectedIds]);
+    return (Array.isArray(allowedClusters) ? allowedClusters : []).filter(
+      Boolean,
+    );
+  }, [
+    allowedClusters,
+    clusterOptionsData?.items,
+    clusterOptionsData?.selectedIds,
+  ]);
+
+  const selectedCluster = useMemo(() => {
+    return allowedClusterOptions.find(
+      (c) => sid(c?._id || c?.id) === selectedClusterId,
+    );
+  }, [allowedClusterOptions, selectedClusterId]);
 
   useEffect(() => {
     if (!open) return;
@@ -155,7 +189,7 @@ export default function AssignCourtStationDialog({
     {
       skip: !open || !selectedClusterId || !normalizedTournamentId,
       refetchOnMountOrArgChange: true,
-    }
+    },
   );
 
   useSocketRoomSet(socket, selectedClusterId ? [selectedClusterId] : [], {
@@ -175,7 +209,9 @@ export default function AssignCourtStationDialog({
 
     const handleStationUpdate = (payload) => {
       const payloadClusterId = sid(
-        payload?.cluster?._id || payload?.clusterId || payload?.station?.clusterId
+        payload?.cluster?._id ||
+          payload?.clusterId ||
+          payload?.station?.clusterId,
       );
       if (payloadClusterId !== selectedClusterId) return;
       refetch();
@@ -193,6 +229,8 @@ export default function AssignCourtStationDialog({
     useAssignTournamentMatchToCourtStationMutation();
   const [appendQueueItem, { isLoading: appendingQueue }] =
     useAppendTournamentCourtStationQueueItemMutation();
+  const [removeQueueItem, { isLoading: removingQueue }] =
+    useRemoveTournamentCourtStationQueueItemMutation();
   const [freeCourtStation, { isLoading: clearing }] =
     useFreeTournamentCourtStationMutation();
 
@@ -204,23 +242,27 @@ export default function AssignCourtStationDialog({
     }
     return (
       stations.find(
-        (station) => sid(station?.currentMatch?._id) === sid(match?._id)
+        (station) => sid(station?.currentMatch?._id) === sid(match?._id),
       ) || null
     );
   }, [match?._id, match?.courtStation?._id, match?.courtStationId, stations]);
 
-  const queuedStation = useMemo(
-    () =>
-      stations.find((station) =>
-        Array.isArray(station?.queueItems)
-          ? station.queueItems.some(
-              (item) =>
-                sid(item?.matchId || item?.match?._id) === sid(match?._id)
-            )
-          : false
-      ) || null,
-    [match?._id, stations]
-  );
+  const queuedInfo = useMemo(() => {
+    for (const station of stations) {
+      if (Array.isArray(station?.queueItems)) {
+        const idx = station.queueItems.findIndex(
+          (item) => sid(item?.matchId || item?.match?._id) === sid(match?._id),
+        );
+        if (idx !== -1) {
+          return { station, index: idx };
+        }
+      }
+    }
+    return null;
+  }, [match?._id, stations]);
+
+  const queuedStation = queuedInfo?.station || null;
+  const queuedIndex = queuedInfo?.index ?? -1;
 
   const currentStationId = sid(currentStation?._id);
   const queuedStationId = sid(queuedStation?._id);
@@ -228,37 +270,108 @@ export default function AssignCourtStationDialog({
   const sharedTournamentCount = Number(runtime?.sharedTournamentCount || 0);
   const queueDetailStation = useMemo(
     () =>
-      stations.find((station) => sid(station?._id) === queueDetailStationId) || null,
-    [queueDetailStationId, stations]
+      stations.find((station) => sid(station?._id) === queueDetailStationId) ||
+      null,
+    [queueDetailStationId, stations],
   );
   const queueDetailMatches = useMemo(
     () =>
-      (Array.isArray(queueDetailStation?.queueItems) ? queueDetailStation.queueItems : [])
+      (Array.isArray(queueDetailStation?.queueItems)
+        ? queueDetailStation.queueItems
+        : []
+      )
         .map((item) => item?.match || item?.matchId)
         .filter(Boolean),
-    [queueDetailStation?.queueItems]
+    [queueDetailStation?.queueItems],
   );
 
   useEffect(() => {
     if (!open) {
       setViewerMatch(null);
       setQueueDetailStationId("");
+      setConfirmRemoveType(null);
+      openTraceRef.current = "";
     }
   }, [open]);
 
   useEffect(() => {
     if (!queueDetailStationId) return;
-    const exists = stations.some((station) => sid(station?._id) === queueDetailStationId);
+    const exists = stations.some(
+      (station) => sid(station?._id) === queueDetailStationId,
+    );
     if (!exists) {
       setQueueDetailStationId("");
     }
   }, [queueDetailStationId, stations]);
 
+  useEffect(() => {
+    if (queueDetailStationId && matchId) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`queued-match-${matchId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [queueDetailStationId, matchId]);
+
+  useEffect(() => {
+    if (!open || !matchId) return;
+    const traceKey = `${normalizedTournamentId}:${matchId}`;
+    if (openTraceRef.current === traceKey) return;
+    openTraceRef.current = traceKey;
+
+    addBusinessBreadcrumb("court_station.assign_dialog.open", {
+      tournamentId: normalizedTournamentId,
+      matchId,
+      matchCode: matchCode(match),
+      courtStationId: currentStationId || undefined,
+      queueStationId: queuedStationId || undefined,
+    });
+  }, [
+    currentStationId,
+    match,
+    matchId,
+    normalizedTournamentId,
+    open,
+    queuedStationId,
+  ]);
+
+  const handleSelectCluster = (clusterId) => {
+    setSelectedClusterId(clusterId);
+    addBusinessBreadcrumb("court_station.cluster.select", {
+      tournamentId: normalizedTournamentId,
+      matchId,
+      clusterId,
+    });
+  };
+
+  const handleOpenQueueDetail = (stationId) => {
+    setQueueDetailStationId(stationId);
+    addBusinessBreadcrumb("court_station.queue.detail.open", {
+      tournamentId: normalizedTournamentId,
+      matchId,
+      courtStationId: stationId,
+    });
+  };
+
   const handleAction = async (station) => {
     const stationId = sid(station?._id);
     if (!stationId || !matchId) return;
+    const assignmentMode = String(
+      station?.assignmentMode || "manual",
+    ).toLowerCase();
+    addBusinessBreadcrumb("court_station.assignment.submit", {
+      tournamentId: normalizedTournamentId,
+      matchId,
+      matchCode: matchCode(match),
+      courtStationId: stationId,
+      courtStationCode: station?.code,
+      assignmentMode,
+    });
     try {
-      if (String(station?.assignmentMode || "").toLowerCase() === "queue") {
+      if (assignmentMode === "queue") {
         await appendQueueItem({
           tournamentId: normalizedTournamentId,
           stationId,
@@ -275,13 +388,53 @@ export default function AssignCourtStationDialog({
       onClose?.();
     } catch (error) {
       toast.error(
-        error?.data?.message || error?.message || "Cap nhat san that bai"
+        error?.data?.message || error?.message || "Cập nhật sân thất bại",
+      );
+    }
+  };
+
+  const handleQueueConfirmCheck = (station) => {
+    if (String(station?.assignmentMode || "").toLowerCase() === "queue") {
+      setConfirmQueueStationId(sid(station?._id));
+      addBusinessBreadcrumb("court_station.queue.confirm_open", {
+        tournamentId: normalizedTournamentId,
+        matchId,
+        courtStationId: sid(station?._id),
+      });
+    } else {
+      handleAction(station);
+    }
+  };
+
+  const handleRemoveQueue = async () => {
+    if (!queuedStationId || !matchId) return;
+    addBusinessBreadcrumb("court_station.queue.remove.submit", {
+      tournamentId: normalizedTournamentId,
+      matchId,
+      courtStationId: queuedStationId,
+    });
+    try {
+      await removeQueueItem({
+        tournamentId: normalizedTournamentId,
+        stationId: queuedStationId,
+        matchId,
+      }).unwrap();
+      await refetch();
+      onAssigned?.();
+    } catch (error) {
+      toast.error(
+        error?.data?.message || error?.message || "Bỏ gán sân thất bại",
       );
     }
   };
 
   const handleClear = async () => {
     if (!currentStationId) return;
+    addBusinessBreadcrumb("court_station.assignment.clear.submit", {
+      tournamentId: normalizedTournamentId,
+      matchId,
+      courtStationId: currentStationId,
+    });
     try {
       await freeCourtStation({
         tournamentId: normalizedTournamentId,
@@ -291,7 +444,7 @@ export default function AssignCourtStationDialog({
       onAssigned?.();
     } catch (error) {
       toast.error(
-        error?.data?.message || error?.message || "Bỏ gán sân thất bại"
+        error?.data?.message || error?.message || "Bỏ gán sân thất bại",
       );
     }
   };
@@ -339,7 +492,7 @@ export default function AssignCourtStationDialog({
                 select
                 label="Cụm sân"
                 value={selectedClusterId}
-                onChange={(event) => setSelectedClusterId(event.target.value)}
+                onChange={(event) => handleSelectCluster(event.target.value)}
                 fullWidth
               >
                 {allowedClusterOptions.map((cluster) => {
@@ -359,7 +512,12 @@ export default function AssignCourtStationDialog({
                   size="small"
                   color="warning"
                   variant="outlined"
-                  label={`Dùng chung ${sharedTournamentCount} giải`}
+                  label={`Cụm sân: ${selectedCluster?.name || ""} đang dùng chung ${sharedTournamentCount} giải`}
+                  sx={{
+                    alignSelf: "flex-start",
+                    color: "#e65100",
+                    borderColor: "#e65100",
+                  }}
                 />
               )}
 
@@ -385,27 +543,39 @@ export default function AssignCourtStationDialog({
                       <Button
                         variant="outlined"
                         color="warning"
-                        onClick={handleClear}
+                        onClick={() => setConfirmRemoveType("current")}
                         disabled={clearing}
                       >
                         Bỏ gán sân
                       </Button>
-                    ) : (
-                      <Chip
-                        size="small"
-                        color="info"
-                        variant="outlined"
-                        label="Đã xếp vào hàng đợi"
-                      />
-                    )}
+                    ) : queuedStationId ? (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Chip
+                          size="small"
+                          color="info"
+                          variant="outlined"
+                          label={`Vị trí #${queuedIndex + 1} hàng đợi ${queuedStation?.name || ""}`.trim()}
+                          onClick={() => handleOpenQueueDetail(queuedStationId)}
+                          sx={{ cursor: "pointer" }}
+                        />
+                        <Button
+                          variant="outlined"
+                          color="warning"
+                          onClick={() => setConfirmRemoveType("queued")}
+                          disabled={removingQueue}
+                        >
+                          Bỏ gán sân
+                        </Button>
+                      </Stack>
+                    ) : null}
                   </Stack>
                 </Paper>
               )}
 
-
               {showRuntimeStaleWarning && (
                 <Alert severity="warning">
-                  Không thể làm mới dữ liệu lúc này. Đang hiển thị dữ liệu gần nhất.
+                  Không thể làm mới dữ liệu lúc này. Đang hiển thị dữ liệu gần
+                  nhất.
                 </Alert>
               )}
 
@@ -424,20 +594,22 @@ export default function AssignCourtStationDialog({
                     const isCurrent = currentStationId === stationId;
                     const isQueued = queuedStationId === stationId;
                     const assignmentMode = String(
-                      station?.assignmentMode || "manual"
+                      station?.assignmentMode || "manual",
                     ).toLowerCase();
                     const occupiedTournamentId = sid(
                       station?.currentMatch?.tournament?._id ||
                         station?.currentTournament?._id ||
-                        station?.currentTournamentId
+                        station?.currentTournamentId,
                     );
                     const occupiedByAnotherTournament =
                       occupiedTournamentId &&
                       occupiedTournamentId !== normalizedTournamentId;
-                    const queueContainsMatch = Array.isArray(station?.queueItems)
+                    const queueContainsMatch = Array.isArray(
+                      station?.queueItems,
+                    )
                       ? station.queueItems.some(
                           (item) =>
-                            sid(item?.matchId || item?.match?._id) === matchId
+                            sid(item?.matchId || item?.match?._id) === matchId,
                         )
                       : false;
                     const nextQueuedMatch = station?.nextQueuedMatch || null;
@@ -470,13 +642,23 @@ export default function AssignCourtStationDialog({
                             alignItems={{ xs: "flex-start", sm: "center" }}
                           >
                             <Box>
-                              <Stack direction="row" spacing={1} alignItems="center">
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                alignItems="center"
+                              >
                                 <StadiumIcon fontSize="small" />
-                                <Typography variant="subtitle1" fontWeight={700}>
+                                <Typography
+                                  variant="subtitle1"
+                                  fontWeight={700}
+                                >
                                   {station?.name}
                                 </Typography>
                               </Stack>
-                              <Typography variant="body2" color="text.secondary">
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                              >
                                 {station?.code || "—"}
                               </Typography>
                             </Box>
@@ -490,6 +672,13 @@ export default function AssignCourtStationDialog({
                               <Chip
                                 size="small"
                                 label={stationStatusLabel(station?.status)}
+                                sx={{
+                                  ...(String(
+                                    station?.status || "",
+                                  ).toLowerCase() === "assigned"
+                                    ? { bgcolor: "#9c27b0", color: "#fff" }
+                                    : {}),
+                                }}
                               />
                               <Chip
                                 size="small"
@@ -510,7 +699,9 @@ export default function AssignCourtStationDialog({
                                   variant="outlined"
                                   icon={<QueuePlayNextIcon />}
                                   label={`${station.queueCount} trận chờ`}
-                                  onClick={() => setQueueDetailStationId(stationId)}
+                                  onClick={() =>
+                                    handleOpenQueueDetail(stationId)
+                                  }
                                 />
                               )}
                             </Stack>
@@ -521,9 +712,12 @@ export default function AssignCourtStationDialog({
                               <Typography variant="body2" fontWeight={700}>
                                 {teamLine(station.currentMatch)}
                               </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {station?.currentMatch?.tournament?.name || "—"} ·{" "}
-                                {matchCode(station.currentMatch)}
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                              >
+                                {station?.currentMatch?.tournament?.name || "—"}{" "}
+                                · {matchCode(station.currentMatch)}
                               </Typography>
                             </Box>
                           ) : (
@@ -540,7 +734,8 @@ export default function AssignCourtStationDialog({
                                 p: 1.25,
                                 borderRadius: 2,
                                 cursor: "pointer",
-                                transition: "border-color 0.2s ease, box-shadow 0.2s ease",
+                                transition:
+                                  "border-color 0.2s ease, box-shadow 0.2s ease",
                                 "&:hover": {
                                   borderColor: "primary.main",
                                   boxShadow: 1,
@@ -548,13 +743,19 @@ export default function AssignCourtStationDialog({
                               }}
                             >
                               <Stack spacing={0.35}>
-                                <Typography variant="caption" color="text.secondary">
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
                                   {tournamentTitle(nextQueuedMatch)}
                                 </Typography>
                                 <Typography variant="body2" fontWeight={700}>
                                   Tiếp theo: {matchCode(nextQueuedMatch)}
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary">
+                                <Typography
+                                  variant="body2"
+                                  color="text.secondary"
+                                >
                                   {teamLine(nextQueuedMatch)}
                                 </Typography>
                               </Stack>
@@ -563,15 +764,27 @@ export default function AssignCourtStationDialog({
 
                           {occupiedByAnotherTournament && (
                             <Typography variant="caption" color="warning.main">
-                              {station?.currentMatch?.tournament?.name || "Giải khác"}{" "}
+                              {station?.currentMatch?.tournament?.name ||
+                                "Giải khác"}{" "}
                               đang sử dụng sân này.
                             </Typography>
                           )}
 
-                          <Stack direction="row" justifyContent="flex-end">
+                          <Stack direction="row" justifyContent="flex-end" spacing={1}>
+                            {assignmentMode === "queue" && isQueued && (
+                              <Button
+                                variant="contained"
+                                color="info"
+                                onClick={() => handleOpenQueueDetail(stationId)}
+                              >
+                                Xem vị trí
+                              </Button>
+                            )}
                             <Button
-                              variant={isCurrent || isQueued ? "outlined" : "contained"}
-                              onClick={() => handleAction(station)}
+                              variant={
+                                isCurrent || isQueued ? "outlined" : "contained"
+                              }
+                              onClick={() => handleQueueConfirmCheck(station)}
                               disabled={disabled}
                             >
                               {assignmentMode === "queue"
@@ -579,8 +792,8 @@ export default function AssignCourtStationDialog({
                                   ? "Đã có trong danh sách"
                                   : "Thêm vào danh sách sân"
                                 : isCurrent
-                                ? "Đang gán"
-                                : "Gán vào sân này"}
+                                  ? "Đang gán"
+                                  : "Gán vào sân này"}
                             </Button>
                           </Stack>
                         </Stack>
@@ -599,15 +812,84 @@ export default function AssignCourtStationDialog({
         </Stack>
       </ResponsiveModal>
 
+      <Dialog
+        open={Boolean(confirmRemoveType)}
+        onClose={() => setConfirmRemoveType(null)}
+        maxWidth="xs"
+        fullWidth
+        sx={{ zIndex: (theme) => Math.max(theme.zIndex.modal, 1300) + 50 }}
+      >
+        <DialogTitle>Xác nhận bỏ gán sân</DialogTitle>
+        <DialogContent dividers>
+          <Typography>
+            Bạn có chắc chắn muốn bỏ gán trận này khỏi {confirmRemoveType === "queued" ? "hàng đợi của " : ""}
+            <strong>{confirmRemoveType === "queued" ? queuedStation?.name : currentStation?.name}</strong>?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmRemoveType(null)}>Hủy</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => {
+              if (confirmRemoveType === "queued") handleRemoveQueue();
+              else if (confirmRemoveType === "current") handleClear();
+              setConfirmRemoveType(null);
+            }}
+          >
+            Chắc chắn
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(confirmQueueStationId)}
+        onClose={() => setConfirmQueueStationId("")}
+        maxWidth="xs"
+        fullWidth
+        sx={{ zIndex: (theme) => Math.max(theme.zIndex.modal, 1300) + 50 }}
+      >
+        <DialogTitle>Xác nhận lấy số xếp hàng</DialogTitle>
+        <DialogContent dividers>
+          <Typography>
+            Nếu thêm vào sân này, trận đấu sẽ nằm ở vị trí{" "}
+            <strong>
+              #
+              {(stations.find((s) => sid(s._id) === confirmQueueStationId)
+                ?.queueCount || 0) + 1}
+            </strong>{" "}
+            trong hàng đợi của sân. Bạn có chắc chắn muốn thêm?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmQueueStationId("")}>Hủy</Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => {
+              const st = stations.find(
+                (s) => sid(s._id) === confirmQueueStationId,
+              );
+              if (st) handleAction(st);
+              setConfirmQueueStationId("");
+            }}
+          >
+            Chắc chắn
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <ResponsiveModal
         open={Boolean(queueDetailStation)}
         onClose={() => setQueueDetailStationId("")}
         maxWidth="sm"
         icon={<QueuePlayNextIcon fontSize="small" />}
         title={`Trận chờ — ${queueDetailStation?.name || "Sân"}`}
-        subtitle={selectedClusterId ? "Danh sách trận đang chờ của sân này." : ""}
+        subtitle={
+          selectedClusterId ? "Danh sách trận đang chờ của sân này." : ""
+        }
       >
-        <Stack spacing={1.25}>
+        <Stack spacing={1.25} sx={{ pb: 2 }}>
           {!queueDetailMatches.length ? (
             <Alert severity="info">Sân này hiện chưa có trận chờ.</Alert>
           ) : (
@@ -615,6 +897,7 @@ export default function AssignCourtStationDialog({
               const queuedMatchId = sid(queuedMatch?._id);
               return (
                 <Paper
+                  id={`queued-match-${queuedMatchId}`}
                   key={queuedMatchId || `queue-${index}`}
                   variant="outlined"
                   onClick={() => openViewer(queuedMatch)}
@@ -622,9 +905,11 @@ export default function AssignCourtStationDialog({
                     p: 1.25,
                     borderRadius: 2,
                     cursor: "pointer",
-                    transition: "border-color 0.2s ease, box-shadow 0.2s ease",
+                    borderWidth: queuedMatchId === matchId ? 2 : 1,
+                    borderColor:
+                      queuedMatchId === matchId ? "primary.main" : "divider",
+                    transition: "box-shadow 0.2s ease",
                     "&:hover": {
-                      borderColor: "primary.main",
                       boxShadow: 1,
                     },
                   }}
@@ -652,6 +937,7 @@ export default function AssignCourtStationDialog({
         matchId={sid(viewerMatch?._id)}
         initialMatch={viewerMatch}
         onClose={() => setViewerMatch(null)}
+        zIndex={1400}
       />
     </>
   );
@@ -666,4 +952,3 @@ AssignCourtStationDialog.propTypes = {
   onClose: PropTypes.func,
   onAssigned: PropTypes.func,
 };
-  

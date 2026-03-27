@@ -25,9 +25,12 @@ export default function UnifiedStreamPlayer({
     return null;
   }
 
-  const kind = String(source.kind || "").trim().toLowerCase();
+  const kind = String(source.kind || "")
+    .trim()
+    .toLowerCase();
   const ratio = resolveAspectRatio(source?.aspect);
-  const key = remountKey || source?.key || source?.embedUrl || source?.openUrl || kind;
+  const key =
+    remountKey || source?.key || source?.embedUrl || source?.openUrl || kind;
 
   if (kind === "file" || kind === "hls") {
     return (
@@ -85,7 +88,8 @@ export default function UnifiedStreamPlayer({
           src={source.embedUrl}
           title={source.label || source.providerLabel || "Video"}
           allow={
-            source.allow || "autoplay; encrypted-media; picture-in-picture; fullscreen"
+            source.allow ||
+            "autoplay; encrypted-media; picture-in-picture; fullscreen"
           }
           allowFullScreen
           style={{ width: "100%", height: "100%", border: 0 }}

@@ -1,10 +1,37 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [
+async function resolveSentryVitePlugin() {
+  try {
+    const mod = await import("@sentry/vite-plugin");
+    return mod.sentryVitePlugin;
+  } catch {
+    return null;
+  }
+}
+
+export default defineConfig(async ({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const sentryVitePlugin = await resolveSentryVitePlugin();
+  const sentryAuthToken = env.SENTRY_AUTH_TOKEN || process.env.SENTRY_AUTH_TOKEN;
+  const sentryOrg = env.SENTRY_ORG || process.env.SENTRY_ORG;
+  const sentryProject = env.SENTRY_PROJECT || process.env.SENTRY_PROJECT;
+  const sentryRelease =
+    env.SENTRY_RELEASE ||
+    env.VITE_SENTRY_RELEASE ||
+    process.env.SENTRY_RELEASE ||
+    process.env.VITE_SENTRY_RELEASE;
+
+  const enableSentrySourcemaps = Boolean(
+    sentryVitePlugin &&
+      sentryAuthToken &&
+      sentryOrg &&
+      sentryProject &&
+      sentryRelease
+  );
+
+  const plugins = [
     react(),
     VitePWA({
       registerType: "autoUpdate",
@@ -31,7 +58,7 @@ export default defineConfig({
               cacheName: "images-cache",
               expiration: {
                 maxEntries: 200,
-                maxAgeSeconds: 2 * 24 * 60 * 60, // 2 ngày
+                maxAgeSeconds: 2 * 24 * 60 * 60,
               },
             },
           },
@@ -40,7 +67,7 @@ export default defineConfig({
       manifest: {
         name: "Pickletour.vn",
         short_name: "Pickletour",
-        description: "Nền tảng quản lý giải đấu Pickleball hàng đầu Việt Nam",
+        description: "Nen tang quan ly giai dau Pickleball hang dau Viet Nam",
         theme_color: "#0d6efd",
         background_color: "#ffffff",
         display: "standalone",
@@ -68,43 +95,65 @@ export default defineConfig({
       name: "configure-well-known",
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
-          // Apple App Site Association
           if (req.url === "/.well-known/apple-app-site-association") {
             res.setHeader("Content-Type", "application/json");
             res.setHeader("Cache-Control", "public, max-age=3600");
           }
-          // Android Asset Links
+
           if (req.url === "/.well-known/assetlinks.json") {
             res.setHeader("Content-Type", "application/json");
             res.setHeader("Cache-Control", "public, max-age=3600");
           }
+
           next();
         });
       },
     },
-  ],
-  server: {
-    port: 3000,
-    proxy: {
-      "/api": {
-        target: "http://localhost:5001",
-        changeOrigin: true,
-      },
-      "/uploads": {
-        target: "http://localhost:5001",
-        changeOrigin: true,
-      },
-      "/socket.io": {
-        target: "http://localhost:5001",
-        ws: true, // 👈 QUAN TRỌNG: bật websocket proxy
-        changeOrigin: true,
+  ];
+
+  if (enableSentrySourcemaps) {
+    plugins.push(
+      sentryVitePlugin({
+        authToken: sentryAuthToken,
+        org: sentryOrg,
+        project: sentryProject,
+        release: {
+          name: sentryRelease,
+        },
+        sourcemaps: {
+          assets: "./dist/**",
+        },
+        telemetry: false,
+      })
+    );
+  }
+
+  return {
+    plugins,
+    server: {
+      port: 3000,
+      proxy: {
+        "/api": {
+          target: "http://localhost:5001",
+          changeOrigin: true,
+        },
+        "/uploads": {
+          target: "http://localhost:5001",
+          changeOrigin: true,
+        },
+        "/socket.io": {
+          target: "http://localhost:5001",
+          ws: true,
+          changeOrigin: true,
+        },
       },
     },
-  },
-  build: {
-    minify: "terser",
-    terserOptions: {
-      compress: { drop_console: true, drop_debugger: true },
+    build: {
+      sourcemap: enableSentrySourcemaps,
+      minify: "terser",
+      terserOptions: {
+        compress: { drop_console: true, drop_debugger: true },
+      },
     },
-  },
+  };
 });

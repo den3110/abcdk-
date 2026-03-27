@@ -185,6 +185,10 @@ const bracketSchema = new Schema(
         drawSize: { type: Number, default: 0 },
         cutRounds: { type: Number, default: 0 },
       },
+      blueprint: {
+        type: Schema.Types.Mixed,
+        default: undefined,
+      },
     },
 
     groups: [groupSchema],

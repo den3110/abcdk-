@@ -1,7 +1,29 @@
-import { Alert, Avatar, Box, Button, Card, CardContent, CardHeader, CircularProgress, Divider, Grid, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
+import {
+  Alert,
+  Avatar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CircularProgress,
+  Divider,
+  Grid,
+  IconButton,
+  InputAdornment,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import { useEffect } from "react";
 import { useState } from "react";
-import { useListTournamentRefereesQuery, useUpsertTournamentRefereesMutation } from "../slices/refereeScopeApiSlice";
+import {
+  useListTournamentRefereesQuery,
+  useUpsertTournamentRefereesMutation,
+} from "../slices/refereeScopeApiSlice";
 import { useAdminSearchRefereesQuery } from "../slices/tournamentsApiSlice";
 import { toast } from "react-toastify";
 import ResponsiveModal from "./ResponsiveModal";
@@ -12,7 +34,6 @@ import {
   RemoveCircleOutline as RemoveIcon,
 } from "@mui/icons-material";
 
-
 const personNickname = (p) =>
   p?.nickname ||
   p?.nickName ||
@@ -22,8 +43,12 @@ const personNickname = (p) =>
   p?.name ||
   "—";
 
-
-export default function ManageRefereesDialog({ open, tournamentId, onClose, onChanged }) {
+export default function ManageRefereesDialog({
+  open,
+  tournamentId,
+  onClose,
+  onChanged,
+}) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [q, setQ] = useState("");
@@ -39,13 +64,13 @@ export default function ManageRefereesDialog({ open, tournamentId, onClose, onCh
     refetch: refetchAssigned,
   } = useListTournamentRefereesQuery(
     { tid: tournamentId, q: "" },
-    { skip: !open || !tournamentId }
+    { skip: !open || !tournamentId },
   );
 
   const { data: candidates = [], isLoading: loadingSearch } =
     useAdminSearchRefereesQuery(
       { tid: tournamentId, q: debouncedQ },
-      { skip: !open || !tournamentId }
+      { skip: !open || !tournamentId },
     );
 
   const [upsert, { isLoading: saving }] = useUpsertTournamentRefereesMutation();

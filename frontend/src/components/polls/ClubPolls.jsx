@@ -31,7 +31,7 @@ export default function ClubPolls({ club, canManage }) {
   const clubId = club?._id;
   const { data, isLoading, isFetching, refetch } = useListPollsQuery(
     { id: clubId },
-    { skip: !clubId }
+    { skip: !clubId },
   );
 
   const [createPoll, { isLoading: creating }] = useCreatePollMutation();
@@ -129,7 +129,7 @@ export default function ClubPolls({ club, canManage }) {
         const total =
           (p.options || []).reduce(
             (a, b) => a + (p.results?.[b.id || b._id] || 0),
-            0
+            0,
           ) || 0;
         const closed = !!p.closedAt;
 

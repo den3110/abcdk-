@@ -327,8 +327,10 @@ export default function PublicProfilePage() {
       : t("common.unavailable");
   const genderInfo = (gender) => {
     const label = getGenderLabel(t, gender);
-    if (label === t("profile.genderOptions.male")) return { label, color: "info" };
-    if (label === t("profile.genderOptions.female")) return { label, color: "error" };
+    if (label === t("profile.genderOptions.male"))
+      return { label, color: "info" };
+    if (label === t("profile.genderOptions.female"))
+      return { label, color: "error" };
     return { label, color: "default" };
   };
   const handLabelValue = (value) => {
@@ -355,10 +357,10 @@ export default function PublicProfilePage() {
   // Queries
   const baseQ = useGetPublicProfileQuery(id);
   const rateQ = useGetRatingHistoryQuery(
-    needsRatings ? { id, page: pageRate, limit: ratePerPage } : skipToken
+    needsRatings ? { id, page: pageRate, limit: ratePerPage } : skipToken,
   );
   const matchQ = useGetMatchHistoryQuery(
-    needsMatches ? { id, page: pageMatch, limit: matchPerPage } : skipToken
+    needsMatches ? { id, page: pageMatch, limit: matchPerPage } : skipToken,
   );
 
   const base = useMemo(() => baseQ.data || {}, [baseQ.data]);
@@ -367,11 +369,11 @@ export default function PublicProfilePage() {
       Array.isArray(rateQ.data?.history)
         ? rateQ.data.history
         : rateQ.data?.items || [],
-    [rateQ.data]
+    [rateQ.data],
   );
   const matchRaw = useMemo(
     () => (Array.isArray(matchQ.data) ? matchQ.data : matchQ.data?.items || []),
-    [matchQ.data]
+    [matchQ.data],
   );
   const ratingTotal = rateQ.data?.total ?? 0;
   const matchTotal = matchQ.data?.total ?? 0;
@@ -388,7 +390,9 @@ export default function PublicProfilePage() {
     userInfo?.role === "admin" ||
     (Array.isArray(userInfo?.roles) && userInfo.roles.includes("admin"));
   const canSeeSensitive = isSelf || isAdminViewer;
-  const profileCode = baseId ? String(baseId).slice(-6).toUpperCase() : t("common.unavailable");
+  const profileCode = baseId
+    ? String(baseId).slice(-6).toUpperCase()
+    : t("common.unavailable");
 
   // ✅ latestSingle / latestDouble giống bản cũ (ưu tiên history, fallback levelPoint)
   const latestSingle = useMemo(() => {
@@ -589,7 +593,10 @@ export default function PublicProfilePage() {
                 @{base?.nickname || t("publicProfile.nicknameFallback")}
               </Typography>
               {hasData(base?.nickname) && (
-                <CopyBtn value={base?.nickname || ""} label={t("publicProfile.labels.nickname")} />
+                <CopyBtn
+                  value={base?.nickname || ""}
+                  label={t("publicProfile.labels.nickname")}
+                />
               )}
             </Stack>
 
@@ -610,7 +617,9 @@ export default function PublicProfilePage() {
               )}
               <Chip
                 icon={<CalendarMonthIcon fontSize="small" />}
-                label={t("publicProfile.joinedAt", { date: fmtDate(base.joinedAt || base.createdAt) })}
+                label={t("publicProfile.joinedAt", {
+                  date: fmtDate(base.joinedAt || base.createdAt),
+                })}
                 size="small"
                 variant="outlined"
               />
@@ -724,7 +733,10 @@ export default function PublicProfilePage() {
                     </Typography>
                   </Stack>
                   <Chip
-                    label={m.tournament?.name || t("publicProfile.values.friendlyMatch")}
+                    label={
+                      m.tournament?.name ||
+                      t("publicProfile.values.friendlyMatch")
+                    }
                     size="small"
                     variant="outlined"
                     sx={{ maxWidth: 200 }}
@@ -834,70 +846,76 @@ export default function PublicProfilePage() {
             t("publicProfile.values.noRatingHistory")}
         </Alert>
       ) : (
-      <TableContainer
-        component={Paper}
-        variant="outlined"
-        sx={{ borderRadius: 3, overflow: "hidden" }}
-      >
-        <Table size={isMobile ? "small" : "medium"}>
-          <TableHead sx={{ bgcolor: "action.hover" }}>
-            <TableRow>
-              <TableCell>{t("publicProfile.labels.time")}</TableCell>
-              <TableCell>{t("publicProfile.labels.scorer")}</TableCell>
-              <TableCell align="center">{t("publicProfile.labels.singlePoint")}</TableCell>
-              <TableCell align="center">{t("publicProfile.labels.doublePoint")}</TableCell>
-              {!isMobile && <TableCell>{t("publicProfile.labels.note")}</TableCell>}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {ratePaged.length > 0 ? (
-              ratePaged.map((row) => (
-                <TableRow key={row._id || row.id} hover>
-                  <TableCell sx={{ fontWeight: 500 }}>
-                    {fmtDate(row.scoredAt)}
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {row.scorer?.name || t("publicProfile.values.system")}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Chip
-                      label={num(row.single)}
-                      size="small"
-                      variant="outlined"
-                      color="primary"
-                    />
-                  </TableCell>
-                  <TableCell align="center">
-                    <Chip
-                      label={num(row.double)}
-                      size="small"
-                      variant="outlined"
-                      color="secondary"
-                    />
-                  </TableCell>
-                  {!isMobile && (
-                    <TableCell
-                      sx={{ color: "text.secondary", maxWidth: 200 }}
-                      noWrap
-                      title={row.note}
-                    >
-                      {row.note || "—"}
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))
-            ) : (
+        <TableContainer
+          component={Paper}
+          variant="outlined"
+          sx={{ borderRadius: 3, overflow: "hidden" }}
+        >
+          <Table size={isMobile ? "small" : "medium"}>
+            <TableHead sx={{ bgcolor: "action.hover" }}>
               <TableRow>
-                <TableCell colSpan={5} align="center">
-                  {t("publicProfile.values.noRatingHistory")}
+                <TableCell>{t("publicProfile.labels.time")}</TableCell>
+                <TableCell>{t("publicProfile.labels.scorer")}</TableCell>
+                <TableCell align="center">
+                  {t("publicProfile.labels.singlePoint")}
                 </TableCell>
+                <TableCell align="center">
+                  {t("publicProfile.labels.doublePoint")}
+                </TableCell>
+                {!isMobile && (
+                  <TableCell>{t("publicProfile.labels.note")}</TableCell>
+                )}
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableHead>
+            <TableBody>
+              {ratePaged.length > 0 ? (
+                ratePaged.map((row) => (
+                  <TableRow key={row._id || row.id} hover>
+                    <TableCell sx={{ fontWeight: 500 }}>
+                      {fmtDate(row.scoredAt)}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {row.scorer?.name || t("publicProfile.values.system")}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        label={num(row.single)}
+                        size="small"
+                        variant="outlined"
+                        color="primary"
+                      />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        label={num(row.double)}
+                        size="small"
+                        variant="outlined"
+                        color="secondary"
+                      />
+                    </TableCell>
+                    {!isMobile && (
+                      <TableCell
+                        sx={{ color: "text.secondary", maxWidth: 200 }}
+                        noWrap
+                        title={row.note}
+                      >
+                        {row.note || "—"}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} align="center">
+                    {t("publicProfile.values.noRatingHistory")}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
       {ratingTotal > ratePerPage && (
         <Stack alignItems="center">
@@ -932,16 +950,14 @@ export default function PublicProfilePage() {
   if (baseQ.error)
     return (
       <Container sx={{ pt: 10 }}>
-        <Alert severity="error">
-          {t("publicProfile.values.notFound")}
-        </Alert>
+        <Alert severity="error">{t("publicProfile.values.notFound")}</Alert>
       </Container>
     );
 
   // Một số label từ dữ liệu mở rộng
   const handLabel =
     handLabelValue(
-      base?.playHand || base?.hand || base?.handedness || base?.dominantHand
+      base?.playHand || base?.hand || base?.handedness || base?.dominantHand,
     ) || t("common.unavailable");
   const dob = base?.dob || base?.birthday || base?.dateOfBirth;
   const clubName =
@@ -1046,9 +1062,18 @@ export default function PublicProfilePage() {
                 "& .MuiTabs-indicator": { display: "none" },
               }}
             >
-              <Tab label={t("publicProfile.tabs.profile")} iconPosition="start" />
-              <Tab label={t("publicProfile.tabs.matches")} iconPosition="start" />
-              <Tab label={t("publicProfile.tabs.ratings")} iconPosition="start" />
+              <Tab
+                label={t("publicProfile.tabs.profile")}
+                iconPosition="start"
+              />
+              <Tab
+                label={t("publicProfile.tabs.matches")}
+                iconPosition="start"
+              />
+              <Tab
+                label={t("publicProfile.tabs.ratings")}
+                iconPosition="start"
+              />
             </Tabs>
           </Stack>
 
@@ -1100,27 +1125,42 @@ export default function PublicProfilePage() {
                     </Grid>
                     {hasData(base?.province) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label={t("publicProfile.labels.province")} value={base?.province} />
+                        <InfoItem
+                          label={t("publicProfile.labels.province")}
+                          value={base?.province}
+                        />
                       </Grid>
                     )}
                     {hasData(dob) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label={t("publicProfile.labels.dob")} value={fmtDate(dob)} />
+                        <InfoItem
+                          label={t("publicProfile.labels.dob")}
+                          value={fmtDate(dob)}
+                        />
                       </Grid>
                     )}
                     {hasData(calcAge(dob)) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label={t("publicProfile.labels.age")} value={calcAge(dob)} />
+                        <InfoItem
+                          label={t("publicProfile.labels.age")}
+                          value={calcAge(dob)}
+                        />
                       </Grid>
                     )}
                     {hasData(handLabel) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label={t("publicProfile.labels.dominantHand")} value={handLabel} />
+                        <InfoItem
+                          label={t("publicProfile.labels.dominantHand")}
+                          value={handLabel}
+                        />
                       </Grid>
                     )}
                     {hasData(profileCode) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label={t("publicProfile.labels.profileCode")} value={profileCode} />
+                        <InfoItem
+                          label={t("publicProfile.labels.profileCode")}
+                          value={profileCode}
+                        />
                       </Grid>
                     )}
                   </Grid>
@@ -1132,7 +1172,10 @@ export default function PublicProfilePage() {
                   <Grid container spacing={2} sx={{ mb: 2 }}>
                     {hasData(clubName) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label={t("publicProfile.labels.mainClub")} value={clubName} />
+                        <InfoItem
+                          label={t("publicProfile.labels.mainClub")}
+                          value={clubName}
+                        />
                       </Grid>
                     )}
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
@@ -1228,14 +1271,17 @@ export default function PublicProfilePage() {
                             <InfoItem
                               label={t("publicProfile.labels.lastLogin")}
                               value={fmtDT(
-                                base.lastLoginAt || base.lastActiveAt
+                                base.lastLoginAt || base.lastActiveAt,
                               )}
                             />
                           </Grid>
                         )}
                         {hasData(rolesLabel) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                            <InfoItem label={t("publicProfile.labels.role")} value={rolesLabel} />
+                            <InfoItem
+                              label={t("publicProfile.labels.role")}
+                              value={rolesLabel}
+                            />
                           </Grid>
                         )}
                         {hasData(accountStatus) && (

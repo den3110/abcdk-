@@ -424,6 +424,16 @@ export const toDTO = (matchDoc) => {
 
     roundCode,
     roundName,
+    isThirdPlace: !!m?.isThirdPlace,
+    meta:
+      m?.meta && (m.meta.thirdPlace !== undefined || m.meta.stageLabel)
+        ? {
+            ...(m.meta.thirdPlace !== undefined
+              ? { thirdPlace: !!m.meta.thirdPlace }
+              : {}),
+            ...(m.meta.stageLabel ? { stageLabel: m.meta.stageLabel } : {}),
+          }
+        : undefined,
 
     // 🆕 stage info cho FE
     stageType,

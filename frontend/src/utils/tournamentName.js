@@ -10,7 +10,7 @@ const readText = (...candidates) => {
 export const getTournamentNameDisplayMode = (source) => {
   const mode = readText(
     source?.nameDisplayMode,
-    source?.tournament?.nameDisplayMode
+    source?.tournament?.nameDisplayMode,
   );
   return mode === "fullName" ? "fullName" : "nickname";
 };
@@ -23,7 +23,7 @@ const nicknameOf = (player) =>
     player?.nick_name,
     player?.shortName,
     player?.user?.nickname,
-    player?.user?.nickName
+    player?.user?.nickName,
   );
 
 const fullNameOf = (player) =>
@@ -32,13 +32,13 @@ const fullNameOf = (player) =>
     player?.name,
     player?.displayName,
     player?.user?.fullName,
-    player?.user?.name
+    player?.user?.name,
   );
 
 export const getTournamentPlayerName = (
   player,
   displayMode = "nickname",
-  fallback = "—"
+  fallback = "—",
 ) => {
   if (!player) return fallback;
   const nickname = nicknameOf(player);
@@ -61,7 +61,7 @@ export const getTournamentTeamName = (
   entity,
   eventType = "double",
   displayMode = "nickname",
-  options = {}
+  options = {},
 ) => {
   const { fallback = "—", separator = " & " } = options;
   if (!entity) return fallback;
@@ -87,5 +87,5 @@ export const getTournamentPairName = (
   pair,
   eventType = "double",
   displayMode = "nickname",
-  options = {}
+  options = {},
 ) => getTournamentTeamName(pair, eventType, displayMode, options);

@@ -29,15 +29,15 @@ export default function LiveReferee() {
             m.status === "live"
               ? "Đang diễn ra"
               : m.status === "finished"
-              ? "Kết thúc"
-              : "Chưa bắt đầu"
+                ? "Kết thúc"
+                : "Chưa bắt đầu"
           }
           color={
             m.status === "live"
               ? "warning"
               : m.status === "finished"
-              ? "success"
-              : "default"
+                ? "success"
+                : "default"
           }
           sx={{ mb: 2 }}
         />

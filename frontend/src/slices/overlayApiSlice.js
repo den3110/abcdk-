@@ -25,7 +25,5 @@ export const overlayApiSlice = apiSlice.injectEndpoints({
   overrideExisting: false,
 });
 
-export const {
-  useGetOverlayConfigQuery,
-  useLazyGetOverlayConfigQuery,
-} = overlayApiSlice;
+export const { useGetOverlayConfigQuery, useLazyGetOverlayConfigQuery } =
+  overlayApiSlice;

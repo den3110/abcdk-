@@ -1,6 +1,7 @@
 // controllers/systemSettings.controller.js
 import { invalidateSettingsCache } from "../middleware/settings.middleware.js";
 import SystemSettings from "../models/systemSettingsModel.js";
+import { invalidateLiveRecordingAiCommentaryGatewayHealthCache } from "../services/liveRecordingAiCommentaryGateway.service.js";
 
 const DEFAULTS = {
   _id: "system",
@@ -17,7 +18,11 @@ const DEFAULTS = {
     // 👇 default cùng phía model: đang bật chèn logo
     avatarLogoEnabled: true,
   },
-  notifications: { telegramEnabled: false, telegramComplaintChatId: "", systemPushEnabled: true },
+  notifications: {
+    telegramEnabled: false,
+    telegramComplaintChatId: "",
+    systemPushEnabled: true,
+  },
   // 👇 NEW: links (link hướng dẫn)
   links: {
     guideUrl: "",
@@ -40,6 +45,20 @@ const DEFAULTS = {
   },
   liveRecording: {
     autoExportNoSegmentMinutes: 15,
+    aiCommentary: {
+      enabled: false,
+      autoGenerateAfterDriveUpload: true,
+      defaultLanguage: "vi",
+      defaultVoicePreset: "vi_male_pro",
+      scriptBaseUrl: "",
+      scriptModel: "",
+      ttsBaseUrl: "",
+      ttsModel: "",
+      defaultTonePreset: "professional",
+      keepOriginalAudioBed: true,
+      audioBedLevelDb: -18,
+      duckAmountDb: -12,
+    },
   },
 };
 
@@ -89,6 +108,10 @@ function normalizeSystemSettings(doc = {}) {
     liveRecording: {
       ...DEFAULTS.liveRecording,
       ...(source.liveRecording || {}),
+      aiCommentary: {
+        ...DEFAULTS.liveRecording.aiCommentary,
+        ...(source.liveRecording?.aiCommentary || {}),
+      },
     },
   };
 }
@@ -110,6 +133,59 @@ function sanitizeSettingsPatch(patch = {}) {
     if (!Object.keys(next.liveRecording).length) {
       delete next.liveRecording;
     }
+  }
+
+  if (
+    next.liveRecording?.aiCommentary &&
+    typeof next.liveRecording.aiCommentary === "object"
+  ) {
+    const ai = { ...next.liveRecording.aiCommentary };
+    ai.enabled = ai.enabled === true;
+    ai.autoGenerateAfterDriveUpload = ai.autoGenerateAfterDriveUpload !== false;
+    ai.keepOriginalAudioBed = ai.keepOriginalAudioBed !== false;
+
+    const lang = String(ai.defaultLanguage || "vi")
+      .trim()
+      .toLowerCase();
+    ai.defaultLanguage = ["vi", "en"].includes(lang) ? lang : "vi";
+
+    const voicePreset = String(ai.defaultVoicePreset || "vi_male_pro")
+      .trim()
+      .toLowerCase();
+    ai.defaultVoicePreset = [
+      "vi_male_pro",
+      "vi_female_pro",
+      "en_male_pro",
+      "en_female_pro",
+    ].includes(voicePreset)
+      ? voicePreset
+      : "vi_male_pro";
+
+    ai.scriptBaseUrl = String(ai.scriptBaseUrl || "").trim();
+    ai.scriptModel = String(ai.scriptModel || "").trim();
+    ai.ttsBaseUrl = String(ai.ttsBaseUrl || "").trim();
+    ai.ttsModel = String(ai.ttsModel || "").trim();
+
+    const tonePreset = String(ai.defaultTonePreset || "professional")
+      .trim()
+      .toLowerCase();
+    ai.defaultTonePreset = ["professional", "energetic", "dramatic"].includes(
+      tonePreset
+    )
+      ? tonePreset
+      : "professional";
+
+    const rawAudioBedLevelDb = Number(ai.audioBedLevelDb);
+    ai.audioBedLevelDb = Number.isFinite(rawAudioBedLevelDb)
+      ? Math.max(-40, Math.min(0, Math.round(rawAudioBedLevelDb)))
+      : -18;
+
+    const rawDuckAmountDb = Number(ai.duckAmountDb);
+    ai.duckAmountDb = Number.isFinite(rawDuckAmountDb)
+      ? Math.max(-30, Math.min(0, Math.round(rawDuckAmountDb)))
+      : -12;
+
+    next.liveRecording.aiCommentary = ai;
   }
 
   return next;
@@ -171,6 +247,7 @@ export const updateSystemSettings = async (req, res, next) => {
     );
 
     invalidateSettingsCache();
+    invalidateLiveRecordingAiCommentaryGatewayHealthCache();
     return res.json(normalizeSystemSettings(updated));
   } catch (err) {
     next(err);

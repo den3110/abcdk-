@@ -180,7 +180,7 @@ export default function ResponsiveModal({
               alignItems="center"
             >
               {React.Children.toArray(
-                Array.isArray(actions) ? actions : [actions]
+                Array.isArray(actions) ? actions : [actions],
               )}
             </Stack>
           </Box>

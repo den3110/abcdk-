@@ -5,8 +5,8 @@ import encHex from "crypto-js/enc-hex";
 const T1 = import.meta.env.VITE_APP_METRIC_A || "";
 const T2 = import.meta.env.VITE_APP_METRIC_B || "";
 const T3 = import.meta.env.VITE_APP_WIDGET_VER || "";
-const T4 = "pt"; 
-const T5 = "rk"; 
+const T4 = "pt";
+const T5 = "rk";
 
 const CLIENT_KEY_FE = [
   T4,
@@ -24,7 +24,7 @@ const normalizePath = (url) => {
 };
 
 export function buildRankingToken(url = "/api/rankings", method = "GET") {
-  const path = normalizePath(url); 
+  const path = normalizePath(url);
   const ts = Math.floor(Date.now() / 1000);
   const nonce = Math.random().toString(36).slice(2, 10);
 

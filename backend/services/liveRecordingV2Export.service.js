@@ -15,6 +15,7 @@ import {
   getRecordingDriveStatus,
   uploadRecordingToDrive,
 } from "./driveRecordings.service.js";
+import { maybeAutoQueueLiveRecordingAiCommentary } from "./liveRecordingAiCommentaryQueue.service.js";
 import { publishLiveRecordingMonitorUpdate } from "./liveRecordingMonitorEvents.service.js";
 
 function getAppHost() {
@@ -38,27 +39,39 @@ function getPlaybackApiBase() {
 }
 
 export function buildRecordingPlaybackUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/play`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(
+    recordingId
+  )}/play`;
 }
 
 export function buildRecordingRawStreamUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(
+    recordingId
+  )}/raw`;
 }
 
 export function buildRecordingRawStatusUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw/status`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(
+    recordingId
+  )}/raw/status`;
 }
 
 export function buildRecordingTemporaryPlaybackUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/temp`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(
+    recordingId
+  )}/temp`;
 }
 
 export function buildRecordingTemporaryPlaylistUrl(recordingId) {
-  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/temp/playlist`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(
+    recordingId
+  )}/temp/playlist`;
 }
 
 function asMutableMeta(meta) {
-  return meta && typeof meta === "object" && !Array.isArray(meta) ? { ...meta } : {};
+  return meta && typeof meta === "object" && !Array.isArray(meta)
+    ? { ...meta }
+    : {};
 }
 
 function asTrimmed(value) {
@@ -89,7 +102,10 @@ function buildSourceCleanupObjectKeys(recording) {
   return [...objectKeys];
 }
 
-function groupRecordingObjectKeysByTarget(recording, { includeManifest = true } = {}) {
+function groupRecordingObjectKeysByTarget(
+  recording,
+  { includeManifest = true } = {}
+) {
   const grouped = new Map();
 
   const pushObjectKey = (storageTargetId, objectKey) => {
@@ -103,7 +119,10 @@ function groupRecordingObjectKeysByTarget(recording, { includeManifest = true } 
   };
 
   for (const segment of recording?.segments || []) {
-    pushObjectKey(getSegmentStorageTargetId(segment, recording), segment?.objectKey);
+    pushObjectKey(
+      getSegmentStorageTargetId(segment, recording),
+      segment?.objectKey
+    );
   }
 
   if (includeManifest && recording?.r2ManifestKey) {
@@ -173,10 +192,14 @@ async function ensureDir(dirPath) {
 
 async function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegStatic, ["-threads", String(getFfmpegThreads()), ...args], {
-      stdio: ["ignore", "ignore", "pipe"],
-      windowsHide: true,
-    });
+    const child = spawn(
+      ffmpegStatic,
+      ["-threads", String(getFfmpegThreads()), ...args],
+      {
+        stdio: ["ignore", "ignore", "pipe"],
+        windowsHide: true,
+      }
+    );
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
@@ -297,7 +320,8 @@ export async function exportLiveRecordingV2(recordingId) {
     throw new Error("Recording v2 has no uploaded segments");
   }
 
-  const manifestKey = recording.r2ManifestKey ||
+  const manifestKey =
+    recording.r2ManifestKey ||
     buildRecordingManifestObjectKey({
       recordingId: recording._id,
       matchId: recording.match,
@@ -311,12 +335,14 @@ export async function exportLiveRecordingV2(recordingId) {
     quality: recording.quality,
     r2TargetId: recording.r2TargetId || null,
     r2BucketName: recording.r2BucketName || null,
-    finalizedAt: recording.finalizedAt?.toISOString() || new Date().toISOString(),
+    finalizedAt:
+      recording.finalizedAt?.toISOString() || new Date().toISOString(),
     segments: uploadedSegments.map((segment) => ({
       index: segment.index,
       objectKey: segment.objectKey,
       storageTargetId: getSegmentStorageTargetId(segment, recording) || null,
-      bucketName: asTrimmed(segment?.bucketName) || recording?.r2BucketName || null,
+      bucketName:
+        asTrimmed(segment?.bucketName) || recording?.r2BucketName || null,
       sizeBytes: segment.sizeBytes,
       durationSeconds: segment.durationSeconds,
       isFinal: segment.isFinal,
@@ -392,7 +418,8 @@ export async function exportLiveRecordingV2(recordingId) {
     }
     if (!driveStatus.configured || !driveStatus.ready) {
       throw new Error(
-        driveStatus.message || "Google Drive recording destination is not configured"
+        driveStatus.message ||
+          "Google Drive recording destination is not configured"
       );
     }
 
@@ -473,7 +500,9 @@ export async function exportLiveRecordingV2(recordingId) {
           recordingIds: [String(recording._id)],
         }).catch(() => {});
         console.error(
-          `[recording-export] source cleanup failed for recording ${String(recording._id)}:`,
+          `[recording-export] source cleanup failed for recording ${String(
+            recording._id
+          )}:`,
           cleanupError
         );
       }
@@ -514,6 +543,16 @@ export async function exportLiveRecordingV2(recordingId) {
       reason: "recording_ready",
       recordingIds: [String(recording._id)],
     });
+    await maybeAutoQueueLiveRecordingAiCommentary(recording._id).catch(
+      (queueError) => {
+        console.error(
+          `[recording-ai-commentary] auto queue failed for recording ${String(
+            recording._id
+          )}:`,
+          queueError?.message || queueError
+        );
+      }
+    );
 
     return recording;
   } catch (error) {
@@ -565,7 +604,13 @@ export async function deleteExportedRecordingSegments(
 
   const objectKeys = includeManifest
     ? buildSourceCleanupObjectKeys(recording)
-    : [...new Set((recording.segments || []).map((segment) => segment?.objectKey).filter(Boolean))];
+    : [
+        ...new Set(
+          (recording.segments || [])
+            .map((segment) => segment?.objectKey)
+            .filter(Boolean)
+        ),
+      ];
 
   if (!objectKeys.length) {
     return {
@@ -579,7 +624,10 @@ export async function deleteExportedRecordingSegments(
     includeManifest,
   });
   const deletedKeys = [];
-  for (const [storageTargetId, targetObjectKeys] of groupedObjectKeys.entries()) {
+  for (const [
+    storageTargetId,
+    targetObjectKeys,
+  ] of groupedObjectKeys.entries()) {
     if (!targetObjectKeys.size) continue;
     const deleteResult = await deleteRecordingObjects([...targetObjectKeys], {
       storageTargetId,

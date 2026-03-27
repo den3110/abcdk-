@@ -59,7 +59,7 @@ export default function EventCreateDialog({ open, onClose, clubId }) {
           errors.start ||
           errors.end ||
           errors.capacity ||
-          "Vui lòng kiểm tra lại thông tin"
+          "Vui lòng kiểm tra lại thông tin",
       );
       return;
     }

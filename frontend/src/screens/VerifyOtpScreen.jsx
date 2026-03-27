@@ -32,11 +32,11 @@ export default function VerifyOtpScreen() {
   const [params] = useSearchParams();
   const loginToken = useMemo(
     () => String(params.get("loginToken") || ""),
-    [params]
+    [params],
   );
   const phoneMasked = useMemo(
     () => String(params.get("phoneMasked") || ""),
-    [params]
+    [params],
   );
 
   const [otp, setOtp] = useState("");
@@ -186,7 +186,7 @@ export default function VerifyOtpScreen() {
                   backgroundColor: "rgba(255,255,255,0.5)",
                 },
               }}
-              helperText='OTP được gửi qua Zalo. Nếu chưa nhận được, bấm “Gửi lại OTP”.'
+              helperText="OTP được gửi qua Zalo. Nếu chưa nhận được, bấm “Gửi lại OTP”."
             />
 
             <Button
@@ -226,8 +226,8 @@ export default function VerifyOtpScreen() {
               {isResending
                 ? "Đang gửi..."
                 : cooldown > 0
-                ? `Gửi lại OTP (${cooldown}s)`
-                : "Gửi lại OTP"}
+                  ? `Gửi lại OTP (${cooldown}s)`
+                  : "Gửi lại OTP"}
             </Button>
 
             <Box sx={{ mt: 2 }}>

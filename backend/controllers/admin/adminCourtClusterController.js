@@ -227,6 +227,7 @@ export const updateTournamentCourtStationAssignmentConfigHttp = asyncHandler(
         ? req.body.queueMatchIds
         : undefined,
       user: req.user || null,
+      isAdmin,
     });
 
     await emitClusterRuntime(
@@ -307,6 +308,12 @@ export const removeTournamentCourtStationQueueItemHttp = asyncHandler(
 
     const isAdmin = isAdminLike(req.user);
     if (!isAdmin) {
+      const match = await Match.findById(req.params.matchId).select("_id tournament").lean();
+      if (!match || toIdString(match.tournament) !== String(req.params.tournamentId)) {
+        res.status(403);
+        throw new Error("Không được phép xóa trận của giải đấu khác");
+      }
+
       const [canManageMatchTournament, canManageStationCluster] =
         await Promise.all([
           canManageTournament(req.user, req.params.tournamentId),

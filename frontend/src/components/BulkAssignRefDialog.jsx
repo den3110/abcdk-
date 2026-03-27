@@ -64,7 +64,7 @@ function BulkAssignRefDialog({
 }) {
   const matchIds = useMemo(
     () => normalizeMatchIds(selectedMatchIds),
-    [selectedMatchIds]
+    [selectedMatchIds],
   );
 
   // Search nội bộ trong Autocomplete (client-side), nếu muốn server-search thì thêm q vào args
@@ -80,7 +80,7 @@ function BulkAssignRefDialog({
     { tid: tournamentId },
     {
       skip: !open || !tournamentId,
-    }
+    },
   );
 
   // Mỗi lần mở dialog → refetch lại danh sách trọng tài

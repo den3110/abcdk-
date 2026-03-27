@@ -5,7 +5,7 @@ const initialState = {
   matchId: null,
   tournamentId: null,
   courtCode: null,
-  bracketId: null
+  bracketId: null,
 };
 
 const botContextSlice = createSlice({
@@ -13,7 +13,8 @@ const botContextSlice = createSlice({
   initialState,
   reducers: {
     setBotContext(state, action) {
-      const { matchId, tournamentId, bracketId, courtCode } = action.payload || {};
+      const { matchId, tournamentId, bracketId, courtCode } =
+        action.payload || {};
 
       if (matchId !== undefined) {
         state.matchId = matchId;
@@ -21,7 +22,7 @@ const botContextSlice = createSlice({
       if (bracketId !== undefined) {
         state.bracketId = bracketId;
       }
-       if (tournamentId !== undefined) {
+      if (tournamentId !== undefined) {
         state.tournamentId = tournamentId;
       }
       if (courtCode !== undefined) {

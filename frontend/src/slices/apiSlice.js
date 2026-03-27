@@ -2,6 +2,11 @@
 import { fetchBaseQuery, createApi } from "@reduxjs/toolkit/query/react";
 import { logout } from "./authSlice";
 import { createListenerMiddleware } from "@reduxjs/toolkit";
+import {
+  addBusinessBreadcrumb,
+  captureApiException,
+  captureBusinessMessage,
+} from "../utils/sentry";
 
 const generateRequestId = () => {
   try {
@@ -77,6 +82,110 @@ const rawBaseQuery = fetchBaseQuery({
   },
 });
 
+const BUSINESS_MUTATION_MAP = {
+  login: ({ args, result, state }) => ({
+    name: "auth.login.success",
+    data: {
+      identifierTail: String(args?.identifier || args?.phone || "")
+        .trim()
+        .slice(-4),
+      userId:
+        result?._id ||
+        result?.id ||
+        result?.user?._id ||
+        state?.auth?.userInfo?._id,
+      userRole:
+        result?.role ||
+        result?.user?.role ||
+        state?.auth?.userInfo?.role ||
+        "user",
+    },
+  }),
+  register: ({ args, result }) => ({
+    name: "auth.register.success",
+    data: {
+      userId: result?._id || result?.id || result?.user?._id,
+      province: args?.province,
+      gender: args?.gender,
+      hasAvatar: Boolean(args?.avatar),
+    },
+  }),
+  updateUser: ({ args, result, state }) => ({
+    name: "profile.update.success",
+    data: {
+      userId: result?._id || result?.id || state?.auth?.userInfo?._id,
+      updatedFields: Object.keys(args || {}).filter(
+        (key) => !["password", "confirmPassword", "token"].includes(key),
+      ),
+    },
+  }),
+  createRegistration: ({ args, result }) => ({
+    name: args?.teamFactionId
+      ? "team_tournament.roster.create.success"
+      : "tournament.registration.create.success",
+    data: {
+      tournamentId: args?.tourId,
+      registrationId:
+        result?._id ||
+        result?.id ||
+        result?.registration?._id ||
+        result?.registration?.id,
+      teamFactionId: args?.teamFactionId,
+      eventType: args?.eventType,
+    },
+  }),
+  createTeamMatch: ({ args, result }) => ({
+    name: "team_tournament.match.create.success",
+    data: {
+      tournamentId: args?.tourId,
+      matchId: result?._id || result?.id || result?.match?._id,
+      pairARegistrationId: args?.pairA,
+      pairBRegistrationId: args?.pairB,
+    },
+  }),
+  assignTournamentMatchToCourtStation: ({ args }) => ({
+    name: "court_station.assign.success",
+    data: {
+      tournamentId: args?.tournamentId,
+      courtStationId: args?.stationId,
+      matchId: args?.matchId,
+    },
+  }),
+  appendTournamentCourtStationQueueItem: ({ args }) => ({
+    name: "court_station.queue.append.success",
+    data: {
+      tournamentId: args?.tournamentId,
+      courtStationId: args?.stationId,
+      matchId: args?.matchId,
+    },
+  }),
+  updateTournamentCourtStationAssignmentConfig: ({ args }) => ({
+    name: "court_station.config.save.success",
+    data: {
+      tournamentId: args?.tournamentId,
+      courtStationId: args?.stationId,
+      assignmentMode: args?.assignmentMode,
+      queueCount: Array.isArray(args?.queueMatchIds)
+        ? args.queueMatchIds.length
+        : 0,
+    },
+  }),
+};
+
+function captureMutationBusinessEvent(endpoint, { args, result, state }) {
+  const resolver = BUSINESS_MUTATION_MAP[endpoint];
+  if (!resolver) return;
+
+  const payload = resolver({ args, result, state }) || null;
+  if (!payload?.name) return;
+
+  captureBusinessMessage(payload.name, {
+    ...payload.data,
+    userId: payload.data?.userId || state?.auth?.userInfo?._id,
+    userRole: payload.data?.userRole || state?.auth?.userInfo?.role,
+  });
+}
+
 function redirectTo404() {
   if (typeof window === "undefined") return;
   if (window.location.pathname.startsWith("/404")) return;
@@ -116,6 +225,7 @@ function redirectTo503() {
 }
 
 const baseQuery = async (args, api, extraOptions) => {
+  const endpointName = api?.endpoint;
   const result = await rawBaseQuery(args, api, extraOptions);
 
   const status = result?.error?.status;
@@ -156,6 +266,37 @@ const baseQuery = async (args, api, extraOptions) => {
   }
   if (status === 503) {
     redirectTo503();
+  }
+
+  if (result?.error && !extraOptions?.skipSentryCapture) {
+    try {
+      captureApiException(result.error, {
+        args,
+        state: api.getState(),
+      });
+    } catch (e) {
+      console.log("Failed to capture API exception in Sentry", e);
+    }
+  }
+
+  if (
+    result?.data &&
+    api?.type === "mutation" &&
+    endpointName &&
+    !extraOptions?.skipBusinessEventCapture
+  ) {
+    try {
+      captureMutationBusinessEvent(endpointName, {
+        args,
+        result: result.data,
+        state: api.getState(),
+      });
+    } catch (e) {
+      addBusinessBreadcrumb("telemetry.business.capture_failed", {
+        endpoint: endpointName,
+        reason: e?.message || "unknown",
+      });
+    }
   }
 
   return result;

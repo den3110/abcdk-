@@ -38,7 +38,7 @@ function formatMediaTime(value) {
 
   if (hours > 0) {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(
-      seconds
+      seconds,
     ).padStart(2, "0")}`;
   }
 
@@ -77,7 +77,7 @@ export default function NativeVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showPreviewOverlay, setShowPreviewOverlay] = useState(
-    Boolean(previewOnlyUntilPlay && !autoplay)
+    Boolean(previewOnlyUntilPlay && !autoplay),
   );
 
   const revealChrome = useCallback(() => {
@@ -123,7 +123,7 @@ export default function NativeVideoPlayer({
     const onFullscreenChange = () => {
       const activeElement = document.fullscreenElement;
       setIsFullscreen(
-        Boolean(activeElement && frameRef.current?.contains(activeElement))
+        Boolean(activeElement && frameRef.current?.contains(activeElement)),
       );
     };
 
@@ -284,11 +284,7 @@ export default function NativeVideoPlayer({
   }, [src, kind, autoplay]);
 
   const seekPercent =
-    duration > 0
-      ? isSeeking
-        ? seekValue
-        : (currentTime / duration) * 100
-      : 0;
+    duration > 0 ? (isSeeking ? seekValue : (currentTime / duration) * 100) : 0;
 
   const togglePlay = useCallback(
     async (event) => {
@@ -311,7 +307,7 @@ export default function NativeVideoPlayer({
         setShowChrome(true);
       }
     },
-    [revealChrome, showPreviewOverlay]
+    [revealChrome, showPreviewOverlay],
   );
 
   const seekBy = useCallback(
@@ -321,10 +317,10 @@ export default function NativeVideoPlayer({
       revealChrome();
       video.currentTime = Math.min(
         duration,
-        Math.max(0, (video.currentTime || 0) + delta)
+        Math.max(0, (video.currentTime || 0) + delta),
       );
     },
-    [duration, revealChrome]
+    [duration, revealChrome],
   );
 
   const handleSeekChange = (_event, nextValue) => {
@@ -503,7 +499,16 @@ export default function NativeVideoPlayer({
                   ) : null}
                 </Stack>
 
-                <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                <Box
+                  sx={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                  }}
+                >
                   <IconButton
                     aria-label="Phát video"
                     sx={{

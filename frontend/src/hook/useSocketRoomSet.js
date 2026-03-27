@@ -5,14 +5,14 @@ const normalizeIds = (ids = []) =>
     new Set(
       (Array.isArray(ids) ? ids : [])
         .map((id) => String(id || "").trim())
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   ).sort();
 
 export function useSocketRoomSet(
   socket,
   ids,
-  { subscribeEvent, unsubscribeEvent, payloadKey }
+  { subscribeEvent, unsubscribeEvent, payloadKey },
 ) {
   const desiredRef = useRef(new Set());
   const joinedRef = useRef(new Set());

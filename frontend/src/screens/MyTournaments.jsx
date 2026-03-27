@@ -1,13 +1,7 @@
 /* eslint-disable react/prop-types */
 // src/pages/MyTournamentsPage.jsx — Thêm chức năng Expandable cho List View (MUI v7 Grid v2)
 
-import {
-  useMemo,
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-} from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import {
   Box,
   Stack,
@@ -58,10 +52,7 @@ import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
-import {
-  formatDate,
-  formatDateTime,
-} from "../i18n/format.js";
+import { formatDate, formatDateTime } from "../i18n/format.js";
 
 function normalizeGroupCode(code) {
   const s = String(code || "")
@@ -81,7 +72,9 @@ const dateFmt = (s, locale) => {
   return `${formatDate(d, locale)} ${formatDateTime(d, locale, {
     hour: "2-digit",
     minute: "2-digit",
-  }).split(", ").pop()}`;
+  })
+    .split(", ")
+    .pop()}`;
 };
 const stripVN = (s = "") =>
   String(s)
@@ -320,8 +313,8 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
     t.status === "ongoing"
       ? AccessTimeIcon
       : t.status === "finished"
-      ? EmojiEventsIcon
-      : InfoIcon;
+        ? EmojiEventsIcon
+        : InfoIcon;
 
   return (
     <Card
@@ -364,7 +357,7 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
                 (t.startDate || t.startAt) && (t.endDate || t.endAt)
                   ? `${dateFmt(t.startDate || t.startAt, locale)} → ${dateFmt(
                       t.endDate || t.endAt,
-                      locale
+                      locale,
                     )}`
                   : "—"
               }
@@ -385,8 +378,8 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
                   status === "live"
                     ? "warning.main"
                     : status === "finished"
-                    ? "success.main"
-                    : "primary.main";
+                      ? "success.main"
+                      : "primary.main";
 
                 return (
                   <Stack
@@ -429,7 +422,7 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
                       icon={AccessTimeIcon}
                       text={dateFmt(
                         m.scheduledAt || m.startTime || m.time,
-                        locale
+                        locale,
                       )}
                     />
                   </Stack>
@@ -445,7 +438,7 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
                     mt: 0.5,
                     alignSelf: "flex-start",
                   }}
-                  >
+                >
                   {expanded
                     ? translate("myTournaments.collapseList")
                     : translate("myTournaments.viewAllMatches", {
@@ -509,8 +502,8 @@ function MatchRow({ m, onOpen, eventType, translate, locale }) {
     status === "live"
       ? "warning.main"
       : status === "finished"
-      ? "success.main"
-      : "primary.main";
+        ? "success.main"
+        : "primary.main";
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
@@ -547,10 +540,7 @@ function MatchRow({ m, onOpen, eventType, translate, locale }) {
                   text={translate("myTournaments.court", { name: court })}
                 />
               )}
-              <SmallMeta
-                icon={ScheduleIcon}
-                text={roundText(m, translate)}
-              />
+              <SmallMeta icon={ScheduleIcon} text={roundText(m, translate)} />
             </Stack>
           </Stack>
           <Box sx={{ alignSelf: "center", pl: 0.5 }}>
@@ -567,21 +557,21 @@ function Banner({ t, collapsed, onToggle, translate }) {
     t.status === "ongoing"
       ? translate("tournaments.statuses.ongoing")
       : t.status === "finished"
-      ? translate("tournaments.statuses.finished")
-      : translate("tournaments.statuses.upcoming");
+        ? translate("tournaments.statuses.finished")
+        : translate("tournaments.statuses.upcoming");
   const statusColor =
     t.status === "ongoing"
       ? "warning"
       : t.status === "finished"
-      ? "success"
-      : "primary";
+        ? "success"
+        : "primary";
   const uri = t.image || t.cover || t.bannerUrl || null;
   const StatusIcon =
     t.status === "ongoing"
       ? PlayArrowIcon
       : t.status === "finished"
-      ? EmojiEventsIcon
-      : PauseIcon;
+        ? EmojiEventsIcon
+        : PauseIcon;
 
   return (
     <Box sx={{ width: "100%" }}>
@@ -684,7 +674,7 @@ function TournamentCard({ t, onOpenMatch, translate, locale }) {
   const [expanded, setExpanded] = useState(false);
   const [matchQuery, setMatchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState(
-    new Set(["scheduled", "live", "finished"])
+    new Set(["scheduled", "live", "finished"]),
   );
 
   const matches = Array.isArray(t.matches) ? t.matches : [];
@@ -744,7 +734,7 @@ function TournamentCard({ t, onOpenMatch, translate, locale }) {
                 {(t.startDate || t.startAt) && (t.endDate || t.endAt)
                   ? `${dateFmt(t.startDate || t.startAt, locale)}  →  ${dateFmt(
                       t.endDate || t.endAt,
-                      locale
+                      locale,
                     )}`
                   : "—"}
               </Typography>
@@ -984,7 +974,7 @@ export default function MyTournamentsPage() {
         .filter(Boolean)
         .sort()
         .join(","),
-    [allMatchesInitial]
+    [allMatchesInitial],
   );
   const allBracketIdsKey = useMemo(() => {
     const ids = [];
@@ -1036,7 +1026,7 @@ export default function MyTournamentsPage() {
         flushPending();
       });
     },
-    [flushPending]
+    [flushPending],
   );
   useEffect(() => {
     const mp = new Map();
@@ -1060,11 +1050,8 @@ export default function MyTournamentsPage() {
   };
 
   const tournamentRoomIds = useMemo(
-    () =>
-      (tournamentsRaw || [])
-        .map((t) => String(t?._id))
-        .filter(Boolean),
-    [tournamentsRaw]
+    () => (tournamentsRaw || []).map((t) => String(t?._id)).filter(Boolean),
+    [tournamentsRaw],
   );
 
   useSocketRoomSet(socket, tournamentRoomIds, {

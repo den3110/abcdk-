@@ -20,7 +20,9 @@ export default function DelayedManifestPlayer({
     let timerId = null;
 
     const applyManifest = (manifest) => {
-      const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
+      const segments = Array.isArray(manifest?.segments)
+        ? manifest.segments
+        : [];
       const playable = segments
         .map((segment) => ({
           key: `segment:${segment?.index ?? ""}`,
@@ -51,7 +53,7 @@ export default function DelayedManifestPlayer({
 
       if (!playable.length) {
         setError(
-          source?.disabledReason || "Server 2 dang chuan bi du lieu video."
+          source?.disabledReason || "Server 2 dang chuan bi du lieu video.",
         );
       } else {
         setError("");
@@ -72,7 +74,7 @@ export default function DelayedManifestPlayer({
         if (cancelled) return;
         setLoading(false);
         setError(
-          fetchError?.message || "Khong tai duoc delayed manifest tu CDN."
+          fetchError?.message || "Khong tai duoc delayed manifest tu CDN.",
         );
       } finally {
         if (!cancelled) {

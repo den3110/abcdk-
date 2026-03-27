@@ -46,7 +46,9 @@ function normalizeTag(value) {
 }
 
 function normalizeSlug(value) {
-  return normalizeText(value).replace(/^\/+|\/+$/g, "").slice(0, 160);
+  return normalizeText(value)
+    .replace(/^\/+|\/+$/g, "")
+    .slice(0, 160);
 }
 
 function safeJsonParse(raw) {
@@ -89,7 +91,7 @@ function getCookieValue(name) {
 function writeCookieValue(name, value) {
   if (!isBrowser()) return;
   document.cookie = `${name}=${encodeURIComponent(
-    value
+    value,
   )}; Max-Age=${COOKIE_MAX_AGE_SECONDS}; Path=/; SameSite=Lax`;
 }
 
@@ -122,7 +124,10 @@ function extractTags(article = {}) {
 
 function getPublishedMs(article = {}) {
   const raw =
-    article.originalPublishedAt || article.createdAt || article.updatedAt || null;
+    article.originalPublishedAt ||
+    article.createdAt ||
+    article.updatedAt ||
+    null;
   if (!raw) return null;
 
   const ms = new Date(raw).getTime();
@@ -192,7 +197,10 @@ function hydrateFromCookie(profile) {
   const compact = safeJsonParse(getCookieValue(COOKIE_KEY));
   if (!compact) return profile;
 
-  if (Object.keys(profile.tags).length === 0 && Array.isArray(compact.topTags)) {
+  if (
+    Object.keys(profile.tags).length === 0 &&
+    Array.isArray(compact.topTags)
+  ) {
     compact.topTags.forEach((tag) => {
       const normalized = normalizeTag(tag);
       if (normalized) {
@@ -245,10 +253,12 @@ function saveProfile(profile) {
   const topTags = sortMapEntries(next.tags)
     .slice(0, 6)
     .map(([key]) => key);
-  const topOrigin = sortMapEntries(next.origins)
-    .find(([, value]) => toNumber(value) > 0)?.[0];
-  const topSource = sortMapEntries(next.sources)
-    .find(([, value]) => toNumber(value) > 0)?.[0];
+  const topOrigin = sortMapEntries(next.origins).find(
+    ([, value]) => toNumber(value) > 0,
+  )?.[0];
+  const topSource = sortMapEntries(next.sources).find(
+    ([, value]) => toNumber(value) > 0,
+  )?.[0];
 
   writeCookieValue(
     COOKIE_KEY,
@@ -257,7 +267,7 @@ function saveProfile(profile) {
       topOrigin: topOrigin || "",
       topSource: topSource || "",
       updatedAt: next.updatedAt,
-    })
+    }),
   );
 }
 
@@ -394,7 +404,8 @@ export function startSeoNewsReadingSession(article, options = {}) {
     const latestStats = ensureArticleStats(latest, slug);
     if (!latestStats) return;
 
-    latestStats.dwellSeconds = toNumber(latestStats.dwellSeconds, 0) + Math.min(1800, durationSec);
+    latestStats.dwellSeconds =
+      toNumber(latestStats.dwellSeconds, 0) + Math.min(1800, durationSec);
 
     const dwellBoost = Math.min(3.2, Math.log1p(durationSec / 12));
     applyAffinity(latest, article, dwellBoost);
@@ -429,25 +440,34 @@ function calcArticleScore(article, profile, contextArticle = null) {
 
   const tagAffinityRaw = matchedTags.reduce(
     (acc, tag) => acc + toNumber(profile.tags[tag], 0),
-    0
+    0,
   );
   const tagAffinity = Math.min(8, tagAffinityRaw * 0.75);
 
   const origin = normalizeText(article?.origin);
-  const originAffinity = Math.min(3, toNumber(profile.origins[origin], 0) * 0.65);
+  const originAffinity = Math.min(
+    3,
+    toNumber(profile.origins[origin], 0) * 0.65,
+  );
 
   const source = extractSource(article);
-  const sourceAffinity = Math.min(2.8, toNumber(profile.sources[source], 0) * 0.6);
+  const sourceAffinity = Math.min(
+    2.8,
+    toNumber(profile.sources[source], 0) * 0.6,
+  );
 
-  const qualityBoost = Math.max(0, Math.min(1, toNumber(article?.review?.score, 0))) * 1.5;
+  const qualityBoost =
+    Math.max(0, Math.min(1, toNumber(article?.review?.score, 0))) * 1.5;
 
   const publishedMs = getPublishedMs(article);
-  const ageHours = publishedMs ? Math.max(0, (Date.now() - publishedMs) / 3600000) : 9999;
+  const ageHours = publishedMs
+    ? Math.max(0, (Date.now() - publishedMs) / 3600000)
+    : 9999;
   const recencyBoost = Math.max(0.15, 2.25 * Math.exp(-ageHours / 200));
 
   const localPopularity = Math.min(
     3.8,
-    Math.log1p(clicks * 1.5 + views * 0.7 + dwellSeconds / 40)
+    Math.log1p(clicks * 1.5 + views * 0.7 + dwellSeconds / 40),
   );
 
   const ctrBoost = exposure > 0 ? Math.min(1.9, (clicks / exposure) * 4.5) : 0;
@@ -549,7 +569,10 @@ function selectDiversified(scored, limit) {
     const tooManySource =
       source !== "unknown" && toNumber(bySource[source], 0) >= 2;
 
-    if (selected.length < Math.max(2, limit - 2) && (tooManyOrigin || tooManySource)) {
+    if (
+      selected.length < Math.max(2, limit - 2) &&
+      (tooManyOrigin || tooManySource)
+    ) {
       continue;
     }
 

@@ -147,7 +147,8 @@ const displayName = (pl, displayMode = "nickname") => {
   return nn || pl.fullName || pl.name || pl.displayName || "—";
 };
 
-*/};
+*/
+};
 const getUserId = (pl) => {
   const u = pl?.user;
   if (!u) return null;
@@ -172,12 +173,13 @@ const getMaxDelta = (tour) =>
       tour?.maxDelta ??
       tour?.scoreTolerance ??
       tour?.tolerance ??
-      0
+      0,
   );
 
 const toTimestamp = (value) => {
   if (!value) return null;
-  const ts = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  const ts =
+    value instanceof Date ? value.getTime() : new Date(value).getTime();
   return Number.isFinite(ts) ? ts : null;
 };
 
@@ -195,7 +197,7 @@ const shouldForceHttps = (() => {
   const h = window.location.hostname || "";
   const isLocal =
     /(^localhost$)|(^127\.)|(^10\.)|(^192\.168\.)|(^172\.(1[6-9]|2\d|3[0-1])\.)|(\.local$)|(\.lan$)/i.test(
-      h
+      h,
     );
   return !isLocal;
 })();
@@ -208,7 +210,7 @@ const toHttpsIfNeeded = (u) => {
     const url = new URL(u);
     const isPrivate =
       /(^localhost$)|(^127\.)|(^10\.)|(^192\.168\.)|(^172\.(1[6-9]|2\d|3[0-1])\.)|(\.local$)|(\.lan$)/i.test(
-        url.hostname
+        url.hostname,
       );
     if (url.protocol === "http:" && !isPrivate) {
       url.protocol = "https:";
@@ -316,7 +318,7 @@ const LazyAvatar = memo(({ src, alt, size = 40, onClick, sx }) => {
           observer.disconnect();
         }
       },
-      { rootMargin: "50px" }
+      { rootMargin: "50px" },
     );
 
     if (imgRef.current) observer.observe(imgRef.current);
@@ -431,7 +433,7 @@ const StatCard = memo(({ icon, label, value, subValue }) => (
         <Box sx={{ "& svg": { fontSize: { xs: 18, sm: 22 } } }}>{icon}</Box>
       </Box>
 
-        <Box sx={{ minWidth: 0, flex: 1 }}>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
           variant="caption"
           sx={{
@@ -692,7 +694,7 @@ const ActionButtons = memo(
       onOpenComplaint={onOpenComplaint}
       busy={busy}
     />
-  )
+  ),
 );
 
 const ActionButtonsInner = ({
@@ -771,7 +773,9 @@ const ActionButtonsInner = ({
       </Tooltip>
 
       {(canManage || isOwner) && (
-        <Tooltip title={t("tournaments.registration.actions.cancelRegistration")}>
+        <Tooltip
+          title={t("tournaments.registration.actions.cancelRegistration")}
+        >
           <IconButton
             size="small"
             color="error"
@@ -807,7 +811,10 @@ const PlayerInfo = memo(
         <Box
           sx={{ position: "relative", cursor: "zoom-in" }}
           onClick={() =>
-            onOpenPreview(avatarSrc || player?.avatar, displayName(player, displayMode))
+            onOpenPreview(
+              avatarSrc || player?.avatar,
+              displayName(player, displayMode),
+            )
           }
         >
           <LazyAvatar src={avatarSrc || player?.avatar} size={40} />
@@ -839,28 +846,28 @@ const PlayerInfo = memo(
             </Tooltip>
           )}
         </Box>
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography
-          variant="body2"
-          fontWeight={600}
-          noWrap
-          onClick={() => onOpenProfile(player)}
-          sx={{
-            cursor: "pointer",
-            "&:hover": { color: "primary.main", textDecoration: "underline" },
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography
+            variant="body2"
+            fontWeight={600}
+            noWrap
+            onClick={() => onOpenProfile(player)}
+            sx={{
+              cursor: "pointer",
+              "&:hover": { color: "primary.main", textDecoration: "underline" },
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
             {displayName(player, displayMode)}{" "}
             <VerifyBadge status={kycOf(player)} />
-        </Typography>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          alignItems={{ xs: "flex-start", sm: "center" }}
-          sx={{ mt: 0.4 }}
-        >
+          </Typography>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            alignItems={{ xs: "flex-start", sm: "center" }}
+            sx={{ mt: 0.4 }}
+          >
             <Stack direction="row" spacing={1} alignItems="center">
               <Typography
                 variant="caption"
@@ -868,7 +875,7 @@ const PlayerInfo = memo(
                 sx={{ fontFamily: "monospace" }}
               >
                 {player?.phone || "—"}
-          </Typography>
+              </Typography>
               <Chip
                 label={fmt3(player?.score)}
                 size="small"
@@ -880,25 +887,25 @@ const PlayerInfo = memo(
               <Button
                 size="small"
                 variant="outlined"
-              startIcon={<PersonAdd fontSize="small" />}
-              onClick={onReplacePlayer}
-              sx={{
-                minWidth: "auto",
-                px: 1,
-                py: 0.25,
-                borderRadius: 2,
-                textTransform: "none",
-                ml: { sm: "auto" },
-              }}
-            >
-              {t("tournaments.registration.actions.replacePlayer")}
-            </Button>
-          )}
-        </Stack>
-      </Box>
-    </Stack>
+                startIcon={<PersonAdd fontSize="small" />}
+                onClick={onReplacePlayer}
+                sx={{
+                  minWidth: "auto",
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: 2,
+                  textTransform: "none",
+                  ml: { sm: "auto" },
+                }}
+              >
+                {t("tournaments.registration.actions.replacePlayer")}
+              </Button>
+            )}
+          </Stack>
+        </Box>
+      </Stack>
     );
-  }
+  },
 );
 
 /* Card dùng chung cho cả mobile + desktop */
@@ -976,7 +983,9 @@ const RegCard = memo(
                 avatarSrc={props.getPlayerAvatar(r.player1)}
                 canEditAvatar={props.canEditAvatar}
                 canReplacePlayer={props.canReplacePlayer}
-                onOpenAvatarEdit={() => props.onOpenAvatarEdit(r, "p1", r.player1)}
+                onOpenAvatarEdit={() =>
+                  props.onOpenAvatarEdit(r, "p1", r.player1)
+                }
                 onReplacePlayer={() => props.onOpenReplace(r, "p1")}
                 onOpenPreview={props.onOpenPreview}
                 onOpenProfile={props.onOpenProfile}
@@ -1048,7 +1057,7 @@ const RegCard = memo(
         </CardContent>
       </Card>
     );
-  }
+  },
 );
 
 /* Skeleton card cho list */
@@ -1127,7 +1136,7 @@ export default function TournamentRegistration() {
     if (String(tour.createdBy) === String(me?._id)) return true;
     if (Array.isArray(tour.managers))
       return tour.managers.some(
-        (m) => String(m?.user ?? m) === String(me?._id)
+        (m) => String(m?.user ?? m) === String(me?._id),
       );
     return !!tour.isManager;
   }, [isLoggedIn, me, tour]);
@@ -1137,8 +1146,10 @@ export default function TournamentRegistration() {
     (Array.isArray(me?.roles) && me.roles.includes("admin"))
   );
   const canManage = isLoggedIn && (isManager || isAdmin);
-  const canEditAvatar = isLoggedIn && (isAdmin || (isManager && !isTournamentFinished(tour)));
-  const canReplacePlayer = isLoggedIn && (isAdmin || (isManager && !isTournamentFinished(tour)));
+  const canEditAvatar =
+    isLoggedIn && (isAdmin || (isManager && !isTournamentFinished(tour)));
+  const canReplacePlayer =
+    isLoggedIn && (isAdmin || (isManager && !isTournamentFinished(tour)));
 
   /* API Actions */
   const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
@@ -1243,7 +1254,7 @@ export default function TournamentRegistration() {
 
   const activeList = useMemo(
     () => (debouncedQ ? searchedRegs : regs),
-    [debouncedQ, searchedRegs, regs]
+    [debouncedQ, searchedRegs, regs],
   );
 
   const displayedItems = useMemo(() => activeList, [activeList]);
@@ -1257,11 +1268,11 @@ export default function TournamentRegistration() {
   const eachCap = Number(tour?.singleCap ?? 0);
   const delta = getMaxDelta(tour);
   const paidCount = activeList.filter(
-    (r) => r.payment?.status === "Paid"
+    (r) => r.payment?.status === "Paid",
   ).length;
   const busy = useMemo(
     () => ({ settingPayment, deletingId: cancelingId }),
-    [settingPayment, cancelingId]
+    [settingPayment, cancelingId],
   );
 
   const statsLoading = tourLoading || regsLoading;
@@ -1275,7 +1286,7 @@ export default function TournamentRegistration() {
       String(r?._id || "")
         .slice(-5)
         .toUpperCase(),
-    []
+    [],
   );
 
   const getPlayerAvatar = useCallback(
@@ -1283,7 +1294,7 @@ export default function TournamentRegistration() {
       const userId = getUserId(player);
       return (userId && avatarOverrides[userId]) || player?.avatar || "";
     },
-    [avatarOverrides]
+    [avatarOverrides],
   );
 
   const qrImgUrlFor = useCallback(
@@ -1304,11 +1315,11 @@ export default function TournamentRegistration() {
 
       const code = regCodeOf(r);
       const ph = maskPhone(
-        r?.player1?.phone || r?.player2?.phone || me?.phone || ""
+        r?.player1?.phone || r?.player2?.phone || me?.phone || "",
       );
       const tourCode = tour?.code;
       const des = normalizeNoAccent(
-        `Ma giai ${tourCode} Ma dang ky ${code} SDT ${ph}`
+        `Ma giai ${tourCode} Ma dang ky ${code} SDT ${ph}`,
       );
       const amount = getFeeAmount(tour, r);
 
@@ -1321,7 +1332,7 @@ export default function TournamentRegistration() {
       if (amount > 0) params.set("amount", String(amount));
       return `https://qr.sepay.vn/img?${params.toString()}`;
     },
-    [tour, me, regCodeOf]
+    [tour, me, regCodeOf],
   );
 
   /* Handlers */
@@ -1329,7 +1340,9 @@ export default function TournamentRegistration() {
     async (e) => {
       e.preventDefault();
       if (regLockedForUser)
-        return toast.info(t("tournaments.registration.toasts.registrationClosed"));
+        return toast.info(
+          t("tournaments.registration.toasts.registrationClosed"),
+        );
       if (!isLoggedIn)
         return toast.info(t("tournaments.registration.toasts.loginRequired"));
       const p1Id = isAdmin ? p1?._id : String(me?._id);
@@ -1338,7 +1351,7 @@ export default function TournamentRegistration() {
         return toast.error(
           isAdmin
             ? t("tournaments.registration.toasts.selectPlayer1")
-            : t("tournaments.registration.toasts.ownInfoError")
+            : t("tournaments.registration.toasts.ownInfoError"),
         );
       if (isDoubles && !p2?._id)
         return toast.error(t("tournaments.registration.toasts.doublesNeedTwo"));
@@ -1360,7 +1373,8 @@ export default function TournamentRegistration() {
           toast.error(t("tournaments.registration.toasts.kycRequired"));
         } else {
           toast.error(
-            err?.data?.message || t("tournaments.registration.toasts.registrationError")
+            err?.data?.message ||
+              t("tournaments.registration.toasts.registrationError"),
           );
         }
       }
@@ -1378,13 +1392,15 @@ export default function TournamentRegistration() {
       createInvite,
       refetchRegs,
       t,
-    ]
+    ],
   );
 
   const handleCancel = useCallback(
     async (r) => {
       if (!canManage && !isFreeTournament && r?.payment?.status === "Paid")
-        return toast.info(t("tournaments.registration.toasts.paidContactOrganizer"));
+        return toast.info(
+          t("tournaments.registration.toasts.paidContactOrganizer"),
+        );
       if (!window.confirm(t("tournaments.registration.toasts.cancelConfirm")))
         return;
       setCancelingId(r._id);
@@ -1396,7 +1412,7 @@ export default function TournamentRegistration() {
         if (debouncedQ) refetchSearch();
       } catch (e) {
         toast.error(
-          e?.data?.message || t("tournaments.registration.toasts.cancelError")
+          e?.data?.message || t("tournaments.registration.toasts.cancelError"),
         );
       } finally {
         setCancelingId(null);
@@ -1411,7 +1427,7 @@ export default function TournamentRegistration() {
       debouncedQ,
       refetchSearch,
       t,
-    ]
+    ],
   );
 
   const togglePayment = useCallback(
@@ -1435,7 +1451,7 @@ export default function TournamentRegistration() {
       debouncedQ,
       refetchSearch,
       t,
-    ]
+    ],
   );
 
   const submitReplace = useCallback(async () => {
@@ -1454,7 +1470,7 @@ export default function TournamentRegistration() {
       if (debouncedQ) refetchSearch();
     } catch (e) {
       toast.error(
-        e?.data?.message || t("tournaments.registration.toasts.replaceError")
+        e?.data?.message || t("tournaments.registration.toasts.replaceError"),
       );
     }
   }, [
@@ -1498,7 +1514,7 @@ export default function TournamentRegistration() {
       setReplaceDlg({ open: true, reg, slot });
       setNewPlayer(null);
     },
-    [canReplacePlayer]
+    [canReplacePlayer],
   );
 
   const handleCloseReplace = useCallback(() => {
@@ -1521,7 +1537,7 @@ export default function TournamentRegistration() {
       if (isFreeTournament) return;
       setPaymentDlg({ open: true, reg });
     },
-    [isFreeTournament]
+    [isFreeTournament],
   );
 
   const handleClosePayment = useCallback(() => {
@@ -1550,7 +1566,7 @@ export default function TournamentRegistration() {
         player: { ...player, avatar: getPlayerAvatar(player) },
       });
     },
-    [canEditAvatar, clearAvatarSelection, getPlayerAvatar]
+    [canEditAvatar, clearAvatarSelection, getPlayerAvatar],
   );
 
   const handleCloseAvatarEdit = useCallback(() => {
@@ -1561,7 +1577,10 @@ export default function TournamentRegistration() {
 
   useEffect(() => {
     return () => {
-      if (typeof avatarPreviewUrl === "string" && avatarPreviewUrl.startsWith("blob:")) {
+      if (
+        typeof avatarPreviewUrl === "string" &&
+        avatarPreviewUrl.startsWith("blob:")
+      ) {
         URL.revokeObjectURL(avatarPreviewUrl);
       }
     };
@@ -1586,7 +1605,7 @@ export default function TournamentRegistration() {
       setAvatarFile(file);
       e.target.value = "";
     },
-    [t]
+    [t],
   );
 
   const submitAvatarUpdate = useCallback(async () => {
@@ -1600,11 +1619,14 @@ export default function TournamentRegistration() {
         avatarUrl = String(uploaded?.url || "").trim();
       } catch (e) {
         throw new Error(
-          e?.data?.message || t("tournaments.registration.toasts.avatarUploadFailed")
+          e?.data?.message ||
+            t("tournaments.registration.toasts.avatarUploadFailed"),
         );
       }
       if (!avatarUrl) {
-        throw new Error(t("tournaments.registration.toasts.avatarUploadFailed"));
+        throw new Error(
+          t("tournaments.registration.toasts.avatarUploadFailed"),
+        );
       }
 
       await updateRegPlayerAvatar({
@@ -1616,7 +1638,10 @@ export default function TournamentRegistration() {
       const targetUserId = getUserId(avatarDlg.player);
       if (targetUserId) {
         const cacheBustedUrl = `${avatarUrl}${avatarUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
-        setAvatarOverrides((prev) => ({ ...prev, [targetUserId]: cacheBustedUrl }));
+        setAvatarOverrides((prev) => ({
+          ...prev,
+          [targetUserId]: cacheBustedUrl,
+        }));
       }
 
       toast.success(t("tournaments.registration.toasts.avatarUpdateSuccess"));
@@ -1628,7 +1653,7 @@ export default function TournamentRegistration() {
       toast.error(
         e?.data?.message ||
           e?.message ||
-          t("tournaments.registration.toasts.avatarUpdateError")
+          t("tournaments.registration.toasts.avatarUpdateError"),
       );
     } finally {
       setAvatarSaving(false);
@@ -1750,10 +1775,15 @@ export default function TournamentRegistration() {
                 <Chip
                   icon={<LocationOn sx={{ color: "white !important" }} />}
                   label={
-                    tour.location || t("tournaments.registration.locationFallback")
+                    tour.location ||
+                    t("tournaments.registration.locationFallback")
                   }
                   size="small"
-                  sx={{ bgcolor: "transparent", color: "primary.contrastText", pl: 0.5 }}
+                  sx={{
+                    bgcolor: "transparent",
+                    color: "primary.contrastText",
+                    pl: 0.5,
+                  }}
                 />
               </Stack>
               <Typography
@@ -1774,13 +1804,9 @@ export default function TournamentRegistration() {
                 sx={{ opacity: 0.9, typography: "subtitle1" }}
               >
                 <CalendarMonth fontSize="small" />
-                <span>
-                  {formatLocaleDate(tour.startDate, locale)}
-                </span>
+                <span>{formatLocaleDate(tour.startDate, locale)}</span>
                 <span>{t("tournaments.registration.dateRangeSeparator")}</span>
-                <span>
-                  {formatLocaleDate(tour.endDate, locale)}
-                </span>
+                <span>{formatLocaleDate(tour.endDate, locale)}</span>
               </Stack>
             </Grid>
 
@@ -1854,7 +1880,9 @@ export default function TournamentRegistration() {
                   icon={<EmojiEvents />}
                   label={t("tournaments.registration.stats.maxScore")}
                   value={
-                    cap > 0 ? fmt3(cap) : t("tournaments.registration.unlimited")
+                    cap > 0
+                      ? fmt3(cap)
+                      : t("tournaments.registration.unlimited")
                   }
                   subValue={[
                     t("tournaments.registration.stats.playerScore", {
@@ -1945,7 +1973,9 @@ export default function TournamentRegistration() {
                 {tour.contactHtml && (
                   <Box flex={1}>
                     <HtmlPreviewSection
-                      title={t("tournaments.registration.previews.contactTitle")}
+                      title={t(
+                        "tournaments.registration.previews.contactTitle",
+                      )}
                       html={tour.contactHtml}
                     />
                   </Box>
@@ -2028,7 +2058,7 @@ export default function TournamentRegistration() {
                         eventType={tour.eventType}
                         label={t("tournaments.registration.form.player1Label")}
                         placeholder={t(
-                          "tournaments.registration.form.playerSearchPlaceholder"
+                          "tournaments.registration.form.playerSearchPlaceholder",
                         )}
                       />
                     ) : (
@@ -2067,10 +2097,10 @@ export default function TournamentRegistration() {
                                 maxWidth: "100%",
                               }}
                             >
-                              {displayName(
-                                me,
-                                displayMode
-                              ) || t("tournaments.registration.form.player1Fallback")}
+                              {displayName(me, displayMode) ||
+                                t(
+                                  "tournaments.registration.form.player1Fallback",
+                                )}
                             </Typography>
 
                             {/* Badge KYC dính sát tên */}
@@ -2081,10 +2111,11 @@ export default function TournamentRegistration() {
                           <Typography variant="caption" color="text.secondary">
                             {t("tournaments.registration.form.scorePrefix")}{" "}
                             {fmt3(
-                              isSingles ? me?.score?.single : me?.score?.double
+                              isSingles ? me?.score?.single : me?.score?.double,
                             )}{" "}
                             •{" "}
-                            {me?.phone || t("tournaments.registration.form.noPhone")}
+                            {me?.phone ||
+                              t("tournaments.registration.form.noPhone")}
                           </Typography>
                         </Box>
                       </Card>
@@ -2107,7 +2138,7 @@ export default function TournamentRegistration() {
                         eventType={tour.eventType}
                         label={t("tournaments.registration.form.player2Label")}
                         placeholder={t(
-                          "tournaments.registration.form.playerSearchPlaceholder"
+                          "tournaments.registration.form.playerSearchPlaceholder",
                         )}
                       />
                     </Box>
@@ -2118,7 +2149,9 @@ export default function TournamentRegistration() {
                     multiline
                     rows={2}
                     label={t("tournaments.registration.form.noteLabel")}
-                    placeholder={t("tournaments.registration.form.notePlaceholder")}
+                    placeholder={t(
+                      "tournaments.registration.form.notePlaceholder",
+                    )}
                     size="small"
                     value={msg}
                     onChange={(e) => setMsg(e.target.value)}
@@ -2266,7 +2299,9 @@ export default function TournamentRegistration() {
                   />
                 </Stack>
                 <TextField
-                  placeholder={t("tournaments.registration.list.searchPlaceholder")}
+                  placeholder={t(
+                    "tournaments.registration.list.searchPlaceholder",
+                  )}
                   size="small"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
@@ -2303,7 +2338,9 @@ export default function TournamentRegistration() {
                 ) : activeList.length === 0 ? (
                   <Box p={4} textAlign="center" color="text.secondary">
                     <Groups sx={{ fontSize: 48, opacity: 0.3, mb: 1 }} />
-                    <Typography>{t("tournaments.registration.list.empty")}</Typography>
+                    <Typography>
+                      {t("tournaments.registration.list.empty")}
+                    </Typography>
                   </Box>
                 ) : (
                   <Box sx={{ p: 2 }}>
@@ -2354,7 +2391,8 @@ export default function TournamentRegistration() {
         fullWidth
       >
         <DialogTitle sx={{ p: 2 }}>
-          {imgPreview.name || t("tournaments.registration.dialogs.imageFallback")}
+          {imgPreview.name ||
+            t("tournaments.registration.dialogs.imageFallback")}
         </DialogTitle>
         <DialogContent
           sx={{
@@ -2401,7 +2439,9 @@ export default function TournamentRegistration() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseReplace}>{t("common.actions.cancel")}</Button>
+          <Button onClick={handleCloseReplace}>
+            {t("common.actions.cancel")}
+          </Button>
           <Button
             variant="contained"
             onClick={submitReplace}
@@ -2429,7 +2469,9 @@ export default function TournamentRegistration() {
           </Alert>
           <Stack spacing={2} alignItems="center">
             <Avatar
-              src={safeSrc(avatarPreviewUrl || avatarDlg.player?.avatar || PLACE)}
+              src={safeSrc(
+                avatarPreviewUrl || avatarDlg.player?.avatar || PLACE,
+              )}
               alt={displayName(avatarDlg.player, displayMode)}
               sx={{ width: 112, height: 112, boxShadow: 3 }}
               imgProps={{
@@ -2442,7 +2484,11 @@ export default function TournamentRegistration() {
               {avatarFile?.name ||
                 t("tournaments.registration.dialogs.avatarCurrent")}
             </Typography>
-            <Button component="label" variant="outlined" disabled={avatarSaving}>
+            <Button
+              component="label"
+              variant="outlined"
+              disabled={avatarSaving}
+            >
               {t("tournaments.registration.dialogs.avatarChooseFile")}
               <input
                 hidden
@@ -2476,16 +2522,20 @@ export default function TournamentRegistration() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>{t("tournaments.registration.dialogs.complaintTitle")}</DialogTitle>
+        <DialogTitle>
+          {t("tournaments.registration.dialogs.complaintTitle")}
+        </DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" gutterBottom color="text.secondary">
             {t("tournaments.registration.dialogs.complaintInfo")}
-              </Typography>
+          </Typography>
           <TextField
             fullWidth
             multiline
             rows={4}
-            placeholder={t("tournaments.registration.dialogs.complaintPlaceholder")}
+            placeholder={t(
+              "tournaments.registration.dialogs.complaintPlaceholder",
+            )}
             value={complaintDlg.text}
             onChange={(e) =>
               setComplaintDlg((s) => ({ ...s, text: e.target.value }))
@@ -2494,7 +2544,9 @@ export default function TournamentRegistration() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseComplaint}>{t("common.actions.close")}</Button>
+          <Button onClick={handleCloseComplaint}>
+            {t("common.actions.close")}
+          </Button>
           <Button
             variant="contained"
             onClick={submitComplaint}
@@ -2514,7 +2566,9 @@ export default function TournamentRegistration() {
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle>{t("tournaments.registration.dialogs.paymentTitle")}</DialogTitle>
+        <DialogTitle>
+          {t("tournaments.registration.dialogs.paymentTitle")}
+        </DialogTitle>
         <DialogContent sx={{ textAlign: "center", pb: 4 }} dividers>
           {paymentDlg.reg && (
             <>
@@ -2568,7 +2622,9 @@ export default function TournamentRegistration() {
           >
             {t("tournaments.registration.dialogs.paymentReport")}
           </Button>
-          <Button onClick={handleClosePayment}>{t("common.actions.close")}</Button>
+          <Button onClick={handleClosePayment}>
+            {t("common.actions.close")}
+          </Button>
         </DialogActions>
       </Dialog>
 

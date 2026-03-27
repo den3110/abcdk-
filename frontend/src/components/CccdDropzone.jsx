@@ -11,7 +11,7 @@ import { Box, Typography, Stack } from "@mui/material";
 export default function CccdDropzone({ label, file, onFile }) {
   const onDrop = useCallback(
     (accepted) => accepted[0] && onFile(accepted[0]),
-    [onFile]
+    [onFile],
   );
 
   const { getRootProps, getInputProps, isDragActive, fileRejections } =

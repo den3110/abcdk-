@@ -25,7 +25,7 @@ import {
 export default function JoinRequestsDialog({ open, onClose, clubId }) {
   const { data, isFetching, refetch } = useListJoinRequestsQuery(
     { id: clubId, params: { status: "pending" } },
-    { skip: !open }
+    { skip: !open },
   );
   const [accept, { isLoading: accepting }] = useAcceptJoinMutation();
   const [reject, { isLoading: rejecting }] = useRejectJoinMutation();

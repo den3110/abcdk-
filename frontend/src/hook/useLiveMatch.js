@@ -41,7 +41,7 @@ export function useLiveMatch(matchId, token) {
           payload?.id ??
           payload?.matchId ??
           payload?.match?._id ??
-          ""
+          "",
       );
       return !incomingId || incomingId === String(matchId);
     };

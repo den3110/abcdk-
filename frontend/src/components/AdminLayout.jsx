@@ -33,7 +33,7 @@ const drawerWidth = 240;
 
 function indexFromPath(pathname, navItems) {
   const idx = navItems.findIndex(
-    (item) => pathname === item.path || pathname.startsWith(`${item.path}/`)
+    (item) => pathname === item.path || pathname.startsWith(`${item.path}/`),
   );
   return idx >= 0 ? idx : 0;
 }
@@ -46,7 +46,7 @@ function normalizeRole(role) {
 
 function isAdminUser(user) {
   const roles = new Set(
-    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
+    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : [],
   );
   if (user?.role) roles.add(normalizeRole(user.role));
   if (user?.isAdmin === true) roles.add("admin");

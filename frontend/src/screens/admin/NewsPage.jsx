@@ -21,13 +21,12 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SaveIcon from "@mui/icons-material/Save";
 import {
-  useCreateSeoNewsReadyArticlesMutation,
   useGetSeoNewsArticlesQuery,
   useGetSeoNewsCandidatesQuery,
+  useGetSeoNewsJobMonitorQuery,
   useGetSeoNewsSettingsQuery,
   usePushSeoNewsDraftsMutation,
-  useRunSeoNewsPendingCandidatesMutation,
-  useRunSeoNewsSyncMutation,
+  useQueueSeoNewsJobMutation,
   useUpdateSeoNewsSettingsMutation,
 } from "../../slices/adminApiSlice";
 
@@ -43,6 +42,7 @@ const DEFAULT_FORM = {
   maxArticlesPerDay: 8,
   targetArticlesPerDay: 6,
   discoveryProvider: "auto",
+  articleGenerationModel: "",
   mainKeywords: "pickleball, pickletour, giai pickleball",
   extraKeywords: "",
   allowedDomains: "",
@@ -70,6 +70,51 @@ function formatDateTime(value) {
   return d.toLocaleString("vi-VN");
 }
 
+function getGatewayAlertSeverity(status) {
+  if (status === "online") return "success";
+  if (status === "degraded") return "warning";
+  if (status === "auth_error" || status === "misconfigured") return "error";
+  return "info";
+}
+
+function getGatewayChipColor(status) {
+  if (status === "online") return "success";
+  if (status === "degraded") return "warning";
+  if (status === "auth_error" || status === "misconfigured") return "error";
+  return "default";
+}
+
+function formatGatewaySource(source) {
+  if (source === "dedicated") return "Dedicated";
+  if (source === "shared_proxy") return "Shared proxy";
+  if (source === "openai_default") return "OpenAI";
+  return "Missing";
+}
+
+function formatPipelineJobType(type) {
+  if (type === "pipeline") return "Pipeline";
+  if (type === "pending_candidates") return "Pending";
+  if (type === "create_ready_articles") return "AI Ready";
+  return "Job";
+}
+
+function getStepSummary(result) {
+  if (!result) return null;
+  const stats = result.stats || result;
+  return {
+    externalGenerated: Number(stats?.externalGenerated) || 0,
+    evergreenGenerated:
+      Number(stats?.evergreenGenerated ?? result?.generated) || 0,
+    published: Number(stats?.published) || 0,
+    draft: Number(stats?.draft) || 0,
+    failed:
+      Number(stats?.failed) ||
+      Number(result?.failed) ||
+      Number(result?.crawl?.failed) ||
+      0,
+  };
+}
+
 export default function AdminNewsPage() {
   const {
     data: settings,
@@ -82,6 +127,15 @@ export default function AdminNewsPage() {
     isFetching: loadingCandidates,
     refetch: refetchCandidates,
   } = useGetSeoNewsCandidatesQuery({ limit: 120 });
+  const {
+    data: jobMonitor,
+    isFetching: loadingJobMonitor,
+    refetch: refetchJobMonitor,
+  } = useGetSeoNewsJobMonitorQuery(undefined, {
+    pollingInterval: 5000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
 
   const {
     data: draftArticlesData,
@@ -106,18 +160,13 @@ export default function AdminNewsPage() {
 
   const [updateSettings, { isLoading: savingSettings }] =
     useUpdateSeoNewsSettingsMutation();
-  const [runSync, { isLoading: runningSync }] = useRunSeoNewsSyncMutation();
-  const [createSeoNewsReadyArticles, { isLoading: creatingReadyArticles }] =
-    useCreateSeoNewsReadyArticlesMutation();
-  const [runPendingCandidates, { isLoading: runningPendingCandidates }] =
-    useRunSeoNewsPendingCandidatesMutation();
+  const [queueSeoNewsJob, { isLoading: queueingJob }] =
+    useQueueSeoNewsJobMutation();
   const [pushSeoNewsDrafts, { isLoading: pushingDrafts }] =
     usePushSeoNewsDraftsMutation();
 
   const [form, setForm] = useState(DEFAULT_FORM);
-  const [runResult, setRunResult] = useState(null);
   const [message, setMessage] = useState({ type: "success", text: "" });
-  const [fetchingMore, setFetchingMore] = useState(false);
   const [publishingAllDrafts, setPublishingAllDrafts] = useState(false);
   const [publishingAllGeneratedDrafts, setPublishingAllGeneratedDrafts] =
     useState(false);
@@ -136,6 +185,7 @@ export default function AdminNewsPage() {
       maxArticlesPerDay: Number(settings.maxArticlesPerDay) || 8,
       targetArticlesPerDay: Number(settings.targetArticlesPerDay) || 6,
       discoveryProvider: settings.discoveryProvider || "auto",
+      articleGenerationModel: settings.articleGenerationModel || "",
       mainKeywords: toCsv(settings.mainKeywords),
       extraKeywords: toCsv(settings.extraKeywords),
       allowedDomains: toCsv(settings.allowedDomains),
@@ -150,8 +200,9 @@ export default function AdminNewsPage() {
   }, [form.intervalMinutes, form.maxArticlesPerDay]);
 
   const pendingCandidatesCount = useMemo(
-    () => (candidates || []).filter((item) => item?.status === "pending").length,
-    [candidates]
+    () =>
+      (candidates || []).filter((item) => item?.status === "pending").length,
+    [candidates],
   );
 
   const draftArticles = useMemo(() => {
@@ -160,7 +211,8 @@ export default function AdminNewsPage() {
     return [];
   }, [draftArticlesData]);
   const generatedDraftArticles = useMemo(() => {
-    if (Array.isArray(generatedDraftArticlesData)) return generatedDraftArticlesData;
+    if (Array.isArray(generatedDraftArticlesData))
+      return generatedDraftArticlesData;
     if (Array.isArray(generatedDraftArticlesData?.items)) {
       return generatedDraftArticlesData.items;
     }
@@ -173,12 +225,19 @@ export default function AdminNewsPage() {
     Number(generatedDraftArticlesData?.total) ||
     generatedDraftArticles.length ||
     0;
+  const articleGenerationGateway = settings?.articleGenerationGateway || null;
+  const activeJob = jobMonitor?.activeJob || null;
+  const recentJobs = Array.isArray(jobMonitor?.recentJobs)
+    ? jobMonitor.recentJobs
+    : [];
+  const jobSummary = jobMonitor?.summary || {};
 
   const refreshAll = () => {
     refetchSettings();
     refetchCandidates();
     refetchDraftArticles();
     refetchGeneratedDraftArticles();
+    refetchJobMonitor();
   };
 
   const onChange = (field) => (event) => {
@@ -201,15 +260,16 @@ export default function AdminNewsPage() {
         minAiScore: Math.max(0, Math.min(1, Number(form.minAiScore) || 0)),
         reviewPassScore: Math.max(
           0,
-          Math.min(1, Number(form.reviewPassScore) || 0)
+          Math.min(1, Number(form.reviewPassScore) || 0),
         ),
         maxArticlesPerRun: Math.max(1, Number(form.maxArticlesPerRun) || 1),
         maxArticlesPerDay: Math.max(1, Number(form.maxArticlesPerDay) || 1),
         targetArticlesPerDay: Math.max(
           1,
-          Number(form.targetArticlesPerDay) || 1
+          Number(form.targetArticlesPerDay) || 1,
         ),
         discoveryProvider: form.discoveryProvider,
+        articleGenerationModel: String(form.articleGenerationModel || "").trim(),
         mainKeywords: parseCsv(form.mainKeywords),
         extraKeywords: parseCsv(form.extraKeywords),
         allowedDomains: parseCsv(form.allowedDomains),
@@ -229,47 +289,59 @@ export default function AdminNewsPage() {
     }
   };
 
-  const handleRunNow = async () => {
+  const queueWorkerJob = async ({
+    type,
+    successText,
+    body = {},
+    emptyGuard,
+  }) => {
+    if (emptyGuard) {
+      const guardMessage = emptyGuard();
+      if (guardMessage) {
+        setMessage({ type: "info", text: guardMessage });
+        return;
+      }
+    }
+
     try {
-      const result = await runSync({
-        discoveryMode: form.discoveryProvider,
+      const result = await queueSeoNewsJob({
+        type,
+        ...body,
       }).unwrap();
-      setRunResult(result);
-      setMessage({ type: "success", text: "Pipeline run completed" });
+      setMessage({
+        type: "success",
+        text: `${successText}: ${result?.job?.id || ""}`.trim(),
+      });
       refreshAll();
     } catch (error) {
       setMessage({
         type: "error",
-        text: error?.data?.message || error?.error || "Run failed",
+        text: error?.data?.message || error?.error || "Queue job failed",
       });
     }
   };
 
-  const handleRunPendingCandidates = async () => {
-    if (!pendingCandidatesCount) {
-      setMessage({ type: "info", text: "No pending candidates to run" });
-      return;
-    }
+  const handleRunNow = async () => {
+    await queueWorkerJob({
+      type: "pipeline",
+      successText: "Queued pipeline job",
+      body: {
+        discoveryMode: form.discoveryProvider,
+        rounds: 1,
+      },
+    });
+  };
 
-    try {
-      const result = await runPendingCandidates({
+  const handleRunPendingCandidates = async () => {
+    await queueWorkerJob({
+      type: "pending_candidates",
+      successText: "Queued pending candidates job",
+      body: {
         limit: pendingCandidatesCount,
-      }).unwrap();
-      setRunResult(result);
-      setMessage({
-        type: "success",
-        text: `Processed pending candidates: ${result?.processedLimit || 0}`,
-      });
-      refreshAll();
-    } catch (error) {
-      setMessage({
-        type: "error",
-        text:
-          error?.data?.message ||
-          error?.error ||
-          "Run pending candidates failed",
-      });
-    }
+      },
+      emptyGuard: () =>
+        pendingCandidatesCount ? "" : "No pending candidates to run",
+    });
   };
 
   const publishDraftBatch = async ({
@@ -301,8 +373,8 @@ export default function AdminNewsPage() {
           pushed > 0
             ? successPrefix + ": " + pushed + ", skipped: " + skipped
             : skipped > 0
-            ? "No draft passed filters. Skipped: " + skipped
-            : emptyMessage,
+              ? "No draft passed filters. Skipped: " + skipped
+              : emptyMessage,
       });
 
       refreshAll();
@@ -353,8 +425,8 @@ export default function AdminNewsPage() {
           totalPushed > 0
             ? successPrefix + ": " + totalPushed + ", skipped: " + totalSkipped
             : totalSkipped > 0
-            ? "No draft passed filters. Skipped: " + totalSkipped
-            : emptyMessage,
+              ? "No draft passed filters. Skipped: " + totalSkipped
+              : emptyMessage,
       });
 
       refreshAll();
@@ -380,93 +452,28 @@ export default function AdminNewsPage() {
   };
 
   const handleFetchMoreArticles = async (rounds = 1) => {
-    if (fetchingMore) return;
-
-    try {
-      setFetchingMore(true);
-      let external = 0;
-      let generated = 0;
-      let published = 0;
-      let draft = 0;
-      let roundsDone = 0;
-      let lastResult = null;
-
-      const totalRounds = Math.min(Math.max(Number(rounds) || 1, 1), 6);
-
-      for (let i = 0; i < totalRounds; i += 1) {
-        const result = await runSync({
-          discoveryMode: form.discoveryProvider,
-        }).unwrap();
-
-        lastResult = result;
-        roundsDone += 1;
-        external += Number(result?.stats?.externalGenerated) || 0;
-        generated += Number(result?.stats?.evergreenGenerated) || 0;
-        published += Number(result?.stats?.published) || 0;
-        draft += Number(result?.stats?.draft) || 0;
-
-        const producedThisRound =
-          (Number(result?.stats?.externalGenerated) || 0) +
-          (Number(result?.stats?.evergreenGenerated) || 0);
-
-        if (!producedThisRound && i > 0) {
-          break;
-        }
-      }
-
-      if (lastResult) {
-        setRunResult(lastResult);
-      }
-
-      setMessage({
-        type: "success",
-        text: `Fetch done (${roundsDone} round): external ${external}, generated ${generated}, published ${published}, draft ${draft}`,
-      });
-      refreshAll();
-    } catch (error) {
-      setMessage({
-        type: "error",
-        text: error?.data?.message || error?.error || "Fetch more failed",
-      });
-    } finally {
-      setFetchingMore(false);
-    }
+    await queueWorkerJob({
+      type: "pipeline",
+      successText: `Queued fetch job (${Math.min(
+        Math.max(Number(rounds) || 1, 1),
+        6,
+      )} round)`,
+      body: {
+        discoveryMode: form.discoveryProvider,
+        rounds,
+      },
+    });
   };
 
   const handleCreateReadyArticles = async (count = 3) => {
-    try {
-      const result = await createSeoNewsReadyArticles({
+    await queueWorkerJob({
+      type: "create_ready_articles",
+      successText: "Queued create ready AI posts job",
+      body: {
         count,
         forcePublish: true,
-      }).unwrap();
-
-      setRunResult({
-        stats: {
-          externalGenerated: 0,
-          evergreenGenerated: Number(result?.generated) || 0,
-          reviewPassed: Number(result?.reviewPassed) || 0,
-          reviewFailed: Number(result?.reviewFailed) || 0,
-          published: Number(result?.published) || 0,
-          draft: Number(result?.draft) || 0,
-        },
-        generation: result,
-      });
-      setMessage({
-        type: "success",
-        text: `Created ready AI articles: ${result?.generated || 0}, published: ${
-          result?.published || 0
-        }, draft: ${result?.draft || 0}`,
-      });
-      refreshAll();
-    } catch (error) {
-      setMessage({
-        type: "error",
-        text:
-          error?.data?.message ||
-          error?.error ||
-          "Create ready AI articles failed",
-      });
-    }
+      },
+    });
   };
 
   const handlePublishAllDrafts = async () => {
@@ -532,7 +539,13 @@ export default function AdminNewsPage() {
         <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
           Auto Fetch Status
         </Typography>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          flexWrap="wrap"
+          useFlexGap
+          sx={{ mb: 1 }}
+        >
           <Chip
             size="small"
             label={`Auto: ${form.enabled ? "ON" : "OFF"}`}
@@ -545,10 +558,10 @@ export default function AdminNewsPage() {
               settings?.cronStatus === "running"
                 ? "warning"
                 : settings?.cronStatus === "success"
-                ? "success"
-                : settings?.cronStatus === "error"
-                ? "error"
-                : "default"
+                  ? "success"
+                  : settings?.cronStatus === "error"
+                    ? "error"
+                    : "default"
             }
           />
           <Chip
@@ -564,8 +577,12 @@ export default function AdminNewsPage() {
           <Chip
             size="small"
             label={`Missing target: ${Number(settings?.missingToTarget) || 0}`}
-            color={Number(settings?.missingToTarget) > 0 ? "warning" : "success"}
-            variant={Number(settings?.missingToTarget) > 0 ? "filled" : "outlined"}
+            color={
+              Number(settings?.missingToTarget) > 0 ? "warning" : "success"
+            }
+            variant={
+              Number(settings?.missingToTarget) > 0 ? "filled" : "outlined"
+            }
           />
           <Chip
             size="small"
@@ -591,6 +608,180 @@ export default function AdminNewsPage() {
       </Paper>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+          Cách hoạt động
+        </Typography>
+        <Stack spacing={1.5}>
+          <Alert severity="info">
+            <strong>Bài ngoài mạng</strong>: hệ thống dùng Discovery provider +
+            keywords + domain filter để tìm URL bài viết trên internet, sau đó
+            crawl nội dung thật từ chính URL đó.
+          </Alert>
+          <Alert severity="success">
+            <strong>Bài AI tự viết</strong>: hệ thống không lấy từ báo ngoài, mà
+            tự tạo bài evergreen bằng gateway AI ở phần Article Generation
+            Gateway.
+          </Alert>
+          <Paper variant="outlined" sx={{ p: 1.5 }}>
+            <Stack spacing={0.75}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                Bấm nút nào khi cần:
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                `Chạy full pipeline`: tìm bài ngoài mạng, crawl, và nếu thiếu
+                target trong ngày thì có thể gen thêm bài AI.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                `Tìm bài ngoài mạng`: chạy 1 round tìm URL và crawl bài ngoài
+                mạng.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                `Tìm bài ngoài mạng x3`: chạy tối đa 3 round liên tiếp để tìm
+                thêm bài ngoài mạng.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                `Xử lý link pending`: chỉ xử lý các link đã tìm thấy trước đó
+                đang ở trạng thái pending.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                `Tạo 3 bài AI sẵn sàng`: chỉ tạo bài AI evergreen, không tìm bài
+                ngoài mạng.
+              </Typography>
+            </Stack>
+          </Paper>
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          justifyContent="space-between"
+          alignItems={{ xs: "flex-start", md: "center" }}
+          spacing={1}
+          sx={{ mb: 1.5 }}
+        >
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Article Generation Gateway
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Gateway riêng cho luồng tạo bài AI evergreen của SEO News.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Chip
+              size="small"
+              label={`Status: ${articleGenerationGateway?.status || "unknown"}`}
+              color={getGatewayChipColor(articleGenerationGateway?.status)}
+            />
+            <Chip
+              size="small"
+              label={`Source: ${formatGatewaySource(
+                articleGenerationGateway?.source,
+              )}`}
+              variant="outlined"
+            />
+            <Chip
+              size="small"
+              label={`API key: ${
+                articleGenerationGateway?.apiKeyConfigured ? "configured" : "missing"
+              }`}
+              color={
+                articleGenerationGateway?.apiKeyConfigured ? "success" : "default"
+              }
+              variant={
+                articleGenerationGateway?.apiKeyConfigured ? "filled" : "outlined"
+              }
+            />
+            <Chip
+              size="small"
+              label={`Models: ${Number(articleGenerationGateway?.modelCount) || 0}`}
+              variant="outlined"
+            />
+            <Chip
+              size="small"
+              label={`Effective model: ${
+                articleGenerationGateway?.effectiveModel || "-"
+              }`}
+              color="success"
+              variant="outlined"
+            />
+            {articleGenerationGateway?.selectedModel ? (
+              <Chip
+                size="small"
+                label={`Configured model: ${articleGenerationGateway.selectedModel}`}
+                color={
+                  articleGenerationGateway?.selectedModelAvailable === false
+                    ? "warning"
+                    : "default"
+                }
+                variant={
+                  articleGenerationGateway?.selectedModelAvailable === false
+                    ? "filled"
+                    : "outlined"
+                }
+              />
+            ) : null}
+            {!articleGenerationGateway?.selectedModel &&
+            Number(articleGenerationGateway?.modelCount) > 0 &&
+            articleGenerationGateway?.effectiveModel ? (
+              <Chip
+                size="small"
+                label="Model auto-selected from /models"
+                color="success"
+                variant="filled"
+              />
+            ) : null}
+          </Stack>
+        </Stack>
+
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+          <TextField
+            label="Connection URL"
+            value={articleGenerationGateway?.responsesUrl || ""}
+            size="small"
+            fullWidth
+            InputProps={{ readOnly: true }}
+          />
+          <TextField
+            label="Models URL"
+            value={articleGenerationGateway?.modelsUrl || ""}
+            size="small"
+            fullWidth
+            InputProps={{ readOnly: true }}
+          />
+        </Stack>
+
+        <FormControl size="small" fullWidth sx={{ mt: 2 }}>
+          <InputLabel id="article-generation-model-label">
+            Article model
+          </InputLabel>
+          <Select
+            labelId="article-generation-model-label"
+            value={form.articleGenerationModel}
+            label="Article model"
+            onChange={onChange("articleGenerationModel")}
+          >
+            <MenuItem value="">Auto (first model from /models)</MenuItem>
+            {(articleGenerationGateway?.availableModels || []).map((modelId) => (
+              <MenuItem key={modelId} value={modelId}>
+                {modelId}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        {articleGenerationGateway?.message ? (
+          <Alert
+            severity={getGatewayAlertSeverity(articleGenerationGateway?.status)}
+            sx={{ mt: 1.5 }}
+          >
+            {articleGenerationGateway.message}
+          </Alert>
+        ) : null}
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         {loadingSettings ? (
           <Box sx={{ py: 3, display: "flex", justifyContent: "center" }}>
             <CircularProgress size={24} />
@@ -600,7 +791,10 @@ export default function AdminNewsPage() {
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <FormControlLabel
                 control={
-                  <Switch checked={!!form.enabled} onChange={onSwitch("enabled")} />
+                  <Switch
+                    checked={!!form.enabled}
+                    onChange={onSwitch("enabled")}
+                  />
                 }
                 label="Enabled"
               />
@@ -763,69 +957,315 @@ export default function AdminNewsPage() {
               <Button
                 variant="outlined"
                 startIcon={<PlayArrowIcon />}
-                disabled={runningSync}
+                disabled={queueingJob}
                 onClick={handleRunNow}
               >
-                Run now
+                Chạy full pipeline
               </Button>
               <Button
                 variant="outlined"
                 startIcon={<PlayArrowIcon />}
-                disabled={runningSync || fetchingMore}
+                disabled={queueingJob}
                 onClick={() => handleFetchMoreArticles(1)}
               >
-                Fetch More
+                Tìm bài ngoài mạng
               </Button>
               <Button
                 variant="outlined"
                 startIcon={<PlayArrowIcon />}
-                disabled={runningSync || fetchingMore}
+                disabled={queueingJob}
                 onClick={() => handleFetchMoreArticles(3)}
               >
-                Fetch x3
+                Tìm bài ngoài mạng x3
               </Button>
               <Button
                 variant="contained"
                 startIcon={<PlayArrowIcon />}
-                disabled={creatingReadyArticles}
+                disabled={queueingJob}
                 onClick={() => handleCreateReadyArticles(3)}
               >
-                Create 3 Ready AI Posts
+                Tạo 3 bài AI sẵn sàng
               </Button>
               <Button
                 variant="text"
                 startIcon={<RefreshIcon />}
                 onClick={refreshAll}
               >
-                Refresh
+                Tải lại
               </Button>
             </Stack>
+
+            <Alert severity="info">
+              Discovery chỉ ảnh hưởng đến luồng tìm bài ngoài mạng. Nếu bạn muốn
+              hệ thống tự viết bài mới bằng AI, dùng nút `Tạo 3 bài AI sẵn
+              sàng`. Nếu muốn chạy cả hai luồng, dùng `Chạy full pipeline`.
+            </Alert>
           </Stack>
         )}
       </Paper>
 
-      {runResult ? (
-        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-            Last run summary
-          </Typography>
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          justifyContent="space-between"
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          spacing={1}
+          sx={{ mb: 1.5 }}
+        >
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Worker lấy bài
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Các thao tác fetch/generate bài manual sẽ chạy nền và lưu job vào DB.
+            </Typography>
+          </Box>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Chip label={`External: ${runResult?.stats?.externalGenerated || 0}`} />
-            <Chip label={`Generated: ${runResult?.stats?.evergreenGenerated || 0}`} />
-            <Chip label={`Passed: ${runResult?.stats?.reviewPassed || 0}`} color="success" />
-            <Chip label={`Failed: ${runResult?.stats?.reviewFailed || 0}`} color="warning" />
-            <Chip label={`Published: ${runResult?.stats?.published || 0}`} color="primary" />
-            <Chip label={`Draft: ${runResult?.stats?.draft || 0}`} />
+            <Chip label={`Queued: ${Number(jobSummary.queued) || 0}`} />
+            <Chip label={`Running: ${Number(jobSummary.running) || 0}`} />
+            <Chip label={`Completed: ${Number(jobSummary.completed) || 0}`} />
             <Chip
-              label={`Competitor blocked: ${
-                runResult?.crawl?.errorsByType?.COMPETITOR_BLOCKED || 0
-              }`}
-              color="warning"
-              variant="outlined"
+              label={`Failed: ${Number(jobSummary.failed) || 0}`}
+              color={Number(jobSummary.failed) > 0 ? "warning" : "default"}
             />
+            {loadingJobMonitor ? <CircularProgress size={18} /> : null}
           </Stack>
-        </Paper>
-      ) : null}
+        </Stack>
+
+        {activeJob ? (
+          <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+            <Stack spacing={1}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                justifyContent="space-between"
+                spacing={1}
+              >
+                <Box>
+                  <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                    Job đang chạy: {formatPipelineJobType(activeJob.type)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {activeJob.currentStep?.label || "Dang cho worker xu ly"}
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip
+                    size="small"
+                    label={activeJob.status}
+                    color={activeJob.status === "running" ? "primary" : "default"}
+                  />
+                  <Chip
+                    size="small"
+                    label={`${activeJob.completedSteps}/${activeJob.totalSteps} xong`}
+                    variant="outlined"
+                  />
+                  <Chip
+                    size="small"
+                    label={`Progress: ${activeJob.progressPercent || 0}%`}
+                    variant="outlined"
+                  />
+                </Stack>
+              </Stack>
+
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip
+                  size="small"
+                  label={`External: ${
+                    Number(activeJob.summary?.externalGenerated) || 0
+                  }`}
+                />
+                <Chip
+                  size="small"
+                  label={`Generated: ${
+                    Number(activeJob.summary?.evergreenGenerated) || 0
+                  }`}
+                />
+                <Chip
+                  size="small"
+                  label={`Published: ${Number(activeJob.summary?.published) || 0}`}
+                />
+                <Chip
+                  size="small"
+                  label={`Draft: ${Number(activeJob.summary?.draft) || 0}`}
+                />
+                <Chip
+                  size="small"
+                  label={`Failed: ${Number(activeJob.summary?.failed) || 0}`}
+                  color={
+                    Number(activeJob.summary?.failed) > 0 ? "warning" : "default"
+                  }
+                />
+              </Stack>
+
+              <Stack spacing={1}>
+                {(activeJob.steps || []).map((step) => (
+                  <Paper
+                    key={`${activeJob.id}-${step.index}`}
+                    variant="outlined"
+                    sx={{ p: 1 }}
+                  >
+                    <Stack spacing={0.5}>
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        justifyContent="space-between"
+                        spacing={1}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                          {step.label}
+                        </Typography>
+                        <Chip size="small" label={step.status} />
+                      </Stack>
+                      {step.message ? (
+                        <Typography variant="caption" color="text.secondary">
+                          {step.message}
+                        </Typography>
+                      ) : null}
+                      {step.error ? (
+                        <Typography variant="caption" color="error.main">
+                          {step.error}
+                        </Typography>
+                      ) : null}
+                      {getStepSummary(step.result) ? (
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          flexWrap="wrap"
+                          useFlexGap
+                        >
+                          <Chip
+                            size="small"
+                            label={`External: ${
+                              getStepSummary(step.result)?.externalGenerated || 0
+                            }`}
+                            variant="outlined"
+                          />
+                          <Chip
+                            size="small"
+                            label={`Generated: ${
+                              getStepSummary(step.result)?.evergreenGenerated || 0
+                            }`}
+                            variant="outlined"
+                          />
+                          <Chip
+                            size="small"
+                            label={`Published: ${
+                              getStepSummary(step.result)?.published || 0
+                            }`}
+                            variant="outlined"
+                          />
+                          <Chip
+                            size="small"
+                            label={`Draft: ${
+                              getStepSummary(step.result)?.draft || 0
+                            }`}
+                            variant="outlined"
+                          />
+                          <Chip
+                            size="small"
+                            label={`Failed: ${
+                              getStepSummary(step.result)?.failed || 0
+                            }`}
+                            variant="outlined"
+                          />
+                        </Stack>
+                      ) : null}
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            </Stack>
+          </Paper>
+        ) : (
+          <Alert severity="info" sx={{ mb: 1.5 }}>
+            Chưa có job worker SEO News nào đang chạy.
+          </Alert>
+        )}
+
+        {recentJobs.length ? (
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              Job gần đây
+            </Typography>
+            {recentJobs.map((job) => (
+              <Paper key={job.id} variant="outlined" sx={{ p: 1.25 }}>
+                <Stack spacing={0.75}>
+                  <Stack
+                    direction={{ xs: "column", md: "row" }}
+                    justifyContent="space-between"
+                    spacing={1}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                      {formatPipelineJobType(job.type)}
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      <Chip size="small" label={job.status} />
+                      <Chip
+                        size="small"
+                        label={`${job.completedSteps}/${job.totalSteps} xong`}
+                        variant="outlined"
+                      />
+                      <Chip
+                        size="small"
+                        label={formatDateTime(job.createdAt)}
+                        variant="outlined"
+                      />
+                    </Stack>
+                  </Stack>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Chip
+                      size="small"
+                      label={`External: ${
+                        Number(job.summary?.externalGenerated) || 0
+                      }`}
+                    />
+                    <Chip
+                      size="small"
+                      label={`Generated: ${
+                        Number(job.summary?.evergreenGenerated) || 0
+                      }`}
+                    />
+                    <Chip
+                      size="small"
+                      label={`Published: ${Number(job.summary?.published) || 0}`}
+                    />
+                    <Chip
+                      size="small"
+                      label={`Draft: ${Number(job.summary?.draft) || 0}`}
+                    />
+                    <Chip
+                      size="small"
+                      label={`Failed: ${Number(job.summary?.failed) || 0}`}
+                      color={
+                        Number(job.summary?.failed) > 0 ? "warning" : "default"
+                      }
+                    />
+                  </Stack>
+                  {job.lastError ? (
+                    <Typography variant="caption" color="error.main">
+                      {job.lastError}
+                    </Typography>
+                  ) : null}
+                  <Stack spacing={0.5}>
+                    {(job.steps || []).map((step) => (
+                      <Typography
+                        key={`${job.id}-${step.index}`}
+                        variant="caption"
+                        color={
+                          step.status === "failed"
+                            ? "error.main"
+                            : "text.secondary"
+                        }
+                      >
+                        {step.label}: {step.status}
+                      </Typography>
+                    ))}
+                  </Stack>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        ) : null}
+      </Paper>
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack
@@ -835,9 +1275,15 @@ export default function AdminNewsPage() {
           spacing={1}
         >
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Link Candidates
+            Link tìm được từ internet
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            useFlexGap
+            flexWrap="wrap"
+          >
             <Chip
               size="small"
               label={`Pending: ${pendingCandidatesCount}`}
@@ -849,9 +1295,9 @@ export default function AdminNewsPage() {
               variant="outlined"
               startIcon={<PlayArrowIcon />}
               onClick={() => handleFetchMoreArticles(1)}
-              disabled={runningSync || fetchingMore}
+              disabled={queueingJob}
             >
-              Fetch more
+              Tìm thêm URL
             </Button>
 
             <Button
@@ -859,11 +1305,11 @@ export default function AdminNewsPage() {
               variant="outlined"
               startIcon={<PlayArrowIcon />}
               onClick={handleRunPendingCandidates}
-              disabled={runningPendingCandidates || pendingCandidatesCount === 0}
+              disabled={queueingJob || pendingCandidatesCount === 0}
             >
-              Run pending
+              Xử lý link pending
             </Button>
-            {loadingCandidates || runningPendingCandidates ? (
+            {loadingCandidates || queueingJob ? (
               <CircularProgress size={18} />
             ) : null}
           </Stack>
@@ -871,18 +1317,34 @@ export default function AdminNewsPage() {
 
         <Divider sx={{ my: 1.5 }} />
 
+        <Alert severity="info" sx={{ mb: 1.5 }}>
+          Đây là danh sách URL tìm được từ internet. Ở bước này hệ thống mới
+          tìm thấy link và đưa vào hàng chờ crawl/review.
+        </Alert>
+
         {!loadingCandidates && (!candidates || candidates.length === 0) ? (
           <Alert severity="info">No candidate links</Alert>
         ) : null}
 
         <Stack spacing={1.25}>
           {(candidates || []).map((item) => (
-            <Paper key={item._id || item.url} variant="outlined" sx={{ p: 1.25 }}>
+            <Paper
+              key={item._id || item.url}
+              variant="outlined"
+              sx={{ p: 1.25 }}
+            >
               <Stack spacing={0.75}>
-                <Typography variant="body2" sx={{ fontWeight: 700, wordBreak: "break-word" }}>
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 700, wordBreak: "break-word" }}
+                >
                   {item.title || item.url}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: "break-word" }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ wordBreak: "break-word" }}
+                >
                   {item.url}
                 </Typography>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -913,9 +1375,15 @@ export default function AdminNewsPage() {
           spacing={1}
         >
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Draft Articles (Crawled)
+            Bài đã crawl từ link ngoài
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            useFlexGap
+            flexWrap="wrap"
+          >
             <Chip
               size="small"
               label={`Drafts: ${draftArticlesCount}`}
@@ -940,11 +1408,18 @@ export default function AdminNewsPage() {
             >
               Publish all
             </Button>
-            {loadingDraftArticles || publishingBusy ? <CircularProgress size={18} /> : null}
+            {loadingDraftArticles || publishingBusy ? (
+              <CircularProgress size={18} />
+            ) : null}
           </Stack>
         </Stack>
 
         <Divider sx={{ my: 1.5 }} />
+
+        <Alert severity="info" sx={{ mb: 1.5 }}>
+          Đây là bài được tạo sau khi hệ thống đã crawl nội dung thật từ các URL
+          ngoài mạng.
+        </Alert>
 
         {!loadingDraftArticles && draftArticles.length === 0 ? (
           <Alert severity="info">No draft crawled articles</Alert>
@@ -952,19 +1427,42 @@ export default function AdminNewsPage() {
 
         <Stack spacing={1.25}>
           {draftArticles.map((item) => (
-            <Paper key={item._id || item.slug} variant="outlined" sx={{ p: 1.25 }}>
+            <Paper
+              key={item._id || item.slug}
+              variant="outlined"
+              sx={{ p: 1.25 }}
+            >
               <Stack spacing={0.75}>
-                <Typography variant="body2" sx={{ fontWeight: 700, wordBreak: "break-word" }}>
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: 700, wordBreak: "break-word" }}
+                >
                   {item.title || item.slug}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: "break-word" }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ wordBreak: "break-word" }}
+                >
                   {item.sourceUrl || item.slug}
                 </Typography>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip size="small" label={item.status || "draft"} />
-                  <Chip size="small" label={item.origin || "external"} variant="outlined" />
-                  <Chip size="small" label={`review: ${item?.review?.status || "pending"}`} variant="outlined" />
-                  <Chip size="small" label={formatDateTime(item.createdAt)} variant="outlined" />
+                  <Chip
+                    size="small"
+                    label={item.origin || "external"}
+                    variant="outlined"
+                  />
+                  <Chip
+                    size="small"
+                    label={`review: ${item?.review?.status || "pending"}`}
+                    variant="outlined"
+                  />
+                  <Chip
+                    size="small"
+                    label={formatDateTime(item.createdAt)}
+                    variant="outlined"
+                  />
                 </Stack>
               </Stack>
             </Paper>
@@ -980,9 +1478,15 @@ export default function AdminNewsPage() {
           spacing={1}
         >
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Draft Articles (AI Generated)
+            Bài AI tự viết
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            useFlexGap
+            flexWrap="wrap"
+          >
             <Chip
               size="small"
               label={"AI drafts: " + generatedDraftArticlesCount}
@@ -1015,13 +1519,23 @@ export default function AdminNewsPage() {
 
         <Divider sx={{ my: 1.5 }} />
 
-        {!loadingGeneratedDraftArticles && generatedDraftArticles.length === 0 ? (
+        <Alert severity="info" sx={{ mb: 1.5 }}>
+          Đây là bài evergreen do AI tự viết. Nhóm này không crawl từ bài báo
+          ngoài.
+        </Alert>
+
+        {!loadingGeneratedDraftArticles &&
+        generatedDraftArticles.length === 0 ? (
           <Alert severity="info">No draft AI articles</Alert>
         ) : null}
 
         <Stack spacing={1.25}>
           {generatedDraftArticles.map((item) => (
-            <Paper key={item._id || item.slug} variant="outlined" sx={{ p: 1.25 }}>
+            <Paper
+              key={item._id || item.slug}
+              variant="outlined"
+              sx={{ p: 1.25 }}
+            >
               <Stack spacing={0.75}>
                 <Typography
                   variant="body2"
@@ -1038,7 +1552,11 @@ export default function AdminNewsPage() {
                 </Typography>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip size="small" label={item.status || "draft"} />
-                  <Chip size="small" label={item.origin || "generated"} variant="outlined" />
+                  <Chip
+                    size="small"
+                    label={item.origin || "generated"}
+                    variant="outlined"
+                  />
                   <Chip
                     size="small"
                     label={"review: " + (item?.review?.status || "pending")}

@@ -112,9 +112,35 @@ const SeoNewsSettingsSchema = new mongoose.Schema(
       default:
         process.env.SEO_NEWS_IMAGE_FALLBACK_ENABLED === "false" ? false : true,
     },
+
+    imageGenerationModel: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    articleGenerationModel: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    imageGenerationDelaySeconds: {
+      type: Number,
+      default: Math.max(
+        15,
+        Math.floor(
+          (Number(process.env.SEO_NEWS_AI_REGEN_INTERVAL_MS) || 120000) / 1000
+        )
+      ),
+    },
+
+    imageRegenerationPaused: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
 
 export default mongoose.model("SeoNewsSettings", SeoNewsSettingsSchema);
-

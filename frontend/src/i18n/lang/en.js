@@ -1264,6 +1264,12 @@ export default {
       datePlaceholder: "Filter by date",
       loadError: "Unable to load data: {message}",
       empty: "No tournament matches the current filters.",
+      emptySearchDescription:
+        "Try a different keyword or remove some filters to see more {status} tournaments.",
+      emptyDateDescription:
+        "There are no {status} tournaments in this date range. Change the range or clear the date filter to broaden the results.",
+      emptyDefaultDescription:
+        "The list of {status} tournaments will appear here when matching data is available.",
       locationFallback: "Not updated",
       registeredTeams: "Registered teams",
     },

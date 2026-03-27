@@ -8,7 +8,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     getUsers: builder.query({
       query: ({ page = 1, keyword = "", role = "", cccdStatus = "" }) =>
         `/api/admin/users?page=${page}&keyword=${encodeURIComponent(
-          keyword
+          keyword,
         )}&role=${role}&cccdStatus=${cccdStatus}`,
       providesTags: ["User"],
       keepUnusedDataFor: 30,
@@ -189,6 +189,19 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         },
       }),
     }),
+    getSeoNewsJobMonitor: builder.query({
+      query: () => ({
+        url: "/api/admin/seo-news/jobs/monitor",
+        method: "GET",
+      }),
+    }),
+    queueSeoNewsJob: builder.mutation({
+      query: (body = {}) => ({
+        url: "/api/admin/seo-news/jobs",
+        method: "POST",
+        body,
+      }),
+    }),
     getSeoNewsArticles: builder.query({
       query: ({
         page = 1,
@@ -278,6 +291,8 @@ export const {
   useGetSeoNewsSettingsQuery,
   useUpdateSeoNewsSettingsMutation,
   useGetSeoNewsCandidatesQuery,
+  useGetSeoNewsJobMonitorQuery,
+  useQueueSeoNewsJobMutation,
   useGetSeoNewsArticlesQuery,
   usePushSeoNewsDraftsMutation,
   useCreateSeoNewsReadyArticlesMutation,

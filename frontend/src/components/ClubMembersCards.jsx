@@ -78,7 +78,7 @@ export default function ClubMembersCards({ club }) {
 
   const { data, isLoading, isFetching, refetch } = useListMembersQuery(
     { id: clubId },
-    { skip: !clubId }
+    { skip: !clubId },
   );
   const [kickMember, { isLoading: kicking }] = useKickMemberMutation();
   const [setRole, { isLoading: settingRole }] = useSetRoleMutation();
@@ -152,7 +152,7 @@ export default function ClubMembersCards({ club }) {
       !window.confirm(
         `Xác nhận xoá thành viên "${
           m.user?.fullName || m.user?.nickname || m.user?.email
-        }" khỏi CLB?`
+        }" khỏi CLB?`,
       )
     )
       return;

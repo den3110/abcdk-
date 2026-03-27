@@ -28,7 +28,7 @@ export default function ClubAnnouncements({ club, canManage }) {
   const clubId = club?._id;
   const { data, isLoading, isFetching, refetch } = useListAnnouncementsQuery(
     { id: clubId },
-    { skip: !clubId }
+    { skip: !clubId },
   );
   const [createA, { isLoading: creating }] = useCreateAnnouncementMutation();
   const [updateA] = useUpdateAnnouncementMutation();
@@ -43,7 +43,7 @@ export default function ClubAnnouncements({ club, canManage }) {
     .sort(
       (a, b) =>
         (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) ||
-        new Date(b.createdAt) - new Date(a.createdAt)
+        new Date(b.createdAt) - new Date(a.createdAt),
     );
 
   const submit = async () => {

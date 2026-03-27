@@ -80,14 +80,12 @@ const FacebookLiveSettings = () => {
         alert(t("facebookLive.setDefaultError"));
       }
     },
-    [setDefaultPage, refetch, t]
+    [setDefaultPage, refetch, t],
   );
 
   const handleDelete = useCallback(
     async (id) => {
-      const ok = window.confirm(
-        t("facebookLive.deleteConfirm")
-      );
+      const ok = window.confirm(t("facebookLive.deleteConfirm"));
       if (!ok) return;
 
       try {
@@ -98,12 +96,10 @@ const FacebookLiveSettings = () => {
         alert(t("facebookLive.deleteError"));
       }
     },
-    [deletePage, refetch, t]
+    [deletePage, refetch, t],
   );
 
   const loadingList = isLoading || isFetching;
-
-
 
   return (
     <Container maxWidth="md">
@@ -137,9 +133,7 @@ const FacebookLiveSettings = () => {
         </Stack>
 
         {/* Info */}
-        <Alert severity="info">
-          {t("facebookLive.infoAlert")}
-        </Alert>
+        <Alert severity="info">{t("facebookLive.infoAlert")}</Alert>
 
         {/* Card danh sách page */}
         <Card>
@@ -162,15 +156,11 @@ const FacebookLiveSettings = () => {
             )}
 
             {!loadingList && error && (
-              <Alert severity="error">
-                {t("facebookLive.loadError")}
-              </Alert>
+              <Alert severity="error">{t("facebookLive.loadError")}</Alert>
             )}
 
             {!loadingList && !error && pages.length === 0 && (
-              <Alert severity="warning">
-                {t("facebookLive.empty")}
-              </Alert>
+              <Alert severity="warning">{t("facebookLive.empty")}</Alert>
             )}
 
             {!loadingList && !error && pages.length > 0 && (

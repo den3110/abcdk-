@@ -102,9 +102,7 @@ function ClubCardSkeleton() {
 const getApiErrMsg = (err, fallback) =>
   err?.data?.message ||
   err?.error ||
-  (typeof err?.data === "string"
-    ? err.data
-    : fallback);
+  (typeof err?.data === "string" ? err.data : fallback);
 
 const tabStyles = {
   minHeight: 40,

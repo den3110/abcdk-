@@ -32,7 +32,7 @@ export default function ResetPasswordScreen() {
 
   const disabled = useMemo(
     () => !password || password.length < 6 || password !== confirm,
-    [password, confirm]
+    [password, confirm],
   );
 
   const onSubmit = async (e) => {
@@ -42,9 +42,7 @@ export default function ResetPasswordScreen() {
       if (password !== confirm)
         return toast.error(t("auth.reset.errors.mismatch"));
       const res = await resetPassword({ token, password }).unwrap();
-      toast.success(
-        res?.message || t("auth.reset.success")
-      );
+      toast.success(res?.message || t("auth.reset.success"));
       navigate("/login");
     } catch (err) {
       toast.error(err?.data?.message || t("auth.reset.errors.failed"));
@@ -99,7 +97,9 @@ export default function ResetPasswordScreen() {
             margin="normal"
             error={!!confirm && confirm !== password}
             helperText={
-              confirm && confirm !== password ? t("auth.reset.mismatchShort") : " "
+              confirm && confirm !== password
+                ? t("auth.reset.mismatchShort")
+                : " "
             }
           />
 
@@ -111,7 +111,11 @@ export default function ResetPasswordScreen() {
             sx={{ mt: 2 }}
             disabled={isLoading || disabled}
           >
-            {isLoading ? <CircularProgress size={24} /> : t("auth.reset.submit")}
+            {isLoading ? (
+              <CircularProgress size={24} />
+            ) : (
+              t("auth.reset.submit")
+            )}
           </Button>
 
           <Link

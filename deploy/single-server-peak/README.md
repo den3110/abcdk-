@@ -1,10 +1,13 @@
 # Single Server Peak Notes
 
-Muc tieu file nay la khoa topology cho `4 core / 8GB`:
+Muc tieu file nay la khoa topology Go-native cho `4 core / 8GB`:
 
-- `API`: 2 PM2 cluster instances
-- `RTMP relay`: process rieng
-- `recording worker`: process rieng, `ffmpeg threads = 1`
+- `pickletour-api`: Go API process
+- `pickletour-relay-rtmp`: Go relay process rieng
+- `pickletour-worker-recording-export`: worker media rieng, `ffmpeg threads = 1`
+- `pickletour-worker-ai-commentary`: worker AI rieng
+- `pickletour-worker-general`: worker cho CCCD/SEO/notify va jobs khong phai media
+- `pickletour-scheduler`: process schedule/cron dispatcher
 - export recording ban ngay khong merge ngay, chi giu queue cho khung gio dem
 
 Khuyen nghi env:
@@ -23,12 +26,17 @@ PEAK_RUNTIME_METRICS_WINDOW_MS=300000
 PEAK_RUNTIME_METRICS_MAX_SAMPLES_PER_ENDPOINT=1500
 ```
 
-Lenh PM2 tham khao:
+Lenh systemd tham khao:
 
 ```bash
-pm2 start deploy/single-server-peak/ecosystem.peak.config.js
-pm2 scale pickletour-recording-worker 0
-pm2 scale pickletour-recording-worker 1
+sudo cp deploy/systemd/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pickletour-api pickletour-relay-rtmp pickletour-scheduler
+sudo systemctl enable --now pickletour-worker-recording-export pickletour-worker-ai-commentary pickletour-worker-general
+
+# scale recording export worker logic bang systemd:
+sudo systemctl stop pickletour-worker-recording-export
+sudo systemctl start pickletour-worker-recording-export
 ```
 
 Docker Compose profiles:
@@ -46,9 +54,14 @@ docker compose --profile ops up -d redis-commander
 
 Y nghia:
 
-- ban ngay: co the scale worker ve `0` neu muon cat hoan toan ffmpeg export
-- ban dem: scale worker len `1` de merge/export queue
+- ban ngay: co the stop `pickletour-worker-recording-export` neu muon cat hoan toan ffmpeg export
+- ban dem: start lai `pickletour-worker-recording-export` de merge/export queue
 - neu van de worker chay ban ngay, export window van giu da so recording o trang thai `pending_export_window`
+
+GraphQL audit:
+
+- dung `deploy/single-server-peak/nginx.graphql-audit.conf` de log `/graphql` trong 7 ngay truoc cutover
+- chi remove `/graphql` sau khi access log xac nhan khong con consumer
 
 Runtime metrics sau deploy:
 

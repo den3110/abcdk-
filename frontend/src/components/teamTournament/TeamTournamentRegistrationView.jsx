@@ -23,6 +23,10 @@ import {
   useGetTeamRosterQuery,
   useManagerDeleteRegistrationMutation,
 } from "../../slices/tournamentsApiSlice";
+import {
+  addBusinessBreadcrumb,
+  captureBusinessMessage,
+} from "../../utils/sentry";
 
 const playerName = (player) =>
   player?.nickName || player?.nickname || player?.fullName || "Chưa có VĐV";
@@ -40,8 +44,10 @@ export default function TeamTournamentRegistrationView({
   canManage,
   isAdmin,
 }) {
-  const { data, isLoading, error, refetch } = useGetTeamRosterQuery(tournamentId);
-  const [createRegistration, { isLoading: saving }] = useCreateRegistrationMutation();
+  const { data, isLoading, error, refetch } =
+    useGetTeamRosterQuery(tournamentId);
+  const [createRegistration, { isLoading: saving }] =
+    useCreateRegistrationMutation();
   const [deleteRegistration, { isLoading: deleting }] =
     useManagerDeleteRegistrationMutation();
   const [selectedFactionId, setSelectedFactionId] = useState("");
@@ -54,14 +60,16 @@ export default function TeamTournamentRegistrationView({
     if (canManage || isAdmin) return factions;
     const meId = String(me?._id || "");
     return factions.filter(
-      (faction) => String(faction?.captainUser?._id || "") === meId
+      (faction) => String(faction?.captainUser?._id || "") === meId,
     );
   }, [canManage, factions, isAdmin, me?._id]);
 
   useEffect(() => {
     if (
       selectedFactionId &&
-      manageableFactions.some((faction) => String(faction._id) === selectedFactionId)
+      manageableFactions.some(
+        (faction) => String(faction._id) === selectedFactionId,
+      )
     ) {
       return;
     }
@@ -78,10 +86,22 @@ export default function TeamTournamentRegistrationView({
       toast.error("Hãy chọn VĐV 1");
       return;
     }
-    if (String(tour?.eventType || "").toLowerCase() === "double" && !player2?._id) {
+    if (
+      String(tour?.eventType || "").toLowerCase() === "double" &&
+      !player2?._id
+    ) {
       toast.error("Giải đôi cần 2 VĐV");
       return;
     }
+
+    addBusinessBreadcrumb("team_tournament.roster.create.submit", {
+      tournamentId,
+      tournamentName: tour?.name,
+      teamFactionId: selectedFactionId,
+      player1Id: player1?._id,
+      player2Id: player2?._id || undefined,
+      eventType: tour?.eventType,
+    });
 
     try {
       await createRegistration({
@@ -96,19 +116,31 @@ export default function TeamTournamentRegistrationView({
       setPlayer2(null);
       setMessage("");
       refetch();
-    } catch (error) {
-      toast.error(error?.data?.message || "Không thêm được roster");
+    } catch (submitError) {
+      toast.error(submitError?.data?.message || "Không thêm được roster");
     }
   };
 
   const handleDelete = async (registrationId) => {
     if (!window.confirm("Xóa entry này khỏi roster?")) return;
+
+    addBusinessBreadcrumb("team_tournament.roster.delete.submit", {
+      tournamentId,
+      tournamentName: tour?.name,
+      registrationId,
+    });
+
     try {
       await deleteRegistration(registrationId).unwrap();
+      captureBusinessMessage("team_tournament.roster.delete.success", {
+        tournamentId,
+        tournamentName: tour?.name,
+        registrationId,
+      });
       toast.success("Đã xóa roster");
       refetch();
-    } catch (error) {
-      toast.error(error?.data?.message || "Không xóa được roster");
+    } catch (submitError) {
+      toast.error(submitError?.data?.message || "Không xóa được roster");
     }
   };
 
@@ -122,18 +154,19 @@ export default function TeamTournamentRegistrationView({
         </Typography>
 
         {isLoading ? (
-          <Alert severity="info">Äang táº£i roster giáº£i Ä‘á»“ng Ä‘á»™i...</Alert>
+          <Alert severity="info">Đang tải roster giải đồng đội...</Alert>
         ) : null}
 
         {error ? (
           <Alert severity="error">
-            {error?.data?.message || "KhÃ´ng táº£i Ä‘Æ°á»£c roster giáº£i Ä‘á»“ng Ä‘á»™i."}
+            {error?.data?.message || "Không tải được roster giải đồng đội."}
           </Alert>
         ) : null}
 
         {!showForm && (
           <Alert severity="info">
-            Giải này chỉ cho đội trưởng từng phe hoặc quản lý giải thêm vận động viên.
+            Giải này chỉ cho đội trưởng từng phe hoặc quản lý giải thêm vận động
+            viên.
           </Alert>
         )}
 
@@ -203,7 +236,10 @@ export default function TeamTournamentRegistrationView({
                         <Typography variant="h6" fontWeight={800}>
                           {faction.name}
                         </Typography>
-                        <Chip label={`${faction.entryCount || 0} entry`} size="small" />
+                        <Chip
+                          label={`${faction.entryCount || 0} entry`}
+                          size="small"
+                        />
                       </Stack>
                       <Typography variant="body2" color="text.secondary">
                         Đội trưởng:{" "}
@@ -214,7 +250,9 @@ export default function TeamTournamentRegistrationView({
                       <Divider />
                       <Stack spacing={1}>
                         {(faction.registrations || []).length === 0 && (
-                          <Alert severity="info">Chưa có roster cho phe này.</Alert>
+                          <Alert severity="info">
+                            Chưa có roster cho phe này.
+                          </Alert>
                         )}
                         {(faction.registrations || []).map((registration) => (
                           <Box
@@ -234,9 +272,15 @@ export default function TeamTournamentRegistrationView({
                             >
                               <Box sx={{ minWidth: 0 }}>
                                 <Typography fontWeight={700}>
-                                  {registrationLabel(registration, tour?.eventType)}
+                                  {registrationLabel(
+                                    registration,
+                                    tour?.eventType,
+                                  )}
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary">
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
                                   Mã #{registration.code || "—"}
                                 </Typography>
                               </Box>

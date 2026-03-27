@@ -200,8 +200,12 @@ export default function LevelPointPage({ userId: userIdProp }) {
   const singleValid = isValidDupr(singleVal);
   const doubleValid = isValidDupr(doubleVal);
 
-  const nearestSingle = singleValid ? nearestRubricLevel(singleVal, rubric) : null;
-  const nearestDouble = doubleValid ? nearestRubricLevel(doubleVal, rubric) : null;
+  const nearestSingle = singleValid
+    ? nearestRubricLevel(singleVal, rubric)
+    : null;
+  const nearestDouble = doubleValid
+    ? nearestRubricLevel(doubleVal, rubric)
+    : null;
 
   const latestChip = (() => {
     if (!userId) return null;
@@ -242,7 +246,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
         t("levelPoint.invalidRange", {
           min: DUPR_MIN.toFixed(3),
           max: DUPR_MAX.toFixed(3),
-        })
+        }),
       );
       return;
     }
@@ -256,9 +260,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
       toast.success(t("levelPoint.saveSuccess"));
     } catch (err) {
       const msg =
-        err?.data?.message ||
-        err?.error ||
-        t("levelPoint.saveUnknownError");
+        err?.data?.message || err?.error || t("levelPoint.saveUnknownError");
       toast.error(msg);
     }
   };
@@ -274,9 +276,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
           spacing={1}
           mb={2}
         >
-          <Typography variant="h4">
-            {t("levelPoint.pageTitle")}
-          </Typography>
+          <Typography variant="h4">{t("levelPoint.pageTitle")}</Typography>
           <Stack direction="row" gap={1} flexWrap="wrap">
             {latestChip}
           </Stack>

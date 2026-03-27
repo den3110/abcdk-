@@ -21,6 +21,7 @@ import {
   useGetTeamRosterQuery,
   useGetTeamStandingsQuery,
 } from "../../slices/tournamentsApiSlice";
+import { addBusinessBreadcrumb } from "../../utils/sentry";
 
 const playerName = (player) =>
   player?.nickName || player?.nickname || player?.fullName || "Chưa có VĐV";
@@ -32,20 +33,37 @@ const registrationLabel = (registration, eventType) => {
 };
 
 const matchCode = (match) =>
-  match?.displayCode || match?.code || match?.globalCode || `T${(match?.order ?? 0) + 1}`;
+  match?.displayCode ||
+  match?.code ||
+  match?.globalCode ||
+  `T${(match?.order ?? 0) + 1}`;
 
-export default function TeamTournamentManageView({ tournamentId, tour, canManage }) {
-  const { data: rosterData, isLoading: rosterLoading, refetch: refetchRoster } =
-    useGetTeamRosterQuery(tournamentId);
-  const { data: standingsData, isLoading: standingsLoading, refetch: refetchStandings } =
-    useGetTeamStandingsQuery(tournamentId);
-  const { data: matchPage, isLoading: matchesLoading, refetch: refetchMatches } =
-    useAdminListMatchesByTournamentQuery({
-      tid: tournamentId,
-      page: 1,
-      pageSize: 1000,
-    });
-  const [createTeamMatch, { isLoading: creating }] = useCreateTeamMatchMutation();
+export default function TeamTournamentManageView({
+  tournamentId,
+  tour,
+  canManage,
+}) {
+  const {
+    data: rosterData,
+    isLoading: rosterLoading,
+    refetch: refetchRoster,
+  } = useGetTeamRosterQuery(tournamentId);
+  const {
+    data: standingsData,
+    isLoading: standingsLoading,
+    refetch: refetchStandings,
+  } = useGetTeamStandingsQuery(tournamentId);
+  const {
+    data: matchPage,
+    isLoading: matchesLoading,
+    refetch: refetchMatches,
+  } = useAdminListMatchesByTournamentQuery({
+    tid: tournamentId,
+    page: 1,
+    pageSize: 1000,
+  });
+  const [createTeamMatch, { isLoading: creating }] =
+    useCreateTeamMatchMutation();
 
   const factions = rosterData?.factions || [];
   const factionA = factions[0] || null;
@@ -61,6 +79,14 @@ export default function TeamTournamentManageView({ tournamentId, tour, canManage
       toast.error("Hãy chọn đủ 2 entry từ 2 phe");
       return;
     }
+
+    addBusinessBreadcrumb("team_tournament.match.create.submit", {
+      tournamentId,
+      tournamentName: tour?.name,
+      pairARegistrationId: pairA,
+      pairBRegistrationId: pairB,
+    });
+
     try {
       await createTeamMatch({
         tourId: tournamentId,
@@ -73,8 +99,8 @@ export default function TeamTournamentManageView({ tournamentId, tour, canManage
       refetchRoster();
       refetchStandings();
       refetchMatches();
-    } catch (error) {
-      toast.error(error?.data?.message || "Không tạo được trận");
+    } catch (submitError) {
+      toast.error(submitError?.data?.message || "Không tạo được trận");
     }
   };
 

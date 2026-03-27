@@ -65,7 +65,7 @@ const safeAtobUtf8 = (b64) => {
   } catch (e) {
     try {
       return atob(b64);
-    } catch { }
+    } catch {}
   }
   return "";
 };
@@ -261,7 +261,7 @@ export default function LiveStudioCourts({
     // } catch {}
     list.push(
       "https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg",
-      "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg"
+      "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg",
     );
     return list;
   }, [wsUrl]);
@@ -305,7 +305,7 @@ export default function LiveStudioCourts({
               setAutoFillFlags((f) => ({ ...f, tt: true }));
             }
           }
-        } catch { }
+        } catch {}
       }
       const fbKey = params.get("key");
       if (fbKey) {
@@ -347,7 +347,7 @@ export default function LiveStudioCourts({
       setStatusType("warning");
     } else {
       setStatus((s) =>
-        s.startsWith("✅ Auto-fill") ? s : "✅ WebCodecs ready - ADAPTIVE"
+        s.startsWith("✅ Auto-fill") ? s : "✅ WebCodecs ready - ADAPTIVE",
       );
       setStatusType("success");
     }
@@ -438,14 +438,14 @@ export default function LiveStudioCourts({
   /* ====== Overlay toggles ====== */
   const toggleOverlay = useCallback(
     (key) => setOverlayConfig((prev) => ({ ...prev, [key]: !prev[key] })),
-    []
+    [],
   );
   const toggleAllOverlays = useCallback((enabled) => {
     setOverlayConfig((prev) =>
       Object.keys(prev).reduce((acc, key) => {
         acc[key] = enabled;
         return acc;
-      }, {})
+      }, {}),
     );
   }, []);
 
@@ -485,7 +485,7 @@ export default function LiveStudioCourts({
       ctx.fillText(
         data?.tournament?.name || "Tournament",
         x + 14 * scale,
-        y + 22 * scale
+        y + 22 * scale,
       );
       const teamA = data?.teams?.A?.name || "Team A";
       const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a || 0;
@@ -515,7 +515,7 @@ export default function LiveStudioCourts({
       ctx.fillText(String(scoreB), x + width - 14 * scale, y + 90 * scale);
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawTimer = useCallback(
     (ctx, w, h) => {
@@ -540,7 +540,7 @@ export default function LiveStudioCourts({
       ctx.fillText(`${minutes}:${seconds}`, w / 2, y + 35 * scale);
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawTournamentName = useCallback(
     (ctx, w, h, data) => {
@@ -559,7 +559,7 @@ export default function LiveStudioCourts({
       ctx.fillText(text, x + 150 * scale, y + 32 * scale);
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawLogo = useCallback(
     (ctx, w, h) => {
@@ -580,7 +580,7 @@ export default function LiveStudioCourts({
       ctx.fillText("YOUR LOGO", x + size / 2, y + 38 * scale);
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawSponsors = useCallback(
     (ctx, w, h) => {
@@ -596,11 +596,11 @@ export default function LiveStudioCourts({
       ctx.font = `bold ${12 * scale}px Arial`;
       ctx.textAlign = "center";
       sponsors.forEach((s, i) =>
-        ctx.fillText(s, x + 115 * scale, y + (25 + i * 25) * scale)
+        ctx.fillText(s, x + 115 * scale, y + (25 + i * 25) * scale),
       );
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawLowerThird = useCallback(
     (ctx, w, h) => {
@@ -628,7 +628,7 @@ export default function LiveStudioCourts({
       ctx.fillText("Champion • Team A", x + 20 * scale, y + 55 * scale);
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawSocialMedia = useCallback(
     (ctx, w, h) => {
@@ -654,7 +654,7 @@ export default function LiveStudioCourts({
       });
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawQRCode = useCallback(
     (ctx, w, h) => {
@@ -677,11 +677,11 @@ export default function LiveStudioCourts({
               x + (10 + i * 11) * scale,
               y + (10 + j * 11) * scale,
               10 * scale,
-              10 * scale
+              10 * scale,
             );
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawFrameDecoration = useCallback((ctx, w, h) => {
     ctx.save();
@@ -733,7 +733,7 @@ export default function LiveStudioCourts({
       ctx.fillText("LIVE", x + 50 * scale, y + 30 * scale);
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
   const drawViewerCount = useCallback(
     (ctx, w, h) => {
@@ -753,11 +753,11 @@ export default function LiveStudioCourts({
       ctx.fillText(
         `${viewers.toLocaleString()}`,
         x + 45 * scale,
-        y + 27 * scale
+        y + 27 * scale,
       );
       ctx.restore();
     },
-    [roundRect]
+    [roundRect],
   );
 
   const drawFrame = useMemo(() => {
@@ -824,7 +824,7 @@ export default function LiveStudioCourts({
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       setVideoDevices(devices.filter((d) => d.kind === "videoinput"));
-    } catch { }
+    } catch {}
   };
   const findDeviceIdForFacing = (want = "user") => {
     const isBack = want === "environment";
@@ -842,7 +842,7 @@ export default function LiveStudioCourts({
   const stopCurrentStream = () => {
     try {
       camStreamRef.current?.getTracks().forEach((t) => t.stop());
-    } catch { }
+    } catch {}
   };
   const initCamera = async (preferFacing = "user") => {
     try {
@@ -939,17 +939,17 @@ export default function LiveStudioCourts({
         )
           audioRecorderRef.current.stop();
         audioRecorderRef.current = null;
-      } catch { }
+      } catch {}
       try {
         if (
           videoEncoderRef.current &&
           videoEncoderRef.current.state !== "closed"
         )
           videoEncoderRef.current.close();
-      } catch { }
+      } catch {}
       try {
         wsRef.current?.close();
-      } catch { }
+      } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ✅ Chỉ init camera 1 lần, không restart khi quality change
@@ -1079,19 +1079,19 @@ export default function LiveStudioCourts({
         },
       };
     },
-    [courtApiBase]
+    [courtApiBase],
   );
 
   const defaultResolveTargets = useCallback(
     async (mid) => {
       const res = await fetch(
         `${liveApiBase}/live/resolve?matchId=${encodeURIComponent(mid)}`,
-        { cache: "no-store" }
+        { cache: "no-store" },
       );
       const arr = await res.json();
       return Array.isArray(arr) ? arr.map(normalizeDest) : [];
     },
-    [liveApiBase]
+    [liveApiBase],
   );
 
   const defaultCreateLive = useCallback(
@@ -1104,7 +1104,7 @@ export default function LiveStudioCourts({
       const arr = await res.json();
       return Array.isArray(arr) ? arr.map(normalizeDest) : [];
     },
-    [liveApiBase]
+    [liveApiBase],
   );
 
   const applyDestinationsToUI = useCallback((dests) => {
@@ -1172,7 +1172,7 @@ export default function LiveStudioCourts({
       defaultCreateLive,
       applyDestinationsToUI,
       autoCreateIfMissing,
-    ]
+    ],
   );
 
   /* ========= 🔔 AUTO-LIVE: polling court ========= */
@@ -1209,13 +1209,13 @@ export default function LiveStudioCourts({
               !isStreaming
             ) {
               setStatus(
-                "🔔 Phát hiện trận LIVE trên sân — chuẩn bị outputs..."
+                "🔔 Phát hiện trận LIVE trên sân — chuẩn bị outputs...",
               );
               setStatusType("info");
               const ok = await ensureOutputsForMatch(next.matchId);
               if (!ok && !canStartNow()) {
                 setStatus(
-                  "⚠️ Không có outputs. Điền key hoặc bật Auto-create."
+                  "⚠️ Không có outputs. Điền key hoặc bật Auto-create.",
                 );
                 setStatusType("warning");
                 return;
@@ -1231,7 +1231,7 @@ export default function LiveStudioCourts({
           const isLive = String(next.status || "").toLowerCase() === "live";
           if (!next.matchId || !isLive) {
             setStatus(
-              "🔔 Trận đã kết thúc hoặc sân không còn LIVE — dừng stream..."
+              "🔔 Trận đã kết thúc hoặc sân không còn LIVE — dừng stream...",
             );
             setStatusType("info");
             await stopStreamingPro();
@@ -1266,7 +1266,7 @@ export default function LiveStudioCourts({
     }
     if (!canStartNow()) {
       setStatus(
-        "❌ Vui lòng nhập ít nhất một đích phát (Facebook/YouTube/TikTok)"
+        "❌ Vui lòng nhập ít nhất một đích phát (Facebook/YouTube/TikTok)",
       );
       setStatusType("error");
       return;
@@ -1317,7 +1317,7 @@ export default function LiveStudioCourts({
                 metadata?.decoderConfig?.description
               ) {
                 const description = new Uint8Array(
-                  metadata.decoderConfig.description
+                  metadata.decoderConfig.description,
                 );
                 dataToSend = convertToAnnexB(chunkData, description, true);
               } else {
@@ -1400,7 +1400,7 @@ export default function LiveStudioCourts({
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(
           () => reject(new Error("Start timeout")),
-          10000
+          10000,
         );
         const handler = (evt) => {
           if (typeof evt.data !== "string") return;
@@ -1414,7 +1414,7 @@ export default function LiveStudioCourts({
                 if (aTrack) {
                   const aStream = new MediaStream([aTrack]);
                   const mime = MediaRecorder.isTypeSupported(
-                    "audio/webm;codecs=opus"
+                    "audio/webm;codecs=opus",
                   )
                     ? "audio/webm;codecs=opus"
                     : MediaRecorder.isTypeSupported("audio/webm")
@@ -1434,7 +1434,7 @@ export default function LiveStudioCourts({
                       out[0] = 0x01; // audio packet
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
-                    } catch { }
+                    } catch {}
                   };
                   mr.start(100);
                   audioRecorderRef.current = mr;
@@ -1449,7 +1449,7 @@ export default function LiveStudioCourts({
               ws.removeEventListener("message", handler);
               reject(new Error(msg.message));
             }
-          } catch { }
+          } catch {}
         };
         ws.addEventListener("message", handler);
       });
@@ -1479,7 +1479,7 @@ export default function LiveStudioCourts({
         const nowMicros = nowMillis * 1000;
         if (videoEncoderRef.current.encodeQueueSize > 8) {
           console.warn(
-            `⚠️ Encoder overload (queue=${videoEncoderRef.current.encodeQueueSize}), skipping frame`
+            `⚠️ Encoder overload (queue=${videoEncoderRef.current.encodeQueueSize}), skipping frame`,
           );
           statsRef.current.dropped++;
           nextFrameTimeMicros += frameDurationMicros;
@@ -1540,10 +1540,10 @@ export default function LiveStudioCourts({
           await videoEncoderRef.current.flush();
           videoEncoderRef.current.close();
         }
-      } catch { }
+      } catch {}
       try {
         wsRef.current?.close();
-      } catch { }
+      } catch {}
     } finally {
       setLoading(false);
     }
@@ -1618,8 +1618,9 @@ export default function LiveStudioCourts({
               Overlay Controls
             </Typography>
             <Chip
-              label={`${activeOverlayCount}/${Object.keys(overlayConfig).length
-                }`}
+              label={`${activeOverlayCount}/${
+                Object.keys(overlayConfig).length
+              }`}
               color="success"
               size="small"
             />
@@ -2189,7 +2190,7 @@ export default function LiveStudioCourts({
                                   </Typography>
                                 </Box>
                               </MenuItem>
-                            )
+                            ),
                           )}
                         </Select>
                       </FormControl>

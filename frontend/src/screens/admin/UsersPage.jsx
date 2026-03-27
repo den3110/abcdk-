@@ -269,17 +269,19 @@ export default function UsersPage() {
 
   const dispatch = useDispatch();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   const { page, keyword, role = "" } = useSelector((s) => s.adminUi);
   const currentUser = useSelector((s) => s.auth?.userInfo || null);
-  const [kycFilter, setKycFilter] = useState(() => searchParams.get("kyc") || "");
+  const [kycFilter, setKycFilter] = useState(
+    () => searchParams.get("kyc") || "",
+  );
 
   // Sync URL to Redux on mount
   useEffect(() => {
     const pPage = parseInt(searchParams.get("page") || "0", 10);
     const pKey = searchParams.get("q") || "";
     const pRole = searchParams.get("role") || "";
-    
+
     dispatch(setPage(pPage));
     dispatch(setKeyword(pKey));
     dispatch(setRole(pRole));
@@ -293,7 +295,7 @@ export default function UsersPage() {
     if (role) params.set("role", role);
     if (kycFilter) params.set("kyc", kycFilter);
     if (page > 0) params.set("page", page.toString());
-    
+
     setSearchParams(params, { replace: true });
   }, [keyword, role, kycFilter, page, setSearchParams]);
 
@@ -355,7 +357,8 @@ export default function UsersPage() {
 
   const fmtDateTime = (d) =>
     d ? formatDateTime(d, locale) : t("common.unavailable");
-  const prettyDate = (d) => (d ? formatDate(d, locale) : t("common.unavailable"));
+  const prettyDate = (d) =>
+    d ? formatDate(d, locale) : t("common.unavailable");
 
   const fmtVal = (v) => {
     if (v === null || v === undefined) return t("common.unavailable");
@@ -414,7 +417,7 @@ export default function UsersPage() {
     } catch (err) {
       showSnack(
         "error",
-        err?.data?.message || err.error || t("admin.users.errors.generic")
+        err?.data?.message || err.error || t("admin.users.errors.generic"),
       );
       throw err;
     }
@@ -444,13 +447,14 @@ export default function UsersPage() {
       setFullMap((m) => ({ ...m, [userId]: !enable }));
       showSnack(
         "error",
-        err?.data?.message || err.error || t("admin.users.errors.generic")
+        err?.data?.message || err.error || t("admin.users.errors.generic"),
       );
     }
   };
 
   const canManageSuperAdmin =
-    (hasRole(currentUser, "admin") || normalizeRole(currentUser?.role) === "admin") &&
+    (hasRole(currentUser, "admin") ||
+      normalizeRole(currentUser?.role) === "admin") &&
     isSuperAdminFlag(currentUser);
   const toggleSuperAdmin = async (userId, enable) => {
     await handle(
@@ -815,7 +819,9 @@ export default function UsersPage() {
                       }
                     >
                       <MenuItem value="user">User</MenuItem>
-                      <MenuItem value="referee">{t("admin.users.roles.referee")}</MenuItem>
+                      <MenuItem value="referee">
+                        {t("admin.users.roles.referee")}
+                      </MenuItem>
                       <MenuItem value="admin">Admin</MenuItem>
                     </Select>
                   </FormControl>
@@ -1127,7 +1133,9 @@ export default function UsersPage() {
             sx={{ width: { xs: "100%", md: "auto" }, flex: 1 }}
           >
             <FormControl size="small" fullWidth>
-              <InputLabel id="role-filter">{t("admin.users.filters.role")}</InputLabel>
+              <InputLabel id="role-filter">
+                {t("admin.users.filters.role")}
+              </InputLabel>
               <Select
                 labelId="role-filter"
                 label={t("admin.users.filters.role")}
@@ -1137,15 +1145,21 @@ export default function UsersPage() {
                   dispatch(setPage(0));
                 }}
               >
-                <MenuItem value="">{t("admin.users.filters.allRoles")}</MenuItem>
+                <MenuItem value="">
+                  {t("admin.users.filters.allRoles")}
+                </MenuItem>
                 <MenuItem value="user">{getRoleLabel(t, "user")}</MenuItem>
-                <MenuItem value="referee">{getRoleLabel(t, "referee")}</MenuItem>
+                <MenuItem value="referee">
+                  {getRoleLabel(t, "referee")}
+                </MenuItem>
                 <MenuItem value="admin">{getRoleLabel(t, "admin")}</MenuItem>
               </Select>
             </FormControl>
 
             <FormControl size="small" fullWidth>
-              <InputLabel id="cccd-filter">{t("admin.users.filters.kycStatus")}</InputLabel>
+              <InputLabel id="cccd-filter">
+                {t("admin.users.filters.kycStatus")}
+              </InputLabel>
               <Select
                 labelId="cccd-filter"
                 label={t("admin.users.filters.kycStatus")}
@@ -1917,7 +1931,8 @@ export default function UsersPage() {
                 </Stack>
               ) : auditError ? (
                 <Alert severity="error">
-                  {auditError?.data?.message || t("admin.users.audit.loadError")}
+                  {auditError?.data?.message ||
+                    t("admin.users.audit.loadError")}
                 </Alert>
               ) : (auditData?.items?.length || 0) === 0 ? (
                 <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
@@ -1954,8 +1969,7 @@ export default function UsersPage() {
                             {t("admin.users.audit.actor")}:{" "}
                             {log?.actor?.kind ||
                               t("admin.users.audit.actorFallback")}{" "}
-                            •{" "}
-                            {log?.actor?.id || "—"}
+                            • {log?.actor?.id || "—"}
                             {log?.note ? ` • ${log.note}` : ""}
                           </Typography>
                         </Stack>
@@ -1995,10 +2009,10 @@ export default function UsersPage() {
                               <Grid container spacing={1.5}>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                   <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                  fontWeight={700}
-                                >
+                                    variant="caption"
+                                    color="text.secondary"
+                                    fontWeight={700}
+                                  >
                                     {t("admin.users.audit.before")}
                                   </Typography>
                                   <Typography
@@ -2014,10 +2028,10 @@ export default function UsersPage() {
 
                                 <Grid size={{ xs: 12, md: 6 }}>
                                   <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                  fontWeight={700}
-                                >
+                                    variant="caption"
+                                    color="text.secondary"
+                                    fontWeight={700}
+                                  >
                                     {t("admin.users.audit.after")}
                                   </Typography>
                                   <Typography

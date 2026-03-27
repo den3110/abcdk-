@@ -1,0 +1,15 @@
+[Unit]
+Description=PickleTour Go API
+After=network.target mongod.service redis.service
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/pickletour
+EnvironmentFile=/var/www/pickletour/.env
+ExecStart=/var/www/pickletour/backend-go/bin/pickletour-api
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

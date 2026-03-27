@@ -12,6 +12,11 @@ import { initGA, logPageView } from "./utils/analytics";
 import { useThemeMode } from "./context/ThemeContext";
 import { useGetProfileQuery } from "./slices/usersApiSlice";
 import AppFooter from "./components/AppFooter";
+import {
+  addSentryNavigationBreadcrumb,
+  clearSentryUserContext,
+  setSentryUserContext,
+} from "./utils/sentry";
 
 import Clarity from "@microsoft/clarity";
 
@@ -27,6 +32,41 @@ function AuthSessionSync() {
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
+
+  return null;
+}
+
+function SentryRuntimeSync() {
+  const location = useLocation();
+  const userInfo = useSelector((s) => s.auth?.userInfo || null);
+  const rolesKey = Array.isArray(userInfo?.roles)
+    ? userInfo.roles.join("|")
+    : "";
+
+  useEffect(() => {
+    if (userInfo?._id || userInfo?.id || userInfo?.email) {
+      setSentryUserContext(userInfo);
+      return;
+    }
+
+    clearSentryUserContext();
+  }, [
+    userInfo?._id,
+    userInfo?.id,
+    userInfo?.email,
+    userInfo?.name,
+    userInfo?.nickname,
+    userInfo?.role,
+    userInfo?.isAdmin,
+    userInfo?.isSuperAdmin,
+    userInfo?.isSuperUser,
+    rolesKey,
+    userInfo,
+  ]);
+
+  useEffect(() => {
+    addSentryNavigationBreadcrumb(location);
+  }, [location.pathname, location.search, location.hash, location]);
 
   return null;
 }
@@ -86,6 +126,7 @@ const App = () => {
   return (
     <>
       <AuthSessionSync />
+      <SentryRuntimeSync />
       {!isAuthPage && <Header />}
       <ToastContainer theme={isDark ? "dark" : "light"} />
 
@@ -98,7 +139,10 @@ const App = () => {
           <Box
             component="main"
             sx={{
-              minHeight: { xs: "calc(100dvh - 56px)", md: "calc(100vh - 88px)" },
+              minHeight: {
+                xs: "calc(100dvh - 56px)",
+                md: "calc(100vh - 88px)",
+              },
               display: "flex",
               flexDirection: "column",
               pb: { xs: 10, md: 0 },

@@ -64,7 +64,7 @@ export const adminCourtApiSlice = apiSlice.injectEndpoints({
         const bid = asId(bracket);
         return {
           url: `/api/admin/tournaments/${enc(tid)}/courts/${enc(
-            cid
+            cid,
           )}/assign-next`,
           method: "POST",
           body: { bracket: bid },
@@ -97,7 +97,7 @@ export const adminCourtApiSlice = apiSlice.injectEndpoints({
         const bid = asId(bracket);
         return {
           url: `/api/admin/tournaments/${enc(tid)}/courts/state?bracket=${enc(
-            bid
+            bid,
           )}`,
           method: "GET",
         };

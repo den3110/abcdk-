@@ -164,7 +164,7 @@ export default function RegisterScreen() {
 
   const isCccdValid = useMemo(
     () => /^\d{12}$/.test((form.cccd || "").trim()),
-    [form.cccd]
+    [form.cccd],
   );
 
   const showErr = (f) => touched[f] && !!errors[f];
@@ -489,36 +489,36 @@ export default function RegisterScreen() {
             </FormControl>
 
             {/* DOB */}
-              <DatePicker
-                label="Ngày sinh"
-                value={dobValue}
-                onChange={(newVal) => {
-                  setTouched((t) => ({ ...t, dob: true }));
-                  setForm((p) => ({
-                    ...p,
-                    dob:
-                      newVal && newVal.isValid()
-                        ? newVal.format("YYYY-MM-DD")
-                        : "",
-                  }));
-                }}
-                format="DD/MM/YYYY"
-                minDate={MIN_DOB}
-                defaultCalendarMonth={MIN_DOB}
-                referenceDate={MIN_DOB}
-                disableFuture
-                views={["year", "month", "day"]}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    required: true,
-                    placeholder: "DD/MM/YYYY",
-                    onBlur: () => setTouched((t) => ({ ...t, dob: true })),
-                    error: showErr("dob"),
-                    helperText: showErr("dob") ? errors.dob : " ",
-                  },
-                }}
-              />
+            <DatePicker
+              label="Ngày sinh"
+              value={dobValue}
+              onChange={(newVal) => {
+                setTouched((t) => ({ ...t, dob: true }));
+                setForm((p) => ({
+                  ...p,
+                  dob:
+                    newVal && newVal.isValid()
+                      ? newVal.format("YYYY-MM-DD")
+                      : "",
+                }));
+              }}
+              format="DD/MM/YYYY"
+              minDate={MIN_DOB}
+              defaultCalendarMonth={MIN_DOB}
+              referenceDate={MIN_DOB}
+              disableFuture
+              views={["year", "month", "day"]}
+              slotProps={{
+                textField: {
+                  fullWidth: true,
+                  required: true,
+                  placeholder: "DD/MM/YYYY",
+                  onBlur: () => setTouched((t) => ({ ...t, dob: true })),
+                  error: showErr("dob"),
+                  helperText: showErr("dob") ? errors.dob : " ",
+                },
+              }}
+            />
 
             {/* Province */}
             <FormControl fullWidth required error={showErr("province")}>

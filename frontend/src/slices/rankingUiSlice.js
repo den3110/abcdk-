@@ -8,7 +8,7 @@ const slice = createSlice({
     setPage: (s, { payload }) => void (s.page = payload),
     setKeyword: (s, { payload }) => {
       s.keyword = payload;
-      s.page = 0;                 // reset về page 0 khi đổi keyword
+      s.page = 0; // reset về page 0 khi đổi keyword
     },
   },
 });

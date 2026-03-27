@@ -3,12 +3,13 @@ import os from "os";
 
 import SeoNewsArticle from "../models/seoNewsArticleModel.js";
 import SeoNewsImageRegenerationJob from "../models/seoNewsImageRegenerationJobModel.js";
+import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
 import {
   checkSeoNewsImageGenerationHealth,
   regenerateSeoNewsArticleImage,
 } from "./seoNewsImageService.js";
 
-const IMAGE_REGEN_ITEM_INTERVAL_MS = Math.max(
+const DEFAULT_IMAGE_REGEN_ITEM_INTERVAL_MS = Math.max(
   15_000,
   Number(process.env.SEO_NEWS_AI_REGEN_INTERVAL_MS) || 120_000
 );
@@ -37,10 +38,52 @@ let healthCache = {
   value: null,
 };
 
+export function invalidateSeoNewsImageRegenerationHealthCache() {
+  healthCache = {
+    expiresAt: 0,
+    value: null,
+  };
+}
+
 function safeText(value) {
   return String(value || "")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+function normalizeImageRegenerationIntervalMs(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_IMAGE_REGEN_ITEM_INTERVAL_MS;
+  }
+
+  return Math.max(5_000, Math.floor(numericValue));
+}
+
+function intervalMsToSeconds(value) {
+  return Math.max(
+    1,
+    Math.round(normalizeImageRegenerationIntervalMs(value) / 1000)
+  );
+}
+
+async function getSeoNewsImageRegenerationSettings() {
+  return SeoNewsSettings.findOne({ key: "default" })
+    .select("imageGenerationDelaySeconds imageRegenerationPaused")
+    .lean();
+}
+
+function getImageRegenerationIntervalMsFromSettings(settings) {
+  const delaySeconds = Number(settings?.imageGenerationDelaySeconds);
+  if (!Number.isFinite(delaySeconds)) {
+    return DEFAULT_IMAGE_REGEN_ITEM_INTERVAL_MS;
+  }
+
+  return normalizeImageRegenerationIntervalMs(delaySeconds * 1000);
+}
+
+function isImageRegenerationPaused(settings) {
+  return settings?.imageRegenerationPaused === true;
 }
 
 function buildPendingImageConditions() {
@@ -76,10 +119,7 @@ function buildGeneratedGatewayConditions() {
   };
 }
 
-function buildRegenerationQuery({
-  imageFilter = "",
-  keyword = "",
-} = {}) {
+function buildRegenerationQuery({ imageFilter = "", keyword = "" } = {}) {
   const query = {
     status: { $in: ["published", "draft"] },
     origin: "generated",
@@ -157,14 +197,13 @@ function serializeJob(jobDoc) {
   const progressPercent = totalItems
     ? Math.min(100, Math.round((doneItems / totalItems) * 100))
     : 0;
-  const currentState =
-    job.currentItem?.slug
-      ? "processing"
-      : job.status === "queued"
-      ? "queued"
-      : job.status === "running" && job.nextRunAt
-      ? "cooldown"
-      : job.status;
+  const currentState = job.currentItem?.slug
+    ? "processing"
+    : job.status === "queued"
+    ? "queued"
+    : job.status === "running" && job.nextRunAt
+    ? "cooldown"
+    : job.status;
 
   return {
     id: String(job._id),
@@ -239,10 +278,17 @@ export async function enqueueSeoNewsImageRegenerationJob({
     1,
     Number(filters.limit) || IMAGE_REGEN_MAX_ITEMS_PER_JOB
   );
-  const maxItemsPerJob = Math.min(requestedLimit, IMAGE_REGEN_MAX_ITEMS_PER_JOB);
+  const maxItemsPerJob = Math.min(
+    requestedLimit,
+    IMAGE_REGEN_MAX_ITEMS_PER_JOB
+  );
 
   const query = buildRegenerationQuery({ imageFilter, keyword });
-  const queuedArticleIds = await getQueuedArticleIdsFromOpenJobs();
+  const [queuedArticleIds, settings] = await Promise.all([
+    getQueuedArticleIdsFromOpenJobs(),
+    getSeoNewsImageRegenerationSettings(),
+  ]);
+  const itemIntervalMs = getImageRegenerationIntervalMsFromSettings(settings);
 
   if (queuedArticleIds.size) {
     query._id = { $nin: Array.from(queuedArticleIds) };
@@ -256,7 +302,9 @@ export async function enqueueSeoNewsImageRegenerationJob({
     .lean();
 
   if (!articles.length) {
-    const error = new Error("Khong co bai generated nao san sang cho hang cho gen lai anh");
+    const error = new Error(
+      "Khong co bai generated nao san sang cho hang cho gen lai anh"
+    );
     error.statusCode = 409;
     throw error;
   }
@@ -279,7 +327,7 @@ export async function enqueueSeoNewsImageRegenerationJob({
       keyword,
       requestedLimit,
       maxItemsPerJob,
-      itemIntervalMs: IMAGE_REGEN_ITEM_INTERVAL_MS,
+      itemIntervalMs,
     },
     requestedBy: {
       userId: requestedBy.userId || null,
@@ -321,19 +369,28 @@ async function getCachedHealth(force = false) {
   return value;
 }
 
-export async function getSeoNewsImageRegenerationMonitor() {
-  const [activeJobDoc, recentJobDocs, aiHealth, queuedCount, runningCount] =
-    await Promise.all([
+export async function getSeoNewsImageRegenerationMonitor({
+  forceHealthRefresh = false,
+} = {}) {
+  const [
+    activeJobDoc,
+    recentJobDocs,
+    aiHealth,
+    queuedCount,
+    runningCount,
+    settings,
+  ] = await Promise.all([
     SeoNewsImageRegenerationJob.findOne({
       status: { $in: ["queued", "running"] },
     }).sort({ createdAt: 1 }),
-    SeoNewsImageRegenerationJob.find({})
-      .sort({ createdAt: -1 })
-      .limit(8),
-    getCachedHealth(),
+    SeoNewsImageRegenerationJob.find({}).sort({ createdAt: -1 }).limit(8),
+    getCachedHealth(forceHealthRefresh),
     SeoNewsImageRegenerationJob.countDocuments({ status: "queued" }),
     SeoNewsImageRegenerationJob.countDocuments({ status: "running" }),
+    getSeoNewsImageRegenerationSettings(),
   ]);
+  const intervalMs = getImageRegenerationIntervalMsFromSettings(settings);
+  const paused = isImageRegenerationPaused(settings);
 
   const recentJobs = recentJobDocs.map((job) => serializeJob(job));
   const activeJob = serializeJob(activeJobDoc);
@@ -347,7 +404,9 @@ export async function getSeoNewsImageRegenerationMonitor() {
       running: runningCount,
       completed: recentJobs.filter((job) => job.status === "completed").length,
       failed: recentJobs.filter((job) => job.status === "failed").length,
-      intervalMs: IMAGE_REGEN_ITEM_INTERVAL_MS,
+      intervalMs,
+      intervalSeconds: intervalMsToSeconds(intervalMs),
+      isPaused: paused,
       maxItemsPerJob: IMAGE_REGEN_MAX_ITEMS_PER_JOB,
     },
   };
@@ -375,7 +434,9 @@ async function claimNextDueJob() {
         "worker.hostname": os.hostname(),
         "worker.pid": process.pid,
         "worker.lockedAt": now,
-        "worker.leaseExpiresAt": new Date(Date.now() + IMAGE_REGEN_WORKER_LEASE_MS),
+        "worker.leaseExpiresAt": new Date(
+          Date.now() + IMAGE_REGEN_WORKER_LEASE_MS
+        ),
         "worker.lastHeartbeatAt": now,
       },
     },
@@ -464,10 +525,15 @@ async function processClaimedJob(job) {
   job.lastProcessedAt = new Date();
   recalculateJobCounters(job);
 
-  const hasMoreQueued = (job.items || []).some((item) => item.status === "queued");
+  const hasMoreQueued = (job.items || []).some(
+    (item) => item.status === "queued"
+  );
+  const itemIntervalMs = normalizeImageRegenerationIntervalMs(
+    job?.request?.itemIntervalMs
+  );
   if (hasMoreQueued) {
     job.status = "running";
-    job.nextRunAt = new Date(Date.now() + IMAGE_REGEN_ITEM_INTERVAL_MS);
+    job.nextRunAt = new Date(Date.now() + itemIntervalMs);
   } else {
     job.finishedAt = new Date();
     job.nextRunAt = null;
@@ -486,6 +552,9 @@ async function tickSeoNewsImageRegenerationWorker() {
   tickRunning = true;
 
   try {
+    const settings = await getSeoNewsImageRegenerationSettings();
+    if (isImageRegenerationPaused(settings)) return;
+
     const job = await claimNextDueJob();
     if (!job) return;
     await processClaimedJob(job);
@@ -508,7 +577,7 @@ export function startSeoNewsImageRegenerationWorker() {
 
   void tickSeoNewsImageRegenerationWorker();
   console.log(
-    `[SeoNewsImageQueue] worker started interval=${IMAGE_REGEN_WORKER_TICK_MS}ms itemInterval=${IMAGE_REGEN_ITEM_INTERVAL_MS}ms maxItems=${IMAGE_REGEN_MAX_ITEMS_PER_JOB}`
+    `[SeoNewsImageQueue] worker started interval=${IMAGE_REGEN_WORKER_TICK_MS}ms itemInterval=${DEFAULT_IMAGE_REGEN_ITEM_INTERVAL_MS}ms maxItems=${IMAGE_REGEN_MAX_ITEMS_PER_JOB}`
   );
 
   return queueWorkerTimer;

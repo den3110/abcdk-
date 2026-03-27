@@ -50,7 +50,9 @@ function detectBrowserLanguage() {
 let cachedGeoPromise = null;
 
 function mapCountryToLanguage(countryCode) {
-  const code = String(countryCode || "").trim().toUpperCase();
+  const code = String(countryCode || "")
+    .trim()
+    .toUpperCase();
   if (code === "VN") return "vi";
   if (!code || code === "UNKNOWN") return DEFAULT_LANGUAGE;
   return "en";
@@ -253,7 +255,13 @@ export const LanguageContextProvider = ({ children }) => {
           <style>{`@keyframes pulse{0%,100%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1.05)}}`}</style>
         </div>
       ) : null}
-      <div style={geoResolving ? { visibility: "hidden", height: 0, overflow: "hidden" } : undefined}>
+      <div
+        style={
+          geoResolving
+            ? { visibility: "hidden", height: 0, overflow: "hidden" }
+            : undefined
+        }
+      >
         {children}
       </div>
     </LanguageContext.Provider>

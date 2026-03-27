@@ -81,7 +81,7 @@ export default function RegisterOtpScreen() {
       navigate("/");
     } catch (err) {
       toast.error(
-        err?.data?.message || err?.message || "Xác thực OTP thất bại"
+        err?.data?.message || err?.message || "Xác thực OTP thất bại",
       );
     }
   };
@@ -151,8 +151,8 @@ export default function RegisterOtpScreen() {
               {resending
                 ? "Đang gửi..."
                 : cooldown > 0
-                ? `Gửi lại (${cooldown}s)`
-                : "Gửi lại OTP"}
+                  ? `Gửi lại (${cooldown}s)`
+                  : "Gửi lại OTP"}
             </Button>
           </Box>
         </Stack>

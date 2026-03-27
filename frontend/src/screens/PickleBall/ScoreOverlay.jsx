@@ -37,7 +37,7 @@ const preferNick = (p) =>
     p?.nick,
     p?.shortName,
     p?.name,
-    p?.fullName
+    p?.fullName,
   );
 
 const codeToRoundLabel = (code) => {
@@ -128,7 +128,7 @@ const preferFull = (p) =>
     p?.name,
     p?.displayName,
     p?.user?.fullName,
-    p?.user?.name
+    p?.user?.name,
   );
 
 const regDisplayName = (reg, evType) => {
@@ -215,12 +215,12 @@ function normalizePayload(p) {
     const nameA = readStr(
       p?.teams?.A?.teamName,
       p?.teams?.A?.label,
-      p?.teams?.A?.name
+      p?.teams?.A?.name,
     );
     const nameB = readStr(
       p?.teams?.B?.teamName,
       p?.teams?.B?.label,
-      p?.teams?.B?.name
+      p?.teams?.B?.name,
     );
 
     teams.A = { name: nameA || "—", players: playersA };
@@ -275,7 +275,7 @@ function normalizePayload(p) {
       p?.teams?.A?.label,
       p?.pairA?.teamName,
       p?.pairA?.label,
-      p?.teams?.A?.name
+      p?.teams?.A?.name,
     ) || regDisplayName(p?.pairA, eventType);
   const teamBFallbackName =
     readStr(
@@ -283,20 +283,28 @@ function normalizePayload(p) {
       p?.teams?.B?.label,
       p?.pairB?.teamName,
       p?.pairB?.label,
-      p?.teams?.B?.name
+      p?.teams?.B?.name,
     ) || regDisplayName(p?.pairB, eventType);
 
   teams = {
     A: {
       ...teams.A,
       name: teamAFallbackName,
-      teamName: readStr(teams.A?.teamName, p?.teams?.A?.teamName, p?.pairA?.teamName),
+      teamName: readStr(
+        teams.A?.teamName,
+        p?.teams?.A?.teamName,
+        p?.pairA?.teamName,
+      ),
       label: readStr(teams.A?.label, p?.teams?.A?.label, p?.pairA?.label),
     },
     B: {
       ...teams.B,
       name: teamBFallbackName,
-      teamName: readStr(teams.B?.teamName, p?.teams?.B?.teamName, p?.pairB?.teamName),
+      teamName: readStr(
+        teams.B?.teamName,
+        p?.teams?.B?.teamName,
+        p?.pairB?.teamName,
+      ),
       label: readStr(teams.B?.label, p?.teams?.B?.label, p?.pairB?.label),
     },
   };
@@ -418,7 +426,7 @@ const mergeNormalized = (prev, next) => {
       B: mergeTeam(prev?.teams?.B, next?.teams?.B),
     },
     // ✅ giữ isBreak nếu BE không bắn mới
-    isBreak: next?.isBreak != null ? next.isBreak : prev?.isBreak ?? null,
+    isBreak: next?.isBreak != null ? next.isBreak : (prev?.isBreak ?? null),
   };
 };
 
@@ -442,7 +450,8 @@ const teamNameFull = (team, eventType = "double", displayMode = "nickname") => {
     if (nicks.length) return nicks.join(" & ");
   }
   return readStr(team?.name, "—");
-*/};
+*/
+};
 
 const knockoutRoundLabel = (data) => {
   const t = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
@@ -634,7 +643,7 @@ const ClockBox = React.memo(function ClockBox({
         minute: "2-digit",
         second: "2-digit",
       }),
-    [nowMs]
+    [nowMs],
   );
 
   const pos = React.useMemo(() => {
@@ -659,7 +668,7 @@ const ClockBox = React.memo(function ClockBox({
       pointerEvents: "none",
       ...cssVarStyle,
     }),
-    [pos, cssVarStyle]
+    [pos, cssVarStyle],
   );
 
   if (!show) return null;
@@ -679,8 +688,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const socket = useSocket();
   const [q] = useSearchParams();
   const navigate = useNavigate();
-
-
 
   const matchId = props?.matchIdProp || q.get("matchId") || "";
   const replay = parseQPBool(q.get("replay")) === true;
@@ -730,8 +737,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const [overlayBE, setOverlayBE] = useState(null);
   const displayMode = getTournamentNameDisplayMode(data?.tournament);
   const eventType =
-    String(data?.tournament?.eventType || data?.eventType || "").toLowerCase() ===
-    "single"
+    String(
+      data?.tournament?.eventType || data?.eventType || "",
+    ).toLowerCase() === "single"
       ? "single"
       : "double";
 
@@ -786,7 +794,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           ...n,
           currentGame: 0,
           gameScores: Array.from({ length: maxSets }, (_, i) =>
-            i === 0 ? { a: 0, b: 0 } : { a: null, b: null }
+            i === 0 ? { a: 0, b: 0 } : { a: null, b: null },
           ),
         }
       : n;
@@ -862,46 +870,46 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   /* ---------- Merge: BE overlay > QP > default ---------- */
   const effective = useMemo(() => {
     const theme = String(
-      firstDefined(overlayBE?.theme, q.get("theme"), "dark")
+      firstDefined(overlayBE?.theme, q.get("theme"), "dark"),
     ).toLowerCase();
 
     const size = String(
-      firstDefined(overlayBE?.size, q.get("size") || "md", "md")
+      firstDefined(overlayBE?.size, q.get("size") || "md", "md"),
     ).toLowerCase();
 
     const accentA = firstDefined(
       overlayBE?.accentA,
       q.get("accentA") && decodeURIComponent(q.get("accentA")),
-      "#25C2A0"
+      "#25C2A0",
     );
     const accentB = firstDefined(
       overlayBE?.accentB,
       q.get("accentB") && decodeURIComponent(q.get("accentB")),
-      "#4F46E5"
+      "#4F46E5",
     );
 
     const corner = String(
-      firstDefined(overlayBE?.corner, q.get("corner"), "tl")
+      firstDefined(overlayBE?.corner, q.get("corner"), "tl"),
     ).toLowerCase();
 
     const rounded = Number(
-      firstDefined(overlayBE?.rounded, q.get("rounded"), 18)
+      firstDefined(overlayBE?.rounded, q.get("rounded"), 18),
     );
     const shadow = firstDefined(
       overlayBE?.shadow,
       parseQPBool(q.get("shadow")),
-      true
+      true,
     );
     const showSets = firstDefined(
       overlayBE?.showSets,
       parseQPBool(q.get("showSets")),
-      true
+      true,
     );
 
     const fontFamily = firstDefined(
       overlayBE?.fontFamily,
       q.get("font"),
-      'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial'
+      'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
     );
 
     const nameScale =
@@ -914,7 +922,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       : firstDefined(
           overlayBE?.logoUrl,
           q.get("logo"),
-          (typeof window !== "undefined" && data?.tournament?.image) || ""
+          (typeof window !== "undefined" && data?.tournament?.image) || "",
         );
 
     // Logo website (top-right). Cho phép override qua ?webLogo=..., fallback RTK Query
@@ -923,7 +931,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       q.get("webLogoUrl"),
       overlayBE?.webLogoUrl,
       overlayCfg?.webLogoUrl,
-      ""
+      "",
     );
 
     const customCss = overlayBE?.customCss || "";
@@ -986,14 +994,14 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         effective.size === "lg"
           ? "14px 16px"
           : effective.size === "sm"
-          ? "8px 10px"
-          : "12px 14px",
+            ? "8px 10px"
+            : "12px 14px",
       "--minw":
         effective.size === "lg"
           ? "380px"
           : effective.size === "sm"
-          ? "260px"
-          : "320px",
+            ? "260px"
+            : "320px",
       "--name": `${Math.round(baseName * effective.nameScale)}px`,
       "--serve": `${baseServe}px`,
       "--score": `${Math.round(baseScore * effective.scoreScale)}px`,
@@ -1013,8 +1021,10 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   /* ---------- Data hiển thị ---------- */
   const tourName = data?.tournament?.name || "";
   const rawStatus = (data?.status || "").toUpperCase();
-  const nameA = teamNameFull(data?.teams?.A, eventType, displayMode) || "Team A";
-  const nameB = teamNameFull(data?.teams?.B, eventType, displayMode) || "Team B";
+  const nameA =
+    teamNameFull(data?.teams?.A, eventType, displayMode) || "Team A";
+  const nameB =
+    teamNameFull(data?.teams?.B, eventType, displayMode) || "Team B";
 
   const gi = Number.isInteger(data?.currentGame) ? data.currentGame : 0;
   const cur = (data?.gameScores || [])[gi] || { a: 0, b: 0 };
@@ -1055,8 +1065,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     1,
     Math.min(
       2,
-      Number(data?.serve?.playerIndex ?? data?.serve?.server ?? 1) || 1
-    )
+      Number(data?.serve?.playerIndex ?? data?.serve?.server ?? 1) || 1,
+    ),
   );
 
   const roundLabel = knockoutRoundLabel(data);
@@ -1115,7 +1125,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
               pathname: window.location.pathname,
               search: `?${params.toString()}`,
             },
-            { replace: true }
+            { replace: true },
           );
         }
       } catch {
@@ -1131,7 +1141,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         pollRef.current = null;
       }
     };
-  }, [autoNext, rawStatus, data?.court?.id, data?.courtId, data?.matchId, matchId, getNextByCourt, navigate]);
+  }, [
+    autoNext,
+    rawStatus,
+    data?.court?.id,
+    data?.courtId,
+    data?.matchId,
+    matchId,
+    getNextByCourt,
+    navigate,
+  ]);
 
   /* ---------- REPLAY driver ---------- */
   const replayTimerRef = useRef(null);
@@ -1162,7 +1181,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     sim = mergeNormalized(sim, {
       currentGame: 0,
       gameScores: Array.from({ length: maxSetsLocal }, (_, i) =>
-        i === 0 ? { a: 0, b: 0 } : { a: null, b: null }
+        i === 0 ? { a: 0, b: 0 } : { a: null, b: null },
       ),
     });
 
@@ -1221,7 +1240,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           wait = clamp(
             wait,
             replayMinMs != null ? replayMinMs : 0,
-            replayMaxMs != null ? replayMaxMs : Number.MAX_SAFE_INTEGER
+            replayMaxMs != null ? replayMaxMs : Number.MAX_SAFE_INTEGER,
           );
         }
       }
@@ -1238,7 +1257,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         initialWait = clamp(
           initialWait,
           replayMinMs != null ? replayMinMs : 0,
-          replayMaxMs != null ? replayMaxMs : Number.MAX_SAFE_INTEGER
+          replayMaxMs != null ? replayMaxMs : Number.MAX_SAFE_INTEGER,
         );
       }
     }
@@ -1250,7 +1269,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         replayTimerRef.current = null;
       }
     };
-  }, [replay, replayLoop, replayRate, replayMinMs, replayMaxMs, replayStartMs, replayStepMs, snapRaw]);
+  }, [
+    replay,
+    replayLoop,
+    replayRate,
+    replayMinMs,
+    replayMaxMs,
+    replayStartMs,
+    replayStepMs,
+    snapRaw,
+  ]);
 
   /* ---------- NEW: scale-score (transform scale) ---------- */
   const scaleScoreParam = q.get("scale-score");
@@ -1277,7 +1305,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       transformOrigin: scaleOrigin,
       willChange: "transform",
     }),
-    [scaleScore, scaleOrigin]
+    [scaleScore, scaleOrigin],
   );
 
   /* ---------- SPONSORS (BOTTOM-LEFT, fixed) — overlay=1, chỉ lấy s.logoUrl ---------- */
@@ -1540,7 +1568,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                   whiteSpace: "nowrap",
                   textOverflow: "ellipsis",
                   overflow: "hidden",
-                  width: "max-content"
+                  width: "max-content",
                 }}
                 title={topTitle}
               >
@@ -1700,8 +1728,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                     display: "flex",
                     flexDirection: "column",
                     justifyContent: "stretch",
-                    background:
-                      "rgb(65 147 93)",
+                    background: "rgb(65 147 93)",
                   }}
                 >
                   <div
@@ -1755,7 +1782,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                     whiteSpace: "nowrap",
                     textOverflow: "ellipsis",
                     overflow: "hidden",
-                    maxWidth: "max-content"
+                    maxWidth: "max-content",
                   }}
                   title={bottomText}
                 >
@@ -1778,7 +1805,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       </>
     );
   }
-  
+
   // ✅ BÌNH THƯỜNG: render scoreboard như cũ
   return (
     <>
@@ -1954,8 +1981,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                                 borderColor: "transparent",
                               }
                             : isCur
-                            ? styles.cellActive
-                            : {}),
+                              ? styles.cellActive
+                              : {}),
                         }}
                       >
                         {Number.isFinite(s.a) ? s.a : "–"}
@@ -1993,8 +2020,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                                 borderColor: "transparent",
                               }
                             : isCur
-                            ? styles.cellActive
-                            : {}),
+                              ? styles.cellActive
+                              : {}),
                         }}
                       >
                         {Number.isFinite(s.b) ? s.b : "–"}

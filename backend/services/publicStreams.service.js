@@ -8,6 +8,10 @@ import {
   buildRecordingRawStreamUrl,
 } from "./liveRecordingV2Export.service.js";
 import {
+  buildRecordingAiCommentaryPlaybackUrl,
+  buildRecordingAiCommentaryRawUrl,
+} from "./liveRecordingAiCommentaryPlayback.service.js";
+import {
   getLiveServer2DelaySecondsSync,
   isLiveMultiSourceEnabledSync,
 } from "./liveMultiSourceConfig.service.js";
@@ -36,6 +40,7 @@ function isFinishedLikeStatus(status) {
 
 function selectFacebookOpenUrl(match = {}) {
   const fb = match?.facebookLive || {};
+  const metaFb = match?.meta?.facebook || {};
   const finishedLike =
     isFinishedLikeStatus(match?.status) || isFinishedLikeStatus(fb?.status);
 
@@ -44,12 +49,14 @@ function selectFacebookOpenUrl(match = {}) {
         fb.video_permalink_url,
         fb.watch_url,
         fb.permalink_url,
+        metaFb.permalinkUrl,
         fb.raw_permalink_url,
         fb.embed_url,
       ]
     : [
         fb.watch_url,
         fb.permalink_url,
+        metaFb.permalinkUrl,
         fb.video_permalink_url,
         fb.raw_permalink_url,
         fb.embed_url,
@@ -58,13 +65,95 @@ function selectFacebookOpenUrl(match = {}) {
   return orderedUrls.map(asTrimmed).find(Boolean) || "";
 }
 
+function parseYouTubeVideoId(match = {}) {
+  const direct = asTrimmed(
+    match?.meta?.youtube?.videoId || match?.youtubeLive?.id || ""
+  );
+  if (direct) return direct;
+
+  const watchUrl = asTrimmed(
+    match?.meta?.youtube?.watchUrl || match?.youtubeLive?.watch_url || ""
+  );
+  if (!watchUrl) return "";
+
+  try {
+    const url = new URL(watchUrl);
+    if (url.hostname.includes("youtu.be")) {
+      return asTrimmed(url.pathname.split("/").filter(Boolean)[0]);
+    }
+    return asTrimmed(url.searchParams.get("v"));
+  } catch {
+    const matched =
+      watchUrl.match(/[?&]v=([^&]+)/i) ||
+      watchUrl.match(/youtu\.be\/([^?&/]+)/i);
+    return asTrimmed(matched?.[1] || "");
+  }
+}
+
+function selectYouTubeWatchUrl(match = {}) {
+  const direct = asTrimmed(
+    match?.meta?.youtube?.watchUrl || match?.youtubeLive?.watch_url || ""
+  );
+  if (direct) return direct;
+
+  const videoId = parseYouTubeVideoId(match);
+  return videoId
+    ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`
+    : "";
+}
+
+function buildYouTubeEmbedUrl(match = {}) {
+  const videoId = parseYouTubeVideoId(match);
+  return videoId
+    ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`
+    : "";
+}
+
+function selectTikTokWatchUrl(match = {}) {
+  const tiktok = match?.meta?.tiktok || {};
+  const tiktokLive = match?.tiktokLive || {};
+  const direct = asTrimmed(
+    tiktok?.watchUrl || tiktokLive?.room_url || tiktok?.url || ""
+  );
+  if (direct) return direct;
+
+  const username = asTrimmed(tiktok?.username || tiktokLive?.username || "");
+  return username ? `https://www.tiktok.com/@${username}/live` : "";
+}
+
+function selectRtmpPublicUrl(match = {}) {
+  const rtmp = match?.meta?.rtmp || {};
+  return asTrimmed(rtmp?.publicUrl || rtmp?.viewUrl || rtmp?.url || "");
+}
+
+function pushUniqueStream(streams, candidate) {
+  if (!candidate) return;
+  const candidatePlayUrl = asTrimmed(candidate?.playUrl);
+  const candidateOpenUrl = asTrimmed(candidate?.openUrl);
+  const duplicate = streams.some((stream) => {
+    const playUrl = asTrimmed(stream?.playUrl);
+    const openUrl = asTrimmed(stream?.openUrl);
+    return (
+      (candidatePlayUrl &&
+        (candidatePlayUrl === playUrl || candidatePlayUrl === openUrl)) ||
+      (candidateOpenUrl &&
+        (candidateOpenUrl === playUrl || candidateOpenUrl === openUrl))
+    );
+  });
+  if (!duplicate) {
+    streams.push(candidate);
+  }
+}
+
 function detectLegacyKind(url) {
   const normalized = asTrimmed(url).toLowerCase();
   if (!normalized) return "";
   if (isFacebookUrl(normalized)) return "facebook";
   if (normalized.includes(".m3u8")) return "hls";
   if (/\.(mp4|webm|ogv?)(\?|$)/i.test(normalized)) return "file";
-  if (/\/api\/live\/recordings\/v2\/[^/]+\/(?:play|raw)(?:\?|$)/i.test(normalized)) {
+  if (
+    /\/api\/live\/recordings\/v2\/[^/]+\/(?:play|raw)(?:\?|$)/i.test(normalized)
+  ) {
     return "file";
   }
   return "iframe";
@@ -84,12 +173,7 @@ function extractInternalRecordingRoute(url) {
 }
 
 function selectLegacyPlaybackUrl(match = {}) {
-  return [
-    match?.video,
-    match?.playbackUrl,
-    match?.streamUrl,
-    match?.liveUrl,
-  ]
+  return [match?.video, match?.playbackUrl, match?.streamUrl, match?.liveUrl]
     .map(asTrimmed)
     .find(Boolean);
 }
@@ -108,7 +192,9 @@ function sumUploadedDurationSeconds(recording) {
 }
 
 function pickFinalServer2Url(recording) {
-  const hasRawStream = Boolean(recording?.driveFileId || recording?.driveRawUrl);
+  const hasRawStream = Boolean(
+    recording?.driveFileId || recording?.driveRawUrl
+  );
   if (hasRawStream && recording?._id) {
     return buildRecordingRawStreamUrl(recording._id);
   }
@@ -120,6 +206,38 @@ function pickFinalServer2Url(recording) {
   if (playbackUrl) return playbackUrl;
   if (recording?._id) return buildRecordingPlaybackUrl(recording._id);
   return "";
+}
+
+function buildRecordingAiCommentaryState(recording) {
+  const ai = recording?.aiCommentary || {};
+  const finalPlaybackUrl =
+    asTrimmed(ai?.dubbedPlaybackUrl) ||
+    (recording?._id &&
+    (asTrimmed(ai?.dubbedDriveFileId) || asTrimmed(ai?.dubbedDriveRawUrl))
+      ? buildRecordingAiCommentaryPlaybackUrl(recording._id)
+      : "");
+  const rawUrl =
+    asTrimmed(ai?.dubbedDriveRawUrl) ||
+    (recording?._id && asTrimmed(ai?.dubbedDriveFileId)
+      ? buildRecordingAiCommentaryRawUrl(recording._id)
+      : "");
+  const previewUrl = asTrimmed(ai?.dubbedDrivePreviewUrl);
+  const ready = Boolean(
+    asTrimmed(ai?.dubbedDriveFileId) || rawUrl || finalPlaybackUrl || previewUrl
+  );
+
+  if (!ready) return null;
+
+  return {
+    key: "ai_commentary",
+    displayLabel: "BLV AI",
+    providerLabel: "AI Commentary",
+    finalPlaybackUrl: finalPlaybackUrl || null,
+    rawUrl: rawUrl || null,
+    previewUrl: previewUrl || null,
+    ready: true,
+    status: "ready",
+  };
 }
 
 export function buildRecordingServer2State(recording) {
@@ -214,9 +332,10 @@ export function buildRecordingServer2State(recording) {
     uploadedSegmentCount: uploadedSegments.length,
     ready,
     status,
-    disabledReason: !ready && multiSourceEnabled && !finalReady
-      ? "Dang chuan bi luong tre tu PickleTour CDN."
-      : null,
+    disabledReason:
+      !ready && multiSourceEnabled && !finalReady
+        ? "Dang chuan bi luong tre tu PickleTour CDN."
+        : null,
   };
 }
 
@@ -251,7 +370,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   const server2 = buildRecordingServer2State(recording);
   const facebookOpenUrl = selectFacebookOpenUrl(match);
   if (facebookOpenUrl && !(finishedLike && server2?.ready)) {
-    streams.push({
+    pushUniqueStream(streams, {
       key: "server1",
       displayLabel: "Server 1",
       providerLabel: "Facebook",
@@ -266,7 +385,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   }
 
   if (server2 && (server2.manifestUrl || server2.finalPlaybackUrl)) {
-    streams.push({
+    pushUniqueStream(streams, {
       key: server2.key,
       displayLabel: server2.displayLabel,
       providerLabel: server2.providerLabel,
@@ -289,38 +408,62 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     });
   }
 
+  const aiCommentary = buildRecordingAiCommentaryState(recording);
+  if (aiCommentary && (aiCommentary.finalPlaybackUrl || aiCommentary.rawUrl)) {
+    pushUniqueStream(streams, {
+      key: aiCommentary.key,
+      displayLabel: aiCommentary.displayLabel,
+      providerLabel: aiCommentary.providerLabel,
+      kind: "file",
+      priority: 3,
+      status: aiCommentary.status,
+      playUrl: aiCommentary.finalPlaybackUrl || aiCommentary.rawUrl,
+      openUrl:
+        aiCommentary.previewUrl ||
+        aiCommentary.rawUrl ||
+        aiCommentary.finalPlaybackUrl ||
+        null,
+      delaySeconds: 0,
+      ready: aiCommentary.ready,
+      meta: {
+        previewUrl: aiCommentary.previewUrl,
+        rawUrl: aiCommentary.rawUrl,
+        finalPlaybackUrl: aiCommentary.finalPlaybackUrl,
+      },
+    });
+  }
+
   const legacyPlaybackUrl = selectLegacyPlaybackUrl(match);
   if (legacyPlaybackUrl) {
     const normalizedLegacyUrl = legacyPlaybackUrl.trim();
-    const legacyRecordingRoute = extractInternalRecordingRoute(normalizedLegacyUrl);
-    const duplicate = streams.some(
-      (stream) => {
-        const streamPlayUrl = asTrimmed(stream?.playUrl);
-        const streamOpenUrl = asTrimmed(stream?.openUrl);
-        if (
-          streamPlayUrl === normalizedLegacyUrl ||
-          streamOpenUrl === normalizedLegacyUrl
-        ) {
-          return true;
-        }
-
-        if (!legacyRecordingRoute) return false;
-
-        const streamRoute =
-          extractInternalRecordingRoute(streamPlayUrl) ||
-          extractInternalRecordingRoute(streamOpenUrl);
-
-        return (
-          Boolean(streamRoute?.recordingId) &&
-          streamRoute.recordingId === legacyRecordingRoute.recordingId
-        );
+    const legacyRecordingRoute =
+      extractInternalRecordingRoute(normalizedLegacyUrl);
+    const duplicate = streams.some((stream) => {
+      const streamPlayUrl = asTrimmed(stream?.playUrl);
+      const streamOpenUrl = asTrimmed(stream?.openUrl);
+      if (
+        streamPlayUrl === normalizedLegacyUrl ||
+        streamOpenUrl === normalizedLegacyUrl
+      ) {
+        return true;
       }
-    );
+
+      if (!legacyRecordingRoute) return false;
+
+      const streamRoute =
+        extractInternalRecordingRoute(streamPlayUrl) ||
+        extractInternalRecordingRoute(streamOpenUrl);
+
+      return (
+        Boolean(streamRoute?.recordingId) &&
+        streamRoute.recordingId === legacyRecordingRoute.recordingId
+      );
+    });
 
     if (!duplicate) {
       const kind = detectLegacyKind(normalizedLegacyUrl);
       if (kind === "facebook") {
-        streams.push({
+        pushUniqueStream(streams, {
           key: "server1",
           displayLabel: "Server 1",
           providerLabel: "Facebook",
@@ -334,7 +477,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         });
       } else {
         const hasServer2 = streams.some((stream) => stream.key === "server2");
-        streams.push({
+        pushUniqueStream(streams, {
           key: hasServer2 ? "legacy_video" : "server2",
           displayLabel: hasServer2 ? "Video" : "Server 2",
           providerLabel: hasServer2 ? "Video" : "PickleTour",
@@ -348,6 +491,54 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         });
       }
     }
+  }
+
+  const youtubeWatchUrl = selectYouTubeWatchUrl(match);
+  if (youtubeWatchUrl) {
+    pushUniqueStream(streams, {
+      key: "youtube",
+      displayLabel: "YouTube",
+      providerLabel: "YouTube",
+      kind: "iframe",
+      priority: 3,
+      status: "ready",
+      playUrl: buildYouTubeEmbedUrl(match) || youtubeWatchUrl,
+      openUrl: youtubeWatchUrl,
+      delaySeconds: 0,
+      ready: true,
+    });
+  }
+
+  const tiktokWatchUrl = selectTikTokWatchUrl(match);
+  if (tiktokWatchUrl) {
+    pushUniqueStream(streams, {
+      key: "tiktok",
+      displayLabel: "TikTok",
+      providerLabel: "TikTok",
+      kind: "iframe",
+      priority: 4,
+      status: "ready",
+      playUrl: tiktokWatchUrl,
+      openUrl: tiktokWatchUrl,
+      delaySeconds: 0,
+      ready: true,
+    });
+  }
+
+  const rtmpPublicUrl = selectRtmpPublicUrl(match);
+  if (rtmpPublicUrl) {
+    pushUniqueStream(streams, {
+      key: "rtmp",
+      displayLabel: "RTMP",
+      providerLabel: "RTMP",
+      kind: detectLegacyKind(rtmpPublicUrl) || "iframe",
+      priority: 5,
+      status: "ready",
+      playUrl: rtmpPublicUrl,
+      openUrl: rtmpPublicUrl,
+      delaySeconds: 0,
+      ready: true,
+    });
   }
 
   const status = asTrimmed(match?.status).toLowerCase();
@@ -394,7 +585,9 @@ export function attachPublicStreamsToMatch(match = {}, recording = null) {
 }
 
 export async function getLatestRecordingsByMatchIds(matchIds = []) {
-  const normalizedMatchIds = [...new Set(matchIds.map(asTrimmed).filter(Boolean))];
+  const normalizedMatchIds = [
+    ...new Set(matchIds.map(asTrimmed).filter(Boolean)),
+  ];
   if (!normalizedMatchIds.length) return new Map();
 
   const recordings = await LiveRecordingV2.find({
@@ -410,6 +603,13 @@ export async function getLatestRecordingsByMatchIds(matchIds = []) {
         "driveRawUrl",
         "drivePreviewUrl",
         "playbackUrl",
+        "aiCommentary.status",
+        "aiCommentary.latestJobId",
+        "aiCommentary.sourceFingerprint",
+        "aiCommentary.dubbedDriveFileId",
+        "aiCommentary.dubbedDriveRawUrl",
+        "aiCommentary.dubbedDrivePreviewUrl",
+        "aiCommentary.dubbedPlaybackUrl",
         "segments.index",
         "segments.uploadStatus",
         "segments.durationSeconds",
@@ -424,7 +624,10 @@ export async function getLatestRecordingsByMatchIds(matchIds = []) {
     const status = asTrimmed(recording?.status).toLowerCase();
     const hasRaw = Boolean(recording?.driveFileId || recording?.driveRawUrl);
     const hasPlayable = Boolean(
-      hasRaw || recording?.drivePreviewUrl || recording?.playbackUrl || recording?._id
+      hasRaw ||
+        recording?.drivePreviewUrl ||
+        recording?.playbackUrl ||
+        recording?._id
     );
 
     if (hasRaw) return 500;
@@ -444,7 +647,10 @@ export async function getLatestRecordingsByMatchIds(matchIds = []) {
     const rankCmp = recordingRank(b) - recordingRank(a);
     if (rankCmp !== 0) return rankCmp;
 
-    return new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime();
+    return (
+      new Date(b?.createdAt || 0).getTime() -
+      new Date(a?.createdAt || 0).getTime()
+    );
   });
 
   const byMatchId = new Map();

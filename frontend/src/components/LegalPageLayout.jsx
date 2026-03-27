@@ -32,7 +32,11 @@ function LegalSection({ section, isLast }) {
 
       <Stack spacing={1.25}>
         {section.paragraphs?.map((paragraph) => (
-          <Typography key={paragraph} color="text.secondary" sx={{ lineHeight: 1.8 }}>
+          <Typography
+            key={paragraph}
+            color="text.secondary"
+            sx={{ lineHeight: 1.8 }}
+          >
             {paragraph}
           </Typography>
         ))}
@@ -123,7 +127,10 @@ export default function LegalPageLayout({
                   <Typography variant="h3" fontWeight={900} sx={{ mb: 1.25 }}>
                     {title}
                   </Typography>
-                  <Typography color="text.secondary" sx={{ maxWidth: 760, lineHeight: 1.8 }}>
+                  <Typography
+                    color="text.secondary"
+                    sx={{ maxWidth: 760, lineHeight: 1.8 }}
+                  >
                     {description}
                   </Typography>
                 </Box>
@@ -144,7 +151,11 @@ export default function LegalPageLayout({
                         <Typography variant="caption" color="text.secondary">
                           {item.label}
                         </Typography>
-                        <Typography variant="body1" fontWeight={800} sx={{ mt: 0.5 }}>
+                        <Typography
+                          variant="body1"
+                          fontWeight={800}
+                          sx={{ mt: 0.5 }}
+                        >
                           {item.value}
                         </Typography>
                       </Box>
@@ -169,8 +180,13 @@ export default function LegalPageLayout({
                   <Stack spacing={3}>
                     {sections.map((section, index) => (
                       <Box key={section.id}>
-                        <LegalSection section={section} isLast={index === sections.length - 1} />
-                        {index < sections.length - 1 ? <Divider sx={{ mt: 3 }} /> : null}
+                        <LegalSection
+                          section={section}
+                          isLast={index === sections.length - 1}
+                        />
+                        {index < sections.length - 1 ? (
+                          <Divider sx={{ mt: 3 }} />
+                        ) : null}
                       </Box>
                     ))}
                   </Stack>
@@ -178,7 +194,10 @@ export default function LegalPageLayout({
               </Grid>
 
               <Grid size={{ xs: 12, md: 4 }}>
-                <Stack spacing={2.5} sx={{ position: { md: "sticky" }, top: { md: 112 } }}>
+                <Stack
+                  spacing={2.5}
+                  sx={{ position: { md: "sticky" }, top: { md: 112 } }}
+                >
                   <Paper
                     elevation={0}
                     sx={{
@@ -190,7 +209,11 @@ export default function LegalPageLayout({
                     }}
                   >
                     <Stack spacing={1.25}>
-                      <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1.1 }}>
+                      <Typography
+                        variant="overline"
+                        color="text.secondary"
+                        sx={{ letterSpacing: 1.1 }}
+                      >
                         {t("legal.layout.mainSections")}
                       </Typography>
                       {sections.map((section, index) => (
@@ -215,7 +238,11 @@ export default function LegalPageLayout({
                           >
                             {String(index + 1).padStart(2, "0")}
                           </Typography>
-                          <Typography component="span" variant="body2" fontWeight={700}>
+                          <Typography
+                            component="span"
+                            variant="body2"
+                            fontWeight={700}
+                          >
                             {section.title}
                           </Typography>
                         </MuiLink>
@@ -237,16 +264,25 @@ export default function LegalPageLayout({
                       <Typography variant="h6" fontWeight={800}>
                         {t("legal.layout.needMoreHelpTitle")}
                       </Typography>
-                      <Typography color="text.secondary" sx={{ lineHeight: 1.75 }}>
+                      <Typography
+                        color="text.secondary"
+                        sx={{ lineHeight: 1.75 }}
+                      >
                         {t("legal.layout.needMoreHelpBody")}
                       </Typography>
                       <Button
                         component={RouterLink}
                         to="/contact"
-                        onClick={() => window.scrollTo({ top: 0, left: 0, behavior: "auto" })}
+                        onClick={() =>
+                          window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+                        }
                         variant="outlined"
                         endIcon={<ArrowForwardRoundedIcon />}
-                        sx={{ alignSelf: "flex-start", borderRadius: 999, px: 2 }}
+                        sx={{
+                          alignSelf: "flex-start",
+                          borderRadius: 999,
+                          px: 2,
+                        }}
                       >
                         {t("legal.layout.goToContact")}
                       </Button>
@@ -272,7 +308,7 @@ LegalPageLayout.propTypes = {
     PropTypes.shape({
       label: PropTypes.string.isRequired,
       value: PropTypes.string.isRequired,
-    })
+    }),
   ).isRequired,
   sections: PropTypes.arrayOf(
     PropTypes.shape({
@@ -280,6 +316,6 @@ LegalPageLayout.propTypes = {
       title: PropTypes.string.isRequired,
       paragraphs: PropTypes.arrayOf(PropTypes.string),
       items: PropTypes.arrayOf(PropTypes.string),
-    })
+    }),
   ).isRequired,
 };

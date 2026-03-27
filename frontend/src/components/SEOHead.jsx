@@ -27,7 +27,9 @@ export default function SEOHead({
   const image = ogImage || DEFAULT_IMAGE;
   const canonical = canonicalUrl || (path ? `${BASE_URL}${path}` : undefined);
   const defaultKeywords = t("seo.defaultKeywords");
-  const allKeywords = keywords ? `${keywords}, ${defaultKeywords}` : defaultKeywords;
+  const allKeywords = keywords
+    ? `${keywords}, ${defaultKeywords}`
+    : defaultKeywords;
 
   return (
     <Helmet>

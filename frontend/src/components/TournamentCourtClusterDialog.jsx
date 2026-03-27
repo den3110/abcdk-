@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Autocomplete,
@@ -12,16 +12,17 @@ import {
   Paper,
   Stack,
   TextField,
+  Tooltip,
   Typography,
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
 } from "@mui/material";
 import StadiumIcon from "@mui/icons-material/Stadium";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CloseIcon from "@mui/icons-material/Close";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import {
@@ -37,6 +38,7 @@ import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
 } from "../utils/tournamentName";
+import { addBusinessBreadcrumb } from "../utils/sentry";
 import ResponsiveModal from "./ResponsiveModal";
 import ResponsiveMatchViewer from "../screens/PickleBall/match/ResponsiveMatchViewer";
 import {
@@ -112,7 +114,7 @@ const selectorLabel = (match) =>
 const stationStatusLabel = (status) =>
   ({
     idle: "Sẵn sàng",
-    assigned: "Đã gán trận",
+    assigned: "Đã được gán trận",
     live: "Đang live",
     maintenance: "Bảo trì",
   })[String(status || "").toLowerCase()] ||
@@ -191,7 +193,7 @@ const buildDraft = (station) => ({
   dirty: false,
 });
 
-function SortableQueueItem({ id, children }) {
+function SortableQueueItem({ id, disabled, children }) {
   const {
     attributes,
     listeners,
@@ -199,7 +201,7 @@ function SortableQueueItem({ id, children }) {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled });
   return (
     <Box
       ref={setNodeRef}
@@ -308,6 +310,7 @@ export default function TournamentCourtClusterDialog({
   const [stationDrafts, setStationDrafts] = useState({});
   const [viewerMatch, setViewerMatch] = useState(null);
   const [sharedTournamentsOpen, setSharedTournamentsOpen] = useState(false);
+  const openTraceRef = useRef("");
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
@@ -370,6 +373,17 @@ export default function TournamentCourtClusterDialog({
     payloadKey: "clusterId",
   });
 
+  const stationIdsToWatch = useMemo(() => {
+    if (!runtime?.stations) return [];
+    return runtime.stations.map((s) => sid(s?._id)).filter(Boolean);
+  }, [runtime?.stations]);
+
+  useSocketRoomSet(socket, stationIdsToWatch, {
+    subscribeEvent: "court-station:watch",
+    unsubscribeEvent: "court-station:unwatch",
+    payloadKey: "stationId",
+  });
+
   useEffect(() => {
     if (!socket || !open || !selectedAllowedId) return undefined;
 
@@ -420,8 +434,27 @@ export default function TournamentCourtClusterDialog({
   useEffect(() => {
     if (!open) {
       setViewerMatch(null);
+      openTraceRef.current = "";
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !tournamentId) return;
+    if (openTraceRef.current === tournamentId) return;
+    openTraceRef.current = tournamentId;
+
+    addBusinessBreadcrumb("court_station.manage_dialog.open", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      clusterId: selectedAllowedId || initialAllowedId || undefined,
+    });
+  }, [
+    initialAllowedId,
+    open,
+    selectedAllowedId,
+    tournament?.name,
+    tournamentId,
+  ]);
 
   const [updateAllowed, { isLoading: savingAllowed }] =
     useUpdateTournamentAllowedCourtClustersMutation();
@@ -495,7 +528,21 @@ export default function TournamentCourtClusterDialog({
     });
   };
 
+  const handleSelectAllowedCluster = (clusterId) => {
+    setSelectedAllowedId(clusterId);
+    addBusinessBreadcrumb("court_station.cluster.select", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      clusterId,
+    });
+  };
+
   const saveAllowedCluster = async () => {
+    addBusinessBreadcrumb("court_station.cluster.save.submit", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      clusterId: selectedAllowedId || undefined,
+    });
     try {
       await updateAllowed({
         tournamentId,
@@ -510,6 +557,13 @@ export default function TournamentCourtClusterDialog({
   };
 
   const addQueueMatches = (stationId) => {
+    const draft = stationDrafts[stationId] || buildDraft({});
+    addBusinessBreadcrumb("court_station.queue.add.submit", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      courtStationId: stationId,
+      addedCount: draft.pickerMatchIds.length,
+    });
     setDraft(stationId, (draft) => {
       const additions = draft.pickerMatchIds.filter(
         (matchId) => !draft.queueMatchIds.includes(matchId),
@@ -538,6 +592,12 @@ export default function TournamentCourtClusterDialog({
   };
 
   const toggleGroupPicker = (stationId, groupMatchIds = []) => {
+    addBusinessBreadcrumb("court_station.queue.group_toggle", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      courtStationId: stationId,
+      matchCount: groupMatchIds.length,
+    });
     setDraft(
       stationId,
       (draft) => {
@@ -562,6 +622,12 @@ export default function TournamentCourtClusterDialog({
   };
 
   const removeQueueMatch = (stationId, matchId) => {
+    addBusinessBreadcrumb("court_station.queue.remove", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      courtStationId: stationId,
+      matchId,
+    });
     setDraft(stationId, (draft) => ({
       ...draft,
       queueMatchIds: draft.queueMatchIds.filter((value) => value !== matchId),
@@ -572,6 +638,14 @@ export default function TournamentCourtClusterDialog({
   const saveStationConfig = async (station) => {
     const stationId = sid(station?._id);
     const draft = stationDrafts[stationId] || buildDraft(station);
+    addBusinessBreadcrumb("court_station.config.save.submit", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      courtStationId: stationId,
+      courtStationCode: station?.code,
+      assignmentMode: draft.assignmentMode,
+      queueCount: draft.queueMatchIds.length,
+    });
     try {
       const payload = {
         tournamentId,
@@ -599,6 +673,11 @@ export default function TournamentCourtClusterDialog({
   };
 
   const freeCurrent = async (stationId) => {
+    addBusinessBreadcrumb("court_station.assignment.clear.submit", {
+      tournamentId,
+      tournamentName: tournament?.name,
+      courtStationId: stationId,
+    });
     try {
       await freeStation({ tournamentId, stationId }).unwrap();
       await refetch();
@@ -706,7 +785,7 @@ export default function TournamentCourtClusterDialog({
                   loading={loadingOptions}
                   value={selectedCluster}
                   onChange={(_, value) =>
-                    setSelectedAllowedId(sid(value?._id || value?.id))
+                    handleSelectAllowedCluster(sid(value?._id || value?.id))
                   }
                   isOptionEqualToValue={(option, value) =>
                     sid(option?._id || option?.id) ===
@@ -759,13 +838,16 @@ export default function TournamentCourtClusterDialog({
                             size="small"
                             color="warning"
                             variant="outlined"
-                            label={`Dùng chung ${sharedTournamentCount} giải`}
+                            label={`Cụm sân: ${selectedCluster?.name || ""} đang dùng chung ${sharedTournamentCount} giải`}
                             onClick={() => setSharedTournamentsOpen(true)}
                             sx={{
+                              alignSelf: "flex-start",
                               cursor: "pointer",
                               fontWeight: 600,
+                              color: "#e65100",
+                              borderColor: "#e65100",
                               "&:hover": {
-                                bgcolor: "warning.main",
+                                backgroundColor: "#e65100 !important",
                                 color: "white",
                               },
                             }}
@@ -966,17 +1048,43 @@ export default function TournamentCourtClusterDialog({
                                       label={stationStatusLabel(
                                         station?.status,
                                       )}
+                                      sx={{
+                                        ...(String(
+                                          station?.status || "",
+                                        ).toLowerCase() === "assigned"
+                                          ? {
+                                              bgcolor: "#9c27b0",
+                                              color: "#fff",
+                                            }
+                                          : {}),
+                                      }}
                                     />
                                     <Chip
                                       size="small"
                                       variant="outlined"
                                       label={station?.code || "—"}
                                     />
-                                    <Chip
-                                      size="small"
-                                      variant="outlined"
-                                      label={modeLabel(assignmentMode)}
-                                    />
+                                    <Tooltip
+                                      title={
+                                        String(assignmentMode).toLowerCase() === "auto"
+                                          ? "Hệ thống sẽ tự động bắt cặp và gán trận tiếp theo trong hàng chờ lên sân ngay khi sân trống."
+                                          : "Hệ thống sẽ không tự gọi trận. Sân chờ admin bấm nút gán trận thủ công như cách hoạt động hiện tại."
+                                      }
+                                      placement="top"
+                                      arrow
+                                    >
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        label={
+                                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                            <span>{modeLabel(assignmentMode)}</span>
+                                            <InfoOutlinedIcon sx={{ fontSize: 16 }} />
+                                          </Box>
+                                        }
+                                        sx={{ cursor: "help" }}
+                                      />
+                                    </Tooltip>
                                   </Stack>
 
                                   {station?.currentMatch ? (
@@ -1029,11 +1137,21 @@ export default function TournamentCourtClusterDialog({
                                       MenuProps: { sx: { zIndex: 1400 } },
                                     }}
                                     value={assignmentMode}
-                                    onChange={(event) =>
+                                    onChange={(event) => {
+                                      addBusinessBreadcrumb(
+                                        "court_station.mode.change",
+                                        {
+                                          tournamentId,
+                                          tournamentName: tournament?.name,
+                                          courtStationId: stationId,
+                                          assignmentMode:
+                                            event.target.value || "manual",
+                                        },
+                                      );
                                       setDraft(stationId, {
                                         assignmentMode: event.target.value,
-                                      })
-                                    }
+                                      });
+                                    }}
                                   >
                                     <MenuItem value="manual">Gán tay</MenuItem>
                                     <MenuItem value="queue">
@@ -1152,16 +1270,14 @@ export default function TournamentCourtClusterDialog({
                                       groupBy={(option) => option.__groupKey}
                                       noOptionsText="Không còn trận phù hợp để thêm vào danh sách."
                                       renderTags={(value, getTagProps) =>
-                                        value
-                                          .slice(0, 2)
-                                          .map((option, index) => (
-                                            <Chip
-                                              {...getTagProps({ index })}
-                                              key={sid(option?._id)}
-                                              size="small"
-                                              label={matchCode(option)}
-                                            />
-                                          ))
+                                        value.map((option, index) => (
+                                          <Chip
+                                            {...getTagProps({ index })}
+                                            key={sid(option?._id)}
+                                            size="small"
+                                            label={matchCode(option)}
+                                          />
+                                        ))
                                       }
                                       renderInput={(params) => (
                                         <TextField
@@ -1235,16 +1351,153 @@ export default function TournamentCourtClusterDialog({
                                               }}
                                             >
                                               <Stack spacing={0.5}>
-                                                <Typography
-                                                  variant="caption"
-                                                  color="text.secondary"
-                                                  sx={{
-                                                    textTransform: "uppercase",
-                                                  }}
+                                                <Stack
+                                                  direction="row"
+                                                  alignItems="center"
+                                                  spacing={1}
                                                 >
-                                                  {groupMeta?.bracketTitle ||
-                                                    "Bracket"}
-                                                </Typography>
+                                                  <Typography
+                                                    variant="caption"
+                                                    color="text.secondary"
+                                                    sx={{
+                                                      textTransform:
+                                                        "uppercase",
+                                                    }}
+                                                  >
+                                                    {groupMeta?.bracketTitle ||
+                                                      "Bracket"}
+                                                  </Typography>
+                                                  {groupMeta?.bracketTitle && (
+                                                    <Button
+                                                      size="small"
+                                                      onMouseDown={(event) =>
+                                                        event.preventDefault()
+                                                      }
+                                                      onClick={() => {
+                                                        const bracketKey =
+                                                          params.group.split(
+                                                            "::",
+                                                          )[0];
+                                                        const bracketMatchIds =
+                                                          selectorOptions
+                                                            .filter((m) =>
+                                                              m.__groupKey.startsWith(
+                                                                bracketKey +
+                                                                  "::",
+                                                              ),
+                                                            )
+                                                            .map((m) =>
+                                                              sid(m._id),
+                                                            );
+                                                        toggleGroupPicker(
+                                                          stationId,
+                                                          bracketMatchIds,
+                                                        );
+                                                      }}
+                                                      startIcon={
+                                                        <Checkbox
+                                                          size="small"
+                                                          checked={(() => {
+                                                            const bracketKey =
+                                                              params.group.split(
+                                                                "::",
+                                                              )[0];
+                                                            const bracketMatchIds =
+                                                              selectorOptions
+                                                                .filter((m) =>
+                                                                  m.__groupKey.startsWith(
+                                                                    bracketKey +
+                                                                      "::",
+                                                                  ),
+                                                                )
+                                                                .map((m) =>
+                                                                  sid(m._id),
+                                                                );
+                                                            return (
+                                                              bracketMatchIds.length >
+                                                                0 &&
+                                                              bracketMatchIds.every(
+                                                                (id) =>
+                                                                  selectedIds.includes(
+                                                                    id,
+                                                                  ),
+                                                              )
+                                                            );
+                                                          })()}
+                                                          indeterminate={(() => {
+                                                            const bracketKey =
+                                                              params.group.split(
+                                                                "::",
+                                                              )[0];
+                                                            const bracketMatchIds =
+                                                              selectorOptions
+                                                                .filter((m) =>
+                                                                  m.__groupKey.startsWith(
+                                                                    bracketKey +
+                                                                      "::",
+                                                                  ),
+                                                                )
+                                                                .map((m) =>
+                                                                  sid(m._id),
+                                                                );
+                                                            const allSel =
+                                                              bracketMatchIds.every(
+                                                                (id) =>
+                                                                  selectedIds.includes(
+                                                                    id,
+                                                                  ),
+                                                              );
+                                                            return (
+                                                              !allSel &&
+                                                              bracketMatchIds.some(
+                                                                (id) =>
+                                                                  selectedIds.includes(
+                                                                    id,
+                                                                  ),
+                                                              )
+                                                            );
+                                                          })()}
+                                                          sx={{ p: 0 }}
+                                                        />
+                                                      }
+                                                      sx={{
+                                                        fontSize: "0.65rem",
+                                                        py: 0,
+                                                        minHeight: 0,
+                                                      }}
+                                                    >
+                                                      {(() => {
+                                                        const bracketKey =
+                                                          params.group.split(
+                                                            "::",
+                                                          )[0];
+                                                        const bracketMatchIds =
+                                                          selectorOptions
+                                                            .filter((m) =>
+                                                              m.__groupKey.startsWith(
+                                                                bracketKey +
+                                                                  "::",
+                                                              ),
+                                                            )
+                                                            .map((m) =>
+                                                              sid(m._id),
+                                                            );
+                                                        const allSel =
+                                                          bracketMatchIds.length >
+                                                            0 &&
+                                                          bracketMatchIds.every(
+                                                            (id) =>
+                                                              selectedIds.includes(
+                                                                id,
+                                                              ),
+                                                          );
+                                                        return allSel
+                                                          ? `Bỏ chọn ${groupMeta?.bracketTitle}`
+                                                          : `Chọn hết vòng ${groupMeta?.bracketTitle}`;
+                                                      })()}
+                                                    </Button>
+                                                  )}
+                                                </Stack>
                                                 <Stack
                                                   direction="row"
                                                   spacing={1}
@@ -1346,6 +1599,16 @@ export default function TournamentCourtClusterDialog({
                                             active.id === over.id
                                           )
                                             return;
+                                          addBusinessBreadcrumb(
+                                            "court_station.queue.reorder",
+                                            {
+                                              tournamentId,
+                                              tournamentName: tournament?.name,
+                                              courtStationId: stationId,
+                                              matchId: active.id,
+                                              overMatchId: over.id,
+                                            },
+                                          );
                                           setDraft(
                                             stationId,
                                             (currentDraft) => {
@@ -1380,6 +1643,12 @@ export default function TournamentCourtClusterDialog({
                                             {queueMatches.map(
                                               (match, index) => {
                                                 const matchId = sid(match?._id);
+                                                const canManageThisMatch =
+                                                  canOverride ||
+                                                  sid(
+                                                    match?.tournament?._id ||
+                                                      match?.tournamentId,
+                                                  ) === tournamentId;
                                                 return (
                                                   <SortableQueueItem
                                                     key={matchId}
@@ -1429,31 +1698,33 @@ export default function TournamentCourtClusterDialog({
                                                               spacing={1}
                                                               alignItems="center"
                                                             >
-                                                              <Box
-                                                                {...attributes}
-                                                                {...listeners}
-                                                                onClick={(
-                                                                  event,
-                                                                ) =>
-                                                                  event.stopPropagation()
-                                                                }
-                                                                sx={{
-                                                                  display:
-                                                                    "inline-flex",
-                                                                  alignItems:
-                                                                    "center",
-                                                                  cursor:
-                                                                    "grab",
-                                                                  color:
-                                                                    "text.secondary",
-                                                                  "&:active": {
+                                                              {canManageThisMatch && (
+                                                                <Box
+                                                                  {...attributes}
+                                                                  {...listeners}
+                                                                  onClick={(
+                                                                    event,
+                                                                  ) =>
+                                                                    event.stopPropagation()
+                                                                  }
+                                                                  sx={{
+                                                                    display:
+                                                                      "inline-flex",
+                                                                    alignItems:
+                                                                      "center",
                                                                     cursor:
-                                                                      "grabbing",
-                                                                  },
-                                                                }}
-                                                              >
-                                                                <DragIndicatorIcon fontSize="small" />
-                                                              </Box>
+                                                                      "grab",
+                                                                    color:
+                                                                      "text.secondary",
+                                                                    "&:active": {
+                                                                      cursor:
+                                                                        "grabbing",
+                                                                    },
+                                                                  }}
+                                                                >
+                                                                  <DragIndicatorIcon fontSize="small" />
+                                                                </Box>
+                                                              )}
                                                               <Typography
                                                                 variant="body2"
                                                                 fontWeight={700}
@@ -1490,21 +1761,23 @@ export default function TournamentCourtClusterDialog({
                                                                   label="Tiếp theo"
                                                                 />
                                                               )}
-                                                              <IconButton
-                                                                size="small"
-                                                                color="error"
-                                                                onClick={(
-                                                                  event,
-                                                                ) => {
-                                                                  event.stopPropagation();
-                                                                  removeQueueMatch(
-                                                                    stationId,
-                                                                    matchId,
-                                                                  );
-                                                                }}
-                                                              >
-                                                                <DeleteOutlineIcon fontSize="small" />
-                                                              </IconButton>
+                                                              {canManageThisMatch && (
+                                                                <IconButton
+                                                                  size="small"
+                                                                  color="error"
+                                                                  onClick={(
+                                                                    event,
+                                                                  ) => {
+                                                                    event.stopPropagation();
+                                                                    removeQueueMatch(
+                                                                      stationId,
+                                                                      matchId,
+                                                                    );
+                                                                  }}
+                                                                >
+                                                                  <DeleteOutlineIcon fontSize="small" />
+                                                                </IconButton>
+                                                              )}
                                                             </Stack>
                                                           </Stack>
                                                           <Typography

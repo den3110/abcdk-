@@ -1,12 +1,6 @@
 // src/screens/PickleBall/match/MatchContent.jsx
 /* eslint-disable react/prop-types */
-import {
-  useEffect,
-  useRef,
-  useState,
-  useMemo,
-  useCallback,
-} from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import {
   Alert,
   Box,
@@ -147,13 +141,14 @@ function isMatchEqual(a, b) {
       ...(Array.isArray(match?.meta?.streams) ? match.meta.streams : []),
       ...(Array.isArray(match?.links?.items) ? match.links.items : []),
       ...(Array.isArray(match?.sources?.items) ? match.sources.items : []),
-    ].map((stream, index) =>
-      stream?.url ||
-      stream?.href ||
-      stream?.src ||
-      stream?.playUrl ||
-      stream?.openUrl ||
-      `idx:${index}`
+    ].map(
+      (stream, index) =>
+        stream?.url ||
+        stream?.href ||
+        stream?.src ||
+        stream?.playUrl ||
+        stream?.openUrl ||
+        `idx:${index}`,
     );
 
     return JSON.stringify(legacyList);
@@ -214,8 +209,8 @@ function smartDepLabel(m, prevDep) {
       currV != null
         ? Math.max(1, currV - 1)
         : m?.prevBracket?.type !== "group"
-        ? pv + 2
-        : pv + 1;
+          ? pv + 2
+          : pv + 1;
     return `${wl}-V${newV}-T${t}`;
   });
 }
@@ -438,7 +433,9 @@ function normalizeStreams(m) {
   };
 
   const pushCanonicalStream = (stream) => {
-    const playUrl = isNonEmptyString(stream?.playUrl) ? stream.playUrl.trim() : "";
+    const playUrl = isNonEmptyString(stream?.playUrl)
+      ? stream.playUrl.trim()
+      : "";
     if (!playUrl) return false;
     const dedupeKey =
       stream?.key && typeof stream.key === "string"
@@ -446,7 +443,9 @@ function normalizeStreams(m) {
         : `url:${playUrl}`;
     if (seen.has(dedupeKey) || seen.has(playUrl)) return true;
 
-    const kind = String(stream?.kind || "").trim().toLowerCase();
+    const kind = String(stream?.kind || "")
+      .trim()
+      .toLowerCase();
     const det =
       kind === "delayed_manifest"
         ? {
@@ -474,9 +473,7 @@ function normalizeStreams(m) {
       delaySeconds: Number(stream?.delaySeconds || 0),
       ready: stream?.ready !== false,
       disabledReason:
-        typeof stream?.disabledReason === "string"
-          ? stream.disabledReason
-          : "",
+        typeof stream?.disabledReason === "string" ? stream.disabledReason : "",
       status: typeof stream?.status === "string" ? stream.status : "",
       meta: stream?.meta || {},
       ...det,
@@ -491,16 +488,13 @@ function normalizeStreams(m) {
         (item) =>
           item &&
           typeof item === "object" &&
-          (isNonEmptyString(item?.playUrl) || isNonEmptyString(item?.openUrl))
+          (isNonEmptyString(item?.playUrl) || isNonEmptyString(item?.openUrl)),
       )
     : [];
   if (canonicalStreams.length > 0) {
     canonicalStreams
       .slice()
-      .sort(
-        (a, b) =>
-          Number(a?.priority || 99) - Number(b?.priority || 99)
-      )
+      .sort((a, b) => Number(a?.priority || 99) - Number(b?.priority || 99))
       .forEach((stream) => {
         pushCanonicalStream(stream);
       });
@@ -530,7 +524,8 @@ function normalizeStreams(m) {
       primary: true,
     });
   }
-  if (primaryVideo) pushUrl(primaryVideo, { primary: !preferFinishedFacebookVideo });
+  if (primaryVideo)
+    pushUrl(primaryVideo, { primary: !preferFinishedFacebookVideo });
   const singles = [
     ["Video", m?.videoUrl],
     ["Stream", m?.stream],
@@ -625,7 +620,7 @@ function mergeRenderableStreams(existing, incoming) {
                 ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
                 : undefined,
           }
-        : item
+        : item,
     );
   });
 
@@ -673,7 +668,7 @@ function mergeCanonicalStreamLists(existing, incoming) {
                 ? { ...(previous?.meta || {}), ...(item?.meta || {}) }
                 : undefined,
           }
-        : item
+        : item,
     );
   });
 
@@ -716,15 +711,20 @@ function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
 }
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
 function pairLabel(reg, isSingle, displayMode = "nickname") {
-  return getTournamentPairName(reg, isSingle ? "single" : "double", displayMode, {
-    fallback:
-      reg?.code ||
-      reg?.shortCode ||
-      String(reg?._id || reg?.id || reg)
-        .slice(-5)
-        .toUpperCase() ||
-      "â€”",
-  }); /*
+  return getTournamentPairName(
+    reg,
+    isSingle ? "single" : "double",
+    displayMode,
+    {
+      fallback:
+        reg?.code ||
+        reg?.shortCode ||
+        String(reg?._id || reg?.id || reg)
+          .slice(-5)
+          .toUpperCase() ||
+        "â€”",
+    },
+  ); /*
   if (!reg) return "—";
   const p1 = reg?.player1 || reg?.players?.[0] || reg?.p1;
   const p2 = reg?.player2 || reg?.players?.[1] || reg?.p2;
@@ -745,7 +745,8 @@ function pairLabel(reg, isSingle, displayMode = "nickname") {
       .toUpperCase();
 
   return [n1, n2].filter(Boolean).join(" & ") || code || "—";
-*/}
+*/
+}
 function useDebounced(value, delay = 400) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -952,7 +953,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const roles = new Set(
     [...(userInfo?.roles || []), ...(userInfo?.permissions || [])]
       .filter(Boolean)
-      .map((x) => String(x).toLowerCase())
+      .map((x) => String(x).toLowerCase()),
   );
   const isAdmin = !!(
     userInfo?.isAdmin ||
@@ -984,12 +985,12 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     () =>
       (!m?.pairA && m?.seedA?.type === "groupRank") ||
       (!m?.pairB && m?.seedB?.type === "groupRank"),
-    [m?.pairA, m?.pairB, m?.seedA?.type, m?.seedB?.type]
+    [m?.pairA, m?.pairB, m?.seedA?.type, m?.seedB?.type],
   );
 
   const { data: brackets = [], isFetching: fetchingBrackets } =
     useListTournamentBracketsQuery(
-      tournamentId && needsGroupSeedResolution ? tournamentId : skipToken
+      tournamentId && needsGroupSeedResolution ? tournamentId : skipToken,
     );
   const { data: allMatchesFetched = [], isFetching: fetchingMatches } =
     useListTournamentMatchesQuery(
@@ -1007,7 +1008,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [brackets, allMatchesFetched]);
 
   const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
-    tournamentId ? tournamentId : skipToken
+    tournamentId ? tournamentId : skipToken,
   );
   const isManager = !!verifyRes?.isManager;
   const canEdit = isAdmin || isManager;
@@ -1026,7 +1027,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const loading = Boolean(isLoading || liveLoading);
   const globalLoading = Boolean(
     loading ||
-      (needsGroupSeedResolution && (fetchingBrackets || fetchingMatches))
+    (needsGroupSeedResolution && (fetchingBrackets || fetchingMatches)),
   );
 
   const {
@@ -1061,10 +1062,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         const arr = ms.filter((m) => keySet.has(_norm(keyOf(m))));
 
         const finishedCount = arr.filter(
-          (m) => String(m?.status || "").toLowerCase() === "finished"
+          (m) => String(m?.status || "").toLowerCase() === "finished",
         ).length;
         const anyUnfinished = arr.some(
-          (m) => String(m?.status || "").toLowerCase() !== "finished"
+          (m) => String(m?.status || "").toLowerCase() !== "finished",
         );
         const expected = expectedRRMatchesLocal(br, g);
 
@@ -1087,17 +1088,17 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       if (!seed || seed.type !== "groupRank") return false;
 
       const stageFromSeed = Number(
-        seed?.ref?.stage ?? seed?.ref?.stageIndex ?? NaN
+        seed?.ref?.stage ?? seed?.ref?.stageIndex ?? NaN,
       );
       const currentStage = Number(mm?.bracket?.stage ?? mm?.stage ?? NaN);
       const stageNo = Number.isFinite(stageFromSeed)
         ? stageFromSeed
         : Number.isFinite(currentStage)
-        ? currentStage - 1
-        : NaN;
+          ? currentStage - 1
+          : NaN;
 
       const groupCode = String(
-        seed?.ref?.groupCode ?? seed?.ref?.group ?? ""
+        seed?.ref?.groupCode ?? seed?.ref?.group ?? "",
       ).trim();
       if (!Number.isFinite(stageNo) || !groupCode) return true;
 
@@ -1107,7 +1108,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       const done = stageMap.get(_norm(groupCode));
       return done !== true;
     },
-    [groupDoneByStage, mm?.bracket?.stage, mm?.stage]
+    [groupDoneByStage, mm?.bracket?.stage, mm?.stage],
   );
 
   const showSpinner = waiting;
@@ -1124,7 +1125,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   // Streams
   const normalizedStreams = useMemo(
     () => normalizeStreams(localPatch ? { ...mm, ...localPatch } : mm || {}),
-    [mm, localPatch]
+    [mm, localPatch],
   );
   const [stableStreams, setStableStreams] = useState(() => normalizedStreams);
   const streams = stableStreams;
@@ -1186,7 +1187,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
     if (previousIdentity) {
       const preservedIdx = curr.findIndex(
-        (item) => getStreamIdentity(item) === previousIdentity
+        (item) => getStreamIdentity(item) === previousIdentity,
       );
       if (preservedIdx >= 0 && preservedIdx !== activeIdx) {
         setActiveIdx(preservedIdx);
@@ -1221,11 +1222,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       ? startedAt
         ? `Bắt đầu: ${formatClock(startedAt)}`
         : scheduledAt
-        ? `Giờ đấu: ${formatClock(scheduledAt)}`
-        : null
+          ? `Giờ đấu: ${formatClock(scheduledAt)}`
+          : null
       : scheduledAt
-      ? `Giờ đấu: ${formatClock(scheduledAt)}`
-      : null;
+        ? `Giờ đấu: ${formatClock(scheduledAt)}`
+        : null;
   const endLabel =
     status === "finished" && finishedAt
       ? `Kết thúc: ${formatClock(finishedAt)}`
@@ -1262,7 +1263,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const enterEditMode = useCallback(() => {
     setEditMode(true);
     setEditScores((prev) =>
-      Array.isArray(prev) && prev.length > 0 ? prev : [{ a: 0, b: 0 }]
+      Array.isArray(prev) && prev.length > 0 ? prev : [{ a: 0, b: 0 }],
     );
   }, []);
 
@@ -1316,7 +1317,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       toast.success(`Đã đặt đội ${side} thắng & kết thúc trận.`);
     } catch (e) {
       toast.error(
-        `Đặt thắng/thua thất bại: ${e?.data?.message || e?.message || e}`
+        `Đặt thắng/thua thất bại: ${e?.data?.message || e?.message || e}`,
       );
     }
   };
@@ -1332,7 +1333,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       toast.success(`Đã đổi trạng thái: ${newStatus}`);
     } catch (e) {
       toast.error(
-        `Đổi trạng thái thất bại: ${e?.data?.message || e?.message || e}`
+        `Đổi trạng thái thất bại: ${e?.data?.message || e?.message || e}`,
       );
     }
   };
@@ -1441,7 +1442,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       if (hasStreams) {
         const mergedStreams = mergeCanonicalStreamLists(
           existingStreams,
-          streamsArr
+          streamsArr,
         );
         next.streams = mergedStreams;
         next.meta = { ...(next.meta || {}), streams: mergedStreams };
@@ -1488,7 +1489,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           payload.scores ??
           payload?.data?.gameScores ??
           payload?.data?.scores ??
-          payload?.snapshot?.gameScores
+          payload?.snapshot?.gameScores,
       );
       if (!hasScores) debouncedRefresh();
     };
@@ -1550,8 +1551,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             ? "Trận đang live — bạn có thể mở liên kết hoặc xem trong nền."
             : "Trận đang live — chưa có link."
           : status === "finished"
-          ? "Trận đã diễn ra."
-          : "Trận chưa diễn ra."}
+            ? "Trận đã diễn ra."
+            : "Trận chưa diễn ra."}
       </Alert>
 
       {/* Khu video */}
@@ -1574,8 +1575,12 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               {streams.map((stream, index) => {
                 const selected = index === activeIdx;
                 const subtitle =
-                  String(stream.providerLabel || "").trim().toLowerCase() ===
-                  String(stream.label || "").trim().toLowerCase()
+                  String(stream.providerLabel || "")
+                    .trim()
+                    .toLowerCase() ===
+                  String(stream.label || "")
+                    .trim()
+                    .toLowerCase()
                     ? ""
                     : stream.providerLabel || "";
                 return (
@@ -1641,8 +1646,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   px: 2,
                   ...(showPlayer
                     ? {
-                        background:
-                          "linear-gradient(135deg, #1976d2, #42a5f5)",
+                        background: "linear-gradient(135deg, #1976d2, #42a5f5)",
                         boxShadow: "0 2px 8px rgba(25,118,210,0.3)",
                         "&:hover": {
                           background:
@@ -1741,7 +1745,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                             toast.success("Đã copy overlay URL");
                           } catch {
                             toast.info(
-                              "Không copy được, vui lòng bôi đen và copy thủ công."
+                              "Không copy được, vui lòng bôi đen và copy thủ công.",
                             );
                           }
                         }}
@@ -1945,7 +1949,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                         sx={{ width: 88 }}
                       />
                     ) : (
-                      g?.a ?? 0
+                      (g?.a ?? 0)
                     )}
                   </TableCell>
                   <TableCell align="center">
@@ -1963,7 +1967,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                         sx={{ width: 88 }}
                       />
                     ) : (
-                      g?.b ?? 0
+                      (g?.b ?? 0)
                     )}
                   </TableCell>
                   {canEdit && editMode && (
@@ -2012,15 +2016,15 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               status === "finished"
                 ? "success"
                 : status === "live"
-                ? "primary"
-                : "default"
+                  ? "primary"
+                  : "default"
             }
             label={
               status === "live"
                 ? "Đang diễn ra"
                 : status === "finished"
-                ? "Hoàn thành"
-                : "Dự kiến"
+                  ? "Hoàn thành"
+                  : "Dự kiến"
             }
           />
         </Stack>

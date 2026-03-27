@@ -22,6 +22,7 @@ import {
   getUploadedRecordingSegments,
   queueLiveRecordingExport,
 } from "./liveRecordingV2Transition.service.js";
+import { buildAiCommentarySummary } from "./liveRecordingAiCommentary.service.js";
 
 const DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES = 15;
 const AUTO_EXPORT_SWEEP_INTERVAL_MS = Math.max(
@@ -61,7 +62,8 @@ function buildCourtLabel(match, recording) {
   if (match?.courtLabel) return match.courtLabel;
   if (match?.court?.name) return match.court.name;
   if (match?.court?.label) return match.court.label;
-  if (Number.isFinite(match?.court?.number)) return `Court ${match.court.number}`;
+  if (Number.isFinite(match?.court?.number))
+    return `Court ${match.court.number}`;
   if (recording?.courtId?.label) return recording.courtId.label;
   if (recording?.courtId?.name) return recording.courtId.name;
   if (Number.isFinite(recording?.courtId?.number)) {
@@ -169,7 +171,10 @@ function summarizeSegments(segments = []) {
     const partSizeBytes = toNumber(meta.partSizeBytes);
     const percent =
       totalSizeBytes > 0
-        ? Math.max(0, Math.min(100, Math.round((completedBytes / totalSizeBytes) * 100)))
+        ? Math.max(
+            0,
+            Math.min(100, Math.round((completedBytes / totalSizeBytes) * 100))
+          )
         : segment.uploadStatus === "uploaded"
         ? 100
         : 0;
@@ -181,9 +186,12 @@ function summarizeSegments(segments = []) {
       index: segment.index,
       objectKey: segment.objectKey || "",
       storageTargetId:
-        String(segment?.storageTargetId || recording?.r2TargetId || "").trim() || null,
+        String(
+          segment?.storageTargetId || recording?.r2TargetId || ""
+        ).trim() || null,
       bucketName:
-        String(segment?.bucketName || recording?.r2BucketName || "").trim() || null,
+        String(segment?.bucketName || recording?.r2BucketName || "").trim() ||
+        null,
       etag: segment.etag || "",
       uploadStatus: segment.uploadStatus,
       isFinal: Boolean(segment.isFinal),
@@ -201,7 +209,9 @@ function summarizeSegments(segments = []) {
     };
   };
 
-  const detailedSegments = sortedSegments.map(buildSegmentProgress).filter(Boolean);
+  const detailedSegments = sortedSegments
+    .map(buildSegmentProgress)
+    .filter(Boolean);
 
   return {
     totalSegments: sortedSegments.length,
@@ -299,10 +309,9 @@ async function buildR2StorageSummary(recordings = []) {
       ? Math.max(0, Math.min(100, Math.round((usedBytes / totalBytes) * 100)))
       : null;
   const scannedTargetsById = new Map(
-    (Array.isArray(actualUsage?.targets) ? actualUsage.targets : []).map((target) => [
-      String(target?.id || ""),
-      target,
-    ])
+    (Array.isArray(actualUsage?.targets) ? actualUsage.targets : []).map(
+      (target) => [String(target?.id || ""), target]
+    )
   );
   const targetBreakdown = configuredTargets.map((target) => {
     const scannedTarget = scannedTargetsById.get(String(target.id || ""));
@@ -311,14 +320,17 @@ async function buildR2StorageSummary(recordings = []) {
       return {
         ...target,
         ...scannedTarget,
-        configured: Number.isFinite(Number(scannedTarget?.capacityBytes || target?.capacityBytes)),
+        configured: Number.isFinite(
+          Number(scannedTarget?.capacityBytes || target?.capacityBytes)
+        ),
         measured: true,
       };
     }
 
     if (actualUsage) {
       const capacityBytes =
-        Number.isFinite(Number(target?.capacityBytes)) && Number(target.capacityBytes) > 0
+        Number.isFinite(Number(target?.capacityBytes)) &&
+        Number(target.capacityBytes) > 0
           ? Number(target.capacityBytes)
           : null;
       return {
@@ -337,7 +349,8 @@ async function buildR2StorageSummary(recordings = []) {
     return {
       ...target,
       capacityBytes:
-        Number.isFinite(Number(target?.capacityBytes)) && Number(target.capacityBytes) > 0
+        Number.isFinite(Number(target?.capacityBytes)) &&
+        Number(target.capacityBytes) > 0
           ? Number(target.capacityBytes)
           : null,
       usedBytes: null,
@@ -346,7 +359,8 @@ async function buildR2StorageSummary(recordings = []) {
       objectCount: null,
       recordingsWithSourceOnR2: null,
       configured:
-        Number.isFinite(Number(target?.capacityBytes)) && Number(target.capacityBytes) > 0,
+        Number.isFinite(Number(target?.capacityBytes)) &&
+        Number(target.capacityBytes) > 0,
       measured: false,
     };
   });
@@ -391,7 +405,9 @@ function isGroupBracketType(type) {
 }
 
 function resolvePoolIndex(match) {
-  const poolName = String(match?.pool?.name || "").trim().toUpperCase();
+  const poolName = String(match?.pool?.name || "")
+    .trim()
+    .toUpperCase();
   if (poolName.length === 1 && poolName >= "A" && poolName <= "Z") {
     return poolName.charCodeAt(0) - 64; // A=1, B=2, ...
   }
@@ -402,10 +418,15 @@ function resolvePoolIndex(match) {
 
 function buildMatchVBTCode(match) {
   if (!match) return "";
-  const bracket = match.bracket && typeof match.bracket === "object" ? match.bracket : null;
-  const bracketType = String(bracket?.type || match?.format || "").toLowerCase();
+  const bracket =
+    match.bracket && typeof match.bracket === "object" ? match.bracket : null;
+  const bracketType = String(
+    bracket?.type || match?.format || ""
+  ).toLowerCase();
   const round = Number(match.rrRound || match.round || 1);
-  const orderOneBased = Number.isFinite(Number(match.order)) ? Number(match.order) + 1 : 1;
+  const orderOneBased = Number.isFinite(Number(match.order))
+    ? Number(match.order) + 1
+    : 1;
 
   if (isGroupBracketType(bracketType)) {
     const poolIdx = resolvePoolIndex(match);
@@ -480,8 +501,16 @@ function buildExportPipelineInfo(recording, context = {}) {
   };
 
   const scheduledExportAtMs =
-    Number(recording?.scheduledExportAt ? new Date(recording.scheduledExportAt).getTime() : 0) ||
-    Number(exportPipeline?.scheduledExportAt ? new Date(exportPipeline.scheduledExportAt).getTime() : 0) ||
+    Number(
+      recording?.scheduledExportAt
+        ? new Date(recording.scheduledExportAt).getTime()
+        : 0
+    ) ||
+    Number(
+      exportPipeline?.scheduledExportAt
+        ? new Date(exportPipeline.scheduledExportAt).getTime()
+        : 0
+    ) ||
     Number(delayed?.scheduledAt) ||
     0;
 
@@ -498,12 +527,15 @@ function buildExportPipelineInfo(recording, context = {}) {
     detail = "Bản ghi vừa vào exporting, đang chờ queue/worker đồng bộ.";
   } else if (inWorker) {
     detail = workerHealth?.worker?.currentJobStartedAt
-      ? `Worker bắt đầu ${new Date(workerHealth.worker.currentJobStartedAt).toISOString()}`
+      ? `Worker bắt đầu ${new Date(
+          workerHealth.worker.currentJobStartedAt
+        ).toISOString()}`
       : "Worker đang xử lý";
   } else if (active) {
     detail = "Worker đang xử lý";
   } else if (stage === "stale_no_job") {
-    detail = "Không tìm thấy job nào trong queue cho recording này. Cần kiểm tra và retry export.";
+    detail =
+      "Không tìm thấy job nào trong queue cho recording này. Cần kiểm tra và retry export.";
   } else if (stage === "worker_offline") {
     detail = "Worker không có heartbeat nên chưa thể xử lý export này.";
   }
@@ -539,7 +571,8 @@ function buildExportPipelineInfo(recording, context = {}) {
 
 function shouldMarkExportAsStale(recording, exportPipeline = {}) {
   if (recording?.status !== "exporting") return false;
-  if (!["stale_no_job", "worker_offline"].includes(exportPipeline.stage)) return false;
+  if (!["stale_no_job", "worker_offline"].includes(exportPipeline.stage))
+    return false;
 
   const updatedAtMs = recording?.updatedAt
     ? new Date(recording.updatedAt).getTime()
@@ -554,11 +587,15 @@ export async function reconcileStaleLiveRecordingExports({
   queueSnapshot: providedQueueSnapshot = null,
 } = {}) {
   const workerHealth =
-    providedWorkerHealth || (await getLiveRecordingWorkerHealth().catch(() => null));
+    providedWorkerHealth ||
+    (await getLiveRecordingWorkerHealth().catch(() => null));
   const queueSnapshot =
-    providedQueueSnapshot || (await getLiveRecordingExportQueueSnapshot().catch(() => null));
+    providedQueueSnapshot ||
+    (await getLiveRecordingExportQueueSnapshot().catch(() => null));
 
-  const exportingRecordings = await LiveRecordingV2.find({ status: "exporting" });
+  const exportingRecordings = await LiveRecordingV2.find({
+    status: "exporting",
+  });
   const updatedRecordingIds = [];
 
   for (const recording of exportingRecordings) {
@@ -572,7 +609,9 @@ export async function reconcileStaleLiveRecordingExports({
     }
 
     const nextMeta =
-      recording.meta && typeof recording.meta === "object" && !Array.isArray(recording.meta)
+      recording.meta &&
+      typeof recording.meta === "object" &&
+      !Array.isArray(recording.meta)
         ? { ...recording.meta }
         : {};
     const currentPipeline =
@@ -717,7 +756,9 @@ function buildRow(recording, context = {}) {
   const statusMeta = buildStatusMeta(recording.status);
   const exportPipeline = buildExportPipelineInfo(recording, context);
   const driveAuthMode =
-    exportPipeline.driveAuthMode || context.currentDriveMode || "serviceAccount";
+    exportPipeline.driveAuthMode ||
+    context.currentDriveMode ||
+    "serviceAccount";
   const competitionLabel = compactLabel([
     tournamentName,
     compactLabel([bracketName, bracketStage]),
@@ -770,6 +811,7 @@ function buildRow(recording, context = {}) {
     scheduledExportAt:
       recording.scheduledExportAt || exportPipeline.scheduledExportAt || null,
     sourceCleanupStatus: recording?.meta?.sourceCleanup?.status || null,
+    aiCommentary: buildAiCommentarySummary(recording),
     exportPipeline,
     error: recording.error || "",
     segmentSummary,
@@ -789,12 +831,16 @@ function sortRows(rows) {
     const pa = priority[a.status] ?? 99;
     const pb = priority[b.status] ?? 99;
     if (pa !== pb) return pa - pb;
-    return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+    return (
+      new Date(b.updatedAt || 0).getTime() -
+      new Date(a.updatedAt || 0).getTime()
+    );
   });
 }
 
 export async function buildLiveRecordingMonitorSnapshot() {
-  const { workerHealth, queueSnapshot } = await reconcileStaleLiveRecordingExports();
+  const { workerHealth, queueSnapshot } =
+    await reconcileStaleLiveRecordingExports();
   const currentDriveSettings = await getRecordingDriveSettings().catch(() => ({
     mode: "serviceAccount",
   }));
@@ -803,7 +849,8 @@ export async function buildLiveRecordingMonitorSnapshot() {
     .sort({ updatedAt: -1, createdAt: -1 })
     .populate({
       path: "match",
-      select: "code courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
+      select:
+        "code courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
       populate: [
         {
           path: "pairA",
@@ -812,12 +859,18 @@ export async function buildLiveRecordingMonitorSnapshot() {
             {
               path: "player1",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
+              populate: {
+                path: "user",
+                select: "name fullName nickname nickName",
+              },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
+              populate: {
+                path: "user",
+                select: "name fullName nickname nickName",
+              },
             },
           ],
         },
@@ -828,12 +881,18 @@ export async function buildLiveRecordingMonitorSnapshot() {
             {
               path: "player1",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
+              populate: {
+                path: "user",
+                select: "name fullName nickname nickName",
+              },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
+              populate: {
+                path: "user",
+                select: "name fullName nickname nickName",
+              },
             },
           ],
         },
@@ -847,11 +906,11 @@ export async function buildLiveRecordingMonitorSnapshot() {
 
   const rows = sortRows(
     recordings.map((recording) =>
-        buildRow(recording, {
-          workerHealth,
-          queueSnapshot,
-          currentDriveMode: currentDriveSettings.mode,
-        })
+      buildRow(recording, {
+        workerHealth,
+        queueSnapshot,
+        currentDriveMode: currentDriveSettings.mode,
+      })
     )
   );
   const summary = rows.reduce(
@@ -863,7 +922,14 @@ export async function buildLiveRecordingMonitorSnapshot() {
       if (row.status === "exporting") acc.exporting += 1;
       if (row.status === "ready") acc.ready += 1;
       if (row.status === "failed") acc.failed += 1;
-      if (["recording", "uploading", "pending_export_window", "exporting"].includes(row.status)) {
+      if (
+        [
+          "recording",
+          "uploading",
+          "pending_export_window",
+          "exporting",
+        ].includes(row.status)
+      ) {
         acc.active += 1;
       }
       acc.totalDurationSeconds += toNumber(row.durationSeconds);

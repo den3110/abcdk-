@@ -41,14 +41,16 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useClearChatHistoryMutation, useClearLearningMemoryMutation, chatBotApiSlice } from "../slices/chatBotApiSlice";
+import {
+  useClearChatHistoryMutation,
+  useClearLearningMemoryMutation,
+  chatBotApiSlice,
+} from "../slices/chatBotApiSlice";
 import { useSelector } from "react-redux";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext.jsx";
 
 const BOT_ICON = "/icon-chatbot-192.png";
-
-
 
 // ─── Initial Suggestions (only for welcome screen) ───
 function getWelcomeSuggestions(userInfo, t) {
@@ -60,7 +62,11 @@ function getWelcomeSuggestions(userInfo, t) {
 // ═══════════════════════════════════════════
 //  Markdown Renderer
 // ═══════════════════════════════════════════
-const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick }) {
+const MarkdownContent = memo(function MarkdownContent({
+  text,
+  theme,
+  onLinkClick,
+}) {
   const isDark = theme.palette.mode === "dark";
   const navigate = useRouterNavigate();
   const components = useMemo(
@@ -75,7 +81,12 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
           const url = new URL(href, window.location.origin);
           const p = url.pathname;
           // Known internal routes — always treat as SPA navigation
-          const internalPrefixes = ["/user/", "/tournament/", "/club/", "/pickle-ball/"];
+          const internalPrefixes = [
+            "/user/",
+            "/tournament/",
+            "/club/",
+            "/pickle-ball/",
+          ];
           if (
             url.origin === window.location.origin ||
             internalPrefixes.some((prefix) => p.startsWith(prefix))
@@ -155,14 +166,16 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
               const texts = cells.map((c) => extractText(c));
               // Detect header row: check if cells are th type
               const isHeader = cells.some(
-                (c) => c?.props?.node?.tagName === "th" || c?.type === "th"
+                (c) => c?.props?.node?.tagName === "th" || c?.type === "th",
               );
               if (isHeader || headers.length === 0) {
                 headers = texts;
               } else {
                 rows.push(texts);
                 // Keep original cell children for rendering links in card mode
-                rowNodes.push(cells.map((c) => c?.props?.children ?? extractText(c)));
+                rowNodes.push(
+                  cells.map((c) => c?.props?.children ?? extractText(c)),
+                );
               }
             });
           });
@@ -173,7 +186,9 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
         // ─── CARD MODE (> 3 columns) ───
         if (colCount > 3) {
           return (
-            <Box sx={{ my: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+            <Box
+              sx={{ my: 1.5, display: "flex", flexDirection: "column", gap: 1 }}
+            >
               {rowNodes.map((nodeRow, ri) => (
                 <Box
                   key={ri}
@@ -223,7 +238,11 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
                       <Typography
                         variant="body2"
                         component="span"
-                        sx={{ fontSize: "0.8rem", lineHeight: 1.5, wordBreak: "break-word" }}
+                        sx={{
+                          fontSize: "0.8rem",
+                          lineHeight: 1.5,
+                          wordBreak: "break-word",
+                        }}
                       >
                         {nodeRow[ci] ?? "—"}
                       </Typography>
@@ -262,12 +281,17 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
                 fontSize: "0.78rem",
                 lineHeight: 1.4,
                 "& th": {
-                  bgcolor: alpha(theme.palette.primary.main, isDark ? 0.18 : 0.07),
+                  bgcolor: alpha(
+                    theme.palette.primary.main,
+                    isDark ? 0.18 : 0.07,
+                  ),
                   fontWeight: 700,
                   fontSize: "0.72rem",
                   textTransform: "uppercase",
                   letterSpacing: "0.02em",
-                  color: isDark ? theme.palette.primary.light : theme.palette.primary.dark,
+                  color: isDark
+                    ? theme.palette.primary.light
+                    : theme.palette.primary.dark,
                   px: 1,
                   py: 0.7,
                   whiteSpace: "nowrap",
@@ -283,7 +307,10 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
                 },
                 "& tr:last-child td": { borderBottom: "none" },
                 "& tbody tr:hover": {
-                  bgcolor: alpha(theme.palette.primary.main, isDark ? 0.08 : 0.03),
+                  bgcolor: alpha(
+                    theme.palette.primary.main,
+                    isDark ? 0.08 : 0.03,
+                  ),
                 },
                 "& tr:nth-of-type(even)": {
                   bgcolor: alpha(theme.palette.action.hover, 0.03),
@@ -355,7 +382,7 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
         </Typography>
       ),
     }),
-    [theme, isDark, navigate, onLinkClick]
+    [theme, isDark, navigate, onLinkClick],
   );
 
   return (
@@ -458,7 +485,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
               isActive
                 ? theme.palette.primary.main
                 : theme.palette.success.main,
-              0.3
+              0.3,
             )}`,
             mt: 0.3,
           }}
@@ -565,9 +592,7 @@ const MessageBubble = memo(function MessageBubble({
           sx={{
             px: 2,
             py: 1.2,
-            borderRadius: isBot
-              ? "4px 16px 16px 16px"
-              : "16px 16px 4px 16px",
+            borderRadius: isBot ? "4px 16px 16px 16px" : "16px 16px 4px 16px",
             bgcolor: isBot
               ? isDark
                 ? alpha(theme.palette.primary.main, 0.12)
@@ -584,7 +609,11 @@ const MessageBubble = memo(function MessageBubble({
           }}
         >
           {isBot ? (
-            <MarkdownContent text={msg.text} theme={theme} onLinkClick={onClose} />
+            <MarkdownContent
+              text={msg.text}
+              theme={theme}
+              onLinkClick={onClose}
+            />
           ) : (
             msg.text
           )}
@@ -641,12 +670,7 @@ function LiveThinking({ theme, steps, t }) {
         }}
       />
       <Box sx={{ maxWidth: "85%", minWidth: 120 }}>
-        <ThinkingBlock
-          steps={steps}
-          theme={theme}
-          isActive={true}
-          t={t}
-        />
+        <ThinkingBlock steps={steps} theme={theme} isActive={true} t={t} />
       </Box>
     </Box>
   );
@@ -671,7 +695,9 @@ async function sendMessageStream(message, onEvent) {
   if (bracketMatch) headers["x-pkt-bracket-id"] = bracketMatch[1];
 
   // /live/:tid/brackets/:bid/live-studio/:courtId → courtId
-  const courtMatch = pathname.match(/\/(?:streaming|live-studio)\/([a-f0-9]{24})/i);
+  const courtMatch = pathname.match(
+    /\/(?:streaming|live-studio)\/([a-f0-9]{24})/i,
+  );
   if (courtMatch) headers["x-pkt-court-id"] = courtMatch[1];
 
   // Always send current path for context
@@ -758,15 +784,18 @@ export default function ChatBotDrawer() {
   const tipItems = t("chatbot.settings.tips");
 
   // ─── Map backend message to frontend format ───
-  const mapMessage = useCallback((m) => ({
-    id: m.id,
-    role: m.role === "user" ? "user" : "bot",
-    text: m.message || "",
-    toolsUsed: m.meta?.toolsUsed || [],
-    processingTime: m.meta?.processingTime || null,
-    thinkingSteps: m.meta?.thinkingSteps || [],
-    navigation: m.navigation || null,
-  }), []);
+  const mapMessage = useCallback(
+    (m) => ({
+      id: m.id,
+      role: m.role === "user" ? "user" : "bot",
+      text: m.message || "",
+      toolsUsed: m.meta?.toolsUsed || [],
+      processingTime: m.meta?.processingTime || null,
+      thinkingSteps: m.meta?.thinkingSteps || [],
+      navigation: m.navigation || null,
+    }),
+    [],
+  );
 
   // Instant jump (no animation) — used for initial history load
   const jumpToBottom = useCallback(() => {
@@ -792,7 +821,10 @@ export default function ChatBotDrawer() {
       const res = await fetchHistory(params).unwrap();
       if (res?.messages?.length) {
         const mapped = res.messages
-          .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "bot")
+          .filter(
+            (m) =>
+              m.role === "user" || m.role === "assistant" || m.role === "bot",
+          )
           .map(mapMessage);
         if (mapped.length) {
           const container = messagesContainerRef.current;
@@ -823,10 +855,13 @@ export default function ChatBotDrawer() {
     setIsLoadingMore(false);
   }, [isLoadingMore, userInfo, fetchHistory, mapMessage]);
 
-  const handleChatNavigate = useCallback((path) => {
-    setOpen(false);
-    routerNavigate(path);
-  }, [routerNavigate]);
+  const handleChatNavigate = useCallback(
+    (path) => {
+      setOpen(false);
+      routerNavigate(path);
+    },
+    [routerNavigate],
+  );
 
   const handleCloseDrawer = useCallback(() => setOpen(false), []);
 
@@ -841,7 +876,12 @@ export default function ChatBotDrawer() {
     setShowScrollBtn(distanceFromBottom > 120);
     isNearBottomRef.current = distanceFromBottom < 150;
     // Infinite scroll: load more when near top
-    if (el.scrollTop < 60 && hasMoreRef.current && !isLoadingMore && !isPrependingRef.current) {
+    if (
+      el.scrollTop < 60 &&
+      hasMoreRef.current &&
+      !isLoadingMore &&
+      !isPrependingRef.current
+    ) {
       loadMore();
     }
   }, [isLoadingMore, loadMore]);
@@ -873,19 +913,26 @@ export default function ChatBotDrawer() {
         const res = await fetchHistory({}).unwrap();
         if (res?.messages?.length) {
           const mapped = res.messages
-            .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "bot")
+            .filter(
+              (m) =>
+                m.role === "user" || m.role === "assistant" || m.role === "bot",
+            )
             .map(mapMessage);
           if (mapped.length) setMessages(mapped);
 
           // Restore suggestions from the last bot message
-          const lastBotMsg = [...res.messages].reverse().find((m) => m.role === "bot");
+          const lastBotMsg = [...res.messages]
+            .reverse()
+            .find((m) => m.role === "bot");
           if (lastBotMsg?.meta?.suggestions?.length) {
             setDynamicSuggestions(lastBotMsg.meta.suggestions);
           }
         }
         nextCursorRef.current = res?.nextCursor || null;
         hasMoreRef.current = !!res?.hasMore;
-      } catch { /* ignore - guest users */ }
+      } catch {
+        /* ignore - guest users */
+      }
       // Instant jump to bottom after history loads (no animation)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -964,7 +1011,7 @@ export default function ChatBotDrawer() {
           case "tool_done": {
             // Find the running step for this tool and update it
             const idx = collectedSteps.findLastIndex(
-              (s) => s.tool === data.tool && s.status === "running"
+              (s) => s.tool === data.tool && s.status === "running",
             );
             if (idx !== -1) {
               collectedSteps[idx] = {
@@ -1027,7 +1074,10 @@ export default function ChatBotDrawer() {
       }
     } catch (err) {
       let errorText = `❌ ${t("chatbot.errors.genericRetry")}`;
-      if (err.message?.includes("session_limit_reached") || err.message?.includes("429")) {
+      if (
+        err.message?.includes("session_limit_reached") ||
+        err.message?.includes("429")
+      ) {
         errorText = `⏳ ${t("chatbot.errors.rateLimit")}`;
       } else if (err.message) {
         errorText = `❌ ${err.message}`;
@@ -1058,7 +1108,9 @@ export default function ChatBotDrawer() {
     setShowSettings(false);
     try {
       await clearHistory().unwrap();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     setMessages([]);
     setDynamicSuggestions([]);
     historyLoaded.current = false;
@@ -1135,7 +1187,11 @@ export default function ChatBotDrawer() {
             <IconButton
               size="small"
               onClick={() => setShowSettings(false)}
-              sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" }, ml: -0.5 }}
+              sx={{
+                color: "rgba(255,255,255,0.7)",
+                "&:hover": { color: "#fff" },
+                ml: -0.5,
+              }}
             >
               <ArrowBackIcon fontSize="small" />
             </IconButton>
@@ -1166,7 +1222,10 @@ export default function ChatBotDrawer() {
               <IconButton
                 size="small"
                 onClick={() => setShowSettings(true)}
-                sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" } }}
+                sx={{
+                  color: "rgba(255,255,255,0.7)",
+                  "&:hover": { color: "#fff" },
+                }}
               >
                 <SettingsIcon fontSize="small" />
               </IconButton>
@@ -1176,7 +1235,10 @@ export default function ChatBotDrawer() {
             <IconButton
               size="small"
               onClick={() => setOpen(false)}
-              sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" } }}
+              sx={{
+                color: "rgba(255,255,255,0.7)",
+                "&:hover": { color: "#fff" },
+              }}
             >
               <CloseIcon />
             </IconButton>
@@ -1197,10 +1259,19 @@ export default function ChatBotDrawer() {
               gap: 1,
             }}
           >
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: 0.8 }}>
-              <SettingsIcon sx={{ fontSize: 18, color: "text.secondary" }} /> {t(
-                "chatbot.settingsTitle"
-              )}
+            <Typography
+              variant="subtitle2"
+              fontWeight={700}
+              sx={{
+                mb: 1,
+                fontSize: "0.9rem",
+                display: "flex",
+                alignItems: "center",
+                gap: 0.8,
+              }}
+            >
+              <SettingsIcon sx={{ fontSize: 18, color: "text.secondary" }} />{" "}
+              {t("chatbot.settingsTitle")}
             </Typography>
 
             {/* Memory info */}
@@ -1208,14 +1279,27 @@ export default function ChatBotDrawer() {
               sx={{
                 borderRadius: 2,
                 border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
-                bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                bgcolor: alpha(
+                  theme.palette.background.paper,
+                  isDark ? 0.4 : 0.9,
+                ),
                 p: 2,
               }}
             >
-              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                <PsychologyIcon sx={{ fontSize: 18, color: theme.palette.primary.main }} /> {t(
-                  "chatbot.settings.memoryTitle"
-                )}
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                sx={{
+                  mb: 0.5,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.8,
+                }}
+              >
+                <PsychologyIcon
+                  sx={{ fontSize: 18, color: theme.palette.primary.main }}
+                />{" "}
+                {t("chatbot.settings.memoryTitle")}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 {t("chatbot.settings.sessionMessageCount", {
@@ -1246,16 +1330,34 @@ export default function ChatBotDrawer() {
               sx={{
                 borderRadius: 2,
                 border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
-                bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                bgcolor: alpha(
+                  theme.palette.background.paper,
+                  isDark ? 0.4 : 0.9,
+                ),
                 p: 2,
               }}
             >
-              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                <SmartToyIcon sx={{ fontSize: 18, color: theme.palette.info.main }} /> {t(
-                  "chatbot.settings.botInfoTitle"
-                )}
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                sx={{
+                  mb: 0.5,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.8,
+                }}
+              >
+                <SmartToyIcon
+                  sx={{ fontSize: 18, color: theme.palette.info.main }}
+                />{" "}
+                {t("chatbot.settings.botInfoTitle")}
               </Typography>
-              <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.8 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                component="div"
+                sx={{ lineHeight: 1.8 }}
+              >
                 <b>{t("chatbot.settings.botNameLabel")}:</b>{" "}
                 {t("chatbot.settings.botNameValue")}
                 <br />
@@ -1269,16 +1371,32 @@ export default function ChatBotDrawer() {
               sx={{
                 borderRadius: 2,
                 border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
-                bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                bgcolor: alpha(
+                  theme.palette.background.paper,
+                  isDark ? 0.4 : 0.9,
+                ),
                 p: 2,
               }}
             >
-              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                <TipsAndUpdatesIcon sx={{ fontSize: 18, color: theme.palette.warning.main }} /> {t(
-                  "chatbot.settings.tipsTitle"
-                )}
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                sx={{
+                  mb: 0.5,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.8,
+                }}
+              >
+                <TipsAndUpdatesIcon
+                  sx={{ fontSize: 18, color: theme.palette.warning.main }}
+                />{" "}
+                {t("chatbot.settings.tipsTitle")}
               </Typography>
-              <Box component="ul" sx={{ m: 0, pl: 2.25, color: "text.secondary" }}>
+              <Box
+                component="ul"
+                sx={{ m: 0, pl: 2.25, color: "text.secondary" }}
+              >
                 {Array.isArray(tipItems) &&
                   tipItems.map((tip) => (
                     <Typography
@@ -1299,16 +1417,34 @@ export default function ChatBotDrawer() {
                 sx={{
                   borderRadius: 2,
                   border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
-                  bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                  bgcolor: alpha(
+                    theme.palette.background.paper,
+                    isDark ? 0.4 : 0.9,
+                  ),
                   p: 2,
                 }}
               >
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                  <SchoolIcon sx={{ fontSize: 18, color: theme.palette.success.main }} /> {t(
-                    "chatbot.settings.learningTitle"
-                  )}
+                <Typography
+                  variant="body2"
+                  fontWeight={600}
+                  sx={{
+                    mb: 0.5,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.8,
+                  }}
+                >
+                  <SchoolIcon
+                    sx={{ fontSize: 18, color: theme.palette.success.main }}
+                  />{" "}
+                  {t("chatbot.settings.learningTitle")}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.6 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  component="div"
+                  sx={{ lineHeight: 1.6 }}
+                >
                   {t("chatbot.settings.learningBody")}
                 </Typography>
                 <Box sx={{ mt: 1.5 }}>
@@ -1323,12 +1459,12 @@ export default function ChatBotDrawer() {
                         alert(
                           t("chatbot.settings.clearLearningSuccess", {
                             count: res.deleted,
-                          })
+                          }),
                         );
                       } catch (err) {
                         alert(
                           err?.data?.error ||
-                            t("chatbot.settings.clearLearningError")
+                            t("chatbot.settings.clearLearningError"),
                         );
                       }
                     }}
@@ -1346,339 +1482,353 @@ export default function ChatBotDrawer() {
             )}
           </Box>
         ) : (
-        <>
-        {/* ─── Messages ─── */}
-        <Box
-          ref={messagesContainerRef}
-          onScroll={handleMessagesScroll}
-          sx={{
-            flex: 1,
-            overflowY: "auto",
-            py: 2,
-            position: "relative",
-            "&::-webkit-scrollbar": { width: 6 },
-            "&::-webkit-scrollbar-thumb": {
-              bgcolor: alpha(theme.palette.text.primary, 0.15),
-              borderRadius: 3,
-            },
-          }}
-        >
-          {messages.length === 0 && !isTyping ? (
-            <Box sx={{ textAlign: "center", px: 3, pt: 4 }}>
-              <AutoAwesomeIcon
-                sx={{
-                  fontSize: 48,
-                  color: theme.palette.primary.main,
-                  mb: 2,
-                  opacity: 0.7,
-                }}
-              />
-              <Typography variant="h6" fontWeight={600} gutterBottom>
-                {t("chatbot.welcomeTitle", {
-                  name: userInfo?.name ? `, ${userInfo.name}` : "",
-                })}{" "}
-                👋
-              </Typography>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 3 }}
-              >
-                {t("chatbot.welcomeBody")}
-              </Typography>
-              <Box
-                sx={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 1,
-                  justifyContent: "center",
-                }}
-              >
-                {getWelcomeSuggestions(userInfo, t).map((text) => (
-                  <Box
-                    key={text}
-                    onClick={() => handleSend(text)}
+          <>
+            {/* ─── Messages ─── */}
+            <Box
+              ref={messagesContainerRef}
+              onScroll={handleMessagesScroll}
+              sx={{
+                flex: 1,
+                overflowY: "auto",
+                py: 2,
+                position: "relative",
+                "&::-webkit-scrollbar": { width: 6 },
+                "&::-webkit-scrollbar-thumb": {
+                  bgcolor: alpha(theme.palette.text.primary, 0.15),
+                  borderRadius: 3,
+                },
+              }}
+            >
+              {messages.length === 0 && !isTyping ? (
+                <Box sx={{ textAlign: "center", px: 3, pt: 4 }}>
+                  <AutoAwesomeIcon
                     sx={{
-                      px: 1.5,
-                      py: 0.8,
-                      borderRadius: 2,
-                      fontSize: "0.8rem",
-                      cursor: "pointer",
-                      border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                      fontSize: 48,
                       color: theme.palette.primary.main,
-                      transition: "all 0.2s",
-                      "&:hover": {
-                        bgcolor: alpha(theme.palette.primary.main, 0.1),
-                        borderColor: theme.palette.primary.main,
-                      },
-                    }}
-                  >
-                    {text}
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          ) : (
-            <>
-              {/* Ultra-smooth loading spinner (absolute overlay) */}
-              {isLoadingMore && (
-                <Box
-                  sx={{
-                    position: "absolute",
-                    top: 10,
-                    left: 0,
-                    right: 0,
-                    display: "flex",
-                    justifyContent: "center",
-                    zIndex: 2,
-                    pointerEvents: "none",
-                  }}
-                >
-                  <CircularProgress
-                    size={24}
-                    thickness={5}
-                    sx={{
-                      color: theme.palette.primary.main,
-                      filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))",
+                      mb: 2,
+                      opacity: 0.7,
                     }}
                   />
+                  <Typography variant="h6" fontWeight={600} gutterBottom>
+                    {t("chatbot.welcomeTitle", {
+                      name: userInfo?.name ? `, ${userInfo.name}` : "",
+                    })}{" "}
+                    👋
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 3 }}
+                  >
+                    {t("chatbot.welcomeBody")}
+                  </Typography>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 1,
+                      justifyContent: "center",
+                    }}
+                  >
+                    {getWelcomeSuggestions(userInfo, t).map((text) => (
+                      <Box
+                        key={text}
+                        onClick={() => handleSend(text)}
+                        sx={{
+                          px: 1.5,
+                          py: 0.8,
+                          borderRadius: 2,
+                          fontSize: "0.8rem",
+                          cursor: "pointer",
+                          border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                          color: theme.palette.primary.main,
+                          transition: "all 0.2s",
+                          "&:hover": {
+                            bgcolor: alpha(theme.palette.primary.main, 0.1),
+                            borderColor: theme.palette.primary.main,
+                          },
+                        }}
+                      >
+                        {text}
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              ) : (
+                <>
+                  {/* Ultra-smooth loading spinner (absolute overlay) */}
+                  {isLoadingMore && (
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: 10,
+                        left: 0,
+                        right: 0,
+                        display: "flex",
+                        justifyContent: "center",
+                        zIndex: 2,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <CircularProgress
+                        size={24}
+                        thickness={5}
+                        sx={{
+                          color: theme.palette.primary.main,
+                          filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))",
+                        }}
+                      />
+                    </Box>
+                  )}
+
+                  {/* End of history indicator */}
+                  {!hasMoreRef.current && messages.length > 0 && (
+                    <Typography
+                      variant="caption"
+                      color="text.disabled"
+                      sx={{
+                        display: "block",
+                        textAlign: "center",
+                        py: 2,
+                        opacity: 0.7,
+                      }}
+                    >
+                      {t("chatbot.historyLoadedAll")}
+                    </Typography>
+                  )}
+                  {messages.map((msg, i) => (
+                    <MessageBubble
+                      key={msg.id || `msg-${i}`}
+                      msg={msg}
+                      theme={theme}
+                      onNavigate={handleChatNavigate}
+                      onClose={handleCloseDrawer}
+                      t={t}
+                    />
+                  ))}
+                </>
+              )}
+
+              {/* Live thinking (during streaming) */}
+              {isTyping && liveSteps.length > 0 && (
+                <LiveThinking theme={theme} steps={liveSteps} t={t} />
+              )}
+              {isTyping && liveSteps.length === 0 && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    px: 2,
+                    py: 1,
+                  }}
+                >
+                  <Avatar
+                    src={BOT_ICON}
+                    sx={{
+                      width: 32,
+                      height: 32,
+                      bgcolor: alpha(theme.palette.primary.main, 0.15),
+                    }}
+                  />
+                  <CircularProgress size={16} />
+                </Box>
+              )}
+              <div ref={messagesEndRef} />
+
+              {/* Scroll-to-bottom button */}
+              <Fade in={showScrollBtn}>
+                <IconButton
+                  onClick={scrollToBottom}
+                  size="small"
+                  sx={{
+                    position: "sticky",
+                    bottom: 8,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    display: "flex",
+                    mx: "auto",
+                    width: 32,
+                    height: 32,
+                    bgcolor: isDark
+                      ? alpha(theme.palette.background.paper, 0.85)
+                      : alpha("#fff", 0.9),
+                    border: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
+                    boxShadow: `0 2px 8px ${alpha("#000", 0.15)}`,
+                    backdropFilter: "blur(8px)",
+                    color: theme.palette.text.secondary,
+                    transition: "all 0.2s",
+                    "&:hover": {
+                      bgcolor: isDark
+                        ? alpha(theme.palette.background.paper, 1)
+                        : "#fff",
+                      color: theme.palette.primary.main,
+                      boxShadow: `0 3px 12px ${alpha(theme.palette.primary.main, 0.2)}`,
+                    },
+                  }}
+                >
+                  <KeyboardArrowDownIcon fontSize="small" />
+                </IconButton>
+              </Fade>
+            </Box>
+
+            <Divider />
+
+            {/* ─── Suggestions (above input) ─── */}
+            {messages.length > 0 &&
+              !isTyping &&
+              dynamicSuggestions.length > 0 && (
+                <Box
+                  ref={(el) => {
+                    if (!el || el._dragInit) return;
+                    el._dragInit = true;
+                    let isDown = false,
+                      startX,
+                      scrollLeft,
+                      isDragged = false;
+                    el.onmousedown = (e) => {
+                      isDown = true;
+                      isDragged = false;
+                      el.style.cursor = "grabbing";
+                      startX = e.pageX - el.offsetLeft;
+                      scrollLeft = el.scrollLeft;
+                    };
+                    el.onmouseleave = el.onmouseup = () => {
+                      isDown = false;
+                      el.style.cursor = "grab";
+                    };
+                    el.onmousemove = (e) => {
+                      if (!isDown) return;
+                      const dx = e.pageX - el.offsetLeft - startX;
+                      if (Math.abs(dx) > 3) isDragged = true;
+                      e.preventDefault();
+                      el.scrollLeft = scrollLeft - dx;
+                    };
+                    // Suppress click after drag
+                    el.addEventListener(
+                      "click",
+                      (e) => {
+                        if (isDragged) {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          isDragged = false;
+                        }
+                      },
+                      true,
+                    );
+                    el.onwheel = (e) => {
+                      if (Math.abs(e.deltaY) > 0) {
+                        e.preventDefault();
+                        el.scrollLeft += e.deltaY;
+                      }
+                    };
+                  }}
+                  sx={{
+                    display: "flex",
+                    gap: 0.8,
+                    px: 1.5,
+                    py: 1,
+                    overflowX: "auto",
+                    cursor: "grab",
+                    userSelect: "none",
+                    "&::-webkit-scrollbar": { display: "none" },
+                    scrollbarWidth: "none",
+                    bgcolor: isDark
+                      ? alpha(theme.palette.background.paper, 0.4)
+                      : alpha(theme.palette.grey[50], 0.8),
+                  }}
+                >
+                  {dynamicSuggestions.map((text) => (
+                    <Box
+                      key={text}
+                      onClick={() => handleSend(text)}
+                      sx={{
+                        px: 1.2,
+                        py: 0.5,
+                        borderRadius: 2,
+                        fontSize: "0.75rem",
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
+                        color: theme.palette.primary.main,
+                        transition: "all 0.2s",
+                        "&:hover": {
+                          bgcolor: alpha(theme.palette.primary.main, 0.1),
+                          borderColor: theme.palette.primary.main,
+                        },
+                      }}
+                    >
+                      {text}
+                    </Box>
+                  ))}
                 </Box>
               )}
 
-              {/* End of history indicator */}
-              {!hasMoreRef.current && messages.length > 0 && (
-                <Typography
-                  variant="caption"
-                  color="text.disabled"
-                  sx={{ display: "block", textAlign: "center", py: 2, opacity: 0.7 }}
-                >
-                  {t("chatbot.historyLoadedAll")}
-                </Typography>
-              )}
-              {messages.map((msg, i) => (
-                <MessageBubble
-                  key={msg.id || `msg-${i}`}
-                  msg={msg}
-                  theme={theme}
-                  onNavigate={handleChatNavigate}
-                  onClose={handleCloseDrawer}
-                  t={t}
-                />
-              ))}
-            </>
-          )}
-
-          {/* Live thinking (during streaming) */}
-          {isTyping && liveSteps.length > 0 && (
-            <LiveThinking theme={theme} steps={liveSteps} t={t} />
-          )}
-          {isTyping && liveSteps.length === 0 && (
+            {/* ─── Input ─── */}
             <Box
               sx={{
+                p: 1.5,
                 display: "flex",
-                alignItems: "center",
+                alignItems: "flex-end",
                 gap: 1,
-                px: 2,
-                py: 1,
+                bgcolor: isDark
+                  ? alpha(theme.palette.background.paper, 0.6)
+                  : "#fff",
               }}
             >
-              <Avatar
-                src={BOT_ICON}
+              <TextField
+                inputRef={inputRef}
+                fullWidth
+                multiline
+                maxRows={3}
+                size="small"
+                placeholder={t("chatbot.inputPlaceholder")}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isTyping}
                 sx={{
-                  width: 32,
-                  height: 32,
-                  bgcolor: alpha(theme.palette.primary.main, 0.15),
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: 3,
+                    bgcolor: isDark
+                      ? alpha(theme.palette.background.default, 0.5)
+                      : alpha(theme.palette.grey[100], 0.8),
+                    fontSize: "0.875rem",
+                    "& fieldset": { borderColor: "transparent" },
+                    "&:hover fieldset": {
+                      borderColor: alpha(theme.palette.primary.main, 0.3),
+                    },
+                    "&.Mui-focused fieldset": {
+                      borderColor: theme.palette.primary.main,
+                      borderWidth: 1,
+                    },
+                  },
                 }}
               />
-              <CircularProgress size={16} />
-            </Box>
-          )}
-          <div ref={messagesEndRef} />
-
-          {/* Scroll-to-bottom button */}
-          <Fade in={showScrollBtn}>
-            <IconButton
-              onClick={scrollToBottom}
-              size="small"
-              sx={{
-                position: "sticky",
-                bottom: 8,
-                left: "50%",
-                transform: "translateX(-50%)",
-                display: "flex",
-                mx: "auto",
-                width: 32,
-                height: 32,
-                bgcolor: isDark
-                  ? alpha(theme.palette.background.paper, 0.85)
-                  : alpha("#fff", 0.9),
-                border: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
-                boxShadow: `0 2px 8px ${alpha("#000", 0.15)}`,
-                backdropFilter: "blur(8px)",
-                color: theme.palette.text.secondary,
-                transition: "all 0.2s",
-                "&:hover": {
-                  bgcolor: isDark
-                    ? alpha(theme.palette.background.paper, 1)
-                    : "#fff",
-                  color: theme.palette.primary.main,
-                  boxShadow: `0 3px 12px ${alpha(theme.palette.primary.main, 0.2)}`,
-                },
-              }}
-            >
-              <KeyboardArrowDownIcon fontSize="small" />
-            </IconButton>
-          </Fade>
-        </Box>
-
-        <Divider />
-
-        {/* ─── Suggestions (above input) ─── */}
-        {messages.length > 0 && !isTyping && dynamicSuggestions.length > 0 && (
-          <Box
-            ref={(el) => {
-              if (!el || el._dragInit) return;
-              el._dragInit = true;
-              let isDown = false, startX, scrollLeft, isDragged = false;
-              el.onmousedown = (e) => {
-                isDown = true;
-                isDragged = false;
-                el.style.cursor = "grabbing";
-                startX = e.pageX - el.offsetLeft;
-                scrollLeft = el.scrollLeft;
-              };
-              el.onmouseleave = el.onmouseup = () => {
-                isDown = false;
-                el.style.cursor = "grab";
-              };
-              el.onmousemove = (e) => {
-                if (!isDown) return;
-                const dx = e.pageX - el.offsetLeft - startX;
-                if (Math.abs(dx) > 3) isDragged = true;
-                e.preventDefault();
-                el.scrollLeft = scrollLeft - dx;
-              };
-              // Suppress click after drag
-              el.addEventListener("click", (e) => {
-                if (isDragged) {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  isDragged = false;
-                }
-              }, true);
-              el.onwheel = (e) => {
-                if (Math.abs(e.deltaY) > 0) {
-                  e.preventDefault();
-                  el.scrollLeft += e.deltaY;
-                }
-              };
-            }}
-            sx={{
-              display: "flex",
-              gap: 0.8,
-              px: 1.5,
-              py: 1,
-              overflowX: "auto",
-              cursor: "grab",
-              userSelect: "none",
-              "&::-webkit-scrollbar": { display: "none" },
-              scrollbarWidth: "none",
-              bgcolor: isDark
-                ? alpha(theme.palette.background.paper, 0.4)
-                : alpha(theme.palette.grey[50], 0.8),
-            }}
-          >
-            {dynamicSuggestions.map((text) => (
-              <Box
-                key={text}
-                onClick={() => handleSend(text)}
+              <IconButton
+                onClick={() => handleSend()}
+                disabled={!input.trim() || isTyping}
                 sx={{
-                  px: 1.2,
-                  py: 0.5,
-                  borderRadius: 2,
-                  fontSize: "0.75rem",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                  border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
-                  color: theme.palette.primary.main,
-                  transition: "all 0.2s",
-                  "&:hover": {
-                    bgcolor: alpha(theme.palette.primary.main, 0.1),
-                    borderColor: theme.palette.primary.main,
+                  bgcolor: theme.palette.primary.main,
+                  color: "#fff",
+                  width: 40,
+                  height: 40,
+                  "&:hover": { bgcolor: theme.palette.primary.dark },
+                  "&.Mui-disabled": {
+                    bgcolor: alpha(theme.palette.primary.main, 0.3),
+                    color: "rgba(255,255,255,0.5)",
                   },
                 }}
               >
-                {text}
-              </Box>
-            ))}
-          </Box>
-        )}
-
-        {/* ─── Input ─── */}
-        <Box
-          sx={{
-            p: 1.5,
-            display: "flex",
-            alignItems: "flex-end",
-            gap: 1,
-            bgcolor: isDark
-              ? alpha(theme.palette.background.paper, 0.6)
-              : "#fff",
-          }}
-        >
-          <TextField
-            inputRef={inputRef}
-            fullWidth
-            multiline
-            maxRows={3}
-            size="small"
-            placeholder={t("chatbot.inputPlaceholder")}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isTyping}
-            sx={{
-              "& .MuiOutlinedInput-root": {
-                borderRadius: 3,
-                bgcolor: isDark
-                  ? alpha(theme.palette.background.default, 0.5)
-                  : alpha(theme.palette.grey[100], 0.8),
-                fontSize: "0.875rem",
-                "& fieldset": { borderColor: "transparent" },
-                "&:hover fieldset": {
-                  borderColor: alpha(theme.palette.primary.main, 0.3),
-                },
-                "&.Mui-focused fieldset": {
-                  borderColor: theme.palette.primary.main,
-                  borderWidth: 1,
-                },
-              },
-            }}
-          />
-          <IconButton
-            onClick={() => handleSend()}
-            disabled={!input.trim() || isTyping}
-            sx={{
-              bgcolor: theme.palette.primary.main,
-              color: "#fff",
-              width: 40,
-              height: 40,
-              "&:hover": { bgcolor: theme.palette.primary.dark },
-              "&.Mui-disabled": {
-                bgcolor: alpha(theme.palette.primary.main, 0.3),
-                color: "rgba(255,255,255,0.5)",
-              },
-            }}
-          >
-            {isTyping ? (
-              <CircularProgress size={20} sx={{ color: "#fff" }} />
-            ) : (
-              <SendIcon sx={{ fontSize: 20 }} />
-            )}
-          </IconButton>
-        </Box>
-        </>
+                {isTyping ? (
+                  <CircularProgress size={20} sx={{ color: "#fff" }} />
+                ) : (
+                  <SendIcon sx={{ fontSize: 20 }} />
+                )}
+              </IconButton>
+            </Box>
+          </>
         )}
       </Drawer>
 

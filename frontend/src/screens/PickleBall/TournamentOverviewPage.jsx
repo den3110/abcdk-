@@ -50,12 +50,16 @@ import {
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
-import { formatDate as formatLocaleDate, formatTime as formatLocaleTime } from "../../i18n/format";
+import {
+  formatDate as formatLocaleDate,
+  formatTime as formatLocaleTime,
+} from "../../i18n/format";
 import SEOHead from "../../components/SEOHead";
 import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
 } from "../../utils/tournamentName";
+import { TournamentWeatherSection } from "../TournamentWeatherSection";
 
 /* ===== HELPERS ===== */
 const TYPE_LABEL = (t, tFn) => {
@@ -74,7 +78,7 @@ const pairLabel = (
   pair,
   tFn,
   eventType = "double",
-  displayMode = "nickname"
+  displayMode = "nickname",
 ) => {
   if (!pair) return tFn("tournaments.overview.pairFallback");
   const resolved = getTournamentPairName(pair, eventType, displayMode, {
@@ -421,10 +425,10 @@ export default function TournamentOverviewPage() {
     for (const [matchId, incoming] of pendingRef.current) {
       const current = liveMap.get(matchId);
       const nextVersion = Number(
-        incoming?.liveVersion ?? incoming?.version ?? 0
+        incoming?.liveVersion ?? incoming?.version ?? 0,
       );
       const currentVersion = Number(
-        current?.liveVersion ?? current?.version ?? 0
+        current?.liveVersion ?? current?.version ?? 0,
       );
       const merged =
         !current || nextVersion >= currentVersion
@@ -447,7 +451,7 @@ export default function TournamentOverviewPage() {
         flushPending();
       });
     },
-    [flushPending]
+    [flushPending],
   );
 
   const apiSig = useMemo(() => {
@@ -480,9 +484,9 @@ export default function TournamentOverviewPage() {
       Array.from(liveMapRef.current.values()).filter(
         (match) =>
           String(match?.tournament?._id || match?.tournament || id) ===
-          String(id)
+          String(id),
       ),
-    [id, liveBump]
+    [id, liveBump],
   );
 
   // Permissions
@@ -504,15 +508,15 @@ export default function TournamentOverviewPage() {
   const regTotal = regs.length;
   const regPaid = useMemo(
     () => regs.filter((r) => r?.payment?.status === "Paid").length,
-    [regs]
+    [regs],
   );
   const regCheckin = useMemo(
     () => regs.filter((r) => !!r?.checkinAt).length,
-    [regs]
+    [regs],
   );
   const videoCount = useMemo(
     () => allMatches.filter((m) => !!m?.video).length,
-    [allMatches]
+    [allMatches],
   );
   const matchStatusCount = useMemo(() => {
     const init = {
@@ -542,7 +546,7 @@ export default function TournamentOverviewPage() {
         stage: b?.stage,
         total: 0,
         finished: 0,
-      })
+      }),
     );
     for (const m of allMatches) {
       const bid = String(m?.bracket?._id || m?.bracket || "");
@@ -552,7 +556,7 @@ export default function TournamentOverviewPage() {
       if (m?.status === "finished") rec.finished += 1;
     }
     return Array.from(byId.values()).sort(
-      (a, b) => (a.stage ?? 0) - (b.stage ?? 0)
+      (a, b) => (a.stage ?? 0) - (b.stage ?? 0),
     );
   }, [brackets, allMatches, t]);
 
@@ -575,9 +579,9 @@ export default function TournamentOverviewPage() {
           (a, b) =>
             priorityRank(a) - priorityRank(b) ||
             (safeDate(a?.scheduledAt)?.getTime() ?? 9e15) -
-            (safeDate(b?.scheduledAt)?.getTime() ?? 9e15)
+              (safeDate(b?.scheduledAt)?.getTime() ?? 9e15),
         ),
-    [allMatches, now]
+    [allMatches, now],
   );
 
   const recent = useMemo(
@@ -587,9 +591,9 @@ export default function TournamentOverviewPage() {
         .sort(
           (a, b) =>
             (safeDate(b?.finishedAt)?.getTime() ?? 0) -
-            (safeDate(a?.finishedAt)?.getTime() ?? 0)
+            (safeDate(a?.finishedAt)?.getTime() ?? 0),
         ),
-    [allMatches]
+    [allMatches],
   );
 
   // Socket (Giữ nguyên logic Socket, đảm bảo cập nhật realtime)
@@ -654,8 +658,79 @@ export default function TournamentOverviewPage() {
         })}
         description={t("tournaments.overview.seoDescription", {
           name: tour?.name || t("tournaments.overview.seoFallbackName"),
+          location:
+            tour?.location || t("tournaments.dashboard.locationFallback"),
         })}
+        image={tour?.cover}
         path={`/tournament/${id}/overview`}
+        structuredData={[
+          {
+            "@context": "https://schema.org",
+            "@type": "Event",
+            name: tour?.name,
+            startDate: tour?.startDate,
+            endDate: tour?.endDate,
+            eventStatus: "https://schema.org/EventScheduled",
+            eventAttendanceMode:
+              "https://schema.org/OfflineEventAttendanceMode",
+            location: {
+              "@type": "Place",
+              name:
+                tour?.location ||
+                t("tournaments.detail.placeFallback", {
+                  defaultValue: "Sân Pickleball",
+                }),
+              address: {
+                "@type": "PostalAddress",
+                addressLocality: tour?.location,
+                addressCountry: "VN",
+              },
+            },
+            image: [tour?.cover || "https://pickletour.vn/banner.jpg"],
+            description: tour?.description,
+            organizer: {
+              "@type": "Organization",
+              name:
+                tour?.organizer?.name ||
+                t("tournaments.detail.organizerFallback", {
+                  defaultValue: "PickleTour",
+                }),
+              url: "https://pickletour.vn",
+            },
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              {
+                "@type": "ListItem",
+                position: 1,
+                name: t("tournaments.detail.breadcrumbs.home", {
+                  defaultValue: "Trang chủ",
+                }),
+                item: "https://pickletour.vn",
+              },
+              {
+                "@type": "ListItem",
+                position: 2,
+                name: t("tournaments.detail.breadcrumbs.tournaments", {
+                  defaultValue: "Giải đấu",
+                }),
+                item: "https://pickletour.vn/tournaments",
+              },
+              {
+                "@type": "ListItem",
+                position: 3,
+                name:
+                  tour?.name ||
+                  t("tournaments.detail.breadcrumbs.detailFallback", {
+                    defaultValue: "Chi tiết giải đấu",
+                  }),
+                item: `https://pickletour.vn/tournament/${id}`,
+              },
+            ],
+          },
+        ]}
       />
       {/* Header: Full Width Hero */}
       <Paper
@@ -753,6 +828,14 @@ export default function TournamentOverviewPage() {
           </Alert>
         )}
 
+        {/* Weather Forecast */}
+        <Box sx={{ mb: 4 }}>
+          <TournamentWeatherSection
+            tournamentId={id}
+            locationLabel={tour?.location || tour?.name}
+          />
+        </Box>
+
         {/* 1. KPI Grid (4 Cards) - Dùng size prop */}
         <Grid container spacing={3} mb={4}>
           {[
@@ -810,7 +893,7 @@ export default function TournamentOverviewPage() {
                     <Typography variant="caption">
                       {Math.round(
                         (matchStatusCount.finished / (allMatches.length || 1)) *
-                        100
+                          100,
                       )}
                       %
                     </Typography>
@@ -925,7 +1008,13 @@ export default function TournamentOverviewPage() {
                 </Tabs>
               </Box>
 
-              <Box sx={{ p: { xs: 1.5, md: 2 }, bgcolor: "background.default", flex: 1 }}>
+              <Box
+                sx={{
+                  p: { xs: 1.5, md: 2 },
+                  bgcolor: "background.default",
+                  flex: 1,
+                }}
+              >
                 {loadingMatches ? (
                   [1, 2, 3].map((i) => (
                     <Skeleton
@@ -1017,7 +1106,7 @@ export default function TournamentOverviewPage() {
                 <Stack spacing={2}>
                   {bracketProgress.map((b) => {
                     const pct = Math.round(
-                      ((b.finished || 0) * 100) / (b.total || 1)
+                      ((b.finished || 0) * 100) / (b.total || 1),
                     );
                     return (
                       <Box

@@ -29,3 +29,12 @@ uploads
 node_modules
 micro-services/downloader-video/downloads/*
 native-live-app
+backend-go/.env
+backend-go/bin/
+backend-go/tmp/
+backend-go/.air/
+backend-go/coverage.out
+.go-cache/
+.go-mod-cache/
+
+backend-go

@@ -62,7 +62,14 @@ const CONTACT_FALLBACK = {
   },
 };
 
-const CLUB_COLORS = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD"];
+const CLUB_COLORS = [
+  "#FF6B6B",
+  "#4ECDC4",
+  "#45B7D1",
+  "#96CEB4",
+  "#FFEAA7",
+  "#DDA0DD",
+];
 // ===== Styled Components =====
 
 const floatingAnimation = `
@@ -227,7 +234,9 @@ export default function Hero() {
     isLoading: contactLoading,
     isError: contactError,
   } = useGetContactContentQuery();
-  const { data: homeRes, isLoading: homeLoading } = useGetHomeSummaryQuery({ clubsLimit: 6 });
+  const { data: homeRes, isLoading: homeLoading } = useGetHomeSummaryQuery({
+    clubsLimit: 6,
+  });
   const fallbackHero = t("home.heroFallback");
   const featureSection = t("home.features");
   const clubSection = t("home.clubs");
@@ -289,7 +298,10 @@ export default function Hero() {
     color: isDark ? "#fff" : "inherit",
   };
 
-  const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const numberFormatter = useMemo(
+    () => new Intl.NumberFormat(locale),
+    [locale],
+  );
 
   const formatCountPlus = (value) => {
     const n = Number(value);
@@ -331,7 +343,6 @@ export default function Hero() {
         color: CLUB_COLORS[idx % CLUB_COLORS.length],
       }))
     : [];
-
 
   return (
     <>
@@ -378,8 +389,10 @@ export default function Hero() {
               : "linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px)",
             backgroundSize: "40px 40px",
             animation: "panBackground 20s linear infinite",
-            maskImage: "radial-gradient(ellipse at center, black 40%, transparent 80%)",
-            WebkitMaskImage: "radial-gradient(ellipse at center, black 40%, transparent 80%)",
+            maskImage:
+              "radial-gradient(ellipse at center, black 40%, transparent 80%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse at center, black 40%, transparent 80%)",
             pointerEvents: "none",
             zIndex: 0,
           }}
@@ -393,11 +406,12 @@ export default function Hero() {
             left: "20%",
             width: "40vw",
             height: "40vw",
-            background: "radial-gradient(circle, rgba(13,110,253,0.15) 0%, rgba(0,0,0,0) 70%)",
+            background:
+              "radial-gradient(circle, rgba(13,110,253,0.15) 0%, rgba(0,0,0,0) 70%)",
             filter: "blur(60px)",
             zIndex: 0,
             animation: "float 14s ease-in-out infinite",
-            pointerEvents: "none"
+            pointerEvents: "none",
           }}
         />
         <div
@@ -407,11 +421,12 @@ export default function Hero() {
             right: "15%",
             width: "35vw",
             height: "35vw",
-            background: "radial-gradient(circle, rgba(146,254,157,0.12) 0%, rgba(0,0,0,0) 70%)",
+            background:
+              "radial-gradient(circle, rgba(146,254,157,0.12) 0%, rgba(0,0,0,0) 70%)",
             filter: "blur(60px)",
             zIndex: 0,
             animation: "floatReverse 18s ease-in-out infinite",
-            pointerEvents: "none"
+            pointerEvents: "none",
           }}
         />
         <div
@@ -422,12 +437,12 @@ export default function Hero() {
             transform: "translate(-50%, -50%)",
             width: "60vw",
             height: "20vh",
-            background: isDark 
-              ? "radial-gradient(ellipse, rgba(13,202,240,0.1) 0%, rgba(0,0,0,0) 70%)" 
+            background: isDark
+              ? "radial-gradient(ellipse, rgba(13,202,240,0.1) 0%, rgba(0,0,0,0) 70%)"
               : "radial-gradient(ellipse, rgba(13,202,240,0.05) 0%, rgba(255,255,255,0) 70%)",
             filter: "blur(80px)",
             zIndex: 0,
-            pointerEvents: "none"
+            pointerEvents: "none",
           }}
         />
 
@@ -446,13 +461,17 @@ export default function Hero() {
                 <Badge
                   bg="transparent"
                   className="mb-4 px-4 py-2 rounded-pill fw-bold bg-opacity-10"
-                  style={{ 
-                    fontSize: isSmallPhone ? "0.72rem" : "0.85rem", 
+                  style={{
+                    fontSize: isSmallPhone ? "0.72rem" : "0.85rem",
                     letterSpacing: "1px",
                     textTransform: "uppercase",
                     color: isDark ? "#92FE9D" : theme.palette.primary.main,
-                    border: isDark ? "1px solid rgba(146,254,157,0.3)" : `1px solid ${theme.palette.primary.main}40`,
-                    backgroundColor: isDark ? "rgba(146,254,157,0.05)" : "rgba(13,110,253,0.05)",
+                    border: isDark
+                      ? "1px solid rgba(146,254,157,0.3)"
+                      : `1px solid ${theme.palette.primary.main}40`,
+                    backgroundColor: isDark
+                      ? "rgba(146,254,157,0.05)"
+                      : "rgba(13,110,253,0.05)",
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -465,10 +484,11 @@ export default function Hero() {
                     paddingRight: isSmallPhone ? "14px" : undefined,
                   }}
                 >
-                  <RocketLaunchIcon sx={{ fontSize: "1.1rem" }} /> {t("home.hero.badge")}
+                  <RocketLaunchIcon sx={{ fontSize: "1.1rem" }} />{" "}
+                  {t("home.hero.badge")}
                 </Badge>
-                
-                <h1 
+
+                <h1
                   className="fw-bold mb-4"
                   style={{
                     fontSize: "clamp(2.5rem, 6vw, 5rem)",
@@ -486,10 +506,10 @@ export default function Hero() {
                       </span>
                     ))}
                 </h1>
-                
-                <p 
+
+                <p
                   className="mx-auto mb-5"
-                  style={{ 
+                  style={{
                     fontSize: "clamp(1.1rem, 2vw, 1.4rem)",
                     lineHeight: "1.6",
                     maxWidth: "700px",
@@ -502,13 +522,13 @@ export default function Hero() {
                 </p>
               </>
             ) : (
-                <div className="d-flex flex-column align-items-center mb-5">
-                  <SkeletonBar w="150px" h={30} className="mb-4 rounded-pill" />
-                  <SkeletonBar w="80%" h={80} className="mb-3" />
-                  <SkeletonBar w="60%" h={80} className="mb-4" />
-                  <SkeletonBar w="50%" h={24} className="mb-2" />
-                  <SkeletonBar w="40%" h={24} className="mb-5" />
-                </div>
+              <div className="d-flex flex-column align-items-center mb-5">
+                <SkeletonBar w="150px" h={30} className="mb-4 rounded-pill" />
+                <SkeletonBar w="80%" h={80} className="mb-3" />
+                <SkeletonBar w="60%" h={80} className="mb-4" />
+                <SkeletonBar w="50%" h={24} className="mb-2" />
+                <SkeletonBar w="40%" h={24} className="mb-5" />
+              </div>
             )}
 
             {/* Action Buttons */}
@@ -516,125 +536,187 @@ export default function Hero() {
               className="d-flex flex-column flex-sm-row gap-4 justify-content-center align-items-center animate__animated animate__fadeInUp"
               style={{ width: "100%" }}
             >
-                {!isLoggedIn ? (
-                  <>
+              {!isLoggedIn ? (
+                <>
+                  <Button
+                    as={Link}
+                    to="/register"
+                    size="lg"
+                    className="premium-btn px-5 py-3 fw-bold text-decoration-none"
+                    style={{
+                      "--btn-bg": isDark ? "#fff" : "#111",
+                      "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
+                      "--btn-shadow": isDark
+                        ? "0 10px 30px rgba(255,255,255,0.1)"
+                        : "0 10px 30px rgba(0,0,0,0.1)",
+                      "--btn-hover-shadow": isDark
+                        ? "0 15px 40px rgba(255,255,255,0.2)"
+                        : "0 15px 40px rgba(0,0,0,0.2)",
+                      color: isDark ? "#000" : "#fff",
+                      width: isMobile ? "min(100%, 320px)" : "auto",
+                    }}
+                  >
+                    {t("home.actions.getStarted")}
+                  </Button>
+                  <Button
+                    as={Link}
+                    to="/login"
+                    variant="text"
+                    size="lg"
+                    className="rounded-pill px-5 py-3 fw-bold text-decoration-none"
+                    style={{
+                      color: isDark ? "#fff" : "#111",
+                      transition: "all 0.3s ease",
+                      border: isDark
+                        ? "1px solid rgba(255,255,255,0.1)"
+                        : "1px solid rgba(0,0,0,0.1)",
+                      backgroundColor: "transparent",
+                      width: isMobile ? "min(100%, 320px)" : "auto",
+                    }}
+                    onMouseOver={(e) =>
+                      (e.target.style.backgroundColor = isDark
+                        ? "rgba(255,255,255,0.05)"
+                        : "rgba(0,0,0,0.05)")
+                    }
+                    onMouseOut={(e) =>
+                      (e.target.style.backgroundColor = "transparent")
+                    }
+                  >
+                    {t("home.actions.login")}{" "}
+                    <span style={{ marginLeft: "8px" }}>&rarr;</span>
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {needSelfAssess && (
                     <Button
                       as={Link}
-                      to="/register"
+                      to="/levelpoint"
                       size="lg"
                       className="premium-btn px-5 py-3 fw-bold text-decoration-none"
                       style={{
                         "--btn-bg": isDark ? "#fff" : "#111",
                         "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
-                        "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
-                        "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
+                        "--btn-shadow": isDark
+                          ? "0 10px 30px rgba(255,255,255,0.1)"
+                          : "0 10px 30px rgba(0,0,0,0.1)",
+                        "--btn-hover-shadow": isDark
+                          ? "0 15px 40px rgba(255,255,255,0.2)"
+                          : "0 15px 40px rgba(0,0,0,0.2)",
                         color: isDark ? "#000" : "#fff",
                         width: isMobile ? "min(100%, 320px)" : "auto",
                       }}
                     >
-                      {t("home.actions.getStarted")}
+                      <span
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                      >
+                        <AutoAwesomeIcon sx={{ fontSize: "1.2rem" }} />{" "}
+                        {t("home.actions.selfAssess")}
+                      </span>
                     </Button>
+                  )}
+                  {needKyc && (
                     <Button
                       as={Link}
-                      to="/login"
-                      variant="text"
+                      to="/profile#2"
                       size="lg"
-                      className="rounded-pill px-5 py-3 fw-bold text-decoration-none"
-                      style={{ 
-                        color: isDark ? "#fff" : "#111",
+                      className={`rounded-pill px-5 py-3 fw-bold border text-decoration-none`}
+                      style={{
+                        backgroundColor: needSelfAssess
+                          ? "transparent"
+                          : isDark
+                            ? "#fff"
+                            : "#111",
+                        color: needSelfAssess
+                          ? isDark
+                            ? "#fff"
+                            : "#111"
+                          : isDark
+                            ? "#000"
+                            : "#fff",
+                        borderColor: isDark
+                          ? "rgba(255,255,255,0.2)"
+                          : "rgba(0,0,0,0.2)",
+                        boxShadow: !needSelfAssess
+                          ? "0 10px 30px rgba(0,0,0,0.2)"
+                          : "none",
                         transition: "all 0.3s ease",
-                        border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
-                        backgroundColor: "transparent",
                         width: isMobile ? "min(100%, 320px)" : "auto",
                       }}
-                      onMouseOver={(e) => e.target.style.backgroundColor = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}
-                      onMouseOut={(e) => e.target.style.backgroundColor = "transparent"}
+                      onMouseOver={(e) =>
+                        (e.target.style.backgroundColor = needSelfAssess
+                          ? isDark
+                            ? "rgba(255,255,255,0.1)"
+                            : "rgba(0,0,0,0.05)"
+                          : isDark
+                            ? "#e0e0e0"
+                            : "#333")
+                      }
+                      onMouseOut={(e) =>
+                        (e.target.style.backgroundColor = needSelfAssess
+                          ? "transparent"
+                          : isDark
+                            ? "#fff"
+                            : "#111")
+                      }
                     >
-                      {t("home.actions.login")} <span style={{ marginLeft: "8px" }}>&rarr;</span>
+                      {t("home.actions.verifyIdentity")}
                     </Button>
-                  </>
-                ) : (
-                  <>
-                    {needSelfAssess && (
-                      <Button
-                        as={Link}
-                        to="/levelpoint"
-                        size="lg"
-                        className="premium-btn px-5 py-3 fw-bold text-decoration-none"
-                        style={{
-                          "--btn-bg": isDark ? "#fff" : "#111",
-                          "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
-                          "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
-                          "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
-                          color: isDark ? "#000" : "#fff",
-                          width: isMobile ? "min(100%, 320px)" : "auto",
-                        }}
-                      >
-                        <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <AutoAwesomeIcon sx={{ fontSize: "1.2rem" }} /> {t("home.actions.selfAssess")}
-                        </span>
-                      </Button>
-                    )}
-                    {needKyc && (
-                      <Button
-                        as={Link}
-                        to="/profile#2"
-                        size="lg"
-                        className={`rounded-pill px-5 py-3 fw-bold border text-decoration-none`}
-                        style={{
-                           backgroundColor: needSelfAssess ? "transparent" : (isDark ? "#fff" : "#111"),
-                           color: needSelfAssess ? (isDark ? "#fff" : "#111") : (isDark ? "#000" : "#fff"),
-                           borderColor: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)",
-                           boxShadow: !needSelfAssess ? "0 10px 30px rgba(0,0,0,0.2)" : "none",
-                           transition: "all 0.3s ease",
-                           width: isMobile ? "min(100%, 320px)" : "auto",
-                        }}
-                        onMouseOver={(e) => e.target.style.backgroundColor = needSelfAssess ? (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)") : (isDark ? "#e0e0e0" : "#333")}
-                        onMouseOut={(e) => e.target.style.backgroundColor = needSelfAssess ? "transparent" : (isDark ? "#fff" : "#111")}
-                      >
-                        {t("home.actions.verifyIdentity")}
-                      </Button>
-                    )}
-                    {!needSelfAssess && !needKyc && (
-                      <Button
-                        as={Link}
-                        to="/pickle-ball/tournaments"
-                        size="lg"
-                        className="premium-btn px-5 py-3 fw-bold text-decoration-none"
-                        style={{
-                          "--btn-bg": isDark ? "#fff" : "#111",
-                          "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
-                          "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
-                          "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
-                          color: isDark ? "#000" : "#fff",
-                          width: isMobile ? "min(100%, 320px)" : "auto",
-                        }}
-                      >
-                        {t("home.actions.exploreTournaments")}
-                      </Button>
-                    )}
-                  </>
-                )}
+                  )}
+                  {!needSelfAssess && !needKyc && (
+                    <Button
+                      as={Link}
+                      to="/pickle-ball/tournaments"
+                      size="lg"
+                      className="premium-btn px-5 py-3 fw-bold text-decoration-none"
+                      style={{
+                        "--btn-bg": isDark ? "#fff" : "#111",
+                        "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
+                        "--btn-shadow": isDark
+                          ? "0 10px 30px rgba(255,255,255,0.1)"
+                          : "0 10px 30px rgba(0,0,0,0.1)",
+                        "--btn-hover-shadow": isDark
+                          ? "0 15px 40px rgba(255,255,255,0.2)"
+                          : "0 15px 40px rgba(0,0,0,0.2)",
+                        color: isDark ? "#000" : "#fff",
+                        width: isMobile ? "min(100%, 320px)" : "auto",
+                      }}
+                    >
+                      {t("home.actions.exploreTournaments")}
+                    </Button>
+                  )}
+                </>
+              )}
             </div>
           </div>
 
           {/* MASSIVE IMAGE AT BOTTOM WITH ENHANCED 3D */}
-          <div 
-            className="w-100 mx-auto mt-5 pt-3 animate__animated animate__fadeInUp animate__delay-1s" 
-            style={{ 
+          <div
+            className="w-100 mx-auto mt-5 pt-3 animate__animated animate__fadeInUp animate__delay-1s"
+            style={{
               maxWidth: "1000px",
               perspective: isMobile ? "none" : "1500px",
-              transformStyle: "preserve-3d"
+              transformStyle: "preserve-3d",
             }}
           >
             {heroData ? (
               <div
                 className="overflow-hidden position-relative"
                 style={{
-                  borderRadius: isSmallPhone ? "20px" : isMobile ? "24px" : "32px",
-                  border: isDark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(255,255,255,0.6)",
-                  boxShadow: isDark 
-                    ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)" 
+                  borderRadius: isSmallPhone
+                    ? "20px"
+                    : isMobile
+                      ? "24px"
+                      : "32px",
+                  border: isDark
+                    ? "1px solid rgba(255,255,255,0.15)"
+                    : "1px solid rgba(255,255,255,0.6)",
+                  boxShadow: isDark
+                    ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)"
                     : "0 50px 100px -20px rgba(0,0,0,0.15), 0 30px 60px -30px rgba(13,110,253,0.2)",
                   transform: isMobile
                     ? "none"
@@ -645,35 +727,37 @@ export default function Hero() {
                 }}
                 onMouseOver={(e) => {
                   if (isMobile) return;
-                  e.currentTarget.style.transform = "rotateX(0deg) scale(1) translateY(0px)";
-                  e.currentTarget.style.boxShadow = isDark 
-                    ? "0 40px 80px -10px rgba(0,0,0,0.9), 0 20px 40px -20px rgba(13,202,240,0.4)" 
+                  e.currentTarget.style.transform =
+                    "rotateX(0deg) scale(1) translateY(0px)";
+                  e.currentTarget.style.boxShadow = isDark
+                    ? "0 40px 80px -10px rgba(0,0,0,0.9), 0 20px 40px -20px rgba(13,202,240,0.4)"
                     : "0 40px 80px -10px rgba(0,0,0,0.2), 0 20px 40px -20px rgba(13,110,253,0.3)";
-                  
+
                   // Glare effect
-                  const glare = e.currentTarget.querySelector('.img-glare');
-                  if(glare) {
-                    glare.style.opacity = '1';
-                    glare.style.transform = 'translate(100%, 100%)';
+                  const glare = e.currentTarget.querySelector(".img-glare");
+                  if (glare) {
+                    glare.style.opacity = "1";
+                    glare.style.transform = "translate(100%, 100%)";
                   }
                 }}
                 onMouseOut={(e) => {
                   if (isMobile) return;
-                  e.currentTarget.style.transform = "rotateX(8deg) scale(0.92) translateY(20px)";
-                  e.currentTarget.style.boxShadow = isDark 
-                    ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)" 
+                  e.currentTarget.style.transform =
+                    "rotateX(8deg) scale(0.92) translateY(20px)";
+                  e.currentTarget.style.boxShadow = isDark
+                    ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)"
                     : "0 50px 100px -20px rgba(0,0,0,0.15), 0 30px 60px -30px rgba(13,110,253,0.2)";
-                    
+
                   // Glare effect reset
-                  const glare = e.currentTarget.querySelector('.img-glare');
-                  if(glare) {
-                    glare.style.opacity = '0';
-                    glare.style.transform = 'translate(-100%, -100%)';
+                  const glare = e.currentTarget.querySelector(".img-glare");
+                  if (glare) {
+                    glare.style.opacity = "0";
+                    glare.style.transform = "translate(-100%, -100%)";
                   }
                 }}
               >
                 {/* Glass Glare Highlight */}
-                <div 
+                <div
                   className="img-glare"
                   style={{
                     position: "absolute",
@@ -681,33 +765,49 @@ export default function Hero() {
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    background: "linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 50%)",
+                    background:
+                      "linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 50%)",
                     transform: "translate(-100%, -100%)",
-                    transition: "transform 1s cubic-bezier(0.16, 1, 0.3, 1), opacity 1s",
+                    transition:
+                      "transform 1s cubic-bezier(0.16, 1, 0.3, 1), opacity 1s",
                     opacity: 0,
                     pointerEvents: "none",
                     zIndex: 2,
-                  }} 
+                  }}
                 />
-                
-                <div style={{ paddingBottom: "56.25%", position: "relative", zIndex: 1 }}> {/* 16:9 Aspect Ratio */}
+
+                <div
+                  style={{
+                    paddingBottom: "56.25%",
+                    position: "relative",
+                    zIndex: 1,
+                  }}
+                >
+                  {" "}
+                  {/* 16:9 Aspect Ratio */}
                   <img
                     draggable={false}
                     src={heroData.imageUrl || fallbackImg}
                     alt={heroData.imageAlt || fallbackHero.imageAlt}
-                    style={{ 
+                    style={{
                       position: "absolute",
                       top: 0,
                       left: 0,
-                      width: "100%", 
-                      height: "100%", 
+                      width: "100%",
+                      height: "100%",
                       objectFit: "cover",
                     }}
                   />
                 </div>
               </div>
             ) : (
-              <SkeletonBar w="100%" h={500} r={24} className="shadow-lg mt-5 mx-auto" style={{ maxWidth: "1000px" }} />
+              <SkeletonBar
+                w="100%"
+                h={500}
+                r={24}
+                className="shadow-lg mt-5 mx-auto"
+                style={{ maxWidth: "1000px" }}
+              />
             )}
           </div>
         </Container>
@@ -738,7 +838,9 @@ export default function Hero() {
             zIndex: 0,
           }}
         />
-        <Container style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}>
+        <Container
+          style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}
+        >
           <div className="text-center mb-5">
             <p
               className="text-uppercase fw-bold mb-2"
@@ -762,86 +864,100 @@ export default function Hero() {
             </h2>
           </div>
           <Row className="g-4 justify-content-center">
-            {statsList ? (
-              statsList.map((stat, idx) => (
-                <Col key={idx} xs={12} sm={6} md={3}>
-                  <div
-                    className="text-center h-100"
-                    style={{
-                      padding: isSmallPhone ? "20px 16px" : "24px",
-                      borderRadius: "24px",
-                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-                      border: isDark
-                        ? "1px solid rgba(255,255,255,0.06)"
-                        : "1px solid rgba(0,0,0,0.06)",
-                      transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-                      cursor: "default",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-6px)";
-                      e.currentTarget.style.boxShadow = isDark
-                        ? "0 20px 40px rgba(0,0,0,0.4)"
-                        : "0 20px 40px rgba(0,0,0,0.08)";
-                      e.currentTarget.style.borderColor = isDark
-                        ? "rgba(255,255,255,0.15)"
-                        : "rgba(0,0,0,0.12)";
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow = "none";
-                      e.currentTarget.style.borderColor = isDark
-                        ? "rgba(255,255,255,0.06)"
-                        : "rgba(0,0,0,0.06)";
-                    }}
-                  >
-                    <div style={{ marginBottom: "12px", color: isDark ? "rgba(255,255,255,0.8)" : theme.palette.primary.main }}>{stat.icon}</div>
-                    <h3
-                      className="fw-bolder mb-1"
+            {statsList
+              ? statsList.map((stat, idx) => (
+                  <Col key={idx} xs={12} sm={6} md={3}>
+                    <div
+                      className="text-center h-100"
                       style={{
-                        fontSize: "clamp(1.8rem, 3vw, 2.8rem)",
-                        color: isDark ? "#fff" : "#111",
-                        letterSpacing: "-0.02em",
+                        padding: isSmallPhone ? "20px 16px" : "24px",
+                        borderRadius: "24px",
+                        backgroundColor: isDark
+                          ? "rgba(255,255,255,0.03)"
+                          : "rgba(0,0,0,0.02)",
+                        border: isDark
+                          ? "1px solid rgba(255,255,255,0.06)"
+                          : "1px solid rgba(0,0,0,0.06)",
+                        transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                        cursor: "default",
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.transform = "translateY(-6px)";
+                        e.currentTarget.style.boxShadow = isDark
+                          ? "0 20px 40px rgba(0,0,0,0.4)"
+                          : "0 20px 40px rgba(0,0,0,0.08)";
+                        e.currentTarget.style.borderColor = isDark
+                          ? "rgba(255,255,255,0.15)"
+                          : "rgba(0,0,0,0.12)";
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "none";
+                        e.currentTarget.style.borderColor = isDark
+                          ? "rgba(255,255,255,0.06)"
+                          : "rgba(0,0,0,0.06)";
                       }}
                     >
-                      {stat.number}
-                    </h3>
-                    <p
-                      className="mb-0"
-                      style={{
-                        fontSize: "0.95rem",
-                        color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {stat.label}
-                    </p>
-                  </div>
-                </Col>
-              ))
-            ) : homeLoading ? (
-              Array.from({ length: 4 }).map((_, idx) => (
-                <Col key={idx} xs={12} sm={6} md={3}>
-                  <div
-                    className="text-center h-100"
-                    style={{
-                      padding: isSmallPhone ? "20px 16px" : "24px",
-                      borderRadius: "24px",
-                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-                      border: isDark
-                        ? "1px solid rgba(255,255,255,0.06)"
-                        : "1px solid rgba(0,0,0,0.06)",
-                      transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-                      cursor: "default",
-                    }}
-                  >
-                    <SkeletonBar w="40%" h={24} className="mx-auto mb-3" />
-                    <SkeletonBar w="60%" h={28} className="mx-auto mb-2" />
-                    <SkeletonBar w="50%" h={16} className="mx-auto" />
-                  </div>
-                </Col>
-              ))
-            ) : null}
-
+                      <div
+                        style={{
+                          marginBottom: "12px",
+                          color: isDark
+                            ? "rgba(255,255,255,0.8)"
+                            : theme.palette.primary.main,
+                        }}
+                      >
+                        {stat.icon}
+                      </div>
+                      <h3
+                        className="fw-bolder mb-1"
+                        style={{
+                          fontSize: "clamp(1.8rem, 3vw, 2.8rem)",
+                          color: isDark ? "#fff" : "#111",
+                          letterSpacing: "-0.02em",
+                        }}
+                      >
+                        {stat.number}
+                      </h3>
+                      <p
+                        className="mb-0"
+                        style={{
+                          fontSize: "0.95rem",
+                          color: isDark
+                            ? "rgba(255,255,255,0.5)"
+                            : "rgba(0,0,0,0.5)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {stat.label}
+                      </p>
+                    </div>
+                  </Col>
+                ))
+              : homeLoading
+                ? Array.from({ length: 4 }).map((_, idx) => (
+                    <Col key={idx} xs={12} sm={6} md={3}>
+                      <div
+                        className="text-center h-100"
+                        style={{
+                          padding: isSmallPhone ? "20px 16px" : "24px",
+                          borderRadius: "24px",
+                          backgroundColor: isDark
+                            ? "rgba(255,255,255,0.03)"
+                            : "rgba(0,0,0,0.02)",
+                          border: isDark
+                            ? "1px solid rgba(255,255,255,0.06)"
+                            : "1px solid rgba(0,0,0,0.06)",
+                          transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                          cursor: "default",
+                        }}
+                      >
+                        <SkeletonBar w="40%" h={24} className="mx-auto mb-3" />
+                        <SkeletonBar w="60%" h={28} className="mx-auto mb-2" />
+                        <SkeletonBar w="50%" h={16} className="mx-auto" />
+                      </div>
+                    </Col>
+                  ))
+                : null}
           </Row>
         </Container>
       </section>
@@ -871,7 +987,9 @@ export default function Hero() {
             zIndex: 0,
           }}
         />
-        <Container style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}>
+        <Container
+          style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}
+        >
           <div className="text-center mb-5">
             <p
               className="text-uppercase fw-bold mb-2"
@@ -917,66 +1035,74 @@ export default function Hero() {
             ].map((icon, idx) => {
               const feature = featureSection.items[idx];
               return (
-              <Col key={idx} xs={12} md={6} lg={4}>
-                <div
-                  className="h-100"
-                  style={{
-                    padding: isSmallPhone ? "20px 16px" : "24px",
-                    borderRadius: "24px",
-                    backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
-                    border: isDark
-                      ? "1px solid rgba(255,255,255,0.06)"
-                      : "1px solid rgba(0,0,0,0.06)",
-                    transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-                    cursor: "default",
-                  }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.transform = "translateY(-8px)";
-                    e.currentTarget.style.boxShadow = isDark
-                      ? "0 20px 50px rgba(0,0,0,0.5)"
-                      : "0 20px 50px rgba(0,0,0,0.08)";
-                    e.currentTarget.style.borderColor = isDark
-                      ? "rgba(255,255,255,0.12)"
-                      : "rgba(0,0,0,0.1)";
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.transform = "translateY(0)";
-                    e.currentTarget.style.boxShadow = "none";
-                    e.currentTarget.style.borderColor = isDark
-                      ? "rgba(255,255,255,0.06)"
-                      : "rgba(0,0,0,0.06)";
-                  }}
-                >
+                <Col key={idx} xs={12} md={6} lg={4}>
                   <div
-                    className="d-flex align-items-center justify-content-center mb-3"
+                    className="h-100"
                     style={{
-                      width: "56px",
-                      height: "56px",
-                      borderRadius: "16px",
-                      backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-                      color: isDark ? "rgba(255,255,255,0.8)" : theme.palette.primary.main,
+                      padding: isSmallPhone ? "20px 16px" : "24px",
+                      borderRadius: "24px",
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.03)"
+                        : "#fff",
+                      border: isDark
+                        ? "1px solid rgba(255,255,255,0.06)"
+                        : "1px solid rgba(0,0,0,0.06)",
+                      transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                      cursor: "default",
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = "translateY(-8px)";
+                      e.currentTarget.style.boxShadow = isDark
+                        ? "0 20px 50px rgba(0,0,0,0.5)"
+                        : "0 20px 50px rgba(0,0,0,0.08)";
+                      e.currentTarget.style.borderColor = isDark
+                        ? "rgba(255,255,255,0.12)"
+                        : "rgba(0,0,0,0.1)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
+                      e.currentTarget.style.borderColor = isDark
+                        ? "rgba(255,255,255,0.06)"
+                        : "rgba(0,0,0,0.06)";
                     }}
                   >
-                    {icon}
+                    <div
+                      className="d-flex align-items-center justify-content-center mb-3"
+                      style={{
+                        width: "56px",
+                        height: "56px",
+                        borderRadius: "16px",
+                        backgroundColor: isDark
+                          ? "rgba(255,255,255,0.06)"
+                          : "rgba(0,0,0,0.04)",
+                        color: isDark
+                          ? "rgba(255,255,255,0.8)"
+                          : theme.palette.primary.main,
+                      }}
+                    >
+                      {icon}
+                    </div>
+                    <h5
+                      className="fw-bold mb-2"
+                      style={{ color: isDark ? "#fff" : "#111" }}
+                    >
+                      {feature.title}
+                    </h5>
+                    <p
+                      className="mb-0"
+                      style={{
+                        color: isDark
+                          ? "rgba(255,255,255,0.5)"
+                          : "rgba(0,0,0,0.5)",
+                        lineHeight: 1.6,
+                        fontSize: "0.95rem",
+                      }}
+                    >
+                      {feature.desc}
+                    </p>
                   </div>
-                  <h5
-                    className="fw-bold mb-2"
-                    style={{ color: isDark ? "#fff" : "#111" }}
-                  >
-                    {feature.title}
-                  </h5>
-                  <p
-                    className="mb-0"
-                    style={{
-                      color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)",
-                      lineHeight: 1.6,
-                      fontSize: "0.95rem",
-                    }}
-                  >
-                    {feature.desc}
-                  </p>
-                </div>
-              </Col>
+                </Col>
               );
             })}
           </Row>
@@ -1008,7 +1134,9 @@ export default function Hero() {
             zIndex: 0,
           }}
         />
-        <Container style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}>
+        <Container
+          style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}
+        >
           <div className="text-center mb-5">
             <p
               className="text-uppercase fw-bold mb-2"
@@ -1045,101 +1173,116 @@ export default function Hero() {
 
           <div className="mt-5 pt-4">
             <Row className="g-4 justify-content-center">
-            {clubsList.length > 0 ? (
-              clubsList.map((club, idx) => (
-                <Col key={club.id || idx} xs={12} sm={6} md={4} lg={4}>
-                  <div
-                    className="h-100 d-flex flex-column"
-                    style={{
-                      padding: isSmallPhone ? "20px 16px" : "24px",
-                      borderRadius: "24px",
-                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
-                      border: isDark
-                        ? "1px solid rgba(255,255,255,0.06)"
-                        : "1px solid rgba(0,0,0,0.06)",
-                      transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-                      cursor: "default",
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.transform = "translateY(-6px)";
-                      e.currentTarget.style.borderColor = club.color + "40";
-                      e.currentTarget.style.boxShadow = `0 20px 40px ${club.color}15`;
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.borderColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
-                      e.currentTarget.style.boxShadow = "none";
-                    }}
-                  >
-                    <div
-                      className="d-flex align-items-center justify-content-center mb-3"
-                      style={{
-                        width: "48px",
-                        height: "48px",
-                        borderRadius: "14px",
-                        backgroundColor: club.color + "18",
-                        fontSize: "1.4rem",
-                        fontWeight: 800,
-                        color: club.color,
-                      }}
-                    >
-                      {(club.name || "C").charAt(0)}
-                    </div>
-                    <h6
-                      className="fw-bold mb-1"
-                      style={{
-                        color: isDark ? "#fff" : "#111",
-                        fontSize: "1rem",
-                      }}
-                    >
-                      {club.name}
-                    </h6>
-                    <p
-                      className="mb-2 d-flex align-items-center gap-1"
-                      style={{
-                        color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
-                        fontSize: "0.85rem",
-                      }}
-                    >
-                      <LocationOnIcon sx={{ fontSize: "0.95rem" }} /> {club.location}
-                    </p>
-                    <p
-                      className="mb-0 mt-auto"
-                      style={{
-                        color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.6)",
-                        fontSize: "0.85rem",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {t("home.clubs.members", { count: club.members })}
-                    </p>
-                  </div>
-                </Col>
-              ))
-            ) : homeLoading ? (
-              Array.from({ length: 6 }).map((_, idx) => (
-                <Col key={idx} xs={12} sm={6} md={4} lg={4}>
-                  <div
-                    className="h-100 d-flex flex-column"
-                    style={{
-                      padding: isSmallPhone ? "20px 16px" : "24px",
-                      borderRadius: "24px",
-                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
-                      border: isDark
-                        ? "1px solid rgba(255,255,255,0.06)"
-                        : "1px solid rgba(0,0,0,0.06)",
-                    }}
-                  >
-                    <SkeletonBar w="48px" h={48} r={14} className="mb-3" />
-                    <SkeletonBar w="70%" h={18} className="mb-2" />
-                    <SkeletonBar w="60%" h={14} className="mb-2" />
-                    <SkeletonBar w="50%" h={14} className="mt-auto" />
-                  </div>
-                </Col>
-              ))
-            ) : null}
-
-          </Row>
+              {clubsList.length > 0
+                ? clubsList.map((club, idx) => (
+                    <Col key={club.id || idx} xs={12} sm={6} md={4} lg={4}>
+                      <div
+                        className="h-100 d-flex flex-column"
+                        style={{
+                          padding: isSmallPhone ? "20px 16px" : "24px",
+                          borderRadius: "24px",
+                          backgroundColor: isDark
+                            ? "rgba(255,255,255,0.03)"
+                            : "#fff",
+                          border: isDark
+                            ? "1px solid rgba(255,255,255,0.06)"
+                            : "1px solid rgba(0,0,0,0.06)",
+                          transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                          cursor: "default",
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.transform = "translateY(-6px)";
+                          e.currentTarget.style.borderColor = club.color + "40";
+                          e.currentTarget.style.boxShadow = `0 20px 40px ${club.color}15`;
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.borderColor = isDark
+                            ? "rgba(255,255,255,0.06)"
+                            : "rgba(0,0,0,0.06)";
+                          e.currentTarget.style.boxShadow = "none";
+                        }}
+                      >
+                        <div
+                          className="d-flex align-items-center justify-content-center mb-3"
+                          style={{
+                            width: "48px",
+                            height: "48px",
+                            borderRadius: "14px",
+                            backgroundColor: club.color + "18",
+                            fontSize: "1.4rem",
+                            fontWeight: 800,
+                            color: club.color,
+                          }}
+                        >
+                          {(club.name || "C").charAt(0)}
+                        </div>
+                        <h6
+                          className="fw-bold mb-1"
+                          style={{
+                            color: isDark ? "#fff" : "#111",
+                            fontSize: "1rem",
+                          }}
+                        >
+                          {club.name}
+                        </h6>
+                        <p
+                          className="mb-2 d-flex align-items-center gap-1"
+                          style={{
+                            color: isDark
+                              ? "rgba(255,255,255,0.4)"
+                              : "rgba(0,0,0,0.4)",
+                            fontSize: "0.85rem",
+                          }}
+                        >
+                          <LocationOnIcon sx={{ fontSize: "0.95rem" }} />{" "}
+                          {club.location}
+                        </p>
+                        <p
+                          className="mb-0 mt-auto"
+                          style={{
+                            color: isDark
+                              ? "rgba(255,255,255,0.6)"
+                              : "rgba(0,0,0,0.6)",
+                            fontSize: "0.85rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {t("home.clubs.members", { count: club.members })}
+                        </p>
+                      </div>
+                    </Col>
+                  ))
+                : homeLoading
+                  ? Array.from({ length: 6 }).map((_, idx) => (
+                      <Col key={idx} xs={12} sm={6} md={4} lg={4}>
+                        <div
+                          className="h-100 d-flex flex-column"
+                          style={{
+                            padding: isSmallPhone ? "20px 16px" : "24px",
+                            borderRadius: "24px",
+                            backgroundColor: isDark
+                              ? "rgba(255,255,255,0.03)"
+                              : "#fff",
+                            border: isDark
+                              ? "1px solid rgba(255,255,255,0.06)"
+                              : "1px solid rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          <SkeletonBar
+                            w="48px"
+                            h={48}
+                            r={14}
+                            className="mb-3"
+                          />
+                          <SkeletonBar w="70%" h={18} className="mb-2" />
+                          <SkeletonBar w="60%" h={14} className="mb-2" />
+                          <SkeletonBar w="50%" h={14} className="mt-auto" />
+                        </div>
+                      </Col>
+                    ))
+                  : null}
+            </Row>
           </div>
         </Container>
       </section>
@@ -1161,7 +1304,8 @@ export default function Hero() {
             transform: "translate(-50%, -50%)",
             width: "40vw",
             height: "40vw",
-            background: "radial-gradient(circle, rgba(13,110,253,0.08) 0%, transparent 70%)",
+            background:
+              "radial-gradient(circle, rgba(13,110,253,0.08) 0%, transparent 70%)",
             filter: "blur(60px)",
             pointerEvents: "none",
           }}
@@ -1174,18 +1318,27 @@ export default function Hero() {
             transform: "translateY(-50%)",
             width: "30vw",
             height: "30vw",
-            background: "radial-gradient(circle, rgba(146,254,157,0.06) 0%, transparent 70%)",
+            background:
+              "radial-gradient(circle, rgba(146,254,157,0.06) 0%, transparent 70%)",
             filter: "blur(60px)",
             pointerEvents: "none",
           }}
         />
-        <Container style={{ maxWidth: "900px", position: "relative", zIndex: 1 }}>
+        <Container
+          style={{ maxWidth: "900px", position: "relative", zIndex: 1 }}
+        >
           <div
             className="text-center"
             style={{
-              padding: isSmallPhone ? "28px 18px" : isMobile ? "36px 24px" : "48px",
+              padding: isSmallPhone
+                ? "28px 18px"
+                : isMobile
+                  ? "36px 24px"
+                  : "48px",
               borderRadius: "32px",
-              backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+              backgroundColor: isDark
+                ? "rgba(255,255,255,0.03)"
+                : "rgba(0,0,0,0.02)",
               border: isDark
                 ? "1px solid rgba(255,255,255,0.08)"
                 : "1px solid rgba(0,0,0,0.06)",
@@ -1222,8 +1375,12 @@ export default function Hero() {
                 style={{
                   "--btn-bg": isDark ? "#fff" : "#111",
                   "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
-                  "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
-                  "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
+                  "--btn-shadow": isDark
+                    ? "0 10px 30px rgba(255,255,255,0.1)"
+                    : "0 10px 30px rgba(0,0,0,0.1)",
+                  "--btn-hover-shadow": isDark
+                    ? "0 15px 40px rgba(255,255,255,0.2)"
+                    : "0 15px 40px rgba(0,0,0,0.2)",
                   color: isDark ? "#000" : "#fff",
                 }}
               >
@@ -1235,7 +1392,10 @@ export default function Hero() {
       </section>
 
       {/* ======= CONTACT INFO & APP SECTION ======= */}
-      <section className="py-5" style={{ backgroundColor: isDark ? "#050505" : "#fbfbfd" }}>
+      <section
+        className="py-5"
+        style={{ backgroundColor: isDark ? "#050505" : "#fbfbfd" }}
+      >
         <Container>
           <Row className="g-4">
             {/* Card 1: Liên hệ chính */}
@@ -1248,12 +1408,16 @@ export default function Hero() {
                   >
                     <ILocation size={24} />
                   </div>
-                  <h5 className="fw-bold mb-3">{contactCards.headquartersTitle}</h5>
+                  <h5 className="fw-bold mb-3">
+                    {contactCards.headquartersTitle}
+                  </h5>
 
                   {!contactInfo ? (
                     <SkeletonBar h={80} />
                   ) : (
-                    <ul className={`list-unstyled mb-0 d-grid gap-3 ${isDark ? "opacity-75" : "text-secondary"}`}>
+                    <ul
+                      className={`list-unstyled mb-0 d-grid gap-3 ${isDark ? "opacity-75" : "text-secondary"}`}
+                    >
                       <li className="d-flex gap-3">
                         <span className="fw-semibold flex-shrink-0">
                           {t("common.labels.address")}:
@@ -1372,7 +1536,9 @@ export default function Hero() {
                 {/* Socials */}
                 <Card className="border-0" style={glassCardStyle}>
                   <Card.Body className="p-4 text-center">
-                    <h6 className="fw-bold mb-3 text-start">{contactCards.socialTitle}</h6>
+                    <h6 className="fw-bold mb-3 text-start">
+                      {contactCards.socialTitle}
+                    </h6>
                     <div className="d-flex gap-2 justify-content-start">
                       {contactInfo?.socials?.facebook && (
                         <a
@@ -1409,7 +1575,11 @@ export default function Hero() {
                 </Card>
 
                 {/* App Downloads */}
-                {(hasAppStore || hasPlayStore || hasApkPickleTour || hasLiveAppIos || hasLiveAppApk) && (
+                {(hasAppStore ||
+                  hasPlayStore ||
+                  hasApkPickleTour ||
+                  hasLiveAppIos ||
+                  hasLiveAppApk) && (
                   <Card
                     className="flex-grow-1 border-0"
                     style={{ ...glassCardStyle }}
@@ -1430,7 +1600,10 @@ export default function Hero() {
                               src={APPSTORE_BADGE}
                               height={isSmallPhone ? 32 : 35}
                               alt={t("common.appStores.appStore")}
-                              style={{ maxWidth: "100%", height: isSmallPhone ? 32 : 35 }}
+                              style={{
+                                maxWidth: "100%",
+                                height: isSmallPhone ? 32 : 35,
+                              }}
                             />
                           </a>
                         )}
@@ -1445,14 +1618,21 @@ export default function Hero() {
                               src={PLAY_BADGE}
                               height={isSmallPhone ? 32 : 35}
                               alt={t("common.appStores.googlePlay")}
-                              style={{ maxWidth: "100%", height: isSmallPhone ? 32 : 35 }}
+                              style={{
+                                maxWidth: "100%",
+                                height: isSmallPhone ? 32 : 35,
+                              }}
                             />
                           </a>
                         )}
                       </div>
                       {(hasApkPickleTour || hasApkReferee) && (
-                        <div className={`mt-3 pt-3 border-top ${isDark ? "border-secondary" : "border-2"}`}>
-                          <div className={`small mb-2 ${isDark ? "text-secondary" : "text-muted"}`}>
+                        <div
+                          className={`mt-3 pt-3 border-top ${isDark ? "border-secondary" : "border-2"}`}
+                        >
+                          <div
+                            className={`small mb-2 ${isDark ? "text-secondary" : "text-muted"}`}
+                          >
                             {contactCards.directApk}
                           </div>
                           <div className="d-flex gap-2">
@@ -1471,17 +1651,25 @@ export default function Hero() {
                                 className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-secondary" : "btn-outline-dark"}`}
                                 download
                               >
-                                 <IDownload size={14} /> {contactCards.refereeApp}
-                               </a>
+                                <IDownload size={14} />{" "}
+                                {contactCards.refereeApp}
+                              </a>
                             )}
                           </div>
                         </div>
                       )}
                       {(hasLiveAppIos || hasLiveAppApk) && (
-                        <div className={`mt-3 pt-3 border-top ${isDark ? "border-secondary" : "border-2"}`}>
+                        <div
+                          className={`mt-3 pt-3 border-top ${isDark ? "border-secondary" : "border-2"}`}
+                        >
                           <div
                             className={`small mb-2 ${isDark ? "text-secondary" : "text-muted"}`}
-                            style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700, fontSize: "0.7rem" }}
+                            style={{
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                              fontWeight: 700,
+                              fontSize: "0.7rem",
+                            }}
                           >
                             {t("footer.liveApps.title")}
                           </div>
@@ -1493,7 +1681,8 @@ export default function Hero() {
                                 rel="noopener noreferrer"
                                 className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-light" : "btn-outline-secondary"}`}
                               >
-                                <IDownload size={14} /> {t("footer.liveApps.ios")}
+                                <IDownload size={14} />{" "}
+                                {t("footer.liveApps.ios")}
                               </a>
                             )}
                             {hasLiveAppApk && (
@@ -1503,7 +1692,8 @@ export default function Hero() {
                                 rel="noopener noreferrer"
                                 className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-light" : "btn-outline-secondary"}`}
                               >
-                                <IDownload size={14} /> {t("footer.liveApps.apk")}
+                                <IDownload size={14} />{" "}
+                                {t("footer.liveApps.apk")}
                               </a>
                             )}
                           </div>

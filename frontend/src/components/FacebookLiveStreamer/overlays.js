@@ -14,7 +14,6 @@ export const DEFAULT_OVERLAY_CONFIG = {
   frameDecor: false,
   liveBadge: true,
   viewerCount: false,
-  
 };
 
 // ==================== HELPER ====================
@@ -57,7 +56,7 @@ export const drawScoreBoard = (ctx, w, h, data) => {
   ctx.fillText(
     data?.tournament?.name || "Tournament",
     x + 14 * scale,
-    y + 22 * scale
+    y + 22 * scale,
   );
 
   // Team A
@@ -167,7 +166,7 @@ export const drawSponsors = (ctx, w, h) => {
   ctx.font = `bold ${12 * scale}px Arial`;
   ctx.textAlign = "center";
   sponsors.forEach((sponsor, i) =>
-    ctx.fillText(sponsor, x + 115 * scale, y + (25 + i * 25) * scale)
+    ctx.fillText(sponsor, x + 115 * scale, y + (25 + i * 25) * scale),
   );
   ctx.restore();
 };
@@ -245,7 +244,7 @@ export const drawQRCode = (ctx, w, h) => {
           x + (10 + i * 11) * scale,
           y + (10 + j * 11) * scale,
           10 * scale,
-          10 * scale
+          10 * scale,
         );
     }
   ctx.restore();
@@ -341,7 +340,7 @@ export const renderOverlays = (
   h,
   overlayConfig,
   overlayData,
-  streamTime
+  streamTime,
 ) => {
   // Draw video background
   if (video.readyState >= 2 && video.videoWidth) {

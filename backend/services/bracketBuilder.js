@@ -138,6 +138,18 @@ export async function buildKnockoutBracket({
         type: "knockout",
         order,
         stage,
+        config: {
+          rules: baseRules,
+          blueprint: {
+            drawSize: size,
+            seeds: r1Seeds,
+            rules: baseRules,
+            semiRules: semiOnly,
+            finalRules: finalOnly,
+            thirdPlaceEnabled: !!thirdPlace,
+            thirdPlaceRules: bronzeOnly,
+          },
+        },
         meta: {
           drawSize: size,
           maxRounds: rounds,
@@ -327,16 +339,24 @@ export async function buildRoundElimBracket({
         type: "roundElim", // PO
         order,
         stage,
-        rules: baseRules,
         meta: {
           drawSize: 0, // giữ hành vi cũ
           maxRounds: Rmax,
           expectedFirstRoundMatches: R1Pairs,
         },
         config: {
-          drawSize: N,
-          maxRounds: Rmax,
-          roundRules: perRoundRules, // ✅ chỗ này autoAdvance sẽ đọc
+          rules: baseRules,
+          roundElim: {
+            drawSize: N,
+            cutRounds: Rmax,
+          },
+          blueprint: {
+            drawSize: N,
+            maxRounds: Rmax,
+            seeds: r1Seeds,
+            rules: baseRules,
+            roundRules: perRoundRules,
+          },
         },
         prefill: { roundKey: `R1`, seeds: r1Seeds },
       },
@@ -446,6 +466,7 @@ export async function buildGroupBracket({
   groupSize, // optional
   totalTeams, // optional
   groupSizes, // optional array
+  qualifiersPerGroup, // optional
   // ✅ NEW:
   rules = undefined, // rule mặc định cho các trận vòng bảng (sẽ được dùng khi tạo match ở nơi khác)
   session = null,
@@ -485,7 +506,23 @@ export async function buildGroupBracket({
         order,
         stage,
         groups,
-        config: { rules: sanitizeRules(rules) },
+        config: {
+          rules: sanitizeRules(rules),
+          roundRobin: {
+            groupSize:
+              Number(groupSize) > 0
+                ? Math.max(0, Number(groupSize) || 0)
+                : Math.max(0, sizes[0] || 0),
+          },
+          blueprint: {
+            groupCount,
+            groupSize: Number(groupSize) || 0,
+            totalTeams: Number(totalTeams) || 0,
+            groupSizes: sizes,
+            qualifiersPerGroup: Number(qualifiersPerGroup) || 1,
+            rules: sanitizeRules(rules),
+          },
+        },
       },
     ],
     { session }

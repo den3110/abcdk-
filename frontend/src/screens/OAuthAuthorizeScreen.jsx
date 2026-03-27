@@ -54,7 +54,7 @@ function buildCancelRedirect(redirectUri, state) {
 
 function validateAuthorizeRequest(searchParams) {
   const missing = REQUIRED_QUERY_FIELDS.filter(
-    (key) => !String(searchParams.get(key) || "").trim()
+    (key) => !String(searchParams.get(key) || "").trim(),
   );
   if (missing.length > 0) {
     return `Yêu cầu ủy quyền không hợp lệ. Thiếu ${missing.join(", ")}.`;
@@ -159,7 +159,11 @@ function StatusCard({ icon, eyebrow, title, description, tone = "info" }) {
           </Typography>
         ) : null}
         <Typography
-          sx={{ color: "#10233f", fontWeight: 800, fontSize: { xs: 18, sm: 20 } }}
+          sx={{
+            color: "#10233f",
+            fontWeight: 800,
+            fontSize: { xs: 18, sm: 20 },
+          }}
         >
           {title}
         </Typography>
@@ -223,7 +227,7 @@ export default function OAuthAuthorizeScreen() {
   const search = useMemo(() => buildSearchString(searchParams), [searchParams]);
   const validationError = useMemo(
     () => validateAuthorizeRequest(searchParams),
-    [searchParams]
+    [searchParams],
   );
 
   const requestBody = useMemo(
@@ -237,17 +241,16 @@ export default function OAuthAuthorizeScreen() {
       code_challenge_method: searchParams.get("code_challenge_method") || "",
       os_auth_token: searchParams.get("os_auth_token") || "",
     }),
-    [searchParams]
+    [searchParams],
   );
 
   const queryArg = validationError ? skipToken : search;
-  const { data, isLoading, isFetching, error } = useGetOAuthAuthorizeContextQuery(
-    queryArg,
-    {
+  const { data, isLoading, isFetching, error } =
+    useGetOAuthAuthorizeContextQuery(queryArg, {
       refetchOnMountOrArgChange: true,
-    }
-  );
-  const [approve, { isLoading: isApproving }] = useApproveOAuthAuthorizeMutation();
+    });
+  const [approve, { isLoading: isApproving }] =
+    useApproveOAuthAuthorizeMutation();
 
   const shouldRedirectToLogin =
     !validationError &&
@@ -268,14 +271,17 @@ export default function OAuthAuthorizeScreen() {
     validationError ||
     (error?.data?.reason === "invalid_request" ? apiMessage : "");
   const manageableTournaments = data?.manageableTournaments || [];
-  const isBusy = !validationError && (isLoading || isFetching || shouldRedirectToLogin);
-  const isReady = !isBusy && !invalidMessage && data?.authenticated && data?.canAuthorize;
+  const isBusy =
+    !validationError && (isLoading || isFetching || shouldRedirectToLogin);
+  const isReady =
+    !isBusy && !invalidMessage && data?.authenticated && data?.canAuthorize;
   const isDenied =
     !isBusy &&
     !invalidMessage &&
     data?.authenticated &&
     data?.canAuthorize === false;
-  const hasGenericError = !isBusy && !invalidMessage && !isReady && !isDenied && Boolean(error);
+  const hasGenericError =
+    !isBusy && !invalidMessage && !isReady && !isDenied && Boolean(error);
 
   const handleApprove = async () => {
     try {
@@ -291,7 +297,7 @@ export default function OAuthAuthorizeScreen() {
   const handleCancel = () => {
     const redirectTo = buildCancelRedirect(
       requestBody.redirect_uri,
-      requestBody.state
+      requestBody.state,
     );
     window.location.replace(redirectTo);
   };
@@ -543,13 +549,17 @@ export default function OAuthAuthorizeScreen() {
                       </Box>
                     ))}
                     {manageableTournaments.length > 6 ? (
-                      <Typography sx={{ color: "rgba(16,34,59,0.66)", fontSize: 14 }}>
+                      <Typography
+                        sx={{ color: "rgba(16,34,59,0.66)", fontSize: 14 }}
+                      >
                         Và thêm {manageableTournaments.length - 6} giải khác.
                       </Typography>
                     ) : null}
                   </Stack>
                 ) : (
-                  <Typography sx={{ color: "rgba(16,34,59,0.68)", lineHeight: 1.7 }}>
+                  <Typography
+                    sx={{ color: "rgba(16,34,59,0.68)", lineHeight: 1.7 }}
+                  >
                     Tài khoản admin sẽ dùng danh sách giải hiện có của hệ thống.
                   </Typography>
                 )}

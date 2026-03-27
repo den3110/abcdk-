@@ -28,9 +28,7 @@ export default function ForgotPasswordScreen() {
     try {
       const res = await forgotPassword({ email }).unwrap();
       setSentTo(res?.masked || email);
-      toast.success(
-        res?.message || t("auth.forgot.successToast")
-      );
+      toast.success(res?.message || t("auth.forgot.successToast"));
     } catch (err) {
       toast.error(err?.data?.message || t("auth.forgot.errors.failed"));
     }
@@ -75,7 +73,11 @@ export default function ForgotPasswordScreen() {
             sx={{ mt: 2 }}
             disabled={isLoading}
           >
-            {isLoading ? <CircularProgress size={24} /> : t("auth.forgot.submit")}
+            {isLoading ? (
+              <CircularProgress size={24} />
+            ) : (
+              t("auth.forgot.submit")
+            )}
           </Button>
 
           <Link

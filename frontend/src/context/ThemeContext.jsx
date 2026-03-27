@@ -1,5 +1,11 @@
 // src/context/ThemeContext.jsx
-import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+} from "react";
 import { ThemeProvider as MuiThemeProvider, CssBaseline } from "@mui/material";
 import { lightTheme, darkTheme } from "../theme";
 
@@ -34,7 +40,10 @@ export const ThemeContextProvider = ({ children }) => {
     setMode((prev) => (prev === "light" ? "dark" : "light"));
   };
 
-  const theme = useMemo(() => (mode === "dark" ? darkTheme : lightTheme), [mode]);
+  const theme = useMemo(
+    () => (mode === "dark" ? darkTheme : lightTheme),
+    [mode],
+  );
 
   const contextValue = useMemo(
     () => ({
@@ -42,7 +51,7 @@ export const ThemeContextProvider = ({ children }) => {
       toggleTheme,
       isDark: mode === "dark",
     }),
-    [mode]
+    [mode],
   );
 
   return (

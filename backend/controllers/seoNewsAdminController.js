@@ -4,11 +4,20 @@ import SeoNewsArticle from "../models/seoNewsArticleModel.js";
 import { runSeoNewsPipeline } from "../services/seoNewsPipelineService.js";
 import { runSeoNewsCrawl } from "../services/seoNewsCrawlService.js";
 import { cleanupSeoNewsGatewaySourceImages } from "../services/seoNewsImageService.js";
+import {
+  checkSeoNewsArticleGenerationHealth,
+  invalidateSeoNewsArticleGenerationHealthCache,
+} from "../services/seoNewsArticleGenerationGateway.js";
 import { generateSeoNewsEvergreenArticles } from "../services/seoNewsEvergreenService.js";
 import {
   enqueueSeoNewsImageRegenerationJob,
   getSeoNewsImageRegenerationMonitor,
+  invalidateSeoNewsImageRegenerationHealthCache,
 } from "../services/seoNewsImageQueue.service.js";
+import {
+  enqueueSeoNewsPipelineJob,
+  getSeoNewsPipelineMonitor,
+} from "../services/seoNewsPipelineQueue.service.js";
 import {
   checkSeoNewsCompetitorPolicy,
   evaluateSeoNewsRelevance,
@@ -19,9 +28,7 @@ const MOJIBAKE_REGEX = /(?:\u00C3.|\u00E1\u00BB|\u00E2\u20AC|\u00C2\s|\uFFFD)/;
 
 function toStringArray(value) {
   if (Array.isArray(value)) {
-    return value
-      .map((x) => String(x || "").trim())
-      .filter(Boolean);
+    return value.map((x) => String(x || "").trim()).filter(Boolean);
   }
 
   if (typeof value === "string") {
@@ -97,7 +104,10 @@ function evaluateSeoNewsTextQuality(article = {}) {
     reasons.push("mojibake_detected");
   }
 
-  if (shouldRequireDiacritics && !VIETNAMESE_DIACRITICS_REGEX.test(combinedText)) {
+  if (
+    shouldRequireDiacritics &&
+    !VIETNAMESE_DIACRITICS_REGEX.test(combinedText)
+  ) {
     reasons.push("missing_vietnamese_diacritics");
   }
 
@@ -137,12 +147,19 @@ export const getSeoNewsSettings = async (_req, res) => {
       ? rawSettings.toObject()
       : rawSettings;
 
-  const [pendingCandidatesCount, todayArticlesCount, draftArticlesCount] =
-    await Promise.all([
-      SeoNewsLinkCandidate.countDocuments({ status: "pending" }),
-      SeoNewsArticle.countDocuments({ createdAt: { $gte: getStartOfToday() } }),
-      SeoNewsArticle.countDocuments({ status: "draft" }),
-    ]);
+  const [
+    pendingCandidatesCount,
+    todayArticlesCount,
+    draftArticlesCount,
+    articleGenerationGateway,
+  ] = await Promise.all([
+    SeoNewsLinkCandidate.countDocuments({ status: "pending" }),
+    SeoNewsArticle.countDocuments({ createdAt: { $gte: getStartOfToday() } }),
+    SeoNewsArticle.countDocuments({ status: "draft" }),
+    checkSeoNewsArticleGenerationHealth({
+      selectedModel: settings?.articleGenerationModel,
+    }),
+  ]);
 
   const targetMinPerDay = Math.max(
     1,
@@ -160,6 +177,7 @@ export const getSeoNewsSettings = async (_req, res) => {
     draftArticlesCount,
     missingToTarget: Math.max(0, targetMinPerDay - todayArticlesCount),
     remainingDailyCapacity: Math.max(0, maxArticlesPerDay - todayArticlesCount),
+    articleGenerationGateway,
   });
 };
 
@@ -239,12 +257,17 @@ export const updateSeoNewsSettings = async (req, res) => {
   if ("targetArticlesPerDay" in body) {
     const targetArticlesPerDay = toNumber(body.targetArticlesPerDay);
     if (targetArticlesPerDay !== undefined) {
-      updates.targetArticlesPerDay = Math.max(1, Math.floor(targetArticlesPerDay));
+      updates.targetArticlesPerDay = Math.max(
+        1,
+        Math.floor(targetArticlesPerDay)
+      );
     }
   }
 
   if ("discoveryProvider" in body) {
-    const provider = String(body.discoveryProvider || "").trim().toLowerCase();
+    const provider = String(body.discoveryProvider || "")
+      .trim()
+      .toLowerCase();
     if (["auto", "gemini", "openai"].includes(provider)) {
       updates.discoveryProvider = provider;
     }
@@ -264,11 +287,50 @@ export const updateSeoNewsSettings = async (req, res) => {
     }
   }
 
+  if ("imageGenerationModel" in body) {
+    updates.imageGenerationModel = String(
+      body.imageGenerationModel || ""
+    ).trim();
+  }
+
+  if ("articleGenerationModel" in body) {
+    updates.articleGenerationModel = String(
+      body.articleGenerationModel || ""
+    ).trim();
+  }
+
+  if ("imageGenerationDelaySeconds" in body) {
+    const imageGenerationDelaySeconds = toNumber(
+      body.imageGenerationDelaySeconds
+    );
+    if (imageGenerationDelaySeconds !== undefined) {
+      updates.imageGenerationDelaySeconds = Math.max(
+        5,
+        Math.floor(imageGenerationDelaySeconds)
+      );
+    }
+  }
+
+  if ("imageRegenerationPaused" in body) {
+    const imageRegenerationPaused = toBoolean(body.imageRegenerationPaused);
+    if (typeof imageRegenerationPaused === "boolean") {
+      updates.imageRegenerationPaused = imageRegenerationPaused;
+    }
+  }
+
   const settings = await SeoNewsSettings.findOneAndUpdate(
     { key: "default" },
     { $set: updates },
     { new: true, upsert: true }
   ).lean();
+
+  if ("imageGenerationModel" in updates) {
+    invalidateSeoNewsImageRegenerationHealthCache();
+  }
+
+  if ("articleGenerationModel" in updates) {
+    invalidateSeoNewsArticleGenerationHealthCache();
+  }
 
   return res.json(settings);
 };
@@ -333,8 +395,12 @@ export const getSeoNewsArticles = async (req, res) => {
   const limit = Math.min(cleanPage(req.query.limit, 30), 200);
   const skip = (page - 1) * limit;
 
-  const status = String(req.query.status || "").trim().toLowerCase();
-  const origin = String(req.query.origin || "").trim().toLowerCase();
+  const status = String(req.query.status || "")
+    .trim()
+    .toLowerCase();
+  const origin = String(req.query.origin || "")
+    .trim()
+    .toLowerCase();
   const keyword = String(req.query.keyword || "").trim();
 
   const query = {};
@@ -488,6 +554,72 @@ export const pushSeoNewsDraftsToPublished = async (req, res) => {
     return res.status(500).json({
       ok: false,
       message: "Push draft articles failed",
+      error: error?.message || "internal_error",
+    });
+  }
+};
+
+export const queueSeoNewsPipelineJobNow = async (req, res) => {
+  try {
+    const rawType = String(req.body?.type || req.query?.type || "pipeline")
+      .trim()
+      .toLowerCase();
+
+    const type = [
+      "pipeline",
+      "pending_candidates",
+      "create_ready_articles",
+    ].includes(rawType)
+      ? rawType
+      : "pipeline";
+
+    const request = {
+      discoveryMode: req.body?.discoveryMode || req.query?.discoveryMode || "",
+      rounds: req.body?.rounds ?? req.query?.rounds,
+      count: req.body?.count ?? req.query?.count,
+      limit: req.body?.limit ?? req.query?.limit,
+      forcePublish:
+        req.body?.forcePublish ??
+        req.query?.forcePublish ??
+        req.body?.publish ??
+        req.query?.publish,
+    };
+
+    const result = await enqueueSeoNewsPipelineJob({
+      type,
+      request,
+      requestedBy: {
+        userId: req.user?._id || null,
+        name:
+          req.user?.name || req.user?.fullName || req.user?.email || "admin",
+        email: req.user?.email || "",
+      },
+    });
+
+    return res.status(201).json({
+      ok: true,
+      message: "Da tao job worker SEO news",
+      ...result,
+    });
+  } catch (error) {
+    console.error("[SeoNewsAdmin] queue pipeline job failed:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Tao job worker SEO news that bai",
+      error: error?.message || "internal_error",
+    });
+  }
+};
+
+export const getSeoNewsPipelineMonitorNow = async (_req, res) => {
+  try {
+    const monitor = await getSeoNewsPipelineMonitor();
+    return res.json(monitor);
+  } catch (error) {
+    console.error("[SeoNewsAdmin] get pipeline monitor failed:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Lay monitor worker SEO news that bai",
       error: error?.message || "internal_error",
     });
   }
@@ -660,9 +792,18 @@ export const getSeoNewsImageStats = async (req, res) => {
     const limit = Math.min(cleanPage(req.query.limit, 30), 200);
     const skip = (page - 1) * limit;
 
-    const imageFilter = String(req.query.imageFilter || "").trim().toLowerCase();
-    const origin = String(req.query.origin || "").trim().toLowerCase();
+    const imageFilter = String(req.query.imageFilter || "")
+      .trim()
+      .toLowerCase();
+    const origin = String(req.query.origin || "")
+      .trim()
+      .toLowerCase();
     const keyword = String(req.query.keyword || "").trim();
+    const forceHealthRefresh =
+      req.query.refreshHealth === "true" ||
+      (req.query.refreshHealth &&
+        req.query.refreshHealth !== "0" &&
+        req.query.refreshHealth !== "false");
 
     // --- aggregate counts ---
     const [
@@ -672,10 +813,17 @@ export const getSeoNewsImageStats = async (req, res) => {
       originBreakdown,
       regenerationMonitor,
     ] = await Promise.all([
-      SeoNewsArticle.countDocuments({ status: { $in: ["published", "draft"] } }),
       SeoNewsArticle.countDocuments({
         status: { $in: ["published", "draft"] },
-        heroImageUrl: { $exists: true, $ne: null, $ne: "", $not: /^data:image\//i },
+      }),
+      SeoNewsArticle.countDocuments({
+        status: { $in: ["published", "draft"] },
+        heroImageUrl: {
+          $exists: true,
+          $ne: null,
+          $ne: "",
+          $not: /^data:image\//i,
+        },
       }),
       SeoNewsArticle.countDocuments({
         status: { $in: ["published", "draft"] },
@@ -737,7 +885,7 @@ export const getSeoNewsImageStats = async (req, res) => {
         { $group: { _id: "$imageOrigin", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
-      getSeoNewsImageRegenerationMonitor(),
+      getSeoNewsImageRegenerationMonitor({ forceHealthRefresh }),
     ]);
 
     // --- build article query with filters ---
@@ -775,7 +923,10 @@ export const getSeoNewsImageStats = async (req, res) => {
         $not: /^data:image\//i,
       };
     } else if (imageFilter === "ai-generated") {
-      query.heroImageUrl = { $regex: /^\/uploads\/public\/seo-news\//, $ne: null };
+      query.heroImageUrl = {
+        $regex: /^\/uploads\/public\/seo-news\//,
+        $ne: null,
+      };
     }
 
     const [items, filteredTotal] = await Promise.all([
@@ -830,7 +981,8 @@ export const queueSeoNewsImageRegenerationNow = async (req, res) => {
       },
       requestedBy: {
         userId: req.user?._id || null,
-        name: req.user?.name || req.user?.fullName || req.user?.email || "admin",
+        name:
+          req.user?.name || req.user?.fullName || req.user?.email || "admin",
         email: req.user?.email || "",
       },
     });

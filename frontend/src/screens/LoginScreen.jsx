@@ -34,6 +34,7 @@ import { useLanguage } from "../context/LanguageContext.jsx";
 import { setCredentials } from "../slices/authSlice";
 import apiSlice from "../slices/apiSlice";
 import { useLoginMutation } from "../slices/usersApiSlice";
+import { addBusinessBreadcrumb } from "../utils/sentry";
 
 const WEB_LOGO_PATH = "/icon-192.png";
 
@@ -41,7 +42,11 @@ function ShowcaseVisual({ kind, accent, compact = false }) {
   if (kind === "live") {
     return (
       <Stack spacing={compact ? 0.8 : 1.1}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
           <Box
             sx={{
               px: compact ? 0.7 : 1,
@@ -56,12 +61,18 @@ function ShowcaseVisual({ kind, accent, compact = false }) {
           >
             LIVE
           </Box>
-          <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: compact ? 10 : 12 }}>
+          <Typography
+            sx={{ color: alpha("#ffffff", 0.58), fontSize: compact ? 10 : 12 }}
+          >
             Court A
           </Typography>
         </Stack>
 
-        <Stack direction="row" alignItems="baseline" justifyContent="space-between">
+        <Stack
+          direction="row"
+          alignItems="baseline"
+          justifyContent="space-between"
+        >
           <Box>
             <Typography
               sx={{
@@ -73,7 +84,12 @@ function ShowcaseVisual({ kind, accent, compact = false }) {
             >
               11
             </Typography>
-            <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: compact ? 10 : 12 }}>
+            <Typography
+              sx={{
+                color: alpha("#ffffff", 0.58),
+                fontSize: compact ? 10 : 12,
+              }}
+            >
               Team A
             </Typography>
           </Box>
@@ -97,7 +113,12 @@ function ShowcaseVisual({ kind, accent, compact = false }) {
             >
               08
             </Typography>
-            <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: compact ? 10 : 12 }}>
+            <Typography
+              sx={{
+                color: alpha("#ffffff", 0.58),
+                fontSize: compact ? 10 : 12,
+              }}
+            >
               Team B
             </Typography>
           </Box>
@@ -128,7 +149,12 @@ function ShowcaseVisual({ kind, accent, compact = false }) {
     return (
       <Stack spacing={compact ? 0.75 : 1}>
         {[1, 2, 3].map((rank, index) => (
-          <Stack key={rank} direction="row" spacing={compact ? 0.8 : 1.1} alignItems="center">
+          <Stack
+            key={rank}
+            direction="row"
+            spacing={compact ? 0.8 : 1.1}
+            alignItems="center"
+          >
             <Box
               sx={{
                 width: compact ? 18 : 24,
@@ -174,7 +200,12 @@ function ShowcaseVisual({ kind, accent, compact = false }) {
   return (
     <Stack spacing={compact ? 0.75 : 1}>
       {[0, 1, 2].map((row) => (
-        <Stack key={row} direction="row" spacing={compact ? 0.75 : 1} alignItems="center">
+        <Stack
+          key={row}
+          direction="row"
+          spacing={compact ? 0.75 : 1}
+          alignItems="center"
+        >
           <Box
             sx={{
               width: (compact ? 30 : 44) - row * (compact ? 4 : 6),
@@ -197,7 +228,12 @@ function ShowcaseVisual({ kind, accent, compact = false }) {
 
       <Stack direction="row" spacing={1}>
         <Box
-          sx={{ flex: 1, height: compact ? 6 : 8, borderRadius: 99, bgcolor: alpha("#ffffff", 0.08) }}
+          sx={{
+            flex: 1,
+            height: compact ? 6 : 8,
+            borderRadius: 99,
+            bgcolor: alpha("#ffffff", 0.08),
+          }}
         />
         <Box
           sx={{
@@ -272,7 +308,7 @@ export default function LoginScreen() {
         kind: "ranking",
       },
     ],
-    [t]
+    [t],
   );
 
   useEffect(() => {
@@ -289,6 +325,11 @@ export default function LoginScreen() {
     const cleanIdentifier = String(identifier || "").trim();
     const cleanPassword = String(password || "");
 
+    addBusinessBreadcrumb("auth.login.submit", {
+      identifierTail: cleanIdentifier.slice(-4),
+      returnTo,
+    });
+
     try {
       const res = await login({
         identifier: cleanIdentifier,
@@ -299,7 +340,9 @@ export default function LoginScreen() {
       dispatch(apiSlice.util.resetApiState());
       navigate(returnTo, { replace: true });
     } catch (err) {
-      toast.error(err?.data?.message || err?.error || t("auth.login.errors.failed"));
+      toast.error(
+        err?.data?.message || err?.error || t("auth.login.errors.failed"),
+      );
     }
   };
 
@@ -310,9 +353,14 @@ export default function LoginScreen() {
 
   const shellBackground = isDark ? alpha("#0b1419", 0.94) : "#fbfbfa";
   const formTextPrimary = isDark ? "#f2f8fb" : "#0c1116";
-  const formTextSecondary = isDark ? alpha("#d5e4ec", 0.72) : alpha("#24323d", 0.68);
+  const formTextSecondary = isDark
+    ? alpha("#d5e4ec", 0.72)
+    : alpha("#24323d", 0.68);
   const fieldBackground = isDark ? alpha("#111b22", 0.96) : "#ffffff";
-  const fieldBorder = alpha(isDark ? "#b6ebff" : "#111827", isDark ? 0.14 : 0.1);
+  const fieldBorder = alpha(
+    isDark ? "#b6ebff" : "#111827",
+    isDark ? 0.14 : 0.1,
+  );
 
   return (
     <Box
@@ -365,7 +413,10 @@ export default function LoginScreen() {
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "49% 51%" },
               alignItems: "center",
-              borderBottom: { xs: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`, md: 0 },
+              borderBottom: {
+                xs: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`,
+                md: 0,
+              },
             }}
           >
             <Box sx={{ display: { xs: "none", md: "block" } }} />
@@ -391,7 +442,12 @@ export default function LoginScreen() {
                 <LogoAnimationMorph isMobile={false} showBackButton={false} />
               </Box>
 
-              <Stack direction="row" spacing={0.75} justifyContent="flex-end" alignItems="center">
+              <Stack
+                direction="row"
+                spacing={0.75}
+                justifyContent="flex-end"
+                alignItems="center"
+              >
                 <Typography
                   variant="body2"
                   sx={{
@@ -424,7 +480,10 @@ export default function LoginScreen() {
               zIndex: 1,
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "49% 51%" },
-              gridTemplateRows: { xs: "minmax(230px, 36vh) minmax(0, 1fr)", md: "1fr" },
+              gridTemplateRows: {
+                xs: "minmax(230px, 36vh) minmax(0, 1fr)",
+                md: "1fr",
+              },
               mt: { xs: 0, md: "-50px" },
               height: { xs: "auto", md: "calc(100% + 50px)" },
               minHeight: 0,
@@ -589,7 +648,8 @@ export default function LoginScreen() {
                     p: { xs: 1.15, md: 2.4 },
                     borderRadius: 4,
                     color: "#ffffff",
-                    background: "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
+                    background:
+                      "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
                     border: `1px solid ${alpha("#ffffff", 0.08)}`,
                     boxShadow: "0 24px 48px rgba(0, 0, 0, 0.32)",
                     transform: { xs: "rotate(-4deg)", md: "rotate(-5deg)" },
@@ -597,7 +657,11 @@ export default function LoginScreen() {
                   }}
                 >
                   <Stack spacing={1.6}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                    >
                       <Stack direction="row" spacing={1} alignItems="center">
                         <Box
                           sx={{
@@ -637,7 +701,9 @@ export default function LoginScreen() {
                     </Stack>
 
                     <Box>
-                      <Typography sx={{ fontSize: { xs: 12, md: 22 }, fontWeight: 800 }}>
+                      <Typography
+                        sx={{ fontSize: { xs: 12, md: 22 }, fontWeight: 800 }}
+                      >
                         {activeCard.title}
                       </Typography>
                       <Typography
@@ -674,17 +740,27 @@ export default function LoginScreen() {
                       sx={{
                         position: "absolute",
                         zIndex: index === 0 ? 3 : 1,
-                        top: index === 0 ? { xs: 54, md: 34 } : { xs: 118, md: 210 },
+                        top:
+                          index === 0
+                            ? { xs: 54, md: 34 }
+                            : { xs: 118, md: 210 },
                         right: index === 0 ? { xs: 10, md: 16 } : "auto",
                         left: index === 0 ? "auto" : { xs: 6, md: 22 },
-                        width: index === 0 ? { xs: "22%", md: 232 } : { xs: "24%", md: 244 },
+                        width:
+                          index === 0
+                            ? { xs: "22%", md: 232 }
+                            : { xs: "24%", md: 244 },
                         p: { xs: 0.85, md: 1.8 },
                         borderRadius: 4,
                         color: "#ffffff",
-                        background: "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
+                        background:
+                          "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
                         border: `1px solid ${alpha("#ffffff", 0.08)}`,
                         boxShadow: "0 18px 40px rgba(0, 0, 0, 0.26)",
-                        transform: index === 0 ? { xs: "rotate(4deg)", md: "rotate(5deg)" } : { xs: "rotate(-3deg)", md: "rotate(-4deg)" },
+                        transform:
+                          index === 0
+                            ? { xs: "rotate(4deg)", md: "rotate(5deg)" }
+                            : { xs: "rotate(-3deg)", md: "rotate(-4deg)" },
                       }}
                     >
                       <Stack spacing={1.25}>
@@ -756,7 +832,12 @@ export default function LoginScreen() {
                     {t("auth.login.testimonial.quote")}
                   </Typography>
 
-                  <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mt: 2 }}>
+                  <Stack
+                    direction="row"
+                    spacing={1.2}
+                    alignItems="center"
+                    sx={{ mt: 2 }}
+                  >
                     <Box
                       sx={{
                         width: 36,
@@ -767,10 +848,14 @@ export default function LoginScreen() {
                       }}
                     />
                     <Box>
-                      <Typography sx={{ color: "#ffffff", fontWeight: 700, fontSize: 14 }}>
+                      <Typography
+                        sx={{ color: "#ffffff", fontWeight: 700, fontSize: 14 }}
+                      >
                         {t("auth.login.testimonial.author")}
                       </Typography>
-                      <Typography sx={{ color: alpha("#ffffff", 0.6), fontSize: 12 }}>
+                      <Typography
+                        sx={{ color: alpha("#ffffff", 0.6), fontSize: 12 }}
+                      >
                         {t("auth.login.testimonial.role")}
                       </Typography>
                     </Box>
@@ -786,7 +871,9 @@ export default function LoginScreen() {
                         height: 6,
                         borderRadius: 99,
                         bgcolor:
-                          index === activeShowcase ? alpha("#ffffff", 0.92) : alpha("#ffffff", 0.28),
+                          index === activeShowcase
+                            ? alpha("#ffffff", 0.92)
+                            : alpha("#ffffff", 0.28),
                         transition: "all 220ms ease",
                       }}
                     />
@@ -871,7 +958,9 @@ export default function LoginScreen() {
                         InputProps={{
                           startAdornment: (
                             <InputAdornment position="start">
-                              <PhoneIphoneRounded sx={{ color: alpha(formTextPrimary, 0.56) }} />
+                              <PhoneIphoneRounded
+                                sx={{ color: alpha(formTextPrimary, 0.56) }}
+                              />
                             </InputAdornment>
                           ),
                         }}
@@ -910,7 +999,9 @@ export default function LoginScreen() {
                         InputProps={{
                           startAdornment: (
                             <InputAdornment position="start">
-                              <LockRounded sx={{ color: alpha(formTextPrimary, 0.56) }} />
+                              <LockRounded
+                                sx={{ color: alpha(formTextPrimary, 0.56) }}
+                              />
                             </InputAdornment>
                           ),
                           endAdornment: (
@@ -920,7 +1011,11 @@ export default function LoginScreen() {
                                 edge="end"
                                 aria-label="toggle password visibility"
                               >
-                                {showPassword ? <VisibilityOff /> : <Visibility />}
+                                {showPassword ? (
+                                  <VisibilityOff />
+                                ) : (
+                                  <Visibility />
+                                )}
                               </IconButton>
                             </InputAdornment>
                           ),
@@ -951,7 +1046,10 @@ export default function LoginScreen() {
                         disabled={isLoading}
                       >
                         {isLoading ? (
-                          <CircularProgress size={24} sx={{ color: "#ffffff" }} />
+                          <CircularProgress
+                            size={24}
+                            sx={{ color: "#ffffff" }}
+                          />
                         ) : (
                           t("auth.login.submit")
                         )}
@@ -983,7 +1081,9 @@ export default function LoginScreen() {
                           alignItems="center"
                           sx={{ display: { xs: "flex", md: "none" } }}
                         >
-                          <Typography sx={{ color: formTextSecondary, fontSize: 14 }}>
+                          <Typography
+                            sx={{ color: formTextSecondary, fontSize: 14 }}
+                          >
                             {t("auth.login.registerPrompt")}
                           </Typography>
                           <Link

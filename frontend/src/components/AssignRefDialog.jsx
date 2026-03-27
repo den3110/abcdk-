@@ -51,8 +51,8 @@ const matchCode = (m) => {
   const r = Number.isFinite(m?.globalRound)
     ? m.globalRound
     : Number.isFinite(m?.round)
-    ? m.round
-    : "?";
+      ? m.round
+      : "?";
   const t = Number.isFinite(m?.order) ? m.order + 1 : undefined;
   return `V${r}${t ? `-T${t}` : ""}`;
 };
@@ -96,7 +96,7 @@ function AssignRefDialog({
     refetch,
   } = useListTournamentRefereesQuery(
     { tid: tournamentId, q: debouncedQ, limit },
-    { skip: !open || !tournamentId }
+    { skip: !open || !tournamentId },
   );
 
   // Danh sách trọng tài đã gán cho 1 trận (nếu chỉ gán 1 trận)
@@ -106,7 +106,7 @@ function AssignRefDialog({
     isFetching: assignedFetching,
   } = useAdminGetMatchRefereesQuery(
     { tid: tournamentId, matchId: singleMatchId || "" },
-    { skip: !open || !tournamentId || !singleMatchId }
+    { skip: !open || !tournamentId || !singleMatchId },
   );
 
   // State chọn
@@ -149,12 +149,12 @@ function AssignRefDialog({
 
   const allIdsOnPage = useMemo(
     () => (referees || []).map((u) => String(u._id)),
-    [referees]
+    [referees],
   );
 
   const toggle = (id) =>
     setSelected((s) =>
-      s.includes(id) ? s.filter((x) => x !== id) : [...s, id]
+      s.includes(id) ? s.filter((x) => x !== id) : [...s, id],
     );
 
   const selectAllOnPage = () =>
@@ -195,7 +195,7 @@ function AssignRefDialog({
       onClose?.();
     } catch (e) {
       toast.error(
-        e?.data?.message || e?.error || "Cập nhật trọng tài (batch) thất bại"
+        e?.data?.message || e?.error || "Cập nhật trọng tài (batch) thất bại",
       );
     }
   };
@@ -203,7 +203,7 @@ function AssignRefDialog({
   // Quick info “Đã gán X” (nếu đang chỉnh 1 trận)
   const assignedCount = useMemo(
     () => (Array.isArray(assignedForSingle) ? assignedForSingle.length : 0),
-    [assignedForSingle]
+    [assignedForSingle],
   );
 
   return (
@@ -317,7 +317,7 @@ function AssignRefDialog({
                       <Button
                         onClick={() =>
                           setSelected(
-                            (assignedForSingle || []).map((u) => String(u._id))
+                            (assignedForSingle || []).map((u) => String(u._id)),
                           )
                         }
                         disabled={assignedLoading || assignedFetching}

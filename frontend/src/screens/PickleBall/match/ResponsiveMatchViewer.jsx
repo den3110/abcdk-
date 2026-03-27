@@ -1,6 +1,6 @@
 // src/screens/PickleBall/match/ResponsiveMatchViewer.jsx
 /* eslint-disable react/prop-types */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Chip,
@@ -21,6 +21,7 @@ import {
   useListTournamentBracketsQuery,
 } from "../../../slices/tournamentsApiSlice";
 import { useGetLiveCourtQuery } from "../../../slices/liveApiSlice";
+import { addBusinessBreadcrumb } from "../../../utils/sentry";
 import MatchContent from "./MatchContent";
 
 /* =========================
@@ -175,7 +176,7 @@ function mergeLockedMatchPayload(previous, incoming) {
     url: pickString(incoming.url, previous.url),
     defaultStreamKey: pickString(
       incoming.defaultStreamKey,
-      previous.defaultStreamKey
+      previous.defaultStreamKey,
     ),
     gameScores: pickArray(incoming.gameScores, previous.gameScores),
     streams: pickRicherArray(incoming.streams, previous.streams),
@@ -196,10 +197,13 @@ function mergeLockedMatchPayload(previous, incoming) {
           ...incoming.sources,
           items: pickRicherArray(
             incoming.sources?.items,
-            previous.sources?.items
+            previous.sources?.items,
           ),
           video: pickString(incoming.sources?.video, previous.sources?.video),
-          stream: pickString(incoming.sources?.stream, previous.sources?.stream),
+          stream: pickString(
+            incoming.sources?.stream,
+            previous.sources?.stream,
+          ),
           url: pickString(incoming.sources?.url, previous.sources?.url),
         }
       : previous.sources,
@@ -208,11 +212,14 @@ function mergeLockedMatchPayload(previous, incoming) {
           ...(isPlainObject(previous.meta) ? previous.meta : {}),
           ...incoming.meta,
           video: pickString(incoming.meta?.video, previous.meta?.video),
-          videoUrl: pickString(incoming.meta?.videoUrl, previous.meta?.videoUrl),
+          videoUrl: pickString(
+            incoming.meta?.videoUrl,
+            previous.meta?.videoUrl,
+          ),
           stream: pickString(incoming.meta?.stream, previous.meta?.stream),
           streams: pickRicherArray(
             incoming.meta?.streams,
-            previous.meta?.streams
+            previous.meta?.streams,
           ),
         }
       : previous.meta,
@@ -227,27 +234,29 @@ function mergeLockedMatchPayload(previous, incoming) {
     previousB: mergeNestedObject(previous.previousB, incoming.previousB),
     facebookLive: isPlainObject(incoming.facebookLive)
       ? {
-          ...(isPlainObject(previous.facebookLive) ? previous.facebookLive : {}),
+          ...(isPlainObject(previous.facebookLive)
+            ? previous.facebookLive
+            : {}),
           ...incoming.facebookLive,
           permalink_url: pickString(
             incoming.facebookLive?.permalink_url,
-            previous.facebookLive?.permalink_url
+            previous.facebookLive?.permalink_url,
           ),
           video_permalink_url: pickString(
             incoming.facebookLive?.video_permalink_url,
-            previous.facebookLive?.video_permalink_url
+            previous.facebookLive?.video_permalink_url,
           ),
           watch_url: pickString(
             incoming.facebookLive?.watch_url,
-            previous.facebookLive?.watch_url
+            previous.facebookLive?.watch_url,
           ),
           embed_url: pickString(
             incoming.facebookLive?.embed_url,
-            previous.facebookLive?.embed_url
+            previous.facebookLive?.embed_url,
           ),
           raw_permalink_url: pickString(
             incoming.facebookLive?.raw_permalink_url,
-            previous.facebookLive?.raw_permalink_url
+            previous.facebookLive?.raw_permalink_url,
           ),
         }
       : previous.facebookLive,
@@ -256,7 +265,7 @@ function mergeLockedMatchPayload(previous, incoming) {
 
 const groupNameCandidates = (g) =>
   [g?.name, g?.label, g?.groupName, g?.groupLabel, g?.title, g?.key].filter(
-    Boolean
+    Boolean,
   );
 
 /** Trả về chỉ số bảng (1-based) nếu xác định được */
@@ -271,7 +280,7 @@ const resolveGroupIndex = (m, brackets) => {
       const groups = Array.isArray(br?.groups) ? br.groups : [];
       if (groups.length) {
         const i = groups.findIndex(
-          (g) => String(g?._id || "") === String(poolId)
+          (g) => String(g?._id || "") === String(poolId),
         );
         if (i >= 0) return i + 1;
       }
@@ -320,8 +329,8 @@ const resolveGroupIndex = (m, brackets) => {
           (cand) =>
             String(cand || "")
               .trim()
-              .toLowerCase() === needle
-        )
+              .toLowerCase() === needle,
+        ),
       );
       if (hit >= 0) return hit + 1;
     }
@@ -342,7 +351,7 @@ const makeMatchCode = (m, brackets) => {
 
   const baseRoundStart = computeBaseRoundStart(
     brackets || [],
-    currentBracketId
+    currentBracketId,
   );
   const roundIdx = Number.isFinite(Number(m?.rrRound || m?.round))
     ? Number(m.rrRound || m.round)
@@ -377,10 +386,13 @@ function useLockedDialogMatch({
   isLoadingCourt,
 }) {
   const lockedId = String(matchId || "");
-  const pick = useCallback((cand) => {
-    const id = String(cand?._id || cand?.id || "");
-    return id && id === lockedId ? cand : null;
-  }, [lockedId]);
+  const pick = useCallback(
+    (cand) => {
+      const id = String(cand?._id || cand?.id || "");
+      return id && id === lockedId ? cand : null;
+    },
+    [lockedId],
+  );
   const buildMerged = useCallback(() => {
     let merged = null;
     [initialMatch, courtMatch, base, live].forEach((cand) => {
@@ -445,10 +457,14 @@ function ResponsiveMatchViewer({
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userInfo } = useSelector((s) => s.auth || {});
   const token = userInfo?.token;
+  const openTraceRef = useRef("");
 
-  const { data: seedBase, refetch: refetchSeedBase } = useGetMatchPublicQuery(matchId, {
-    skip: !matchId || !open,
-  });
+  const { data: seedBase, refetch: refetchSeedBase } = useGetMatchPublicQuery(
+    matchId,
+    {
+      skip: !matchId || !open,
+    },
+  );
   const activeCourtStationId = useMemo(
     () =>
       String(
@@ -456,9 +472,9 @@ function ResponsiveMatchViewer({
           initialMatch?.courtStationId ||
           initialMatch?.courtStation?._id ||
           seedBase?.courtStationId ||
-          ""
+          "",
       ).trim(),
-    [forcedCourtStationId, initialMatch, seedBase?.courtStationId]
+    [forcedCourtStationId, initialMatch, seedBase?.courtStationId],
   );
   const {
     data: liveCourt,
@@ -482,7 +498,7 @@ function ResponsiveMatchViewer({
   });
   const { loading: isLoadingLive, data: live } = useLiveMatch(
     open ? effectiveMatchId : null,
-    token
+    token,
   );
 
   // LOCK: chỉ lấy data trùng matchId
@@ -515,6 +531,43 @@ function ResponsiveMatchViewer({
   const code = mm ? makeMatchCode(mm, brackets) : "";
   const status = mm?.status || "scheduled";
 
+  useEffect(() => {
+    if (!open || !effectiveMatchId) return;
+    const traceKey = `${effectiveMatchId}:${activeCourtStationId || "no-court"}`;
+    if (openTraceRef.current === traceKey) return;
+    openTraceRef.current = traceKey;
+
+    addBusinessBreadcrumb("live.viewer.open", {
+      source: "responsive_match_viewer",
+      matchId: effectiveMatchId,
+      matchCode:
+        code ||
+        initialMatch?.displayCode ||
+        initialMatch?.code ||
+        initialMatch?.globalCode ||
+        undefined,
+      courtStationId: activeCourtStationId || undefined,
+      status,
+      isMobile,
+    });
+  }, [
+    activeCourtStationId,
+    code,
+    effectiveMatchId,
+    initialMatch?.code,
+    initialMatch?.displayCode,
+    initialMatch?.globalCode,
+    isMobile,
+    open,
+    status,
+  ]);
+
+  useEffect(() => {
+    if (!open) {
+      openTraceRef.current = "";
+    }
+  }, [open]);
+
   const StatusChip = (
     <Chip
       size="small"
@@ -530,15 +583,15 @@ function ResponsiveMatchViewer({
         status === "live"
           ? "Đang diễn ra"
           : status === "finished"
-          ? "Hoàn thành"
-          : "Dự kiến"
+            ? "Hoàn thành"
+            : "Dự kiến"
       }
       color={
         status === "finished"
           ? "success"
           : status !== "live"
-          ? "default"
-          : "warning"
+            ? "default"
+            : "warning"
       }
     />
   );
@@ -616,10 +669,10 @@ function ResponsiveMatchViewer({
   }
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose} 
-      fullWidth 
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
       maxWidth="md"
       sx={{ ...(zIndex ? { zIndex } : {}) }}
     >

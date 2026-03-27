@@ -3,9 +3,8 @@ import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
 
-/* ================== POPULATE ================== */
 const matchPop = [
-  { path: "tournament", select: "name" },
+  { path: "tournament", select: "name image" },
   { path: "bracket", select: "name type stage order" },
   {
     path: "pairA",
@@ -25,46 +24,86 @@ const matchPop = [
   { path: "liveBy", select: "name email" },
 ];
 
-/* ================== HELPERS: platform ================== */
-function detectPlatformFromUrl(url = "") {
-  const s = String(url || "").toLowerCase();
-  if (!s) return null;
-  if (s.includes("youtube.com") || s.includes("youtu.be")) return "youtube";
-  if (s.includes("facebook.com")) return "facebook";
-  if (s.includes("tiktok.com")) return "tiktok";
-  if (s.startsWith("rtmp://") || s.startsWith("rtmps://")) return "rtmp";
-  return "other";
-}
-function pick(v1, v2) {
-  return v1 != null && v1 !== "" ? v1 : v2;
-}
-function normalizeStatus(s) {
-  if (!s) return "";
-  return String(s).toUpperCase();
-}
-function isFbLiveStatus(status) {
-  const st = normalizeStatus(status);
-  return ["LIVE", "LIVE_NOW", "STREAMING"].includes(st);
-}
-function isFbEndedStatus(status) {
-  const st = normalizeStatus(status);
-  return ["ENDED", "STOPPED", "FINISHED"].includes(st);
-}
+const MATCH_SELECT = [
+  "code",
+  "shortCode",
+  "status",
+  "startedAt",
+  "liveBy",
+  "video",
+  "tournament",
+  "bracket",
+  "pairA",
+  "pairB",
+  "referee",
+  "facebookLive",
+  "meta",
+  "round",
+  "order",
+  "pool.name",
+  "courtLabel",
+  "courtStationLabel",
+  "courtClusterLabel",
+].join(" ");
 
-/* ================== HELPERS: mã trận v / b / t ================== */
 const GROUPISH_TYPES = new Set(["group", "round_robin", "gsl"]);
 
-function roundsInBracket(br) {
-  if (GROUPISH_TYPES.has(br.type)) return 1;
-  return br?.meta?.maxRounds || br?.drawRounds || 1;
+function detectPlatformFromUrl(url = "") {
+  const text = String(url || "").toLowerCase();
+  if (!text) return null;
+  if (text.includes("youtube.com") || text.includes("youtu.be")) return "youtube";
+  if (text.includes("facebook.com")) return "facebook";
+  if (text.includes("tiktok.com")) return "tiktok";
+  if (text.startsWith("rtmp://") || text.startsWith("rtmps://")) return "rtmp";
+  return "other";
 }
 
-/** Gom danh sách bracket đã sort theo order cho mỗi giải (an toàn ObjectId) */
+function pick(primary, fallback) {
+  return primary != null && primary !== "" ? primary : fallback;
+}
+
+function normalizeStatus(value) {
+  return value ? String(value).toUpperCase() : "";
+}
+
+function isFbLiveStatus(status) {
+  return ["LIVE", "LIVE_NOW", "STREAMING"].includes(normalizeStatus(status));
+}
+
+function isFbEndedStatus(status) {
+  return ["ENDED", "STOPPED", "FINISHED"].includes(normalizeStatus(status));
+}
+
+function parsePositiveInt(
+  value,
+  fallback,
+  { min = 1, max = Number.MAX_SAFE_INTEGER } = {}
+) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  const normalized = Math.trunc(number);
+  if (normalized < min) return fallback;
+  return Math.min(normalized, max);
+}
+
+function parseCsv(value, fallback = []) {
+  const items = String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return items.length ? [...new Set(items)] : fallback;
+}
+
+function roundsInBracket(bracket) {
+  if (GROUPISH_TYPES.has(bracket?.type)) return 1;
+  return bracket?.meta?.maxRounds || bracket?.drawRounds || 1;
+}
+
 async function buildBracketIndexByTournament(tournamentIds = []) {
   const ids = (Array.isArray(tournamentIds) ? tournamentIds : [tournamentIds])
-    .map((x) =>
-      mongoose.isValidObjectId(x)
-        ? new mongoose.Types.ObjectId(String(x))
+    .map((value) =>
+      mongoose.isValidObjectId(value)
+        ? new mongoose.Types.ObjectId(String(value))
         : null
     )
     .filter(Boolean);
@@ -76,67 +115,73 @@ async function buildBracketIndexByTournament(tournamentIds = []) {
     .lean();
 
   const map = new Map();
-  for (const b of rows) {
-    const key = String(b.tournament);
+  rows.forEach((row) => {
+    const key = String(row.tournament);
     if (!map.has(key)) map.set(key, []);
-    map.get(key).push(b);
-  }
+    map.get(key).push(row);
+  });
   return map;
 }
 
-/** Tính v cộng dồn cho 1 match, dựa vào danh sách bracket của giải */
-function computeGlobalVForMatch(m, bracketListOfTournament = []) {
-  const bracketId = String(m.bracket?._id || m.bracket || "");
-  let acc = 0;
-  for (const b of bracketListOfTournament) {
-    if (String(b._id) === bracketId) {
-      const localRound = GROUPISH_TYPES.has(b.type) ? 1 : m.round || 1;
-      return acc + localRound;
+function computeGlobalVForMatch(match, bracketListOfTournament = []) {
+  const bracketId = String(match?.bracket?._id || match?.bracket || "");
+  let accumulated = 0;
+  for (const bracket of bracketListOfTournament) {
+    if (String(bracket._id) === bracketId) {
+      const localRound = GROUPISH_TYPES.has(bracket.type) ? 1 : match.round || 1;
+      return accumulated + localRound;
     }
-    acc += roundsInBracket(b);
+    accumulated += roundsInBracket(bracket);
   }
-  // fallback
-  return m.round || 1;
+  return match.round || 1;
 }
 
-/** Render mã theo spec: KO/PO -> v-t ; Group-like -> v-b-t */
+function computePoolIndex(poolName) {
+  const text = String(poolName || "").trim();
+  if (!text) return 1;
+
+  const numberMatch = text.match(/(\d+)/);
+  if (numberMatch) return Math.max(1, Number(numberMatch[1]));
+
+  if (/^[A-Za-z]$/.test(text)) {
+    return text.toUpperCase().charCodeAt(0) - 64;
+  }
+
+  return 1;
+}
+
 function renderNewMatchCode({ bracketType, poolName, order0, v }) {
-  const t = (Number.isFinite(order0) ? order0 : 0) + 1; // 1-based
+  const matchOrder = (Number.isFinite(order0) ? order0 : 0) + 1;
   if (GROUPISH_TYPES.has(bracketType)) {
-    const b = poolName || "1";
-    return `V${v}-B${b}-T${t}`;
+    return `V${v}-B${computePoolIndex(poolName)}-T${matchOrder}`;
   }
-  return `V${v}-T${t}`;
+  return `V${v}-T${matchOrder}`;
 }
 
-/** Gán code mới (v[-b]-t) lên m (mutate object) */
-function applyNewCodeOnMatch(m, bracketsOfTournament = []) {
-  const v = computeGlobalVForMatch(m, bracketsOfTournament);
-  const bracketType = m?.bracket?.type || m?.format;
-  const poolName = m?.pool?.name || null;
-  m.code = renderNewMatchCode({
+function applyNewCodeOnMatch(match, bracketsOfTournament = []) {
+  const v = computeGlobalVForMatch(match, bracketsOfTournament);
+  const bracketType = match?.bracket?.type || match?.format;
+  const poolName = match?.pool?.name || null;
+  match.code = renderNewMatchCode({
     bracketType,
     poolName,
-    order0: m.order,
+    order0: match.order,
     v,
   });
-  m.shortCode = m.code;
+  match.shortCode = match.code;
 }
 
-/** Áp dụng code mới hàng loạt trước khi map DTO */
-function applyNewCodeOnMatches(matches = [], bracketIndexByT = new Map()) {
-  for (const m of matches) {
-    const tKey = String(m?.tournament?._id || m.tournament || "");
-    const list = bracketIndexByT.get(tKey) || [];
-    applyNewCodeOnMatch(m, list);
-  }
+function applyNewCodeOnMatches(matches = [], bracketIndexByTournament = new Map()) {
+  matches.forEach((match) => {
+    const tournamentKey = String(match?.tournament?._id || match?.tournament || "");
+    applyNewCodeOnMatch(match, bracketIndexByTournament.get(tournamentKey) || []);
+  });
 }
 
-/* ================== HELPERS: extract outputs ================== */
-function extractFacebookOutputsFromMatch(m) {
-  const out = [];
-  const fbLive = m?.facebookLive || {};
-  const metaFb = m?.meta?.facebook || {};
+function extractFacebookOutputsFromMatch(match) {
+  const outputs = [];
+  const fbLive = match?.facebookLive || {};
+  const metaFb = match?.meta?.facebook || {};
   const metaFbLive = metaFb?.live || {};
 
   const pageId = pick(fbLive.pageId, metaFb.pageId);
@@ -146,7 +191,7 @@ function extractFacebookOutputsFromMatch(m) {
   const status = pick(fbLive.status, metaFbLive.status);
 
   if (pageId || permalink || liveId) {
-    out.push({
+    outputs.push({
       platform: "facebook",
       targetName: pageName || "Facebook Page",
       pageId,
@@ -155,43 +200,48 @@ function extractFacebookOutputsFromMatch(m) {
       meta: { liveId, status },
     });
   }
-  return out;
+
+  return outputs;
 }
-function extractYouTubeOutputsFromMatch(m) {
-  const yt = m?.meta?.youtube || {};
-  const url = yt.watchUrl || yt.url;
+
+function extractYouTubeOutputsFromMatch(match) {
+  const youtube = match?.meta?.youtube || {};
+  const url = youtube.watchUrl || youtube.url;
   if (!url) return [];
   return [
     {
       platform: "youtube",
-      targetName: yt.channelName || yt.channelId || "YouTube",
+      targetName: youtube.channelName || youtube.channelId || "YouTube",
       publicUrl: url,
       url,
-      meta: { videoId: yt.videoId, status: yt?.live?.status },
+      meta: { videoId: youtube.videoId, status: youtube?.live?.status },
     },
   ];
 }
-function extractOtherOutputsFromMatch(m) {
+
+function extractOtherOutputsFromMatch(match) {
   const outputs = [];
-  if (m.video) {
-    const p = detectPlatformFromUrl(m.video);
+
+  if (match.video) {
     outputs.push({
-      platform: p,
+      platform: detectPlatformFromUrl(match.video),
       targetName: "",
-      publicUrl: m.video,
-      url: m.video,
+      publicUrl: match.video,
+      url: match.video,
     });
   }
-  const ttt = m?.meta?.tiktokLive || m?.meta?.tiktok || null;
-  if (ttt?.url || ttt?.watchUrl) {
+
+  const tiktok = match?.meta?.tiktokLive || match?.meta?.tiktok || null;
+  if (tiktok?.url || tiktok?.watchUrl) {
     outputs.push({
       platform: "tiktok",
-      targetName: ttt.account || ttt.username || "TikTok",
-      publicUrl: ttt.watchUrl || ttt.url,
-      url: ttt.watchUrl || ttt.url,
+      targetName: tiktok.account || tiktok.username || "TikTok",
+      publicUrl: tiktok.watchUrl || tiktok.url,
+      url: tiktok.watchUrl || tiktok.url,
     });
   }
-  const rtmp = m?.meta?.rtmp || null;
+
+  const rtmp = match?.meta?.rtmp || null;
   if (rtmp?.publicUrl || rtmp?.viewUrl || rtmp?.url) {
     outputs.push({
       platform: "rtmp",
@@ -201,107 +251,218 @@ function extractOtherOutputsFromMatch(m) {
       url: rtmp.url || rtmp.publicUrl || "",
     });
   }
+
   return outputs;
 }
 
-/* ================== DTO & filters ================== */
-function toSessionDTO(m) {
-  const outputs = [
-    ...extractFacebookOutputsFromMatch(m),
-    ...extractYouTubeOutputsFromMatch(m),
-    ...extractOtherOutputsFromMatch(m),
-  ];
-
-  // unique by (platform,url)
+function toSessionDTO(match) {
   const seen = new Set();
-  const uniqOutputs = outputs.filter((o) => {
-    const key = `${o.platform}|${o.url || o.publicUrl || ""}`;
+  const outputs = [
+    ...extractFacebookOutputsFromMatch(match),
+    ...extractYouTubeOutputsFromMatch(match),
+    ...extractOtherOutputsFromMatch(match),
+  ].filter((output) => {
+    const key = `${output.platform}|${output.url || output.publicUrl || ""}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 
   return {
-    id: m._id,
-    status: m.status,
-    startedAt: m.startedAt,
-    startedBy: m.liveBy || null,
-    tournament: m.tournament,
-    bracket: m.bracket,
-    match: m, // đã áp mã mới
-    outputs: uniqOutputs,
+    id: match._id,
+    status: match.status,
+    startedAt: match.startedAt,
+    startedBy: match.liveBy || null,
+    tournament: match.tournament,
+    bracket: match.bracket,
+    match,
+    outputs,
   };
 }
 
-function isSessionLiveable(s) {
-  if (!s || s.match?.status === "finished") return false;
-  const outs = (s.outputs || []).filter(
-    (o) => !!(o.publicUrl || o.viewUrl || o.url)
-  );
-  if (outs.length === 0) return false;
-  for (const o of outs) {
-    if (o.platform !== "facebook") return true;
-    const st = normalizeStatus(o?.meta?.status);
-    if (!isFbEndedStatus(st) && st !== "CREATED") return true;
+function isSessionLiveable(session, options = {}) {
+  const allowFinished = options?.allowFinished === true;
+  if (!session || (!allowFinished && session.match?.status === "finished")) {
+    return false;
   }
+
+  const outputs = (session.outputs || []).filter(
+    (output) => !!(output.publicUrl || output.viewUrl || output.url)
+  );
+  if (outputs.length === 0) return false;
+
+  for (const output of outputs) {
+    if (output.platform !== "facebook") return true;
+    const status = normalizeStatus(output?.meta?.status);
+    if (!isFbEndedStatus(status) && status !== "CREATED") return true;
+  }
+
   return false;
 }
 
 function derivePagesLiveFromSessions(sessions = []) {
-  const map = new Map(); // key: pageId | permalink
-  for (const s of sessions) {
-    for (const o of s.outputs || []) {
-      if (o.platform !== "facebook") continue;
-      const st = normalizeStatus(o?.meta?.status);
-      if (!isFbLiveStatus(st)) continue;
+  const map = new Map();
+
+  for (const session of sessions) {
+    for (const output of session.outputs || []) {
+      if (output.platform !== "facebook") continue;
+      if (!isFbLiveStatus(output?.meta?.status)) continue;
+
       const key =
-        o.pageId || o.publicUrl || o.url || Math.random().toString(36);
+        output.pageId || output.publicUrl || output.url || Math.random().toString(36);
       if (!map.has(key)) {
         map.set(key, {
-          pageId: o.pageId || null,
-          pageName: o.targetName || "Facebook Page",
-          permalink_url: o.publicUrl || o.url || "",
+          pageId: output.pageId || null,
+          pageName: output.targetName || "Facebook Page",
+          permalink_url: output.publicUrl || output.url || "",
           liveIds: new Set(),
           matches: [],
         });
       }
-      const rec = map.get(key);
-      if (o?.meta?.liveId) rec.liveIds.add(o.meta.liveId);
-      rec.matches.push({
-        id: s.id,
-        code: s.match?.code,
-        tournament: s.tournament?.name,
-        bracket: s.bracket?.name,
+
+      const current = map.get(key);
+      if (output?.meta?.liveId) current.liveIds.add(output.meta.liveId);
+      current.matches.push({
+        id: session.id,
+        code: session.match?.code,
+        tournament: session.tournament?.name,
+        bracket: session.bracket?.name,
       });
     }
   }
-  const pages = [];
-  for (const v of map.values()) {
-    pages.push({
-      pageId: v.pageId,
-      pageName: v.pageName,
-      permalink_url: v.permalink_url,
-      liveIds: [...v.liveIds],
-      matchCount: v.matches.length,
-      matches: v.matches,
-    });
-  }
-  return pages;
+
+  return Array.from(map.values()).map((value) => ({
+    pageId: value.pageId,
+    pageName: value.pageName,
+    permalink_url: value.permalink_url,
+    liveIds: [...value.liveIds],
+    matchCount: value.matches.length,
+    matches: value.matches,
+  }));
 }
 
-/* ================== CONTROLLERS ================== */
-export const adminListLivePages = expressAsyncHandler(async (req, res) => {
+function buildSessionSearchText(session) {
+  const match = session?.match || {};
+  const outputs = Array.isArray(session?.outputs) ? session.outputs : [];
+  return [
+    match?.code,
+    match?.shortCode,
+    match?._id,
+    session?.tournament?.name,
+    session?.bracket?.name,
+    match?.courtLabel,
+    match?.courtStationLabel,
+    match?.courtClusterLabel,
+    match?.pairA?.player1?.user?.nickname,
+    match?.pairA?.player1?.user?.name,
+    match?.pairA?.player2?.user?.nickname,
+    match?.pairA?.player2?.user?.name,
+    match?.pairB?.player1?.user?.nickname,
+    match?.pairB?.player1?.user?.name,
+    match?.pairB?.player2?.user?.nickname,
+    match?.pairB?.player2?.user?.name,
+    session?.startedBy?.name,
+    ...outputs.map((output) =>
+      [
+        output?.platform,
+        output?.targetName,
+        output?.pageId,
+        output?.publicUrl,
+        output?.url,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    ),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function buildTournamentBuckets(sessions = []) {
+  const map = new Map();
+
+  sessions.forEach((session) => {
+    const tournament = session?.match?.tournament || session?.tournament;
+    const tournamentId = String(tournament?._id || "").trim();
+    if (!tournamentId) return;
+
+    const current =
+      map.get(tournamentId) ||
+      {
+        _id: tournamentId,
+        name: tournament?.name || "Khong ro giai",
+        count: 0,
+        liveCount: 0,
+      };
+
+    current.count += 1;
+    if (String(session?.status || "").toLowerCase() === "live") {
+      current.liveCount += 1;
+    }
+    map.set(tournamentId, current);
+  });
+
+  return Array.from(map.values()).sort((left, right) => {
+    if (right.liveCount !== left.liveCount) return right.liveCount - left.liveCount;
+    if (right.count !== left.count) return right.count - left.count;
+    return String(left.name || "").localeCompare(String(right.name || ""), "vi");
+  });
+}
+
+function buildPlatformBuckets(sessions = []) {
+  const map = new Map();
+
+  sessions.forEach((session) => {
+    const seen = new Set();
+
+    (session.outputs || []).forEach((output) => {
+      const platform = String(output?.platform || "").trim().toLowerCase();
+      if (!platform || seen.has(platform)) return;
+
+      seen.add(platform);
+      const current =
+        map.get(platform) ||
+        {
+          key: platform,
+          label: platform,
+          count: 0,
+        };
+
+      current.count += 1;
+      map.set(platform, current);
+    });
+  });
+
+  return Array.from(map.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return String(left.label || "").localeCompare(String(right.label || ""), "vi");
+  });
+}
+
+function paginate(items = [], page = 1, limit = 20) {
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(Math.max(1, page), pages);
+  const start = (safePage - 1) * limit;
+  return {
+    total,
+    page: safePage,
+    pages,
+    items: items.slice(start, start + limit),
+  };
+}
+
+export const adminListLivePages = expressAsyncHandler(async (_req, res) => {
   try {
-    const filter = {
+    const matches = await Match.find({
       status: { $ne: "finished" },
       $or: [
         { "facebookLive.id": { $type: "string" } },
         { "meta.facebook.live.id": { $exists: true } },
         { "meta.facebook.permalinkUrl": { $type: "string" } },
       ],
-    };
-
-    const matches = await Match.find(filter)
+    })
       .select(
         "code shortCode status tournament bracket round order pool.name facebookLive meta startedAt"
       )
@@ -311,24 +472,22 @@ export const adminListLivePages = expressAsyncHandler(async (req, res) => {
       ])
       .lean({ getters: true, virtuals: true });
 
-    // Tính mã trận mới trước khi map DTO
     const tournamentIds = [
       ...new Set(
         matches
-          .map((m) => m?.tournament?._id || m.tournament)
-          .filter((t) => mongoose.isValidObjectId(t))
+          .map((match) => match?.tournament?._id || match.tournament)
+          .filter((value) => mongoose.isValidObjectId(value))
           .map(String)
       ),
     ];
-    const bracketIndexByT = await buildBracketIndexByTournament(tournamentIds);
-    applyNewCodeOnMatches(matches, bracketIndexByT);
+    const bracketIndexByTournament = await buildBracketIndexByTournament(tournamentIds);
+    applyNewCodeOnMatches(matches, bracketIndexByTournament);
 
     const sessions = matches
-      .map((m) => toSessionDTO(m))
-      .filter((s) => isSessionLiveable(s));
+      .map((match) => toSessionDTO(match))
+      .filter((session) => isSessionLiveable(session));
 
-    const pagesLive = derivePagesLiveFromSessions(sessions);
-    return res.json({ items: pagesLive });
+    return res.json({ items: derivePagesLiveFromSessions(sessions) });
   } catch (err) {
     console.error("[adminListLivePages] error:", err);
     const isProd =
@@ -344,107 +503,100 @@ export const adminListLivePages = expressAsyncHandler(async (req, res) => {
 export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
   try {
     const {
+      status = "live",
       tournamentId,
-      q,
+      q = "",
       platform,
-      limit = 200,
+      page = 1,
+      limit = 20,
       includePages = "1",
     } = req.query;
 
-    const filter = { status: { $ne: "finished" } };
+    const normalizedStatuses = parseCsv(status, ["live"]);
+    const pageNumber = parsePositiveInt(page, 1, { min: 1 });
+    const limitNumber = parsePositiveInt(limit, 20, { min: 1, max: 100 });
+    const selectedTournamentIds = new Set(
+      parseCsv(tournamentId).filter((id) => mongoose.isValidObjectId(id))
+    );
 
-    // Sanitize tournamentId (chấp nhận nhiều id, phân tách bởi dấu phẩy)
-    if (tournamentId) {
-      const tokens = String(tournamentId)
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const ids = tokens
-        .map((t) =>
-          mongoose.isValidObjectId(t) ? new mongoose.Types.ObjectId(t) : null
-        )
-        .filter(Boolean);
-
-      if (ids.length === 0) {
-        // Không có id hợp lệ → trả rỗng, tránh BSONError
-        return res.status(200).json({ items: [], pagesLive: [] });
-      }
-      filter.tournament = ids.length === 1 ? ids[0] : { $in: ids };
-    }
+    const filter = normalizedStatuses.length
+      ? { status: { $in: normalizedStatuses } }
+      : { status: { $ne: "finished" } };
 
     const matches = await Match.find(filter)
-      .select(
-        "code shortCode status startedAt liveBy video tournament bracket pairA pairB referee facebookLive meta round order pool.name"
-      )
+      .select(MATCH_SELECT)
       .populate(matchPop)
       .sort({ startedAt: -1, createdAt: -1 })
-      .limit(Math.min(Number(limit) || 200, 500))
       .lean({ getters: true, virtuals: true });
 
-    // Lấy danh sách tournamentId hợp lệ từ matches và build index
     const tournamentIds = [
       ...new Set(
         matches
-          .map((m) => m?.tournament?._id || m.tournament)
-          .filter((t) => mongoose.isValidObjectId(t))
+          .map((match) => match?.tournament?._id || match.tournament)
+          .filter((value) => mongoose.isValidObjectId(value))
           .map(String)
       ),
     ];
-    const bracketIndexByT = await buildBracketIndexByTournament(tournamentIds);
-    applyNewCodeOnMatches(matches, bracketIndexByT);
+    const bracketIndexByTournament = await buildBracketIndexByTournament(tournamentIds);
+    applyNewCodeOnMatches(matches, bracketIndexByTournament);
 
-    // Map → session DTO & giữ chỉ những session có stream
-    let sessions = matches.map((m) => toSessionDTO(m));
-    sessions = sessions.filter((s) => isSessionLiveable(s));
+    let sessions = matches
+      .map((match) => toSessionDTO(match))
+      .filter((session) =>
+        isSessionLiveable(session, {
+          allowFinished: normalizedStatuses.includes("finished"),
+        })
+      );
 
-    // Keyword filtering
-    if (q && q.trim()) {
-      const kw = q.trim().toLowerCase();
-      sessions = sessions.filter((s) => {
-        const parts = [];
-        parts.push(s.match?.code, s.match?.shortCode);
-        parts.push(s.tournament?.name, s.bracket?.name);
-        const a1 =
-          s.match?.pairA?.player1?.user?.nickname ||
-          s.match?.pairA?.player1?.user?.name;
-        const a2 =
-          s.match?.pairA?.player2?.user?.nickname ||
-          s.match?.pairA?.player2?.user?.name;
-        const b1 =
-          s.match?.pairB?.player1?.user?.nickname ||
-          s.match?.pairB?.player1?.user?.name;
-        const b2 =
-          s.match?.pairB?.player2?.user?.nickname ||
-          s.match?.pairB?.player2?.user?.name;
-        for (const o of s.outputs || [])
-          parts.push(o.platform, o.targetName, o.pageId, o.publicUrl, o.url);
-        const hay = parts.filter(Boolean).join(" ").toLowerCase();
-        return hay.includes(kw);
+    if (q && String(q).trim()) {
+      const keyword = String(q).trim().toLowerCase();
+      sessions = sessions.filter((session) =>
+        buildSessionSearchText(session).includes(keyword)
+      );
+    }
+
+    const tournaments = buildTournamentBuckets(sessions);
+
+    if (selectedTournamentIds.size > 0) {
+      sessions = sessions.filter((session) => {
+        const id = String(
+          session?.match?.tournament?._id || session?.tournament?._id || ""
+        ).trim();
+        return selectedTournamentIds.has(id);
       });
     }
 
-    // Platform filter
+    const platforms = buildPlatformBuckets(sessions);
+
     if (platform) {
-      const list = String(platform)
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean);
-      if (list.length) {
-        sessions = sessions.filter((s) =>
-          (s.outputs || []).some((o) => list.includes(o.platform))
+      const selectedPlatforms = parseCsv(platform).map((value) => value.toLowerCase());
+      if (selectedPlatforms.length) {
+        sessions = sessions.filter((session) =>
+          (session.outputs || []).some((output) =>
+            selectedPlatforms.includes(String(output.platform || "").toLowerCase())
+          )
         );
       }
     }
 
-    let pagesLive = [];
-    if (
+    const paged = paginate(sessions, pageNumber, limitNumber);
+
+    const pagesLive =
       String(includePages) === "1" ||
       String(includePages).toLowerCase() === "true"
-    ) {
-      pagesLive = derivePagesLiveFromSessions(sessions);
-    }
+        ? derivePagesLiveFromSessions(sessions)
+        : [];
 
-    return res.status(200).json({ items: sessions, pagesLive });
+    return res.status(200).json({
+      items: paged.items,
+      count: paged.total,
+      page: paged.page,
+      pages: paged.pages,
+      limit: limitNumber,
+      tournaments,
+      platforms,
+      pagesLive,
+    });
   } catch (err) {
     console.error("[adminListLiveSessions] error:", err);
     const isProd =
@@ -459,31 +611,24 @@ export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
 
 export const adminGetLiveSession = expressAsyncHandler(async (req, res) => {
   try {
-    const m = await Match.findById(req.params.id)
-      .select(
-        "code shortCode status startedAt liveBy video tournament bracket pairA pairB referee facebookLive meta round order pool.name"
-      )
+    const match = await Match.findById(req.params.id)
+      .select(MATCH_SELECT)
       .populate(matchPop)
       .lean({ getters: true, virtuals: true });
 
-    // Không có / đã kết thúc -> trả rỗng 200
-    if (!m || m.status === "finished") return res.json({});
+    if (!match || match.status === "finished") return res.json({});
 
-    // Gán mã mới cho 1 trận đơn lẻ (an toàn ObjectId)
-    const tRaw = m?.tournament?._id || m.tournament;
-    const tId = mongoose.isValidObjectId(tRaw) ? String(tRaw) : null;
-    const bracketIndexByT = await buildBracketIndexByTournament(
-      tId ? [tId] : []
+    const tournamentId = mongoose.isValidObjectId(match?.tournament?._id || match.tournament)
+      ? String(match?.tournament?._id || match.tournament)
+      : null;
+    const bracketIndexByTournament = await buildBracketIndexByTournament(
+      tournamentId ? [tournamentId] : []
     );
-    const list = tId ? bracketIndexByT.get(tId) || [] : [];
-    applyNewCodeOnMatch(m, list);
+    applyNewCodeOnMatch(match, bracketIndexByTournament.get(tournamentId) || []);
 
-    const dto = toSessionDTO(m);
-
-    // Không có stream khả dụng -> trả rỗng 200
+    const dto = toSessionDTO(match);
     if (!isSessionLiveable(dto)) return res.json({});
 
-    // Có -> trả DTO
     return res.json(dto);
   } catch (err) {
     console.error("[adminGetLiveSession] error:", err);
@@ -499,21 +644,23 @@ export const adminGetLiveSession = expressAsyncHandler(async (req, res) => {
 
 export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
   try {
-    const m = await Match.findById(req.params.id);
-    if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
+    const match = await Match.findById(req.params.id);
+    if (!match) {
+      return res.status(404).json({ message: "Khong tim thay tran" });
+    }
 
-    const fb = m.facebookLive || {};
-    fb.status = "ENDED";
-    fb.secure_stream_url = "";
-    fb.server_url = "";
-    fb.stream_key = "";
-    m.facebookLive = fb;
-    await m.save();
+    const facebookLive = match.facebookLive || {};
+    facebookLive.status = "ENDED";
+    facebookLive.secure_stream_url = "";
+    facebookLive.server_url = "";
+    facebookLive.stream_key = "";
+    match.facebookLive = facebookLive;
+    await match.save();
 
     return res.json({
-      message: "Đã dừng live Facebook cho trận",
-      id: m._id,
-      facebook: fb,
+      message: "Da dung live Facebook cho tran",
+      id: match._id,
+      facebook: facebookLive,
     });
   } catch (err) {
     console.error("[adminStopLiveSession] error:", err);

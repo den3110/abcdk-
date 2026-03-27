@@ -104,7 +104,7 @@ const safeAtobUtf8 = (b64) => {
   } catch (e) {
     try {
       return atob(b64);
-    } catch { }
+    } catch {}
   }
   return "";
 };
@@ -232,11 +232,11 @@ export default function FacebookLiveStreamerMUI({
           .replace(/^ws:/, "http:");
         const u = new URL(wsHttp);
         list.push(`${u.origin}/speed-5mb.bin`);
-      } catch { }
-    } catch { }
+      } catch {}
+    } catch {}
     list.push(
       "https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg",
-      "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg"
+      "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg",
     );
     return list;
   }, [wsUrl]);
@@ -281,7 +281,7 @@ export default function FacebookLiveStreamerMUI({
               setAutoFillFlags((f) => ({ ...f, tt: true }));
             }
           }
-        } catch (e) { }
+        } catch (e) {}
       }
 
       const fbKey = params.get("key");
@@ -327,7 +327,7 @@ export default function FacebookLiveStreamerMUI({
       setStatusType("warning");
     } else {
       setStatus((s) =>
-        s.startsWith("✅ Auto-fill") ? s : "✅ WebCodecs ready - ADAPTIVE"
+        s.startsWith("✅ Auto-fill") ? s : "✅ WebCodecs ready - ADAPTIVE",
       );
       setStatusType("success");
     }
@@ -418,7 +418,7 @@ export default function FacebookLiveStreamerMUI({
       Object.keys(prev).reduce((acc, key) => {
         acc[key] = enabled;
         return acc;
-      }, {})
+      }, {}),
     );
   }, []);
 
@@ -441,7 +441,7 @@ export default function FacebookLiveStreamerMUI({
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       setVideoDevices(devices.filter((d) => d.kind === "videoinput"));
-    } catch { }
+    } catch {}
   };
 
   const findDeviceIdForFacing = (want = "user") => {
@@ -461,7 +461,7 @@ export default function FacebookLiveStreamerMUI({
   const stopCurrentStream = () => {
     try {
       camStreamRef.current?.getTracks().forEach((t) => t.stop());
-    } catch { }
+    } catch {}
   };
 
   const initCamera = async (preferFacing = "user") => {
@@ -561,17 +561,17 @@ export default function FacebookLiveStreamerMUI({
         )
           audioRecorderRef.current.stop();
         audioRecorderRef.current = null;
-      } catch { }
+      } catch {}
       try {
         if (
           videoEncoderRef.current &&
           videoEncoderRef.current.state !== "closed"
         )
           videoEncoderRef.current.close();
-      } catch { }
+      } catch {}
       try {
         wsRef.current?.close();
-      } catch { }
+      } catch {}
     };
   }, [qualityMode]);
 
@@ -626,7 +626,7 @@ export default function FacebookLiveStreamerMUI({
           canvas.height,
           overlayConfig,
           overlayData,
-          streamTimeRef.current
+          streamTimeRef.current,
         );
         lastTime = currentTime - (deltaTime % frameTime);
       }
@@ -700,7 +700,7 @@ export default function FacebookLiveStreamerMUI({
     }
     if (!canStartNow()) {
       setStatus(
-        "❌ Vui lòng nhập ít nhất một đích phát (Facebook/YouTube/TikTok)"
+        "❌ Vui lòng nhập ít nhất một đích phát (Facebook/YouTube/TikTok)",
       );
       setStatusType("error");
       return;
@@ -751,7 +751,7 @@ export default function FacebookLiveStreamerMUI({
                 metadata?.decoderConfig?.description
               ) {
                 const description = new Uint8Array(
-                  metadata.decoderConfig.description
+                  metadata.decoderConfig.description,
                 );
                 dataToSend = convertToAnnexB(chunkData, description, true);
               } else {
@@ -834,7 +834,7 @@ export default function FacebookLiveStreamerMUI({
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(
           () => reject(new Error("Start timeout")),
-          10000
+          10000,
         );
         const handler = (evt) => {
           if (typeof evt.data !== "string") return;
@@ -848,7 +848,7 @@ export default function FacebookLiveStreamerMUI({
                 if (aTrack) {
                   const aStream = new MediaStream([aTrack]);
                   const mime = MediaRecorder.isTypeSupported(
-                    "audio/webm;codecs=opus"
+                    "audio/webm;codecs=opus",
                   )
                     ? "audio/webm;codecs=opus"
                     : MediaRecorder.isTypeSupported("audio/webm")
@@ -868,7 +868,7 @@ export default function FacebookLiveStreamerMUI({
                       out[0] = 0x01;
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
-                    } catch { }
+                    } catch {}
                   };
                   mr.start(100);
                   audioRecorderRef.current = mr;
@@ -883,7 +883,7 @@ export default function FacebookLiveStreamerMUI({
               ws.removeEventListener("message", handler);
               reject(new Error(msg.message));
             }
-          } catch { }
+          } catch {}
         };
         ws.addEventListener("message", handler);
       });
@@ -913,7 +913,7 @@ export default function FacebookLiveStreamerMUI({
         const nowMicros = nowMillis * 1000;
         if (videoEncoderRef.current.encodeQueueSize > 8) {
           console.warn(
-            `⚠️ Encoder overload (queue=${videoEncoderRef.current.encodeQueueSize}), skipping frame`
+            `⚠️ Encoder overload (queue=${videoEncoderRef.current.encodeQueueSize}), skipping frame`,
           );
           statsRef.current.dropped++;
           nextFrameTimeMicros += frameDurationMicros;
@@ -937,7 +937,7 @@ export default function FacebookLiveStreamerMUI({
               canvas.height,
               overlayConfig,
               overlayData,
-              streamTimeRef.current
+              streamTimeRef.current,
             );
             const frame = new VideoFrame(canvas, {
               timestamp: nextFrameTimeMicros,
@@ -982,10 +982,10 @@ export default function FacebookLiveStreamerMUI({
           await videoEncoderRef.current.flush();
           videoEncoderRef.current.close();
         }
-      } catch { }
+      } catch {}
       try {
         wsRef.current?.close();
-      } catch { }
+      } catch {}
     } finally {
       setLoading(false);
     }
@@ -1059,8 +1059,9 @@ export default function FacebookLiveStreamerMUI({
               Overlay Controls
             </Typography>
             <Chip
-              label={`${activeOverlayCount}/${Object.keys(overlayConfig).length
-                }`}
+              label={`${activeOverlayCount}/${
+                Object.keys(overlayConfig).length
+              }`}
               color="success"
               size="small"
             />
@@ -1634,7 +1635,7 @@ export default function FacebookLiveStreamerMUI({
                                   </Typography>
                                 </Box>
                               </MenuItem>
-                            )
+                            ),
                           )}
                         </Select>
                       </FormControl>

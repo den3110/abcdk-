@@ -8,7 +8,10 @@ export default function LocalizedDateProvider({ children }) {
   const { dayjsLocale } = useLanguage();
 
   return (
-    <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale={dayjsLocale}>
+    <LocalizationProvider
+      dateAdapter={AdapterDayjs}
+      adapterLocale={dayjsLocale}
+    >
       {children}
     </LocalizationProvider>
   );

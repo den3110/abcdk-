@@ -38,6 +38,7 @@ import {
   planAuto,
   planCommit,
   planGet,
+  planImpact,
   planUpdate,
   updateTournamentAllowedCourtClusters,
   updateTournamentOverlay,
@@ -243,8 +244,10 @@ import {
   getSeoNewsArticles,
   getSeoNewsCandidates,
   getSeoNewsImageStats,
+  getSeoNewsPipelineMonitorNow,
   getSeoNewsSettings,
   pushSeoNewsDraftsToPublished,
+  queueSeoNewsPipelineJobNow,
   queueSeoNewsImageRegenerationNow,
   runSeoNewsPendingCandidates,
   runSeoNewsSyncNow,
@@ -677,6 +680,12 @@ router.post(
   authorize("admin"),
   planCommit
 );
+router.post(
+  "/tournaments/:id/plan/impact",
+  protect,
+  authorize("admin"),
+  planImpact
+);
 
 router
   .route("/tournaments/:id/plan")
@@ -1105,6 +1114,8 @@ router.post("/news/run/v2", runNewsSyncNowV2);
 router.get("/seo-news/settings", getSeoNewsSettings);
 router.put("/seo-news/settings", updateSeoNewsSettings);
 router.get("/seo-news/candidates", getSeoNewsCandidates);
+router.get("/seo-news/jobs/monitor", getSeoNewsPipelineMonitorNow);
+router.post("/seo-news/jobs", queueSeoNewsPipelineJobNow);
 router.get("/seo-news/articles", getSeoNewsArticles);
 router.post("/seo-news/articles/push", pushSeoNewsDraftsToPublished);
 router.post("/seo-news/articles/create-ready", createSeoNewsReadyArticlesNow);

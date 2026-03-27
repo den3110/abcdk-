@@ -3,13 +3,11 @@ import path from "path";
 import axios from "axios";
 import crypto from "crypto";
 import * as cheerio from "cheerio";
-import OpenAI from "openai";
 import sharp from "sharp";
 import slugify from "slugify";
 
 import SeoNewsArticle from "../models/seoNewsArticleModel.js";
 import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
-import { openai } from "../lib/openaiClient.js";
 
 const OPENVERSE_ENDPOINT =
   process.env.SEO_NEWS_IMAGE_OPENVERSE_ENDPOINT ||
@@ -19,10 +17,9 @@ const OPENVERSE_TIMEOUT_MS = Math.max(
   Number(process.env.SEO_NEWS_IMAGE_TIMEOUT_MS) || 5000
 );
 const ENABLE_OPENVERSE_SEARCH =
-  String(process.env.SEO_NEWS_IMAGE_SEARCH_DISABLED || "false").toLowerCase() !==
-  "true";
-const GATEWAY_IMAGE_MODEL =
-  process.env.SEO_NEWS_IMAGE_MODEL || process.env.OPENAI_IMAGE_MODEL || "dall-e-3";
+  String(
+    process.env.SEO_NEWS_IMAGE_SEARCH_DISABLED || "false"
+  ).toLowerCase() !== "true";
 const GATEWAY_IMAGE_SIZE = process.env.SEO_NEWS_IMAGE_SIZE || "1792x1024";
 const GATEWAY_IMAGE_QUALITY = process.env.SEO_NEWS_IMAGE_QUALITY || "hd";
 const GATEWAY_IMAGE_STYLE = process.env.SEO_NEWS_IMAGE_STYLE || "natural";
@@ -30,6 +27,12 @@ const GATEWAY_IMAGE_TIMEOUT_MS = Math.max(
   30_000,
   Number(process.env.SEO_NEWS_IMAGE_GENERATION_TIMEOUT_MS) || 180_000
 );
+const SEO_NEWS_IMAGE_GENERATION_URL = String(
+  process.env.SEO_NEWS_IMAGE_GENERATION_URL || ""
+).trim();
+const SEO_NEWS_IMAGE_GENERATION_API_KEY = String(
+  process.env.SEO_NEWS_IMAGE_GENERATION_API_KEY || ""
+).trim();
 const SEO_NEWS_IMAGE_GATEWAY_BASE_URL = String(
   process.env.SEO_NEWS_IMAGE_GATEWAY_BASE_URL || ""
 ).trim();
@@ -37,12 +40,6 @@ const SEO_NEWS_IMAGE_GATEWAY_API_KEY =
   process.env.SEO_NEWS_IMAGE_GATEWAY_API_KEY ||
   process.env.CATGPT_GATEWAY_API_KEY ||
   "";
-const LOCAL_GATEWAY_FALLBACK_BASE_URL =
-  process.env.SEO_NEWS_IMAGE_LOCAL_GATEWAY_BASE_URL || "http://localhost:8000/v1";
-const LOCAL_GATEWAY_FALLBACK_API_KEY =
-  process.env.SEO_NEWS_IMAGE_LOCAL_GATEWAY_API_KEY ||
-  process.env.CATGPT_GATEWAY_API_KEY ||
-  "dummy123";
 const GENERATED_IMAGE_OUTPUT_DIR = path.resolve("uploads/public/seo-news");
 const GENERATED_IMAGE_URL_PREFIX = "/uploads/public/seo-news";
 const BACKGROUND_IMAGE_BATCH_SIZE = Math.max(
@@ -50,8 +47,9 @@ const BACKGROUND_IMAGE_BATCH_SIZE = Math.max(
   Number(process.env.SEO_NEWS_BACKGROUND_IMAGE_BATCH_SIZE) || 2
 );
 const SOURCE_IMAGE_CLEANUP_ENABLED =
-  String(process.env.SEO_NEWS_GATEWAY_SOURCE_IMAGE_CLEANUP_ENABLED || "true").toLowerCase() !==
-  "false";
+  String(
+    process.env.SEO_NEWS_GATEWAY_SOURCE_IMAGE_CLEANUP_ENABLED || "true"
+  ).toLowerCase() !== "false";
 const GATEWAY_SOURCE_IMAGE_ROOTS = [
   process.env.SEO_NEWS_GATEWAY_SOURCE_IMAGE_DIR,
   process.env.CATGPT_GATEWAY_IMAGES_DIR,
@@ -83,6 +81,24 @@ function normalizeSearchText(value) {
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
+}
+
+async function getDefaultSeoNewsSettingsRecord() {
+  const settings =
+    (await SeoNewsSettings.findOne({ key: "default" }).lean()) ||
+    (await SeoNewsSettings.create({ key: "default" }));
+
+  return typeof settings?.toObject === "function"
+    ? settings.toObject()
+    : settings || {};
+}
+
+async function getActiveSeoNewsImageSettings(settings) {
+  if (settings && typeof settings === "object") {
+    return settings;
+  }
+
+  return getDefaultSeoNewsSettingsRecord();
 }
 
 function isDataImageUrl(value) {
@@ -362,7 +378,11 @@ async function saveGatewayImageToPublicDir({ imageBase64, title, articleKey }) {
   await fs.mkdir(GENERATED_IMAGE_OUTPUT_DIR, { recursive: true });
 
   const fileStem = makeGeneratedImageBaseName(title, articleKey);
-  const hash = crypto.createHash("sha256").update(rawBuffer).digest("hex").slice(0, 12);
+  const hash = crypto
+    .createHash("sha256")
+    .update(rawBuffer)
+    .digest("hex")
+    .slice(0, 12);
   const jpgFileName = `${fileStem}-${hash}.jpg`;
   const jpgFilePath = path.join(GENERATED_IMAGE_OUTPUT_DIR, jpgFileName);
 
@@ -412,120 +432,373 @@ function isLocalGatewayBaseUrl(baseUrl) {
   }
 }
 
-function getPrimaryGatewayBaseUrl() {
-  return SEO_NEWS_IMAGE_GATEWAY_BASE_URL || String(process.env.CLIPROXY_BASE_URL || "").trim();
+function getImageGenerationUrl() {
+  return SEO_NEWS_IMAGE_GENERATION_URL;
 }
 
-function getPrimaryGatewayApiKey() {
-  return (
-    SEO_NEWS_IMAGE_GATEWAY_API_KEY ||
-    process.env.CLIPROXY_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    ""
+function getImageGenerationApiKey() {
+  return SEO_NEWS_IMAGE_GENERATION_API_KEY;
+}
+
+function getImageGenerationModelsUrl() {
+  const endpoint = getImageGenerationUrl();
+  if (!endpoint) return null;
+
+  try {
+    const parsed = new URL(endpoint);
+    if (!/\/images\/generations\/?$/i.test(parsed.pathname)) {
+      return null;
+    }
+    parsed.pathname = parsed.pathname.replace(
+      /\/images\/generations\/?$/i,
+      "/models"
+    );
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function getCleanupGatewayBaseUrl() {
+  return SEO_NEWS_IMAGE_GATEWAY_BASE_URL;
+}
+
+function getCleanupGatewayApiKey() {
+  return SEO_NEWS_IMAGE_GATEWAY_API_KEY;
+}
+
+function extractGatewayModelIds(payload) {
+  const items = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.models)
+    ? payload.models
+    : Array.isArray(payload?.result?.data)
+    ? payload.result.data
+    : Array.isArray(payload)
+    ? payload
+    : [];
+
+  return Array.from(
+    new Set(
+      items
+        .map((item) => safeText(item?.id || item?.model || item?.name))
+        .filter(Boolean)
+    )
   );
 }
 
-function getPrimaryGatewayClient() {
-  if (SEO_NEWS_IMAGE_GATEWAY_BASE_URL) {
-    const apiKey = getPrimaryGatewayApiKey();
-    if (!apiKey) return null;
+function extractGatewayImageData(payload) {
+  const items = Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.images)
+    ? payload.images
+    : Array.isArray(payload?.result?.data)
+    ? payload.result.data
+    : [];
+  const imageData =
+    items[0] ||
+    payload?.image ||
+    (payload?.url || payload?.b64_json ? payload : null);
 
-    return new OpenAI({
-      apiKey,
-      baseURL: SEO_NEWS_IMAGE_GATEWAY_BASE_URL,
-      timeout: GATEWAY_IMAGE_TIMEOUT_MS,
-      maxRetries: 1,
-    });
+  if (!imageData) return null;
+
+  return {
+    url: String(
+      imageData?.url ||
+        imageData?.path ||
+        imageData?.image_url ||
+        imageData?.imageUrl ||
+        ""
+    ).trim(),
+    b64Json: String(
+      imageData?.b64_json ||
+        imageData?.base64 ||
+        imageData?.image_base64 ||
+        imageData?.imageBase64 ||
+        ""
+    ).trim(),
+    revisedPrompt:
+      imageData?.revised_prompt ||
+      imageData?.revisedPrompt ||
+      payload?.revised_prompt ||
+      payload?.revisedPrompt ||
+      "",
+  };
+}
+
+async function postSeoNewsImageGeneration(
+  requestBody,
+  { validateStatus } = {}
+) {
+  const endpoint = getImageGenerationUrl();
+  const apiKey = getImageGenerationApiKey();
+
+  if (!endpoint || !apiKey) {
+    return null;
   }
 
-  return openai;
+  const response = await axios.post(endpoint, requestBody, {
+    timeout: GATEWAY_IMAGE_TIMEOUT_MS,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    validateStatus:
+      validateStatus || ((status) => status >= 200 && status < 300),
+  });
+
+  return response;
+}
+
+async function fetchSeoNewsImageGatewayModels({ validateStatus } = {}) {
+  const modelsUrl = getImageGenerationModelsUrl();
+  const apiKey = getImageGenerationApiKey();
+
+  if (!modelsUrl || !apiKey) {
+    return null;
+  }
+
+  const response = await axios.get(modelsUrl, {
+    timeout: Math.min(20_000, GATEWAY_IMAGE_TIMEOUT_MS),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    validateStatus:
+      validateStatus || ((status) => status >= 200 && status < 300),
+  });
+
+  return response;
+}
+
+async function getSeoNewsImageGatewayDiagnostics({ settings } = {}) {
+  const activeSettings = await getActiveSeoNewsImageSettings(settings);
+  const selectedModel = safeText(activeSettings?.imageGenerationModel) || null;
+  const modelsUrl = getImageGenerationModelsUrl();
+  const apiKey = getImageGenerationApiKey();
+
+  const diagnostics = {
+    settings: activeSettings,
+    modelsUrl,
+    availableModels: [],
+    selectedModel,
+    effectiveModel: selectedModel,
+    selectedModelAvailable: selectedModel ? null : null,
+    modelsStatus: "unknown",
+    modelsReachable: false,
+    modelsMessage: null,
+  };
+
+  if (!modelsUrl) {
+    diagnostics.modelsStatus = "misconfigured";
+    diagnostics.modelsMessage =
+      "Cannot derive /v1/models from SEO news image generation URL";
+    return diagnostics;
+  }
+
+  if (!apiKey) {
+    diagnostics.modelsStatus = "misconfigured";
+    diagnostics.modelsMessage = "Missing SEO news image generation API key";
+    return diagnostics;
+  }
+
+  try {
+    const response = await fetchSeoNewsImageGatewayModels({
+      validateStatus: (status) => status >= 200 && status < 500,
+    });
+
+    if (response.status >= 200 && response.status < 300) {
+      diagnostics.availableModels = extractGatewayModelIds(response.data);
+      diagnostics.modelsReachable = true;
+
+      if (!diagnostics.availableModels.length) {
+        diagnostics.modelsStatus = "misconfigured";
+        diagnostics.modelsMessage =
+          "Gateway models endpoint returned no usable models";
+      } else {
+        diagnostics.modelsStatus = "online";
+        diagnostics.modelsMessage = `Loaded ${diagnostics.availableModels.length} model(s)`;
+      }
+    } else if (response.status === 401 || response.status === 403) {
+      diagnostics.modelsStatus = "auth_error";
+      diagnostics.modelsMessage = `Gateway models rejected credentials (${response.status})`;
+      return diagnostics;
+    } else if (response.status === 404 || response.status === 405) {
+      diagnostics.modelsStatus = "misconfigured";
+      diagnostics.modelsMessage = `Gateway models route is misconfigured (${response.status})`;
+      return diagnostics;
+    } else {
+      diagnostics.modelsStatus = "degraded";
+      diagnostics.modelsMessage = `Gateway models responded with HTTP ${response.status}`;
+      return diagnostics;
+    }
+  } catch (error) {
+    diagnostics.modelsStatus = "offline";
+    diagnostics.modelsMessage =
+      error?.message || "Gateway models endpoint unavailable";
+    return diagnostics;
+  }
+
+  if (!diagnostics.effectiveModel && diagnostics.availableModels.length) {
+    diagnostics.effectiveModel = diagnostics.availableModels[0];
+  }
+
+  if (selectedModel && diagnostics.availableModels.length) {
+    diagnostics.selectedModelAvailable =
+      diagnostics.availableModels.includes(selectedModel);
+    if (!diagnostics.selectedModelAvailable) {
+      diagnostics.modelsStatus = "degraded";
+      diagnostics.modelsMessage = `Saved model "${selectedModel}" is not present in gateway model list`;
+    }
+  }
+
+  return diagnostics;
+}
+
+async function getSeoNewsImageGenerationRuntime({ settings } = {}) {
+  const activeSettings = await getActiveSeoNewsImageSettings(settings);
+  const selectedModel = safeText(activeSettings?.imageGenerationModel) || null;
+
+  if (selectedModel) {
+    return {
+      settings: activeSettings,
+      selectedModel,
+      effectiveModel: selectedModel,
+      availableModels: [],
+      modelsUrl: getImageGenerationModelsUrl(),
+    };
+  }
+
+  const diagnostics = await getSeoNewsImageGatewayDiagnostics({
+    settings: activeSettings,
+  });
+
+  return {
+    settings: activeSettings,
+    selectedModel: diagnostics.selectedModel,
+    effectiveModel: diagnostics.effectiveModel,
+    availableModels: diagnostics.availableModels,
+    modelsUrl: diagnostics.modelsUrl,
+  };
 }
 
 export async function checkSeoNewsImageGenerationHealth() {
   const startedAt = Date.now();
-  const baseUrl = getPrimaryGatewayBaseUrl();
-  const apiKey = getPrimaryGatewayApiKey();
-  const resolvedBaseUrl = baseUrl || "https://api.openai.com/v1";
+  const endpoint = getImageGenerationUrl();
+  const apiKey = getImageGenerationApiKey();
+  const resolvedBaseUrl = endpoint || "";
+  const diagnostics = await getSeoNewsImageGatewayDiagnostics();
+  const baseResult = {
+    checkedAt: new Date().toISOString(),
+    latencyMs: 0,
+    baseUrl: resolvedBaseUrl,
+    modelsUrl: diagnostics.modelsUrl,
+    availableModels: diagnostics.availableModels,
+    selectedModel: diagnostics.selectedModel,
+    effectiveModel: diagnostics.effectiveModel,
+    selectedModelAvailable: diagnostics.selectedModelAvailable,
+    model: diagnostics.effectiveModel,
+    modelsStatus: diagnostics.modelsStatus,
+    modelsReachable: diagnostics.modelsReachable,
+  };
+
+  if (!endpoint) {
+    return {
+      ...baseResult,
+      status: "misconfigured",
+      reachable: false,
+      message: "Missing SEO news image generation endpoint URL",
+    };
+  }
 
   if (!apiKey) {
     return {
+      ...baseResult,
       status: "misconfigured",
       reachable: false,
-      checkedAt: new Date().toISOString(),
-      latencyMs: 0,
-      baseUrl: resolvedBaseUrl,
-      model: GATEWAY_IMAGE_MODEL,
-      message: "Missing AI image gateway API key",
+      message: "Missing SEO news image generation API key",
+    };
+  }
+
+  if (!diagnostics.effectiveModel) {
+    return {
+      ...baseResult,
+      status:
+        diagnostics.modelsStatus === "offline" ||
+        diagnostics.modelsStatus === "degraded"
+          ? "degraded"
+          : "misconfigured",
+      reachable: false,
+      message:
+        diagnostics.modelsMessage || "No usable SEO news image model available",
     };
   }
 
   try {
-    if (baseUrl) {
-      const endpoint = new URL("models", `${baseUrl.replace(/\/+$/, "")}/`).toString();
-      const response = await axios.get(endpoint, {
-        timeout: Math.min(15_000, GATEWAY_IMAGE_TIMEOUT_MS),
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
+    const response = await postSeoNewsImageGeneration(
+      {
+        model: diagnostics.effectiveModel,
+        prompt: "",
+        n: 0,
+        size: GATEWAY_IMAGE_SIZE,
+      },
+      {
         validateStatus: (status) => status >= 200 && status < 500,
-      });
-
-      const latencyMs = Date.now() - startedAt;
-      if (response.status >= 200 && response.status < 300) {
-        return {
-          status: "online",
-          reachable: true,
-          checkedAt: new Date().toISOString(),
-          latencyMs,
-          baseUrl: resolvedBaseUrl,
-          model: GATEWAY_IMAGE_MODEL,
-          message: "AI image gateway reachable",
-        };
       }
+    );
 
-      if (response.status === 401 || response.status === 403) {
-        return {
-          status: "auth_error",
-          reachable: false,
-          checkedAt: new Date().toISOString(),
-          latencyMs,
-          baseUrl: resolvedBaseUrl,
-          model: GATEWAY_IMAGE_MODEL,
-          message: `AI image gateway rejected credentials (${response.status})`,
-        };
-      }
+    const latencyMs = Date.now() - startedAt;
+    let status = "degraded";
+    let reachable = false;
+    let message = `SEO news image generation responded with HTTP ${response.status}`;
 
-      return {
-        status: "degraded",
-        reachable: false,
-        checkedAt: new Date().toISOString(),
-        latencyMs,
-        baseUrl: resolvedBaseUrl,
-        model: GATEWAY_IMAGE_MODEL,
-        message: `AI image gateway responded with HTTP ${response.status}`,
-      };
+    if (response.status >= 200 && response.status < 300) {
+      status = "online";
+      reachable = true;
+      message = "SEO news image generation endpoint reachable";
+    } else if (response.status === 400 || response.status === 422) {
+      status = "online";
+      reachable = true;
+      message = "SEO news image generation endpoint reachable";
+    } else if (response.status === 401 || response.status === 403) {
+      status = "auth_error";
+      message = `SEO news image generation rejected credentials (${response.status})`;
+    } else if (response.status === 404 || response.status === 405) {
+      status = "misconfigured";
+      message = `SEO news image generation route is misconfigured (${response.status})`;
     }
 
-    await openai.models.list();
+    if (status === "online" && diagnostics.modelsStatus !== "online") {
+      status = "degraded";
+      message = diagnostics.modelsMessage
+        ? `${message}. ${diagnostics.modelsMessage}`
+        : message;
+    } else if (diagnostics.modelsMessage) {
+      message = `${message}. ${diagnostics.modelsMessage}`;
+    }
 
     return {
-      status: "online",
-      reachable: true,
+      ...baseResult,
+      status,
+      reachable,
       checkedAt: new Date().toISOString(),
-      latencyMs: Date.now() - startedAt,
-      baseUrl: resolvedBaseUrl,
-      model: GATEWAY_IMAGE_MODEL,
-      message: "OpenAI image endpoint reachable",
+      latencyMs,
+      message,
     };
   } catch (error) {
     return {
+      ...baseResult,
       status: "offline",
       reachable: false,
       checkedAt: new Date().toISOString(),
       latencyMs: Date.now() - startedAt,
-      baseUrl: resolvedBaseUrl,
-      model: GATEWAY_IMAGE_MODEL,
-      message: error?.message || "AI image gateway unavailable",
+      message: diagnostics.modelsMessage
+        ? `${error?.message || "AI image gateway unavailable"}. ${
+            diagnostics.modelsMessage
+          }`
+        : error?.message || "AI image gateway unavailable",
     };
   }
 }
@@ -562,7 +835,11 @@ function isManagedGatewayLocalPath(filePath) {
     path.resolve(item).toLowerCase()
   );
 
-  if (configuredRoots.some((root) => normalized.startsWith(root + path.sep) || normalized === root)) {
+  if (
+    configuredRoots.some(
+      (root) => normalized.startsWith(root + path.sep) || normalized === root
+    )
+  ) {
     return true;
   }
 
@@ -582,6 +859,22 @@ async function readGatewayGeneratedImageBytes(sourceUrl) {
       bytes,
       sourceLocalPath: path.resolve(raw),
     };
+  }
+
+  if (!isHttpUrl(raw)) {
+    try {
+      const resolved = path.resolve(raw);
+      const stat = await fs.stat(resolved);
+      if (stat.isFile()) {
+        const bytes = await fs.readFile(resolved);
+        return {
+          bytes,
+          sourceLocalPath: resolved,
+        };
+      }
+    } catch {
+      // Ignore invalid local paths and fall through.
+    }
   }
 
   if (isHttpUrl(raw)) {
@@ -632,51 +925,54 @@ async function generateGatewaySeoNewsImage({
   articleKey,
   settings,
 } = {}) {
-  if (!shouldGenerateGatewayCover({ origin, settings })) {
+  const runtime = await getSeoNewsImageGenerationRuntime({ settings });
+  const activeSettings = runtime.settings;
+
+  if (!shouldGenerateGatewayCover({ origin, settings: activeSettings })) {
     return null;
   }
 
-  const primaryClient = getPrimaryGatewayClient();
-  const primaryBaseUrl = getPrimaryGatewayBaseUrl();
-  const hasApiKey = !!getPrimaryGatewayApiKey();
+  const generationUrl = getImageGenerationUrl();
+  const apiKey = getImageGenerationApiKey();
 
-  if (!hasApiKey || typeof primaryClient?.images?.generate !== "function") {
+  if (!generationUrl || !apiKey || !runtime.effectiveModel) {
     return null;
   }
 
   const requestBody = {
-    model: GATEWAY_IMAGE_MODEL,
+    model: runtime.effectiveModel,
     prompt: buildGatewayImagePrompt({ title, summary, tags, origin }),
     n: 1,
-    size: settings?.imageGenerationSize || GATEWAY_IMAGE_SIZE,
-    quality: settings?.imageGenerationQuality || GATEWAY_IMAGE_QUALITY,
-    style: settings?.imageGenerationStyle || GATEWAY_IMAGE_STYLE,
+    size: activeSettings?.imageGenerationSize || GATEWAY_IMAGE_SIZE,
+    quality: activeSettings?.imageGenerationQuality || GATEWAY_IMAGE_QUALITY,
+    style: activeSettings?.imageGenerationStyle || GATEWAY_IMAGE_STYLE,
   };
 
-  const tryGenerate = async (client, { responseFormat = "b64_json" } = {}) => {
-    const response = await client
-      .withOptions({
-        timeout: GATEWAY_IMAGE_TIMEOUT_MS,
-        maxRetries: 1,
-      })
-      .images.generate({
-        ...requestBody,
-        response_format: responseFormat,
-      });
+  try {
+    const responseFormat = isLocalGatewayBaseUrl(generationUrl)
+      ? "url"
+      : "b64_json";
+    const response = await postSeoNewsImageGeneration({
+      ...requestBody,
+      response_format: responseFormat,
+    });
+    const payload = response?.data || null;
+    const imageData = extractGatewayImageData(payload);
+    if (!imageData) {
+      return null;
+    }
 
-    const imageData = Array.isArray(response?.data) ? response.data[0] : null;
     let imageBytes = null;
     let sourceLocalPath = null;
 
-    if (responseFormat === "url") {
-      const loaded = await readGatewayGeneratedImageBytes(imageData?.url);
+    if (imageData.url) {
+      const loaded = await readGatewayGeneratedImageBytes(imageData.url);
       imageBytes = loaded?.bytes || null;
       sourceLocalPath = loaded?.sourceLocalPath || null;
-    } else {
-      const imageBase64 = String(imageData?.b64_json || "").trim();
-      if (imageBase64) {
-        imageBytes = Buffer.from(imageBase64, "base64");
-      }
+    }
+
+    if (!imageBytes?.length && imageData.b64Json) {
+      imageBytes = Buffer.from(imageData.b64Json, "base64");
     }
 
     if (!imageBytes?.length) {
@@ -700,56 +996,15 @@ async function generateGatewaySeoNewsImage({
       heroImageUrl: publicUrl,
       thumbImageUrl: publicUrl,
       imageOrigin: "generated-gateway",
-      revisedPrompt: imageData?.revised_prompt || requestBody.prompt,
+      revisedPrompt: imageData.revisedPrompt || requestBody.prompt,
     };
-  };
-
-  try {
-    const primaryResult = await tryGenerate(primaryClient, {
-      responseFormat: isLocalGatewayBaseUrl(primaryBaseUrl) ? "url" : "b64_json",
-    });
-    if (primaryResult) {
-      return primaryResult;
-    }
   } catch (error) {
-    const currentBaseUrl = String(primaryBaseUrl || "").trim();
-    const shouldTryLocalFallback =
-      /connection error/i.test(String(error?.message || "")) &&
-      LOCAL_GATEWAY_FALLBACK_BASE_URL &&
-      currentBaseUrl !== LOCAL_GATEWAY_FALLBACK_BASE_URL;
-
-    if (!shouldTryLocalFallback) {
-      console.warn(
-        "[SeoNewsImage] gateway generation failed:",
-        error?.message || error
-      );
-      return null;
-    }
-
-    const fallbackClient = new OpenAI({
-      apiKey: LOCAL_GATEWAY_FALLBACK_API_KEY,
-      baseURL: LOCAL_GATEWAY_FALLBACK_BASE_URL,
-      timeout: GATEWAY_IMAGE_TIMEOUT_MS,
-      maxRetries: 1,
-    });
-
-    try {
-      const fallbackResult = await tryGenerate(fallbackClient, {
-        responseFormat: "url",
-      });
-      if (fallbackResult) {
-        return fallbackResult;
-      }
-    } catch (fallbackError) {
-      console.warn(
-        "[SeoNewsImage] gateway generation failed:",
-        fallbackError?.message || fallbackError
-      );
-      return null;
-    }
+    console.warn(
+      "[SeoNewsImage] generation endpoint failed:",
+      error?.message || error
+    );
+    return null;
   }
-
-  return null;
 }
 
 async function searchOpenverseImageUrl(query, { searchEnabled = true } = {}) {
@@ -826,19 +1081,20 @@ export async function resolveSeoNewsImages({
     }
   }
 
+  const activeSettings = await getActiveSeoNewsImageSettings(settings);
   const gatewayImage = await generateGatewaySeoNewsImage({
     title,
     summary,
     tags,
     origin,
     articleKey,
-    settings,
+    settings: activeSettings,
   });
   if (gatewayImage?.heroImageUrl || gatewayImage?.thumbImageUrl) {
     return gatewayImage;
   }
 
-  const imageSearchEnabled = settings?.imageSearchEnabled !== false;
+  const imageSearchEnabled = activeSettings?.imageSearchEnabled !== false;
   const query = buildSearchQuery({ title, summary, tags });
   const searchedImage = normalizeMaybeImageUrl(
     await searchOpenverseImageUrl(query, { searchEnabled: imageSearchEnabled })
@@ -920,12 +1176,7 @@ export async function backfillSeoNewsArticleImages({
 
   const articles = await SeoNewsArticle.find(query)
     .sort({ createdAt: -1 })
-    .limit(
-      Math.max(
-        1,
-        targetSlugs.length || Number(limit) || 12
-      )
-    );
+    .limit(Math.max(1, targetSlugs.length || Number(limit) || 12));
 
   const stats = {
     checked: 0,
@@ -960,8 +1211,10 @@ export async function backfillSeoNewsArticleImages({
         articleKey: article.slug || String(article._id),
       });
 
-      const heroImageUrl = imageAsset.heroImageUrl || imageAsset.thumbImageUrl || null;
-      const thumbImageUrl = imageAsset.thumbImageUrl || imageAsset.heroImageUrl || null;
+      const heroImageUrl =
+        imageAsset.heroImageUrl || imageAsset.thumbImageUrl || null;
+      const thumbImageUrl =
+        imageAsset.thumbImageUrl || imageAsset.heroImageUrl || null;
 
       if (!heroImageUrl || isDataImageUrl(heroImageUrl)) {
         stats.skipped += 1;
@@ -1011,7 +1264,9 @@ export async function regenerateSeoNewsArticleImage({
   }
 
   if (String(article.origin || "") !== "generated") {
-    throw new Error("Only generated SEO news articles support AI image regeneration");
+    throw new Error(
+      "Only generated SEO news articles support AI image regeneration"
+    );
   }
 
   const activeSettings =
@@ -1028,7 +1283,10 @@ export async function regenerateSeoNewsArticleImage({
     settings: activeSettings,
   });
 
-  if (!generatedImage?.heroImageUrl || isDataImageUrl(generatedImage.heroImageUrl)) {
+  if (
+    !generatedImage?.heroImageUrl ||
+    isDataImageUrl(generatedImage.heroImageUrl)
+  ) {
     throw new Error("AI image generation returned no usable image");
   }
 
@@ -1052,10 +1310,10 @@ export async function cleanupSeoNewsGatewaySourceImages({
   limit = 100,
   dryRun = false,
 } = {}) {
-  const primaryBaseUrl = getPrimaryGatewayBaseUrl();
+  const primaryBaseUrl = getCleanupGatewayBaseUrl();
   if (primaryBaseUrl && !isLocalGatewayBaseUrl(primaryBaseUrl)) {
     const endpoint = buildGatewayCleanupEndpoint(primaryBaseUrl);
-    const apiKey = getPrimaryGatewayApiKey();
+    const apiKey = getCleanupGatewayApiKey();
     const response = await axios.post(
       endpoint,
       {

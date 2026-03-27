@@ -6,8 +6,8 @@ export default function ClubActions({ club, my }) {
   const state = my?.isMember
     ? "member"
     : my?.pendingRequest
-    ? "pending"
-    : "not_member";
+      ? "pending"
+      : "not_member";
 
   return (
     <Stack direction="row" spacing={1}>

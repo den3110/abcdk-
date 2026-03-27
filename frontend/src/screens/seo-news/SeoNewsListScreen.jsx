@@ -35,7 +35,8 @@ const PAGE_SIZE = 12;
 
 const handleImageError = (e) => {
   e.target.onerror = null;
-  e.target.src = "data:image/svg+xml;charset=UTF-8,%3Csvg width='800' height='400' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23f1f5f9' /%3E%3Cstop offset='100%25' stop-color='%23cbd5e1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)' /%3E%3C/svg%3E";
+  e.target.src =
+    "data:image/svg+xml;charset=UTF-8,%3Csvg width='800' height='400' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23f1f5f9' /%3E%3Cstop offset='100%25' stop-color='%23cbd5e1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)' /%3E%3C/svg%3E";
 };
 
 function formatDate(value, locale = "vi-VN") {
@@ -73,10 +74,12 @@ export default function SeoNewsListScreen() {
     page,
     limit: PAGE_SIZE,
   });
-  const { data: suggestData, refetch: refetchSuggest } = useGetSeoNewsListQuery({
-    page: 1,
-    limit: 60,
-  });
+  const { data: suggestData, refetch: refetchSuggest } = useGetSeoNewsListQuery(
+    {
+      page: 1,
+      limit: 60,
+    },
+  );
 
   const items = useMemo(() => {
     if (Array.isArray(data)) return data;
@@ -117,7 +120,9 @@ export default function SeoNewsListScreen() {
 
   useEffect(() => {
     if (!suggestedItems.length) return;
-    trackSeoNewsListImpression(suggestedItems, { surface: "news-list-suggest" });
+    trackSeoNewsListImpression(suggestedItems, {
+      surface: "news-list-suggest",
+    });
   }, [suggestedItems]);
 
   useEffect(() => {
@@ -153,7 +158,8 @@ export default function SeoNewsListScreen() {
   const isFirstPage = page === 1;
   const featuredArticle = isFirstPage && items.length > 0 ? items[0] : null;
   const normalArticles = isFirstPage ? items.slice(1) : items;
-  const heroLeadArticle = featuredArticle || items[0] || suggestedItems[0] || null;
+  const heroLeadArticle =
+    featuredArticle || items[0] || suggestedItems[0] || null;
   const publishedCount = Math.max(items.length, Number(data?.total) || 0);
 
   const renderBadge = (origin) => {
@@ -167,11 +173,15 @@ export default function SeoNewsListScreen() {
           fontWeight: 700,
           fontSize: "0.65rem",
           height: 22,
-          boxShadow: isAI ? `0 4px 12px ${alpha(theme.palette.primary.main, 0.4)}` : "0 2px 8px rgba(0,0,0,0.05)",
+          boxShadow: isAI
+            ? `0 4px 12px ${alpha(theme.palette.primary.main, 0.4)}`
+            : "0 2px 8px rgba(0,0,0,0.05)",
           backdropFilter: "blur(8px)",
-          backgroundColor: isAI ? alpha(theme.palette.primary.main, 0.85) : alpha(theme.palette.background.paper, 0.85),
+          backgroundColor: isAI
+            ? alpha(theme.palette.primary.main, 0.85)
+            : alpha(theme.palette.background.paper, 0.85),
           color: isAI ? "#fff" : theme.palette.text.primary,
-          border: "none"
+          border: "none",
         }}
       />
     );
@@ -222,7 +232,7 @@ export default function SeoNewsListScreen() {
                 background: `radial-gradient(ellipse at center, ${alpha(theme.palette.primary.main, 0.15)} 0%, transparent 70%)`,
                 filter: "blur(60px)",
                 zIndex: 0,
-                pointerEvents: "none"
+                pointerEvents: "none",
               }}
             />
             <Box
@@ -300,8 +310,9 @@ export default function SeoNewsListScreen() {
                     <Chip
                       label={t("news.list.hero.latestDate", {
                         date: formatDate(
-                          heroLeadArticle.originalPublishedAt || heroLeadArticle.createdAt,
-                          locale
+                          heroLeadArticle.originalPublishedAt ||
+                            heroLeadArticle.createdAt,
+                          locale,
                         ),
                       })}
                       variant="outlined"
@@ -334,7 +345,11 @@ export default function SeoNewsListScreen() {
                   ) : null}
                   <Button
                     component="a"
-                    href={suggestedItems.length > 0 ? "#news-suggestions" : "#news-feed"}
+                    href={
+                      suggestedItems.length > 0
+                        ? "#news-suggestions"
+                        : "#news-feed"
+                    }
                     variant="outlined"
                     sx={{
                       px: 2.25,
@@ -380,13 +395,14 @@ export default function SeoNewsListScreen() {
                     flexDirection: "column",
                   }}
                 >
-                  {heroLeadArticle?.heroImageUrl || heroLeadArticle?.thumbImageUrl ? (
+                  {heroLeadArticle?.heroImageUrl ||
+                  heroLeadArticle?.thumbImageUrl ? (
                     <Box
                       sx={{
                         height: { xs: 180, md: 210 },
                         backgroundImage: `linear-gradient(180deg, transparent 0%, ${alpha(
                           "#020617",
-                          0.22
+                          0.22,
                         )} 100%), url(${heroLeadArticle.heroImageUrl || heroLeadArticle.thumbImageUrl})`,
                         backgroundSize: "cover",
                         backgroundPosition: "center",
@@ -398,25 +414,35 @@ export default function SeoNewsListScreen() {
                         height: { xs: 180, md: 210 },
                         background: `linear-gradient(135deg, ${alpha(
                           theme.palette.primary.main,
-                          0.82
+                          0.82,
                         )} 0%, ${alpha(theme.palette.info.main, 0.74)} 100%)`,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
                     >
-                      <ArticleIcon sx={{ fontSize: 72, color: "rgba(255,255,255,0.38)" }} />
+                      <ArticleIcon
+                        sx={{ fontSize: 72, color: "rgba(255,255,255,0.38)" }}
+                      />
                     </Box>
                   )}
 
                   <Stack spacing={1.4} sx={{ p: { xs: 2, md: 2.5 }, flex: 1 }}>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      {heroLeadArticle ? renderBadge(heroLeadArticle.origin) : null}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      flexWrap="wrap"
+                      useFlexGap
+                    >
+                      {heroLeadArticle
+                        ? renderBadge(heroLeadArticle.origin)
+                        : null}
                       <Chip
                         size="small"
                         label={formatDate(
-                          heroLeadArticle?.originalPublishedAt || heroLeadArticle?.createdAt,
-                          locale
+                          heroLeadArticle?.originalPublishedAt ||
+                            heroLeadArticle?.createdAt,
+                          locale,
                         )}
                         sx={{
                           fontWeight: 700,
@@ -455,7 +481,7 @@ export default function SeoNewsListScreen() {
                       {summarize(
                         heroLeadArticle?.summary ||
                           t("news.list.hero.previewFallbackSummary"),
-                        150
+                        150,
                       )}
                     </Typography>
 
@@ -483,7 +509,11 @@ export default function SeoNewsListScreen() {
       </Box>
 
       {/* --- CONTENT --- */}
-      <Container id="news-feed" maxWidth="lg" sx={{ py: { xs: 3, md: 8 }, px: { xs: 1.5, md: 3 } }}>
+      <Container
+        id="news-feed"
+        maxWidth="lg"
+        sx={{ py: { xs: 3, md: 8 }, px: { xs: 1.5, md: 3 } }}
+      >
         {isLoading || isFetching ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
             <CircularProgress />
@@ -506,7 +536,13 @@ export default function SeoNewsListScreen() {
           <Box id="news-suggestions" sx={{ mb: { xs: 6, md: 8 } }}>
             <Typography
               variant="h5"
-              sx={{ fontWeight: 800, mb: 3, display: "flex", alignItems: "center", gap: 1 }}
+              sx={{
+                fontWeight: 800,
+                mb: 3,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+              }}
             >
               <ArticleIcon color="primary" /> {t("news.list.suggestedTitle")}
             </Typography>
@@ -514,7 +550,11 @@ export default function SeoNewsListScreen() {
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", lg: "repeat(3, 1fr)" },
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  sm: "repeat(2, 1fr)",
+                  lg: "repeat(3, 1fr)",
+                },
                 gap: 2.5,
               }}
             >
@@ -533,7 +573,7 @@ export default function SeoNewsListScreen() {
                       boxShadow: isDark
                         ? "0 12px 28px rgba(0,0,0,0.4)"
                         : "0 12px 28px rgba(0,0,0,0.08)",
-                      borderColor: alpha(theme.palette.primary.main, 0.2)
+                      borderColor: alpha(theme.palette.primary.main, 0.2),
                     },
                   }}
                 >
@@ -541,7 +581,9 @@ export default function SeoNewsListScreen() {
                     component={RouterLink}
                     to={`/news/${item.slug}`}
                     onClick={() => {
-                      trackSeoNewsClick(item, { surface: "news-list-suggest-click" });
+                      trackSeoNewsClick(item, {
+                        surface: "news-list-suggest-click",
+                      });
                       window.scrollTo(0, 0);
                     }}
                     sx={{
@@ -555,7 +597,9 @@ export default function SeoNewsListScreen() {
                     <Chip
                       size="small"
                       color="primary"
-                      label={item.__suggestReason || t("news.list.suggestedFallback")}
+                      label={
+                        item.__suggestReason || t("news.list.suggestedFallback")
+                      }
                       sx={{ mb: 1.5, fontWeight: 700 }}
                     />
                     <Typography
@@ -590,7 +634,10 @@ export default function SeoNewsListScreen() {
                       color="text.disabled"
                       sx={{ fontWeight: 600, mt: "auto" }}
                     >
-                      {formatDate(item.originalPublishedAt || item.createdAt, locale)}
+                      {formatDate(
+                        item.originalPublishedAt || item.createdAt,
+                        locale,
+                      )}
                     </Typography>
                   </CardActionArea>
                 </Card>
@@ -602,7 +649,16 @@ export default function SeoNewsListScreen() {
         {/* --- FEATURED ARTICLE --- */}
         {featuredArticle && !isLoading && !isFetching && (
           <Box sx={{ mb: { xs: 6, md: 8 } }}>
-            <Typography variant="h5" sx={{ fontWeight: 800, mb: 3, display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography
+              variant="h5"
+              sx={{
+                fontWeight: 800,
+                mb: 3,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+              }}
+            >
               <ArticleIcon color="primary" /> {t("news.list.featuredTitle")}
             </Typography>
             <Card
@@ -610,26 +666,32 @@ export default function SeoNewsListScreen() {
                 borderRadius: 2,
                 overflow: "hidden",
                 border: "none",
-                boxShadow: isDark 
-                  ? "0 8px 24px rgba(0,0,0,0.3)" 
+                boxShadow: isDark
+                  ? "0 8px 24px rgba(0,0,0,0.3)"
                   : "0 8px 30px rgba(0,0,0,0.04)",
                 transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
                 "&:hover": {
                   transform: "translateY(-4px)",
-                  boxShadow: isDark 
-                    ? "0 16px 40px rgba(0,0,0,0.4)" 
+                  boxShadow: isDark
+                    ? "0 16px 40px rgba(0,0,0,0.4)"
                     : "0 16px 40px rgba(0,0,0,0.08)",
-                  borderColor: alpha(theme.palette.primary.main, 0.15)
-                }
+                  borderColor: alpha(theme.palette.primary.main, 0.15),
+                },
               }}
             >
-              <CardActionArea 
-                component={RouterLink} 
+              <CardActionArea
+                component={RouterLink}
                 to={`/news/${featuredArticle.slug}`}
                 onClick={() =>
-                  trackSeoNewsClick(featuredArticle, { surface: "news-featured-click" })
+                  trackSeoNewsClick(featuredArticle, {
+                    surface: "news-featured-click",
+                  })
                 }
-                sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, height: "100%" }}
+                sx={{
+                  display: "flex",
+                  flexDirection: { xs: "column", md: "row" },
+                  height: "100%",
+                }}
               >
                 {/* Featured Image */}
                 <Box
@@ -638,10 +700,14 @@ export default function SeoNewsListScreen() {
                     position: "relative",
                   }}
                 >
-                  {featuredArticle.heroImageUrl || featuredArticle.thumbImageUrl ? (
+                  {featuredArticle.heroImageUrl ||
+                  featuredArticle.thumbImageUrl ? (
                     <CardMedia
                       component="img"
-                      image={featuredArticle.heroImageUrl || featuredArticle.thumbImageUrl}
+                      image={
+                        featuredArticle.heroImageUrl ||
+                        featuredArticle.thumbImageUrl
+                      }
                       alt={featuredArticle.title}
                       onError={handleImageError}
                       sx={{ height: { xs: 250, md: 400 }, objectFit: "cover" }}
@@ -658,7 +724,9 @@ export default function SeoNewsListScreen() {
                       }}
                     >
                       <Stack spacing={1} alignItems="center">
-                        <ArticleIcon sx={{ fontSize: 80, color: "rgba(255,255,255,0.4)" }} />
+                        <ArticleIcon
+                          sx={{ fontSize: 80, color: "rgba(255,255,255,0.4)" }}
+                        />
                         {featuredArticle.imagePending ? (
                           <Chip
                             size="small"
@@ -688,28 +756,56 @@ export default function SeoNewsListScreen() {
                     justifyContent: "center",
                   }}
                 >
-                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
+                  <Box
+                    sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}
+                  >
                     {(featuredArticle.tags || []).slice(0, 3).map((tag) => (
-                      <Chip key={tag} label={tag} size="small" sx={{ fontWeight: 600, bgcolor: alpha(theme.palette.primary.main, 0.1), color: "primary.main" }} />
+                      <Chip
+                        key={tag}
+                        label={tag}
+                        size="small"
+                        sx={{
+                          fontWeight: 600,
+                          bgcolor: alpha(theme.palette.primary.main, 0.1),
+                          color: "primary.main",
+                        }}
+                      />
                     ))}
                   </Box>
-                  
-                  <Typography variant="h4" sx={{ fontWeight: 800, mb: 2, lineHeight: 1.3 }}>
+
+                  <Typography
+                    variant="h4"
+                    sx={{ fontWeight: 800, mb: 2, lineHeight: 1.3 }}
+                  >
                     {featuredArticle.title}
                   </Typography>
 
-                  <Typography variant="body1" color="text.secondary" sx={{ mb: 3, lineHeight: 1.7 }}>
+                  <Typography
+                    variant="body1"
+                    color="text.secondary"
+                    sx={{ mb: 3, lineHeight: 1.7 }}
+                  >
                     {summarize(featuredArticle.summary, 220)}
                   </Typography>
 
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" mt="auto">
-                    <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600 }}>
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    mt="auto"
+                  >
+                    <Typography
+                      variant="caption"
+                      color="text.disabled"
+                      sx={{ fontWeight: 600 }}
+                    >
                       {formatDate(
-                        featuredArticle.originalPublishedAt || featuredArticle.createdAt,
-                        locale
+                        featuredArticle.originalPublishedAt ||
+                          featuredArticle.createdAt,
+                        locale,
                       )}
                     </Typography>
-                    
+
                     <Box
                       sx={{
                         display: "flex",
@@ -717,10 +813,11 @@ export default function SeoNewsListScreen() {
                         gap: 0.5,
                         color: "primary.main",
                         fontWeight: 700,
-                        fontSize: "0.9rem"
+                        fontSize: "0.9rem",
                       }}
                     >
-                      {t("news.list.readMore")} <ArrowForwardIcon fontSize="small" />
+                      {t("news.list.readMore")}{" "}
+                      <ArrowForwardIcon fontSize="small" />
                     </Box>
                   </Stack>
                 </CardContent>
@@ -737,11 +834,15 @@ export default function SeoNewsListScreen() {
                 {t("news.list.latestTitle")}
               </Typography>
             )}
-            
+
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  sm: "repeat(2, 1fr)",
+                  md: "repeat(3, 1fr)",
+                },
                 gap: 3,
               }}
             >
@@ -754,31 +855,43 @@ export default function SeoNewsListScreen() {
                       flexDirection: "column",
                       borderRadius: 2,
                       border: "none",
-                      boxShadow: isDark 
-                        ? "0 4px 12px rgba(0,0,0,0.2)" 
+                      boxShadow: isDark
+                        ? "0 4px 12px rgba(0,0,0,0.2)"
                         : "0 8px 24px rgba(0,0,0,0.03)",
                       transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
                       "&:hover": {
                         transform: "translateY(-4px)",
-                        boxShadow: isDark 
-                          ? "0 16px 32px rgba(0,0,0,0.4)" 
+                        boxShadow: isDark
+                          ? "0 16px 32px rgba(0,0,0,0.4)"
                           : "0 16px 32px rgba(0,0,0,0.08)",
                         borderColor: alpha(theme.palette.primary.main, 0.2),
                         "& .img-scalable": {
                           transform: "scale(1.03)",
-                        }
-                      }
+                        },
+                      },
                     }}
                   >
-                    <CardActionArea 
-                      component={RouterLink} 
+                    <CardActionArea
+                      component={RouterLink}
                       to={`/news/${item.slug}`}
                       onClick={() =>
                         trackSeoNewsClick(item, { surface: "news-grid-click" })
                       }
-                      sx={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "flex-start" }}
+                      sx={{
+                        height: "100%",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                      }}
                     >
-                      <Box sx={{ width: "100%", overflow: "hidden", position: "relative", bgcolor: "divider" }}>
+                      <Box
+                        sx={{
+                          width: "100%",
+                          overflow: "hidden",
+                          position: "relative",
+                          bgcolor: "divider",
+                        }}
+                      >
                         {item.thumbImageUrl || item.heroImageUrl ? (
                           <CardMedia
                             component="img"
@@ -786,10 +899,10 @@ export default function SeoNewsListScreen() {
                             alt={item.title}
                             onError={handleImageError}
                             className="img-scalable"
-                            sx={{ 
-                              height: 200, 
+                            sx={{
+                              height: 200,
                               objectFit: "cover",
-                              transition: "transform 0.5s ease"
+                              transition: "transform 0.5s ease",
                             }}
                             loading="lazy"
                           />
@@ -803,11 +916,16 @@ export default function SeoNewsListScreen() {
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              transition: "transform 0.5s ease"
+                              transition: "transform 0.5s ease",
                             }}
                           >
                             <Stack spacing={1} alignItems="center">
-                              <ArticleIcon sx={{ fontSize: 48, color: "rgba(255,255,255,0.4)" }} />
+                              <ArticleIcon
+                                sx={{
+                                  fontSize: 48,
+                                  color: "rgba(255,255,255,0.4)",
+                                }}
+                              />
                               {item.imagePending ? (
                                 <Chip
                                   size="small"
@@ -827,45 +945,80 @@ export default function SeoNewsListScreen() {
                         </Box>
                       </Box>
 
-                      <CardContent sx={{ flexGrow: 1, width: "100%", display: "flex", flexDirection: "column" }}>
-                        <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 600, mb: 1, display: "block" }}>
-                          {formatDate(item.originalPublishedAt || item.createdAt, locale)}
+                      <CardContent
+                        sx={{
+                          flexGrow: 1,
+                          width: "100%",
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: "text.disabled",
+                            fontWeight: 600,
+                            mb: 1,
+                            display: "block",
+                          }}
+                        >
+                          {formatDate(
+                            item.originalPublishedAt || item.createdAt,
+                            locale,
+                          )}
                         </Typography>
 
-                        <Typography 
-                          variant="h6" 
-                          sx={{ 
-                            fontWeight: 700, 
-                            lineHeight: 1.4, 
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 700,
+                            lineHeight: 1.4,
                             mb: 1.5,
                             display: "-webkit-box",
                             WebkitLineClamp: 3,
                             WebkitBoxOrient: "vertical",
-                            overflow: "hidden"
+                            overflow: "hidden",
                           }}
                         >
                           {item.title}
                         </Typography>
 
-                        <Typography 
-                          variant="body2" 
-                          color="text.secondary" 
-                          sx={{ 
-                            mb: 2, 
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          sx={{
+                            mb: 2,
                             flexGrow: 1,
                             display: "-webkit-box",
                             WebkitLineClamp: 3,
                             WebkitBoxOrient: "vertical",
-                            overflow: "hidden"
+                            overflow: "hidden",
                           }}
                         >
                           {summarize(item.summary, 120)}
                         </Typography>
 
-                        <Divider sx={{ my: 1.5, borderColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)" }} />
-                        
-                        <Typography variant="body2" color="primary" sx={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 0.5 }}>
-                          {t("news.list.readMore")} <ArrowForwardIcon sx={{ fontSize: 16 }} />
+                        <Divider
+                          sx={{
+                            my: 1.5,
+                            borderColor: isDark
+                              ? "rgba(255,255,255,0.05)"
+                              : "rgba(0,0,0,0.05)",
+                          }}
+                        />
+
+                        <Typography
+                          variant="body2"
+                          color="primary"
+                          sx={{
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 0.5,
+                          }}
+                        >
+                          {t("news.list.readMore")}{" "}
+                          <ArrowForwardIcon sx={{ fontSize: 16 }} />
                         </Typography>
                       </CardContent>
                     </CardActionArea>
@@ -895,8 +1048,8 @@ export default function SeoNewsListScreen() {
               sx={{
                 "& .MuiPaginationItem-root": {
                   fontWeight: 600,
-                  fontSize: "1rem"
-                }
+                  fontSize: "1rem",
+                },
               }}
             />
           </Box>
@@ -905,4 +1058,3 @@ export default function SeoNewsListScreen() {
     </Box>
   );
 }
-

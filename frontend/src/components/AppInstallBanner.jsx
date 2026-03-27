@@ -53,7 +53,7 @@ async function detectInstalledAndroid(androidPackage) {
     if (typeof nav.getInstalledRelatedApps !== "function") return false;
     const apps = await nav.getInstalledRelatedApps();
     return !!apps?.find?.(
-      (a) => a.platform === "play" && a.id === androidPackage
+      (a) => a.platform === "play" && a.id === androidPackage,
     );
   } catch {
     return false;
@@ -107,7 +107,7 @@ export default function AppInstallBanner({ links }) {
       ? deeplinkPath.slice(1)
       : deeplinkPath;
     const fallback = encodeURIComponent(
-      deeplinkUrl || storeHref || window.location.href
+      deeplinkUrl || storeHref || window.location.href,
     );
     return `intent://${pathNoSlash}#Intent;scheme=https;package=${androidPackage};S.browser_fallback_url=${fallback};end`;
   }, [isAndroid, deeplinkPath, androidPackage, deeplinkUrl, storeHref]);

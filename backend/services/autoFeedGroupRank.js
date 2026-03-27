@@ -100,6 +100,7 @@ async function computeGroupTables({ bracketId, groups, log }) {
   //  - sort: wins desc -> (pf-pa) desc -> pf desc
   //  - build alias keys
   const tableMap = new Map(); // key -> [regId hạng 1..n]
+  const wildcardMap = new Map(); // rank -> [regId tốt nhất giữa các bảng]
   for (const g of groupsNorm) {
     const arr = [...g.stats.entries()]
       .map(([rid, s]) => ({
@@ -131,6 +132,16 @@ async function computeGroupTables({ bracketId, groups, log }) {
       tableMap.set(k, rankList);
     }
 
+    arr.forEach((entry, index) => {
+      const rank = index + 1;
+      if (!wildcardMap.has(rank)) wildcardMap.set(rank, []);
+      wildcardMap.get(rank).push({
+        ...entry,
+        groupCode: codeUp || orderStr,
+        groupOrder: Number(g.order || 0) || Number(orderStr || 0) || 0,
+      });
+    });
+
     if (log)
       console.log(
         `[feed] table ${codeUp || orderStr}:`,
@@ -139,7 +150,22 @@ async function computeGroupTables({ bracketId, groups, log }) {
       );
   }
 
-  return tableMap;
+  for (const [rank, entries] of wildcardMap.entries()) {
+    entries.sort(
+      (x, y) =>
+        y.wins - x.wins ||
+        y.diff - x.diff ||
+        y.pf - x.pf ||
+        x.groupOrder - y.groupOrder ||
+        String(x.groupCode || "").localeCompare(String(y.groupCode || ""))
+    );
+    wildcardMap.set(
+      rank,
+      entries.map((entry) => entry.rid)
+    );
+  }
+
+  return { tableMap, wildcardMap };
 }
 
 /**
@@ -172,7 +198,11 @@ export async function autoFeedGroupRank({
   }
 
   // 1) BXH tạm thời (đã lọc gp>0)
-  const tables = await computeGroupTables({ bracketId, groups, log });
+  const { tableMap: tables, wildcardMap } = await computeGroupTables({
+    bracketId,
+    groups,
+    log,
+  });
 
   // 2) Tìm các trận có seed groupRank tham chiếu stageIndex này
   const st = Number(stageIndex || br.stage || 1);
@@ -215,19 +245,23 @@ export async function autoFeedGroupRank({
         "";
       const token = normGroupToken(rawToken);
       const rank = Number(ref.rank || ref.place || 0);
-      if (!token || !rank) continue;
+      const wildcardOrder = Number(ref.wildcardOrder || ref.pick || ref.index || 0);
+      if (!rank) continue;
 
       targets++;
 
-      const list = tables.get(token); // đã lọc chỉ có đội gp>0
-      const regId = Array.isArray(list) ? list[rank - 1] : null;
+      const list = token ? tables.get(token) : wildcardMap.get(rank);
+      const pickIndex = token ? rank - 1 : Math.max(0, (wildcardOrder || 1) - 1);
+      const regId = Array.isArray(list) ? list[pickIndex] : null;
 
       if (!regId) {
         if (log)
           console.log(
             `[feed] ${
               m.labelKey || m._id
-            } ${side}: waiting ${rawToken}#${rank} (no team with gp>0)`
+            } ${side}: waiting ${
+              token ? `${rawToken}#${rank}` : `best rank #${rank} wildcard ${pickIndex + 1}`
+            } (no team with gp>0)`
           );
         continue; // chưa có đội đã thi đấu cho rank này ⇒ giữ placeholder
       }
@@ -250,7 +284,9 @@ export async function autoFeedGroupRank({
           console.log(
             `[feed] ${
               m.labelKey || m._id
-            } set ${field} <- ${regId} (from ${rawToken}#${rank})`
+            } set ${field} <- ${regId} (from ${
+              token ? `${rawToken}#${rank}` : `best rank #${rank} wildcard ${pickIndex + 1}`
+            })`
           );
       }
     }

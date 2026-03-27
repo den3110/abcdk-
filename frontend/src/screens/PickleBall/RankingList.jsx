@@ -102,7 +102,7 @@ const LazyAvatar = memo(
             }
           });
         },
-        { rootMargin: "50px" } // Load 50px before entering viewport
+        { rootMargin: "50px" }, // Load 50px before entering viewport
       );
 
       if (imgRef.current) {
@@ -121,7 +121,7 @@ const LazyAvatar = memo(
         borderRadius: "50%",
         overflow: "hidden",
       }),
-      [flameEffect, size]
+      [flameEffect, size],
     );
 
     return (
@@ -157,7 +157,7 @@ const LazyAvatar = memo(
         )}
       </Box>
     );
-  }
+  },
 );
 
 LazyAvatar.displayName = "LazyAvatar";
@@ -414,8 +414,8 @@ const flameRingSx = (type = "gold") => ({
       type === "gold"
         ? "0 0 18px rgba(255, 179, 0, .35)"
         : type === "silver"
-        ? "0 0 18px rgba(120, 144, 156, .35)"
-        : "0 0 18px rgba(255, 112, 67, .35)",
+          ? "0 0 18px rgba(120, 144, 156, .35)"
+          : "0 0 18px rgba(255, 112, 67, .35)",
     pointerEvents: "none",
     animation: "glowFlicker 1.8s ease-in-out infinite alternate",
   },
@@ -453,8 +453,8 @@ const flameCardSx = (type = "gold") => ({
       type === "gold"
         ? "0 0 12px rgba(255,179,0,.18)"
         : type === "silver"
-        ? "0 0 12px rgba(120,144,156,.18)"
-        : "0 0 12px rgba(255,112,67,.18)",
+          ? "0 0 12px rgba(120,144,156,.18)"
+          : "0 0 12px rgba(255,112,67,.18)",
     zIndex: 0,
     pointerEvents: "none",
     animation: "glowFlicker 1.8s ease-in-out infinite alternate",
@@ -469,10 +469,10 @@ const medalLabel = (m, t) =>
   m === "gold"
     ? t("rankings.medals.champion")
     : m === "silver"
-    ? t("rankings.medals.runnerUp")
-    : m === "bronze"
-    ? t("rankings.medals.bronze")
-    : "";
+      ? t("rankings.medals.runnerUp")
+      : m === "bronze"
+        ? t("rankings.medals.bronze")
+        : "";
 
 const medalChipStyle = (medal, maxWidth = 280) => ({
   maxWidth,
@@ -526,14 +526,17 @@ const DesktopCard = memo(
   }) => {
     const u = r?.user || {};
     const effectiveStatus = (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-    const badge = useMemo(() => cccdBadge(effectiveStatus, t), [effectiveStatus, t]);
+    const badge = useMemo(
+      () => cccdBadge(effectiveStatus, t),
+      [effectiveStatus, t],
+    );
     const avatarSrc =
       u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
     const tierHex = HEX[r?.tierColor] || HEX.grey;
     const age = useMemo(() => calcAge(u), [u]);
     const canGrade = useMemo(
       () => canGradeUser(me, u?.province),
-      [me, u?.province]
+      [me, u?.province],
     );
 
     const patched = useMemo(() => {
@@ -547,7 +550,7 @@ const DesktopCard = memo(
 
     const allowKyc = useMemo(
       () => canViewKycAdmin(me, effectiveStatus),
-      [me, effectiveStatus]
+      [me, effectiveStatus],
     );
 
     const uid = u?._id && String(u._id);
@@ -588,7 +591,10 @@ const DesktopCard = memo(
                     mt={0.5}
                   >
                     {Number.isFinite(age) && (
-                      <Chip size="small" label={t("rankings.labels.age", { value: age })} />
+                      <Chip
+                        size="small"
+                        label={t("rankings.labels.age", { value: age })}
+                      />
                     )}
                     <Chip label={badge.text} size="small" color={badge.color} />
                   </Stack>
@@ -631,9 +637,16 @@ const DesktopCard = memo(
               >
                 <Chip
                   size="small"
-                  label={t("rankings.labels.gender", { value: genderLabel(u?.gender, t) })}
+                  label={t("rankings.labels.gender", {
+                    value: genderLabel(u?.gender, t),
+                  })}
                 />
-                <Chip size="small" label={t("rankings.labels.province", { value: u?.province || "--" })} />
+                <Chip
+                  size="small"
+                  label={t("rankings.labels.province", {
+                    value: u?.province || "--",
+                  })}
+                />
               </Stack>
 
               <Divider sx={{ mb: 1.25 }} />
@@ -645,10 +658,14 @@ const DesktopCard = memo(
                 sx={{ "& .score": { color: tierHex, fontWeight: 700 } }}
               >
                 <Typography variant="body2" className="score">
-                  {t("rankings.labels.doubles", { value: fmt3(patched.double) })}
+                  {t("rankings.labels.doubles", {
+                    value: fmt3(patched.double),
+                  })}
                 </Typography>
                 <Typography variant="body2" className="score">
-                  {t("rankings.labels.singles", { value: fmt3(patched.single) })}
+                  {t("rankings.labels.singles", {
+                    value: fmt3(patched.single),
+                  })}
                 </Typography>
               </Stack>
 
@@ -706,7 +723,7 @@ const DesktopCard = memo(
         </Box>
       </Fade>
     );
-  }
+  },
 );
 
 DesktopCard.displayName = "DesktopCard";
@@ -744,10 +761,8 @@ export default function RankingList() {
     error: errorList,
   } = useGetRankingsListQuery({ keyword, page });
 
-  const {
-    data: podiumData,
-    isFetching: isFetchingPod,
-  } = useGetRankingsPodiums30dQuery();
+  const { data: podiumData, isFetching: isFetchingPod } =
+    useGetRankingsPodiums30dQuery();
 
   const list = listData?.docs || [];
   const totalPages = listData?.totalPages || 0;
@@ -773,7 +788,7 @@ export default function RankingList() {
       s?.auth?.userInfo?.token ??
       s?.userLogin?.userInfo?.token ??
       s?.user?.token ??
-      null
+      null,
   );
 
   const { data: meData, isLoading: loading } = useGetMeQuery(
@@ -782,7 +797,7 @@ export default function RankingList() {
       refetchOnFocus: false,
       refetchOnReconnect: false,
       refetchOnMountOrArgChange: false,
-    }
+    },
   );
   const me = meData || null;
   const canSelfAssess = !me || me.isScoreVerified === false;
@@ -794,11 +809,11 @@ export default function RankingList() {
 
   const urlPage = useMemo(
     () => parsePageFromParams(searchParams),
-    [searchParams]
+    [searchParams],
   );
   const urlKeyword = useMemo(
     () => parseKeywordFromParams(searchParams),
-    [searchParams]
+    [searchParams],
   );
 
   useLayoutEffect(() => {
@@ -860,7 +875,7 @@ export default function RankingList() {
         if (searchInput) setSearchInput("");
       }
     },
-    [doImmediateSearch, searchInput]
+    [doImmediateSearch, searchInput],
   );
 
   const handleClear = useCallback(() => {
@@ -884,7 +899,7 @@ export default function RankingList() {
       else nextParams.delete("page");
       setSearchParams(nextParams);
     },
-    [dispatch, searchParams, setSearchParams]
+    [dispatch, searchParams, setSearchParams],
   );
 
   const [openProfile, setOpenProfile] = useState(false);
@@ -923,7 +938,7 @@ export default function RankingList() {
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
   const showSnack = useCallback(
     (type, msg) => setSnack({ open: true, type, msg }),
-    []
+    [],
   );
 
   const [patchMap, setPatchMap] = useState({});
@@ -953,16 +968,16 @@ export default function RankingList() {
       setGradeSingles(
         Number.isFinite(base.single)
           ? String(Number(base.single).toFixed(2))
-          : ""
+          : "",
       );
       setGradeDoubles(
         Number.isFinite(base.double)
           ? String(Number(base.double).toFixed(2))
-          : ""
+          : "",
       );
       setGradeNotes("");
     },
-    [patchMap]
+    [patchMap],
   );
 
   const submitGrade = async () => {
@@ -979,7 +994,7 @@ export default function RankingList() {
           t("rankings.feedback.invalidRange", {
             min: MIN_RATING,
             max: MAX_RATING,
-          })
+          }),
         );
         return;
       }
@@ -1027,7 +1042,7 @@ export default function RankingList() {
     } catch (err) {
       showSnack(
         "error",
-        err?.data?.message || err?.error || t("rankings.feedback.submitFailed")
+        err?.data?.message || err?.error || t("rankings.feedback.submitFailed"),
       );
     }
   };
@@ -1049,12 +1064,12 @@ export default function RankingList() {
         "success",
         action === "approve"
           ? t("rankings.feedback.kycReviewed")
-          : t("rankings.feedback.kycRejected")
+          : t("rankings.feedback.kycRejected"),
       );
     } catch (err) {
       showSnack(
         "error",
-        err?.data?.message || err?.error || t("rankings.feedback.kycFailed")
+        err?.data?.message || err?.error || t("rankings.feedback.kycFailed"),
       );
     }
   };
@@ -1099,7 +1114,10 @@ export default function RankingList() {
 
         const plusN = Math.max(0, arr.length - 1);
         const medalText = medalLabel(picked.medal, t);
-        const tourName = picked.tournamentName || picked.name || t("rankings.labels.tournamentFallback");
+        const tourName =
+          picked.tournamentName ||
+          picked.name ||
+          t("rankings.labels.tournamentFallback");
         const fullTitle = `${medalText} – ${tourName}${
           plusN > 0 ? t("rankings.labels.plusEvents", { count: plusN }) : ""
         }`;
@@ -1132,7 +1150,7 @@ export default function RankingList() {
         console.log(e);
       }
     },
-    [searchParams, setSearchParams]
+    [searchParams, setSearchParams],
   );
 
   return (
@@ -1190,7 +1208,10 @@ export default function RankingList() {
                 aria-label={t("rankings.viewModes.desktop")}
                 disabled={isFetching}
               >
-                <ToggleButton value="list" aria-label={t("rankings.viewModes.list")}>
+                <ToggleButton
+                  value="list"
+                  aria-label={t("rankings.viewModes.list")}
+                >
                   <Tooltip
                     title={t("rankings.viewModes.listTooltip")}
                     arrow
@@ -1202,8 +1223,15 @@ export default function RankingList() {
                   </Tooltip>
                 </ToggleButton>
 
-                <ToggleButton value="cards" aria-label={t("rankings.viewModes.cards")}>
-                  <Tooltip title={t("rankings.viewModes.cardsTooltip")} arrow enterDelay={500}>
+                <ToggleButton
+                  value="cards"
+                  aria-label={t("rankings.viewModes.cards")}
+                >
+                  <Tooltip
+                    title={t("rankings.viewModes.cardsTooltip")}
+                    arrow
+                    enterDelay={500}
+                  >
                     <Box component="span" sx={{ display: "flex" }}>
                       <GridViewIcon fontSize="small" />
                     </Box>
@@ -1623,9 +1651,7 @@ export default function RankingList() {
                         display="block"
                       >
                         Tham gia:{" "}
-                        {u?.createdAt
-                          ? formatDate(u.createdAt, locale)
-                          : "--"}
+                        {u?.createdAt ? formatDate(u.createdAt, locale) : "--"}
                       </Typography>
 
                       <Stack
@@ -1804,7 +1830,7 @@ export default function RankingList() {
                               variant="outlined"
                               onClick={() => openKyc(u)}
                             >
-                            {t("rankings.actions.viewKyc")}
+                              {t("rankings.actions.viewKyc")}
                             </Button>
                           )}
                         </Stack>
@@ -1964,13 +1990,15 @@ export default function RankingList() {
                         size="small"
                         label={
                           cccdBadge(
-                            cccdPatch[kycView?._id] || kycView?.cccdStatus
-                          , t).text
+                            cccdPatch[kycView?._id] || kycView?.cccdStatus,
+                            t,
+                          ).text
                         }
                         color={
                           cccdBadge(
-                            cccdPatch[kycView?._id] || kycView?.cccdStatus
-                          , t).color
+                            cccdPatch[kycView?._id] || kycView?.cccdStatus,
+                            t,
+                          ).color
                         }
                       />
                     </Stack>
@@ -1988,20 +2016,28 @@ export default function RankingList() {
                         "& .value": { fontWeight: 600, fontSize: 15 },
                       }}
                     >
-                      <Box className="label">{t("rankings.kycLabels.name")}</Box>
+                      <Box className="label">
+                        {t("rankings.kycLabels.name")}
+                      </Box>
                       <Box className="value">{kycView?.name || "—"}</Box>
 
                       <Box className="label">{t("rankings.kycLabels.dob")}</Box>
                       <Box className="value">
-                        {kycView?.dob ? formatDate(kycView.dob, locale) : t("common.unavailable")}
+                        {kycView?.dob
+                          ? formatDate(kycView.dob, locale)
+                          : t("common.unavailable")}
                       </Box>
 
-                      <Box className="label">{t("rankings.kycLabels.cccd")}</Box>
+                      <Box className="label">
+                        {t("rankings.kycLabels.cccd")}
+                      </Box>
                       <Box className="value" sx={{ fontFamily: "monospace" }}>
                         {kycView?.cccd || "—"}
                       </Box>
 
-                      <Box className="label">{t("rankings.kycLabels.province")}</Box>
+                      <Box className="label">
+                        {t("rankings.kycLabels.province")}
+                      </Box>
                       <Box className="value">{kycView?.province || "—"}</Box>
                     </Box>
 
@@ -2125,7 +2161,9 @@ export default function RankingList() {
               disabled={creating}
               variant="contained"
             >
-              {creating ? t("rankings.actions.saving") : t("rankings.actions.submitGrade")}
+              {creating
+                ? t("rankings.actions.saving")
+                : t("rankings.actions.submitGrade")}
             </Button>
           </DialogActions>
         </Dialog>

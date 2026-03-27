@@ -53,7 +53,7 @@ const isAdminUser = (user) => {
   if (!user) return false;
 
   const roles = new Set(
-    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
+    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : [],
   );
 
   if (user?.role) roles.add(normalizeRole(user.role));
@@ -77,14 +77,14 @@ export default function MobileBottomNav() {
     const rect = navRef.current.getBoundingClientRect();
     const centerY = rect.top + rect.height / 2;
     const samplePoints = [0.1, 0.3, 0.5, 0.7, 0.9].map(
-      (ratio) => window.innerWidth * ratio
+      (ratio) => window.innerWidth * ratio,
     );
 
     let darkCount = 0;
     samplePoints.forEach((x) => {
       const elements = document.elementsFromPoint(x, centerY);
       const target = elements.find(
-        (element) => !navRef.current.contains(element)
+        (element) => !navRef.current.contains(element),
       );
       if (!target) return;
       if (isColorDark(getEffectiveBackgroundColor(target))) {
@@ -141,7 +141,7 @@ export default function MobileBottomNav() {
   }, [detectBackground]);
 
   const user = useSelector(
-    (state) => state.auth?.userInfo || state.userLogin?.userInfo || null
+    (state) => state.auth?.userInfo || state.userLogin?.userInfo || null,
   );
   const isAdmin = isAdminUser(user);
   const isSmallScreen = useMediaQuery("(max-width:380px)");

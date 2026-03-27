@@ -17,7 +17,8 @@ const LogoWithAnimation = ({ isMobile, showBackButton }) => {
       span.textContent = char;
       span.style.display = "inline-block";
       span.style.opacity = "0";
-      span.style.background = "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)";
+      span.style.background =
+        "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)";
       span.style.webkitBackgroundClip = "text";
       span.style.webkitTextFillColor = "transparent";
       span.style.backgroundClip = "text";
@@ -50,42 +51,42 @@ const LogoWithAnimation = ({ isMobile, showBackButton }) => {
         duration: 1.2,
         stagger: 0.08,
         ease: "elastic.out(1, 0.6)",
-      }
-    )
-    // Stage 2: Wave bounce effect
-    .to(
-      chars,
-      {
-        y: -15,
-        duration: 0.4,
-        stagger: 0.05,
-        ease: "power2.out",
       },
-      "-=0.5"
     )
-    .to(
-      chars,
-      {
-        y: 0,
-        duration: 0.5,
-        stagger: 0.05,
-        ease: "bounce.out",
-      },
-      "-=0.2"
-    )
-    // Stage 3: Scale pulse
-    .to(
-      chars,
-      {
-        scale: 1.15,
-        duration: 0.3,
-        stagger: 0.03,
-        ease: "power1.inOut",
-        yoyo: true,
-        repeat: 1,
-      },
-      "-=0.3"
-    );
+      // Stage 2: Wave bounce effect
+      .to(
+        chars,
+        {
+          y: -15,
+          duration: 0.4,
+          stagger: 0.05,
+          ease: "power2.out",
+        },
+        "-=0.5",
+      )
+      .to(
+        chars,
+        {
+          y: 0,
+          duration: 0.5,
+          stagger: 0.05,
+          ease: "bounce.out",
+        },
+        "-=0.2",
+      )
+      // Stage 3: Scale pulse
+      .to(
+        chars,
+        {
+          scale: 1.15,
+          duration: 0.3,
+          stagger: 0.03,
+          ease: "power1.inOut",
+          yoyo: true,
+          repeat: 1,
+        },
+        "-=0.3",
+      );
 
     // 🌊 CONTINUOUS FLOATING ANIMATION (subtle)
     gsap.to(chars, {

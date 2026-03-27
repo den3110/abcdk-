@@ -60,7 +60,6 @@ export default function CourtStreamingPage() {
     return `${import.meta.env.VITE_API_URL}/api/overlay/match`;
   }, []);
 
-
   // Nếu không có courtId
   if (!courtId) {
     return (
@@ -154,7 +153,14 @@ export default function CourtStreamingPage() {
         path={`/streaming/${courtId}`}
       />
       {/* Header with breadcrumbs */}
-      <Box sx={{ bgcolor: "primary.main", color: "primary.contrastText", py: 2, mb: 3 }}>
+      <Box
+        sx={{
+          bgcolor: "primary.main",
+          color: "primary.contrastText",
+          py: 2,
+          mb: 3,
+        }}
+      >
         <Container maxWidth="xl">
           <Breadcrumbs
             sx={{

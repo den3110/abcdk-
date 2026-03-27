@@ -7,6 +7,10 @@ import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import {
+  attachPublicStreamsToMatch,
+  getLatestRecordingsByMatchIds,
+} from "./publicStreams.service.js";
+import {
   buildMatchCodePayload,
   buildMatchDisplayMeta,
   compareMatchDisplayOrder,
@@ -67,6 +71,7 @@ const MATCH_SUMMARY_SELECT = [
   "bracket",
   "courtStation",
   "courtStationLabel",
+  "courtLabel",
   "courtClusterId",
   "courtClusterLabel",
   "pairA",
@@ -74,10 +79,19 @@ const MATCH_SUMMARY_SELECT = [
   "gameScores",
   "live",
   "facebookLive",
+  "video",
+  "playbackUrl",
+  "streamUrl",
+  "liveUrl",
+  "meta",
+  "youtubeLive",
+  "tiktokLive",
+  "currentGame",
   "scheduledAt",
   "startedAt",
   "finishedAt",
   "updatedAt",
+  "createdAt",
 ].join(" ");
 
 function toIdString(value) {
@@ -426,7 +440,7 @@ async function buildMatchDisplayContextsByTournamentIds(tournamentIds = []) {
   );
 }
 
-async function buildMatchDisplayContextsFromMatches(matches = []) {
+export async function buildMatchDisplayContextsFromMatches(matches = []) {
   const tournamentIds = matches.map(extractTournamentIdFromMatch).filter(Boolean);
   return buildMatchDisplayContextsByTournamentIds(tournamentIds);
 }
@@ -506,7 +520,7 @@ function buildRuntimeTournamentSummary(tournament) {
   };
 }
 
-function buildMatchSummary(match, options = {}) {
+export function buildMatchSummary(match, options = {}) {
   if (!match) return null;
   const displayMeta = buildMatchDisplayMeta(
     match,
@@ -528,10 +542,14 @@ function buildMatchSummary(match, options = {}) {
     labelKey: safeText(match.labelKey),
     globalRound: displayMeta.globalRound,
     matchOrder: displayMeta.matchOrder,
+    createdAt: match.createdAt || null,
     updatedAt: match.updatedAt || null,
     scheduledAt: match.scheduledAt || null,
     startedAt: match.startedAt || null,
     finishedAt: match.finishedAt || null,
+    currentGame: Number.isFinite(Number(match.currentGame))
+      ? Number(match.currentGame)
+      : 0,
     tournament: tournamentSummary,
     bracket: buildBracketSummary(match.bracket, displayMeta),
     pool: buildPoolSummary(match, displayMeta),
@@ -556,6 +574,7 @@ function buildMatchSummary(match, options = {}) {
       : null,
     live: match.live || null,
     facebookLive: match.facebookLive || null,
+    courtLabel: safeText(match.courtStationLabel || match.courtLabel),
     courtStationId: toIdString(match.courtStation) || null,
     courtStationName: safeText(match.courtStationLabel || match.courtLabel),
     courtClusterId: toIdString(match.courtClusterId) || null,
@@ -570,6 +589,88 @@ function buildMatchSummary(match, options = {}) {
       order: displayMeta.matchOrder || null,
     },
   };
+}
+
+async function buildPublicCurrentMatchSummaryMap(matches = []) {
+  const matchRows = matches.filter(Boolean);
+  if (!matchRows.length) {
+    return {
+      matchDisplayContexts: new Map(),
+      currentMatchById: new Map(),
+    };
+  }
+
+  const matchIds = matchRows.map((match) => toIdString(match?._id)).filter(Boolean);
+  const [matchDisplayContexts, latestRecordingsByMatchId] = await Promise.all([
+    buildMatchDisplayContextsFromMatches(matchRows),
+    getLatestRecordingsByMatchIds(matchIds),
+  ]);
+
+  const currentMatchById = new Map();
+  matchRows.forEach((match) => {
+    const summary = buildMatchSummary(match, { matchDisplayContexts });
+    const decorated = attachPublicStreamsToMatch(
+      {
+        ...summary,
+        meta: match?.meta || {},
+        video: safeText(match?.video),
+        playbackUrl: safeText(match?.playbackUrl),
+        streamUrl: safeText(match?.streamUrl),
+        liveUrl: safeText(match?.liveUrl),
+        facebookLive: match?.facebookLive || null,
+        youtubeLive: match?.youtubeLive || null,
+        tiktokLive: match?.tiktokLive || null,
+        courtLabel: summary?.courtLabel || summary?.courtStationName || "",
+      },
+      latestRecordingsByMatchId.get(toIdString(match?._id)) || null
+    );
+
+    currentMatchById.set(toIdString(match?._id), decorated);
+  });
+
+  return {
+    matchDisplayContexts,
+    currentMatchById,
+  };
+}
+
+function buildPublicStationPayload(
+  station,
+  { cluster = null, matchDisplayContexts = new Map(), currentMatchById = new Map() } = {}
+) {
+  const currentMatchId = toIdString(station?.currentMatch?._id || station?.currentMatch);
+  return {
+    ...buildStationSummary(station, { cluster, matchDisplayContexts }),
+    currentMatch: currentMatchById.get(currentMatchId) || null,
+    currentTournament: station?.currentTournament
+      ? {
+          _id: toIdString(station.currentTournament._id || station.currentTournament),
+          name: safeText(station.currentTournament.name),
+          image: safeText(station.currentTournament.image),
+          status: safeText(station.currentTournament.status),
+        }
+      : null,
+  };
+}
+
+function hasRenderablePublicStream(match = {}) {
+  const streams = Array.isArray(match?.streams) ? match.streams : [];
+  return streams.some(
+    (stream) =>
+      stream?.ready !== false &&
+      Boolean(safeText(stream?.playUrl) || safeText(stream?.openUrl))
+  );
+}
+
+function isRenderablePublicLiveStation(station = {}) {
+  const stationStatus = safeText(station?.status).toLowerCase();
+  const matchStatus = safeText(station?.currentMatch?.status).toLowerCase();
+  return (
+    stationStatus === "live" &&
+    matchStatus === "live" &&
+    Boolean(station?.currentMatch) &&
+    hasRenderablePublicStream(station.currentMatch)
+  );
 }
 
 function buildClusterSummary(cluster) {
@@ -733,7 +834,7 @@ function ensureActiveQueueCandidate(match, tournamentId) {
     throw error;
   }
 
-  if (toIdString(match.tournament?._id || match.tournament) !== toIdString(tournamentId)) {
+  if (tournamentId && toIdString(match.tournament?._id || match.tournament) !== toIdString(tournamentId)) {
     const error = new Error("Chỉ được đưa vào danh sách các trận của đúng giải hiện tại.");
     error.status = 409;
     throw error;
@@ -1395,7 +1496,7 @@ export async function assignMatchToCourtStation(
 
 export async function updateCourtStationAssignmentConfig(
   stationId,
-  { tournamentId, assignmentMode, queueMatchIds, user = null } = {}
+  { tournamentId, assignmentMode, queueMatchIds, user = null, isAdmin = false } = {}
 ) {
   const station = await CourtStation.findById(stationId)
     .select(
@@ -1443,9 +1544,36 @@ export async function updateCourtStationAssignmentConfig(
       throw error;
     }
 
-    orderedMatches.forEach((match) =>
-      ensureActiveQueueCandidate(match, tournamentId)
-    );
+    if (!isAdmin && tournamentId) {
+      const prevMatchIds = nextQueueItems.map((item) => toIdString(item.matchId)).filter(Boolean);
+      if (prevMatchIds.length > 0) {
+        const prevMatches = await loadQueueMatches(prevMatchIds);
+        const prevForeignMatchIds = prevMatches
+          .filter((m) => toIdString(m.tournament?._id || m.tournament) !== String(tournamentId))
+          .map((m) => toIdString(m._id));
+
+        const nextForeignMatchIds = orderedMatches
+          .filter((m) => toIdString(m.tournament?._id || m.tournament) !== String(tournamentId))
+          .map((m) => toIdString(m._id));
+
+        if (prevForeignMatchIds.join(",") !== nextForeignMatchIds.join(",")) {
+          const error = new Error("Không được phép xoá hoặc đổi vị trí trận của giải khác.");
+          error.status = 403;
+          throw error;
+        }
+      }
+    }
+
+    const prevUniqueQueueMatchIds = new Set(nextQueueItems.map((item) => toIdString(item.matchId)).filter(Boolean));
+
+    orderedMatches.forEach((match) => {
+      const matchId = toIdString(match._id);
+      if (!prevUniqueQueueMatchIds.has(matchId)) {
+        ensureActiveQueueCandidate(match, tournamentId);
+      } else {
+        ensureActiveQueueCandidate(match, null); // bypass tournamentId check for existing items
+      }
+    });
     await ensureNoQueueConflicts(uniqueIds, station._id);
 
     nextQueueItems = normalizeAssignmentQueueItems(
@@ -1775,41 +1903,79 @@ export async function buildPublicLiveClusters() {
     .sort({ order: 1, name: 1, createdAt: 1 })
     .lean();
 
+  const currentMatches = stations.map((station) => station?.currentMatch).filter(Boolean);
+  const { matchDisplayContexts, currentMatchById } =
+    await buildPublicCurrentMatchSummaryMap(currentMatches);
+
   const stationsByClusterId = new Map();
   stations.forEach((station) => {
     const key = toIdString(station.clusterId);
+    const stationPayload = buildPublicStationPayload(station, {
+      matchDisplayContexts,
+      currentMatchById,
+    });
+    if (!isRenderablePublicLiveStation(stationPayload)) return;
+
     const bucket = stationsByClusterId.get(key) || [];
-    bucket.push(station);
+    bucket.push(stationPayload);
     stationsByClusterId.set(key, bucket);
   });
-  const matchDisplayContexts = await buildMatchDisplayContextsFromMatches(
-    collectMatchesFromStations(stations)
-  );
 
-  return clusters.map((cluster) => {
-    const stationRows = stationsByClusterId.get(toIdString(cluster._id)) || [];
-    const liveCount = stationRows.filter(
-      (station) => safeText(station.status) === "live"
-    ).length;
-    return {
-      ...buildClusterSummary(cluster),
-      stationsCount: stationRows.length,
-      liveCount,
-      hasActiveMatch: stationRows.some((station) => station.currentMatch),
-      stations: stationRows.map((station) => ({
-        ...buildStationSummary(station, { cluster, matchDisplayContexts }),
-        currentMatch: buildMatchSummary(station.currentMatch, {
-          matchDisplayContexts,
-        }),
-      })),
-    };
-  });
+  return clusters
+    .map((cluster) => {
+      const stationRows = stationsByClusterId.get(toIdString(cluster._id)) || [];
+      const liveCount = stationRows.filter(
+        (station) => safeText(station.status) === "live"
+      ).length;
+      return {
+        ...buildClusterSummary(cluster),
+        stationsCount: stationRows.length,
+        liveCount,
+        hasActiveMatch: stationRows.some((station) => station.currentMatch),
+        stations: stationRows,
+      };
+    })
+    .filter((cluster) => cluster.stationsCount > 0);
 }
 
 export async function buildPublicLiveClusterDetail(clusterId) {
   const cluster = await CourtCluster.findById(clusterId).lean();
   if (!cluster) return null;
-  const stations = await listCourtStations(clusterId, { includeMatches: true });
+  const stationDocs = await CourtStation.find({
+    clusterId,
+    isActive: true,
+  })
+    .populate("clusterId", "name slug description venueName notes color order isActive")
+    .populate({
+      path: "currentMatch",
+      select: MATCH_SUMMARY_SELECT,
+      populate: MATCH_REF_POPULATE,
+    })
+    .populate({
+      path: "assignmentQueue.items.matchId",
+      select: MATCH_SUMMARY_SELECT,
+      populate: MATCH_REF_POPULATE,
+    })
+    .populate("currentTournament", "name image status")
+    .sort({ order: 1, name: 1, createdAt: 1 })
+    .lean();
+
+  const currentMatches = stationDocs
+    .map((station) => station?.currentMatch)
+    .filter(Boolean);
+  const { matchDisplayContexts, currentMatchById } =
+    await buildPublicCurrentMatchSummaryMap(currentMatches);
+
+  const stations = stationDocs
+    .map((station) =>
+      buildPublicStationPayload(station, {
+        cluster,
+        matchDisplayContexts,
+        currentMatchById,
+      })
+    )
+    .filter(isRenderablePublicLiveStation);
+
   return {
     cluster: buildClusterSummary(cluster),
     stations,

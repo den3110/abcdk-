@@ -264,7 +264,7 @@ const buildRefReportHTML = ({
         (_, i) =>
           `<td style="border:1px solid var(--border,black)">${
             i < 10 ? `&nbsp;${i}&nbsp;` : i
-          }</td>`
+          }</td>`,
       ).join("")}
       <td style="border:1px solid var(--border,black)"></td>
       <td style="border:1px solid var(--border,black)"></td>
@@ -366,8 +366,8 @@ const matchCode = (m) => {
   const r = Number.isFinite(m?.globalRound)
     ? m.globalRound
     : Number.isFinite(m?.round)
-    ? m.round
-    : "?";
+      ? m.round
+      : "?";
   const t = Number.isFinite(m?.order) ? m.order + 1 : undefined;
   return `V${r}${t ? `-T${t}` : ""}`;
 };
@@ -477,11 +477,11 @@ function createLiveStore() {
 function useLiveMatch(liveStore, matchId) {
   const subscribe = useCallback(
     (onStoreChange) => liveStore.subscribe(matchId, onStoreChange),
-    [liveStore, matchId]
+    [liveStore, matchId],
   );
   const getSnapshot = useCallback(
     () => liveStore.get(matchId),
-    [liveStore, matchId]
+    [liveStore, matchId],
   );
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
@@ -1166,7 +1166,7 @@ export default function TournamentManagePage() {
 
   const bracketsOfTab = useMemo(() => {
     const list = (brackets || []).filter(
-      (b) => String(b?.type || "").toLowerCase() === String(tab).toLowerCase()
+      (b) => String(b?.type || "").toLowerCase() === String(tab).toLowerCase(),
     );
     return list.sort((a, b) => {
       if ((a?.stage ?? 0) !== (b?.stage ?? 0))
@@ -1192,7 +1192,7 @@ export default function TournamentManagePage() {
         numeric: true,
         sensitivity: "base",
       }),
-    []
+    [],
   );
   const allMatchesBase = useMemo(() => matchPage?.list || [], [matchPage]);
 
@@ -1219,26 +1219,26 @@ export default function TournamentManagePage() {
   const [viewer, setViewer] = useState({ open: false, matchId: null });
   const openMatch = useCallback(
     (mid) => setViewer({ open: true, matchId: mid }),
-    []
+    [],
   );
   const closeMatch = useCallback(
     () => setViewer({ open: false, matchId: null }),
-    []
+    [],
   );
 
   // Dialog gán video
   const [videoDlg, setVideoDlg] = useState({ open: false, match: null });
   const openVideoDlg = useCallback(
     (m) => setVideoDlg({ open: true, match: m }),
-    []
+    [],
   );
   const deleteVideoDlg = useCallback(
     (m) => setVideoDlg({ open: true, match: { ...m, video: "" } }),
-    []
+    [],
   );
   const closeVideoDlg = useCallback(
     () => setVideoDlg({ open: false, match: null }),
-    []
+    [],
   );
   const onSaveVideo = useCallback(
     async (url) => {
@@ -1250,16 +1250,16 @@ export default function TournamentManagePage() {
         toast.success(
           url
             ? t("tournaments.manage.videoAssigned")
-            : t("tournaments.manage.videoRemoved")
+            : t("tournaments.manage.videoRemoved"),
         );
         closeVideoDlg();
       } catch (e) {
         toast.error(
-          e?.data?.message || e?.error || "Không lưu được link video"
+          e?.data?.message || e?.error || "Không lưu được link video",
         );
       }
     },
-    [setLiveUrl, videoDlg.match, closeVideoDlg, t]
+    [setLiveUrl, videoDlg.match, closeVideoDlg, t],
   );
 
   // Court/Ref manager
@@ -1268,30 +1268,30 @@ export default function TournamentManagePage() {
   const [refMgrOpen, setRefMgrOpen] = useState(false);
   const openManageCourts = useCallback(
     () => setManageCourtClustersOpen(true),
-    []
+    [],
   );
   const closeManageCourts = useCallback(
     () => setManageCourtClustersOpen(false),
-    []
+    [],
   );
 
   const [courtDlg, setCourtDlg] = useState({ open: false, match: null });
   const [refDlg, setRefDlg] = useState({ open: false, match: null });
   const openAssignCourt = useCallback(
     (m) => setCourtDlg({ open: true, match: m }),
-    []
+    [],
   );
   const closeAssignCourt = useCallback(
     () => setCourtDlg({ open: false, match: null }),
-    []
+    [],
   );
   const openAssignRef = useCallback(
     (m) => setRefDlg({ open: true, match: m }),
-    []
+    [],
   );
   const closeAssignRef = useCallback(
     () => setRefDlg({ open: false, match: null }),
-    []
+    [],
   );
 
   /* ====== Selection ====== */
@@ -1309,7 +1309,7 @@ export default function TournamentManagePage() {
   const isAllSelectedIn = useCallback(
     (arr) =>
       arr.length > 0 && arr.every((m) => selectedMatchIds.has(String(m._id))),
-    [selectedMatchIds]
+    [selectedMatchIds],
   );
   const toggleSelectAllIn = useCallback((arr, checked) => {
     setSelectedMatchIds((prev) => {
@@ -1340,8 +1340,8 @@ export default function TournamentManagePage() {
     const list = Array.isArray(refData?.items)
       ? refData.items
       : Array.isArray(refData)
-      ? refData
-      : [];
+        ? refData
+        : [];
     return list;
   }, [refData]);
 
@@ -1349,7 +1349,7 @@ export default function TournamentManagePage() {
   const labelOfRef = useCallback(
     (r) =>
       r?.name || r?.nickname || (idOfRef(r) ? `#${idOfRef(r).slice(-4)}` : ""),
-    [idOfRef]
+    [idOfRef],
   );
 
   const submitBatchAssign = useCallback(async () => {
@@ -1363,7 +1363,7 @@ export default function TournamentManagePage() {
     try {
       await batchAssign({ ids, referees: refs }).unwrap();
       toast.success(
-        t("tournaments.manage.bulkRefereeAssigned", { count: ids.length })
+        t("tournaments.manage.bulkRefereeAssigned", { count: ids.length }),
       );
       setBulkDlgOpen(false);
       clearSelection();
@@ -1371,7 +1371,7 @@ export default function TournamentManagePage() {
       await refetchMatches?.();
     } catch (e) {
       toast.error(
-        e?.data?.message || t("tournaments.manage.assignRefereesFailed")
+        e?.data?.message || t("tournaments.manage.assignRefereesFailed"),
       );
     }
   }, [
@@ -1394,18 +1394,18 @@ export default function TournamentManagePage() {
       try {
         await batchSetLiveUrl({ ids, video: url }).unwrap();
         toast.success(
-          t("tournaments.manage.bulkVideoAssigned", { count: ids.length })
+          t("tournaments.manage.bulkVideoAssigned", { count: ids.length }),
         );
         setBulkVideoDlg({ open: false, url: "" });
         clearSelection();
         await refetchMatches?.();
       } catch (e) {
         toast.error(
-          e?.data?.message || t("tournaments.manage.assignVideoFailed")
+          e?.data?.message || t("tournaments.manage.assignVideoFailed"),
         );
       }
     },
-    [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection, t]
+    [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection, t],
   );
 
   /* ====== Live store + realtime ====== */
@@ -1426,7 +1426,7 @@ export default function TournamentManagePage() {
         const w = window.open("", "_blank");
         if (!w) {
           toast.error(
-            "Trình duyệt chặn popup. Hãy cho phép cửa sổ bật lên để in."
+            "Trình duyệt chặn popup. Hãy cho phép cửa sổ bật lên để in.",
           );
           return;
         }
@@ -1447,14 +1447,14 @@ export default function TournamentManagePage() {
         toast.error(t("tournaments.manage.openRefereeReportFailed"));
       }
     },
-    [displayMode, liveStore, t, tour]
+    [displayMode, liveStore, t, tour],
   );
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
 
   const getLiveStatus = useCallback(
     (m) => liveStore.get(String(m?._id))?.status ?? m?.status,
-    [liveStore]
+    [liveStore],
   );
 
   // ======= NHÓM & LỌC =======
@@ -1491,7 +1491,7 @@ export default function TournamentManagePage() {
       if (btype === "group") {
         const stage = bracket?.stage || 1;
         const rawGroupCode = String(
-          m?.pool?.name || m?.pool?.id || m?.groupCode || ""
+          m?.pool?.name || m?.pool?.id || m?.groupCode || "",
         ).trim();
 
         if (rawGroupCode) {
@@ -1604,7 +1604,7 @@ export default function TournamentManagePage() {
             merged?.status,
             merged?.video,
             scoreSummary(merged),
-          ].join(" ")
+          ].join(" "),
         );
         if (!text.includes(kw)) continue;
       }
@@ -1645,10 +1645,10 @@ export default function TournamentManagePage() {
 
       const ar = Number.isFinite(a?.globalRound)
         ? a.globalRound
-        : a?.round ?? 0;
+        : (a?.round ?? 0);
       const brd = Number.isFinite(b?.globalRound)
         ? b.globalRound
-        : b?.round ?? 0;
+        : (b?.round ?? 0);
       if (ar !== brd) return (ar - brd) * dir;
       const ao = Number.isFinite(a?.order) ? a.order : 0;
       const bo = Number.isFinite(b?.order) ? b.order : 0;
@@ -1680,11 +1680,11 @@ export default function TournamentManagePage() {
   });
   const openLiveSetup = useCallback(
     () => setLiveSetup({ open: true, bracketId: null, bracketName: "" }),
-    []
+    [],
   );
   const closeLiveSetup = useCallback(
     () => setLiveSetup((s) => ({ ...s, open: false })),
-    []
+    [],
   );
 
   // Socket realtime
@@ -1725,7 +1725,7 @@ export default function TournamentManagePage() {
       const mid =
         String(payload?.matchId || payload?.id || payload?._id || "") ||
         String(
-          payload?.match?._id || payload?.match?.id || payload?.matchId || ""
+          payload?.match?._id || payload?.match?.id || payload?.matchId || "",
         );
       if (!mid) return;
 
@@ -1736,7 +1736,7 @@ export default function TournamentManagePage() {
       const statusChanged = liveStore.set(mid, partial);
       if (statusChanged) startTransition(() => setOrderVersion((v) => v + 1));
     },
-    [liveStore, startTransition]
+    [liveStore, startTransition],
   );
 
   useEffect(() => {
@@ -1787,7 +1787,7 @@ export default function TournamentManagePage() {
           scoreSummary(merged),
         ];
       }),
-    [displayMode, liveStore, tour?.eventType]
+    [displayMode, liveStore, tour?.eventType],
   );
 
   const buildExportPayload = useCallback(() => {
@@ -1842,7 +1842,7 @@ export default function TournamentManagePage() {
             t("tournaments.manage.exportHeaders.score"),
           ],
           ...sec.rows.map((r) =>
-            r.map((cell) => (cell == null ? "" : String(cell)))
+            r.map((cell) => (cell == null ? "" : String(cell))),
           ),
         ];
 
@@ -1933,7 +1933,7 @@ export default function TournamentManagePage() {
             }),
           ],
         }),
-        new Paragraph({ text: "" })
+        new Paragraph({ text: "" }),
       );
 
       data.forEach((sec) => {
@@ -1944,7 +1944,7 @@ export default function TournamentManagePage() {
               type: getTypeLabel(t, sec.bracket?.type),
             }),
             heading: HeadingLevel.HEADING_2,
-          })
+          }),
         );
         const head = [
           t("tournaments.manage.exportHeaders.matchCode"),
@@ -1957,7 +1957,7 @@ export default function TournamentManagePage() {
           (label) =>
             new TableCell({
               children: [new Paragraph({ text: label })],
-            })
+            }),
         );
         const rows = [
           new TableRow({ children: head }),
@@ -1969,14 +1969,14 @@ export default function TournamentManagePage() {
                     new TableCell({
                       width: { size: 1, type: WidthType.AUTO },
                       children: [new Paragraph({ text: String(cell || "") })],
-                    })
+                    }),
                 ),
-              })
+              }),
           ),
         ];
         sections.push(
           new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }),
-          new Paragraph({ text: "" })
+          new Paragraph({ text: "" }),
         );
       });
 
@@ -2653,7 +2653,7 @@ export default function TournamentManagePage() {
                             indeterminate={
                               !allSelected &&
                               list.some((m) =>
-                                selectedMatchIds.has(String(m._id))
+                                selectedMatchIds.has(String(m._id)),
                               )
                             }
                             onChange={(e) =>
@@ -2751,7 +2751,7 @@ export default function TournamentManagePage() {
                           indeterminate={
                             !allSelected &&
                             list.some((m) =>
-                              selectedMatchIds.has(String(m._id))
+                              selectedMatchIds.has(String(m._id)),
                             )
                           }
                           onChange={(e) =>
@@ -2769,7 +2769,7 @@ export default function TournamentManagePage() {
                           variant="outlined"
                           label={`${
                             list.filter((m) =>
-                              selectedMatchIds.has(String(m._id))
+                              selectedMatchIds.has(String(m._id)),
                             ).length
                           } đã chọn`}
                         />

@@ -41,10 +41,8 @@ function calcCanSeeMembers(club, my) {
 }
 function memberGuardMessage(club, t) {
   const vis = club?.memberVisibility || "admins";
-  if (vis === "admins")
-    return t("clubs.detail.memberGuardAdmins");
-  if (vis === "members")
-    return t("clubs.detail.memberGuardMembers");
+  if (vis === "admins") return t("clubs.detail.memberGuardAdmins");
+  if (vis === "members") return t("clubs.detail.memberGuardMembers");
   return t("clubs.detail.memberGuardUnavailable");
 }
 
@@ -95,11 +93,11 @@ export default function ClubDetailPage() {
                 </Button>
               </Stack>
             </>
-          )}  
+          )}
         </Stack>
       </Paper>
     ),
-    [club, my, isOwnerOrAdmin, t]
+    [club, my, isOwnerOrAdmin, t],
   );
 
   if (isLoading) {
@@ -151,38 +149,40 @@ export default function ClubDetailPage() {
               t("clubs.detail.descriptionFallback", { name: club?.name }),
             logo: club?.avatar || "https://pickletour.vn/icon-192.png",
             url: `https://pickletour.vn/clubs/${club?._id}`,
-            member: (club?.members || []).map((m) => ({
-              "@type": "Person",
-              name:
-                m?.user?.name ||
-                m?.user?.fullName ||
-                t("clubs.detail.memberFallback"),
-            })).slice(0, 10),
+            member: (club?.members || [])
+              .map((m) => ({
+                "@type": "Person",
+                name:
+                  m?.user?.name ||
+                  m?.user?.fullName ||
+                  t("clubs.detail.memberFallback"),
+              }))
+              .slice(0, 10),
           },
           {
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
-            "itemListElement": [
+            itemListElement: [
               {
                 "@type": "ListItem",
-                "position": 1,
-                "name": t("clubs.detail.breadcrumbHome"),
-                "item": "https://pickletour.vn"
+                position: 1,
+                name: t("clubs.detail.breadcrumbHome"),
+                item: "https://pickletour.vn",
               },
               {
                 "@type": "ListItem",
-                "position": 2,
-                "name": t("clubs.detail.breadcrumbClubs"),
-                "item": "https://pickletour.vn/clubs"
+                position: 2,
+                name: t("clubs.detail.breadcrumbClubs"),
+                item: "https://pickletour.vn/clubs",
               },
               {
                 "@type": "ListItem",
-                "position": 3,
-                "name": club?.name || t("clubs.detail.breadcrumbDetail"),
-                "item": `https://pickletour.vn/clubs/${club?._id}`
-              }
-            ]
-          }
+                position: 3,
+                name: club?.name || t("clubs.detail.breadcrumbDetail"),
+                item: `https://pickletour.vn/clubs/${club?._id}`,
+              },
+            ],
+          },
         ]}
       />
       <ClubHeader

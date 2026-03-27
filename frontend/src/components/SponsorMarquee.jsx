@@ -9,7 +9,7 @@ import { useGetSponsorsPublicQuery } from "../slices/sponsorsApiSlice";
  * SponsorMarquee — Premium marquee với glass-morphism & gradient effects
  * - Tự lấy dữ liệu qua useGetSponsorsPublicQuery (RTK Query)
  * - Modern design với glow, blur, và smooth animations
- * 
+ *
  * Props:
  * - featuredOnly: chỉ lấy sponsor nổi bật (default: true)
  * - tier: lọc theo tier (Platinum/Gold/...)
@@ -86,7 +86,7 @@ export default function SponsorMarquee({
   const base = useMemo(() => items.filter(Boolean), [items]);
   const group = useMemo(
     () => (base.length <= 4 ? [...base, ...base] : base),
-    [base]
+    [base],
   );
   const hasItems = group.length > 0;
   const safeDuration = Math.max(5, Number(duration) || 30);
@@ -217,7 +217,7 @@ function SponsorLogo({ item, height, utm, openInNewTab, variant }) {
       position: "relative",
       transition: theme.transitions.create(
         ["transform", "box-shadow", "border-color", "background"],
-        { duration: 300, easing: "cubic-bezier(0.4, 0, 0.2, 1)" }
+        { duration: 300, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
       ),
     };
 
@@ -290,7 +290,7 @@ function SponsorLogo({ item, height, utm, openInNewTab, variant }) {
             theme.palette.mode === "dark"
               ? theme.palette.common.white
               : theme.palette.common.black,
-            0.08
+            0.08,
           )}`,
           boxShadow: `
             0 8px 32px ${alpha(theme.palette.common.black, 0.08)},
@@ -312,10 +312,7 @@ function SponsorLogo({ item, height, utm, openInNewTab, variant }) {
           },
           "&:hover": {
             transform: "translateY(-3px) scale(1.01)",
-            border: `1px solid ${alpha(
-              theme.palette.primary.main,
-              0.2
-            )}`,
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
             boxShadow: `
               0 12px 48px ${alpha(theme.palette.common.black, 0.12)},
               0 0 0 1px ${alpha(theme.palette.primary.main, 0.1)} inset,
@@ -435,7 +432,7 @@ MarqueeGroup.propTypes = {
       websiteUrl: PropTypes.string,
       refLink: PropTypes.string,
       tier: PropTypes.string,
-    })
+    }),
   ),
   height: PropTypes.number,
   gap: PropTypes.number,

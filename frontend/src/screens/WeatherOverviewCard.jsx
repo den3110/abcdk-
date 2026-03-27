@@ -44,15 +44,24 @@ function getConditionLabel(code) {
 
 function getConditionIcon(code, daylight) {
   if (code === "Clear" || code === "MostlyClear") {
-    return daylight ? <WbSunnyIcon fontSize="large" /> : <NightlightIcon fontSize="large" />;
+    return daylight ? (
+      <WbSunnyIcon fontSize="large" />
+    ) : (
+      <NightlightIcon fontSize="large" />
+    );
   }
   if (code === "PartlyCloudy") return <CloudQueueIcon fontSize="large" />;
-  if (code === "MostlyCloudy" || code === "Cloudy") return <CloudIcon fontSize="large" />;
+  if (code === "MostlyCloudy" || code === "Cloudy")
+    return <CloudIcon fontSize="large" />;
   if (code === "Thunderstorms") return <ThunderstormIcon fontSize="large" />;
   if (code === "Drizzle" || code === "Rain" || code === "HeavyRain") {
     return <GrainIcon fontSize="large" />;
   }
-  return daylight ? <WbSunnyIcon fontSize="large" /> : <NightlightIcon fontSize="large" />;
+  return daylight ? (
+    <WbSunnyIcon fontSize="large" />
+  ) : (
+    <NightlightIcon fontSize="large" />
+  );
 }
 
 function formatHour(iso) {
@@ -92,7 +101,11 @@ function uvLevel(uv) {
  *   attribution
  * }
  */
-export function WeatherOverviewCard({ weather, title = "Thời tiết tổng quan", locationLabel }) {
+export function WeatherOverviewCard({
+  weather,
+  title = "Thời tiết tổng quan",
+  locationLabel,
+}) {
   const current = weather?.current;
   const hourly = useMemo(() => (weather?.hourly || []).slice(0, 6), [weather]);
   const daily = useMemo(() => (weather?.daily || []).slice(0, 5), [weather]);
@@ -129,9 +142,7 @@ export function WeatherOverviewCard({ weather, title = "Thời tiết tổng qua
           </Stack>
         }
         subheader={
-          current.asOf
-            ? `Cập nhật lúc ${formatHour(current.asOf)}`
-            : undefined
+          current.asOf ? `Cập nhật lúc ${formatHour(current.asOf)}` : undefined
         }
       />
 
@@ -165,15 +176,18 @@ export function WeatherOverviewCard({ weather, title = "Thời tiết tổng qua
                 <Typography variant="h3" fontWeight={600}>
                   {Math.round(current.temperature)}°
                 </Typography>
-                <Typography variant="body1">
-                  {conditionText}
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ mt: 0.5 }} flexWrap="wrap">
+                <Typography variant="body1">{conditionText}</Typography>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ mt: 0.5 }}
+                  flexWrap="wrap"
+                >
                   <Chip
                     size="small"
                     icon={<DeviceThermostatIcon />}
                     label={`Cảm giác: ${Math.round(
-                      current.temperatureApparent
+                      current.temperatureApparent,
                     )}°`}
                     variant="outlined"
                   />
@@ -235,7 +249,9 @@ export function WeatherOverviewCard({ weather, title = "Thời tiết tổng qua
                   ⚠ Có cảnh báo thời tiết
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {alerts[0].details || alerts[0].description || "Vui lòng kiểm tra chi tiết trên trang cảnh báo thời tiết."}
+                  {alerts[0].details ||
+                    alerts[0].description ||
+                    "Vui lòng kiểm tra chi tiết trên trang cảnh báo thời tiết."}
                 </Typography>
               </Box>
             )}
@@ -322,7 +338,9 @@ export function WeatherOverviewCard({ weather, title = "Thời tiết tổng qua
                           {Math.round(h.temperature)}°
                         </Typography>
                         <Tooltip title={getConditionLabel(h.conditionCode)}>
-                          <Box>{getConditionIcon(h.conditionCode, h.daylight)}</Box>
+                          <Box>
+                            {getConditionIcon(h.conditionCode, h.daylight)}
+                          </Box>
                         </Tooltip>
                       </Box>
                       {chance != null && (
@@ -332,8 +350,8 @@ export function WeatherOverviewCard({ weather, title = "Thời tiết tổng qua
                             chance >= 60
                               ? "error.main"
                               : chance >= 30
-                              ? "warning.main"
-                              : "text.secondary"
+                                ? "warning.main"
+                                : "text.secondary"
                           }
                           sx={{ display: "block", mt: 0.5 }}
                         >
@@ -409,8 +427,8 @@ export function WeatherOverviewCard({ weather, title = "Thời tiết tổng qua
                             d.precipitationChance >= 0.6
                               ? "error.main"
                               : d.precipitationChance >= 0.3
-                              ? "warning.main"
-                              : "text.secondary"
+                                ? "warning.main"
+                                : "text.secondary"
                           }
                         >
                           {Math.round(d.precipitationChance * 100)}% mưa

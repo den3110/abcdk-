@@ -22,7 +22,10 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import SEOHead from "../../components/SEOHead";
-import { useGetSeoNewsBySlugQuery, useGetSeoNewsListQuery } from "../../slices/seoNewsApiSlice";
+import {
+  useGetSeoNewsBySlugQuery,
+  useGetSeoNewsListQuery,
+} from "../../slices/seoNewsApiSlice";
 import { useThemeMode } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext.jsx";
 import {
@@ -36,7 +39,8 @@ const SITE_URL = "https://pickletour.vn";
 
 const handleImageError = (e) => {
   e.target.onerror = null;
-  e.target.src = "data:image/svg+xml;charset=UTF-8,%3Csvg width='800' height='400' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23f1f5f9' /%3E%3Cstop offset='100%25' stop-color='%23cbd5e1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)' /%3E%3C/svg%3E";
+  e.target.src =
+    "data:image/svg+xml;charset=UTF-8,%3Csvg width='800' height='400' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23f1f5f9' /%3E%3Cstop offset='100%25' stop-color='%23cbd5e1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)' /%3E%3C/svg%3E";
 };
 
 function formatDateTime(value, locale = "vi-VN") {
@@ -100,13 +104,17 @@ export default function SeoNewsDetailScreen() {
 
   useEffect(() => {
     if (!article) return undefined;
-    const stop = startSeoNewsReadingSession(article, { surface: "news-detail" });
+    const stop = startSeoNewsReadingSession(article, {
+      surface: "news-detail",
+    });
     return () => stop();
   }, [article]);
 
   useEffect(() => {
     if (!suggestedItems.length) return;
-    trackSeoNewsListImpression(suggestedItems, { surface: "news-detail-suggest" });
+    trackSeoNewsListImpression(suggestedItems, {
+      surface: "news-detail-suggest",
+    });
   }, [suggestedItems]);
 
   useEffect(() => {
@@ -183,11 +191,16 @@ export default function SeoNewsDetailScreen() {
 
       <Container maxWidth="md">
         <Button
-          component={RouterLink} 
-          to="/news" 
-          variant="text" 
+          component={RouterLink}
+          to="/news"
+          variant="text"
           startIcon={<ArrowBackIcon />}
-          sx={{ mb: 4, fontWeight: 700, color: "text.secondary", "&:hover": { color: "primary.main" } }}
+          sx={{
+            mb: 4,
+            fontWeight: 700,
+            color: "text.secondary",
+            "&:hover": { color: "primary.main" },
+          }}
         >
           {t("news.detail.backToNews")}
         </Button>
@@ -208,7 +221,12 @@ export default function SeoNewsDetailScreen() {
           <Stack spacing={4}>
             {/* --- HEADER --- */}
             <Box textAlign="center">
-              <Stack direction="row" spacing={1} justifyContent="center" sx={{ flexWrap: "wrap", rowGap: 1, mb: 3 }}>
+              <Stack
+                direction="row"
+                spacing={1}
+                justifyContent="center"
+                sx={{ flexWrap: "wrap", rowGap: 1, mb: 3 }}
+              >
                 <Chip
                   size="small"
                   label={
@@ -220,26 +238,32 @@ export default function SeoNewsDetailScreen() {
                   sx={{ fontWeight: 700 }}
                 />
                 {(article.tags || []).slice(0, 4).map((tag) => (
-                  <Chip key={tag} size="small" label={tag} variant="outlined" sx={{ fontWeight: 600, color: "text.secondary" }} />
+                  <Chip
+                    key={tag}
+                    size="small"
+                    label={tag}
+                    variant="outlined"
+                    sx={{ fontWeight: 600, color: "text.secondary" }}
+                  />
                 ))}
               </Stack>
-              
-              <Typography 
-                variant="h1" 
-                sx={{ 
-                  fontWeight: 900, 
-                  lineHeight: { xs: 1.3, md: 1.2 }, 
+
+              <Typography
+                variant="h1"
+                sx={{
+                  fontWeight: 900,
+                  lineHeight: { xs: 1.3, md: 1.2 },
                   fontSize: { xs: "2rem", md: "3rem" },
-                  mb: 3
+                  mb: 3,
                 }}
               >
                 {article.title}
               </Typography>
 
-              <Stack 
-                direction="row" 
-                spacing={3} 
-                justifyContent="center" 
+              <Stack
+                direction="row"
+                spacing={3}
+                justifyContent="center"
                 alignItems="center"
                 sx={{ color: "text.secondary" }}
               >
@@ -261,7 +285,7 @@ export default function SeoNewsDetailScreen() {
             </Box>
 
             {/* --- HERO IMAGE --- */}
-            {(article.heroImageUrl || article.thumbImageUrl) ? (
+            {article.heroImageUrl || article.thumbImageUrl ? (
               <Box
                 component="img"
                 src={article.heroImageUrl || article.thumbImageUrl}
@@ -273,8 +297,8 @@ export default function SeoNewsDetailScreen() {
                   objectFit: "cover",
                   borderRadius: 2,
                   border: "none",
-                  boxShadow: isDark 
-                    ? "0 10px 30px rgba(0,0,0,0.3)" 
+                  boxShadow: isDark
+                    ? "0 10px 30px rgba(0,0,0,0.3)"
                     : "0 10px 40px rgba(0,0,0,0.05)",
                 }}
                 loading="lazy"
@@ -310,17 +334,19 @@ export default function SeoNewsDetailScreen() {
                 sx={{
                   p: { xs: 3, md: 4 },
                   borderRadius: 2,
-                  bgcolor: isDark ? alpha(theme.palette.primary.dark, 0.1) : alpha(theme.palette.primary.light, 0.05),
+                  bgcolor: isDark
+                    ? alpha(theme.palette.primary.dark, 0.1)
+                    : alpha(theme.palette.primary.light, 0.05),
                   borderLeft: `4px solid ${theme.palette.primary.main}`,
-                  boxShadow: "none"
+                  boxShadow: "none",
                 }}
               >
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    fontWeight: 600, 
+                <Typography
+                  variant="h6"
+                  sx={{
+                    fontWeight: 600,
                     lineHeight: 1.7,
-                    color: isDark ? "text.primary" : "text.secondary"
+                    color: isDark ? "text.primary" : "text.secondary",
                   }}
                 >
                   {article.summary}
@@ -333,9 +359,9 @@ export default function SeoNewsDetailScreen() {
               sx={{
                 fontSize: "1.15rem",
                 color: "text.primary",
-                "& p": { 
-                  mb: 3, 
-                  lineHeight: 1.85 
+                "& p": {
+                  mb: 3,
+                  lineHeight: 1.85,
                 },
                 "& img": {
                   maxWidth: "100%",
@@ -345,22 +371,22 @@ export default function SeoNewsDetailScreen() {
                   display: "block",
                   mx: "auto",
                 },
-                "& h2": { 
-                  mt: 5, 
-                  mb: 2, 
-                  fontSize: { xs: "1.5rem", md: "1.8rem" }, 
-                  fontWeight: 800 
+                "& h2": {
+                  mt: 5,
+                  mb: 2,
+                  fontSize: { xs: "1.5rem", md: "1.8rem" },
+                  fontWeight: 800,
                 },
-                "& h3": { 
-                  mt: 4, 
-                  mb: 2, 
-                  fontSize: { xs: "1.3rem", md: "1.5rem" }, 
-                  fontWeight: 700 
+                "& h3": {
+                  mt: 4,
+                  mb: 2,
+                  fontSize: { xs: "1.3rem", md: "1.5rem" },
+                  fontWeight: 700,
                 },
-                "& ul, & ol": { 
-                  pl: 4, 
+                "& ul, & ol": {
+                  pl: 4,
                   mb: 3,
-                  "& li": { mb: 1, lineHeight: 1.7 }
+                  "& li": { mb: 1, lineHeight: 1.7 },
                 },
                 "& blockquote": {
                   borderLeft: "4px solid",
@@ -369,24 +395,26 @@ export default function SeoNewsDetailScreen() {
                   py: 1,
                   my: 4,
                   mr: 0,
-                  bgcolor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+                  bgcolor: isDark
+                    ? "rgba(255,255,255,0.03)"
+                    : "rgba(0,0,0,0.02)",
                   color: "text.secondary",
                   fontStyle: "italic",
                   fontSize: "1.2rem",
-                  borderRadius: "0 8px 8px 0"
+                  borderRadius: "0 8px 8px 0",
                 },
                 "& a": {
                   color: "primary.main",
                   textDecoration: "none",
                   fontWeight: 600,
-                  "&:hover": { textDecoration: "underline" }
+                  "&:hover": { textDecoration: "underline" },
                 },
                 "& pre": {
                   bgcolor: isDark ? "#1e1e1e" : "#f5f5f5",
                   p: 2,
                   borderRadius: 2,
                   overflowX: "auto",
-                  mb: 3
+                  mb: 3,
                 },
                 "& code": {
                   fontFamily: "monospace",
@@ -394,8 +422,8 @@ export default function SeoNewsDetailScreen() {
                   px: 0.5,
                   py: 0.2,
                   borderRadius: 1,
-                  fontSize: "0.9em"
-                }
+                  fontSize: "0.9em",
+                },
               }}
               dangerouslySetInnerHTML={{ __html: article.contentHtml || "" }}
             />
@@ -429,7 +457,7 @@ export default function SeoNewsDetailScreen() {
                           boxShadow: isDark
                             ? "0 10px 24px rgba(0,0,0,0.4)"
                             : "0 10px 24px rgba(0,0,0,0.08)",
-                          borderColor: alpha(theme.palette.primary.main, 0.2)
+                          borderColor: alpha(theme.palette.primary.main, 0.2),
                         },
                       }}
                     >
@@ -437,7 +465,9 @@ export default function SeoNewsDetailScreen() {
                         component={RouterLink}
                         to={`/news/${item.slug}`}
                         onClick={() => {
-                          trackSeoNewsClick(item, { surface: "news-detail-suggest-click" });
+                          trackSeoNewsClick(item, {
+                            surface: "news-detail-suggest-click",
+                          });
                           window.scrollTo(0, 0);
                         }}
                         sx={{ p: 2, height: "100%" }}
@@ -445,7 +475,10 @@ export default function SeoNewsDetailScreen() {
                         <Chip
                           size="small"
                           color="primary"
-                          label={item.__suggestReason || t("news.detail.suggestedFallback")}
+                          label={
+                            item.__suggestReason ||
+                            t("news.detail.suggestedFallback")
+                          }
                           sx={{ mb: 1.25, fontWeight: 700 }}
                         />
                         <CardContent sx={{ p: 0, "&:last-child": { pb: 0 } }}>
@@ -474,10 +507,18 @@ export default function SeoNewsDetailScreen() {
                               mb: 1,
                             }}
                           >
-                            {item.summary || t("news.detail.suggestedOpenFallback")}
+                            {item.summary ||
+                              t("news.detail.suggestedOpenFallback")}
                           </Typography>
-                          <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600 }}>
-                            {formatDateTime(item.originalPublishedAt || item.createdAt, locale)}
+                          <Typography
+                            variant="caption"
+                            color="text.disabled"
+                            sx={{ fontWeight: 600 }}
+                          >
+                            {formatDateTime(
+                              item.originalPublishedAt || item.createdAt,
+                              locale,
+                            )}
                           </Typography>
                         </CardContent>
                       </CardActionArea>
@@ -510,4 +551,3 @@ export default function SeoNewsDetailScreen() {
     </Box>
   );
 }
-

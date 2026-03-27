@@ -21,6 +21,7 @@ const seedSourceSchema = new mongoose.Schema(
       stage: { type: Number, default: 1 }, // V1 (thường là group)
       groupCode: { type: String, default: "" },
       rank: { type: Number, default: null },
+      wildcardOrder: { type: Number, default: null },
 
       // stageMatch{Winner,Loser}
       stageIndex: { type: Number, default: null }, // V2, V3...

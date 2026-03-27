@@ -48,7 +48,8 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     const circlePath = "M 14 15 A 10 10 0 1 1 14 35 A 10 10 0 1 1 14 15 Z";
     const squarePath = "M 4 15 L 24 15 L 24 35 L 4 35 Z";
     const trianglePath = "M 14 14 L 4 33 L 24 33 Z";
-    const starPath = "M 14 15 L 16.35 21.76 L 23.51 21.91 L 17.8 26.23 L 19.87 33.09 L 14 29.05 L 8.13 33.09 L 10.2 26.23 L 4.49 21.91 L 11.65 21.76 Z";
+    const starPath =
+      "M 14 15 L 16.35 21.76 L 23.51 21.91 L 17.8 26.23 L 19.87 33.09 L 14 29.05 L 8.13 33.09 L 10.2 26.23 L 4.49 21.91 L 11.65 21.76 Z";
 
     const hiddenSvg = document.createElementNS(SVG_NS, "svg");
     hiddenSvg.setAttribute("width", String(canvasW));
@@ -88,9 +89,11 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       measureSpan.style.fontSize = fontSize;
       measureSpan.style.fontWeight = "800";
       measureSpan.style.letterSpacing = letterSpacing;
-      measureSpan.style.fontFamily = window.getComputedStyle(container).fontFamily || "inherit";
+      measureSpan.style.fontFamily =
+        window.getComputedStyle(container).fontFamily || "inherit";
       document.body.appendChild(measureSpan);
-      const fullWidth = Math.ceil(measureSpan.getBoundingClientRect().width) + 6;
+      const fullWidth =
+        Math.ceil(measureSpan.getBoundingClientRect().width) + 6;
       measureSpan.remove();
       logoWrapper.style.minWidth = `${fullWidth}px`;
     }
@@ -132,7 +135,8 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         const span = document.createElement("span");
         span.textContent = char;
         span.style.display = "inline-block";
-        span.style.background = "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)";
+        span.style.background =
+          "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)";
         span.style.webkitBackgroundClip = "text";
         span.style.webkitTextFillColor = "transparent";
         span.style.backgroundClip = "text";
@@ -193,7 +197,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         duration: 0.8,
         ease: "elastic.out(1, 0.6)",
       },
-      "-=0.4"
+      "-=0.4",
     );
 
     masterTl.to({}, { duration: 0.35 });
@@ -212,7 +216,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         duration: 0.5,
         ease: "power2.out",
       },
-      "-=0.5"
+      "-=0.5",
     );
 
     masterTl.fromTo(
@@ -228,7 +232,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         stagger: 0.03,
         ease: "back.out(1.5)",
       },
-      "-=0.4"
+      "-=0.4",
     );
 
     masterTl
@@ -260,7 +264,13 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     return () => {
       masterTl.kill();
       if (floatingTween) floatingTween.kill();
-      gsap.killTweensOf([logoWrapper, pSpan, canvas, ...remainingSpans, morphPath]);
+      gsap.killTweensOf([
+        logoWrapper,
+        pSpan,
+        canvas,
+        ...remainingSpans,
+        morphPath,
+      ]);
       if (hiddenSvg.parentNode) hiddenSvg.parentNode.removeChild(hiddenSvg);
       container.innerHTML = "";
     };

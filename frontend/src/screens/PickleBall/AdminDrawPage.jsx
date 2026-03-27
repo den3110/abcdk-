@@ -44,7 +44,6 @@ import { useSocket } from "../../context/SocketContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatDateTime } from "../../i18n/format";
 
-
 /* ===== helpers ===== */
 const safePairName = (reg, evType = "double") => {
   if (!reg) return "—";
@@ -70,7 +69,7 @@ function GroupBoard({ session, eventType }) {
     labels.forEach((lb) => {
       m.set(
         lb,
-        Array.from({ length: groupSize }, () => null)
+        Array.from({ length: groupSize }, () => null),
       );
     });
     (session?.applied || []).forEach((st) => {
@@ -83,7 +82,11 @@ function GroupBoard({ session, eventType }) {
   }, [labels, groupSize, session?.applied]);
 
   if (!groups || !groupSize) {
-    return <Alert severity="info">{t("tournaments.adminDraw.groupConfigMissing")}</Alert>;
+    return (
+      <Alert severity="info">
+        {t("tournaments.adminDraw.groupConfigMissing")}
+      </Alert>
+    );
   }
 
   return (
@@ -102,8 +105,9 @@ function GroupBoard({ session, eventType }) {
               </Typography>
               <Chip
                 size="small"
-                label={`${(byLabel.get(lb) || []).filter(Boolean).length
-                  }/${groupSize}`}
+                label={`${
+                  (byLabel.get(lb) || []).filter(Boolean).length
+                }/${groupSize}`}
               />
             </Stack>
             <Stack spacing={1}>
@@ -152,7 +156,9 @@ function KnockoutBoard({ session, eventType }) {
   }, [session?.applied]);
 
   if (!buckets.length) {
-    return <Alert severity="info">{t("tournaments.adminDraw.noDrawnPairs")}</Alert>;
+    return (
+      <Alert severity="info">{t("tournaments.adminDraw.noDrawnPairs")}</Alert>
+    );
   }
 
   return (
@@ -200,7 +206,7 @@ export default function AdminDrawPage() {
   const { data: brackets = [] } = useListTournamentBracketsQuery(tournamentId);
   const thisBracket = useMemo(
     () => (brackets || []).find((b) => String(b._id) === String(bracketId)),
-    [brackets, bracketId]
+    [brackets, bracketId],
   );
 
   // draw status (RTK)
@@ -279,20 +285,20 @@ export default function AdminDrawPage() {
     const body =
       mode === "group"
         ? {
-          mode,
-          config: {
-            groups: Number(groups),
-            groupSize: Number(groupSize),
-            jitter: Number(jitter),
-          },
-        }
+            mode,
+            config: {
+              groups: Number(groups),
+              groupSize: Number(groupSize),
+              jitter: Number(jitter),
+            },
+          }
         : {
-          mode,
-          config: {
-            knockoutSlots: Number(knockoutSlots),
-            jitter: Number(jitter),
-          },
-        };
+            mode,
+            config: {
+              knockoutSlots: Number(knockoutSlots),
+              jitter: Number(jitter),
+            },
+          };
     await initDraw({ bracketId, ...body }).unwrap();
     await refetchStatus();
   };
@@ -316,8 +322,6 @@ export default function AdminDrawPage() {
     await finalizeKo(bracketId).unwrap();
     await refetchStatus();
   };
-
-
 
   return (
     <>
@@ -432,7 +436,7 @@ export default function AdminDrawPage() {
                   inputProps={{ step: 0.01, min: 0, max: 0.2 }}
                   onChange={(e) =>
                     setJitter(
-                      Math.max(0, Math.min(0.2, Number(e.target.value)))
+                      Math.max(0, Math.min(0.2, Number(e.target.value))),
                     )
                   }
                   sx={{ minWidth: 160 }}

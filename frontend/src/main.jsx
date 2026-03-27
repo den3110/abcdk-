@@ -1,13 +1,18 @@
 import React from "react";
 import { HelmetProvider } from "react-helmet-async";
 import ReactDOM from "react-dom/client";
+import * as Sentry from "@sentry/react";
 import App from "./App.jsx";
 import {
   createBrowserRouter,
+  createRoutesFromChildren,
   createRoutesFromElements,
+  matchRoutes,
   Navigate,
   Route,
   RouterProvider,
+  useLocation,
+  useNavigationType,
 } from "react-router-dom";
 import "./index.css";
 import "bootstrap/dist/css/bootstrap.min.css";
@@ -61,13 +66,27 @@ import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
 import AppInitGate from "./components/AppInitGate.jsx";
 import FacebookLiveSettings from "./components/FacebookLiveSettings";
-import TournamentDetailPage from "./screens/PickleBall/TournamentDetailPage.jsx";
 import LocalizedDateProvider from "./components/LocalizedDateProvider.jsx";
+import SentryRootFallback from "./components/SentryRootFallback.jsx";
+import { initSentry } from "./utils/sentry.js";
 // OTP tạm tắt
 // import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
 
-const router = createBrowserRouter(
+initSentry({
+  routerTracingIntegration: Sentry.reactRouterV6BrowserTracingIntegration({
+    useEffect: React.useEffect,
+    useLocation,
+    useNavigationType,
+    createRoutesFromChildren,
+    matchRoutes,
+  }),
+});
+
+const sentryCreateBrowserRouter =
+  Sentry.wrapCreateBrowserRouterV6(createBrowserRouter);
+
+const router = sentryCreateBrowserRouter(
   createRoutesFromElements(
     <>
       <Route path="/" element={<App />}>
@@ -107,7 +126,7 @@ const router = createBrowserRouter(
           path="/tournament/:id/overview"
           element={<TournamentOverviewPage />}
         />
-        <Route path="/tournament/:id" element={<TournamentDetailPage />} />
+        <Route path="/tournament/:id" element={<TournamentOverviewPage />} />
 
         <Route path="/404" element={<NotFound />} />
         <Route path="/403" element={<Forbidden403 />} />
@@ -151,26 +170,28 @@ const router = createBrowserRouter(
           element={<AvatarOptimizationPage />}
         />
       </Route>
-    </>
-  )
+    </>,
+  ),
 );
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <Provider store={store}>
-    <React.StrictMode>
-      <HelmetProvider>
-        <ThemeContextProvider>
-          <LanguageContextProvider>
-            <AppInitGate>
-              <SocketProvider>
-                <LocalizedDateProvider>
-                  <RouterProvider router={router} />
-                </LocalizedDateProvider>
-              </SocketProvider>
-            </AppInitGate>
-          </LanguageContextProvider>
-        </ThemeContextProvider>
-      </HelmetProvider>
-    </React.StrictMode>
-  </Provider>
+  <Sentry.ErrorBoundary fallback={<SentryRootFallback />} showDialog={false}>
+    <Provider store={store}>
+      <React.StrictMode>
+        <HelmetProvider>
+          <ThemeContextProvider>
+            <LanguageContextProvider>
+              <AppInitGate>
+                <SocketProvider>
+                  <LocalizedDateProvider>
+                    <RouterProvider router={router} />
+                  </LocalizedDateProvider>
+                </SocketProvider>
+              </AppInitGate>
+            </LanguageContextProvider>
+          </ThemeContextProvider>
+        </HelmetProvider>
+      </React.StrictMode>
+    </Provider>
+  </Sentry.ErrorBoundary>,
 );

@@ -32,7 +32,6 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import EventNoteIcon from "@mui/icons-material/EventNote";
-import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import FilterListIcon from "@mui/icons-material/FilterList";
 
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
@@ -48,9 +47,8 @@ import { ZoomProvider, ZoomItem } from "../../components/Zoom";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
-import {
-  formatDate as formatLocaleDate,
-} from "../../i18n/format.js";
+import { formatDate as formatLocaleDate } from "../../i18n/format.js";
+import LottieEmptyState from "../../components/LottieEmptyState";
 
 // --- STYLED COMPONENTS ---
 const GlassCard = styled(Card)(({ theme }) => ({
@@ -64,7 +62,8 @@ const GlassCard = styled(Card)(({ theme }) => ({
   display: "flex",
   flexDirection: "column",
   height: "100%",
-  transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+  transition:
+    "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
   "&:hover": {
     transform: "translateY(-4px)",
     boxShadow: theme.shadows[8],
@@ -141,7 +140,7 @@ export default function TournamentDashboard() {
         id: "finished",
       },
     }),
-    [translate]
+    [translate],
   );
 
   // --- Auth Logic ---
@@ -170,7 +169,7 @@ export default function TournamentDashboard() {
   const [tab, setTab] = useState(initialTab);
   const [keyword, setKeyword] = useState(params.get("q") || "");
   const [debouncedKeyword, setDebouncedKeyword] = useState(
-    params.get("q")?.toLowerCase() || ""
+    params.get("q")?.toLowerCase() || "",
   );
 
   const [dateRange, setDateRange] = useState([
@@ -200,7 +199,7 @@ export default function TournamentDashboard() {
           else p.delete("q");
           return p;
         },
-        { replace: true }
+        { replace: true },
       );
     }, 400);
 
@@ -219,7 +218,7 @@ export default function TournamentDashboard() {
         end?.isValid() ? p.set("to", end.format("YYYY-MM-DD")) : p.delete("to");
         return p;
       },
-      { replace: true }
+      { replace: true },
     );
   }, [dateRange, setParams]);
 
@@ -252,7 +251,7 @@ export default function TournamentDashboard() {
       .filter((t) =>
         deferredKeyword
           ? t.name?.toLowerCase().includes(deferredKeyword)
-          : true
+          : true,
       )
       .filter((t) => {
         if (!from && !to) return true;
@@ -273,7 +272,7 @@ export default function TournamentDashboard() {
         p.set("status", v);
         return p;
       },
-      { replace: true }
+      { replace: true },
     );
   };
 
@@ -285,6 +284,27 @@ export default function TournamentDashboard() {
           year: "numeric",
         })
       : "--";
+
+  const emptyStateDescription = useMemo(() => {
+    const statusLabel = String(statusMeta[deferredTab]?.label || "").toLowerCase();
+    const hasDateFilter = Boolean(deferredDateRange[0] || deferredDateRange[1]);
+
+    if (deferredKeyword) {
+      return translate("tournaments.dashboard.emptySearchDescription", {
+        status: statusLabel,
+      });
+    }
+
+    if (hasDateFilter) {
+      return translate("tournaments.dashboard.emptyDateDescription", {
+        status: statusLabel,
+      });
+    }
+
+    return translate("tournaments.dashboard.emptyDefaultDescription", {
+      status: statusLabel,
+    });
+  }, [deferredDateRange, deferredKeyword, deferredTab, statusMeta, translate]);
 
   // --- COMPONENT: Action Buttons (Đăng ký TO NHẤT + bỏ Check-in) ---
   const Actions = ({ t }) => {
@@ -446,7 +466,7 @@ export default function TournamentDashboard() {
   const TournamentCard = ({ t }) => {
     const percent = Math.min(
       100,
-      Math.round((t.registered / t.maxPairs) * 100)
+      Math.round((t.registered / t.maxPairs) * 100),
     );
 
     return (
@@ -525,7 +545,8 @@ export default function TournamentDashboard() {
             >
               <PlaceIcon fontSize="small" color="action" />
               <Typography variant="body2" noWrap sx={{ maxWidth: "100%" }}>
-                {t.location || translate("tournaments.dashboard.locationFallback")}
+                {t.location ||
+                  translate("tournaments.dashboard.locationFallback")}
               </Typography>
             </Stack>
 
@@ -605,9 +626,9 @@ export default function TournamentDashboard() {
           <Stack
             direction="row"
             spacing={2}
-            sx={{ 
-              width: { xs: "100%", md: "auto" }, 
-              overflowX: "auto", 
+            sx={{
+              width: { xs: "100%", md: "auto" },
+              overflowX: "auto",
               pb: 1,
               // Hide scrollbar
               "&::-webkit-scrollbar": { display: "none" },
@@ -684,7 +705,10 @@ export default function TournamentDashboard() {
                 textTransform: "none",
                 minHeight: 44,
                 transition: "all 0.2s",
-                "&.Mui-selected": { bgcolor: "primary.main", color: "primary.contrastText" },
+                "&.Mui-selected": {
+                  bgcolor: "primary.main",
+                  color: "primary.contrastText",
+                },
               },
               "& .MuiTabs-indicator": { display: "none" },
             }}
@@ -730,7 +754,9 @@ export default function TournamentDashboard() {
                   textField: {
                     size: "small",
                     fullWidth: true,
-                    placeholder: translate("tournaments.dashboard.datePlaceholder"),
+                    placeholder: translate(
+                      "tournaments.dashboard.datePlaceholder",
+                    ),
                     InputProps: {
                       sx: { borderRadius: 3, bgcolor: "background.paper" },
                     },
@@ -777,19 +803,11 @@ export default function TournamentDashboard() {
           ) : (
             <ZoomProvider maskOpacity={0.8}>
               {deferredFiltered.length === 0 ? (
-                <Stack
-                  alignItems="center"
-                  justifyContent="center"
-                  spacing={2}
-                  sx={{ py: 10, opacity: 0.6 }}
-                >
-                  <EmojiEventsIcon
-                    sx={{ fontSize: 80, color: "text.disabled" }}
-                  />
-                  <Typography variant="h6" color="text.disabled">
-                    {translate("tournaments.dashboard.empty")}
-                  </Typography>
-                </Stack>
+                <LottieEmptyState
+                  title={translate("tournaments.dashboard.empty")}
+                  description={emptyStateDescription}
+                  minHeight={360}
+                />
               ) : (
                 <Grid container spacing={3}>
                   {deferredFiltered.map((t) => (

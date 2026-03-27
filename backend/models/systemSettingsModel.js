@@ -70,6 +70,32 @@ const SystemSettingsSchema = new mongoose.Schema(
         min: 1,
         max: 1440,
       },
+      aiCommentary: {
+        enabled: { type: Boolean, default: false },
+        autoGenerateAfterDriveUpload: { type: Boolean, default: true },
+        defaultLanguage: {
+          type: String,
+          enum: ["vi", "en"],
+          default: "vi",
+        },
+        defaultVoicePreset: {
+          type: String,
+          enum: ["vi_male_pro", "vi_female_pro", "en_male_pro", "en_female_pro"],
+          default: "vi_male_pro",
+        },
+        scriptBaseUrl: { type: String, default: "", trim: true },
+        scriptModel: { type: String, default: "", trim: true },
+        ttsBaseUrl: { type: String, default: "", trim: true },
+        ttsModel: { type: String, default: "", trim: true },
+        defaultTonePreset: {
+          type: String,
+          enum: ["professional", "energetic", "dramatic"],
+          default: "professional",
+        },
+        keepOriginalAudioBed: { type: Boolean, default: true },
+        audioBedLevelDb: { type: Number, default: -18, min: -40, max: 0 },
+        duckAmountDb: { type: Number, default: -12, min: -30, max: 0 },
+      },
     },
 
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

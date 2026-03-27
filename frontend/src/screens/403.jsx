@@ -62,7 +62,8 @@ export default function Forbidden403() {
           color="text.secondary"
           sx={{ display: "block", mt: 3 }}
         >
-          {t("common.labels.statusCode")}: 403 • {new Date().toLocaleString(locale)}
+          {t("common.labels.statusCode")}: 403 •{" "}
+          {new Date().toLocaleString(locale)}
         </Typography>
       </Box>
     </Container>

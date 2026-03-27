@@ -26,7 +26,11 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
         `/api/admin/tournaments/${tournamentId}/court-clusters/${clusterId}/runtime`,
       keepUnusedDataFor: 0,
       providesTags: (result, error, { tournamentId, clusterId }) => [
-        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${clusterId}` },
+        {
+          type: "TournamentCourtClusterRuntime",
+          id: `${tournamentId}:${clusterId}`,
+        },
+        { type: "TournamentCourtClusterRuntime", id: `LIST_${tournamentId}` },
       ],
     }),
     assignTournamentMatchToCourtStation: builder.mutation({
@@ -39,6 +43,7 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
         { type: "TournamentCourtClusters", id: tournamentId },
         { type: "Tournaments", id: tournamentId },
         { type: "CourtClusterRuntime", id: stationId },
+        { type: "TournamentCourtClusterRuntime", id: `LIST_${tournamentId}` },
       ],
     }),
     updateTournamentCourtStationAssignmentConfig: builder.mutation({
@@ -49,8 +54,12 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { tournamentId, stationId }) => [
         { type: "TournamentCourtClusters", id: tournamentId },
-        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${stationId}` },
+        {
+          type: "TournamentCourtClusterRuntime",
+          id: `${tournamentId}:${stationId}`,
+        },
         { type: "CourtClusterRuntime", id: stationId },
+        { type: "TournamentCourtClusterRuntime", id: `LIST_${tournamentId}` },
       ],
     }),
     appendTournamentCourtStationQueueItem: builder.mutation({
@@ -61,8 +70,12 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { tournamentId, stationId }) => [
         { type: "TournamentCourtClusters", id: tournamentId },
-        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${stationId}` },
+        {
+          type: "TournamentCourtClusterRuntime",
+          id: `${tournamentId}:${stationId}`,
+        },
         { type: "CourtClusterRuntime", id: stationId },
+        { type: "TournamentCourtClusterRuntime", id: `LIST_${tournamentId}` },
       ],
     }),
     removeTournamentCourtStationQueueItem: builder.mutation({
@@ -72,8 +85,12 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (result, error, { tournamentId, stationId }) => [
         { type: "TournamentCourtClusters", id: tournamentId },
-        { type: "TournamentCourtClusterRuntime", id: `${tournamentId}:${stationId}` },
+        {
+          type: "TournamentCourtClusterRuntime",
+          id: `${tournamentId}:${stationId}`,
+        },
         { type: "CourtClusterRuntime", id: stationId },
+        { type: "TournamentCourtClusterRuntime", id: `LIST_${tournamentId}` },
       ],
     }),
     freeTournamentCourtStation: builder.mutation({
@@ -85,6 +102,7 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
         { type: "TournamentCourtClusters", id: tournamentId },
         { type: "Tournaments", id: tournamentId },
         { type: "CourtClusterRuntime", id: stationId },
+        { type: "TournamentCourtClusterRuntime", id: `LIST_${tournamentId}` },
       ],
     }),
     getAdminCourtClusterRuntime: builder.query({

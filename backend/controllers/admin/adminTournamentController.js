@@ -14,8 +14,10 @@ import {
   buildKnockoutBracket,
   buildRoundElimBracket,
 } from "../../services/bracketBuilder.js";
+import { autoFeedGroupRank } from "../../services/autoFeedGroupRank.js";
 import { scheduleTournamentCountdown } from "../../utils/scheduleNotifications.js";
 import Bracket from "../../models/bracketModel.js";
+import DrawSession from "../../models/drawSessionModel.js";
 import { createForumTopic, createInviteLink } from "../../utils/telegram.js";
 import Match from "../../models/matchModel.js";
 import dotenv from "dotenv";
@@ -42,6 +44,16 @@ import {
   normalizeTeamConfig,
   normalizeTournamentMode,
 } from "../../services/teamTournament.service.js";
+import {
+  analyzeBlueprintRuntime,
+  buildBlueprintImpact,
+  buildPublishedBlueprintPlan,
+  BLUEPRINT_STAGE_ORDER,
+  normalizeBlueprintPlan,
+  normalizePlanRule,
+  normalizePlanRoundRules,
+  semanticStageKeyFromBracketType,
+} from "../../services/blueprintRuntime.service.js";
 
 dotenv.config();
 
@@ -1710,6 +1722,198 @@ function applyRuleToMatch(mDoc, ruleObj) {
   mDoc.capMode = r.cap.mode;
   mDoc.capPoints = r.cap.points;
 }
+
+function isEditableForRuleUpdate(matchDoc) {
+  const status = String(matchDoc?.status || "scheduled").toLowerCase();
+  if (status === "finished" || status === "live") return false;
+  if (matchDoc?.startedAt || matchDoc?.finishedAt) return false;
+  return true;
+}
+
+function buildStageRuleBundle(stageKey, stagePlan, bracket) {
+  if (!stagePlan) return null;
+
+  if (stageKey === "groups") {
+    return {
+      baseRule: normalizeRule(stagePlan.rules),
+      blueprintPatch: {
+        rules: normalizeRule(stagePlan.rules),
+      },
+    };
+  }
+
+  if (stageKey === "po") {
+    const maxRounds = Math.max(
+      1,
+      Number(
+        stagePlan.maxRounds ||
+          bracket?.meta?.maxRounds ||
+          (Array.isArray(stagePlan.roundRules) ? stagePlan.roundRules.length : 1)
+      ) || 1
+    );
+    const baseRule = normalizeRule(stagePlan.rules);
+    const roundRules = normalizePlanRoundRules(
+      stagePlan.roundRules,
+      stagePlan.rules,
+      maxRounds
+    ).map((rule) => normalizeRule(rule));
+
+    return {
+      baseRule,
+      roundRules,
+      blueprintPatch: {
+        rules: baseRule,
+        roundRules,
+      },
+      matchRuleFor: (matchDoc) => {
+        const idx = Math.max(0, Number(matchDoc?.round || 1) - 1);
+        return roundRules[idx] || baseRule;
+      },
+    };
+  }
+
+  if (stageKey === "ko") {
+    const baseRule = normalizeRule(stagePlan.rules);
+    const semiRule = stagePlan.semiRules ? normalizeRule(stagePlan.semiRules) : null;
+    const finalRule = stagePlan.finalRules ? normalizeRule(stagePlan.finalRules) : null;
+    const thirdPlaceRule = stagePlan.thirdPlaceRules
+      ? normalizeRule(stagePlan.thirdPlaceRules)
+      : null;
+    const maxRounds =
+      Number(bracket?.meta?.maxRounds || 0) ||
+      Math.round(Math.log2(Math.max(2, Number(stagePlan.drawSize || 2))));
+
+    return {
+      baseRule,
+      semiRule,
+      finalRule,
+      thirdPlaceRule,
+      blueprintPatch: {
+        rules: baseRule,
+        semiRules: semiRule,
+        finalRules: finalRule,
+        thirdPlaceEnabled: !!stagePlan.thirdPlaceEnabled,
+        thirdPlaceRules: thirdPlaceRule,
+      },
+      matchRuleFor: (matchDoc) => {
+        if (matchDoc?.isThirdPlace) {
+          return thirdPlaceRule || finalRule || semiRule || baseRule;
+        }
+        const roundNum = Number(matchDoc?.round || 1);
+        if (maxRounds >= 2 && roundNum === maxRounds - 1 && semiRule) {
+          return semiRule;
+        }
+        if (roundNum === maxRounds && !matchDoc?.isThirdPlace && finalRule) {
+          return finalRule;
+        }
+        return baseRule;
+      },
+    };
+  }
+
+  return null;
+}
+
+function applyStageRuleBundleToBracket(bracketDoc, stageKey, bundle) {
+  if (!bracketDoc || !bundle) return;
+
+  const nextConfig = {
+    ...(bracketDoc.config?.toObject?.() || bracketDoc.config || {}),
+  };
+  const nextBlueprint = {
+    ...(nextConfig.blueprint || {}),
+    ...(bundle.blueprintPatch || {}),
+  };
+
+  nextConfig.rules = bundle.baseRule;
+
+  if (stageKey === "po") {
+    nextConfig.roundRules = bundle.roundRules || [];
+  }
+
+  nextConfig.blueprint = nextBlueprint;
+  bracketDoc.config = nextConfig;
+}
+
+async function updatePublishedStageRulesInPlace({
+  brackets,
+  impact,
+  plan,
+  session,
+}) {
+  const stageKeys = (impact?.stages || [])
+    .filter((stage) => stage.type === "update_rules")
+    .map((stage) => stage.key);
+
+  if (!stageKeys.length) {
+    return {
+      stages: [],
+      bracketsUpdated: 0,
+      matchesUpdated: 0,
+      matchesSkipped: 0,
+    };
+  }
+
+  const summary = {
+    stages: [],
+    bracketsUpdated: 0,
+    matchesUpdated: 0,
+    matchesSkipped: 0,
+  };
+
+  for (const stageKey of stageKeys) {
+    const stagePlan = plan?.[stageKey];
+    const stageBrackets = (Array.isArray(brackets) ? brackets : []).filter(
+      (bracket) => semanticStageKeyFromBracketType(bracket?.type) === stageKey
+    );
+    if (!stagePlan || !stageBrackets.length) continue;
+
+    let stageMatchesUpdated = 0;
+    let stageMatchesSkipped = 0;
+    let stageBracketsUpdated = 0;
+
+    for (const stageBracket of stageBrackets) {
+      const bracketDoc = await Bracket.findById(stageBracket._id).session(session);
+      if (!bracketDoc) continue;
+
+      const bundle = buildStageRuleBundle(stageKey, stagePlan, bracketDoc);
+      if (!bundle) continue;
+
+      applyStageRuleBundleToBracket(bracketDoc, stageKey, bundle);
+      await bracketDoc.save({ session });
+      stageBracketsUpdated += 1;
+
+      const matches = await Match.find({ bracket: bracketDoc._id }).session(session);
+      for (const matchDoc of matches) {
+        if (!isEditableForRuleUpdate(matchDoc)) {
+          stageMatchesSkipped += 1;
+          continue;
+        }
+
+        const nextRule =
+          typeof bundle.matchRuleFor === "function"
+            ? bundle.matchRuleFor(matchDoc)
+            : bundle.baseRule;
+        applyRuleToMatch(matchDoc, nextRule);
+        await matchDoc.save({ session });
+        stageMatchesUpdated += 1;
+      }
+    }
+
+    summary.stages.push({
+      key: stageKey,
+      bracketsUpdated: stageBracketsUpdated,
+      matchesUpdated: stageMatchesUpdated,
+      matchesSkipped: stageMatchesSkipped,
+    });
+    summary.bracketsUpdated += stageBracketsUpdated;
+    summary.matchesUpdated += stageMatchesUpdated;
+    summary.matchesSkipped += stageMatchesSkipped;
+  }
+
+  return summary;
+}
+
 async function autoAdvanceByesForBracket(bracketId, session) {
   if (!bracketId) return;
   const bracket = await Bracket.findById(bracketId).session(session);
@@ -1796,34 +2000,204 @@ const toBool = (v, def = false) => {
   return ["1", "true", "yes", "y", "on"].includes(s);
 };
 
-const normalizePlanRule = (rules) => {
-  if (!rules) return undefined;
-  const bestOf = Number(rules.bestOf ?? 1);
-  const pointsToWin = Number(rules.pointsToWin ?? 11);
-  const winByTwo = rules.winByTwo !== false;
-  const rawMode = String(rules?.cap?.mode ?? "none").toLowerCase();
-  const mode = ["none", "soft", "hard"].includes(rawMode) ? rawMode : "none";
-  let points = rules?.cap?.points;
-  if (mode === "none") points = null;
-  else {
-    const n = Number(points);
-    points = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+function buildBlueprintStagePositions(plan) {
+  const out = {};
+  let cursor = 1;
+  for (const stageKey of BLUEPRINT_STAGE_ORDER) {
+    if (!plan?.[stageKey]) continue;
+    out[stageKey] = { stage: cursor, order: cursor };
+    cursor += 1;
   }
-  return { bestOf, pointsToWin, winByTwo, cap: { mode, points } };
-};
+  return out;
+}
 
-const normalizePlanRoundRules = (arr, fallback, maxRounds) => {
-  const fb = normalizePlanRule(fallback);
-  const rounds = Math.max(1, Number(maxRounds) || 1);
+function buildDraftPlanFromBody(body = {}) {
+  const hasGroups = Object.prototype.hasOwnProperty.call(body, "groups");
+  const hasPO = Object.prototype.hasOwnProperty.call(body, "po");
+  const hasKO = Object.prototype.hasOwnProperty.call(body, "ko");
 
-  if (!Array.isArray(arr) || !arr.length) {
-    return Array.from({ length: rounds }, () => fb);
+  if (!hasGroups && !hasPO && !hasKO) return null;
+
+  return {
+    groups: hasGroups ? body.groups || null : undefined,
+    po: hasPO ? body.po || null : undefined,
+    ko: hasKO ? body.ko || null : undefined,
+  };
+}
+
+async function deletePublishedBlueprintStages({ brackets, stageKeys, session }) {
+  const ids = (Array.isArray(brackets) ? brackets : [])
+    .filter((bracket) => stageKeys.includes(semanticStageKeyFromBracketType(bracket?.type)))
+    .map((bracket) => String(bracket._id))
+    .filter(Boolean);
+
+  if (!ids.length) return [];
+
+  const objectIds = ids.map((id) => new mongoose.Types.ObjectId(id));
+  await Promise.all([
+    Match.deleteMany({ bracket: { $in: objectIds } }).session(session),
+    DrawSession.deleteMany({ bracket: { $in: objectIds } }).session(session),
+  ]);
+  await Bracket.collection.deleteMany({ _id: { $in: objectIds } }, { session });
+  return ids;
+}
+
+async function buildBlueprintStagesFromPlan({
+  tournamentId,
+  plan,
+  stageKeys,
+  session,
+}) {
+  const positions = buildBlueprintStagePositions(plan);
+  const created = { groups: null, po: null, ko: null };
+
+  if (stageKeys.includes("groups") && plan?.groups && positions.groups) {
+    created.groups = await buildGroupBracket({
+      tournamentId,
+      name: plan.groups.name || "Group Stage",
+      order: positions.groups.order,
+      stage: positions.groups.stage,
+      groupCount: Number(plan.groups.count),
+      groupSize:
+        Number(plan.groups.totalTeams || 0) > 0
+          ? undefined
+          : Number(plan.groups.size || 0) || undefined,
+      totalTeams: Number(plan.groups.totalTeams || 0) || undefined,
+      groupSizes: Array.isArray(plan.groups.groupSizes) ? plan.groups.groupSizes : undefined,
+      qualifiersPerGroup: Number(plan.groups.qualifiersPerGroup || 1),
+      rules: normalizePlanRule(plan.groups.rules),
+      session,
+    });
   }
 
-  const out = arr.map((r) => normalizePlanRule(r || fallback) || fb);
-  while (out.length < rounds) out.push(fb);
-  return out.slice(0, rounds);
-};
+  if (stageKeys.includes("po") && plan?.po && positions.po) {
+    const drawSize = Number(plan.po.drawSize || 0);
+    const maxRounds = Math.max(
+      1,
+      Number(
+        plan.po.maxRounds ||
+          (Array.isArray(plan.po.roundRules) ? plan.po.roundRules.length : 1)
+      ) || 1
+    );
+    const poRules = normalizePlanRule(plan.po.rules);
+    const poRoundRules = normalizePlanRoundRules(
+      plan.po.roundRules,
+      plan.po.rules,
+      maxRounds
+    );
+
+    const { bracket } = await buildRoundElimBracket({
+      tournamentId,
+      name: plan.po.name || "Pre-Qualifying",
+      order: positions.po.order,
+      stage: positions.po.stage,
+      drawSize,
+      maxRounds,
+      firstRoundSeeds: Array.isArray(plan.po.seeds) ? plan.po.seeds : [],
+      rules: poRules,
+      roundRules: poRoundRules,
+      session,
+    });
+    created.po = bracket;
+    await autoAdvanceByesForBracket(bracket._id, session);
+  }
+
+  if (stageKeys.includes("ko") && plan?.ko && positions.ko) {
+    const { bracket } = await buildKnockoutBracket({
+      tournamentId,
+      name: plan.ko.name || "Knockout",
+      order: positions.ko.order,
+      stage: positions.ko.stage,
+      drawSize: Number(plan.ko.drawSize || 0),
+      firstRoundSeeds: Array.isArray(plan.ko.seeds) ? plan.ko.seeds : [],
+      rules: normalizePlanRule(plan.ko.rules),
+      semiRules: normalizePlanRule(plan.ko.semiRules),
+      finalRules: normalizePlanRule(plan.ko.finalRules),
+      thirdPlace: toBool(
+        plan.ko.thirdPlaceEnabled !== undefined
+          ? plan.ko.thirdPlaceEnabled
+          : plan.ko.thirdPlace,
+        false
+      ),
+      thirdPlaceRules: normalizePlanRule(plan.ko.thirdPlaceRules),
+      session,
+    });
+    created.ko = bracket;
+    await autoAdvanceByesForBracket(bracket._id, session);
+  }
+
+  return created;
+}
+
+async function compileSeedsForBrackets(bracketIds = []) {
+  const ids = bracketIds.map((id) => String(id || "")).filter(Boolean);
+  if (!ids.length || typeof Match.compileSeedsForBracket !== "function") return 0;
+
+  for (const bracketId of ids) {
+    await Match.compileSeedsForBracket(bracketId);
+  }
+  return ids.length;
+}
+
+async function reapplyFinishedPropagationForTournament(tournamentId) {
+  const finishedMatches = await Match.find({
+    tournament: tournamentId,
+    status: "finished",
+    winner: { $in: ["A", "B"] },
+  })
+    .sort({ stageIndex: 1, round: 1, order: 1, updatedAt: 1 })
+    .select("_id")
+    .lean();
+
+  let touched = 0;
+  for (const match of finishedMatches) {
+    await Match.findOneAndUpdate(
+      { _id: match._id },
+      { $set: { updatedAt: new Date() } },
+      { new: true }
+    );
+    touched += 1;
+  }
+  return touched;
+}
+
+async function rerunGroupRankFeedsForTournament(tournamentId) {
+  const groupBrackets = await Bracket.find({
+    tournament: tournamentId,
+    type: { $in: ["group", "round_robin", "gsl"] },
+  })
+    .select("_id stage")
+    .lean();
+
+  let touched = 0;
+  for (const bracket of groupBrackets) {
+    await autoFeedGroupRank({
+      tournamentId,
+      bracketId: bracket._id,
+      stageIndex: bracket.stage,
+      provisional: true,
+      log: false,
+    });
+    touched += 1;
+  }
+  return touched;
+}
+
+async function runBlueprintSyncPipeline({ tournamentId, createdBrackets }) {
+  const ids = Object.values(createdBrackets || {})
+    .map((bracket) => bracket?._id)
+    .filter(Boolean);
+
+  const compiled = await compileSeedsForBrackets(ids);
+  const propagatedFrom = await reapplyFinishedPropagationForTournament(tournamentId);
+  const groupRankRuns = await rerunGroupRankFeedsForTournament(tournamentId);
+
+  return {
+    compiled,
+    propagatedFrom,
+    groupRankRuns,
+  };
+}
 
 export const planGet = expressAsyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -1936,6 +2310,63 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
   res.json({ ok: true, plan: t.drawPlan });
 });
 
+export const planImpact = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
+  }
+
+  const tournament = await Tournament.findById(id).select("drawPlan").lean();
+  if (!tournament) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+
+  const draftPlan = buildDraftPlanFromBody(req.body || {});
+  if (!draftPlan) {
+    res.status(400);
+    throw new Error("No plan data to inspect");
+  }
+
+  const brackets = await Bracket.find({ tournament: id })
+    .sort({ order: 1, stage: 1 })
+    .select("_id tournament name type stage order config meta prefill groups")
+    .lean();
+
+  const runtimeByKey = await analyzeBlueprintRuntime({
+    tournamentId: id,
+    brackets,
+  });
+  const publishedPlan = buildPublishedBlueprintPlan({
+    tournamentPlan: tournament.drawPlan,
+    brackets,
+  });
+  const impact = buildBlueprintImpact({
+    draftPlan,
+    publishedPlan,
+    runtimeByKey,
+  });
+
+  res.json({
+    ok: true,
+    canReplaceAll: impact.canReplaceAll,
+    changed: impact.changed,
+    hasConflicts: impact.hasConflicts,
+    impactedStages: impact.impactedStages,
+    conflictStages: impact.conflictStages,
+    stages: impact.stages.map((stage) => ({
+      key: stage.key,
+      type: stage.type,
+      draftExists: stage.draftExists,
+      publishedExists: stage.publishedExists,
+      locked: stage.locked,
+      reason: stage.reason || "",
+      runtime: stage.runtime,
+    })),
+  });
+});
+
 export const planCommit = expressAsyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -1946,216 +2377,182 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       throw new Error("Invalid ID");
     }
 
-    const t = await Tournament.findById(id).session(session);
-    if (!t) {
+    const tournament = await Tournament.findById(id).session(session);
+    if (!tournament) {
       res.status(404);
       throw new Error("Tournament not found");
     }
 
     const body = req.body || {};
-    let { groups, po, ko } = body;
+    const commitMode =
+      String(
+        body.mode || (toBool(body.force, false) ? "replace_all" : "safe_apply")
+      ).toLowerCase() === "replace_all"
+        ? "replace_all"
+        : "safe_apply";
 
-    const force =
-      body.force === true ||
-      body.force === "true" ||
-      body.force === 1 ||
-      body.force === "1";
+    const draftFromBody = buildDraftPlanFromBody(body);
+    const draftSource = draftFromBody || tournament.drawPlan || null;
+    const normalizedDraftPlan = normalizeBlueprintPlan(draftSource || {});
 
-    const hasBodyPlan = Boolean(groups || po || ko);
-
-    if (!hasBodyPlan && t.drawPlan) {
-      groups = t.drawPlan.groups || undefined;
-      po = t.drawPlan.po || undefined;
-      ko = t.drawPlan.ko || undefined;
-    }
-
-    const hasGroup = Boolean(groups && Number(groups.count) > 0);
-    const hasPO = Boolean(po && Number(po.drawSize) > 0);
-    const hasKO = Boolean(ko && Number(ko.drawSize) > 0);
-
-    if (!hasGroup && !hasPO && !hasKO) {
+    if (
+      !normalizedDraftPlan.groups &&
+      !normalizedDraftPlan.po &&
+      !normalizedDraftPlan.ko
+    ) {
       res.status(400);
       throw new Error("Nothing to create from plan");
     }
 
-    if (force) {
-      try {
-        await Bracket.deleteMany({ tournament: t._id }).session(session);
-      } catch (_) {
-        // ignore
-      }
-    }
+    const existingBrackets = await Bracket.find({ tournament: tournament._id })
+      .sort({ order: 1, stage: 1 })
+      .select("_id tournament name type stage order config meta prefill groups")
+      .session(session)
+      .lean();
 
-    if (hasBodyPlan) {
-      const toSave = {};
+    const runtimeByKey = await analyzeBlueprintRuntime({
+      tournamentId: tournament._id,
+      brackets: existingBrackets,
+    });
+    const publishedPlan = buildPublishedBlueprintPlan({
+      tournamentPlan: tournament.drawPlan,
+      brackets: existingBrackets,
+    });
+    const impact = buildBlueprintImpact({
+      draftPlan: normalizedDraftPlan,
+      publishedPlan,
+      runtimeByKey,
+    });
 
-      if (groups) {
-        toSave.groups = {
-          ...groups,
-          rules: normalizePlanRule(groups.rules),
-        };
-      }
-
-      if (po) {
-        const poMaxRounds =
-          po.maxRounds !== undefined ? Number(po.maxRounds) || 1 : 1;
-        toSave.po = {
-          ...po,
-          maxRounds: poMaxRounds,
-          rules: normalizePlanRule(po.rules),
-          roundRules: normalizePlanRoundRules(
-            po.roundRules,
-            po.rules,
-            poMaxRounds
-          ),
-        };
-      }
-
-      if (ko) {
-        // ✅ NEW: normalize flag + rules tranh hạng 3–4
-        const thirdPlaceEnabled = toBool(
-          ko.thirdPlaceEnabled !== undefined
-            ? ko.thirdPlaceEnabled
-            : ko.thirdPlace,
-          false
-        );
-
-        toSave.ko = {
-          ...ko,
-          rules: normalizePlanRule(ko.rules),
-          semiRules: normalizePlanRule(ko.semiRules),
-          finalRules: normalizePlanRule(ko.finalRules),
-          thirdPlaceEnabled,
-          thirdPlaceRules: normalizePlanRule(ko.thirdPlaceRules),
-        };
-
-        // sạch alias cũ nếu FE gửi 'thirdPlace'
-        delete toSave.ko.thirdPlace;
-      }
-
-      toSave.savedAt = new Date();
-      t.drawPlan = toSave;
-      await t.save({ session });
-
-      // dùng bản normalized để build bracket
-      groups = toSave.groups || groups;
-      po = toSave.po || po;
-      ko = toSave.ko || ko;
-    }
-
-    const created = { groupBracket: null, poBracket: null, koBracket: null };
-
-    let orderCounter = 1;
-    const groupOrder = hasGroup ? orderCounter++ : null;
-    const poOrder = hasPO ? orderCounter++ : null;
-    const koOrder = hasKO ? orderCounter++ : null;
-
-    // ===== build group (giữ nguyên) =====
-    if (hasGroup) {
-      const payload = {
-        tournamentId: t._id,
-        name: "Group Stage",
-        order: groupOrder,
-        stage: groupOrder,
-        groupCount: Number(groups.count),
-        groupSize:
-          Number(groups.totalTeams || 0) > 0
-            ? undefined
-            : Number(groups.size || 0) || undefined,
-        totalTeams: Number(groups.totalTeams || 0) || undefined,
-        groupSizes: Array.isArray(groups.groupSizes)
-          ? groups.groupSizes
-          : undefined,
-        qualifiersPerGroup: Number(groups.qualifiersPerGroup || 1),
-        rules: normalizePlanRule(groups.rules),
-        session,
-      };
-      created.groupBracket = await buildGroupBracket(payload);
-    }
-
-    // ===== build PO (giữ nguyên) =====
-    if (hasPO) {
-      const drawSize = Number(po.drawSize);
-      const maxRounds = Math.max(
-        1,
-        Number(
-          po.maxRounds ||
-            (Array.isArray(po.roundRules) ? po.roundRules.length : 1)
-        ) || 1
-      );
-      const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
-
-      const poRules = normalizePlanRule(po.rules);
-      const poRoundRules = normalizePlanRoundRules(
-        po.roundRules,
-        po.rules,
-        maxRounds
-      );
-
-      const { bracket } = await buildRoundElimBracket({
-        tournamentId: t._id,
-        name: po.name || "Pre-Qualifying",
-        order: poOrder,
-        stage: poOrder,
-        drawSize,
-        maxRounds,
-        firstRoundSeeds,
-        rules: poRules,
-        roundRules: poRoundRules,
-        session,
+    if (commitMode === "replace_all" && !impact.canReplaceAll) {
+      await session.abortTransaction().catch(() => {});
+      return res.status(409).json({
+        ok: false,
+        code: "BLUEPRINT_STAGE_LOCKED",
+        mode: commitMode,
+        message: "Không thể thay toàn bộ blueprint vì đang có stage đã khóa.",
+        canReplaceAll: impact.canReplaceAll,
+        impactedStages: impact.impactedStages,
+        conflictStages: BLUEPRINT_STAGE_ORDER.filter(
+          (stageKey) => runtimeByKey[stageKey]?.locked
+        ),
+        stages: impact.stages.map((stage) => ({
+          key: stage.key,
+          type: stage.type,
+          locked: stage.locked,
+          runtime: stage.runtime,
+        })),
       });
-      created.poBracket = bracket;
-      await autoAdvanceByesForBracket(bracket._id, session);
     }
 
-    // ===== build KO (thêm thirdPlace) =====
-    if (hasKO) {
-      const drawSize = Number(ko.drawSize);
-      const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
-
-      const koRules = normalizePlanRule(ko.rules);
-      const koSemiRules = normalizePlanRule(ko.semiRules);
-      const koFinalRules = normalizePlanRule(ko.finalRules);
-
-      // ✅ flag + rule tranh hạng 3–4 (đã normalize ở trên)
-      const thirdPlace = toBool(
-        ko.thirdPlaceEnabled !== undefined
-          ? ko.thirdPlaceEnabled
-          : ko.thirdPlace,
-        false
-      );
-
-      const thirdPlaceRules = normalizePlanRule(ko.thirdPlaceRules);
-
-      const { bracket } = await buildKnockoutBracket({
-        tournamentId: t._id,
-        name: ko.name || "Knockout",
-        order: koOrder,
-        stage: koOrder,
-        drawSize,
-        firstRoundSeeds,
-        rules: koRules,
-        semiRules: koSemiRules,
-        finalRules: koFinalRules,
-
-        // ✅ tham số mới – cần dùng trong buildKnockoutBracket
-        thirdPlace,
-        thirdPlaceRules,
-
-        session,
+    if (commitMode === "safe_apply" && impact.hasConflicts) {
+      await session.abortTransaction().catch(() => {});
+      return res.status(409).json({
+        ok: false,
+        code: "BLUEPRINT_STAGE_LOCKED",
+        mode: commitMode,
+        message: "Blueprint chạm vào stage đã khóa. Chỉ có thể sửa các stage chưa mở.",
+        canReplaceAll: impact.canReplaceAll,
+        impactedStages: impact.impactedStages,
+        conflictStages: impact.conflictStages,
+        stages: impact.stages.map((stage) => ({
+          key: stage.key,
+          type: stage.type,
+          locked: stage.locked,
+          runtime: stage.runtime,
+          reason: stage.reason || "",
+        })),
       });
-      created.koBracket = bracket;
-      await autoAdvanceByesForBracket(bracket._id, session);
     }
+
+    const stageKeysToDelete =
+      commitMode === "replace_all"
+        ? BLUEPRINT_STAGE_ORDER.filter((stageKey) => !!publishedPlan[stageKey])
+        : impact.stages
+            .filter((stage) => ["rebuild", "delete"].includes(stage.type))
+            .map((stage) => stage.key);
+
+    const stageKeysToBuild =
+      commitMode === "replace_all"
+        ? BLUEPRINT_STAGE_ORDER.filter((stageKey) => !!normalizedDraftPlan[stageKey])
+        : impact.stages
+            .filter((stage) => ["rebuild", "create"].includes(stage.type))
+            .map((stage) => stage.key);
+
+    const nextPlanToSave = {
+      ...(normalizedDraftPlan.groups ? { groups: normalizedDraftPlan.groups } : {}),
+      ...(normalizedDraftPlan.po ? { po: normalizedDraftPlan.po } : {}),
+      ...(normalizedDraftPlan.ko ? { ko: normalizedDraftPlan.ko } : {}),
+      savedAt: new Date(),
+    };
+
+    tournament.drawPlan = nextPlanToSave;
+    await tournament.save({ session });
+
+    const ruleUpdateSummary =
+      commitMode === "safe_apply"
+        ? await updatePublishedStageRulesInPlace({
+            brackets: existingBrackets,
+            impact,
+            plan: normalizedDraftPlan,
+            session,
+          })
+        : {
+            stages: [],
+            bracketsUpdated: 0,
+            matchesUpdated: 0,
+            matchesSkipped: 0,
+          };
+
+    const deletedBracketIds = await deletePublishedBlueprintStages({
+      brackets: existingBrackets,
+      stageKeys: stageKeysToDelete,
+      session,
+    });
+
+    const created = await buildBlueprintStagesFromPlan({
+      tournamentId: tournament._id,
+      plan: normalizedDraftPlan,
+      stageKeys: stageKeysToBuild,
+      session,
+    });
 
     await session.commitTransaction();
+
+    let syncSummary = null;
+    let syncWarning = "";
+    try {
+      syncSummary = await runBlueprintSyncPipeline({
+        tournamentId: tournament._id,
+        createdBrackets: created,
+      });
+    } catch (syncError) {
+      syncWarning = syncError?.message || String(syncError || "");
+    }
+
+    await clearTournamentPresentationCaches();
+
     res.json({
       ok: true,
+      mode: commitMode,
+      changed: impact.changed,
+      canReplaceAll: impact.canReplaceAll,
+      impactedStages: impact.impactedStages,
+      deletedBracketIds,
+      ruleUpdates: ruleUpdateSummary,
       created: {
-        groupBracketId: created.groupBracket?._id || null,
-        poBracketId: created.poBracket?._id || null,
-        koBracketId: created.koBracket?._id || null,
+        groupBracketId: created.groups?._id || null,
+        poBracketId: created.po?._id || null,
+        koBracketId: created.ko?._id || null,
       },
+      syncSummary,
+      ...(syncWarning ? { syncWarning } : {}),
+      stages: impact.stages.map((stage) => ({
+        key: stage.key,
+        type: stage.type,
+        locked: stage.locked,
+        runtime: stage.runtime,
+      })),
     });
   } catch (e) {
     await session.abortTransaction().catch(() => {});

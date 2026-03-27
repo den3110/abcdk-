@@ -47,6 +47,7 @@ import sportconnectRoutes from "./routes/sportconnect.routes.js";
 import telegramRoutes from "./routes/telegramRoutes.js";
 import cccdRoutes from "./routes/cccd.routes.js";
 import fileRoutes from "./routes/fileRoutes.js";
+import aiTtsAdapterRoutes from "./routes/aiTtsAdapterRoutes.js";
 import FileAsset from "./models/fileAssetModel.js";
 import { loadSettings } from "./middleware/settings.middleware.js";
 import clubRoutes from "./routes/clubRoutes.js";
@@ -78,6 +79,8 @@ import { initNewsCron } from "./jobs/newsCron.js";
 import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
 import { startOptimizedImageCleanupCron } from "./jobs/optimizedImageCleanupCron.js";
 import { startSeoNewsImageRegenerationWorker } from "./services/seoNewsImageQueue.service.js";
+import { startSeoNewsPipelineWorker } from "./services/seoNewsPipelineQueue.service.js";
+import { startLiveRecordingAiCommentaryWorker } from "./services/liveRecordingAiCommentaryQueue.service.js";
 import { startLiveRecordingAutoExportSweep } from "./services/liveRecordingMonitor.service.js";
 // 🔹 GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
@@ -93,6 +96,7 @@ import radarRoutes from "./routes/radarRoutes.js";
 import supportRoutes from "./routes/supportRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
 import slackEventsRoutes from "./routes/slackEventsRoutes.js";
+import sentryRoutes from "./routes/sentryRoutes.js";
 import head2headRoutes from "./routes/head2headRoutes.js";
 import otaRoutes from "./routes/otaRoutes.js";
 import expoUpdatesRoutes from "./routes/expoUpdatesRoutes.js";
@@ -110,7 +114,7 @@ const WHITELIST = [
   "https://admin.pickletour.vn",
   "http://localhost:3001",
   "http://localhost:3000",
-  "https://pickletour.vn"
+  "https://pickletour.vn",
 ];
 
 // connectDB(); // ❌ Moved inside startServer for async await for async await
@@ -128,7 +132,7 @@ app.use(
   cors({
     origin: WHITELIST, // ✅ KHÔNG dùng '*'
     credentials: true, // ✅ Phải bật
-  }),
+  })
 );
 
 app.use(express.json({ limit: "50mb" }));
@@ -160,7 +164,7 @@ app.use(
       console.error("❌ Proxy error:", err);
       res.status(500).json({ error: "Go service unavailable" });
     },
-  }),
+  })
 );
 app.use("/api/live/recordings", liveRecordingRoutes);
 app.use("/api/live/recordings/v2", liveRecordingV2Routes);
@@ -188,12 +192,15 @@ app.set("io", io);
 // app.set("trust proxy", true);
 
 // giữ như bạn đang làm, nhưng set thêm CORS nếu cần
-app.use("/uploads", express.static("uploads", {
-  setHeaders: (res) => {
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoặc same-site
-    res.setHeader("Access-Control-Allow-Origin", "*"); // optional
-  },
-}));
+app.use(
+  "/uploads",
+  express.static("uploads", {
+    setHeaders: (res) => {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoặc same-site
+      res.setHeader("Access-Control-Allow-Origin", "*"); // optional
+    },
+  })
+);
 app.use("/api/users", userRoutes);
 app.use("/api/tournaments", tournamentRoute);
 app.use("/api/brackets", bracketRoutes);
@@ -223,6 +230,7 @@ app.use("/api/telegram", telegramRoutes);
 app.use("/api/sportconnect", sportconnectRoutes);
 app.use("/api/cccd", cccdRoutes);
 app.use("/api/files", fileRoutes);
+app.use("/api/ai-tts/v1", aiTtsAdapterRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/capture", captureRoutes);
 app.use("/api/news", newsRoutes);
@@ -247,6 +255,7 @@ app.use("/api/radar", radarRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/slack", slackEventsRoutes);
+app.use("/api/sentry", sentryRoutes);
 app.use("/api/head2head", head2headRoutes);
 app.use("/api/ota", otaRoutes);
 app.use("/api/expo-updates", expoUpdatesRoutes);
@@ -262,7 +271,11 @@ app.get("/api/geo", async (req, res) => {
       req.socket?.remoteAddress ||
       "";
     // Determine if IP is local/private (dev mode)
-    const isLocal = !clientIp || /^(127\.|::1|::ffff:127\.|localhost|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(clientIp);
+    const isLocal =
+      !clientIp ||
+      /^(127\.|::1|::ffff:127\.|localhost|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(
+        clientIp
+      );
     // Use the client IP for production, omit for local (auto-detect server public IP)
     const lookupUrl = isLocal
       ? "https://api.country.is/"
@@ -303,7 +316,7 @@ app.get("/dl/file/:id", async (req, res) => {
     res.setHeader("Content-Type", doc.mime || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(downloadName)}"`,
+      `attachment; filename="${encodeURIComponent(downloadName)}"`
     );
 
     // Chuyển nội bộ cho Nginx đọc file từ đĩa (KHÔNG qua Node)
@@ -340,8 +353,8 @@ const startServer = async () => {
 
       app.get("*", (req, res) =>
         res.sendFile(
-          path.resolve(__dirname, "../frontend", "dist", "index.html"),
-        ),
+          path.resolve(__dirname, "../frontend", "dist", "index.html")
+        )
       );
     } else {
       app.get("/", (req, res) => {
@@ -386,6 +399,8 @@ const startServer = async () => {
         startUserAvatarOptimizationCron();
         startOptimizedImageCleanupCron();
         startSeoNewsImageRegenerationWorker();
+        startSeoNewsPipelineWorker();
+        startLiveRecordingAiCommentaryWorker();
         initEmail();
         initNewsCron();
         initSeoNewsCron();
@@ -404,5 +419,3 @@ const startServer = async () => {
 };
 
 startServer();
-
-

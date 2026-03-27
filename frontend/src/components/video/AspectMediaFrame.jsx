@@ -18,7 +18,9 @@ export function resolveAspectRatio(value, fallback = 16 / 9) {
       return direct;
     }
 
-    const match = normalized.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
+    const match = normalized.match(
+      /^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/,
+    );
     if (match) {
       const width = Number(match[1]);
       const height = Number(match[2]);

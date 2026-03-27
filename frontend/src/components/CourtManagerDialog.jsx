@@ -78,7 +78,7 @@ const viMatchStatus = (s) => {
     case "queued":
       return "Trong hàng đợi";
     case "assigned":
-      return "Đã gán trận";
+      return "Đã được gán trận";
     case "live":
       return "Đang thi đấu";
     case "finished":
@@ -105,7 +105,7 @@ const viCourtStatus = (st) => {
   if (st === "idle") return "Trống";
   if (st === "maintenance") return "Bảo trì";
   if (st === "live") return "Đang thi đấu";
-  if (st === "assigned") return "Đã gán trận";
+  if (st === "assigned") return "Đã được gán trận";
   return st || "";
 };
 
@@ -156,8 +156,8 @@ const fallbackGlobalCode = (m, idx) => {
     typeof m?.order === "number" && Number.isFinite(m.order)
       ? m.order
       : Number.isFinite(idx)
-      ? idx
-      : 0;
+        ? idx
+        : 0;
   const T = baseOrder + 1;
 
   if (isGroupLike(m)) {
@@ -235,8 +235,8 @@ const getRefId = (r) =>
   r && (r._id || r.id || r.userId || r.refId || r.uid)
     ? String(r._id || r.id || r.userId || r.refId || r.uid)
     : r
-    ? String(r)
-    : "";
+      ? String(r)
+      : "";
 
 const refDisplayName = (r) => {
   if (!r || typeof r !== "object") return "";
@@ -485,7 +485,7 @@ export default function CourtManagerDialog({
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean),
-    [namesText]
+    [namesText],
   );
 
   // Realtime state
@@ -497,7 +497,7 @@ export default function CourtManagerDialog({
   const { data: refsData, isLoading: loadingRefs } =
     useListTournamentRefereesQuery(
       { tid: tournamentId, q: "" },
-      { skip: !open || !tournamentId }
+      { skip: !open || !tournamentId },
     );
 
   const referees = useMemo(() => {
@@ -533,7 +533,7 @@ export default function CourtManagerDialog({
         (queue && Array.isArray(queue) ? queue : matches || []).map((m) => ({
           id: m._id || m.id,
           ...m,
-        }))
+        })),
       );
     };
 
@@ -741,11 +741,11 @@ export default function CourtManagerDialog({
     const note = isLive
       ? "\n⚠️ Sân đang có TRẬN ĐANG THI ĐẤU. Bạn vẫn muốn xoá sân?"
       : m
-      ? "\nSân đang có trận được gán. Bạn vẫn muốn xoá sân?"
-      : "";
+        ? "\nSân đang có trận được gán. Bạn vẫn muốn xoá sân?"
+        : "";
 
     const ok = window.confirm(
-      `Xoá sân "${label}"?${note}\nHành động này không thể hoàn tác.`
+      `Xoá sân "${label}"?${note}\nHành động này không thể hoàn tác.`,
     );
     if (!ok) return;
 
@@ -797,7 +797,7 @@ export default function CourtManagerDialog({
       toast.success(
         refereeIds.length
           ? `Đã cập nhật ${refereeIds.length} trọng tài mặc định cho sân.`
-          : "Đã xoá tất cả trọng tài mặc định của sân."
+          : "Đã xoá tất cả trọng tài mặc định của sân.",
       );
 
       requestState();
@@ -838,7 +838,7 @@ export default function CourtManagerDialog({
       toast.success(
         autoAssign
           ? "Đã lưu danh sách sân toàn giải. Tự động gán trận đang BẬT."
-          : "Đã lưu danh sách sân toàn giải."
+          : "Đã lưu danh sách sân toàn giải.",
       );
       requestState();
     } catch (e) {
@@ -851,7 +851,7 @@ export default function CourtManagerDialog({
     try {
       const res = await buildQueue({ tournamentId }).unwrap();
       toast.success(
-        `Đã xếp ${res?.totalQueued ?? 0} trận vào hàng đợi toàn giải.`
+        `Đã xếp ${res?.totalQueued ?? 0} trận vào hàng đợi toàn giải.`,
       );
     } catch (e) {
       toast.error(e?.data?.message || e?.error || "Xếp hàng đợi thất bại");
@@ -872,7 +872,7 @@ export default function CourtManagerDialog({
   const handleResetAll = () => {
     if (!tournamentId) return;
     const ok = window.confirm(
-      "Reset TẤT CẢ sân của giải (gỡ gán & xoá khỏi bộ lập lịch)?"
+      "Reset TẤT CẢ sân của giải (gỡ gán & xoá khỏi bộ lập lịch)?",
     );
     if (!ok) return;
     socket?.emit?.("scheduler:resetAll", { tournamentId });
@@ -886,7 +886,7 @@ export default function CourtManagerDialog({
       return;
     }
     const ok = window.confirm(
-      "Bạn chắc chắn muốn XOÁ TẤT CẢ SÂN của giải này?\nHành động này không thể hoàn tác."
+      "Bạn chắc chắn muốn XOÁ TẤT CẢ SÂN của giải này?\nHành động này không thể hoàn tác.",
     );
     if (!ok) return;
     try {
@@ -1071,10 +1071,10 @@ export default function CourtManagerDialog({
                         cs === "idle"
                           ? "default"
                           : cs === "live"
-                          ? "success"
-                          : cs === "maintenance"
-                          ? "warning"
-                          : "info"
+                            ? "success"
+                            : cs === "maintenance"
+                              ? "warning"
+                              : "info"
                       }
                     />
                     <Typography variant="body2">{viCourtStatus(cs)}</Typography>

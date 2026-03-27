@@ -248,7 +248,11 @@ export default function TournamentManagersDialog({
                         <Typography variant="body2" noWrap>
                           {personName(option)}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary" noWrap>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          noWrap
+                        >
                           {personContact(option)}
                         </Typography>
                       </Box>
@@ -272,7 +276,9 @@ export default function TournamentManagersDialog({
                       ...params.InputProps,
                       endAdornment: (
                         <>
-                          {searchingUsers ? <CircularProgress size={18} /> : null}
+                          {searchingUsers ? (
+                            <CircularProgress size={18} />
+                          ) : null}
                           {params.InputProps.endAdornment}
                         </>
                       ),
@@ -296,7 +302,9 @@ export default function TournamentManagersDialog({
                   variant="contained"
                   startIcon={<AddIcon />}
                   onClick={handleAddManager}
-                  disabled={!selectedManagerId || selectedAlreadyAssigned || saving}
+                  disabled={
+                    !selectedManagerId || selectedAlreadyAssigned || saving
+                  }
                 >
                   {t(
                     "tournaments.manage.managerAddAction",
@@ -317,7 +325,9 @@ export default function TournamentManagersDialog({
               "Current managers",
             )}
             action={
-              fetchingManagers ? <CircularProgress size={18} sx={{ mt: 1.5 }} /> : null
+              fetchingManagers ? (
+                <CircularProgress size={18} sx={{ mt: 1.5 }} />
+              ) : null
             }
           />
           <Divider />
@@ -335,7 +345,11 @@ export default function TournamentManagersDialog({
                 )}
               </Alert>
             ) : (
-              <Stack component="ul" spacing={1} sx={{ listStyle: "none", p: 0, m: 0 }}>
+              <Stack
+                component="ul"
+                spacing={1}
+                sx={{ listStyle: "none", p: 0, m: 0 }}
+              >
                 {managerRows.map((row) => (
                   <Stack
                     key={row?._id || sid(row?.user)}
@@ -364,7 +378,11 @@ export default function TournamentManagersDialog({
                         <Typography variant="body2" fontWeight={600} noWrap>
                           {personName(row?.user)}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary" noWrap>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          noWrap
+                        >
                           {personContact(row?.user)}
                         </Typography>
                       </Box>
@@ -405,15 +423,13 @@ export default function TournamentManagersDialog({
         fullWidth
         sx={{ zIndex: 1400 }}
       >
-        <DialogTitle>
-          {t("common.confirm", undefined, "Confirm")}
-        </DialogTitle>
+        <DialogTitle>{t("common.confirm", undefined, "Confirm")}</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body1">
             {t(
               "tournaments.manage.managerRemoveConfirm",
               { name: personName(managerToRemove?.user) },
-              `Remove manager "${personName(managerToRemove?.user)}"?`
+              `Remove manager "${personName(managerToRemove?.user)}"?`,
             )}
           </Typography>
         </DialogContent>

@@ -5,6 +5,13 @@ import Tournament from "../../models/tournamentModel.js";
 import Match from "../../models/matchModel.js";
 import Registration from "../../models/registrationModel.js";
 import { clearTournamentPresentationCaches } from "../../services/cacheInvalidation.service.js";
+import {
+  analyzeBlueprintRuntime,
+  BLUEPRINT_STAGE_ORDER,
+  blueprintUiTypeFromStageKey,
+  buildPublishedBlueprintPlan,
+  groupBracketsBySemanticStage,
+} from "../../services/blueprintRuntime.service.js";
 
 // ===== Helpers =====
 const isPow2 = (n) => Number.isInteger(n) && n >= 1 && (n & (n - 1)) === 0;
@@ -364,54 +371,59 @@ export const getTournamentBracketsStructure = expressAsyncHandler(
   async (req, res) => {
     const { id } = req.params; // tournament id
 
+    const tournament = await Tournament.findById(id).select("drawPlan").lean();
     const raw = await Bracket.find({ tournament: id })
       .sort({ order: 1, stage: 1 })
       .select(
-        "_id tournament name type stage order config rules finalRules meta"
+        "_id tournament name type stage order config meta prefill groups"
       )
+      .populate({
+        path: "groups.regIds",
+        select: "player1 player2 teamName name label title",
+      })
       .lean();
 
     if (!raw.length) return res.json([]);
 
-    const list = raw.map((b) => {
-      const type = b.type; // "group" | "po" | "ko"
-      const meta = b.meta || {};
-      const cfg = b.config || {};
-
-      // lấy qualifiersPerGroup từ meta nếu config chưa có
-      if (type === "group") {
-        if (
-          !("qualifiersPerGroup" in cfg) &&
-          typeof meta.qualifiersPerGroup !== "undefined"
-        ) {
-          cfg.qualifiersPerGroup = Number(meta.qualifiersPerGroup || 0);
-        }
-      }
-
-      let normConfig = cfg;
-      if (type === "group") normConfig = normalizeGroupConfig(cfg);
-      if (type === "po") normConfig = normalizePoConfig(cfg);
-      if (type === "ko") normConfig = normalizeKoConfig(cfg);
-
-      // rules/finalRules: giữ nguyên nếu có, set mặc định an toàn nếu thiếu
-      const rules = b.rules ||
-        cfg.rules || { bestOf: 3, pointsToWin: 11, winByTwo: true };
-      const finalRules = b.finalRules || cfg.finalRules || null;
-
-      return {
-        _id: b._id,
-        tournament: b.tournament,
-        name: b.name,
-        title: b.name, // giúp UI hiển thị nhãn nếu cần
-        type, // group | po | ko
-        stage: b.stage,
-        order: b.order,
-        config: normConfig, // ⭐ quan trọng cho prefill
-        rules,
-        finalRules,
-        meta, // vẫn trả để tương thích chỗ khác
-      };
+    const publishedPlan = buildPublishedBlueprintPlan({
+      tournamentPlan: tournament?.drawPlan,
+      brackets: raw,
     });
+    const runtimeByKey = await analyzeBlueprintRuntime({
+      tournamentId: id,
+      brackets: raw,
+    });
+    const buckets = groupBracketsBySemanticStage(raw);
+
+    const list = BLUEPRINT_STAGE_ORDER.reduce((acc, stageKey) => {
+      const bucket = buckets[stageKey] || [];
+      const primary = bucket[0];
+      if (!primary) return acc;
+
+      const stagePlan = publishedPlan[stageKey] || null;
+      acc.push({
+        _id: primary._id,
+        tournament: primary.tournament,
+        name: primary.name,
+        title: primary.name,
+        type: blueprintUiTypeFromStageKey(stageKey),
+        semanticStage: stageKey,
+        stage: primary.stage,
+        order: primary.order,
+        config: stagePlan,
+        rules: stagePlan?.rules || null,
+        roundRules: stagePlan?.roundRules || null,
+        semiRules: stagePlan?.semiRules || null,
+        finalRules: stagePlan?.finalRules || null,
+        thirdPlace: !!stagePlan?.thirdPlaceEnabled,
+        meta: primary.meta || {},
+        groups: Array.isArray(primary.groups) ? primary.groups : [],
+        runtime: runtimeByKey[stageKey] || null,
+        publishedBracketId:
+          runtimeByKey[stageKey]?.publishedBracketId || String(primary._id),
+      });
+      return acc;
+    }, []);
 
     res.json(list);
   }

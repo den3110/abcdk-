@@ -29,8 +29,6 @@ export default function LiveStudioPage() {
 
   const overlayUrl = `${window.location.origin}/overlay/score?matchId=${matchId}&theme=dark&size=md&showSets=1&autoNext=1`;
 
-
-
   return (
     <>
       <SEOHead title={t("liveStudio.seoTitle")} noIndex={true} />

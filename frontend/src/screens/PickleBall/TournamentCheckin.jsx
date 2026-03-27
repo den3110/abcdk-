@@ -92,22 +92,15 @@ export default function TournamentCheckin() {
 
   /* fetch tournament / registrations / matches */
   const { data: tour, isLoading: tourLoading } = useGetTournamentQuery(id);
-  
+
   // ... existing code ...
 
-
-  const {
-    error: regsError,
-    refetch: refetchRegs,
-  } = useGetRegistrationsQuery(id);
-  const {
-    data: matchesResp = [],
-    isLoading: matchesLoading,
-  } = useGetTournamentMatchesForCheckinQuery(id);
-  const {
-    data: brackets = [],
-    isLoading: bracketsLoading,
-  } = useListTournamentBracketsQuery(id);
+  const { error: regsError, refetch: refetchRegs } =
+    useGetRegistrationsQuery(id);
+  const { data: matchesResp = [], isLoading: matchesLoading } =
+    useGetTournamentMatchesForCheckinQuery(id);
+  const { data: brackets = [], isLoading: bracketsLoading } =
+    useListTournamentBracketsQuery(id);
 
   const evType = normType(tour?.eventType);
   const isSingles = evType === "single";
@@ -119,7 +112,7 @@ export default function TournamentCheckin() {
       if (!isSingles) return s;
       return s.split(/\s*&&\s*|\s*&\s*/)[0].trim();
     },
-    [isSingles]
+    [isSingles],
   );
 
   /* (Cũ) Check-in theo SĐT - Giữ logic nhưng ẩn UI nếu không cần thiết, hoặc tích hợp */
@@ -134,7 +127,7 @@ export default function TournamentCheckin() {
     refetch: refetchSearch,
   } = useSearchUserMatchesQuery(
     { tournamentId: id, q: submittedQ },
-    { skip: !submittedQ }
+    { skip: !submittedQ },
   );
   const [userCheckin, { isLoading: checkingUser }] =
     useUserCheckinRegistrationMutation();
@@ -172,7 +165,7 @@ export default function TournamentCheckin() {
       refetchRegs();
     } catch (e) {
       toast.error(
-        e?.data?.message || e?.error || t("tournaments.checkin.checkinFailed")
+        e?.data?.message || e?.error || t("tournaments.checkin.checkinFailed"),
       );
     }
   };
@@ -227,7 +220,7 @@ export default function TournamentCheckin() {
         flushPending();
       });
     },
-    [flushPending]
+    [flushPending],
   );
 
   const apiSig = useMemo(() => {
@@ -255,25 +248,22 @@ export default function TournamentCheckin() {
 
   const matchIds = useMemo(
     () => (matchesResp || []).map((m) => String(m._id)).filter(Boolean),
-    [matchesResp]
+    [matchesResp],
   );
   const bracketIds = useMemo(
     () => (brackets || []).map((b) => String(b._id)).filter(Boolean),
-    [brackets]
+    [brackets],
   );
   const matchIdsSig = useMemo(
     () => Array.from(new Set(matchIds)).sort().join("|"),
-    [matchIds]
+    [matchIds],
   );
   const bracketIdsSig = useMemo(
     () => Array.from(new Set(bracketIds)).sort().join("|"),
-    [bracketIds]
+    [bracketIds],
   );
 
-  const tournamentRoomIds = useMemo(
-    () => (id ? [String(id)] : []),
-    [id]
-  );
+  const tournamentRoomIds = useMemo(() => (id ? [String(id)] : []), [id]);
 
   useSocketRoomSet(socket, tournamentRoomIds, {
     subscribeEvent: "tournament:subscribe",
@@ -309,9 +299,9 @@ export default function TournamentCheckin() {
   const matches = useMemo(
     () =>
       Array.from(liveMapRef.current.values()).filter(
-        (m) => String(m?.tournament?._id || m?.tournament) === String(id)
+        (m) => String(m?.tournament?._id || m?.tournament) === String(id),
       ),
-    [id, liveBump]
+    [id, liveBump],
   );
 
   /* Filter matches */
@@ -338,14 +328,11 @@ export default function TournamentCheckin() {
   /* Match viewer */
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
-  const openViewer = useCallback(
-    (mid) => {
-      if (!mid) return;
-      setSelectedMatchId(String(mid));
-      setViewerOpen(true);
-    },
-    []
-  );
+  const openViewer = useCallback((mid) => {
+    if (!mid) return;
+    setSelectedMatchId(String(mid));
+    setViewerOpen(true);
+  }, []);
   const closeViewer = useCallback(() => {
     setViewerOpen(false);
     setSelectedMatchId(null);
@@ -610,7 +597,8 @@ export default function TournamentCheckin() {
                                 {teamLabel?.charAt(0)?.toUpperCase()}
                               </Avatar>
                               <Typography variant="h5" fontWeight={700}>
-                                {teamLabel || t("tournaments.checkin.unnamedTeam")}
+                                {teamLabel ||
+                                  t("tournaments.checkin.unnamedTeam")}
                               </Typography>
                             </Stack>
                             <Stack
@@ -786,8 +774,8 @@ export default function TournamentCheckin() {
                             m.status === "Live"
                               ? "error.main"
                               : m.status === "Completed"
-                              ? "success.main"
-                              : "grey.300",
+                                ? "success.main"
+                                : "grey.300",
                         }}
                       />
 
@@ -904,10 +892,7 @@ export default function TournamentCheckin() {
                           >
                             <TimeIcon fontSize="inherit" />
                             <Typography variant="caption">
-                              {fmtTimeValue(
-                                m.time,
-                                t("common.unavailable")
-                              )}
+                              {fmtTimeValue(m.time, t("common.unavailable"))}
                             </Typography>
                           </Stack>
                           <Stack

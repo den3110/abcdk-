@@ -21,7 +21,7 @@ export const DEFAULT_FALLBACK =
         <rect x='115' y='185' rx='8' width='170' height='20'/>
       </g>
       <text x='200' y='260' font-family='sans-serif' font-size='14' text-anchor='middle' fill='#6b7280'>No Image</text>
-    </svg>`
+    </svg>`,
   );
 
 /** Hook: kiểm tra trước ảnh có load được không; rơi về fallback nếu lỗi */
@@ -134,7 +134,7 @@ export function ZoomItem({
           src={resolvedDisplaySrc}
           loading="lazy"
           onError={onError}
-          style={{ maxWidth: "100%", display: "block", cursor: "zoom-in"}}
+          style={{ maxWidth: "100%", display: "block", cursor: "zoom-in" }}
           {...imgProps}
         />
       )}

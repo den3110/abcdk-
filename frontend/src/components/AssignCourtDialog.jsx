@@ -37,8 +37,8 @@ const matchCode = (m) => {
   const r = Number.isFinite(m?.globalRound)
     ? m.globalRound
     : Number.isFinite(m?.round)
-    ? m.round
-    : "?";
+      ? m.round
+      : "?";
   const t = Number.isFinite(m?.order) ? m.order + 1 : undefined;
   return `V${r}${t ? `-T${t}` : ""}`;
 };
@@ -122,7 +122,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
     {
       skip: !open || !tournamentId,
       refetchOnMountOrArgChange: true,
-    }
+    },
   );
 
   const [assign, { isLoading: assigning }] =
@@ -145,7 +145,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
   // Các đội trong trận hiện tại
   const currentMatchTeamKeys = useMemo(
     () => new Set(getMatchTeamKeys(match)),
-    [match]
+    [match],
   );
 
   /**
@@ -192,7 +192,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
           cm.regA ||
           cm.a ||
           cm.home ||
-          cm.team1
+          cm.team1,
       );
       collectIfOverlap(
         cm.pairB ||
@@ -201,7 +201,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
           cm.regB ||
           cm.b ||
           cm.away ||
-          cm.team2
+          cm.team2,
       );
 
       if (teamNames.length) {
@@ -261,7 +261,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
       }).unwrap();
       toast.success("Đã bỏ gán sân");
       onAssigned?.();
-      onClose?.()
+      onClose?.();
     } catch (e) {
       toast.error(e?.data?.message || e?.error || "Gỡ sân thất bại");
     }

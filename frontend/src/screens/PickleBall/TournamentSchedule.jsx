@@ -1,12 +1,6 @@
 // src/pages/TournamentSchedule.jsx
 /* eslint-disable react/prop-types */
-import {
-  useMemo,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -128,7 +122,7 @@ function normMatchNo(m) {
 
 const isLive = (m) =>
   ["live", "ongoing", "playing", "inprogress"].includes(
-    String(m?.status || "").toLowerCase()
+    String(m?.status || "").toLowerCase(),
   );
 const isFinished = (m) => String(m?.status || "").toLowerCase() === "finished";
 const isScheduled = (m) =>
@@ -153,9 +147,7 @@ function orderKey(m) {
 function pairToName(pair, eventType = "double", displayMode = "nickname") {
   if (!pair) return null;
   return (
-    getTournamentPairName(pair, eventType, displayMode) ||
-    pair?.name ||
-    null
+    getTournamentPairName(pair, eventType, displayMode) || pair?.name || null
   );
 }
 function seedToName(seed) {
@@ -166,7 +158,7 @@ function teamNameFrom(
   side,
   eventTypeOrFallback = "double",
   displayModeOrFallback = "nickname",
-  fallback = "TBD"
+  fallback = "TBD",
 ) {
   if (!m) return fallback;
   const normalizedEventType = String(eventTypeOrFallback || "").toLowerCase();
@@ -174,13 +166,12 @@ function teamNameFrom(
     normalizedEventType === "single" || normalizedEventType === "double"
       ? normalizedEventType
       : String(m?.tournament?.eventType || m?.eventType || "double")
-          .toLowerCase()
-          .includes("single")
-      ? "single"
-      : "double";
+            .toLowerCase()
+            .includes("single")
+        ? "single"
+        : "double";
   const displayMode =
-    displayModeOrFallback === "fullName" ||
-    displayModeOrFallback === "nickname"
+    displayModeOrFallback === "fullName" || displayModeOrFallback === "nickname"
       ? displayModeOrFallback
       : getTournamentNameDisplayMode(m?.tournament);
   const resolvedFallback =
@@ -263,7 +254,7 @@ function roundsCountForBracket(bracket, matchesOfThis = []) {
       const maxR =
         Math.max(
           0,
-          ...(matchesOfThis || []).map((m) => Number(m.round || 1))
+          ...(matchesOfThis || []).map((m) => Number(m.round || 1)),
         ) || 1;
       k = Math.max(1, maxR);
     }
@@ -341,63 +332,63 @@ const LiveMatchCard = ({
 
   return (
     <Paper
-    elevation={0}
-    onClick={() => onOpen(m._id)}
-    sx={{
-      p: 1.5,
-      bgcolor: "success.50",
-      border: "1px solid",
-      borderColor: "success.200",
-      borderRadius: 2,
-      cursor: "pointer",
-      transition: "all 0.2s",
-      "&:hover": { boxShadow: 2, borderColor: "success.main" },
-      width: "100%",
-      boxSizing: "border-box",
-    }}
-  >
-    <Stack
-      direction="row"
-      justifyContent="space-between"
-      alignItems="center"
-      mb={1}
+      elevation={0}
+      onClick={() => onOpen(m._id)}
+      sx={{
+        p: 1.5,
+        bgcolor: "success.50",
+        border: "1px solid",
+        borderColor: "success.200",
+        borderRadius: 2,
+        cursor: "pointer",
+        transition: "all 0.2s",
+        "&:hover": { boxShadow: 2, borderColor: "success.main" },
+        width: "100%",
+        boxSizing: "border-box",
+      }}
     >
-      <Chip
-        label={t("tournaments.schedule.liveChip")}
-        color="success"
-        size="small"
-        icon={<PlayCircleOutlineIcon />}
-        sx={{ fontWeight: 700, height: 20, fontSize: "0.7rem", px: 0.5 }}
-      />
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        fontWeight={600}
-        noWrap
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={1}
       >
-        {m.__displayCode}
-      </Typography>
-    </Stack>
+        <Chip
+          label={t("tournaments.schedule.liveChip")}
+          color="success"
+          size="small"
+          icon={<PlayCircleOutlineIcon />}
+          sx={{ fontWeight: 700, height: 20, fontSize: "0.7rem", px: 0.5 }}
+        />
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          fontWeight={600}
+          noWrap
+        >
+          {m.__displayCode}
+        </Typography>
+      </Stack>
       <Stack spacing={1}>
-      <Box>
-        <TeamDisplay
-          name={teamNameFrom(m, "A", eventType, displayMode, teamFallback)}
-        />
-        <TeamDisplay
-          name={teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
-        />
-      </Box>
-      <Divider sx={{ borderStyle: "dashed", borderColor: "success.300" }} />
-      <Typography
-        variant="h6"
-        align="center"
-        color="success.800"
-        fontWeight={800}
-      >
-        {scoreText(m) || t("tournaments.schedule.match.scoreFallback")}
-      </Typography>
-    </Stack>
-  </Paper>
+        <Box>
+          <TeamDisplay
+            name={teamNameFrom(m, "A", eventType, displayMode, teamFallback)}
+          />
+          <TeamDisplay
+            name={teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
+          />
+        </Box>
+        <Divider sx={{ borderStyle: "dashed", borderColor: "success.300" }} />
+        <Typography
+          variant="h6"
+          align="center"
+          color="success.800"
+          fontWeight={800}
+        >
+          {scoreText(m) || t("tournaments.schedule.match.scoreFallback")}
+        </Typography>
+      </Stack>
+    </Paper>
   );
 };
 
@@ -412,48 +403,48 @@ const QueueMatchItem = ({
 
   return (
     <Stack
-    direction="row"
-    alignItems="center"
-    spacing={1}
-    onClick={() => onOpen(m._id)}
-    sx={{
-      p: 1,
-      borderRadius: 1,
-      cursor: "pointer",
-      "&:hover": { bgcolor: "action.hover" },
-    }}
-  >
-    <Box
+      direction="row"
+      alignItems="center"
+      spacing={1}
+      onClick={() => onOpen(m._id)}
       sx={{
-        minWidth: 24,
-        height: 24,
-        borderRadius: "50%",
-        bgcolor: "action.selected",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: "0.7rem",
-        fontWeight: 700,
-        color: "text.secondary",
+        p: 1,
+        borderRadius: 1,
+        cursor: "pointer",
+        "&:hover": { bgcolor: "action.hover" },
       }}
     >
-      {normMatchNo(m)}
-    </Box>
-    <Box sx={{ flex: 1, overflow: "hidden" }}>
-      <Typography variant="caption" display="block" noWrap fontWeight={500}>
-        {teamNameFrom(m, "A", eventType, displayMode, teamFallback)}
-      </Typography>
-      <Typography variant="caption" display="block" noWrap fontWeight={500}>
-        {t("tournaments.schedule.match.versus")}{" "}
-        {teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
-      </Typography>
-    </Box>
-    <Chip
-      label={m.bracket?.name?.substring(0, 6) || "—"}
-      size="small"
-      sx={{ height: 20, fontSize: "0.65rem" }}
-    />
-  </Stack>
+      <Box
+        sx={{
+          minWidth: 24,
+          height: 24,
+          borderRadius: "50%",
+          bgcolor: "action.selected",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "0.7rem",
+          fontWeight: 700,
+          color: "text.secondary",
+        }}
+      >
+        {normMatchNo(m)}
+      </Box>
+      <Box sx={{ flex: 1, overflow: "hidden" }}>
+        <Typography variant="caption" display="block" noWrap fontWeight={500}>
+          {teamNameFrom(m, "A", eventType, displayMode, teamFallback)}
+        </Typography>
+        <Typography variant="caption" display="block" noWrap fontWeight={500}>
+          {t("tournaments.schedule.match.versus")}{" "}
+          {teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
+        </Typography>
+      </Box>
+      <Chip
+        label={m.bracket?.name?.substring(0, 6) || "—"}
+        size="small"
+        sx={{ height: 20, fontSize: "0.65rem" }}
+      />
+    </Stack>
   );
 };
 
@@ -725,10 +716,10 @@ function MatchListItem({
   const live = isLive(m);
   const teamFallback = t("tournaments.schedule.match.pendingTeam");
   const borderColor = live ? "success.main" : "divider";
-  const bgColor = live 
-    ? theme.palette.mode === "dark" 
-      ? "rgba(34, 197, 94, 0.1)" 
-      : "#f0fdf4" 
+  const bgColor = live
+    ? theme.palette.mode === "dark"
+      ? "rgba(34, 197, 94, 0.1)"
+      : "#f0fdf4"
     : "background.paper";
 
   return (
@@ -901,7 +892,7 @@ export default function TournamentSchedule() {
   const roles = new Set(
     [...(userInfo?.roles || []), ...(userInfo?.permissions || [])]
       .filter(Boolean)
-      .map((x) => String(x).toLowerCase())
+      .map((x) => String(x).toLowerCase()),
   );
   const isAdmin = !!(
     userInfo?.isAdmin ||
@@ -940,15 +931,13 @@ export default function TournamentSchedule() {
         .includes("single")
         ? "single"
         : "double",
-    [tournament?.eventType]
+    [tournament?.eventType],
   );
   const displayMode = getTournamentNameDisplayMode(tournament);
-  const {
-    data: matchesResp,
-    isLoading: mLoading,
-  } = useListPublicMatchesByTournamentQuery({
-    tid: id,
-  });
+  const { data: matchesResp, isLoading: mLoading } =
+    useListPublicMatchesByTournamentQuery({
+      tid: id,
+    });
   const isLoading = tLoading || mLoading;
 
   // Realtime Logic
@@ -999,7 +988,7 @@ export default function TournamentSchedule() {
         flushPending();
       });
     },
-    [flushPending]
+    [flushPending],
   );
 
   useEffect(() => {
@@ -1023,10 +1012,7 @@ export default function TournamentSchedule() {
     return { added, removed, nextSet };
   };
 
-  const tournamentRoomIds = useMemo(
-    () => (id ? [String(id)] : []),
-    [id]
-  );
+  const tournamentRoomIds = useMemo(() => (id ? [String(id)] : []), [id]);
 
   useSocketRoomSet(socket, tournamentRoomIds, {
     subscribeEvent: "tournament:subscribe",
@@ -1061,9 +1047,9 @@ export default function TournamentSchedule() {
   const matches = useMemo(
     () =>
       Array.from(liveMapRef.current.values()).filter(
-        (m) => String(m?.tournament?._id || m?.tournament) === String(id)
+        (m) => String(m?.tournament?._id || m?.tournament) === String(id),
       ),
-    [id, liveBump]
+    [id, liveBump],
   );
   const unassignedCourtLabel = t("tournaments.schedule.court.unassigned");
   const pendingTeamLabel = t("tournaments.schedule.match.pendingTeam");
@@ -1116,7 +1102,15 @@ export default function TournamentSchedule() {
         .toLowerCase();
       return hay.includes(qnorm);
     });
-  }, [allSorted, displayMode, eventType, pendingTeamLabel, q, status, unassignedCourtLabel]);
+  }, [
+    allSorted,
+    displayMode,
+    eventType,
+    pendingTeamLabel,
+    q,
+    status,
+    unassignedCourtLabel,
+  ]);
 
   const courts = useMemo(() => {
     const map = new Map();
@@ -1235,7 +1229,8 @@ export default function TournamentSchedule() {
             gutterBottom
             sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}
           >
-            <ScheduleIcon color="primary" /> {t("tournaments.schedule.courtsTitle")}
+            <ScheduleIcon color="primary" />{" "}
+            {t("tournaments.schedule.courtsTitle")}
           </Typography>
 
           {isLoading ? (

@@ -1,6 +1,6 @@
 // controllers/liveMatchesController.js
+import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
-import Bracket from "../models/bracketModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
@@ -8,351 +8,482 @@ import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
 } from "../services/publicStreams.service.js";
-import { resolveMatchCourtStationFields } from "../services/courtCluster.service.js";
+import {
+  buildMatchDisplayContextsFromMatches,
+  buildMatchSummary,
+} from "../services/courtCluster.service.js";
 
 const LIVE_MATCHES_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.LIVE_MATCHES_CACHE_TTL_MS || 3000)
 );
+
 const liveMatchesCache = createShortTtlCache(LIVE_MATCHES_CACHE_TTL_MS, {
   id: CACHE_GROUP_IDS.liveMatches,
   label: "Live matches list",
   category: "live",
   scope: "public",
 });
-const MATCH_CARD_SELECT = [
+
+const DEFAULT_WINDOW_MS = 8 * 3600 * 1000;
+const DEFAULT_LIMIT = 12;
+const MAX_LIMIT = 100;
+const DEFAULT_STATUSES = ["scheduled", "queued", "assigned", "live"];
+const RECORDING_STREAM_STATUSES = [
+  "recording",
+  "uploading",
+  "pending_export_window",
+  "exporting",
+  "ready",
+];
+
+const MATCH_LIST_SELECT = [
   "_id",
   "tournament",
   "bracket",
-  "court",
-  "courtStation",
-  "courtStationLabel",
-  "courtClusterId",
-  "courtClusterLabel",
-  "courtLabel",
   "status",
   "currentGame",
+  "courtStation",
+  "courtStationLabel",
+  "courtLabel",
+  "courtClusterId",
+  "courtClusterLabel",
   "labelKey",
+  "format",
+  "seedA",
+  "seedB",
+  "phase",
+  "groupCode",
+  "pool",
+  "group",
+  "groupNo",
+  "groupIndex",
+  "orderInGroup",
+  "rrRound",
+  "round",
+  "order",
+  "matchNo",
+  "index",
+  "stageIndex",
   "facebookLive",
   "pairA",
   "pairB",
   "gameScores",
+  "live",
+  "scheduledAt",
+  "startedAt",
+  "finishedAt",
   "updatedAt",
   "createdAt",
-  "round",
-  "order",
-  "pool",
+  "video",
+  "playbackUrl",
+  "streamUrl",
+  "liveUrl",
+  "meta",
+  "youtubeLive",
+  "tiktokLive",
 ].join(" ");
+
+const MATCH_LIST_POPULATE = [
+  {
+    path: "tournament",
+    select: "name image status eventType nameDisplayMode",
+  },
+  {
+    path: "bracket",
+    select: "_id name type stage order",
+  },
+  {
+    path: "pairA",
+    populate: [
+      {
+        path: "player1.user",
+        select: "name fullName nickname nickName avatar",
+      },
+      {
+        path: "player2.user",
+        select: "name fullName nickname nickName avatar",
+      },
+    ],
+  },
+  {
+    path: "pairB",
+    populate: [
+      {
+        path: "player1.user",
+        select: "name fullName nickname nickName avatar",
+      },
+      {
+        path: "player2.user",
+        select: "name fullName nickname nickName avatar",
+      },
+    ],
+  },
+];
+
+const STREAM_CANDIDATE_CLAUSES = [
+  { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
+  { "facebookLive.video_permalink_url": { $exists: true, $ne: "" } },
+  { "facebookLive.watch_url": { $exists: true, $ne: "" } },
+  { "facebookLive.id": { $exists: true, $ne: "" } },
+  { "meta.facebook.permalinkUrl": { $exists: true, $ne: "" } },
+  { "meta.youtube.watchUrl": { $exists: true, $ne: "" } },
+  { "meta.youtube.videoId": { $exists: true, $ne: "" } },
+  { "youtubeLive.watch_url": { $exists: true, $ne: "" } },
+  { "youtubeLive.id": { $exists: true, $ne: "" } },
+  { "meta.tiktok.watchUrl": { $exists: true, $ne: "" } },
+  { "meta.tiktok.username": { $exists: true, $ne: "" } },
+  { "tiktokLive.room_url": { $exists: true, $ne: "" } },
+  { "tiktokLive.id": { $exists: true, $ne: "" } },
+  { "meta.rtmp.publicUrl": { $exists: true, $ne: "" } },
+  { "meta.rtmp.viewUrl": { $exists: true, $ne: "" } },
+  { "meta.rtmp.url": { $exists: true, $ne: "" } },
+  { video: { $exists: true, $ne: "" } },
+  { playbackUrl: { $exists: true, $ne: "" } },
+  { streamUrl: { $exists: true, $ne: "" } },
+  { liveUrl: { $exists: true, $ne: "" } },
+];
+
+function parsePositiveInt(
+  value,
+  fallback,
+  { min = 1, max = Number.MAX_SAFE_INTEGER } = {}
+) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  const normalized = Math.trunc(number);
+  if (normalized < min) return fallback;
+  return Math.min(normalized, max);
+}
+
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseCsv(value, fallback = []) {
+  const items = String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return items.length ? [...new Set(items)] : fallback;
+}
+
+function toIdString(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value._id) return String(value._id);
+  return String(value);
+}
+
+function statusPriority(status) {
+  switch (String(status || "").trim().toLowerCase()) {
+    case "live":
+      return 0;
+    case "assigned":
+      return 1;
+    case "queued":
+      return 2;
+    case "scheduled":
+      return 3;
+    case "finished":
+      return 4;
+    default:
+      return 5;
+  }
+}
+
+function getMatchSortTime(match) {
+  return new Date(
+    match?.updatedAt ||
+      match?.finishedAt ||
+      match?.startedAt ||
+      match?.scheduledAt ||
+      match?.createdAt ||
+      0
+  ).getTime();
+}
+
+function compareLiveMatches(left, right) {
+  const priorityDiff = statusPriority(left?.status) - statusPriority(right?.status);
+  if (priorityDiff !== 0) return priorityDiff;
+
+  const timeDiff = getMatchSortTime(right) - getMatchSortTime(left);
+  if (timeDiff !== 0) return timeDiff;
+
+  return String(left?._id || "").localeCompare(String(right?._id || ""));
+}
+
+function buildTournamentBuckets(items = []) {
+  const map = new Map();
+
+  items.forEach((item) => {
+    const tournamentId = toIdString(item?.tournament?._id || item?.tournament);
+    if (!tournamentId) return;
+
+    const current =
+      map.get(tournamentId) ||
+      {
+        _id: tournamentId,
+        name: String(item?.tournament?.name || "Khong ro giai").trim(),
+        image: item?.tournament?.image || "",
+        count: 0,
+        liveCount: 0,
+        finishedCount: 0,
+      };
+
+    current.count += 1;
+    if (String(item?.status || "").toLowerCase() === "live") current.liveCount += 1;
+    if (String(item?.status || "").toLowerCase() === "finished") {
+      current.finishedCount += 1;
+    }
+
+    map.set(tournamentId, current);
+  });
+
+  return Array.from(map.values()).sort((left, right) => {
+    if (right.liveCount !== left.liveCount) return right.liveCount - left.liveCount;
+    if (right.count !== left.count) return right.count - left.count;
+    return String(left.name || "").localeCompare(String(right.name || ""), "vi");
+  });
+}
+
+function buildSearchText(item = {}) {
+  const streams = Array.isArray(item?.streams) ? item.streams : [];
+  return [
+    item?._id,
+    item?.code,
+    item?.displayCode,
+    item?.globalCode,
+    item?.labelKey,
+    item?.status,
+    item?.courtLabel,
+    item?.courtStationName,
+    item?.courtClusterName,
+    item?.tournament?.name,
+    item?.bracket?.name,
+    item?.pool?.name,
+    item?.pairA?.name,
+    item?.pairB?.name,
+    item?.pairA?.player1?.user?.name,
+    item?.pairA?.player2?.user?.name,
+    item?.pairB?.player1?.user?.name,
+    item?.pairB?.player2?.user?.name,
+    ...streams.map((stream) =>
+      [
+        stream?.key,
+        stream?.displayLabel,
+        stream?.providerLabel,
+        stream?.playUrl,
+        stream?.openUrl,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    ),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function paginate(items = [], page = 1, limit = DEFAULT_LIMIT) {
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(Math.max(1, page), pages);
+  const start = (safePage - 1) * limit;
+
+  return {
+    items: items.slice(start, start + limit),
+    total,
+    page: safePage,
+    pages,
+    limit,
+  };
+}
+
+async function getStreamRecordingMatchIds() {
+  const ids = await LiveRecordingV2.distinct("match", {
+    status: { $in: RECORDING_STREAM_STATUSES },
+  });
+  return ids.map((id) => toIdString(id)).filter(Boolean);
+}
 
 export async function listLiveMatches(req, res) {
   try {
-    const cached = liveMatchesCache.get("default");
+    const statuses = parseCsv(req.query.statuses, DEFAULT_STATUSES);
+    const q = String(req.query.q || req.query.keyword || "").trim();
+    const selectedTournamentIds = new Set(
+      parseCsv(req.query.tournamentId).filter((id) =>
+        mongoose.Types.ObjectId.isValid(id)
+      )
+    );
+    const limit = parsePositiveInt(req.query.limit, DEFAULT_LIMIT, {
+      min: 1,
+      max: MAX_LIMIT,
+    });
+    const page = parsePositiveInt(req.query.page, 1, { min: 1 });
+    const excludeFinished = parseBoolean(req.query.excludeFinished, true);
+    const includeAll = parseBoolean(req.query.all, false);
+    const windowMs = parsePositiveInt(req.query.windowMs, DEFAULT_WINDOW_MS, {
+      min: 1,
+      max: 365 * 24 * 3600 * 1000,
+    });
+
+    const cacheKey = JSON.stringify({
+      statuses,
+      q,
+      tournamentIds: Array.from(selectedTournamentIds).sort(),
+      limit,
+      page,
+      excludeFinished,
+      includeAll,
+      windowMs,
+    });
+
+    const cached = liveMatchesCache.get(cacheKey);
     if (cached) {
       res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
       res.setHeader("X-PKT-Cache", "HIT");
       return res.json(cached);
     }
 
-    const LIMIT = 20;
-
-    /* ================== IGNORE ALL FE FILTERS ================== */
-    // bỏ qua q.status, q.statuses, q.windowMs...
-
-    const candidateClauses = [
-      { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
-      { "facebookLive.id": { $exists: true, $ne: "" } },
-      { video: { $exists: true, $ne: "" } },
-      { playbackUrl: { $exists: true, $ne: "" } },
-      { streamUrl: { $exists: true, $ne: "" } },
-      { liveUrl: { $exists: true, $ne: "" } },
-    ];
-    const recordingCandidates = await LiveRecordingV2.find({
-      status: {
-        $in: [
-          "recording",
-          "uploading",
-          "pending_export_window",
-          "exporting",
-          "ready",
-        ],
-      },
-    })
-      .select("match")
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean();
-    const recordingMatchIds = [
-      ...new Set(
-        recordingCandidates.map((recording) => String(recording?.match || "")).filter(Boolean)
-      ),
-    ];
+    const recordingMatchIds = await getStreamRecordingMatchIds();
+    const candidateClauses = [...STREAM_CANDIDATE_CLAUSES];
     if (recordingMatchIds.length > 0) {
-      candidateClauses.push({
-        _id: { $in: recordingMatchIds },
-      });
+      candidateClauses.push({ _id: { $in: recordingMatchIds } });
     }
-    const candidateQuery = { $or: candidateClauses };
 
-    const populatePairs = (q) =>
-      q
-        .select(MATCH_CARD_SELECT)
-        .populate({
-          path: "pairA",
-          populate: [
-            { path: "player1.user", select: "name" },
-            { path: "player2.user", select: "name" },
-          ],
-        })
-        .populate({
-          path: "pairB",
-          populate: [
-            { path: "player1.user", select: "name" },
-            { path: "player2.user", select: "name" },
-          ],
-        });
+    const candidateQuery = {
+      $and: [
+        { $or: candidateClauses },
+        statuses.length > 0
+          ? { status: { $in: statuses } }
+          : excludeFinished
+            ? { status: { $ne: "finished" } }
+            : {},
+        !includeAll
+          ? {
+              $or: [
+                { updatedAt: { $gte: new Date(Date.now() - windowMs) } },
+                { startedAt: { $gte: new Date(Date.now() - windowMs) } },
+                { finishedAt: { $gte: new Date(Date.now() - windowMs) } },
+                { createdAt: { $gte: new Date(Date.now() - windowMs) } },
+              ],
+            }
+          : {},
+      ].filter((clause) => Object.keys(clause).length > 0),
+    };
 
-    /* ================== countLive (ALL live matches) ================== */
-    const countLive = await Match.countDocuments({
-      ...candidateQuery,
-      status: "live",
-    });
-
-    /* ================== pin: get 1 latest live match ================== */
-    const liveRows = await populatePairs(
-      Match.find({ ...candidateQuery, status: "live" })
-    )
-      .sort({ updatedAt: -1 })
-      .limit(1)
+    const matches = await Match.find(candidateQuery)
+      .select(MATCH_LIST_SELECT)
+      .populate(MATCH_LIST_POPULATE)
+      .sort({ updatedAt: -1, startedAt: -1, createdAt: -1 })
       .lean();
 
-    /* ================== latest 20 matches ================== */
-    const latestRows = await populatePairs(Match.find(candidateQuery))
-      .sort({ updatedAt: -1 })
-      .limit(LIMIT)
-      .lean();
-
-    /* ================== merge + dedupe (live first) ================== */
-    const pinnedLiveIds = new Set(liveRows.map((m) => String(m._id)));
-    const rows = [
-      ...liveRows,
-      ...latestRows.filter((m) => !pinnedLiveIds.has(String(m._id))),
-    ];
-
-    if (!rows.length) {
-      return res.json({
+    if (!matches.length) {
+      const emptyPayload = {
         count: 0,
-        countLive,
+        countLive: 0,
         items: [],
+        page,
+        pages: 1,
+        limit,
+        tournaments: [],
         meta: {
-          source: "match-only",
-          filter: {
-            hasFacebook: true,
-            limit: LIMIT,
-            pinnedLive: true,
-            note: "ignore FE filters; pinned live first; latest 20 after",
-          },
           at: new Date().toISOString(),
+          filter: {
+            statuses,
+            excludeFinished,
+            includeAll,
+            windowMs: includeAll ? null : windowMs,
+            q,
+            tournamentIds: Array.from(selectedTournamentIds),
+          },
         },
-      });
+      };
+
+      liveMatchesCache.set(cacheKey, emptyPayload);
+      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
+      res.setHeader("X-PKT-Cache", "MISS");
+      return res.json(emptyPayload);
     }
 
     const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(
-      rows.map((match) => String(match?._id || "")).filter(Boolean)
+      matches.map((match) => String(match?._id || "")).filter(Boolean)
+    );
+    const matchDisplayContexts = await buildMatchDisplayContextsFromMatches(matches);
+
+    let items = matches
+      .map((match) => {
+        const summary = buildMatchSummary(match, { matchDisplayContexts });
+        return attachPublicStreamsToMatch(
+          {
+            ...summary,
+            meta: match.meta || {},
+            video: match.video || "",
+            playbackUrl: match.playbackUrl || "",
+            streamUrl: match.streamUrl || "",
+            liveUrl: match.liveUrl || "",
+            youtubeLive: match.youtubeLive || null,
+            tiktokLive: match.tiktokLive || null,
+            courtLabel: summary?.courtLabel || summary?.courtStationName || "",
+          },
+          latestRecordingsByMatchId.get(String(match._id))
+        );
+      })
+      .filter((item) => Array.isArray(item?.streams) && item.streams.length > 0);
+
+    if (q) {
+      const normalizedQuery = q.toLowerCase();
+      items = items.filter((item) => buildSearchText(item).includes(normalizedQuery));
+    }
+
+    const tournaments = buildTournamentBuckets(items);
+
+    if (selectedTournamentIds.size > 0) {
+      items = items.filter((item) =>
+        selectedTournamentIds.has(toIdString(item?.tournament?._id || item?.tournament))
+      );
+    }
+
+    items.sort(compareLiveMatches);
+
+    const { items: pageItems, total, pages, page: safePage } = paginate(
+      items,
+      page,
+      limit
     );
 
-    /* ================== brackets ================== */
-    const tourIds = [
-      ...new Set(
-        rows
-          .map((m) => (m.tournament ? String(m.tournament) : null))
-          .filter(Boolean)
-      ),
-    ];
-
-    const allBrackets = await Bracket.find({
-      tournament: { $in: tourIds },
-    })
-      .select("_id tournament type stage order meta")
-      .lean();
-
-    const bracketsByTour = {};
-    for (const br of allBrackets) {
-      const tid = String(br.tournament);
-      if (!bracketsByTour[tid]) bracketsByTour[tid] = [];
-      bracketsByTour[tid].push(br);
-    }
-    for (const tid of Object.keys(bracketsByTour)) {
-      bracketsByTour[tid].sort((a, b) => {
-        if (a.stage !== b.stage) return a.stage - b.stage;
-        if (a.order !== b.order) return a.order - b.order;
-        return String(a._id).localeCompare(String(b._id));
-      });
-    }
-
-    const groupTypes = new Set(["group", "round_robin", "gsl"]);
-
-    const effRounds = (br) => {
-      if (groupTypes.has(br.type)) return 1;
-      const mr = br?.meta?.maxRounds;
-      if (Number.isFinite(mr) && mr > 0) return mr;
-      return 1;
-    };
-
-    const letterToIndex = (s) => {
-      if (!s) return null;
-      const str = String(s).trim();
-      const num = str.match(/(\d+)/);
-      if (num) return Number(num[1]);
-      const m = str.match(/([A-Za-z])$/);
-      if (m) return m[1].toUpperCase().charCodeAt(0) - 64;
-      return null;
-    };
-
-    const buildDisplayForMatch = (m) => {
-      const tourId = m.tournament ? String(m.tournament) : "";
-      const brId = m.bracket ? String(m.bracket) : "";
-      const brs = bracketsByTour[tourId] || [];
-      const curBracket = brs.find((x) => String(x._id) === brId);
-      const isGroup = curBracket ? groupTypes.has(curBracket.type) : false;
-
-      let vOffset = 0;
-      for (const br of brs) {
-        if (String(br._id) === brId) break;
-        vOffset += effRounds(br);
-      }
-
-      const roundInBracket = Number(m.round) > 0 ? Number(m.round) : 1;
-      const vIndex = isGroup ? vOffset + 1 : vOffset + roundInBracket;
-
-      let bAlpha =
-        m?.pool?.name || m?.pool?.key || (m?.pool?.id ? String(m.pool.id) : "");
-      if (typeof bAlpha !== "string") bAlpha = String(bAlpha || "");
-
-      let bIndex = Number.isFinite(Number(m?.pool?.order))
-        ? Number(m.pool.order) + 1
-        : Number.isFinite(Number(m?.pool?.index))
-        ? Number(m.pool.index) + 1
-        : null;
-
-      if (!bIndex) {
-        const fromName = letterToIndex(m?.pool?.name || m?.pool?.key);
-        if (fromName) bIndex = fromName;
-      }
-
-      if (!bIndex && m?.pool?.id) {
-        const uniqPoolIds = [];
-        for (const r of rows) {
-          if (String(r.tournament || "") !== tourId) continue;
-          const pid = r?.pool?.id ? String(r.pool.id) : null;
-          if (pid && !uniqPoolIds.includes(pid)) uniqPoolIds.push(pid);
-        }
-        const pos = uniqPoolIds.indexOf(String(m.pool.id));
-        if (pos >= 0) bIndex = pos + 1;
-      }
-
-      if (isGroup && !bIndex) bIndex = 1;
-      if (!isGroup) bIndex = null;
-
-      let tIndex = (Number(m.order) || 0) + 1;
-      if (isGroup) {
-        const samePool = rows
-          .filter((r) => {
-            if (String(r.tournament || "") !== tourId) return false;
-            if (String(r.bracket || "") !== brId) return false;
-            if (m?.pool?.id)
-              return String(r?.pool?.id || "") === String(m.pool.id);
-            if (m?.pool?.name)
-              return String(r?.pool?.name || "") === String(m.pool.name);
-            return true;
-          })
-          .sort((a, b) => {
-            const rrA = Number(a.rrRound) || 0;
-            const rrB = Number(b.rrRound) || 0;
-            if (rrA !== rrB) return rrA - rrB;
-            const oA = Number(a.order) || 0;
-            const oB = Number(b.order) || 0;
-            if (oA !== oB) return oA - oB;
-            return (
-              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
-          });
-
-        const idx = samePool.findIndex((r) => String(r._id) === String(m._id));
-        if (idx >= 0) tIndex = idx + 1;
-      }
-
-      const displayCode = isGroup
-        ? `V${vIndex}-B${bIndex}-T${tIndex}`
-        : `V${vIndex}-T${tIndex}`;
-
-      return { displayCode, vIndex, bIndex, tIndex, bKeyAlpha: bAlpha };
-    };
-
-    /* ================== build items ================== */
-    const items = rows.map((m) => {
-      const { displayCode, vIndex, bIndex, tIndex, bKeyAlpha } =
-        buildDisplayForMatch(m);
-
-      const baseItem = {
-        _id: m._id,
-        tournament: m.tournament,
-        bracket: m.bracket,
-        court: m.court,
-        courtLabel: m.courtLabel,
-        ...resolveMatchCourtStationFields(m),
-        status: m.status,
-        currentGame: m.currentGame ?? 0,
-        labelKey: m.labelKey,
-        code: displayCode,
-        displayCode,
-        vIndex,
-        bIndex,
-        tIndex,
-        bKeyAlpha,
-        facebookLive: {
-          id: m.facebookLive?.id ?? "",
-          videoId: m.facebookLive?.videoId ?? "",
-          pageId: m.facebookLive?.pageId ?? "",
-          status: m.facebookLive?.status ?? "",
-          permalink_url: m.facebookLive?.permalink_url ?? "",
-          video_permalink_url: m.facebookLive?.video_permalink_url ?? "",
-          watch_url: m.facebookLive?.watch_url ?? "",
-          embed_html: m.facebookLive?.embed_html ?? "",
-          embed_url: m.facebookLive?.embed_url ?? "",
-        },
-        pairA: m.pairA || null,
-        pairB: m.pairB || null,
-        gameScores: m.gameScores || [],
-        updatedAt: m.updatedAt,
-        createdAt: m.createdAt,
-        __pinnedLive: pinnedLiveIds.has(String(m._id)),
-      };
-      return attachPublicStreamsToMatch(
-        baseItem,
-        latestRecordingsByMatchId.get(String(m._id))
-      );
-    });
+    const countLive = items.filter(
+      (item) => String(item?.status || "").toLowerCase() === "live"
+    ).length;
 
     const payload = {
-      count: items.length,
+      count: total,
       countLive,
-      items,
+      items: pageItems,
+      page: safePage,
+      pages,
+      limit,
+      tournaments,
       meta: {
-        source: "match-only",
+        source: "match-streams",
         filter: {
-          hasFacebook: true,
-          hasServer2: recordingMatchIds.length > 0,
-          hasLegacyPlayback: true,
-          limit: LIMIT,
-          pinnedLive: true,
-          pinnedLiveCount: liveRows.length,
-          note: "ignore FE filters; pinned live first; latest 20 after",
+          statuses,
+          excludeFinished,
+          includeAll,
+          windowMs: includeAll ? null : windowMs,
+          q,
+          tournamentIds: Array.from(selectedTournamentIds),
         },
         at: new Date().toISOString(),
       },
     };
 
-    liveMatchesCache.set("default", payload);
+    liveMatchesCache.set(cacheKey, payload);
     res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
     res.setHeader("X-PKT-Cache", "MISS");
     res.json(payload);
@@ -370,7 +501,6 @@ export async function deleteLiveVideoForMatch(req, res) {
       return res.status(400).json({ message: "matchId is required" });
     }
 
-    // Xoá toàn bộ facebookLive khỏi match
     const updated = await Match.findByIdAndUpdate(
       matchId,
       {
@@ -379,18 +509,18 @@ export async function deleteLiveVideoForMatch(req, res) {
         },
       },
       {
-        new: true, // trả về bản mới
+        new: true,
       }
     ).lean();
 
     if (!updated) {
-      return res.status(404).json({ message: "Match không tồn tại" });
+      return res.status(404).json({ message: "Match khong ton tai" });
     }
 
     liveMatchesCache.clear();
 
     return res.json({
-      message: "Đã xoá thông tin video khỏi match",
+      message: "Da xoa thong tin video khoi match",
       matchId: updated._id,
       facebookLive: updated.facebookLive || null,
     });

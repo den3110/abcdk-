@@ -104,7 +104,7 @@ export default function PlayerSelector({ label, eventType, onChange }) {
           <Chip
             size="small"
             label={`Điểm ${eventType === "double" ? "đôi" : "đơn"}: ${scoreOf(
-              value
+              value,
             )}`}
           />
         </Stack>

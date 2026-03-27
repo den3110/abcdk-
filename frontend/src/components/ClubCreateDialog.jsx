@@ -278,7 +278,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
   // Ràng buộc policy theo visibility
   const allowedJoinPolicies = useMemo(
     () => getAllowedJoinPolicies(form.visibility),
-    [form.visibility]
+    [form.visibility],
   );
   useEffect(() => {
     if (!allowedJoinPolicies.includes(form.joinPolicy)) {
@@ -288,7 +288,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
 
   const allowedMemberVis = useMemo(
     () => getAllowedMemberVis(form.visibility),
-    [form.visibility]
+    [form.visibility],
   );
   useEffect(() => {
     if (!allowedMemberVis.includes(form.memberVisibility)) {
@@ -302,7 +302,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     if (uploading) return toast.info("Đang tải ảnh, vui lòng đợi xíu…");
     const body = { ...form };
     const loadingId = toast.loading(
-      isEdit ? "Đang lưu CLB..." : "Đang tạo CLB..."
+      isEdit ? "Đang lưu CLB..." : "Đang tạo CLB...",
     );
 
     try {

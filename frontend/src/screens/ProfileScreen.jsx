@@ -85,7 +85,7 @@ function makePlaceholderAvatar(dark, text = "No Image") {
   const bg2 = dark ? "%231a237e" : "%23f3e5f5";
   const shape = dark ? "%23455a64" : "%23bbdefb";
   const txt = dark ? "%23607d8b" : "%2390a4ae";
-  const safeText = text.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  const safeText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="150" height="150"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${bg1}"/><stop offset="100%" stop-color="${bg2}"/></linearGradient></defs><rect width="150" height="150" fill="url(%23g)"/><circle cx="75" cy="58" r="22" fill="${shape}"/><ellipse cx="75" cy="110" rx="32" ry="18" fill="${shape}"/><text x="50%" y="140" text-anchor="middle" fill="${txt}" font-family="sans-serif" font-size="11">${safeText}</text></svg>`)}`;
 }
 function makePlaceholderCccd(dark, text = "Không tải được ảnh") {
@@ -96,7 +96,7 @@ function makePlaceholderCccd(dark, text = "Không tải được ảnh") {
   const lineOp1 = dark ? "0.15" : "0.7";
   const lineOp2 = dark ? "0.1" : "0.5";
   const txtC = dark ? "%23546e7a" : "%239e9e9e";
-  const safeText = text.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  const safeText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="250"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${bg1}"/><stop offset="100%" stop-color="${bg2}"/></linearGradient></defs><rect width="400" height="250" rx="16" fill="url(%23g)"/><rect x="140" y="60" width="120" height="75" rx="10" fill="${card}" opacity="0.5"/><rect x="155" y="75" width="90" height="8" rx="4" fill="${line}" opacity="${lineOp1}"/><rect x="155" y="90" width="65" height="6" rx="3" fill="${line}" opacity="${lineOp2}"/><rect x="155" y="103" width="75" height="6" rx="3" fill="${line}" opacity="${lineOp2}"/><text x="50%" y="180" text-anchor="middle" fill="${txtC}" font-family="sans-serif" font-size="14" font-weight="500">${safeText}</text></svg>`)}`;
 }
 
@@ -554,14 +554,15 @@ export default function ProfileScreen() {
     }, 1500);
   }, []);
 
-  const { data: user, isLoading: fetching, refetch } = useGetProfileQuery(
-    undefined,
-    {
-      refetchOnMountOrArgChange: true,
-      refetchOnFocus: true,
-      refetchOnReconnect: true,
-    }
-  );
+  const {
+    data: user,
+    isLoading: fetching,
+    refetch,
+  } = useGetProfileQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
   const [updateProfile, { isLoading }] = useUpdateUserMutation();
   const [logoutApiCall, { isLoading: isLoggingOut }] = useLogoutMutation();
   const [uploadCccd, { isLoading: upLoad }] = useUploadCccdMutation();
@@ -582,8 +583,14 @@ export default function ProfileScreen() {
   const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState("");
   const [avatarZoomOpen, setAvatarZoomOpen] = useState(false);
 
-  const placeholderAvatar = useMemo(() => makePlaceholderAvatar(isDark, t("profile.placeholder.noImage")), [isDark, t]);
-  const placeholderCccd = useMemo(() => makePlaceholderCccd(isDark, t("profile.placeholder.imageError")), [isDark, t]);
+  const placeholderAvatar = useMemo(
+    () => makePlaceholderAvatar(isDark, t("profile.placeholder.noImage")),
+    [isDark, t],
+  );
+  const placeholderCccd = useMemo(
+    () => makePlaceholderCccd(isDark, t("profile.placeholder.imageError")),
+    [isDark, t],
+  );
 
   const avatarSrc = useMemo(
     () => avatarPreview || form.avatar || placeholderAvatar,
@@ -594,7 +601,8 @@ export default function ProfileScreen() {
   const [cccdZoomSrc, setCccdZoomSrc] = useState("");
   const [imgErrors, setImgErrors] = useState({});
 
-  const markImgError = (key) => setImgErrors((prev) => ({ ...prev, [key]: true }));
+  const markImgError = (key) =>
+    setImgErrors((prev) => ({ ...prev, [key]: true }));
 
   const openCccdZoom = (src, errorKey) => {
     if (!src) return;
@@ -2318,7 +2326,9 @@ export default function ProfileScreen() {
                                 onClick={() => openCccdZoom(frontUrl, "front")}
                               >
                                 <img
-                                  src={imgErrors.front ? placeholderCccd : frontUrl}
+                                  src={
+                                    imgErrors.front ? placeholderCccd : frontUrl
+                                  }
                                   alt={t("profile.kyc.images.front")}
                                   style={{
                                     width: "100%",
@@ -2357,7 +2367,9 @@ export default function ProfileScreen() {
                                 onClick={() => openCccdZoom(backUrl, "back")}
                               >
                                 <img
-                                  src={imgErrors.back ? placeholderCccd : backUrl}
+                                  src={
+                                    imgErrors.back ? placeholderCccd : backUrl
+                                  }
                                   alt={t("profile.kyc.images.back")}
                                   style={{
                                     width: "100%",
@@ -2510,7 +2522,11 @@ export default function ProfileScreen() {
             onClose={() => setCccdZoomOpen(false)}
             maxWidth="md"
           >
-            <Box position="relative" p={1} bgcolor={isDark ? "#1a1a2e" : "#f5f5f5"}>
+            <Box
+              position="relative"
+              p={1}
+              bgcolor={isDark ? "#1a1a2e" : "#f5f5f5"}
+            >
               <IconButton
                 onClick={() => setCccdZoomOpen(false)}
                 sx={{

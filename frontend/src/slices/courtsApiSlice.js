@@ -6,7 +6,9 @@ export const courtsApiSlice = apiSlice.injectEndpoints({
       query: ({ tid, bracketId }) => {
         const q = new URLSearchParams();
         if (bracketId) q.set("bracketId", bracketId);
-        return { url: `/api/admin/tournaments/c/${tid}/courts?${q.toString()}` };
+        return {
+          url: `/api/admin/tournaments/c/${tid}/courts?${q.toString()}`,
+        };
       },
     }),
 

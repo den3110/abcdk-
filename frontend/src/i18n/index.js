@@ -14,7 +14,10 @@ const warnedKeys = new Set();
 export function resolveMessage(dictionary, key) {
   return String(key || "")
     .split(".")
-    .reduce((current, segment) => (current ? current[segment] : undefined), dictionary);
+    .reduce(
+      (current, segment) => (current ? current[segment] : undefined),
+      dictionary,
+    );
 }
 
 export function interpolate(template, values = {}) {
@@ -33,13 +36,13 @@ function warnMissing(language, key, usedDefault) {
 
   if (usedDefault) {
     console.warn(
-      `[i18n] Missing key "${key}" in "${language}", fell back to "${DEFAULT_LANGUAGE}".`
+      `[i18n] Missing key "${key}" in "${language}", fell back to "${DEFAULT_LANGUAGE}".`,
     );
     return;
   }
 
   console.warn(
-    `[i18n] Missing key "${key}" in "${language}" and default "${DEFAULT_LANGUAGE}".`
+    `[i18n] Missing key "${key}" in "${language}" and default "${DEFAULT_LANGUAGE}".`,
   );
 }
 

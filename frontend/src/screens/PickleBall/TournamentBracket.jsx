@@ -238,6 +238,22 @@ export const depLabel = (prev) => {
   return `W-V${r}-T${idx}`;
 };
 
+const isThirdPlaceMatch = (m) => {
+  if (!m) return false;
+  if (m.isThirdPlace === true || m?.meta?.thirdPlace === true) return true;
+  const loserSeedTypes = new Set(["stageMatchLoser", "matchLoser"]);
+  const seedAType = String(m?.seedA?.type || "");
+  const seedBType = String(m?.seedB?.type || "");
+  if (loserSeedTypes.has(seedAType) && loserSeedTypes.has(seedBType)) return true;
+  const stageLabel = String(m?.meta?.stageLabel || m?.roundName || "").toLowerCase();
+  return stageLabel.includes("hạng 3") || stageLabel.includes("3/4");
+};
+
+const normalizeSeedRefLabel = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, "-");
+
 // --- Helpers chỉnh nhãn W/L theo vòng hiện tại ---
 function getRoundNumber(m) {
   const n =
@@ -457,6 +473,7 @@ function computeChampionGate(allMatches) {
 
 /* ===================== Height sync (bracket seeds) ===================== */
 const SEED_MIN_H = 96; // ↑ chút để chứa thanh tiêu đề
+const SEED_CARD_W = 225;
 const HeightSyncContext = createContext({ get: () => 0, report: () => {} });
 
 function HeightSyncProvider({ roundsKey, children }) {
@@ -685,6 +702,11 @@ const CustomSeed = ({
   };
 
   const code = m ? matchCodeKO(m) : "";
+  const isThirdPlace = isThirdPlaceMatch(m);
+  const codeLabel = isThirdPlace ? "Hạng 3-4" : code;
+  const codeTitle = isThirdPlace
+    ? `${String(m?.meta?.stageLabel || "Tranh hạng 3/4")} (${code})`
+    : code;
   const t = m ? timeShort(kickoffTime(m)) : "";
   const c = m ? courtName(m) : "";
   const vid = m ? hasVideo(m) : false;
@@ -745,7 +767,9 @@ const CustomSeed = ({
               className="header-seed"
               style={{ "--seed-bg": color.bg, "--seed-fg": color.fg }}
             >
-              <span className="seed-code">{code}</span>
+              <span className="seed-code" title={codeTitle}>
+                {codeLabel}
+              </span>
 
               <span className="seed-meta">
                 {t && (
@@ -2420,6 +2444,31 @@ export default function TournamentBracket() {
     for (const m of matchesMerged) mp.set(String(m._id), m);
     return mp;
   }, [matchesMerged]);
+  const matchRefIndex = useMemo(() => {
+    const byId = new Map();
+    const byBracketRoundOrder = new Map();
+    const byStageRoundOrder = new Map();
+
+    for (const m of matchesMerged || []) {
+      const id = String(m?._id || "");
+      const bracketId = String(m?.bracket?._id || m?.bracket || "");
+      const stageNum = Number(m?.bracket?.stage);
+      const roundNum = Number(m?.round);
+      const orderNum = Number(m?.order);
+
+      if (id) byId.set(id, m);
+
+      if (bracketId && Number.isFinite(roundNum) && Number.isFinite(orderNum)) {
+        byBracketRoundOrder.set(`${bracketId}:${roundNum}:${orderNum}`, m);
+      }
+
+      if (Number.isFinite(stageNum) && Number.isFinite(roundNum) && Number.isFinite(orderNum)) {
+        byStageRoundOrder.set(`${stageNum}:${roundNum}:${orderNum}`, m);
+      }
+    }
+
+    return { byId, byBracketRoundOrder, byStageRoundOrder };
+  }, [matchesMerged]);
   const baseRoundStartForCurrent = useMemo(
     () => computeBaseRoundStart(brackets, byBracket, current),
     [brackets, byBracket, current],
@@ -2505,6 +2554,39 @@ export default function TournamentBracket() {
     [groupDoneByStage, current?.stage],
   );
 
+  const findSourceMatchFromSeed = useCallback(
+    (m, seed) => {
+      if (!seed) return null;
+
+      const matchId = String(seed?.ref?.matchId || "");
+      if (matchId && matchRefIndex.byId.has(matchId)) {
+        return matchRefIndex.byId.get(matchId);
+      }
+
+      const roundNum = Number(seed?.ref?.round);
+      const orderNum = Number(seed?.ref?.order);
+      if (!Number.isFinite(roundNum) || !Number.isFinite(orderNum)) return null;
+
+      const stageNum = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+      if (Number.isFinite(stageNum)) {
+        const stageHit = matchRefIndex.byStageRoundOrder.get(
+          `${stageNum}:${roundNum}:${orderNum}`,
+        );
+        if (stageHit) return stageHit;
+      }
+
+      const bracketId = String(m?.bracket?._id || m?.bracket || "");
+      if (bracketId) {
+        return (
+          matchRefIndex.byBracketRoundOrder.get(`${bracketId}:${roundNum}:${orderNum}`) || null
+        );
+      }
+
+      return null;
+    },
+    [matchRefIndex],
+  );
+
   // Đặt bên trong TournamentBracket (dùng chung matchIndex, tour?.eventType, baseRoundStartForCurrent, seedLabel, pairLabelWithNick, isByeMatchObj)
   const resolveSideLabel = useCallback(
     function resolveSideLabel(m, side) {
@@ -2583,11 +2665,38 @@ export default function TournamentBracket() {
       }
 
       // Không prev → rơi về nhãn seed gốc (groupRank/registration/…)
-      if (seed && seed.type) return seedLabel(seed);
+      if (seed && seed.type) {
+        const sourceRefLabel = normalizeSeedRefLabel(seedLabel(seed));
+        const sourceMatch = findSourceMatchFromSeed(m, seed);
+        const isWinnerSeed =
+          seed?.type === "stageMatchWinner" || seed?.type === "matchWinner";
+        const isLoserSeed =
+          seed?.type === "stageMatchLoser" || seed?.type === "matchLoser";
+
+        if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
+          const sourcePair = isLoserSeed
+            ? sourceMatch.winner === "A"
+              ? sourceMatch.pairB
+              : sourceMatch.pairA
+            : sourceMatch.winner === "A"
+              ? sourceMatch.pairA
+              : sourceMatch.pairB;
+
+          if (sourcePair) {
+            const relationSuffix = sourceRefLabel ? ` (${sourceRefLabel})` : "";
+            return `${pairLabelWithNick(sourcePair, eventType, displayMode)}${relationSuffix}`;
+          }
+        }
+
+        if ((isWinnerSeed || isLoserSeed) && sourceRefLabel) return sourceRefLabel;
+
+        return seedLabel(seed);
+      }
 
       return pendingTeamLabel;
     },
     [
+      findSourceMatchFromSeed,
       matchIndex,
       tour?.eventType,
       baseRoundStartForCurrent,
@@ -4855,7 +4964,19 @@ export default function TournamentBracket() {
           </Typography>
 
           {(() => {
-            const championGate = computeChampionGate(currentMatches);
+            const thirdPlaceMatches = (currentMatches || [])
+              .filter((m) => isThirdPlaceMatch(m))
+              .slice()
+              .sort(
+                (a, b) =>
+                  Number(a?.round || 1) - Number(b?.round || 1) ||
+                  Number(a?.order || 0) - Number(b?.order || 0),
+              );
+            const mainBracketMatches = (currentMatches || []).filter(
+              (m) => !isThirdPlaceMatch(m),
+            );
+
+            const championGate = computeChampionGate(mainBracketMatches);
             const finalMatchId = championGate.allowed
               ? championGate.matchId
               : null;
@@ -4875,9 +4996,9 @@ export default function TournamentBracket() {
                     : 0;
 
             const roundsToRender =
-              currentMatches.length > 0
+              mainBracketMatches.length > 0
                 ? buildRoundsWithPlaceholders(
-                    currentMatches,
+                    mainBracketMatches,
                     resolveSideLabel,
                     {
                       minRounds: minRoundsForCurrent,
@@ -4990,6 +5111,53 @@ export default function TournamentBracket() {
                     </Box>
                   </Box>
                 </Box>
+
+                {thirdPlaceMatches.length > 0 && (
+                  <Box sx={{ mt: 3 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
+                      Tranh hạng 3/4
+                    </Typography>
+                    <HighlightProvider>
+                      <HeightSyncProvider
+                        roundsKey={`third-place:${current._id}:${thirdPlaceMatches
+                          .map((m) => String(m._id))
+                          .join(",")}`}
+                      >
+                        <Stack
+                          direction={{ xs: "column", md: "row" }}
+                          spacing={2}
+                          alignItems={{ xs: "stretch", md: "flex-start" }}
+                          useFlexGap
+                          flexWrap="wrap"
+                        >
+                          {thirdPlaceMatches.map((m) => (
+                            <Box
+                              key={String(m._id)}
+                              sx={{ width: SEED_CARD_W, maxWidth: "100%" }}
+                            >
+                              <CustomSeed
+                                seed={{
+                                  id: String(m._id),
+                                  __match: m,
+                                  __round: Number(m?.round || 1),
+                                  teams: [
+                                    { name: resolveSideLabel(m, "A") },
+                                    { name: resolveSideLabel(m, "B") },
+                                  ],
+                                }}
+                                breakpoint={0}
+                                onOpen={openMatch}
+                                championMatchId={null}
+                                resolveSideLabel={resolveSideLabel}
+                                baseRoundStart={baseRoundStartForCurrent}
+                              />
+                            </Box>
+                          ))}
+                        </Stack>
+                      </HeightSyncProvider>
+                    </HighlightProvider>
+                  </Box>
+                )}
 
                 {currentMatches.length === 0 && prefillRounds && (
                   <Typography variant="caption" color="text.secondary">

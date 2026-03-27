@@ -1,9 +1,9 @@
-export async function sendTelegramMessage(text) {
+export async function sendTelegramMessage(text, options = {}) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_CRASH_ID;
+  const chatId = options.chatId || process.env.TELEGRAM_CHAT_CRASH_ID;
 
   if (!token || !chatId) {
-    throw new Error("Missing TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_CRASH_ID");
+    throw new Error("Missing TELEGRAM_BOT_TOKEN / Telegram chat id");
   }
 
   const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

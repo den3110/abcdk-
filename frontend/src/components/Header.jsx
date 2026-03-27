@@ -52,7 +52,7 @@ function isAdminUser(user) {
   if (!user) return false;
 
   const roles = new Set(
-    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
+    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : [],
   );
 
   if (user?.role) roles.add(normalizeRole(user.role));
@@ -81,7 +81,7 @@ export default function Header() {
       { label: t("header.nav.tournaments"), path: "/pickle-ball/tournaments" },
       { label: t("header.nav.rankings"), path: "/pickle-ball/rankings" },
     ],
-    [t]
+    [t],
   );
 
   const [canGoBack, setCanGoBack] = useState(false);
@@ -99,7 +99,7 @@ export default function Header() {
         "/clubs",
         "/news",
       ]),
-    []
+    [],
   );
 
   const showBackButton =
@@ -372,8 +372,8 @@ export default function Header() {
                   color: isActive("/live")
                     ? "#d32f2f"
                     : liveCount > 0
-                    ? "#d32f2f"
-                    : "text.secondary",
+                      ? "#d32f2f"
+                      : "text.secondary",
                   bgcolor: isActive("/live")
                     ? alpha("#d32f2f", 0.08)
                     : "transparent",

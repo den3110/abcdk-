@@ -17,7 +17,8 @@ export default function loadHlsFromCDN() {
     const existing = document.querySelector("script[data-hlsjs='1']");
 
     const resolveLoaded = () => resolve(window.Hls || null);
-    const rejectLoaded = (error) => reject(error || new Error("Failed to load hls.js"));
+    const rejectLoaded = (error) =>
+      reject(error || new Error("Failed to load hls.js"));
 
     if (existing) {
       existing.addEventListener("load", resolveLoaded, { once: true });

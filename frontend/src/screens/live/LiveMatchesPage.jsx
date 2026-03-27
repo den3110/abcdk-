@@ -1,11 +1,5 @@
 /* eslint-disable react/prop-types */
-import {
-  useMemo,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import {
   Box,
   Stack,
@@ -37,14 +31,12 @@ import TuneIcon from "@mui/icons-material/Tune";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
+import LottieEmptyState from "../../components/LottieEmptyState";
 import LiveMatchCard from "./LiveMatchCard";
 import { useGetLiveMatchesQuery } from "../../slices/liveApiSlice";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
-import {
-  formatDate,
-  formatTime,
-} from "../../i18n/format.js";
+import { formatDate, formatTime } from "../../i18n/format.js";
 
 const LIMIT = 12;
 // CARD_HEIGHT chỉ dùng cho skeleton lúc loading để UI đỡ nhảy
@@ -72,7 +64,7 @@ function FiltersDialog({ open, onClose, initial, onApply, t, statusLabels }) {
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const [statuses, setStatuses] = useState(initial.statuses);
   const [excludeFinished, setExcludeFinished] = useState(
-    initial.excludeFinished
+    initial.excludeFinished,
   );
   const [windowHours, setWindowHours] = useState(initial.windowHours);
   const [autoRefresh, setAutoRefresh] = useState(initial.autoRefresh);
@@ -256,7 +248,7 @@ export default function LiveMatchesPage() {
   const [keyword, setKeyword] = useState("");
   const [statuses, setStatuses] = useState([...STATUS_OPTIONS]);
   const [excludeFinished, setExcludeFinished] = useState(
-    DEFAULT_EXCLUDE_FINISHED
+    DEFAULT_EXCLUDE_FINISHED,
   );
   const [windowHours, setWindowHours] = useState(DEFAULT_WINDOW_HOURS);
   const [page, setPage] = useState(1);
@@ -275,7 +267,7 @@ export default function LiveMatchesPage() {
       live: t("tournaments.statuses.ongoing"),
       finished: t("tournaments.statuses.finished"),
     }),
-    [t]
+    [t],
   );
 
   // ✅ load filters từ localStorage lần đầu
@@ -290,7 +282,7 @@ export default function LiveMatchesPage() {
         const saved = JSON.parse(raw);
         if (Array.isArray(saved.statuses) && saved.statuses.length) {
           const validStatuses = saved.statuses.filter((s) =>
-            STATUS_OPTIONS.includes(s)
+            STATUS_OPTIONS.includes(s),
           );
           if (validStatuses.length) setStatuses(validStatuses);
         }
@@ -345,7 +337,7 @@ export default function LiveMatchesPage() {
       : statuses;
     const args = {
       keyword,
-      page: page - 1,
+      page,
       limit: LIMIT,
       statuses: filteredStatuses.join(","),
       windowMs: windowHours * 3600 * 1000,
@@ -359,7 +351,7 @@ export default function LiveMatchesPage() {
     {
       refetchOnFocus: true,
       refetchOnReconnect: true,
-    }
+    },
   );
 
   useEffect(() => {
@@ -369,7 +361,10 @@ export default function LiveMatchesPage() {
   }, [autoRefresh, refreshSec, refetch, qArgs]);
 
   const pages = data?.pages || 1;
-  const items = data?.items ?? [];
+  const apiItems = useMemo(
+    () => (Array.isArray(data?.items) ? data.items : []),
+    [data?.items],
+  );
   const total = data?.rawCount ?? 0;
 
   const tick = useTickingAgo();
@@ -380,7 +375,7 @@ export default function LiveMatchesPage() {
 
   const updatedAgoSec = Math.max(
     0,
-    Math.floor((tick - lastFetchRef.current) / 1000)
+    Math.floor((tick - lastFetchRef.current) / 1000),
   );
 
   // ✅ label khoảng thời gian tương đương windowMs (now - windowMs → now)
@@ -405,13 +400,13 @@ export default function LiveMatchesPage() {
     if (sameDay) {
       // Ví dụ: 13:00–21:00 hôm nay (24/11)
       return `${fmtTime(from)}–${fmtTime(now)} ${t("live.matches.today")} (${fmtDate(
-        now
+        now,
       )})`;
     }
 
     // Ví dụ: 22:00 23/11 – 06:00 24/11
     return `${fmtTime(from)} ${fmtDate(from)} – ${fmtTime(now)} ${fmtDate(
-      now
+      now,
     )}`;
   }, [locale, t, tick, windowHours]);
 
@@ -447,7 +442,7 @@ export default function LiveMatchesPage() {
 
   const initialFilters = useMemo(
     () => ({ statuses, excludeFinished, windowHours, autoRefresh, refreshSec }),
-    [statuses, excludeFinished, windowHours, autoRefresh, refreshSec]
+    [statuses, excludeFinished, windowHours, autoRefresh, refreshSec],
   );
 
   // ✅ handler khi 1 card báo "đã xoá video"
@@ -459,9 +454,9 @@ export default function LiveMatchesPage() {
 
   // ✅ items hiển thị thực tế = items từ API trừ đi những cái đã xoá video
   const visibleItems = useMemo(() => {
-    if (!removedIds.length) return items;
-    return items.filter((it) => !removedIds.includes(String(it._id)));
-  }, [items, removedIds]);
+    if (!removedIds.length) return apiItems;
+    return apiItems.filter((it) => !removedIds.includes(String(it._id)));
+  }, [apiItems, removedIds]);
 
   // CSS Grid: mỗi hàng tự cao theo item cao nhất; item bên trong phải stretch
   const gridSx = {
@@ -479,6 +474,29 @@ export default function LiveMatchesPage() {
     },
     alignItems: "stretch", // ✅ các grid item cao bằng nhau theo hàng
   };
+  const emptyCopy = useMemo(() => {
+    if (keyword.trim()) {
+      return {
+        title: "Không tìm thấy trận phù hợp",
+        description:
+          "Thử đổi từ khóa tìm kiếm hoặc nới bộ lọc để xem thêm các trận đang live và có video công khai.",
+      };
+    }
+
+    if (activeFilters > 0) {
+      return {
+        title: "Không có trận nào khớp bộ lọc",
+        description:
+          "Hãy điều chỉnh trạng thái, khoảng thời gian hoặc chế độ ẩn/hiện finished để lấy thêm kết quả.",
+      };
+    }
+
+    return {
+      title: "Chưa có trận live/video nào",
+      description:
+        "Khi có trận đang live hoặc có video public để xem lại, danh sách sẽ tự hiện ở đây.",
+    };
+  }, [activeFilters, keyword]);
 
   return (
     <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
@@ -538,7 +556,9 @@ export default function LiveMatchesPage() {
         {statuses.length !== STATUS_OPTIONS.length && (
           <Chip
             label={t("live.matches.statusChip", {
-              value: statuses.map((item) => statusLabels[item] || item).join(", "),
+              value: statuses
+                .map((item) => statusLabels[item] || item)
+                .join(", "),
             })}
             onDelete={() => clearChip("statuses")}
             size="small"
@@ -664,14 +684,12 @@ export default function LiveMatchesPage() {
           )}
 
           {visibleItems.length === 0 && (
-            <Box sx={{ textAlign: "center", py: 6 }}>
-              <Typography variant="h6">
-                {t("live.matches.emptyTitle")}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {t("live.matches.emptyBody")}
-              </Typography>
-            </Box>
+            <LottieEmptyState
+              title={emptyCopy.title}
+              description={emptyCopy.description}
+              minHeight={360}
+              sx={{ mt: 2 }}
+            />
           )}
         </>
       )}

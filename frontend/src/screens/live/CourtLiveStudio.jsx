@@ -90,19 +90,19 @@ export default function CourtLiveStudioPage() {
       refetchOnMountOrArgChange: true,
       pollingInterval: isTabVisible ? 5000 : 0, // 5s thay vì 1.5s, tắt khi blur
       skip: !tid || !bid,
-    }
+    },
   );
 
   // ✅ Memoize courts array với deep comparison
   const courts = React.useMemo(
     () => (Array.isArray(courtsResp?.items) ? courtsResp.items : []),
-    [courtsResp?.items] // ← Chỉ dùng .items thay vì toàn bộ courtsResp
+    [courtsResp?.items], // ← Chỉ dùng .items thay vì toàn bộ courtsResp
   );
 
   // ✅ Memoize court object
   const court = React.useMemo(
     () => courts.find((c) => String(c?._id) === String(courtId)),
-    [courts, courtId]
+    [courts, courtId],
   );
 
   const courtLabel = React.useMemo(() => {
@@ -152,7 +152,7 @@ export default function CourtLiveStudioPage() {
       if (!s) return { currentMatch: null };
       return { currentMatch: { _id: s._id, status: s.status } };
     },
-    [courtStateMap]
+    [courtStateMap],
   );
 
   // ✅ Stable empty resolver
@@ -170,7 +170,7 @@ export default function CourtLiveStudioPage() {
         return [];
       }
     },
-    [createLiveMut]
+    [createLiveMut],
   );
 
   // ✅ Stable URLs
@@ -182,8 +182,6 @@ export default function CourtLiveStudioPage() {
       wsUrl: "wss://pickletour.vn/ws/rtmp",
     };
   }, []);
-
-
 
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>

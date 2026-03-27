@@ -46,7 +46,7 @@ export default function ClubEventsSection({ club, canManage }) {
   const clubId = club?._id;
   const { data, isLoading, isFetching, refetch } = useListEventsQuery(
     { id: clubId },
-    { skip: !clubId }
+    { skip: !clubId },
   );
 
   const loading = isLoading || isFetching;

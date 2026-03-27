@@ -51,7 +51,7 @@ export default function RegInvitesModal() {
       setBusyId(invite._id);
       await respond({ inviteId: invite._id, action }).unwrap();
       toast.success(
-        action === "accept" ? "Đã chấp nhận lời mời" : "Đã từ chối lời mời"
+        action === "accept" ? "Đã chấp nhận lời mời" : "Đã từ chối lời mời",
       );
       const after = await refetch();
       if (!after?.data || after.data.length === 0) setOpen(false);

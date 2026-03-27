@@ -29,9 +29,9 @@ export const uploadApiSlice = apiSlice.injectEndpoints({
     }),
     uploadCccd: builder.mutation({
       query: (formData) => ({
-        url   : "/api/upload/cccd",
+        url: "/api/upload/cccd",
         method: "POST",
-        body  : formData,
+        body: formData,
       }),
     }),
     uploadRegisterCccd: builder.mutation({
@@ -44,4 +44,9 @@ export const uploadApiSlice = apiSlice.injectEndpoints({
   }),
 });
 
-export const { useUploadAvatarMutation, useUploadCccdMutation, useUploadRegisterCccdMutation, useUploadRealAvatarMutation  } = uploadApiSlice;
+export const {
+  useUploadAvatarMutation,
+  useUploadCccdMutation,
+  useUploadRegisterCccdMutation,
+  useUploadRealAvatarMutation,
+} = uploadApiSlice;

@@ -1,13 +1,6 @@
 /* eslint-disable react/prop-types, react/display-name */
 // DrawPage.jsx — add Card-Deck draw mode (Classic/Card), deal & flip animations, KO=flip 2 to pair; Group=flip 1 and auto-seat per cursor. Pool still disappears immediately after drawNext; Group board reads board.groups[*].slots (fallback groupsMeta+reveals).
-import {
-  useEffect,
-  useMemo,
-  useState,
-  useRef,
-  useCallback,
-  memo,
-} from "react";
+import { useEffect, useMemo, useState, useRef, useCallback, memo } from "react";
 import {
   Box,
   Stack,
@@ -181,7 +174,7 @@ function useAudioCue(enabled) {
       osc.start(t);
       osc.stop(t + duration);
     },
-    [ensure]
+    [ensure],
   );
   return { beep };
 }
@@ -200,7 +193,7 @@ async function fireConfettiBurst() {
           spread: 55,
           origin: { x: 0 },
         }),
-      180
+      180,
     );
     setTimeout(
       () =>
@@ -210,7 +203,7 @@ async function fireConfettiBurst() {
           spread: 55,
           origin: { x: 1 },
         }),
-      180
+      180,
     );
   } catch {
     // Ignore effect-load failures.
@@ -248,7 +241,7 @@ const nameFromPlayer = (p, displayMode = "nickname") => {
     p?.nickName,
     p?.nickname,
     p?.user?.nickName,
-    p?.user?.nickname
+    p?.user?.nickname,
   );
   const fullName = pickNameText(
     p?.fullName,
@@ -256,7 +249,7 @@ const nameFromPlayer = (p, displayMode = "nickname") => {
     p?.displayName,
     p?.user?.fullName,
     p?.user?.name,
-    p?.user?.displayName
+    p?.user?.displayName,
   );
   return displayMode === "fullName"
     ? fullName || nickname || "N/A"
@@ -268,9 +261,13 @@ const displayPairName = (reg, evType = "double", displayMode = "nickname") => {
     reg?.nickName,
     reg?.nickname,
     reg?.shortName,
-    reg?.teamName
+    reg?.teamName,
   );
-  const directFullName = pickNameText(reg?.fullName, reg?.name, reg?.displayName);
+  const directFullName = pickNameText(
+    reg?.fullName,
+    reg?.name,
+    reg?.displayName,
+  );
   const directName =
     displayMode === "fullName"
       ? directFullName || directNickname
@@ -390,7 +387,13 @@ const getLabelDep = (prev, t) => {
   return t("draw.winnerOfRound", { round, index });
 };
 
-const getMatchSideName = (match, side, eventType, t, displayMode = "nickname") => {
+const getMatchSideName = (
+  match,
+  side,
+  eventType,
+  t,
+  displayMode = "nickname",
+) => {
   const prev = side === "A" ? match?.previousA : match?.previousB;
   const pair = side === "A" ? match?.pairA : match?.pairB;
   if (pair) return displayPairName(pair, eventType, displayMode);
@@ -416,11 +419,13 @@ const PoolPanel = memo(function PoolPanel({
           const reg = regIndex?.get(str);
           return {
             id: str,
-            label: displayPairName(reg, eventType, displayMode) || `#${str.slice(-6)}`,
+            label:
+              displayPairName(reg, eventType, displayMode) ||
+              `#${str.slice(-6)}`,
           };
         })
         .sort((a, b) =>
-          a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+          a.label.localeCompare(b.label, "vi", { sensitivity: "base" }),
         );
     }
     const revealed = new Set(
@@ -431,16 +436,19 @@ const PoolPanel = memo(function PoolPanel({
           null;
         const normId = typeof id === "object" ? id?._id || id?.id : id;
         return String(normId || "");
-      })
+      }),
     );
     const arr = [];
     regIndex?.forEach((reg, id) => {
       if (!revealed.has(String(id))) {
-        arr.push({ id: String(id), label: displayPairName(reg, eventType, displayMode) });
+        arr.push({
+          id: String(id),
+          label: displayPairName(reg, eventType, displayMode),
+        });
       }
     });
     return arr.sort((a, b) =>
-      a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+      a.label.localeCompare(b.label, "vi", { sensitivity: "base" }),
     );
   }, [poolIds, revealsGroup, regIndex, eventType, displayMode]);
 
@@ -610,7 +618,9 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                 <Stack spacing={0.75}>
                   {slots.map((regId, si) => {
                     const reg = regId ? regIndex?.get(String(regId)) : null;
-                    const name = regId ? displayPairName(reg, eventType, displayMode) : "—";
+                    const name = regId
+                      ? displayPairName(reg, eventType, displayMode)
+                      : "—";
                     const isHit =
                       lastHighlight &&
                       lastHighlight.type === "group" &&
@@ -784,10 +794,10 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
         const schedule1 = buildRR(teamNames);
         const schedule = doubleRound
           ? schedule1.concat(
-            schedule1.map((roundPairs) =>
-              roundPairs.map((p) => ({ A: p.B, B: p.A }))
+              schedule1.map((roundPairs) =>
+                roundPairs.map((p) => ({ A: p.B, B: p.A })),
+              ),
             )
-          )
           : schedule1;
         const totalMatches =
           ((teamNames.length * (teamNames.length - 1)) / 2) *
@@ -804,9 +814,7 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
               <Typography fontWeight={700}>
                 {t("draw.rrTitle", {
                   code: g.code,
-                  mode: doubleRound
-                    ? t("draw.rrDouble")
-                    : t("draw.rrSingle"),
+                  mode: doubleRound ? t("draw.rrDouble") : t("draw.rrSingle"),
                 })}
               </Typography>
               <Chip
@@ -960,7 +968,7 @@ const seedRenderer = (...args) => {
   const seed = args[0];
   const maybeObj = args[1];
   const breakpoint =
-    typeof maybeObj === "number" ? maybeObj : maybeObj?.breakpoint ?? 0;
+    typeof maybeObj === "number" ? maybeObj : (maybeObj?.breakpoint ?? 0);
   return <CustomSeed seed={seed} breakpoint={breakpoint} />;
 };
 
@@ -969,7 +977,7 @@ const useNamesPool = (regIndex, eventType, displayMode = "nickname") =>
   useMemo(() => {
     const arr = [];
     regIndex?.forEach((reg) =>
-      arr.push(displayPairName(reg, eventType, displayMode))
+      arr.push(displayPairName(reg, eventType, displayMode)),
     );
     if (!arr.length) return ["—", "—", "—", "—"];
     return arr;
@@ -1325,7 +1333,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
       "#FF5722",
       "#009688",
     ],
-    []
+    [],
   );
   const getDistinctPairColor = useCallback(
     (id) => {
@@ -1333,7 +1341,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
       const hue = (id * 137.508) % 360;
       return `hsl(${hue} 75% 55%)`;
     },
-    [pairPalette]
+    [pairPalette],
   );
 
   const initialDeck = useMemo(
@@ -1347,7 +1355,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         pairColor: null,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [open]
+    [open],
   );
 
   const [deck, setDeck] = useState(initialDeck);
@@ -1653,8 +1661,8 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 d.map((c, i) =>
                   i === a.idx || i === b.idx
                     ? { ...c, pairId: pid, pairColor: color }
-                    : c
-                )
+                    : c,
+                ),
               );
               setPairLinks((prev) => ({ ...prev, [pid]: [a.idx, b.idx] }));
               setLastPair([a.name, b.name]);
@@ -1676,7 +1684,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         setBusy(false);
       }
     },
-    [onFlipOne, mode, pairCount, getDistinctPairColor, onRestore, t]
+    [onFlipOne, mode, pairCount, getDistinctPairColor, onRestore, t],
   );
   if (!open) return null;
 
@@ -1712,9 +1720,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         >
           {t("draw.cardModeTitle", {
             mode:
-              mode === "group"
-                ? t("draw.cardModeGroup")
-                : t("draw.cardModeKo"),
+              mode === "group" ? t("draw.cardModeGroup") : t("draw.cardModeKo"),
           })}
         </Typography>
 
@@ -1832,8 +1838,9 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
 
           const glow =
             !isGhost && (isHovered || mateHighlighted)
-              ? `0 0 0 3px rgba(255,255,255,0.18), 0 0 22px 2px ${c.pairColor || "rgba(255,255,255,.45)"
-              }`
+              ? `0 0 0 3px rgba(255,255,255,0.18), 0 0 22px 2px ${
+                  c.pairColor || "rgba(255,255,255,.45)"
+                }`
               : "none";
 
           const pairTitle =
@@ -1963,7 +1970,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                           const charW = fontSize * 0.6;
                           const perLine = Math.max(
                             4,
-                            Math.floor(cardW / charW)
+                            Math.floor(cardW / charW),
                           );
                           const lines = Math.max(1, Math.ceil(len / perLine));
                           const need = lines * fontSize * lineHeight;
@@ -2100,7 +2107,7 @@ const getPreferredRoundCode = (bracket, bracketDetail) => {
 const mergeOptionsWithPrefill = (options, prefillCode, t) => {
   if (!prefillCode) return options || [];
   const exists = (options || []).some(
-    (o) => String(o.code).toUpperCase() === String(prefillCode).toUpperCase()
+    (o) => String(o.code).toUpperCase() === String(prefillCode).toUpperCase(),
   );
   if (exists) return options || [];
   const size = sizeFromRoundCode(prefillCode);
@@ -2109,7 +2116,7 @@ const mergeOptionsWithPrefill = (options, prefillCode, t) => {
     { code: prefillCode, label, roundNumber: 1 },
   ]);
   return merged.sort(
-    (a, b) => sizeFromRoundCode(b.code) - sizeFromRoundCode(a.code)
+    (a, b) => sizeFromRoundCode(b.code) - sizeFromRoundCode(a.code),
   );
 };
 
@@ -2182,9 +2189,7 @@ const GroupMatchesDialog = memo(function GroupMatchesDialog({
               displayMode={displayMode}
             />
           ) : (
-            <Alert severity="info">
-              {t("draw.noGroupPreview")}
-            </Alert>
+            <Alert severity="info">{t("draw.noGroupPreview")}</Alert>
           )
         ) : (
           <Alert severity="info">{t("draw.manualComingSoon")}</Alert>
@@ -2245,16 +2250,18 @@ const AssignByesDialog = memo(function AssignByesDialog({
       arr.push({ id, label: displayPairName(reg, eventType, displayMode) });
     });
     return arr.sort((a, b) =>
-      a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+      a.label.localeCompare(b.label, "vi", { sensitivity: "base" }),
     );
   }, [regIndex, eventType, displayMode]);
 
   const nameByRegId = useCallback(
     (id) => {
       const reg = regIndex?.get(String(id));
-      return reg ? displayPairName(reg, eventType, displayMode) : `#${String(id).slice(-6)}`;
+      return reg
+        ? displayPairName(reg, eventType, displayMode)
+        : `#${String(id).slice(-6)}`;
     },
-    [regIndex, eventType, displayMode]
+    [regIndex, eventType, displayMode],
   );
 
   const resetPreview = useCallback(() => setPreview(null), []);
@@ -2295,7 +2302,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
         setPreview(Array.isArray(resp?.preview) ? resp.preview : []);
       } else {
         toast.success(
-          t("draw.assignByeSuccess", { count: resp?.assigned || 0 })
+          t("draw.assignByeSuccess", { count: resp?.assigned || 0 }),
         );
         await Promise.all([refetchMatches?.(), refetchBracket?.()]);
         onClose?.();
@@ -2345,7 +2352,9 @@ const AssignByesDialog = memo(function AssignByesDialog({
               <MenuItem value="topEachGroup">
                 {t("draw.sourceTopEachGroup")}
               </MenuItem>
-              <MenuItem value="bestOfTopN">{t("draw.sourceBestOfTopN")}</MenuItem>
+              <MenuItem value="bestOfTopN">
+                {t("draw.sourceBestOfTopN")}
+              </MenuItem>
             </Select>
           </FormControl>
 
@@ -2478,7 +2487,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
                           setSelectedMatchIds((old) =>
                             e.target.checked
                               ? [...old, id]
-                              : old.filter((x) => x !== id)
+                              : old.filter((x) => x !== id),
                           );
                           resetPreview();
                         }}
@@ -2488,8 +2497,13 @@ const AssignByesDialog = memo(function AssignByesDialog({
                       <Stack direction="row" spacing={1} alignItems="center">
                         <Chip size="small" label={`#${m.order ?? 0}`} />
                         <Typography variant="body2">
-                          {m.pairA ? displayPairName(m.pairA, eventType, displayMode) : "—"} vs{" "}
-                          {m.pairB ? displayPairName(m.pairB, eventType, displayMode) : "—"}
+                          {m.pairA
+                            ? displayPairName(m.pairA, eventType, displayMode)
+                            : "—"}{" "}
+                          vs{" "}
+                          {m.pairB
+                            ? displayPairName(m.pairB, eventType, displayMode)
+                            : "—"}
                         </Typography>
                       </Stack>
                     }
@@ -2645,7 +2659,7 @@ export default function DrawPage() {
       refetchOnFocus: true,
       refetchOnReconnect: true,
       forceRefetch: () => true,
-    }
+    },
   );
   const {
     data: tournament,
@@ -2711,7 +2725,7 @@ export default function DrawPage() {
       refetchOnFocus: true,
       refetchOnReconnect: true,
       forceRefetch: () => true,
-    }
+    },
   );
 
   const [selBracketId, setSelBracketId] = useState(preselectBracket);
@@ -2719,7 +2733,7 @@ export default function DrawPage() {
     useMemo(
       () =>
         brackets.find((b) => String(b._id) === String(selBracketId)) || null,
-      [brackets, selBracketId]
+      [brackets, selBracketId],
     ) || null;
 
   const { data: bracketDetail, refetch: refetchBracket } = useGetBracketQuery(
@@ -2730,7 +2744,7 @@ export default function DrawPage() {
       refetchOnFocus: true,
       refetchOnReconnect: true,
       forceRefetch: () => true,
-    }
+    },
   );
 
   const {
@@ -2762,7 +2776,7 @@ export default function DrawPage() {
       });
       setQ(sp, { replace: true });
     },
-    [q, setQ]
+    [q, setQ],
   );
 
   // Derives
@@ -2838,11 +2852,11 @@ export default function DrawPage() {
 
   const preferredRoundCode = useMemo(
     () => getPreferredRoundCode(bracket, bracketDetail),
-    [bracket, bracketDetail]
+    [bracket, bracketDetail],
   );
   const knockoutOptionsFinal = useMemo(
     () => mergeOptionsWithPrefill(knockoutOptionsBase, preferredRoundCode, t),
-    [knockoutOptionsBase, preferredRoundCode, t]
+    [knockoutOptionsBase, preferredRoundCode, t],
   );
 
   const largestRoundCode = useMemo(() => {
@@ -2884,7 +2898,7 @@ export default function DrawPage() {
 
   const selectRoundValue = useMemo(() => {
     const codes = new Set(
-      knockoutOptionsFinal.map((o) => String(o.code).toUpperCase())
+      knockoutOptionsFinal.map((o) => String(o.code).toUpperCase()),
     );
     const candidate =
       (roundCode && String(roundCode).toUpperCase()) ||
@@ -3004,9 +3018,7 @@ export default function DrawPage() {
         setDrawId(null);
         setDrawDoc(null);
       } catch (e) {
-        toast.error(
-          e?.data?.message || e?.error || t("draw.startError")
-        );
+        toast.error(e?.data?.message || e?.error || t("draw.startError"));
       }
     };
     socket.on("draw:update", onUpdate);
@@ -3025,7 +3037,7 @@ export default function DrawPage() {
   // groups
   const groupsRaw = useMemo(
     () => bracketDetail?.groups || bracket?.groups || [],
-    [bracketDetail, bracket]
+    [bracketDetail, bracket],
   );
   const plannedGroupsMeta = useMemo(() => {
     if (drawType !== "group") return [];
@@ -3047,8 +3059,8 @@ export default function DrawPage() {
         String(a.name || a.code || "").localeCompare(
           String(b.name || b.code || ""),
           "vi",
-          { numeric: true, sensitivity: "base" }
-        )
+          { numeric: true, sensitivity: "base" },
+        ),
       )
       .map((g, idx) => {
         const code = g.name || g.code || String.fromCharCode(65 + idx);
@@ -3072,7 +3084,7 @@ export default function DrawPage() {
       });
 
     const persistedFilled = persisted.some(
-      (g) => g.size > 0 || (g.regIds && g.regIds.length)
+      (g) => g.size > 0 || (g.regIds && g.regIds.length),
     );
 
     // Đang bốc thì vẫn ưu tiên planned meta (groupSizes) để preview layout
@@ -3088,7 +3100,7 @@ export default function DrawPage() {
   const selectedRoundNumber = useMemo(() => {
     const opt = knockoutOptionsFinal.find(
       (o) =>
-        String(o.code).toUpperCase() === String(selectRoundValue).toUpperCase()
+        String(o.code).toUpperCase() === String(selectRoundValue).toUpperCase(),
     );
     return opt?.roundNumber ?? 1;
   }, [knockoutOptionsFinal, selectRoundValue]);
@@ -3099,9 +3111,9 @@ export default function DrawPage() {
       (allMatches || []).filter(
         (m) =>
           String(m.bracket?._id || m.bracket) === String(selBracketId) &&
-          String(bracket?.type || "").toLowerCase() !== "group"
+          String(bracket?.type || "").toLowerCase() !== "group",
       ),
-    [allMatches, selBracketId, bracket]
+    [allMatches, selBracketId, bracket],
   );
 
   const koPairsPersisted = useMemo(() => {
@@ -3112,21 +3124,27 @@ export default function DrawPage() {
       AName: m.pairA
         ? displayPairName(m.pairA, tournament?.eventType, nameDisplayMode)
         : (m.previousA &&
-          t("draw.winnerOfRound", {
-            round: m.previousA.round ?? "?",
-            index: (m.previousA.order ?? 0) + 1,
-          })) ||
-        "—",
+            t("draw.winnerOfRound", {
+              round: m.previousA.round ?? "?",
+              index: (m.previousA.order ?? 0) + 1,
+            })) ||
+          "—",
       BName: m.pairB
         ? displayPairName(m.pairB, tournament?.eventType, nameDisplayMode)
         : (m.previousB &&
-          t("draw.winnerOfRound", {
-            round: m.previousB.round ?? "?",
-            index: (m.previousB.order ?? 0) + 1,
-          })) ||
-        "—",
+            t("draw.winnerOfRound", {
+              round: m.previousB.round ?? "?",
+              index: (m.previousB.order ?? 0) + 1,
+            })) ||
+          "—",
     }));
-  }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType, nameDisplayMode, t]);
+  }, [
+    koMatchesThisBracket,
+    selectedRoundNumber,
+    tournament?.eventType,
+    nameDisplayMode,
+    t,
+  ]);
 
   const revealsForKO = useMemo(() => {
     // RUNNING: luôn theo reveals
@@ -3164,7 +3182,7 @@ export default function DrawPage() {
 
     if (boardGroups && boardGroups.length) {
       const persistedMap = new Map(
-        (groupsMeta || []).map((g) => [norm(g.code), g])
+        (groupsMeta || []).map((g) => [norm(g.code), g]),
       );
 
       return boardGroups.map((g, gi) => {
@@ -3250,7 +3268,7 @@ export default function DrawPage() {
         .slice()
         .sort(
           (a, b) =>
-            (a.round || 1) - (b.round || 1) || (a.order ?? 0) - (b.order ?? 0)
+            (a.round || 1) - (b.round || 1) || (a.order ?? 0) - (b.order ?? 0),
         );
 
       const maxRoundReal = realSorted.length
@@ -3278,10 +3296,20 @@ export default function DrawPage() {
         Array.isArray(boardPairs) && boardPairs.length
           ? boardPairs.map((pair) => ({
               A: pair?.a
-                ? (() => { const reg = pair?.a ? regIndex?.get(String(pair.a)) : null; return reg ? displayPairName(reg, eventType, displayMode) : t("draw.teamPending"); })()
+                ? (() => {
+                    const reg = pair?.a ? regIndex?.get(String(pair.a)) : null;
+                    return reg
+                      ? displayPairName(reg, eventType, displayMode)
+                      : t("draw.teamPending");
+                  })()
                 : t("draw.teamPending"),
               B: pair?.b
-                ? (() => { const reg = pair?.b ? regIndex?.get(String(pair.b)) : null; return reg ? displayPairName(reg, eventType, displayMode) : t("draw.teamPending"); })()
+                ? (() => {
+                    const reg = pair?.b ? regIndex?.get(String(pair.b)) : null;
+                    return reg
+                      ? displayPairName(reg, eventType, displayMode)
+                      : t("draw.teamPending");
+                  })()
                 : t("draw.teamPending"),
             }))
           : (reveals || []).map((rv) => ({
@@ -3293,7 +3321,7 @@ export default function DrawPage() {
       const firstRoundPairs = Math.max(
         expectedFirstPairs,
         countByRoundReal[firstRound] || 0,
-        revealsPairs.length || 0
+        revealsPairs.length || 0,
       );
 
       const seedsCount = { [firstRound]: firstRoundPairs };
@@ -3367,7 +3395,7 @@ export default function DrawPage() {
       }
       return rounds;
     },
-    [drawType, regIndex, t]
+    [drawType, regIndex, t],
   );
 
   /* ===== Hoàn thành chỉ khi drawNext làm pool về 0 ===== */
@@ -3384,7 +3412,7 @@ export default function DrawPage() {
       const reg = regId ? regIndex?.get(String(regId)) : null;
       return reg ? displayPairName(reg, eventType, nameDisplayMode) : fallback;
     },
-    [regIndex, eventType, nameDisplayMode]
+    [regIndex, eventType, nameDisplayMode],
   );
 
   // START DRAW
@@ -3395,10 +3423,10 @@ export default function DrawPage() {
         drawType === "group"
           ? { mode: "group" }
           : {
-            mode: drawType === "po" ? "po" : "knockout",
-            round: selectRoundValue,
-            ...(drawType === "knockout" ? { usePrevWinners } : {}),
-          };
+              mode: drawType === "po" ? "po" : "knockout",
+              round: selectRoundValue,
+              ...(drawType === "knockout" ? { usePrevWinners } : {}),
+            };
 
       const resp = await startDraw({ bracketId: selBracketId, body }).unwrap();
 
@@ -3452,9 +3480,7 @@ export default function DrawPage() {
       }
     } catch (e) {
       console.log(e);
-      toast.error(
-        e?.data?.message || e?.error || t("draw.startError")
-      );
+      toast.error(e?.data?.message || e?.error || t("draw.startError"));
     }
   }, [
     selBracketId,
@@ -3513,11 +3539,17 @@ export default function DrawPage() {
             const AName =
               nx.side === "A"
                 ? getDisplayNameByRegId(nx.regId, nx.name || "—")
-                : getDisplayNameByRegId(pair.a, pair.AName || pair.A || t("draw.teamPending"));
+                : getDisplayNameByRegId(
+                    pair.a,
+                    pair.AName || pair.A || t("draw.teamPending"),
+                  );
             const BName =
               nx.side === "B"
                 ? getDisplayNameByRegId(nx.regId, nx.name || "—")
-                : getDisplayNameByRegId(pair.b, pair.BName || pair.B || t("draw.teamPending"));
+                : getDisplayNameByRegId(
+                    pair.b,
+                    pair.BName || pair.B || t("draw.teamPending"),
+                  );
             setOverlayMode("ko");
             setOverlayData({ AName, BName });
             setOverlayOpen(true);
@@ -3535,7 +3567,7 @@ export default function DrawPage() {
         toast.success(
           drawType === "group"
             ? t("draw.groupRevealDone")
-            : t("draw.roundRevealDone")
+            : t("draw.roundRevealDone"),
         );
       }
       prevPoolCountRef.current = cur;
@@ -3601,12 +3633,16 @@ export default function DrawPage() {
           const rid = asId(last?.regId ?? last?.reg ?? last?.id ?? last?._id);
           const name =
             (rid && regIndex.has(String(rid))
-              ? displayPairName(regIndex.get(String(rid)), eventType, nameDisplayMode)
+              ? displayPairName(
+                  regIndex.get(String(rid)),
+                  eventType,
+                  nameDisplayMode,
+                )
               : last?.nickName ||
-              last?.teamName ||
-              last?.name ||
-              last?.team ||
-              last?.displayName) || "—";
+                last?.teamName ||
+                last?.name ||
+                last?.team ||
+                last?.displayName) || "—";
           out.push({ name, meta: null });
         } else {
           const prev = Array.isArray(reveals) ? [...reveals] : [];
@@ -3630,7 +3666,7 @@ export default function DrawPage() {
             }
           }
           out.push(
-            ...added.filter(Boolean).map((nm) => ({ name: nm, meta: null }))
+            ...added.filter(Boolean).map((nm) => ({ name: nm, meta: null })),
           );
         }
       }
@@ -3707,18 +3743,18 @@ export default function DrawPage() {
           const slotIndex = reveals
             .slice(0, i)
             .filter(
-              (x) => (x.groupCode || x.groupKey || x.group) === key
+              (x) => (x.groupCode || x.groupKey || x.group) === key,
             ).length;
           const rid = asId(c.regId ?? c.reg ?? c.id ?? c._id);
           const reg = rid && regIndex?.get(String(rid));
           const teamName = reg
             ? displayPairName(reg, eventType, nameDisplayMode)
             : c.nickName ||
-            c.teamName ||
-            c.name ||
-            c.team ||
-            c.displayName ||
-            "—";
+              c.teamName ||
+              c.name ||
+              c.team ||
+              c.displayName ||
+              "—";
           setOverlayMode("group");
           setOverlayData({ groupCode: key, slotIndex, teamName });
           setOverlayOpen(true);
@@ -3726,7 +3762,7 @@ export default function DrawPage() {
           setTimeout(
             () =>
               setLastHighlight({ type: "group", groupCode: key, slotIndex }),
-            1200
+            1200,
           );
         } else {
           hit = { AName: cA || "—", BName: cB || "—" };
@@ -3790,11 +3826,13 @@ export default function DrawPage() {
         .map((id) => {
           const str = String(id);
           const reg = regIndex?.get(str);
-          const label = displayPairName(reg, eventType, nameDisplayMode) || `#${str.slice(-6)}`;
+          const label =
+            displayPairName(reg, eventType, nameDisplayMode) ||
+            `#${str.slice(-6)}`;
           return { id: str, label };
         })
         .sort((a, b) =>
-          a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+          a.label.localeCompare(b.label, "vi", { sensitivity: "base" }),
         );
     }
 
@@ -3805,7 +3843,8 @@ export default function DrawPage() {
       (revealsForGroup || []).forEach((rv) => {
         const rid = asId(rv.regId ?? rv.reg ?? rv.id ?? rv._id);
         const reg = rid && regIndex?.get(String(rid));
-        if (reg) revealedNames.add(displayPairName(reg, eventType, nameDisplayMode));
+        if (reg)
+          revealedNames.add(displayPairName(reg, eventType, nameDisplayMode));
       });
     } else {
       (revealsForKO || []).forEach((rv) => {
@@ -3820,7 +3859,7 @@ export default function DrawPage() {
       if (!revealedNames.has(label)) out.push({ id: String(id), label });
     });
     return out.sort((a, b) =>
-      a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+      a.label.localeCompare(b.label, "vi", { sensitivity: "base" }),
     );
   }, [
     drawDoc?.pool,
@@ -3858,7 +3897,7 @@ export default function DrawPage() {
         }
       }
     },
-    [drawType]
+    [drawType],
   );
   /* ===== Render ===== */
   if (lt || lb || ls || lRegs || lMatches) {
@@ -4005,10 +4044,11 @@ export default function DrawPage() {
       )}
 
       <Paper
-        key={`${selBracketId || "none"}-${drawType === "knockout" || drawType === "po"
+        key={`${selBracketId || "none"}-${
+          drawType === "knockout" || drawType === "po"
             ? selectRoundValue || "R?"
             : "group"
-          }`}
+        }`}
         variant="outlined"
         sx={{ p: 2, flex: 1 }}
       >
@@ -4106,7 +4146,7 @@ export default function DrawPage() {
                   clearCardDeckFromStorage(
                     selBracketId,
                     drawType,
-                    selectRoundValue
+                    selectRoundValue,
                   );
 
                   setShowDoneBanner(false);
@@ -4116,13 +4156,11 @@ export default function DrawPage() {
                   toast.success(
                     drawType === "group"
                       ? t("draw.commitGroupSuccess")
-                      : t("draw.commitRoundSuccess")
+                      : t("draw.commitRoundSuccess"),
                   );
                 } catch (e) {
                   toast.error(
-                    e?.data?.message ||
-                    e?.error ||
-                    t("draw.commitError")
+                    e?.data?.message || e?.error || t("draw.commitError"),
                   );
                 }
 
@@ -4137,8 +4175,8 @@ export default function DrawPage() {
                   } catch (e) {
                     toast.error(
                       e?.data?.message ||
-                      e?.error ||
-                      t("draw.commitReloadError")
+                        e?.error ||
+                        t("draw.commitReloadError"),
                     );
                   }
                 }
@@ -4159,7 +4197,7 @@ export default function DrawPage() {
                   canceled = true;
                 } catch (e) {
                   toast.error(
-                    e?.data?.message || e?.error || t("draw.cancelError")
+                    e?.data?.message || e?.error || t("draw.cancelError"),
                   );
                 }
 
@@ -4167,7 +4205,7 @@ export default function DrawPage() {
                 clearCardDeckFromStorage(
                   selBracketId,
                   drawType,
-                  selectRoundValue
+                  selectRoundValue,
                 );
 
                 // Local state reset
@@ -4187,9 +4225,7 @@ export default function DrawPage() {
                   } catch (e) {
                     // lỗi refetch thì thôi, đã reset local rồi
                   }
-                  toast.success(
-                    t("draw.cancelSuccess")
-                  );
+                  toast.success(t("draw.cancelSuccess"));
                 }
               }}
             >
@@ -4235,7 +4271,8 @@ export default function DrawPage() {
                   roundCode: selectRoundValue,
                   // ✅ RUNNING → chỉ lấy từ reveals; ngừng “đọc đè” từ matches
                   reveals: state === "running" ? revealsForKO : [],
-                  boardPairs: state === "running" ? drawDoc?.board?.pairs || [] : [],
+                  boardPairs:
+                    state === "running" ? drawDoc?.board?.pairs || [] : [],
                   matches:
                     state === "running" || lMatches ? [] : koMatchesThisBracket,
 
@@ -4271,9 +4308,7 @@ export default function DrawPage() {
               <Typography fontWeight={700} gutterBottom>
                 {t("draw.poolTitle")}
               </Typography>
-              <Alert severity="info">
-                {t("draw.knockoutPoolInfo")}
-              </Alert>
+              <Alert severity="info">{t("draw.knockoutPoolInfo")}</Alert>
             </Paper>
           )}
 
@@ -4295,8 +4330,8 @@ export default function DrawPage() {
                   to={`/tournament/${tournamentId}/bracket?tab=${Math.max(
                     0,
                     brackets.findIndex(
-                      (b) => String(b._id) === String(selBracketId)
-                    )
+                      (b) => String(b._id) === String(selBracketId),
+                    ),
                   )}`}
                   variant="outlined"
                 >

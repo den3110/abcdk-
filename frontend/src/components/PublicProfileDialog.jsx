@@ -471,7 +471,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         document.execCommand("copy");
         document.body.removeChild(ta);
       }
-    } catch { }
+    } catch {}
   }
 
   function CopyIconBtn({ text, label = "Nội dung" }) {
@@ -520,15 +520,15 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const rateQ = useGetRatingHistoryQuery(
     wantsRatings
       ? { id: userId, page: ratingPage, limit: ratingPerPage }
-      : skipToken
+      : skipToken,
   );
   const matchQ = useGetMatchHistoryQuery(
     wantsMatches
       ? { id: userId, page: matchPage, limit: matchPerPage }
-      : skipToken
+      : skipToken,
   );
   const achQ = useGetUserAchievementsQuery(
-    wantsAchievements ? userId : skipToken
+    wantsAchievements ? userId : skipToken,
   );
 
   // ---- trạng thái từng API (cả loading & refetching) ----
@@ -544,7 +544,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
   /* --- viewer is admin? --- */
   const viewerIsAdmin = useSelector(
-    (s) => !!(s?.auth?.userInfo?.isAdmin || s?.auth?.userInfo?.role === "admin")
+    (s) =>
+      !!(s?.auth?.userInfo?.isAdmin || s?.auth?.userInfo?.role === "admin"),
   );
 
   /* --- backend pagination --- */
@@ -819,11 +820,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                   Array.isArray(base?.roles) && base.roles.length
                     ? base.roles.join(", ")
                     : base?.role ||
-                    (typeof base?.isAdmin === "boolean"
-                      ? base.isAdmin
-                        ? "admin"
-                        : "user"
-                      : "")
+                      (typeof base?.isAdmin === "boolean"
+                        ? base.isAdmin
+                          ? "admin"
+                          : "user"
+                        : "")
                 }
               />
               <InfoRow
@@ -925,7 +926,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     async function handleDeleteRow(h) {
       if (!isAdmin) return;
       const ok = window.confirm(
-        "Bạn có chắc chắn muốn xoá mục lịch sử điểm trình này?\nHành động không thể hoàn tác."
+        "Bạn có chắc chắn muốn xoá mục lịch sử điểm trình này?\nHành động không thể hoàn tác.",
       );
       if (!ok) return;
 
@@ -986,92 +987,92 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Typography>
           {ratingPaged.length
             ? ratingPaged.map((h) => {
-              const historyId = h?._id ?? h?.id;
-              const noteText = isAdmin ? safe(h?.note, TEXT_PLACE) : h?.note;
-              const scorerName = h?.scorer?.name || h?.scorer?.email || "—";
-              return (
-                <Card
-                  key={historyId}
-                  variant="outlined"
-                  sx={{ borderRadius: 1.5 }}
-                >
-                  <CardContent sx={{ p: 1.5 }}>
-                    <Stack spacing={1}>
-                      <Stack
-                        direction="row"
-                        alignItems="center"
-                        justifyContent="space-between"
-                      >
-                        <Typography variant="body2" fontWeight={600}>
-                          {fmtDate(h.scoredAt)}
+                const historyId = h?._id ?? h?.id;
+                const noteText = isAdmin ? safe(h?.note, TEXT_PLACE) : h?.note;
+                const scorerName = h?.scorer?.name || h?.scorer?.email || "—";
+                return (
+                  <Card
+                    key={historyId}
+                    variant="outlined"
+                    sx={{ borderRadius: 1.5 }}
+                  >
+                    <CardContent sx={{ p: 1.5 }}>
+                      <Stack spacing={1}>
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          justifyContent="space-between"
+                        >
+                          <Typography variant="body2" fontWeight={600}>
+                            {fmtDate(h.scoredAt)}
+                          </Typography>
+                          {isAdmin ? (
+                            <Tooltip title="Xoá mục này">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteRow(h)}
+                                  disabled={
+                                    deleting && deletingId === historyId
+                                  }
+                                  aria-label="delete-score-history"
+                                >
+                                  <DeleteOutlineOutlinedIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          ) : null}
+                        </Stack>
+
+                        <Typography
+                          variant="caption"
+                          sx={{ color: "text.secondary" }}
+                        >
+                          Bởi: {scorerName}
                         </Typography>
-                        {isAdmin ? (
-                          <Tooltip title="Xoá mục này">
-                            <span>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDeleteRow(h)}
-                                disabled={
-                                  deleting && deletingId === historyId
-                                }
-                                aria-label="delete-score-history"
-                              >
-                                <DeleteOutlineOutlinedIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
+
+                        <Stack direction="row" spacing={1}>
+                          <Chip
+                            size="small"
+                            label={`Đơn: ${num(h.single)}`}
+                            variant="outlined"
+                          />
+                          <Chip
+                            size="small"
+                            label={`Đôi: ${num(h.double)}`}
+                            variant="outlined"
+                          />
+                        </Stack>
+
+                        {noteText ? (
+                          <>
+                            <Divider flexItem />
+                            <Typography
+                              variant="body2"
+                              color="text.secondary"
+                              sx={{
+                                display: "-webkit-box",
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                              }}
+                            >
+                              {noteText}
+                            </Typography>
+                          </>
                         ) : null}
                       </Stack>
-
-                      <Typography
-                        variant="caption"
-                        sx={{ color: "text.secondary" }}
-                      >
-                        Bởi: {scorerName}
-                      </Typography>
-
-                      <Stack direction="row" spacing={1}>
-                        <Chip
-                          size="small"
-                          label={`Đơn: ${num(h.single)}`}
-                          variant="outlined"
-                        />
-                        <Chip
-                          size="small"
-                          label={`Đôi: ${num(h.double)}`}
-                          variant="outlined"
-                        />
-                      </Stack>
-
-                      {noteText ? (
-                        <>
-                          <Divider flexItem />
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={{
-                              display: "-webkit-box",
-                              WebkitLineClamp: 3,
-                              WebkitBoxOrient: "vertical",
-                              overflow: "hidden",
-                            }}
-                          >
-                            {noteText}
-                          </Typography>
-                        </>
-                      ) : null}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              );
-            })
+                    </CardContent>
+                  </Card>
+                );
+              })
             : EmptyState}
           <Stack direction="row" justifyContent="center" mt={0.5}>
             <Pagination
               page={
                 window.__dummy || 1 /* placeholder, thực tế dùng state ngoài */
               }
-              onChange={() => { }}
+              onChange={() => {}}
               count={Math.max(1, Math.ceil(ratingTotal / 10))}
               shape="rounded"
               size="small"
@@ -1169,7 +1170,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         <Stack direction="row" justifyContent="center">
           <Pagination
             page={window.__dummy || 1 /* placeholder */}
-            onChange={() => { }}
+            onChange={() => {}}
             count={Math.max(1, Math.ceil(ratingTotal / 10))}
             shape="rounded"
             size="small"
