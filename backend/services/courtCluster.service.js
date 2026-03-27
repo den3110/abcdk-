@@ -700,11 +700,79 @@ function buildQueueItemSummary(item, options = {}) {
   };
 }
 
+function isActiveMatchStatus(status) {
+  return ACTIVE_MATCH_STATUSES.includes(safeText(status).toLowerCase());
+}
+
+function collectStationQueueMatchDocs(station) {
+  const items = Array.isArray(station?.assignmentQueue?.items)
+    ? station.assignmentQueue.items
+    : [];
+  return items
+    .map((item) => item?.matchId || item?.match || null)
+    .filter(Boolean);
+}
+
+function selectPreferredStationMatchDocs(station) {
+  if (!station) {
+    return {
+      currentMatch: null,
+      nextQueuedMatch: null,
+    };
+  }
+
+  const orderedCandidates = [];
+  const seenIds = new Set();
+  const pushCandidate = (match) => {
+    if (!match) return;
+    const matchId = toIdString(match?._id || match);
+    if (!matchId || seenIds.has(matchId)) return;
+    seenIds.add(matchId);
+    orderedCandidates.push(match);
+  };
+
+  pushCandidate(station.currentMatch);
+  collectStationQueueMatchDocs(station).forEach(pushCandidate);
+
+  const activeCandidates = orderedCandidates.filter((match) =>
+    isActiveMatchStatus(match?.status)
+  );
+  if (!activeCandidates.length) {
+    return {
+      currentMatch: null,
+      nextQueuedMatch: null,
+    };
+  }
+
+  const liveCandidate =
+    activeCandidates.find(
+      (match) => safeText(match?.status).toLowerCase() === "live"
+    ) || null;
+  const currentMatchId = toIdString(station.currentMatch?._id || station.currentMatch);
+  const currentCandidate =
+    activeCandidates.find(
+      (match) => toIdString(match?._id || match) === currentMatchId
+    ) || null;
+
+  const preferredCurrent = liveCandidate || currentCandidate || activeCandidates[0] || null;
+  const preferredCurrentId = toIdString(preferredCurrent?._id || preferredCurrent);
+  const preferredNext =
+    activeCandidates.find(
+      (match) => toIdString(match?._id || match) !== preferredCurrentId
+    ) || null;
+
+  return {
+    currentMatch: preferredCurrent,
+    nextQueuedMatch: preferredNext,
+  };
+}
+
 function buildStationSummary(station, options = {}) {
   if (!station) return null;
   const cluster = station.clusterId && typeof station.clusterId === "object"
     ? station.clusterId
     : options.cluster || null;
+  const preferredMatches = selectPreferredStationMatchDocs(station);
   const queueItems = Array.isArray(station?.assignmentQueue?.items)
     ? station.assignmentQueue.items
         .map((item) => buildQueueItemSummary(item, options))
@@ -721,11 +789,16 @@ function buildStationSummary(station, options = {}) {
     assignmentMode: normalizeAssignmentMode(station.assignmentMode, "manual"),
     clusterId: toIdString(cluster?._id || station.clusterId) || null,
     clusterName: safeText(cluster?.name),
-    currentMatchId: toIdString(station.currentMatch) || null,
+    currentMatchId:
+      toIdString(preferredMatches.currentMatch?._id || preferredMatches.currentMatch) ||
+      null,
     currentTournamentId: toIdString(station.currentTournament) || null,
     queueCount: queueItems.length,
     queueItems,
-    nextQueuedMatch: queueItems[0]?.match || null,
+    nextQueuedMatch:
+      buildMatchSummary(preferredMatches.nextQueuedMatch, options) ||
+      queueItems[0]?.match ||
+      null,
     liveConfig: station.liveConfig || null,
     presence: station.presence?.liveScreenPresence || null,
   };
@@ -1295,7 +1368,10 @@ export async function listCourtStations(clusterId, { includeMatches = false } = 
     : new Map();
   return docs.map((station) => ({
     ...buildStationSummary(station, { matchDisplayContexts }),
-    currentMatch: buildMatchSummary(station.currentMatch, { matchDisplayContexts }),
+    currentMatch: buildMatchSummary(
+      selectPreferredStationMatchDocs(station).currentMatch,
+      { matchDisplayContexts }
+    ),
     currentTournament: station.currentTournament
       ? {
           _id: toIdString(station.currentTournament._id || station.currentTournament),
@@ -1474,12 +1550,13 @@ function buildRuntimeStationPayload(stationDoc, options = {}) {
     options?.matchDisplayContexts instanceof Map
       ? options.matchDisplayContexts
       : new Map();
+  const preferredMatches = selectPreferredStationMatchDocs(stationDoc);
   return {
     ...buildStationSummary(stationDoc, {
       cluster: stationDoc?.clusterId,
       matchDisplayContexts,
     }),
-    currentMatch: buildMatchSummary(stationDoc.currentMatch, {
+    currentMatch: buildMatchSummary(preferredMatches.currentMatch, {
       matchDisplayContexts,
     }),
     currentTournament: stationDoc?.currentTournament
@@ -1502,11 +1579,12 @@ async function buildRuntimeStationPayloadAsync(stationDoc) {
 }
 
 async function buildCurrentMatchPayloadAsync(stationDoc) {
-  if (!stationDoc?.currentMatch) return null;
+  const preferredCurrent = selectPreferredStationMatchDocs(stationDoc).currentMatch;
+  if (!preferredCurrent) return null;
   const matchDisplayContexts = await buildMatchDisplayContextsFromMatches([
-    stationDoc.currentMatch,
+    preferredCurrent,
   ]);
-  return buildMatchSummary(stationDoc.currentMatch, { matchDisplayContexts });
+  return buildMatchSummary(preferredCurrent, { matchDisplayContexts });
 }
 
 export async function assignMatchToCourtStation(

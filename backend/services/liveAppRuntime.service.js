@@ -230,6 +230,62 @@ function lexCmp(a, b) {
   return 0;
 }
 
+function isActiveMatchStatus(status) {
+  return Object.prototype.hasOwnProperty.call(
+    STATUS_RANK,
+    pick(status).toLowerCase()
+  );
+}
+
+async function resolvePreferredStationMatchIds(station) {
+  const currentMatchId = toIdString(station?.currentMatch);
+  const queueMatchIds = Array.isArray(station?.assignmentQueue?.items)
+    ? station.assignmentQueue.items
+        .map((item) => toIdString(item?.matchId || item?.match))
+        .filter(Boolean)
+    : [];
+  const orderedCandidateIds = [currentMatchId, ...queueMatchIds].filter(Boolean);
+  const uniqueCandidateIds = Array.from(new Set(orderedCandidateIds));
+
+  if (!uniqueCandidateIds.length) {
+    return {
+      currentMatchId: null,
+      nextMatchId: null,
+    };
+  }
+
+  const matches = await Match.find({
+    _id: {
+      $in: uniqueCandidateIds.filter((matchId) =>
+        mongoose.Types.ObjectId.isValid(matchId)
+      ),
+    },
+    status: { $nin: [FINISHED, "cancelled", "canceled"] },
+  })
+    .select("_id status queueOrder assignedAt scheduledAt startedAt round order createdAt")
+    .lean();
+
+  const matchById = new Map(
+    matches.map((match) => [toIdString(match?._id), match])
+  );
+  const orderedCandidates = uniqueCandidateIds
+    .map((matchId) => matchById.get(matchId) || null)
+    .filter(Boolean);
+
+  const activeCandidates = orderedCandidates.filter((match) =>
+    isActiveMatchStatus(match?.status)
+  );
+  const liveCandidate =
+    activeCandidates.find(
+      (match) => pick(match?.status).toLowerCase() === "live"
+    ) || null;
+
+  return {
+    currentMatchId: toIdString(liveCandidate?._id) || null,
+    nextMatchId: null,
+  };
+}
+
 async function findNextManualAssignmentMatchId(court) {
   const currentMatchId = toIdString(court?.currentMatch);
   const pendingIds = getManualAssignmentItems(court)
@@ -324,14 +380,19 @@ function buildCourtStationRuntimePayload({
   station,
   presence,
   leaseConfig,
+  currentMatchIdOverride = null,
+  nextMatchIdOverride = null,
 }) {
-  const currentMatchId = toIdString(station?.currentMatch) || null;
+  const currentMatchId =
+    currentMatchIdOverride || toIdString(station?.currentMatch) || null;
   const queueItems = Array.isArray(station?.assignmentQueue?.items)
     ? station.assignmentQueue.items
     : [];
   const queueCount = queueItems.length;
   const nextQueuedMatchId =
-    toIdString(queueItems[0]?.matchId || queueItems[0]?.match?._id) || null;
+    nextMatchIdOverride ||
+    toIdString(queueItems[0]?.matchId || queueItems[0]?.match?._id) ||
+    null;
   const assignmentMode =
     String(station?.assignmentMode || "").trim().toLowerCase() === "queue"
       ? "queue"
@@ -459,15 +520,18 @@ export async function buildLiveAppCourtRuntime(courtId) {
     .populate("clusterId", "name slug")
     .lean();
   if (station) {
-    const [presenceMap, leaseConfig] = await Promise.all([
+    const [presenceMap, leaseConfig, preferredMatchIds] = await Promise.all([
       getCourtStationPresenceSummaryMap([normalizedCourtId]),
       getLiveLeaseConfig().catch(() => null),
+      resolvePreferredStationMatchIds(station),
     ]);
 
     const payload = buildCourtStationRuntimePayload({
       station,
       presence: presenceMap.get(normalizedCourtId) || station?.presence?.liveScreenPresence || null,
       leaseConfig,
+      currentMatchIdOverride: preferredMatchIds.currentMatchId,
+      nextMatchIdOverride: preferredMatchIds.nextMatchId,
     });
     courtRuntimeCache.set(normalizedCourtId, payload);
     return {
