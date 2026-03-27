@@ -2875,6 +2875,7 @@ export default function TournamentManagePage() {
         onClose={closeLiveSetup}
         tournamentId={id}
         bracketId={liveSetup.bracketId}
+        allowedClusters={tour?.allowedCourtClusters || []}
       />
 
       {/* Popup xem/tracking trận */}
