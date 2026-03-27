@@ -166,14 +166,69 @@ function buildCurrentScore(gameScores) {
   };
 }
 
+const STAGE_NAME_MAP = {
+  // Group / Round Robin
+  "group stage": "Vòng bảng",
+  "group": "Vòng bảng",
+  "round robin": "Vòng bảng",
+  "round_robin": "Vòng bảng",
+  "vong bang": "Vòng bảng",
+  "pool play": "Vòng bảng",
+  // Knockout / Single Elimination
+  "knockout": "Loại trực tiếp",
+  "single elimination": "Loại trực tiếp",
+  "single_elimination": "Loại trực tiếp",
+  "roundelim": "Loại trực tiếp",
+  // Double Elimination
+  "double elimination": "Nhánh đấu",
+  "double_elimination": "Nhánh đấu",
+  "double_elim": "Nhánh đấu",
+  "nhanh dau": "Nhánh đấu",
+  // Specific rounds
+  "round of 32": "Vòng 32 đội",
+  "round of 16": "Vòng 16 đội",
+  "quarterfinal": "Tứ kết",
+  "quarterfinals": "Tứ kết",
+  "quarter-final": "Tứ kết",
+  "quarter final": "Tứ kết",
+  "tu ket": "Tứ kết",
+  "semifinal": "Bán kết",
+  "semifinals": "Bán kết",
+  "semi-final": "Bán kết",
+  "semi final": "Bán kết",
+  "ban ket": "Bán kết",
+  "final": "Chung kết",
+  "finals": "Chung kết",
+  "grand final": "Chung kết",
+  "chung ket": "Chung kết",
+  // Consolation
+  "consolation": "Tranh hạng 3",
+  "3rd place": "Tranh hạng 3",
+  "bronze": "Tranh hạng 3",
+};
+
+function normalizeStageName(raw) {
+  if (!raw) return "";
+  const key = raw.trim().toLowerCase();
+  if (STAGE_NAME_MAP[key]) return STAGE_NAME_MAP[key];
+  // Partial match for "round of N"
+  const roundOfMatch = key.match(/^round\s+of\s+(\d+)$/);
+  if (roundOfMatch) return `Vòng ${roundOfMatch[1]} đội`;
+  return raw.trim(); // keep original if no mapping found
+}
+
 function buildStageName(match) {
   const bracketName = pick(match?.bracket?.name);
-  if (bracketName) return bracketName;
+  if (bracketName) {
+    const normalized = normalizeStageName(bracketName);
+    if (normalized) return normalized;
+  }
 
   const format = pick(match?.format).toLowerCase();
-  if (format === "group" || format === "round_robin") return "Vong bang";
-  if (format === "double_elim") return "Nhanh dau";
-  if (format === "knockout" || format === "roundelim") return "Knockout";
+  if (format) {
+    const normalized = normalizeStageName(format);
+    if (normalized) return normalized;
+  }
   return "";
 }
 
@@ -238,6 +293,7 @@ function isActiveMatchStatus(status) {
 }
 
 async function resolvePreferredStationMatchIds(station) {
+  const stationId = toIdString(station?._id);
   const currentMatchId = toIdString(station?.currentMatch);
   const queueMatchIds = Array.isArray(station?.assignmentQueue?.items)
     ? station.assignmentQueue.items
@@ -262,7 +318,7 @@ async function resolvePreferredStationMatchIds(station) {
     },
     status: { $nin: [FINISHED, "cancelled", "canceled"] },
   })
-    .select("_id status queueOrder assignedAt scheduledAt startedAt round order createdAt")
+    .select("_id status courtStation queueOrder assignedAt scheduledAt startedAt round order createdAt")
     .lean();
 
   const matchById = new Map(
@@ -275,9 +331,14 @@ async function resolvePreferredStationMatchIds(station) {
   const activeCandidates = orderedCandidates.filter((match) =>
     isActiveMatchStatus(match?.status)
   );
+
+  // Only consider live matches that are actually assigned to THIS station.
+  // A match might be in the queue but playing on a different station.
   const liveCandidate =
     activeCandidates.find(
-      (match) => pick(match?.status).toLowerCase() === "live"
+      (match) =>
+        pick(match?.status).toLowerCase() === "live" &&
+        (!toIdString(match?.courtStation) || toIdString(match.courtStation) === stationId)
     ) || null;
 
   return {
