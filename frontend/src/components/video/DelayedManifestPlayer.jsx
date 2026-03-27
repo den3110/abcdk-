@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAspectRatio } from "./AspectMediaFrame";
 import NativeVideoPlayer from "./NativeVideoPlayer";
 
-const PREFETCH_WINDOW_SEGMENTS = 10;
+const WARMUP_WINDOW_SEGMENTS = 6;
 
 function normalizeManifestItems(manifest) {
   const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
@@ -90,13 +90,10 @@ export default function DelayedManifestPlayer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [waitingForNext, setWaitingForNext] = useState(false);
-  const [prefetchedUrls, setPrefetchedUrls] = useState({});
   const [manifestStatus, setManifestStatus] = useState("");
   const currentKeyRef = useRef("");
   const waitingForNextRef = useRef(false);
-  const prefetchedUrlsRef = useRef({});
-  const prefetchCacheRef = useRef(new Map());
-  const prefetchControllersRef = useRef(new Map());
+  const warmupControllersRef = useRef(new Map());
 
   const currentItem = useMemo(() => {
     if (!items.length) return null;
@@ -118,12 +115,8 @@ export default function DelayedManifestPlayer({
   }, [currentItemIndex, items]);
   const stagedNextPlaybackUrl = useMemo(() => {
     if (!stagedNextItem?.key) return "";
-    return (
-      prefetchedUrls[stagedNextItem.key] ||
-      stagedNextItem.url ||
-      ""
-    );
-  }, [prefetchedUrls, stagedNextItem]);
+    return stagedNextItem.url || "";
+  }, [stagedNextItem]);
 
   // ── Total duration from all segments ──
   const totalDuration = useMemo(() => {
@@ -174,19 +167,13 @@ export default function DelayedManifestPlayer({
     waitingForNextRef.current = waitingForNext;
   }, [waitingForNext]);
 
-  useEffect(() => {
-    prefetchedUrlsRef.current = prefetchedUrls;
-  }, [prefetchedUrls]);
 
-  const clearPrefetchResources = useCallback(() => {
-    for (const controller of prefetchControllersRef.current.values()) {
+
+  const clearWarmupResources = useCallback(() => {
+    for (const controller of warmupControllersRef.current.values()) {
       controller.abort();
     }
-    prefetchControllersRef.current.clear();
-    for (const blobUrl of prefetchCacheRef.current.values()) {
-      URL.revokeObjectURL(blobUrl);
-    }
-    prefetchCacheRef.current.clear();
+    warmupControllersRef.current.clear();
   }, []);
 
   useEffect(() => {
@@ -194,76 +181,45 @@ export default function DelayedManifestPlayer({
       setCurrentPlaybackUrl("");
       return;
     }
-
-    setCurrentPlaybackUrl(
-      prefetchedUrlsRef.current[currentItem.key] || currentItem.url || "",
-    );
+    setCurrentPlaybackUrl(currentItem.url || "");
   }, [currentItem?.key, currentItem?.url]);
 
+  // Cache-warmup: fetch upcoming segments to populate browser HTTP cache
+  // WITHOUT converting to blob URLs, so Range requests still work for seeking
   useEffect(() => {
     const currentIndex = items.findIndex((item) => item?.key === currentKey);
-    const startIndex = currentIndex >= 0 ? currentIndex : 0;
-    const retainItems = items.slice(startIndex, startIndex + PREFETCH_WINDOW_SEGMENTS);
-    const retainKeys = new Set(retainItems.map((item) => item?.key).filter(Boolean));
+    const startIndex = Math.max(0, currentIndex >= 0 ? currentIndex + 1 : 0);
+    const warmupItems = items.slice(startIndex, startIndex + WARMUP_WINDOW_SEGMENTS);
+    const warmupKeys = new Set(warmupItems.map((item) => item?.key).filter(Boolean));
 
-    for (const [key, controller] of prefetchControllersRef.current.entries()) {
-      if (!retainKeys.has(key)) {
+    // Abort warmups for segments we no longer care about
+    for (const [key, controller] of warmupControllersRef.current.entries()) {
+      if (!warmupKeys.has(key)) {
         controller.abort();
-        prefetchControllersRef.current.delete(key);
+        warmupControllersRef.current.delete(key);
       }
     }
 
-    for (const [key, blobUrl] of prefetchCacheRef.current.entries()) {
-      if (!retainKeys.has(key)) {
-        URL.revokeObjectURL(blobUrl);
-        prefetchCacheRef.current.delete(key);
-        setPrefetchedUrls((previous) => {
-          if (!(key in previous)) return previous;
-          const next = { ...previous };
-          delete next[key];
-          return next;
-        });
-      }
-    }
-
-    retainItems.forEach((item) => {
+    // Warm the browser HTTP cache for upcoming segments
+    warmupItems.forEach((item) => {
       if (!item?.key || !item?.url || item.kind === "final") return;
-      if (prefetchCacheRef.current.has(item.key)) return;
-      if (prefetchControllersRef.current.has(item.key)) return;
+      if (warmupControllersRef.current.has(item.key)) return;
 
       const controller = new AbortController();
-      prefetchControllersRef.current.set(item.key, controller);
+      warmupControllersRef.current.set(item.key, controller);
 
+      // Just fetch to warm the HTTP cache — don't read the body into a blob
       fetch(item.url, {
         cache: "force-cache",
         signal: controller.signal,
       })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Segment HTTP ${response.status}`);
-          }
-          return response.blob();
-        })
-        .then((blob) => {
-          if (controller.signal.aborted) return;
-          const objectUrl = URL.createObjectURL(blob);
-          prefetchCacheRef.current.set(item.key, objectUrl);
-          setPrefetchedUrls((previous) => ({
-            ...previous,
-            [item.key]: objectUrl,
-          }));
-        })
         .catch(() => {
-          // Fallback to direct CDN URL if prefetch fails.
+          // Warmup failure is non-critical
         })
         .finally(() => {
-          prefetchControllersRef.current.delete(item.key);
+          warmupControllersRef.current.delete(item.key);
         });
     });
-
-    return () => {
-      // noop: cleanup handled by retain/prune logic and source reset effect
-    };
   }, [currentKey, items]);
 
   useEffect(() => {
@@ -344,6 +300,10 @@ export default function DelayedManifestPlayer({
         : "";
     const expectedSegmentCount =
       Number(source?.meta?.uploadedSegmentCount || 0) || 0;
+    const isFinishedSource =
+      String(source?.meta?.status || "").toLowerCase() === "final" ||
+      String(source?.meta?.status || "").toLowerCase() === "finished" ||
+      String(source?.meta?.status || "").toLowerCase() === "ready";
     let usedBackendPlaylist = false;
 
     const buildPlaylistUrl = () => {
@@ -388,7 +348,29 @@ export default function DelayedManifestPlayer({
 
     const fetchManifest = async () => {
       try {
-        // First try R2 manifest
+        // For finished recordings, try backend playlist FIRST —
+        // it returns signed URLs with long TTL that support Range requests
+        if (recordingId && isFinishedSource && !usedBackendPlaylist) {
+          const playlistUrl = buildPlaylistUrl();
+          if (playlistUrl) {
+            try {
+              const playlistResponse = await fetch(playlistUrl, {
+                cache: "no-store",
+              });
+              if (playlistResponse.ok) {
+                const playlistData = await playlistResponse.json();
+                if (!cancelled && applyPlaylistSegments(playlistData)) {
+                  usedBackendPlaylist = true;
+                  return;
+                }
+              }
+            } catch {
+              // Backend playlist failed, fall through to R2 manifest
+            }
+          }
+        }
+
+        // Fetch R2 manifest
         const response = await fetch(source?.embedUrl, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`Manifest HTTP ${response.status}`);
@@ -419,7 +401,6 @@ export default function DelayedManifestPlayer({
                 const playlistData = await playlistResponse.json();
                 if (!cancelled && applyPlaylistSegments(playlistData)) {
                   usedBackendPlaylist = true;
-                  // Don't schedule another poll — we have the full list
                   return;
                 }
               }
@@ -454,11 +435,10 @@ export default function DelayedManifestPlayer({
     setError("");
     setWaitingForNext(false);
     setCurrentPlaybackUrl("");
-    setPrefetchedUrls({});
     setManifestStatus("");
     currentKeyRef.current = "";
     waitingForNextRef.current = false;
-    clearPrefetchResources();
+    clearWarmupResources();
     fetchManifest();
 
     return () => {
@@ -466,13 +446,15 @@ export default function DelayedManifestPlayer({
       if (timerId) {
         window.clearTimeout(timerId);
       }
-      clearPrefetchResources();
+      clearWarmupResources();
     };
   }, [
-    clearPrefetchResources,
+    clearWarmupResources,
     source?.embedUrl,
     source?.disabledReason,
     source?.meta?.refreshSeconds,
+    source?.meta?.recordingId,
+    source?.meta?.status,
   ]);
 
   const handleEnded = useCallback(() => {

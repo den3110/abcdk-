@@ -321,7 +321,11 @@ export default function NativeVideoPlayer({
 
     setHlsError("");
     if (!alreadyLoadedActiveSrc) {
-      setIsReady(false);
+      // In queue mode, avoid resetting isReady to prevent flicker between
+      // segments — the onCanPlay handler will update it when truly ready.
+      if (!queueMode) {
+        setIsReady(false);
+      }
       setCurrentTime(0);
       setDuration(0);
       setSeekValue(0);
