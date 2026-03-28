@@ -84,42 +84,6 @@ export default function DelayedManifestPlayer({
   useNativeControls = false,
   showLiveBadge = true,
 }) {
-  // ── HLS mode: seamless buffered playback like YouTube Live ──
-  // When the recording has an ID, use the backend HLS endpoint with hls.js
-  // which handles buffering, prefetching, and seamless segment transitions.
-  // No visible reload between segments.
-  const recordingIdForHls =
-    typeof source?.meta?.recordingId === "string"
-      ? source.meta.recordingId.trim()
-      : "";
-  const hlsUrl = recordingIdForHls
-    ? `${(import.meta.env.VITE_API_URL || "").replace(/\/+$/, "")}/api/live/recordings/v2/${recordingIdForHls}/live.m3u8`
-    : "";
-  const isFinishedSource =
-    String(source?.meta?.status || "").toLowerCase() === "final" ||
-    String(source?.meta?.status || "").toLowerCase() === "finished" ||
-    String(source?.meta?.status || "").toLowerCase() === "ready";
-  const liveHlsBadge =
-    showLiveBadge && !isFinishedSource;
-
-  if (hlsUrl) {
-    return (
-      <NativeVideoPlayer
-        src={hlsUrl}
-        kind="hls"
-        fallbackUrl={source?.openUrl || source?.url || ""}
-        initialRatio={resolveAspectRatio(source?.aspect)}
-        title={source?.label || "Server 2"}
-        subtitle={source?.providerLabel || "PickleTour Video"}
-        autoplay={autoplay}
-        previewOnlyUntilPlay={previewOnlyUntilPlay}
-        useNativeControls={useNativeControls}
-        liveMode={liveHlsBadge}
-      />
-    );
-  }
-
-  // ── Fallback: segment queue mode (original behavior) ──
   const [items, setItems] = useState([]);
   const [currentKey, setCurrentKey] = useState("");
   const [currentPlaybackUrl, setCurrentPlaybackUrl] = useState("");
@@ -151,8 +115,14 @@ export default function DelayedManifestPlayer({
   }, [currentItemIndex, items]);
   const stagedNextPlaybackUrl = useMemo(() => {
     if (!stagedNextItem?.key) return "";
+    // Prefer blob URL (preloaded in memory) for gapless switching
+    const blobUrl = blobCacheRef.current?.get(stagedNextItem.key);
+    if (blobUrl) return blobUrl;
     return stagedNextItem.url || "";
-  }, [stagedNextItem]);
+  }, [stagedNextItem, blobReady]);
+
+  // Track blob readiness so stagedNextPlaybackUrl updates when blob is ready
+  const [blobReady, setBlobReady] = useState(0);
 
   // ── Total duration from all segments ──
   const totalDuration = useMemo(() => {
@@ -220,8 +190,22 @@ export default function DelayedManifestPlayer({
     setCurrentPlaybackUrl(currentItem.url || "");
   }, [currentItem?.key, currentItem?.url]);
 
-  // Cache-warmup: fetch upcoming segments to populate browser HTTP cache
-  // WITHOUT converting to blob URLs, so Range requests still work for seeking
+  // ── Blob prefetch for next segment (gapless switching) ──
+  // The NEXT segment is downloaded as a blob URL so NativeVideoPlayer's
+  // hidden slot has data ready in memory → instant switch, no visible reload.
+  // Further segments use HTTP cache warmup for later preloading.
+  const blobCacheRef = useRef(new Map()); // key → blobUrl
+
+  // Clean up blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      for (const blobUrl of blobCacheRef.current.values()) {
+        try { URL.revokeObjectURL(blobUrl); } catch { /* noop */ }
+      }
+      blobCacheRef.current.clear();
+    };
+  }, []);
+
   useEffect(() => {
     const currentIndex = items.findIndex((item) => item?.key === currentKey);
     const startIndex = Math.max(0, currentIndex >= 0 ? currentIndex + 1 : 0);
@@ -236,25 +220,50 @@ export default function DelayedManifestPlayer({
       }
     }
 
-    // Warm the browser HTTP cache for upcoming segments
-    warmupItems.forEach((item) => {
+    // Revoke blob URLs for segments we passed
+    for (const [key, blobUrl] of blobCacheRef.current.entries()) {
+      if (!warmupKeys.has(key)) {
+        try { URL.revokeObjectURL(blobUrl); } catch { /* noop */ }
+        blobCacheRef.current.delete(key);
+      }
+    }
+
+    // Prefetch upcoming segments
+    warmupItems.forEach((item, idx) => {
       if (!item?.key || !item?.url || item.kind === "final") return;
       if (warmupControllersRef.current.has(item.key)) return;
 
       const controller = new AbortController();
       warmupControllersRef.current.set(item.key, controller);
 
-      // Just fetch to warm the HTTP cache — don't read the body into a blob
-      fetch(item.url, {
-        cache: "force-cache",
-        signal: controller.signal,
-      })
-        .catch(() => {
-          // Warmup failure is non-critical
+      if (idx === 0) {
+        // NEXT segment: full blob prefetch for gapless switching
+        fetch(item.url, { signal: controller.signal })
+          .then((res) => {
+            if (!res.ok) throw new Error("Prefetch failed");
+            return res.blob();
+          })
+          .then((blob) => {
+            if (controller.signal.aborted) return;
+            const blobUrl = URL.createObjectURL(blob);
+            blobCacheRef.current.set(item.key, blobUrl);
+            setBlobReady((c) => c + 1); // trigger re-evaluation of stagedNextPlaybackUrl
+          })
+          .catch(() => { /* Prefetch failure is non-critical */ })
+          .finally(() => {
+            warmupControllersRef.current.delete(item.key);
+          });
+      } else {
+        // Further segments: HTTP cache warmup only
+        fetch(item.url, {
+          cache: "force-cache",
+          signal: controller.signal,
         })
-        .finally(() => {
-          warmupControllersRef.current.delete(item.key);
-        });
+          .catch(() => { /* Warmup failure is non-critical */ })
+          .finally(() => {
+            warmupControllersRef.current.delete(item.key);
+          });
+      }
     });
   }, [currentKey, items]);
 
