@@ -113,6 +113,10 @@ export default function DelayedManifestPlayer({
     if (currentItemIndex < 0) return items[1] || null;
     return items[currentItemIndex + 1] || null;
   }, [currentItemIndex, items]);
+
+  // Track blob readiness so stagedNextPlaybackUrl updates when blob is ready
+  const [blobReady, setBlobReady] = useState(0);
+
   const stagedNextPlaybackUrl = useMemo(() => {
     if (!stagedNextItem?.key) return "";
     // Prefer blob URL (preloaded in memory) for gapless switching
@@ -120,9 +124,6 @@ export default function DelayedManifestPlayer({
     if (blobUrl) return blobUrl;
     return stagedNextItem.url || "";
   }, [stagedNextItem, blobReady]);
-
-  // Track blob readiness so stagedNextPlaybackUrl updates when blob is ready
-  const [blobReady, setBlobReady] = useState(0);
 
   // ── Total duration from all segments ──
   const totalDuration = useMemo(() => {
