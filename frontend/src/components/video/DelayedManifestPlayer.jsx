@@ -94,6 +94,7 @@ export default function DelayedManifestPlayer({
   const currentKeyRef = useRef("");
   const waitingForNextRef = useRef(false);
   const warmupControllersRef = useRef(new Map());
+  const blobCacheRef = useRef(new Map()); // key → blobUrl
 
   const currentItem = useMemo(() => {
     if (!items.length) return null;
@@ -195,7 +196,6 @@ export default function DelayedManifestPlayer({
   // The NEXT segment is downloaded as a blob URL so NativeVideoPlayer's
   // hidden slot has data ready in memory → instant switch, no visible reload.
   // Further segments use HTTP cache warmup for later preloading.
-  const blobCacheRef = useRef(new Map()); // key → blobUrl
 
   // Clean up blob URLs on unmount
   useEffect(() => {
@@ -354,10 +354,7 @@ export default function DelayedManifestPlayer({
 
     const buildPlaylistUrl = () => {
       if (!recordingId) return "";
-      const apiBase =
-        typeof window !== "undefined"
-          ? window.location.origin
-          : "";
+      const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
       return `${apiBase}/api/live/recordings/v2/${recordingId}/temp/playlist`;
     };
 
