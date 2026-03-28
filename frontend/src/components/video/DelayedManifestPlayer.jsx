@@ -85,13 +85,16 @@ export default function DelayedManifestPlayer({
   showLiveBadge = true,
 }) {
   // ── HLS mode: seamless buffered playback like YouTube Live ──
-  // When the backend provides an HLS URL, use hls.js which handles
-  // buffering, prefetching, and seamless segment transitions internally.
+  // When the recording has an ID, use the backend HLS endpoint with hls.js
+  // which handles buffering, prefetching, and seamless segment transitions.
   // No visible reload between segments.
-  const hlsUrl =
-    typeof source?.meta?.hlsUrl === "string"
-      ? source.meta.hlsUrl.trim()
+  const recordingIdForHls =
+    typeof source?.meta?.recordingId === "string"
+      ? source.meta.recordingId.trim()
       : "";
+  const hlsUrl = recordingIdForHls
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/api/live/recordings/v2/${recordingIdForHls}/live.m3u8`
+    : "";
   const isFinishedSource =
     String(source?.meta?.status || "").toLowerCase() === "final" ||
     String(source?.meta?.status || "").toLowerCase() === "finished" ||

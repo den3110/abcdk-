@@ -222,7 +222,6 @@ export async function scheduleFacebookVodFallbackForMatch(matchOrId) {
     replaceTerminalJob,
     replacePendingJob: true,
     currentPipeline,
-    ignoreWindow: true,
     forceReason: "facebook_vod_fallback",
   });
 

@@ -154,3 +154,32 @@ export function getLiveRecordingExportWindowDecision(now = new Date()) {
     windowEnd: config.end.raw,
   };
 }
+
+export function getLiveRecordingExportScheduleFor(
+  earliestAt = new Date(),
+  referenceNow = new Date()
+) {
+  const safeEarliestAt =
+    earliestAt instanceof Date ? earliestAt : new Date(earliestAt);
+  const safeReferenceNow =
+    referenceNow instanceof Date ? referenceNow : new Date(referenceNow);
+  const normalizedEarliestAt = Number.isFinite(safeEarliestAt.getTime())
+    ? safeEarliestAt
+    : new Date();
+  const normalizedReferenceNow = Number.isFinite(safeReferenceNow.getTime())
+    ? safeReferenceNow
+    : new Date();
+  const decision = getLiveRecordingExportWindowDecision(normalizedEarliestAt);
+  const scheduledAt = decision.shouldQueueNow
+    ? normalizedEarliestAt
+    : decision.scheduledAt || normalizedEarliestAt;
+
+  return {
+    ...decision,
+    scheduledAt,
+    delayMs: Math.max(
+      0,
+      Math.round(scheduledAt.getTime() - normalizedReferenceNow.getTime())
+    ),
+  };
+}

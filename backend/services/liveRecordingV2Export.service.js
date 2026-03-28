@@ -16,6 +16,7 @@ import {
   uploadRecordingToDrive,
 } from "./driveRecordings.service.js";
 import {
+  downloadFacebookVodWithYtDlp,
   downloadFacebookVodToFile,
   resolveFacebookVodDownloadInfo,
 } from "./liveRecordingFacebookVod.service.js";
@@ -28,6 +29,7 @@ import {
 } from "./liveRecordingFacebookVodShared.service.js";
 import { maybeAutoQueueLiveRecordingAiCommentary } from "./liveRecordingAiCommentaryQueue.service.js";
 import { publishLiveRecordingMonitorUpdate } from "./liveRecordingMonitorEvents.service.js";
+import { getLiveRecordingExportScheduleFor } from "./liveRecordingExportWindow.service.js";
 
 function getAppHost() {
   return String(
@@ -328,6 +330,7 @@ function buildExportResult(recording, extra = {}) {
     recording,
     retryDelayMs: 0,
     retryReason: null,
+    retryAt: null,
     ...extra,
   };
 }
@@ -494,7 +497,11 @@ async function markFacebookVodWaiting(recording, { match, attemptedAt, error }) 
     return buildExportResult(recording);
   }
 
-  const nextAttemptAt = retryPlan.nextAttemptAt;
+  const nextAttemptSchedule = getLiveRecordingExportScheduleFor(
+    retryPlan.nextAttemptAt,
+    attemptedAt
+  );
+  const nextAttemptAt = nextAttemptSchedule.scheduledAt;
   const nextMeta = asMutableMeta(recording.meta);
   const currentPipeline = getCurrentExportPipeline(recording);
   nextMeta.facebookVod = {
@@ -531,7 +538,20 @@ async function markFacebookVodWaiting(recording, { match, attemptedAt, error }) 
   return buildExportResult(recording, {
     retryDelayMs: Math.max(0, nextAttemptAt.getTime() - Date.now()),
     retryReason: "facebook_vod_not_ready",
+    retryAt: nextAttemptAt,
   });
+}
+
+function shouldTreatFacebookVodDownloadErrorAsRetryable(error) {
+  const code = String(error?.code || "").toUpperCase();
+  return [
+    "YTDLP_UNAVAILABLE",
+    "YTDLP_NO_FORMATS",
+    "YTDLP_LOGIN_REQUIRED",
+    "YTDLP_PRIVATE_VIDEO",
+    "YTDLP_VIDEO_UNAVAILABLE",
+    "YTDLP_TIMEOUT",
+  ].includes(code);
 }
 
 async function exportUploadedSegmentRecording(recording, uploadedSegments) {
@@ -735,11 +755,13 @@ async function exportFacebookVodRecording(recording, match) {
     });
   }
 
-  if (!downloadInfo?.ready || !downloadInfo?.sourceUrl) {
+  if (!downloadInfo?.ready) {
     return markFacebookVodWaiting(recording, {
       match,
       attemptedAt,
-      error: new Error("Facebook VOD source is not ready yet"),
+      error: new Error(
+        downloadInfo?.graphError || "Facebook VOD source is not ready yet"
+      ),
     });
   }
 
@@ -760,10 +782,17 @@ async function exportFacebookVodRecording(recording, match) {
 
   try {
     const outputPath = path.join(workDir, "facebook_vod.mp4");
-    await downloadFacebookVodToFile({
-      sourceUrl: downloadInfo.sourceUrl,
-      targetPath: outputPath,
-    });
+    if (downloadInfo.downloadMethod === "yt_dlp") {
+      await downloadFacebookVodWithYtDlp({
+        videoUrl: downloadInfo.ytDlpUrl || downloadInfo.permalinkUrl,
+        targetPath: outputPath,
+      });
+    } else {
+      await downloadFacebookVodToFile({
+        sourceUrl: downloadInfo.sourceUrl,
+        targetPath: outputPath,
+      });
+    }
 
     const { driveInfo, outputStat } = await prepareRecordingOutputUpload(
       recording,
@@ -792,6 +821,7 @@ async function exportFacebookVodRecording(recording, match) {
       lastError: null,
       downloadedAt: new Date(),
       sourceStatus: downloadInfo.status || null,
+      downloadMethod: downloadInfo.downloadMethod || "graph_source",
     };
     recording.meta = readyMeta;
 
@@ -806,6 +836,13 @@ async function exportFacebookVodRecording(recording, match) {
 
     return buildExportResult(recording);
   } catch (error) {
+    if (shouldTreatFacebookVodDownloadErrorAsRetryable(error)) {
+      return markFacebookVodWaiting(recording, {
+        match,
+        attemptedAt,
+        error,
+      });
+    }
     await markRecordingFailed(recording, error);
     throw error;
   } finally {
