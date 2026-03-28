@@ -565,7 +565,7 @@ export default function DelayedManifestPlayer({
         totalTimeOffset={timeOffset}
         onSeekGlobal={handleSeekGlobal}
       />
-      {error ? (
+      {error && manifestStatus === "final" ? (
         <Alert severity="info" sx={{ mt: 1 }}>
           {error}
         </Alert>

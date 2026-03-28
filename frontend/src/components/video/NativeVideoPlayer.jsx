@@ -276,6 +276,7 @@ export default function NativeVideoPlayer({
       activeSlotRef.current = nextSlot;
       videoRef.current = nextVideo;
       setActiveSlot(nextSlot);
+
       onAdvanceToStagedSourceRef.current?.(nextToken);
       return true;
     } finally {
@@ -364,8 +365,13 @@ export default function NativeVideoPlayer({
       setFrozenFrameUrl("");
     };
     const onEndedInternal = async () => {
-      if (queueMode && (await advanceToStagedSource())) {
-        return;
+      if (queueMode) {
+        const advanced = await advanceToStagedSource();
+        if (advanced) return;
+        // Advance failed — hold the last frame frozen while waiting
+        // for the next segment. This prevents showing a black screen.
+        const snapshot = captureFrameSnapshot();
+        if (snapshot) setFrozenFrameUrl(snapshot);
       }
       onEndedRef.current?.();
     };
@@ -759,8 +765,11 @@ export default function NativeVideoPlayer({
                 height: "100%",
                 objectFit: "contain",
                 backgroundColor: "#000",
-                opacity: activeSlot === 0 ? 1 : 0,
-                transition: queueMode ? "opacity 80ms ease" : undefined,
+                // Queue mode: both slots fully opaque and stacked.
+                // Active slot on top (z-index 2), inactive below (z-index 1).
+                // No opacity transition = no black flash during switch.
+                zIndex: activeSlot === 0 ? 2 : 1,
+                opacity: 1,
                 pointerEvents:
                   activeSlot === 0 ? "auto" : "none",
               }}
@@ -782,10 +791,9 @@ export default function NativeVideoPlayer({
                   height: "100%",
                   objectFit: "contain",
                   backgroundColor: "#000",
-                  opacity: activeSlot === 1 ? 1 : 0,
-                  transition: "opacity 80ms ease",
+                  zIndex: activeSlot === 1 ? 2 : 1,
+                  opacity: 1,
                   pointerEvents: activeSlot === 1 ? "auto" : "none",
-                  visibility: activeSlot === 1 || stagedNextReady ? "visible" : "hidden",
                 }}
               />
             ) : null}
