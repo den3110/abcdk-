@@ -16,6 +16,7 @@ import {
   queueLiveRecordingAiCommentaryV2,
   rerenderLiveRecordingAiCommentaryV2,
   getLiveRecordingTemporaryPlaylistV2,
+  serveLiveHlsPlaylistV2,
   getLiveRecordingRawStatusV2,
   playLiveRecordingTemporaryV2,
   presignLiveRecordingManifestV2,
@@ -111,6 +112,7 @@ router.post(
 );
 router.get("/by-match/:matchId", getLiveRecordingByMatchV2);
 router.get("/:id/temp/playlist", getLiveRecordingTemporaryPlaylistV2);
+router.get("/:id/live.m3u8", serveLiveHlsPlaylistV2);
 router.get("/:id/temp", playLiveRecordingTemporaryV2);
 router.get("/:id/commentary/play", playLiveRecordingAiCommentaryV2);
 router.get("/:id/commentary/raw", streamLiveRecordingAiCommentaryRawV2);

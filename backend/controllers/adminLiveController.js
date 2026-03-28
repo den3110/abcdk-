@@ -2,6 +2,7 @@ import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
+import { scheduleFacebookVodFallbackForMatch } from "../services/liveRecordingFacebookVodFallback.service.js";
 
 const matchPop = [
   { path: "tournament", select: "name image" },
@@ -651,11 +652,18 @@ export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
 
     const facebookLive = match.facebookLive || {};
     facebookLive.status = "ENDED";
+    facebookLive.endedAt = new Date();
     facebookLive.secure_stream_url = "";
     facebookLive.server_url = "";
     facebookLive.stream_key = "";
     match.facebookLive = facebookLive;
     await match.save();
+    await scheduleFacebookVodFallbackForMatch(match).catch((error) => {
+      console.warn(
+        "[adminStopLiveSession] schedule facebook vod fallback failed:",
+        error?.message || error
+      );
+    });
 
     return res.json({
       message: "Da dung live Facebook cho tran",

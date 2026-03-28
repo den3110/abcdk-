@@ -15,6 +15,17 @@ import {
   getRecordingDriveStatus,
   uploadRecordingToDrive,
 } from "./driveRecordings.service.js";
+import {
+  downloadFacebookVodToFile,
+  resolveFacebookVodDownloadInfo,
+} from "./liveRecordingFacebookVod.service.js";
+import {
+  buildFacebookVodRetryPlan,
+  getFacebookVodRetryMeta,
+  getUploadedRecordingSegments,
+  RECORDING_SOURCE_FACEBOOK_VOD,
+  resolveLiveRecordingExportSource,
+} from "./liveRecordingFacebookVodShared.service.js";
 import { maybeAutoQueueLiveRecordingAiCommentary } from "./liveRecordingAiCommentaryQueue.service.js";
 import { publishLiveRecordingMonitorUpdate } from "./liveRecordingMonitorEvents.service.js";
 
@@ -66,6 +77,12 @@ export function buildRecordingTemporaryPlaylistUrl(recordingId) {
   return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(
     recordingId
   )}/temp/playlist`;
+}
+
+export function buildRecordingLiveHlsUrl(recordingId) {
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(
+    recordingId
+  )}/live.m3u8`;
 }
 
 function asMutableMeta(meta) {
@@ -306,20 +323,218 @@ async function cleanupDir(dirPath) {
   await fs.rm(dirPath, { recursive: true, force: true });
 }
 
-export async function exportLiveRecordingV2(recordingId) {
-  const recording = await LiveRecordingV2.findById(recordingId);
-  if (!recording) {
-    throw new Error("Recording v2 not found");
+function buildExportResult(recording, extra = {}) {
+  return {
+    recording,
+    retryDelayMs: 0,
+    retryReason: null,
+    ...extra,
+  };
+}
+
+function getCurrentExportPipeline(recording) {
+  const nextMeta = asMutableMeta(recording?.meta);
+  return nextMeta.exportPipeline &&
+    typeof nextMeta.exportPipeline === "object" &&
+    !Array.isArray(nextMeta.exportPipeline)
+    ? { ...nextMeta.exportPipeline }
+    : {};
+}
+
+async function prepareRecordingOutputUpload(recording, outputPath) {
+  const driveStatus = await getRecordingDriveStatus();
+  if (!driveStatus.enabled) {
+    throw new Error("Google Drive recording output is disabled");
+  }
+  if (!driveStatus.connected) {
+    throw new Error(driveStatus.message || "My Drive OAuth chua ket noi");
+  }
+  if (!driveStatus.configured || !driveStatus.ready) {
+    throw new Error(
+      driveStatus.message ||
+        "Google Drive recording destination is not configured"
+    );
   }
 
-  const uploadedSegments = [...(recording.segments || [])]
-    .filter((segment) => segment.uploadStatus === "uploaded")
-    .sort((a, b) => a.index - b.index);
+  await updateExportPipelineState(recording, "uploading_drive", {
+    driveUploadStartedAt: new Date(),
+    label: "Dang upload len Drive",
+    driveAuthMode: driveStatus.mode || null,
+  });
 
-  if (!uploadedSegments.length) {
-    throw new Error("Recording v2 has no uploaded segments");
+  const driveInfo = await uploadRecordingToDrive({
+    filePath: outputPath,
+    fileName: `match_${String(recording.match)}_${Date.now()}.mp4`,
+  });
+
+  return {
+    driveInfo,
+    driveStatus,
+    outputStat: await fs.stat(outputPath),
+  };
+}
+
+async function applyRecordingDriveOutput(
+  recording,
+  { driveInfo, sizeBytes, durationSeconds }
+) {
+  recording.status = "exporting";
+  recording.sizeBytes = Number(sizeBytes) || 0;
+  recording.durationSeconds = Number(durationSeconds) || 0;
+  recording.driveFileId = driveInfo.fileId;
+  recording.driveRawUrl = driveInfo.rawUrl;
+  recording.drivePreviewUrl = driveInfo.previewUrl;
+  recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
+  recording.error = null;
+  await Match.findByIdAndUpdate(recording.match, {
+    $set: {
+      video: recording.playbackUrl,
+    },
+  }).catch(() => {});
+}
+
+async function markRecordingReady(
+  recording,
+  { sourceCleanup, publishReason = "recording_ready" } = {}
+) {
+  const nextMeta = asMutableMeta(recording.meta);
+  if (sourceCleanup) {
+    nextMeta.sourceCleanup = sourceCleanup;
+  }
+  const currentPipeline =
+    nextMeta.exportPipeline &&
+    typeof nextMeta.exportPipeline === "object" &&
+    !Array.isArray(nextMeta.exportPipeline)
+      ? { ...nextMeta.exportPipeline }
+      : {};
+  nextMeta.exportPipeline = {
+    ...currentPipeline,
+    stage: "completed",
+    label: "Hoan tat",
+    completedAt: new Date(),
+    updatedAt: new Date(),
+  };
+  recording.meta = nextMeta;
+  recording.status = "ready";
+  recording.scheduledExportAt = null;
+  recording.readyAt = new Date();
+  await recording.save();
+  await publishLiveRecordingMonitorUpdate({
+    reason: publishReason,
+    recordingIds: [String(recording._id)],
+  }).catch(() => {});
+  await maybeAutoQueueLiveRecordingAiCommentary(recording._id).catch(
+    (queueError) => {
+      console.error(
+        `[recording-ai-commentary] auto queue failed for recording ${String(
+          recording._id
+        )}:`,
+        queueError?.message || queueError
+      );
+    }
+  );
+}
+
+async function markRecordingFailed(recording, error) {
+  recording.status = "failed";
+  recording.scheduledExportAt = null;
+  recording.error = error?.message || String(error);
+  const failedMeta = asMutableMeta(recording.meta);
+  const failedPipeline =
+    failedMeta.exportPipeline &&
+    typeof failedMeta.exportPipeline === "object" &&
+    !Array.isArray(failedMeta.exportPipeline)
+      ? { ...failedMeta.exportPipeline }
+      : {};
+  failedMeta.exportPipeline = {
+    ...failedPipeline,
+    stage: "failed",
+    label: "Export that bai",
+    failedAt: new Date(),
+    updatedAt: new Date(),
+    error: recording.error,
+  };
+  recording.meta = failedMeta;
+  await recording.save();
+  await publishLiveRecordingMonitorUpdate({
+    reason: "recording_export_failed",
+    recordingIds: [String(recording._id)],
+  }).catch(() => {});
+}
+
+async function markFacebookVodWaiting(recording, { match, attemptedAt, error }) {
+  const retryPlan = buildFacebookVodRetryPlan({
+    recording,
+    match,
+    now: attemptedAt,
+  });
+  const currentRetry = getFacebookVodRetryMeta(recording);
+  const attemptCount = currentRetry.attemptCount;
+
+  if (attemptedAt.getTime() >= retryPlan.deadlineAt.getTime()) {
+    const failedMeta = asMutableMeta(recording.meta);
+    failedMeta.facebookVod = {
+      ...(failedMeta.facebookVod &&
+      typeof failedMeta.facebookVod === "object" &&
+      !Array.isArray(failedMeta.facebookVod)
+        ? failedMeta.facebookVod
+        : {}),
+      startedAt: currentRetry.startedAt || retryPlan.startedAt,
+      deadlineAt: currentRetry.deadlineAt || retryPlan.deadlineAt,
+      attemptCount,
+      lastAttemptAt: attemptedAt,
+      nextAttemptAt: null,
+      lastError: error?.message || String(error),
+    };
+    recording.meta = failedMeta;
+    const terminalError = new Error(
+      "Facebook VOD not ready within retry window"
+    );
+    await markRecordingFailed(recording, terminalError);
+    return buildExportResult(recording);
   }
 
+  const nextAttemptAt = retryPlan.nextAttemptAt;
+  const nextMeta = asMutableMeta(recording.meta);
+  const currentPipeline = getCurrentExportPipeline(recording);
+  nextMeta.facebookVod = {
+    ...(nextMeta.facebookVod &&
+    typeof nextMeta.facebookVod === "object" &&
+    !Array.isArray(nextMeta.facebookVod)
+      ? nextMeta.facebookVod
+      : {}),
+    startedAt: currentRetry.startedAt || retryPlan.startedAt,
+    deadlineAt: currentRetry.deadlineAt || retryPlan.deadlineAt,
+    attemptCount,
+    lastAttemptAt: attemptedAt,
+    nextAttemptAt,
+    lastError: error?.message || String(error),
+  };
+  nextMeta.exportPipeline = {
+    ...currentPipeline,
+    stage: "waiting_facebook_vod",
+    label: "Dang cho video Facebook hoan tat",
+    scheduledExportAt: nextAttemptAt,
+    updatedAt: new Date(),
+    error: null,
+  };
+  recording.meta = nextMeta;
+  recording.status = "exporting";
+  recording.scheduledExportAt = nextAttemptAt;
+  recording.error = null;
+  await recording.save();
+  await publishLiveRecordingMonitorUpdate({
+    reason: "recording_export_facebook_vod_waiting",
+    recordingIds: [String(recording._id)],
+  }).catch(() => {});
+
+  return buildExportResult(recording, {
+    retryDelayMs: Math.max(0, nextAttemptAt.getTime() - Date.now()),
+    retryReason: "facebook_vod_not_ready",
+  });
+}
+
+async function exportUploadedSegmentRecording(recording, uploadedSegments) {
   const manifestKey =
     recording.r2ManifestKey ||
     buildRecordingManifestObjectKey({
@@ -402,51 +617,18 @@ export async function exportLiveRecordingV2(recordingId) {
       workDir,
     });
 
-    const outputStat = await fs.stat(outputPath);
     const totalDurationSeconds = uploadedSegments.reduce(
       (sum, segment) => sum + (Number(segment.durationSeconds) || 0),
       0
     );
+    const { driveInfo, driveStatus, outputStat } =
+      await prepareRecordingOutputUpload(recording, outputPath);
 
-    let driveInfo = null;
-    const driveStatus = await getRecordingDriveStatus();
-    if (!driveStatus.enabled) {
-      throw new Error("Google Drive recording output is disabled");
-    }
-    if (!driveStatus.connected) {
-      throw new Error(driveStatus.message || "My Drive OAuth chua ket noi");
-    }
-    if (!driveStatus.configured || !driveStatus.ready) {
-      throw new Error(
-        driveStatus.message ||
-          "Google Drive recording destination is not configured"
-      );
-    }
-
-    await updateExportPipelineState(recording, "uploading_drive", {
-      driveUploadStartedAt: new Date(),
-      label: "Dang upload len Drive",
-      driveAuthMode: driveStatus.mode || null,
+    await applyRecordingDriveOutput(recording, {
+      driveInfo,
+      sizeBytes: outputStat.size,
+      durationSeconds: totalDurationSeconds,
     });
-
-    driveInfo = await uploadRecordingToDrive({
-      filePath: outputPath,
-      fileName: `match_${String(recording.match)}_${Date.now()}.mp4`,
-    });
-
-    recording.status = "exporting";
-    recording.sizeBytes = outputStat.size;
-    recording.durationSeconds = totalDurationSeconds;
-    recording.driveFileId = driveInfo.fileId;
-    recording.driveRawUrl = driveInfo.rawUrl;
-    recording.drivePreviewUrl = driveInfo.previewUrl;
-    recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
-    recording.error = null;
-    await Match.findByIdAndUpdate(recording.match, {
-      $set: {
-        video: recording.playbackUrl,
-      },
-    }).catch(() => {});
 
     if (shouldDeleteRecordingSourceAfterExport()) {
       await updateExportPipelineState(
@@ -465,40 +647,26 @@ export async function exportLiveRecordingV2(recordingId) {
           includeManifest: true,
         });
 
-        const nextMeta = asMutableMeta(recording.meta);
-        nextMeta.sourceCleanup = {
-          status: "completed",
-          deletedAt: new Date(),
-          deletedObjectCount: cleanupResult.deletedObjectCount,
-          deletedManifest: cleanupResult.deletedManifest,
-          objectKeys: cleanupResult.objectKeys,
-        };
-
-        recording.meta = nextMeta;
         recording.r2ManifestKey = null;
-        recording.status = "ready";
-        recording.readyAt = new Date();
-        await recording.save();
-        await publishLiveRecordingMonitorUpdate({
-          reason: "recording_source_cleanup_completed",
-          recordingIds: [String(recording._id)],
+        await markRecordingReady(recording, {
+          sourceCleanup: {
+            status: "completed",
+            deletedAt: new Date(),
+            deletedObjectCount: cleanupResult.deletedObjectCount,
+            deletedManifest: cleanupResult.deletedManifest,
+            objectKeys: cleanupResult.objectKeys,
+          },
+          publishReason: "recording_source_cleanup_completed",
         });
       } catch (cleanupError) {
-        const nextMeta = asMutableMeta(recording.meta);
-        nextMeta.sourceCleanup = {
-          status: "failed",
-          attemptedAt: new Date(),
-          error: cleanupError?.message || String(cleanupError),
-        };
-
-        recording.meta = nextMeta;
-        recording.status = "ready";
-        recording.readyAt = new Date();
-        await recording.save().catch(() => {});
-        await publishLiveRecordingMonitorUpdate({
-          reason: "recording_source_cleanup_failed",
-          recordingIds: [String(recording._id)],
-        }).catch(() => {});
+        await markRecordingReady(recording, {
+          sourceCleanup: {
+            status: "failed",
+            attemptedAt: new Date(),
+            error: cleanupError?.message || String(cleanupError),
+          },
+          publishReason: "recording_source_cleanup_failed",
+        });
         console.error(
           `[recording-export] source cleanup failed for recording ${String(
             recording._id
@@ -507,82 +675,181 @@ export async function exportLiveRecordingV2(recordingId) {
         );
       }
     } else {
-      const nextMeta = asMutableMeta(recording.meta);
-      nextMeta.sourceCleanup = {
-        status: "retained",
-        retainedAt: new Date(),
-        reason: "config_keep_r2_source",
-      };
-      recording.meta = nextMeta;
-      recording.status = "ready";
-      recording.readyAt = new Date();
-      await recording.save();
-      await publishLiveRecordingMonitorUpdate({
-        reason: "recording_source_cleanup_retained",
-        recordingIds: [String(recording._id)],
+      await markRecordingReady(recording, {
+        sourceCleanup: {
+          status: "retained",
+          retainedAt: new Date(),
+          reason: "config_keep_r2_source",
+        },
+        publishReason: "recording_ready",
       });
     }
 
-    const completedMeta = asMutableMeta(recording.meta);
-    const completedPipeline =
-      completedMeta.exportPipeline &&
-      typeof completedMeta.exportPipeline === "object" &&
-      !Array.isArray(completedMeta.exportPipeline)
-        ? { ...completedMeta.exportPipeline }
-        : {};
-    completedMeta.exportPipeline = {
-      ...completedPipeline,
-      stage: "completed",
-      label: "Hoan tat",
-      completedAt: new Date(),
-      updatedAt: new Date(),
-    };
-    recording.meta = completedMeta;
-    await recording.save();
-    await publishLiveRecordingMonitorUpdate({
-      reason: "recording_ready",
-      recordingIds: [String(recording._id)],
-    });
-    await maybeAutoQueueLiveRecordingAiCommentary(recording._id).catch(
-      (queueError) => {
-        console.error(
-          `[recording-ai-commentary] auto queue failed for recording ${String(
-            recording._id
-          )}:`,
-          queueError?.message || queueError
-        );
-      }
-    );
-
-    return recording;
+    return buildExportResult(recording);
   } catch (error) {
-    recording.status = "failed";
-    recording.error = error?.message || String(error);
-    const failedMeta = asMutableMeta(recording.meta);
-    const failedPipeline =
-      failedMeta.exportPipeline &&
-      typeof failedMeta.exportPipeline === "object" &&
-      !Array.isArray(failedMeta.exportPipeline)
-        ? { ...failedMeta.exportPipeline }
-        : {};
-    failedMeta.exportPipeline = {
-      ...failedPipeline,
-      stage: "failed",
-      label: "Export that bai",
-      failedAt: new Date(),
-      updatedAt: new Date(),
-      error: recording.error,
-    };
-    recording.meta = failedMeta;
-    await recording.save();
-    await publishLiveRecordingMonitorUpdate({
-      reason: "recording_export_failed",
-      recordingIds: [String(recording._id)],
-    });
+    await markRecordingFailed(recording, error);
     throw error;
   } finally {
     await cleanupDir(workDir);
   }
+}
+
+async function exportFacebookVodRecording(recording, match) {
+  const attemptedAt = new Date();
+  const currentRetry = getFacebookVodRetryMeta(recording);
+  const retryPlan = buildFacebookVodRetryPlan({
+    recording,
+    match,
+    now: attemptedAt,
+  });
+
+  const nextMeta = asMutableMeta(recording.meta);
+  nextMeta.facebookVod = {
+    ...(nextMeta.facebookVod &&
+    typeof nextMeta.facebookVod === "object" &&
+    !Array.isArray(nextMeta.facebookVod)
+      ? nextMeta.facebookVod
+      : {}),
+    startedAt: currentRetry.startedAt || retryPlan.startedAt,
+    deadlineAt: currentRetry.deadlineAt || retryPlan.deadlineAt,
+    attemptCount: currentRetry.attemptCount + 1,
+    lastAttemptAt: attemptedAt,
+    nextAttemptAt: null,
+    lastError: null,
+  };
+  recording.meta = nextMeta;
+  recording.status = "exporting";
+  recording.scheduledExportAt = null;
+  recording.exportAttempts = (recording.exportAttempts || 0) + 1;
+  recording.error = null;
+  await recording.save();
+
+  let downloadInfo = null;
+  try {
+    downloadInfo = await resolveFacebookVodDownloadInfo(match);
+  } catch (error) {
+    return markFacebookVodWaiting(recording, {
+      match,
+      attemptedAt,
+      error,
+    });
+  }
+
+  if (!downloadInfo?.ready || !downloadInfo?.sourceUrl) {
+    return markFacebookVodWaiting(recording, {
+      match,
+      attemptedAt,
+      error: new Error("Facebook VOD source is not ready yet"),
+    });
+  }
+
+  await updateExportPipelineState(
+    recording,
+    "downloading_facebook_vod",
+    {
+      startedAt: currentRetry.startedAt || retryPlan.startedAt,
+      downloadStartedAt: attemptedAt,
+      label: "Worker dang tai video Facebook",
+    },
+    "recording_export_started"
+  );
+
+  const workDir = await ensureDir(
+    path.join(buildTempRoot(), String(recording._id), `${Date.now()}`)
+  );
+
+  try {
+    const outputPath = path.join(workDir, "facebook_vod.mp4");
+    await downloadFacebookVodToFile({
+      sourceUrl: downloadInfo.sourceUrl,
+      targetPath: outputPath,
+    });
+
+    const { driveInfo, outputStat } = await prepareRecordingOutputUpload(
+      recording,
+      outputPath
+    );
+
+    await applyRecordingDriveOutput(recording, {
+      driveInfo,
+      sizeBytes: outputStat.size,
+      durationSeconds:
+        Number(downloadInfo.durationSeconds) || recording.durationSeconds || 0,
+    });
+
+    const readyMeta = asMutableMeta(recording.meta);
+    readyMeta.facebookVod = {
+      ...(readyMeta.facebookVod &&
+      typeof readyMeta.facebookVod === "object" &&
+      !Array.isArray(readyMeta.facebookVod)
+        ? readyMeta.facebookVod
+        : {}),
+      startedAt: currentRetry.startedAt || retryPlan.startedAt,
+      deadlineAt: currentRetry.deadlineAt || retryPlan.deadlineAt,
+      attemptCount: currentRetry.attemptCount + 1,
+      lastAttemptAt: attemptedAt,
+      nextAttemptAt: null,
+      lastError: null,
+      downloadedAt: new Date(),
+      sourceStatus: downloadInfo.status || null,
+    };
+    recording.meta = readyMeta;
+
+    await markRecordingReady(recording, {
+      sourceCleanup: {
+        status: "retained",
+        retainedAt: new Date(),
+        reason: "facebook_vod_no_r2_source",
+      },
+      publishReason: "recording_ready",
+    });
+
+    return buildExportResult(recording);
+  } catch (error) {
+    await markRecordingFailed(recording, error);
+    throw error;
+  } finally {
+    await cleanupDir(workDir);
+  }
+}
+
+export async function exportLiveRecordingV2(recordingId) {
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    throw new Error("Recording v2 not found");
+  }
+
+  const match = await Match.findById(recording.match)
+    .select("_id court facebookLive updatedAt")
+    .lean();
+  const exportSource = resolveLiveRecordingExportSource(recording, match);
+  const effectiveMatch =
+    exportSource.type === RECORDING_SOURCE_FACEBOOK_VOD
+      ? {
+          ...(match || {}),
+          facebookLive: {
+            ...((match && match.facebookLive) || {}),
+            videoId:
+              exportSource.sourceMeta.videoId ||
+              match?.facebookLive?.videoId ||
+              null,
+            pageId:
+              exportSource.sourceMeta.pageId ||
+              match?.facebookLive?.pageId ||
+              null,
+          },
+        }
+      : match;
+
+  if (exportSource.type === RECORDING_SOURCE_FACEBOOK_VOD) {
+    return exportFacebookVodRecording(recording, effectiveMatch);
+  }
+
+  if (!exportSource.uploadedSegments.length) {
+    throw new Error("Recording v2 has no uploaded segments");
+  }
+
+  return exportUploadedSegmentRecording(recording, exportSource.uploadedSegments);
 }
 
 export async function deleteExportedRecordingSegments(

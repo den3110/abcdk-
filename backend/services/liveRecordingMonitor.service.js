@@ -23,6 +23,8 @@ import {
   getUploadedRecordingSegments,
   queueLiveRecordingExport,
 } from "./liveRecordingV2Transition.service.js";
+import { autoScheduleFacebookVodFallbackRecordings } from "./liveRecordingFacebookVodFallback.service.js";
+import { buildRecordingSourceSummary } from "./liveRecordingFacebookVodShared.service.js";
 import { buildAiCommentarySummary } from "./liveRecordingAiCommentary.service.js";
 
 const DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES = 15;
@@ -499,7 +501,7 @@ function buildMatchVBTCode(match) {
   return `V${round}-T${orderOneBased}`;
 }
 
-function buildExportPipelineInfo(recording, context = {}) {
+export function buildExportPipelineInfo(recording, context = {}) {
   const recordingId = String(recording?._id || "");
   const exportPipeline =
     recording?.meta?.exportPipeline &&
@@ -569,7 +571,8 @@ function buildExportPipelineInfo(recording, context = {}) {
     if (inWorker) stage = stage || "downloading";
     else if (active) stage = stage || "downloading";
     else if (waiting) stage = "queued";
-    else if (delayed) stage = "queued_retry";
+    else if (delayed)
+      stage = stage === "waiting_facebook_vod" ? stage : "queued_retry";
     else {
       // No job in queue and worker is not processing this recording.
       // Override any stale stored stage (e.g., "queued") to reflect reality.
@@ -583,6 +586,8 @@ function buildExportPipelineInfo(recording, context = {}) {
 
   const stageLabels = {
     delayed_until_window: "Dang cho khung gio dem",
+    downloading_facebook_vod: "Worker dang tai video Facebook",
+    waiting_facebook_vod: "Dang cho video Facebook hoan tat",
     queued: "Đang chờ worker",
     queued_retry: "Đang đợi retry",
     awaiting_queue_sync: "Đang đồng bộ trạng thái queue",
@@ -601,6 +606,10 @@ function buildExportPipelineInfo(recording, context = {}) {
     detail = scheduledExportAtMs
       ? `Du kien export luc ${formatMonitorDateTime(scheduledExportAtMs)}`
       : "Dang doi toi khung gio export dem.";
+  } else if (stage === "waiting_facebook_vod") {
+    detail = scheduledExportAtMs
+      ? `Thu lai luc ${formatMonitorDateTime(scheduledExportAtMs)}`
+      : "Dang cho Facebook hoan tat VOD.";
   } else if (stage === "queued" && waiting?.position) {
     detail = `Queue #${waiting.position}`;
   } else if (stage === "queued_retry" && delayed?.position) {
@@ -671,7 +680,7 @@ function buildExportPipelineInfo(recording, context = {}) {
   };
 }
 
-function shouldMarkExportAsStale(recording, exportPipeline = {}) {
+export function shouldMarkExportAsStale(recording, exportPipeline = {}) {
   if (recording?.status !== "exporting") return false;
   if (!["stale_no_job", "worker_offline"].includes(exportPipeline.stage))
     return false;
@@ -827,10 +836,24 @@ export async function autoExportInactiveLiveRecordings() {
     }
   }
 
+  const facebookVodSweep = await autoScheduleFacebookVodFallbackRecordings().catch(
+    (error) => ({
+      queuedMatchIds: [],
+      skipped: [
+        {
+          matchId: null,
+          reason: error?.message || String(error),
+        },
+      ],
+    })
+  );
+
   return {
     timeoutMinutes,
     queuedRecordingIds,
     skippedRecordingIds,
+    facebookVodQueuedMatchIds: facebookVodSweep.queuedMatchIds || [],
+    facebookVodSkipped: facebookVodSweep.skipped || [],
   };
 }
 
@@ -885,6 +908,7 @@ function buildRow(recording, context = {}) {
     exportPipeline.driveAuthMode ||
     context.currentDriveMode ||
     "serviceAccount";
+  const source = buildRecordingSourceSummary(recording, match);
   const competitionLabel = compactLabel([
     tournamentName,
     compactLabel([bracketName, bracketStage]),
@@ -931,6 +955,7 @@ function buildRow(recording, context = {}) {
     drivePreviewUrl: recording.drivePreviewUrl || null,
     driveFileId: recording.driveFileId || null,
     driveAuthMode,
+    source,
     r2SourceBytes: estimateRecordingR2SourceBytes(recording),
     r2TargetId: recording.r2TargetId || null,
     r2BucketName: recording.r2BucketName || null,

@@ -13,11 +13,14 @@ function normalizeBaseUrl(value) {
 }
 
 function normalizePathPrefix(value) {
-  const raw = asTrimmed(value);
-  if (!raw || raw === "/") return "";
+  const raw = asTrimmed(value).toLowerCase();
+  if (!raw || raw === "/" || raw === "none" || raw === "null" || raw === "root") {
+    return "";
+  }
   const normalized = `/${raw.replace(/^\/+/, "").replace(/\/+$/, "")}`;
   return normalized === "/" ? "" : normalized;
 }
+
 
 function parseInteger(value, fallback = 0) {
   const numeric = Number(value);
@@ -202,7 +205,23 @@ export default {
       );
     }
 
-    const cacheTtl = parseInteger(env.CACHE_TTL_SECONDS, 0);
+    const defaultCacheTtl = parseInteger(env.CACHE_TTL_SECONDS, 0);
+    const suffixPath = (resolved.upstreamUrl.pathname || "").toLowerCase();
+    const isManifest =
+      suffixPath.endsWith(".json") || suffixPath.endsWith(".m3u8");
+    const isImmutableSegment =
+      suffixPath.endsWith(".mp4") ||
+      suffixPath.endsWith(".ts") ||
+      suffixPath.endsWith(".m4s");
+
+    // Immutable segments: cache 1 year on edge.
+    // Manifest / playlist: skip Cloudflare cache override so R2's own
+    // Cache-Control headers (max-age=2, stale-while-revalidate=4) apply.
+    const cacheTtl = isImmutableSegment
+      ? 31536000
+      : isManifest
+        ? 0
+        : defaultCacheTtl;
     const upstreamRequest = new Request(resolved.upstreamUrl.toString(), request);
     const upstreamResponse = await fetch(
       upstreamRequest,

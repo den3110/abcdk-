@@ -47,6 +47,11 @@ import {
   publishRecordingMonitor,
   queueLiveRecordingExport,
 } from "../services/liveRecordingV2Transition.service.js";
+import {
+  buildRecordingSourceSummary,
+  RECORDING_SOURCE_FACEBOOK_VOD,
+  resolveLiveRecordingExportSource,
+} from "../services/liveRecordingFacebookVodShared.service.js";
 import { buildAiCommentarySummary } from "../services/liveRecordingAiCommentary.service.js";
 import {
   buildRecordingLivePlayback,
@@ -777,6 +782,7 @@ function serializeRecording(recording) {
     storageFailoverHistory.length > 0
       ? storageFailoverHistory[storageFailoverHistory.length - 1]
       : null;
+  const source = buildRecordingSourceSummary(recording);
   return {
     id: String(recording._id),
     matchId: String(recording.match),
@@ -801,6 +807,8 @@ function serializeRecording(recording) {
     temporaryPlaylistUrl: links.temporaryPlaylistUrl,
     temporaryPlaybackReady,
     livePlayback,
+    source,
+    facebookVod: recording?.meta?.facebookVod || null,
     aiCommentary: buildAiCommentarySummary(recording),
     rawStreamAvailable: Boolean(recording.driveFileId || recording.driveRawUrl),
     driveAuthMode: recording?.meta?.exportPipeline?.driveAuthMode || null,
@@ -1752,8 +1760,12 @@ export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
     });
   }
 
+  const exportSource = resolveLiveRecordingExportSource(recording);
   const uploadedSegments = getUploadedRecordingSegments(recording);
-  if (!uploadedSegments.length) {
+  if (
+    !uploadedSegments.length &&
+    exportSource.type !== RECORDING_SOURCE_FACEBOOK_VOD
+  ) {
     return res.status(400).json({
       message: "Cannot retry export because recording has no uploaded segments",
     });
@@ -1961,6 +1973,175 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
     });
   }
 );
+
+// ── HLS Live Playlist (.m3u8) ──
+// Generates a live HLS playlist from the recording's uploaded segments.
+// During live: rolling window with delay truncation, no EXT-X-ENDLIST.
+// After finished: all segments, with EXT-X-ENDLIST.
+// hls.js on the frontend will auto-poll this and handle buffering seamlessly.
+export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).type("text/plain").send("Invalid recording id");
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId).lean();
+  if (!recording) {
+    return res.status(404).type("text/plain").send("Recording not found");
+  }
+
+  const multiSourceEnabled = isLiveMultiSourceEnabled();
+  const delaySeconds = getLiveServer2DelaySeconds();
+  const uploadedSegments = getUploadedRecordingSegments(recording);
+
+  if (!uploadedSegments.length) {
+    // Return an empty live playlist while no segments yet
+    const empty = [
+      "#EXTM3U",
+      "#EXT-X-VERSION:3",
+      "#EXT-X-TARGETDURATION:6",
+      "#EXT-X-MEDIA-SEQUENCE:0",
+      "",
+    ].join("\n");
+    res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "no-cache, no-store");
+    return res.send(empty);
+  }
+
+  // Determine the public CDN base URL for segments
+  let publicBaseUrl = "";
+  if (multiSourceEnabled) {
+    publicBaseUrl = asTrimmed(recording?.meta?.livePlayback?.publicBaseUrl);
+    if (!publicBaseUrl) {
+      try {
+        const baseResult = getRecordingPublicBaseUrl(recording.r2TargetId);
+        publicBaseUrl = asTrimmed(baseResult);
+      } catch {
+        publicBaseUrl = "";
+      }
+    }
+  }
+
+  // Check if the recording is finished
+  const isFinished =
+    recording.status === "ready" ||
+    recording.status === "finished" ||
+    recording.status === "finalized" ||
+    Boolean(recording.driveFileId) ||
+    Boolean(recording.driveRawUrl);
+
+  // Build segment list with delay truncation for live streams
+  let playableSegments;
+  if (isFinished) {
+    playableSegments = uploadedSegments;
+  } else {
+    // Apply delay truncation — same logic as native app
+    const totalDuration = uploadedSegments.reduce(
+      (sum, seg) => sum + Math.max(0, Number(seg.durationSeconds || 0)),
+      0
+    );
+    const safeDuration = Math.max(0, totalDuration - delaySeconds);
+    let cumulative = 0;
+    playableSegments = [];
+    for (const segment of uploadedSegments) {
+      cumulative += Math.max(0, Number(segment.durationSeconds || 0));
+      if (cumulative - safeDuration > 0.0001) break;
+      playableSegments.push(segment);
+    }
+    // Rolling window: keep last 180 segments max
+    if (playableSegments.length > 180) {
+      playableSegments = playableSegments.slice(-180);
+    }
+  }
+
+  if (!playableSegments.length) {
+    const empty = [
+      "#EXTM3U",
+      "#EXT-X-VERSION:3",
+      "#EXT-X-TARGETDURATION:6",
+      "#EXT-X-MEDIA-SEQUENCE:0",
+      "",
+    ].join("\n");
+    res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "no-cache, no-store");
+    return res.send(empty);
+  }
+
+  // Calculate target duration (max segment duration, rounded up)
+  const targetDuration = Math.ceil(
+    playableSegments.reduce(
+      (max, seg) => Math.max(max, Number(seg.durationSeconds || 0)),
+      0
+    )
+  );
+  const mediaSequence = playableSegments[0]?.index ?? 0;
+
+  // Build segment URLs using CDN public base URL when available,
+  // otherwise fall back to signed download URLs
+  const useCdnUrls = Boolean(publicBaseUrl);
+  let segmentLines;
+
+  if (useCdnUrls) {
+    const normalizedBase = publicBaseUrl.replace(/\/+$/, "");
+    segmentLines = playableSegments.map((segment) => {
+      const objectKey = String(segment.objectKey || "").replace(/^\/+/, "");
+      const url = `${normalizedBase}/${objectKey}`;
+      const dur = Number(segment.durationSeconds || 6).toFixed(3);
+      return `#EXTINF:${dur},\n${url}`;
+    });
+  } else {
+    // Fallback: use presigned download URLs (not ideal for caching)
+    const segmentUrls = await Promise.all(
+      playableSegments.map(async (segment) => {
+        const download = await createRecordingObjectDownloadUrl({
+          objectKey: segment.objectKey,
+          expiresInSeconds: 60 * 60 * 2,
+          storageTargetId: getSegmentStorageTargetId(segment, recording),
+        });
+        return {
+          url: download.downloadUrl,
+          durationSeconds: segment.durationSeconds,
+        };
+      })
+    );
+    segmentLines = segmentUrls.map((s) => {
+      const dur = Number(s.durationSeconds || 6).toFixed(3);
+      return `#EXTINF:${dur},\n${s.url}`;
+    });
+  }
+
+  // Build the m3u8 playlist
+  const lines = [
+    "#EXTM3U",
+    "#EXT-X-VERSION:3",
+    `#EXT-X-TARGETDURATION:${targetDuration || 6}`,
+    `#EXT-X-MEDIA-SEQUENCE:${mediaSequence}`,
+    "",
+    ...segmentLines,
+  ];
+
+  // For finished recordings, signal end-of-stream
+  if (isFinished) {
+    lines.push("");
+    lines.push("#EXT-X-ENDLIST");
+  }
+
+  const playlist = lines.join("\n") + "\n";
+
+  res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  // Live: short cache; Finished: longer cache
+  res.setHeader(
+    "Cache-Control",
+    isFinished
+      ? "public, max-age=3600"
+      : "no-cache, max-age=2, stale-while-revalidate=2"
+  );
+
+  return res.send(playlist);
+});
 
 export const playLiveRecordingTemporaryV2 = asyncHandler(async (req, res) => {
   const recordingId = asTrimmed(req.params?.id);

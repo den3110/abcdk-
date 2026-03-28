@@ -84,6 +84,39 @@ export default function DelayedManifestPlayer({
   useNativeControls = false,
   showLiveBadge = true,
 }) {
+  // ── HLS mode: seamless buffered playback like YouTube Live ──
+  // When the backend provides an HLS URL, use hls.js which handles
+  // buffering, prefetching, and seamless segment transitions internally.
+  // No visible reload between segments.
+  const hlsUrl =
+    typeof source?.meta?.hlsUrl === "string"
+      ? source.meta.hlsUrl.trim()
+      : "";
+  const isFinishedSource =
+    String(source?.meta?.status || "").toLowerCase() === "final" ||
+    String(source?.meta?.status || "").toLowerCase() === "finished" ||
+    String(source?.meta?.status || "").toLowerCase() === "ready";
+  const liveHlsBadge =
+    showLiveBadge && !isFinishedSource;
+
+  if (hlsUrl) {
+    return (
+      <NativeVideoPlayer
+        src={hlsUrl}
+        kind="hls"
+        fallbackUrl={source?.openUrl || source?.url || ""}
+        initialRatio={resolveAspectRatio(source?.aspect)}
+        title={source?.label || "Server 2"}
+        subtitle={source?.providerLabel || "PickleTour Video"}
+        autoplay={autoplay}
+        previewOnlyUntilPlay={previewOnlyUntilPlay}
+        useNativeControls={useNativeControls}
+        liveMode={liveHlsBadge}
+      />
+    );
+  }
+
+  // ── Fallback: segment queue mode (original behavior) ──
   const [items, setItems] = useState([]);
   const [currentKey, setCurrentKey] = useState("");
   const [currentPlaybackUrl, setCurrentPlaybackUrl] = useState("");
@@ -420,11 +453,15 @@ export default function DelayedManifestPlayer({
         );
       } finally {
         if (!cancelled && !usedBackendPlaylist) {
-          const refreshSeconds =
-            Number(source?.meta?.refreshSeconds || 6) > 0
-              ? Number(source?.meta?.refreshSeconds || 6)
-              : 6;
-          timerId = window.setTimeout(fetchManifest, refreshSeconds * 1000);
+          const baseRefreshSeconds =
+            Number(source?.meta?.refreshSeconds || 4) > 0
+              ? Number(source?.meta?.refreshSeconds || 4)
+              : 4;
+          // When waiting for next segment, poll faster to minimize playback gap
+          const effectiveMs = waitingForNextRef.current
+            ? 1500
+            : baseRefreshSeconds * 1000;
+          timerId = window.setTimeout(fetchManifest, effectiveMs);
         }
       }
     };

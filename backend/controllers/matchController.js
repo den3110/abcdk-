@@ -17,6 +17,7 @@ import {
   releaseFacebookPagePoolAfterEnd,
   startOrRenewLease,
 } from "../services/liveSessionLease.service.js";
+import { scheduleFacebookVodFallbackForMatch } from "../services/liveRecordingFacebookVodFallback.service.js";
 import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.service.js";
 import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
@@ -2238,13 +2239,21 @@ async function getCurrentLiveState(matchId, matchKind) {
   return doc ? ensureLiveShape(doc.live) : ensureLiveShape();
 }
 
-async function cleanupFacebookLiveAfterEnd({ matchId, matchKind }) {
+async function cleanupFacebookLiveAfterEnd({
+  matchId,
+  matchKind,
+  endedAt = new Date(),
+}) {
+  const normalizedMatchKind = normalizeMatchKind(matchKind);
   const TargetModel =
-    normalizeMatchKind(matchKind) === "userMatch" ? UserMatch : Match;
+    normalizedMatchKind === "userMatch" ? UserMatch : Match;
   await TargetModel.updateOne(
     { _id: matchId },
     {
-      $set: { "facebookLive.status": "ENDED" },
+      $set: {
+        "facebookLive.status": "ENDED",
+        "facebookLive.endedAt": parseTs(endedAt),
+      },
       $unset: {
         "facebookLive.secure_stream_url": 1,
         "facebookLive.server_url": 1,
@@ -2252,6 +2261,15 @@ async function cleanupFacebookLiveAfterEnd({ matchId, matchKind }) {
       },
     }
   ).catch(() => {});
+
+  if (normalizedMatchKind !== "userMatch") {
+    await scheduleFacebookVodFallbackForMatch(matchId).catch((error) => {
+      console.warn(
+        "[matchController] schedule facebook vod fallback failed:",
+        error?.message || error
+      );
+    });
+  }
 }
 
 export const notifyStreamStarted = asyncHandler(async (req, res) => {
@@ -2385,7 +2403,11 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
       });
     }
 
-    await cleanupFacebookLiveAfterEnd({ matchId: id, matchKind });
+    await cleanupFacebookLiveAfterEnd({
+      matchId: id,
+      matchKind,
+      endedAt: req.body?.timestamp,
+    });
   }
 
   const live = result.live || (await getCurrentLiveState(id, matchKind));
@@ -2765,7 +2787,10 @@ const legacyNotifyStreamEnded = asyncHandler(async (req, res) => {
       await UserMatch.updateOne(
         { _id: id },
         {
-          $set: { "facebookLive.status": "ENDED" },
+          $set: {
+            "facebookLive.status": "ENDED",
+            "facebookLive.endedAt": endedAt,
+          },
           $unset: {
             "facebookLive.secure_stream_url": 1,
             "facebookLive.server_url": 1,
@@ -2877,7 +2902,10 @@ const legacyNotifyStreamEnded = asyncHandler(async (req, res) => {
     await Match.updateOne(
       { _id: id },
       {
-        $set: { "facebookLive.status": "ENDED" },
+        $set: {
+          "facebookLive.status": "ENDED",
+          "facebookLive.endedAt": endedAt,
+        },
         $unset: {
           "facebookLive.secure_stream_url": 1,
           "facebookLive.server_url": 1,
@@ -2885,6 +2913,12 @@ const legacyNotifyStreamEnded = asyncHandler(async (req, res) => {
         },
       }
     ).catch(() => {});
+    await scheduleFacebookVodFallbackForMatch(id).catch((error) => {
+      console.warn(
+        "[legacyNotifyStreamEnded] schedule facebook vod fallback failed:",
+        error?.message || error
+      );
+    });
   }
 
   emitSocket(req, id, {

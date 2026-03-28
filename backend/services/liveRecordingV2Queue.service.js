@@ -25,6 +25,10 @@ function buildExportJobId(recordingId) {
   return `live-recording-export-${String(recordingId)}`;
 }
 
+function buildRetryExportJobId(recordingId, suffix = Date.now()) {
+  return `${buildExportJobId(recordingId)}-retry-${String(suffix)}`;
+}
+
 function toRecordingKey(value) {
   const normalized = String(value || "").trim();
   return normalized || null;
@@ -126,6 +130,35 @@ export async function enqueueLiveRecordingExport(
     { recordingId: String(recordingId) },
     {
       jobId,
+      ...(normalizedDelayMs > 0 ? { delay: normalizedDelayMs } : {}),
+      attempts: 5,
+      backoff: {
+        type: "exponential",
+        delay: 10_000,
+      },
+      removeOnComplete: { age: 24 * 3600, count: 1000 },
+      removeOnFail: { age: 7 * 24 * 3600, count: 2000 },
+    }
+  );
+}
+
+export async function enqueueLiveRecordingExportRetry(
+  recordingId,
+  { delayMs = 0, retryReason = "retry" } = {}
+) {
+  const normalizedDelayMs =
+    Number.isFinite(Number(delayMs)) && Number(delayMs) > 0
+      ? Math.round(Number(delayMs))
+      : 0;
+
+  return liveRecordingExportQueue.add(
+    "export-recording",
+    {
+      recordingId: String(recordingId),
+      retryReason: String(retryReason || "retry"),
+    },
+    {
+      jobId: buildRetryExportJobId(recordingId),
       ...(normalizedDelayMs > 0 ? { delay: normalizedDelayMs } : {}),
       attempts: 5,
       backoff: {

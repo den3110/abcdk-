@@ -11,6 +11,7 @@ import {
   markFacebookPageFreeByPage,
 } from "./facebookPagePool.service.js";
 import { publishFbPageMonitorUpdate } from "./fbPageMonitorEvents.service.js";
+import { scheduleFacebookVodFallbackForMatch } from "./liveRecordingFacebookVodFallback.service.js";
 
 const HEARTBEAT_INTERVAL_DEFAULT_MS = 15_000;
 const LEASE_TIMEOUT_DEFAULT_MS = 120_000;
@@ -322,15 +323,38 @@ async function markTargetPlatformEnded({
 
   const extraSet =
     platform === "facebook" && !anyActive
-      ? { "facebookLive.status": "ENDED" }
+      ? {
+          "facebookLive.status": "ENDED",
+          "facebookLive.endedAt": endedAt,
+        }
+      : {};
+  const extraUnset =
+    platform === "facebook" && !anyActive
+      ? {
+          "facebookLive.secure_stream_url": 1,
+          "facebookLive.server_url": 1,
+          "facebookLive.stream_key": 1,
+        }
       : {};
 
-  return persistLiveState({
+  const updated = await persistLiveState({
     matchId,
     matchKind,
     live,
     extraSet,
+    extraUnset,
   });
+
+  if (platform === "facebook" && !anyActive && normalizeMatchKind(matchKind) === "match") {
+    await scheduleFacebookVodFallbackForMatch(matchId).catch((error) => {
+      console.warn(
+        "[lease] schedule facebook vod fallback failed:",
+        error?.message || error
+      );
+    });
+  }
+
+  return updated;
 }
 
 async function touchTargetLeaseState({

@@ -3,7 +3,11 @@ import os from "os";
 import mongoose from "mongoose";
 import { QueueEvents, Worker } from "bullmq";
 import connectDB from "../config/db.js";
-import { liveRecordingExportConnection, getLiveRecordingExportQueueName } from "../services/liveRecordingV2Queue.service.js";
+import {
+  enqueueLiveRecordingExportRetry,
+  getLiveRecordingExportQueueName,
+  liveRecordingExportConnection,
+} from "../services/liveRecordingV2Queue.service.js";
 import { exportLiveRecordingV2 } from "../services/liveRecordingV2Export.service.js";
 import { loadLiveRecordingStorageTargetsConfig } from "../services/liveRecordingStorageTargetsConfig.service.js";
 import {
@@ -84,7 +88,13 @@ const worker = new Worker(
           error?.message || error
         );
       });
-      await exportLiveRecordingV2(recordingId);
+      const result = await exportLiveRecordingV2(recordingId);
+      if (Number(result?.retryDelayMs) > 0) {
+        await enqueueLiveRecordingExportRetry(recordingId, {
+          delayMs: Number(result.retryDelayMs),
+          retryReason: result?.retryReason || "retry",
+        });
+      }
       lastCompletedAt = new Date().toISOString();
       lastFailedReason = null;
       return { ok: true, recordingId };

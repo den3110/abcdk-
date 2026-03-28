@@ -6,6 +6,7 @@ import {
 import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStreamUrl,
+  buildRecordingLiveHlsUrl,
 } from "./liveRecordingV2Export.service.js";
 import {
   buildRecordingAiCommentaryPlaybackUrl,
@@ -518,6 +519,11 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         uploadedDurationSeconds: server2.uploadedDurationSeconds,
         uploadedSegmentCount: server2.uploadedSegmentCount,
         showLiveBadge: !finishedLike,
+        status: server2.status,
+        refreshSeconds: server2.status === "final" ? 0 : 4,
+        hlsUrl: recording?._id
+          ? buildRecordingLiveHlsUrl(recording._id)
+          : null,
       },
     });
   }
