@@ -6,6 +6,7 @@ import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
+import User from "../models/userModel.js";
 import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
@@ -111,6 +112,16 @@ function safeInt(value, fallback = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 }
 
+function normalizeObjectIdArray(values = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [values])
+        .map((value) => toIdString(value))
+        .filter((value) => mongoose.Types.ObjectId.isValid(value))
+    )
+  );
+}
+
 function normalizeStationStatus(value, fallback = "idle") {
   const normalized = safeText(value, fallback).toLowerCase();
   return ["idle", "assigned", "live", "maintenance"].includes(normalized)
@@ -121,6 +132,105 @@ function normalizeStationStatus(value, fallback = "idle") {
 function normalizeAssignmentMode(value, fallback = "manual") {
   const normalized = safeText(value, fallback).toLowerCase();
   return ASSIGNMENT_MODES.includes(normalized) ? normalized : fallback;
+}
+
+function buildRefereeSummary(referee) {
+  const id = toIdString(referee?._id || referee);
+  if (!id) return null;
+  return {
+    _id: id,
+    name: safeText(referee?.name),
+    fullName: safeText(referee?.fullName),
+    nickname: safeText(referee?.nickname || referee?.nickName),
+    nickName: safeText(referee?.nickName || referee?.nickname),
+    email: safeText(referee?.email),
+    phone: safeText(referee?.phone),
+  };
+}
+
+function extractStationDefaultRefereeIds(station) {
+  return normalizeObjectIdArray(station?.defaultReferees || []);
+}
+
+function collectStationAssignedMatchIds(station) {
+  const ids = [];
+  const currentMatchId = toIdString(station?.currentMatch?._id || station?.currentMatch);
+  if (currentMatchId) ids.push(currentMatchId);
+
+  (Array.isArray(station?.assignmentQueue?.items) ? station.assignmentQueue.items : [])
+    .forEach((item) => {
+      const matchId = toIdString(item?.matchId?._id || item?.matchId || item?.match?._id);
+      if (matchId) ids.push(matchId);
+    });
+
+  return Array.from(new Set(ids));
+}
+
+async function validateTournamentRefereeIds(refereeIds = [], tournamentId = null) {
+  const normalizedIds = normalizeObjectIdArray(refereeIds);
+  if (!normalizedIds.length) return [];
+  if (!tournamentId || !mongoose.Types.ObjectId.isValid(String(tournamentId))) {
+    const error = new Error("Thiếu tournamentId hợp lệ để gán trọng tài cho sân.");
+    error.status = 400;
+    throw error;
+  }
+
+  const validRefs = await User.find({
+    _id: { $in: normalizedIds },
+    isDeleted: { $ne: true },
+    role: "referee",
+    "referee.tournaments": tournamentId,
+  })
+    .select("_id name fullName nickname nickName email phone")
+    .lean();
+
+  if (validRefs.length !== normalizedIds.length) {
+    const error = new Error(
+      "Có trọng tài không tồn tại, không phải referee, hoặc không thuộc giải hiện tại."
+    );
+    error.status = 400;
+    throw error;
+  }
+
+  const refMap = new Map(validRefs.map((ref) => [toIdString(ref._id), ref]));
+  return normalizedIds.map((id) => refMap.get(id)).filter(Boolean);
+}
+
+async function replaceMatchCourtStationReferees(matchId, refereeIds = []) {
+  const normalizedMatchId = toIdString(matchId);
+  if (!normalizedMatchId || !mongoose.Types.ObjectId.isValid(normalizedMatchId)) {
+    return;
+  }
+
+  const match = await Match.findById(normalizedMatchId)
+    .select("_id referee courtStationReferees")
+    .lean();
+  if (!match?._id) return;
+
+  const nextStationRefIds = normalizeObjectIdArray(refereeIds);
+  const previousStationRefIds = normalizeObjectIdArray(match.courtStationReferees);
+  const currentRefIds = normalizeObjectIdArray(match.referee);
+  const manualRefIds = currentRefIds.filter(
+    (refId) => !previousStationRefIds.includes(refId)
+  );
+  const nextRefIds = Array.from(new Set([...manualRefIds, ...nextStationRefIds]));
+
+  await Match.updateOne(
+    { _id: match._id },
+    {
+      $set: {
+        referee: nextRefIds,
+        courtStationReferees: nextStationRefIds,
+      },
+    }
+  );
+}
+
+async function syncStationRefereesForMatches(matchIds = [], refereeIds = []) {
+  const uniqueMatchIds = normalizeObjectIdArray(matchIds);
+  for (const matchId of uniqueMatchIds) {
+    await replaceMatchCourtStationReferees(matchId, refereeIds);
+  }
 }
 
 function isTerminalMatchStatus(status) {
@@ -638,7 +748,8 @@ function buildPublicStationPayload(
   station,
   { cluster = null, matchDisplayContexts = new Map(), currentMatchById = new Map() } = {}
 ) {
-  const currentMatchId = toIdString(station?.currentMatch?._id || station?.currentMatch);
+  const preferredCurrent = selectPreferredStationMatchDocs(station).currentMatch;
+  const currentMatchId = toIdString(preferredCurrent?._id || preferredCurrent);
   return {
     ...buildStationSummary(station, { cluster, matchDisplayContexts }),
     currentMatch: currentMatchById.get(currentMatchId) || null,
@@ -704,6 +815,13 @@ function isActiveMatchStatus(status) {
   return ACTIVE_MATCH_STATUSES.includes(safeText(status).toLowerCase());
 }
 
+function isLiveMatchOnStation(match, stationId = null) {
+  if (safeText(match?.status).toLowerCase() !== "live") return false;
+  const matchStationId = toIdString(match?.courtStation?._id || match?.courtStation);
+  if (!matchStationId || !stationId) return true;
+  return matchStationId === stationId;
+}
+
 function collectStationQueueMatchDocs(station) {
   const items = Array.isArray(station?.assignmentQueue?.items)
     ? station.assignmentQueue.items
@@ -734,13 +852,9 @@ function selectPreferredStationMatchDocs(station) {
   pushCandidate(station.currentMatch);
   collectStationQueueMatchDocs(station).forEach(pushCandidate);
 
-  const activeCandidates = orderedCandidates.filter((match) =>
-    isActiveMatchStatus(match?.status)
-  );
-  const currentMatchId = toIdString(station.currentMatch?._id || station.currentMatch);
-  const preferredCurrent = activeCandidates.find(
-    (match) => toIdString(match?._id || match) === currentMatchId
-  ) || null;
+  const stationId = toIdString(station?._id);
+  const preferredCurrent =
+    orderedCandidates.find((match) => isLiveMatchOnStation(match, stationId)) || null;
   const preferredCurrentId = toIdString(
     preferredCurrent?._id || preferredCurrent
   );
@@ -768,16 +882,30 @@ function buildStationSummary(station, options = {}) {
         .filter(Boolean)
         .sort((a, b) => a.order - b.order)
     : [];
+  const rawStatus = safeText(station.status, "idle");
+  const normalizedStatus = rawStatus.toLowerCase();
+  const derivedStatus = preferredMatches.currentMatch
+    ? "live"
+    : queueItems.length && ["", "idle", "assigned", "live"].includes(normalizedStatus)
+      ? "assigned"
+      : rawStatus;
   return {
     _id: toIdString(station._id),
     name: safeText(station.name),
     code: safeText(station.code),
     order: safeInt(station.order, 0),
     isActive: station.isActive !== false,
-    status: safeText(station.status, "idle"),
+    status: derivedStatus,
     assignmentMode: normalizeAssignmentMode(station.assignmentMode, "manual"),
     clusterId: toIdString(cluster?._id || station.clusterId) || null,
     clusterName: safeText(cluster?.name),
+    defaultRefereeIds: extractStationDefaultRefereeIds(station),
+    defaultReferees: (Array.isArray(station?.defaultReferees)
+      ? station.defaultReferees
+      : []
+    )
+      .map((referee) => buildRefereeSummary(referee))
+      .filter(Boolean),
     currentMatchId:
       toIdString(preferredMatches.currentMatch?._id || preferredMatches.currentMatch) ||
       null,
@@ -1163,7 +1291,7 @@ export async function cleanupTournamentAssignmentsForRemovedClusters(
     if (currentBelongsToTournament) {
       nextSet.currentMatch = null;
       nextSet.currentTournament = null;
-      nextSet.status = "idle";
+      nextSet.status = nextQueueItems.length ? "assigned" : "idle";
       if (currentMatchId) clearedCurrentMatchIds.add(currentMatchId);
     }
 
@@ -1171,13 +1299,6 @@ export async function cleanupTournamentAssignmentsForRemovedClusters(
 
     if (currentBelongsToTournament && currentMatchId) {
       await clearMatchStationFields(currentMatchId, stationId);
-    }
-
-    if (
-      normalizeAssignmentMode(station?.assignmentMode, "manual") === "queue" &&
-      currentBelongsToTournament
-    ) {
-      await maybeAssignNextQueuedMatch(stationId);
     }
 
     touchedClusterIds.add(clusterId);
@@ -1331,6 +1452,7 @@ export async function deleteCourtCluster(clusterId) {
 export async function listCourtStations(clusterId, { includeMatches = false } = {}) {
   const query = CourtStation.find({ clusterId })
     .populate("clusterId", "name slug description venueName notes color order isActive")
+    .populate("defaultReferees", "name fullName nickname nickName email phone")
     .sort({ order: 1, name: 1, createdAt: 1 });
 
   if (includeMatches) {
@@ -1388,6 +1510,7 @@ export async function createCourtStation(clusterId, data = {}) {
         Array.isArray(data?.assignmentQueue?.items) ? data.assignmentQueue.items : []
       ),
     },
+    defaultReferees: normalizeObjectIdArray(data.defaultReferees || []),
     liveConfig:
       data.liveConfig && typeof data.liveConfig === "object"
         ? data.liveConfig
@@ -1433,6 +1556,9 @@ export async function updateCourtStation(stationId, data = {}) {
         Array.isArray(data?.assignmentQueue?.items) ? data.assignmentQueue.items : []
       ),
     };
+  }
+  if (Object.prototype.hasOwnProperty.call(data, "defaultReferees")) {
+    update.defaultReferees = normalizeObjectIdArray(data.defaultReferees || []);
   }
   if (Object.prototype.hasOwnProperty.call(data, "liveConfig")) {
     update.liveConfig =
@@ -1487,10 +1613,16 @@ async function clearMatchStationFields(matchId, stationId = null) {
   if (stationId) {
     query.courtStation = stationId;
   }
-  const current = await Match.findOne(query).select("_id status").lean().catch(() => null);
+  const current = await Match.findOne(query)
+    .select("_id status referee courtStationReferees")
+    .lean()
+    .catch(() => null);
   if (!current?._id) return;
   const currentStatus = safeText(current.status).toLowerCase();
   const nextStatus = currentStatus === "assigned" ? "scheduled" : current.status;
+  const existingRefIds = normalizeObjectIdArray(current.referee);
+  const stationRefIds = normalizeObjectIdArray(current.courtStationReferees);
+  const manualRefIds = existingRefIds.filter((refId) => !stationRefIds.includes(refId));
   await Match.updateOne(
     { _id: current._id },
     {
@@ -1504,6 +1636,8 @@ async function clearMatchStationFields(matchId, stationId = null) {
         courtClusterLabel: "",
         assignedAt: null,
         status: nextStatus,
+        referee: manualRefIds,
+        courtStationReferees: [],
       },
     }
   ).catch(() => {});
@@ -1544,17 +1678,15 @@ async function detachMatchFromOtherStations(matchId, keepStationId = null) {
     if (wasCurrent) {
       nextSet.currentMatch = null;
       nextSet.currentTournament = null;
-      nextSet.status = "idle";
+      nextSet.status = nextQueueItems.length ? "assigned" : "idle";
     }
 
     await CourtStation.updateOne({ _id: stationId }, { $set: nextSet });
 
-    if (
-      wasCurrent &&
-      normalizeAssignmentMode(station?.assignmentMode, "manual") === "queue"
-    ) {
-      await maybeAssignNextQueuedMatch(stationId);
+    if (!wasCurrent) {
+      await replaceMatchCourtStationReferees(normalizedMatchId, []);
     }
+
   }
 }
 
@@ -1588,11 +1720,17 @@ async function applyMatchStationFields(matchId, station, cluster) {
       },
     }
   );
+
+  await replaceMatchCourtStationReferees(
+    matchId,
+    extractStationDefaultRefereeIds(station)
+  );
 }
 
 async function loadRuntimeStation(stationId) {
   return CourtStation.findById(stationId)
     .populate("clusterId", "name slug description venueName notes color order isActive")
+    .populate("defaultReferees", "name fullName nickname nickName email phone")
     .populate({
       path: "currentMatch",
       select: MATCH_SUMMARY_SELECT,
@@ -1669,7 +1807,7 @@ export async function assignMatchToCourtStation(
     options.ignoreAssignmentMode !== true
   ) {
     const error = new Error(
-      "Sân đang ở chế độ tự động theo danh sách. Hãy thêm trận vào danh sách thay vì gán tay."
+      "Sân đang ở chế độ danh sách. Hãy thêm trận vào danh sách thay vì gán tay."
     );
     error.status = 409;
     throw error;
@@ -1786,11 +1924,18 @@ export async function assignMatchToCourtStation(
 
 export async function updateCourtStationAssignmentConfig(
   stationId,
-  { tournamentId, assignmentMode, queueMatchIds, user = null, isAdmin = false } = {}
+  {
+    tournamentId,
+    assignmentMode,
+    queueMatchIds,
+    refereeIds,
+    user = null,
+    isAdmin = false,
+  } = {}
 ) {
   const station = await CourtStation.findById(stationId)
     .select(
-      "_id clusterId assignmentMode assignmentQueue currentMatch currentTournament status"
+      "_id clusterId assignmentMode assignmentQueue currentMatch currentTournament status defaultReferees"
     )
     .lean();
   if (!station) {
@@ -1803,6 +1948,7 @@ export async function updateCourtStationAssignmentConfig(
     assignmentMode,
     station.assignmentMode || "manual"
   );
+  let nextDefaultRefs = extractStationDefaultRefereeIds(station);
   let nextQueueItems = Array.isArray(station?.assignmentQueue?.items)
     ? station.assignmentQueue.items
     : [];
@@ -1813,23 +1959,14 @@ export async function updateCourtStationAssignmentConfig(
       .filter(Boolean);
     const uniqueIds = Array.from(new Set(normalizedIds));
     if (uniqueIds.length !== normalizedIds.length) {
-      const error = new Error("Danh sách trận trong hàng đợi đang bị trùng.");
-      error.status = 409;
-      throw error;
-    }
-
-    if (
-      station.currentMatch &&
-      uniqueIds.includes(toIdString(station.currentMatch))
-    ) {
-      const error = new Error("Không thể đưa trận hiện tại vào hàng đợi tiếp theo.");
+      const error = new Error("Danh sách trận đang bị trùng.");
       error.status = 409;
       throw error;
     }
 
     const orderedMatches = await loadQueueMatches(uniqueIds);
     if (orderedMatches.length !== uniqueIds.length) {
-      const error = new Error("Danh sách trận hàng đợi không hợp lệ.");
+      const error = new Error("Danh sách trận không hợp lệ.");
       error.status = 400;
       throw error;
     }
@@ -1875,23 +2012,38 @@ export async function updateCourtStationAssignmentConfig(
     );
   }
 
+  if (refereeIds !== undefined) {
+    const validRefs = await validateTournamentRefereeIds(refereeIds, tournamentId);
+    nextDefaultRefs = validRefs.map((ref) => ref._id);
+  }
+
+  const previousAssignedMatchIds = collectStationAssignedMatchIds(station);
+  const nextAssignedMatchIds = collectStationAssignedMatchIds({
+    currentMatch: station.currentMatch,
+    assignmentQueue: { items: nextQueueItems },
+  });
+  const removedMatchIds = previousAssignedMatchIds.filter(
+    (matchId) => !nextAssignedMatchIds.includes(matchId)
+  );
+
   await CourtStation.updateOne(
     { _id: station._id },
     {
       $set: {
         assignmentMode: nextMode,
         assignmentQueue: { items: nextQueueItems },
-        status:
-          station.currentMatch || nextQueueItems.length
-            ? station.status || "idle"
+        defaultReferees: nextDefaultRefs,
+        status: station.currentMatch
+          ? station.status || "assigned"
+          : nextQueueItems.length
+            ? "assigned"
             : "idle",
       },
     }
   );
 
-  if (nextMode === "queue" && !station.currentMatch) {
-    await maybeAssignNextQueuedMatch(station._id);
-  }
+  await syncStationRefereesForMatches(removedMatchIds, []);
+  await syncStationRefereesForMatches(nextAssignedMatchIds, nextDefaultRefs);
 
   const refreshed = await loadRuntimeStation(station._id);
   return {
@@ -1905,7 +2057,7 @@ export async function appendMatchToCourtStationQueue(
 ) {
   const station = await CourtStation.findById(stationId)
     .select(
-      "_id clusterId assignmentMode assignmentQueue currentMatch currentTournament status"
+      "_id clusterId assignmentMode assignmentQueue currentMatch currentTournament status defaultReferees"
     )
     .lean();
   if (!station) {
@@ -1953,13 +2105,15 @@ export async function appendMatchToCourtStationQueue(
     {
       $set: {
         assignmentQueue: { items: nextQueueItems },
+        status: station.currentMatch ? station.status || "assigned" : "assigned",
       },
     }
   );
 
-  if (!station.currentMatch) {
-    await maybeAssignNextQueuedMatch(station._id);
-  }
+  await replaceMatchCourtStationReferees(
+    match._id,
+    extractStationDefaultRefereeIds(station)
+  );
 
   const refreshed = await loadRuntimeStation(station._id);
   return {
@@ -1994,19 +2148,17 @@ export async function removeMatchFromCourtStationQueue(stationId, matchId) {
     {
       $set: {
         assignmentQueue: { items: nextQueueItems },
+        status:
+          station.currentMatch || nextQueueItems.length
+            ? station.status || "assigned"
+            : "idle",
       },
     }
   );
 
   if (wasQueued) {
     await clearMatchStationFields(matchId, station._id);
-  }
-
-  if (
-    normalizeAssignmentMode(station.assignmentMode, "manual") === "queue" &&
-    !station.currentMatch
-  ) {
-    await maybeAssignNextQueuedMatch(station._id);
+    await replaceMatchCourtStationReferees(matchId, []);
   }
 
   const refreshed = await loadRuntimeStation(station._id);
@@ -2016,8 +2168,12 @@ export async function removeMatchFromCourtStationQueue(stationId, matchId) {
 }
 
 export async function advanceCourtStationQueueOnMatchFinished(matchId) {
+  const normalizedMatchId = toIdString(matchId);
   const station = await CourtStation.findOne({
-    currentMatch: matchId,
+    $or: [
+      { currentMatch: normalizedMatchId },
+      { "assignmentQueue.items.matchId": normalizedMatchId },
+    ],
     assignmentMode: "queue",
   })
     .select(
@@ -2028,27 +2184,36 @@ export async function advanceCourtStationQueueOnMatchFinished(matchId) {
     return { station: null, assigned: false };
   }
 
+  const nextQueueItems = normalizeAssignmentQueueItems(
+    (Array.isArray(station?.assignmentQueue?.items)
+      ? station.assignmentQueue.items
+      : []
+    ).filter((item) => toIdString(item?.matchId) !== normalizedMatchId)
+  );
+  const isCurrentMatch = toIdString(station.currentMatch) === normalizedMatchId;
+
   await CourtStation.updateOne(
-    { _id: station._id, currentMatch: matchId },
+    { _id: station._id },
     {
       $set: {
-        currentMatch: null,
-        currentTournament: null,
-        status: "idle",
+        assignmentQueue: { items: nextQueueItems },
+        currentMatch: isCurrentMatch ? null : station.currentMatch,
+        currentTournament: isCurrentMatch ? null : station.currentTournament,
+        status: isCurrentMatch
+          ? nextQueueItems.length
+            ? "assigned"
+            : "idle"
+          : station.status || (nextQueueItems.length ? "assigned" : "idle"),
       },
     }
   );
 
-  const assigned = await maybeAssignNextQueuedMatch(station._id);
   const refreshed = await loadRuntimeStation(station._id);
   const runtimeStation = await buildRuntimeStationPayloadAsync(refreshed);
-  const nextMatch =
-    assigned?.match ||
-    (refreshed?.currentMatch ? await buildCurrentMatchPayloadAsync(refreshed) : null);
   return {
     station: runtimeStation,
-    assigned: Boolean(assigned?.station?._id),
-    nextMatch,
+    assigned: false,
+    nextMatch: null,
   };
 }
 
@@ -2056,12 +2221,41 @@ export async function freeCourtStation(
   stationId,
   { advanceQueue = true } = {}
 ) {
+  void advanceQueue;
   const station = await CourtStation.findById(stationId)
     .populate("clusterId", "name slug description venueName notes color order isActive")
+    .populate({
+      path: "currentMatch",
+      select: MATCH_SUMMARY_SELECT,
+      populate: MATCH_REF_POPULATE,
+    })
+    .populate({
+      path: "assignmentQueue.items.matchId",
+      select: MATCH_SUMMARY_SELECT,
+      populate: MATCH_REF_POPULATE,
+    })
     .lean();
   if (!station) return null;
 
-  const previousMatchId = toIdString(station.currentMatch);
+  const preferredCurrent = selectPreferredStationMatchDocs(station).currentMatch;
+  const rawCurrentMatchId = toIdString(
+    station?.currentMatch?._id || station?.currentMatch
+  );
+  const previousMatchId =
+    rawCurrentMatchId ||
+    toIdString(preferredCurrent?._id || preferredCurrent);
+  const nextQueueItems = previousMatchId
+    ? normalizeAssignmentQueueItems(
+        (Array.isArray(station?.assignmentQueue?.items)
+          ? station.assignmentQueue.items
+          : []
+        ).filter((item) => toIdString(item?.matchId) !== previousMatchId)
+      )
+    : normalizeAssignmentQueueItems(
+        Array.isArray(station?.assignmentQueue?.items)
+          ? station.assignmentQueue.items
+          : []
+      );
   if (previousMatchId) {
     await clearMatchStationFields(previousMatchId, station._id);
   }
@@ -2072,17 +2266,11 @@ export async function freeCourtStation(
       $set: {
         currentMatch: null,
         currentTournament: null,
-        status: "idle",
+        assignmentQueue: { items: nextQueueItems },
+        status: nextQueueItems.length ? "assigned" : "idle",
       },
     }
   );
-
-  if (
-    advanceQueue &&
-    normalizeAssignmentMode(station.assignmentMode, "manual") === "queue"
-  ) {
-    await maybeAssignNextQueuedMatch(station._id);
-  }
 
   const refreshed = await loadRuntimeStation(station._id);
 
@@ -2179,6 +2367,11 @@ export async function buildPublicLiveClusters() {
     isActive: true,
   })
     .populate({
+      path: "assignmentQueue.items.matchId",
+      select: MATCH_SUMMARY_SELECT,
+      populate: MATCH_REF_POPULATE,
+    })
+    .populate({
       path: "currentMatch",
       select: MATCH_SUMMARY_SELECT,
       populate: [
@@ -2202,7 +2395,9 @@ export async function buildPublicLiveClusters() {
     .sort({ order: 1, name: 1, createdAt: 1 })
     .lean();
 
-  const currentMatches = stations.map((station) => station?.currentMatch).filter(Boolean);
+  const currentMatches = stations
+    .map((station) => selectPreferredStationMatchDocs(station).currentMatch)
+    .filter(Boolean);
   const { matchDisplayContexts, currentMatchById } =
     await buildPublicCurrentMatchSummaryMap(currentMatches);
 
@@ -2260,7 +2455,7 @@ export async function buildPublicLiveClusterDetail(clusterId) {
     .lean();
 
   const currentMatches = stationDocs
-    .map((station) => station?.currentMatch)
+    .map((station) => selectPreferredStationMatchDocs(station).currentMatch)
     .filter(Boolean);
   const { matchDisplayContexts, currentMatchById } =
     await buildPublicCurrentMatchSummaryMap(currentMatches);

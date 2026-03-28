@@ -8,6 +8,30 @@ const userIsAdmin = (user) =>
       (Array.isArray(user?.roles) && user.roles.includes("admin"))
   );
 
+const normalizeAssignedRefIds = (match) => {
+  const raw = [
+    ...(Array.isArray(match?.referee)
+      ? match.referee
+      : match?.referee
+        ? [match.referee]
+        : []),
+    ...(Array.isArray(match?.referees)
+      ? match.referees
+      : match?.referees
+        ? [match.referees]
+        : []),
+    ...(Array.isArray(match?.courtStationReferees)
+      ? match.courtStationReferees
+      : match?.courtStationReferees
+        ? [match.courtStationReferees]
+        : []),
+  ];
+
+  return raw
+    .map((entry) => String(entry?._id ?? entry?.id ?? entry ?? "").trim())
+    .filter(Boolean);
+};
+
 export const canScoreMatch = asyncHandler(async (req, res, next) => {
   // ✅ Bypass nếu là userMatch (hay bất kỳ kind nào có gửi header)
   const matchKind =
@@ -19,7 +43,9 @@ export const canScoreMatch = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
 
   // referee giờ là ARRAY<ObjectId>
-  const m = await Match.findById(id).select("_id referee status");
+  const m = await Match.findById(id).select(
+    "_id referee referees courtStationReferees status"
+  );
   if (!m) {
     res.status(404);
     throw new Error("Match not found");
@@ -29,13 +55,7 @@ export const canScoreMatch = asyncHandler(async (req, res, next) => {
   const isAdmin = userIsAdmin(req.user);
 
   // Chuẩn hoá về mảng (phòng trường hợp dữ liệu cũ còn kiểu đơn)
-  const refs = Array.isArray(m.referee)
-    ? m.referee
-    : m.referee
-    ? [m.referee]
-    : [];
-
-  const isReferee = refs.some((r) => String(r) === uid);
+  const isReferee = normalizeAssignedRefIds(m).includes(uid);
 
   if (!isReferee && !isAdmin) {
     res.status(403);
@@ -69,22 +89,19 @@ export const ownOrAdmin = asyncHandler(async (req, res, next) => {
   }
 
   // 🔹 Logic cũ cho Match tournament
-  const m = await Match.findById(req.params.id).select("_id referee status");
+  const m = await Match.findById(req.params.id).select(
+    "_id referee referees courtStationReferees status"
+  );
   if (!m) {
     res.status(404);
     throw new Error("Match not found");
   }
 
   const uid = String(req.user?._id || "");
-  const isAdmin = req.user?.role === "admin";
+  const isAdmin = userIsAdmin(req.user);
 
   // referee giờ là ARRAY<ObjectId>; vẫn hỗ trợ dữ liệu cũ (1 ObjectId)
-  const refs = Array.isArray(m.referee)
-    ? m.referee
-    : m.referee
-    ? [m.referee]
-    : [];
-  const isReferee = refs.some((r) => String(r) === uid);
+  const isReferee = normalizeAssignedRefIds(m).includes(uid);
 
   if (!isReferee && !isAdmin) {
     res.status(403);

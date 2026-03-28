@@ -461,6 +461,9 @@ export const updateTournamentCourtStationAssignmentConfigHttp = asyncHandler(
       queueMatchIds: Array.isArray(req.body?.queueMatchIds)
         ? req.body.queueMatchIds
         : undefined,
+      refereeIds: Array.isArray(req.body?.refereeIds)
+        ? req.body.refereeIds
+        : undefined,
       user: req.user || null,
       isAdmin,
     });

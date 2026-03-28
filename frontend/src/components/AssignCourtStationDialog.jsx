@@ -8,10 +8,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  MenuItem,
   Paper,
   Stack,
-  TextField,
   Typography,
 } from "@mui/material";
 import StadiumIcon from "@mui/icons-material/Stadium";
@@ -92,20 +90,18 @@ const stationStatusLabel = (status) => {
   switch (String(status || "").toLowerCase()) {
     case "idle":
       return "Sẵn sàng";
-    case "assigned":
-      return "Đã được gán trận";
     case "live":
       return "Đang live";
     case "maintenance":
       return "Bảo trì";
     default:
-      return status || "—";
+      return "";
   }
 };
 
 const assignmentModeLabel = (mode) =>
   String(mode || "").toLowerCase() === "queue"
-    ? "Tự động theo danh sách"
+    ? "Danh sách"
     : "Gán tay";
 
 export default function AssignCourtStationDialog({
@@ -156,12 +152,6 @@ export default function AssignCourtStationDialog({
     clusterOptionsData?.items,
     clusterOptionsData?.selectedIds,
   ]);
-
-  const selectedCluster = useMemo(() => {
-    return allowedClusterOptions.find(
-      (c) => sid(c?._id || c?.id) === selectedClusterId,
-    );
-  }, [allowedClusterOptions, selectedClusterId]);
 
   useEffect(() => {
     if (!open) return;
@@ -236,20 +226,40 @@ export default function AssignCourtStationDialog({
 
   const stations = useMemo(() => runtime?.stations || [], [runtime?.stations]);
   const currentStation = useMemo(() => {
+    const matchId = sid(match?._id);
     const direct = sid(match?.courtStationId || match?.courtStation?._id);
     if (direct) {
       const directStation =
         stations.find((station) => sid(station?._id) === direct) || null;
+      const directMode = String(
+        directStation?.assignmentMode || "manual",
+      ).toLowerCase();
+      const directStatus = String(directStation?.status || "").toLowerCase();
+      const directCurrentMatchId = sid(
+        directStation?.currentMatch?._id || directStation?.currentMatch,
+      );
+      const queueContainsMatch = Array.isArray(directStation?.queueItems)
+        ? directStation.queueItems.some(
+            (item) => sid(item?.matchId || item?.match?._id) === matchId,
+          )
+        : false;
+
+      if (directCurrentMatchId === matchId) {
+        return directStation;
+      }
+
       if (
-        sid(directStation?.currentMatch?._id || directStation?.currentMatch) ===
-        sid(match?._id)
+        directMode !== "queue" &&
+        !queueContainsMatch &&
+        ["assigned", "live"].includes(directStatus)
       ) {
         return directStation;
       }
     }
     return (
       stations.find(
-        (station) => sid(station?.currentMatch?._id) === sid(match?._id),
+        (station) =>
+          sid(station?.currentMatch?._id || station?.currentMatch) === matchId,
       ) || null
     );
   }, [match?._id, match?.courtStation?._id, match?.courtStationId, stations]);
@@ -269,12 +279,10 @@ export default function AssignCourtStationDialog({
   }, [match?._id, stations]);
 
   const queuedStation = queuedInfo?.station || null;
-  const queuedIndex = queuedInfo?.index ?? -1;
 
   const currentStationId = sid(currentStation?._id);
   const queuedStationId = sid(queuedStation?._id);
   const matchId = sid(match?._id);
-  const sharedTournamentCount = Number(runtime?.sharedTournamentCount || 0);
   const queueDetailStation = useMemo(
     () =>
       stations.find((station) => sid(station?._id) === queueDetailStationId) ||
@@ -344,15 +352,6 @@ export default function AssignCourtStationDialog({
     open,
     queuedStationId,
   ]);
-
-  const handleSelectCluster = (clusterId) => {
-    setSelectedClusterId(clusterId);
-    addBusinessBreadcrumb("court_station.cluster.select", {
-      tournamentId: normalizedTournamentId,
-      matchId,
-      clusterId,
-    });
-  };
 
   const handleOpenQueueDetail = (stationId) => {
     setQueueDetailStationId(stationId);
@@ -476,15 +475,6 @@ export default function AssignCourtStationDialog({
         subtitle={teamLine(match)}
       >
         <Stack spacing={2.5}>
-          <Box>
-            <Typography variant="body1" fontWeight={700}>
-              {teamLine(match)}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Chọn cụm sân và sân vật lý để gán cho trận này.
-            </Typography>
-          </Box>
-
           {!allowedClusterOptions.length && !isFetchingClusterOptions ? (
             <Alert severity="warning">
               Giải này chưa có cụm sân được phép dùng trong cấu hình giải.
@@ -495,39 +485,6 @@ export default function AssignCourtStationDialog({
             </Alert>
           ) : (
             <>
-              <TextField
-                select
-                label="Cụm sân"
-                value={selectedClusterId}
-                onChange={(event) => handleSelectCluster(event.target.value)}
-                fullWidth
-              >
-                {allowedClusterOptions.map((cluster) => {
-                  const clusterId = sid(cluster?._id || cluster?.id);
-                  return (
-                    <MenuItem key={clusterId} value={clusterId}>
-                      {[cluster?.name, cluster?.venueName]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </MenuItem>
-                  );
-                })}
-              </TextField>
-
-              {sharedTournamentCount > 1 && (
-                <Chip
-                  size="small"
-                  color="warning"
-                  variant="outlined"
-                  label={`Cụm sân: ${selectedCluster?.name || ""} đang dùng chung ${sharedTournamentCount} giải`}
-                  sx={{
-                    alignSelf: "flex-start",
-                    color: "#e65100",
-                    borderColor: "#e65100",
-                  }}
-                />
-              )}
-
               {(currentStationId || queuedStationId) && (
                 <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
                   <Stack
@@ -548,7 +505,7 @@ export default function AssignCourtStationDialog({
                     </Box>
                     {currentStationId ? (
                       <Button
-                        variant="outlined"
+                        variant="contained"
                         color="warning"
                         onClick={() => setConfirmRemoveType("current")}
                         disabled={clearing}
@@ -561,12 +518,12 @@ export default function AssignCourtStationDialog({
                           size="small"
                           color="info"
                           variant="outlined"
-                          label={`Vị trí #${queuedIndex + 1} hàng đợi ${queuedStation?.name || ""}`.trim()}
+                          label={`Có trong danh sách ${queuedStation?.name || ""}`.trim()}
                           onClick={() => handleOpenQueueDetail(queuedStationId)}
                           sx={{ cursor: "pointer" }}
                         />
                         <Button
-                          variant="outlined"
+                          variant="contained"
                           color="warning"
                           onClick={() => setConfirmRemoveType("queued")}
                           disabled={removingQueue}
@@ -619,7 +576,6 @@ export default function AssignCourtStationDialog({
                             sid(item?.matchId || item?.match?._id) === matchId,
                         )
                       : false;
-                    const nextQueuedMatch = station?.nextQueuedMatch || null;
                     const disabled =
                       assigning ||
                       appendingQueue ||
@@ -676,17 +632,12 @@ export default function AssignCourtStationDialog({
                               flexWrap="wrap"
                               useFlexGap
                             >
-                              <Chip
-                                size="small"
-                                label={stationStatusLabel(station?.status)}
-                                sx={{
-                                  ...(String(
-                                    station?.status || "",
-                                  ).toLowerCase() === "assigned"
-                                    ? { bgcolor: "#9c27b0", color: "#fff" }
-                                    : {}),
-                                }}
-                              />
+                              {stationStatusLabel(station?.status) ? (
+                                <Chip
+                                  size="small"
+                                  label={stationStatusLabel(station?.status)}
+                                />
+                              ) : null}
                               <Chip
                                 size="small"
                                 variant="outlined"
@@ -705,7 +656,7 @@ export default function AssignCourtStationDialog({
                                   color="info"
                                   variant="outlined"
                                   icon={<QueuePlayNextIcon />}
-                                  label={`${station.queueCount} trận chờ`}
+                                  label={`${station.queueCount} trận trong danh sách`}
                                   onClick={() =>
                                     handleOpenQueueDetail(stationId)
                                   }
@@ -729,44 +680,8 @@ export default function AssignCourtStationDialog({
                             </Box>
                           ) : (
                             <Typography variant="body2" color="text.secondary">
-                              Sân đang trống.
+                              Chưa có trận nào đang live trên sân.
                             </Typography>
-                          )}
-
-                          {nextQueuedMatch && assignmentMode === "queue" && (
-                            <Paper
-                              variant="outlined"
-                              onClick={() => openViewer(nextQueuedMatch)}
-                              sx={{
-                                p: 1.25,
-                                borderRadius: 2,
-                                cursor: "pointer",
-                                transition:
-                                  "border-color 0.2s ease, box-shadow 0.2s ease",
-                                "&:hover": {
-                                  borderColor: "primary.main",
-                                  boxShadow: 1,
-                                },
-                              }}
-                            >
-                              <Stack spacing={0.35}>
-                                <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                >
-                                  {tournamentTitle(nextQueuedMatch)}
-                                </Typography>
-                                <Typography variant="body2" fontWeight={700}>
-                                  Tiếp theo: {matchCode(nextQueuedMatch)}
-                                </Typography>
-                                <Typography
-                                  variant="body2"
-                                  color="text.secondary"
-                                >
-                                  {teamLine(nextQueuedMatch)}
-                                </Typography>
-                              </Stack>
-                            </Paper>
                           )}
 
                           {occupiedByAnotherTournament && (
@@ -784,7 +699,7 @@ export default function AssignCourtStationDialog({
                                 color="info"
                                 onClick={() => handleOpenQueueDetail(stationId)}
                               >
-                                Xem vị trí
+                                Xem danh sách
                               </Button>
                             )}
                             <Button
@@ -856,16 +771,11 @@ export default function AssignCourtStationDialog({
         fullWidth
         sx={{ zIndex: (theme) => Math.max(theme.zIndex.modal, 1300) + 50 }}
       >
-        <DialogTitle>Xác nhận lấy số xếp hàng</DialogTitle>
+        <DialogTitle>Xác nhận thêm vào danh sách sân</DialogTitle>
         <DialogContent dividers>
           <Typography>
-            Nếu thêm vào sân này, trận đấu sẽ nằm ở vị trí{" "}
-            <strong>
-              #
-              {(stations.find((s) => sid(s._id) === confirmQueueStationId)
-                ?.queueCount || 0) + 1}
-            </strong>{" "}
-            trong hàng đợi của sân. Bạn có chắc chắn muốn thêm?
+            Nếu thêm vào sân này, trận đấu sẽ được thêm vào danh sách của sân.
+            Bạn có chắc chắn muốn thêm?
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -891,14 +801,14 @@ export default function AssignCourtStationDialog({
         onClose={() => setQueueDetailStationId("")}
         maxWidth="sm"
         icon={<QueuePlayNextIcon fontSize="small" />}
-        title={`Trận chờ — ${queueDetailStation?.name || "Sân"}`}
+        title={`Danh sách trận — ${queueDetailStation?.name || "Sân"}`}
         subtitle={
-          selectedClusterId ? "Danh sách trận đang chờ của sân này." : ""
+          selectedClusterId ? "Các trận đang nằm trong danh sách của sân này." : ""
         }
       >
         <Stack spacing={1.25} sx={{ pb: 2 }}>
           {!queueDetailMatches.length ? (
-            <Alert severity="info">Sân này hiện chưa có trận chờ.</Alert>
+            <Alert severity="info">Sân này hiện chưa có trận nào trong danh sách.</Alert>
           ) : (
             queueDetailMatches.map((queuedMatch, index) => {
               const queuedMatchId = sid(queuedMatch?._id);

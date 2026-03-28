@@ -198,6 +198,10 @@ const matchSchema = new Schema(
       type: [{ type: Schema.Types.ObjectId, ref: "User" }],
       default: [],
     },
+    courtStationReferees: {
+      type: [{ type: Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+    },
     note: { type: String, default: "" },
 
     // KO chaining (tùy chọn)

@@ -33,6 +33,7 @@ import {
   useUpdateTournamentAllowedCourtClustersMutation,
   useUpdateTournamentCourtStationAssignmentConfigMutation,
 } from "../slices/courtClustersAdminApiSlice";
+import { useListTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
 import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
 import {
@@ -124,13 +125,16 @@ const stationStatusLabel = (status) =>
 
 const modeLabel = (mode) =>
   String(mode || "").toLowerCase() === "queue"
-    ? "Tự động theo danh sách"
+    ? "Danh sách"
     : "Gán tay";
 
 const normalizeAssignmentMode = (mode) => {
   const normalized = String(mode || "").trim().toLowerCase();
   return normalized === "queue" || normalized === "auto" ? "queue" : "manual";
 };
+
+const isLiveMatch = (match) =>
+  String(match?.status || "").trim().toLowerCase() === "live";
 
 const isGroupBracket = (match) => {
   const type = String(match?.bracket?.type || "").toLowerCase();
@@ -188,6 +192,47 @@ const compareSelectorMatches = (a, b) => {
   return matchCode(a).localeCompare(matchCode(b), "vi");
 };
 
+const getRefId = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return String(
+    value._id ||
+      value.id ||
+      value.userId ||
+      value.refId ||
+      value.uid ||
+      "",
+  );
+};
+
+const refDisplayName = (referee) => {
+  if (!referee || typeof referee !== "object") return "";
+  const candidates = [
+    referee.nickname,
+    referee.nickName,
+    referee.displayName,
+    referee.fullName,
+    referee.name,
+    referee.code,
+    referee.email,
+    referee.phone,
+  ];
+  for (const value of candidates) {
+    if (text(value)) return text(value);
+  }
+  return getRefId(referee);
+};
+
+const getStationDefaultRefereeIds = (station) => {
+  if (Array.isArray(station?.defaultRefereeIds)) {
+    return station.defaultRefereeIds.map((value) => sid(value)).filter(Boolean);
+  }
+  if (Array.isArray(station?.defaultReferees)) {
+    return station.defaultReferees.map((value) => getRefId(value)).filter(Boolean);
+  }
+  return [];
+};
+
 const buildDraft = (station) => ({
   assignmentMode: normalizeAssignmentMode(station?.assignmentMode),
   queueMatchIds: Array.isArray(station?.queueItems)
@@ -195,6 +240,7 @@ const buildDraft = (station) => ({
         .map((item) => sid(item?.matchId || item?.match?._id))
         .filter(Boolean)
     : [],
+  defaultRefereeIds: getStationDefaultRefereeIds(station),
   pickerMatchIds: [],
   dirty: false,
 });
@@ -490,8 +536,53 @@ export default function TournamentCourtClusterDialog({
     useUpdateTournamentCourtStationAssignmentConfigMutation();
   const [freeStation, { isLoading: freeing }] =
     useFreeTournamentCourtStationMutation();
+  const { data: tournamentRefereesData, isLoading: loadingReferees } =
+    useListTournamentRefereesQuery(
+      { tid: tournamentId, q: "" },
+      { skip: !open || !tournamentId },
+    );
 
   const stations = useMemo(() => runtime?.stations || [], [runtime?.stations]);
+  const tournamentReferees = useMemo(() => {
+    if (Array.isArray(tournamentRefereesData?.items)) {
+      return tournamentRefereesData.items;
+    }
+    if (Array.isArray(tournamentRefereesData?.data)) {
+      return tournamentRefereesData.data;
+    }
+    if (Array.isArray(tournamentRefereesData)) {
+      return tournamentRefereesData;
+    }
+    return [];
+  }, [tournamentRefereesData]);
+  const refereeOptions = useMemo(() => {
+    const map = new Map();
+    tournamentReferees.forEach((referee) => {
+      const id = getRefId(referee);
+      if (id) map.set(id, referee);
+    });
+    stations.forEach((station) => {
+      (Array.isArray(station?.defaultReferees) ? station.defaultReferees : [])
+        .forEach((referee) => {
+          const id = getRefId(referee);
+          if (id && !map.has(id)) {
+            map.set(id, referee);
+          }
+        });
+    });
+    return Array.from(map.values()).sort((left, right) =>
+      refDisplayName(left).localeCompare(refDisplayName(right), "vi")
+    );
+  }, [stations, tournamentReferees]);
+  const refereeOptionMap = useMemo(
+    () =>
+      new Map(
+        refereeOptions
+          .map((referee) => [getRefId(referee), referee])
+          .filter(([id]) => Boolean(id)),
+      ),
+    [refereeOptions],
+  );
   const availableMatches = useMemo(
     () => [...(runtime?.availableMatches || [])].sort(compareSelectorMatches),
     [runtime?.availableMatches],
@@ -672,6 +763,7 @@ export default function TournamentCourtClusterDialog({
       courtStationCode: station?.code,
       assignmentMode: draft.assignmentMode,
       queueCount: draft.queueMatchIds.length,
+      refereeCount: draft.defaultRefereeIds.length,
     });
     try {
       const payload = {
@@ -680,6 +772,7 @@ export default function TournamentCourtClusterDialog({
         assignmentMode: draft.assignmentMode,
         queueMatchIds:
           draft.assignmentMode === "queue" ? draft.queueMatchIds : undefined,
+        refereeIds: draft.defaultRefereeIds,
       };
       await saveConfig(payload).unwrap();
       setStationDrafts((current) => ({
@@ -943,8 +1036,25 @@ export default function TournamentCourtClusterDialog({
                         const assignmentMode = normalizeAssignmentMode(
                           draft.assignmentMode || station?.assignmentMode,
                         );
+                        const selectedRefereeId =
+                          draft.defaultRefereeIds[0] || "";
+                        const selectedReferee =
+                          refereeOptionMap.get(selectedRefereeId) ||
+                          (Array.isArray(station?.defaultReferees)
+                            ? station.defaultReferees.find(
+                                (referee) =>
+                                  getRefId(referee) === selectedRefereeId,
+                              ) || null
+                            : null);
+                        const selectedRefereeLabel = selectedReferee
+                          ? refDisplayName(selectedReferee)
+                          : "";
+                        const liveCurrentMatch = isLiveMatch(station?.currentMatch)
+                          ? station.currentMatch
+                          : null;
+                        const liveCurrentMatchId = sid(liveCurrentMatch?._id);
                         const occupiedTournamentId = sid(
-                          station?.currentMatch?.tournament?._id ||
+                          liveCurrentMatch?.tournament?._id ||
                             station?.currentTournament?._id ||
                             station?.currentTournamentId,
                         );
@@ -972,7 +1082,11 @@ export default function TournamentCourtClusterDialog({
                           }
                         });
 
-                        const queueMatches = draft.queueMatchIds
+                        const displayQueueMatchIds = draft.queueMatchIds.filter(
+                          (matchId) => matchId && matchId !== liveCurrentMatchId,
+                        );
+
+                        const queueMatches = displayQueueMatchIds
                           .map((matchId) => matchMap.get(matchId))
                           .filter(Boolean);
 
@@ -989,7 +1103,7 @@ export default function TournamentCourtClusterDialog({
                               matchId &&
                               !draft.queueMatchIds.includes(matchId) &&
                               !elsewhere.has(matchId) &&
-                              sid(station?.currentMatch?._id) !== matchId
+                              liveCurrentMatchId !== matchId
                             );
                           })
                           .sort(compareSelectorMatches);
@@ -1047,11 +1161,7 @@ export default function TournamentCourtClusterDialog({
                             }}
                           >
                             <Stack spacing={1.5}>
-                              <Stack
-                                direction={{ xs: "column", md: "row" }}
-                                spacing={2}
-                                justifyContent="space-between"
-                              >
+                              <Stack spacing={1.25}>
                                 <Stack
                                   spacing={1}
                                   sx={{ minWidth: 0, flex: 1 }}
@@ -1094,16 +1204,16 @@ export default function TournamentCourtClusterDialog({
                                     <Tooltip
                                       title={
                                         assignmentMode === "queue"
-                                          ? "Hệ thống sẽ tự động bắt cặp và gán trận tiếp theo trong hàng chờ lên sân ngay khi sân trống."
+                                          ? "Danh sách này là các trận trọng tài của sân có thể chủ động chọn để bắt. Trận hiện tại chỉ hiển thị khi một trận trong danh sách đang live trên sân."
                                           : "Hệ thống sẽ không tự gọi trận. Sân chờ admin bấm nút gán trận thủ công như cách hoạt động hiện tại."
                                       }
                                       placement="top"
                                       arrow
-                                    >
-                                      <Chip
-                                        size="small"
-                                        variant="outlined"
-                                        label={
+                                  >
+                                    <Chip
+                                      size="small"
+                                      variant="outlined"
+                                      label={
                                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                                             <span>{modeLabel(assignmentMode)}</span>
                                             <InfoOutlinedIcon sx={{ fontSize: 16 }} />
@@ -1114,12 +1224,27 @@ export default function TournamentCourtClusterDialog({
                                     </Tooltip>
                                   </Stack>
 
-                                  {station?.currentMatch ? (
+                                  <Typography
+                                    variant="caption"
+                                    color={
+                                      selectedRefereeLabel
+                                        ? "info.main"
+                                        : "text.secondary"
+                                    }
+                                    sx={{
+                                      fontWeight: selectedRefereeLabel ? 700 : 500,
+                                    }}
+                                  >
+                                    {selectedRefereeLabel
+                                      ? `Trọng tài đứng sân: ${selectedRefereeLabel}`
+                                      : "Chưa gán trọng tài đứng sân."}
+                                  </Typography>
+
+                                  {liveCurrentMatch ? (
                                     <Paper
                                       variant="outlined"
                                       sx={{
-                                        p: 1.25,
-                                        mt: 0.5,
+                                        p: 1.5,
                                         borderRadius: 2,
                                         borderColor: "warning.light",
                                         bgcolor: (theme) =>
@@ -1128,31 +1253,34 @@ export default function TournamentCourtClusterDialog({
                                             : "warning.50",
                                       }}
                                     >
-                                      <Stack spacing={0.75}>
+                                      <Stack spacing={1}>
                                         <Stack
                                           direction="row"
                                           spacing={1}
                                           justifyContent="space-between"
                                           alignItems="flex-start"
+                                          flexWrap="wrap"
+                                          useFlexGap
                                         >
-                                          <Typography variant="body2" fontWeight={700}>
+                                          <Box sx={{ minWidth: 0, flex: 1 }}>
                                             <Typography
-                                              component="span"
                                               variant="caption"
                                               color="text.secondary"
-                                              sx={{ display: "block", mb: 0.25 }}
+                                              sx={{ display: "block", mb: 0.35 }}
                                             >
-                                              {station?.currentMatch?.tournament?.name || "—"}
+                                              {liveCurrentMatch?.tournament?.name || "—"}
                                             </Typography>
-                                            {matchCode(station.currentMatch)}
-                                          </Typography>
-                                          <Chip size="small" color="warning" label="Hiện tại" sx={{ fontWeight: 600 }} />
+                                              <Typography variant="h6" fontWeight={800}>
+                                                {matchCode(liveCurrentMatch)}
+                                              </Typography>
+                                          </Box>
+                                          <Chip size="small" color="warning" label="Đang live" sx={{ fontWeight: 600 }} />
                                         </Stack>
-                                        <Typography variant="body2" color="text.primary" fontWeight={600}>
-                                          {teamLine(station.currentMatch)}
+                                        <Typography variant="body1" color="text.primary" fontWeight={700} sx={{ wordBreak: "break-word" }}>
+                                          {teamLine(liveCurrentMatch)}
                                         </Typography>
                                         {occupiedByAnotherTournament && (
-                                          <Typography variant="caption" color="error.main" sx={{ mt: 0.5 }}>
+                                          <Typography variant="caption" color="error.main" sx={{ mt: 0.25 }}>
                                             Sân này đang thuộc giải khác. Chỉ admin mới được can thiệp.
                                           </Typography>
                                         )}
@@ -1163,7 +1291,6 @@ export default function TournamentCourtClusterDialog({
                                       variant="outlined"
                                       sx={{
                                         p: 1.25,
-                                        mt: 0.5,
                                         borderRadius: 2,
                                         borderStyle: "dashed",
                                         display: "flex",
@@ -1173,25 +1300,32 @@ export default function TournamentCourtClusterDialog({
                                       }}
                                     >
                                       <Typography variant="body2" color="text.secondary" fontWeight={500}>
-                                        Sân đang trống.
+                                        Chưa có trận nào đang live trên sân.
                                       </Typography>
                                     </Paper>
                                   )}
                                 </Stack>
 
-                                <Stack
-                                  spacing={1}
-                                  sx={{ minWidth: { md: 260 } }}
-                                  alignItems={{ xs: "stretch", md: "flex-end" }}
-                                >
+                                <Stack spacing={1}>
+                                  <Stack
+                                    direction={{ xs: "column", lg: "row" }}
+                                    spacing={1}
+                                    alignItems="stretch"
+                                  >
                                   <TextField
                                     select
                                     size="small"
+                                    label="Chế độ sân"
                                     disabled={clusterInteractionDisabled}
                                     SelectProps={{
                                       MenuProps: { sx: { zIndex: 1400 } },
                                     }}
-                                    sx={{ bgcolor: "background.paper", borderRadius: 1 }}
+                                    sx={{
+                                      bgcolor: "background.paper",
+                                      borderRadius: 1,
+                                      minWidth: { lg: 280 },
+                                      flex: { lg: "0 0 300px" },
+                                    }}
                                     value={assignmentMode}
                                     onChange={(event) => {
                                       addBusinessBreadcrumb(
@@ -1211,16 +1345,64 @@ export default function TournamentCourtClusterDialog({
                                   >
                                     <MenuItem value="manual">Gán tay</MenuItem>
                                     <MenuItem value="queue">
-                                      Tự động theo danh sách
+                                      Danh sách
                                     </MenuItem>
                                   </TextField>
 
+                                  {assignmentMode === "queue" && (
+                                    <Autocomplete
+                                      componentsProps={{
+                                        popper: { style: { zIndex: 1400 } },
+                                      }}
+                                      options={refereeOptions}
+                                      value={selectedReferee}
+                                      disabled={
+                                        clusterInteractionDisabled ||
+                                        loadingReferees
+                                      }
+                                      onChange={(_, value) =>
+                                        setDraft(stationId, {
+                                          defaultRefereeIds: value
+                                            ? [getRefId(value)]
+                                            : [],
+                                        })
+                                      }
+                                      isOptionEqualToValue={(option, value) =>
+                                        getRefId(option) === getRefId(value)
+                                      }
+                                      getOptionLabel={(option) =>
+                                        refDisplayName(option)
+                                      }
+                                      noOptionsText={
+                                        loadingReferees
+                                          ? "Đang tải trọng tài..."
+                                          : "Chưa có trọng tài trong giải"
+                                      }
+                                      renderInput={(params) => (
+                                        <TextField
+                                          {...params}
+                                          size="small"
+                                          label="Trọng tài đứng sân"
+                                          placeholder="Chọn trọng tài..."
+                                          sx={{
+                                            bgcolor: "background.paper",
+                                            "& .MuiOutlinedInput-root": {
+                                              borderRadius: 1,
+                                            },
+                                          }}
+                                        />
+                                      )}
+                                      sx={{ flex: 1 }}
+                                    />
+                                  )}
+                                  </Stack>
+
                                   <Stack
-                                    direction="row"
+                                    direction={{ xs: "column", md: "row" }}
                                     spacing={1}
                                     justifyContent="flex-end"
                                   >
-                                    {station?.currentMatch && (
+                                    {liveCurrentMatch && (
                                       <Button
                                         variant="outlined"
                                         color="warning"
@@ -1271,30 +1453,8 @@ export default function TournamentCourtClusterDialog({
                                         size="small"
                                         color="info"
                                         variant="outlined"
-                                        label={`${draft.queueMatchIds.length} trận chờ`}
+                                        label={`${queueMatches.length} trận trong danh sách`}
                                       />
-                                      {station?.currentMatch && (
-                                        <Chip
-                                          size="small"
-                                          color="warning"
-                                          label={`Đang phát: ${matchCode(
-                                            station.currentMatch,
-                                          )}`}
-                                        />
-                                      )}
-                                      {!station?.currentMatch &&
-                                        draft.queueMatchIds[0] && (
-                                          <Chip
-                                            size="small"
-                                            color="success"
-                                            variant="outlined"
-                                            label={`Tiếp theo: ${matchCode(
-                                              matchMap.get(
-                                                draft.queueMatchIds[0],
-                                              ),
-                                            )}`}
-                                          />
-                                        )}
                                       {isFetchingRuntime && (
                                         <Chip
                                           size="small"
@@ -1344,7 +1504,7 @@ export default function TournamentCourtClusterDialog({
                                         <TextField
                                           {...params}
                                           size="small"
-                                          placeholder="Tìm và thêm trận chờ vào danh sách sân..."
+                                          placeholder="Tìm và thêm trận vào danh sách sân..."
                                           sx={{ bgcolor: "background.paper", "& .MuiOutlinedInput-root": { borderRadius: 1.5 } }}
                                         />
                                       )}
@@ -1650,7 +1810,7 @@ export default function TournamentCourtClusterDialog({
 
                                     {!queueMatches.length ? (
                                       <Alert severity="info">
-                                        Sân này chưa có danh sách trận tự động.
+                                        Sân này chưa có danh sách trận.
                                       </Alert>
                                     ) : (
                                       <DndContext
@@ -1701,7 +1861,7 @@ export default function TournamentCourtClusterDialog({
                                         }}
                                       >
                                         <SortableContext
-                                          items={draft.queueMatchIds}
+                                          items={displayQueueMatchIds}
                                           strategy={verticalListSortingStrategy}
                                         >
                                           <Stack spacing={1}>
@@ -1819,14 +1979,6 @@ export default function TournamentCourtClusterDialog({
                                                               spacing={1}
                                                               alignItems="center"
                                                             >
-                                                              {index === 0 && (
-                                                                <Chip
-                                                                  size="small"
-                                                                  color="success"
-                                                                  variant="outlined"
-                                                                  label="Tiếp theo"
-                                                                />
-                                                              )}
                                                               {canManageThisMatch && (
                                                                 <IconButton
                                                                   size="small"

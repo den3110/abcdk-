@@ -15,6 +15,7 @@ import {
   publishNotification,
 } from "../services/notifications/notificationHub.js";
 import Court from "../models/courtModel.js";
+import CourtStation from "../models/courtStationModel.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 import { broadcastState } from "../services/broadcastState.js";
 import UserMatch from "../models/userMatchModel.js";
@@ -49,6 +50,12 @@ const { Types } = mongoose;
 const isValidId = (v) => Types.ObjectId.isValid(String(v || ""));
 const asBool = (v) => v === true || v === "true" || v === "1" || v === 1;
 const esc = (s) => String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const normalizeIdString = (value) =>
+  String(value?._id ?? value?.id ?? value ?? "").trim();
+const normalizeIdArray = (value) =>
+  (Array.isArray(value) ? value : value == null ? [] : [value])
+    .map((entry) => normalizeIdString(entry))
+    .filter(Boolean);
 
 // GET /api/matches/assigned?page=1&pageSize=10
 export const getAssignedMatches = asyncHandler(async (req, res) => {
@@ -1585,7 +1592,11 @@ export async function listRefereeTournaments(req, res, next) {
     const agg = await Match.aggregate([
       {
         $match: {
-          $or: [{ referees: userId }, { referee: userId }],
+          $or: [
+            { referees: userId },
+            { referee: userId },
+            { courtStationReferees: userId },
+          ],
         },
       },
       {
@@ -1670,12 +1681,108 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     let { status, bracketId, q, page = 1, pageSize = 10 } = req.query;
 
     const p = Math.max(1, parseInt(page, 10) || 1);
-    const ps = Math.min(50, Math.max(1, parseInt(pageSize, 10) || 10));
+    const ps = Math.min(1000, Math.max(1, parseInt(pageSize, 10) || 10));
+
+    const tournamentMeta = await Tournament.findById(tid)
+      .select("_id allowedCourtClusterIds")
+      .lean();
+    const allowedClusterIds = normalizeIdArray(
+      tournamentMeta?.allowedCourtClusterIds
+    );
+
+    const stationQuery = {
+      defaultReferees: userId,
+      $or: [
+        { currentTournament: tid },
+        { currentMatch: { $type: "objectId" } },
+        { "assignmentQueue.items.0": { $exists: true } },
+      ],
+    };
+    if (allowedClusterIds.length) {
+      stationQuery.clusterId = {
+        $in: allowedClusterIds.map((id) => new Types.ObjectId(id)),
+      };
+    }
+
+    const refereeStations = await CourtStation.find(stationQuery)
+      .select(
+        "_id name clusterId currentMatch currentTournament assignmentQueue defaultReferees"
+      )
+      .lean();
+
+    const stationMatchMetaByMatchId = new Map();
+    const candidateStationMatchIds = new Set();
+    refereeStations.forEach((station) => {
+      const stationId = normalizeIdString(station?._id);
+      if (!stationId) return;
+
+      const defaultRefereeIds = normalizeIdArray(station?.defaultReferees);
+      const clusterId = normalizeIdString(station?.clusterId);
+      const label = String(station?.name || "").trim();
+      const matchIds = [
+        normalizeIdString(station?.currentMatch),
+        ...(Array.isArray(station?.assignmentQueue?.items)
+          ? station.assignmentQueue.items.map((item) =>
+              normalizeIdString(item?.matchId)
+            )
+          : []),
+      ].filter(Boolean);
+
+      Array.from(new Set(matchIds)).forEach((matchId) => {
+        candidateStationMatchIds.add(matchId);
+        if (!stationMatchMetaByMatchId.has(matchId)) {
+          stationMatchMetaByMatchId.set(matchId, {
+            stationId,
+            label,
+            clusterId,
+            defaultRefereeIds,
+          });
+        }
+      });
+    });
+
+    const candidateStationMatchObjectIds = Array.from(candidateStationMatchIds)
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
+
+    const validStationMatches = candidateStationMatchObjectIds.length
+      ? await Match.find({
+          _id: { $in: candidateStationMatchObjectIds },
+          tournament: tid,
+        })
+          .select("_id status")
+          .lean()
+      : [];
+
+    const validStationMatchIds = new Set();
+    const validStationStatusByMatchId = new Map();
+    validStationMatches.forEach((match) => {
+      const matchId = normalizeIdString(match?._id);
+      if (!matchId) return;
+      validStationMatchIds.add(matchId);
+      validStationStatusByMatchId.set(
+        matchId,
+        String(match?.status || "").trim().toLowerCase()
+      );
+    });
+
+    const validStationMatchObjectIds = Array.from(validStationMatchIds)
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
 
     // ---------- $match ----------
+    const refereeMatchOrClauses = [
+      { referee: userId },
+      { referees: userId },
+      { courtStationReferees: userId },
+    ];
+    if (validStationMatchObjectIds.length) {
+      refereeMatchOrClauses.push({ _id: { $in: validStationMatchObjectIds } });
+    }
+
     const andClauses = [
       { tournament: tid },
-      { $or: [{ referee: userId }, { referees: userId }] },
+      { $or: refereeMatchOrClauses },
     ];
 
     if (bracketId) {
@@ -1704,7 +1811,12 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     if (q && String(q).trim()) {
       const rx = new RegExp(escapeRegex(String(q).trim()), "i");
       andClauses.push({
-        $or: [{ code: rx }, { labelKey: rx }, { courtLabel: rx }],
+        $or: [
+          { code: rx },
+          { labelKey: rx },
+          { courtLabel: rx },
+          { courtStationLabel: rx },
+        ],
       });
     }
 
@@ -2255,6 +2367,15 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 winner: "$$it.winner",
                 court: "$$it.court",
                 courtLabel: "$$it.courtLabel",
+                courtStation: "$$it.courtStation",
+                courtStationId: "$$it.courtStation",
+                courtStationLabel: "$$it.courtStationLabel",
+                courtClusterId: "$$it.courtClusterId",
+                courtClusterLabel: "$$it.courtClusterLabel",
+                referee: { $ifNull: ["$$it.referee", "$$it.referees"] },
+                courtStationReferees: {
+                  $ifNull: ["$$it.courtStationReferees", []],
+                },
                 startedAt: "$$it.startedAt",
                 finishedAt: "$$it.finishedAt",
                 updatedAt: "$$it.updatedAt",
@@ -2479,8 +2600,104 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       };
     });
 
+    const userIdString = normalizeIdString(userId);
+    const enrichedItems = mapped.map((item) => {
+      const matchId = normalizeIdString(item?._id);
+      if (!matchId || !validStationMatchIds.has(matchId)) return item;
+
+      const stationMeta = stationMatchMetaByMatchId.get(matchId);
+      if (!stationMeta?.stationId) return item;
+
+      const stationRefereeIds = Array.from(
+        new Set([
+          ...normalizeIdArray(item?.courtStationReferees),
+          ...normalizeIdArray(stationMeta.defaultRefereeIds),
+        ])
+      );
+
+      return {
+        ...item,
+        courtStation: stationMeta.stationId,
+        courtStationId: stationMeta.stationId,
+        courtStationLabel:
+          stationMeta.label ||
+          item?.courtStationLabel ||
+          item?.courtLabel ||
+          item?.court?.name ||
+          item?.court?.label ||
+          "",
+        courtStationName:
+          stationMeta.label ||
+          item?.courtStationLabel ||
+          item?.courtLabel ||
+          item?.court?.name ||
+          item?.court?.label ||
+          "",
+        courtClusterId:
+          stationMeta.clusterId || normalizeIdString(item?.courtClusterId),
+        courtStationReferees: stationRefereeIds,
+      };
+    });
+
+    const stationTabs = refereeStations
+      .map((station) => {
+        const stationId = normalizeIdString(station?._id);
+        if (!stationId) return null;
+
+        const label = String(station?.name || "").trim();
+        const clusterId = normalizeIdString(station?.clusterId);
+        const defaultRefereeIds = normalizeIdArray(station?.defaultReferees);
+        if (!defaultRefereeIds.includes(userIdString)) return null;
+
+        const matchIds = Array.from(
+          new Set(
+            [
+              normalizeIdString(station?.currentMatch),
+              ...(Array.isArray(station?.assignmentQueue?.items)
+                ? station.assignmentQueue.items.map((item) =>
+                    normalizeIdString(item?.matchId)
+                  )
+                : []),
+            ]
+              .filter(Boolean)
+              .filter((matchId) => validStationMatchIds.has(matchId))
+          )
+        );
+
+        if (!matchIds.length) return null;
+
+        const liveCount = matchIds.reduce(
+          (count, matchId) =>
+            count +
+            (validStationStatusByMatchId.get(matchId) === "live" ? 1 : 0),
+          0
+        );
+
+        return {
+          stationId,
+          label,
+          clusterId,
+          clusterLabel: "",
+          matchCount: matchIds.length,
+          liveCount,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if ((b.liveCount || 0) !== (a.liveCount || 0)) {
+          return (b.liveCount || 0) - (a.liveCount || 0);
+        }
+        if ((b.matchCount || 0) !== (a.matchCount || 0)) {
+          return (b.matchCount || 0) - (a.matchCount || 0);
+        }
+        return String(a.label || "").localeCompare(String(b.label || ""), "vi", {
+          sensitivity: "base",
+        });
+      });
+
     res.json({
-      items: mapped,
+      items: enrichedItems,
+      stationTabs,
       total,
       page: p,
       pageSize: ps,

@@ -40,3 +40,10 @@ backend-go/coverage.out
 backend-go
 .npm-cache
 **/.gocache
+
+# Local Android/Gradle cache shortcuts
+/a/
+/g/
+/p/
+/.android-user/
+/.gradle-user/

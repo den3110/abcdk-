@@ -87,6 +87,9 @@ const courtStationSchema = new Schema(
       default: null,
       index: true,
     },
+    defaultReferees: [
+      { type: Types.ObjectId, ref: "User", default: undefined },
+    ],
     liveConfig: { type: liveConfigSchema, default: () => ({}) },
     presence: { type: presenceSchema, default: () => ({}) },
   },
