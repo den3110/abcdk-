@@ -1028,19 +1028,30 @@ function EditTeamsDialog({
 
 /* ====================== LOCK: chỉ cập nhật đúng match đang mở ====================== */
 function useLockedMatch(m, { loading }) {
-  const [lockedId, setLockedId] = useState(() => (m?._id ? String(m._id) : ""));
-  const [view, setView] = useState(() => (m?._id ? m : null));
+  const nextId = m?._id ? String(m._id) : "";
+  const previousLockedIdRef = useRef(nextId);
+  const [lockedId, setLockedId] = useState(() => nextId);
+  const [view, setView] = useState(() => (nextId ? m : null));
 
-  // Pattern: Derived state during render. React will re-render before DOM paint.
-  // Tránh flash 1 frame lỗi do useEffect chạy chậm hơn render.
-  if (m?._id && !lockedId) {
-    setLockedId(String(m._id));
-    setView(m);
-  } else if (m?._id && lockedId && String(m._id) === lockedId) {
-    if (!isMatchEqual(view, m)) {
-      setView(m);
+  useEffect(() => {
+    if (!nextId) {
+      if (!loading) {
+        previousLockedIdRef.current = "";
+        setLockedId("");
+        setView(null);
+      }
+      return;
     }
-  }
+
+    const isMatchChanged = previousLockedIdRef.current !== nextId;
+    previousLockedIdRef.current = nextId;
+
+    setLockedId(nextId);
+    setView((prev) => {
+      if (isMatchChanged || !prev) return m;
+      return isMatchEqual(prev, m) ? prev : m;
+    });
+  }, [loading, m, nextId]);
 
   const waiting = loading && !view;
 

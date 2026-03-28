@@ -450,14 +450,16 @@ function buildCourtStationRuntimePayload({
     ? station.assignmentQueue.items
     : [];
   const queueCount = queueItems.length;
-  const nextQueuedMatchId =
-    nextMatchIdOverride ||
-    toIdString(queueItems[0]?.matchId || queueItems[0]?.match?._id) ||
-    null;
   const assignmentMode =
     String(station?.assignmentMode || "").trim().toLowerCase() === "queue"
       ? "queue"
       : "manual";
+  const nextQueuedMatchId =
+    assignmentMode === "queue"
+      ? nextMatchIdOverride ||
+        toIdString(queueItems[0]?.matchId || queueItems[0]?.match?._id) ||
+        null
+      : null;
   const screenState = pick(presence?.screenState).toLowerCase();
   const hasWaitingPresence = WAITING_SCREEN_STATES.has(screenState);
   const waitingForAssignment =

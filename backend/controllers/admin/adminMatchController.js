@@ -57,6 +57,8 @@ const toDTO = (m) => ({
   liveVersion: m.liveVersion ?? 0,
 });
 
+const ACTIVE_COURT_MATCH_STATUSES = ["scheduled", "queued", "assigned", "live"];
+
 /** GET /api/admin/matches/:id */
 export const getMatchAdmin = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -383,6 +385,55 @@ export async function assignMatchToCourt(req, res) {
     }
     if (court.isActive === false) {
       return res.status(409).json({ message: "Court is inactive" });
+    }
+    if (
+      match.status === "live" &&
+      match.court &&
+      String(match.court) !== String(courtId)
+    ) {
+      return res
+        .status(409)
+        .json({ message: "Trận đang live ở sân khác, không thể đổi sân." });
+    }
+
+    const conflictingMatches = await Match.find({
+      _id: { $ne: mid },
+      court: court._id,
+      status: { $in: ACTIVE_COURT_MATCH_STATUSES },
+    })
+      .select("_id status")
+      .lean();
+
+    const liveConflict = conflictingMatches.find(
+      (item) => String(item?.status || "").toLowerCase() === "live"
+    );
+    if (liveConflict) {
+      return res
+        .status(409)
+        .json({ message: "Sân này đang có trận live, không thể gán đè." });
+    }
+
+    if (conflictingMatches.length) {
+      await Match.bulkWrite(
+        conflictingMatches.map((item) => ({
+          updateOne: {
+            filter: { _id: item._id },
+            update: {
+              $set: {
+                court: null,
+                courtLabel: "",
+                courtCluster: "",
+                assignedAt: null,
+                status:
+                  String(item?.status || "").toLowerCase() === "assigned"
+                    ? "scheduled"
+                    : item.status,
+              },
+            },
+          },
+        }))
+      );
+      court.currentMatch = null;
     }
 
     // Sân đang gắn match khác → từ chối

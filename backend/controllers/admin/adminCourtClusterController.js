@@ -8,7 +8,6 @@ import {
   appendMatchToCourtStationQueue,
   assignMatchToCourtStation,
   buildCourtClusterRuntime,
-  canManageCourtCluster,
   createCourtCluster,
   createCourtStation,
   deleteCourtCluster,
@@ -445,13 +444,12 @@ export const updateTournamentCourtStationAssignmentConfigHttp = asyncHandler(
 
     const isAdmin = isAdminLike(req.user);
     if (!isAdmin) {
-      const [canManageMatchTournament, canManageStationCluster] =
-        await Promise.all([
-          canManageTournament(req.user, req.params.tournamentId),
-          canManageCourtCluster(req.user, station.clusterId),
-        ]);
+      const canManageMatchTournament = await canManageTournament(
+        req.user,
+        req.params.tournamentId
+      );
 
-      if (!canManageMatchTournament || !canManageStationCluster) {
+      if (!canManageMatchTournament && !req.isTournamentReferee) {
         res.status(403);
         throw new Error("Forbidden");
       }
@@ -497,13 +495,12 @@ export const appendTournamentCourtStationQueueItemHttp = asyncHandler(
 
     const isAdmin = isAdminLike(req.user);
     if (!isAdmin) {
-      const [canManageMatchTournament, canManageStationCluster] =
-        await Promise.all([
-          canManageTournament(req.user, req.params.tournamentId),
-          canManageCourtCluster(req.user, station.clusterId),
-        ]);
+      const canManageMatchTournament = await canManageTournament(
+        req.user,
+        req.params.tournamentId
+      );
 
-      if (!canManageMatchTournament || !canManageStationCluster) {
+      if (!canManageMatchTournament && !req.isTournamentReferee) {
         res.status(403);
         throw new Error("Forbidden");
       }
@@ -551,13 +548,12 @@ export const removeTournamentCourtStationQueueItemHttp = asyncHandler(
         throw new Error("Không được phép xóa trận của giải đấu khác");
       }
 
-      const [canManageMatchTournament, canManageStationCluster] =
-        await Promise.all([
-          canManageTournament(req.user, req.params.tournamentId),
-          canManageCourtCluster(req.user, station.clusterId),
-        ]);
+      const canManageMatchTournament = await canManageTournament(
+        req.user,
+        req.params.tournamentId
+      );
 
-      if (!canManageMatchTournament || !canManageStationCluster) {
+      if (!canManageMatchTournament && !req.isTournamentReferee) {
         res.status(403);
         throw new Error("Forbidden");
       }
@@ -622,13 +618,12 @@ export const assignTournamentMatchToCourtStationHttp = asyncHandler(
 
     const isAdmin = isAdminLike(req.user);
     if (!isAdmin) {
-      const [canManageMatchTournament, canManageStationCluster] =
-        await Promise.all([
-          canManageTournament(req.user, req.params.tournamentId),
-          canManageCourtCluster(req.user, station.clusterId),
-        ]);
+      const canManageMatchTournament = await canManageTournament(
+        req.user,
+        req.params.tournamentId
+      );
 
-      if (!canManageMatchTournament || !canManageStationCluster) {
+      if (!canManageMatchTournament && !req.isTournamentReferee) {
         res.status(403);
         throw new Error("Forbidden");
       }
@@ -749,13 +744,12 @@ export const freeTournamentCourtStationHttp = asyncHandler(async (req, res) => {
 
   const isAdmin = isAdminLike(req.user);
   if (!isAdmin) {
-    const [canManageMatchTournament, canManageStationCluster] =
-      await Promise.all([
-        canManageTournament(req.user, req.params.tournamentId),
-        canManageCourtCluster(req.user, station.clusterId),
-      ]);
+    const canManageMatchTournament = await canManageTournament(
+      req.user,
+      req.params.tournamentId
+    );
 
-    if (!canManageMatchTournament || !canManageStationCluster) {
+    if (!canManageMatchTournament && !req.isTournamentReferee) {
       res.status(403);
       throw new Error("Forbidden");
     }

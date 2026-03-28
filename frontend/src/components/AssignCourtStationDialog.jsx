@@ -238,7 +238,14 @@ export default function AssignCourtStationDialog({
   const currentStation = useMemo(() => {
     const direct = sid(match?.courtStationId || match?.courtStation?._id);
     if (direct) {
-      return stations.find((station) => sid(station?._id) === direct) || null;
+      const directStation =
+        stations.find((station) => sid(station?._id) === direct) || null;
+      if (
+        sid(directStation?.currentMatch?._id || directStation?.currentMatch) ===
+        sid(match?._id)
+      ) {
+        return directStation;
+      }
     }
     return (
       stations.find(

@@ -737,29 +737,18 @@ function selectPreferredStationMatchDocs(station) {
   const activeCandidates = orderedCandidates.filter((match) =>
     isActiveMatchStatus(match?.status)
   );
-  if (!activeCandidates.length) {
-    return {
-      currentMatch: null,
-      nextQueuedMatch: null,
-    };
-  }
-
-  const liveCandidate =
-    activeCandidates.find(
-      (match) => safeText(match?.status).toLowerCase() === "live"
-    ) || null;
   const currentMatchId = toIdString(station.currentMatch?._id || station.currentMatch);
-  const currentCandidate =
-    activeCandidates.find(
-      (match) => toIdString(match?._id || match) === currentMatchId
-    ) || null;
-
-  const preferredCurrent = liveCandidate || currentCandidate || activeCandidates[0] || null;
-  const preferredCurrentId = toIdString(preferredCurrent?._id || preferredCurrent);
-  const preferredNext =
-    activeCandidates.find(
-      (match) => toIdString(match?._id || match) !== preferredCurrentId
-    ) || null;
+  const preferredCurrent = activeCandidates.find(
+    (match) => toIdString(match?._id || match) === currentMatchId
+  ) || null;
+  const preferredCurrentId = toIdString(
+    preferredCurrent?._id || preferredCurrent
+  );
+  const preferredNext = collectStationQueueMatchDocs(station).find((match) => {
+    const matchId = toIdString(match?._id || match);
+    if (!matchId || matchId === preferredCurrentId) return false;
+    return isActiveMatchStatus(match?.status);
+  }) || null;
 
   return {
     currentMatch: preferredCurrent,
@@ -1498,30 +1487,104 @@ async function clearMatchStationFields(matchId, stationId = null) {
   if (stationId) {
     query.courtStation = stationId;
   }
+  const current = await Match.findOne(query).select("_id status").lean().catch(() => null);
+  if (!current?._id) return;
+  const currentStatus = safeText(current.status).toLowerCase();
+  const nextStatus = currentStatus === "assigned" ? "scheduled" : current.status;
   await Match.updateOne(
-    query,
+    { _id: current._id },
     {
       $set: {
+        court: null,
+        courtLabel: "",
+        courtCluster: "",
         courtStation: null,
         courtStationLabel: "",
         courtClusterId: null,
         courtClusterLabel: "",
+        assignedAt: null,
+        status: nextStatus,
       },
     }
   ).catch(() => {});
 }
 
+async function detachMatchFromOtherStations(matchId, keepStationId = null) {
+  const normalizedMatchId = toIdString(matchId);
+  if (!normalizedMatchId) return;
+
+  const query = {
+    $or: [
+      { currentMatch: normalizedMatchId },
+      { "assignmentQueue.items.matchId": normalizedMatchId },
+    ],
+  };
+  if (keepStationId) {
+    query._id = { $ne: keepStationId };
+  }
+
+  const stations = await CourtStation.find(query)
+    .select("_id assignmentMode assignmentQueue currentMatch currentTournament status")
+    .lean();
+
+  for (const station of stations) {
+    const stationId = toIdString(station?._id);
+    const wasCurrent = toIdString(station?.currentMatch) === normalizedMatchId;
+    const nextQueueItems = normalizeAssignmentQueueItems(
+      (Array.isArray(station?.assignmentQueue?.items)
+        ? station.assignmentQueue.items
+        : []
+      ).filter((item) => toIdString(item?.matchId) !== normalizedMatchId)
+    );
+
+    const nextSet = {
+      assignmentQueue: { items: nextQueueItems },
+    };
+
+    if (wasCurrent) {
+      nextSet.currentMatch = null;
+      nextSet.currentTournament = null;
+      nextSet.status = "idle";
+    }
+
+    await CourtStation.updateOne({ _id: stationId }, { $set: nextSet });
+
+    if (
+      wasCurrent &&
+      normalizeAssignmentMode(station?.assignmentMode, "manual") === "queue"
+    ) {
+      await maybeAssignNextQueuedMatch(stationId);
+    }
+  }
+}
+
 async function applyMatchStationFields(matchId, station, cluster) {
+  const current = await Match.findById(matchId).select("_id status").lean();
+  const currentStatus = safeText(current?.status).toLowerCase();
+  const nextStatus = [
+    "",
+    "scheduled",
+    "queued",
+    "pending",
+    "created",
+    "assigning",
+  ].includes(currentStatus)
+    ? "assigned"
+    : current?.status || "assigned";
+
   await Match.updateOne(
     { _id: matchId },
     {
       $set: {
+        court: null,
         courtStation: station._id,
         courtStationLabel: safeText(station.name),
         courtClusterId: cluster._id,
         courtClusterLabel: safeText(cluster.name),
         courtLabel: safeText(station.name),
         courtCluster: safeText(cluster.name, "Main"),
+        assignedAt: new Date(),
+        status: nextStatus,
       },
     }
   );
@@ -1652,23 +1715,45 @@ export async function assignMatchToCourtStation(
     .select("_id currentMatch")
     .lean();
 
-  if (previousStation?._id) {
-    await CourtStation.updateOne(
-      { _id: previousStation._id },
-      {
-        $set: {
-          currentMatch: null,
-          currentTournament: null,
-          status: "idle",
-        },
-      }
-    );
+  if (previousStation?._id && safeText(match.status).toLowerCase() === "live") {
+    const error = new Error("Trận đang live ở sân khác, không thể gán sang sân này.");
+    error.status = 409;
+    throw error;
   }
 
   const replacingMatchId = toIdString(station.currentMatch);
   if (replacingMatchId && replacingMatchId !== toIdString(match._id)) {
+    const replacingMatch = await Match.findById(replacingMatchId)
+      .select("_id status")
+      .lean();
+    if (safeText(replacingMatch?.status).toLowerCase() === "live") {
+      const error = new Error("Sân này đang có trận live, không thể gán đè.");
+      error.status = 409;
+      throw error;
+    }
     await clearMatchStationFields(replacingMatchId, station._id);
   }
+
+  const staleDirectMatches = await Match.find({
+    _id: {
+      $nin: [toIdString(match._id), replacingMatchId].filter(Boolean),
+    },
+    courtStation: station._id,
+    status: { $in: ACTIVE_MATCH_STATUSES },
+  })
+    .select("_id status")
+    .lean();
+
+  for (const staleMatch of staleDirectMatches) {
+    if (safeText(staleMatch?.status).toLowerCase() === "live") {
+      const error = new Error("Sân này đang có trận live, không thể gán đè.");
+      error.status = 409;
+      throw error;
+    }
+    await clearMatchStationFields(staleMatch._id, station._id);
+  }
+
+  await detachMatchFromOtherStations(match._id, station._id);
 
   await CourtStation.updateOne(
     { _id: station._id },
@@ -1898,6 +1983,11 @@ export async function removeMatchFromCourtStationQueue(stationId, matchId) {
       : []
     ).filter((item) => toIdString(item?.matchId) !== toIdString(matchId))
   );
+  const wasQueued =
+    nextQueueItems.length !==
+    (Array.isArray(station?.assignmentQueue?.items)
+      ? station.assignmentQueue.items.length
+      : 0);
 
   await CourtStation.updateOne(
     { _id: station._id },
@@ -1907,6 +1997,10 @@ export async function removeMatchFromCourtStationQueue(stationId, matchId) {
       },
     }
   );
+
+  if (wasQueued) {
+    await clearMatchStationFields(matchId, station._id);
+  }
 
   if (
     normalizeAssignmentMode(station.assignmentMode, "manual") === "queue" &&

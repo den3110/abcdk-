@@ -386,6 +386,7 @@ function useLockedDialogMatch({
   isLoadingCourt,
 }) {
   const lockedId = String(matchId || "");
+  const previousLockedIdRef = useRef("");
   const pick = useCallback(
     (cand) => {
       const id = String(cand?._id || cand?.id || "");
@@ -408,13 +409,19 @@ function useLockedDialogMatch({
   // Reset khi đổi match hoặc đóng dialog
   useEffect(() => {
     if (!open || !lockedId) {
+      previousLockedIdRef.current = "";
       const t = setTimeout(() => {
         setMm(null);
       }, 300); // Đợi Dialog MUI ẩn hẳn (duration ~225ms) mới clear data để tránh flash lỗi "Không tải được dữ liệu"
       return () => clearTimeout(t);
     }
+
+    const seeded = buildMerged();
+    const isMatchChanged = previousLockedIdRef.current !== lockedId;
+    previousLockedIdRef.current = lockedId;
+
     setMm((prev) => {
-      const seeded = buildMerged();
+      if (isMatchChanged) return seeded || null;
       if (!seeded) return prev;
       if (!prev) return seeded;
       return mergeLockedMatchPayload(prev, seeded);
@@ -434,7 +441,7 @@ function useLockedDialogMatch({
 /* =========================
  * ResponsiveMatchViewer (đã khóa theo matchId)
  * ========================= */
-function ResponsiveMatchViewer({
+function ResponsiveMatchViewerBody({
   open,
   matchId,
   courtStationId: forcedCourtStationId = null,
@@ -475,7 +482,7 @@ function ResponsiveMatchViewer({
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
-  const effectiveMatchId = liveCourt?.currentMatch?._id || matchId;
+  const effectiveMatchId = matchId || liveCourt?.currentMatch?._id || null;
 
   // Queries
   const {
@@ -688,4 +695,14 @@ function ResponsiveMatchViewer({
   );
 }
 
-export default ResponsiveMatchViewer;
+export default function ResponsiveMatchViewer(props) {
+  const viewerKey = String(
+    props.matchId ||
+      props.courtStationId ||
+      props.initialMatch?._id ||
+      props.initialMatch?.id ||
+      "",
+  );
+
+  return <ResponsiveMatchViewerBody key={viewerKey} {...props} />;
+}

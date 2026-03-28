@@ -12,6 +12,7 @@ import {
   protect,
   authorize,
   isManagerTournament,
+  isManagerOrTournamentReferee,
   requireAdminAndSuperUser,
   requireSuperAdmin,
 } from "../middleware/authMiddleware.js";
@@ -333,7 +334,7 @@ router.put(
 router.get(
   "/tournaments/:tournamentId/allowed-court-clusters/options",
   protect,
-  isManagerTournament,
+  isManagerOrTournamentReferee,
   listTournamentAllowedCourtClusterOptions
 );
 router.put(
@@ -345,37 +346,37 @@ router.put(
 router.get(
   "/tournaments/:tournamentId/court-clusters/:clusterId/runtime",
   protect,
-  isManagerTournament,
+  isManagerOrTournamentReferee,
   getTournamentCourtClusterRuntime
 );
 router.post(
   "/tournaments/:tournamentId/court-stations/:stationId/assign-match",
   protect,
-  isManagerTournament,
+  isManagerOrTournamentReferee,
   assignTournamentMatchToCourtStationHttp
 );
 router.put(
   "/tournaments/:tournamentId/court-stations/:stationId/assignment-config",
   protect,
-  isManagerTournament,
+  isManagerOrTournamentReferee,
   updateTournamentCourtStationAssignmentConfigHttp
 );
 router.post(
   "/tournaments/:tournamentId/court-stations/:stationId/queue/items",
   protect,
-  isManagerTournament,
+  isManagerOrTournamentReferee,
   appendTournamentCourtStationQueueItemHttp
 );
 router.delete(
   "/tournaments/:tournamentId/court-stations/:stationId/queue/items/:matchId",
   protect,
-  isManagerTournament,
+  isManagerOrTournamentReferee,
   removeTournamentCourtStationQueueItemHttp
 );
 router.post(
   "/tournaments/:tournamentId/court-stations/:stationId/free",
   protect,
-  isManagerTournament,
+  isManagerOrTournamentReferee,
   freeTournamentCourtStationHttp
 );
 

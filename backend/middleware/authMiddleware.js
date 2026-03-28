@@ -354,6 +354,110 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
   return next();
 });
 
+export const isManagerOrTournamentReferee = asyncHandler(
+  async (req, res, next) => {
+    const rawUid = req.user?._id || req.user?.id;
+    if (!rawUid || !isValidId(String(rawUid))) {
+      res.status(401);
+      throw new Error("Not authorized â€“ no user");
+    }
+
+    const actor = await User.findById(rawUid)
+      .select("_id role isDeleted deletedAt referee.tournaments")
+      .lean();
+
+    if (!actor) {
+      res.status(401);
+      throw new Error("Not authorized â€“ user not found");
+    }
+    if (actor.isDeleted || actor.deletedAt) {
+      res.status(403);
+      throw new Error("Account disabled");
+    }
+
+    const uid = String(actor._id);
+    const matchIdParam =
+      req.params?.matchId || (isValidId(req.params?.id) ? req.params.id : null);
+
+    let matchDoc = null;
+    let tournamentId = null;
+
+    if (isValidId(matchIdParam)) {
+      matchDoc = await Match.findById(matchIdParam);
+      if (!matchDoc) {
+        res.status(404);
+        throw new Error("Match not found");
+      }
+      if (!isValidId(matchDoc.tournament)) {
+        res.status(500);
+        throw new Error("Match has no valid tournament");
+      }
+      tournamentId = String(matchDoc.tournament);
+    }
+
+    if (!tournamentId) {
+      const p =
+        req.params?.tournamentId ||
+        req.params?.tournament ||
+        req.params?.tid ||
+        req.body?.tournamentId ||
+        req.body?.tournament ||
+        req.query?.tournamentId ||
+        req.query?.tournament;
+
+      if (!isValidId(p)) {
+        res.status(400);
+        throw new Error("Missing or invalid tournament id");
+      }
+      tournamentId = String(p);
+    }
+
+    const tournament = await Tournament.findById(tournamentId)
+      .select("_id createdBy")
+      .lean();
+
+    if (!tournament) {
+      res.status(404);
+      throw new Error("Tournament not found");
+    }
+
+    const isAdmin = actor.role === "admin";
+    const isOwner = String(tournament.createdBy) === uid;
+    const isRefereeInTournament = Array.isArray(actor?.referee?.tournaments)
+      ? actor.referee.tournaments.some(
+          (item) => String(item || "") === tournamentId,
+        )
+      : false;
+
+    if (isAdmin || isOwner || isRefereeInTournament) {
+      req.tournament = tournament;
+      if (matchDoc) req.match = matchDoc;
+      req.isAdmin = isAdmin;
+      req.isTournamentReferee = isRefereeInTournament;
+      return next();
+    }
+
+    const tm = await TournamentManager.findOne({
+      tournament: tournament._id,
+      user: uid,
+    })
+      .select("_id")
+      .lean();
+
+    if (!tm) {
+      res.status(403);
+      throw new Error(
+        "Forbidden â€“ require tournament manager/owner/admin/referee",
+      );
+    }
+
+    req.tournament = tournament;
+    if (matchDoc) req.match = matchDoc;
+    req.isTournamentReferee = false;
+    return next();
+  },
+);
+
 export const attachJwtIfPresent = asyncHandler(async (req, res, next) => {
   let token = null;
 

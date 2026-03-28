@@ -127,6 +127,11 @@ const modeLabel = (mode) =>
     ? "Tự động theo danh sách"
     : "Gán tay";
 
+const normalizeAssignmentMode = (mode) => {
+  const normalized = String(mode || "").trim().toLowerCase();
+  return normalized === "queue" || normalized === "auto" ? "queue" : "manual";
+};
+
 const isGroupBracket = (match) => {
   const type = String(match?.bracket?.type || "").toLowerCase();
   return type === "group" || type === "round_robin" || type === "gsl";
@@ -184,7 +189,7 @@ const compareSelectorMatches = (a, b) => {
 };
 
 const buildDraft = (station) => ({
-  assignmentMode: String(station?.assignmentMode || "manual").toLowerCase(),
+  assignmentMode: normalizeAssignmentMode(station?.assignmentMode),
   queueMatchIds: Array.isArray(station?.queueItems)
     ? station.queueItems
         .map((item) => sid(item?.matchId || item?.match?._id))
@@ -530,20 +535,18 @@ export default function TournamentCourtClusterDialog({
   const setDraft = (stationId, patch, { markDirty = true } = {}) => {
     setStationDrafts((current) => {
       const previous = current[stationId] || buildDraft({});
-      const next =
-        typeof patch === "function"
-          ? patch(previous)
-          : {
-              ...previous,
-              ...patch,
-            };
+      const patchObject =
+        typeof patch === "function" ? patch(previous) : patch || {};
+      const next = {
+        ...previous,
+        ...patchObject,
+      };
       return {
         ...current,
         [stationId]: {
-          ...previous,
           ...next,
-          dirty: Object.prototype.hasOwnProperty.call(next, "dirty")
-            ? next.dirty
+          dirty: Object.prototype.hasOwnProperty.call(patchObject, "dirty")
+            ? patchObject.dirty
             : markDirty
               ? true
               : previous.dirty,
@@ -937,11 +940,9 @@ export default function TournamentCourtClusterDialog({
                         const stationId = sid(station?._id);
                         const draft =
                           stationDrafts[stationId] || buildDraft(station);
-                        const assignmentMode = String(
-                          draft.assignmentMode ||
-                            station?.assignmentMode ||
-                            "manual",
-                        ).toLowerCase();
+                        const assignmentMode = normalizeAssignmentMode(
+                          draft.assignmentMode || station?.assignmentMode,
+                        );
                         const occupiedTournamentId = sid(
                           station?.currentMatch?.tournament?._id ||
                             station?.currentTournament?._id ||
@@ -1092,7 +1093,7 @@ export default function TournamentCourtClusterDialog({
                                     />
                                     <Tooltip
                                       title={
-                                        String(assignmentMode).toLowerCase() === "auto"
+                                        assignmentMode === "queue"
                                           ? "Hệ thống sẽ tự động bắt cặp và gán trận tiếp theo trong hàng chờ lên sân ngay khi sân trống."
                                           : "Hệ thống sẽ không tự gọi trận. Sân chờ admin bấm nút gán trận thủ công như cách hoạt động hiện tại."
                                       }

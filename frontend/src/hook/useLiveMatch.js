@@ -2,6 +2,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSocket } from "../context/SocketContext";
 
+const getPayloadMatchId = (payload = {}) =>
+  String(
+    payload?.data?._id ??
+      payload?.data?.id ??
+      payload?.data?.matchId ??
+      payload?.snapshot?._id ??
+      payload?.snapshot?.id ??
+      payload?.snapshot?.matchId ??
+      payload?._id ??
+      payload?.id ??
+      payload?.matchId ??
+      payload?.match?._id ??
+      payload?.match?.id ??
+      "",
+  );
+
+const normalizeMatchPayload = (payload = {}) =>
+  payload?.data ?? payload?.snapshot ?? payload ?? null;
+
 /**
  * Realtime match state over Socket.IO
  * - Kết nối dùng singleton từ SocketContext (không tạo socket mới)
@@ -34,28 +53,20 @@ export function useLiveMatch(matchId, token) {
     mountedRef.current = true;
 
     const isForThisMatch = (payload) => {
-      const incomingId = String(
-        payload?.data?._id ??
-          payload?.data?.id ??
-          payload?._id ??
-          payload?.id ??
-          payload?.matchId ??
-          payload?.match?._id ??
-          "",
-      );
-      return !incomingId || incomingId === String(matchId);
+      const incomingId = getPayloadMatchId(payload);
+      return Boolean(incomingId) && incomingId === String(matchId);
     };
 
     const onSnapshot = (payload) => {
       if (!mountedRef.current || !isForThisMatch(payload)) return;
-      setState({ loading: false, data: payload });
+      setState({ loading: false, data: normalizeMatchPayload(payload) });
     };
 
     const onUpdate = (evt) => {
       if (!mountedRef.current || !isForThisMatch(evt)) return;
       setState((prev) => {
         // evt có thể là { data, patch } tuỳ server. Ở đây ưu tiên evt.data + version
-        const incoming = evt?.data ?? evt;
+        const incoming = normalizeMatchPayload(evt);
         if (!prev.data) return { loading: false, data: incoming };
         const vIn = incoming?.version ?? 0;
         const vCur = prev.data?.version ?? 0;
@@ -68,7 +79,7 @@ export function useLiveMatch(matchId, token) {
     // 🔥 CHỈNH SỬA: nhận sự kiện tăng/giảm điểm nhẹ từ server và cập nhật ngay UI
     const onScoreUpdated = (evt) => {
       if (!mountedRef.current || !isForThisMatch(evt)) return;
-      setState({ loading: false, data: evt?.data ?? evt });
+      setState({ loading: false, data: normalizeMatchPayload(evt) });
     };
 
     // Join phòng và lắng nghe sự kiện
