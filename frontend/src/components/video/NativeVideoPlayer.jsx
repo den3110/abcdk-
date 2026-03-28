@@ -275,6 +275,7 @@ export default function NativeVideoPlayer({
       previousStagedNextSrcRef.current = "";
       activeSlotRef.current = nextSlot;
       videoRef.current = nextVideo;
+      justAdvancedRef.current = true; // prevent main useEffect from reloading src
       setActiveSlot(nextSlot);
 
       onAdvanceToStagedSourceRef.current?.(nextToken);
@@ -293,6 +294,8 @@ export default function NativeVideoPlayer({
     volume,
   ]);
 
+  const justAdvancedRef = useRef(false);
+
   useEffect(() => {
     const video = queueMode
       ? getVideoElementForSlot(activeSlotRef.current)
@@ -302,6 +305,17 @@ export default function NativeVideoPlayer({
     let hls;
     let cancelled = false;
     const currentSlot = activeSlotRef.current;
+
+    // After queue advance, the active slot already has the right content loaded
+    // (from stagedNextSrc). Skip reloading even if src URL strings differ
+    // (e.g. blob URL vs CDN URL for the same segment).
+    if (justAdvancedRef.current) {
+      justAdvancedRef.current = false;
+      slotSrcRef.current[currentSlot] = src;
+      previousSrcRef.current = src;
+      return;
+    }
+
     const alreadyLoadedActiveSrc =
       queueMode && slotSrcRef.current[currentSlot] === src;
     const previousSrc =
