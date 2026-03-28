@@ -1,7 +1,6 @@
 import Grid from "@mui/material/Grid";
 import {
   Box,
-  Divider,
   Link as MuiLink,
   Stack,
   Typography,
@@ -11,7 +10,6 @@ import { Link as RouterLink, useLocation } from "react-router-dom";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 
 import { useLanguage } from "../context/LanguageContext.jsx";
-import { useGetContactContentQuery } from "../slices/cmsApiSlice.js";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -19,12 +17,12 @@ export default function AppFooter() {
   const theme = useTheme();
   const location = useLocation();
   const { t } = useLanguage();
-  const { data: contactContent } = useGetContactContentQuery();
 
   const quickLinks = [
     { label: t("footer.links.news"), to: "/news" },
     { label: t("footer.links.clubs"), to: "/clubs" },
     { label: t("footer.links.contact"), to: "/contact" },
+    { label: t("footer.links.status"), to: "/status" },
   ];
 
   const legalLinks = [

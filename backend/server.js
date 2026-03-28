@@ -101,6 +101,7 @@ import head2headRoutes from "./routes/head2headRoutes.js";
 import otaRoutes from "./routes/otaRoutes.js";
 import expoUpdatesRoutes from "./routes/expoUpdatesRoutes.js";
 import openaiRoutes from "./routes/openaiRoutes.js";
+import healthRoutes from "./routes/healthRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
@@ -260,6 +261,7 @@ app.use("/api/head2head", head2headRoutes);
 app.use("/api/ota", otaRoutes);
 app.use("/api/expo-updates", expoUpdatesRoutes);
 app.use("/api/openai", openaiRoutes);
+app.use("/api/health", healthRoutes);
 
 // ===== Geo proxy for language detection (avoids browser CORS issues) =====
 const geoCache = new Map();

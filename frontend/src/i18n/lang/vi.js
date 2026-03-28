@@ -111,12 +111,94 @@ export default {
       news: "Tin tức",
       clubs: "Câu lạc bộ",
       contact: "Liên hệ",
+      status: "Trạng thái",
       cookies: "Cookies",
       privacy: "Privacy",
       terms: "Terms",
     },
     rights: "© {year} PickleTour. All rights reserved.",
     compliance: "Minh bạch về dữ liệu, quyền riêng tư và điều khoản sử dụng.",
+  },
+  statusPage: {
+    seoTitle: "Trang trạng thái hệ thống",
+    seoDescription:
+      "Theo dõi tình trạng hiện tại của các dịch vụ công khai, worker và recording storage của PickleTour.",
+    eyebrow: "Trạng thái hệ thống",
+    title: "Tình trạng nền tảng hiện tại",
+    description:
+      "Đây là snapshot công khai cho các dịch vụ chính của PickleTour. Trang này chỉ hiển thị các tín hiệu vận hành an toàn.",
+    lastUpdated: "Cập nhật lúc: {date}",
+    refreshHint:
+      "Trang này tự làm mới mỗi {seconds} giây và chỉ hiển thị snapshot hiện tại.",
+    servicesTitle: "Dịch vụ",
+    servicesSubtitle:
+      "Tổng quan công khai cho các API, worker và recording storage đang phục vụ PickleTour.",
+    noteTitle: "Chỉ là snapshot hiện tại",
+    noteBody:
+      "Trang này chỉ hiển thị tình trạng hiện tại. Lịch sử incident, báo cáo SLA và biểu đồ uptime dài hạn chưa nằm trong phiên bản này.",
+    categories: {
+      gateway: "Gateway",
+      api: "API",
+      realtime: "Realtime",
+      worker: "Worker",
+      storage: "Storage",
+    },
+    labels: {
+      uptime: "Uptime",
+      latency: "Latency",
+      checkedAt: "Checked",
+    },
+    summary: {
+      overallTitle: "Tổng quan",
+      overallHint: "{healthy}/{total} dịch vụ đang operational",
+      uptimeTitle: "Uptime gateway",
+      uptimeHint: "Thời gian chạy của public web gateway đang xử lý traffic hiện tại.",
+      throughputTitle: "Lưu lượng",
+      throughputHint: "Tốc độ request hiện tại trong cửa sổ telemetry gần nhất.",
+      latencyTitle: "API p95",
+      latencyHint: "Độ trễ p95 trong cửa sổ telemetry gần nhất.",
+    },
+    services: {
+      publicApi: "Public API",
+      goApi: "Go API",
+      relayRtmp: "RTMP Relay",
+      scheduler: "Scheduler",
+      recordingExport: "Recording Export",
+      aiCommentaryWorker: "AI Commentary Worker",
+      generalWorker: "General Worker",
+      recordingStorage: "Recording Storage",
+    },
+    statusLabels: {
+      operational: "Ổn định",
+      degraded: "Suy giảm",
+      down: "Gián đoạn",
+      unknown: "Chưa rõ",
+    },
+    details: {
+      publicApiHealthy: "Public API gateway đang phục vụ request ổn định.",
+      serviceHealthy: "Dịch vụ đang phản hồi bình thường.",
+      serviceDegraded:
+        "Dịch vụ vẫn truy cập được, nhưng một phần tín hiệu health đang giảm chất lượng.",
+      serviceDown: "Dịch vụ hiện không phản hồi.",
+      serviceUnknown: "Dữ liệu health hiện chưa khả dụng.",
+      workerIdle: "Heartbeat của worker đang tốt và đang idle.",
+      workerBusy: "Heartbeat của worker đang tốt và đang xử lý job.",
+      workerStale: "Process vẫn lên, nhưng heartbeat của worker đã stale.",
+      workerOffline: "Process vẫn lên, nhưng heartbeat của worker đang offline.",
+      workerUnknown: "Heartbeat của worker hiện chưa khả dụng.",
+      lastHeartbeat: "Heartbeat cuối: {date}",
+      storageOperational: "{healthy}/{total} storage target đang healthy.",
+      storageDegraded:
+        "{healthy}/{total} storage target đang healthy ở thời điểm này.",
+      storageDown: "Không có storage target nào đang healthy.",
+      storageUnknown:
+        "Storage health chưa được cấu hình hoặc hiện không thể kiểm tra.",
+    },
+    errors: {
+      loadTitle: "Không tải được snapshot trạng thái hiện tại.",
+      loadBody:
+        "Trang status sẽ giữ lại dữ liệu thành công gần nhất nếu có. Bạn có thể retry thủ công.",
+    },
   },
   seo: {
     defaultTitle: "PickleTour.vn - Kết nối cộng đồng & quản lý giải đấu",

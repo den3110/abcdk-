@@ -111,12 +111,94 @@ export default {
       news: "News",
       clubs: "Clubs",
       contact: "Contact",
+      status: "Status",
       cookies: "Cookies",
       privacy: "Privacy",
       terms: "Terms",
     },
     rights: "© {year} PickleTour. All rights reserved.",
     compliance: "Transparent about data, privacy, and terms of use.",
+  },
+  statusPage: {
+    seoTitle: "System Status",
+    seoDescription:
+      "Check the current health of PickleTour public services, workers, and recording storage.",
+    eyebrow: "System status",
+    title: "Current platform status",
+    description:
+      "A public snapshot of the main services behind PickleTour. This page focuses on safe operational signals only.",
+    lastUpdated: "Last updated: {date}",
+    refreshHint:
+      "This page refreshes every {seconds} seconds and shows the current live snapshot only.",
+    servicesTitle: "Services",
+    servicesSubtitle:
+      "Public summary for the main APIs, workers, and recording storage used by PickleTour.",
+    noteTitle: "Current snapshot only",
+    noteBody:
+      "This page only shows the current health snapshot. Incident history, SLA reporting, and long-term uptime charts are not included in this version.",
+    categories: {
+      gateway: "Gateway",
+      api: "API",
+      realtime: "Realtime",
+      worker: "Worker",
+      storage: "Storage",
+    },
+    labels: {
+      uptime: "Uptime",
+      latency: "Latency",
+      checkedAt: "Checked",
+    },
+    summary: {
+      overallTitle: "Overall",
+      overallHint: "{healthy}/{total} services operational",
+      uptimeTitle: "Gateway uptime",
+      uptimeHint: "Uptime for the public web gateway handling current traffic.",
+      throughputTitle: "Traffic",
+      throughputHint: "Current request rate in the recent telemetry window.",
+      latencyTitle: "API p95",
+      latencyHint: "P95 latency from the recent telemetry window.",
+    },
+    services: {
+      publicApi: "Public API",
+      goApi: "Go API",
+      relayRtmp: "RTMP Relay",
+      scheduler: "Scheduler",
+      recordingExport: "Recording Export",
+      aiCommentaryWorker: "AI Commentary Worker",
+      generalWorker: "General Worker",
+      recordingStorage: "Recording Storage",
+    },
+    statusLabels: {
+      operational: "Operational",
+      degraded: "Degraded",
+      down: "Down",
+      unknown: "Unknown",
+    },
+    details: {
+      publicApiHealthy: "Public API gateway is serving requests normally.",
+      serviceHealthy: "Service is responding normally.",
+      serviceDegraded:
+        "Service is reachable, but part of the health signal is degraded.",
+      serviceDown: "Service is not responding right now.",
+      serviceUnknown: "Health data is unavailable right now.",
+      workerIdle: "Worker heartbeat is healthy and idle.",
+      workerBusy: "Worker heartbeat is healthy and processing jobs.",
+      workerStale: "Process is up, but the worker heartbeat looks stale.",
+      workerOffline: "Process is up, but the worker heartbeat is offline.",
+      workerUnknown: "Worker heartbeat is unavailable right now.",
+      lastHeartbeat: "Last heartbeat: {date}",
+      storageOperational: "{healthy}/{total} storage targets are healthy.",
+      storageDegraded:
+        "{healthy}/{total} storage targets are healthy right now.",
+      storageDown: "No storage target is healthy right now.",
+      storageUnknown:
+        "Storage health is not configured or cannot be checked.",
+    },
+    errors: {
+      loadTitle: "Could not load the current status snapshot.",
+      loadBody:
+        "The status page will keep the last successful data when available. You can retry manually.",
+    },
   },
   seo: {
     defaultTitle: "PickleTour.vn - Community and Tournament Platform",

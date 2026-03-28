@@ -4,14 +4,14 @@
 
 let __maintCache = { ts: 0, enabled: false, message: "" };
 const TTL_MS = 5000;
+const IMPLICIT_ADMIN_HOSTS = new Set(["admin.pickletour.vn"]);
+const BYPASS_PATH_PREFIXES = ["/api/health", "/api/admin"];
 
 // Parse danh sách miền bypass từ ENV (hỗ trợ wildcard, phân tách bằng dấu phẩy)
 const BYPASS_PATTERNS = (process.env.MAINTENANCE_BYPASS_HOSTS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-
-console.log(process.env.MAINTENANCE_BYPASS_HOSTS)
 
 // Chuyển wildcard pattern (vd: "*.admin.example.com") sang RegExp
 function wildcardToRegExp(pattern) {
@@ -57,6 +57,22 @@ export function invalidateMaintenanceCache() {
   __maintCache.ts = 0;
 }
 
+function normalizeRole(role) {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isAdminLikeUser(user) {
+  if (!user) return false;
+  if (user?.isAdmin === true) return true;
+  if (normalizeRole(user?.role) === "admin") return true;
+  if (Array.isArray(user?.roles)) {
+    return user.roles.map(normalizeRole).includes("admin");
+  }
+  return false;
+}
+
 function extractHost(req) {
   // Ưu tiên X-Forwarded-Host (sau reverse proxy), lấy host đầu tiên
   let host = (
@@ -80,16 +96,45 @@ function isBypassedHost(host) {
   return BYPASS_REGEXPS.some((rx) => rx.test(host));
 }
 
+function isImplicitAdminHost(host) {
+  if (!host) return false;
+  const normalized = String(host).trim().toLowerCase();
+  if (!normalized) return false;
+  if (IMPLICIT_ADMIN_HOSTS.has(normalized)) return true;
+  return normalized.startsWith("admin.");
+}
+
+function isBypassedPath(pathname) {
+  const normalized = String(pathname || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return false;
+  return BYPASS_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+export function shouldBypassMaintenanceRequest(req) {
+  if (isBypassedPath(req?.path)) {
+    return true;
+  }
+
+  const host = extractHost(req);
+  if (isBypassedHost(host) || isImplicitAdminHost(host)) {
+    return true;
+  }
+
+  return isAdminLikeUser(req?.user);
+}
+
 /**
  * Middleware bảo trì theo miền:
- * - Nếu host của request khớp MAINTENANCE_BYPASS_HOSTS -> next()
+ * - Bỏ qua nếu là admin host/admin API/admin user/health route
+ * - Hoặc host của request khớp MAINTENANCE_BYPASS_HOSTS -> next()
  * - Ngược lại: nếu maintenance.enabled = true -> trả 503
  * - Nếu off -> next()
  */
 export async function maintainanceTrigger(req, res, next) {
   try {
-    const host = extractHost(req);
-    if (isBypassedHost(host)) return next();
+    if (shouldBypassMaintenanceRequest(req)) return next();
 
     const { enabled, message } = await getMaintenanceState();
     if (!enabled) return next();

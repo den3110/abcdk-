@@ -33,6 +33,7 @@ import ContactPage from "./screens/Contact.jsx";
 import CookiesPage from "./screens/CookiesPage.jsx";
 import PrivacyPage from "./screens/PrivacyPage.jsx";
 import TermsPage from "./screens/TermsPage.jsx";
+import StatusPage from "./screens/StatusPage.jsx";
 import SeoNewsListScreen from "./screens/seo-news/SeoNewsListScreen.jsx";
 import SeoNewsDetailScreen from "./screens/seo-news/SeoNewsDetailScreen.jsx";
 import { SocketProvider } from "./context/SocketContext.jsx";
@@ -113,6 +114,7 @@ const router = sentryCreateBrowserRouter(
         />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/status" element={<StatusPage />} />
         <Route path="/cookies" element={<CookiesPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />

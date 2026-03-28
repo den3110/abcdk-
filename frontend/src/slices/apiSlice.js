@@ -264,7 +264,7 @@ const baseQuery = async (args, api, extraOptions) => {
   if (status === 404 && !extraOptions?.skip404Redirect) {
     redirectTo404();
   }
-  if (status === 503) {
+  if (status === 503 && !extraOptions?.skip503Redirect) {
     redirectTo503();
   }
 
