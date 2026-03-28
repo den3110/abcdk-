@@ -93,7 +93,7 @@ export default function DelayedManifestPlayer({
       ? source.meta.recordingId.trim()
       : "";
   const hlsUrl = recordingIdForHls
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/api/live/recordings/v2/${recordingIdForHls}/live.m3u8`
+    ? `${(import.meta.env.VITE_API_URL || "").replace(/\/+$/, "")}/api/live/recordings/v2/${recordingIdForHls}/live.m3u8`
     : "";
   const isFinishedSource =
     String(source?.meta?.status || "").toLowerCase() === "final" ||
