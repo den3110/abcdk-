@@ -6,12 +6,29 @@ import NativeVideoPlayer from "./NativeVideoPlayer";
 
 const WARMUP_WINDOW_SEGMENTS = 6;
 
-function normalizeManifestItems(manifest) {
+function normalizeManifestItems(manifest, baseUrl = "") {
   const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
+  // Resolve relative segment URLs against the CDN base URL.
+  // Manifest from R2 may have relative filenames like "segment_00863.mp4"
+  // which need to be resolved to absolute CDN paths.
+  const resolveUrl = (url) => {
+    if (!url) return "";
+    const trimmed = url.trim();
+    if (!trimmed) return "";
+    // Already absolute
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    // Relative — prepend base URL
+    if (baseUrl) {
+      const base = baseUrl.replace(/\/+$/, "");
+      return `${base}/${trimmed.replace(/^\/+/, "")}`;
+    }
+    return trimmed;
+  };
+
   const playable = segments
     .map((segment) => ({
       key: `segment:${segment?.index ?? ""}`,
-      url: typeof segment?.url === "string" ? segment.url.trim() : "",
+      url: resolveUrl(typeof segment?.url === "string" ? segment.url : ""),
       index: Number(segment?.index ?? -1),
       durationSeconds: Number(segment?.durationSeconds || 2),
       kind: "segment",
@@ -273,7 +290,21 @@ export default function DelayedManifestPlayer({
     let timerId = null;
 
     const applyManifest = (manifest) => {
-      const playable = normalizeManifestItems(manifest);
+      // Compute CDN base URL for resolving relative segment filenames.
+      // Segments are stored under {recordingPrefix}/segments/ on R2,
+      // but publicBaseUrl points to {recordingPrefix}/.
+      // So we append /segments to get the correct CDN path.
+      const rawBase =
+        (typeof source?.meta?.publicBaseUrl === "string"
+          ? source.meta.publicBaseUrl.trim()
+          : "") ||
+        (typeof source?.embedUrl === "string"
+          ? source.embedUrl.trim().replace(/\/[^/]*$/, "")
+          : "");
+      const cdnBase = rawBase
+        ? `${rawBase.replace(/\/+$/, "")}/segments`
+        : "";
+      const playable = normalizeManifestItems(manifest, cdnBase);
       const mStatus =
         typeof manifest?.status === "string" ? manifest.status.trim() : "";
       setManifestStatus(mStatus);
