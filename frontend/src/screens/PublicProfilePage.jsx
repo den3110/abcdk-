@@ -58,7 +58,7 @@ import { formatDate, formatDateTime } from "../i18n/format";
 import { getGenderLabel } from "../i18n/uiOptions";
 
 /* ---------- CONSTANTS & UTILS ---------- */
-const AVA_PLACE = "https://dummyimage.com/160x160/cccccc/ffffff&text=?";
+const AVA_PLACE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" fill="none"><rect width="160" height="160" rx="80" fill="%23192028"/><circle cx="80" cy="58" r="24" fill="%23384050"/><path d="M36 136c0-24.3 19.7-44 44-44s44 19.7 44 44" fill="%23384050"/></svg>')}`;
 // Keep decimals like the legacy screen (default 3 digits).
 const num = (v, digits = 3) =>
   Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
