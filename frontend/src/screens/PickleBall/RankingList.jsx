@@ -290,7 +290,7 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
 
 /* ================= Constants ================= */
 const VIEW_KEY = "ranking_desktop_view";
-const PLACE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="20" fill="%23192028"/><circle cx="20" cy="15" r="6" fill="%23384050"/><path d="M9 34c0-6.075 4.925-11 11-11s11 4.925 11 11" fill="%23384050"/></svg>')}`;
+const PLACE = "";
 const HEX = {
   green: "#2e7d32",
   blue: "#1976d2",

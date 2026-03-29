@@ -1,6 +1,7 @@
 // src/screens/RegisterScreen.jsx
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
+import PlaceholderAvatar from "../components/PlaceholderAvatar";
 import {
   Box,
   Button,
@@ -236,9 +237,9 @@ export default function RegisterScreen() {
 
   const showcaseItems = useMemo(
     () => [
-      { icon: CalendarMonthRounded, label: t("auth.login.chips.schedule"), title: t("auth.login.highlights.tournaments.title"), accent: "#dbff55", kind: "schedule" },
-      { icon: PlayCircleRounded, label: t("auth.login.chips.live"), title: t("auth.login.highlights.live.title"), accent: "#7f68ff", kind: "live" },
-      { icon: LeaderboardRounded, label: t("auth.login.chips.community"), title: t("auth.login.highlights.ranking.title"), accent: "#abd6ff", kind: "ranking" },
+      { icon: CalendarMonthRounded, label: t("auth.login.chips.schedule"), title: t("auth.login.highlights.tournaments.title"), body: t("auth.login.highlights.tournaments.body"), accent: "#dbff55", kind: "schedule" },
+      { icon: PlayCircleRounded, label: t("auth.login.chips.live"), title: t("auth.login.highlights.live.title"), body: t("auth.login.highlights.live.body"), accent: "#7f68ff", kind: "live" },
+      { icon: LeaderboardRounded, label: t("auth.login.chips.community"), title: t("auth.login.highlights.ranking.title"), body: t("auth.login.highlights.ranking.body"), accent: "#abd6ff", kind: "ranking" },
     ],
     [t],
   );
@@ -505,7 +506,10 @@ export default function RegisterScreen() {
                           </Stack>
                           <Box sx={{ width: 8, height: 8, borderRadius: 99, bgcolor: activeCard.accent, boxShadow: `0 0 0 6px ${alpha(activeCard.accent, 0.12)}` }} />
                         </Stack>
-                        <Typography sx={{ fontSize: 22, fontWeight: 800 }}>{activeCard.title}</Typography>
+                        <Box>
+                          <Typography sx={{ fontSize: 22, fontWeight: 800 }}>{activeCard.title}</Typography>
+                          <Typography sx={{ mt: 0.7, color: alpha("#ffffff", 0.68), fontSize: 13, lineHeight: 1.6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{activeCard.body}</Typography>
+                        </Box>
                         <ShowcaseVisual kind={activeCard.kind} accent={activeCard.accent} compact={false} />
                       </Stack>
                     </Paper>
@@ -605,10 +609,7 @@ export default function RegisterScreen() {
                         }}
                       >
                         <Box display="flex" alignItems="center" gap={2}>
-                          <Avatar
-                            src={avatarPreview || `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="40" fill="%23192028"/><circle cx="40" cy="30" r="12" fill="%23384050"/><path d="M18 68c0-12.15 9.85-22 22-22s22 9.85 22 22" fill="%23384050"/></svg>')}`}
-                            sx={{ width: 64, height: 64 }}
-                          />
+                          <PlaceholderAvatar src={avatarPreview} size={64} />
                           <Stack spacing={0.5}>
                             <Button
                               variant="outlined"

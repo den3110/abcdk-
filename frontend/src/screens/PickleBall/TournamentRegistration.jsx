@@ -80,7 +80,7 @@ import {
 } from "../../utils/tournamentName";
 
 /* ---------------- 1. CONSTANTS & HELPERS ---------------- */
-const PLACE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="40" fill="%23192028"/><circle cx="40" cy="30" r="12" fill="%23384050"/><path d="M18 68c0-12.15 9.85-22 22-22s22 9.85 22 22" fill="%23384050"/></svg>')}`;
+const PLACE = "";
 const BRAND_COLOR = "#1976d2";
 const CARD_RADIUS = 3;
 const MAX_AVATAR_FILE_SIZE = 10 * 1024 * 1024;

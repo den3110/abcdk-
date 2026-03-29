@@ -149,7 +149,7 @@ export default defineConfig(async ({ mode }) => {
       },
     },
     build: {
-      sourcemap: enableSentrySourcemaps,
+      sourcemap: enableSentrySourcemaps ? "hidden" : false,
       minify: "terser",
       terserOptions: {
         compress: { drop_console: true, drop_debugger: true },
