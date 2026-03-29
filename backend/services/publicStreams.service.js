@@ -2,6 +2,7 @@ import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import {
   buildRecordingLiveManifestObjectKey,
   buildRecordingPublicObjectUrl,
+  buildRecordingSegmentObjectKey,
 } from "./liveRecordingV2Storage.service.js";
 import {
   buildRecordingPlaybackUrl,
@@ -526,6 +527,24 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         manifestObjectKey: server2.manifestObjectKey,
         finalPlaybackUrl: server2.finalPlaybackUrl,
         publicBaseUrl: server2.publicBaseUrl,
+        // Full CDN path down to /segments/ directory so frontend can
+        // resolve relative segment filenames from the manifest.
+        segmentBaseUrl: recording?._id && recording?.match
+          ? (() => {
+              const segKey = buildRecordingSegmentObjectKey({
+                recordingId: recording._id,
+                matchId: recording.match,
+                segmentIndex: 0,
+              });
+              // segKey = 'recordings/v2/matches/{mid}/{rid}/segments/segment_00000.mp4'
+              // Strip the filename to get the directory
+              const segDir = segKey.replace(/\/[^/]+$/, "");
+              return buildRecordingPublicObjectUrl({
+                objectKey: segDir,
+                storageTargetId: recording.r2TargetId,
+              }) || null;
+            })()
+          : null,
         uploadedDurationSeconds: server2.uploadedDurationSeconds,
         uploadedSegmentCount: server2.uploadedSegmentCount,
         showLiveBadge: !finishedLike,

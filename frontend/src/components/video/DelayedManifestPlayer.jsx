@@ -291,19 +291,18 @@ export default function DelayedManifestPlayer({
 
     const applyManifest = (manifest) => {
       // Compute CDN base URL for resolving relative segment filenames.
-      // Segments are stored under {recordingPrefix}/segments/ on R2,
-      // but publicBaseUrl points to {recordingPrefix}/.
-      // So we append /segments to get the correct CDN path.
-      const rawBase =
-        (typeof source?.meta?.publicBaseUrl === "string"
-          ? source.meta.publicBaseUrl.trim()
+      // segmentBaseUrl: full CDN path to /segments/ directory (from backend)
+      // Fallback: publicBaseUrl + /segments or manifest URL directory.
+      const cdnBase =
+        (typeof source?.meta?.segmentBaseUrl === "string"
+          ? source.meta.segmentBaseUrl.trim().replace(/\/+$/, "")
+          : "") ||
+        (typeof source?.meta?.publicBaseUrl === "string" && source.meta.publicBaseUrl.trim()
+          ? `${source.meta.publicBaseUrl.trim().replace(/\/+$/, "")}/segments`
           : "") ||
         (typeof source?.embedUrl === "string"
           ? source.embedUrl.trim().replace(/\/[^/]*$/, "")
           : "");
-      const cdnBase = rawBase
-        ? `${rawBase.replace(/\/+$/, "")}/segments`
-        : "";
       const playable = normalizeManifestItems(manifest, cdnBase);
       const mStatus =
         typeof manifest?.status === "string" ? manifest.status.trim() : "";

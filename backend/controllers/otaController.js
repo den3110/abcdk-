@@ -1,16 +1,16 @@
-// controllers/otaController.js
 import otaService from "../services/ota.service.js";
+import hotUpdaterDashboardService from "../services/hotUpdaterDashboard.service.js";
 
 const isValidPlatform = (p) => ["ios", "android"].includes(String(p || ""));
 
 export const checkOtaUpdate = async (req, res) => {
   try {
-    const { platform, bundleVersion, appVersion } = req.query;
-    const { deviceId, model, osVersion, brand } = req.query; // Optional device info
+    const { platform, bundleVersion, bundleId, appVersion, channel } = req.query;
+    const { deviceId, model, osVersion, brand } = req.query;
 
-    if (!platform || !bundleVersion || !appVersion) {
+    if (!platform || !appVersion) {
       return res.status(400).json({
-        error: "Missing required params: platform, bundleVersion, appVersion",
+        error: "Missing required params: platform, appVersion",
       });
     }
 
@@ -18,10 +18,11 @@ export const checkOtaUpdate = async (req, res) => {
       return res.status(400).json({ error: "Platform must be ios or android" });
     }
 
-    const result = await otaService.checkUpdate({
+    const result = await hotUpdaterDashboardService.checkUpdate({
       platform,
-      currentBundleVersion: bundleVersion,
+      currentBundleVersion: bundleId || bundleVersion,
       appVersion,
+      channel,
       deviceInfo: { deviceId, model, osVersion, brand },
       ip: req.ip || req.headers["x-forwarded-for"],
       userAgent: req.headers["user-agent"],
@@ -68,7 +69,6 @@ export const reportUpdateStatus = async (req, res) => {
 
 export const uploadOtaBundle = async (req, res) => {
   try {
-    // TODO: Add admin authentication middleware
     const { platform, version, mandatory, description, minAppVersion } = req.body;
 
     if (!req.file) {
@@ -83,7 +83,6 @@ export const uploadOtaBundle = async (req, res) => {
       return res.status(400).json({ error: "Platform must be ios or android" });
     }
 
-    // Get user ID from auth if available
     const uploadedBy = req.user?._id || null;
 
     const result = await otaService.uploadBundle({
@@ -118,7 +117,7 @@ export const listOtaVersions = async (req, res) => {
       return res.status(400).json({ error: "Platform must be ios or android" });
     }
 
-    const versions = await otaService.listVersions(platform, parseInt(limit));
+    const versions = await hotUpdaterDashboardService.listVersions(platform, parseInt(limit, 10));
     return res.json({ versions });
   } catch (error) {
     console.error("OTA list versions error:", error);
@@ -134,14 +133,13 @@ export const getOtaLatest = async (req, res) => {
       return res.status(400).json({ error: "Platform must be ios or android" });
     }
 
-    const latest = await otaService.getLatestVersion(platform);
+    const latest = await hotUpdaterDashboardService.getLatest(platform);
 
     if (!latest) {
       return res.status(404).json({ error: "No version found" });
     }
 
-    const metadata = await otaService.getBundleMetadata(platform, latest.version);
-    return res.json(metadata);
+    return res.json(latest);
   } catch (error) {
     console.error("OTA get latest error:", error);
     return res.status(500).json({ error: "Failed to get latest version" });
@@ -150,7 +148,6 @@ export const getOtaLatest = async (req, res) => {
 
 export const rollbackOta = async (req, res) => {
   try {
-    // TODO: Add admin authentication middleware
     const { platform, version, reason } = req.body;
     const performedBy = req.user?._id || null;
 
@@ -180,22 +177,22 @@ export const rollbackOta = async (req, res) => {
 
 export const deactivateOtaVersion = async (req, res) => {
   try {
-    // TODO: Add admin authentication middleware
-    const { platform, version } = req.body;
+    const { platform, version, bundleId } = req.body;
+    const targetBundleId = bundleId || version;
 
-    if (!platform || !version) {
-      return res.status(400).json({ error: "Missing required: platform, version" });
+    if (!platform || !targetBundleId) {
+      return res.status(400).json({ error: "Missing required: platform, bundleId" });
     }
 
     if (!isValidPlatform(platform)) {
       return res.status(400).json({ error: "Platform must be ios or android" });
     }
 
-    const result = await otaService.deactivateVersion(platform, version);
+    const result = await hotUpdaterDashboardService.deactivateBundle(platform, targetBundleId);
 
     return res.json({
       success: true,
-      message: `Deactivated ${platform} version ${version}`,
+      message: `Deactivated ${platform} bundle ${targetBundleId}`,
       bundle: result,
     });
   } catch (error) {
@@ -226,7 +223,6 @@ export const downloadOtaBundle = async (req, res) => {
 
 export const getOtaAnalytics = async (req, res) => {
   try {
-    // TODO: Add admin authentication middleware
     const { platform } = req.params;
     const { days = 7 } = req.query;
 
@@ -234,7 +230,7 @@ export const getOtaAnalytics = async (req, res) => {
       return res.status(400).json({ error: "Platform must be ios or android" });
     }
 
-    const analytics = await otaService.getAnalytics(platform, parseInt(days));
+    const analytics = await hotUpdaterDashboardService.getAnalytics(platform, parseInt(days, 10));
 
     return res.json(analytics);
   } catch (error) {
