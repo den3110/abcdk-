@@ -64,6 +64,7 @@ import {
 import {
   buildPublicLiveClusterDetail,
   buildPublicLiveCourtDetail,
+  getCourtStationCurrentMatch,
 } from "../services/courtCluster.service.js";
 import { registerCourtStationRuntimePublishers } from "../services/courtStationRuntimeEvents.service.js";
 
@@ -285,33 +286,9 @@ function courtStationRoom(stationId) {
 }
 
 async function loadCourtStationCurrentMatchDto(stationId) {
-  const station = await CourtStation.findById(stationId)
-    .populate({
-      path: "currentMatch",
-      populate: [
-        { path: "tournament", select: "name image overlay eventType nameDisplayMode" },
-        { path: "bracket" },
-        {
-          path: "pairA",
-          populate: [
-            { path: "player1.user", select: "name nickname nickName fullName avatar" },
-            { path: "player2.user", select: "name nickname nickName fullName avatar" },
-          ],
-        },
-        {
-          path: "pairB",
-          populate: [
-            { path: "player1.user", select: "name nickname nickName fullName avatar" },
-            { path: "player2.user", select: "name nickname nickName fullName avatar" },
-          ],
-        },
-        { path: "referee", select: "name fullName nickname nickName" },
-        { path: "liveBy", select: "name fullName nickname nickName" },
-      ],
-    })
-    .lean();
-  if (!station?.currentMatch) return null;
-  return toRealtimePublicMatchDTO(station.currentMatch);
+  const payload = await getCourtStationCurrentMatch(stationId);
+  if (!payload?.currentMatch) return null;
+  return toRealtimePublicMatchDTO(payload.currentMatch);
 }
 
 async function emitCourtClusterSnapshot(io, clusterId, socketId = null) {

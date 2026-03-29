@@ -831,7 +831,39 @@ function collectStationQueueMatchDocs(station) {
     .filter(Boolean);
 }
 
-function selectPreferredStationMatchDocs(station) {
+async function loadLiveMatchMapByStationIds(stationIds = []) {
+  const normalizedIds = Array.from(
+    new Set(
+      (Array.isArray(stationIds) ? stationIds : [stationIds])
+        .map((value) => toIdString(value))
+        .filter((value) => mongoose.Types.ObjectId.isValid(value))
+    )
+  );
+
+  if (!normalizedIds.length) {
+    return new Map();
+  }
+
+  const matches = await Match.find({
+    courtStation: { $in: normalizedIds },
+    status: "live",
+  })
+    .select(MATCH_SUMMARY_SELECT)
+    .populate(MATCH_REF_POPULATE)
+    .sort({ startedAt: -1, updatedAt: -1, createdAt: -1 })
+    .lean();
+
+  const byStationId = new Map();
+  for (const match of matches) {
+    const stationId = toIdString(match?.courtStation?._id || match?.courtStation);
+    if (!stationId || byStationId.has(stationId)) continue;
+    byStationId.set(stationId, match);
+  }
+
+  return byStationId;
+}
+
+function selectPreferredStationMatchDocs(station, { liveCurrentMatch = null } = {}) {
   if (!station) {
     return {
       currentMatch: null,
@@ -849,6 +881,7 @@ function selectPreferredStationMatchDocs(station) {
     orderedCandidates.push(match);
   };
 
+  pushCandidate(liveCurrentMatch);
   pushCandidate(station.currentMatch);
   collectStationQueueMatchDocs(station).forEach(pushCandidate);
 
@@ -875,7 +908,9 @@ function buildStationSummary(station, options = {}) {
   const cluster = station.clusterId && typeof station.clusterId === "object"
     ? station.clusterId
     : options.cluster || null;
-  const preferredMatches = selectPreferredStationMatchDocs(station);
+  const preferredMatches = selectPreferredStationMatchDocs(station, {
+    liveCurrentMatch: options.liveCurrentMatch || null,
+  });
   const queueItems = Array.isArray(station?.assignmentQueue?.items)
     ? station.assignmentQueue.items
         .map((item) => buildQueueItemSummary(item, options))
@@ -1474,13 +1509,26 @@ export async function listCourtStations(clusterId, { includeMatches = false } = 
   }
 
   const docs = await query.lean();
+  const liveMatchByStationId = includeMatches
+    ? await loadLiveMatchMapByStationIds(docs.map((station) => station?._id))
+    : new Map();
   const matchDisplayContexts = includeMatches
-    ? await buildMatchDisplayContextsFromMatches(collectMatchesFromStations(docs))
+    ? await buildMatchDisplayContextsFromMatches([
+        ...collectMatchesFromStations(docs),
+        ...Array.from(liveMatchByStationId.values()),
+      ])
     : new Map();
   return docs.map((station) => ({
-    ...buildStationSummary(station, { matchDisplayContexts }),
+    ...buildStationSummary(station, {
+      matchDisplayContexts,
+      liveCurrentMatch:
+        liveMatchByStationId.get(toIdString(station?._id)) || null,
+    }),
     currentMatch: buildMatchSummary(
-      selectPreferredStationMatchDocs(station).currentMatch,
+      selectPreferredStationMatchDocs(station, {
+        liveCurrentMatch:
+          liveMatchByStationId.get(toIdString(station?._id)) || null,
+      }).currentMatch,
       { matchDisplayContexts }
     ),
     currentTournament: station.currentTournament
@@ -1751,11 +1799,14 @@ function buildRuntimeStationPayload(stationDoc, options = {}) {
     options?.matchDisplayContexts instanceof Map
       ? options.matchDisplayContexts
       : new Map();
-  const preferredMatches = selectPreferredStationMatchDocs(stationDoc);
+  const preferredMatches = selectPreferredStationMatchDocs(stationDoc, {
+    liveCurrentMatch: options.liveCurrentMatch || null,
+  });
   return {
     ...buildStationSummary(stationDoc, {
       cluster: stationDoc?.clusterId,
       matchDisplayContexts,
+      liveCurrentMatch: options.liveCurrentMatch || null,
     }),
     currentMatch: buildMatchSummary(preferredMatches.currentMatch, {
       matchDisplayContexts,
@@ -1773,14 +1824,34 @@ function buildRuntimeStationPayload(stationDoc, options = {}) {
 
 async function buildRuntimeStationPayloadAsync(stationDoc) {
   if (!stationDoc) return null;
+  const liveCurrentMatch =
+    (
+      await loadLiveMatchMapByStationIds([
+        toIdString(stationDoc?._id),
+      ])
+    ).get(toIdString(stationDoc?._id)) || null;
   const matchDisplayContexts = await buildMatchDisplayContextsFromMatches(
-    collectMatchesFromStations([stationDoc])
+    [
+      ...collectMatchesFromStations([stationDoc]),
+      ...(liveCurrentMatch ? [liveCurrentMatch] : []),
+    ]
   );
-  return buildRuntimeStationPayload(stationDoc, { matchDisplayContexts });
+  return buildRuntimeStationPayload(stationDoc, {
+    matchDisplayContexts,
+    liveCurrentMatch,
+  });
 }
 
 async function buildCurrentMatchPayloadAsync(stationDoc) {
-  const preferredCurrent = selectPreferredStationMatchDocs(stationDoc).currentMatch;
+  const liveCurrentMatch =
+    (
+      await loadLiveMatchMapByStationIds([
+        toIdString(stationDoc?._id),
+      ])
+    ).get(toIdString(stationDoc?._id)) || null;
+  const preferredCurrent = selectPreferredStationMatchDocs(stationDoc, {
+    liveCurrentMatch,
+  }).currentMatch;
   if (!preferredCurrent) return null;
   const matchDisplayContexts = await buildMatchDisplayContextsFromMatches([
     preferredCurrent,

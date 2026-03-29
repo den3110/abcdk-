@@ -294,6 +294,23 @@ function isActiveMatchStatus(status) {
 
 async function resolvePreferredStationMatchIds(station) {
   const stationId = toIdString(station?._id);
+  const directLiveMatch = stationId
+    ? await Match.findOne({
+        courtStation: stationId,
+        status: "live",
+      })
+        .select("_id")
+        .sort({ startedAt: -1, updatedAt: -1, createdAt: -1 })
+        .lean()
+    : null;
+
+  if (directLiveMatch?._id) {
+    return {
+      currentMatchId: toIdString(directLiveMatch._id),
+      nextMatchId: null,
+    };
+  }
+
   const currentMatchId = toIdString(station?.currentMatch);
   const queueMatchIds = Array.isArray(station?.assignmentQueue?.items)
     ? station.assignmentQueue.items
