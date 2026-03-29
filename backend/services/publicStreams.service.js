@@ -498,23 +498,25 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   );
 
   if (shouldRenderServer2) {
+    // Only use direct "file" (raw/playback URL) when the recording is truly
+    // FINISHED — i.e. recording.status==="ready" or the match itself is finished.
+    // During live, even if driveFileId exists, keep delayed_manifest to use the
+    // CDN segment queue + blob prefetch for smooth playback.
+    const recordingFinished =
+      recording?.status === "ready" || finishedLike;
+    const useFileMode =
+      recordingFinished && Boolean(server2.finalPlaybackUrl);
+
     pushUniqueStream(streams, {
       key: server2.key,
       displayLabel: server2.displayLabel,
       providerLabel: server2.providerLabel,
-      // During live, prefer delayed_manifest (CDN segment queue) even if
-      // finalPlaybackUrl exists. Only use "file" (raw/playback URL) when
-      // the recording status is truly "final" (export finished).
-      kind:
-        server2.finalPlaybackUrl && server2.status === "final"
-          ? "file"
-          : "delayed_manifest",
+      kind: useFileMode ? "file" : "delayed_manifest",
       priority: 2,
       status: server2.status,
-      playUrl:
-        server2.status === "final" && server2.finalPlaybackUrl
-          ? server2.finalPlaybackUrl
-          : server2.manifestUrl,
+      playUrl: useFileMode
+        ? server2.finalPlaybackUrl
+        : server2.manifestUrl,
       openUrl: server2.finalPlaybackUrl || null,
       delaySeconds: server2.delaySeconds,
       ready: server2.ready,
