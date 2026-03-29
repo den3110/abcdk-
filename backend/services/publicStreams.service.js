@@ -502,10 +502,19 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       key: server2.key,
       displayLabel: server2.displayLabel,
       providerLabel: server2.providerLabel,
-      kind: server2.finalPlaybackUrl ? "file" : "delayed_manifest",
+      // During live, prefer delayed_manifest (CDN segment queue) even if
+      // finalPlaybackUrl exists. Only use "file" (raw/playback URL) when
+      // the recording status is truly "final" (export finished).
+      kind:
+        server2.finalPlaybackUrl && server2.status === "final"
+          ? "file"
+          : "delayed_manifest",
       priority: 2,
       status: server2.status,
-      playUrl: server2.finalPlaybackUrl || server2.manifestUrl,
+      playUrl:
+        server2.status === "final" && server2.finalPlaybackUrl
+          ? server2.finalPlaybackUrl
+          : server2.manifestUrl,
       openUrl: server2.finalPlaybackUrl || null,
       delaySeconds: server2.delaySeconds,
       ready: server2.ready,
