@@ -881,7 +881,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     );
   }
   incoming.tournamentMode = normalizeTournamentMode(incoming.tournamentMode);
-  incoming.teamConfig = normalizeIncomingTeamConfig(incoming);
 
   if (incoming.ageRestriction) {
     const ar = incoming.ageRestriction || {};
@@ -945,6 +944,7 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   data.contactHtml = cleanHTML(data.contactHtml);
   data.contentHtml = cleanHTML(data.contentHtml);
   if (data._meta) delete data._meta;
+  data.teamConfig = normalizeIncomingTeamConfig(data);
 
   if (!req.user?._id) {
     res.status(401);
@@ -1208,16 +1208,16 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     "location tournamentMode teamConfig isFreeRegistration"
   );
   if (
-    Object.prototype.hasOwnProperty.call(incoming, "tournamentMode") ||
-    Object.prototype.hasOwnProperty.call(incoming, "teamConfig")
+    Object.prototype.hasOwnProperty.call(payload, "tournamentMode") ||
+    Object.prototype.hasOwnProperty.call(payload, "teamConfig")
   ) {
-    incoming.teamConfig = normalizeIncomingTeamConfig(
+    payload.teamConfig = normalizeIncomingTeamConfig(
       {
         tournamentMode:
-          incoming.tournamentMode ||
+          payload.tournamentMode ||
           existing?.tournamentMode ||
           "standard",
-        teamConfig: incoming.teamConfig,
+        teamConfig: payload.teamConfig,
       },
       existing?.teamConfig || {}
     );

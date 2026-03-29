@@ -544,6 +544,187 @@ export async function probeRecordingDriveFile(fileId) {
   };
 }
 
+function normalizeDriveFileMetadata(data = {}) {
+  const parents = Array.isArray(data?.parents)
+    ? data.parents.map((value) => asTrimmed(value)).filter(Boolean)
+    : [];
+
+  return {
+    id: asTrimmed(data?.id) || null,
+    name: asTrimmed(data?.name) || null,
+    mimeType: asTrimmed(data?.mimeType) || null,
+    driveId: asTrimmed(data?.driveId) || null,
+    parents,
+    parentId: parents[0] || null,
+    trashed: Boolean(data?.trashed),
+    size: data?.size != null ? String(data.size) : null,
+    modifiedTime: data?.modifiedTime || null,
+    webViewLink: asTrimmed(data?.webViewLink) || null,
+    webContentLink: asTrimmed(data?.webContentLink) || null,
+  };
+}
+
+async function getRecordingDriveAdminClient() {
+  const runtimeConfig = await getRecordingDriveRuntimeConfig();
+  const { drive, usingSharedDrive, driveAuthMode } = await buildDriveClient(
+    runtimeConfig,
+    {
+      requireFolderId: false,
+      requireSharedDriveId: false,
+    }
+  );
+
+  return {
+    runtimeConfig,
+    drive,
+    usingSharedDrive,
+    driveAuthMode,
+  };
+}
+
+async function requestRecordingDriveFileMetadata(fileId) {
+  const normalizedFileId = asTrimmed(fileId);
+  if (!normalizedFileId) {
+    throw new Error("Drive file id is required");
+  }
+
+  const { runtimeConfig, drive, usingSharedDrive, driveAuthMode } =
+    await getRecordingDriveAdminClient();
+
+  try {
+    const response = await drive.files.get({
+      fileId: normalizedFileId,
+      supportsAllDrives: usingSharedDrive,
+      fields:
+        "id,name,mimeType,driveId,parents,trashed,size,modifiedTime,webViewLink,webContentLink",
+    });
+
+    return {
+      file: normalizeDriveFileMetadata(response?.data || {}),
+      driveAuthMode,
+    };
+  } catch (error) {
+    throw normalizeDriveError(error, runtimeConfig);
+  }
+}
+
+export async function getRecordingDriveFileMetadata(fileId) {
+  return requestRecordingDriveFileMetadata(fileId);
+}
+
+export async function renameRecordingDriveFile({ fileId, name }) {
+  const normalizedFileId = asTrimmed(fileId);
+  const normalizedName = asTrimmed(name);
+  if (!normalizedFileId) {
+    throw new Error("Drive file id is required");
+  }
+  if (!normalizedName) {
+    throw new Error("Drive file name is required");
+  }
+
+  const { runtimeConfig, drive, usingSharedDrive, driveAuthMode } =
+    await getRecordingDriveAdminClient();
+
+  try {
+    const response = await drive.files.update({
+      fileId: normalizedFileId,
+      supportsAllDrives: usingSharedDrive,
+      requestBody: {
+        name: normalizedName,
+      },
+      fields:
+        "id,name,mimeType,driveId,parents,trashed,size,modifiedTime,webViewLink,webContentLink",
+    });
+
+    return {
+      file: normalizeDriveFileMetadata(response?.data || {}),
+      driveAuthMode,
+    };
+  } catch (error) {
+    throw normalizeDriveError(error, runtimeConfig);
+  }
+}
+
+export async function moveRecordingDriveFile({ fileId, folderId = "" }) {
+  const normalizedFileId = asTrimmed(fileId);
+  if (!normalizedFileId) {
+    throw new Error("Drive file id is required");
+  }
+
+  const { runtimeConfig, drive, usingSharedDrive, driveAuthMode } =
+    await getRecordingDriveAdminClient();
+  const targetFolderId = asTrimmed(folderId || runtimeConfig.folderId);
+  if (!targetFolderId) {
+    throw new Error("Target folder id is required");
+  }
+
+  try {
+    const current = await drive.files.get({
+      fileId: normalizedFileId,
+      supportsAllDrives: usingSharedDrive,
+      fields: "id,name,parents,driveId,trashed",
+    });
+    const folder = await drive.files.get({
+      fileId: targetFolderId,
+      supportsAllDrives: usingSharedDrive,
+      fields: "id,name,mimeType,driveId,parents",
+    });
+
+    const currentParents = Array.isArray(current?.data?.parents)
+      ? current.data.parents.map((value) => asTrimmed(value)).filter(Boolean)
+      : [];
+    const removeParents = currentParents
+      .filter((parentId) => parentId !== targetFolderId)
+      .join(",");
+
+    const response = await drive.files.update({
+      fileId: normalizedFileId,
+      supportsAllDrives: usingSharedDrive,
+      addParents: targetFolderId,
+      removeParents: removeParents || undefined,
+      fields:
+        "id,name,mimeType,driveId,parents,trashed,size,modifiedTime,webViewLink,webContentLink",
+    });
+
+    return {
+      file: normalizeDriveFileMetadata(response?.data || {}),
+      targetFolder: normalizeDriveFileMetadata(folder?.data || {}),
+      driveAuthMode,
+    };
+  } catch (error) {
+    throw normalizeDriveError(error, runtimeConfig);
+  }
+}
+
+export async function trashRecordingDriveFile(fileId) {
+  const normalizedFileId = asTrimmed(fileId);
+  if (!normalizedFileId) {
+    throw new Error("Drive file id is required");
+  }
+
+  const { runtimeConfig, drive, usingSharedDrive, driveAuthMode } =
+    await getRecordingDriveAdminClient();
+
+  try {
+    const response = await drive.files.update({
+      fileId: normalizedFileId,
+      supportsAllDrives: usingSharedDrive,
+      requestBody: {
+        trashed: true,
+      },
+      fields:
+        "id,name,mimeType,driveId,parents,trashed,size,modifiedTime,webViewLink,webContentLink",
+    });
+
+    return {
+      file: normalizeDriveFileMetadata(response?.data || {}),
+      driveAuthMode,
+    };
+  } catch (error) {
+    throw normalizeDriveError(error, runtimeConfig);
+  }
+}
+
 export async function uploadRecordingToDrive({
   filePath,
   fileName,

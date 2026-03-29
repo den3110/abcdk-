@@ -7,13 +7,16 @@ import {
   completeMultipartLiveRecordingSegmentV2,
   finalizeLiveRecordingV2,
   getLiveRecordingAiCommentaryMonitorV2,
+  getLiveRecordingDriveAssetV2,
   forceUploadingRecordingToExportV2,
   getLiveRecordingMonitorV2,
   getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
+  moveLiveRecordingDriveAssetV2,
   playLiveRecordingAiCommentaryV2,
   playLiveRecordingV2,
   queueLiveRecordingAiCommentaryV2,
+  renameLiveRecordingDriveAssetV2,
   rerenderLiveRecordingAiCommentaryV2,
   getLiveRecordingTemporaryPlaylistV2,
   serveLiveHlsPlaylistV2,
@@ -29,6 +32,7 @@ import {
   startLiveRecordingV2,
   streamLiveRecordingAiCommentaryRawV2,
   streamLiveRecordingRawV2,
+  trashLiveRecordingDriveAssetV2,
 } from "../controllers/liveRecordingV2Controller.js";
 
 const router = express.Router();
@@ -85,6 +89,30 @@ router.get(
   protect,
   authorize("admin"),
   getLiveRecordingAiCommentaryMonitorV2
+);
+router.get(
+  "/admin/:id/drive-asset",
+  protect,
+  authorize("admin"),
+  getLiveRecordingDriveAssetV2
+);
+router.post(
+  "/admin/:id/drive-asset/rename",
+  protect,
+  authorize("admin"),
+  renameLiveRecordingDriveAssetV2
+);
+router.post(
+  "/admin/:id/drive-asset/move",
+  protect,
+  authorize("admin"),
+  moveLiveRecordingDriveAssetV2
+);
+router.post(
+  "/admin/:id/drive-asset/trash",
+  protect,
+  authorize("admin"),
+  trashLiveRecordingDriveAssetV2
 );
 router.post(
   "/admin/:id/commentary",

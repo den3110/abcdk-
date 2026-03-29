@@ -14,8 +14,12 @@ import {
   buildRecordingAiCommentaryRawUrl,
 } from "../services/liveRecordingAiCommentaryPlayback.service.js";
 import {
+  getRecordingDriveFileMetadata,
   probeRecordingDriveFile,
+  renameRecordingDriveFile,
   streamRecordingDriveFile,
+  moveRecordingDriveFile,
+  trashRecordingDriveFile,
 } from "../services/driveRecordings.service.js";
 import {
   abortRecordingMultipartUpload,
@@ -804,6 +808,119 @@ function getAiCommentaryAsset(recording) {
     playbackUrl,
     ready: Boolean(fileId || rawUrl || playbackUrl || previewUrl),
   };
+}
+
+function normalizeDriveAssetTarget(value) {
+  return String(value || "").trim().toLowerCase() === "ai" ? "ai" : "source";
+}
+
+function getRecordingDriveAssetInfo(recording, target = "source") {
+  const normalizedTarget = normalizeDriveAssetTarget(target);
+  if (normalizedTarget === "ai") {
+    const aiAsset = getAiCommentaryAsset(recording);
+    return {
+      target: "ai",
+      label: "BLV AI",
+      fileId: aiAsset.fileId || null,
+      rawUrl: aiAsset.rawUrl || null,
+      previewUrl: aiAsset.previewUrl || null,
+      playbackUrl: aiAsset.playbackUrl || null,
+      ready: Boolean(aiAsset.ready),
+    };
+  }
+
+  return {
+    target: "source",
+    label: "Video goc",
+    fileId: asTrimmed(recording?.driveFileId) || null,
+    rawUrl: asTrimmed(recording?.driveRawUrl) || null,
+    previewUrl: asTrimmed(recording?.drivePreviewUrl) || null,
+    playbackUrl: recording?._id
+      ? buildRecordingPlaybackUrl(recording._id)
+      : asTrimmed(recording?.playbackUrl) || null,
+    ready: Boolean(recording?.driveFileId || recording?.driveRawUrl),
+  };
+}
+
+function setRecordingDriveAssetMeta(recording, target, file = null) {
+  if (!recording) return;
+  const normalizedTarget = normalizeDriveAssetTarget(target);
+  const nextMeta = getRecordingMeta(recording);
+  const currentDriveAdmin =
+    nextMeta.driveAdmin && typeof nextMeta.driveAdmin === "object"
+      ? { ...nextMeta.driveAdmin }
+      : {};
+
+  currentDriveAdmin[normalizedTarget] = file
+    ? {
+        fileId: asTrimmed(file?.id) || null,
+        name: asTrimmed(file?.name) || null,
+        mimeType: asTrimmed(file?.mimeType) || null,
+        driveId: asTrimmed(file?.driveId) || null,
+        parents: Array.isArray(file?.parents)
+          ? file.parents.map((value) => asTrimmed(value)).filter(Boolean)
+          : [],
+        trashed: Boolean(file?.trashed),
+        size: file?.size != null ? String(file.size) : null,
+        modifiedTime: file?.modifiedTime || null,
+        syncedAt: new Date(),
+      }
+    : null;
+
+  nextMeta.driveAdmin = currentDriveAdmin;
+  recording.meta = nextMeta;
+}
+
+function clearRecordingDriveAsset(recording, target, reason = "", file = null) {
+  const normalizedTarget = normalizeDriveAssetTarget(target);
+  const message =
+    asTrimmed(reason) ||
+    (normalizedTarget === "ai"
+      ? "AI commentary Drive file was moved to trash by admin."
+      : "Drive file was moved to trash by admin.");
+
+  if (normalizedTarget === "ai") {
+    recording.aiCommentary = {
+      ...(recording.aiCommentary || {}),
+      status: "failed",
+      dubbedDriveFileId: null,
+      dubbedDriveRawUrl: null,
+      dubbedDrivePreviewUrl: null,
+      dubbedPlaybackUrl: null,
+      error: message,
+    };
+    setRecordingDriveAssetMeta(recording, "ai", file || { trashed: true });
+    recording.markModified("aiCommentary");
+    return;
+  }
+
+  const nextMeta = getRecordingMeta(recording);
+  const currentPipeline =
+    nextMeta.exportPipeline &&
+    typeof nextMeta.exportPipeline === "object" &&
+    !Array.isArray(nextMeta.exportPipeline)
+      ? { ...nextMeta.exportPipeline }
+      : {};
+
+  nextMeta.exportPipeline = {
+    ...currentPipeline,
+    stage: "failed",
+    label: "Video Drive da bi dua vao thung rac",
+    updatedAt: new Date(),
+    failedAt: new Date(),
+    error: message,
+    adminAction: "drive_source_trashed",
+  };
+
+  recording.meta = nextMeta;
+  recording.driveFileId = null;
+  recording.driveRawUrl = null;
+  recording.drivePreviewUrl = null;
+  recording.playbackUrl = null;
+  recording.readyAt = null;
+  recording.status = "failed";
+  recording.error = message;
+  setRecordingDriveAssetMeta(recording, "source", file || { trashed: true });
 }
 
 function serializeRecording(recording) {
@@ -1764,6 +1881,190 @@ export const rerenderLiveRecordingAiCommentaryV2 = asyncHandler(
     }
   }
 );
+
+export const getLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.query?.recordingId);
+  const target = normalizeDriveAssetTarget(req.query?.target || req.body?.target);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const asset = getRecordingDriveAssetInfo(recording, target);
+  if (!asset.fileId) {
+    return res.status(404).json({
+      message: `${asset.label} chua co Drive fileId`,
+      target,
+      recording: serializeRecording(recording),
+    });
+  }
+
+  try {
+    const result = await getRecordingDriveFileMetadata(asset.fileId);
+    setRecordingDriveAssetMeta(recording, target, result.file);
+    await recording.save();
+    await publishRecordingMonitor(recording, `recording_drive_asset_inspected_${target}`);
+
+    return res.json({
+      ok: true,
+      target,
+      asset,
+      file: result.file,
+      driveAuthMode: result.driveAuthMode,
+      recording: serializeRecording(recording),
+    });
+  } catch (error) {
+    return res.status(502).json({
+      message: error?.message || "Failed to inspect Drive asset",
+      target,
+      recording: serializeRecording(recording),
+    });
+  }
+});
+
+export const renameLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.body?.recordingId);
+  const target = normalizeDriveAssetTarget(req.body?.target);
+  const name = asTrimmed(req.body?.name);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+  if (!name) {
+    return res.status(400).json({ message: "Drive file name is required" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const asset = getRecordingDriveAssetInfo(recording, target);
+  if (!asset.fileId) {
+    return res.status(404).json({ message: `${asset.label} chua co Drive fileId` });
+  }
+
+  try {
+    const result = await renameRecordingDriveFile({
+      fileId: asset.fileId,
+      name,
+    });
+    setRecordingDriveAssetMeta(recording, target, result.file);
+    await recording.save();
+    await publishRecordingMonitor(recording, `recording_drive_asset_renamed_${target}`);
+
+    return res.json({
+      ok: true,
+      target,
+      file: result.file,
+      driveAuthMode: result.driveAuthMode,
+      recording: serializeRecording(recording),
+    });
+  } catch (error) {
+    return res.status(502).json({
+      message: error?.message || "Failed to rename Drive asset",
+      target,
+      recording: serializeRecording(recording),
+    });
+  }
+});
+
+export const moveLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.body?.recordingId);
+  const target = normalizeDriveAssetTarget(req.body?.target);
+  const folderId = asTrimmed(req.body?.folderId);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const asset = getRecordingDriveAssetInfo(recording, target);
+  if (!asset.fileId) {
+    return res.status(404).json({ message: `${asset.label} chua co Drive fileId` });
+  }
+
+  try {
+    const result = await moveRecordingDriveFile({
+      fileId: asset.fileId,
+      folderId,
+    });
+    setRecordingDriveAssetMeta(recording, target, result.file);
+    await recording.save();
+    await publishRecordingMonitor(recording, `recording_drive_asset_moved_${target}`);
+
+    return res.json({
+      ok: true,
+      target,
+      file: result.file,
+      targetFolder: result.targetFolder || null,
+      driveAuthMode: result.driveAuthMode,
+      recording: serializeRecording(recording),
+    });
+  } catch (error) {
+    return res.status(502).json({
+      message: error?.message || "Failed to move Drive asset",
+      target,
+      recording: serializeRecording(recording),
+    });
+  }
+});
+
+export const trashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.body?.recordingId);
+  const target = normalizeDriveAssetTarget(req.body?.target);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const asset = getRecordingDriveAssetInfo(recording, target);
+  if (!asset.fileId) {
+    return res.status(404).json({ message: `${asset.label} chua co Drive fileId` });
+  }
+
+  try {
+    const result = await trashRecordingDriveFile(asset.fileId);
+    clearRecordingDriveAsset(
+      recording,
+      target,
+      target === "ai"
+        ? "AI commentary Drive file was moved to trash by admin."
+        : "Drive file was moved to trash by admin.",
+      result.file
+    );
+    await recording.save();
+    await publishRecordingMonitor(recording, `recording_drive_asset_trashed_${target}`);
+
+    return res.json({
+      ok: true,
+      target,
+      file: result.file,
+      driveAuthMode: result.driveAuthMode,
+      recording: serializeRecording(recording),
+    });
+  } catch (error) {
+    return res.status(502).json({
+      message: error?.message || "Failed to trash Drive asset",
+      target,
+      recording: serializeRecording(recording),
+    });
+  }
+});
 
 export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
   const recordingId = asTrimmed(req.params?.id || req.body?.recordingId);
