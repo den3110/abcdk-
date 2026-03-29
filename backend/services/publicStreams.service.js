@@ -498,14 +498,13 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   );
 
   if (shouldRenderServer2) {
-    // Only use direct "file" (raw/playback URL) when the recording is truly
-    // FINISHED — i.e. recording.status==="ready" or the match itself is finished.
-    // During live, even if driveFileId exists, keep delayed_manifest to use the
-    // CDN segment queue + blob prefetch for smooth playback.
-    const recordingFinished =
-      recording?.status === "ready" || finishedLike;
+    // If a CDN manifest exists with segments, ALWAYS use delayed_manifest
+    // for smooth segment-based playback (blob prefetch, gapless queue).
+    // Only fall back to "file" (raw/playback URL) when there is NO manifest.
+    const hasSegmentManifest =
+      Boolean(server2.manifestUrl) && server2.uploadedSegmentCount > 0;
     const useFileMode =
-      recordingFinished && Boolean(server2.finalPlaybackUrl);
+      !hasSegmentManifest && Boolean(server2.finalPlaybackUrl);
 
     pushUniqueStream(streams, {
       key: server2.key,
