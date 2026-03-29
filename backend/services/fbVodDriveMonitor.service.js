@@ -16,6 +16,7 @@ import {
   hasDriveRecordingOutput,
   RECORDING_SOURCE_FACEBOOK_VOD,
 } from "./liveRecordingFacebookVodShared.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 const FACEBOOK_ENDED_STATUSES = ["ENDED", "STOPPED", "FINISHED"];
 const RANGE_TO_DAYS = {
@@ -41,13 +42,22 @@ const STATE_PRIORITY = {
 
 const MATCH_SELECT = [
   "code",
+  "displayCode",
   "shortCode",
+  "labelKey",
   "status",
   "format",
   "round",
   "rrRound",
   "order",
+  "globalRound",
+  "stageIndex",
   "pool.name",
+  "pool.index",
+  "pool.idx",
+  "pool.no",
+  "pool.order",
+  "pool.code",
   "courtLabel",
   "facebookLive",
   "pairA",
@@ -191,7 +201,10 @@ function buildCourtLabel(match) {
 }
 
 function buildMatchCode(match) {
+  const codePayload = buildMatchCodePayload(match);
   return (
+    asTrimmed(codePayload?.displayCode) ||
+    asTrimmed(codePayload?.code) ||
     asTrimmed(match?.shortCode) ||
     asTrimmed(match?.code) ||
     (match?._id ? String(match._id).slice(-6) : "")

@@ -326,6 +326,11 @@ export default {
       processing: "Đang xử lý...",
       hasAccount: "Đã có tài khoản?",
       login: "Đăng nhập",
+      termsPrefix: "Bằng việc đăng ký, bạn đồng ý với ",
+      termsLink: "Điều khoản sử dụng",
+      termsAnd: " và ",
+      privacyLink: "Chính sách bảo mật",
+      termsSuffix: " của PickleTour.",
       aria: {
         togglePassword: "Hiện hoặc ẩn mật khẩu",
         toggleConfirmPassword: "Hiện hoặc ẩn xác nhận mật khẩu",

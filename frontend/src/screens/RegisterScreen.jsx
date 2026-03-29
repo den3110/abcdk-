@@ -22,6 +22,8 @@ import {
   useTheme,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import { useDispatch } from "react-redux";
 import { useRegisterMutation } from "../slices/usersApiSlice";
 import { useUploadRealAvatarMutation } from "../slices/uploadApiSlice";
@@ -211,6 +213,7 @@ export default function RegisterScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
+  const [agreedTerms, setAgreedTerms] = useState(false);
   const avatarRef = useRef(null);
   const [highlightAvatar, setHighlightAvatar] = useState(false);
   const [activeShowcase, setActiveShowcase] = useState(0);
@@ -305,6 +308,7 @@ export default function RegisterScreen() {
     const errs = validate(form);
     setErrors(errs);
     if (errs.avatar) jumpAndHighlight(avatarRef, setHighlightAvatar);
+    if (!agreedTerms) { errs.terms = true; }
     if (Object.keys(errs).length) { toast.error(t("auth.register.errors.checkInfo")); return; }
 
     addBusinessBreadcrumb("auth.register.submit", { province: form.province, gender: form.gender, hasAvatar: Boolean(avatarFile) });
@@ -443,6 +447,9 @@ export default function RegisterScreen() {
                   <Typography variant={isMobile ? "h6" : "h4"} sx={{ mt: { xs: 0.3, md: 1 }, fontWeight: 800, lineHeight: 1.08, letterSpacing: "-0.04em", fontSize: { xs: "0.92rem", sm: undefined } }}>
                     {t("auth.login.brandTitle")}
                   </Typography>
+                  <Typography sx={{ mt: 1, display: { xs: "none", sm: "block" }, color: alpha("#ffffff", 0.72), lineHeight: 1.7, fontSize: { xs: 14, md: 15 } }}>
+                    {t("auth.login.brandBody")}
+                  </Typography>
                 </Box>
               </Stack>
 
@@ -522,11 +529,35 @@ export default function RegisterScreen() {
                 )}
               </Box>
 
-              {/* Dots */}
-              <Stack direction="row" spacing={0.8} justifyContent="center" sx={{ position: "relative", zIndex: 1, px: 2, pb: { xs: 1.5, md: 2.25 }, pt: { xs: 0.75, md: 1.5 } }}>
+              {/* Testimonial + Dots */}
+              <Stack spacing={1.5} sx={{ position: "relative", zIndex: 1, px: { xs: 2.25, sm: 2.75, md: 3.5 }, pb: { xs: 1.5, md: 2.25 }, pt: { xs: 0.75, md: 1.5 } }}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    display: { xs: "none", sm: "block" },
+                    p: { xs: 2, md: 2.2 },
+                    borderRadius: 4,
+                    background: alpha("#ffffff", 0.07),
+                    border: `1px solid ${alpha("#ffffff", 0.1)}`,
+                    backdropFilter: "blur(10px)",
+                  }}
+                >
+                  <Typography sx={{ color: alpha("#ffffff", 0.92), fontSize: { xs: 14, md: 15 }, lineHeight: 1.8 }}>
+                    {t("auth.login.testimonial.quote")}
+                  </Typography>
+                  <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mt: 2 }}>
+                    <Box sx={{ width: 36, height: 36, borderRadius: 99, background: "linear-gradient(135deg, rgba(219,255,85,0.95) 0%, rgba(127,104,255,0.95) 100%)" }} />
+                    <Box>
+                      <Typography sx={{ color: "#ffffff", fontWeight: 700, fontSize: 14 }}>{t("auth.login.testimonial.author")}</Typography>
+                      <Typography sx={{ color: alpha("#ffffff", 0.6), fontSize: 12 }}>{t("auth.login.testimonial.role")}</Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+                <Stack direction="row" spacing={0.8} justifyContent="center">
                 {showcaseItems.map((item, index) => (
                   <Box key={item.title} sx={{ width: index === activeShowcase ? 22 : 6, height: 6, borderRadius: 99, bgcolor: index === activeShowcase ? alpha("#ffffff", 0.92) : alpha("#ffffff", 0.28), transition: "all 220ms ease" }} />
                 ))}
+                </Stack>
               </Stack>
             </Box>
 
@@ -575,7 +606,7 @@ export default function RegisterScreen() {
                       >
                         <Box display="flex" alignItems="center" gap={2}>
                           <Avatar
-                            src={avatarPreview || "https://dummyimage.com/80x80/cccccc/ffffff&text=?"}
+                            src={avatarPreview || `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none"><rect width="80" height="80" rx="40" fill="%23192028"/><circle cx="40" cy="30" r="12" fill="%23384050"/><path d="M18 68c0-12.15 9.85-22 22-22s22 9.85 22 22" fill="%23384050"/></svg>')}`}
                             sx={{ width: 64, height: 64 }}
                           />
                           <Stack spacing={0.5}>
@@ -699,6 +730,30 @@ export default function RegisterScreen() {
                           startAdornment: (<InputAdornment position="start"><LockRounded sx={{ color: alpha(formTextPrimary, 0.56) }} /></InputAdornment>),
                           endAdornment: (<InputAdornment position="end"><IconButton onClick={() => setShowConfirmPassword((v) => !v)} edge="end" aria-label={t("auth.register.aria.toggleConfirmPassword")}>{showConfirmPassword ? <VisibilityOff /> : <Visibility />}</IconButton></InputAdornment>),
                         }}
+                      />
+
+                      {/* Terms checkbox */}
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={agreedTerms}
+                            onChange={(e) => setAgreedTerms(e.target.checked)}
+                            sx={{
+                              color: alpha(formTextPrimary, 0.4),
+                              "&.Mui-checked": { color: "#dbff55" },
+                            }}
+                          />
+                        }
+                        label={
+                          <Typography sx={{ fontSize: 13, color: formTextSecondary, lineHeight: 1.5 }}>
+                            {t("auth.register.termsPrefix")}
+                            <Link component={RouterLink} to="/terms" underline="hover" sx={{ color: formTextPrimary, fontWeight: 600 }}>{t("auth.register.termsLink")}</Link>
+                            {t("auth.register.termsAnd")}
+                            <Link component={RouterLink} to="/privacy" underline="hover" sx={{ color: formTextPrimary, fontWeight: 600 }}>{t("auth.register.privacyLink")}</Link>
+                            {t("auth.register.termsSuffix")}
+                          </Typography>
+                        }
+                        sx={{ alignItems: "flex-start", mx: 0, mt: 0.5 }}
                       />
 
                       <Button

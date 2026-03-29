@@ -325,6 +325,11 @@ export default {
       processing: "Processing...",
       hasAccount: "Already have an account?",
       login: "Log in",
+      termsPrefix: "By signing up, you agree to the ",
+      termsLink: "Terms of Service",
+      termsAnd: " and ",
+      privacyLink: "Privacy Policy",
+      termsSuffix: ".",
       aria: {
         togglePassword: "Show or hide password",
         toggleConfirmPassword: "Show or hide confirm password",

@@ -26,6 +26,7 @@ import {
 import { autoScheduleFacebookVodFallbackRecordings } from "./liveRecordingFacebookVodFallback.service.js";
 import { buildRecordingSourceSummary } from "./liveRecordingFacebookVodShared.service.js";
 import { buildAiCommentarySummary } from "./liveRecordingAiCommentary.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 const DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES = 15;
 const AUTO_EXPORT_SWEEP_INTERVAL_MS = Math.max(
@@ -464,41 +465,14 @@ function buildModeLabel(mode) {
   }
 }
 
-function isGroupBracketType(type) {
-  const t = String(type || "").toLowerCase();
-  return ["group", "round_robin", "gsl", "groups", "rr"].includes(t);
-}
-
-function resolvePoolIndex(match) {
-  const poolName = String(match?.pool?.name || "")
-    .trim()
-    .toUpperCase();
-  if (poolName.length === 1 && poolName >= "A" && poolName <= "Z") {
-    return poolName.charCodeAt(0) - 64; // A=1, B=2, ...
-  }
-  const numMatch = poolName.match(/(\d+)/);
-  if (numMatch) return Number(numMatch[1]);
-  return null;
-}
-
-function buildMatchVBTCode(match) {
-  if (!match) return "";
-  const bracket =
-    match.bracket && typeof match.bracket === "object" ? match.bracket : null;
-  const bracketType = String(
-    bracket?.type || match?.format || ""
-  ).toLowerCase();
-  const round = Number(match.rrRound || match.round || 1);
-  const orderOneBased = Number.isFinite(Number(match.order))
-    ? Number(match.order) + 1
-    : 1;
-
-  if (isGroupBracketType(bracketType)) {
-    const poolIdx = resolvePoolIndex(match);
-    if (poolIdx) return `V${1}-B${poolIdx}-T${orderOneBased}`;
-  }
-
-  return `V${round}-T${orderOneBased}`;
+function buildMatchCode(match) {
+  const codePayload = buildMatchCodePayload(match);
+  return (
+    String(codePayload?.displayCode || "").trim() ||
+    String(codePayload?.code || "").trim() ||
+    String(match?.displayCode || "").trim() ||
+    String(match?.code || "").trim()
+  );
 }
 
 export function buildExportPipelineInfo(recording, context = {}) {
@@ -925,7 +899,7 @@ function buildRow(recording, context = {}) {
     modeLabel: buildModeLabel(recording.mode),
     quality: recording.quality || "",
     matchId: match?._id ? String(match._id) : String(recording.match || ""),
-    matchCode: buildMatchVBTCode(match) || match?.code || "",
+    matchCode: buildMatchCode(match),
     participantsLabel: participantsLabel || "Unknown match",
     tournamentName: tournamentName || "",
     tournamentStatus: match?.tournament?.status || "",
@@ -1002,7 +976,7 @@ async function buildLiveRecordingMonitorSnapshotUncached({
     .populate({
       path: "match",
       select:
-        "code courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
+        "code displayCode labelKey globalRound stageIndex courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
       populate: [
         {
           path: "pairA",
