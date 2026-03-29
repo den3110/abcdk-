@@ -411,9 +411,7 @@ export async function listLiveMatches(req, res) {
       return res.json(emptyPayload);
     }
 
-    const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(
-      matches.map((match) => String(match?._id || "")).filter(Boolean)
-    );
+    const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(matches);
     const matchDisplayContexts = await buildMatchDisplayContextsFromMatches(matches);
 
     let items = matches

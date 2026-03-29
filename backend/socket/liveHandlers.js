@@ -551,7 +551,7 @@ export async function toRealtimePublicMatchDTO(matchDoc) {
   if (matchId && !matchDoc?.isUserMatch) {
     try {
       const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds([
-        matchId,
+        matchDoc,
       ]);
       recording = latestRecordingsByMatchId.get(matchId) || null;
     } catch (error) {

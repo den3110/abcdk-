@@ -1,8 +1,6 @@
 import Match from "../models/matchModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
-import {
-  scheduleFacebookVodFallbackForMatch,
-} from "./liveRecordingFacebookVodFallback.service.js";
+import { scheduleFacebookVodFallbackForMatch } from "./liveRecordingFacebookVodFallback.service.js";
 import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStreamUrl,
@@ -25,6 +23,14 @@ const RANGE_TO_DAYS = {
   "30d": 30,
   all: null,
 };
+const VALID_STATUS_FILTERS = new Set([
+  "all",
+  "missing_fallback",
+  "failed",
+  "waiting_facebook_vod",
+  "exporting",
+  "ready",
+]);
 const STATE_PRIORITY = {
   missing_fallback: 0,
   failed: 1,
@@ -111,7 +117,7 @@ function asTrimmed(value) {
 function parsePositiveInt(
   value,
   fallback,
-  { min = 1, max = Number.MAX_SAFE_INTEGER } = {}
+  { min = 1, max = Number.MAX_SAFE_INTEGER } = {},
 ) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
@@ -137,7 +143,7 @@ function normalizeRange(value) {
 
 function normalizeStatusFilter(value) {
   const normalized = asTrimmed(value).toLowerCase();
-  return normalized || "all";
+  return VALID_STATUS_FILTERS.has(normalized) ? normalized : "all";
 }
 
 function getCutoffDate(range) {
@@ -201,9 +207,9 @@ function getRecordingRank(recording) {
   const hasRaw = Boolean(recording?.driveFileId || recording?.driveRawUrl);
   const hasPlayable = Boolean(
     hasRaw ||
-      recording?.drivePreviewUrl ||
-      recording?.playbackUrl ||
-      recording?._id
+    recording?.drivePreviewUrl ||
+    recording?.playbackUrl ||
+    recording?._id,
   );
 
   if (hasRaw) return 500;
@@ -217,21 +223,29 @@ function getRecordingRank(recording) {
 }
 
 function pickPreferredRecording(recordings = []) {
-  return [...recordings].sort((a, b) => {
-    const rankCmp = getRecordingRank(b) - getRecordingRank(a);
-    if (rankCmp !== 0) return rankCmp;
-    return (
-      new Date(b?.createdAt || 0).getTime() -
-      new Date(a?.createdAt || 0).getTime()
-    );
-  })[0] || null;
+  return (
+    [...recordings].sort((a, b) => {
+      const rankCmp = getRecordingRank(b) - getRecordingRank(a);
+      if (rankCmp !== 0) return rankCmp;
+      return (
+        new Date(b?.createdAt || 0).getTime() -
+        new Date(a?.createdAt || 0).getTime()
+      );
+    })[0] || null
+  );
 }
 
 function buildMatchFilter(range) {
   const cutoff = getCutoffDate(range);
   const filter = {
-    "facebookLive.videoId": { $type: "string" },
     $and: [
+      {
+        $or: [
+          { "facebookLive.videoId": { $type: "string" } },
+          { "facebookLive.id": { $type: "string" } },
+          { "facebookLive.liveVideoId": { $type: "string" } },
+        ],
+      },
       {
         $or: [
           { "facebookLive.endedAt": { $type: "date" } },
@@ -280,7 +294,7 @@ function determineRowState(recording, exportPipeline) {
     };
   }
 
-  if (recordingStatus === "failed") {
+  if (recordingStatus === "failed" && fallbackConfigured) {
     return {
       state: "failed",
       stateLabel: exportPipeline?.label || "Xuất thất bại",
@@ -379,7 +393,7 @@ function buildSummary(rows = []) {
       exporting: 0,
       ready: 0,
       failed: 0,
-    }
+    },
   );
 }
 
@@ -397,7 +411,7 @@ function sortRows(rows = []) {
 
 function buildRowFromMatch(match, recordings = [], context = {}) {
   const hasInternalSegments = recordings.some((recording) =>
-    hasUploadedSegments(recording)
+    hasUploadedSegments(recording),
   );
   if (hasInternalSegments) return null;
 
@@ -414,11 +428,12 @@ function buildRowFromMatch(match, recordings = [], context = {}) {
     : null;
   const driveReady = Boolean(
     preferredRecording &&
-      (hasDriveRecordingOutput(preferredRecording) ||
-        asTrimmed(preferredRecording?.status).toLowerCase() === "ready")
+    (hasDriveRecordingOutput(preferredRecording) ||
+      asTrimmed(preferredRecording?.status).toLowerCase() === "ready"),
   );
   const fallbackConfigured =
-    getRecordingSourceMeta(preferredRecording).type === RECORDING_SOURCE_FACEBOOK_VOD;
+    getRecordingSourceMeta(preferredRecording).type ===
+    RECORDING_SOURCE_FACEBOOK_VOD;
   const updatedAt =
     preferredRecording?.updatedAt ||
     preferredRecording?.readyAt ||
@@ -446,6 +461,7 @@ function buildRowFromMatch(match, recordings = [], context = {}) {
     stateLabel: rowState.stateLabel,
     recordingStatus: preferredRecording?.status || null,
     pipelineStage: exportPipeline?.stage || null,
+    pipelineDetail: exportPipeline?.detail || null,
     nextAttemptAt:
       retryMeta.nextAttemptAt ||
       preferredRecording?.scheduledExportAt ||
@@ -453,16 +469,11 @@ function buildRowFromMatch(match, recordings = [], context = {}) {
       null,
     deadlineAt: retryMeta.deadlineAt || null,
     lastError:
-      retryMeta.lastError ||
-      asTrimmed(preferredRecording?.error) ||
-      asTrimmed(exportPipeline?.detail) ||
-      null,
+      retryMeta.lastError || asTrimmed(preferredRecording?.error) || null,
     driveRawUrl: preferredRecording?.driveRawUrl || null,
     drivePreviewUrl: preferredRecording?.drivePreviewUrl || null,
     playbackUrl:
-      driveReady && recordingId
-        ? buildRecordingPlaybackUrl(recordingId)
-        : null,
+      driveReady && recordingId ? buildRecordingPlaybackUrl(recordingId) : null,
     rawStreamUrl:
       preferredRecording?.driveFileId && recordingId
         ? buildRecordingRawStreamUrl(recordingId)
@@ -473,19 +484,20 @@ function buildRowFromMatch(match, recordings = [], context = {}) {
       (!fallbackConfigured &&
         !hasDriveRecordingOutput(preferredRecording) &&
         !hasUploadedSegments(preferredRecording)),
-    canRetryExport:
-      Boolean(
-        recordingId &&
-          (preferredRecording?.status === "failed" ||
-            preferredRecording?.status === "pending_export_window" ||
-            ["stale_no_job", "worker_offline"].includes(
-              asTrimmed(exportPipeline?.stage).toLowerCase()
-            ))
-      ),
-    canForceExport:
-      Boolean(
-        recordingId && preferredRecording?.status === "pending_export_window"
-      ),
+    canRetryExport: Boolean(
+      recordingId &&
+      fallbackConfigured &&
+      (preferredRecording?.status === "failed" ||
+        preferredRecording?.status === "pending_export_window" ||
+        ["stale_no_job", "worker_offline"].includes(
+          asTrimmed(exportPipeline?.stage).toLowerCase(),
+        )),
+    ),
+    canForceExport: Boolean(
+      recordingId &&
+      fallbackConfigured &&
+      preferredRecording?.status === "pending_export_window",
+    ),
   };
 }
 
@@ -532,7 +544,7 @@ async function loadRecordingsByMatchIds(matchIds = []) {
         "segments.objectKey",
         "createdAt",
         "updatedAt",
-      ].join(" ")
+      ].join(" "),
     )
     .lean();
 
@@ -556,10 +568,10 @@ async function buildRowsForMatches(matches = [], context = {}) {
         buildRowFromMatch(
           match,
           recordingsByMatchId.get(String(match._id)) || [],
-          context
-        )
+          context,
+        ),
       )
-      .filter(Boolean)
+      .filter(Boolean),
   );
 }
 
@@ -618,7 +630,7 @@ export async function getFbVodDriveMonitorRowByMatchId(matchId) {
   return buildRowFromMatch(
     match,
     recordingsByMatchId.get(String(matchId)) || [],
-    context
+    context,
   );
 }
 

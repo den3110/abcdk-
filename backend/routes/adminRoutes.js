@@ -294,7 +294,7 @@ router.delete("/courts/:courtId", protect, deleteOneCourt);
 router.post(
   "/tournaments/:tid/matches/:mid/court",
   protect,
-  assignMatchToCourt
+  assignMatchToCourt,
 );
 
 // DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bá» gán sân
@@ -303,7 +303,7 @@ router.delete("/tournaments/:tid/matches/:mid/court", protect, clearMatchCourt);
 router.get(
   "/tournaments/:tid/matches/:mid/referees",
   protect,
-  getMatchReferees
+  getMatchReferees,
 );
 
 // Batch matches
@@ -321,67 +321,67 @@ router.patch("/courts/:courtId/live-config", protect, setCourtLiveConfig);
 router.patch(
   "/tournaments/:tid/courts/live-config/bulk",
   protect,
-  bulkSetCourtLiveConfig
+  bulkSetCourtLiveConfig,
 );
 
 router.put(
   "/tournaments/:tournamentId/courts/:courtId/referee",
   protect,
-  setCourtReferee
+  setCourtReferee,
 );
 
 router.put(
   "/tournaments/:id/matches/timeout-per-game",
-  updateTournamentTimeoutPerGame
+  updateTournamentTimeoutPerGame,
 );
 
 router.get(
   "/tournaments/:tournamentId/allowed-court-clusters/options",
   protect,
   isManagerOrTournamentReferee,
-  listTournamentAllowedCourtClusterOptions
+  listTournamentAllowedCourtClusterOptions,
 );
 router.put(
   "/tournaments/:tournamentId/allowed-court-clusters",
   protect,
   isManagerTournament,
-  updateTournamentAllowedCourtClusters
+  updateTournamentAllowedCourtClusters,
 );
 router.get(
   "/tournaments/:tournamentId/court-clusters/:clusterId/runtime",
   protect,
   isManagerOrTournamentReferee,
-  getTournamentCourtClusterRuntime
+  getTournamentCourtClusterRuntime,
 );
 router.post(
   "/tournaments/:tournamentId/court-stations/:stationId/assign-match",
   protect,
   isManagerOrTournamentReferee,
-  assignTournamentMatchToCourtStationHttp
+  assignTournamentMatchToCourtStationHttp,
 );
 router.put(
   "/tournaments/:tournamentId/court-stations/:stationId/assignment-config",
   protect,
   isManagerOrTournamentReferee,
-  updateTournamentCourtStationAssignmentConfigHttp
+  updateTournamentCourtStationAssignmentConfigHttp,
 );
 router.post(
   "/tournaments/:tournamentId/court-stations/:stationId/queue/items",
   protect,
   isManagerOrTournamentReferee,
-  appendTournamentCourtStationQueueItemHttp
+  appendTournamentCourtStationQueueItemHttp,
 );
 router.delete(
   "/tournaments/:tournamentId/court-stations/:stationId/queue/items/:matchId",
   protect,
   isManagerOrTournamentReferee,
-  removeTournamentCourtStationQueueItemHttp
+  removeTournamentCourtStationQueueItemHttp,
 );
 router.post(
   "/tournaments/:tournamentId/court-stations/:stationId/free",
   protect,
   isManagerOrTournamentReferee,
-  freeTournamentCourtStationHttp
+  freeTournamentCourtStationHttp,
 );
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
@@ -391,17 +391,17 @@ router.get("/assets/tournament-image", getAdminTournamentImageProxy);
 router.get(
   "/avatar-optimization/status",
   requireAdminAndSuperUser,
-  getAvatarOptimizationStatus
+  getAvatarOptimizationStatus,
 );
 router.post(
   "/avatar-optimization/run",
   requireAdminAndSuperUser,
-  runAvatarOptimizationSweepNow
+  runAvatarOptimizationSweepNow,
 );
 router.post(
   "/avatar-optimization/cleanup",
   requireAdminAndSuperUser,
-  runAvatarOptimizationCleanupNow
+  runAvatarOptimizationCleanupNow,
 );
 
 // router.get("/users", getUsers);
@@ -456,7 +456,7 @@ router.post(
   "/tournaments/:id/brackets",
   protect,
   authorize("admin"),
-  adminCreateBracket
+  adminCreateBracket,
 );
 
 // get lists of bracket của tournament
@@ -464,7 +464,7 @@ router.get(
   "/tournaments/:id/brackets",
   protect,
   authorize("admin", "referee", "user"),
-  getBracketsWithMatches
+  getBracketsWithMatches,
 );
 
 // get lists of bracket của tournament
@@ -472,20 +472,20 @@ router.get(
   "/tournaments/:id/brackets/structure",
   protect,
   authorize("admin", "referee", "user"),
-  getTournamentBracketsStructure
+  getTournamentBracketsStructure,
 );
 
 router.get(
   "/tournaments/:id/registrations",
   protect,
   authorize("admin"),
-  getRegistrationsAdmin
+  getRegistrationsAdmin,
 );
 router.post(
   "/tournaments/:id/registrations",
   protect,
   authorize("admin"),
-  adminCreateRegistration
+  adminCreateRegistration,
 );
 
 // Admin: list all matches
@@ -493,7 +493,7 @@ router.get(
   "/matches",
   protect,
   authorize("admin"),
-  adminGetAllMatchesPagination
+  adminGetAllMatchesPagination,
 );
 router.get("/matches/all", protect, authorize("admin"), adminGetAllMatches);
 
@@ -501,20 +501,20 @@ router.get(
   "/matches/groups",
   protect,
   authorize("admin"),
-  adminListMatchGroups
+  adminListMatchGroups,
 );
 
 router.post(
   "/brackets/:bracketId/matches",
   protect,
   authorize("admin"),
-  adminCreateMatch
+  adminCreateMatch,
 );
 router.get(
   "/brackets/:bracketId/matches",
   protect,
   authorize("admin", "referee", "user"),
-  getMatchesByBracket
+  getMatchesByBracket,
 );
 
 router.post(
@@ -522,40 +522,40 @@ router.post(
   protect,
   authorize("admin"),
   requireSuperAdmin,
-  bulkAssignSlotPlan
+  bulkAssignSlotPlan,
 );
 
 router.patch(
   "/matches/:matchId/score",
   protect,
   authorize("admin", "referee"),
-  refereeUpdateScore
+  refereeUpdateScore,
 );
 router.patch(
   "/matches/:matchId/referee",
   protect,
   authorize("admin"),
-  adminAssignReferee
+  adminAssignReferee,
 );
 
 router.delete(
   "/tournaments/:tourId/brackets/:bracketId",
   protect,
   authorize("admin"),
-  deleteBracketCascade
+  deleteBracketCascade,
 );
 
 router.delete(
   "/matches/:matchId",
   protect,
   authorize("admin"),
-  adminDeleteMatch
+  adminDeleteMatch,
 );
 router.patch(
   "/tournaments/:tournamentId/brackets/:bracketId",
   protect,
   authorize("admin"),
-  adminUpdateBracket
+  adminUpdateBracket,
 );
 
 router.patch("/matches/:matchId", protect, adminUpdateMatch);
@@ -569,20 +569,20 @@ router.post(
     } catch (e) {
       next(e);
     }
-  }
+  },
 );
 
 router.post(
   "/tournaments/finish-expired",
   protect,
   authorize("admin"),
-  finishExpiredTournaments
+  finishExpiredTournaments,
 );
 router.put(
   "/tournament/:id/finish",
   protect,
   authorize("admin"),
-  finishTournament
+  finishTournament,
 );
 
 // Xem trước (không ghi DB)
@@ -590,7 +590,7 @@ router.post(
   "/users/auto/preview",
   protect,
   authorize("admin"),
-  previewAutoUsers
+  previewAutoUsers,
 );
 
 // Tạo thật (ghi DB)
@@ -599,69 +599,69 @@ router.patch(
   "/users/:id/password",
   protect,
   authorize("admin"),
-  adminChangeUserPassword
+  adminChangeUserPassword,
 );
 
 router.get(
   "/dashboard/metrics",
   protect,
   authorize("admin"),
-  getDashboardMetrics
+  getDashboardMetrics,
 );
 router.get(
   "/dashboard/series",
   protect,
   authorize("admin"),
-  getDashboardSeries
+  getDashboardSeries,
 );
 router.get(
   "/dashboard/peak-runtime",
   protect,
   authorize("admin"),
-  getPeakRuntimeMetrics
+  getPeakRuntimeMetrics,
 );
 router.get(
   "/cache/summary",
   protect,
   requireAdminAndSuperUser,
-  getCacheSummary
+  getCacheSummary,
 );
 router.post(
   "/cache/:cacheId/clear",
   protect,
   requireAdminAndSuperUser,
-  clearCacheGroupById
+  clearCacheGroupById,
 );
 router.post(
   "/cache/clear-all",
   protect,
   requireAdminAndSuperUser,
-  clearAllCacheGroupsHttp
+  clearAllCacheGroupsHttp,
 );
 router.get(
   "/live-playback/config",
   protect,
   requireAdminAndSuperUser,
-  getAdminLivePlaybackConfig
+  getAdminLivePlaybackConfig,
 );
 router.put(
   "/live-playback/config",
   protect,
   requireAdminAndSuperUser,
-  updateAdminLivePlaybackConfig
+  updateAdminLivePlaybackConfig,
 );
 router.get(
   "/court-stations/free-manager",
   protect,
   requireAdminAndSuperUser,
-  listAdminCourtStationFreeManager
+  listAdminCourtStationFreeManager,
 );
 
 router.post(
   "/brackets/:bracketId/matches/batch-delete",
   protect,
   authorize("admin"),
-  batchDeleteMatches
+  batchDeleteMatches,
 );
 
 // RoundElim helper
@@ -669,14 +669,14 @@ router.post(
   "/brackets/:bracketId/round-elim/skeleton",
   protect,
   authorize("admin"),
-  buildRoundElimSkeleton
+  buildRoundElimSkeleton,
 );
 
 router.post(
   "/brackets/:bracketId/matches/clear",
   protect,
   authorize("admin"),
-  clearBracketMatches
+  clearBracketMatches,
 );
 //
 
@@ -685,7 +685,7 @@ router.post(
   "/tournaments/:id/plan/auto",
   protect,
   authorize("admin"),
-  planAuto
+  planAuto,
 );
 
 // /api/tournaments/:id/plan/commit
@@ -693,13 +693,13 @@ router.post(
   "/tournaments/:id/plan/commit",
   protect,
   authorize("admin"),
-  planCommit
+  planCommit,
 );
 router.post(
   "/tournaments/:id/plan/impact",
   protect,
   authorize("admin"),
-  planImpact
+  planImpact,
 );
 
 router
@@ -711,13 +711,13 @@ router.post(
   "/tournaments/:id/plan/suggest",
   protect,
   authorize("admin"),
-  suggestPlan
+  suggestPlan,
 );
 router.post(
   "/tournaments/:id/plan/suggest-and-commit",
   protect,
   authorize("admin"),
-  suggestAndCommit
+  suggestAndCommit,
 );
 
 // auto create registration
@@ -725,7 +725,7 @@ router.post(
   "/tournaments/:tourId/registrations/auto",
   protect,
   authorize("admin"),
-  autoGenerateRegistrations
+  autoGenerateRegistrations,
 );
 
 router.post(
@@ -733,7 +733,7 @@ router.post(
   protect,
   authorize("admin"),
   uploadSingleAiImportFile,
-  previewRegistrationImport
+  previewRegistrationImport,
 );
 
 router.post(
@@ -741,42 +741,42 @@ router.post(
   protect,
   authorize("admin"),
   uploadSingleAiImportFile,
-  previewRegistrationImportStream
+  previewRegistrationImportStream,
 );
 
 router.post(
   "/tournaments/:tourId/registrations/ai-import/commit",
   protect,
   authorize("admin"),
-  commitRegistrationImport
+  commitRegistrationImport,
 );
 
 router.post(
   "/tournaments/:tourId/registrations/ai-import/quick-json",
   protect,
   authorize("admin"),
-  quickImportRegistrationJson
+  quickImportRegistrationJson,
 );
 
 router.get(
   "/tournaments/:tourId/registrations/ai-import/user-batches",
   protect,
   authorize("admin"),
-  listImportUserBatches
+  listImportUserBatches,
 );
 
 router.get(
   "/tournaments/:tourId/registrations/ai-import/user-batches/:batchId",
   protect,
   authorize("admin"),
-  getImportUserBatch
+  getImportUserBatch,
 );
 
 router.patch(
   "/tournaments/:id/overlay",
   protect,
   authorize("admin"),
-  updateTournamentOverlay
+  updateTournamentOverlay,
 );
 
 router.get("/matches/a/:id", protect, authorize("admin"), getMatchAdmin);
@@ -785,7 +785,7 @@ router.get(
   "/matches/:id/rating-changes",
   protect,
   authorize("admin"),
-  getMatchRatingChanges
+  getMatchRatingChanges,
 );
 
 // relate court
@@ -814,42 +814,42 @@ router.post(
   "/tournaments/:tournamentId/queue/groups/build",
   protect,
   authorize("admin"),
-  buildGroupsQueueHttp
+  buildGroupsQueueHttp,
 );
 
 router.post(
   "/tournaments/:tournamentId/courts/:courtId/assign-next",
   protect,
   authorize("admin"),
-  assignNextHttp
+  assignNextHttp,
 );
 
 router.post(
   "/tournaments/:tournamentId/courts/:courtId/free",
   protect,
   authorize("admin"),
-  freeCourtHttp
+  freeCourtHttp,
 );
 
 router.put(
   "/tournaments/:tournamentId/courts/:courtId/match-list",
   protect,
   authorize("admin"),
-  setCourtMatchListHttp
+  setCourtMatchListHttp,
 );
 
 router.delete(
   "/tournaments/:tournamentId/courts/:courtId/match-list",
   protect,
   authorize("admin"),
-  clearCourtMatchListHttp
+  clearCourtMatchListHttp,
 );
 
 router.post(
   "/tournaments/:tournamentId/courts/:courtId/match-list/advance",
   protect,
   authorize("admin"),
-  advanceCourtMatchListHttp
+  advanceCourtMatchListHttp,
 );
 
 // Realtime panel (FE gá»i Ä‘á»ƒ láº¥y state ban Ä‘áº§u / fallback polling)
@@ -857,7 +857,7 @@ router.get(
   "/tournaments/:tournamentId/scheduler/state",
   protect,
   authorize("admin"),
-  getSchedulerState
+  getSchedulerState,
 );
 
 // POST /api/tournaments/:tournamentId/courts/:courtId/assign-specific
@@ -865,7 +865,7 @@ router.post(
   "/tournaments/:tournamentId/courts/:courtId/assign-specific",
   protect,
   authorize("admin"), // nếu bạn có middleware
-  assignSpecificHttp
+  assignSpecificHttp,
 );
 
 // POST /api/tournaments/:tournamentId/courts/reset
@@ -873,14 +873,14 @@ router.post(
   "/tournaments/:tournamentId/courts/reset",
   protect,
   authorize("admin"),
-  resetCourtsHttp
+  resetCourtsHttp,
 );
 
 router.post(
   "/match/rating/preview",
   protect,
   authorize("admin"),
-  previewRatingDelta
+  previewRatingDelta,
 );
 
 router.post("/matches/:id/reset-scores", resetMatchScores);
@@ -889,20 +889,20 @@ router.post(
   "/tournaments/:id/reapply-propagation",
   protect,
   authorize("admin"),
-  reapplyPropagation
+  reapplyPropagation,
 );
 router.post(
   "/tournaments/:id/brackets/:bid/reapply-seeds",
   protect,
   authorize("admin"),
-  reapplySeedsForBracket
+  reapplySeedsForBracket,
 );
 
 router.post(
   "/tournaments/:tid/stages/:sourceStage/feed-to/:targetStage",
   protect,
   authorize("admin"),
-  feedStageToNext
+  feedStageToNext,
 );
 
 // Danh sách + filter
@@ -913,7 +913,7 @@ router.patch(
   "/evaluators/:id/scopes",
   protect,
   authorize("admin"),
-  updateEvaluatorScopes
+  updateEvaluatorScopes,
 );
 
 // Promote user -> evaluator
@@ -921,7 +921,7 @@ router.post(
   "/evaluators/promote",
   protect,
   authorize("admin"),
-  promoteToEvaluator
+  promoteToEvaluator,
 );
 
 // Demote evaluator -> user/referee
@@ -929,35 +929,35 @@ router.patch(
   "/evaluators/:id/demote",
   protect,
   authorize("admin"),
-  demoteEvaluator
+  demoteEvaluator,
 );
 
 router.post(
   "/brackets/:bracketId/groups/:groupId/insert-slot",
   protect,
   authorize("admin"),
-  insertRegIntoGroupSlot
+  insertRegIntoGroupSlot,
 );
 
 router.post(
   "/brackets/:bracketId/groups/:groupId/generate-matches",
   protect,
   authorize("admin"),
-  generateGroupMatchesForTeam
+  generateGroupMatchesForTeam,
 );
 
 router.get(
   "/brackets/:bracketId",
   protect,
   authorize("admin"),
-  getAdminBracketById
+  getAdminBracketById,
 );
 
 router.get(
   "/courts/matches",
   protect,
   authorize("admin"),
-  fetchSchedulerMatches
+  fetchSchedulerMatches,
 );
 
 router.get("/versions/stats", protect, authorize("admin"), getVersionStats);
@@ -969,25 +969,25 @@ router.get(
   "/recording-drive/oauth/init",
   protect,
   authorize("admin"),
-  recordingDriveOAuthInit
+  recordingDriveOAuthInit,
 );
 router.get(
   "/recording-drive/picker/session",
   protect,
   authorize("admin"),
-  recordingDrivePickerSession
+  recordingDrivePickerSession,
 );
 router.get(
   "/recording-drive/status",
   protect,
   authorize("admin"),
-  getRecordingDriveOAuthStatus
+  getRecordingDriveOAuthStatus,
 );
 router.post(
   "/recording-drive/disconnect",
   protect,
   authorize("admin"),
-  disconnectRecordingDriveOAuth
+  disconnectRecordingDriveOAuth,
 );
 
 router.get("/stats/presence", protect, authorize("admin"), getPresenceSummary);
@@ -995,33 +995,38 @@ router.get(
   "/stats/presence/users",
   protect,
   authorize("admin"),
-  listPresenceUsers
+  listPresenceUsers,
 );
 router.get(
   "/stats/presence/search",
   protect,
   authorize("admin"),
-  searchPresenceUsers
+  searchPresenceUsers,
 );
 router.get(
   "/stats/presence/user/:id",
   protect,
   authorize("admin"),
-  getPresenceOfUser
+  getPresenceOfUser,
 );
 
-router.get("/push/summary", protect, requireAdminAndSuperUser, getAdminPushSummary);
+router.get(
+  "/push/summary",
+  protect,
+  requireAdminAndSuperUser,
+  getAdminPushSummary,
+);
 router.get(
   "/push/dispatches",
   protect,
   requireAdminAndSuperUser,
-  listAdminPushDispatches
+  listAdminPushDispatches,
 );
 router.get(
   "/push/dispatches/:id",
   protect,
   requireAdminAndSuperUser,
-  getAdminPushDispatchDetail
+  getAdminPushDispatchDetail,
 );
 
 router
@@ -1038,7 +1043,7 @@ router.get(
   "/court-clusters/:id/runtime",
   protect,
   authorize("admin"),
-  getAdminCourtClusterRuntime
+  getAdminCourtClusterRuntime,
 );
 
 router
@@ -1055,33 +1060,33 @@ router.post(
   "/court-stations/:id/assign-match",
   protect,
   authorize("admin"),
-  assignMatchToCourtStationHttp
+  assignMatchToCourtStationHttp,
 );
 
 router.post(
   "/court-stations/:id/free",
   protect,
   authorize("admin"),
-  freeCourtStationHttp
+  freeCourtStationHttp,
 );
 router.post(
   "/court-stations/:id/force-free",
   protect,
   requireAdminAndSuperUser,
-  forceFreeAdminCourtStationHttp
+  forceFreeAdminCourtStationHttp,
 );
 router.post(
   "/court-stations/:id/force-release-presence",
   protect,
   requireAdminAndSuperUser,
-  forceReleaseAdminCourtStationPresenceHttp
+  forceReleaseAdminCourtStationPresenceHttp,
 );
 
 router.get(
   "/court-stations/:id/current-match",
   protect,
   authorize("admin"),
-  getAdminCourtStationCurrentMatch
+  getAdminCourtStationCurrentMatch,
 );
 
 router.get("/fb-live-config", protect, authorize("admin"), getConfig);
@@ -1100,7 +1105,7 @@ router.get(
   "/youtube/stream-key",
   protect,
   authorize("admin"),
-  ytGetOrCreateStreamKey
+  ytGetOrCreateStreamKey,
 );
 router.post("/youtube/revoke", protect, authorize("admin"), ytRevoke);
 
@@ -1108,40 +1113,40 @@ router.get(
   "/live-sessions/:id([0-9a-fA-F]{24})",
   protect,
   authorize("admin"),
-  adminGetLiveSession
+  adminGetLiveSession,
 );
 router.get(
   "/l/live-sessions/all",
   protect,
   authorize("admin"),
-  adminListLiveSessions
+  adminListLiveSessions,
 );
 router.patch(
   "/live-sessions/:id/stop",
   protect,
   authorize("admin"),
-  adminStopLiveSession
+  adminStopLiveSession,
 );
 router.get(
   "/fb-vod-monitor",
   protect,
   authorize("admin"),
   requireAdminAndSuperUser,
-  getFbVodMonitor
+  getFbVodMonitor,
 );
 router.post(
   "/fb-vod-monitor/:matchId([0-9a-fA-F]{24})/ensure-export",
   protect,
   authorize("admin"),
   requireAdminAndSuperUser,
-  ensureFbVodMonitorExport
+  ensureFbVodMonitorExport,
 );
 
 router.post(
   "/fb/long-user-token/exchange",
   protect,
   authorize("admin"),
-  exchangeLongUserToken
+  exchangeLongUserToken,
 );
 
 router.post(
@@ -1149,7 +1154,7 @@ router.post(
   protect,
   authorize("admin"),
   requireSuperAdmin,
-  bulkAssignPoPlan
+  bulkAssignPoPlan,
 );
 
 router.get("/news/settings", getNewsSettings);
@@ -1169,9 +1174,12 @@ router.post("/seo-news/articles/create-ready", createSeoNewsReadyArticlesNow);
 router.post("/seo-news/candidates/run", runSeoNewsPendingCandidates);
 router.post(
   "/seo-news/images/cleanup-source",
-  cleanupSeoNewsGatewaySourceImagesNow
+  cleanupSeoNewsGatewaySourceImagesNow,
 );
-router.post("/seo-news/images/regeneration-jobs", queueSeoNewsImageRegenerationNow);
+router.post(
+  "/seo-news/images/regeneration-jobs",
+  queueSeoNewsImageRegenerationNow,
+);
 router.post("/seo-news/run", runSeoNewsSyncNow);
 router.get("/seo-news/image-stats", getSeoNewsImageStats);
 
@@ -1179,7 +1187,7 @@ router.post(
   "/users/cccd-backfill",
   protect,
   authorize("admin"),
-  backfillUsersFromCccd
+  backfillUsersFromCccd,
 );
 
 // NEW: AI CCCD cho từng user
@@ -1187,14 +1195,14 @@ router.post(
   "/users/:id/ai-cccd",
   protect,
   authorize("admin"),
-  aiFillCccdForUser
+  aiFillCccdForUser,
 );
 
 router.patch(
   "/users/:userId/ranking-search-config",
   protect,
   authorize("admin"),
-  adminSetRankingSearchConfig
+  adminSetRankingSearchConfig,
 );
 
 export default router;

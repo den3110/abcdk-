@@ -540,9 +540,7 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
   const { baseByBracketId } = await getTournamentBracketBaseByBracketId(
     tournamentId
   );
-  const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(
-    listRaw.map((match) => String(match?._id || "")).filter(Boolean)
-  );
+  const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(listRaw);
 
   const safeInt = (value) => {
     const next = Number(value);

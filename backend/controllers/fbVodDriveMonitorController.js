@@ -58,5 +58,5 @@ export const ensureFbVodMonitorExport = expressAsyncHandler(
       message: mapEnsureReasonToMessage(result?.reason) || null,
       row: result?.row || null,
     });
-  }
+  },
 );

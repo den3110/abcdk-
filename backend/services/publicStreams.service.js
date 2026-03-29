@@ -643,6 +643,10 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     const normalizedLegacyUrl = legacyPlaybackUrl.trim();
     const legacyRecordingRoute =
       extractInternalRecordingRoute(normalizedLegacyUrl);
+    const shouldIgnoreLegacyInternalPlayback =
+      asTrimmed(match?.status).toLowerCase() === "live" &&
+      Boolean(legacyRecordingRoute) &&
+      ["raw", "play"].includes(legacyRecordingRoute.variant);
     const duplicate = streams.some((stream) => {
       const streamPlayUrl = asTrimmed(stream?.playUrl);
       const streamOpenUrl = asTrimmed(stream?.openUrl);
@@ -665,7 +669,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       );
     });
 
-    if (!duplicate) {
+    if (!duplicate && !shouldIgnoreLegacyInternalPlayback) {
       const kind = detectLegacyKind(normalizedLegacyUrl);
       if (kind === "facebook") {
         pushUniqueStream(streams, {
@@ -789,10 +793,75 @@ export function attachPublicStreamsToMatch(match = {}, recording = null) {
   };
 }
 
-export async function getLatestRecordingsByMatchIds(matchIds = []) {
-  const normalizedMatchIds = [
-    ...new Set(matchIds.map(asTrimmed).filter(Boolean)),
-  ];
+function normalizeMatchRecordingRefs(matchRefs = []) {
+  const matchMetaById = new Map();
+  const matchIds = [];
+
+  for (const ref of Array.isArray(matchRefs) ? matchRefs : []) {
+    if (!ref) continue;
+
+    const matchId =
+      typeof ref === "string"
+        ? asTrimmed(ref)
+        : asTrimmed(ref?._id || ref?.id || "");
+    if (!matchId) continue;
+
+    matchIds.push(matchId);
+
+    if (ref && typeof ref === "object" && !Array.isArray(ref)) {
+      matchMetaById.set(matchId, {
+        status: asTrimmed(ref?.status).toLowerCase(),
+      });
+    }
+  }
+
+  return {
+    normalizedMatchIds: [...new Set(matchIds)],
+    matchMetaById,
+  };
+}
+
+function hasLiveManifestCandidate(recording) {
+  const sourceCleanupCompleted =
+    asTrimmed(recording?.meta?.sourceCleanup?.status).toLowerCase() ===
+    "completed";
+  if (sourceCleanupCompleted) return false;
+
+  const uploadedSegmentCount = normalizeUploadedSegments(recording).length;
+  const manifestUrl = asTrimmed(recording?.meta?.livePlayback?.manifestUrl);
+  const manifestObjectKey = asTrimmed(
+    recording?.meta?.livePlayback?.manifestObjectKey
+  );
+
+  return Boolean(
+    uploadedSegmentCount > 0 &&
+      (manifestUrl || manifestObjectKey || asTrimmed(recording?.r2TargetId))
+  );
+}
+
+function isActiveLiveRecordingCandidate(recording) {
+  const status = asTrimmed(recording?.status).toLowerCase();
+  if (
+    ["recording", "uploading", "pending_export_window", "exporting"].includes(
+      status
+    )
+  ) {
+    return true;
+  }
+
+  const hasRawOrFinal = Boolean(
+    recording?.driveFileId ||
+      recording?.driveRawUrl ||
+      recording?.drivePreviewUrl ||
+      recording?.playbackUrl
+  );
+
+  return status === "ready" && hasLiveManifestCandidate(recording) && !hasRawOrFinal;
+}
+
+export async function getLatestRecordingsByMatchIds(matchRefs = []) {
+  const { normalizedMatchIds, matchMetaById } =
+    normalizeMatchRecordingRefs(matchRefs);
   if (!normalizedMatchIds.length) return new Map();
 
   const recordings = await LiveRecordingV2.find({
@@ -825,7 +894,7 @@ export async function getLatestRecordingsByMatchIds(matchIds = []) {
     )
     .lean();
 
-  const recordingRank = (recording) => {
+  const recordingRank = (recording, { preferActiveLive = false } = {}) => {
     const status = asTrimmed(recording?.status).toLowerCase();
     const hasRaw = Boolean(recording?.driveFileId || recording?.driveRawUrl);
     const hasPlayable = Boolean(
@@ -834,6 +903,19 @@ export async function getLatestRecordingsByMatchIds(matchIds = []) {
         recording?.playbackUrl ||
         recording?._id
     );
+    const hasLiveManifest = hasLiveManifestCandidate(recording);
+
+    if (preferActiveLive) {
+      if (status === "recording") return 700;
+      if (status === "uploading") return 650;
+      if (status === "pending_export_window") return 600;
+      if (status === "exporting") return 550;
+      if (hasLiveManifest) return 500;
+      if (status === "ready" && hasPlayable) return 300;
+      if (status === "ready") return 250;
+      if (hasRaw) return 200;
+      return 100;
+    }
 
     if (hasRaw) return 500;
     if (status === "ready" && hasPlayable) return 450;
@@ -845,24 +927,42 @@ export async function getLatestRecordingsByMatchIds(matchIds = []) {
     return 100;
   };
 
-  recordings.sort((a, b) => {
-    const matchCmp = asTrimmed(a?.match).localeCompare(asTrimmed(b?.match));
-    if (matchCmp !== 0) return matchCmp;
-
-    const rankCmp = recordingRank(b) - recordingRank(a);
-    if (rankCmp !== 0) return rankCmp;
-
-    return (
-      new Date(b?.createdAt || 0).getTime() -
-      new Date(a?.createdAt || 0).getTime()
-    );
-  });
+  const groupedByMatchId = new Map();
+  for (const recording of recordings) {
+    const matchId = asTrimmed(recording?.match);
+    if (!matchId) continue;
+    const list = groupedByMatchId.get(matchId) || [];
+    list.push(recording);
+    groupedByMatchId.set(matchId, list);
+  }
 
   const byMatchId = new Map();
-  for (const recording of recordings) {
-    const key = asTrimmed(recording?.match);
-    if (!key || byMatchId.has(key)) continue;
-    byMatchId.set(key, recording);
+  for (const matchId of normalizedMatchIds) {
+    const matchRecordings = groupedByMatchId.get(matchId) || [];
+    if (!matchRecordings.length) continue;
+
+    const matchStatus = matchMetaById.get(matchId)?.status || "";
+    const preferActiveLive = matchStatus === "live";
+    const activeCandidates = preferActiveLive
+      ? matchRecordings.filter(isActiveLiveRecordingCandidate)
+      : [];
+    const candidatePool = activeCandidates.length
+      ? activeCandidates
+      : matchRecordings;
+
+    candidatePool.sort((a, b) => {
+      const rankCmp =
+        recordingRank(b, { preferActiveLive }) -
+        recordingRank(a, { preferActiveLive });
+      if (rankCmp !== 0) return rankCmp;
+
+      return (
+        new Date(b?.createdAt || 0).getTime() -
+        new Date(a?.createdAt || 0).getTime()
+      );
+    });
+
+    byMatchId.set(matchId, candidatePool[0]);
   }
   return byMatchId;
 }
