@@ -2017,26 +2017,8 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
 
     const segments = await Promise.all(
       uploadedSegments.map(async (segment) => {
-        const cdnUrl = multiSourceEnabled
-          ? buildSegmentPublicCdnUrl(segment, recording, {
-              targetPublicBaseUrls,
-              fallbackPublicBaseUrl,
-            })
-          : "";
-        if (cdnUrl) {
-          return {
-            index: segment.index,
-            objectKey: segment.objectKey,
-            storageTargetId:
-              getSegmentStorageTargetId(segment, recording) || null,
-            durationSeconds: segment.durationSeconds || 0,
-            sizeBytes: segment.sizeBytes || 0,
-            isFinal: Boolean(segment.isFinal),
-            url: cdnUrl,
-            expiresInSeconds: null,
-          };
-        }
-
+        // Always use signed R2 download URLs — CDN paths are unreliable
+        // during live (path mismatches, target changes, re-live scenarios).
         const download = await createRecordingObjectDownloadUrl({
           objectKey: segment.objectKey,
           expiresInSeconds: 60 * 60 * 12,

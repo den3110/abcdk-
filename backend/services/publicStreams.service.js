@@ -551,11 +551,10 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       (server2.status === "final" ||
         server2.sourceCleanupCompleted ||
         !hasSegmentManifest);
-    const useHlsMode =
-      !useFileMode &&
-      Boolean(hlsUrl) &&
-      hasSegmentManifest &&
-      !finishedLike;
+    // HLS mode disabled — the m3u8 proxy depends on CDN-accessible segment
+    // paths which break during live (same 404 issue). Use delayed_manifest
+    // instead, which fetches signed download URLs from the backend playlist.
+    const useHlsMode = false;
     const playbackKind = useFileMode
       ? "file"
       : useHlsMode
