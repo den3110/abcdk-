@@ -540,27 +540,41 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   );
 
   if (shouldRenderServer2) {
-    // If a CDN manifest exists with segments, ALWAYS use delayed_manifest
-    // for smooth segment-based playback (blob prefetch, gapless queue).
-    // Only fall back to "file" (raw/playback URL) when there is NO manifest.
     const hasSegmentManifest =
       Boolean(server2.manifestUrl) && server2.uploadedSegmentCount > 0;
+    const hlsUrl =
+      recording?._id && !server2.sourceCleanupCompleted
+        ? buildRecordingLiveHlsUrl(recording._id)
+        : "";
     const useFileMode =
       Boolean(server2.finalPlaybackUrl) &&
       (server2.status === "final" ||
         server2.sourceCleanupCompleted ||
         !hasSegmentManifest);
+    const useHlsMode =
+      !useFileMode &&
+      Boolean(hlsUrl) &&
+      hasSegmentManifest &&
+      !finishedLike;
+    const playbackKind = useFileMode
+      ? "file"
+      : useHlsMode
+        ? "hls"
+        : "delayed_manifest";
+    const playbackUrl = useFileMode
+      ? server2.finalPlaybackUrl
+      : useHlsMode
+        ? hlsUrl
+        : server2.manifestUrl;
 
     pushUniqueStream(streams, {
       key: server2.key,
       displayLabel: server2.displayLabel,
       providerLabel: server2.providerLabel,
-      kind: useFileMode ? "file" : "delayed_manifest",
+      kind: playbackKind,
       priority: 2,
       status: server2.status,
-      playUrl: useFileMode
-        ? server2.finalPlaybackUrl
-        : server2.manifestUrl,
+      playUrl: playbackUrl,
       openUrl: server2.finalPlaybackUrl || null,
       delaySeconds: server2.delaySeconds,
       ready: server2.ready,
@@ -594,9 +608,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         showLiveBadge: !finishedLike,
         status: server2.status,
         refreshSeconds: server2.status === "final" ? 0 : 4,
-        hlsUrl: recording?._id
-          ? buildRecordingLiveHlsUrl(recording._id)
-          : null,
+        hlsUrl: hlsUrl || null,
       },
     });
   }

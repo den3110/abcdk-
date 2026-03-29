@@ -213,6 +213,10 @@ import {
   adminStopLiveSession,
 } from "../controllers/adminLiveController.js";
 import {
+  ensureFbVodMonitorExport,
+  getFbVodMonitor,
+} from "../controllers/fbVodDriveMonitorController.js";
+import {
   assignMatchToCourtStationHttp,
   appendTournamentCourtStationQueueItemHttp,
   assignTournamentMatchToCourtStationHttp,
@@ -1117,6 +1121,20 @@ router.patch(
   protect,
   authorize("admin"),
   adminStopLiveSession
+);
+router.get(
+  "/fb-vod-monitor",
+  protect,
+  authorize("admin"),
+  requireAdminAndSuperUser,
+  getFbVodMonitor
+);
+router.post(
+  "/fb-vod-monitor/:matchId([0-9a-fA-F]{24})/ensure-export",
+  protect,
+  authorize("admin"),
+  requireAdminAndSuperUser,
+  ensureFbVodMonitorExport
 );
 
 router.post(
