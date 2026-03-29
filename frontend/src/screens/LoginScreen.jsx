@@ -605,18 +605,37 @@ export default function LoginScreen() {
                 sx={{
                   position: "relative",
                   zIndex: 1,
-                  minHeight: { xs: 150, sm: 220, md: 340 },
-                  mt: { xs: -0.25, md: 1.5 },
+                  minHeight: { xs: 170, sm: 220, md: 340 },
+                  mt: { xs: 0.5, md: 1.5 },
+                  // Mobile: switch to horizontal scroll layout
+                  ...(isMobile
+                    ? {
+                        display: "flex",
+                        gap: 1.5,
+                        px: 1.5,
+                        pb: 1,
+                        overflowX: "auto",
+                        overflowY: "visible",
+                        scrollSnapType: "x mandatory",
+                        WebkitOverflowScrolling: "touch",
+                        msOverflowStyle: "none",
+                        scrollbarWidth: "none",
+                        "&::-webkit-scrollbar": { display: "none" },
+                        alignItems: "flex-start",
+                      }
+                    : {}),
                 }}
               >
+                {/* Decorative shapes — desktop only */}
                 <Box
                   aria-hidden="true"
                   sx={{
+                    display: { xs: "none", md: "block" },
                     position: "absolute",
-                    top: { xs: 22, md: 18 },
-                    right: { xs: 18, md: 34 },
-                    width: { xs: 58, md: 104 },
-                    height: { xs: 58, md: 104 },
+                    top: 18,
+                    right: 34,
+                    width: 104,
+                    height: 104,
                     borderRadius: 4,
                     bgcolor: "#7d64ff",
                     transform: "rotate(10deg)",
@@ -625,181 +644,258 @@ export default function LoginScreen() {
                 <Box
                   aria-hidden="true"
                   sx={{
+                    display: { xs: "none", md: "block" },
                     position: "absolute",
-                    bottom: { xs: 22, md: 26 },
-                    right: { xs: 50, md: 74 },
-                    width: { xs: 64, md: 118 },
-                    height: { xs: 64, md: 118 },
+                    bottom: 26,
+                    right: 74,
+                    width: 118,
+                    height: 118,
                     borderRadius: 4,
                     bgcolor: "#b8d8ff",
                     transform: "rotate(-5deg)",
                   }}
                 />
 
-                <Paper
-                  elevation={0}
-                  sx={{
-                    position: "absolute",
-                    zIndex: 2,
-                    top: { xs: 72, md: 68 },
-                    left: { xs: "21%", md: "16%" },
-                    width: { xs: "58%", md: "62%" },
-                    maxWidth: 400,
-                    p: { xs: 1.15, md: 2.4 },
-                    borderRadius: 4,
-                    color: "#ffffff",
-                    background:
-                      "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
-                    border: `1px solid ${alpha("#ffffff", 0.08)}`,
-                    boxShadow: "0 24px 48px rgba(0, 0, 0, 0.32)",
-                    transform: { xs: "rotate(-4deg)", md: "rotate(-5deg)" },
-                    transition: "all 320ms ease",
-                  }}
-                >
-                  <Stack spacing={1.6}>
-                    <Stack
-                      direction="row"
-                      justifyContent="space-between"
-                      alignItems="center"
-                    >
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Box
+                {isMobile ? (
+                  /* ——— MOBILE: Horizontal scroll cards with creative stagger ——— */
+                  <>
+                    {showcaseItems.map((card, index) => {
+                      const CardIcon = card.icon;
+                      const rotations = [-3, 2, -1.5];
+                      const offsets = [0, 12, 4];
+                      const isActive = index === activeShowcase;
+                      return (
+                        <Paper
+                          key={card.kind}
+                          elevation={0}
                           sx={{
-                            width: 34,
-                            height: 34,
-                            borderRadius: 2.5,
-                            display: "grid",
-                            placeItems: "center",
-                            bgcolor: activeCard.accent,
-                            color: "#061108",
-                            transform: { xs: "scale(0.88)", md: "none" },
+                            flex: "0 0 auto",
+                            width: isActive ? 200 : 140,
+                            scrollSnapAlign: "center",
+                            p: isActive ? 1.5 : 1,
+                            borderRadius: 3.5,
+                            color: "#ffffff",
+                            background: isActive
+                              ? "linear-gradient(180deg, #0b2017 0%, #091a13 100%)"
+                              : "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
+                            border: `1px solid ${alpha("#ffffff", isActive ? 0.12 : 0.06)}`,
+                            boxShadow: isActive
+                              ? `0 16px 40px rgba(0,0,0,0.35), 0 0 0 1px ${alpha(card.accent, 0.15)}`
+                              : "0 8px 24px rgba(0,0,0,0.2)",
+                            transform: `rotate(${rotations[index]}deg) translateY(${offsets[index]}px)`,
+                            transition: "all 400ms cubic-bezier(0.4, 0, 0.2, 1)",
                           }}
                         >
-                          <ActiveIcon fontSize="small" />
-                        </Box>
-                        <Typography
-                          sx={{
-                            fontSize: { xs: 9, md: 11 },
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                            color: activeCard.accent,
-                          }}
-                        >
-                          {activeCard.label}
-                        </Typography>
-                      </Stack>
-                      <Box
-                        sx={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 99,
-                          bgcolor: activeCard.accent,
-                          boxShadow: `0 0 0 6px ${alpha(activeCard.accent, 0.12)}`,
-                        }}
-                      />
-                    </Stack>
+                          <Stack spacing={isActive ? 1.4 : 1}>
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              <Box
+                                sx={{
+                                  width: isActive ? 28 : 22,
+                                  height: isActive ? 28 : 22,
+                                  borderRadius: 2,
+                                  display: "grid",
+                                  placeItems: "center",
+                                  bgcolor: isActive ? card.accent : alpha(card.accent, 0.18),
+                                  color: isActive ? "#061108" : card.accent,
+                                }}
+                              >
+                                <CardIcon sx={{ fontSize: isActive ? 16 : 14 }} />
+                              </Box>
+                              <Typography
+                                sx={{
+                                  fontSize: isActive ? 9 : 8,
+                                  fontWeight: 800,
+                                  letterSpacing: "0.08em",
+                                  textTransform: "uppercase",
+                                  color: isActive ? card.accent : alpha("#ffffff", 0.7),
+                                }}
+                              >
+                                {card.label}
+                              </Typography>
+                            </Stack>
 
-                    <Box>
-                      <Typography
-                        sx={{ fontSize: { xs: 12, md: 22 }, fontWeight: 800 }}
-                      >
-                        {activeCard.title}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          mt: 0.7,
-                          color: alpha("#ffffff", 0.68),
-                          fontSize: 13,
-                          lineHeight: 1.6,
-                          display: { xs: "none", sm: "-webkit-box" },
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {activeCard.body}
-                      </Typography>
-                    </Box>
+                            <Typography
+                              sx={{
+                                fontSize: isActive ? 12 : 10,
+                                fontWeight: 700,
+                                lineHeight: 1.2,
+                                color: alpha("#ffffff", isActive ? 1 : 0.85),
+                              }}
+                            >
+                              {card.title}
+                            </Typography>
 
-                    <ShowcaseVisual
-                      kind={activeCard.kind}
-                      accent={activeCard.accent}
-                      compact={isMobile}
-                    />
-                  </Stack>
-                </Paper>
-
-                {[topCard, bottomCard].map((card, index) => {
-                  const CardIcon = card.icon;
-
-                  return (
+                            <ShowcaseVisual
+                              kind={card.kind}
+                              accent={card.accent}
+                              compact
+                            />
+                          </Stack>
+                        </Paper>
+                      );
+                    })}
+                    {/* Breathing room at the end */}
+                    <Box sx={{ flex: "0 0 8px" }} />
+                  </>
+                ) : (
+                  /* ——— DESKTOP: Original absolute positioning ——— */
+                  <>
                     <Paper
-                      key={card.title}
                       elevation={0}
                       sx={{
                         position: "absolute",
-                        zIndex: index === 0 ? 3 : 1,
-                        top:
-                          index === 0
-                            ? { xs: 54, md: 34 }
-                            : { xs: 118, md: 210 },
-                        right: index === 0 ? { xs: 10, md: 16 } : "auto",
-                        left: index === 0 ? "auto" : { xs: 6, md: 22 },
-                        width:
-                          index === 0
-                            ? { xs: "22%", md: 232 }
-                            : { xs: "24%", md: 244 },
-                        p: { xs: 0.85, md: 1.8 },
+                        zIndex: 2,
+                        top: 68,
+                        left: "16%",
+                        width: "62%",
+                        maxWidth: 400,
+                        p: 2.4,
                         borderRadius: 4,
                         color: "#ffffff",
                         background:
-                          "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
+                          "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
                         border: `1px solid ${alpha("#ffffff", 0.08)}`,
-                        boxShadow: "0 18px 40px rgba(0, 0, 0, 0.26)",
-                        transform:
-                          index === 0
-                            ? { xs: "rotate(4deg)", md: "rotate(5deg)" }
-                            : { xs: "rotate(-3deg)", md: "rotate(-4deg)" },
+                        boxShadow: "0 24px 48px rgba(0, 0, 0, 0.32)",
+                        transform: "rotate(-5deg)",
+                        transition: "all 320ms ease",
                       }}
                     >
-                      <Stack spacing={1.25}>
-                        <Stack direction="row" spacing={1} alignItems="center">
+                      <Stack spacing={1.6}>
+                        <Stack
+                          direction="row"
+                          justifyContent="space-between"
+                          alignItems="center"
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Box
+                              sx={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 2.5,
+                                display: "grid",
+                                placeItems: "center",
+                                bgcolor: activeCard.accent,
+                                color: "#061108",
+                              }}
+                            >
+                              <ActiveIcon fontSize="small" />
+                            </Box>
+                            <Typography
+                              sx={{
+                                fontSize: 11,
+                                fontWeight: 800,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                                color: activeCard.accent,
+                              }}
+                            >
+                              {activeCard.label}
+                            </Typography>
+                          </Stack>
                           <Box
                             sx={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: 2,
-                              display: "grid",
-                              placeItems: "center",
-                              bgcolor: alpha(card.accent, 0.18),
-                              color: card.accent,
-                              transform: { xs: "scale(0.82)", md: "none" },
+                              width: 8,
+                              height: 8,
+                              borderRadius: 99,
+                              bgcolor: activeCard.accent,
+                              boxShadow: `0 0 0 6px ${alpha(activeCard.accent, 0.12)}`,
                             }}
+                          />
+                        </Stack>
+
+                        <Box>
+                          <Typography
+                            sx={{ fontSize: 22, fontWeight: 800 }}
                           >
-                            <CardIcon sx={{ fontSize: 18 }} />
-                          </Box>
+                            {activeCard.title}
+                          </Typography>
                           <Typography
                             sx={{
-                              color: alpha("#ffffff", 0.9),
-                              fontSize: { xs: 8.5, md: 13 },
-                              fontWeight: 700,
-                              lineHeight: 1.25,
+                              mt: 0.7,
+                              color: alpha("#ffffff", 0.68),
+                              fontSize: 13,
+                              lineHeight: 1.6,
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
                             }}
                           >
-                            {card.title}
+                            {activeCard.body}
                           </Typography>
-                        </Stack>
+                        </Box>
+
                         <ShowcaseVisual
-                          kind={card.kind}
-                          accent={card.accent}
-                          compact={isCompactMobile}
+                          kind={activeCard.kind}
+                          accent={activeCard.accent}
+                          compact={false}
                         />
                       </Stack>
                     </Paper>
-                  );
-                })}
+
+                    {[topCard, bottomCard].map((card, index) => {
+                      const CardIcon = card.icon;
+                      return (
+                        <Paper
+                          key={card.title}
+                          elevation={0}
+                          sx={{
+                            position: "absolute",
+                            zIndex: index === 0 ? 3 : 1,
+                            top: index === 0 ? 34 : 210,
+                            right: index === 0 ? 16 : "auto",
+                            left: index === 0 ? "auto" : 22,
+                            width: index === 0 ? 232 : 244,
+                            p: 1.8,
+                            borderRadius: 4,
+                            color: "#ffffff",
+                            background:
+                              "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
+                            border: `1px solid ${alpha("#ffffff", 0.08)}`,
+                            boxShadow: "0 18px 40px rgba(0, 0, 0, 0.26)",
+                            transform:
+                              index === 0 ? "rotate(5deg)" : "rotate(-4deg)",
+                          }}
+                        >
+                          <Stack spacing={1.25}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Box
+                                sx={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: 2,
+                                  display: "grid",
+                                  placeItems: "center",
+                                  bgcolor: alpha(card.accent, 0.18),
+                                  color: card.accent,
+                                }}
+                              >
+                                <CardIcon sx={{ fontSize: 18 }} />
+                              </Box>
+                              <Typography
+                                sx={{
+                                  color: alpha("#ffffff", 0.9),
+                                  fontSize: 13,
+                                  fontWeight: 700,
+                                  lineHeight: 1.25,
+                                }}
+                              >
+                                {card.title}
+                              </Typography>
+                            </Stack>
+                            <ShowcaseVisual
+                              kind={card.kind}
+                              accent={card.accent}
+                              compact={isCompactMobile}
+                            />
+                          </Stack>
+                        </Paper>
+                      );
+                    })}
+                  </>
+                )}
               </Box>
+
 
               <Stack
                 spacing={1.5}
