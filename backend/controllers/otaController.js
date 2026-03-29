@@ -2,6 +2,20 @@ import otaService from "../services/ota.service.js";
 import hotUpdaterDashboardService from "../services/hotUpdaterDashboard.service.js";
 
 const isValidPlatform = (p) => ["ios", "android"].includes(String(p || ""));
+const hotUpdaterStatuses = new Set([
+  "checking",
+  "up_to_date",
+  "update_available",
+  "dismissed",
+  "downloading",
+  "downloaded",
+  "installing",
+  "promoted",
+  "recovered",
+  "failed",
+  "success",
+  "skipped",
+]);
 
 export const checkOtaUpdate = async (req, res) => {
   try {
@@ -37,7 +51,81 @@ export const checkOtaUpdate = async (req, res) => {
 
 export const reportUpdateStatus = async (req, res) => {
   try {
-    const { logId, status, errorMessage, errorCode, duration } = req.body;
+    const {
+      logId,
+      eventId,
+      platform,
+      bundleId,
+      currentBundleId,
+      appVersion,
+      channel,
+      status,
+      message,
+      errorMessage,
+      errorCode,
+      duration,
+      deviceInfo,
+    } = req.body || {};
+
+    const normalizedStatus = String(status || "")
+      .trim()
+      .toLowerCase();
+    const normalizedPlatform = String(platform || "")
+      .trim()
+      .toLowerCase();
+    const isLikelyHotUpdaterTelemetry =
+      Boolean(normalizedPlatform) ||
+      Boolean(bundleId) ||
+      Boolean(currentBundleId) ||
+      Boolean(channel) ||
+      Boolean(eventId) ||
+      !logId ||
+      ["up_to_date", "update_available", "downloaded", "promoted", "recovered", "dismissed"].includes(
+        normalizedStatus
+      );
+
+    if (isLikelyHotUpdaterTelemetry) {
+      if (!isValidPlatform(normalizedPlatform)) {
+        return res.status(400).json({
+          error: "Missing or invalid platform for hot-updater telemetry",
+        });
+      }
+
+      if (!hotUpdaterStatuses.has(normalizedStatus)) {
+        return res.status(400).json({
+          error: `Status must be one of: ${Array.from(hotUpdaterStatuses).join(", ")}`,
+        });
+      }
+
+      const result = await hotUpdaterDashboardService.recordTelemetryEvent({
+        eventId,
+        platform: normalizedPlatform,
+        bundleId,
+        currentBundleId,
+        appVersion,
+        channel,
+        status: normalizedStatus,
+        message,
+        errorMessage,
+        errorCode,
+        duration,
+        deviceInfo: {
+          deviceId:
+            deviceInfo?.deviceId || req.headers["x-device-id"] || req.headers["x-deviceid"],
+          model:
+            deviceInfo?.model ||
+            req.headers["x-device-model"] ||
+            req.headers["x-device-name"] ||
+            req.headers["x-device-model-name"],
+          osVersion: deviceInfo?.osVersion || req.headers["x-device-os-version"],
+          brand: deviceInfo?.brand || req.headers["x-device-brand"],
+        },
+        ip: req.ip || req.headers["x-forwarded-for"],
+        userAgent: req.headers["user-agent"],
+      });
+
+      return res.json({ success: true, event: result, source: "hot-updater" });
+    }
 
     if (!logId || !status) {
       return res.status(400).json({
@@ -46,7 +134,7 @@ export const reportUpdateStatus = async (req, res) => {
     }
 
     const validStatuses = ["downloading", "installing", "success", "failed", "skipped"];
-    if (!validStatuses.includes(status)) {
+    if (!validStatuses.includes(normalizedStatus)) {
       return res.status(400).json({
         error: `Status must be one of: ${validStatuses.join(", ")}`,
       });
@@ -54,7 +142,7 @@ export const reportUpdateStatus = async (req, res) => {
 
     const result = await otaService.reportUpdateStatus({
       logId,
-      status,
+      status: normalizedStatus,
       errorMessage,
       errorCode,
       duration,

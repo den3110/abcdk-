@@ -3,6 +3,7 @@ import {
   buildRecordingLiveManifestObjectKey,
   buildRecordingPublicObjectUrl,
   buildRecordingSegmentObjectKey,
+  getRecordingPublicBaseUrl,
 } from "./liveRecordingV2Storage.service.js";
 import {
   buildRecordingPlaybackUrl,
@@ -286,6 +287,35 @@ function sumUploadedDurationSeconds(recording) {
   );
 }
 
+function buildRecordingTargetPublicBaseUrls(recording) {
+  const targetIds = new Set();
+  const recordTargetId = asTrimmed(recording?.r2TargetId);
+  if (recordTargetId) {
+    targetIds.add(recordTargetId);
+  }
+
+  for (const segment of recording?.segments || []) {
+    const storageTargetId = asTrimmed(segment?.storageTargetId);
+    if (storageTargetId) {
+      targetIds.add(storageTargetId);
+    }
+  }
+
+  const targetPublicBaseUrls = {};
+  for (const targetId of targetIds) {
+    try {
+      const baseUrl = asTrimmed(getRecordingPublicBaseUrl(targetId));
+      if (baseUrl) {
+        targetPublicBaseUrls[targetId] = baseUrl;
+      }
+    } catch {
+      // Ignore target ids that are no longer configured.
+    }
+  }
+
+  return targetPublicBaseUrls;
+}
+
 function pickFinalServer2Url(recording) {
   const hasRawStream = Boolean(
     recording?.driveFileId || recording?.driveRawUrl
@@ -344,6 +374,9 @@ export function buildRecordingServer2State(recording) {
 
   const multiSourceEnabled = isLiveMultiSourceEnabled();
   const delaySeconds = getLiveServer2DelaySeconds();
+  const sourceCleanupCompleted =
+    asTrimmed(recording?.meta?.sourceCleanup?.status).toLowerCase() ===
+    "completed";
   const manifestObjectKey =
     asTrimmed(recording?.meta?.livePlayback?.manifestObjectKey) ||
     buildRecordingLiveManifestObjectKey({
@@ -352,7 +385,10 @@ export function buildRecordingServer2State(recording) {
     });
   let manifestUrl = "";
   let publicBaseUrl = "";
-  if (multiSourceEnabled) {
+  const targetPublicBaseUrls = multiSourceEnabled
+    ? buildRecordingTargetPublicBaseUrls(recording)
+    : {};
+  if (multiSourceEnabled && !sourceCleanupCompleted) {
     manifestUrl = asTrimmed(recording?.meta?.livePlayback?.manifestUrl);
     publicBaseUrl = asTrimmed(recording?.meta?.livePlayback?.publicBaseUrl);
     try {
@@ -387,6 +423,7 @@ export function buildRecordingServer2State(recording) {
   const uploadedDurationSeconds = sumUploadedDurationSeconds(recording);
   const delayedReady =
     multiSourceEnabled &&
+    !sourceCleanupCompleted &&
     Boolean(manifestUrl) &&
     uploadedSegments.length > 0 &&
     uploadedDurationSeconds >= delaySeconds;
@@ -422,12 +459,15 @@ export function buildRecordingServer2State(recording) {
     manifestObjectKey,
     manifestUrl: manifestUrl || null,
     publicBaseUrl: publicBaseUrl || null,
+    targetPublicBaseUrls:
+      Object.keys(targetPublicBaseUrls).length > 0 ? targetPublicBaseUrls : null,
     finalPlaybackUrl: finalPlaybackUrl || null,
     delaySeconds: effectiveDelaySeconds,
     uploadedDurationSeconds,
     uploadedSegmentCount: uploadedSegments.length,
     ready,
     status,
+    sourceCleanupCompleted,
     disabledReason:
       !ready && multiSourceEnabled && !finalReady
         ? "Dang chuan bi luong tre tu PickleTour CDN."
@@ -448,6 +488,7 @@ export function buildRecordingLivePlayback(recording) {
     manifestObjectKey: state.manifestObjectKey,
     manifestUrl: state.manifestUrl,
     publicBaseUrl: state.publicBaseUrl,
+    targetPublicBaseUrls: state.targetPublicBaseUrls,
     finalPlaybackUrl: state.finalPlaybackUrl,
     delaySeconds: state.delaySeconds,
     uploadedDurationSeconds: state.uploadedDurationSeconds,
@@ -505,7 +546,10 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     const hasSegmentManifest =
       Boolean(server2.manifestUrl) && server2.uploadedSegmentCount > 0;
     const useFileMode =
-      !hasSegmentManifest && Boolean(server2.finalPlaybackUrl);
+      Boolean(server2.finalPlaybackUrl) &&
+      (server2.status === "final" ||
+        server2.sourceCleanupCompleted ||
+        !hasSegmentManifest);
 
     pushUniqueStream(streams, {
       key: server2.key,
@@ -527,8 +571,8 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         manifestObjectKey: server2.manifestObjectKey,
         finalPlaybackUrl: server2.finalPlaybackUrl,
         publicBaseUrl: server2.publicBaseUrl,
-        // Full CDN path down to /segments/ directory so frontend can
-        // resolve relative segment filenames from the manifest.
+        targetPublicBaseUrls: server2.targetPublicBaseUrls,
+        // Backward-compatible fallback CDN path down to /segments/ directory.
         segmentBaseUrl: recording?._id && recording?.match
           ? (() => {
               const segKey = buildRecordingSegmentObjectKey({

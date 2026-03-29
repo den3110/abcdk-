@@ -401,19 +401,49 @@ export default function DelayedManifestPlayer({
         .filter((seg) => seg.url);
       if (!playable.length) return false;
 
-      setItems(() => {
+      const isLive = !isFinishedSource;
+
+      setItems((previousItems) => {
+        const merged = mergeManifestItems(
+          previousItems,
+          playable,
+          currentKeyRef.current,
+        );
+
         if (!currentKeyRef.current) {
-          const nextKey = playable[0]?.key || "";
+          // For live: start near tail; for finished: start from beginning
+          let startItem;
+          if (isLive && merged.length > 2) {
+            startItem = merged[merged.length - 2];
+          } else {
+            startItem = merged[0];
+          }
+          const nextKey = startItem?.key || merged[0]?.key || "";
           if (nextKey) {
             currentKeyRef.current = nextKey;
             setCurrentKey(nextKey);
             waitingForNextRef.current = false;
             setWaitingForNext(false);
           }
+        } else if (waitingForNextRef.current) {
+          // Advance to next segment if one appeared
+          const currentIndex = merged.findIndex(
+            (item) => item?.key === currentKeyRef.current,
+          );
+          if (currentIndex >= 0 && currentIndex < merged.length - 1) {
+            const nextKey = merged[currentIndex + 1]?.key || "";
+            if (nextKey) {
+              currentKeyRef.current = nextKey;
+              setCurrentKey(nextKey);
+              waitingForNextRef.current = false;
+              setWaitingForNext(false);
+            }
+          }
         }
-        return playable;
+
+        return merged;
       });
-      setManifestStatus("final");
+      setManifestStatus(isFinishedSource ? "final" : "");
       setLoading(false);
       setError("");
       return true;
@@ -421,9 +451,10 @@ export default function DelayedManifestPlayer({
 
     const fetchManifest = async () => {
       try {
-        // For finished recordings, try backend playlist FIRST —
-        // it returns signed URLs with long TTL that support Range requests
-        if (recordingId && isFinishedSource && !usedBackendPlaylist) {
+        // ALWAYS try backend playlist FIRST — it returns signed
+        // download URLs that bypass CDN path/storage-target issues.
+        // During live, re-poll every time for new segments.
+        if (recordingId && (!usedBackendPlaylist || !isFinishedSource)) {
           const playlistUrl = buildPlaylistUrl();
           if (playlistUrl) {
             try {
@@ -443,46 +474,13 @@ export default function DelayedManifestPlayer({
           }
         }
 
-        // Fetch R2 manifest
+        // Fallback: Fetch R2 manifest (CDN)
         const response = await fetch(source?.embedUrl, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`Manifest HTTP ${response.status}`);
         }
 
         const manifest = await response.json();
-        if (cancelled) return;
-
-        const manifestSegmentCount = Array.isArray(manifest?.segments)
-          ? manifest.segments.length
-          : 0;
-
-        // If R2 manifest has way fewer segments than expected AND we have
-        // a recordingId, switch to backend playlist for full segment list
-        if (
-          recordingId &&
-          expectedSegmentCount > 0 &&
-          manifestSegmentCount < expectedSegmentCount * 0.8 &&
-          !usedBackendPlaylist
-        ) {
-          const playlistUrl = buildPlaylistUrl();
-          if (playlistUrl) {
-            try {
-              const playlistResponse = await fetch(playlistUrl, {
-                cache: "no-store",
-              });
-              if (playlistResponse.ok) {
-                const playlistData = await playlistResponse.json();
-                if (!cancelled && applyPlaylistSegments(playlistData)) {
-                  usedBackendPlaylist = true;
-                  return;
-                }
-              }
-            } catch {
-              // Backend playlist failed, fall through to R2 manifest
-            }
-          }
-        }
-
         if (cancelled) return;
         applyManifest(manifest);
       } catch (fetchError) {

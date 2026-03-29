@@ -1,13 +1,27 @@
-import fs from "fs";
-import path from "path";
-import dotenv from "dotenv";
 import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import HotUpdaterTelemetryEvent from "../models/hotUpdaterTelemetryModel.js";
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 const DEFAULT_CHANNEL = "production";
 const DEFAULT_CHECK_BASE_URL =
-  process.env.HOT_UPDATER_CHECK_BASE_URL ||
   "https://hot-updater.datistpham.workers.dev/api/check-update";
+const HOT_UPDATER_TELEMETRY_STATUSES = new Set([
+  "checking",
+  "up_to_date",
+  "update_available",
+  "dismissed",
+  "downloading",
+  "downloaded",
+  "installing",
+  "promoted",
+  "recovered",
+  "failed",
+  "success",
+  "skipped",
+]);
+const HOT_UPDATER_DOWNLOAD_STATUSES = ["downloaded", "success"];
+const HOT_UPDATER_SUCCESS_STATUSES = ["promoted", "success"];
+const HOT_UPDATER_FAILURE_STATUSES = ["failed", "recovered"];
 
 function coalesce(...values) {
   for (const value of values) {
@@ -62,6 +76,21 @@ function parseUuidV7Date(bundleId) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function toPositiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function buildEmptyBundleStats() {
+  return {
+    downloads: 0,
+    successfulUpdates: 0,
+    failedUpdates: 0,
+    updateAvailable: 0,
+    dismissed: 0,
+  };
+}
+
 class HotUpdaterDashboardService {
   constructor() {
     this.cachedConfig = null;
@@ -71,41 +100,15 @@ class HotUpdaterDashboardService {
   loadConfig() {
     if (this.cachedConfig) return this.cachedConfig;
 
-    const fallbackEnv = {};
-    const fallbackFiles = [
-      path.resolve(process.cwd(), "pickletour-app-mobile/.env.hotupdater"),
-      path.resolve(process.cwd(), "pickletour-app-mobile/.env"),
-    ];
-
-    for (const filePath of fallbackFiles) {
-      if (!fs.existsSync(filePath)) continue;
-      const parsed = dotenv.parse(fs.readFileSync(filePath, "utf8"));
-      Object.assign(fallbackEnv, parsed);
-    }
-
     this.cachedConfig = {
-      accountId: coalesce(
-        process.env.HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID,
-        fallbackEnv.HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID
-      ),
-      databaseId: coalesce(
-        process.env.HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID,
-        fallbackEnv.HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID
-      ),
-      apiToken: coalesce(
-        process.env.HOT_UPDATER_CLOUDFLARE_API_TOKEN,
-        fallbackEnv.HOT_UPDATER_CLOUDFLARE_API_TOKEN
-      ),
+      accountId: coalesce(process.env.HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID),
+      databaseId: coalesce(process.env.HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID),
+      apiToken: coalesce(process.env.HOT_UPDATER_CLOUDFLARE_API_TOKEN),
       bucketName: coalesce(
         process.env.HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME,
-        fallbackEnv.HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME,
         process.env.R2_BUCKET_NAME
       ),
-      checkBaseUrl: coalesce(
-        process.env.HOT_UPDATER_CHECK_BASE_URL,
-        fallbackEnv.HOT_UPDATER_CHECK_BASE_URL,
-        DEFAULT_CHECK_BASE_URL
-      ),
+      checkBaseUrl: coalesce(process.env.HOT_UPDATER_CHECK_BASE_URL, DEFAULT_CHECK_BASE_URL),
       r2Endpoint: coalesce(process.env.R2_ENDPOINT),
       r2AccessKeyId: coalesce(process.env.R2_ACCESS_KEY_ID),
       r2SecretAccessKey: coalesce(process.env.R2_SECRET_ACCESS_KEY),
@@ -118,7 +121,7 @@ class HotUpdaterDashboardService {
     const config = this.loadConfig();
     if (!config.accountId || !config.databaseId || !config.apiToken) {
       throw new Error(
-        "Hot-updater D1 config is missing. Set HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID, HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID, HOT_UPDATER_CLOUDFLARE_API_TOKEN or provide them in pickletour-app-mobile/.env.hotupdater."
+        "Hot-updater D1 config is missing in process.env."
       );
     }
     return config;
@@ -253,7 +256,126 @@ class HotUpdaterDashboardService {
         Number(head?.ContentLength ?? metadata?.size ?? metadata?.fileSize ?? 0) || 0,
       createdAt: createdAt ? new Date(createdAt).toISOString() : null,
       metadata,
+      stats: buildEmptyBundleStats(),
     };
+  }
+
+  async recordTelemetryEvent(payload = {}) {
+    const platform = normalizePlatform(payload.platform);
+    const status = String(payload.status || "")
+      .trim()
+      .toLowerCase();
+
+    if (!platform) {
+      throw new Error("Telemetry platform must be ios or android.");
+    }
+
+    if (!HOT_UPDATER_TELEMETRY_STATUSES.has(status)) {
+      throw new Error("Telemetry status is invalid.");
+    }
+
+    const eventId = coalesce(payload.eventId);
+    if (eventId) {
+      const existing = await HotUpdaterTelemetryEvent.findOne({ eventId }).lean();
+      if (existing) return existing;
+    }
+
+    const event = await HotUpdaterTelemetryEvent.create({
+      eventId: eventId || undefined,
+      platform,
+      bundleId: coalesce(payload.bundleId) || undefined,
+      currentBundleId: coalesce(payload.currentBundleId) || undefined,
+      appVersion: coalesce(payload.appVersion) || undefined,
+      channel: coalesce(payload.channel, DEFAULT_CHANNEL) || DEFAULT_CHANNEL,
+      status,
+      message: coalesce(payload.message),
+      errorMessage: coalesce(payload.errorMessage),
+      errorCode: coalesce(payload.errorCode),
+      duration:
+        payload.duration == null || payload.duration === ""
+          ? undefined
+          : toPositiveNumber(payload.duration),
+      deviceInfo: {
+        deviceId: coalesce(payload.deviceInfo?.deviceId) || undefined,
+        model:
+          coalesce(payload.deviceInfo?.model, payload.deviceInfo?.deviceName) || undefined,
+        osVersion: coalesce(payload.deviceInfo?.osVersion) || undefined,
+        brand: coalesce(payload.deviceInfo?.brand) || undefined,
+      },
+      ip: coalesce(payload.ip) || undefined,
+      userAgent: coalesce(payload.userAgent) || undefined,
+    });
+
+    return event.toObject();
+  }
+
+  async getBundleStats(platform, bundleIds = []) {
+    const normalizedPlatform = normalizePlatform(platform);
+    const uniqueBundleIds = Array.from(
+      new Set(bundleIds.map((bundleId) => coalesce(bundleId)).filter(Boolean))
+    );
+
+    const statsMap = new Map();
+    uniqueBundleIds.forEach((bundleId) => {
+      statsMap.set(bundleId, buildEmptyBundleStats());
+    });
+
+    if (!normalizedPlatform || uniqueBundleIds.length === 0) {
+      return statsMap;
+    }
+
+    const rows = await HotUpdaterTelemetryEvent.aggregate([
+      {
+        $match: {
+          platform: normalizedPlatform,
+          bundleId: { $in: uniqueBundleIds },
+        },
+      },
+      {
+        $group: {
+          _id: "$bundleId",
+          downloads: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_DOWNLOAD_STATUSES] }, 1, 0],
+            },
+          },
+          successfulUpdates: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_SUCCESS_STATUSES] }, 1, 0],
+            },
+          },
+          failedUpdates: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_FAILURE_STATUSES] }, 1, 0],
+            },
+          },
+          updateAvailable: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "update_available"] }, 1, 0],
+            },
+          },
+          dismissed: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "dismissed"] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    rows.forEach((row) => {
+      const bundleId = coalesce(row?._id);
+      if (!bundleId) return;
+      statsMap.set(bundleId, {
+        downloads: toPositiveNumber(row?.downloads),
+        successfulUpdates: toPositiveNumber(row?.successfulUpdates),
+        failedUpdates: toPositiveNumber(row?.failedUpdates),
+        updateAvailable: toPositiveNumber(row?.updateAvailable),
+        dismissed: toPositiveNumber(row?.dismissed),
+      });
+    });
+
+    return statsMap;
   }
 
   async getBundleById(bundleId) {
@@ -290,9 +412,19 @@ class HotUpdaterDashboardService {
       [normalizedPlatform]
     );
 
-    return Promise.all(
+    const bundles = await Promise.all(
       rows.map((row) => this.normalizeBundle(row, latestEnabledByChannel))
     );
+
+    const statsMap = await this.getBundleStats(
+      normalizedPlatform,
+      bundles.map((bundle) => bundle.bundleId)
+    );
+
+    return bundles.map((bundle) => ({
+      ...bundle,
+      stats: statsMap.get(bundle.bundleId) || buildEmptyBundleStats(),
+    }));
   }
 
   async getLatest(platform) {
@@ -322,24 +454,31 @@ class HotUpdaterDashboardService {
     );
 
     const now = Date.now();
-    const windowStart = now - safeDays * 24 * 60 * 60 * 1000;
+    const windowStart = new Date(now - safeDays * 24 * 60 * 60 * 1000);
     const dailyMap = new Map();
+    const bundleMap = new Map();
 
     bundles.forEach((bundle) => {
+      bundleMap.set(bundle.bundleId, bundle);
       const createdAt = bundle.createdAt ? new Date(bundle.createdAt) : null;
       if (!createdAt || Number.isNaN(createdAt.getTime())) return;
-      if (createdAt.getTime() < windowStart) return;
+      if (createdAt < windowStart) return;
 
       const key = buildDailyKey(createdAt);
       if (!key) return;
 
       const current = dailyMap.get(key) || {
         date: key,
+        deployments: 0,
         enabled: 0,
         disabled: 0,
         force: 0,
+        downloads: 0,
+        success: 0,
+        failed: 0,
       };
 
+      current.deployments += 1;
       if (bundle.enabled) current.enabled += 1;
       else current.disabled += 1;
       if (bundle.shouldForceUpdate) current.force += 1;
@@ -354,6 +493,133 @@ class HotUpdaterDashboardService {
       .filter((bundle) => !bundle.enabled)
       .slice(0, 20);
 
+    const telemetryDailyRows = await HotUpdaterTelemetryEvent.aggregate([
+      {
+        $match: {
+          platform: normalizedPlatform,
+          createdAt: { $gte: windowStart },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$createdAt",
+            },
+          },
+          downloads: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_DOWNLOAD_STATUSES] }, 1, 0],
+            },
+          },
+          success: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_SUCCESS_STATUSES] }, 1, 0],
+            },
+          },
+          failed: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_FAILURE_STATUSES] }, 1, 0],
+            },
+          },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    telemetryDailyRows.forEach((row) => {
+      const key = coalesce(row?._id);
+      if (!key) return;
+      const current = dailyMap.get(key) || {
+        date: key,
+        deployments: 0,
+        enabled: 0,
+        disabled: 0,
+        force: 0,
+        downloads: 0,
+        success: 0,
+        failed: 0,
+      };
+
+      current.downloads += toPositiveNumber(row?.downloads);
+      current.success += toPositiveNumber(row?.success);
+      current.failed += toPositiveNumber(row?.failed);
+      dailyMap.set(key, current);
+    });
+
+    const telemetryTotals = await HotUpdaterTelemetryEvent.aggregate([
+      {
+        $match: {
+          platform: normalizedPlatform,
+          createdAt: { $gte: windowStart },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          downloads: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_DOWNLOAD_STATUSES] }, 1, 0],
+            },
+          },
+          success: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_SUCCESS_STATUSES] }, 1, 0],
+            },
+          },
+          failed: {
+            $sum: {
+              $cond: [{ $in: ["$status", HOT_UPDATER_FAILURE_STATUSES] }, 1, 0],
+            },
+          },
+          updateAvailable: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "update_available"] }, 1, 0],
+            },
+          },
+          dismissed: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "dismissed"] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const totalTelemetry = telemetryTotals[0] || {};
+    const failedTelemetryEvents = await HotUpdaterTelemetryEvent.find({
+      platform: normalizedPlatform,
+      status: { $in: HOT_UPDATER_FAILURE_STATUSES },
+      createdAt: { $gte: windowStart },
+    })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const failedUpdates = failedTelemetryEvents.map((event) => {
+      const bundleId = coalesce(event?.bundleId);
+      const bundle = bundleMap.get(bundleId);
+      return {
+        _id: String(event?._id || ""),
+        eventId: coalesce(event?.eventId),
+        bundleId,
+        targetAppVersion: bundle?.targetAppVersion || coalesce(event?.appVersion, "-"),
+        channel: bundle?.channel || coalesce(event?.channel, DEFAULT_CHANNEL) || DEFAULT_CHANNEL,
+        message: coalesce(event?.message, bundle?.message),
+        errorMessage: coalesce(event?.errorMessage),
+        errorCode: coalesce(event?.errorCode),
+        status: coalesce(event?.status),
+        deviceInfo: {
+          deviceId: coalesce(event?.deviceInfo?.deviceId),
+          model: coalesce(event?.deviceInfo?.model),
+          brand: coalesce(event?.deviceInfo?.brand),
+          osVersion: coalesce(event?.deviceInfo?.osVersion),
+        },
+        createdAt: event?.createdAt ? new Date(event.createdAt).toISOString() : null,
+      };
+    });
+
     return {
       source: "hot-updater",
       totals: {
@@ -362,12 +628,17 @@ class HotUpdaterDashboardService {
         disabled: bundles.filter((bundle) => !bundle.enabled).length,
         force: bundles.filter((bundle) => bundle.shouldForceUpdate).length,
         channels: uniqueChannels.size,
+        downloads: toPositiveNumber(totalTelemetry?.downloads),
+        success: toPositiveNumber(totalTelemetry?.success),
+        failed: toPositiveNumber(totalTelemetry?.failed),
+        updateAvailable: toPositiveNumber(totalTelemetry?.updateAvailable),
+        dismissed: toPositiveNumber(totalTelemetry?.dismissed),
       },
       dailyStats: Array.from(dailyMap.values()).sort((a, b) =>
         String(a.date).localeCompare(String(b.date))
       ),
       recentDisabledBundles,
-      failedUpdates: recentDisabledBundles,
+      failedUpdates,
     };
   }
 

@@ -417,6 +417,25 @@ async function markRecordingReady(
     completedAt: new Date(),
     updatedAt: new Date(),
   };
+  const currentLivePlayback =
+    nextMeta.livePlayback &&
+    typeof nextMeta.livePlayback === "object" &&
+    !Array.isArray(nextMeta.livePlayback)
+      ? { ...nextMeta.livePlayback }
+      : {};
+  if (Object.keys(currentLivePlayback).length) {
+    nextMeta.livePlayback = {
+      ...currentLivePlayback,
+      status: "final",
+      finalPlaybackUrl:
+        currentLivePlayback.finalPlaybackUrl ||
+        buildRecordingPlaybackUrl(recording._id),
+    };
+    if (sourceCleanup?.status === "completed") {
+      nextMeta.livePlayback.manifestObjectKey = null;
+      nextMeta.livePlayback.manifestUrl = null;
+    }
+  }
   recording.meta = nextMeta;
   recording.status = "ready";
   recording.scheduledExportAt = null;

@@ -1915,17 +1915,26 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
       return res.status(404).json({ message: "Recording not found" });
     }
 
-    if (recording.driveFileId || recording.driveRawUrl) {
-      return res.json({
-        ok: true,
-        ready: true,
-        redirectUrl: buildRecordingPlaybackUrl(recording._id),
-        recording: serializeRecording(recording),
-      });
+    // For finished recordings with a drive export, redirect to that
+    if (
+      recording.driveFileId || recording.driveRawUrl
+    ) {
+      // Only redirect if the recording is actually finalized
+      if (recording.finalizedAt) {
+        return res.json({
+          ok: true,
+          ready: true,
+          redirectUrl: buildRecordingPlaybackUrl(recording._id),
+          recording: serializeRecording(recording),
+        });
+      }
     }
 
-    if (!isRecordingTemporaryPlaybackReady(recording)) {
-      return res.status(409).json({
+    // During live: serve whatever uploaded segments we have.
+    // After finalization: require no pending segments.
+    const uploadedSegments = getUploadedRecordingSegments(recording);
+    if (uploadedSegments.length === 0) {
+       return res.status(409).json({
         ok: false,
         status: recording.status,
         message: "Recording temporary playback is not ready yet",
@@ -1933,7 +1942,6 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
       });
     }
 
-    const uploadedSegments = getUploadedRecordingSegments(recording);
     const segments = await Promise.all(
       uploadedSegments.map(async (segment) => {
         const download = await createRecordingObjectDownloadUrl({
