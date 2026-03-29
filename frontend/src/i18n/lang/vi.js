@@ -527,6 +527,25 @@ export default {
           ],
         },
         {
+          id: "privacy-facebook",
+          title: "Dữ liệu Facebook và Meta Platform",
+          paragraphs: [
+            "PickleTour tích hợp với dịch vụ Meta Platform (bao gồm Facebook Pages và Facebook Live Video API) để cho phép ban tổ chức giải đấu phát sóng trực tiếp trận đấu lên Facebook Page của họ.",
+            "Khi bạn kết nối tài khoản Facebook với PickleTour, ứng dụng có thể truy cập các dữ liệu sau thông qua quyền bạn chủ động cấp: danh sách Facebook Pages, khả năng phát video trực tiếp lên Pages bạn quản lý, và thông tin tương tác Page cơ bản.",
+            "PickleTour chỉ truy cập dữ liệu Facebook cần thiết để cung cấp tính năng phát sóng trực tiếp. Chúng tôi không lưu trữ access token Facebook của bạn ngoài phiên đăng nhập hiện tại, và không truy cập hồ sơ Facebook cá nhân, danh sách bạn bè hoặc tin nhắn riêng tư.",
+            "Bạn có thể thu hồi quyền truy cập của PickleTour vào tài khoản Facebook bất cứ lúc nào thông qua Cài đặt Facebook > Ứng dụng và Trang web. Việc thu hồi sẽ ngay lập tức ngăn PickleTour phát sóng lên Pages của bạn.",
+          ],
+        },
+        {
+          id: "privacy-facebook-deletion",
+          title: "Xóa dữ liệu Facebook",
+          paragraphs: [
+            "Nếu bạn muốn xóa toàn bộ dữ liệu mà PickleTour đã nhận từ Facebook, bạn có thể: (1) gỡ PickleTour khỏi mục Ứng dụng và Trang web trong cài đặt Facebook, và (2) liên hệ chúng tôi qua email support@pickletour.vn với tiêu đề 'Yêu cầu xóa dữ liệu Facebook'.",
+            "Sau khi nhận được yêu cầu, chúng tôi sẽ xóa toàn bộ dữ liệu liên quan đến Facebook từ tài khoản của bạn trong vòng 30 ngày và xác nhận bằng email.",
+            "Bạn cũng có thể sử dụng callback Yêu cầu xóa dữ liệu của Facebook. Khi bạn gỡ PickleTour khỏi cài đặt Facebook, Facebook sẽ thông báo cho chúng tôi tự động và chúng tôi sẽ xử lý việc xóa dữ liệu.",
+          ],
+        },
+        {
           id: "privacy-storage",
           title: "Lưu trữ và bảo vệ dữ liệu",
           paragraphs: [

@@ -527,6 +527,25 @@ export default {
           ],
         },
         {
+          id: "privacy-facebook",
+          title: "Facebook and Meta Platform data",
+          paragraphs: [
+            "PickleTour integrates with Meta Platform services (including Facebook Pages and Facebook Live Video API) to allow tournament organizers to broadcast live match video directly to their Facebook Pages.",
+            "When you connect your Facebook account to PickleTour, the app may access the following data through permissions you explicitly grant: your Facebook Pages list, the ability to publish live video to Pages you manage, and basic page engagement information.",
+            "PickleTour only accesses Facebook data that is necessary to provide the live streaming feature. We do not store your Facebook access tokens beyond the active session, and we do not access your personal Facebook profile, friends list, or private messages.",
+            "You can revoke PickleTour's access to your Facebook account at any time through your Facebook Settings > Apps and Websites. Revoking access will immediately stop PickleTour from publishing to your Pages.",
+          ],
+        },
+        {
+          id: "privacy-facebook-deletion",
+          title: "Facebook data deletion",
+          paragraphs: [
+            "If you wish to delete all data that PickleTour has received from Facebook, you can do so by: (1) removing PickleTour from your Facebook Apps and Websites settings, and (2) contacting us at support@pickletour.vn with the subject line 'Facebook Data Deletion Request'.",
+            "Upon receiving your request, we will delete all Facebook-related data associated with your account within 30 days and confirm the deletion by email.",
+            "You may also use the Facebook Data Deletion Request callback. When you remove PickleTour from your Facebook settings, Facebook will notify us automatically, and we will process the data removal.",
+          ],
+        },
+        {
           id: "privacy-storage",
           title: "Data storage and protection",
           paragraphs: [

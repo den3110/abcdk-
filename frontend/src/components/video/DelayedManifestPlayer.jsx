@@ -374,13 +374,18 @@ export default function DelayedManifestPlayer({
       typeof source?.meta?.recordingId === "string"
         ? source.meta.recordingId.trim()
         : "";
-    const expectedSegmentCount =
-      Number(source?.meta?.uploadedSegmentCount || 0) || 0;
     const isFinishedSource =
       String(source?.meta?.status || "").toLowerCase() === "final" ||
       String(source?.meta?.status || "").toLowerCase() === "finished" ||
       String(source?.meta?.status || "").toLowerCase() === "ready";
-    let usedBackendPlaylist = false;
+    const sourceManifestUrl =
+      typeof source?.embedUrl === "string" ? source.embedUrl.trim() : "";
+    const isBackendTempPlaylistSource =
+      /\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
+        sourceManifestUrl,
+      );
+    const shouldPreferCdnManifest =
+      Boolean(sourceManifestUrl) && !isBackendTempPlaylistSource;
 
     const buildPlaylistUrl = () => {
       if (!recordingId) return "";
@@ -449,40 +454,74 @@ export default function DelayedManifestPlayer({
       return true;
     };
 
+    const tryFetchCdnManifest = async () => {
+      if (!sourceManifestUrl) return false;
+      const response = await fetch(sourceManifestUrl, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Manifest HTTP ${response.status}`);
+      }
+
+      const manifest = await response.json();
+      if (cancelled) return true;
+      applyManifest(manifest);
+      return true;
+    };
+
+    const tryFetchBackendPlaylist = async () => {
+      if (!recordingId) return false;
+      const playlistUrl = buildPlaylistUrl();
+      if (!playlistUrl) return false;
+
+      const playlistResponse = await fetch(playlistUrl, {
+        cache: "no-store",
+      });
+      if (!playlistResponse.ok) {
+        throw new Error(`Playlist HTTP ${playlistResponse.status}`);
+      }
+
+      const playlistData = await playlistResponse.json();
+      if (cancelled) return true;
+      if (applyPlaylistSegments(playlistData)) {
+        return true;
+      }
+      return false;
+    };
+
     const fetchManifest = async () => {
       try {
         // ALWAYS try backend playlist FIRST — it returns signed
         // download URLs that bypass CDN path/storage-target issues.
         // During live, re-poll every time for new segments.
-        if (recordingId && (!usedBackendPlaylist || !isFinishedSource)) {
-          const playlistUrl = buildPlaylistUrl();
-          if (playlistUrl) {
-            try {
-              const playlistResponse = await fetch(playlistUrl, {
-                cache: "no-store",
-              });
-              if (playlistResponse.ok) {
-                const playlistData = await playlistResponse.json();
-                if (!cancelled && applyPlaylistSegments(playlistData)) {
-                  usedBackendPlaylist = true;
-                  return;
-                }
-              }
-            } catch {
-              // Backend playlist failed, fall through to R2 manifest
-            }
+        let applied = false;
+        let lastError = null;
+
+        if (shouldPreferCdnManifest) {
+          try {
+            applied = await tryFetchCdnManifest();
+          } catch (manifestError) {
+            lastError = manifestError;
           }
         }
 
-        // Fallback: Fetch R2 manifest (CDN)
-        const response = await fetch(source?.embedUrl, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`Manifest HTTP ${response.status}`);
+        if (!applied && recordingId) {
+          try {
+            applied = await tryFetchBackendPlaylist();
+          } catch (playlistError) {
+            lastError = playlistError;
+          }
         }
 
-        const manifest = await response.json();
-        if (cancelled) return;
-        applyManifest(manifest);
+        if (!applied && !shouldPreferCdnManifest && sourceManifestUrl) {
+          try {
+            applied = await tryFetchCdnManifest();
+          } catch (manifestError) {
+            lastError = manifestError;
+          }
+        }
+
+        if (!applied) {
+          throw lastError || new Error("Khong tai duoc delayed manifest.");
+        }
       } catch (fetchError) {
         if (cancelled) return;
         setLoading(false);
@@ -490,7 +529,7 @@ export default function DelayedManifestPlayer({
           fetchError?.message || "Không tải được delayed manifest từ CDN.",
         );
       } finally {
-        if (!cancelled && !usedBackendPlaylist) {
+        if (!cancelled) {
           const baseRefreshSeconds =
             Number(source?.meta?.refreshSeconds || 4) > 0
               ? Number(source?.meta?.refreshSeconds || 4)

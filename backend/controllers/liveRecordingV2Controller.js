@@ -135,6 +135,59 @@ function getSegmentStorageBucketName(segment, recording) {
   );
 }
 
+function buildRecordingTargetPublicBaseUrls(recording) {
+  const targetIds = new Set();
+  const recordingTargetId = asTrimmed(recording?.r2TargetId);
+  if (recordingTargetId) {
+    targetIds.add(recordingTargetId);
+  }
+
+  for (const segment of recording?.segments || []) {
+    const storageTargetId = asTrimmed(segment?.storageTargetId);
+    if (storageTargetId) {
+      targetIds.add(storageTargetId);
+    }
+  }
+
+  const targetPublicBaseUrls = {};
+  for (const targetId of targetIds) {
+    try {
+      const baseUrl = asTrimmed(getRecordingPublicBaseUrl(targetId));
+      if (baseUrl) {
+        targetPublicBaseUrls[targetId] = baseUrl.replace(/\/+$/, "");
+      }
+    } catch {
+      // Ignore targets that are no longer configured.
+    }
+  }
+
+  return targetPublicBaseUrls;
+}
+
+function buildSegmentPublicCdnUrl(
+  segment,
+  recording,
+  { targetPublicBaseUrls = null, fallbackPublicBaseUrl = "" } = {}
+) {
+  const objectKey = asTrimmed(segment?.objectKey).replace(/^\/+/, "");
+  if (!objectKey) return "";
+
+  const targetMap =
+    targetPublicBaseUrls && typeof targetPublicBaseUrls === "object"
+      ? targetPublicBaseUrls
+      : buildRecordingTargetPublicBaseUrls(recording);
+  const segmentTargetId = getSegmentStorageTargetId(segment, recording);
+  const recordingTargetId = asTrimmed(recording?.r2TargetId);
+  const fallbackBase = asTrimmed(fallbackPublicBaseUrl).replace(/\/+$/, "");
+  const baseUrl = asTrimmed(
+    targetMap?.[segmentTargetId] ||
+      targetMap?.[recordingTargetId] ||
+      fallbackBase
+  ).replace(/\/+$/, "");
+
+  return baseUrl ? `${baseUrl}/${objectKey}` : "";
+}
+
 function assignSegmentStorageTarget(segment, storageTarget) {
   if (!segment) return;
   segment.storageTargetId = storageTarget?.id || null;
@@ -1942,8 +1995,48 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
       });
     }
 
+    const multiSourceEnabled = isLiveMultiSourceEnabled();
+    let fallbackPublicBaseUrl = "";
+    if (multiSourceEnabled) {
+      fallbackPublicBaseUrl = asTrimmed(
+        recording?.meta?.livePlayback?.publicBaseUrl
+      );
+      if (!fallbackPublicBaseUrl) {
+        try {
+          fallbackPublicBaseUrl = asTrimmed(
+            getRecordingPublicBaseUrl(recording?.r2TargetId)
+          );
+        } catch {
+          fallbackPublicBaseUrl = "";
+        }
+      }
+    }
+    const targetPublicBaseUrls = multiSourceEnabled
+      ? buildRecordingTargetPublicBaseUrls(recording)
+      : {};
+
     const segments = await Promise.all(
       uploadedSegments.map(async (segment) => {
+        const cdnUrl = multiSourceEnabled
+          ? buildSegmentPublicCdnUrl(segment, recording, {
+              targetPublicBaseUrls,
+              fallbackPublicBaseUrl,
+            })
+          : "";
+        if (cdnUrl) {
+          return {
+            index: segment.index,
+            objectKey: segment.objectKey,
+            storageTargetId:
+              getSegmentStorageTargetId(segment, recording) || null,
+            durationSeconds: segment.durationSeconds || 0,
+            sizeBytes: segment.sizeBytes || 0,
+            isFinal: Boolean(segment.isFinal),
+            url: cdnUrl,
+            expiresInSeconds: null,
+          };
+        }
+
         const download = await createRecordingObjectDownloadUrl({
           objectKey: segment.objectKey,
           expiresInSeconds: 60 * 60 * 12,
@@ -2019,6 +2112,7 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
 
   // Determine the public CDN base URL for segments
   let publicBaseUrl = "";
+  let targetPublicBaseUrls = {};
   if (multiSourceEnabled) {
     publicBaseUrl = asTrimmed(recording?.meta?.livePlayback?.publicBaseUrl);
     if (!publicBaseUrl) {
@@ -2029,6 +2123,7 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
         publicBaseUrl = "";
       }
     }
+    targetPublicBaseUrls = buildRecordingTargetPublicBaseUrls(recording);
   }
 
   // Check if the recording is finished
@@ -2086,39 +2181,29 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
   );
   const mediaSequence = playableSegments[0]?.index ?? 0;
 
-  // Build segment URLs using CDN public base URL when available,
-  // otherwise fall back to signed download URLs
-  const useCdnUrls = Boolean(publicBaseUrl);
-  let segmentLines;
-
-  if (useCdnUrls) {
-    const normalizedBase = publicBaseUrl.replace(/\/+$/, "");
-    segmentLines = playableSegments.map((segment) => {
-      const objectKey = String(segment.objectKey || "").replace(/^\/+/, "");
-      const url = `${normalizedBase}/${objectKey}`;
+  // Build segment URLs using per-target CDN public base URLs when available,
+  // otherwise fall back to signed download URLs.
+  const segmentLines = await Promise.all(
+    playableSegments.map(async (segment) => {
+      const cdnUrl = multiSourceEnabled
+        ? buildSegmentPublicCdnUrl(segment, recording, {
+            targetPublicBaseUrls,
+            fallbackPublicBaseUrl: publicBaseUrl,
+          })
+        : "";
       const dur = Number(segment.durationSeconds || 6).toFixed(3);
-      return `#EXTINF:${dur},\n${url}`;
-    });
-  } else {
-    // Fallback: use presigned download URLs (not ideal for caching)
-    const segmentUrls = await Promise.all(
-      playableSegments.map(async (segment) => {
-        const download = await createRecordingObjectDownloadUrl({
-          objectKey: segment.objectKey,
-          expiresInSeconds: 60 * 60 * 2,
-          storageTargetId: getSegmentStorageTargetId(segment, recording),
-        });
-        return {
-          url: download.downloadUrl,
-          durationSeconds: segment.durationSeconds,
-        };
-      })
-    );
-    segmentLines = segmentUrls.map((s) => {
-      const dur = Number(s.durationSeconds || 6).toFixed(3);
-      return `#EXTINF:${dur},\n${s.url}`;
-    });
-  }
+      if (cdnUrl) {
+        return `#EXTINF:${dur},\n${cdnUrl}`;
+      }
+
+      const download = await createRecordingObjectDownloadUrl({
+        objectKey: segment.objectKey,
+        expiresInSeconds: 60 * 60 * 2,
+        storageTargetId: getSegmentStorageTargetId(segment, recording),
+      });
+      return `#EXTINF:${dur},\n${download.downloadUrl}`;
+    })
+  );
 
   // Build the m3u8 playlist
   const lines = [
