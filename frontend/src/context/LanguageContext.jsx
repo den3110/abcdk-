@@ -23,7 +23,12 @@ const STORAGE_KEY = "app-language";
 const STORAGE_SOURCE_KEY = "app-language-source";
 const USER_LANGUAGE_SOURCE = "user";
 const AUTO_LANGUAGE_SOURCE = "auto";
-const GEO_PROXY_URL = "/api/geo";
+const API_BASE_URL = String(import.meta.env.VITE_API_URL || "")
+  .trim()
+  .replace(/\/+$/, "");
+const GEO_PROXY_URL = API_BASE_URL
+  ? `${API_BASE_URL}${API_BASE_URL.endsWith("/api") ? "" : "/api"}/geo`
+  : "/api/geo";
 const GEO_LOOKUP_TIMEOUT_MS = 3500;
 
 // ---- Bot / Crawler detection ----

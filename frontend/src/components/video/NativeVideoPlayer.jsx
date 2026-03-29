@@ -445,7 +445,14 @@ export default function NativeVideoPlayer({
               return;
             }
 
-            hls = new HlsCtor({ enableWorker: true });
+            hls = new HlsCtor({
+              enableWorker: true,
+              lowLatencyMode: true,
+              liveSyncDurationCount: 3,
+              liveMaxLatencyDurationCount: 8,
+              maxBufferLength: 20,
+              backBufferLength: 30,
+            });
             hls.loadSource(src);
             hls.attachMedia(video);
             hls.on(HlsCtor.Events.MANIFEST_PARSED, () => {

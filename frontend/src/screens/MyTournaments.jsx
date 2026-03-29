@@ -482,6 +482,8 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
                   m={m}
                   onOpen={onOpen}
                   eventType={t.eventType}
+                  translate={translate}
+                  locale={locale}
                 />
               ))}
             </Stack>
@@ -691,14 +693,14 @@ function TournamentCard({ t, onOpenMatch, translate, locale }) {
       const hay = [
         teamLabel(a, t.eventType),
         teamLabel(b, t.eventType),
-        roundText(m),
+        roundText(m, translate),
         m.courtName || m.court || "",
       ]
         .map(stripVN)
         .join(" | ");
       return hay.includes(q);
     });
-  }, [matches, matchQuery, statusFilter, t.eventType]);
+  }, [matches, matchQuery, statusFilter, t.eventType, translate]);
 
   const shown = expanded ? filteredMatches : filteredMatches.slice(0, 5);
   const hasMore = filteredMatches.length > shown.length;
@@ -838,6 +840,8 @@ function TournamentCard({ t, onOpenMatch, translate, locale }) {
                   m={m}
                   onOpen={onOpenMatch}
                   eventType={t.eventType}
+                  translate={translate}
+                  locale={locale}
                 />
               ))}
               {hasMore && (
