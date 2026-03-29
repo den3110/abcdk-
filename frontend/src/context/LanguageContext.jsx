@@ -26,9 +26,7 @@ const AUTO_LANGUAGE_SOURCE = "auto";
 const API_BASE_URL = String(import.meta.env.VITE_API_URL || "")
   .trim()
   .replace(/\/+$/, "");
-const GEO_PROXY_URL = API_BASE_URL
-  ? `${API_BASE_URL}${API_BASE_URL.endsWith("/api") ? "" : "/api"}/geo`
-  : "/api/geo";
+const GEO_PROXY_URL = API_BASE_URL ? `${API_BASE_URL}/api/geo` : "/api/geo";
 const GEO_LOOKUP_TIMEOUT_MS = 3500;
 
 // ---- Bot / Crawler detection ----
