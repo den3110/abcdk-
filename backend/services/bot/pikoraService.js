@@ -53,6 +53,7 @@ const KNOWLEDGE_CACHE_TTL_MS = Math.max(
 );
 const FIRST_TOURNAMENT_ID = "__FIRST_TOURNAMENT_ID__";
 const FIRST_CLUB_ID = "__FIRST_CLUB_ID__";
+const ROUTE_CACHE_VERSION = "2026-03-31-tournament-status-v2";
 const routeDecisionCache = new Map();
 const toolExecutionCache = new Map();
 
@@ -170,6 +171,7 @@ function getPageContextSignature(context = {}) {
 
 function getRouteCacheKey(message, context = {}, userId) {
   return JSON.stringify({
+    version: ROUTE_CACHE_VERSION,
     message: sharedNormalizeText(message),
     pageType: context?.pageType || "",
     pageSection: context?.pageSection || "",
