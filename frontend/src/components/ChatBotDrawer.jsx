@@ -97,6 +97,40 @@ function compactUniqueTexts(values, limit = 8, maxLength = 96) {
     .slice(0, limit);
 }
 
+function compactStats(stats) {
+  if (!stats || typeof stats !== "object") return null;
+
+  const next = {};
+  for (const [key, value] of Object.entries(stats)) {
+    const safeKey = compactText(key, 48);
+    if (!safeKey) continue;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      next[safeKey] = value;
+      continue;
+    }
+    const textValue = compactText(value, 96);
+    if (textValue) {
+      next[safeKey] = textValue;
+    }
+  }
+
+  return Object.keys(next).length ? next : null;
+}
+
+function compactStructuredItems(list, limit = 8) {
+  return (Array.isArray(list) ? list : [])
+    .map((item) => ({
+      id: compactText(item?.id, 64),
+      name: compactText(item?.name, 140),
+      status: compactText(item?.status, 32),
+      location: compactText(item?.location, 96),
+      startDate: compactText(item?.startDate, 48),
+      endDate: compactText(item?.endDate, 48),
+    }))
+    .filter((item) => item.name)
+    .slice(0, limit);
+}
+
 function getVisibleTextFromNodes(selectors, limit = 8, maxLength = 80) {
   if (typeof document === "undefined") return [];
 
@@ -163,6 +197,9 @@ function collectDomPageSnapshot() {
   const highlights = getVisibleTextFromNodes(
     [
       "main .MuiChip-label",
+      "main .MuiCard-root .MuiTypography-subtitle1",
+      "main .MuiCard-root .MuiTypography-h6",
+      "main .MuiCard-root img[alt]",
       "main [data-chatbot-highlight]",
       "nav[aria-label*='breadcrumb'] a",
       "nav[aria-label*='breadcrumb'] span",
@@ -202,6 +239,8 @@ function buildChatContextPayload(registeredSnapshot) {
   const domSnapshot = collectDomPageSnapshot();
   const merged = {
     pageType: compactText(registeredSnapshot?.pageType, 64),
+    pageSection: compactText(registeredSnapshot?.pageSection, 64),
+    pageView: compactText(registeredSnapshot?.pageView, 64),
     entityTitle: compactText(
       registeredSnapshot?.entityTitle || domSnapshot?.entityTitle,
       140,
@@ -237,6 +276,13 @@ function buildChatContextPayload(registeredSnapshot) {
       8,
       88,
     ),
+    stats: compactStats(registeredSnapshot?.stats),
+    visibleTournaments: compactStructuredItems(registeredSnapshot?.visibleTournaments, 8),
+    tournamentId: compactText(registeredSnapshot?.tournamentId, 48),
+    clubId: compactText(registeredSnapshot?.clubId, 48),
+    newsSlug: compactText(registeredSnapshot?.newsSlug, 96),
+    matchId: compactText(registeredSnapshot?.matchId, 48),
+    courtId: compactText(registeredSnapshot?.courtId, 48),
   };
 
   return Object.values(merged).some((value) =>

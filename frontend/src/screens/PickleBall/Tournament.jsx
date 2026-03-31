@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 // src/pages/TournamentDashboard.jsx
-import { useState, useEffect, useMemo, useDeferredValue } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -47,6 +47,7 @@ import { ZoomProvider, ZoomItem } from "../../components/Zoom";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import { formatDate as formatLocaleDate } from "../../i18n/format.js";
 import LottieEmptyState from "../../components/LottieEmptyState";
 
@@ -260,6 +261,92 @@ export default function TournamentDashboard() {
         return true;
       });
   }, [tournaments, tab, debouncedKeyword, dateRange]);
+
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "tournament_list",
+      entityTitle: translate("tournaments.dashboard.title"),
+      sectionTitle: statusMeta[tab]?.label || "",
+      pageSummary: translate("tournaments.dashboard.subtitle"),
+      activeLabels: [
+        statusMeta[tab]?.label || "",
+        debouncedKeyword ? `Tìm: ${debouncedKeyword}` : "",
+        dateRange[0]?.isValid()
+          ? `Từ: ${dateRange[0].format("DD/MM/YYYY")}`
+          : "",
+        dateRange[1]?.isValid()
+          ? `Đến: ${dateRange[1].format("DD/MM/YYYY")}`
+          : "",
+      ],
+      visibleActions: [
+        translate("tournaments.dashboard.searchPlaceholder"),
+        translate("tournaments.actions.schedule"),
+        translate("tournaments.actions.bracket"),
+      ],
+      highlights: filtered.slice(0, 4).map((tournament) => tournament?.name || ""),
+      metrics: [
+        `Đang hiển thị: ${filtered.length}`,
+        `Tổng giải: ${counts.total}`,
+        `Sắp diễn ra: ${counts.upcoming}`,
+        `Đang diễn ra: ${counts.ongoing}`,
+        `Đã kết thúc: ${counts.finished}`,
+      ],
+      stats: {
+        total: counts.total,
+        upcoming: counts.upcoming,
+        ongoing: counts.ongoing,
+        finished: counts.finished,
+        visible: filtered.length,
+        currentTab: tab,
+        keyword: debouncedKeyword,
+      },
+      visibleTournaments: filtered.slice(0, 4).map((tournament) => ({
+        id: tournament?._id || "",
+        name: tournament?.name || "",
+        status: tournament?.status || "",
+        location: tournament?.location || "",
+        startDate: tournament?.startDate || "",
+        endDate: tournament?.endDate || "",
+      })),
+    }),
+    [counts, dateRange, debouncedKeyword, filtered, statusMeta, tab, translate],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      tab: (nextValue) => {
+        const nextTab = TABS.includes(String(nextValue || ""))
+          ? String(nextValue)
+          : "upcoming";
+        setTab(nextTab);
+        setParams(
+          (prev) => {
+            const nextParams = new URLSearchParams(prev);
+            nextParams.set("status", nextTab);
+            return nextParams;
+          },
+          { replace: true },
+        );
+      },
+      search: (nextValue) => {
+        setKeyword(String(nextValue || ""));
+      },
+    }),
+    [setParams],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: [
+      "set_page_state",
+      "prefill_text",
+      "focus_element",
+      "copy_link",
+      "open_new_tab",
+      "navigate",
+    ],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   const handleChangeTab = (_, v) => {
     setTab(v);

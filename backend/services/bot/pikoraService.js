@@ -1054,10 +1054,173 @@ function buildNewsKeywordFromContext(context) {
   return "";
 }
 
+function formatTournamentStatusLabel(status) {
+  switch (String(status || "")) {
+    case "upcoming":
+      return "sắp diễn ra";
+    case "ongoing":
+      return "đang diễn ra";
+    case "finished":
+      return "đã kết thúc";
+    default:
+      return "hiện tại";
+  }
+}
+
+function inferTournamentListStatusFromSnapshot(snapshot = {}) {
+  const joined = sharedNormalizeText(
+    [snapshot?.sectionTitle, ...(snapshot?.activeLabels || [])].join(" "),
+  );
+  if (hasAny(joined, ["sap dien ra", "upcoming"])) return "upcoming";
+  if (hasAny(joined, ["dang dien ra", "ongoing"])) return "ongoing";
+  if (hasAny(joined, ["da ket thuc", "finished"])) return "finished";
+  return "";
+}
+
+function getTournamentListPageState(context = {}) {
+  if (String(context?.pageType || "") !== "tournament_list") return null;
+
+  const snapshot = context?.pageSnapshot || {};
+  const rawStats = snapshot?.stats || {};
+  const currentTab = ["upcoming", "ongoing", "finished"].includes(
+    String(rawStats.currentTab || ""),
+  )
+    ? String(rawStats.currentTab)
+    : inferTournamentListStatusFromSnapshot(snapshot);
+  const visibleTournaments = Array.isArray(snapshot?.visibleTournaments)
+    ? snapshot.visibleTournaments
+        .map((item) => ({
+          id: String(item?.id || ""),
+          name: trimText(item?.name || "", 120),
+          status: String(item?.status || ""),
+          location: trimText(item?.location || "", 80),
+        }))
+        .filter((item) => item.name)
+        .slice(0, 4)
+    : compactTexts(snapshot?.highlights || [], 4, 120).map((name) => ({
+        id: "",
+        name,
+        status: currentTab,
+        location: "",
+      }));
+
+  return {
+    currentTab,
+    stats: {
+      total: Number(rawStats.total) || 0,
+      upcoming: Number(rawStats.upcoming) || 0,
+      ongoing: Number(rawStats.ongoing) || 0,
+      finished: Number(rawStats.finished) || 0,
+      visible: Number(rawStats.visible) || visibleTournaments.length || 0,
+    },
+    visibleTournaments,
+    keyword: trimText(rawStats.keyword || "", 80),
+  };
+}
+
+function createTournamentListTabAction(status) {
+  return createAction("set_page_state", {
+    label: `Chuyển sang tab ${formatTournamentStatusLabel(status)}`,
+    description: `Đổi danh sách giải đấu sang trạng thái ${formatTournamentStatusLabel(status)}.`,
+    payload: {
+      key: "tab",
+      handlerKey: "tab",
+      value: status,
+    },
+  });
+}
+
+function buildTournamentListDirectRoute(normalized, context = {}) {
+  const pageState = getTournamentListPageState(context);
+  if (!pageState) return null;
+
+  const asksAboutTournamentList =
+    hasAny(normalized, [
+      "giai",
+      "tournament",
+      "bao nhieu giai",
+      "co bao nhieu giai",
+      "co giai nao",
+      "giai nao",
+      "sap dien ra",
+      "dang dien ra",
+      "da ket thuc",
+      "khong co",
+      "khong lay",
+      "khong thay",
+      "sao lai",
+    ]) ||
+    (isCurrentContextReference(normalized) &&
+      hasAny(normalized, ["bao nhieu", "co khong", "co gi"]));
+
+  if (!asksAboutTournamentList) return null;
+
+  const requestedStatus = pickTournamentStatus(normalized) || pageState.currentTab;
+  if (!requestedStatus) return null;
+
+  const currentStatus = pageState.currentTab || requestedStatus;
+  const requestedLabel = formatTournamentStatusLabel(requestedStatus);
+  const currentLabel = formatTournamentStatusLabel(currentStatus);
+  const requestedCount =
+    Number(pageState.stats?.[requestedStatus]) ||
+    (requestedStatus === currentStatus ? pageState.stats.visible : 0);
+  const visibleNames = pageState.visibleTournaments
+    .map((item) => item.name)
+    .filter(Boolean);
+
+  let reply = "";
+  if (requestedCount > 0) {
+    if (requestedStatus === currentStatus) {
+      reply = `Ngay trên tab "${currentLabel}", mình đang thấy ${requestedCount} giải ${requestedLabel}.`;
+      if (visibleNames.length) {
+        reply += ` Ví dụ đang hiện ${visibleNames.slice(0, 3).join(", ")}.`;
+      }
+    } else {
+      reply = `Theo dữ liệu đang hiển thị trên trang này, hiện có ${requestedCount} giải ${requestedLabel}. Tab bạn đang mở là "${currentLabel}".`;
+    }
+  } else if (requestedStatus === currentStatus && visibleNames.length) {
+    reply = `Ngay trên tab "${currentLabel}", mình vẫn đang thấy ${visibleNames.length} giải hiện trên màn hình, gồm ${visibleNames.slice(0, 3).join(", ")}.`;
+  } else {
+    reply = `Theo bộ lọc hiện tại trên trang này, mình chưa thấy giải ${requestedLabel}. Tab đang mở là "${currentLabel}".`;
+  }
+
+  if (pageState.keyword) {
+    reply += ` Lưu ý là danh sách đang có bộ lọc tìm kiếm "${pageState.keyword}".`;
+  }
+
+  const actions = [];
+  if (requestedStatus !== currentStatus) {
+    actions.push(createTournamentListTabAction(requestedStatus));
+  }
+  actions.push(...buildContextActions(context).slice(0, 3));
+
+  return {
+    kind: "direct",
+    directResponse: {
+      reply,
+      actions: actions.filter(Boolean),
+      suggestions: [
+        requestedStatus === "ongoing" ? "Tiến độ giải này thế nào?" : "",
+        requestedStatus === "ongoing" ? "Mở lịch thi đấu" : "",
+        requestedStatus !== "ongoing" ? "Chuyển sang tab đang diễn ra" : "",
+        "Focus ô tìm kiếm",
+      ].filter(Boolean),
+    },
+  };
+}
+
 function classifyRoute(message, context, userId) {
   const normalized = sharedNormalizeText(message);
   const boostedNormalized = addContextualKeywords(normalized, context);
   const entityName = sharedExtractEntityName(message);
+  const tournamentListDirectRoute = buildTournamentListDirectRoute(
+    boostedNormalized,
+    context,
+  );
+
+  if (tournamentListDirectRoute) {
+    return tournamentListDirectRoute;
+  }
 
   if (
     hasAny(normalized, ["xin chao", "hello", "hi ", "hey", "chao pikora"])

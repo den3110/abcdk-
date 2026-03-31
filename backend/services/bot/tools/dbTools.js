@@ -65,6 +65,42 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function buildTournamentStatusSort(status) {
+  switch (String(status || "")) {
+    case "upcoming":
+      return { startDate: 1, endDate: 1, _id: 1 };
+    case "ongoing":
+      return { endDate: 1, startDate: 1, _id: 1 };
+    case "finished":
+      return { endDate: -1, startDate: -1, _id: 1 };
+    default:
+      return { startDate: -1, _id: 1 };
+  }
+}
+
+function buildDerivedTournamentStatusFilter(status) {
+  const now = new Date();
+
+  switch (String(status || "")) {
+    case "upcoming":
+      return { startDate: { $gt: now } };
+    case "ongoing":
+      return {
+        startDate: { $lte: now },
+        $or: [{ endDate: { $gte: now } }, { endDate: { $exists: false } }],
+      };
+    case "finished":
+      return {
+        $or: [
+          { endDate: { $lt: now } },
+          { endDate: { $exists: false }, startDate: { $lt: now } },
+        ],
+      };
+    default:
+      return {};
+  }
+}
+
 // Format player name as markdown link to profile (if user ID available)
 function playerLink(player) {
   if (!player) return null;
@@ -143,19 +179,45 @@ const SAFE_SELECT = {
  * Tìm giải đấu theo tên hoặc status
  */
 export async function search_tournaments({ name, status, limit = 5 }) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 5, 1), 20);
+  const normalizedStatus = ["upcoming", "ongoing", "finished"].includes(
+    String(status || ""),
+  )
+    ? String(status)
+    : "";
   const filter = {};
   if (name) filter.name = { $regex: escapeRegex(name), $options: "i" };
-  if (status) filter.status = status;
+  if (normalizedStatus) filter.status = normalizedStatus;
 
-  const docs = await Tournament.find(filter)
+  const sort = buildTournamentStatusSort(normalizedStatus);
+  let docs = await Tournament.find(filter)
     .select("name code status startDate endDate location eventType maxPairs")
-    .sort({ startDate: -1 })
-    .limit(Number(limit))
+    .sort(sort)
+    .limit(safeLimit)
     .lean();
+
+  let statusMatchedBy = normalizedStatus ? "stored_status" : "";
+  if (!docs.length && normalizedStatus) {
+    const fallbackFilter = { ...filter };
+    delete fallbackFilter.status;
+
+    docs = await Tournament.find({
+      $and: [fallbackFilter, buildDerivedTournamentStatusFilter(normalizedStatus)],
+    })
+      .select("name code status startDate endDate location eventType maxPairs")
+      .sort(sort)
+      .limit(safeLimit)
+      .lean();
+
+    if (docs.length) {
+      statusMatchedBy = "derived_dates";
+    }
+  }
 
   return {
     tournaments: docs,
     count: docs.length,
+    statusMatchedBy: statusMatchedBy || undefined,
     hint: "Để xem chi tiết hoặc mở giải đấu, hãy gọi tool navigate(screen='...', tournamentId='_id_của_giải') hoặc get_tournament_details(tournamentId='...')",
   };
 }

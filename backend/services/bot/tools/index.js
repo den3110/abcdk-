@@ -65,7 +65,6 @@ export const TOOL_EXECUTORS = {
   compare_players: dbTools.compare_players,
   get_tournament_schedule: dbTools.get_tournament_schedule,
   get_tournament_rules: dbTools.get_tournament_rules,
-  get_bracket_standings: dbTools.get_bracket_standings,
   get_court_status: dbTools.get_court_status,
   get_match_live_log: dbTools.get_match_live_log,
   get_tournament_payment_info: dbTools.get_tournament_payment_info,
@@ -90,7 +89,7 @@ export const TOOL_EXECUTORS = {
 // ─────────────── OPENAI TOOL SCHEMAS ───────────────
 // Format: https://platform.openai.com/docs/guides/function-calling
 
-export const TOOL_DEFINITIONS = [
+const RAW_TOOL_DEFINITIONS = [
   {
     type: "function",
     function: {
@@ -1704,3 +1703,16 @@ export const TOOL_DEFINITIONS = [
     },
   },
 ];
+
+function dedupeToolDefinitions(definitions = []) {
+  const seen = new Set();
+  return definitions.filter((item) => {
+    const name = item?.function?.name;
+    if (!name) return false;
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+}
+
+export const TOOL_DEFINITIONS = dedupeToolDefinitions(RAW_TOOL_DEFINITIONS);

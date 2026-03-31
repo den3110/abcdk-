@@ -40,11 +40,47 @@ function sanitizeList(list, limit = 8, maxLength = 80) {
     .slice(0, limit);
 }
 
+function sanitizeStats(stats) {
+  if (!stats || typeof stats !== "object") return null;
+
+  const next = {};
+  for (const [key, value] of Object.entries(stats)) {
+    const safeKey = trimText(key, 48);
+    if (!safeKey) continue;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      next[safeKey] = value;
+      continue;
+    }
+    const textValue = trimText(value, 96);
+    if (textValue) {
+      next[safeKey] = textValue;
+    }
+  }
+
+  return Object.keys(next).length ? next : null;
+}
+
+function sanitizeStructuredItems(list, limit = 8) {
+  return (Array.isArray(list) ? list : [])
+    .map((item) => ({
+      id: trimText(item?.id, 64),
+      name: trimText(item?.name, 140),
+      status: trimText(item?.status, 32),
+      location: trimText(item?.location, 96),
+      startDate: trimText(item?.startDate, 48),
+      endDate: trimText(item?.endDate, 48),
+    }))
+    .filter((item) => item.name)
+    .slice(0, limit);
+}
+
 function sanitizeSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return null;
 
   const next = {
     pageType: trimText(snapshot.pageType, 64),
+    pageSection: trimText(snapshot.pageSection, 64),
+    pageView: trimText(snapshot.pageView, 64),
     entityTitle: trimText(snapshot.entityTitle, 140),
     sectionTitle: trimText(snapshot.sectionTitle, 120),
     pageSummary: trimText(snapshot.pageSummary, 240),
@@ -52,6 +88,13 @@ function sanitizeSnapshot(snapshot) {
     visibleActions: sanitizeList(snapshot.visibleActions, 8, 64),
     highlights: sanitizeList(snapshot.highlights, 8, 96),
     metrics: sanitizeList(snapshot.metrics, 8, 96),
+    stats: sanitizeStats(snapshot.stats),
+    visibleTournaments: sanitizeStructuredItems(snapshot.visibleTournaments, 8),
+    tournamentId: trimText(snapshot.tournamentId, 48),
+    clubId: trimText(snapshot.clubId, 48),
+    newsSlug: trimText(snapshot.newsSlug, 96),
+    matchId: trimText(snapshot.matchId, 48),
+    courtId: trimText(snapshot.courtId, 48),
   };
 
   if (!Object.values(next).some((value) =>
