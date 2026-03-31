@@ -577,6 +577,21 @@ async function runPikora(message, context, userId, emit, options = {}) {
     );
   }
 
+  const groundedTournamentStatusResponse =
+    buildGroundedTournamentStatusResponse(message, route, context, execution);
+  if (groundedTournamentStatusResponse) {
+    return finalizeGroundedToolResponse({
+      safeEmit,
+      message,
+      route,
+      context,
+      execution,
+      direct: groundedTournamentStatusResponse,
+      contextInsight: buildContextInsight(context, route, null, execution),
+      startTime,
+    });
+  }
+
   const [memory, userProfile] = await Promise.all([
     memoryPromise,
     userProfilePromise,
@@ -860,6 +875,219 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     personalization: result.personalization,
     trustMeta: result.trustMeta,
     toolSummary: [],
+  });
+  if (result.suggestions.length > 0) {
+    safeEmit("suggestions", { suggestions: result.suggestions });
+  }
+  safeEmit("done", {});
+
+  return result;
+}
+
+function buildGroundedTournamentStatusResponse(message, route, context, execution) {
+  if (
+    !Array.isArray(route?.toolPlan) ||
+    route.toolPlan.length !== 1 ||
+    route.toolPlan[0]?.name !== "search_tournaments"
+  ) {
+    return null;
+  }
+
+  const normalized = sharedNormalizeText(message);
+  if (
+    !hasAny(normalized, [
+      "giai nao",
+      "co giai nao",
+      "bao nhieu giai",
+      "co bao nhieu giai",
+      "sap dien ra",
+      "dang dien ra",
+      "da ket thuc",
+    ])
+  ) {
+    return null;
+  }
+
+  if (
+    hasAny(normalized, [
+      "lich thi dau",
+      "schedule",
+      "luat",
+      "rules",
+      "dang ky",
+      "bao nhieu doi",
+      "nhanh dau",
+      "bracket",
+      "so do",
+      "san",
+      "court",
+      "manager",
+      "btc",
+      "trong tai",
+      "progress",
+      "tien do",
+      "boc tham",
+      "draw",
+    ])
+  ) {
+    return null;
+  }
+
+  const result = execution?.toolResults?.search_tournaments;
+  if (!result || !Array.isArray(result.tournaments)) return null;
+
+  const requestedStatus =
+    pickTournamentStatus(normalized) ||
+    route?.toolPlan?.[0]?.args?.status ||
+    "";
+  const statusLabel = formatTournamentStatusLabel(requestedStatus);
+  const tournaments = result.tournaments
+    .map((item) => ({
+      id: String(item?._id || ""),
+      name: trimText(item?.name || "", 120),
+      location: trimText(item?.location || "", 80),
+      startDate: item?.startDate || "",
+      endDate: item?.endDate || "",
+    }))
+    .filter((item) => item.name);
+  const count = Number(result.count) || tournaments.length;
+  const sampleNames = tournaments.slice(0, 3).map((item) => item.name);
+  const firstTournament = tournaments[0] || null;
+  const matchedBy = result.statusMatchedBy === "derived_dates";
+
+  let reply = "";
+  if (count > 0) {
+    reply = `Hiện có ${count} giải ${statusLabel}.`;
+    if (sampleNames.length) {
+      reply += ` Ví dụ: ${sampleNames.join(", ")}.`;
+    }
+    if (firstTournament?.location) {
+      reply += ` Giải gần nhất mình thấy đang ở ${firstTournament.location}.`;
+    }
+    if (matchedBy) {
+      reply += " Mình xác nhận theo thời gian diễn ra thực tế của giải, không chỉ dựa vào trạng thái lưu sẵn.";
+    }
+  } else {
+    reply = `Hiện tại mình chưa thấy giải ${statusLabel} trong dữ liệu hệ thống.`;
+    if (matchedBy) {
+      reply += " Mình đã kiểm tra thêm theo mốc thời gian thực tế của giải nhưng vẫn chưa thấy kết quả phù hợp.";
+    }
+  }
+
+  const suggestions = [
+    requestedStatus === "ongoing" ? "Tiến độ giải này thế nào?" : "Giải nào đang diễn ra?",
+    requestedStatus === "upcoming" ? "Mở tab sắp diễn ra" : "Giải nào sắp diễn ra?",
+    "Mở danh sách giải đấu",
+  ]
+    .filter(Boolean)
+    .slice(0, 3);
+
+  return {
+    reply,
+    suggestions,
+  };
+}
+
+function finalizeGroundedToolResponse({
+  safeEmit,
+  message,
+  route,
+  context,
+  execution,
+  direct,
+  contextInsight,
+  startTime,
+}) {
+  const processingTime = Date.now() - startTime;
+  const sources = buildSourcesFromToolResults(execution.toolResults, context);
+  const answerCards = buildAnswerCardsFromToolResults(execution.toolResults, context);
+  const result = {
+    reply: direct.reply,
+    intent: inferIntent(message, route, context, execution),
+    routeKind: route.kind || "lookup",
+    toolsPlanned: Array.isArray(route.toolPlan)
+      ? route.toolPlan.map((step) => step?.name).filter(Boolean)
+      : [],
+    toolsUsed: execution.toolsUsed,
+    toolSummary: execution.toolSummary,
+    navigation: execution.navigation || null,
+    actions: buildSuggestedActions(route, context, execution),
+    answerCards,
+    sources,
+    contextInsight: direct.contextInsight || contextInsight || "",
+    personalization: null,
+    suggestions: direct.suggestions || [],
+    model: "local-grounded",
+    mode: "grounded_direct",
+    rawThinking: "",
+    reasoningAvailable: false,
+    firstTokenLatencyMs: 0,
+    processingTime,
+    processingTimeMs: processingTime,
+    capabilityKeys: [],
+    actionExecutionSummary: null,
+    trustMeta: null,
+  };
+
+  result.capabilityKeys = buildCapabilityKeys(route, context, result);
+  result.actionExecutionSummary = buildActionExecutionSummary(result.actions);
+  result.trustMeta = buildTrustMeta({
+    route,
+    execution,
+    sources: result.sources,
+    answerCards: result.answerCards,
+    actions: result.actions,
+    reasoningAvailable: false,
+  });
+
+  safeEmit("message_start", {
+    model: result.model,
+    mode: result.mode,
+  });
+  if (result.reply) {
+    safeEmit("message_delta", { delta: result.reply });
+  }
+  safeEmit("message_done", {
+    text: result.reply,
+    intent: result.intent,
+    routeKind: result.routeKind,
+    toolsUsed: result.toolsUsed,
+    model: result.model,
+    mode: result.mode,
+    reasoningAvailable: false,
+    navigation: result.navigation,
+    actions: result.actions,
+    answerCards: result.answerCards,
+    sources: result.sources,
+    capabilityKeys: result.capabilityKeys,
+    actionExecutionSummary: result.actionExecutionSummary,
+    contextInsight: result.contextInsight,
+    personalization: result.personalization,
+    trustMeta: result.trustMeta,
+    firstTokenLatencyMs: 0,
+    processingTimeMs: result.processingTimeMs,
+    toolSummary: result.toolSummary,
+  });
+  safeEmit("reply", {
+    text: result.reply,
+    intent: result.intent,
+    routeKind: result.routeKind,
+    toolsUsed: result.toolsUsed,
+    processingTime: result.processingTime,
+    processingTimeMs: result.processingTimeMs,
+    model: result.model,
+    mode: result.mode,
+    reasoningAvailable: false,
+    navigation: result.navigation,
+    actions: result.actions,
+    answerCards: result.answerCards,
+    sources: result.sources,
+    capabilityKeys: result.capabilityKeys,
+    actionExecutionSummary: result.actionExecutionSummary,
+    contextInsight: result.contextInsight,
+    personalization: result.personalization,
+    trustMeta: result.trustMeta,
+    toolSummary: result.toolSummary,
   });
   if (result.suggestions.length > 0) {
     safeEmit("suggestions", { suggestions: result.suggestions });
@@ -1300,7 +1528,7 @@ function classifyRoute(message, context, userId) {
   }
 
   if (
-    hasAny(boostedNormalized, [
+    hasAny(normalized, [
       "luật",
       "hướng dẫn",
       "cách ",
@@ -1957,7 +2185,9 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
   }
 
   const status = pickTournamentStatus(normalized);
-  const extractedName = entityName || "";
+  const extractedName = shouldIgnoreTournamentNameFilter(normalized, entityName)
+    ? ""
+    : entityName || "";
   const plan = [
     {
       name: "search_tournaments",
@@ -2057,10 +2287,38 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
 }
 
 function pickTournamentStatus(normalized) {
-  if (hasAny(normalized, ["sắp tới", "upcoming", "mở đăng ký"])) return "upcoming";
+  if (hasAny(normalized, ["sắp tới", "sắp diễn ra", "upcoming", "mở đăng ký"])) {
+    return "upcoming";
+  }
   if (hasAny(normalized, ["đang diễn ra", "ongoing", "live"])) return "ongoing";
   if (hasAny(normalized, ["đã kết thúc", "finished"])) return "finished";
   return "";
+}
+
+function shouldIgnoreTournamentNameFilter(normalized, entityName) {
+  const normalizedEntity = sharedNormalizeText(entityName);
+  if (!normalizedEntity) return true;
+
+  if (
+    hasAny(normalized, [
+      "co giai nao",
+      "giai nao",
+      "bao nhieu giai",
+      "co bao nhieu giai",
+    ])
+  ) {
+    return true;
+  }
+
+  return hasAny(normalizedEntity, [
+    "co",
+    "nao",
+    "dang dien ra",
+    "sap dien ra",
+    "da ket thuc",
+    "sap toi",
+    "bao nhieu",
+  ]);
 }
 
 function extractEntityName(message) {
