@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 // src/pages/TournamentDashboard.jsx
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, memo, useCallback, useRef } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -43,7 +43,7 @@ import "dayjs/locale/vi";
 import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
 
 // ====== Zoom components ======
-import { ZoomProvider, ZoomItem } from "../../components/Zoom";
+import { DEFAULT_FALLBACK } from "../../components/Zoom";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
@@ -184,11 +184,19 @@ export default function TournamentDashboard() {
     params.get("to") ? dayjs(params.get("to")) : null,
   ]);
 
-  // --- Sync Logic ---
+  // --- Sync URL → tab (one-way, only on external URL changes) ---
+  // Using a ref to skip our own setParams calls
+  const skipNextParamsSync = useRef(false);
+
   useEffect(() => {
+    if (skipNextParamsSync.current) {
+      skipNextParamsSync.current = false;
+      return;
+    }
     const urlTab = params.get("status");
     if (urlTab && TABS.includes(urlTab) && urlTab !== tab) setTab(urlTab);
-  }, [params, tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
 
   // Debounce search -> update URL
   useEffect(() => {
@@ -199,8 +207,12 @@ export default function TournamentDashboard() {
       setParams(
         (prev) => {
           const p = new URLSearchParams(prev);
+          const curQ = p.get("q") || "";
+          // Only mutate if different
+          if (val === curQ) return prev;
           if (val) p.set("q", val);
           else p.delete("q");
+          skipNextParamsSync.current = true;
           return p;
         },
         { replace: true },
@@ -208,23 +220,31 @@ export default function TournamentDashboard() {
     }, 400);
 
     return () => clearTimeout(handle);
-  }, [keyword, setParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword]);
 
-  // Sync dateRange -> URL
+  // Sync dateRange -> URL (only when values actually change)
   useEffect(() => {
     const [start, end] = dateRange;
+    const nextFrom = start?.isValid() ? start.format("YYYY-MM-DD") : "";
+    const nextTo = end?.isValid() ? end.format("YYYY-MM-DD") : "";
+
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev);
-        start?.isValid()
-          ? p.set("from", start.format("YYYY-MM-DD"))
-          : p.delete("from");
-        end?.isValid() ? p.set("to", end.format("YYYY-MM-DD")) : p.delete("to");
+        const curFrom = p.get("from") || "";
+        const curTo = p.get("to") || "";
+        // Only mutate if different
+        if (nextFrom === curFrom && nextTo === curTo) return prev;
+        nextFrom ? p.set("from", nextFrom) : p.delete("from");
+        nextTo ? p.set("to", nextTo) : p.delete("to");
+        skipNextParamsSync.current = true;
         return p;
       },
       { replace: true },
     );
-  }, [dateRange, setParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange]);
 
   const {
     data: tournaments,
@@ -341,9 +361,8 @@ export default function TournamentDashboard() {
     [setParams],
   );
 
-  useRegisterChatBotPageContext({
-    snapshot: chatBotSnapshot,
-    capabilityKeys: [
+  const chatBotCapabilityKeys = useMemo(
+    () => [
       "set_page_state",
       "prefill_text",
       "focus_element",
@@ -351,6 +370,12 @@ export default function TournamentDashboard() {
       "open_new_tab",
       "navigate",
     ],
+    [],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: chatBotCapabilityKeys,
     actionHandlers: chatBotActionHandlers,
   });
 
@@ -396,7 +421,7 @@ export default function TournamentDashboard() {
     });
   }, [dateRange, debouncedKeyword, tab, statusMeta, translate]);
 
-  // --- COMPONENT: Action Buttons (Đăng ký TO NHẤT + bỏ Check-in) ---
+  // --- COMPONENT: Action Buttons ---
   const Actions = ({ t }) => {
     const btnSx = {
       borderRadius: 2,
@@ -577,25 +602,26 @@ export default function TournamentDashboard() {
               </StatusBadge>
             </Box>
 
-            <ZoomItem src={t.image}>
-              <Box sx={{ width: "100%", height: "100%", cursor: "zoom-in" }}>
-                <img
-                  src={
-                    t.image ||
-                    "https://via.placeholder.com/400x200?text=No+Image"
-                  }
-                  alt={t.name}
-                  loading="lazy"
-                  decoding="async"
-                  className="zoom-image"
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                  }}
-                />
-              </Box>
-            </ZoomItem>
+            <Box sx={{ width: "100%", height: "100%" }}>
+              <img
+                src={t.image || DEFAULT_FALLBACK}
+                alt={t.name}
+                loading="lazy"
+                decoding="async"
+                className="zoom-image"
+                onError={(e) => {
+                  if (e.currentTarget.dataset.fallbackApplied === "1") return;
+                  e.currentTarget.dataset.fallbackApplied = "1";
+                  e.currentTarget.src = DEFAULT_FALLBACK;
+                }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  display: "block",
+                }}
+              />
+            </Box>
           </Box>
 
           <CardContent sx={{ flexGrow: 1, p: 2, pb: 1 }}>
@@ -871,7 +897,22 @@ export default function TournamentDashboard() {
         </Stack>
 
         {/* LIST CONTENT */}
-        <Box sx={{ minHeight: 400 }}>
+        <Box sx={{ minHeight: 400, position: "relative" }}>
+          {/* Subtle refetch indicator – keeps existing content visible */}
+          {isFetching && !isLoading && (
+            <LinearProgress
+              sx={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                zIndex: 5,
+                borderRadius: 2,
+                height: 3,
+              }}
+            />
+          )}
+
           {error && (
             <Box p={3} color="error.dark" borderRadius={3} textAlign="center">
               {translate("tournaments.dashboard.loadError", {
@@ -880,7 +921,7 @@ export default function TournamentDashboard() {
             </Box>
           )}
 
-          {isLoading || isFetching ? (
+          {isLoading ? (
             <Grid container spacing={3}>
               {[...Array(8)].map((_, i) => (
                 <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={i}>
@@ -893,23 +934,21 @@ export default function TournamentDashboard() {
               ))}
             </Grid>
           ) : (
-            <ZoomProvider maskOpacity={0.8}>
-              {filtered.length === 0 ? (
-                <LottieEmptyState
-                  title={translate("tournaments.dashboard.empty")}
-                  description={emptyStateDescription}
-                  minHeight={360}
-                />
-              ) : (
-                <Grid container spacing={3}>
-                  {filtered.map((t) => (
-                    <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
-                      <TournamentCard t={t} />
-                    </Grid>
-                  ))}
-                </Grid>
-              )}
-            </ZoomProvider>
+            filtered.length === 0 ? (
+              <LottieEmptyState
+                title={translate("tournaments.dashboard.empty")}
+                description={emptyStateDescription}
+                minHeight={360}
+              />
+            ) : (
+              <Grid container spacing={3}>
+                {filtered.map((t) => (
+                  <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
+                    <TournamentCard t={t} />
+                  </Grid>
+                ))}
+              </Grid>
+            )
           )}
         </Box>
       </Container>

@@ -125,10 +125,23 @@ export function ChatBotPageContextProvider({ children }) {
         ? config.snapshot
         : config;
 
-    setSnapshotState(sanitizeSnapshot(nextSnapshot));
-    setCapabilityKeys(
-      sanitizeList(config?.capabilityKeys, 16, 48).map((item) => item.toLowerCase()),
+    const sanitized = sanitizeSnapshot(nextSnapshot);
+    const nextCaps = sanitizeList(config?.capabilityKeys, 16, 48).map((item) =>
+      item.toLowerCase(),
     );
+
+    // Only update state if values actually changed (avoids infinite re-render loops)
+    setSnapshotState((prev) => {
+      const prevStr = JSON.stringify(prev);
+      const nextStr = JSON.stringify(sanitized);
+      return prevStr === nextStr ? prev : sanitized;
+    });
+    setCapabilityKeys((prev) => {
+      const prevStr = JSON.stringify(prev);
+      const nextStr = JSON.stringify(nextCaps);
+      return prevStr === nextStr ? prev : nextCaps;
+    });
+
     actionHandlersRef.current =
       config?.actionHandlers && typeof config.actionHandlers === "object"
         ? config.actionHandlers

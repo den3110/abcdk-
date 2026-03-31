@@ -44,6 +44,25 @@ test("keeps true knowledge queries on the knowledge route", () => {
   assert.equal(route.toolPlan?.[0]?.name, "search_knowledge");
 });
 
+test("keeps generic knowledge queries on knowledge route even on leaderboard pages", () => {
+  const context = {
+    pageType: "leaderboard",
+    pageSnapshot: {
+      pageType: "leaderboard",
+      sectionTitle: "Bảng xếp hạng",
+      activeLabels: ["Điểm trình"],
+      visibleActions: ["Hồ sơ", "Chấm trình", "Xem KYC"],
+      highlights: ["Bảng xếp hạng"],
+    },
+  };
+
+  for (const message of ["pickleball là gì", "pickleball la gi"]) {
+    const route = classifyRouteForTest(message, context, null);
+    assert.equal(route.kind, "knowledge");
+    assert.equal(route.toolPlan?.[0]?.name, "search_knowledge");
+  }
+});
+
 test("routes tournament progress questions to tournament progress tools", () => {
   const route = classifyRouteForTest(
     "giai nay con bao nhieu tran",

@@ -17,6 +17,17 @@ const SENTRY_RELEASE =
 let sentryInitialized = false;
 let lastNavigationKey = "";
 
+function isLocalRuntime() {
+  if (typeof window === "undefined") return false;
+  const host = String(window.location.hostname || "").toLowerCase();
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.endsWith(".local")
+  );
+}
+
 function parseSampleRate(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -122,18 +133,24 @@ function getUserRole(userInfo) {
 export function initSentry({ routerTracingIntegration } = {}) {
   if (sentryInitialized || !SENTRY_DSN) return;
 
+  const disableHeavyTracking = import.meta.env.DEV || isLocalRuntime();
+
   const tracesSampleRate = parseSampleRate(
     import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE,
     0.2,
   );
-  const replaysSessionSampleRate = parseSampleRate(
-    import.meta.env.VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
-    0.05,
-  );
-  const replaysOnErrorSampleRate = parseSampleRate(
-    import.meta.env.VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
-    1,
-  );
+  const replaysSessionSampleRate = disableHeavyTracking
+    ? 0
+    : parseSampleRate(
+        import.meta.env.VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+        0.05,
+      );
+  const replaysOnErrorSampleRate = disableHeavyTracking
+    ? 0
+    : parseSampleRate(
+        import.meta.env.VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+        1,
+      );
 
   const integrations = [];
 

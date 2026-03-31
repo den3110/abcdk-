@@ -1,0 +1,12 @@
+[31mfailed to load config from C:\Users\giang\code\mern-auth\frontend\vite.config.js[39m
+[31merror when starting preview server:
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at Object.spawn (node:child_process:754:9)
+    at ensureServiceIsRunning (C:\Users\giang\code\mern-auth\frontend\node_modules\esbuild\lib\main.js:2134:29)
+    at build (C:\Users\giang\code\mern-auth\frontend\node_modules\esbuild\lib\main.js:2025:26)
+    at bundleConfigFile (file:///C:/Users/giang/code/mern-auth/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:66529:26)
+    at loadConfigFromFile (file:///C:/Users/giang/code/mern-auth/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:66505:31)
+    at resolveConfig (file:///C:/Users/giang/code/mern-auth/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:66096:34)
+    at preview (file:///C:/Users/giang/code/mern-auth/frontend/node_modules/vite/dist/node/chunks/dep-827b23df.js:65953:26)
+    at CAC.<anonymous> (file:///C:/Users/giang/code/mern-auth/frontend/node_modules/vite/dist/node/cli.js:897:30)[39m

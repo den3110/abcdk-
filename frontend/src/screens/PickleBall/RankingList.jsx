@@ -82,6 +82,7 @@ import { skipToken } from "@reduxjs/toolkit/query";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext";
 import { formatDate } from "../../i18n/format";
 
 /* ================= LAZY LOADING AVATAR COMPONENT ================= */
@@ -1152,6 +1153,98 @@ export default function RankingList() {
     },
     [searchParams, setSearchParams],
   );
+
+  const rankingHighlights = useMemo(
+    () =>
+      list
+        .slice(0, 4)
+        .map((item) => item?.user?.nickname || item?.user?.name || item?.nickname || "")
+        .filter(Boolean),
+    [list],
+  );
+
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "leaderboard",
+      pageSection: "leaderboard",
+      pageView: desktopCards ? "cards" : "list",
+      entityTitle: t("rankings.title"),
+      sectionTitle: t("rankings.title"),
+      pageSummary: t("rankings.seoDescription"),
+      activeLabels: [
+        desktopCards ? t("rankings.viewModes.cards") : t("rankings.viewModes.list"),
+        searchInput ? `TÃ¬m: ${searchInput}` : "",
+        isFetching ? "Äang táº£i dá»¯ liá»‡u xáº¿p háº¡ng" : "",
+      ],
+      visibleActions: [
+        t("rankings.searchLabel"),
+        t("rankings.actions.profile"),
+        t("rankings.actions.grade"),
+        t("rankings.actions.viewKyc"),
+        canSelfAssess ? t("rankings.selfAssess") : "",
+      ],
+      highlights: rankingHighlights,
+      metrics: [
+        `Hiá»ƒn thá»‹: ${list.length}`,
+        `Trang: ${page + 1}/${Math.max(totalPages, 1)}`,
+        isMobile ? "Cháº¿ Ä‘á»™ mobile" : "Cháº¿ Ä‘á»™ desktop",
+      ],
+      stats: {
+        visible: list.length,
+        page: page + 1,
+        totalPages,
+        keyword: searchInput || keyword || "",
+        view: desktopCards ? "cards" : "list",
+      },
+    }),
+    [
+      canSelfAssess,
+      desktopCards,
+      isFetching,
+      isMobile,
+      keyword,
+      list.length,
+      page,
+      rankingHighlights,
+      searchInput,
+      t,
+      totalPages,
+    ],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      search: (nextValue) => {
+        const nextQuery = String(nextValue || "");
+        setSearchInput(nextQuery);
+        requestAnimationFrame(() => {
+          searchInputRef.current?.focus?.();
+          searchInputRef.current?.scrollIntoView?.({
+            behavior: "smooth",
+            block: "center",
+          });
+        });
+      },
+      focusSearch: () => {
+        searchInputRef.current?.focus?.();
+        searchInputRef.current?.scrollIntoView?.({
+          behavior: "smooth",
+          block: "center",
+        });
+      },
+      view: (nextValue) => {
+        const nextView = String(nextValue || "") === "cards" ? "cards" : "list";
+        handleChangeDesktopView(null, nextView);
+      },
+    }),
+    [handleChangeDesktopView],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: ["set_page_state", "prefill_text", "focus_element", "navigate"],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   return (
     <>

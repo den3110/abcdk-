@@ -164,7 +164,7 @@ function getChatCapabilitiesLegacy() {
 }
 
 export function getChatCapabilities() {
-  return {
+  return normalizeUserFacingData({
     backend: "deepseek-proxy-chat-completions",
     provider: PROXY_BASE_URL ? "CLIProxyAPI" : "OpenAI",
     baseURL: PROXY_BASE_URL || "",
@@ -182,7 +182,7 @@ export function getChatCapabilities() {
       liveModel: LIVE_RETRIEVAL_MODEL,
     },
     rolloutManaged: true,
-  };
+  });
 }
 
 function resolveRetrievalMode(context = {}, hybridRetrieval = null) {
@@ -222,6 +222,39 @@ function trimText(value, maxLength = 180) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   if (!text) return "";
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function decodePossibleMojibake(value) {
+  if (typeof value !== "string" || !value) return value;
+
+  let next = value;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!/[ÃÂÄÆá»â€]/.test(next)) break;
+    try {
+      const decoded = Buffer.from(next, "latin1").toString("utf8");
+      if (!decoded || decoded === next) break;
+      next = decoded;
+    } catch {
+      break;
+    }
+  }
+
+  return next;
+}
+
+function normalizeUserFacingData(value) {
+  if (typeof value === "string") {
+    return decodePossibleMojibake(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeUserFacingData(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, normalizeUserFacingData(item)]),
+    );
+  }
+  return value;
 }
 
 function dedupeByKey(list, getKey) {
@@ -757,7 +790,8 @@ export async function runAgentStream(
 async function runPikora(message, context, userId, emit, options = {}) {
   const startTime = Date.now();
   const safeEmit = createSafeEmitter(emit);
-  const routeThinking = (step) => safeEmit("thinking", { step });
+  const routeThinking = (step) =>
+    safeEmit("thinking", { step: normalizeUserFacingData(step) });
   const state = createStreamState();
   const initialInsight = buildContextInsight(context, null, null, null);
 
@@ -999,6 +1033,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     actionExecutionSummary: null,
     trustMeta: null,
   };
+  Object.assign(finalResult, normalizeUserFacingData(finalResult));
   finalResult.capabilityKeys = buildCapabilityKeys(route, context, finalResult);
   finalResult.actionExecutionSummary = buildActionExecutionSummary(
     finalResult.actions,
@@ -1123,6 +1158,7 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     reasoningAvailable: false,
     guardApplied: false,
   });
+  Object.assign(result, normalizeUserFacingData(result));
   result.capabilityKeys = buildCapabilityKeys(route, context, result);
 
   safeEmit("message_start", {
@@ -1334,6 +1370,7 @@ function finalizeGroundedToolResponse({
     reasoningAvailable: false,
     guardApplied: false,
   });
+  Object.assign(result, normalizeUserFacingData(result));
 
   safeEmit("message_start", {
     model: result.model,
@@ -1442,6 +1479,17 @@ function hasRawPattern(message, pattern) {
   return pattern.test(String(message || ""));
 }
 
+function normalizeAsciiText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function looksLikeGreetingMessage(message) {
   return hasRawPattern(
     message,
@@ -1460,6 +1508,56 @@ function looksLikeNavigationRequest(message) {
   return hasRawPattern(
     message,
     /(^|\s)(má»Ÿ|mo|vÃ o|vao|Ä‘i tá»›i|di toi|Ä‘áº¿n|den|go to|open|truy cáº­p|truy cap|show page)(\s|[!?.,]|$)/iu,
+  );
+}
+
+function looksLikeGenericKnowledgeQuestion(
+  message,
+  normalized = sharedNormalizeText(message),
+) {
+  if (!String(message || "").trim()) return false;
+  if (looksLikeNavigationRequest(message)) return false;
+  if (isCurrentContextReference(normalized)) return false;
+  const asciiMessage = normalizeAsciiText(message);
+
+  const referencesSpecificContext =
+    [
+      "giai nay",
+      "trang nay",
+      "muc nay",
+      "tab nay",
+      "view nay",
+      "bai nay",
+      "tin nay",
+      "clb nay",
+      "club nay",
+      "news nay",
+      "live nay",
+      "tran nay",
+      "san nay",
+      "nhanh nay",
+      "bang nay",
+      "cua toi",
+    ].some((token) => asciiMessage.includes(token)) ||
+    /\b(toi|minh|my)\b/.test(asciiMessage);
+
+  if (referencesSpecificContext) return false;
+
+  return (
+    asciiMessage.includes(" la gi") ||
+    asciiMessage.startsWith("la gi ") ||
+    asciiMessage.endsWith(" la gi") ||
+    asciiMessage.includes(" la sao") ||
+    asciiMessage.includes("what is") ||
+    asciiMessage.includes("cach ") ||
+    asciiMessage.startsWith("cach") ||
+    asciiMessage.includes("how to") ||
+    asciiMessage.includes("huong dan") ||
+    asciiMessage.includes("luat") ||
+    asciiMessage.includes("vi sao") ||
+    asciiMessage.includes("tai sao") ||
+    asciiMessage.includes("giai thich") ||
+    asciiMessage.includes("faq")
   );
 }
 
@@ -1564,18 +1662,47 @@ function isCurrentContextReference(normalized) {
   ]);
 }
 
-function addContextualKeywords(normalized, context) {
+function allowsLooseContextBoost(context = {}) {
+  if (
+    context?.tournamentId ||
+    context?.clubId ||
+    context?.newsSlug ||
+    context?.matchId ||
+    context?.profileUserId
+  ) {
+    return true;
+  }
+
+  return [
+    "tournament_registration",
+    "tournament_checkin",
+    "tournament_schedule",
+    "tournament_bracket",
+    "tournament_admin_draw",
+    "tournament_draw_live",
+    "tournament_draw_manage",
+    "tournament_manage",
+    "tournament_overview",
+    "club_detail",
+    "news_detail",
+    "live_studio",
+    "court_streaming",
+    "court_live_studio",
+    "profile",
+    "public_profile",
+    "my_tournaments",
+  ].includes(String(context?.pageType || ""));
+}
+
+function addContextualKeywords(message, normalized, context) {
+  if (looksLikeGenericKnowledgeQuestion(message, normalized)) {
+    return normalized;
+  }
+
   const shouldBoost =
     isCurrentContextReference(normalized) ||
     (String(normalized || "").split(/\s+/).filter(Boolean).length <= 6 &&
-      Boolean(
-        context?.tournamentId ||
-          context?.clubId ||
-          context?.newsSlug ||
-          context?.matchId ||
-          context?.profileUserId ||
-          context?.pageSnapshot,
-      ));
+      allowsLooseContextBoost(context));
   if (!shouldBoost) return normalized;
 
   const hints = [];
@@ -1827,7 +1954,11 @@ function buildTournamentListDirectRoute(message, normalized, context = {}) {
 
 function classifyRoute(message, context, userId) {
   const normalized = sharedNormalizeText(message);
-  const boostedNormalized = addContextualKeywords(normalized, context);
+  const genericKnowledgeQuestion = looksLikeGenericKnowledgeQuestion(
+    message,
+    normalized,
+  );
+  const boostedNormalized = addContextualKeywords(message, normalized, context);
   const entityName = sharedExtractEntityName(message);
   const tournamentListDirectRoute = buildTournamentListDirectRoute(
     message,
@@ -1878,6 +2009,19 @@ function classifyRoute(message, context, userId) {
           "Tin má»›i nháº¥t",
         ],
       },
+    };
+  }
+
+  if (genericKnowledgeQuestion) {
+    return {
+      kind: "knowledge",
+      entityName,
+      toolPlan: [
+        {
+          name: "search_knowledge",
+          args: { query: message, limit: 3 },
+        },
+      ],
     };
   }
 
@@ -2416,7 +2560,14 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
   const hasContextTournament =
     Boolean(context.tournamentId) &&
     (!entityName ||
-    hasAny(normalized, ["giáº£i nÃ y", "giáº£i hiá»‡n táº¡i", "trang nÃ y"]));
+      hasAny(normalized, [
+        "giáº£i nÃ y",
+        "giáº£i hiá»‡n táº¡i",
+        "trang nÃ y",
+        "giai nay",
+        "giai hien tai",
+        "trang nay",
+      ]));
 
   if (hasContextTournament) {
     if (context.matchId) {
@@ -2478,6 +2629,11 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         "tráº­n chÆ°a xong",
         "tráº­n Ä‘Ã£ xong",
         "tá»•ng tráº­n",
+        "bao nhieu tran",
+        "con bao nhieu tran",
+        "tran chua xong",
+        "tran da xong",
+        "tong tran",
         "match count",
       ])
     ) {
@@ -2507,6 +2663,11 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         "tráº­n chÆ°a xong",
         "tráº­n Ä‘Ã£ xong",
         "tá»•ng tráº­n",
+        "bao nhieu tran",
+        "con bao nhieu tran",
+        "tran chua xong",
+        "tran da xong",
+        "tong tran",
         "match count",
       ])
     ) {
@@ -2553,7 +2714,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["tiáº¿n Ä‘á»™", "progress"])) {
+    if (hasAny(normalized, ["tiáº¿n Ä‘á»™", "progress", "tien do"])) {
       return [
         {
           name: "get_tournament_progress",
@@ -4131,6 +4292,7 @@ function buildSynthesisMessages({
   personalization,
   execution,
 }) {
+  const genericKnowledgeQuestion = looksLikeGenericKnowledgeQuestion(message);
   const densityInstruction =
     personalization?.preferredAnswerDensity === "compact_operator"
       ? "Æ¯u tiÃªn cÃ¢u tráº£ lá»i ngáº¯n, thao tÃ¡c trÆ°á»›c, giáº£i thÃ­ch sau. Náº¿u cÃ³ bÆ°á»›c tiáº¿p theo rÃµ rÃ ng thÃ¬ nÃªu trong 1-2 bullet Ä‘áº§u tiÃªn."
@@ -4151,6 +4313,9 @@ function buildSynthesisMessages({
     "KhÃ´ng nháº¯c tá»›i JSON, model, proxy hay ná»™i bá»™ há»‡ thá»‘ng.",
     "KhÃ´ng in raw <think> trong cÃ¢u tráº£ lá»i cuá»‘i.",
     "Náº¿u cÃ³ navigation, cÃ³ thá»ƒ nÃ³i ráº±ng Ä‘Ã£ chuáº©n bá»‹ nÃºt má»Ÿ Ä‘Ãºng trang.",
+    genericKnowledgeQuestion
+      ? "Vá»›i cÃ¢u há»i kiáº¿n thá»©c chung, hÃ£y tráº£ lá»i trá»±c tiáº¿p ná»™i dung cáº§n biáº¿t. KhÃ´ng chuyá»ƒn sang Ä‘iá»u hÆ°á»›ng theo trang hiá»‡n táº¡i trá»« khi ngÆ°á»i dÃ¹ng yÃªu cáº§u rÃµ."
+      : "",
     "DÃ¹ng markdown nháº¹: bullet hoáº·c báº£ng khi cÃ³ Ã­ch, trÃ¡nh dÃ i dÃ²ng.",
     densityInstruction,
     pageAwareInstruction,

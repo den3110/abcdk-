@@ -21,6 +21,17 @@ import {
 
 import Clarity from "@microsoft/clarity";
 
+function shouldEnableClarity() {
+  if (typeof window === "undefined") return false;
+  const host = String(window.location.hostname || "").toLowerCase();
+  const isLocalhost =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.endsWith(".local");
+  return !isLocalhost && !import.meta.env.DEV;
+}
+
 function AuthSessionSync() {
   const userInfo = useSelector((s) => s.auth?.userInfo || null);
   const isLoggedIn = Boolean(
@@ -105,7 +116,7 @@ const App = () => {
         import.meta.env.VITE_CLARITY_PROJECT_ID) ||
       "";
 
-    if (typeof window !== "undefined" && projectId) {
+    if (projectId && shouldEnableClarity()) {
       Clarity.init(projectId);
     }
   }, []);
@@ -115,7 +126,7 @@ const App = () => {
     logPageView(location.pathname + location.search, document.title);
 
     // ✅ Track/Tag cho Clarity mỗi lần đổi route (SPA)
-    if (typeof window !== "undefined" && typeof window.clarity === "function") {
+    if (shouldEnableClarity() && typeof window.clarity === "function") {
       const url = location.pathname + location.search;
 
       window.clarity("set", "route", location.pathname);
