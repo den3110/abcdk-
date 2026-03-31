@@ -4,6 +4,11 @@ import { getRecordingStorageHealthSummary } from "./liveRecordingV2Storage.servi
 
 const REFRESH_INTERVAL_SECONDS = 30;
 const PROBE_TIMEOUT_MS = 2500;
+const STATUS_HISTORY_MAX_POINTS = Math.max(
+  12,
+  Number(process.env.PUBLIC_STATUS_HISTORY_POINTS || 30)
+);
+const overallStatusHistory = [];
 
 const SERVICE_LABELS = {
   "public-api": "Public API",
@@ -385,6 +390,24 @@ function buildFallbackRuntimeSnapshot(generatedAt) {
   };
 }
 
+function recordOverallStatusHistory(entry) {
+  overallStatusHistory.push({
+    checkedAt: asIsoDate(entry?.checkedAt) || new Date().toISOString(),
+    status: String(entry?.status || "unknown"),
+    healthyServiceCount: Number(entry?.healthyServiceCount || 0),
+    serviceCount: Number(entry?.serviceCount || 0),
+  });
+
+  if (overallStatusHistory.length > STATUS_HISTORY_MAX_POINTS) {
+    overallStatusHistory.splice(
+      0,
+      overallStatusHistory.length - STATUS_HISTORY_MAX_POINTS
+    );
+  }
+
+  return overallStatusHistory.slice();
+}
+
 export async function getPublicStatusSnapshot() {
   const generatedAt = new Date().toISOString();
 
@@ -436,19 +459,32 @@ export async function getPublicStatusSnapshot() {
       buildServiceShape({ key: "general-worker", category: "worker" }),
     buildRecordingStorageService(storageHealth),
   ];
+  const overallStatus = reduceOverallStatus(services);
+  const healthyServiceCount = services.filter(
+    (service) => service.status === "operational"
+  ).length;
+  const serviceCount = services.length;
+  const history = recordOverallStatusHistory({
+    checkedAt: generatedAt,
+    status: overallStatus,
+    healthyServiceCount,
+    serviceCount,
+  });
 
   return {
-    overallStatus: reduceOverallStatus(services),
+    overallStatus,
     generatedAt,
     refreshIntervalSeconds: REFRESH_INTERVAL_SECONDS,
     summary: {
       gatewayUptimeSeconds: publicApi.uptimeSeconds,
       requestRatePerMin: publicApi.meta?.requestRatePerMin ?? null,
       apiP95Ms: publicApi.meta?.apiP95Ms ?? null,
-      healthyServiceCount: services.filter(
-        (service) => service.status === "operational"
-      ).length,
-      serviceCount: services.length,
+      healthyServiceCount,
+      serviceCount,
+    },
+    history: {
+      overall: history,
+      maxPoints: STATUS_HISTORY_MAX_POINTS,
     },
     services,
   };

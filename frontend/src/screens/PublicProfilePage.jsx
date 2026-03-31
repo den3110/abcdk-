@@ -54,6 +54,7 @@ import {
 import { ZoomableWrapper } from "../components/Zoom";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext";
+import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
 import { formatDate, formatDateTime } from "../i18n/format";
 import { getGenderLabel } from "../i18n/uiOptions";
 
@@ -224,6 +225,63 @@ const MatchResultBadge = ({ isWinner }) => {
   );
 };
 
+const MatchSkeleton = ({ isMobile }) => (
+  <Stack spacing={1.5}>
+    {Array.from({ length: isMobile ? 2 : 3 }).map((_, index) => (
+      <Paper key={index} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
+        <Stack spacing={1.25}>
+          <Stack direction="row" justifyContent="space-between">
+            <Skeleton variant="text" width={120} />
+            <Skeleton variant="rounded" width={96} height={24} />
+          </Stack>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <Skeleton variant="text" height={28} />
+              <Skeleton variant="text" height={22} />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <Skeleton variant="text" height={40} />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <Skeleton variant="text" height={28} />
+              <Skeleton variant="text" height={22} />
+            </Grid>
+          </Grid>
+        </Stack>
+      </Paper>
+    ))}
+  </Stack>
+);
+
+const RatingSkeleton = ({ isMobile }) => (
+  <Stack spacing={1.5}>
+    <Paper variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
+      <Table size={isMobile ? "small" : "medium"}>
+        <TableHead>
+          <TableRow>
+            {Array.from({ length: 4 }).map((_, index) => (
+              <TableCell key={index}>
+                <Skeleton variant="text" width={80} />
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {Array.from({ length: 4 }).map((_, rowIndex) => (
+            <TableRow key={rowIndex}>
+              {Array.from({ length: 4 }).map((__, cellIndex) => (
+                <TableCell key={cellIndex}>
+                  <Skeleton variant="text" />
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Paper>
+  </Stack>
+);
+
 // 4. Player Mini Cell – giữ thập phân & căn giữa
 const PlayerRow = ({ p, highlight }) => {
   const up = (p?.delta ?? 0) > 0;
@@ -377,8 +435,14 @@ export default function PublicProfilePage() {
   );
   const ratingTotal = rateQ.data?.total ?? 0;
   const matchTotal = matchQ.data?.total ?? 0;
-  const summaryScore = base?.summary?.score || {};
-  const summaryMatches = base?.summary?.matches || {};
+  const summaryScore = useMemo(
+    () => base?.summary?.score || {},
+    [base?.summary?.score],
+  );
+  const summaryMatches = useMemo(
+    () => base?.summary?.matches || {},
+    [base?.summary?.matches],
+  );
 
   // Auth viewer (để biết có phải admin / chính chủ không)
   const { userInfo } = useSelector((state) => state.auth || {});
@@ -475,6 +539,64 @@ export default function PublicProfilePage() {
       // user cancel
     }
   };
+  const currentGenderInfo = genderInfo(base?.gender);
+  const profileTabLabel =
+    tab === 1 ? "Trận đấu" : tab === 2 ? "Lịch sử rating" : "Tổng quan";
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "public_profile",
+      entityTitle: base?.name || base?.fullName || t("publicProfile.defaultName"),
+      sectionTitle: profileTabLabel,
+      pageSummary:
+        "Trang hồ sơ công khai của người chơi với thông tin cá nhân, trận đấu và lịch sử rating.",
+      activeLabels: [
+        canSeeSensitive ? "Có quyền xem thông tin nhạy cảm" : "Chế độ công khai",
+        hasData(base?.province) ? `Khu vực: ${base.province}` : "",
+        hasData(base?.gender) ? `Giới tính: ${currentGenderInfo.label}` : "",
+        hasData(base?.nickname) ? `@${base?.nickname}` : "",
+      ],
+      visibleActions: [
+        "Chia sẻ hồ sơ",
+        "Sao chép mã hồ sơ",
+        "Xem trận đấu",
+        "Xem lịch sử rating",
+      ],
+      highlights: [
+        `Mã hồ sơ: ${profileCode}`,
+        hasData(base?.province) ? `Tỉnh/thành: ${base.province}` : "",
+        Number.isFinite(latestSingle) ? `Điểm đơn: ${numFloat(latestSingle)}` : "",
+        Number.isFinite(latestDouble) ? `Điểm đôi: ${numFloat(latestDouble)}` : "",
+      ],
+      metrics: [
+        `Tổng trận: ${totalMatches}`,
+        `Thắng: ${wins}`,
+        `Tỷ lệ thắng: ${winRate}%`,
+        `Rating entries: ${ratingTotal}`,
+        `Match entries: ${matchTotal}`,
+      ],
+    }),
+    [
+      base?.name,
+      base?.fullName,
+      t,
+      profileTabLabel,
+      canSeeSensitive,
+      base?.province,
+      base?.gender,
+      currentGenderInfo.label,
+      base?.nickname,
+      profileCode,
+      latestSingle,
+      latestDouble,
+      totalMatches,
+      wins,
+      winRate,
+      ratingTotal,
+      matchTotal,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   /* ---------- SECTIONS ---------- */
 
@@ -624,8 +746,8 @@ export default function PublicProfilePage() {
                 variant="outlined"
               />
               <Chip
-                label={genderInfo(base?.gender).label}
-                color={genderInfo(base?.gender).color}
+                label={currentGenderInfo.label}
+                color={currentGenderInfo.color}
                 size="small"
                 variant="soft"
               />

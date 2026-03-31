@@ -98,6 +98,7 @@ import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import { formatDateTime } from "../../i18n/format";
 import {
   getTournamentNameDisplayMode,
@@ -2070,6 +2071,118 @@ export default function TournamentManagePage() {
     closeActionMenu();
     await handleExportWord();
   };
+
+  const visibleMatchCount = useMemo(
+    () =>
+      Array.from(groupedLists.values()).reduce(
+        (sum, list) => sum + list.length,
+        0,
+      ),
+    [groupedLists],
+  );
+  const currentTabLabel = useMemo(() => getTypeLabel(t, tab), [t, tab]);
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "tournament_manage",
+      entityTitle:
+        tour?.name ||
+        t("tournaments.manage.seoTitle", {
+          name: t("tournaments.manage.fallbackName"),
+        }),
+      sectionTitle: currentTabLabel,
+      pageSummary:
+        "Không gian quản lý giải hiện tại với lịch đấu, sân, trọng tài, live và video trận.",
+      activeLabels: [
+        currentTabLabel,
+        canManageManagers ? "Có quyền quản trị" : "Có quyền quản lý",
+        sortKey === "time"
+          ? "Sắp theo thời gian"
+          : sortKey === "order"
+            ? "Sắp theo thứ tự"
+            : "Sắp theo vòng",
+        sortDir === "asc" ? "Tăng dần" : "Giảm dần",
+        showBye ? "Hiện trận BYE" : "Ẩn trận BYE",
+        q ? `Tìm: ${q}` : "",
+        courtFilter.length
+          ? `${courtFilter.length} bộ lọc sân`
+          : "Tất cả sân",
+      ],
+      visibleActions: [
+        "Phân công trọng tài",
+        "Gán video",
+        "Thiết lập live",
+        "Xuất PDF",
+        "Xuất Word",
+      ],
+      highlights: bracketsOfTab
+        .slice(0, 4)
+        .map((bracket) => {
+          const count = groupedLists.get(String(bracket?._id || ""))?.length || 0;
+          return `${bracket?.name || "Bracket"} (${count} trận)`;
+        }),
+      metrics: [
+        `Tổng trận: ${allMatchesBase.length}`,
+        `Đang hiển thị: ${visibleMatchCount}`,
+        `Số bracket hiện tại: ${bracketsOfTab.length}`,
+        `Đã chọn: ${selectedMatchIds.size}`,
+        `Đã gắn video: ${
+          allMatchesBase.filter((match) => Boolean(match?.video)).length
+        }`,
+      ],
+    }),
+    [
+      tour?.name,
+      t,
+      currentTabLabel,
+      canManageManagers,
+      sortKey,
+      sortDir,
+      showBye,
+      q,
+      courtFilter,
+      bracketsOfTab,
+      groupedLists,
+      allMatchesBase,
+      visibleMatchCount,
+      selectedMatchIds.size,
+    ],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      search: (nextValue) => {
+        setQ(String(nextValue || ""));
+      },
+      tab: (nextValue) => {
+        setTab(String(nextValue || typesAvailable[0]?.type || "group"));
+      },
+      sortKey: (nextValue) => {
+        setSortKey(String(nextValue || "round"));
+      },
+      sortDir: (nextValue) => {
+        setSortDir(String(nextValue || "asc"));
+      },
+      showBye: (nextValue) => {
+        setShowBye(Boolean(nextValue));
+      },
+      courtFilter: (nextValue) => {
+        const nextValues = Array.isArray(nextValue)
+          ? nextValue
+          : String(nextValue || "")
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean);
+        setCourtFilter(nextValues);
+      },
+    }),
+    [typesAvailable],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: ["set_page_state", "prefill_text", "focus_element", "navigate"],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   /* ---------- guards ---------- */
   if (tourLoading || brLoading) {

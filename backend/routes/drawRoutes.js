@@ -9,6 +9,8 @@ import {
   getDrawStatusByBracket,
   generateGroupMatches,
   assignByes,
+  takeoverTournamentDraw,
+  stopTournamentDraw,
   updatePoPreplan,
   previewPoPreplan,
 } from "../controllers/drawController.js";
@@ -31,6 +33,20 @@ router.get("/:drawId", protect, attachBracketIdFromDraw, attachTournamentFromBra
 
 router.post("/sessions/:drawId/po/preplan", protect, authorize("admin"), requireSuperAdmin, updatePoPreplan);
 router.get("/sessions/:drawId/po/preplan/preview", protect, authorize("admin"), requireSuperAdmin, previewPoPreplan);
+router.post(
+  "/tournaments/:tournamentId/takeover",
+  protect,
+  authorize("admin"),
+  requireSuperAdmin,
+  takeoverTournamentDraw
+);
+router.post(
+  "/tournaments/:tournamentId/stop",
+  protect,
+  authorize("admin"),
+  requireSuperAdmin,
+  stopTournamentDraw
+);
 
 export default router;
 

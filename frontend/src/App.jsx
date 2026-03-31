@@ -6,6 +6,7 @@ import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
 import MobileBottomNav from "./components/MenuMobile";
 import ChatBotDrawer from "./components/ChatBotDrawer";
+import GlobalCommandPalette from "./components/GlobalCommandPalette";
 import { useEffect, useRef } from "react";
 import { useSelector } from "react-redux";
 import { initGA, logPageView } from "./utils/analytics";
@@ -159,6 +160,7 @@ const App = () => {
       )}
 
       {!isAuthPage && <ChatBotDrawer />}
+      <GlobalCommandPalette />
     </>
   );
 };

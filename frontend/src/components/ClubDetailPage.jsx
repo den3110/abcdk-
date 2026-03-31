@@ -25,6 +25,7 @@ import ClubAnnouncements from "./news/ClubAnnouncements";
 import ClubPolls from "./polls/ClubPolls";
 import SEOHead from "./SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
 
 function calcCanSeeMembers(club, my) {
   const vis = club?.memberVisibility || "admins";
@@ -67,6 +68,55 @@ export default function ClubDetailPage() {
   const tab = ALLOWED_TABS.includes(tabFromUrl) ? tabFromUrl : "news";
 
   const showRoleBadges = canManage || !!club?.showRolesToMembers;
+  const canSeeMembers = calcCanSeeMembers(club, my);
+  const sectionTitle = useMemo(() => {
+    if (tab === "events") return t("clubs.detail.tabs.events");
+    if (tab === "polls") return t("clubs.detail.tabs.polls");
+    return t("clubs.detail.tabs.news");
+  }, [tab, t]);
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "club_detail",
+      entityTitle: club?.name || "Câu lạc bộ hiện tại",
+      sectionTitle,
+      pageSummary:
+        club?.description ||
+        t("clubs.detail.descriptionFallback", { name: club?.name || "CLB" }),
+      activeLabels: [
+        sectionTitle,
+        my?.membershipRole ? `Vai trò: ${my.membershipRole}` : "Khách xem",
+        canManage ? "Có quyền quản lý" : "",
+        `Hiển thị thành viên: ${club?.memberVisibility || "admins"}`,
+      ],
+      visibleActions: [
+        t("clubs.detail.actionsTitle"),
+        isOwnerOrAdmin ? t("clubs.detail.editClub") : "",
+        isOwnerOrAdmin ? t("clubs.detail.reviewJoinRequests") : "",
+      ],
+      highlights: (club?.members || [])
+        .slice(0, 4)
+        .map((member) => member?.user?.name || member?.user?.fullName || ""),
+      metrics: [
+        `Thành viên: ${Array.isArray(club?.members) ? club.members.length : 0}`,
+        `Tab hiện tại: ${sectionTitle}`,
+        `Có thể xem danh sách thành viên: ${canSeeMembers ? "Có" : "Không"}`,
+      ],
+    }),
+    [
+      club?.name,
+      club?.description,
+      club?.memberVisibility,
+      club?.members,
+      t,
+      sectionTitle,
+      my?.membershipRole,
+      canManage,
+      isOwnerOrAdmin,
+      canSeeMembers,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   const rightSide = useMemo(
     () => (
@@ -125,8 +175,6 @@ export default function ClubDetailPage() {
       </Container>
     );
   }
-
-  const canSeeMembers = calcCanSeeMembers(club, my);
 
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>

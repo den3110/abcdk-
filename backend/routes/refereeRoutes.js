@@ -16,11 +16,23 @@ import {
   refereeSetBreak,
   unassignCourtFromMatch,
 } from "../controllers/refereeController.js";
+import {
+  bootstrapMatchLiveSync,
+  claimMatchLiveSyncOwner,
+  releaseMatchLiveSyncOwner,
+  syncMatchLiveSyncEvents,
+  takeoverMatchLiveSyncOwner,
+} from "../controllers/refereeLiveSyncController.js";
 
 const router = Router();
 
 // GET
 router.get("/matches/assigned-to-me", protect, refereeOnly, getAssignedMatches);
+router.get("/matches/:id/live-sync/bootstrap", protect, refereeOnly, ownOrAdmin, bootstrapMatchLiveSync);
+router.post("/matches/:id/live-sync/claim", protect, refereeOnly, ownOrAdmin, claimMatchLiveSyncOwner);
+router.post("/matches/:id/live-sync/takeover", protect, refereeOnly, ownOrAdmin, takeoverMatchLiveSyncOwner);
+router.post("/matches/:id/live-sync/sync", protect, refereeOnly, ownOrAdmin, syncMatchLiveSyncEvents);
+router.post("/matches/:id/live-sync/release", protect, refereeOnly, ownOrAdmin, releaseMatchLiveSyncOwner);
 
 // PATCH
 router.patch(

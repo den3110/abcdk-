@@ -1,5 +1,5 @@
 // src/pages/TournamentSchedule.jsx
-/* eslint-disable react/prop-types */
+/* eslint-disable react/prop-types, no-unused-vars */
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link as RouterLink } from "react-router-dom";
 import {
@@ -39,6 +39,7 @@ import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import SEOHead from "../../components/SEOHead";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
@@ -53,7 +54,7 @@ const hasVal = (v) =>
   typeof v === "number" ||
   (typeof v === "string" && v.trim() !== "");
 
-function isGroupMatch(m) {
+function _isGroupMatch(m) {
   const t = String(m?.bracket?.type || m?.type || "")
     .toLowerCase()
     .trim();
@@ -65,7 +66,7 @@ function isGroupMatch(m) {
   );
 }
 // ===== Group helpers =====
-function buildGroupIndex(bracket) {
+function _buildGroupIndex(bracket) {
   const byRegId = new Map();
   const order = new Map();
   (bracket?.groups || []).forEach((g, idx) => {
@@ -78,7 +79,7 @@ function buildGroupIndex(bracket) {
   return { byRegId, order };
 }
 
-function normGroup(m) {
+function _normGroup(m) {
   let g =
     m?.groupLabel ??
     m?.group?.label ??
@@ -278,7 +279,7 @@ function roundsCountForBracket(bracket, matchesOfThis = []) {
   return 1;
 }
 
-function computeBaseRoundStart(brackets, byBracket, current) {
+function _computeBaseRoundStart(brackets, byBracket, current) {
   let sum = 0;
   for (const b of brackets) {
     if (String(b._id) === String(current._id)) break;
@@ -1028,7 +1029,7 @@ export default function TournamentSchedule() {
     setLiveBump((x) => x + 1);
   }, [matchesResp]);
 
-  const diffSet = (currentSet, nextArr) => {
+  const _diffSet = (currentSet, nextArr) => {
     const nextSet = new Set(nextArr);
     const added = [];
     const removed = [];
@@ -1181,6 +1182,54 @@ export default function TournamentSchedule() {
     });
     return entries.filter((e) => !isUnassigned(e.name));
   }, [allSorted, unassignedCourtLabel]);
+  const scheduleSectionLabel =
+    status === "live"
+      ? "Đang diễn ra"
+      : status === "upcoming"
+        ? "Sắp diễn ra"
+        : status === "finished"
+          ? "Đã kết thúc"
+          : "Tất cả trận";
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "tournament_schedule",
+      entityTitle:
+        tournament?.name || t("tournaments.schedule.seoFallbackName"),
+      sectionTitle: scheduleSectionLabel,
+      pageSummary:
+        "Trang lịch thi đấu của giải hiện tại với bộ lọc trạng thái, tìm kiếm và danh sách sân đang hoạt động.",
+      activeLabels: [
+        scheduleSectionLabel,
+        q ? `Tìm: ${q}` : "",
+        canEdit ? "Có quyền quản lý" : "Chế độ công khai",
+      ],
+      visibleActions: ["Tìm trận đấu", "Xem lịch sân", "Mở trận đấu"],
+      highlights: courts
+        .slice(0, 4)
+        .map(
+          (court) =>
+            `${court.name}: ${court.live.length} live / ${court.queue.length} chờ`,
+        ),
+      metrics: [
+        `Tổng trận: ${allSorted.length}`,
+        `Đang hiển thị: ${filteredAll.length}`,
+        `Sân hoạt động: ${courts.length}`,
+        `Trận live: ${allSorted.filter((match) => isLive(match)).length}`,
+      ],
+    }),
+    [
+      tournament?.name,
+      t,
+      scheduleSectionLabel,
+      q,
+      canEdit,
+      courts,
+      allSorted,
+      filteredAll,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 4 }}>

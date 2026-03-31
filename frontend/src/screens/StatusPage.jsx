@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from "react";
 import PropTypes from "prop-types";
-import Grid from "@mui/material/Grid"; // Hoặc Grid2 tùy phiên bản MUI bạn đang dùng
+import Grid from "@mui/material/Grid";
 import {
   Alert,
   Box,
@@ -19,8 +19,10 @@ import QueryStatsRoundedIcon from "@mui/icons-material/QueryStatsRounded";
 import ScheduleRoundedIcon from "@mui/icons-material/ScheduleRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
 import { useGetPublicStatusQuery } from "../slices/statusApiSlice.js";
 
 const SERVICE_ORDER = [
@@ -63,7 +65,6 @@ function getStatusColor(status) {
   return "default";
 }
 
-// Giúp tạo màu nền mờ cho các icon/chip theo theme
 const getSoftColor = (theme, colorType) => {
   if (colorType === "default" || colorType === "text.primary") {
     return alpha(theme.palette.action.active, 0.08);
@@ -108,19 +109,46 @@ function formatUptime(seconds, locale, t) {
   if (!Number.isFinite(numeric) || numeric < 0) {
     return t("common.unavailable");
   }
-
   const days = Math.floor(numeric / 86400);
   const hours = Math.floor((numeric % 86400) / 3600);
   const minutes = Math.floor((numeric % 3600) / 60);
   const parts = [];
-
   if (days) parts.push(`${formatNumber(days, locale)}d`);
   if (hours) parts.push(`${formatNumber(hours, locale)}h`);
   if (minutes) parts.push(`${formatNumber(minutes, locale)}m`);
   if (!parts.length)
     parts.push(`${formatNumber(Math.round(numeric), locale)}s`);
-
   return parts.join(" ");
+}
+
+function getOverallBannerStyle(theme, overallStatus) {
+  const statusColor = getStatusColor(overallStatus);
+  if (statusColor === "error") {
+    return {
+      bgcolor: alpha(theme.palette.error.main, 0.06),
+      borderColor: alpha(theme.palette.error.main, 0.2),
+      dotColor: theme.palette.error.main,
+    };
+  }
+  if (statusColor === "warning") {
+    return {
+      bgcolor: alpha(theme.palette.warning.main, 0.06),
+      borderColor: alpha(theme.palette.warning.main, 0.2),
+      dotColor: theme.palette.warning.main,
+    };
+  }
+  if (statusColor === "success") {
+    return {
+      bgcolor: alpha(theme.palette.success.main, 0.06),
+      borderColor: alpha(theme.palette.success.main, 0.2),
+      dotColor: theme.palette.success.main,
+    };
+  }
+  return {
+    bgcolor: alpha(theme.palette.action.active, 0.04),
+    borderColor: alpha(theme.palette.divider, 0.6),
+    dotColor: theme.palette.grey[500],
+  };
 }
 
 function SummaryCard({
@@ -132,62 +160,71 @@ function SummaryCard({
   colorType = "default",
 }) {
   const theme = useTheme();
+  const cardShadowColor =
+    theme.palette[colorType]?.main || theme.palette.common.black;
+
   return (
     <Paper
       elevation={0}
       sx={{
-        p: 3,
+        p: { xs: 2, sm: 2.5 },
         borderRadius: 4,
-        border: "1px solid",
-        borderColor: "divider",
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        transition: "all 0.2s ease-in-out",
+        gap: 1.5,
+        transition: "all 0.2s ease",
+        boxShadow: `0 12px 32px ${alpha(cardShadowColor, colorType === "default" ? 0.08 : 0.1)}`,
         "&:hover": {
-          boxShadow: theme.shadows[2],
-          borderColor: "text.disabled",
+          boxShadow: `0 16px 40px ${alpha(cardShadowColor, colorType === "default" ? 0.12 : 0.16)}`,
+          transform: "translateY(-2px)",
         },
       }}
     >
-      <Stack spacing={2}>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Box
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: 3,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: getSoftColor(theme, colorType),
-              color,
-            }}
-          >
-            {icon}
-          </Box>
-          <Typography
-            variant="subtitle2"
-            color="text.secondary"
-            fontWeight={600}
-          >
-            {title}
-          </Typography>
-        </Stack>
-        <Box>
-          <Typography
-            variant="h4"
-            fontWeight={800}
-            color={color}
-            sx={{ mb: 0.5 }}
-          >
-            {value}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {hint}
-          </Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          fontWeight={700}
+          textTransform="uppercase"
+          letterSpacing={1}
+          sx={{ fontSize: "0.65rem" }}
+        >
+          {title}
+        </Typography>
+        <Box
+          sx={{
+            width: 32,
+            height: 32,
+            borderRadius: 2.5,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: getSoftColor(theme, colorType),
+            color,
+            "& .MuiSvgIcon-root": { fontSize: "1.15rem" },
+          }}
+        >
+          {icon}
         </Box>
       </Stack>
+      <Box>
+        <Typography
+          variant="h5"
+          fontWeight={900}
+          color={color}
+          sx={{ letterSpacing: "-0.02em", lineHeight: 1.2 }}
+        >
+          {value}
+        </Typography>
+        <Typography
+          variant="caption"
+          color="text.disabled"
+          sx={{ fontSize: "0.7rem", mt: 0.5, display: "block" }}
+        >
+          {hint}
+        </Typography>
+      </Box>
     </Paper>
   );
 }
@@ -201,127 +238,244 @@ SummaryCard.propTypes = {
   colorType: PropTypes.string,
 };
 
-function ServiceCard({ service, detail, locale, t }) {
+function ServiceRow({ service, detail, locale, t }) {
   const theme = useTheme();
   const categoryKey =
     service.category || DEFAULT_CATEGORIES[service.key] || "worker";
   const statusColor = getStatusColor(service.status);
+  const dotColor = theme.palette[statusColor]?.main || theme.palette.grey[500];
+  const rowBg =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.common.white, 0.035)
+      : alpha(theme.palette.grey[50], 0.92);
+  const rowHoverBg =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.common.white, 0.055)
+      : alpha(theme.palette.grey[100], 0.92);
 
   return (
-    <Paper
-      elevation={0}
+    <Box
       sx={{
-        p: 3,
-        borderRadius: 4,
-        border: "1px solid",
-        borderColor: "divider",
-        height: "100%",
         display: "flex",
-        flexDirection: "column",
-        transition: "all 0.2s ease-in-out",
+        alignItems: { xs: "flex-start", md: "center" },
+        flexWrap: { xs: "wrap", md: "nowrap" },
+        gap: 2,
+        py: 1.75,
+        px: 2,
+        borderRadius: 2.5,
+        transition: "background 0.15s ease",
+        bgcolor: rowBg,
         "&:hover": {
-          boxShadow: theme.shadows[4],
-          borderColor: alpha(
-            theme.palette[statusColor]?.main || theme.palette.primary.main,
-            0.4,
-          ),
+          bgcolor: rowHoverBg,
         },
       }}
     >
-      <Stack spacing={2.5} sx={{ height: "100%" }}>
-        <Stack
-          direction="row"
-          spacing={1}
-          alignItems="flex-start"
-          justifyContent="space-between"
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        <Box
+          sx={{
+            position: "relative",
+            width: 10,
+            height: 10,
+            flexShrink: 0,
+          }}
         >
-          <Box>
-            <Typography variant="h6" fontWeight={700}>
-              {t(`statusPage.services.${SERVICE_NAME_KEYS[service.key]}`)}
-            </Typography>
-            <Chip
-              size="small"
-              label={t(`statusPage.categories.${categoryKey}`)}
+          {service.status === "operational" && (
+            <Box
               sx={{
-                mt: 1,
-                fontSize: "0.75rem",
-                fontWeight: 600,
-                bgcolor: alpha(theme.palette.text.primary, 0.05),
-                border: "none",
+                position: "absolute",
+                inset: -3,
+                borderRadius: "50%",
+                bgcolor: alpha(dotColor, 0.25),
+                animation: "statusPulse 2s ease-in-out infinite",
+                "@keyframes statusPulse": {
+                  "0%, 100%": { opacity: 0.4, transform: "scale(1)" },
+                  "50%": { opacity: 0, transform: "scale(1.6)" },
+                },
               }}
             />
-          </Box>
-          <Chip
-            size="small"
-            color={statusColor}
-            label={t(`statusPage.statusLabels.${service.status}`)}
+          )}
+          <Box
             sx={{
-              fontWeight: 700,
-              bgcolor: alpha(
-                theme.palette[statusColor]?.main || theme.palette.grey[500],
-                0.1,
-              ),
-              color: `${statusColor}.main`,
-              border: "none",
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              bgcolor: dotColor,
+              position: "relative",
             }}
           />
-        </Stack>
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body2" fontWeight={700} noWrap>
+            {t(`statusPage.services.${SERVICE_NAME_KEYS[service.key]}`)}
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.disabled"
+            sx={{
+              fontSize: "0.65rem",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            {t(`statusPage.categories.${categoryKey}`)}
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              mt: 0.5,
+              display: "block",
+              fontSize: "0.75rem",
+              lineHeight: 1.55,
+              whiteSpace: "normal",
+            }}
+          >
+            {detail}
+          </Typography>
+          <Stack
+            direction="row"
+            spacing={1.5}
+            useFlexGap
+            sx={{
+              mt: 1,
+              flexWrap: "wrap",
+              display: { xs: "flex", md: "none" },
+            }}
+          >
+            <Typography variant="caption" color="text.disabled">
+              {t("statusPage.labels.uptime")}:{" "}
+              <Box component="span" sx={{ color: "text.primary", fontWeight: 700 }}>
+                {formatUptime(service.uptimeSeconds, locale, t)}
+              </Box>
+            </Typography>
+            <Typography variant="caption" color="text.disabled">
+              {t("statusPage.labels.latency")}:{" "}
+              <Box component="span" sx={{ color: "text.primary", fontWeight: 700 }}>
+                {formatLatency(service.latencyMs, locale, t)}
+              </Box>
+            </Typography>
+            <Typography variant="caption" color="text.disabled">
+              {t("statusPage.labels.checkedAt")}:{" "}
+              <Box component="span" sx={{ color: "text.primary", fontWeight: 700 }}>
+                {formatDateTime(service.checkedAt, locale) ||
+                  t("common.unavailable")}
+              </Box>
+            </Typography>
+          </Stack>
+        </Box>
+      </Box>
 
-        <Typography
-          color="text.secondary"
-          variant="body2"
-          sx={{ lineHeight: 1.6, minHeight: 44 }}
+      <Stack
+        direction="row"
+        spacing={3}
+        alignItems="center"
+        sx={{ flexShrink: 0, display: { xs: "none", md: "flex" } }}
+      >
+        <Box sx={{ textAlign: "center", minWidth: 72 }}>
+          <Typography
+            variant="caption"
+            color="text.disabled"
+            sx={{
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              display: "block",
+              mb: 0.25,
+            }}
+          >
+            {t("statusPage.labels.uptime")}
+          </Typography>
+          <Typography variant="caption" fontWeight={700} color="text.primary">
+            {formatUptime(service.uptimeSeconds, locale, t)}
+          </Typography>
+        </Box>
+        <Box sx={{ textAlign: "center", minWidth: 56 }}>
+          <Typography
+            variant="caption"
+            color="text.disabled"
+            sx={{
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              display: "block",
+              mb: 0.25,
+            }}
+          >
+            {t("statusPage.labels.latency")}
+          </Typography>
+          <Typography variant="caption" fontWeight={700} color="text.primary">
+            {formatLatency(service.latencyMs, locale, t)}
+          </Typography>
+        </Box>
+        <Box
+          sx={{
+            textAlign: "center",
+            minWidth: 72,
+            display: { xs: "none", lg: "block" },
+          }}
         >
-          {detail}
-        </Typography>
-
-        <Divider sx={{ borderStyle: "dashed" }} />
-
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 6 }}>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              textTransform="uppercase"
-              fontWeight={600}
-              letterSpacing={0.5}
-            >
-              {t("statusPage.labels.uptime")}
-            </Typography>
-            <Typography variant="body2" fontWeight={700} sx={{ mt: 0.5 }}>
-              {formatUptime(service.uptimeSeconds, locale, t)}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 6 }}>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              textTransform="uppercase"
-              fontWeight={600}
-              letterSpacing={0.5}
-            >
-              {t("statusPage.labels.latency")}
-            </Typography>
-            <Typography variant="body2" fontWeight={700} sx={{ mt: 0.5 }}>
-              {formatLatency(service.latencyMs, locale, t)}
-            </Typography>
-          </Grid>
-        </Grid>
-
-        <Typography
-          variant="caption"
-          color="text.disabled"
-          sx={{ mt: "auto", pt: 1, display: "block" }}
-        >
-          {t("statusPage.labels.checkedAt")}:{" "}
-          {formatDateTime(service.checkedAt, locale) || t("common.unavailable")}
-        </Typography>
+          <Typography
+            variant="caption"
+            color="text.disabled"
+            sx={{
+              fontSize: "0.6rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              display: "block",
+              mb: 0.25,
+            }}
+          >
+            {t("statusPage.labels.checkedAt")}
+          </Typography>
+          <Typography variant="caption" fontWeight={700} color="text.primary">
+            {formatDateTime(service.checkedAt, locale) ||
+              t("common.unavailable")}
+          </Typography>
+        </Box>
       </Stack>
-    </Paper>
+
+      <Chip
+        size="small"
+        label={t(`statusPage.statusLabels.${service.status}`)}
+        sx={{
+          fontWeight: 700,
+          fontSize: "0.7rem",
+          height: 24,
+          flexShrink: 0,
+          ml: { xs: "auto", md: 0 },
+          bgcolor: alpha(
+            theme.palette[statusColor]?.main || theme.palette.grey[500],
+            0.08,
+          ),
+          color:
+            statusColor !== "default"
+              ? `${statusColor}.main`
+              : "text.secondary",
+          border: "1px solid",
+          borderColor: alpha(
+            theme.palette[statusColor]?.main || theme.palette.grey[500],
+            0.18,
+          ),
+          "& .MuiChip-label": { px: 1 },
+        }}
+      />
+    </Box>
   );
 }
 
-ServiceCard.propTypes = {
+ServiceRow.propTypes = {
   service: PropTypes.shape({
     key: PropTypes.string.isRequired,
     category: PropTypes.string,
@@ -335,9 +489,167 @@ ServiceCard.propTypes = {
   t: PropTypes.func.isRequired,
 };
 
+function UptimeHistoryBar({ history, maxPoints, locale, t }) {
+  const theme = useTheme();
+  const snapshots = Array.isArray(history) ? history.filter(Boolean) : [];
+  const barBg =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.common.white, 0.025)
+      : alpha(theme.palette.grey[100], 0.72);
+  const separatorColor =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.common.white, 0.08)
+      : alpha(theme.palette.grey[400], 0.16);
+
+  if (!snapshots.length) return null;
+
+  const totalPoints = Math.max(Number(maxPoints) || snapshots.length, snapshots.length);
+  const placeholders = Math.max(0, totalPoints - snapshots.length);
+  const filledSnapshots = [
+    ...Array.from({ length: placeholders }, () => null),
+    ...snapshots,
+  ];
+  const operationalCount = snapshots.filter(
+    (entry) => entry?.status === "operational"
+  ).length;
+  const uptimeRatio = formatNumber(
+    (operationalCount / snapshots.length) * 100,
+    locale,
+    snapshots.length >= 10 ? 1 : 0
+  );
+  const firstCheckedAt = formatDateTime(snapshots[0]?.checkedAt, locale);
+  const lastCheckedAt = formatDateTime(
+    snapshots[snapshots.length - 1]?.checkedAt,
+    locale
+  );
+
+  return (
+    <Box
+      sx={{
+        px: 2.5,
+        pt: 1.5,
+        pb: 2.5,
+        bgcolor: barBg,
+        boxShadow: `inset 0 1px 0 ${separatorColor}`,
+      }}
+    >
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        justifyContent="space-between"
+      >
+        <Box>
+          <Typography variant="body2" fontWeight={800}>
+            {t("statusPage.historyTitle")}
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.disabled"
+            sx={{ fontSize: "0.72rem" }}
+          >
+            {t("statusPage.historyHint", { count: snapshots.length })}
+          </Typography>
+        </Box>
+        <Typography variant="body2" fontWeight={800} color="text.primary">
+          {uptimeRatio ? `${uptimeRatio}%` : t("common.unavailable")}
+        </Typography>
+      </Stack>
+
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${filledSnapshots.length}, minmax(0, 1fr))`,
+          gap: 0.5,
+          mt: 1.5,
+        }}
+      >
+        {filledSnapshots.map((entry, index) => {
+          const statusColor = getStatusColor(entry?.status);
+          const segmentColor =
+            theme.palette[statusColor]?.main || theme.palette.grey[400];
+          const title = entry
+            ? `${t(`statusPage.statusLabels.${entry.status}`)} | ${
+                formatDateTime(entry.checkedAt, locale) || t("common.unavailable")
+              }`
+            : "";
+
+          return (
+            <Box
+              key={`${entry?.checkedAt || "empty"}-${index}`}
+              title={title}
+              sx={{
+                height: 12,
+                borderRadius: 999,
+                bgcolor: entry
+                  ? alpha(segmentColor, 0.88)
+                  : alpha(theme.palette.divider, 0.18),
+                boxShadow: entry
+                  ? `inset 0 0 0 1px ${alpha(segmentColor, 0.18)}`
+                  : "none",
+              }}
+            />
+          );
+        })}
+      </Box>
+
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        sx={{ mt: 1, gap: 1 }}
+      >
+        <Typography
+          variant="caption"
+          color="text.disabled"
+          sx={{ fontSize: "0.68rem" }}
+        >
+          {firstCheckedAt || t("common.unavailable")}
+        </Typography>
+        <Typography
+          variant="caption"
+          color="text.disabled"
+          sx={{ fontSize: "0.68rem", textAlign: "right" }}
+        >
+          {lastCheckedAt || t("common.unavailable")}
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
+UptimeHistoryBar.propTypes = {
+  history: PropTypes.arrayOf(
+    PropTypes.shape({
+      checkedAt: PropTypes.string,
+      status: PropTypes.string,
+      healthyServiceCount: PropTypes.number,
+      serviceCount: PropTypes.number,
+    })
+  ).isRequired,
+  maxPoints: PropTypes.number,
+  locale: PropTypes.string.isRequired,
+  t: PropTypes.func.isRequired,
+};
+
 export default function StatusPage() {
   const theme = useTheme();
   const { t, locale } = useLanguage();
+  const servicePanelBg =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.background.paper, 0.92)
+      : alpha(theme.palette.common.white, 0.82);
+  const serviceHeaderBg =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.common.white, 0.02)
+      : alpha(theme.palette.grey[100], 0.82);
+  const serviceBodyBg =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.common.black, 0.08)
+      : alpha(theme.palette.grey[100], 0.42);
+  const serviceDividerColor =
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.common.white, 0.08)
+      : alpha(theme.palette.grey[400], 0.16);
   const { data, error, isLoading, isFetching, refetch } =
     useGetPublicStatusQuery(undefined, {
       pollingInterval: 30000,
@@ -368,8 +680,14 @@ export default function StatusPage() {
   }, [data]);
 
   const overallStatus = data?.overallStatus || "unknown";
-  const summary = data?.summary || {};
+  const summary = useMemo(() => data?.summary || {}, [data?.summary]);
   const refreshIntervalSeconds = Number(data?.refreshIntervalSeconds || 30);
+  const statusHistory = Array.isArray(data?.history?.overall)
+    ? data.history.overall
+    : [];
+  const statusHistoryMaxPoints = Number(
+    data?.history?.maxPoints || statusHistory.length || 0
+  );
   const lastUpdated =
     formatDateTime(data?.generatedAt, locale) || t("common.unavailable");
 
@@ -429,58 +747,86 @@ export default function StatusPage() {
     [t, locale],
   );
 
-  const summaryCards = [
-    {
-      key: "overall",
-      icon: <MonitorHeartRoundedIcon />,
-      title: t("statusPage.summary.overallTitle"),
-      value: t(`statusPage.statusLabels.${overallStatus}`),
-      hint: t("statusPage.summary.overallHint", {
-        healthy: Number(summary.healthyServiceCount || 0),
-        total: Number(summary.serviceCount || services.length),
-      }),
-      color:
-        getStatusColor(overallStatus) === "error"
-          ? "error.main"
-          : getStatusColor(overallStatus) === "warning"
-            ? "warning.main"
-            : getStatusColor(overallStatus) === "success"
-              ? "success.main"
-              : "text.primary",
-      colorType: getStatusColor(overallStatus),
-    },
-    {
-      key: "uptime",
-      icon: <ScheduleRoundedIcon />,
-      title: t("statusPage.summary.uptimeTitle"),
-      value: formatUptime(summary.gatewayUptimeSeconds, locale, t),
-      hint: t("statusPage.summary.uptimeHint"),
-      color: "text.primary",
-      colorType: "default",
-    },
-    {
-      key: "throughput",
-      icon: <QueryStatsRoundedIcon />,
-      title: t("statusPage.summary.throughputTitle"),
-      value: formatRatePerMinute(summary.requestRatePerMin, locale, t),
-      hint: t("statusPage.summary.throughputHint"),
-      color: "info.main",
-      colorType: "info",
-    },
-    {
-      key: "latency",
-      icon: <SpeedRoundedIcon />,
-      title: t("statusPage.summary.latencyTitle"),
-      value: formatLatency(summary.apiP95Ms, locale, t),
-      hint: t("statusPage.summary.latencyHint"),
-      color:
-        getStatusColor(overallStatus) === "error"
-          ? "error.main"
-          : "warning.main",
-      colorType:
-        getStatusColor(overallStatus) === "error" ? "error" : "warning",
-    },
-  ];
+  const summaryCards = useMemo(
+    () => [
+      {
+        key: "overall",
+        icon: <MonitorHeartRoundedIcon />,
+        title: t("statusPage.summary.overallTitle"),
+        value: t(`statusPage.statusLabels.${overallStatus}`),
+        hint: t("statusPage.summary.overallHint", {
+          healthy: Number(summary.healthyServiceCount || 0),
+          total: Number(summary.serviceCount || services.length),
+        }),
+        color:
+          getStatusColor(overallStatus) === "error"
+            ? "error.main"
+            : getStatusColor(overallStatus) === "warning"
+              ? "warning.main"
+              : getStatusColor(overallStatus) === "success"
+                ? "success.main"
+                : "text.primary",
+        colorType: getStatusColor(overallStatus),
+      },
+      {
+        key: "uptime",
+        icon: <ScheduleRoundedIcon />,
+        title: t("statusPage.summary.uptimeTitle"),
+        value: formatUptime(summary.gatewayUptimeSeconds, locale, t),
+        hint: t("statusPage.summary.uptimeHint"),
+        color: "text.primary",
+        colorType: "default",
+      },
+      {
+        key: "throughput",
+        icon: <QueryStatsRoundedIcon />,
+        title: t("statusPage.summary.throughputTitle"),
+        value: formatRatePerMinute(summary.requestRatePerMin, locale, t),
+        hint: t("statusPage.summary.throughputHint"),
+        color: "info.main",
+        colorType: "info",
+      },
+      {
+        key: "latency",
+        icon: <SpeedRoundedIcon />,
+        title: t("statusPage.summary.latencyTitle"),
+        value: formatLatency(summary.apiP95Ms, locale, t),
+        hint: t("statusPage.summary.latencyHint"),
+        color:
+          getStatusColor(overallStatus) === "error"
+            ? "error.main"
+            : "warning.main",
+        colorType:
+          getStatusColor(overallStatus) === "error" ? "error" : "warning",
+      },
+    ],
+    [t, overallStatus, summary, services.length, locale],
+  );
+
+  const bannerStyle = getOverallBannerStyle(theme, overallStatus);
+  const healthyCount = Number(summary.healthyServiceCount || 0);
+  const totalCount = Number(summary.serviceCount || services.length);
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "status",
+      entityTitle: t("statusPage.title"),
+      sectionTitle: t(`statusPage.statusLabels.${overallStatus}`),
+      pageSummary: t("statusPage.description"),
+      activeLabels: [
+        t(`statusPage.statusLabels.${overallStatus}`),
+        `${healthyCount}/${totalCount} ${t("statusPage.summary.overallTitle")}`,
+      ],
+      visibleActions: [t("common.refresh")],
+      highlights: services
+        .filter((service) => service.status !== "operational")
+        .slice(0, 4)
+        .map((service) => service.label),
+      metrics: summaryCards.map((card) => `${card.title}: ${card.value}`),
+    }),
+    [t, overallStatus, healthyCount, totalCount, services, summaryCards],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   return (
     <>
@@ -493,135 +839,151 @@ export default function StatusPage() {
       <Box
         sx={{
           minHeight: "100vh",
-          background:
+          bgcolor:
             theme.palette.mode === "dark"
-              ? "radial-gradient(circle at top, rgba(15,25,35,1) 0%, rgba(10,14,18,1) 100%)"
-              : "radial-gradient(circle at top, #f8fafc 0%, #ffffff 100%)",
-          pb: 8,
+              ? theme.palette.background.default
+              : theme.palette.grey[50],
+          pb: 10,
         }}
       >
-        <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
-          <Stack spacing={4}>
-            {/* Header Section */}
+        <Container maxWidth="xl" sx={{ py: 3 }}>
+          <Stack spacing={3}>
+            {/* Header */}
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={2}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", sm: "center" }}
+            >
+              <Box>
+                <Typography
+                  variant="h4"
+                  fontWeight={600}
+                  sx={{ letterSpacing: "-0.03em", lineHeight: 1.2 }}
+                >
+                  {t("statusPage.title")}
+                </Typography>
+                <Typography
+                  color="text.secondary"
+                  variant="body2"
+                  sx={{ mt: 0.75, lineHeight: 1.5 }}
+                >
+                  {t("statusPage.description")}
+                </Typography>
+              </Box>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={
+                  <RefreshRoundedIcon
+                    sx={{
+                      fontSize: "1rem !important",
+                      animation: isFetching
+                        ? "spin 1s linear infinite"
+                        : "none",
+                      "@keyframes spin": {
+                        from: { transform: "rotate(0deg)" },
+                        to: { transform: "rotate(360deg)" },
+                      },
+                    }}
+                  />
+                }
+                onClick={() => refetch()}
+                disabled={isFetching}
+                sx={{
+                  borderRadius: 2.5,
+                  py: 0.75,
+                  px: 2,
+                  fontWeight: 700,
+                  fontSize: "0.8rem",
+                  textTransform: "none",
+                  flexShrink: 0,
+                  bgcolor: theme.palette.background.paper,
+                  color: "text.primary",
+                  boxShadow: `0 10px 24px ${alpha(theme.palette.common.black, 0.08)}`,
+                  "&:hover": {
+                    bgcolor: theme.palette.background.paper,
+                    boxShadow: `0 14px 30px ${alpha(theme.palette.common.black, 0.12)}`,
+                  },
+                }}
+              >
+                {t("common.actions.refresh")}
+              </Button>
+            </Stack>
+
+            {/* Overall status banner */}
             <Paper
               elevation={0}
               sx={{
                 position: "relative",
                 overflow: "hidden",
-                p: { xs: 3, md: 5 },
-                borderRadius: 5,
-                border: "1px solid",
-                borderColor: alpha(theme.palette.divider, 0.6),
-                background:
-                  theme.palette.mode === "dark"
-                    ? `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.6)} 0%, ${alpha(theme.palette.background.default, 0.9)} 100%)`
-                    : `linear-gradient(135deg, #ffffff 0%, #f4f7f6 100%)`,
-                boxShadow:
-                  theme.palette.mode === "dark"
-                    ? "none"
-                    : "0px 12px 24px -4px rgba(0, 0, 0, 0.03)",
+                borderRadius: 4,
+                bgcolor: bannerStyle.bgcolor,
+                px: 2.5,
+                py: 2,
+                boxShadow: `0 14px 34px ${alpha(bannerStyle.dotColor, 0.14)}`,
               }}
             >
               {isFetching && (
                 <LinearProgress
-                  color="inherit"
+                  color={
+                    getStatusColor(overallStatus) !== "default"
+                      ? getStatusColor(overallStatus)
+                      : "primary"
+                  }
                   sx={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     right: 0,
-                    height: 3,
-                    opacity: 0.3,
+                    height: 2,
                   }}
                 />
               )}
-
-              <Stack spacing={3}>
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={2}
-                  justifyContent="space-between"
-                  alignItems={{ xs: "flex-start", md: "center" }}
-                >
+              <Stack
+                direction="row"
+                spacing={2}
+                alignItems="center"
+                justifyContent="space-between"
+              >
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <Box
+                    sx={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: "50%",
+                      bgcolor: bannerStyle.dotColor,
+                      flexShrink: 0,
+                    }}
+                  />
                   <Box>
-                    <Typography
-                      variant="overline"
-                      color="primary.main"
-                      fontWeight={700}
-                      sx={{ letterSpacing: 1.5 }}
-                    >
-                      {t("statusPage.eyebrow")}
+                    <Typography variant="body2" fontWeight={800}>
+                      {t(`statusPage.statusLabels.${overallStatus}`)}
                     </Typography>
                     <Typography
-                      variant="h3"
-                      fontWeight={800}
-                      sx={{ mt: 1, mb: 1, letterSpacing: "-0.02em" }}
+                      variant="caption"
+                      color="text.disabled"
+                      sx={{ fontSize: "0.7rem" }}
                     >
-                      {t("statusPage.title")}
-                    </Typography>
-                    <Typography
-                      color="text.secondary"
-                      variant="subtitle1"
-                      sx={{ maxWidth: 700, lineHeight: 1.6 }}
-                    >
-                      {t("statusPage.description")}
+                      {t("statusPage.lastUpdated", { date: lastUpdated })}
+                      {" · "}
+                      {t("statusPage.refreshHint", {
+                        seconds: refreshIntervalSeconds,
+                      })}
                     </Typography>
                   </Box>
-
-                  <Stack
-                    direction={{ xs: "column", sm: "row" }}
-                    spacing={1.5}
-                    alignItems={{ xs: "stretch", sm: "center" }}
-                  >
-                    <Chip
-                      color={getStatusColor(overallStatus)}
-                      label={t(`statusPage.statusLabels.${overallStatus}`)}
-                      sx={{
-                        fontWeight: 700,
-                        px: 1,
-                        py: 2.5,
-                        fontSize: "0.95rem",
-                        borderRadius: 3,
-                      }}
-                    />
-                    <Button
-                      variant="outlined"
-                      startIcon={<RefreshRoundedIcon />}
-                      onClick={() => refetch()}
-                      disabled={isFetching}
-                      sx={{
-                        borderRadius: 3,
-                        py: 1,
-                        fontWeight: 600,
-                        borderColor: alpha(theme.palette.divider, 0.8),
-                      }}
-                    >
-                      {t("common.actions.refresh")}
-                    </Button>
-                  </Stack>
                 </Stack>
-
-                <Divider sx={{ opacity: 0.6 }} />
-
-                <Stack
-                  direction={{ xs: "column", sm: "row" }}
-                  spacing={2}
-                  alignItems="center"
-                  justifyContent="space-between"
-                >
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    fontWeight={500}
-                  >
-                    {t("statusPage.lastUpdated", { date: lastUpdated })}
-                  </Typography>
-                  <Typography variant="caption" color="text.disabled">
-                    {t("statusPage.refreshHint", {
-                      seconds: refreshIntervalSeconds,
-                    })}
-                  </Typography>
-                </Stack>
+                <Chip
+                  size="small"
+                  label={`${healthyCount} / ${totalCount}`}
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: "0.75rem",
+                    bgcolor: alpha(bannerStyle.dotColor, 0.12),
+                    color: bannerStyle.dotColor,
+                    border: "none",
+                  }}
+                />
               </Stack>
             </Paper>
 
@@ -629,13 +991,18 @@ export default function StatusPage() {
             {error && (
               <Alert
                 severity="error"
-                sx={{ borderRadius: 3, alignItems: "center" }}
+                variant="outlined"
+                sx={{
+                  borderRadius: 3,
+                  alignItems: "center",
+                  "& .MuiAlert-message": { flex: 1 },
+                }}
                 action={
                   <Button
                     color="inherit"
                     size="small"
                     onClick={() => refetch()}
-                    sx={{ fontWeight: 600 }}
+                    sx={{ fontWeight: 700, textTransform: "none" }}
                   >
                     {t("common.actions.retry")}
                   </Button>
@@ -644,94 +1011,197 @@ export default function StatusPage() {
                 <Typography variant="subtitle2" fontWeight={700}>
                   {t("statusPage.errors.loadTitle")}
                 </Typography>
-                <Typography variant="body2">
+                <Typography variant="body2" color="text.secondary">
                   {t("statusPage.errors.loadBody")}
                 </Typography>
               </Alert>
             )}
 
-            {/* Loading State Overlay (nếu chưa có data) */}
+            {/* Loading */}
             {!data && isLoading && (
-              <Box textAlign="center" py={4}>
+              <Paper
+                elevation={0}
+                sx={{
+                  textAlign: "center",
+                  py: 8,
+                  borderRadius: 4,
+                  boxShadow: `0 14px 32px ${alpha(theme.palette.common.black, 0.08)}`,
+                }}
+              >
+                <LinearProgress
+                  sx={{ width: 100, mx: "auto", mb: 2, borderRadius: 2 }}
+                />
                 <Typography
-                  variant="body1"
+                  variant="body2"
                   color="text.secondary"
                   fontWeight={500}
                 >
                   {t("common.states.loading")}
                 </Typography>
-              </Box>
+              </Paper>
             )}
 
-            {/* Metrics Section */}
             {data && (
               <>
-                <Grid container spacing={3}>
+                {/* Metrics */}
+                <Grid container spacing={1.5}>
                   {summaryCards.map((card) => (
-                    <Grid key={card.key} size={{ xs: 12, sm: 6, xl: 3 }}>
+                    <Grid key={card.key} size={{ xs: 6, lg: 3 }}>
                       <SummaryCard {...card} />
                     </Grid>
                   ))}
                 </Grid>
 
-                {/* Services Section */}
-                <Box pt={2}>
-                  <Stack spacing={1} mb={3}>
-                    <Typography
-                      variant="h5"
-                      fontWeight={800}
-                      letterSpacing="-0.01em"
+                {/* Services panel */}
+                <Paper
+                  elevation={0}
+                  sx={{
+                    borderRadius: 4,
+                    overflow: "hidden",
+                    bgcolor: servicePanelBg,
+                    boxShadow: `0 18px 44px ${alpha(theme.palette.common.black, 0.08)}`,
+                  }}
+                >
+                  {/* Panel header */}
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    sx={{
+                      px: 2.5,
+                      py: 2,
+                      bgcolor: serviceHeaderBg,
+                      borderBottom: "1px solid",
+                      borderColor: serviceDividerColor,
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="body2" fontWeight={800}>
+                        {t("statusPage.servicesTitle")}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.disabled"
+                        sx={{ fontSize: "0.7rem" }}
+                      >
+                        {t("statusPage.servicesSubtitle")}
+                      </Typography>
+                    </Box>
+                    <Stack
+                      direction="row"
+                      spacing={2}
+                      sx={{ display: { xs: "none", sm: "flex" } }}
                     >
-                      {t("statusPage.servicesTitle")}
-                    </Typography>
-                    <Typography color="text.secondary" variant="body1">
-                      {t("statusPage.servicesSubtitle")}
-                    </Typography>
+                      {["operational", "degraded", "down"].map((s) => {
+                        const sc = getStatusColor(s);
+                        return (
+                          <Stack
+                            key={s}
+                            direction="row"
+                            spacing={0.75}
+                            alignItems="center"
+                          >
+                            <Box
+                              sx={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: "50%",
+                                bgcolor:
+                                  theme.palette[sc]?.main ||
+                                  theme.palette.grey[500],
+                              }}
+                            />
+                            <Typography
+                              variant="caption"
+                              color="text.disabled"
+                              sx={{ fontSize: "0.7rem" }}
+                            >
+                              {t(`statusPage.statusLabels.${s}`)}
+                            </Typography>
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
                   </Stack>
 
-                  <Grid container spacing={3}>
-                    {services.map((service) => (
-                      <Grid key={service.key} size={{ xs: 12, md: 6, xl: 3 }}>
-                        <ServiceCard
+                  {/* Service rows */}
+                  <Box sx={{ p: 1, bgcolor: serviceBodyBg }}>
+                    <Stack
+                      divider={
+                        <Divider
+                          sx={{ mx: 2, borderColor: serviceDividerColor }}
+                        />
+                      }
+                    >
+                      {services.map((service) => (
+                        <ServiceRow
+                          key={service.key}
                           service={service}
-                          detail={buildServiceDetail(service)}
+                          detail={
+                            String(service?.detail || "").trim() ||
+                            buildServiceDetail(service)
+                          }
                           locale={locale}
                           t={t}
                         />
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
+                      ))}
+                    </Stack>
+                  </Box>
+                  <UptimeHistoryBar
+                    history={statusHistory}
+                    maxPoints={statusHistoryMaxPoints}
+                    locale={locale}
+                    t={t}
+                  />
+                </Paper>
               </>
             )}
 
-            {/* Note Section */}
+            {/* Note */}
             <Paper
               elevation={0}
               sx={{
-                p: 3,
-                borderRadius: 4,
-                border: "1px dashed",
-                borderColor: alpha(theme.palette.warning.main, 0.3),
+                px: 2.5,
+                py: 2,
+                borderRadius: 3,
                 bgcolor: alpha(theme.palette.warning.main, 0.04),
+                display: "flex",
+                gap: 1.5,
+                alignItems: "flex-start",
+                boxShadow: `0 12px 28px ${alpha(theme.palette.warning.main, 0.12)}`,
               }}
             >
-              <Stack spacing={1}>
+              <Box
+                sx={{
+                  color: "warning.main",
+                  flexShrink: 0,
+                  mt: 0.25,
+                  "& .MuiSvgIcon-root": { fontSize: "1.15rem" },
+                }}
+              >
+                <WarningAmberRoundedIcon />
+              </Box>
+              <Box>
                 <Typography
-                  variant="subtitle1"
-                  fontWeight={700}
+                  variant="body2"
+                  fontWeight={800}
                   color="warning.dark"
                 >
                   {t("statusPage.noteTitle")}
                 </Typography>
                 <Typography
+                  variant="caption"
                   color="text.secondary"
-                  variant="body2"
-                  sx={{ lineHeight: 1.6 }}
+                  sx={{
+                    lineHeight: 1.7,
+                    mt: 0.25,
+                    display: "block",
+                    fontSize: "0.75rem",
+                  }}
                 >
                   {t("statusPage.noteBody")}
                 </Typography>
-              </Stack>
+              </Box>
             </Paper>
           </Stack>
         </Container>

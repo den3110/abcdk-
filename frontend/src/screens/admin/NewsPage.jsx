@@ -29,6 +29,7 @@ import {
   useQueueSeoNewsJobMutation,
   useUpdateSeoNewsSettingsMutation,
 } from "../../slices/adminApiSlice";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 
 const DEFAULT_FORM = {
   enabled: true,
@@ -231,6 +232,83 @@ export default function AdminNewsPage() {
     ? jobMonitor.recentJobs
     : [];
   const jobSummary = jobMonitor?.summary || {};
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "admin_news",
+      entityTitle: "News Management",
+      sectionTitle: form.discoveryProvider || "auto",
+      pageSummary:
+        "Trang admin điều phối pipeline AI News, discovery provider, gateway và publish queue.",
+      activeLabels: [
+        form.enabled ? "Auto fetch bật" : "Auto fetch tắt",
+        form.autoPublish ? "Auto publish bật" : "Auto publish tắt",
+        form.discoveryProvider ? `Provider: ${form.discoveryProvider}` : "",
+        form.articleGenerationModel
+          ? `Model: ${form.articleGenerationModel}`
+          : "",
+      ],
+      visibleActions: [
+        "Refresh status",
+        "Run pipeline",
+        "Lưu settings",
+        "Publish drafts",
+      ],
+      highlights: [
+        activeJob?.type ? `Job: ${activeJob.type}` : "",
+        articleGenerationGateway?.status
+          ? `Gateway: ${articleGenerationGateway.status}`
+          : "",
+      ],
+      metrics: [
+        `Pending candidates: ${pendingCandidatesCount}`,
+        `Draft ngoài mạng: ${draftArticlesCount}`,
+        `Draft AI: ${generatedDraftArticlesCount}`,
+        `Recent jobs: ${recentJobs.length}`,
+      ],
+    }),
+    [
+      form.enabled,
+      form.autoPublish,
+      form.discoveryProvider,
+      form.articleGenerationModel,
+      activeJob?.type,
+      articleGenerationGateway?.status,
+      pendingCandidatesCount,
+      draftArticlesCount,
+      generatedDraftArticlesCount,
+      recentJobs.length,
+    ],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      discoveryProvider: (nextValue) => {
+        setForm((prev) => ({ ...prev, discoveryProvider: String(nextValue || "auto") }));
+      },
+      articleGenerationModel: (nextValue) => {
+        setForm((prev) => ({
+          ...prev,
+          articleGenerationModel: String(nextValue || ""),
+        }));
+      },
+      autoPublish: (nextValue) => {
+        setForm((prev) => ({ ...prev, autoPublish: Boolean(nextValue) }));
+      },
+      enabled: (nextValue) => {
+        setForm((prev) => ({ ...prev, enabled: Boolean(nextValue) }));
+      },
+      search: (nextValue) => {
+        setForm((prev) => ({ ...prev, mainKeywords: String(nextValue || "") }));
+      },
+    }),
+    [],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: ["set_page_state", "prefill_text", "focus_element", "navigate"],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   const refreshAll = () => {
     refetchSettings();

@@ -41,6 +41,7 @@ import ClubCard from "../../components/ClubCard";
 import { useListClubsQuery } from "../../slices/clubsApiSlice";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 
 const SPORT_OPTIONS = ["pickleball"];
 
@@ -185,8 +186,75 @@ export default function ClubsListPage() {
 
   const showSkeleton =
     !shouldSkip && (isLoading || isUninitialized || (isFetching && !data));
-  const items = data?.items || [];
+  const items = useMemo(() => data?.items || [], [data?.items]);
   const noResults = !showSkeleton && !shouldSkip && items.length === 0;
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "club_list",
+      entityTitle: t("clubs.list.heroTitle"),
+      sectionTitle:
+        tab === "mine"
+          ? t("clubs.list.myClubsTab")
+          : t("clubs.list.discoverTab"),
+      pageSummary: t("clubs.list.heroSubtitle"),
+      activeLabels: [
+        tab === "mine"
+          ? t("clubs.list.myClubsTab")
+          : t("clubs.list.discoverTab"),
+        sport ? `Môn: ${sport}` : "",
+        province ? `Tỉnh: ${province}` : "",
+        q ? `Tìm: ${q}` : "",
+      ],
+      visibleActions: [
+        t("clubs.list.heroTitle"),
+        isAuth ? t("clubs.list.createClub") : "",
+        hasFilters ? t("clubs.list.clearFilters") : "",
+      ],
+      highlights: items.slice(0, 4).map((club) => club?.name || ""),
+      metrics: [
+        `Kết quả: ${items.length}`,
+        shouldSkip
+          ? "Cần đăng nhập để xem CLB của tôi"
+          : "Đang duyệt danh sách CLB",
+      ],
+    }),
+    [t, tab, sport, province, q, isAuth, hasFilters, items, shouldSkip],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      tab: (nextValue) => {
+        setTab(String(nextValue || "all"));
+      },
+      search: (nextValue) => {
+        setQInput(String(nextValue || ""));
+      },
+      sport: (nextValue) => {
+        setSport(String(nextValue || ""));
+      },
+      province: (nextValue) => {
+        setProvince(String(nextValue || ""));
+      },
+      openDialog: (nextValue) => {
+        if (String(nextValue || "") === "createClub") {
+          setOpenCreate(true);
+        }
+      },
+    }),
+    [],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: [
+      "set_page_state",
+      "prefill_text",
+      "open_dialog",
+      "focus_element",
+      "navigate",
+    ],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 8 }}>

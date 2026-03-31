@@ -21,13 +21,16 @@ import {
 import {
   ArrowBackIosNew as BackIcon,
   DarkMode as DarkModeIcon,
+  KeyboardArrowDownRounded as ChevronDownIcon,
   LightMode as LightModeIcon,
+  SearchRounded as SearchIcon,
 } from "@mui/icons-material";
 
 import { logout } from "../slices/authSlice";
 import { useLogoutMutation } from "../slices/usersApiSlice";
 import { useThemeMode } from "../context/ThemeContext.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { useCommandPalette } from "../context/CommandPaletteContext.jsx";
 import LogoAnimationMorph from "./LogoAnimationMorph.jsx";
 import LanguageSwitcher from "./LanguageSwitcher.jsx";
 
@@ -75,6 +78,7 @@ export default function Header() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const { toggleTheme, isDark } = useThemeMode();
   const { t } = useLanguage();
+  const { openPalette } = useCommandPalette();
 
   const navLinks = useMemo(
     () => [
@@ -86,7 +90,9 @@ export default function Header() {
 
   const [canGoBack, setCanGoBack] = useState(false);
   const [userAnchor, setUserAnchor] = useState(null);
+  const [moreAnchor, setMoreAnchor] = useState(null);
   const headerScrollPendingRef = useRef(false);
+  const moreCloseTimeoutRef = useRef(null);
 
   const BOTTOM_NAV_TABS = useMemo(
     () =>
@@ -107,6 +113,36 @@ export default function Header() {
 
   const openUserMenu = (event) => setUserAnchor(event.currentTarget);
   const closeUserMenu = () => setUserAnchor(null);
+  const clearMoreCloseTimeout = () => {
+    if (!moreCloseTimeoutRef.current) return;
+    clearTimeout(moreCloseTimeoutRef.current);
+    moreCloseTimeoutRef.current = null;
+  };
+  const openMoreMenu = (event) => {
+    clearMoreCloseTimeout();
+    setMoreAnchor(event.currentTarget);
+  };
+  const scheduleCloseMoreMenu = () => {
+    clearMoreCloseTimeout();
+    moreCloseTimeoutRef.current = setTimeout(() => {
+      setMoreAnchor(null);
+      moreCloseTimeoutRef.current = null;
+    }, 140);
+  };
+  const closeMoreMenu = () => {
+    clearMoreCloseTimeout();
+    setMoreAnchor(null);
+  };
+  const handleMoreMenuClose = (_event, reason) => {
+    if (reason === "escapeKeyDown" || reason === "tabKeyDown") {
+      closeMoreMenu();
+    }
+  };
+  const ignoreMoreButtonClick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearMoreCloseTimeout();
+  };
 
   const scrollToTop = () => {
     if (typeof window === "undefined") return;
@@ -168,7 +204,22 @@ export default function Header() {
 
   useEffect(() => {
     setUserAnchor(null);
+    if (moreCloseTimeoutRef.current) {
+      clearTimeout(moreCloseTimeoutRef.current);
+      moreCloseTimeoutRef.current = null;
+    }
+    setMoreAnchor(null);
   }, [location.pathname, hasUserInfo]);
+
+  useEffect(
+    () => () => {
+      if (moreCloseTimeoutRef.current) {
+        clearTimeout(moreCloseTimeoutRef.current);
+        moreCloseTimeoutRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!headerScrollPendingRef.current) return;
@@ -197,6 +248,30 @@ export default function Header() {
     if (path === "/" && location.pathname !== "/") return false;
     return location.pathname.startsWith(path);
   };
+
+  const moreMenuItems = useMemo(() => {
+    const items = [{ label: t("header.nav.news"), path: "/news" }];
+
+    if (userInfo) {
+      items.push({
+        label: t("header.nav.myTournaments"),
+        path: "/my-tournaments",
+      });
+      items.push({
+        label: t("header.nav.clubs"),
+        path: "/clubs",
+        badge: showClubNewBadge ? "NEW" : "",
+      });
+    }
+
+    if (isAdmin) {
+      items.push({ label: t("header.nav.admin"), path: "/admin" });
+    }
+
+    return items;
+  }, [t, userInfo, isAdmin, showClubNewBadge]);
+
+  const isMoreActive = moreMenuItems.some((item) => isActive(item.path));
 
   const getNavButtonStyle = (path) => {
     const active = isActive(path);
@@ -313,58 +388,6 @@ export default function Header() {
 
               <Button
                 component={Link}
-                to="/news"
-                sx={getNavButtonStyle("/news")}
-                onClick={() => handleHeaderLinkClick("/news")}
-              >
-                {t("header.nav.news")}
-              </Button>
-
-              {userInfo ? (
-                <>
-                  <Button
-                    component={Link}
-                    to="/my-tournaments"
-                    sx={getNavButtonStyle("/my-tournaments")}
-                    onClick={() => handleHeaderLinkClick("/my-tournaments")}
-                  >
-                    {t("header.nav.myTournaments")}
-                  </Button>
-
-                  <Box sx={{ position: "relative" }}>
-                    <Button
-                      component={Link}
-                      to="/clubs"
-                      sx={getNavButtonStyle("/clubs")}
-                      onClick={() => handleHeaderLinkClick("/clubs")}
-                    >
-                      {t("header.nav.clubs")}
-                    </Button>
-                    {showClubNewBadge ? (
-                      <Box
-                        sx={{
-                          position: "absolute",
-                          top: -2,
-                          right: -4,
-                          bgcolor: "error.main",
-                          color: "white",
-                          fontSize: "0.6rem",
-                          fontWeight: 700,
-                          px: 0.6,
-                          py: 0,
-                          borderRadius: "4px",
-                          pointerEvents: "none",
-                        }}
-                      >
-                        NEW
-                      </Box>
-                    ) : null}
-                  </Box>
-                </>
-              ) : null}
-
-              <Button
-                component={Link}
                 to="/live"
                 onClick={() => handleHeaderLinkClick("/live")}
                 sx={{
@@ -418,16 +441,132 @@ export default function Header() {
                 ) : null}
               </Button>
 
-              {isAdmin ? (
+              <Box
+                onMouseEnter={openMoreMenu}
+                onMouseLeave={scheduleCloseMoreMenu}
+                sx={{ display: "flex", alignItems: "center" }}
+              >
                 <Button
-                  component={Link}
-                  to="/admin"
-                  sx={getNavButtonStyle("/admin")}
-                  onClick={() => handleHeaderLinkClick("/admin")}
+                  aria-haspopup="menu"
+                  aria-expanded={moreAnchor ? "true" : undefined}
+                  onMouseDown={ignoreMoreButtonClick}
+                  onClick={ignoreMoreButtonClick}
+                  disableRipple
+                  sx={{
+                    ...getNavButtonStyle("__more__"),
+                    color:
+                      isMoreActive || moreAnchor
+                        ? theme.palette.primary.main
+                        : "text.primary",
+                    bgcolor:
+                      isMoreActive || moreAnchor
+                        ? alpha(theme.palette.primary.main, 0.08)
+                        : "transparent",
+                    pr: 1,
+                    gap: 0.35,
+                  }}
                 >
-                  {t("header.nav.admin")}
+                  {t("header.nav.more")}
+                  <ChevronDownIcon
+                    sx={{
+                      fontSize: 18,
+                      transition: "transform 0.2s ease",
+                      transform: moreAnchor
+                        ? "rotate(180deg)"
+                        : "rotate(0deg)",
+                    }}
+                  />
                 </Button>
-              ) : null}
+
+                <Menu
+                  anchorEl={moreAnchor}
+                  open={!!moreAnchor}
+                  onClose={handleMoreMenuClose}
+                  hideBackdrop
+                  MenuListProps={{
+                    onMouseEnter: clearMoreCloseTimeout,
+                    onMouseLeave: scheduleCloseMoreMenu,
+                    sx: {
+                      py: 0.75,
+                    },
+                  }}
+                  PaperProps={{
+                    onMouseEnter: clearMoreCloseTimeout,
+                    onMouseLeave: scheduleCloseMoreMenu,
+                    elevation: 0,
+                    sx: {
+                      mt: 1,
+                      minWidth: 220,
+                      borderRadius: 3,
+                      border: `1px solid ${alpha(theme.palette.text.primary, isDark ? 0.12 : 0.08)}`,
+                      backgroundImage: isDark
+                        ? "linear-gradient(180deg, rgba(24,24,27,0.96), rgba(18,18,18,0.98))"
+                        : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96))",
+                      backdropFilter: "blur(18px)",
+                      WebkitBackdropFilter: "blur(18px)",
+                      boxShadow: isDark
+                        ? "0 22px 50px -18px rgba(0,0,0,0.6)"
+                        : "0 22px 50px -18px rgba(15,23,42,0.18)",
+                      overflow: "visible",
+                    },
+                  }}
+                  transformOrigin={{ horizontal: "center", vertical: "top" }}
+                  anchorOrigin={{ horizontal: "center", vertical: "bottom" }}
+                >
+                  {moreMenuItems.map((item) => (
+                    <MenuItem
+                      key={item.path}
+                      component={Link}
+                      to={item.path}
+                      onClick={() => {
+                        handleHeaderLinkClick(item.path);
+                        closeMoreMenu();
+                      }}
+                      sx={{
+                        mx: 0.75,
+                        my: 0.25,
+                        borderRadius: 2,
+                        minHeight: 42,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 1,
+                        color: isActive(item.path)
+                          ? theme.palette.primary.main
+                          : "text.primary",
+                        bgcolor: isActive(item.path)
+                          ? alpha(theme.palette.primary.main, 0.08)
+                          : "transparent",
+                        fontWeight: isActive(item.path) ? 700 : 600,
+                        "&:hover": {
+                          bgcolor: alpha(theme.palette.primary.main, 0.1),
+                        },
+                      }}
+                    >
+                      <Box component="span">{item.label}</Box>
+                      {item.badge ? (
+                        <Box
+                          component="span"
+                          sx={{
+                            bgcolor: "error.main",
+                            color: "common.white",
+                            fontSize: "0.65rem",
+                            fontWeight: 800,
+                            lineHeight: 1,
+                            px: 0.7,
+                            py: 0.35,
+                            borderRadius: 999,
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          {item.badge}
+                        </Box>
+                      ) : null}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              </Box>
+
             </Box>
           </Box>
 
@@ -438,8 +577,24 @@ export default function Header() {
               right: 0,
               top: "50%",
               transform: "translateY(-50%)",
+              alignItems: "center",
+              gap: 0.75,
             }}
           >
+            <Tooltip title={t("commandPalette.triggerAria")}>
+              <IconButton
+                onClick={openPalette}
+                size="small"
+                aria-label={t("commandPalette.triggerAria")}
+                sx={{
+                  border: `1px solid ${alpha(theme.palette.text.primary, 0.1)}`,
+                  bgcolor: alpha(theme.palette.background.paper, 0.72),
+                  backdropFilter: "blur(10px)",
+                }}
+              >
+                <SearchIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <LanguageSwitcher compact />
           </Box>
 
@@ -447,9 +602,95 @@ export default function Header() {
             sx={{
               display: { xs: "none", md: "flex" },
               alignItems: "center",
-              gap: 1.5,
+              gap: 1,
             }}
           >
+            <Tooltip title={t("commandPalette.triggerAria")}>
+              <Button
+                onClick={openPalette}
+                variant="text"
+                aria-label={t("commandPalette.triggerAria")}
+                sx={{
+                  minWidth: 0,
+                  flexShrink: 0,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: { md: 0.75, xl: 1 },
+                  height: 44,
+                  px: { md: 0.9, xl: 1.25 },
+                  borderRadius: "999px",
+                  textTransform: "none",
+                  color: "text.secondary",
+                  border: `1px solid ${alpha(theme.palette.text.primary, isDark ? 0.12 : 0.08)}`,
+                  backgroundImage: isDark
+                    ? "linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02))"
+                    : "linear-gradient(135deg, rgba(255,255,255,0.92), rgba(248,250,252,0.76))",
+                  boxShadow: isDark
+                    ? "inset 0 1px 0 rgba(255,255,255,0.06)"
+                    : "inset 0 1px 0 rgba(255,255,255,0.85)",
+                  backdropFilter: "blur(14px)",
+                  WebkitBackdropFilter: "blur(14px)",
+                  transition: "all 0.24s ease",
+                  "&:hover": {
+                    color: theme.palette.primary.main,
+                    borderColor: alpha(theme.palette.primary.main, 0.26),
+                    backgroundImage: isDark
+                      ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.2)}, rgba(255,255,255,0.04))`
+                      : `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)}, rgba(255,255,255,0.96))`,
+                    transform: "translateY(-1px)",
+                  },
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    bgcolor: alpha(theme.palette.primary.main, isDark ? 0.18 : 0.1),
+                    color: theme.palette.primary.main,
+                    flexShrink: 0,
+                  }}
+                >
+                  <SearchIcon sx={{ fontSize: 18 }} />
+                </Box>
+                <Box
+                  component="span"
+                  sx={{
+                    display: { md: "none", xl: "inline" },
+                    fontWeight: 600,
+                    letterSpacing: "-0.01em",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {t("commandPalette.triggerLabel")}
+                </Box>
+                <Box
+                  component="span"
+                  sx={{
+                    px: 0.9,
+                    py: 0.45,
+                    borderRadius: "999px",
+                    fontSize: "0.69rem",
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    color: "text.primary",
+                    bgcolor: alpha(theme.palette.text.primary, isDark ? 0.14 : 0.06),
+                    border: `1px solid ${alpha(theme.palette.text.primary, isDark ? 0.18 : 0.08)}`,
+                    boxShadow: isDark
+                      ? "inset 0 1px 0 rgba(255,255,255,0.04)"
+                      : "inset 0 1px 0 rgba(255,255,255,0.9)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Ctrl K
+                </Box>
+              </Button>
+            </Tooltip>
+
             {userInfo ? (
               <>
                 <LanguageSwitcher compact />

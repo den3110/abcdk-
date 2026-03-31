@@ -2,86 +2,95 @@ import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { useSelector } from "react-redux";
 import { socket } from "../lib/socket";
 
-// ⚠️ GIỮ BACK-COMPAT: context chứa trực tiếp instance socket
 const SocketContext = createContext(socket);
 
-/** Suy luận loại client (admin/referee/web) */
 function detectClientType() {
   try {
     if (typeof window === "undefined") return "web";
-    const p = window.location.pathname.toLowerCase();
-    if (p.startsWith("/admin")) return "admin";
-    if (p.includes("/referee") || p.includes("/tf")) return "referee";
+    const pathname = String(window.location.pathname || "").toLowerCase();
+    if (pathname.startsWith("/admin")) return "admin";
+    if (pathname.includes("/referee") || pathname.includes("/tf")) {
+      return "referee";
+    }
     return "web";
   } catch {
     return "web";
   }
 }
 
+function isAnonymousDrawLivePath() {
+  try {
+    if (typeof window === "undefined") return false;
+    return /^\/tournament\/[^/]+\/draw\/live\/?$/i.test(
+      window.location.pathname || "",
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function SocketProvider({ children }) {
-  const { userInfo } = useSelector((s) => s.auth || {});
+  const { userInfo } = useSelector((state) => state.auth || {});
   const token = userInfo?.token;
   const clientType = useMemo(detectClientType, []);
+  const allowAnonymousConnect = useMemo(isAnonymousDrawLivePath, []);
   const heartbeatRef = useRef(null);
 
-  // Kết nối khi có token (tránh Unauthorized)
   useEffect(() => {
-    // inject opts TRƯỚC khi connect
     try {
-      socket.auth = { ...(socket.auth || {}), token };
+      const nextAuth = { ...(socket.auth || {}) };
+      if (token) nextAuth.token = token;
+      else delete nextAuth.token;
+      socket.auth = nextAuth;
       socket.io.opts.query = {
         ...(socket.io.opts.query || {}),
         client: clientType,
       };
-
-      // Cho phép polling + websocket để an toàn qua proxy
-      // Nếu muốn ép websocket: socket.io.opts.transports = ["websocket"];
-    } catch (e) {
-      console.error("[SocketProvider] set opts error:", e);
+    } catch (error) {
+      console.error("[SocketProvider] set opts error:", error);
     }
 
-    if (!token) {
-      // Không connect nếu chưa có token (server đang yêu cầu JWT)
+    if (!token && !allowAnonymousConnect) {
       return;
     }
 
     try {
       if (!socket.connected) socket.connect();
-    } catch (e) {
-      console.error("[SocketProvider] connect error:", e);
+    } catch (error) {
+      console.error("[SocketProvider] connect error:", error);
     }
 
     return () => {
-      // Giữ kết nối xuyên app: không disconnect ở đây
       if (heartbeatRef.current) {
         clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
     };
-  }, [token, clientType]);
+  }, [token, clientType, allowAnonymousConnect]);
 
-  // Heartbeat + listeners
   useEffect(() => {
     const onConnect = () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
       heartbeatRef.current = setInterval(() => {
         try {
           socket.emit("presence:ping");
-        } catch (e) {
-          console.log(e);
+        } catch (error) {
+          console.log(error);
         }
       }, 10000);
     };
+
     const onDisconnect = () => {
       if (heartbeatRef.current) {
         clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
     };
-    const onConnectError = (err) =>
-      console.error("[socket] connect_error:", err?.message || err);
-    const onError = (err) =>
-      console.error("[socket] error:", err?.message || err);
+
+    const onConnectError = (error) =>
+      console.error("[socket] connect_error:", error?.message || error);
+    const onError = (error) =>
+      console.error("[socket] error:", error?.message || error);
 
     try {
       socket.on("connect", onConnect);
@@ -89,8 +98,8 @@ export function SocketProvider({ children }) {
       socket.on("error", onError);
       socket.io.on("connect_error", onConnectError);
       socket.io.on("reconnect_error", onError);
-    } catch (e) {
-      console.error("[SocketProvider] bind listeners error:", e);
+    } catch (error) {
+      console.error("[SocketProvider] bind listeners error:", error);
     }
 
     return () => {
@@ -100,22 +109,21 @@ export function SocketProvider({ children }) {
         socket.off("error", onError);
         socket.io.off("connect_error", onConnectError);
         socket.io.off("reconnect_error", onError);
-      } catch (e) {
-        console.log(e);
+      } catch (error) {
+        console.log(error);
       }
     };
   }, []);
 
-  // GIỮ NGUYÊN value = socket để code cũ vẫn dùng được
   return (
     <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>
   );
 }
 
-/** BACK-COMPAT: trả trực tiếp instance socket (giống code cũ) */
 export const useSocket = () => {
-  const ctx = useContext(SocketContext);
-  // nếu ai đó đã lỡ cung cấp {socket} thì vẫn cố gắng lấy ra
-  if (ctx && typeof ctx.emit !== "function" && ctx?.socket) return ctx.socket;
-  return ctx || socket;
+  const context = useContext(SocketContext);
+  if (context && typeof context.emit !== "function" && context?.socket) {
+    return context.socket;
+  }
+  return context || socket;
 };

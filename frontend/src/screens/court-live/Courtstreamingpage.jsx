@@ -21,6 +21,7 @@ import FacebookLiveStreamerAutoRTK from "./Facebooklivestreamerautortk";
 import { useGetCourtInfoQuery } from "../../slices/liveStreamingApiSlice";
 import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 // import FacebookLiveStreamerAutoRTK from "../features/streaming/FacebookLiveStreamerAutoRTK";
 // import { useGetCourtInfoQuery } from "../features/streaming/liveStreamingApiSlice";
 
@@ -59,6 +60,60 @@ export default function CourtStreamingPage() {
 
     return `${import.meta.env.VITE_API_URL}/api/overlay/match`;
   }, []);
+
+  const courtName =
+    courtInfo?.name || (courtId ? `Court ${courtId}` : "Court");
+  const tournamentName =
+    courtInfo?.tournament?.name || t("live.streamingPage.tournamentFallback");
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "court_streaming",
+      entityTitle: courtName,
+      sectionTitle: tournamentName,
+      pageSummary:
+        "Trang phát trực tiếp sân hiện tại với auto mode và overlay tỷ số.",
+      activeLabels: [
+        courtId ? `Court ID: ${courtId}` : "Thiếu court ID",
+        loadingCourt ? "Đang tải sân" : "Đã sẵn sàng phát",
+      ],
+      visibleActions: [
+        t("live.streamingPage.back"),
+        t("live.streamingPage.breadcrumbsStreaming"),
+      ],
+      highlights: [tournamentName],
+      metrics: [
+        `Sân: ${courtName}`,
+        `Giải: ${tournamentName}`,
+        "Polling: 5 giây",
+      ],
+    }),
+    [courtName, tournamentName, courtId, loadingCourt, t],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      courtId: (nextValue) => {
+        const nextId = String(nextValue || "").trim();
+        if (!nextId || nextId === courtId) return;
+        navigate(`/streaming/${encodeURIComponent(nextId)}`);
+      },
+      back: () => navigate(-1),
+    }),
+    [courtId, navigate],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: [
+      "navigate",
+      "open_new_tab",
+      "copy_link",
+      "focus_element",
+      "set_query_param",
+      "set_page_state",
+    ],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   // Nếu không có courtId
   if (!courtId) {
@@ -134,10 +189,6 @@ export default function CourtStreamingPage() {
       </Container>
     );
   }
-
-  const courtName = courtInfo?.name || `Court ${courtId}`;
-  const tournamentName =
-    courtInfo?.tournament?.name || t("live.streamingPage.tournamentFallback");
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>

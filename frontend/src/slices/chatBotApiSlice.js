@@ -28,6 +28,36 @@ export const chatBotApiSlice = apiSlice.injectEndpoints({
         method: "DELETE",
       }),
     }),
+    sendChatFeedback: builder.mutation({
+      query: (data) => ({
+        url: "/api/chat/feedback",
+        method: "POST",
+        body: data,
+      }),
+    }),
+    sendChatTelemetryEvent: builder.mutation({
+      query: (data) => ({
+        url: "/api/chat/telemetry/event",
+        method: "POST",
+        body: data,
+      }),
+    }),
+    getChatTelemetrySummary: builder.query({
+      query: ({ days = 7 } = {}) => ({
+        url: `/api/chat/telemetry/summary?days=${days}`,
+        method: "GET",
+      }),
+    }),
+    getChatTelemetryTurns: builder.query({
+      query: ({ days = 7, page = 1, limit = 20, outcome = "", intent = "", routeKind = "" } = {}) => ({
+        url:
+          `/api/chat/telemetry/turns?days=${days}&page=${page}&limit=${limit}` +
+          `${outcome ? `&outcome=${encodeURIComponent(outcome)}` : ""}` +
+          `${intent ? `&intent=${encodeURIComponent(intent)}` : ""}` +
+          `${routeKind ? `&routeKind=${encodeURIComponent(routeKind)}` : ""}`,
+        method: "GET",
+      }),
+    }),
   }),
 });
 
@@ -36,4 +66,8 @@ export const {
   useGetChatHistoryQuery,
   useClearChatHistoryMutation,
   useClearLearningMemoryMutation,
+  useSendChatFeedbackMutation,
+  useSendChatTelemetryEventMutation,
+  useGetChatTelemetrySummaryQuery,
+  useGetChatTelemetryTurnsQuery,
 } = chatBotApiSlice;

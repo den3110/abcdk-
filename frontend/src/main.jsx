@@ -40,6 +40,7 @@ import { SocketProvider } from "./context/SocketContext.jsx";
 import ScoreOverlay from "./screens/PickleBall/ScoreOverlay.jsx";
 import AdminDrawPage from "./screens/PickleBall/AdminDrawPage.jsx";
 import DrawPage from "./screens/draw/DrawPage.jsx";
+import DrawLivePage from "./screens/draw/DrawLivePage.jsx";
 import NotFound from "./screens/NotFound.jsx";
 import TournamentSchedule from "./screens/PickleBall/TournamentSchedule.jsx";
 import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
@@ -52,6 +53,7 @@ import AdminLayout from "./components/AdminLayout.jsx";
 import UsersPage from "./screens/admin/UsersPage.jsx";
 import NewsPage from "./screens/admin/NewsPage.jsx";
 import AvatarOptimizationPage from "./screens/admin/AvatarOptimizationPage.jsx";
+import ChatBotOpsPage from "./screens/admin/ChatBotOpsPage.jsx";
 // import "../index.css"; // REMOVED: Moved to src/index.css
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
@@ -62,6 +64,8 @@ import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import "@fontsource-variable/montserrat";
 import { ThemeContextProvider } from "./context/ThemeContext.jsx";
 import { LanguageContextProvider } from "./context/LanguageContext.jsx";
+import { CommandPaletteProvider } from "./context/CommandPaletteContext.jsx";
+import { ChatBotPageContextProvider } from "./context/ChatBotPageContext.jsx";
 import LiveCourtClustersPage from "./screens/live/LiveCourtClustersPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
@@ -124,6 +128,7 @@ const router = sentryCreateBrowserRouter(
           path="/tournament/:id/brackets/:bracketId/draw"
           element={<AdminDrawPage />}
         />
+        <Route path="/tournament/:id/draw/live" element={<DrawLivePage />} />
         <Route
           path="/tournament/:id/overview"
           element={<TournamentOverviewPage />}
@@ -167,6 +172,7 @@ const router = sentryCreateBrowserRouter(
         <Route index element={<Navigate to="/admin/users" replace />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="news" element={<NewsPage />} />
+        <Route path="pikora-ops" element={<ChatBotOpsPage />} />
         <Route
           path="avatar-optimization"
           element={<AvatarOptimizationPage />}
@@ -183,13 +189,17 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <HelmetProvider>
           <ThemeContextProvider>
             <LanguageContextProvider>
-              <AppInitGate>
-                <SocketProvider>
-                  <LocalizedDateProvider>
-                    <RouterProvider router={router} />
-                  </LocalizedDateProvider>
-                </SocketProvider>
-              </AppInitGate>
+              <ChatBotPageContextProvider>
+                <CommandPaletteProvider>
+                  <AppInitGate>
+                    <SocketProvider>
+                      <LocalizedDateProvider>
+                        <RouterProvider router={router} />
+                      </LocalizedDateProvider>
+                    </SocketProvider>
+                  </AppInitGate>
+                </CommandPaletteProvider>
+              </ChatBotPageContextProvider>
             </LanguageContextProvider>
           </ThemeContextProvider>
         </HelmetProvider>

@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -24,6 +24,7 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import CleaningServicesIcon from "@mui/icons-material/CleaningServices";
 import BoltIcon from "@mui/icons-material/Bolt";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import { formatDateTime } from "../../i18n/format";
 import {
   useGetAvatarOptimizationStatusQuery,
@@ -161,10 +162,10 @@ function UserSampleCard({ title, item, locale, t }) {
 
 export default function AvatarOptimizationPage() {
   const { t, locale } = useLanguage();
-  const tx = (key, fallback) => {
+  const tx = useCallback((key, fallback) => {
     const value = t(key);
     return value === key ? fallback : value;
-  };
+  }, [t]);
   const { userInfo } = useSelector((state) => state.auth || {});
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [snack, setSnack] = useState({
@@ -188,10 +189,6 @@ export default function AvatarOptimizationPage() {
   const [runCleanup, { isLoading: isRunningCleanupAction }] =
     useRunAvatarOptimizationCleanupMutation();
 
-  if (!isSuperAdmin) {
-    return <Navigate to="/403" replace />;
-  }
-
   const summary = data?.summary || {};
   const jobs = data?.jobs || {};
   const sweep = jobs.sweep || {};
@@ -200,6 +197,64 @@ export default function AvatarOptimizationPage() {
   const config = data?.config || {};
   const samples = data?.samples || {};
   const hasBusyJob = Boolean(sweep?.running || cleanup?.running);
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "admin_avatar_optimization",
+      entityTitle: tx(
+        "admin.avatarOptimization.title",
+        "Tối ưu Ảnh Đại Diện theo thời gian thực",
+      ),
+      sectionTitle: hasBusyJob ? "Có job đang chạy" : "Đang rảnh",
+      pageSummary:
+        "Trang admin theo dõi quét nền, dọn thùng rác và hiệu suất tối ưu avatar.",
+      activeLabels: [
+        autoRefresh ? "Auto refresh bật" : "Auto refresh tắt",
+        sweep?.running ? "Sweep đang chạy" : "",
+        cleanup?.running ? "Cleanup đang chạy" : "",
+      ],
+      visibleActions: ["Làm mới", "Bật auto refresh", "Chạy sweep", "Chạy cleanup"],
+      highlights: [
+        samples?.latestOptimized?.name || "",
+        samples?.latestDeleted?.name || "",
+      ],
+      metrics: [
+        `Users checked: ${summary.totalUsersChecked || 0}`,
+        `Optimized: ${summary.totalOptimized || 0}`,
+        `Trash files: ${trash.count || 0}`,
+      ],
+    }),
+    [
+      tx,
+      hasBusyJob,
+      autoRefresh,
+      sweep?.running,
+      cleanup?.running,
+      samples?.latestOptimized?.name,
+      samples?.latestDeleted?.name,
+      summary.totalUsersChecked,
+      summary.totalOptimized,
+      trash.count,
+    ],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      autoRefresh: (nextValue) => {
+        setAutoRefresh(Boolean(nextValue));
+      },
+    }),
+    [],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: ["set_page_state", "focus_element", "navigate"],
+    actionHandlers: chatBotActionHandlers,
+  });
+
+  if (!isSuperAdmin) {
+    return <Navigate to="/403" replace />;
+  }
 
   const showSnack = (severity, message) => {
     setSnack({ open: true, severity, message });

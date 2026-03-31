@@ -24,6 +24,7 @@ import SEOHead from "../../components/SEOHead";
 import { useGetSeoNewsListQuery } from "../../slices/seoNewsApiSlice";
 import { useThemeMode } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext.jsx";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import {
   getSuggestedSeoNews,
   trackSeoNewsClick,
@@ -161,6 +162,44 @@ export default function SeoNewsListScreen() {
   const heroLeadArticle =
     featuredArticle || items[0] || suggestedItems[0] || null;
   const publishedCount = Math.max(items.length, Number(data?.total) || 0);
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "news_list",
+      entityTitle: t("news.list.seoTitle"),
+      sectionTitle: page > 1 ? `Trang ${page}` : "Trang đầu",
+      pageSummary: t("news.list.seoDescription"),
+      activeLabels: [
+        page > 1 ? `Trang ${page}/${totalPages}` : "Trang đầu",
+        isFetching ? "Đang cập nhật" : "",
+      ],
+      visibleActions: ["Xem bài nổi bật", "Đọc tin liên quan", "Chuyển trang"],
+      highlights: [heroLeadArticle, featuredArticle, ...suggestedItems]
+        .filter(Boolean)
+        .slice(0, 4)
+        .map((item) => item?.title || ""),
+      metrics: [
+        `Bài đang hiển thị: ${items.length}`,
+        `Tổng bài: ${publishedCount}`,
+        `Gợi ý thêm: ${suggestedItems.length}`,
+      ],
+    }),
+    [
+      t,
+      page,
+      totalPages,
+      isFetching,
+      heroLeadArticle,
+      featuredArticle,
+      suggestedItems,
+      items.length,
+      publishedCount,
+    ],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: ["navigate", "set_query_param", "copy_link", "open_new_tab"],
+  });
 
   const renderBadge = (origin) => {
     const isAI = origin === "generated";

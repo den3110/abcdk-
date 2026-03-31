@@ -50,6 +50,7 @@ import {
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import {
   formatDate as formatLocaleDate,
   formatTime as formatLocaleTime,
@@ -629,6 +630,66 @@ export default function TournamentOverviewPage() {
   }, [socket, queueUpsert]);
 
   const openMatch = () => {};
+  const currentTabLabel =
+    tabValue === 0 ? "Lịch sắp tới" : "Kết quả gần đây";
+  const chatBotDisplayList = tabValue === 0 ? upcoming : recent;
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "tournament_overview",
+      entityTitle:
+        tour?.name || t("tournaments.overview.seoFallbackName"),
+      sectionTitle: currentTabLabel,
+      pageSummary:
+        "Trang tổng quan giải hiện tại với KPI đăng ký, tiến độ bracket và danh sách trận sắp tới hoặc mới kết thúc.",
+      activeLabels: [
+        currentTabLabel,
+        canManage ? "Có quyền quản lý" : "Chế độ khán giả",
+        tour?.location || "",
+      ],
+      visibleActions: [
+        "Xem lịch sắp tới",
+        "Xem kết quả gần đây",
+        "Mở trận đấu",
+      ],
+      highlights: [
+        ...bracketProgress
+          .filter((item) => item.total > item.finished)
+          .slice(0, 3)
+          .map(
+            (item) =>
+              `${item.name}: ${item.finished}/${item.total} trận đã xong`,
+          ),
+        ...chatBotDisplayList
+          .slice(0, 2)
+          .map((match) => `${matchCode(match)} • ${match?.status || "N/A"}`),
+      ],
+      metrics: [
+        `Người chơi: ${regTotal}`,
+        `Đã thanh toán: ${regPaid}`,
+        `Đã check-in: ${regCheckin}`,
+        `Tổng trận: ${allMatches.length}`,
+        `Trận live: ${matchStatusCount.live}`,
+        `Video: ${videoCount}`,
+      ],
+    }),
+    [
+      tour?.name,
+      tour?.location,
+      t,
+      currentTabLabel,
+      canManage,
+      bracketProgress,
+      chatBotDisplayList,
+      regTotal,
+      regPaid,
+      regCheckin,
+      allMatches.length,
+      matchStatusCount.live,
+      videoCount,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   const anyError =
     tourErr?.data?.message ||

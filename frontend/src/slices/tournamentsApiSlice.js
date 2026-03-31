@@ -398,6 +398,21 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_res, _err, arg) => [{ type: "Draw", id: arg.drawId }],
     }),
 
+    takeoverTournamentDraw: builder.mutation({
+      query: ({ tournamentId, socketId } = {}) => ({
+        url: `/api/draw/tournaments/${tournamentId}/takeover`,
+        method: "POST",
+        body: socketId ? { socketId } : {},
+      }),
+    }),
+
+    stopTournamentDraw: builder.mutation({
+      query: ({ tournamentId }) => ({
+        url: `/api/draw/tournaments/${tournamentId}/stop`,
+        method: "POST",
+      }),
+    }),
+
     getBracket: builder.query({
       query: (bracketId) => `/api/brackets/${bracketId}`,
       keepUnusedDataFor: 0,
@@ -725,6 +740,8 @@ export const {
   useDrawCommitMutation,
   useDrawNextMutation,
   useStartDrawMutation,
+  useTakeoverTournamentDrawMutation,
+  useStopTournamentDrawMutation,
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
   useManagerReplaceRegPlayerMutation,

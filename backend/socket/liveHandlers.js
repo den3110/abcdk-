@@ -19,6 +19,10 @@ import {
   getLatestRecordingsByMatchIds,
 } from "../services/publicStreams.service.js";
 import { resolveMatchCourtStationFields } from "../services/courtCluster.service.js";
+import {
+  applyLegacyLiveAction,
+} from "../services/matchLiveSync.service.js";
+import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
 
 // ===== CAP-AWARE helpers =====
 function isFinitePos(n) {
@@ -599,30 +603,18 @@ async function emitMatchRealtimeUpdate(io, matchId, type, doc) {
   });
 }
 
-export async function startMatch(matchId, refereeId, io) {
-  const m = await Match.findById(matchId);
-  if (!m || m.status === "finished") return;
-
-  m.status = "live";
-  m.startedAt = new Date();
-
-  if (!m.gameScores?.length) {
-    m.gameScores = [{ a: 0, b: 0 }];
-    m.currentGame = 0;
-  }
-
-  // ✅ 0-0-2 khi mở ván
-  if (!m.serve) m.serve = { side: "A", server: 2 };
-
-  m.liveBy = refereeId || null;
-  m.liveLog = m.liveLog || [];
-  m.liveLog.push({ type: "start", by: refereeId, at: new Date() });
-  m.liveVersion = (m.liveVersion || 0) + 1;
-  await m.save();
-
-  const doc = await loadMatchWithNickForEmit(m._id);
-  if (!doc) return;
-  await emitMatchRealtimeUpdate(io, matchId, "start", doc);
+export async function startMatch(matchId, refereeId, io, opts = {}) {
+  await applyLegacyLiveAction({
+    matchId,
+    type: "start",
+    payload: {},
+    user: refereeId ? { _id: refereeId } : null,
+    io,
+    deviceId:
+      String(opts?.deviceId || "").trim() ||
+      `legacy:${String(refereeId || "unknown")}`,
+    deviceName: String(opts?.deviceName || "Legacy socket"),
+  });
 }
 
 // chua dung
@@ -703,289 +695,35 @@ async function applyRatingDeltaForMatch(mt, scorerId) {
 // ✅ addPoint mới: trung lập, chỉ auto khi opts.autoNext === true
 export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
   const { autoNext = false } = opts;
-
-  const m = await Match.findById(matchId);
-  if (!m || m.status !== "live") return;
-
-  // ---- helpers an toàn ----
-  const toNum = (v, fb = 0) => (Number.isFinite(Number(v)) ? Number(v) : fb);
-  const clamp0 = (n) => (n < 0 ? 0 : n);
-  const validSide = (s) => (s === "A" || s === "B" ? s : "A");
-  const validServer = (x) => (x === 1 || x === 2 ? x : 2);
-
-  if (!["A", "B"].includes(team)) return;
-  const st = toNum(step, 1);
-  if (st === 0) return;
-
-  // đảm bảo m.gameScores & currentGame
-  if (!Array.isArray(m.gameScores)) m.gameScores = [];
-  let gi = Number.isInteger(m.currentGame) ? m.currentGame : 0;
-  if (gi < 0) gi = 0;
-  while (m.gameScores.length <= gi) m.gameScores.push({ a: 0, b: 0 });
-
-  const curRaw = m.gameScores[gi] || {};
-  const cur = { a: toNum(curRaw.a, 0), b: toNum(curRaw.b, 0) };
-
-  // cộng/trừ điểm (không âm)
-  if (team === "A") cur.a = clamp0(cur.a + st);
-  else cur.b = clamp0(cur.b + st);
-  m.gameScores[gi] = cur;
-
-  // ===== serve/rally =====
-  // Chỉ đổi lượt giao khi là điểm THÊM (st > 0). Undo không đụng tới serve.
-  const prevServe = {
-    side: validSide(m.serve?.side),
-    server: validServer(m.serve?.server),
-  };
-  if (st > 0) {
-    const servingTeam = prevServe.side;
-    const scoredForServing = team === servingTeam;
-    if (!scoredForServing) {
-      // đội nhận ghi điểm → đổi lượt/đổi người theo luật hệ thống
-      m.serve = onLostRallyNextServe(prevServe);
-
-      // ✅ cập nhật serve.serverId dựa trên base đã lưu
-      const base = m?.meta?.slots?.base;
-      if (base && base[m.serve.side]) {
-        const map = base[m.serve.side]; // { userId: 1|2 }
-        const wanted = Number(m.serve.server); // 1|2
-        const entry = Object.entries(map).find(
-          ([, slot]) => Number(slot) === wanted
-        );
-        m.serve.serverId = entry ? entry[0] : null;
-      } else {
-        // nếu chưa có base -> xoá id để FE fallback
-        if (m.serve.serverId) m.serve.serverId = undefined;
-      }
-    } else if (!m.serve) {
-      m.serve = prevServe;
-    }
+  if (autoNext) {
+    console.warn(
+      "[liveHandlers] autoNext is not supported by offline sync bridge; ignoring"
+    );
   }
 
-  // ===== rules (cap-aware) =====
-  const rules = {
-    bestOf: toNum(m.rules?.bestOf, 3),
-    pointsToWin: toNum(m.rules?.pointsToWin, 11),
-    winByTwo:
-      m.rules?.winByTwo === undefined ? true : Boolean(m.rules?.winByTwo),
-    cap: {
-      mode: String(m.rules?.cap?.mode ?? "none"),
-      points:
-        m.rules?.cap?.points === undefined ? null : Number(m.rules.cap.points),
-    },
-  };
-
-  // Kết luận ván hiện tại
-  const ev = evaluateGameFinish(cur.a, cur.b, rules);
-
-  if (ev.finished) {
-    // Đếm số ván thắng (tính trên toàn bộ m.gameScores sau cập nhật)
-    let aWins = 0,
-      bWins = 0;
-    for (let i = 0; i < m.gameScores.length; i++) {
-      const g = m.gameScores[i] || { a: 0, b: 0 };
-      const ge = evaluateGameFinish(toNum(g.a, 0), toNum(g.b, 0), rules);
-      if (ge.finished) {
-        if (ge.winner === "A") aWins++;
-        else if (ge.winner === "B") bWins++;
-      }
-    }
-    const need = Math.floor(Number(rules.bestOf) / 2) + 1;
-
-    if (autoNext === true) {
-      // ✅ CHỈ trong chế độ tự động mới được advance/finish
-      if (aWins >= need || bWins >= need) {
-        // Kết thúc TRẬN
-        m.status = "finished";
-        m.winner = aWins > bWins ? "A" : "B";
-        if (!m.finishedAt) m.finishedAt = new Date();
-      } else {
-        // Mở ván mới, đảo bên giao đầu ván, 0-0-2
-        m.gameScores.push({ a: 0, b: 0 });
-        m.currentGame = gi + 1;
-        const nextFirstSide = validSide(prevServe.side) === "A" ? "B" : "A";
-        m.serve = { side: nextFirstSide, server: 2 };
-
-        m.liveLog = m.liveLog || [];
-        m.liveLog.push({
-          type: "serve",
-          by: by || null,
-          payload: { team: m.serve.side, server: 2 },
-          at: new Date(),
-        });
-      }
-    }
-    // ❌ Không autoNext: KHÔNG làm gì thêm (để trọng tài bấm nút)
-  }
-
-  // log point + version
-  m.liveLog = m.liveLog || [];
-  m.liveLog.push({
+  await applyLegacyLiveAction({
+    matchId,
     type: "point",
-    by: by || null,
-    payload: { team, step: st, prevServe },
-    at: new Date(),
+    payload: { team, step },
+    user: by ? { _id: by } : null,
+    io,
+    deviceId:
+      String(opts?.deviceId || "").trim() || `legacy:${String(by || "unknown")}`,
+    deviceName: String(opts?.deviceName || "Legacy socket"),
   });
-  m.liveVersion = toNum(m.liveVersion, 0) + 1;
-
-  await m.save();
-
-  // Áp rating + notify queue khi trận kết thúc
-  try {
-    if (m.status === "finished" && !m.ratingApplied) {
-      await applyRatingForFinishedMatch(m._id);
-      await onMatchFinished({ matchId: m._id });
-      const stationAdvance = await advanceCourtStationQueueOnMatchFinished(m._id);
-      if (stationAdvance?.station?._id && stationAdvance?.station?.clusterId) {
-        await Promise.allSettled([
-          publishCourtClusterRuntimeUpdate({
-            clusterId: stationAdvance.station.clusterId,
-            stationIds: [stationAdvance.station._id],
-            reason: "match_finished_auto_advance",
-          }),
-          publishCourtStationRuntimeUpdate({
-            stationId: stationAdvance.station._id,
-            clusterId: stationAdvance.station.clusterId,
-            reason: "match_finished_auto_advance",
-          }),
-        ]);
-      }
-    }
-  } catch (err) {
-    console.error("[rating] applyRatingForFinishedMatch error:", err);
-  }
-
-  const doc = await Match.findById(matchId)
-    .populate({
-      path: "pairA",
-      select: "player1 player2 seed label teamName",
-      populate: [
-        {
-          path: "player1",
-          // có đủ các tên + user.nickname để FE fallback
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-        {
-          path: "player2",
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-      ],
-    })
-    .populate({
-      path: "pairB",
-      select: "player1 player2 seed label teamName",
-      populate: [
-        {
-          path: "player1",
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-        {
-          path: "player2",
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-      ],
-    })
-    // referee là mảng
-    .populate({
-      path: "referee",
-      select: "name fullName nickname nickName",
-    })
-    // người đang điều khiển live
-    .populate({ path: "liveBy", select: "name fullName nickname nickName" })
-    .populate({ path: "previousA", select: "round order" })
-    .populate({ path: "previousB", select: "round order" })
-    .populate({ path: "nextMatch", select: "_id" })
-    .populate({
-      path: "tournament",
-      select: "name image eventType overlay nameDisplayMode",
-    })
-    // 🆕 BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
-    .populate({
-      path: "bracket",
-      select: [
-        "noRankDelta",
-        "name",
-        "type",
-        "stage",
-        "order",
-        "drawRounds",
-        "drawStatus",
-        "scheduler",
-        "drawSettings",
-        // meta.*
-        "meta.drawSize",
-        "meta.maxRounds",
-        "meta.expectedFirstRoundMatches",
-        // groups[]
-        "groups._id",
-        "groups.name",
-        "groups.expectedSize",
-        // rules + các config khác để FE tham chiếu
-        "config.rules",
-        "config.doubleElim",
-        "config.roundRobin",
-        "config.swiss",
-        "config.gsl",
-        "config.roundElim",
-        // nếu bạn có overlay ở bracket thì giữ lại
-        "overlay",
-      ].join(" "),
-    })
-    // 🆕 court để FE auto-next theo sân
-    .populate({
-      path: "court",
-      select: "name number code label zone area venue building floor",
-    })
-    .lean();
-  await emitMatchRealtimeUpdate(io, matchId, "point", doc);
 }
 
-export async function undoLast(matchId, by, io) {
-  const m = await Match.findById(matchId);
-  if (!m || !m.liveLog?.length) return;
-
-  for (let i = m.liveLog.length - 1; i >= 0; i--) {
-    const ev = m.liveLog[i];
-    if (ev.type === "point") {
-      // nếu vừa finish -> mở lại
-      if (m.status === "finished") {
-        m.status = "live";
-        m.winner = "";
-        m.finishedAt = null;
-      }
-
-      // nếu ván mới vừa mở nhưng chưa có điểm thì pop ván cuối
-      if (m.currentGame > 0) {
-        const cg = m.gameScores[m.currentGame];
-        if (cg?.a === 0 && cg?.b === 0) {
-          m.gameScores.pop();
-          m.currentGame -= 1;
-        }
-      }
-
-      // đảo điểm
-      const g = m.gameScores[m.currentGame || 0];
-      const step = ev.payload?.step || 1;
-      if (ev.payload?.team === "A") g.a -= step;
-      if (ev.payload?.team === "B") g.b -= step;
-
-      // ✅ khôi phục serve trước đó
-      if (ev.payload?.prevServe) m.serve = ev.payload.prevServe;
-
-      m.liveLog.splice(i, 1);
-      m.liveVersion = (m.liveVersion || 0) + 1;
-      await m.save();
-
-      const doc = await loadMatchWithNickForEmit(m._id);
-      if (!doc) return;
-      await emitMatchRealtimeUpdate(io, matchId, "undo", doc);
-      return;
-    }
-  }
+export async function undoLast(matchId, by, io, opts = {}) {
+  await applyLegacyLiveAction({
+    matchId,
+    type: "undo",
+    payload: {},
+    user: by ? { _id: by } : null,
+    io,
+    deviceId:
+      String(opts?.deviceId || "").trim() || `legacy:${String(by || "unknown")}`,
+    deviceName: String(opts?.deviceName || "Legacy socket"),
+  });
 }
 
 // ✅ optional: set serve thủ công
@@ -1133,66 +871,40 @@ export async function setServe(matchId, side, server, serverId, by, io) {
   await m.save();
 
   // phát update
-  const doc = await loadMatchWithNickForEmit(m._id);
+  const doc = await loadMatchLiveSnapshot(m._id);
   if (!doc) return;
   await emitMatchRealtimeUpdate(io, matchId, "serve", doc);
 }
 
-export async function finishMatch(matchId, winner, reason, by, io) {
-  const m = await Match.findById(matchId);
-  if (!m) return;
-
-  m.status = "finished";
-  m.winner = winner;
-  m.finishedAt = new Date();
-  if (reason) m.note = `[${reason}] ${m.note || ""}`;
-
-  m.liveLog = m.liveLog || [];
-  m.liveLog.push({
+export async function finishMatch(matchId, winner, reason, by, io, opts = {}) {
+  await applyLegacyLiveAction({
+    matchId,
     type: "finish",
-    by,
     payload: { winner, reason },
-    at: new Date(),
+    user: by ? { _id: by } : null,
+    io,
+    deviceId:
+      String(opts?.deviceId || "").trim() || `legacy:${String(by || "unknown")}`,
+    deviceName: String(opts?.deviceName || "Legacy socket"),
   });
-  m.liveVersion = (m.liveVersion || 0) + 1;
-
-  await m.save();
-
-  // Áp điểm ngay khi kết thúc thủ công / forfeit
-  try {
-    if (!m.ratingApplied) {
-      await applyRatingForFinishedMatch(m._id);
-      await onMatchFinished({ matchId: m._id });
-      const stationAdvance = await advanceCourtStationQueueOnMatchFinished(m._id);
-      if (stationAdvance?.station?._id && stationAdvance?.station?.clusterId) {
-        await Promise.allSettled([
-          publishCourtClusterRuntimeUpdate({
-            clusterId: stationAdvance.station.clusterId,
-            stationIds: [stationAdvance.station._id],
-            reason: "match_finished_auto_advance",
-          }),
-          publishCourtStationRuntimeUpdate({
-            stationId: stationAdvance.station._id,
-            clusterId: stationAdvance.station.clusterId,
-            reason: "match_finished_auto_advance",
-          }),
-        ]);
-      }
-    }
-  } catch (err) {
-    console.error("[rating] applyRatingForFinishedMatch error:", err);
-  }
-
-  const doc = await loadMatchWithNickForEmit(m._id);
-
-  if (!doc) return;
-
-  // (tuỳ chọn) nếu bạn có meta.streams muốn đính kèm
-  if (!doc.streams && doc.meta?.streams) doc.streams = doc.meta.streams;
-
-  await emitMatchRealtimeUpdate(io, matchId, "finish", doc);
 }
 
-export async function forfeitMatch(matchId, winner, reason, by, io) {
-  return finishMatch(matchId, winner, reason || "forfeit", by, io);
+export async function forfeitMatch(
+  matchId,
+  winner,
+  reason,
+  by,
+  io,
+  opts = {}
+) {
+  return applyLegacyLiveAction({
+    matchId,
+    type: "forfeit",
+    payload: { winner, reason: reason || "forfeit" },
+    user: by ? { _id: by } : null,
+    io,
+    deviceId:
+      String(opts?.deviceId || "").trim() || `legacy:${String(by || "unknown")}`,
+    deviceName: String(opts?.deviceName || "Legacy socket"),
+  });
 }

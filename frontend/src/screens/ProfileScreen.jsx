@@ -64,6 +64,7 @@ import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
 import { useThemeMode } from "../context/ThemeContext";
 import { useLanguage } from "../context/LanguageContext";
+import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
 import { getDateInputFormat } from "../i18n/format";
 import {
   getGenderLabel,
@@ -971,15 +972,6 @@ export default function ProfileScreen() {
     </Dialog>
   );
 
-  if (fetching || !user) {
-    return (
-      <>
-        <ProfileSkeleton onLogout={requestLogout} />
-        {logoutConfirmDialog}
-      </>
-    );
-  }
-
   const kycMeta = kycMetaMap[status] || kycMetaMap.unverified;
   const KycStatusIcon = KYC_STATUS_ICONS[status] || PendingIcon;
   const saveDisabled = !isDirty || !isValid || isLoading || uploadingAvatar;
@@ -1051,6 +1043,65 @@ export default function ProfileScreen() {
   const profileCompletion = Math.round(
     (completionCount / completionItems.length) * 100,
   );
+  const profileSectionLabel =
+    status === "verified"
+      ? "KYC đã xác minh"
+      : status === "pending"
+        ? "KYC đang chờ duyệt"
+        : status === "rejected"
+          ? "KYC bị từ chối"
+          : "Chưa xác minh KYC";
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "profile",
+      entityTitle: form.name.trim() || form.nickname.trim() || "Hồ sơ của tôi",
+      sectionTitle: profileSectionLabel,
+      pageSummary:
+        "Trang hồ sơ cá nhân với thông tin cơ bản, ảnh đại diện, CCCD/KYC và tùy chọn giao diện.",
+      activeLabels: [
+        isDark ? "Giao diện tối" : "Giao diện sáng",
+        `Hoàn thiện hồ sơ: ${profileCompletion}%`,
+        isDirty ? "Có thay đổi chưa lưu" : "Đã đồng bộ",
+        form.province ? `Tỉnh/thành: ${form.province}` : "",
+      ],
+      visibleActions: [
+        "Lưu hồ sơ",
+        "Đổi ảnh đại diện",
+        "Gửi xác minh KYC",
+        "Đổi giao diện",
+        "Đăng xuất",
+      ],
+      highlights: [
+        `Tham gia từ ${memberSince}`,
+        `Giới tính: ${genderLabel}`,
+        `Mã hồ sơ: ${profileCode}`,
+        cccdSummary,
+      ],
+      metrics: [
+        `Hoàn thiện: ${profileCompletion}%`,
+        `KYC: ${profileSectionLabel}`,
+        `Ảnh KYC đã chọn: ${pendingUploads}`,
+        `Tệp chờ tải: ${pendingUploads + (avatarFile ? 1 : 0)}`,
+      ],
+    }),
+    [
+      form.name,
+      form.nickname,
+      profileSectionLabel,
+      isDark,
+      profileCompletion,
+      isDirty,
+      form.province,
+      memberSince,
+      genderLabel,
+      profileCode,
+      cccdSummary,
+      pendingUploads,
+      avatarFile,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   const kycAlert = {
     unverified: {
@@ -1070,6 +1121,15 @@ export default function ProfileScreen() {
       message: t("profile.kyc.alerts.rejected"),
     },
   }[status];
+
+  if (fetching || !user) {
+    return (
+      <>
+        <ProfileSkeleton onLogout={requestLogout} />
+        {logoutConfirmDialog}
+      </>
+    );
+  }
 
   return (
     <>

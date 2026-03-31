@@ -20,6 +20,7 @@ import LiveTvIcon from "@mui/icons-material/LiveTv";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 
 import { useAdminListCourtsByTournamentQuery } from "../../slices/courtsApiSlice";
 import { useCreateFacebookLiveForMatchMutation } from "../../slices/adminMatchLiveApiSlice";
@@ -182,6 +183,65 @@ export default function CourtLiveStudioPage() {
       wsUrl: "wss://pickletour.vn/ws/rtmp",
     };
   }, []);
+  const chatBotSnapshot = React.useMemo(
+    () => ({
+      pageType: "court_live_studio",
+      entityTitle: courtLabel,
+      sectionTitle: t("live.courtStudio.bracketChip", { id: bid }),
+      pageSummary:
+        "Trang studio sân hiện tại để điều phối live, RTMP và overlay cho trận đang diễn ra.",
+      activeLabels: [
+        liveEnabled
+          ? t("live.courtStudio.configOn")
+          : t("live.courtStudio.configOff"),
+        currentMatchId ? `Match ID: ${currentMatchId}` : "Chưa có trận hiện tại",
+      ],
+      visibleActions: [
+        t("live.courtStudio.pageTitle", { court: courtLabel }),
+        "Quay lại",
+      ],
+      highlights: [
+        court?.currentMatch?.code || "",
+        court?.currentMatch?.status || "",
+      ],
+      metrics: [
+        `Bracket: ${bid}`,
+        `Court ID: ${courtId}`,
+        defaultUrl ? "Đã có URL live mặc định" : "Chưa có URL live mặc định",
+      ],
+    }),
+    [
+      courtLabel,
+      t,
+      bid,
+      liveEnabled,
+      currentMatchId,
+      court?.currentMatch?.code,
+      court?.currentMatch?.status,
+      courtId,
+      defaultUrl,
+    ],
+  );
+
+  const chatBotActionHandlers = React.useMemo(
+    () => ({
+      back: () => navigate(-1),
+      manageTournament: () => navigate(`/tournament/${tid}/manage`),
+    }),
+    [navigate, tid],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: [
+      "navigate",
+      "open_new_tab",
+      "copy_link",
+      "focus_element",
+      "set_page_state",
+    ],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>

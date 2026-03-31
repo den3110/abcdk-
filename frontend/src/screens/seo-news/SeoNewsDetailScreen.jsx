@@ -28,6 +28,7 @@ import {
 } from "../../slices/seoNewsApiSlice";
 import { useThemeMode } from "../../context/ThemeContext";
 import { useLanguage } from "../../context/LanguageContext.jsx";
+import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import {
   getSuggestedSeoNews,
   startSeoNewsReadingSession,
@@ -175,6 +176,48 @@ export default function SeoNewsDetailScreen() {
     article?.origin === "generated"
       ? t("news.detail.aiSource")
       : article?.sourceName || t("news.detail.externalSource");
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "news_detail",
+      entityTitle: article?.title || t("news.detail.seoSuffix"),
+      sectionTitle: sourceName,
+      pageSummary: description || t("news.detail.loadError"),
+      activeLabels: [
+        article?.origin === "generated"
+          ? t("news.badges.aiEdited")
+          : t("news.badges.community"),
+        sourceName,
+        publishedAt ? formatDateTime(publishedAt, locale) : "",
+      ],
+      visibleActions: [
+        t("news.detail.backToNews"),
+        article?.sourceUrl ? "Mở nguồn gốc" : "",
+        suggestedItems.length ? "Xem tin liên quan" : "",
+      ],
+      highlights: suggestedItems
+        .slice(0, 4)
+        .map((item) => item?.title || ""),
+      metrics: [
+        `Nguồn: ${sourceName}`,
+        `Tags: ${Array.isArray(article?.tags) ? article.tags.length : 0}`,
+        publishedAt ? `Xuất bản: ${formatDateTime(publishedAt, locale)}` : "",
+      ],
+    }),
+    [
+      article?.title,
+      article?.origin,
+      article?.sourceUrl,
+      article?.tags,
+      description,
+      locale,
+      publishedAt,
+      sourceName,
+      suggestedItems,
+      t,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   return (
     <Box sx={{ py: { xs: 2, md: 4 } }}>

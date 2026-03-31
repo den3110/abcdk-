@@ -13,7 +13,7 @@ import { resolveSeoNewsImages, checkSeoNewsImageGenerationHealth } from "../serv
 // Giai đoạn 2
 import { planWithAI } from "../services/aiTournamentPlanner.js";
 import { normalizeArticleWithAI } from "../services/normalizeService.js";
-import { runAgent } from "../services/bot/agentService.js";
+import { runAgent } from "../services/bot/pikoraService.js";
 import { chatWithPlanner } from "../services/bot/openaiService.js";
 import { embedText } from "../services/bot/embeddingService.js";
 import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";

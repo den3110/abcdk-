@@ -70,6 +70,7 @@ import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import TeamTournamentRegistrationView from "../../components/teamTournament/TeamTournamentRegistrationView";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import { formatDate as formatLocaleDate } from "../../i18n/format";
 import { getFeeAmount } from "../../utils/fee";
 import { useBotContext } from "../../hook/useBotContext";
@@ -1677,6 +1678,77 @@ export default function TournamentRegistration() {
   const handleCloseComplaint = useCallback(() => {
     setComplaintDlg({ open: false, reg: null, text: "" });
   }, []);
+
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "tournament_registration",
+      entityTitle:
+        tour?.name || t("tournaments.registration.seoFallbackName"),
+      sectionTitle: isSingles ? "Đăng ký đơn" : "Đăng ký đôi",
+      pageSummary:
+        "Trang đăng ký giải hiện tại với danh sách đăng ký, điều kiện điểm và trạng thái thanh toán.",
+      activeLabels: [
+        isSingles ? "Nội dung đơn" : "Nội dung đôi",
+        regLockedForUser ? "Đăng ký đã đóng" : "Đăng ký đang mở",
+        canManage ? "Có quyền quản lý" : "Chế độ người chơi",
+        debouncedQ ? `Tìm: ${debouncedQ}` : "",
+      ],
+      visibleActions: [
+        "Tìm đăng ký",
+        canManage ? "Mời người chơi" : "",
+        canManage ? "Quản lý thanh toán" : "",
+        "Xem nhánh đấu",
+      ],
+      highlights: displayedItems
+        .slice(0, 4)
+        .map(
+          (reg) =>
+            reg?.player1?.fullName || reg?.player1?.name || regCodeOf(reg),
+        ),
+      metrics: [
+        `Đang hiển thị: ${displayedItems.length}`,
+        `Đã thanh toán: ${paidCount}`,
+        `Giới hạn điểm: ${Number.isFinite(cap) ? cap : 0}`,
+        `Biên độ điểm: ${Number.isFinite(delta) ? delta : 0}`,
+        isFreeTournament ? "Miễn phí đăng ký" : "Có phí đăng ký",
+      ],
+    }),
+    [
+      tour?.name,
+      t,
+      isSingles,
+      regLockedForUser,
+      canManage,
+      debouncedQ,
+      displayedItems,
+      regCodeOf,
+      paidCount,
+      cap,
+      delta,
+      isFreeTournament,
+    ],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      search: (nextValue) => {
+        setQ(String(nextValue || ""));
+      },
+    }),
+    [],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: [
+      "prefill_text",
+      "focus_element",
+      "copy_link",
+      "open_new_tab",
+      "navigate",
+    ],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   if (tourLoading && !tour)
     return (

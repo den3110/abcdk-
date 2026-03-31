@@ -20,8 +20,24 @@ import {
   publishNotification,
 } from "../services/notifications/notificationHub.js";
 import { emitTournamentInvalidate } from "../socket/tournamentRealtime.js";
+import {
+  acquireDrawControl,
+  bindDrawControlToSession,
+  ensureDrawControlAllowed,
+  publishDrawLiveReveal,
+  publishDrawLiveSnapshot,
+  releaseDrawControl,
+  stopDrawControl,
+  takeoverDrawControl,
+} from "../services/drawLive.service.js";
 
 const asId = (x) => new mongoose.Types.ObjectId(String(x));
+const sendDrawLocked = (res, snapshot, message = "Draw is locked") =>
+  res.status(423).json({
+    ok: false,
+    message,
+    snapshot: snapshot || null,
+  });
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -453,6 +469,26 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
 
   const paidCount = regs.length;
   const io = req.app.get("io");
+  const tournamentId = String(bracket.tournament?._id || "");
+  const socketId = String(req.body?.socketId || "");
+  const ensureLockForStart = async () => {
+    const lockAttempt = await acquireDrawControl({
+      tournamentId,
+      bracketId,
+      user: req.user,
+      socketId,
+    });
+    if (!lockAttempt?.ok) {
+      sendDrawLocked(
+        res,
+        lockAttempt?.snapshot,
+        lockAttempt?.message ||
+          "Tournament draw is currently controlled by another user"
+      );
+      return null;
+    }
+    return lockAttempt;
+  };
 
   // ───────────────────── NO ENTRANTS (non-group) ─────────────────────
   if (!paidCount && mode !== "group") {
@@ -635,6 +671,9 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       .map((r) => r._id)
       .filter((id) => !usedPre.has(String(id)));
 
+    const startedLock = await ensureLockForStart();
+    if (!startedLock) return;
+
     const sess = await DrawSession.create({
       tournament: bracket.tournament._id,
       bracket: bracket._id,
@@ -651,8 +690,18 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       },
     });
 
+    await bindDrawControlToSession({
+      tournamentId,
+      drawId: sess._id,
+      bracketId,
+      user: req.user,
+      socketId,
+      status: "active",
+    });
+
     emitPlanned(io, bracketId, { groupSizes, byes }, []);
     await emitUpdate(io, sess);
+    await publishDrawLiveSnapshot(io, tournamentId, req.user);
 
     return res.json({
       ok: true,
@@ -757,6 +806,9 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       })),
     };
 
+    const startedLock = await ensureLockForStart();
+    if (!startedLock) return;
+
     // Tạo session
     const sess = await DrawSession.create({
       tournament: bracket.tournament._id,
@@ -780,8 +832,18 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       },
     });
 
+    await bindDrawControlToSession({
+      tournamentId,
+      drawId: sess._id,
+      bracketId,
+      user: req.user,
+      socketId,
+      status: "active",
+    });
+
     emitPlanned(io, bracketId, { groupSizes: [], byes: byeCount }, []);
     await emitUpdate(io, sess);
+    await publishDrawLiveSnapshot(io, tournamentId, req.user);
 
     return res.json({
       ok: true,
@@ -872,6 +934,9 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       })),
     };
 
+    const startedLock = await ensureLockForStart();
+    if (!startedLock) return;
+
     const sess = await DrawSession.create({
       tournament: bracket.tournament._id,
       bracket: bracket._id,
@@ -887,8 +952,18 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       computedMeta: { ko: { entrants: poolIds.length } },
     });
 
+    await bindDrawControlToSession({
+      tournamentId,
+      drawId: sess._id,
+      bracketId,
+      user: req.user,
+      socketId,
+      status: "active",
+    });
+
     emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []);
     await emitUpdate(io, sess);
+    await publishDrawLiveSnapshot(io, tournamentId, req.user);
 
     return res.json({
       ok: true,
@@ -982,6 +1057,21 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
   if (sess.status !== "active") {
     res.status(400);
     throw new Error(`Cannot draw when session status = ${sess.status}`);
+  }
+
+  const lockAccess = await ensureDrawControlAllowed({
+    tournamentId: sess.tournament,
+    bracketId: sess.bracket,
+    drawId,
+    user: req.user,
+    socketId: String(req.body?.socketId || ""),
+  });
+  if (!lockAccess?.ok) {
+    return sendDrawLocked(
+      res,
+      lockAccess?.snapshot,
+      lockAccess?.message || "Draw is locked by another controller"
+    );
   }
 
   // lấy thông tin để build tên đội
@@ -1118,6 +1208,8 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       groupCode: filledGroupCode,
       slotIndex: si,
     };
+    publishDrawLiveReveal(io, sess.tournament, out.next);
+    await publishDrawLiveSnapshot(io, sess.tournament, req.user);
     return res.json(out);
   }
 
@@ -1382,6 +1474,8 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     pairIndex: pi,
     side,
   };
+  publishDrawLiveReveal(io, sess.tournament, out.next);
+  await publishDrawLiveSnapshot(io, sess.tournament, req.user);
   return res.json(out);
 });
 
@@ -1401,6 +1495,21 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
   if (sess.status !== "active") {
     res.status(400);
     throw new Error(`Cannot commit when session status = ${sess.status}`);
+  }
+
+  const lockAccess = await ensureDrawControlAllowed({
+    tournamentId: sess.tournament,
+    bracketId: sess.bracket,
+    drawId,
+    user: req.user,
+    socketId: String(req.body?.socketId || ""),
+  });
+  if (!lockAccess?.ok) {
+    return sendDrawLocked(
+      res,
+      lockAccess?.snapshot,
+      lockAccess?.message || "Draw is locked by another controller"
+    );
   }
 
   const br = await Bracket.findById(sess.bracket);
@@ -1517,12 +1626,17 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
   await sess.save();
 
   const io = req.app.get("io");
+  await releaseDrawControl({
+    tournamentId: sess.tournament,
+    status: "committed",
+  });
   emitTerminal(io, sess, "committed");
   emitTournamentInvalidate(io, {
     tournamentId: sess.tournament,
     bracketId: sess.bracket,
     reason: "draw_committed",
   });
+  await publishDrawLiveSnapshot(io, sess.tournament, req.user);
 
   res.json({ ok: true, created, session: sess });
 });
@@ -1542,15 +1656,71 @@ export const drawCancel = expressAsyncHandler(async (req, res) => {
     throw new Error(`Cannot cancel when session status = ${sess.status}`);
   }
 
+  const lockAccess = await ensureDrawControlAllowed({
+    tournamentId: sess.tournament,
+    bracketId: sess.bracket,
+    drawId,
+    user: req.user,
+    socketId: String(req.body?.socketId || ""),
+  });
+  if (!lockAccess?.ok) {
+    return sendDrawLocked(
+      res,
+      lockAccess?.snapshot,
+      lockAccess?.message || "Draw is locked by another controller"
+    );
+  }
+
   sess.status = "canceled";
   sess.canceledAt = new Date();
   sess.history.push({ action: "cancel", by: req.user?._id || null });
   await sess.save();
 
   const io = req.app.get("io");
+  await releaseDrawControl({
+    tournamentId: sess.tournament,
+    status: "canceled",
+  });
   emitTerminal(io, sess, "canceled");
+  await publishDrawLiveSnapshot(io, sess.tournament, req.user);
 
   res.json({ ok: true, session: sess });
+});
+
+export const takeoverTournamentDraw = expressAsyncHandler(async (req, res) => {
+  const { tournamentId } = req.params;
+  const io = req.app.get("io");
+  const result = await takeoverDrawControl({
+    tournamentId,
+    user: req.user,
+    socketId: String(req.body?.socketId || ""),
+    io,
+  });
+  if (!result?.ok) {
+    return res.status(403).json({
+      ok: false,
+      message: "Only super admin can take over draw control",
+      snapshot: result?.snapshot || null,
+    });
+  }
+  return res.json({
+    ok: true,
+    snapshot: result.snapshot || null,
+  });
+});
+
+export const stopTournamentDraw = expressAsyncHandler(async (req, res) => {
+  const { tournamentId } = req.params;
+  const io = req.app.get("io");
+  const snapshot = await stopDrawControl({
+    tournamentId,
+    io,
+    user: req.user,
+  });
+  return res.json({
+    ok: true,
+    snapshot: snapshot || null,
+  });
 });
 
 /**

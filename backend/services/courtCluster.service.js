@@ -1197,6 +1197,127 @@ async function ensureNoQueueConflicts(matchIds = [], stationId = null) {
   }
 }
 
+function collectPlayerIdentityKeys(player) {
+  const keys = new Set();
+  const playerId = toIdString(player?._id);
+  const userId = toIdString(player?.user?._id || player?.user);
+  if (playerId) keys.add(`player:${playerId}`);
+  if (userId) keys.add(`user:${userId}`);
+  return Array.from(keys);
+}
+
+function collectMatchParticipantEntries(match) {
+  return [
+    match?.pairA?.player1,
+    match?.pairA?.player2,
+    match?.pairB?.player1,
+    match?.pairB?.player2,
+  ]
+    .filter(Boolean)
+    .map((player) => ({
+      player,
+      keys: collectPlayerIdentityKeys(player),
+    }))
+    .filter((entry) => entry.keys.length > 0);
+}
+
+async function buildClusterBusyParticipantMap(
+  clusterId,
+  { excludeStationId = null, allowMatchId = null } = {}
+) {
+  const query = {
+    clusterId,
+    currentMatch: { $ne: null },
+  };
+  if (excludeStationId) {
+    query._id = { $ne: excludeStationId };
+  }
+
+  const normalizedAllowedMatchId = toIdString(allowMatchId);
+  const stations = await CourtStation.find(query)
+    .select("_id name currentMatch")
+    .populate({
+      path: "currentMatch",
+      select: MATCH_SUMMARY_SELECT,
+      populate: MATCH_REF_POPULATE,
+    })
+    .lean();
+
+  const busyMap = new Map();
+  stations.forEach((station) => {
+    const currentMatch = station?.currentMatch;
+    const currentMatchId = toIdString(currentMatch?._id || currentMatch);
+    if (!currentMatchId || currentMatchId === normalizedAllowedMatchId) return;
+
+    const stationName = safeText(station?.name, "Sân");
+    collectMatchParticipantEntries(currentMatch).forEach(({ keys }) => {
+      keys.forEach((key) => {
+        if (busyMap.has(key)) return;
+        busyMap.set(key, {
+          stationId: toIdString(station?._id),
+          stationName,
+          matchId: currentMatchId,
+          matchCode: safeText(
+            currentMatch?.displayCode ||
+              currentMatch?.code ||
+              currentMatch?.globalCode
+          ),
+        });
+      });
+    });
+  });
+
+  return busyMap;
+}
+
+async function findClusterBusyParticipantConflict(
+  match,
+  clusterId,
+  options = {}
+) {
+  if (!match || !clusterId) return null;
+  const busyMap = await buildClusterBusyParticipantMap(clusterId, options);
+  if (!busyMap.size) return null;
+
+  for (const entry of collectMatchParticipantEntries(match)) {
+    const conflict = entry.keys.map((key) => busyMap.get(key)).find(Boolean);
+    if (!conflict) continue;
+
+    return {
+      ...conflict,
+      playerName:
+        playerNameForDisplay(entry.player, "fullName") ||
+        playerNameForDisplay(entry.player, "nickname") ||
+        "Vận động viên",
+    };
+  }
+
+  return null;
+}
+
+async function ensureMatchPlayersAvailableOnCluster(
+  match,
+  clusterId,
+  options = {}
+) {
+  const conflict = await findClusterBusyParticipantConflict(
+    match,
+    clusterId,
+    options
+  );
+  if (!conflict) return;
+
+  const error = new Error(
+    `${conflict.playerName} đang thi đấu ở ${conflict.stationName}${
+      conflict.matchCode ? ` (${conflict.matchCode})` : ""
+    }.`
+  );
+  error.status = 409;
+  error.code = "PLAYER_BUSY_IN_CLUSTER";
+  error.conflict = conflict;
+  throw error;
+}
+
 async function maybeAssignNextQueuedMatch(stationId) {
   let station = await CourtStation.findById(stationId)
     .select(
@@ -1207,34 +1328,42 @@ async function maybeAssignNextQueuedMatch(stationId) {
   if (normalizeAssignmentMode(station.assignmentMode) !== "queue") return null;
   if (station.currentMatch) return null;
 
-  while (true) {
-    const queueItems = Array.isArray(station?.assignmentQueue?.items)
-      ? [...station.assignmentQueue.items].sort(
-          (left, right) => safeInt(left.order, 0) - safeInt(right.order, 0)
-        )
-      : [];
+  const initialQueueItems = Array.isArray(station?.assignmentQueue?.items)
+    ? [...station.assignmentQueue.items].sort(
+        (left, right) => safeInt(left.order, 0) - safeInt(right.order, 0)
+      )
+    : [];
 
-    if (!queueItems.length) {
-      await CourtStation.updateOne(
-        { _id: station._id },
-        {
-          $set: {
-            status: "idle",
-            currentTournament: null,
-          },
-        }
-      ).catch(() => {});
-      return null;
-    }
+  if (!initialQueueItems.length) {
+    await CourtStation.updateOne(
+      { _id: station._id },
+      {
+        $set: {
+          status: "idle",
+          currentTournament: null,
+        },
+      }
+    ).catch(() => {});
+    return null;
+  }
 
-    const [head, ...rest] = queueItems;
+  let pendingQueueItems = initialQueueItems;
+  let attempts = 0;
+
+  while (pendingQueueItems.length && attempts < initialQueueItems.length) {
+    attempts += 1;
+    const [head, ...rest] = pendingQueueItems;
     const candidateId = toIdString(head?.matchId);
     if (!candidateId) {
+      pendingQueueItems = rest;
       await CourtStation.updateOne(
         { _id: station._id },
         {
           $set: {
-            assignmentQueue: { items: normalizeAssignmentQueueItems(rest) },
+            assignmentQueue: {
+              items: normalizeAssignmentQueueItems(pendingQueueItems),
+            },
+            status: pendingQueueItems.length ? "assigned" : "idle",
           },
         }
       );
@@ -1250,6 +1379,10 @@ async function maybeAssignNextQueuedMatch(stationId) {
       const [candidate] = await loadQueueMatches([candidateId]);
       ensureActiveQueueCandidate(candidate, candidate?.tournament?._id || candidate?.tournament);
       await ensureNoQueueConflicts([candidateId], station._id);
+      await ensureMatchPlayersAvailableOnCluster(candidate, station.clusterId, {
+        excludeStationId: station._id,
+        allowMatchId: candidateId,
+      });
 
       await CourtStation.updateOne(
         { _id: station._id },
@@ -1264,12 +1397,17 @@ async function maybeAssignNextQueuedMatch(stationId) {
         ignoreAssignmentMode: true,
       });
     } catch (error) {
+      pendingQueueItems =
+        error?.code === "PLAYER_BUSY_IN_CLUSTER" ? [...rest, head] : rest;
       await CourtStation.updateOne(
         { _id: station._id },
         {
           $set: {
-            assignmentQueue: { items: normalizeAssignmentQueueItems(rest) },
-            status: "idle",
+            assignmentQueue: {
+              items: normalizeAssignmentQueueItems(pendingQueueItems),
+            },
+            status: pendingQueueItems.length ? "assigned" : "idle",
+            currentTournament: null,
           },
         }
       );
@@ -1280,6 +1418,8 @@ async function maybeAssignNextQueuedMatch(stationId) {
         .lean();
     }
   }
+
+  return null;
 }
 
 export async function cleanupTournamentAssignmentsForRemovedClusters(
@@ -1967,6 +2107,15 @@ export async function assignMatchToCourtStation(
     throw error;
   }
 
+  await ensureMatchPlayersAvailableOnCluster(
+    match,
+    station.clusterId?._id || station.clusterId,
+    {
+      excludeStationId: station._id,
+      allowMatchId: match._id,
+    }
+  );
+
   const previousStation = await CourtStation.findOne({
     currentMatch: match._id,
     _id: { $ne: station._id },
@@ -2434,7 +2583,13 @@ async function buildAvailableMatchesForCluster(clusterId, tournamentId = null) {
     .sort({ status: 1, updatedAt: -1, scheduledAt: 1, createdAt: 1 })
     .lean();
 
-  const filteredMatches = matches.filter((match) => !isByeMatch(match));
+  const busyParticipantMap = await buildClusterBusyParticipantMap(clusterId);
+  const filteredMatches = matches.filter((match) => {
+    if (isByeMatch(match)) return false;
+    return !collectMatchParticipantEntries(match).some((entry) =>
+      entry.keys.some((key) => busyParticipantMap.has(key))
+    );
+  });
   const matchDisplayContexts =
     await buildMatchDisplayContextsFromMatches(filteredMatches);
 

@@ -21,6 +21,7 @@ import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import LottieEmptyState from "../../components/LottieEmptyState";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
+import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import {
   useGetLiveClusterQuery,
   useGetLiveClustersQuery,
@@ -226,6 +227,50 @@ export default function LiveCourtClustersPage() {
         "Danh sách này chỉ hiện những trận đã từng live và vẫn có video/stream công khai để xem lại.",
     };
   }, [archiveTournamentName]);
+  const selectedClusterName = useMemo(
+    () =>
+      clusters.find((cluster) => sid(cluster) === sid(selectedClusterId))
+        ?.name || "",
+    [clusters, selectedClusterId],
+  );
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "live_clusters",
+      entityTitle: "Live PickleTour",
+      sectionTitle: selectedClusterName || "Cụm sân trực tiếp",
+      pageSummary:
+        "Trang live tổng với cụm sân đang phát, trận trực tiếp và kho trận đã phát gần đây.",
+      activeLabels: [
+        selectedClusterName || "",
+        keyword ? `Tìm: ${keyword}` : "",
+        archiveTournamentName
+          ? `Lọc archive: ${archiveTournamentName}`
+          : "Archive tất cả giải",
+      ],
+      visibleActions: ["Đổi cụm sân", "Tìm sân hoặc trận", "Xem archive"],
+      highlights: stations
+        .slice(0, 4)
+        .map((station) => station?.name || station?.code || ""),
+      metrics: [
+        `Cụm sân: ${clusters.length}`,
+        `Sân hiện có: ${summary.total}`,
+        `Đang live: ${summary.live}`,
+        `Có trận: ${summary.active}`,
+        `Archive: ${archiveTotal}`,
+      ],
+    }),
+    [
+      selectedClusterName,
+      keyword,
+      archiveTournamentName,
+      stations,
+      clusters.length,
+      summary,
+      archiveTotal,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   return (
     <>

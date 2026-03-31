@@ -73,6 +73,7 @@ import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import SEOHead from "../../components/SEOHead";
 import LottieEmptyState from "../../components/LottieEmptyState";
 import {
@@ -2458,8 +2459,86 @@ export default function TournamentBracket() {
     () => (current ? byBracket[current._id] || [] : []),
     [byBracket, current],
   );
+  const [groupSelected, setGroupSelected] = useState(() => new Set());
+  const [onlyMine, setOnlyMine] = useState(false);
+  const [groupViewMode, setGroupViewMode] = useState(() =>
+    readStoredGroupViewMode(),
+  );
 
   // NEW: danh sách key tất cả bảng ở stage hiện tại
+  const bracketSectionLabel =
+    current?.name ||
+    (current?.type === "group"
+      ? "Vòng bảng"
+      : current?.type === "roundElim"
+        ? "Round Elim"
+        : "Nhánh đấu");
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "tournament_bracket",
+      entityTitle: tour?.name || "Giải hiện tại",
+      sectionTitle: bracketSectionLabel,
+      pageSummary:
+        current?.type === "group"
+          ? "Trang nhánh đấu hiện tại với bảng, xếp hạng, bộ lọc nhóm và spotlight trận live."
+          : "Trang nhánh đấu hiện tại với các vòng đấu, zoom và bộ lọc hiển thị.",
+      activeLabels: [
+        current?.type === "group"
+          ? "Vòng bảng"
+          : current?.type === "roundElim"
+            ? "Round Elim"
+            : current?.type || "Bracket",
+        `Zoom: ${Math.round(zoom * 100)}%`,
+        current?.type === "group"
+          ? `Chế độ: ${groupViewMode === "board" ? "Board" : "Classic"}`
+          : "",
+        onlyMine ? "Chỉ xem bảng của tôi" : "",
+      ],
+      visibleActions: [
+        "Đổi bracket",
+        "Lọc nhóm",
+        "Phóng to",
+        "Mở trận đấu",
+      ],
+      highlights:
+        current?.type === "group"
+          ? (current?.groups || [])
+              .slice(0, 4)
+              .map(
+                (group, index) =>
+                  group?.name || group?.code || `Bảng ${index + 1}`,
+              )
+          : currentMatches
+              .slice(0, 4)
+              .map((match) => match?.code || match?.globalCode || "Trận"),
+      metrics: [
+        `Số bracket: ${brackets.length}`,
+        `Trận hiện tại: ${currentMatches.length}`,
+        current?.type === "group"
+          ? `Số bảng: ${(current?.groups || []).length}`
+          : `Trận live: ${
+              currentMatches.filter(
+                (match) =>
+                  String(match?.status || "").toLowerCase() === "live",
+              ).length
+            }`,
+      ],
+    }),
+    [
+      tour?.name,
+      bracketSectionLabel,
+      current?.type,
+      current?.groups,
+      currentMatches,
+      zoom,
+      groupViewMode,
+      onlyMine,
+      brackets.length,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
+
   const allGroupKeys = useMemo(() => {
     if (!current || current.type !== "group") return [];
     return (current.groups || []).map((g, gi) => groupKeyOf(g, gi));
@@ -2478,12 +2557,6 @@ export default function TournamentBracket() {
     return set;
   }, [current, myRegIdsAll]);
 
-  // NEW: state bộ lọc
-  const [groupSelected, setGroupSelected] = useState(() => new Set());
-  const [onlyMine, setOnlyMine] = useState(false);
-  const [groupViewMode, setGroupViewMode] = useState(() =>
-    readStoredGroupViewMode(),
-  );
   // Khi đổi sang stage group khác: mặc định chọn tất cả
   useEffect(() => {
     setGroupSelected(new Set(allGroupKeys));

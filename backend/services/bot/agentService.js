@@ -6,7 +6,11 @@ import { openai } from "../../lib/openaiClient.js";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS } from "./tools/index.js";
 import { getRecentMessages } from "./memoryService.js";
 import { maybeLearn } from "./learningService.js";
-import User from "../../models/userModel.js";
+import {
+  buildToolPreview as sharedBuildToolPreview,
+  fetchUserProfile as sharedFetchUserProfile,
+  TOOL_LABELS as SHARED_TOOL_LABELS,
+} from "./runtimeShared.js";
 
 // ─────────────── CONFIG ───────────────
 
@@ -592,7 +596,7 @@ export async function runAgent(message, context = {}, userId = null) {
   // 1) Load memory & profile in parallel
   const [memory, userProfile] = await Promise.all([
     userId ? getRecentMessages(userId, 6) : [],
-    userId ? fetchUserProfile(userId) : null,
+    userId ? sharedFetchUserProfile(userId) : null,
   ]);
 
   // 2) Build system prompt with context
@@ -812,7 +816,7 @@ export async function runAgentStream(
   // 1) Load memory & profile in parallel
   const [memory, userProfile] = await Promise.all([
     userId ? getRecentMessages(userId, 6) : [],
-    userId ? fetchUserProfile(userId) : null,
+    userId ? sharedFetchUserProfile(userId) : null,
   ]);
 
   // 2) Build system prompt with context
@@ -937,7 +941,7 @@ export async function runAgentStream(
         // Emit tool_start
         emit("tool_start", {
           tool: fnName,
-          label: TOOL_LABELS[fnName] || fnName,
+          label: SHARED_TOOL_LABELS[fnName] || fnName,
           args: fnArgs,
         });
 
@@ -970,11 +974,11 @@ export async function runAgentStream(
           }
 
           // Build preview
-          const preview = buildToolPreview(fnName, result);
+          const preview = sharedBuildToolPreview(fnName, result);
 
           emit("tool_done", {
             tool: fnName,
-            label: TOOL_LABELS[fnName] || fnName,
+            label: SHARED_TOOL_LABELS[fnName] || fnName,
             resultPreview: preview,
             durationMs: Date.now() - toolStart,
           });
@@ -988,7 +992,7 @@ export async function runAgentStream(
           console.error(`[Agent] Tool ${fnName} error:`, err.message);
           emit("tool_done", {
             tool: fnName,
-            label: TOOL_LABELS[fnName] || fnName,
+            label: SHARED_TOOL_LABELS[fnName] || fnName,
             resultPreview: isDev ? `Lỗi: ${err.message}` : "Lỗi khi xử lý",
             durationMs: Date.now() - toolStart,
             error: true,

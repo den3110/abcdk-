@@ -53,6 +53,7 @@ import { useSocketRoomSet } from "../hook/useSocketRoomSet";
 import SEOHead from "../components/SEOHead";
 import LottieEmptyState from "../components/LottieEmptyState";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { useRegisterChatBotPageContext } from "../context/ChatBotPageContext.jsx";
 import { formatDate, formatDateTime } from "../i18n/format.js";
 
 function normalizeGroupCode(code) {
@@ -293,7 +294,10 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
   const onOpen = useCallback((m) => onOpenMatch?.(m), [onOpenMatch]);
   const [expanded, setExpanded] = useState(false);
 
-  const matches = Array.isArray(t.matches) ? t.matches : [];
+  const matches = useMemo(
+    () => (Array.isArray(t.matches) ? t.matches : []),
+    [t.matches],
+  );
 
   const summaryMatches = useMemo(() => {
     return matches
@@ -680,7 +684,10 @@ function TournamentCard({ t, onOpenMatch, translate, locale }) {
     new Set(["scheduled", "live", "finished"]),
   );
 
-  const matches = Array.isArray(t.matches) ? t.matches : [];
+  const matches = useMemo(
+    () => (Array.isArray(t.matches) ? t.matches : []),
+    [t.matches],
+  );
 
   const filteredMatches = useMemo(() => {
     const q = stripVN(matchQuery);
@@ -936,12 +943,15 @@ export default function MyTournamentsPage() {
   }, []);
 
   // Save viewMode
-  const handleViewModeChange = useCallback((event, nextMode) => {
+  const applyViewMode = useCallback((nextMode) => {
     if (nextMode !== null) {
       setViewMode(nextMode);
       localStorage.setItem(LS_VIEW_MODE_KEY, nextMode);
     }
   }, []);
+  const handleViewModeChange = useCallback((event, nextMode) => {
+    applyViewMode(nextMode);
+  }, [applyViewMode]);
 
   const { userInfo } = useSelector((s) => s?.auth || {});
   const isAuthed = !!(userInfo?.token || userInfo?._id || userInfo?.email);
@@ -1041,19 +1051,6 @@ export default function MyTournamentsPage() {
     liveMapRef.current = mp;
     setLiveBump((x) => x + 1);
   }, [allMatchesInitial]);
-  const diffSet = (curSet, nextArr) => {
-    const nextSet = new Set(nextArr);
-    const added = [];
-    const removed = [];
-    nextSet.forEach((id) => {
-      if (!curSet.has(id)) added.push(id);
-    });
-    curSet.forEach((id) => {
-      if (!nextSet.has(id)) removed.push(id);
-    });
-    return { added, removed, nextSet };
-  };
-
   const tournamentRoomIds = useMemo(
     () => (tournamentsRaw || []).map((t) => String(t?._id)).filter(Boolean),
     [tournamentsRaw],
@@ -1095,6 +1092,7 @@ export default function MyTournamentsPage() {
   }, [allBracketIdsKey, allMatchIdsKey]);
 
   const tournamentsLive = useMemo(() => {
+    void liveBump;
     const getLive = (m) => liveMapRef.current.get(String(m?._id)) || m;
 
     return tournamentsRaw.map((t) => {
@@ -1161,6 +1159,86 @@ export default function MyTournamentsPage() {
       return getStart(a) - getStart(b);
     });
   }, [tournamentsLive, tourQuery, tourStatus]);
+  const ongoingCount = useMemo(
+    () =>
+      tournamentsLive.filter(
+        (tournament) => String(tournament?.status || "") === "ongoing",
+      ).length,
+    [tournamentsLive],
+  );
+  const upcomingCount = useMemo(
+    () =>
+      tournamentsLive.filter(
+        (tournament) => String(tournament?.status || "") === "upcoming",
+      ).length,
+    [tournamentsLive],
+  );
+  const finishedCount = useMemo(
+    () =>
+      tournamentsLive.filter(
+        (tournament) => String(tournament?.status || "") === "finished",
+      ).length,
+    [tournamentsLive],
+  );
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "my_tournaments",
+      entityTitle: translate("myTournaments.title"),
+      sectionTitle: viewMode === "list" ? "Danh sách" : "Thẻ",
+      pageSummary: isAuthed
+        ? "Trang giải của tôi với danh sách giải đã tham gia, trận đấu realtime và bộ lọc tìm kiếm."
+        : "Bạn cần đăng nhập để xem giải đấu và trận đấu của mình.",
+      activeLabels: [
+        isAuthed ? "Đã đăng nhập" : "Chưa đăng nhập",
+        `Hiển thị: ${viewMode === "list" ? "Danh sách" : "Thẻ"}`,
+        tourQuery ? `Tìm: ${tourQuery}` : "",
+      ],
+      visibleActions: isAuthed
+        ? ["Tìm giải", "Đổi chế độ hiển thị", "Mở giải", "Mở trận đấu"]
+        : ["Đăng nhập"],
+      highlights: isAuthed
+        ? tournaments
+            .slice(0, 4)
+            .map((tournament) => tournament?.name || tournament?._id || "")
+        : ["Đăng nhập để xem các giải đã tham gia"],
+      metrics: isAuthed
+        ? [
+            `Giải hiển thị: ${tournaments.length}`,
+            `Đang diễn ra: ${ongoingCount}`,
+            `Sắp diễn ra: ${upcomingCount}`,
+            `Đã kết thúc: ${finishedCount}`,
+          ]
+        : ["Cần đăng nhập để tải dữ liệu cá nhân"],
+    }),
+    [
+      translate,
+      viewMode,
+      isAuthed,
+      tourQuery,
+      tournaments,
+      ongoingCount,
+      upcomingCount,
+      finishedCount,
+    ],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      viewMode: (nextValue) => {
+        applyViewMode(nextValue);
+      },
+      search: (nextValue) => {
+        setTourQuery(String(nextValue || ""));
+      },
+    }),
+    [applyViewMode],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: ["set_page_state", "prefill_text", "focus_element", "navigate"],
+    actionHandlers: chatBotActionHandlers,
+  });
 
   const handleOpenMatch = useCallback((m) => {
     setMatchId(m?._id);

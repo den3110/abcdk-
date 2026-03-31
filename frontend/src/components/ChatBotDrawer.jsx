@@ -15,6 +15,7 @@ import {
   Badge,
   Fade,
   Collapse,
+  Chip,
   useMediaQuery,
   Dialog,
   DialogTitle,
@@ -22,6 +23,12 @@ import {
   DialogContentText,
   DialogActions,
   Button,
+  Tabs,
+  Tab,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from "@mui/material";
 import { useTheme, alpha } from "@mui/material/styles";
 import SendIcon from "@mui/icons-material/Send";
@@ -39,24 +46,204 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import StopCircleIcon from "@mui/icons-material/StopCircle";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
+import ThumbUpAltOutlinedIcon from "@mui/icons-material/ThumbUpAltOutlined";
+import ThumbDownAltOutlinedIcon from "@mui/icons-material/ThumbDownAltOutlined";
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import DoneRoundedIcon from "@mui/icons-material/DoneRounded";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   useClearChatHistoryMutation,
   useClearLearningMemoryMutation,
+  useSendChatFeedbackMutation,
+  useSendChatTelemetryEventMutation,
   chatBotApiSlice,
 } from "../slices/chatBotApiSlice";
 import { useSelector } from "react-redux";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { useChatBotPageContext } from "../context/ChatBotPageContext.jsx";
 
 const BOT_ICON = "/icon-chatbot-192.png";
+const REASONING_MODE_STORAGE_KEY = "pikora-reasoning-mode";
 
 // ─── Initial Suggestions (only for welcome screen) ───
 function getWelcomeSuggestions(userInfo, t) {
   return userInfo
     ? t("chatbot.suggestions.member")
     : t("chatbot.suggestions.guest");
+}
+
+function compactText(value, maxLength = 180) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
+function compactUniqueTexts(values, limit = 8, maxLength = 96) {
+  const seen = new Set();
+  return (Array.isArray(values) ? values : [])
+    .map((value) => compactText(value, maxLength))
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function getVisibleTextFromNodes(selectors, limit = 8, maxLength = 80) {
+  if (typeof document === "undefined") return [];
+
+  const nodes = selectors.flatMap((selector) =>
+    Array.from(document.querySelectorAll(selector)),
+  );
+
+  return compactUniqueTexts(
+    nodes
+      .filter((node) => {
+        const rect = node.getBoundingClientRect?.();
+        return rect ? rect.width > 0 && rect.height > 0 : true;
+      })
+      .map((node) => node.textContent || ""),
+    limit,
+    maxLength,
+  );
+}
+
+function collectDomPageSnapshot() {
+  if (typeof document === "undefined") return null;
+
+  const heading =
+    compactText(
+      document.querySelector("main h1, [data-chatbot-page-title]")?.textContent,
+      140,
+    ) || "";
+  const sectionTitle =
+    compactText(
+      document.querySelector("main h2, main [role='heading'][aria-level='2']")?.textContent,
+      120,
+    ) || "";
+  const pageSummary =
+    compactText(
+      document.querySelector(
+        "main p, [data-chatbot-page-summary], meta[name='description']",
+      )?.textContent ||
+        document
+          .querySelector("meta[name='description']")
+          ?.getAttribute("content"),
+      220,
+    ) || "";
+
+  const activeLabels = getVisibleTextFromNodes(
+    [
+      "[role='tab'][aria-selected='true']",
+      ".Mui-selected",
+      "[aria-current='page']",
+      "[data-chatbot-active='true']",
+    ],
+    8,
+    64,
+  );
+  const visibleActions = getVisibleTextFromNodes(
+    [
+      "main button",
+      "main [role='button']",
+      "main a[role='button']",
+      "[data-chatbot-action]",
+    ],
+    8,
+    64,
+  );
+  const highlights = getVisibleTextFromNodes(
+    [
+      "main .MuiChip-label",
+      "main [data-chatbot-highlight]",
+      "nav[aria-label*='breadcrumb'] a",
+      "nav[aria-label*='breadcrumb'] span",
+    ],
+    8,
+    80,
+  );
+  const metrics = getVisibleTextFromNodes(
+    [
+      "main [data-chatbot-metric]",
+      "main .MuiTypography-h3",
+      "main .MuiTypography-h4",
+      "main .MuiTypography-h5",
+    ],
+    6,
+    64,
+  );
+
+  const snapshot = {
+    entityTitle: heading,
+    sectionTitle,
+    pageSummary,
+    activeLabels,
+    visibleActions,
+    highlights,
+    metrics,
+  };
+
+  return Object.values(snapshot).some((value) =>
+    Array.isArray(value) ? value.length > 0 : Boolean(value),
+  )
+    ? snapshot
+    : null;
+}
+
+function buildChatContextPayload(registeredSnapshot) {
+  const domSnapshot = collectDomPageSnapshot();
+  const merged = {
+    pageType: compactText(registeredSnapshot?.pageType, 64),
+    entityTitle: compactText(
+      registeredSnapshot?.entityTitle || domSnapshot?.entityTitle,
+      140,
+    ),
+    sectionTitle: compactText(
+      registeredSnapshot?.sectionTitle || domSnapshot?.sectionTitle,
+      120,
+    ),
+    pageSummary: compactText(
+      registeredSnapshot?.pageSummary || domSnapshot?.pageSummary,
+      220,
+    ),
+    activeLabels: compactUniqueTexts(
+      [...(registeredSnapshot?.activeLabels || []), ...(domSnapshot?.activeLabels || [])],
+      8,
+      64,
+    ),
+    visibleActions: compactUniqueTexts(
+      [
+        ...(registeredSnapshot?.visibleActions || []),
+        ...(domSnapshot?.visibleActions || []),
+      ],
+      8,
+      64,
+    ),
+    highlights: compactUniqueTexts(
+      [...(registeredSnapshot?.highlights || []), ...(domSnapshot?.highlights || [])],
+      8,
+      88,
+    ),
+    metrics: compactUniqueTexts(
+      [...(registeredSnapshot?.metrics || []), ...(domSnapshot?.metrics || [])],
+      8,
+      88,
+    ),
+  };
+
+  return Object.values(merged).some((value) =>
+    Array.isArray(value) ? value.length > 0 : Boolean(value),
+  )
+    ? merged
+    : null;
 }
 
 // ═══════════════════════════════════════════
@@ -392,6 +579,249 @@ const MarkdownContent = memo(function MarkdownContent({
   );
 });
 
+const ChatComposer = memo(function ChatComposer({
+  open,
+  isTyping,
+  theme,
+  t,
+  onSend,
+  onStop,
+  onReasoningModeChange,
+}) {
+  const isDark = theme.palette.mode === "dark";
+  const inputRef = useRef(null);
+  const [draft, setDraft] = useState("");
+  const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState(null);
+  const [reasoningMode, setReasoningMode] = useState(() => {
+    if (typeof window === "undefined") return "auto";
+    return window.localStorage.getItem(REASONING_MODE_STORAGE_KEY) === "force_reasoner"
+      ? "force_reasoner"
+      : "auto";
+  });
+
+  const modeMenuOpen = Boolean(modeMenuAnchorEl);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(REASONING_MODE_STORAGE_KEY, reasoningMode);
+  }, [reasoningMode]);
+
+  useEffect(() => {
+    onReasoningModeChange?.(reasoningMode);
+  }, [onReasoningModeChange, reasoningMode]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = window.setTimeout(() => inputRef.current?.focus(), 300);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  const handleComposerSend = useCallback(() => {
+    const text = draft.trim();
+    if (!text || isTyping) return;
+    setDraft("");
+    void onSend(text, reasoningMode);
+  }, [draft, isTyping, onSend, reasoningMode]);
+
+  const handleKeyDown = useCallback(
+    (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        handleComposerSend();
+      }
+    },
+    [handleComposerSend],
+  );
+
+  return (
+    <>
+      <Box
+        sx={{
+          p: 1.5,
+          pt: 1.2,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
+          gap: 1.1,
+          bgcolor: isDark
+            ? alpha(theme.palette.background.paper, 0.6)
+            : "#fff",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0.8,
+              flexShrink: 0,
+            }}
+          >
+            <Tooltip
+              title={t("chatbot.reasoner.modeLabel", {}, "Chế độ trả lời")}
+            >
+              <IconButton
+                onClick={(event) => setModeMenuAnchorEl(event.currentTarget)}
+                sx={{
+                  width: 44,
+                  height: 44,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.24)}`,
+                  bgcolor: isDark
+                    ? alpha(theme.palette.background.default, 0.7)
+                    : alpha(theme.palette.grey[100], 0.92),
+                  color:
+                    reasoningMode === "force_reasoner"
+                      ? theme.palette.primary.main
+                      : theme.palette.text.secondary,
+                  "&:hover": {
+                    bgcolor: isDark
+                      ? alpha(theme.palette.background.default, 0.92)
+                      : "#fff",
+                  },
+                }}
+              >
+                <AddRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            {reasoningMode === "force_reasoner" ? (
+              <Chip
+                size="small"
+                icon={<PsychologyIcon sx={{ fontSize: 14 }} />}
+                label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+                onDelete={() => setReasoningMode("auto")}
+                color="primary"
+                variant="filled"
+                sx={{
+                  fontWeight: 700,
+                  height: 40,
+                  borderRadius: 999,
+                  "& .MuiChip-label": {
+                    px: 1.15,
+                  },
+                }}
+              />
+            ) : null}
+          </Box>
+
+          <TextField
+            inputRef={inputRef}
+            fullWidth
+            multiline
+            maxRows={3}
+            size="small"
+            placeholder={t("chatbot.inputPlaceholder")}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleKeyDown}
+            sx={{
+              "& .MuiOutlinedInput-root": {
+                borderRadius: 3,
+                minHeight: 44,
+                alignItems: "center",
+                bgcolor: isDark
+                  ? alpha(theme.palette.background.default, 0.5)
+                  : alpha(theme.palette.grey[100], 0.8),
+                fontSize: "0.875rem",
+                py: 0.25,
+                "& fieldset": { borderColor: "transparent" },
+                "&:hover fieldset": {
+                  borderColor: alpha(theme.palette.primary.main, 0.3),
+                },
+                "&.Mui-focused fieldset": {
+                  borderColor: theme.palette.primary.main,
+                  borderWidth: 1,
+                },
+              },
+            }}
+          />
+          <IconButton
+            onClick={isTyping ? onStop : handleComposerSend}
+            disabled={isTyping ? false : !draft.trim()}
+            sx={{
+              bgcolor: isTyping
+                ? theme.palette.error.main
+                : theme.palette.primary.main,
+              color: "#fff",
+              width: 44,
+              height: 44,
+              flexShrink: 0,
+              "&:hover": {
+                bgcolor: isTyping
+                  ? theme.palette.error.dark
+                  : theme.palette.primary.dark,
+              },
+              "&.Mui-disabled": {
+                bgcolor: alpha(theme.palette.primary.main, 0.3),
+                color: "rgba(255,255,255,0.5)",
+              },
+            }}
+          >
+            {isTyping ? (
+              <StopCircleIcon sx={{ fontSize: 20 }} />
+            ) : (
+              <SendIcon sx={{ fontSize: 20 }} />
+            )}
+          </IconButton>
+        </Box>
+      </Box>
+
+      <Menu
+        anchorEl={modeMenuAnchorEl}
+        open={modeMenuOpen}
+        onClose={() => setModeMenuAnchorEl(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "left" }}
+        transformOrigin={{ vertical: "bottom", horizontal: "left" }}
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            minWidth: 220,
+            mt: -0.5,
+            boxShadow: `0 18px 42px ${alpha("#000", 0.18)}`,
+          },
+        }}
+      >
+        <MenuItem
+          selected={reasoningMode === "auto"}
+          onClick={() => {
+            setReasoningMode("auto");
+            setModeMenuAnchorEl(null);
+          }}
+        >
+          <ListItemIcon>
+            {reasoningMode === "auto" ? (
+              <DoneRoundedIcon color="primary" fontSize="small" />
+            ) : (
+              <AutoAwesomeIcon fontSize="small" />
+            )}
+          </ListItemIcon>
+          <ListItemText
+            primary={t("chatbot.reasoner.autoMode", {}, "Tự động")}
+          />
+        </MenuItem>
+        <MenuItem
+          selected={reasoningMode === "force_reasoner"}
+          onClick={() => {
+            setReasoningMode("force_reasoner");
+            setModeMenuAnchorEl(null);
+          }}
+        >
+          <ListItemIcon>
+            {reasoningMode === "force_reasoner" ? (
+              <DoneRoundedIcon color="primary" fontSize="small" />
+            ) : (
+              <PsychologyIcon fontSize="small" />
+            )}
+          </ListItemIcon>
+          <ListItemText
+            primary={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+          />
+        </MenuItem>
+      </Menu>
+    </>
+  );
+});
+
 // ═══════════════════════════════════════════
 //  Thinking Block (collapsible, giống Claude)
 // ═══════════════════════════════════════════
@@ -542,18 +972,541 @@ const ThinkingBlock = memo(function ThinkingBlock({
   );
 });
 
+const ReasonerDialog = memo(function ReasonerDialog({
+  open,
+  message,
+  onClose,
+  theme,
+  t,
+}) {
+  const [tab, setTab] = useState(0);
+  const rawThinking = String(message?.rawThinking || "").trim();
+  const summaryText = rawThinking
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  useEffect(() => {
+    if (open) setTab(0);
+  }, [open, message?.id]);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="md"
+      PaperProps={{
+        sx: {
+          borderRadius: 3,
+          overflow: "hidden",
+        },
+      }}
+    >
+      <DialogTitle sx={{ pb: 1, fontWeight: 800 }}>
+        {t("chatbot.reasoner.title")}
+      </DialogTitle>
+      <DialogContent sx={{ pt: 0 }}>
+        <Tabs
+          value={tab}
+          onChange={(_event, nextValue) => setTab(nextValue)}
+          sx={{ mb: 2 }}
+        >
+          <Tab label={t("chatbot.reasoner.summaryTab")} />
+          <Tab label={t("chatbot.reasoner.rawTab")} />
+        </Tabs>
+
+        {tab === 0 ? (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {message?.thinkingSteps?.length > 0 ? (
+              <Box
+                sx={{
+                  borderRadius: 2,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.18)}`,
+                  p: 1.5,
+                }}
+              >
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                  {t("chatbot.reasoner.timelineTitle")}
+                </Typography>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.8 }}>
+                  {message.thinkingSteps.map((step, index) => (
+                    <Box
+                      key={`reason-step-${index}`}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                      }}
+                    >
+                      {step.status === "running" ? (
+                        <CircularProgress size={12} thickness={5} />
+                      ) : (
+                        <CheckCircleOutlineIcon
+                          sx={{
+                            fontSize: 14,
+                            color: step.error
+                              ? theme.palette.error.main
+                              : theme.palette.success.main,
+                          }}
+                        />
+                      )}
+                      <Typography variant="body2" color="text.secondary">
+                        {step.label}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            ) : null}
+
+            <Box
+              sx={{
+                borderRadius: 2,
+                border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
+                bgcolor: alpha(theme.palette.primary.main, 0.04),
+                p: 1.75,
+              }}
+            >
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                {t("chatbot.reasoner.summaryTitle")}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ whiteSpace: "pre-wrap", lineHeight: 1.7 }}
+              >
+                {summaryText || t("chatbot.reasoner.noThinking")}
+              </Typography>
+            </Box>
+          </Box>
+        ) : (
+          <Box
+            component="pre"
+            sx={{
+              m: 0,
+              p: 2,
+              borderRadius: 2,
+              border: `1px solid ${alpha(theme.palette.divider, 0.18)}`,
+              bgcolor: alpha(theme.palette.background.default, 0.55),
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontFamily:
+                'ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+              fontSize: "0.82rem",
+              lineHeight: 1.65,
+              minHeight: 180,
+            }}
+          >
+            {rawThinking
+              ? `<think>\n${rawThinking}\n</think>`
+              : t("chatbot.reasoner.noRaw")}
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose}>{t("common.actions.close")}</Button>
+      </DialogActions>
+    </Dialog>
+  );
+});
+
 // ═══════════════════════════════════════════
 //  Message Bubble
 // ═══════════════════════════════════════════
+const AnswerCards = memo(function AnswerCards({ cards, theme, onAction }) {
+  if (!Array.isArray(cards) || cards.length === 0) return null;
+
+  return (
+    <Box sx={{ display: "grid", gap: 0.9, mt: 0.9, minWidth: 0 }}>
+      {cards.slice(0, 2).map((card, index) => (
+        <Box
+          key={`${card.kind || "card"}-${card.path || card.title || index}`}
+          sx={{
+            px: 1.3,
+            py: 1.15,
+            minWidth: 0,
+            overflow: "hidden",
+            borderRadius: 3,
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.14)}`,
+            bgcolor: alpha(theme.palette.primary.main, 0.045),
+          }}
+        >
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.6, mb: 0.7 }}>
+            {card.kind ? (
+              <Chip
+                size="small"
+                label={String(card.kind).replaceAll("_", " ")}
+                sx={{
+                  height: 22,
+                  fontWeight: 700,
+                  bgcolor: alpha(theme.palette.primary.main, 0.12),
+                  color: theme.palette.primary.main,
+                }}
+              />
+            ) : null}
+            {(card.badges || []).slice(0, 3).map((badge) => (
+              <Chip key={`${card.title}-${badge}`} size="small" variant="outlined" label={badge} />
+            ))}
+          </Box>
+          <Typography
+            variant="body2"
+            fontWeight={800}
+            sx={{ lineHeight: 1.45, wordBreak: "break-word" }}
+          >
+            {card.title}
+          </Typography>
+          {card.subtitle ? (
+            <Typography
+              variant="caption"
+              sx={{
+                display: "block",
+                mt: 0.35,
+                color: "text.secondary",
+                wordBreak: "break-word",
+              }}
+            >
+              {card.subtitle}
+            </Typography>
+          ) : null}
+          {(card.metrics || []).length ? (
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.7, mt: 0.9 }}>
+              {card.metrics.slice(0, 4).map((metric) => (
+                <Chip
+                  key={`${card.title}-${metric}`}
+                  size="small"
+                  label={metric}
+                  sx={{
+                    maxWidth: "100%",
+                    "& .MuiChip-label": {
+                      display: "block",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    },
+                  }}
+                />
+              ))}
+            </Box>
+          ) : null}
+          {card.description ? (
+            <Typography
+              variant="body2"
+              sx={{
+                mt: 0.9,
+                color: "text.secondary",
+                lineHeight: 1.6,
+                wordBreak: "break-word",
+              }}
+            >
+              {card.description}
+            </Typography>
+          ) : null}
+          {Array.isArray(card.actions) && card.actions.length > 0 ? (
+            <Box
+              sx={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 0.7,
+                mt: 0.9,
+                minWidth: 0,
+              }}
+            >
+              {card.actions.slice(0, 2).map((action, actionIndex) => (
+                <Button
+                  key={`${card.title}-${action.type}-${action.path || action.label || actionIndex}`}
+                  size="small"
+                  variant={actionIndex === 0 ? "contained" : "outlined"}
+                  onClick={() => onAction?.(action)}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 700,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                    whiteSpace: "normal",
+                    wordBreak: "break-word",
+                    lineHeight: 1.2,
+                    textAlign: "left",
+                    justifyContent: "flex-start",
+                  }}
+                >
+                  {action.label || "Mở"}
+                </Button>
+              ))}
+            </Box>
+          ) : null}
+        </Box>
+      ))}
+    </Box>
+  );
+});
+
+const SourcesBar = memo(function SourcesBar({ sources, theme, onAction, t }) {
+  if (!Array.isArray(sources) || sources.length === 0) return null;
+
+  return (
+    <Box
+      sx={{
+        mt: 0.9,
+        px: 1.15,
+        py: 1,
+        minWidth: 0,
+        overflow: "hidden",
+        borderRadius: 2.5,
+        bgcolor: alpha(theme.palette.success.main, 0.06),
+        border: `1px solid ${alpha(theme.palette.success.main, 0.16)}`,
+      }}
+    >
+      <Typography
+        variant="caption"
+        sx={{
+          display: "block",
+          mb: 0.55,
+          fontWeight: 800,
+          color: theme.palette.success.main,
+          textTransform: "uppercase",
+          letterSpacing: "0.03em",
+        }}
+      >
+        {t("chatbot.sourcesTitle", { defaultValue: "Nguồn dữ liệu" })}
+      </Typography>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.7, minWidth: 0 }}>
+        {sources.slice(0, 4).map((source, index) => (
+          <Button
+            key={`${source.tool || "source"}-${source.entityId || source.path || index}`}
+            size="small"
+            variant="outlined"
+            startIcon={<LinkRoundedIcon sx={{ fontSize: 14 }} />}
+            onClick={() =>
+              onAction?.(
+                source.path
+                  ? { type: "navigate", path: source.path, label: source.label }
+                  : source.url
+                    ? { type: "open_new_tab", path: source.url, label: source.label }
+                    : { type: "copy_text", value: source.label, label: source.label },
+              )
+            }
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 700,
+              minHeight: 30,
+              px: 1.2,
+              maxWidth: "100%",
+              minWidth: 0,
+              whiteSpace: "normal",
+              wordBreak: "break-word",
+              lineHeight: 1.2,
+              textAlign: "left",
+              justifyContent: "flex-start",
+            }}
+          >
+            {source.label}
+          </Button>
+        ))}
+      </Box>
+    </Box>
+  );
+});
+
+const TrustStrip = memo(function TrustStrip({ trustMeta, theme, t }) {
+  const { language } = useLanguage();
+  if (!trustMeta) return null;
+  const isEnglish = String(language || "").toLowerCase().startsWith("en");
+  const confidenceLabel =
+    trustMeta.confidenceLevel === "strong"
+      ? isEnglish
+        ? "Cross-checked"
+        : "Đã đối chiếu nguồn thật"
+      : trustMeta.confidenceLevel === "grounded"
+        ? isEnglish
+          ? "Grounded data"
+          : "Có nguồn dữ liệu thật"
+        : trustMeta.confidenceLevel === "limited"
+          ? isEnglish
+            ? "Needs verification"
+            : "Cần kiểm tra thêm"
+          : trustMeta.confidenceLevel === "assisted"
+            ? isEnglish
+              ? "Assisted data"
+              : "Có dữ liệu hỗ trợ"
+            : isEnglish
+              ? "Fast response"
+              : "Phản hồi nhanh";
+  const explanation = trustMeta.grounded
+    ? isEnglish
+      ? `This reply is grounded on ${trustMeta.sourceCount || 1} real source${trustMeta.sourceCount > 1 ? "s" : ""} from the app or retrieved content.${trustMeta.reasoned ? " Pikora also used reasoning to synthesize them." : ""}`
+      : `Câu trả lời này đang bám ${trustMeta.sourceCount || 1} nguồn dữ liệu thật từ app hoặc nội dung đã tra cứu.${trustMeta.reasoned ? " Pikora cũng dùng suy luận để tổng hợp chúng." : ""}`
+    : trustMeta.needsDisclaimer
+      ? isEnglish
+        ? "This reply used tools, but the grounding is still too thin to treat it as a hard fact."
+        : "Câu trả lời này có dùng tool, nhưng lớp grounding vẫn còn mỏng nên chưa nên xem như fact cứng."
+      : trustMeta.actionable
+        ? isEnglish
+          ? "This reply is optimized for the next safe action on the current page."
+          : "Câu trả lời này đang tối ưu cho bước thao tác an toàn tiếp theo trên màn hiện tại."
+        : isEnglish
+          ? "This is a fast answer based on the current context and available signals."
+          : "Đây là phản hồi nhanh dựa trên ngữ cảnh hiện tại và các tín hiệu sẵn có.";
+
+  const tone =
+    trustMeta.confidenceLevel === "strong" ||
+    trustMeta.confidenceLevel === "grounded"
+      ? theme.palette.success.main
+      : trustMeta.confidenceLevel === "limited"
+        ? theme.palette.warning.main
+        : theme.palette.info.main;
+
+  return (
+    <Box
+      sx={{
+        mt: 0.9,
+        px: 1.15,
+        py: 1,
+        minWidth: 0,
+        overflow: "hidden",
+        borderRadius: 2.5,
+        bgcolor: alpha(tone, 0.06),
+        border: `1px solid ${alpha(tone, 0.16)}`,
+      }}
+    >
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.7, alignItems: "center" }}>
+        <Typography
+          variant="caption"
+          sx={{
+            fontWeight: 800,
+            color: tone,
+            textTransform: "uppercase",
+            letterSpacing: "0.03em",
+          }}
+        >
+          {t(
+            "chatbot.trust.title",
+            {},
+            isEnglish ? "Trust signals" : "Độ tin cậy",
+          )}
+        </Typography>
+        {confidenceLabel ? (
+          <Chip
+            size="small"
+            label={confidenceLabel}
+            sx={{
+              height: 22,
+              fontWeight: 700,
+              bgcolor: alpha(tone, 0.1),
+              color: tone,
+            }}
+          />
+        ) : null}
+        {trustMeta.grounded ? (
+          <Chip
+            size="small"
+            variant="outlined"
+            label={t(
+              "chatbot.trust.grounded",
+              {},
+              isEnglish ? "Grounded" : "Có nguồn",
+            )}
+          />
+        ) : null}
+        {trustMeta.reasoned ? (
+          <Chip
+            size="small"
+            variant="outlined"
+            label={t(
+              "chatbot.trust.reasoned",
+              {},
+              isEnglish ? "Reasoned" : "Có suy luận",
+            )}
+          />
+        ) : null}
+        {trustMeta.actionable ? (
+          <Chip
+            size="small"
+            variant="outlined"
+            label={t(
+              "chatbot.trust.actionable",
+              {},
+              isEnglish ? "Action ready" : "Có thể thao tác",
+            )}
+          />
+        ) : null}
+      </Box>
+      {explanation ? (
+        <Typography
+          variant="caption"
+          sx={{
+            display: "block",
+            mt: 0.7,
+            color: "text.secondary",
+            lineHeight: 1.55,
+            wordBreak: "break-word",
+          }}
+        >
+          {explanation}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+});
+
+const FeedbackBar = memo(function FeedbackBar({
+  msg,
+  theme,
+  onFeedback,
+  submitting,
+  t,
+}) {
+  if (!msg?.id || msg.role !== "bot" || typeof onFeedback !== "function") return null;
+
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, mt: 0.9 }}>
+      <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700 }}>
+        {t("chatbot.feedbackHelpful", {}, "Hữu ích?")}
+      </Typography>
+      <IconButton
+        size="small"
+        disabled={submitting}
+        color={msg.feedback?.value === "positive" ? "success" : "default"}
+        onClick={() => onFeedback?.(msg, "positive")}
+      >
+        <ThumbUpAltOutlinedIcon sx={{ fontSize: 18 }} />
+      </IconButton>
+      <IconButton
+        size="small"
+        disabled={submitting}
+        color={msg.feedback?.value === "negative" ? "error" : "default"}
+        onClick={() => onFeedback?.(msg, "negative")}
+      >
+        <ThumbDownAltOutlinedIcon sx={{ fontSize: 18 }} />
+      </IconButton>
+      {msg.feedback?.reason ? (
+        <Chip
+          size="small"
+          label={msg.feedback.reason}
+          sx={{
+            height: 22,
+            bgcolor: alpha(theme.palette.text.primary, 0.06),
+          }}
+        />
+      ) : null}
+    </Box>
+  );
+});
+
 const MessageBubble = memo(function MessageBubble({
   msg,
   theme,
   onNavigate,
+  onAction,
   onClose,
+  onOpenReasoner,
+  onFeedback,
+  feedbackSubmitting,
   t,
 }) {
   const isBot = msg.role === "bot" || msg.role === "assistant";
   const isDark = theme.palette.mode === "dark";
+  const isStreaming = Boolean(msg.isStreaming);
+  const showReasoning = isBot && msg.reasoningAvailable && !isStreaming;
 
   return (
     <Box
@@ -562,6 +1515,8 @@ const MessageBubble = memo(function MessageBubble({
         justifyContent: isBot ? "flex-start" : "flex-end",
         mb: 1.5,
         px: 1,
+        minWidth: 0,
+        overflowX: "hidden",
       }}
     >
       {isBot && (
@@ -576,9 +1531,9 @@ const MessageBubble = memo(function MessageBubble({
           }}
         />
       )}
-      <Box sx={{ maxWidth: "85%", minWidth: 0 }}>
+      <Box sx={{ maxWidth: "85%", minWidth: 0, overflowX: "hidden" }}>
         {/* Thinking block (hiện trên reply) */}
-        {isBot && msg.thinkingSteps?.length > 0 && (
+        {isBot && msg.thinkingSteps?.length > 0 && !msg.isStreaming && (
           <ThinkingBlock
             steps={msg.thinkingSteps}
             theme={theme}
@@ -603,21 +1558,222 @@ const MessageBubble = memo(function MessageBubble({
             lineHeight: 1.6,
             wordBreak: "break-word",
             boxShadow: isBot
-              ? "none"
+              ? isStreaming
+                ? `0 10px 30px ${alpha(theme.palette.primary.main, 0.12)}`
+                : "none"
               : `0 2px 8px ${alpha(theme.palette.primary.main, 0.3)}`,
             overflow: "hidden",
+            border: isStreaming
+              ? `1px solid ${alpha(theme.palette.primary.main, 0.18)}`
+              : "none",
+            position: "relative",
           }}
         >
           {isBot ? (
-            <MarkdownContent
-              text={msg.text}
-              theme={theme}
-              onLinkClick={onClose}
-            />
+            <>
+              {isStreaming ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.8 }}>
+                  <Chip
+                    size="small"
+                    label={t("chatbot.streaming.badge")}
+                    sx={{
+                      height: 22,
+                      fontWeight: 700,
+                      fontSize: "0.68rem",
+                      bgcolor: alpha(theme.palette.primary.main, 0.12),
+                      color: theme.palette.primary.main,
+                    }}
+                  />
+                  {msg.reasoningAvailable ? (
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: theme.palette.text.secondary,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {t("chatbot.streaming.reasoning")}
+                    </Typography>
+                  ) : null}
+                </Box>
+              ) : null}
+
+              {isStreaming ? (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    whiteSpace: "pre-wrap",
+                    lineHeight: 1.7,
+                    minHeight: 22,
+                  }}
+                >
+                  {msg.text || t("chatbot.processing")}
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "inline-block",
+                      width: 8,
+                      height: "1.05em",
+                      ml: 0.35,
+                      borderRadius: 0.5,
+                      bgcolor: theme.palette.primary.main,
+                      verticalAlign: "text-bottom",
+                      animation: "pikoraStreamCursor 1s steps(1) infinite",
+                      "@keyframes pikoraStreamCursor": {
+                        "0%, 45%": { opacity: 1 },
+                        "46%, 100%": { opacity: 0 },
+                      },
+                    }}
+                  />
+                </Typography>
+              ) : (
+                <MarkdownContent
+                  text={msg.text}
+                  theme={theme}
+                  onLinkClick={onClose}
+                />
+              )}
+            </>
           ) : (
             msg.text
           )}
         </Box>
+
+        {showReasoning ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.8 }}>
+            <Chip
+              size="small"
+              icon={<PsychologyIcon sx={{ fontSize: 14 }} />}
+              label={t("chatbot.reasoner.badge")}
+              sx={{
+                height: 24,
+                fontWeight: 700,
+                bgcolor: alpha(theme.palette.primary.main, 0.08),
+                color: theme.palette.primary.main,
+              }}
+            />
+            <Box
+              onClick={() => onOpenReasoner?.(msg)}
+              sx={{
+                fontSize: "0.76rem",
+                fontWeight: 700,
+                color: theme.palette.primary.main,
+                cursor: "pointer",
+                "&:hover": { textDecoration: "underline" },
+              }}
+            >
+              {t("chatbot.reasoner.open")}
+            </Box>
+          </Box>
+        ) : null}
+
+        {isBot && msg.trustMeta ? (
+          <TrustStrip trustMeta={msg.trustMeta} theme={theme} t={t} />
+        ) : null}
+
+        {isBot && Array.isArray(msg.answerCards) && msg.answerCards.length > 0 ? (
+          <AnswerCards
+            cards={msg.answerCards}
+            theme={theme}
+            onAction={(action) => onAction?.(action, msg)}
+          />
+        ) : null}
+
+        {isBot && Array.isArray(msg.sources) && msg.sources.length > 0 ? (
+          <SourcesBar
+            sources={msg.sources}
+            theme={theme}
+            onAction={(action) => onAction?.(action, msg)}
+            t={t}
+          />
+        ) : null}
+
+        {isBot && Array.isArray(msg.actions) && msg.actions.length > 0 ? (
+          <Box
+            sx={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 0.8,
+              mt: 0.9,
+              minWidth: 0,
+            }}
+          >
+            {msg.actions.slice(0, 4).map((action, index) => (
+              <Button
+                key={`${action.type || "action"}-${action.path || action.value || index}`}
+                size="small"
+                variant={index === 0 ? "contained" : "outlined"}
+                color={index === 0 ? "primary" : "inherit"}
+                startIcon={
+                  action.type === "copy_link" || action.type === "copy_current_url" ? (
+                    <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
+                  ) : (
+                    <OpenInNewIcon sx={{ fontSize: 14 }} />
+                  )
+                }
+                onClick={() => onAction?.(action, msg)}
+                sx={{
+                  borderRadius: 999,
+                  textTransform: "none",
+                  fontWeight: 700,
+                  minHeight: 32,
+                  px: 1.4,
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  whiteSpace: "normal",
+                  wordBreak: "break-word",
+                  lineHeight: 1.2,
+                  textAlign: "left",
+                  justifyContent: "flex-start",
+                }}
+              >
+                {getChatActionLabel(action, t)}
+              </Button>
+            ))}
+          </Box>
+        ) : null}
+
+        {isBot && Array.isArray(msg.toolSummary) && msg.toolSummary.length > 0 ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.7, mt: 0.9 }}>
+            {msg.toolSummary.slice(0, 3).map((item) => (
+              <Chip
+                key={`${item.tool}-${item.resultPreview}`}
+                size="small"
+                label={item.resultPreview || item.label || item.tool}
+                sx={{
+                  maxWidth: "100%",
+                  "& .MuiChip-label": {
+                    display: "block",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  },
+                }}
+              />
+            ))}
+          </Box>
+        ) : null}
+
+        {isBot && msg.interrupted && !isStreaming ? (
+          <Typography
+            variant="caption"
+            sx={{
+              display: "block",
+              mt: 0.7,
+              color: theme.palette.warning.main,
+              fontWeight: 700,
+            }}
+          >
+            {t("chatbot.streaming.interrupted")}
+          </Typography>
+        ) : null}
+
+        <FeedbackBar
+          msg={msg}
+          theme={theme}
+          onFeedback={onFeedback}
+          submitting={feedbackSubmitting}
+          t={t}
+        />
 
         {/* Navigation button */}
         {isBot && msg.navigation?.webPath && (
@@ -630,10 +1786,13 @@ const MessageBubble = memo(function MessageBubble({
               mt: 0.8,
               px: 1.5,
               py: 0.6,
+              maxWidth: "100%",
+              minWidth: 0,
               borderRadius: 2,
               cursor: "pointer",
               fontSize: "0.78rem",
               fontWeight: 600,
+              wordBreak: "break-word",
               color: theme.palette.primary.main,
               bgcolor: alpha(theme.palette.primary.main, 0.08),
               border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
@@ -657,7 +1816,7 @@ const MessageBubble = memo(function MessageBubble({
 // ═══════════════════════════════════════════
 //  Active Thinking Indicator (live streaming)
 // ═══════════════════════════════════════════
-function LiveThinking({ theme, steps, t }) {
+const LiveThinking = memo(function LiveThinking({ theme, steps, t }) {
   return (
     <Box sx={{ display: "flex", alignItems: "flex-start", px: 1, mb: 1.5 }}>
       <Avatar
@@ -674,12 +1833,13 @@ function LiveThinking({ theme, steps, t }) {
       </Box>
     </Box>
   );
-}
+});
 
 // ═══════════════════════════════════════════
 //  SSE Stream Parser
 // ═══════════════════════════════════════════
-async function sendMessageStream(message, onEvent) {
+// eslint-disable-next-line no-unused-vars
+async function legacySendMessageStream(message, onEvent, signal) {
   const base = import.meta.env.VITE_API_URL || "";
 
   // ── Extract context from current URL path ──
@@ -708,6 +1868,7 @@ async function sendMessageStream(message, onEvent) {
     headers,
     body: JSON.stringify({ message }),
     credentials: "include",
+    signal,
   });
 
   if (!res.ok) {
@@ -752,36 +1913,422 @@ async function sendMessageStream(message, onEvent) {
 // ═══════════════════════════════════════════
 //  MAIN COMPONENT
 // ═══════════════════════════════════════════
+function setContextHeader(headers, key, value) {
+  const text = String(value ?? "").trim();
+  if (text) headers[key] = encodeURIComponent(text);
+}
+
+function buildChatContextHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const currentUrl = new URL(window.location.href);
+  const pathname = currentUrl.pathname;
+  const search = currentUrl.search || "";
+  const searchParams = currentUrl.searchParams;
+  const currentPath = `${pathname}${search}`;
+
+  const tournamentId =
+    pathname.match(/\/tournament\/([a-f0-9]{24})/i)?.[1] ||
+    pathname.match(/\/live\/([a-f0-9]{24})\/brackets\//i)?.[1] ||
+    "";
+  const bracketId =
+    pathname.match(/\/brackets?\/([a-f0-9]{24})/i)?.[1] || "";
+  const clubId = pathname.match(/\/clubs\/([a-f0-9]{24})/i)?.[1] || "";
+  const newsSlug = pathname.match(/\/news\/([^/?#]+)/i)?.[1] || "";
+  const profileUserId =
+    pathname.match(/\/user\/([a-f0-9]{24})/i)?.[1] || "";
+  const courtId =
+    pathname.match(/\/streaming\/([a-f0-9]{24})/i)?.[1] ||
+    pathname.match(
+      /\/live\/[a-f0-9]{24}\/brackets\/[a-f0-9]{24}\/live-studio\/([a-f0-9]{24})/i,
+    )?.[1] ||
+    searchParams.get("courtId") ||
+    "";
+  const matchId = searchParams.get("matchId") || "";
+  const courtCode = searchParams.get("courtCode") || "";
+
+  let pageType = "unknown";
+  let pageSection = "";
+  let pageView = "";
+  let adminSection = "";
+
+  if (pathname === "/") {
+    pageType = "home";
+  } else if (pathname === "/login") {
+    pageType = "login";
+  } else if (pathname === "/register") {
+    pageType = "register";
+  } else if (pathname === "/forgot-password") {
+    pageType = "forgot_password";
+  } else if (pathname.startsWith("/reset-password/")) {
+    pageType = "reset_password";
+  } else if (pathname === "/oauth/authorize") {
+    pageType = "oauth_authorize";
+  } else if (pathname === "/pickle-ball/tournaments") {
+    pageType = "tournament_list";
+  } else if (/^\/tournament\/[a-f0-9]{24}\/register$/i.test(pathname)) {
+    pageType = "tournament_registration";
+  } else if (/^\/tournament\/[a-f0-9]{24}\/checkin$/i.test(pathname)) {
+    pageType = "tournament_checkin";
+  } else if (/^\/tournament\/[a-f0-9]{24}\/bracket$/i.test(pathname)) {
+    pageType = "tournament_bracket";
+    pageView = searchParams.get("tab") || "";
+  } else if (/^\/tournament\/[a-f0-9]{24}\/schedule$/i.test(pathname)) {
+    pageType = "tournament_schedule";
+  } else if (
+    /^\/tournament\/[a-f0-9]{24}\/brackets\/[a-f0-9]{24}\/draw$/i.test(pathname)
+  ) {
+    pageType = "tournament_admin_draw";
+  } else if (/^\/tournament\/[a-f0-9]{24}\/draw\/live$/i.test(pathname)) {
+    pageType = "tournament_draw_live";
+    pageView = searchParams.get("view") || "stage";
+  } else if (/^\/tournament\/[a-f0-9]{24}\/draw$/i.test(pathname)) {
+    pageType = "tournament_draw_manage";
+  } else if (/^\/tournament\/[a-f0-9]{24}\/manage$/i.test(pathname)) {
+    pageType = "tournament_manage";
+  } else if (/^\/tournament\/[a-f0-9]{24}(\/overview)?$/i.test(pathname)) {
+    pageType = "tournament_overview";
+  } else if (pathname === "/pickle-ball/rankings") {
+    pageType = "leaderboard";
+    pageView = searchParams.get("view") || "";
+  } else if (pathname === "/news") {
+    pageType = "news_list";
+    pageView = searchParams.get("page") || "";
+  } else if (/^\/news\/[^/?#]+$/i.test(pathname)) {
+    pageType = "news_detail";
+  } else if (pathname === "/clubs") {
+    pageType = "club_list";
+  } else if (/^\/clubs\/[a-f0-9]{24}$/i.test(pathname)) {
+    pageType = "club_detail";
+    pageSection = searchParams.get("tab") || "news";
+  } else if (pathname === "/live") {
+    pageType = "live_clusters";
+  } else if (pathname === "/studio/live") {
+    pageType = "live_studio";
+  } else if (/^\/streaming\/[a-f0-9]{24}$/i.test(pathname)) {
+    pageType = "court_streaming";
+  } else if (
+    /^\/live\/[a-f0-9]{24}\/brackets\/[a-f0-9]{24}\/live-studio\/[a-f0-9]{24}$/i.test(
+      pathname,
+    )
+  ) {
+    pageType = "court_live_studio";
+  } else if (pathname === "/profile") {
+    pageType = "profile";
+  } else if (pathname === "/my-tournaments") {
+    pageType = "my_tournaments";
+  } else if (/^\/user\/[a-f0-9]{24}$/i.test(pathname)) {
+    pageType = "public_profile";
+  } else if (pathname === "/contact") {
+    pageType = "contact";
+  } else if (pathname === "/status") {
+    pageType = "status";
+  } else if (pathname.startsWith("/admin")) {
+    adminSection =
+      pathname === "/admin/users"
+        ? "users"
+        : pathname === "/admin/news"
+          ? "news"
+          : pathname === "/admin/avatar-optimization"
+            ? "avatar-optimization"
+            : "home";
+    pageType = `admin_${adminSection}`;
+    pageSection = adminSection;
+  }
+
+  setContextHeader(headers, "x-pkt-current-path", currentPath);
+  setContextHeader(headers, "x-pkt-current-url", currentUrl.toString());
+  setContextHeader(headers, "x-pkt-page-title", document.title || "");
+  setContextHeader(headers, "x-pkt-page-type", pageType);
+  setContextHeader(headers, "x-pkt-page-section", pageSection);
+  setContextHeader(headers, "x-pkt-page-view", pageView);
+  setContextHeader(headers, "x-pkt-admin-section", adminSection);
+  setContextHeader(headers, "x-pkt-tournament-id", tournamentId);
+  setContextHeader(headers, "x-pkt-bracket-id", bracketId);
+  setContextHeader(headers, "x-pkt-club-id", clubId);
+  setContextHeader(
+    headers,
+    "x-pkt-club-tab",
+    pageType === "club_detail" ? pageSection : "",
+  );
+  setContextHeader(headers, "x-pkt-news-slug", newsSlug);
+  setContextHeader(headers, "x-pkt-profile-user-id", profileUserId);
+  setContextHeader(headers, "x-pkt-court-id", courtId);
+  setContextHeader(headers, "x-pkt-match-id", matchId);
+  setContextHeader(headers, "x-pkt-court-code", courtCode);
+
+  return headers;
+}
+
+async function sendMessageStream(
+  message,
+  pageSnapshot,
+  capabilityKeys,
+  reasoningMode,
+  onEvent,
+  signal,
+) {
+  const base = import.meta.env.VITE_API_URL || "";
+  const headers = buildChatContextHeaders();
+
+  const res = await fetch(`${base}/api/chat/stream`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      message,
+      pageSnapshot: pageSnapshot || null,
+      capabilityKeys: Array.isArray(capabilityKeys) ? capabilityKeys : [],
+      reasoningMode: reasoningMode || "auto",
+    }),
+    credentials: "include",
+    signal,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || err.error || `HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  let done = false;
+  while (!done) {
+    const chunk = await reader.read();
+    done = chunk.done;
+    if (done) break;
+    const { value } = chunk;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    let currentEvent = "";
+    for (const line of lines) {
+      if (line.startsWith("event: ")) {
+        currentEvent = line.slice(7).trim();
+      } else if (line.startsWith("data: ") && currentEvent) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          onEvent(currentEvent, data);
+        } catch {
+          // ignore parse errors
+        }
+        currentEvent = "";
+      }
+    }
+  }
+}
+
+function getChatActionLabel(action, t) {
+  if (!action) return "";
+  if (action.label) return action.label;
+  switch (action.type) {
+    case "navigate":
+      return t("chatbot.actions.open");
+    case "open_new_tab":
+      return t("chatbot.actions.openNewTab");
+    case "copy_current_url":
+    case "copy_link":
+      return t("chatbot.actions.copyLink");
+    case "copy_text":
+      return t("chatbot.actions.copyText");
+    default:
+      return t("chatbot.actions.run");
+  }
+}
+
+function setElementTextValue(selector, value) {
+  if (!selector || typeof document === "undefined") return false;
+  const el = document.querySelector(selector);
+  if (!el) return false;
+  el.focus?.();
+  if ("value" in el) {
+    el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+  return false;
+}
+
+async function runChatAction(action, { navigate, onClose, t, getActionHandler }) {
+  if (!action?.type) return;
+  const payload = action.payload || {};
+
+  switch (action.type) {
+    case "navigate":
+      if (action.path) {
+        onClose?.();
+        navigate(action.path);
+      }
+      return;
+    case "open_new_tab":
+      if (action.path) {
+        window.open(action.path, "_blank", "noopener,noreferrer");
+      }
+      return;
+    case "copy_current_url":
+    case "copy_link": {
+      const value = action.value || window.location.href;
+      await navigator.clipboard.writeText(String(value || ""));
+      return;
+    }
+    case "copy_text":
+      if (action.value) {
+        await navigator.clipboard.writeText(String(action.value));
+      }
+      return;
+    case "set_query_param": {
+      const nextUrl = new URL(window.location.href);
+      const key = payload.key || action.key;
+      const value = payload.value ?? action.value;
+      if (!key) return;
+      if (value === null || value === undefined || value === "") {
+        nextUrl.searchParams.delete(key);
+      } else {
+        nextUrl.searchParams.set(key, value);
+      }
+      navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+      return;
+    }
+    case "set_page_state": {
+      const handlerKey = payload.handlerKey || payload.key || action.key;
+      const handler = getActionHandler?.(handlerKey);
+      if (typeof handler === "function") {
+        await handler(payload.value, payload, action);
+        return;
+      }
+      if (payload.queryParamKey) {
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set(payload.queryParamKey, payload.value ?? "");
+        navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+        return;
+      }
+      throw new Error(t("chatbot.actions.unsupported"));
+    }
+    case "open_dialog": {
+      const handler = getActionHandler?.(payload.handlerKey || "openDialog");
+      if (typeof handler === "function") {
+        await handler(payload.value, payload, action);
+        return;
+      }
+      throw new Error(t("chatbot.actions.unsupported"));
+    }
+    case "focus_element": {
+      const selector = payload.selector || action.selector;
+      if (!selector) return;
+      const el = document.querySelector(selector);
+      el?.focus?.();
+      el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      return;
+    }
+    case "scroll_to_section": {
+      const selector = payload.selector || action.selector;
+      if (!selector) return;
+      const el = document.querySelector(selector);
+      el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      return;
+    }
+    case "prefill_text": {
+      const handler = getActionHandler?.(payload.handlerKey || "search");
+      if (typeof handler === "function") {
+        await handler(payload.value || action.value || "", payload, action);
+        return;
+      }
+      if (setElementTextValue(payload.selector || action.selector, payload.value || action.value || "")) {
+        return;
+      }
+      throw new Error(t("chatbot.actions.unsupported"));
+    }
+    default:
+      throw new Error(t("chatbot.actions.unsupported"));
+  }
+}
+
 export default function ChatBotDrawer() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
   const routerNavigate = useRouterNavigate();
   const { t } = useLanguage();
+  const {
+    snapshot: registeredPageSnapshot,
+    capabilityKeys,
+    getActionHandler,
+  } = useChatBotPageContext();
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [liveSteps, setLiveSteps] = useState([]);
+  const [liveDraft, setLiveDraft] = useState(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [dynamicSuggestions, setDynamicSuggestions] = useState([]);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [reasonerMessage, setReasonerMessage] = useState(null);
+  const [pendingActionConfirm, setPendingActionConfirm] = useState(null);
+  const [feedbackDialog, setFeedbackDialog] = useState(null);
+  const [feedbackReason, setFeedbackReason] = useState("");
+  const [feedbackNote, setFeedbackNote] = useState("");
+  const [feedbackSubmittingId, setFeedbackSubmittingId] = useState("");
+  const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState(null);
+  const [reasoningMode, setReasoningMode] = useState("auto");
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const inputRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const draftFrameRef = useRef(null);
+  const composerReasoningModeRef = useRef("auto");
+  const liveStepsRef = useRef([]);
+  const liveReplyRef = useRef("");
+  const liveReasoningRef = useRef("");
+  const liveMetaRef = useRef({
+    model: null,
+    mode: "chat",
+    navigation: null,
+    actions: [],
+    answerCards: [],
+    sources: [],
+    contextInsight: "",
+    personalization: null,
+    trustMeta: null,
+    reasoningAvailable: false,
+    intent: "",
+    routeKind: "",
+    capabilityKeys: [],
+    actionExecutionSummary: null,
+    messageId: null,
+    firstTokenLatencyMs: null,
+    processingTime: null,
+    processingTimeMs: null,
+  });
 
   const { userInfo } = useSelector((state) => state.auth);
   const [clearHistory] = useClearChatHistoryMutation();
   const [clearLearning] = useClearLearningMemoryMutation();
+  const [sendChatFeedback] = useSendChatFeedbackMutation();
+  const [sendChatTelemetryEvent] = useSendChatTelemetryEventMutation();
   const [fetchHistory] = chatBotApiSlice.useLazyGetChatHistoryQuery();
   const historyLoaded = useRef(false);
   const nextCursorRef = useRef(null);
   const hasMoreRef = useRef(true);
   const tipItems = t("chatbot.settings.tips");
+
+  useEffect(
+    () => () => {
+      if (draftFrameRef.current) {
+        cancelAnimationFrame(draftFrameRef.current);
+        draftFrameRef.current = null;
+      }
+    },
+    [],
+  );
 
   // ─── Map backend message to frontend format ───
   const mapMessage = useCallback(
@@ -790,12 +2337,38 @@ export default function ChatBotDrawer() {
       role: m.role === "user" ? "user" : "bot",
       text: m.message || "",
       toolsUsed: m.meta?.toolsUsed || [],
-      processingTime: m.meta?.processingTime || null,
+      processingTime: m.meta?.processingTimeMs || m.meta?.processingTime || null,
       thinkingSteps: m.meta?.thinkingSteps || [],
       navigation: m.navigation || null,
+      actions: m.meta?.actions || [],
+      answerCards: m.meta?.answerCards || [],
+      sources: m.meta?.sources || [],
+      intent: m.meta?.intent || "",
+      routeKind: m.meta?.routeKind || "",
+      capabilityKeys: m.meta?.capabilityKeys || [],
+      actionExecutionSummary: m.meta?.actionExecutionSummary || null,
+      contextInsight: m.meta?.contextInsight || "",
+      personalization: m.meta?.personalization || null,
+      trustMeta: m.meta?.trustMeta || null,
+      feedback: m.meta?.feedback || null,
+      rawThinking: m.meta?.rawThinking || "",
+      reasoningAvailable: Boolean(
+        m.meta?.reasoningAvailable || m.meta?.rawThinking,
+      ),
+      model: m.meta?.model || null,
+      mode: m.meta?.mode || "chat",
+      toolSummary: m.meta?.toolSummary || [],
     }),
     [],
   );
+
+  const currentPageSnapshot = useMemo(
+    () => buildChatContextPayload(registeredPageSnapshot),
+    [registeredPageSnapshot],
+  );
+  const feedbackEnabled = Boolean(userInfo?._id);
+  const showPageContextPreview = false;
+  const modeMenuOpen = Boolean(modeMenuAnchorEl);
 
   // Instant jump (no animation) — used for initial history load
   const jumpToBottom = useCallback(() => {
@@ -865,6 +2438,130 @@ export default function ChatBotDrawer() {
 
   const handleCloseDrawer = useCallback(() => setOpen(false), []);
 
+  const logChatClientEvent = useCallback(
+    async ({ messageId, type, label = "", actionType = "", success = true, detail = "" }) => {
+      if (!messageId || !type) return;
+      try {
+        await sendChatTelemetryEvent({
+          messageId,
+          type,
+          label,
+          actionType,
+          success,
+          detail,
+        }).unwrap();
+      } catch {
+        // silent telemetry failure
+      }
+    },
+    [sendChatTelemetryEvent],
+  );
+
+  const handleComposerModeChange = useCallback((mode) => {
+    composerReasoningModeRef.current =
+      mode === "force_reasoner" ? "force_reasoner" : "auto";
+  }, []);
+
+  const executeChatAction = useCallback(
+    async (action, msg) => {
+      await runChatAction(action, {
+        navigate: routerNavigate,
+        onClose: handleCloseDrawer,
+        t,
+        getActionHandler,
+      });
+      await logChatClientEvent({
+        messageId: msg?.id || action?.messageId,
+        type: "action_executed",
+        label: getChatActionLabel(action, t),
+        actionType: action?.type || "",
+        success: true,
+      });
+    },
+    [routerNavigate, handleCloseDrawer, t, getActionHandler, logChatClientEvent],
+  );
+
+  const handleChatAction = useCallback(
+    async (action, msg) => {
+      if (action?.requiresConfirm) {
+        setPendingActionConfirm({ action, msg });
+        return;
+      }
+      try {
+        await executeChatAction(action, msg);
+      } catch (error) {
+        await logChatClientEvent({
+          messageId: msg?.id || action?.messageId,
+          type: "action_unsupported",
+          label: getChatActionLabel(action, t),
+          actionType: action?.type || "",
+          success: false,
+          detail: error?.message || t("chatbot.actions.unsupported"),
+        });
+      }
+    },
+    [executeChatAction, logChatClientEvent, t],
+  );
+
+  const handleFeedback = useCallback(
+    async (msg, value) => {
+      if (!msg?.id) return;
+      if (value === "negative") {
+        setFeedbackReason("");
+        setFeedbackNote("");
+        setFeedbackDialog({ messageId: msg.id });
+        return;
+      }
+
+      setFeedbackSubmittingId(msg.id);
+      try {
+        const response = await sendChatFeedback({
+          messageId: msg.id,
+          value,
+        }).unwrap();
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === msg.id
+              ? { ...item, feedback: response.feedback || { value } }
+              : item,
+          ),
+        );
+      } catch {
+        // silent
+      } finally {
+        setFeedbackSubmittingId("");
+      }
+    },
+    [sendChatFeedback],
+  );
+
+  const handleSubmitNegativeFeedback = useCallback(async () => {
+    if (!feedbackDialog?.messageId) return;
+    setFeedbackSubmittingId(feedbackDialog.messageId);
+    try {
+      const response = await sendChatFeedback({
+        messageId: feedbackDialog.messageId,
+        value: "negative",
+        reason: feedbackReason,
+        note: feedbackNote,
+      }).unwrap();
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === feedbackDialog.messageId
+            ? { ...item, feedback: response.feedback || { value: "negative", reason: feedbackReason, note: feedbackNote } }
+            : item,
+        ),
+      );
+      setFeedbackDialog(null);
+      setFeedbackReason("");
+      setFeedbackNote("");
+    } catch {
+      // silent
+    } finally {
+      setFeedbackSubmittingId("");
+    }
+  }, [feedbackDialog, feedbackNote, feedbackReason, sendChatFeedback]);
+
   const isNearBottomRef = useRef(true);
   const userJustSentRef = useRef(false);
 
@@ -893,11 +2590,17 @@ export default function ChatBotDrawer() {
       scrollToBottom();
       userJustSentRef.current = false;
     }
-  }, [isTyping, liveSteps, messages.length, scrollToBottom]);
+  }, [
+    isTyping,
+    liveSteps,
+    liveDraft?.text,
+    liveDraft?.rawThinking,
+    messages.length,
+    scrollToBottom,
+  ]);
 
   useEffect(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 300);
       // Scroll to bottom when drawer (re)opens — delay for Drawer animation
       setTimeout(() => jumpToBottom(), 350);
     }
@@ -952,6 +2655,8 @@ export default function ChatBotDrawer() {
       prevUserIdRef.current = currentId;
       setMessages([]);
       setDynamicSuggestions([]);
+      setLiveDraft(null);
+      setLiveSteps([]);
       setShowSettings(false);
       historyLoaded.current = false;
       nextCursorRef.current = null;
@@ -960,119 +2665,434 @@ export default function ChatBotDrawer() {
   }, [userInfo?._id]);
 
   // ─── Send message via SSE stream ───
-  const handleSend = async (overrideText) => {
-    const text = (overrideText || input).trim();
-    if (!text || isTyping) return;
-
-    setInput("");
+  const startSend = useCallback(async (text, options = {}) => {
+    const nextText = String(text ?? "").trim();
+    const requestReasoningMode =
+      options?.reasoningMode === "force_reasoner" ? "force_reasoner" : "auto";
+    if (!nextText || isTyping) return;
     userJustSentRef.current = true;
     isNearBottomRef.current = true;
-    setMessages((prev) => [...prev, { role: "user", text }]);
+    setMessages((prev) => [...prev, { role: "user", text: nextText }]);
     setIsTyping(true);
-    setLiveSteps([]);
     setDynamicSuggestions([]);
+    setReasonerMessage(null);
 
-    // Collect steps during stream
-    const collectedSteps = [];
+    liveStepsRef.current = [];
+    liveReplyRef.current = "";
+    liveReasoningRef.current = "";
+    liveMetaRef.current = {
+      model: null,
+      mode: "chat",
+      navigation: null,
+      actions: [],
+      answerCards: [],
+      sources: [],
+      contextInsight: "",
+      personalization: null,
+      trustMeta: null,
+      reasoningAvailable: false,
+      intent: "",
+      routeKind: "",
+      capabilityKeys: [],
+      actionExecutionSummary: null,
+      messageId: null,
+      firstTokenLatencyMs: null,
+      processingTime: null,
+      processingTimeMs: null,
+    };
+    setLiveSteps([]);
+    setLiveDraft({
+      role: "bot",
+      text: "",
+      rawThinking: "",
+      reasoningAvailable: false,
+      thinkingSteps: [],
+      isStreaming: true,
+      mode: "chat",
+      actions: [],
+      answerCards: [],
+      sources: [],
+      contextInsight: "",
+      personalization: null,
+      trustMeta: null,
+      intent: "",
+      routeKind: "",
+      capabilityKeys: [],
+      actionExecutionSummary: null,
+      messageId: null,
+    });
+    const requestPageSnapshot = buildChatContextPayload(registeredPageSnapshot);
+
+    abortControllerRef.current = new AbortController();
     let replyData = null;
+    let streamAborted = false;
+
+    const commitLiveDraft = () => {
+      setLiveDraft({
+        role: "bot",
+        id: liveMetaRef.current.messageId || undefined,
+        text: liveReplyRef.current,
+        rawThinking: liveReasoningRef.current,
+        reasoningAvailable:
+          Boolean(liveReasoningRef.current) ||
+          Boolean(liveMetaRef.current.reasoningAvailable),
+        thinkingSteps: [...liveStepsRef.current],
+        isStreaming: true,
+        model: liveMetaRef.current.model,
+        mode: liveMetaRef.current.mode,
+        navigation: liveMetaRef.current.navigation,
+        actions: liveMetaRef.current.actions,
+        answerCards: liveMetaRef.current.answerCards,
+        sources: liveMetaRef.current.sources,
+        intent: liveMetaRef.current.intent,
+        routeKind: liveMetaRef.current.routeKind,
+        capabilityKeys: liveMetaRef.current.capabilityKeys,
+        actionExecutionSummary: liveMetaRef.current.actionExecutionSummary,
+        contextInsight: liveMetaRef.current.contextInsight,
+        personalization: liveMetaRef.current.personalization,
+        trustMeta: liveMetaRef.current.trustMeta,
+      });
+    };
+
+    const syncLiveDraft = () => {
+      if (draftFrameRef.current) return;
+      draftFrameRef.current = requestAnimationFrame(() => {
+        draftFrameRef.current = null;
+        commitLiveDraft();
+      });
+    };
+
+    const replaceSteps = (nextSteps) => {
+      liveStepsRef.current = nextSteps;
+      setLiveSteps([...nextSteps]);
+      syncLiveDraft();
+    };
 
     try {
-      await sendMessageStream(text, (event, data) => {
-        switch (event) {
-          case "thinking": {
-            const step = {
-              label: data.step,
-              status: "running",
-            };
-            collectedSteps.push(step);
-            setLiveSteps([...collectedSteps]);
-            // Mark previous running steps as done
-            collectedSteps.forEach((s, i) => {
-              if (i < collectedSteps.length - 1 && s.status === "running") {
-                s.status = "done";
+      await sendMessageStream(
+        nextText,
+        requestPageSnapshot,
+        capabilityKeys,
+        requestReasoningMode,
+        (event, data) => {
+          switch (event) {
+            case "thinking": {
+              const nextSteps = liveStepsRef.current.map((step) =>
+                step.status === "running" ? { ...step, status: "done" } : step,
+              );
+              nextSteps.push({
+                label: data.step,
+                status: "running",
+              });
+              replaceSteps(nextSteps);
+              break;
+            }
+            case "tool_start": {
+              const nextSteps = liveStepsRef.current.map((step) =>
+                step.status === "running" ? { ...step, status: "done" } : step,
+              );
+              nextSteps.push({
+                label: `${data.label || data.tool}...`,
+                status: "running",
+                tool: data.tool,
+              });
+              replaceSteps(nextSteps);
+              break;
+            }
+            case "tool_done": {
+              const nextSteps = [...liveStepsRef.current];
+              const idx = nextSteps.findLastIndex(
+                (step) => step.tool === data.tool && step.status === "running",
+              );
+              if (idx !== -1) {
+                nextSteps[idx] = {
+                  ...nextSteps[idx],
+                  label: data.resultPreview || data.label || data.tool,
+                  status: "done",
+                  durationMs: data.durationMs,
+                  error: data.error || false,
+                };
               }
-            });
-            break;
-          }
-          case "tool_start": {
-            // Mark previous running ones as done
-            collectedSteps.forEach((s) => {
-              if (s.status === "running") s.status = "done";
-            });
-            const label = data.label || data.tool;
-            collectedSteps.push({
-              label: `${label}...`,
-              status: "running",
-              tool: data.tool,
-            });
-            setLiveSteps([...collectedSteps]);
-            break;
-          }
-          case "tool_done": {
-            // Find the running step for this tool and update it
-            const idx = collectedSteps.findLastIndex(
-              (s) => s.tool === data.tool && s.status === "running",
-            );
-            if (idx !== -1) {
-              collectedSteps[idx] = {
-                ...collectedSteps[idx],
-                label: data.resultPreview || data.label || data.tool,
-                status: "done",
-                durationMs: data.durationMs,
-                error: data.error || false,
+              replaceSteps(nextSteps);
+              break;
+            }
+            case "message_start": {
+              liveMetaRef.current = {
+                ...liveMetaRef.current,
+                model: data.model || liveMetaRef.current.model,
+                mode: data.mode || liveMetaRef.current.mode,
+                actions: data.actions || liveMetaRef.current.actions,
+                answerCards: data.answerCards || liveMetaRef.current.answerCards,
+                sources: data.sources || liveMetaRef.current.sources,
+                intent: data.intent || liveMetaRef.current.intent,
+                routeKind: data.routeKind || liveMetaRef.current.routeKind,
+                capabilityKeys:
+                  data.capabilityKeys || liveMetaRef.current.capabilityKeys,
+                actionExecutionSummary:
+                  data.actionExecutionSummary ||
+                  liveMetaRef.current.actionExecutionSummary,
+                contextInsight:
+                  data.contextInsight || liveMetaRef.current.contextInsight,
+                personalization:
+                  data.personalization || liveMetaRef.current.personalization,
+                trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
               };
+              syncLiveDraft();
+              break;
             }
-            setLiveSteps([...collectedSteps]);
-            break;
-          }
-          case "reply": {
-            // Mark all as done
-            collectedSteps.forEach((s) => {
-              if (s.status === "running") s.status = "done";
-            });
-            replyData = data;
-            break;
-          }
-          case "error": {
-            collectedSteps.forEach((s) => {
-              if (s.status === "running") {
-                s.status = "done";
-                s.error = true;
+            case "reasoning_start": {
+              liveMetaRef.current = {
+                ...liveMetaRef.current,
+                reasoningAvailable: true,
+                mode: data?.mode || "reasoner",
+              };
+              syncLiveDraft();
+              break;
+            }
+            case "reasoning_delta": {
+              liveReasoningRef.current += data.delta || "";
+              liveMetaRef.current = {
+                ...liveMetaRef.current,
+                reasoningAvailable: true,
+              };
+              syncLiveDraft();
+              break;
+            }
+            case "message_delta": {
+              liveReplyRef.current += data.delta || "";
+              syncLiveDraft();
+              break;
+            }
+            case "message_done": {
+              liveStepsRef.current = liveStepsRef.current.map((step) =>
+                step.status === "running" ? { ...step, status: "done" } : step,
+              );
+              setLiveSteps([...liveStepsRef.current]);
+              liveMetaRef.current = {
+                ...liveMetaRef.current,
+                model: data.model || liveMetaRef.current.model,
+                mode: data.mode || liveMetaRef.current.mode,
+                navigation: data.navigation || null,
+                actions: data.actions || liveMetaRef.current.actions,
+                answerCards: data.answerCards || liveMetaRef.current.answerCards,
+                sources: data.sources || liveMetaRef.current.sources,
+                intent: data.intent || liveMetaRef.current.intent,
+                routeKind: data.routeKind || liveMetaRef.current.routeKind,
+                capabilityKeys:
+                  data.capabilityKeys || liveMetaRef.current.capabilityKeys,
+                actionExecutionSummary:
+                  data.actionExecutionSummary ||
+                  liveMetaRef.current.actionExecutionSummary,
+                contextInsight:
+                  data.contextInsight || liveMetaRef.current.contextInsight,
+                personalization:
+                  data.personalization || liveMetaRef.current.personalization,
+                trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
+                reasoningAvailable: Boolean(
+                  data.reasoningAvailable ||
+                    liveReasoningRef.current ||
+                    liveMetaRef.current.reasoningAvailable,
+                ),
+                firstTokenLatencyMs:
+                  data.firstTokenLatencyMs || liveMetaRef.current.firstTokenLatencyMs,
+                processingTime:
+                  data.processingTimeMs || liveMetaRef.current.processingTime,
+                processingTimeMs:
+                  data.processingTimeMs || liveMetaRef.current.processingTimeMs,
+              };
+              replyData = {
+                text: data.text || liveReplyRef.current,
+                toolsUsed: data.toolsUsed || [],
+                processingTime:
+                  data.processingTimeMs || liveMetaRef.current.processingTimeMs,
+                model: liveMetaRef.current.model,
+                mode: liveMetaRef.current.mode,
+                navigation: liveMetaRef.current.navigation,
+                actions: liveMetaRef.current.actions,
+                answerCards: liveMetaRef.current.answerCards,
+                sources: liveMetaRef.current.sources,
+                intent: liveMetaRef.current.intent,
+                routeKind: liveMetaRef.current.routeKind,
+                capabilityKeys: liveMetaRef.current.capabilityKeys,
+                actionExecutionSummary:
+                  liveMetaRef.current.actionExecutionSummary,
+                contextInsight: liveMetaRef.current.contextInsight,
+                personalization: liveMetaRef.current.personalization,
+                trustMeta: liveMetaRef.current.trustMeta,
+                rawThinking: liveReasoningRef.current,
+                reasoningAvailable: liveMetaRef.current.reasoningAvailable,
+              };
+              syncLiveDraft();
+              break;
+            }
+            case "reply": {
+              replyData = {
+                ...replyData,
+                text: data.text || liveReplyRef.current,
+                toolsUsed: data.toolsUsed || [],
+                processingTime:
+                  data.processingTimeMs || data.processingTime || null,
+                navigation: data.navigation || liveMetaRef.current.navigation,
+                model: data.model || liveMetaRef.current.model,
+                mode: data.mode || liveMetaRef.current.mode,
+                actions: data.actions || liveMetaRef.current.actions,
+                answerCards: data.answerCards || liveMetaRef.current.answerCards,
+                sources: data.sources || liveMetaRef.current.sources,
+                intent: data.intent || liveMetaRef.current.intent,
+                routeKind: data.routeKind || liveMetaRef.current.routeKind,
+                capabilityKeys:
+                  data.capabilityKeys || liveMetaRef.current.capabilityKeys,
+                actionExecutionSummary:
+                  data.actionExecutionSummary ||
+                  liveMetaRef.current.actionExecutionSummary,
+                contextInsight:
+                  data.contextInsight || liveMetaRef.current.contextInsight,
+                personalization:
+                  data.personalization || liveMetaRef.current.personalization,
+                trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
+                rawThinking: liveReasoningRef.current,
+                reasoningAvailable: Boolean(
+                  data.reasoningAvailable || liveReasoningRef.current,
+                ),
+              };
+              break;
+            }
+            case "persisted": {
+              liveMetaRef.current = {
+                ...liveMetaRef.current,
+                messageId: data.messageId || liveMetaRef.current.messageId,
+              };
+              syncLiveDraft();
+              break;
+            }
+            case "error": {
+              liveStepsRef.current = liveStepsRef.current.map((step) =>
+                step.status === "running"
+                  ? { ...step, status: "done", error: true }
+                  : step,
+              );
+              setLiveSteps([...liveStepsRef.current]);
+              replyData = {
+                text: `❌ ${data.message || t("chatbot.errors.generic")}`,
+                toolsUsed: [],
+                processingTime: null,
+                navigation: null,
+                actions: [],
+                answerCards: [],
+                sources: [],
+                contextInsight: "",
+                personalization: null,
+                trustMeta: null,
+                intent: "",
+                routeKind: "",
+                capabilityKeys: [],
+                actionExecutionSummary: null,
+                model: liveMetaRef.current.model,
+                mode: liveMetaRef.current.mode,
+                rawThinking: liveReasoningRef.current,
+                reasoningAvailable: Boolean(liveReasoningRef.current),
+              };
+              syncLiveDraft();
+              break;
+            }
+            case "suggestions": {
+              if (Array.isArray(data.suggestions)) {
+                setDynamicSuggestions(data.suggestions);
               }
-            });
-            replyData = {
-              text: `❌ ${data.message || t("chatbot.errors.generic")}`,
-              toolsUsed: [],
-              processingTime: null,
-            };
-            break;
-          }
-          case "suggestions": {
-            if (Array.isArray(data.suggestions)) {
-              setDynamicSuggestions(data.suggestions);
+              break;
             }
-            break;
+            case "done":
+            default:
+              break;
           }
-          case "done":
-            break;
-        }
-      });
+        },
+        abortControllerRef.current.signal,
+      );
 
-      // Add bot message with thinking steps
-      if (replyData) {
+      if (replyData || liveReplyRef.current) {
+        if (draftFrameRef.current) {
+          cancelAnimationFrame(draftFrameRef.current);
+          draftFrameRef.current = null;
+        }
         setMessages((prev) => [
           ...prev,
           {
+            id: liveMetaRef.current.messageId || undefined,
             role: "bot",
-            text: replyData.text,
-            toolsUsed: replyData.toolsUsed || [],
-            processingTime: replyData.processingTime || null,
-            thinkingSteps: collectedSteps,
-            navigation: replyData.navigation || null,
+            text: replyData?.text || liveReplyRef.current,
+            toolsUsed: replyData?.toolsUsed || [],
+            processingTime:
+              replyData?.processingTime || liveMetaRef.current.processingTimeMs,
+            thinkingSteps: [...liveStepsRef.current],
+            navigation: replyData?.navigation || liveMetaRef.current.navigation,
+            actions: replyData?.actions || liveMetaRef.current.actions,
+            answerCards:
+              replyData?.answerCards || liveMetaRef.current.answerCards,
+            sources: replyData?.sources || liveMetaRef.current.sources,
+            intent: replyData?.intent || liveMetaRef.current.intent,
+            routeKind:
+              replyData?.routeKind || liveMetaRef.current.routeKind,
+            capabilityKeys:
+              replyData?.capabilityKeys || liveMetaRef.current.capabilityKeys,
+            actionExecutionSummary:
+              replyData?.actionExecutionSummary ||
+              liveMetaRef.current.actionExecutionSummary,
+            contextInsight:
+              replyData?.contextInsight || liveMetaRef.current.contextInsight,
+            personalization:
+              replyData?.personalization || liveMetaRef.current.personalization,
+            trustMeta: replyData?.trustMeta || liveMetaRef.current.trustMeta,
+            rawThinking: replyData?.rawThinking || liveReasoningRef.current,
+            reasoningAvailable: Boolean(
+              replyData?.reasoningAvailable || liveReasoningRef.current,
+            ),
+            model: replyData?.model || liveMetaRef.current.model,
+            mode: replyData?.mode || liveMetaRef.current.mode,
+            feedback: null,
           },
         ]);
       }
     } catch (err) {
+      if (err?.name === "AbortError") {
+        streamAborted = true;
+        if (draftFrameRef.current) {
+          cancelAnimationFrame(draftFrameRef.current);
+          draftFrameRef.current = null;
+        }
+        if (liveReplyRef.current || liveReasoningRef.current) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: liveMetaRef.current.messageId || undefined,
+              role: "bot",
+              text: liveReplyRef.current,
+              toolsUsed: [],
+              processingTime: liveMetaRef.current.processingTimeMs,
+              thinkingSteps: [...liveStepsRef.current],
+              navigation: liveMetaRef.current.navigation,
+              actions: liveMetaRef.current.actions,
+              answerCards: liveMetaRef.current.answerCards,
+              sources: liveMetaRef.current.sources,
+              intent: liveMetaRef.current.intent,
+              routeKind: liveMetaRef.current.routeKind,
+              capabilityKeys: liveMetaRef.current.capabilityKeys,
+              actionExecutionSummary:
+                liveMetaRef.current.actionExecutionSummary,
+              contextInsight: liveMetaRef.current.contextInsight,
+              personalization: liveMetaRef.current.personalization,
+              trustMeta: liveMetaRef.current.trustMeta,
+              rawThinking: liveReasoningRef.current,
+              reasoningAvailable: Boolean(liveReasoningRef.current),
+              model: liveMetaRef.current.model,
+              mode: liveMetaRef.current.mode,
+              interrupted: true,
+              feedback: null,
+            },
+          ]);
+        }
+        return;
+      }
+
       let errorText = `❌ ${t("chatbot.errors.genericRetry")}`;
       if (
         err.message?.includes("session_limit_reached") ||
@@ -1087,23 +3107,84 @@ export default function ChatBotDrawer() {
         {
           role: "bot",
           text: errorText,
-          thinkingSteps: collectedSteps,
+          thinkingSteps: [...liveStepsRef.current],
+          actions: [],
+          answerCards: [],
+          sources: [],
+          contextInsight: "",
+          personalization: null,
+          trustMeta: null,
+          intent: "",
+          routeKind: "",
+          capabilityKeys: [],
+          actionExecutionSummary: null,
+          rawThinking: liveReasoningRef.current,
+          reasoningAvailable: Boolean(liveReasoningRef.current),
+          model: liveMetaRef.current.model,
+          mode: liveMetaRef.current.mode,
+          feedback: null,
         },
       ]);
     } finally {
+      if (draftFrameRef.current) {
+        cancelAnimationFrame(draftFrameRef.current);
+        draftFrameRef.current = null;
+      }
+      abortControllerRef.current = null;
       setIsTyping(false);
-      setLiveSteps([]);
+      setLiveDraft(null);
+      if (!streamAborted) {
+        setLiveSteps([]);
+      } else {
+        liveStepsRef.current = [];
+        setLiveSteps([]);
+      }
     }
-  };
+  }, [capabilityKeys, isTyping, registeredPageSnapshot, t]);
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const handleSend = useCallback(
+    (text, reasoningModeOverride = composerReasoningModeRef.current) =>
+      startSend(text, {
+        reasoningMode: reasoningModeOverride,
+      }),
+    [startSend],
+  );
 
-  const handleClear = async () => {
+  const handleQuickSend = useCallback(
+    async (text, source = "") => {
+      const lastBotMessage = [...messages]
+        .reverse()
+        .find((item) => item.role === "bot" && item.id);
+      if (lastBotMessage?.id && source) {
+        await logChatClientEvent({
+          messageId: lastBotMessage.id,
+          type: "suggestion_clicked",
+          label: text,
+          detail: source,
+        });
+      }
+      void startSend(text, {
+        reasoningMode: composerReasoningModeRef.current,
+      });
+    },
+    [logChatClientEvent, messages, startSend],
+  );
+
+  const handleStopStreaming = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  const handleKeyDown = useCallback(
+    (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        void handleSend();
+      }
+    },
+    [handleSend],
+  );
+
+  const handleClear = useCallback(async () => {
     setConfirmClearOpen(false);
     setShowSettings(false);
     try {
@@ -1116,9 +3197,125 @@ export default function ChatBotDrawer() {
     historyLoaded.current = false;
     nextCursorRef.current = null;
     hasMoreRef.current = true;
-  };
+  }, [clearHistory]);
 
   const drawerWidth = isMobile ? "100vw" : 420;
+  const welcomeSuggestions = useMemo(
+    () => getWelcomeSuggestions(userInfo, t),
+    [userInfo, t],
+  );
+
+  const renderedWelcomeSuggestions = useMemo(
+    () =>
+      welcomeSuggestions.map((text) => (
+        <Box
+          key={text}
+          onClick={() => void handleQuickSend(text, "welcome")}
+          sx={{
+            px: 1.5,
+            py: 0.8,
+            borderRadius: 2,
+            fontSize: "0.8rem",
+            cursor: "pointer",
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+            color: theme.palette.primary.main,
+            transition: "all 0.2s",
+            "&:hover": {
+              bgcolor: alpha(theme.palette.primary.main, 0.1),
+              borderColor: theme.palette.primary.main,
+            },
+          }}
+        >
+          {text}
+        </Box>
+      )),
+    [handleQuickSend, theme, welcomeSuggestions],
+  );
+
+  const renderedDynamicSuggestions = useMemo(
+    () =>
+      dynamicSuggestions.map((text) => (
+        <Box
+          key={text}
+          onClick={() => void handleQuickSend(text, "dynamic")}
+          sx={{
+            px: 1.2,
+            py: 0.5,
+            borderRadius: 2,
+            fontSize: "0.75rem",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
+            color: theme.palette.primary.main,
+            transition: "all 0.2s",
+            "&:hover": {
+              bgcolor: alpha(theme.palette.primary.main, 0.1),
+              borderColor: theme.palette.primary.main,
+            },
+          }}
+        >
+          {text}
+        </Box>
+      )),
+    [dynamicSuggestions, handleQuickSend, theme],
+  );
+
+  const renderedMessages = useMemo(
+    () =>
+      messages.map((msg, i) => (
+        <MessageBubble
+          key={msg.id || `msg-${i}`}
+          msg={msg}
+          theme={theme}
+          onNavigate={handleChatNavigate}
+          onAction={handleChatAction}
+          onClose={handleCloseDrawer}
+          onOpenReasoner={setReasonerMessage}
+          onFeedback={feedbackEnabled ? handleFeedback : undefined}
+          feedbackSubmitting={feedbackSubmittingId === msg.id}
+          t={t}
+        />
+      )),
+    [
+      feedbackEnabled,
+      feedbackSubmittingId,
+      handleChatAction,
+      handleChatNavigate,
+      handleCloseDrawer,
+      handleFeedback,
+      messages,
+      theme,
+      t,
+    ],
+  );
+
+  const renderedLiveDraft = useMemo(() => {
+    if (!liveDraft?.text) return null;
+    return (
+      <MessageBubble
+        msg={liveDraft}
+        theme={theme}
+        onNavigate={handleChatNavigate}
+        onAction={handleChatAction}
+        onClose={handleCloseDrawer}
+        onOpenReasoner={setReasonerMessage}
+        onFeedback={feedbackEnabled ? handleFeedback : undefined}
+        feedbackSubmitting={feedbackSubmittingId === liveDraft.id}
+        t={t}
+      />
+    );
+  }, [
+    feedbackEnabled,
+    feedbackSubmittingId,
+    handleChatAction,
+    handleChatNavigate,
+    handleCloseDrawer,
+    handleFeedback,
+    liveDraft,
+    theme,
+    t,
+  ]);
 
   return (
     <>
@@ -1530,28 +3727,7 @@ export default function ChatBotDrawer() {
                       justifyContent: "center",
                     }}
                   >
-                    {getWelcomeSuggestions(userInfo, t).map((text) => (
-                      <Box
-                        key={text}
-                        onClick={() => handleSend(text)}
-                        sx={{
-                          px: 1.5,
-                          py: 0.8,
-                          borderRadius: 2,
-                          fontSize: "0.8rem",
-                          cursor: "pointer",
-                          border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
-                          color: theme.palette.primary.main,
-                          transition: "all 0.2s",
-                          "&:hover": {
-                            bgcolor: alpha(theme.palette.primary.main, 0.1),
-                            borderColor: theme.palette.primary.main,
-                          },
-                        }}
-                      >
-                        {text}
-                      </Box>
-                    ))}
+                    {renderedWelcomeSuggestions}
                   </Box>
                 </Box>
               ) : (
@@ -1596,16 +3772,7 @@ export default function ChatBotDrawer() {
                       {t("chatbot.historyLoadedAll")}
                     </Typography>
                   )}
-                  {messages.map((msg, i) => (
-                    <MessageBubble
-                      key={msg.id || `msg-${i}`}
-                      msg={msg}
-                      theme={theme}
-                      onNavigate={handleChatNavigate}
-                      onClose={handleCloseDrawer}
-                      t={t}
-                    />
-                  ))}
+                  {renderedMessages}
                 </>
               )}
 
@@ -1613,7 +3780,8 @@ export default function ChatBotDrawer() {
               {isTyping && liveSteps.length > 0 && (
                 <LiveThinking theme={theme} steps={liveSteps} t={t} />
               )}
-              {isTyping && liveSteps.length === 0 && (
+              {renderedLiveDraft}
+              {isTyping && liveSteps.length === 0 && !liveDraft && (
                 <Box
                   sx={{
                     display: "flex",
@@ -1673,6 +3841,46 @@ export default function ChatBotDrawer() {
             </Box>
 
             <Divider />
+
+            {showPageContextPreview ? (
+              <Box
+                sx={{
+                  px: 1.5,
+                  py: 0.9,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 0.8,
+                  alignItems: "center",
+                  bgcolor: isDark
+                    ? alpha(theme.palette.info.main, 0.08)
+                    : alpha(theme.palette.info.main, 0.05),
+                  borderBottom: `1px solid ${alpha(theme.palette.info.main, 0.1)}`,
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontWeight: 800,
+                    color: theme.palette.info.main,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  {t("chatbot.contextBadge")}
+                </Typography>
+                <Chip
+                  size="small"
+                  label={
+                    currentPageSnapshot.sectionTitle ||
+                    currentPageSnapshot.entityTitle ||
+                    document.title
+                  }
+                />
+                {currentPageSnapshot.activeLabels?.slice(0, 2).map((label) => (
+                  <Chip key={label} size="small" variant="outlined" label={label} />
+                ))}
+              </Box>
+            ) : null}
 
             {/* ─── Suggestions (above input) ─── */}
             {messages.length > 0 &&
@@ -1738,45 +3946,95 @@ export default function ChatBotDrawer() {
                       : alpha(theme.palette.grey[50], 0.8),
                   }}
                 >
-                  {dynamicSuggestions.map((text) => (
-                    <Box
-                      key={text}
-                      onClick={() => handleSend(text)}
-                      sx={{
-                        px: 1.2,
-                        py: 0.5,
-                        borderRadius: 2,
-                        fontSize: "0.75rem",
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                        flexShrink: 0,
-                        border: `1px solid ${alpha(theme.palette.primary.main, 0.25)}`,
-                        color: theme.palette.primary.main,
-                        transition: "all 0.2s",
-                        "&:hover": {
-                          bgcolor: alpha(theme.palette.primary.main, 0.1),
-                          borderColor: theme.palette.primary.main,
-                        },
-                      }}
-                    >
-                      {text}
-                    </Box>
-                  ))}
+                  {renderedDynamicSuggestions}
                 </Box>
               )}
 
             {/* ─── Input ─── */}
-            <Box
-              sx={{
-                p: 1.5,
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 1,
-                bgcolor: isDark
-                  ? alpha(theme.palette.background.paper, 0.6)
-                  : "#fff",
-              }}
-            >
+            <Box sx={{ display: "none" }}>
+              <Box sx={{ display: "none" }}>
+                <Typography
+                  variant="caption"
+                  sx={{ color: "text.secondary", fontWeight: 700 }}
+                >
+                  {t("chatbot.reasoner.modeLabel", {}, "Chế độ trả lời")}
+                </Typography>
+                <Chip
+                  size="small"
+                  clickable
+                  color={reasoningMode === "auto" ? "primary" : "default"}
+                  variant={reasoningMode === "auto" ? "filled" : "outlined"}
+                  label={t("chatbot.reasoner.autoMode", {}, "Tự động")}
+                  onClick={() => setReasoningMode("auto")}
+                  sx={{ fontWeight: 700 }}
+                />
+                <Chip
+                  size="small"
+                  clickable
+                  icon={<PsychologyIcon sx={{ fontSize: 14 }} />}
+                  color={reasoningMode === "force_reasoner" ? "primary" : "default"}
+                  variant={reasoningMode === "force_reasoner" ? "filled" : "outlined"}
+                  label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+                  onClick={() => setReasoningMode("force_reasoner")}
+                  sx={{ fontWeight: 700 }}
+                />
+              </Box>
+
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.8,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Tooltip
+                    title={t("chatbot.reasoner.modeLabel", {}, "Chế độ trả lời")}
+                  >
+                    <IconButton
+                      onClick={(event) => setModeMenuAnchorEl(event.currentTarget)}
+                      sx={{
+                        width: 44,
+                        height: 44,
+                        border: `1px solid ${alpha(theme.palette.divider, 0.24)}`,
+                        bgcolor: isDark
+                          ? alpha(theme.palette.background.default, 0.7)
+                          : alpha(theme.palette.grey[100], 0.92),
+                        color:
+                          reasoningMode === "force_reasoner"
+                            ? theme.palette.primary.main
+                            : theme.palette.text.secondary,
+                        "&:hover": {
+                          bgcolor: isDark
+                            ? alpha(theme.palette.background.default, 0.92)
+                            : "#fff",
+                        },
+                      }}
+                    >
+                      <AddRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+
+                  {reasoningMode === "force_reasoner" ? (
+                    <Chip
+                      size="small"
+                      icon={<PsychologyIcon sx={{ fontSize: 14 }} />}
+                      label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+                      onDelete={() => setReasoningMode("auto")}
+                      color="primary"
+                      variant="filled"
+                      sx={{
+                        fontWeight: 700,
+                        height: 40,
+                        borderRadius: 999,
+                        "& .MuiChip-label": {
+                          px: 1.15,
+                        },
+                      }}
+                    />
+                  ) : null}
+                </Box>
               <TextField
                 inputRef={inputRef}
                 fullWidth
@@ -1787,14 +4045,16 @@ export default function ChatBotDrawer() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={isTyping}
                 sx={{
                   "& .MuiOutlinedInput-root": {
                     borderRadius: 3,
+                    minHeight: 44,
+                    alignItems: "center",
                     bgcolor: isDark
                       ? alpha(theme.palette.background.default, 0.5)
                       : alpha(theme.palette.grey[100], 0.8),
                     fontSize: "0.875rem",
+                    py: 0.25,
                     "& fieldset": { borderColor: "transparent" },
                     "&:hover fieldset": {
                       borderColor: alpha(theme.palette.primary.main, 0.3),
@@ -1807,14 +4067,21 @@ export default function ChatBotDrawer() {
                 }}
               />
               <IconButton
-                onClick={() => handleSend()}
-                disabled={!input.trim() || isTyping}
+                onClick={isTyping ? handleStopStreaming : () => handleSend()}
+                disabled={isTyping ? false : !input.trim()}
                 sx={{
-                  bgcolor: theme.palette.primary.main,
+                  bgcolor: isTyping
+                    ? theme.palette.error.main
+                    : theme.palette.primary.main,
                   color: "#fff",
-                  width: 40,
-                  height: 40,
-                  "&:hover": { bgcolor: theme.palette.primary.dark },
+                  width: 44,
+                  height: 44,
+                  flexShrink: 0,
+                  "&:hover": {
+                    bgcolor: isTyping
+                      ? theme.palette.error.dark
+                      : theme.palette.primary.dark,
+                  },
                   "&.Mui-disabled": {
                     bgcolor: alpha(theme.palette.primary.main, 0.3),
                     color: "rgba(255,255,255,0.5)",
@@ -1822,15 +4089,78 @@ export default function ChatBotDrawer() {
                 }}
               >
                 {isTyping ? (
-                  <CircularProgress size={20} sx={{ color: "#fff" }} />
+                  <StopCircleIcon sx={{ fontSize: 20 }} />
                 ) : (
                   <SendIcon sx={{ fontSize: 20 }} />
                 )}
               </IconButton>
+              </Box>
             </Box>
           </>
         )}
+            <ChatComposer
+              open={open}
+              isTyping={isTyping}
+              theme={theme}
+              t={t}
+              onSend={handleSend}
+              onStop={handleStopStreaming}
+              onReasoningModeChange={handleComposerModeChange}
+            />
       </Drawer>
+
+      <Menu
+        anchorEl={modeMenuAnchorEl}
+        open={modeMenuOpen}
+        onClose={() => setModeMenuAnchorEl(null)}
+        anchorOrigin={{ vertical: "top", horizontal: "left" }}
+        transformOrigin={{ vertical: "bottom", horizontal: "left" }}
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            minWidth: 220,
+            mt: -0.5,
+            boxShadow: `0 18px 42px ${alpha("#000", 0.18)}`,
+          },
+        }}
+      >
+        <MenuItem
+          selected={reasoningMode === "auto"}
+          onClick={() => {
+            setReasoningMode("auto");
+            setModeMenuAnchorEl(null);
+          }}
+        >
+          <ListItemIcon>
+            {reasoningMode === "auto" ? (
+              <DoneRoundedIcon color="primary" fontSize="small" />
+            ) : (
+              <AutoAwesomeIcon fontSize="small" />
+            )}
+          </ListItemIcon>
+          <ListItemText
+            primary={t("chatbot.reasoner.autoMode", {}, "Tự động")}
+          />
+        </MenuItem>
+        <MenuItem
+          selected={reasoningMode === "force_reasoner"}
+          onClick={() => {
+            setReasoningMode("force_reasoner");
+            setModeMenuAnchorEl(null);
+          }}
+        >
+          <ListItemIcon>
+            {reasoningMode === "force_reasoner" ? (
+              <DoneRoundedIcon color="primary" fontSize="small" />
+            ) : (
+              <PsychologyIcon fontSize="small" />
+            )}
+          </ListItemIcon>
+          <ListItemText
+            primary={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+          />
+        </MenuItem>
+      </Menu>
 
       {/* ═══ Confirm Clear Dialog ═══ */}
       <Dialog
@@ -1865,6 +4195,151 @@ export default function ChatBotDrawer() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog
+        open={Boolean(pendingActionConfirm)}
+        onClose={() => setPendingActionConfirm(null)}
+        PaperProps={{
+          sx: { borderRadius: 3, maxWidth: 380 },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, fontSize: "1rem", pb: 0.5 }}>
+          {pendingActionConfirm?.action?.confirmTitle ||
+            t("chatbot.confirmActionTitle", {}, "Xác nhận thao tác")}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontSize: "0.875rem" }}>
+            {pendingActionConfirm?.action?.confirmBody ||
+              pendingActionConfirm?.action?.description ||
+              t(
+                "chatbot.confirmActionBody",
+                {},
+                "Pikora muốn chạy thao tác này trên trang hiện tại. Bạn có muốn tiếp tục không?",
+              )}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={() => setPendingActionConfirm(null)}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            {t("common.actions.cancel")}
+          </Button>
+          <Button
+            variant="contained"
+            sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2 }}
+            onClick={async () => {
+              const pending = pendingActionConfirm;
+              setPendingActionConfirm(null);
+              if (!pending?.action) return;
+              try {
+                await executeChatAction(pending.action, pending.msg);
+              } catch (error) {
+                await logChatClientEvent({
+                  messageId: pending.msg?.id || pending.action?.messageId,
+                  type: "action_unsupported",
+                  label: getChatActionLabel(pending.action, t),
+                  actionType: pending.action?.type || "",
+                  success: false,
+                  detail: error?.message || t("chatbot.actions.unsupported"),
+                });
+              }
+            }}
+          >
+            {pendingActionConfirm?.action?.label || t("chatbot.actions.run")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(feedbackDialog)}
+        onClose={() => {
+          setFeedbackDialog(null);
+          setFeedbackReason("");
+          setFeedbackNote("");
+        }}
+        PaperProps={{
+          sx: { borderRadius: 3, maxWidth: 420 },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, fontSize: "1rem", pb: 0.5 }}>
+          {t("chatbot.feedbackTitle", {}, "Điều gì chưa ổn?")}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontSize: "0.875rem", mb: 1.5 }}>
+            {t(
+              "chatbot.feedbackBody",
+              {},
+              "Chọn lý do chính để mình tối ưu Pikora tốt hơn cho những lần trả lời sau.",
+            )}
+          </DialogContentText>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.8, mb: 1.5 }}>
+            {[
+              "Sai ngữ cảnh",
+              "Sai dữ liệu",
+              "Chậm",
+              "Khó hiểu",
+              "Không làm đúng thao tác",
+            ].map((reason) => (
+              <Chip
+                key={reason}
+                label={reason}
+                clickable
+                color={feedbackReason === reason ? "error" : "default"}
+                variant={feedbackReason === reason ? "filled" : "outlined"}
+                onClick={() => setFeedbackReason(reason)}
+              />
+            ))}
+          </Box>
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            size="small"
+            value={feedbackNote}
+            onChange={(event) => setFeedbackNote(event.target.value)}
+            placeholder={t(
+              "chatbot.feedbackPlaceholder",
+              {},
+              "Ghi thêm một chút để mình sửa đúng chỗ cần thiết...",
+            )}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={() => {
+              setFeedbackDialog(null);
+              setFeedbackReason("");
+              setFeedbackNote("");
+            }}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            {t("common.actions.cancel")}
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={
+              feedbackSubmittingId === feedbackDialog?.messageId ||
+              (!feedbackReason && !feedbackNote.trim())
+            }
+            onClick={handleSubmitNegativeFeedback}
+            sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2 }}
+          >
+            {feedbackSubmittingId === feedbackDialog?.messageId
+              ? t("common.status.loading", {}, "Đang gửi...")
+              : t("chatbot.feedbackSubmit", {}, "Gửi phản hồi")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <ReasonerDialog
+        open={Boolean(reasonerMessage)}
+        message={reasonerMessage}
+        onClose={() => setReasonerMessage(null)}
+        theme={theme}
+        t={t}
+      />
     </>
   );
 }

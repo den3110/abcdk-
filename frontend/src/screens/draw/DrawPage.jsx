@@ -68,9 +68,12 @@ import {
   useGenerateGroupMatchesMutation,
   useListTournamentMatchesQuery,
   useAssignByesMutation,
+  useTakeoverTournamentDrawMutation,
+  useStopTournamentDrawMutation,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import { getTournamentNameDisplayMode } from "../../utils/tournamentName";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import SEOHead from "../../components/SEOHead";
@@ -2604,6 +2607,7 @@ export default function DrawPage() {
 
   const { userInfo } = useSelector((s) => s.auth || {});
   const isAdmin = String(userInfo?.role || "").toLowerCase() === "admin";
+  const isSuperAdmin = Boolean(userInfo?.isSuperUser || userInfo?.isSuperAdmin);
 
   const [openGroupDlg, setOpenGroupDlg] = useState(false);
   const [openAssignByeDlg, setOpenAssignByeDlg] = useState(false);
@@ -2698,7 +2702,7 @@ export default function DrawPage() {
   })();
 
   // người được phép bốc thăm
-  const canManageDraw = isAdmin || isTournamentManager;
+  const canManageDraw = isAdmin || isSuperAdmin || isTournamentManager;
 
   const {
     data: brackets = [],
@@ -2716,6 +2720,10 @@ export default function DrawPage() {
   const [drawCommit, { isLoading: committing }] = useDrawCommitMutation();
   const [drawCancel, { isLoading: canceling }] = useDrawCancelMutation();
   const [assignByes] = useAssignByesMutation();
+  const [takeoverTournamentDraw, { isLoading: takingOver }] =
+    useTakeoverTournamentDrawMutation();
+  const [stopTournamentDraw, { isLoading: stoppingTournamentDraw }] =
+    useStopTournamentDrawMutation();
 
   const { data: regsData, isLoading: lRegs } = useGetRegistrationsQuery(
     tournamentId,
@@ -2760,6 +2768,32 @@ export default function DrawPage() {
   });
 
   const socket = useSocket();
+  const [drawLiveSnapshot, setDrawLiveSnapshot] = useState(null);
+  const [kickedAt, setKickedAt] = useState(null);
+
+  const currentUserId = String(userInfo?._id || userInfo?.id || "");
+  const drawLiveLock = drawLiveSnapshot?.lock || {};
+  const lockHolderUserId = String(drawLiveLock?.holderUserId || "");
+  const isLockHolder =
+    Boolean(currentUserId && lockHolderUserId && currentUserId === lockHolderUserId);
+  const lockedByOther =
+    Boolean(
+      drawLiveLock?.locked &&
+        lockHolderUserId &&
+        currentUserId &&
+        currentUserId !== lockHolderUserId,
+    );
+  const canControlCurrent = drawLiveSnapshot
+    ? Boolean(drawLiveSnapshot?.viewer?.canControl && !kickedAt)
+    : canManageDraw;
+  const publicViewerHref = `/tournament/${tournamentId}/draw/live`;
+
+  useEffect(() => {
+    if (!drawLiveLock?.locked || isLockHolder) {
+      setKickedAt(null);
+    }
+  }, [drawLiveLock?.locked, isLockHolder]);
+
   useEffect(() => {
     if (!showCountdown && cardOpenPending) {
       setCardOpen(true);
@@ -2975,6 +3009,64 @@ export default function DrawPage() {
     const doc = drawStatus?.doc || drawStatus?.draw || null;
     if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
   }, [drawStatus]);
+
+  useEffect(() => {
+    if (!socket || !tournamentId) return;
+
+    const joinRoom = () => {
+      socket.emit("draw-live:join", { tournamentId }, (ack) => {
+        if (ack?.tournamentId) setDrawLiveSnapshot(ack);
+      });
+    };
+
+    const onSnapshot = (payload) => {
+      if (String(payload?.tournamentId || "") !== String(tournamentId)) return;
+      setDrawLiveSnapshot(payload);
+    };
+
+    const onKicked = (payload) => {
+      if (String(payload?.tournamentId || "") !== String(tournamentId)) return;
+      setKickedAt(Date.now());
+      toast.error(payload?.message || "Bạn vừa bị takeover khỏi phiên bốc thăm.");
+    };
+
+    joinRoom();
+    socket.on("connect", joinRoom);
+    socket.on("draw-live:snapshot", onSnapshot);
+    socket.on("draw-live:kicked", onKicked);
+
+    return () => {
+      socket.off("connect", joinRoom);
+      socket.off("draw-live:snapshot", onSnapshot);
+      socket.off("draw-live:kicked", onKicked);
+      socket.emit("draw-live:leave", { tournamentId });
+    };
+  }, [socket, tournamentId, t]);
+
+  useEffect(() => {
+    if (!socket || !tournamentId || !drawId || !canControlCurrent) return;
+
+    const sendHeartbeat = () => {
+      socket.emit("draw-live:heartbeat", {
+        tournamentId,
+        drawId,
+        bracketId: selBracketId,
+      });
+    };
+
+    sendHeartbeat();
+    const tick = setInterval(sendHeartbeat, 5000);
+    return () => clearInterval(tick);
+  }, [socket, tournamentId, drawId, selBracketId, canControlCurrent]);
+
+  const handleDrawLockError = useCallback(
+    (error, fallbackMessage) => {
+      const snapshot = error?.data?.snapshot || null;
+      if (snapshot) setDrawLiveSnapshot(snapshot);
+      toast.error(error?.data?.message || error?.error || fallbackMessage);
+    },
+    [],
+  );
 
   // sockets
   useEffect(() => {
@@ -3428,7 +3520,13 @@ export default function DrawPage() {
               ...(drawType === "knockout" ? { usePrevWinners } : {}),
             };
 
-      const resp = await startDraw({ bracketId: selBracketId, body }).unwrap();
+      const resp = await startDraw({
+        bracketId: selBracketId,
+        body: {
+          ...body,
+          socketId: socket?.id || "",
+        },
+      }).unwrap();
 
       setDrawId(resp?.drawId);
       setState(resp?.state || "running");
@@ -3480,7 +3578,11 @@ export default function DrawPage() {
       }
     } catch (e) {
       console.log(e);
-      toast.error(e?.data?.message || e?.error || t("draw.startError"));
+      if (e?.status === 423 || e?.data?.snapshot) {
+        handleDrawLockError(e, t("draw.startError"));
+      } else {
+        toast.error(e?.data?.message || e?.error || t("draw.startError"));
+      }
     }
   }, [
     selBracketId,
@@ -3488,10 +3590,12 @@ export default function DrawPage() {
     selectRoundValue,
     usePrevWinners,
     startDraw,
+    socket?.id,
     fxEnabled,
     uiMode,
     openCardAfterCountdown,
     refetchMatches,
+    handleDrawLockError,
     t,
   ]);
 
@@ -3503,7 +3607,10 @@ export default function DrawPage() {
     if (!canOperate) return;
     try {
       lastRevealActionRef.current = true;
-      const resp = await drawNext({ drawId }).unwrap();
+      const resp = await drawNext({
+        drawId,
+        body: { socketId: socket?.id || "" },
+      }).unwrap();
 
       // cập nhật state
       if (Array.isArray(resp?.reveals)) setReveals(resp.reveals);
@@ -3574,18 +3681,24 @@ export default function DrawPage() {
       lastRevealActionRef.current = false;
     } catch (e) {
       lastRevealActionRef.current = false;
-      toast.error(e?.data?.message || e?.error);
+      if (e?.status === 423 || e?.data?.snapshot) {
+        handleDrawLockError(e, t("draw.revealFailed"));
+      } else {
+        toast.error(e?.data?.message || e?.error || t("draw.revealFailed"));
+      }
     }
   }, [
     canOperate,
     drawNext,
     drawId,
+    socket?.id,
     fxEnabled,
     fxMuted,
     beep,
     usingCardMode,
     drawType,
     getDisplayNameByRegId,
+    handleDrawLockError,
     t,
   ]);
 
@@ -3595,7 +3708,10 @@ export default function DrawPage() {
     if (!canOperate) return [];
     try {
       lastRevealActionRef.current = true;
-      const resp = await drawNext({ drawId }).unwrap();
+      const resp = await drawNext({
+        drawId,
+        body: { socketId: socket?.id || "" },
+      }).unwrap();
 
       if (Array.isArray(resp?.reveals)) setReveals(resp.reveals);
       const doc = resp?.doc || resp?.draw || resp;
@@ -3683,13 +3799,18 @@ export default function DrawPage() {
       return out;
     } catch (e) {
       lastRevealActionRef.current = false;
-      toast.error(e?.data?.message || e?.error || t("draw.revealFailed"));
+      if (e?.status === 423 || e?.data?.snapshot) {
+        handleDrawLockError(e, t("draw.revealFailed"));
+      } else {
+        toast.error(e?.data?.message || e?.error || t("draw.revealFailed"));
+      }
       return [];
     }
   }, [
     canOperate,
     drawNext,
     drawId,
+    socket?.id,
     reveals,
     regIndex,
     eventType,
@@ -3697,8 +3818,43 @@ export default function DrawPage() {
     drawType,
     fxEnabled,
     getDisplayNameByRegId,
+    handleDrawLockError,
     t,
   ]);
+
+  const onTakeoverTournamentDraw = useCallback(async () => {
+    if (!tournamentId) return;
+    try {
+      const result = await takeoverTournamentDraw({
+        tournamentId,
+        socketId: socket?.id || "",
+      }).unwrap();
+      if (result?.snapshot) setDrawLiveSnapshot(result.snapshot);
+      setKickedAt(null);
+      toast.success("Đã takeover quyền điều khiển.");
+    } catch (error) {
+      const snapshot = error?.data?.snapshot || null;
+      if (snapshot) setDrawLiveSnapshot(snapshot);
+      toast.error(
+        error?.data?.message || error?.error || "Không takeover được phiên bốc thăm.",
+      );
+    }
+  }, [takeoverTournamentDraw, tournamentId, socket?.id]);
+
+  const onStopTournamentDraw = useCallback(async () => {
+    if (!tournamentId) return;
+    try {
+      const result = await stopTournamentDraw({ tournamentId }).unwrap();
+      if (result?.snapshot) setDrawLiveSnapshot(result.snapshot);
+      toast.success("Đã ngừng phiên bốc thăm.");
+    } catch (error) {
+      const snapshot = error?.data?.snapshot || null;
+      if (snapshot) setDrawLiveSnapshot(snapshot);
+      toast.error(
+        error?.data?.message || error?.error || "Không ngừng được phiên bốc thăm.",
+      );
+    }
+  }, [stopTournamentDraw, tournamentId]);
   // trong DrawPage.jsx
   const onFlipOneForCards = useCallback(async () => {
     if (cardQueue.length) {
@@ -3876,6 +4032,102 @@ export default function DrawPage() {
     if (drawType !== "group") return null;
     return inferNextGroupCursor(drawDoc?.board, groupsMeta, revealsForGroup);
   }, [drawType, drawDoc?.board, groupsMeta, revealsForGroup]);
+  const drawTypeLabel =
+    drawType === "group"
+      ? "Vòng bảng"
+      : drawType === "po"
+        ? "Playoff"
+        : "Knockout";
+  const drawStateLabel =
+    state === "running"
+      ? "Đang bốc thăm"
+      : state === "committed"
+        ? "Đã chốt kết quả"
+        : state === "canceled"
+          ? "Đã hủy phiên"
+          : "Chưa bắt đầu";
+  const drawControlLabel = lockedByOther
+    ? "Đang bị khóa bởi người khác"
+    : canControlCurrent
+      ? "Có quyền điều khiển"
+      : "Chế độ chỉ xem";
+  const drawRevealCount = Array.isArray(reveals) ? reveals.length : 0;
+  const drawRemainingCount = Math.max(regCount - drawRevealCount, 0);
+  const drawHighlights = useMemo(
+    () =>
+      drawType === "group"
+        ? (groupsMeta || [])
+            .slice(0, 4)
+            .map((group, index) => group?.code || `Bảng ${index + 1}`)
+        : koPairsPersisted
+            .slice(0, 4)
+            .map(
+              (pair, index) =>
+                `${pair?.AName || "Nhánh A"} vs ${pair?.BName || "Nhánh B"} (#${index + 1})`,
+            ),
+    [drawType, groupsMeta, koPairsPersisted],
+  );
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "tournament_draw_manage",
+      entityTitle: tournament?.name || "Bốc thăm giải",
+      sectionTitle: bracket?.name || `Bốc thăm ${drawTypeLabel}`,
+      pageSummary:
+        "Workspace bốc thăm hiện tại với chế độ classic/cards, điều khiển live và trạng thái khóa phiên.",
+      activeLabels: [
+        drawStateLabel,
+        `Loại: ${drawTypeLabel}`,
+        `Giao diện: ${uiMode === "cards" ? "Cards" : "Classic"}`,
+        fxEnabled ? "FX bật" : "FX tắt",
+        fxMuted ? "Âm thanh tắt" : "Âm thanh bật",
+        drawControlLabel,
+        targetInfo
+          ? `Con trỏ bảng ${targetInfo.groupCode} - ô ${Number(targetInfo.slotIndex) + 1}`
+          : "",
+      ],
+      visibleActions: [
+        "Mở trang live",
+        state === "idle" ? "Bắt đầu bốc thăm" : "",
+        state === "running" ? "Bốc tiếp" : "",
+        state === "running" ? "Chốt kết quả" : "",
+        state === "running" ? "Hủy phiên bốc thăm" : "",
+        drawLiveSnapshot?.viewer?.canTakeover ? "Takeover" : "",
+        drawLiveSnapshot?.viewer?.canStop ? "Dừng draw live" : "",
+      ],
+      highlights: drawHighlights,
+      metrics: [
+        `Đăng ký: ${regCount}`,
+        `Đã bốc: ${drawRevealCount}`,
+        `Còn lại: ${drawRemainingCount}`,
+        drawType === "group"
+          ? `Số bảng: ${(groupsMeta || []).length}`
+          : `Trận vòng hiện tại: ${koMatchesThisBracket.length}`,
+      ],
+    }),
+    [
+      tournament?.name,
+      bracket?.name,
+      drawTypeLabel,
+      drawStateLabel,
+      uiMode,
+      fxEnabled,
+      fxMuted,
+      drawControlLabel,
+      targetInfo,
+      state,
+      drawLiveSnapshot?.viewer?.canTakeover,
+      drawLiveSnapshot?.viewer?.canStop,
+      drawHighlights,
+      regCount,
+      drawRevealCount,
+      drawRemainingCount,
+      drawType,
+      groupsMeta,
+      koMatchesThisBracket.length,
+    ],
+  );
+
+  useRegisterChatBotPageSnapshot(chatBotSnapshot);
 
   // ===== THÊM HANDLER ĐỂ NHẬN RESTORED REVEALS TỪ CARD OVERLAY =====
   const handleCardRestore = useCallback(
@@ -3966,6 +4218,38 @@ export default function DrawPage() {
           />
         )}
         <Box sx={{ flex: 1 }} />
+        <Button
+          component={RouterLink}
+          to={publicViewerHref}
+          variant="outlined"
+          size="small"
+        >
+          Trang live
+        </Button>
+        {Boolean(drawLiveSnapshot?.viewer?.canTakeover) && (
+          <Button
+            size="small"
+            color="warning"
+            variant="contained"
+            disabled={takingOver}
+            onClick={onTakeoverTournamentDraw}
+            sx={{ color: "white !important" }}
+          >
+            Take over & kick
+          </Button>
+        )}
+        {Boolean(drawLiveSnapshot?.viewer?.canStop) && (
+          <Button
+            size="small"
+            color="error"
+            variant="contained"
+            disabled={stoppingTournamentDraw}
+            onClick={onStopTournamentDraw}
+            sx={{ color: "white !important" }}
+          >
+            Ngừng bốc thăm
+          </Button>
+        )}
         <FormControlLabel
           control={
             <Switch
@@ -4031,6 +4315,74 @@ export default function DrawPage() {
           </Button>
         )}
       </Stack>
+
+      {lockedByOther && (
+        <Alert
+          severity={isSuperAdmin ? "warning" : "info"}
+          sx={{ mb: 2 }}
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button
+                component={RouterLink}
+                to={publicViewerHref}
+                size="small"
+                color="inherit"
+                variant="outlined"
+              >
+                Mở trang live
+              </Button>
+              {Boolean(drawLiveSnapshot?.viewer?.canTakeover) && (
+                <Button
+                  size="small"
+                  color="warning"
+                  variant="contained"
+                  disabled={takingOver}
+                  onClick={onTakeoverTournamentDraw}
+                  sx={{ color: "white !important" }}
+                >
+                  Take over & kick
+                </Button>
+              )}
+              {Boolean(drawLiveSnapshot?.viewer?.canStop) && (
+                <Button
+                  size="small"
+                  color="error"
+                  variant="contained"
+                  disabled={stoppingTournamentDraw}
+                  onClick={onStopTournamentDraw}
+                  sx={{ color: "white !important" }}
+                >
+                  Ngừng bốc thăm
+                </Button>
+              )}
+            </Stack>
+          }
+        >
+          {drawLiveLock?.holderName
+            ? `Phiên bốc thăm đang do ${drawLiveLock.holderName} điều khiển.`
+            : "Phiên bốc thăm đang bị người khác điều khiển."}
+        </Alert>
+      )}
+
+      {kickedAt && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          action={
+            <Button
+              component={RouterLink}
+              to={publicViewerHref}
+              size="small"
+              color="inherit"
+              variant="outlined"
+            >
+              Mở trang live
+            </Button>
+          }
+        >
+          Bạn đã bị takeover khỏi phiên bốc thăm này.
+        </Alert>
+      )}
 
       {showDoneBanner && drawType === "group" && state === "running" && (
         <Alert
@@ -4118,7 +4470,9 @@ export default function DrawPage() {
             <Button
               variant="contained"
               startIcon={<CasinoIcon />}
-              disabled={!selBracketId || starting || state === "running"}
+              disabled={
+                !selBracketId || starting || state === "running" || !canControlCurrent
+              }
               onClick={onStart}
               sx={{ color: "white !important" }}
             >
@@ -4127,7 +4481,7 @@ export default function DrawPage() {
             <Button
               variant="outlined"
               startIcon={<PlayArrowIcon />}
-              disabled={!canOperate || revealing}
+              disabled={!canOperate || revealing || !canControlCurrent}
               onClick={onReveal}
             >
               {t("draw.revealNext")}
@@ -4136,7 +4490,7 @@ export default function DrawPage() {
               color="success"
               variant="contained"
               startIcon={<CheckCircleIcon />}
-              disabled={!canOperate || committing}
+              disabled={!canOperate || committing || !canControlCurrent}
               onClick={async () => {
                 let committed = false;
                 try {
@@ -4159,9 +4513,13 @@ export default function DrawPage() {
                       : t("draw.commitRoundSuccess"),
                   );
                 } catch (e) {
-                  toast.error(
-                    e?.data?.message || e?.error || t("draw.commitError"),
-                  );
+                  if (e?.status === 423 || e?.data?.snapshot) {
+                    handleDrawLockError(e, t("draw.commitError"));
+                  } else {
+                    toast.error(
+                      e?.data?.message || e?.error || t("draw.commitError"),
+                    );
+                  }
                 }
 
                 // Chỉ refetch khi commit thành công
@@ -4189,16 +4547,20 @@ export default function DrawPage() {
               color="error"
               variant="outlined"
               startIcon={<CancelIcon />}
-              disabled={!drawId || canceling}
+              disabled={!drawId || canceling || !canControlCurrent}
               onClick={async () => {
                 let canceled = false;
                 try {
                   await drawCancel({ drawId }).unwrap();
                   canceled = true;
                 } catch (e) {
-                  toast.error(
-                    e?.data?.message || e?.error || t("draw.cancelError"),
-                  );
+                  if (e?.status === 423 || e?.data?.snapshot) {
+                    handleDrawLockError(e, t("draw.cancelError"));
+                  } else {
+                    toast.error(
+                      e?.data?.message || e?.error || t("draw.cancelError"),
+                    );
+                  }
                 }
 
                 // ===== CLEAR LOCALSTORAGE =====

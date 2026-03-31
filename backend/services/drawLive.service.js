@@ -1,6 +1,7 @@
 import Bracket from "../models/bracketModel.js";
 import DrawSession from "../models/drawSessionModel.js";
 import DrawControlState from "../models/drawControlStateModel.js";
+import Registration from "../models/registrationModel.js";
 import { canManageTournament } from "../utils/tournamentAuth.js";
 
 export const DRAW_CONTROL_HEARTBEAT_MS = 5000;
@@ -43,6 +44,282 @@ const userRoleList = (user) => {
         .filter(Boolean),
     ),
   );
+};
+
+const playerName = (player) =>
+  String(
+    player?.nickName ||
+      player?.fullName ||
+      player?.name ||
+      player?.displayName ||
+      "",
+  ).trim();
+
+const displayNameFromReg = (reg, eventType = "") => {
+  if (!reg) return "";
+  const teamFallback = String(
+    reg.teamFactionName ||
+      reg.teamName ||
+      reg.nickName ||
+      reg.name ||
+      reg.displayName ||
+      "",
+  ).trim();
+  const isSingle = String(eventType || "")
+    .toLowerCase()
+    .includes("single");
+  const p1 = playerName(reg.player1) || String(reg.player1Name || "").trim();
+  if (isSingle) return p1 || teamFallback || "";
+  const p2 = playerName(reg.player2) || String(reg.player2Name || "").trim();
+  if (p1 && p2) return `${p1} & ${p2}`;
+  return p1 || teamFallback || "";
+};
+
+const registrationIdsFromBoard = (board) => {
+  const ids = new Set();
+  for (const group of Array.isArray(board?.groups) ? board.groups : []) {
+    for (const slot of Array.isArray(group?.slots) ? group.slots : []) {
+      const id = toId(slot);
+      if (id) ids.add(id);
+    }
+  }
+  for (const pair of Array.isArray(board?.pairs) ? board.pairs : []) {
+    const a = toId(pair?.a);
+    const b = toId(pair?.b);
+    if (a) ids.add(a);
+    if (b) ids.add(b);
+  }
+  return [...ids];
+};
+
+const registrationLabelFallback = (regId) => {
+  const suffix = String(regId || "").slice(-6);
+  return suffix ? `#${suffix}` : "";
+};
+
+const normalizeGroupCode = (value, index = 0) => {
+  const raw = String(value || "").trim();
+  if (raw) return raw;
+  return String.fromCharCode(65 + index);
+};
+
+const buildBoardView = async (board, eventType = "") => {
+  const registrationIds = registrationIdsFromBoard(board);
+  const registrationMap = new Map();
+
+  if (registrationIds.length > 0) {
+    const registrations = await Registration.find({ _id: { $in: registrationIds } })
+      .select(
+        "teamFactionName teamName nickName name displayName player1 player2 player1Name player2Name",
+      )
+      .populate("player1", "nickName fullName name displayName")
+      .populate("player2", "nickName fullName name displayName")
+      .lean();
+
+    registrations.forEach((registration) => {
+      registrationMap.set(
+        String(registration?._id),
+        displayNameFromReg(registration, eventType) ||
+          registrationLabelFallback(registration?._id),
+      );
+    });
+  }
+
+  const groups = (Array.isArray(board?.groups) ? board.groups : []).map(
+    (group, groupIndex) => {
+      const code =
+        String(group?.key || group?.code || "").trim() ||
+        String.fromCharCode(65 + groupIndex);
+      const sourceSlots = Array.isArray(group?.slots) ? group.slots : [];
+      const slots =
+        sourceSlots.length > 0
+          ? sourceSlots.map((slot, slotIndex) => {
+              const regId = toId(slot);
+              return {
+                slotIndex,
+                regId,
+                label: regId
+                  ? registrationMap.get(String(regId)) ||
+                    registrationLabelFallback(regId)
+                  : "",
+              };
+            })
+          : Array.from({ length: Number(group?.size || 0) }, (_unused, slotIndex) => ({
+              slotIndex,
+              regId: null,
+              label: "",
+            }));
+
+      return { code, slots };
+    },
+  );
+
+  const pairs = (Array.isArray(board?.pairs) ? board.pairs : []).map(
+    (pair, pairIndex) => {
+      const aId = toId(pair?.a);
+      const bId = toId(pair?.b);
+      return {
+        pairIndex,
+        title: `Cap ${pairIndex + 1}`,
+        a: {
+          regId: aId,
+          label: aId
+            ? registrationMap.get(String(aId)) || registrationLabelFallback(aId)
+            : "",
+        },
+        b: {
+          regId: bId,
+          label: bId
+            ? registrationMap.get(String(bId)) || registrationLabelFallback(bId)
+            : "",
+        },
+      };
+    },
+  );
+
+  return { groups, pairs };
+};
+
+const buildGroupsMeta = (bracket) => {
+  const rawGroups = Array.isArray(bracket?.groups) ? bracket.groups : [];
+  return rawGroups.map((group, groupIndex) => {
+    const regIds = Array.isArray(group?.regIds)
+      ? group.regIds.map((item) => toId(item)).filter(Boolean)
+      : [];
+    const size = Number(group?.expectedSize || group?.size || regIds.length || 0);
+    return {
+      code: normalizeGroupCode(group?.name || group?.code || group?.key, groupIndex),
+      size: Number.isFinite(size) && size > 0 ? size : regIds.length,
+      regIds,
+    };
+  });
+};
+
+const revealsFromBoardView = (boardView) => {
+  const reveals = [];
+
+  for (const group of Array.isArray(boardView?.groups) ? boardView.groups : []) {
+    for (const slot of Array.isArray(group?.slots) ? group.slots : []) {
+      const label = String(slot?.label || "").trim();
+      const regId = toId(slot?.regId);
+      if (!label && !regId) continue;
+      reveals.push({
+        group: String(group?.code || "").trim(),
+        groupCode: String(group?.code || "").trim(),
+        slotIndex: Number(slot?.slotIndex || 0),
+        regId: regId || null,
+        teamName: label,
+        label,
+      });
+    }
+  }
+
+  for (const pair of Array.isArray(boardView?.pairs) ? boardView.pairs : []) {
+    const pairIndex = Number(pair?.pairIndex || 0);
+    for (const sideKey of ["a", "b"]) {
+      const side = pair?.[sideKey];
+      const label = String(side?.label || "").trim();
+      const regId = toId(side?.regId);
+      if (!label && !regId) continue;
+      reveals.push({
+        pairIndex,
+        side: sideKey === "a" ? "A" : "B",
+        regId: regId || null,
+        teamName: label,
+        label,
+      });
+    }
+  }
+
+  return reveals;
+};
+
+const revealsFromHistory = (history = []) => {
+  const reveals = [];
+  for (const entry of Array.isArray(history) ? history : []) {
+    if (entry?.action !== "pick") continue;
+    const payload = entry?.payload || {};
+    const label = String(
+      payload?.name ||
+        payload?.teamName ||
+        payload?.displayName ||
+        payload?.label ||
+        payload?.regLabel ||
+        "",
+    ).trim();
+    const regId = toId(payload?.regId || payload?.registrationId);
+    if (!label && !regId) continue;
+    reveals.push({
+      group: String(payload?.groupCode || payload?.groupKey || payload?.group || "").trim(),
+      groupCode: String(
+        payload?.groupCode || payload?.groupKey || payload?.group || "",
+      ).trim(),
+      slotIndex: Number.isFinite(Number(payload?.slotIndex))
+        ? Number(payload.slotIndex)
+        : null,
+      pairIndex: Number.isFinite(Number(payload?.pairIndex))
+        ? Number(payload.pairIndex)
+        : null,
+      side: payload?.side ? String(payload.side).trim().toUpperCase() : "",
+      regId: regId || null,
+      teamName: label,
+      label,
+      at: entry?.at || null,
+    });
+  }
+  return reveals;
+};
+
+const loadSessionForSnapshot = async ({ tournamentId, drawId = null }) => {
+  let session = null;
+  if (drawId) {
+    session = await DrawSession.findById(drawId)
+      .select(
+        "_id bracket mode status board cursor history tournament committedAt canceledAt updatedAt createdAt",
+      )
+      .lean();
+  }
+
+  if (!session) {
+    session = await DrawSession.findOne({
+      tournament: tournamentId,
+      status: "active",
+    })
+      .select(
+        "_id bracket mode status board cursor history tournament committedAt canceledAt updatedAt createdAt",
+      )
+      .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
+      .lean();
+  }
+
+  if (!session) return null;
+
+  const bracket = session?.bracket
+    ? await Bracket.findById(session.bracket)
+        .select("name eventType groups.name groups.expectedSize groups.regIds")
+        .lean()
+    : null;
+  const boardView = await buildBoardView(session.board || null, bracket?.eventType);
+  const groupsMeta = buildGroupsMeta(bracket);
+  const boardReveals = revealsFromBoardView(boardView);
+  const reveals = boardReveals.length
+    ? boardReveals
+    : revealsFromHistory(session.history);
+
+  return {
+    drawId: toId(session._id),
+    bracketId: toId(session.bracket),
+    bracketName: String(bracket?.name || "").trim(),
+    mode: session.mode || null,
+    status: session.status || null,
+    board: session.board || null,
+    boardView,
+    groupsMeta,
+    reveals,
+    cursor: session.cursor || null,
+    history: Array.isArray(session.history) ? session.history.slice(-50) : [],
+    latestReveal: latestRevealFromHistory(session.history),
+  };
 };
 
 const buildEmptySnapshot = (tournamentId, viewer = {}) => ({
@@ -180,32 +457,10 @@ export async function buildDrawLiveSnapshot({ tournamentId, user = null }) {
   const isSuperAdmin = isSuperAdminUser(user);
   const canManage = user ? await canManageTournament(user, normalizedTournamentId) : false;
 
-  let activeSession = null;
-  if (lock.activeDrawId) {
-    const session = await DrawSession.findById(lock.activeDrawId)
-      .select(
-        "_id bracket mode status board cursor history tournament committedAt canceledAt",
-      )
-      .lean();
-    if (session) {
-      const bracket = session?.bracket
-        ? await Bracket.findById(session.bracket).select("name").lean()
-        : null;
-      activeSession = {
-        drawId: toId(session._id),
-        bracketId: toId(session.bracket),
-        bracketName: String(bracket?.name || "").trim(),
-        mode: session.mode || null,
-        status: session.status || null,
-        board: session.board || null,
-        cursor: session.cursor || null,
-        history: Array.isArray(session.history)
-          ? session.history.slice(-50)
-          : [],
-        latestReveal: latestRevealFromHistory(session.history),
-      };
-    }
-  }
+  const activeSession = await loadSessionForSnapshot({
+    tournamentId: normalizedTournamentId,
+    drawId: lock.activeDrawId,
+  });
 
   return {
     tournamentId: normalizedTournamentId,
@@ -308,9 +563,6 @@ export async function acquireDrawControl({
         expiresAt: nextExpiry(now),
         startedAt: current?.startedAt || now,
       },
-      $setOnInsert: {
-        revision: 0,
-      },
       $inc: {
         revision: 1,
       },
@@ -350,9 +602,6 @@ export async function bindDrawControlToSession({
         heartbeatAt: now,
         expiresAt: nextExpiry(now),
         startedAt: now,
-      },
-      $setOnInsert: {
-        revision: 0,
       },
       $inc: {
         revision: 1,
@@ -506,9 +755,6 @@ export async function takeoverDrawControl({
         heartbeatAt: now,
         expiresAt: nextExpiry(now),
         startedAt: current?.startedAt || now,
-      },
-      $setOnInsert: {
-        revision: 0,
       },
       $inc: { revision: 1 },
     },

@@ -22,6 +22,7 @@ import PeopleIcon from "@mui/icons-material/People";
 import HomeIcon from "@mui/icons-material/Home";
 import ArticleIcon from "@mui/icons-material/Article";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import SEOHead from "../components/SEOHead";
@@ -90,6 +91,11 @@ export default function AdminLayout({ children }) {
       label: t("admin.layout.news"),
       icon: <ArticleIcon />,
       path: "/admin/news",
+    },
+    {
+      label: tx("admin.layout.pikoraOps", "Pikora Bot Ops"),
+      icon: <SmartToyIcon />,
+      path: "/admin/pikora-ops",
     },
     ...(isSuperAdmin
       ? [

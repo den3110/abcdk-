@@ -1,6 +1,6 @@
 ﻿// src/pages/admin/UsersPage.jsx
 /* eslint-disable react/prop-types */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Stack,
@@ -71,6 +71,7 @@ import {
 } from "../../slices/adminApiSlice";
 import { setPage, setKeyword, setRole } from "../../slices/adminUiSlice";
 import { useLanguage } from "../../context/LanguageContext";
+import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import { formatDate, formatDateTime } from "../../i18n/format";
 import {
   getGenderOptions,
@@ -469,7 +470,56 @@ export default function UsersPage() {
     );
   };
 
-  const users = data?.users ?? [];
+  const users = useMemo(() => data?.users ?? [], [data?.users]);
+  const chatBotSnapshot = useMemo(
+    () => ({
+      pageType: "admin_users",
+      entityTitle: t("admin.layout.users"),
+      sectionTitle: "Quản lý người dùng",
+      pageSummary:
+        "Màn admin quản lý người dùng, vai trò, KYC, evaluator scope và lịch sử audit.",
+      activeLabels: [
+        role ? `Vai trò: ${role}` : "Tất cả vai trò",
+        kycFilter ? `KYC: ${kycFilter}` : "Tất cả KYC",
+        search ? `Tìm: ${search}` : "",
+      ],
+      visibleActions: [
+        t("admin.users.filters.role"),
+        t("admin.users.filters.kycStatus"),
+        t("admin.users.searchPlaceholder"),
+      ],
+      highlights: users.slice(0, 4).map((user) => user?.name || user?.nickname || ""),
+      metrics: [
+        `Đang hiển thị: ${users.length}`,
+        `Trang: ${page + 1}`,
+        isFetching ? "Đang tải dữ liệu" : "Dữ liệu ổn định",
+      ],
+    }),
+    [t, role, kycFilter, search, users, page, isFetching],
+  );
+
+  const chatBotActionHandlers = useMemo(
+    () => ({
+      search: (nextValue) => {
+        setSearch(String(nextValue || ""));
+      },
+      roleFilter: (nextValue) => {
+        dispatch(setRole(String(nextValue || "")));
+        dispatch(setPage(0));
+      },
+      kycFilter: (nextValue) => {
+        setKycFilter(String(nextValue || ""));
+        dispatch(setPage(0));
+      },
+    }),
+    [dispatch],
+  );
+
+  useRegisterChatBotPageContext({
+    snapshot: chatBotSnapshot,
+    capabilityKeys: ["set_page_state", "prefill_text", "focus_element", "navigate"],
+    actionHandlers: chatBotActionHandlers,
+  });
   const serverTotalPages = data
     ? Math.ceil((data.total || 0) / (data.pageSize || 1))
     : 0;

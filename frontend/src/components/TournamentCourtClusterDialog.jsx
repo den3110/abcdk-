@@ -397,6 +397,8 @@ export default function TournamentCourtClusterDialog({
 
   const isPreviewingUnsavedCluster =
     Boolean(selectedAllowedId) && selectedAllowedId !== initialAllowedId;
+  const queuePickerOpenRef = useRef(false);
+  const pendingRuntimeRefreshRef = useRef(false);
 
   const {
     data: tournamentRuntime,
@@ -440,6 +442,13 @@ export default function TournamentCourtClusterDialog({
   const refetchRuntime = isPreviewingUnsavedCluster
     ? refetchPreviewRuntime
     : refetchTournamentRuntime;
+  const requestRuntimeRefresh = useCallback(() => {
+    if (queuePickerOpenRef.current) {
+      pendingRuntimeRefreshRef.current = true;
+      return;
+    }
+    refetchRuntime?.();
+  }, [refetchRuntime]);
 
   useSocketRoomSet(socket, selectedAllowedId ? [selectedAllowedId] : [], {
     subscribeEvent: "court-cluster:watch",
@@ -464,7 +473,7 @@ export default function TournamentCourtClusterDialog({
     const handleClusterUpdate = (payload) => {
       const payloadClusterId = sid(payload?.cluster?._id || payload?.clusterId);
       if (payloadClusterId === selectedAllowedId) {
-        refetchRuntime();
+        requestRuntimeRefresh();
       }
     };
 
@@ -475,7 +484,7 @@ export default function TournamentCourtClusterDialog({
           payload?.station?.clusterId,
       );
       if (payloadClusterId === selectedAllowedId) {
-        refetchRuntime();
+        requestRuntimeRefresh();
       }
     };
 
@@ -485,7 +494,7 @@ export default function TournamentCourtClusterDialog({
       socket.off("court-cluster:update", handleClusterUpdate);
       socket.off("court-station:update", handleStationUpdate);
     };
-  }, [open, refetchRuntime, selectedAllowedId, socket]);
+  }, [open, requestRuntimeRefresh, selectedAllowedId, socket]);
 
   useEffect(() => {
     if (!runtime?.stations) {
@@ -509,6 +518,8 @@ export default function TournamentCourtClusterDialog({
     if (!open) {
       setViewerMatch(null);
       openTraceRef.current = "";
+      queuePickerOpenRef.current = false;
+      pendingRuntimeRefreshRef.current = false;
     }
   }, [open]);
 
@@ -1471,6 +1482,17 @@ export default function TournamentCourtClusterDialog({
                                       multiple
                                       disabled={clusterInteractionDisabled}
                                       disableCloseOnSelect
+                                      onOpen={() => {
+                                        queuePickerOpenRef.current = true;
+                                      }}
+                                      onClose={() => {
+                                        queuePickerOpenRef.current = false;
+                                        if (pendingRuntimeRefreshRef.current) {
+                                          pendingRuntimeRefreshRef.current =
+                                            false;
+                                          refetchRuntime?.();
+                                        }
+                                      }}
                                       options={selectorOptions}
                                       value={selectedPickerMatches}
                                       onChange={(_, value) =>
