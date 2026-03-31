@@ -11,6 +11,24 @@ function ownerKey(matchId) {
   return `${OWNER_KEY_PREFIX}${String(matchId || "").trim()}`;
 }
 
+function normalizeIdentityValue(value) {
+  return value == null ? "" : String(value).trim();
+}
+
+export function liveOwnerMatchesIdentity(
+  owner,
+  { deviceId = "", userId = null } = {}
+) {
+  if (!owner) return false;
+  const ownerUserId = normalizeIdentityValue(owner.userId);
+  const currentUserId = normalizeIdentityValue(userId);
+  if (ownerUserId && currentUserId) {
+    return ownerUserId === currentUserId;
+  }
+  const currentDeviceId = normalizeIdentityValue(deviceId);
+  return Boolean(currentDeviceId) && normalizeIdentityValue(owner.deviceId) === currentDeviceId;
+}
+
 function parseOwner(raw) {
   if (!raw) return null;
   try {
@@ -64,12 +82,11 @@ async function writeOwner(owner, ttlSeconds = DEFAULT_TTL_SECONDS) {
   return owner;
 }
 
-export function normalizeLiveOwnerForClient(owner, deviceId = "") {
+export function normalizeLiveOwnerForClient(owner, deviceId = "", userId = null) {
   if (!owner) return null;
   return {
     ...owner,
-    isSelf:
-      Boolean(deviceId) && String(owner.deviceId) === String(deviceId || ""),
+    isSelf: liveOwnerMatchesIdentity(owner, { deviceId, userId }),
   };
 }
 
@@ -93,7 +110,8 @@ export async function claimMatchLiveOwner({
   }
 
   const current = await getMatchLiveOwner(matchId);
-  if (current && String(current.deviceId) !== String(deviceId) && !force) {
+  const isSameOwner = liveOwnerMatchesIdentity(current, { deviceId, userId });
+  if (current && !isSameOwner && !force) {
     return { ok: false, reason: "ownership_conflict", owner: current };
   }
 
@@ -103,10 +121,7 @@ export async function claimMatchLiveOwner({
     deviceId,
     userId,
     displayName,
-    claimedAt:
-      current && String(current.deviceId) === String(deviceId)
-        ? new Date(current.claimedAt || now)
-        : now,
+    claimedAt: current && isSameOwner ? new Date(current.claimedAt || now) : now,
     lastHeartbeatAt: now,
     ttlSeconds,
   });
@@ -116,8 +131,7 @@ export async function claimMatchLiveOwner({
   return {
     ok: true,
     owner: nextOwner,
-    takeover:
-      Boolean(current) && String(current.deviceId) !== String(deviceId),
+    takeover: Boolean(current) && !isSameOwner,
   };
 }
 

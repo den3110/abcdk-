@@ -35,7 +35,7 @@ const matchLiveEventSchema = new Schema(
     },
     type: {
       type: String,
-      enum: ["start", "point", "undo", "finish", "forfeit"],
+      enum: ["start", "point", "undo", "finish", "forfeit", "serve", "slots"],
       required: true,
       index: true,
     },

@@ -48,8 +48,10 @@ export async function logChatTelemetry(payload = {}) {
       pageType: compactString(payload.pageType, 80),
       pageSection: compactString(payload.pageSection, 80),
       pageView: compactString(payload.pageView, 80),
+      surface: compactString(payload.surface, 24) || "web",
       intent: compactString(payload.intent, 80),
       routeKind: compactString(payload.routeKind, 80),
+      routeLane: compactString(payload.routeLane, 80),
       toolsPlanned: compactStringList(payload.toolsPlanned, 12, 48),
       toolsUsed: compactStringList(payload.toolsUsed, 12, 48),
       toolLatencyMs: (Array.isArray(payload.toolLatencyMs) ? payload.toolLatencyMs : [])
@@ -76,6 +78,23 @@ export async function logChatTelemetry(payload = {}) {
         })),
       cardKinds: compactStringList(payload.cardKinds, 12, 48),
       sourceCount: Number(payload.sourceCount || 0),
+      groundingStatus: ["grounded", "partial", "unsupported"].includes(
+        payload.groundingStatus,
+      )
+        ? payload.groundingStatus
+        : "",
+      operatorStatus: ["page_action", "navigate_fallback", "unsupported"].includes(
+        payload.operatorStatus,
+      )
+        ? payload.operatorStatus
+        : "",
+      retrievalMode: ["internal", "hybrid_live"].includes(payload.retrievalMode)
+        ? payload.retrievalMode
+        : "",
+      guardApplied: Boolean(payload.guardApplied),
+      fallbackUsed: Boolean(payload.fallbackUsed),
+      unsupportedIntent: compactString(payload.unsupportedIntent, 80),
+      unsupportedAction: compactString(payload.unsupportedAction, 96),
       outcome: ["success", "aborted", "error", "empty"].includes(payload.outcome)
         ? payload.outcome
         : "success",
@@ -161,7 +180,12 @@ export async function submitChatFeedback({
 function normalizeClientEventType(value) {
   const next = String(value || "").trim().toLowerCase();
   if (
-    ["action_executed", "action_unsupported", "suggestion_clicked"].includes(
+    [
+      "action_executed",
+      "action_unsupported",
+      "action_degraded",
+      "suggestion_clicked",
+    ].includes(
       next,
     )
   ) {
@@ -181,6 +205,7 @@ function compactClientEvent(payload = {}) {
     success: payload.success !== false,
     at: payload.at ? new Date(payload.at) : new Date(),
     detail: compactString(payload.detail, 240),
+    surface: compactString(payload.surface, 24) || "",
   };
 }
 
@@ -192,6 +217,7 @@ export async function recordChatTelemetryEvent({
   actionType = "",
   success = true,
   detail = "",
+  surface = "",
 } = {}) {
   if (!messageId) {
     throw new Error("Thiếu messageId");
@@ -203,6 +229,7 @@ export async function recordChatTelemetryEvent({
     actionType,
     success,
     detail,
+    surface,
   });
 
   if (!event) {
@@ -256,6 +283,25 @@ export async function recordChatTelemetryEvent({
       at: event.at,
     };
   }
+  if (event.surface) {
+    telemetryUpdate.$set = {
+      ...(telemetryUpdate.$set || {}),
+      surface: event.surface,
+    };
+  }
+  if (event.type === "action_degraded") {
+    telemetryUpdate.$set = {
+      ...(telemetryUpdate.$set || {}),
+      fallbackUsed: true,
+      unsupportedAction: compactString(event.actionType || event.label, 96),
+    };
+  }
+  if (event.type === "action_unsupported") {
+    telemetryUpdate.$set = {
+      ...(telemetryUpdate.$set || {}),
+      unsupportedAction: compactString(event.actionType || event.label, 96),
+    };
+  }
 
   await ChatBotTelemetry.findOneAndUpdate(
     userId ? { messageId, userId } : { messageId, userId: null },
@@ -283,17 +329,27 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
   const outcomes = {};
   const intents = {};
   const routeKinds = {};
+  const routeLanes = {};
+  const surfaces = {};
   const actionTypes = {};
   const cardKinds = {};
   const toolUsage = {};
   const failures = {};
   const feedbackReasons = {};
   const unsupportedActions = {};
+  const unsupportedIntents = {};
+  const groundingStatuses = {};
+  const operatorStatuses = {};
+  const retrievalModes = {};
   let positiveFeedback = 0;
   let negativeFeedback = 0;
+  let guardHits = 0;
+  let fallbackUsed = 0;
 
   const firstTokenLatencies = [];
   const processingLatencies = [];
+  const latencyBySurface = {};
+  const actionStatusBySurface = {};
 
   turns.forEach((turn) => {
     outcomes[turn.outcome || "success"] = (outcomes[turn.outcome || "success"] || 0) + 1;
@@ -304,6 +360,34 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
     if (turn.routeKind) {
       routeKinds[turn.routeKind] = (routeKinds[turn.routeKind] || 0) + 1;
     }
+    if (turn.routeLane) {
+      routeLanes[turn.routeLane] = (routeLanes[turn.routeLane] || 0) + 1;
+    }
+    if (turn.surface) {
+      surfaces[turn.surface] = (surfaces[turn.surface] || 0) + 1;
+    }
+    if (turn.groundingStatus) {
+      groundingStatuses[turn.groundingStatus] =
+        (groundingStatuses[turn.groundingStatus] || 0) + 1;
+    }
+    if (turn.operatorStatus) {
+      operatorStatuses[turn.operatorStatus] =
+        (operatorStatuses[turn.operatorStatus] || 0) + 1;
+    }
+    if (turn.retrievalMode) {
+      retrievalModes[turn.retrievalMode] =
+        (retrievalModes[turn.retrievalMode] || 0) + 1;
+    }
+    if (turn.unsupportedIntent) {
+      unsupportedIntents[turn.unsupportedIntent] =
+        (unsupportedIntents[turn.unsupportedIntent] || 0) + 1;
+    }
+    if (turn.unsupportedAction) {
+      unsupportedActions[turn.unsupportedAction] =
+        (unsupportedActions[turn.unsupportedAction] || 0) + 1;
+    }
+    if (turn.guardApplied) guardHits += 1;
+    if (turn.fallbackUsed) fallbackUsed += 1;
 
     (turn.actionTypes || []).forEach((item) => {
       actionTypes[item] = (actionTypes[item] || 0) + 1;
@@ -322,9 +406,21 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
 
     if (Number(turn.firstTokenLatencyMs) > 0) {
       firstTokenLatencies.push(Number(turn.firstTokenLatencyMs));
+      const surfaceKey = turn.surface || "unknown";
+      latencyBySurface[surfaceKey] = latencyBySurface[surfaceKey] || {
+        firstToken: [],
+        processing: [],
+      };
+      latencyBySurface[surfaceKey].firstToken.push(Number(turn.firstTokenLatencyMs));
     }
     if (Number(turn.processingTimeMs) > 0) {
       processingLatencies.push(Number(turn.processingTimeMs));
+      const surfaceKey = turn.surface || "unknown";
+      latencyBySurface[surfaceKey] = latencyBySurface[surfaceKey] || {
+        firstToken: [],
+        processing: [],
+      };
+      latencyBySurface[surfaceKey].processing.push(Number(turn.processingTimeMs));
     }
 
     if (turn.feedback?.value === "positive") positiveFeedback += 1;
@@ -337,9 +433,27 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
     }
 
     (turn.meta?.clientEvents || []).forEach((event) => {
+      const surfaceKey = event?.surface || turn.surface || "unknown";
+      actionStatusBySurface[surfaceKey] = actionStatusBySurface[surfaceKey] || {
+        executed: 0,
+        unsupported: 0,
+        degraded: 0,
+      };
+      if (event?.type === "action_executed") {
+        actionStatusBySurface[surfaceKey].executed += 1;
+      }
       if (event?.type === "action_unsupported") {
+        actionStatusBySurface[surfaceKey].unsupported += 1;
         const label = compactString(
           event.label || event.actionType || event.detail || "unsupported",
+          96,
+        );
+        unsupportedActions[label] = (unsupportedActions[label] || 0) + 1;
+      }
+      if (event?.type === "action_degraded") {
+        actionStatusBySurface[surfaceKey].degraded += 1;
+        const label = compactString(
+          event.label || event.actionType || event.detail || "degraded",
           96,
         );
         unsupportedActions[label] = (unsupportedActions[label] || 0) + 1;
@@ -349,12 +463,28 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
 
   firstTokenLatencies.sort((a, b) => a - b);
   processingLatencies.sort((a, b) => a - b);
+  Object.values(latencyBySurface).forEach((item) => {
+    item.firstToken.sort((a, b) => a - b);
+    item.processing.sort((a, b) => a - b);
+  });
 
   const sortCountEntries = (record, limit = 8) =>
     Object.entries(record)
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
       .map(([label, count]) => ({ label, count }));
+
+  const latencyBySurfaceSummary = Object.fromEntries(
+    Object.entries(latencyBySurface).map(([surface, values]) => [
+      surface,
+      {
+        firstTokenP50: percentileFromSorted(values.firstToken, 0.5),
+        firstTokenP95: percentileFromSorted(values.firstToken, 0.95),
+        processingP50: percentileFromSorted(values.processing, 0.5),
+        processingP95: percentileFromSorted(values.processing, 0.95),
+      },
+    ]),
+  );
 
   return {
     days: safeDays,
@@ -372,12 +502,22 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
     },
     topIntents: sortCountEntries(intents),
     topRouteKinds: sortCountEntries(routeKinds),
+    topRouteLanes: sortCountEntries(routeLanes),
     topTools: sortCountEntries(toolUsage),
     topActionTypes: sortCountEntries(actionTypes),
     topCardKinds: sortCountEntries(cardKinds),
     topFailures: sortCountEntries(failures),
     topFeedbackReasons: sortCountEntries(feedbackReasons),
     topUnsupportedActions: sortCountEntries(unsupportedActions),
+    topUnsupportedIntents: sortCountEntries(unsupportedIntents),
+    groundingStatuses,
+    operatorStatuses,
+    retrievalModes,
+    surfaces,
+    guardHits,
+    fallbackUsed,
+    actionStatusBySurface,
+    latencyBySurface: latencyBySurfaceSummary,
     throughput: {
       avgTurnsPerDay: Number((turns.length / safeDays).toFixed(2)),
     },

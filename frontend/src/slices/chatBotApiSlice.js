@@ -58,6 +58,19 @@ export const chatBotApiSlice = apiSlice.injectEndpoints({
         method: "GET",
       }),
     }),
+    getChatRolloutConfig: builder.query({
+      query: () => ({
+        url: "/api/chat/rollout",
+        method: "GET",
+      }),
+    }),
+    updateChatRolloutConfig: builder.mutation({
+      query: (data) => ({
+        url: "/api/chat/rollout",
+        method: "PUT",
+        body: data,
+      }),
+    }),
   }),
 });
 
@@ -70,4 +83,6 @@ export const {
   useSendChatTelemetryEventMutation,
   useGetChatTelemetrySummaryQuery,
   useGetChatTelemetryTurnsQuery,
+  useGetChatRolloutConfigQuery,
+  useUpdateChatRolloutConfigMutation,
 } = chatBotApiSlice;

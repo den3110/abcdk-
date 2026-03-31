@@ -69,6 +69,7 @@ import { useChatBotPageContext } from "../context/ChatBotPageContext.jsx";
 
 const BOT_ICON = "/icon-chatbot-192.png";
 const REASONING_MODE_STORAGE_KEY = "pikora-reasoning-mode";
+const CHATBOT_COHORT_STORAGE_KEY = "pikora-cohort-id";
 
 // ─── Initial Suggestions (only for welcome screen) ───
 function getWelcomeSuggestions(userInfo, t) {
@@ -129,6 +130,19 @@ function compactStructuredItems(list, limit = 8) {
     }))
     .filter((item) => item.name)
     .slice(0, limit);
+}
+
+function getOrCreateChatCohortId() {
+  if (typeof window === "undefined") return "web-anonymous";
+
+  const existing = window.localStorage.getItem(CHATBOT_COHORT_STORAGE_KEY);
+  if (existing) return existing;
+
+  const nextId =
+    window.crypto?.randomUUID?.() ||
+    `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(CHATBOT_COHORT_STORAGE_KEY, nextId);
+  return nextId;
 }
 
 function getVisibleTextFromNodes(selectors, limit = 8, maxLength = 80) {
@@ -876,6 +890,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
   theme,
   isActive,
   processingTime,
+  trustMeta,
   t,
 }) {
   const [expanded, setExpanded] = useState(isActive);
@@ -944,6 +959,39 @@ const ThinkingBlock = memo(function ThinkingBlock({
                 })
               : t("chatbot.thinking.done")}
         </Typography>
+        {!isActive && trustMeta?.confidenceLevel ? (
+          <Chip
+            size="small"
+            label={
+              trustMeta.confidenceLevel === "strong"
+                ? t("chatbot.trust.strong", {}, "Đối chiếu tốt")
+                : trustMeta.confidenceLevel === "grounded"
+                  ? t("chatbot.trust.grounded", {}, "Có nguồn")
+                  : trustMeta.confidenceLevel === "limited"
+                    ? t("chatbot.trust.limited", {}, "Cần kiểm tra")
+                    : trustMeta.confidenceLevel === "assisted"
+                      ? t("chatbot.trust.assisted", {}, "Có hỗ trợ")
+                      : t("chatbot.trust.fast", {}, "Phản hồi nhanh")
+            }
+            sx={{
+              height: 22,
+              fontWeight: 700,
+              bgcolor: alpha(
+                trustMeta.confidenceLevel === "limited"
+                  ? theme.palette.warning.main
+                  : theme.palette.info.main,
+                0.1,
+              ),
+              color:
+                trustMeta.confidenceLevel === "limited"
+                  ? theme.palette.warning.main
+                  : theme.palette.info.main,
+              "& .MuiChip-label": {
+                px: 0.9,
+              },
+            }}
+          />
+        ) : null}
         {expanded ? (
           <ExpandLessIcon sx={{ fontSize: 16, color: "text.disabled" }} />
         ) : (
@@ -1012,6 +1060,9 @@ const ThinkingBlock = memo(function ThinkingBlock({
               </Typography>
             </Box>
           ))}
+          {!isActive && trustMeta ? (
+            <TrustStrip trustMeta={trustMeta} theme={theme} t={t} embedded />
+          ) : null}
         </Box>
       </Collapse>
     </Box>
@@ -1353,7 +1404,12 @@ const SourcesBar = memo(function SourcesBar({ sources, theme, onAction, t }) {
   );
 });
 
-const TrustStrip = memo(function TrustStrip({ trustMeta, theme, t }) {
+const TrustStrip = memo(function TrustStrip({
+  trustMeta,
+  theme,
+  t,
+  embedded = false,
+}) {
   const { language } = useLanguage();
   if (!trustMeta) return null;
   const isEnglish = String(language || "").toLowerCase().startsWith("en");
@@ -1404,7 +1460,7 @@ const TrustStrip = memo(function TrustStrip({ trustMeta, theme, t }) {
   return (
     <Box
       sx={{
-        mt: 0.9,
+        mt: embedded ? 0.8 : 0.9,
         px: 1.15,
         py: 1,
         minWidth: 0,
@@ -1553,6 +1609,8 @@ const MessageBubble = memo(function MessageBubble({
   const isDark = theme.palette.mode === "dark";
   const isStreaming = Boolean(msg.isStreaming);
   const showReasoning = isBot && msg.reasoningAvailable && !isStreaming;
+  const hasThinkingBlock =
+    isBot && Array.isArray(msg.thinkingSteps) && msg.thinkingSteps.length > 0 && !msg.isStreaming;
 
   return (
     <Box
@@ -1579,12 +1637,13 @@ const MessageBubble = memo(function MessageBubble({
       )}
       <Box sx={{ maxWidth: "85%", minWidth: 0, overflowX: "hidden" }}>
         {/* Thinking block (hiện trên reply) */}
-        {isBot && msg.thinkingSteps?.length > 0 && !msg.isStreaming && (
+        {hasThinkingBlock && (
           <ThinkingBlock
             steps={msg.thinkingSteps}
             theme={theme}
             isActive={false}
             processingTime={msg.processingTime}
+            trustMeta={msg.trustMeta}
             t={t}
           />
         )}
@@ -1713,7 +1772,7 @@ const MessageBubble = memo(function MessageBubble({
           </Box>
         ) : null}
 
-        {isBot && msg.trustMeta ? (
+        {isBot && msg.trustMeta && !hasThinkingBlock ? (
           <TrustStrip trustMeta={msg.trustMeta} theme={theme} t={t} />
         ) : null}
 
@@ -2110,6 +2169,8 @@ async function sendMessageStream(
   pageSnapshot,
   capabilityKeys,
   reasoningMode,
+  knowledgeMode,
+  cohortId,
   onEvent,
   signal,
 ) {
@@ -2124,6 +2185,9 @@ async function sendMessageStream(
       pageSnapshot: pageSnapshot || null,
       capabilityKeys: Array.isArray(capabilityKeys) ? capabilityKeys : [],
       reasoningMode: reasoningMode || "auto",
+      knowledgeMode: knowledgeMode || "auto",
+      cohortId: cohortId || "",
+      surface: "web",
     }),
     credentials: "include",
     signal,
@@ -2209,23 +2273,23 @@ async function runChatAction(action, { navigate, onClose, t, getActionHandler })
         onClose?.();
         navigate(action.path);
       }
-      return;
+      return { status: "executed", detail: action.path || "" };
     case "open_new_tab":
       if (action.path) {
         window.open(action.path, "_blank", "noopener,noreferrer");
       }
-      return;
+      return { status: "executed", detail: action.path || "" };
     case "copy_current_url":
     case "copy_link": {
       const value = action.value || window.location.href;
       await navigator.clipboard.writeText(String(value || ""));
-      return;
+      return { status: "executed", detail: String(value || "") };
     }
     case "copy_text":
       if (action.value) {
         await navigator.clipboard.writeText(String(action.value));
       }
-      return;
+      return { status: "executed", detail: String(action.value || "") };
     case "set_query_param": {
       const nextUrl = new URL(window.location.href);
       const key = payload.key || action.key;
@@ -2237,20 +2301,26 @@ async function runChatAction(action, { navigate, onClose, t, getActionHandler })
         nextUrl.searchParams.set(key, value);
       }
       navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
-      return;
+      return {
+        status: "degraded",
+        detail: `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`,
+      };
     }
     case "set_page_state": {
       const handlerKey = payload.handlerKey || payload.key || action.key;
       const handler = getActionHandler?.(handlerKey);
       if (typeof handler === "function") {
         await handler(payload.value, payload, action);
-        return;
+        return { status: "executed", detail: handlerKey || "" };
       }
       if (payload.queryParamKey) {
         const nextUrl = new URL(window.location.href);
         nextUrl.searchParams.set(payload.queryParamKey, payload.value ?? "");
         navigate(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
-        return;
+        return {
+          status: "degraded",
+          detail: `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`,
+        };
       }
       throw new Error(t("chatbot.actions.unsupported"));
     }
@@ -2258,33 +2328,44 @@ async function runChatAction(action, { navigate, onClose, t, getActionHandler })
       const handler = getActionHandler?.(payload.handlerKey || "openDialog");
       if (typeof handler === "function") {
         await handler(payload.value, payload, action);
-        return;
+        return {
+          status: "executed",
+          detail: payload.handlerKey || "openDialog",
+        };
       }
       throw new Error(t("chatbot.actions.unsupported"));
     }
     case "focus_element": {
       const selector = payload.selector || action.selector;
-      if (!selector) return;
+      if (!selector) throw new Error(t("chatbot.actions.unsupported"));
       const el = document.querySelector(selector);
+      if (!el) throw new Error(t("chatbot.actions.unsupported"));
       el?.focus?.();
       el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-      return;
+      return { status: "executed", detail: selector };
     }
     case "scroll_to_section": {
       const selector = payload.selector || action.selector;
-      if (!selector) return;
+      if (!selector) throw new Error(t("chatbot.actions.unsupported"));
       const el = document.querySelector(selector);
+      if (!el) throw new Error(t("chatbot.actions.unsupported"));
       el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-      return;
+      return { status: "executed", detail: selector };
     }
     case "prefill_text": {
       const handler = getActionHandler?.(payload.handlerKey || "search");
       if (typeof handler === "function") {
         await handler(payload.value || action.value || "", payload, action);
-        return;
+        return {
+          status: "executed",
+          detail: payload.handlerKey || "search",
+        };
       }
       if (setElementTextValue(payload.selector || action.selector, payload.value || action.value || "")) {
-        return;
+        return {
+          status: "degraded",
+          detail: payload.selector || action.selector || "",
+        };
       }
       throw new Error(t("chatbot.actions.unsupported"));
     }
@@ -2347,8 +2428,10 @@ export default function ChatBotDrawer() {
     reasoningAvailable: false,
     intent: "",
     routeKind: "",
+    routeLane: "",
     capabilityKeys: [],
     actionExecutionSummary: null,
+    surface: "web",
     messageId: null,
     firstTokenLatencyMs: null,
     processingTime: null,
@@ -2391,11 +2474,13 @@ export default function ChatBotDrawer() {
       sources: m.meta?.sources || [],
       intent: m.meta?.intent || "",
       routeKind: m.meta?.routeKind || "",
+      routeLane: m.meta?.routeLane || "",
       capabilityKeys: m.meta?.capabilityKeys || [],
       actionExecutionSummary: m.meta?.actionExecutionSummary || null,
       contextInsight: m.meta?.contextInsight || "",
       personalization: m.meta?.personalization || null,
       trustMeta: m.meta?.trustMeta || null,
+      surface: m.meta?.surface || "web",
       feedback: m.meta?.feedback || null,
       rawThinking: m.meta?.rawThinking || "",
       reasoningAvailable: Boolean(
@@ -2417,15 +2502,28 @@ export default function ChatBotDrawer() {
   const modeMenuOpen = Boolean(modeMenuAnchorEl);
 
   // Instant jump (no animation) — used for initial history load
-  const jumpToBottom = useCallback(() => {
-    const el = messagesContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+  const scheduleScrollToBottom = useCallback((behavior = "smooth") => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        if (behavior === "smooth" && typeof el.scrollTo === "function") {
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+          return;
+        }
+        el.scrollTop = el.scrollHeight;
+      });
+    });
   }, []);
+
+  const jumpToBottom = useCallback(() => {
+    scheduleScrollToBottom("auto");
+  }, [scheduleScrollToBottom]);
 
   // Smooth scroll — used when user sends/receives new messages
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+    scheduleScrollToBottom("smooth");
+  }, [scheduleScrollToBottom]);
 
   const isPrependingRef = useRef(false);
 
@@ -2495,6 +2593,7 @@ export default function ChatBotDrawer() {
           actionType,
           success,
           detail,
+          surface: "web",
         }).unwrap();
       } catch {
         // silent telemetry failure
@@ -2510,7 +2609,7 @@ export default function ChatBotDrawer() {
 
   const executeChatAction = useCallback(
     async (action, msg) => {
-      await runChatAction(action, {
+      const actionResult = await runChatAction(action, {
         navigate: routerNavigate,
         onClose: handleCloseDrawer,
         t,
@@ -2518,10 +2617,14 @@ export default function ChatBotDrawer() {
       });
       await logChatClientEvent({
         messageId: msg?.id || action?.messageId,
-        type: "action_executed",
+        type:
+          actionResult?.status === "degraded"
+            ? "action_degraded"
+            : "action_executed",
         label: getChatActionLabel(action, t),
         actionType: action?.type || "",
         success: true,
+        detail: actionResult?.detail || "",
       });
     },
     [routerNavigate, handleCloseDrawer, t, getActionHandler, logChatClientEvent],
@@ -2739,8 +2842,10 @@ export default function ChatBotDrawer() {
       reasoningAvailable: false,
       intent: "",
       routeKind: "",
+      routeLane: "",
       capabilityKeys: [],
       actionExecutionSummary: null,
+      surface: "web",
       messageId: null,
       firstTokenLatencyMs: null,
       processingTime: null,
@@ -2763,8 +2868,10 @@ export default function ChatBotDrawer() {
       trustMeta: null,
       intent: "",
       routeKind: "",
+      routeLane: "",
       capabilityKeys: [],
       actionExecutionSummary: null,
+      surface: "web",
       messageId: null,
     });
     const requestPageSnapshot = buildChatContextPayload(registeredPageSnapshot);
@@ -2792,11 +2899,13 @@ export default function ChatBotDrawer() {
         sources: liveMetaRef.current.sources,
         intent: liveMetaRef.current.intent,
         routeKind: liveMetaRef.current.routeKind,
+        routeLane: liveMetaRef.current.routeLane,
         capabilityKeys: liveMetaRef.current.capabilityKeys,
         actionExecutionSummary: liveMetaRef.current.actionExecutionSummary,
         contextInsight: liveMetaRef.current.contextInsight,
         personalization: liveMetaRef.current.personalization,
         trustMeta: liveMetaRef.current.trustMeta,
+        surface: liveMetaRef.current.surface,
       });
     };
 
@@ -2820,6 +2929,8 @@ export default function ChatBotDrawer() {
         requestPageSnapshot,
         capabilityKeys,
         requestReasoningMode,
+        "auto",
+        getOrCreateChatCohortId(),
         (event, data) => {
           switch (event) {
             case "thinking": {
@@ -2872,6 +2983,7 @@ export default function ChatBotDrawer() {
                 sources: data.sources || liveMetaRef.current.sources,
                 intent: data.intent || liveMetaRef.current.intent,
                 routeKind: data.routeKind || liveMetaRef.current.routeKind,
+                routeLane: data.routeLane || liveMetaRef.current.routeLane,
                 capabilityKeys:
                   data.capabilityKeys || liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
@@ -2882,6 +2994,7 @@ export default function ChatBotDrawer() {
                 personalization:
                   data.personalization || liveMetaRef.current.personalization,
                 trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
+                surface: data.surface || liveMetaRef.current.surface,
               };
               syncLiveDraft();
               break;
@@ -2924,6 +3037,7 @@ export default function ChatBotDrawer() {
                 sources: data.sources || liveMetaRef.current.sources,
                 intent: data.intent || liveMetaRef.current.intent,
                 routeKind: data.routeKind || liveMetaRef.current.routeKind,
+                routeLane: data.routeLane || liveMetaRef.current.routeLane,
                 capabilityKeys:
                   data.capabilityKeys || liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
@@ -2934,6 +3048,7 @@ export default function ChatBotDrawer() {
                 personalization:
                   data.personalization || liveMetaRef.current.personalization,
                 trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
+                surface: data.surface || liveMetaRef.current.surface,
                 reasoningAvailable: Boolean(
                   data.reasoningAvailable ||
                     liveReasoningRef.current ||
@@ -2959,12 +3074,14 @@ export default function ChatBotDrawer() {
                 sources: liveMetaRef.current.sources,
                 intent: liveMetaRef.current.intent,
                 routeKind: liveMetaRef.current.routeKind,
+                routeLane: liveMetaRef.current.routeLane,
                 capabilityKeys: liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
                   liveMetaRef.current.actionExecutionSummary,
                 contextInsight: liveMetaRef.current.contextInsight,
                 personalization: liveMetaRef.current.personalization,
                 trustMeta: liveMetaRef.current.trustMeta,
+                surface: liveMetaRef.current.surface,
                 rawThinking: liveReasoningRef.current,
                 reasoningAvailable: liveMetaRef.current.reasoningAvailable,
               };
@@ -2986,6 +3103,7 @@ export default function ChatBotDrawer() {
                 sources: data.sources || liveMetaRef.current.sources,
                 intent: data.intent || liveMetaRef.current.intent,
                 routeKind: data.routeKind || liveMetaRef.current.routeKind,
+                routeLane: data.routeLane || liveMetaRef.current.routeLane,
                 capabilityKeys:
                   data.capabilityKeys || liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
@@ -2996,6 +3114,7 @@ export default function ChatBotDrawer() {
                 personalization:
                   data.personalization || liveMetaRef.current.personalization,
                 trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
+                surface: data.surface || liveMetaRef.current.surface,
                 rawThinking: liveReasoningRef.current,
                 reasoningAvailable: Boolean(
                   data.reasoningAvailable || liveReasoningRef.current,
@@ -3031,8 +3150,10 @@ export default function ChatBotDrawer() {
                 trustMeta: null,
                 intent: "",
                 routeKind: "",
+                routeLane: "",
                 capabilityKeys: [],
                 actionExecutionSummary: null,
+                surface: liveMetaRef.current.surface,
                 model: liveMetaRef.current.model,
                 mode: liveMetaRef.current.mode,
                 rawThinking: liveReasoningRef.current,
@@ -3078,6 +3199,8 @@ export default function ChatBotDrawer() {
             intent: replyData?.intent || liveMetaRef.current.intent,
             routeKind:
               replyData?.routeKind || liveMetaRef.current.routeKind,
+            routeLane:
+              replyData?.routeLane || liveMetaRef.current.routeLane,
             capabilityKeys:
               replyData?.capabilityKeys || liveMetaRef.current.capabilityKeys,
             actionExecutionSummary:
@@ -3088,6 +3211,7 @@ export default function ChatBotDrawer() {
             personalization:
               replyData?.personalization || liveMetaRef.current.personalization,
             trustMeta: replyData?.trustMeta || liveMetaRef.current.trustMeta,
+            surface: replyData?.surface || liveMetaRef.current.surface,
             rawThinking: replyData?.rawThinking || liveReasoningRef.current,
             reasoningAvailable: Boolean(
               replyData?.reasoningAvailable || liveReasoningRef.current,
@@ -3121,12 +3245,14 @@ export default function ChatBotDrawer() {
               sources: liveMetaRef.current.sources,
               intent: liveMetaRef.current.intent,
               routeKind: liveMetaRef.current.routeKind,
+              routeLane: liveMetaRef.current.routeLane,
               capabilityKeys: liveMetaRef.current.capabilityKeys,
               actionExecutionSummary:
                 liveMetaRef.current.actionExecutionSummary,
               contextInsight: liveMetaRef.current.contextInsight,
               personalization: liveMetaRef.current.personalization,
               trustMeta: liveMetaRef.current.trustMeta,
+              surface: liveMetaRef.current.surface,
               rawThinking: liveReasoningRef.current,
               reasoningAvailable: Boolean(liveReasoningRef.current),
               model: liveMetaRef.current.model,
@@ -3162,8 +3288,10 @@ export default function ChatBotDrawer() {
           trustMeta: null,
           intent: "",
           routeKind: "",
+          routeLane: "",
           capabilityKeys: [],
           actionExecutionSummary: null,
+          surface: liveMetaRef.current.surface,
           rawThinking: liveReasoningRef.current,
           reasoningAvailable: Boolean(liveReasoningRef.current),
           model: liveMetaRef.current.model,

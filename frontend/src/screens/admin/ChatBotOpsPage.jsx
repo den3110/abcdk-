@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -7,9 +7,11 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  FormControlLabel,
   MenuItem,
   Paper,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -22,6 +24,8 @@ import SEOHead from "../../components/SEOHead";
 import {
   useGetChatTelemetrySummaryQuery,
   useGetChatTelemetryTurnsQuery,
+  useGetChatRolloutConfigQuery,
+  useUpdateChatRolloutConfigMutation,
 } from "../../slices/chatBotApiSlice";
 import { useLanguage } from "../../context/LanguageContext.jsx";
 import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
@@ -44,6 +48,20 @@ function formatDateTime(value) {
   } catch {
     return String(value);
   }
+}
+
+function toCountItems(record = {}, limit = 8) {
+  return Object.entries(record || {})
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+    .slice(0, limit)
+    .map(([label, count]) => ({ label, count: Number(count || 0) }));
+}
+
+function csvToList(value = "") {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function MetricCard({ icon, label, value, hint }) {
@@ -135,9 +153,25 @@ function TurnCard({ turn }) {
         </Stack>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {turn.surface ? <Chip size="small" label={turn.surface} /> : null}
           {turn.pageType ? <Chip size="small" label={turn.pageType} /> : null}
           {turn.pageSection ? <Chip size="small" label={turn.pageSection} /> : null}
           {turn.pageView ? <Chip size="small" label={turn.pageView} /> : null}
+          {turn.routeLane ? (
+            <Chip size="small" label={turn.routeLane} variant="outlined" />
+          ) : null}
+          {turn.groundingStatus ? (
+            <Chip size="small" label={turn.groundingStatus} color="success" variant="outlined" />
+          ) : null}
+          {turn.operatorStatus ? (
+            <Chip size="small" label={turn.operatorStatus} color="info" variant="outlined" />
+          ) : null}
+          {turn.retrievalMode ? (
+            <Chip size="small" label={turn.retrievalMode} color="secondary" variant="outlined" />
+          ) : null}
+          {turn.guardApplied ? (
+            <Chip size="small" label="guard applied" color="warning" />
+          ) : null}
         </Stack>
 
         <Typography variant="body2" color="text.secondary">
@@ -191,6 +225,48 @@ function TurnCard({ turn }) {
   );
 }
 
+function SurfaceMetricsSection({ title, data = {} }) {
+  const entries = Object.entries(data || {});
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: "100%" }}>
+      <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.25 }}>
+        {title}
+      </Typography>
+      {entries.length ? (
+        <Stack spacing={1}>
+          {entries.map(([surface, values]) => (
+            <Paper
+              key={`${title}-${surface}`}
+              variant="outlined"
+              sx={{ p: 1.5, borderRadius: 2 }}
+            >
+              <Typography variant="body2" fontWeight={800} sx={{ mb: 0.5 }}>
+                {surface}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block">
+                First token P95: {formatMs(values?.firstTokenP95)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Total P95: {formatMs(values?.processingP95)}
+              </Typography>
+              {"executed" in (values || {}) ? (
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Executed: {values?.executed || 0} · Degraded: {values?.degraded || 0} · Unsupported: {values?.unsupported || 0}
+                </Typography>
+              ) : null}
+            </Paper>
+          ))}
+        </Stack>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          Chưa có dữ liệu theo surface.
+        </Typography>
+      )}
+    </Paper>
+  );
+}
+
 export default function ChatBotOpsPage() {
   const { t } = useLanguage();
   const tx = (key, fallback) => {
@@ -203,6 +279,14 @@ export default function ChatBotOpsPage() {
   const [intent, setIntent] = useState("");
   const [routeKind, setRouteKind] = useState("");
   const [page, setPage] = useState(1);
+  const [rolloutDraft, setRolloutDraft] = useState({
+    enabled: true,
+    allowLiveRetrieval: false,
+    cohortPercentage: 100,
+    surfaces: ["web", "mobile"],
+    allowlistRoles: ["admin"],
+    allowlistUserIds: [],
+  });
 
   const summaryQuery = useGetChatTelemetrySummaryQuery({ days });
   const turnsQuery = useGetChatTelemetryTurnsQuery({
@@ -213,13 +297,57 @@ export default function ChatBotOpsPage() {
     intent,
     routeKind,
   });
+  const rolloutQuery = useGetChatRolloutConfigQuery();
+  const [updateChatRolloutConfig, rolloutMutation] =
+    useUpdateChatRolloutConfigMutation();
 
   const summary = useMemo(() => summaryQuery.data || {}, [summaryQuery.data]);
   const turns = Array.isArray(turnsQuery.data?.turns) ? turnsQuery.data.turns : [];
+  useEffect(() => {
+    if (!rolloutQuery.data) return;
+    setRolloutDraft({
+      enabled: rolloutQuery.data.enabled !== false,
+      allowLiveRetrieval: Boolean(rolloutQuery.data.allowLiveRetrieval),
+      cohortPercentage: Number(rolloutQuery.data.cohortPercentage || 100),
+      surfaces: Array.isArray(rolloutQuery.data.surfaces)
+        ? rolloutQuery.data.surfaces
+        : ["web", "mobile"],
+      allowlistRoles: Array.isArray(rolloutQuery.data.allowlistRoles)
+        ? rolloutQuery.data.allowlistRoles
+        : ["admin"],
+      allowlistUserIds: Array.isArray(rolloutQuery.data.allowlistUserIds)
+        ? rolloutQuery.data.allowlistUserIds
+        : [],
+    });
+  }, [rolloutQuery.data]);
   const totalPages = Math.max(
     1,
     Math.ceil(Number(turnsQuery.data?.total || 0) / Number(turnsQuery.data?.limit || 20)),
   );
+  const rolloutDirty = useMemo(() => {
+    if (!rolloutQuery.data) return false;
+    return JSON.stringify({
+      enabled: rolloutDraft.enabled,
+      allowLiveRetrieval: rolloutDraft.allowLiveRetrieval,
+      cohortPercentage: Number(rolloutDraft.cohortPercentage || 0),
+      surfaces: rolloutDraft.surfaces,
+      allowlistRoles: rolloutDraft.allowlistRoles,
+      allowlistUserIds: rolloutDraft.allowlistUserIds,
+    }) !== JSON.stringify({
+      enabled: rolloutQuery.data.enabled !== false,
+      allowLiveRetrieval: Boolean(rolloutQuery.data.allowLiveRetrieval),
+      cohortPercentage: Number(rolloutQuery.data.cohortPercentage || 0),
+      surfaces: Array.isArray(rolloutQuery.data.surfaces)
+        ? rolloutQuery.data.surfaces
+        : ["web", "mobile"],
+      allowlistRoles: Array.isArray(rolloutQuery.data.allowlistRoles)
+        ? rolloutQuery.data.allowlistRoles
+        : [],
+      allowlistUserIds: Array.isArray(rolloutQuery.data.allowlistUserIds)
+        ? rolloutQuery.data.allowlistUserIds
+        : [],
+    });
+  }, [rolloutDraft, rolloutQuery.data]);
 
   const pageSnapshot = useMemo(
     () => ({
@@ -367,6 +495,176 @@ export default function ChatBotOpsPage() {
         </Stack>
       </Paper>
 
+      <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={2}
+          justifyContent="space-between"
+          alignItems={{ xs: "flex-start", md: "center" }}
+          sx={{ mb: 1.5 }}
+        >
+          <Box>
+            <Typography variant="h6" fontWeight={800}>
+              Pikora V7 rollout
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Dark launch cho hybrid retrieval và surface gating.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              onClick={() => rolloutQuery.refetch()}
+              disabled={rolloutQuery.isFetching}
+            >
+              Reload rollout
+            </Button>
+            <Button
+              variant="contained"
+              disabled={!rolloutDirty || rolloutMutation.isLoading}
+              onClick={async () => {
+                await updateChatRolloutConfig({
+                  enabled: rolloutDraft.enabled,
+                  allowLiveRetrieval: rolloutDraft.allowLiveRetrieval,
+                  cohortPercentage: Number(rolloutDraft.cohortPercentage || 0),
+                  surfaces: rolloutDraft.surfaces,
+                  allowlistRoles: rolloutDraft.allowlistRoles,
+                  allowlistUserIds: rolloutDraft.allowlistUserIds,
+                }).unwrap();
+              }}
+            >
+              Save rollout
+            </Button>
+          </Stack>
+        </Stack>
+
+        {rolloutQuery.error ? (
+          <Alert severity="error" sx={{ borderRadius: 2, mb: 2 }}>
+            KhÃ´ng táº£i Ä‘Æ°á»£c rollout config.
+          </Alert>
+        ) : null}
+
+        {rolloutMutation.isError ? (
+          <Alert severity="error" sx={{ borderRadius: 2, mb: 2 }}>
+            KhÃ´ng lÆ°u Ä‘Æ°á»£c rollout config.
+          </Alert>
+        ) : null}
+
+        {rolloutMutation.isSuccess ? (
+          <Alert severity="success" sx={{ borderRadius: 2, mb: 2 }}>
+            ÄÃ£ cáº­p nháº­t rollout config.
+          </Alert>
+        ) : null}
+
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.5}
+          flexWrap="wrap"
+          useFlexGap
+        >
+          <FormControlLabel
+            control={
+              <Switch
+                checked={rolloutDraft.enabled}
+                onChange={(event) =>
+                  setRolloutDraft((prev) => ({
+                    ...prev,
+                    enabled: event.target.checked,
+                  }))
+                }
+              />
+            }
+            label="Enabled"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={rolloutDraft.allowLiveRetrieval}
+                onChange={(event) =>
+                  setRolloutDraft((prev) => ({
+                    ...prev,
+                    allowLiveRetrieval: event.target.checked,
+                  }))
+                }
+              />
+            }
+            label="Allow live retrieval"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={rolloutDraft.surfaces.includes("web")}
+                onChange={(event) =>
+                  setRolloutDraft((prev) => ({
+                    ...prev,
+                    surfaces: event.target.checked
+                      ? Array.from(new Set([...prev.surfaces, "web"]))
+                      : prev.surfaces.filter((item) => item !== "web"),
+                  }))
+                }
+              />
+            }
+            label="Web"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={rolloutDraft.surfaces.includes("mobile")}
+                onChange={(event) =>
+                  setRolloutDraft((prev) => ({
+                    ...prev,
+                    surfaces: event.target.checked
+                      ? Array.from(new Set([...prev.surfaces, "mobile"]))
+                      : prev.surfaces.filter((item) => item !== "mobile"),
+                  }))
+                }
+              />
+            }
+            label="Mobile"
+          />
+          <TextField
+            size="small"
+            type="number"
+            label="Cohort %"
+            value={rolloutDraft.cohortPercentage}
+            onChange={(event) =>
+              setRolloutDraft((prev) => ({
+                ...prev,
+                cohortPercentage: Math.max(
+                  0,
+                  Math.min(100, Number(event.target.value || 0)),
+                ),
+              }))
+            }
+            sx={{ width: 140 }}
+          />
+          <TextField
+            size="small"
+            label="Allowlist roles"
+            value={rolloutDraft.allowlistRoles.join(", ")}
+            onChange={(event) =>
+              setRolloutDraft((prev) => ({
+                ...prev,
+                allowlistRoles: csvToList(event.target.value),
+              }))
+            }
+            sx={{ minWidth: 220, flex: 1 }}
+          />
+          <TextField
+            size="small"
+            label="Allowlist user IDs"
+            value={rolloutDraft.allowlistUserIds.join(", ")}
+            onChange={(event) =>
+              setRolloutDraft((prev) => ({
+                ...prev,
+                allowlistUserIds: csvToList(event.target.value),
+              }))
+            }
+            sx={{ minWidth: 220, flex: 1 }}
+          />
+        </Stack>
+      </Paper>
+
       {summaryQuery.isLoading ? (
         <Stack alignItems="center" py={8}>
           <CircularProgress />
@@ -412,6 +710,12 @@ export default function ChatBotOpsPage() {
             value={summary.feedback?.negative || 0}
             hint={`Feedback dương: ${summary.feedback?.positive || 0}`}
           />
+          <MetricCard
+            icon={<WarningAmberIcon color="warning" />}
+            label="Guard hits"
+            value={summary.guardHits || 0}
+            hint={`Fallback used: ${summary.fallbackUsed || 0}`}
+          />
         </Box>
       )}
 
@@ -450,6 +754,12 @@ export default function ChatBotOpsPage() {
           color="warning"
           emptyText="Chưa có unsupported action."
         />
+        <TagSection
+          title="Unsupported intents"
+          items={summary.topUnsupportedIntents}
+          color="warning"
+          emptyText="Chưa có unsupported intent."
+        />
       </Box>
 
       <Box
@@ -472,6 +782,52 @@ export default function ChatBotOpsPage() {
           title="Top route kinds"
           items={summary.topRouteKinds}
           emptyText="Chưa có route kind."
+        />
+        <TagSection
+          title="Top route lanes"
+          items={summary.topRouteLanes}
+          emptyText="Chưa có route lane."
+        />
+        <TagSection
+          title="Grounding status"
+          items={toCountItems(summary.groundingStatuses)}
+          emptyText="Chưa có grounding status."
+        />
+        <TagSection
+          title="Operator status"
+          items={toCountItems(summary.operatorStatuses)}
+          emptyText="Chưa có operator status."
+        />
+        <TagSection
+          title="Surface split"
+          items={toCountItems(summary.surfaces)}
+          emptyText="Chưa có surface data."
+        />
+      </Box>
+
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: {
+            xs: "1fr",
+            lg: "repeat(2, minmax(0, 1fr))",
+          },
+          gap: 2,
+          mb: 2,
+        }}
+      >
+        <TagSection
+          title="Retrieval modes"
+          items={toCountItems(summary.retrievalModes)}
+          emptyText="ChÆ°a cÃ³ retrieval mode."
+        />
+        <SurfaceMetricsSection
+          title="Latency by surface"
+          data={summary.latencyBySurface}
+        />
+        <SurfaceMetricsSection
+          title="Action status by surface"
+          data={summary.actionStatusBySurface}
         />
       </Box>
 

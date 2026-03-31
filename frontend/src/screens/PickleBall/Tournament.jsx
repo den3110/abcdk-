@@ -63,13 +63,24 @@ const GlassCard = styled(Card)(({ theme }) => ({
   display: "flex",
   flexDirection: "column",
   height: "100%",
+  willChange: "transform",
   transition:
     "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
-  "&:hover": {
-    transform: "translateY(-4px)",
-    boxShadow: theme.shadows[8],
-    borderColor: theme.palette.primary.main,
-    "& .zoom-image": { transform: "scale(1.08)" },
+}));
+
+const HoverCardFrame = styled(Box)(({ theme }) => ({
+  height: "100%",
+  width: "100%",
+  display: "flex",
+  "@media (hover: hover) and (pointer: fine)": {
+    "&:hover .tournament-card": {
+      transform: "translateY(-4px)",
+      boxShadow: theme.shadows[8],
+      borderColor: theme.palette.primary.main,
+    },
+    "&:hover .tournament-card .zoom-image": {
+      transform: "scale(1.08)",
+    },
   },
 }));
 
@@ -554,130 +565,133 @@ export default function TournamentDashboard() {
     );
 
     return (
-      <GlassCard>
-        {/* Image Area */}
-        <Box
-          sx={{
-            position: "relative",
-            height: 180,
-            overflow: "hidden",
-            bgcolor: "action.hover",
-          }}
-        >
-          <Box sx={{ position: "absolute", top: 12, right: 12, zIndex: 2 }}>
-            <StatusBadge status={t.status}>
-              <div className="dot" /> {statusMeta[t.status].label}
-            </StatusBadge>
-          </Box>
-
-          <ZoomItem src={t.image}>
-            <Box sx={{ width: "100%", height: "100%", cursor: "zoom-in" }}>
-              <img
-                src={
-                  t.image || "https://via.placeholder.com/400x200?text=No+Image"
-                }
-                alt={t.name}
-                loading="lazy"
-                decoding="async"
-                className="zoom-image"
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  transition: "transform 0.5s ease",
-                }}
-              />
-            </Box>
-          </ZoomItem>
-        </Box>
-
-        <CardContent sx={{ flexGrow: 1, p: 2, pb: 1 }}>
-          <Typography
-            variant="subtitle1"
-            fontWeight={800}
+      <HoverCardFrame>
+        <GlassCard className="tournament-card">
+          {/* Image Area */}
+          <Box
             sx={{
-              minHeight: "3rem",
-              lineHeight: 1.3,
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
+              position: "relative",
+              height: 180,
               overflow: "hidden",
-              mb: 1,
+              bgcolor: "action.hover",
             }}
           >
-            {t.name}
-          </Typography>
+            <Box sx={{ position: "absolute", top: 12, right: 12, zIndex: 2 }}>
+              <StatusBadge status={t.status}>
+                <div className="dot" /> {statusMeta[t.status].label}
+              </StatusBadge>
+            </Box>
 
-          <Stack spacing={1.5}>
-            <Stack
-              direction="row"
-              alignItems="center"
-              spacing={1}
-              color="text.secondary"
+            <ZoomItem src={t.image}>
+              <Box sx={{ width: "100%", height: "100%", cursor: "zoom-in" }}>
+                <img
+                  src={
+                    t.image ||
+                    "https://via.placeholder.com/400x200?text=No+Image"
+                  }
+                  alt={t.name}
+                  loading="lazy"
+                  decoding="async"
+                  className="zoom-image"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    transition: "transform 0.5s ease",
+                  }}
+                />
+              </Box>
+            </ZoomItem>
+          </Box>
+
+          <CardContent sx={{ flexGrow: 1, p: 2, pb: 1 }}>
+            <Typography
+              variant="subtitle1"
+              fontWeight={800}
+              sx={{
+                minHeight: "3rem",
+                lineHeight: 1.3,
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                mb: 1,
+              }}
             >
-              <CalendarMonthIcon fontSize="small" color="action" />
-              <Typography variant="body2" fontWeight={500}>
-                {formatDate(t.startDate)} - {formatDate(t.endDate)}
-              </Typography>
-            </Stack>
+              {t.name}
+            </Typography>
 
-            <Stack
-              direction="row"
-              alignItems="center"
-              spacing={1}
-              color="text.secondary"
-            >
-              <PlaceIcon fontSize="small" color="action" />
-              <Typography variant="body2" noWrap sx={{ maxWidth: "100%" }}>
-                {t.location ||
-                  translate("tournaments.dashboard.locationFallback")}
-              </Typography>
-            </Stack>
-
-            <Box>
-              <Stack direction="row" justifyContent="space-between" mb={0.5}>
-                <Typography
-                  variant="caption"
-                  fontWeight={600}
-                  color="text.secondary"
-                >
-                  {translate("tournaments.dashboard.registeredTeams")}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  fontWeight={700}
-                  color={percent >= 100 ? "error.main" : "primary.main"}
-                >
-                  {t.registered} / {t.maxPairs}
+            <Stack spacing={1.5}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                color="text.secondary"
+              >
+                <CalendarMonthIcon fontSize="small" color="action" />
+                <Typography variant="body2" fontWeight={500}>
+                  {formatDate(t.startDate)} - {formatDate(t.endDate)}
                 </Typography>
               </Stack>
 
-              <LinearProgress
-                variant="determinate"
-                value={percent}
-                sx={{
-                  height: 6,
-                  borderRadius: 3,
-                  bgcolor: alpha(theme.palette.grey[500], 0.1),
-                  "& .MuiLinearProgress-bar": {
-                    borderRadius: 3,
-                    background:
-                      percent >= 100
-                        ? theme.palette.error.main
-                        : theme.palette.primary.main,
-                  },
-                }}
-              />
-            </Box>
-          </Stack>
-        </CardContent>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                color="text.secondary"
+              >
+                <PlaceIcon fontSize="small" color="action" />
+                <Typography variant="body2" noWrap sx={{ maxWidth: "100%" }}>
+                  {t.location ||
+                    translate("tournaments.dashboard.locationFallback")}
+                </Typography>
+              </Stack>
 
-        <CardActions sx={{ p: 2, pt: 0, mt: "auto" }}>
-          <Box width="100%">
-            <Actions t={t} />
-          </Box>
-        </CardActions>
-      </GlassCard>
+              <Box>
+                <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                  <Typography
+                    variant="caption"
+                    fontWeight={600}
+                    color="text.secondary"
+                  >
+                    {translate("tournaments.dashboard.registeredTeams")}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    fontWeight={700}
+                    color={percent >= 100 ? "error.main" : "primary.main"}
+                  >
+                    {t.registered} / {t.maxPairs}
+                  </Typography>
+                </Stack>
+
+                <LinearProgress
+                  variant="determinate"
+                  value={percent}
+                  sx={{
+                    borderRadius: 3,
+                    height: 6,
+                    bgcolor: alpha(theme.palette.grey[500], 0.1),
+                    "& .MuiLinearProgress-bar": {
+                      borderRadius: 3,
+                      background:
+                        percent >= 100
+                          ? theme.palette.error.main
+                          : theme.palette.primary.main,
+                    },
+                  }}
+                />
+              </Box>
+            </Stack>
+          </CardContent>
+
+          <CardActions sx={{ p: 2, pt: 0, mt: "auto" }}>
+            <Box width="100%">
+              <Actions t={t} />
+            </Box>
+          </CardActions>
+        </GlassCard>
+      </HoverCardFrame>
     );
   };
 
@@ -896,15 +910,7 @@ export default function TournamentDashboard() {
                 <Grid container spacing={3}>
                   {filtered.map((t) => (
                     <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
-                      <Box
-                        height="100%"
-                        sx={{
-                          contentVisibility: "auto",
-                          containIntrinsicSize: "400px",
-                        }}
-                      >
-                        <TournamentCard t={t} />
-                      </Box>
+                      <TournamentCard t={t} />
                     </Grid>
                   ))}
                 </Grid>

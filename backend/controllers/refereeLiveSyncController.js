@@ -35,8 +35,8 @@ function currentDisplayName(user, fallback = "") {
   );
 }
 
-function ownerPayload(owner, deviceId = "") {
-  return normalizeLiveOwnerForClient(owner, deviceId);
+function ownerPayload(owner, deviceId = "", userId = null) {
+  return normalizeLiveOwnerForClient(owner, deviceId, userId);
 }
 
 function emitOwnershipChanged(io, matchId, owner, deviceId = "") {
@@ -50,6 +50,7 @@ function emitOwnershipChanged(io, matchId, owner, deviceId = "") {
 export const bootstrapMatchLiveSync = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { deviceId } = getDeviceContext(req);
+  const userId = req.user?._id || null;
   const [snapshot, owner] = await Promise.all([
     loadMatchLiveSnapshot(id),
     getMatchLiveOwner(id),
@@ -66,7 +67,7 @@ export const bootstrapMatchLiveSync = asyncHandler(async (req, res) => {
     mode: "offline_sync_v1",
     snapshot,
     serverVersion: Number(snapshot.liveVersion || 0),
-    owner: ownerPayload(owner, deviceId),
+    owner: ownerPayload(owner, deviceId, userId),
   });
 });
 
@@ -74,6 +75,7 @@ export const claimMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const io = req.app?.get?.("io");
   const { deviceId, deviceName } = getDeviceContext(req);
+  const userId = req.user?._id || null;
   if (!deviceId) {
     return res.status(400).json({
       ok: false,
@@ -85,7 +87,7 @@ export const claimMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const result = await claimMatchLiveOwner({
     matchId: id,
     deviceId,
-    userId: req.user?._id || null,
+    userId,
     displayName: currentDisplayName(req.user, deviceName),
     force: false,
   });
@@ -95,7 +97,7 @@ export const claimMatchLiveSyncOwner = asyncHandler(async (req, res) => {
     return res.status(409).json({
       ok: false,
       code: "ownership_conflict",
-      owner: ownerPayload(result.owner, deviceId),
+      owner: ownerPayload(result.owner, deviceId, userId),
       snapshot,
       serverVersion: Number(snapshot?.liveVersion || 0),
     });
@@ -105,7 +107,7 @@ export const claimMatchLiveSyncOwner = asyncHandler(async (req, res) => {
 
   res.json({
     ok: true,
-    owner: ownerPayload(result.owner, deviceId),
+    owner: ownerPayload(result.owner, deviceId, userId),
     snapshot,
     serverVersion: Number(snapshot?.liveVersion || 0),
     takeover: Boolean(result.takeover),
@@ -116,6 +118,7 @@ export const takeoverMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const io = req.app?.get?.("io");
   const { deviceId, deviceName } = getDeviceContext(req);
+  const userId = req.user?._id || null;
   if (!deviceId) {
     return res.status(400).json({
       ok: false,
@@ -127,7 +130,7 @@ export const takeoverMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const result = await claimMatchLiveOwner({
     matchId: id,
     deviceId,
-    userId: req.user?._id || null,
+    userId,
     displayName: currentDisplayName(req.user, deviceName),
     force: true,
   });
@@ -137,7 +140,7 @@ export const takeoverMatchLiveSyncOwner = asyncHandler(async (req, res) => {
 
   res.json({
     ok: true,
-    owner: ownerPayload(result.owner, deviceId),
+    owner: ownerPayload(result.owner, deviceId, userId),
     snapshot,
     serverVersion: Number(snapshot?.liveVersion || 0),
     takeover: true,
@@ -148,13 +151,14 @@ export const releaseMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const io = req.app?.get?.("io");
   const { deviceId } = getDeviceContext(req);
+  const userId = req.user?._id || null;
   const result = await releaseMatchLiveOwner(id, deviceId);
 
   if (!result.ok) {
     return res.status(409).json({
       ok: false,
       code: "ownership_conflict",
-      owner: ownerPayload(result.owner, deviceId),
+      owner: ownerPayload(result.owner, deviceId, userId),
     });
   }
 
@@ -171,6 +175,7 @@ export const syncMatchLiveSyncEvents = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const io = req.app?.get?.("io");
   const { deviceId, deviceName } = getDeviceContext(req);
+  const userId = req.user?._id || null;
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const result = await syncMatchLiveEvents({
     matchId: id,
@@ -192,6 +197,6 @@ export const syncMatchLiveSyncEvents = asyncHandler(async (req, res) => {
     rejectedEvents: result.rejectedEvents,
     snapshot: result.snapshot,
     serverVersion: Number(result.serverVersion || 0),
-    owner: ownerPayload(result.owner, deviceId),
+    owner: ownerPayload(result.owner, deviceId, userId),
   });
 });

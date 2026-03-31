@@ -1,7 +1,9 @@
 import fetch from "node-fetch";
+import OpenAI from "openai";
 import { TOOL_EXECUTORS } from "./tools/index.js";
 import { getRecentMessages } from "./memoryService.js";
 import { maybeLearn } from "./learningService.js";
+import { resolvePikoraRolloutDecision } from "./pikoraRolloutService.js";
 import {
   buildToolPreview as sharedBuildToolPreview,
   compactList as sharedCompactList,
@@ -12,24 +14,59 @@ import {
   TOOL_LABELS as SHARED_TOOL_LABELS,
 } from "./runtimeShared.js";
 
-const CHAT_MODEL = String(process.env.BOT_MODEL || "deepseek-chat").trim();
-const REASONER_MODEL = String(
-  process.env.BOT_REASONER_MODEL || "deepseek-reasoner",
+const CHAT_MODEL = String(
+  process.env.PIKORA_MODEL || process.env.BOT_MODEL || "deepseek-chat",
 ).trim();
-const PROXY_BASE_URL = String(process.env.CLIPROXY_BASE_URL || "").replace(
-  /\/+$/,
-  "",
-);
+const REASONER_MODEL = String(
+  process.env.PIKORA_REASONER_MODEL ||
+    process.env.BOT_REASONER_MODEL ||
+    "deepseek-reasoner",
+).trim();
+const PROXY_BASE_URL = String(
+  process.env.PIKORA_BASE_URL || process.env.CLIPROXY_BASE_URL || "",
+).replace(/\/+$/, "");
 const PROXY_API_KEY = String(
-  process.env.CLIPROXY_API_KEY || process.env.OPENAI_API_KEY || "",
+  process.env.PIKORA_API_KEY ||
+    process.env.CLIPROXY_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    "",
 ).trim();
 const CHAT_COMPLETIONS_URL = PROXY_BASE_URL
   ? `${PROXY_BASE_URL}/chat/completions`
   : "";
 const PROXY_TIMEOUT_MS = Math.max(
   10_000,
-  Math.min(120_000, Number(process.env.BOT_PROXY_TIMEOUT_MS || 45_000)),
+  Math.min(
+    120_000,
+    Number(
+      process.env.PIKORA_PROXY_TIMEOUT_MS ||
+        process.env.BOT_PROXY_TIMEOUT_MS ||
+        45_000,
+    ),
+  ),
 );
+const LIVE_RETRIEVAL_MODEL = String(
+  process.env.PIKORA_LIVE_RETRIEVAL_MODEL ||
+    process.env.OPENAI_DEFAULT_MODEL ||
+    "gpt-5-nano",
+).trim();
+const LIVE_RETRIEVAL_TIMEOUT_MS = Math.max(
+  10_000,
+  Math.min(
+    90_000,
+    Number(process.env.PIKORA_LIVE_RETRIEVAL_TIMEOUT_MS || 25_000),
+  ),
+);
+const LIVE_RETRIEVAL_MAX_RESULTS = Math.max(
+  1,
+  Math.min(4, Number(process.env.PIKORA_LIVE_RETRIEVAL_MAX_RESULTS || 3)),
+);
+const LIVE_RETRIEVAL_CLIENT = process.env.OPENAI_API_KEY
+  ? new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      timeout: LIVE_RETRIEVAL_TIMEOUT_MS,
+    })
+  : null;
 const MEMORY_LIMIT = Math.max(
   0,
   Math.min(6, Number(process.env.BOT_MEMORY_LIMIT || 4)),
@@ -53,15 +90,15 @@ const KNOWLEDGE_CACHE_TTL_MS = Math.max(
 );
 const FIRST_TOURNAMENT_ID = "__FIRST_TOURNAMENT_ID__";
 const FIRST_CLUB_ID = "__FIRST_CLUB_ID__";
-const ROUTE_CACHE_VERSION = "2026-03-31-tournament-status-v2";
+const ROUTE_CACHE_VERSION = "2026-03-31-tournament-status-v3";
 const routeDecisionCache = new Map();
 const toolExecutionCache = new Map();
 
 export const BOT_IDENTITY = {
   name: "Pikora",
   nameVi: "Pikora - Trợ lý PickleTour",
-  version: "4.1",
-  engine: "deepseek-proxy-orchestrator-v3",
+  version: "7.0",
+  engine: "deepseek-proxy-orchestrator-v7",
   personality: ["Nhanh", "Thân thiện", "Chính xác", "Ngắn gọn"],
 };
 
@@ -99,6 +136,12 @@ const EXTRA_NAVIGATION_SCREENS = {
 };
 
 export function getChatCapabilities() {
+  const retrievalMode = "internal";
+  let explanation = "";
+  if (retrievalMode === "hybrid_live") {
+    explanation = `${explanation} CÃ³ bá»• sung kiá»ƒm chá»©ng live retrieval theo rollout V7.`;
+  }
+
   return {
     backend: "deepseek-proxy-chat-completions",
     provider: PROXY_BASE_URL ? "CLIProxyAPI" : "OpenAI",
@@ -111,7 +154,46 @@ export function getChatCapabilities() {
     actions: true,
     pageStateContext: true,
     personalization: true,
+    hybridRetrieval: {
+      supported: Boolean(LIVE_RETRIEVAL_CLIENT),
+      defaultMode: "internal",
+      liveModel: LIVE_RETRIEVAL_MODEL,
+    },
+    rolloutManaged: true,
   };
+}
+
+function resolveRetrievalMode(context = {}, hybridRetrieval = null) {
+  if (
+    hybridRetrieval?.retrievalMode === "hybrid_live" &&
+    Array.isArray(hybridRetrieval?.items) &&
+    hybridRetrieval.items.length > 0
+  ) {
+    return "hybrid_live";
+  }
+
+  return "internal";
+}
+
+function normalizeKnowledgeMode(value) {
+  const next = String(value || "").trim().toLowerCase();
+  if (next === "internal") return "internal";
+  if (next === "hybrid_live") return "hybrid_live";
+  return "auto";
+}
+
+function collectUserRoles(user) {
+  const roles = new Set();
+  if (user?.role) roles.add(String(user.role).trim().toLowerCase());
+  if (Array.isArray(user?.roles)) {
+    user.roles.forEach((item) => {
+      const role = String(item || "").trim().toLowerCase();
+      if (role) roles.add(role);
+    });
+  }
+  if (user?.isAdmin) roles.add("admin");
+  if (user?.isSuperAdmin || user?.isSuperUser) roles.add("super_admin");
+  return [...roles];
 }
 
 function trimText(value, maxLength = 180) {
@@ -231,6 +313,119 @@ function inferIntent(message, route, context = {}, execution = {}) {
   return route?.kind || "general";
 }
 
+function resolveRouteLane(message, route, context = {}, execution = {}) {
+  const normalized = sharedNormalizeText(message);
+  const toolsUsed = Array.isArray(execution?.toolsUsed) ? execution.toolsUsed : [];
+  const actions = Array.isArray(execution?.actions) ? execution.actions : [];
+
+  if (route?.kind === "tournament") {
+    if (looksLikeTournamentAvailabilityQuestion(message, normalized)) {
+      return "tournament_status";
+    }
+    if (
+      hasAny(normalized, [
+        "con bao nhieu tran",
+        "bao nhieu tran",
+        "tien do",
+        "progress",
+        "da xong bao nhieu",
+        "con lai bao nhieu",
+      ]) ||
+      toolsUsed.some((tool) =>
+        [
+          "get_tournament_progress",
+          "get_tournament_schedule",
+          "get_tournament_match_tree",
+        ].includes(tool),
+      )
+    ) {
+      return "tournament_progress";
+    }
+    if (
+      hasAny(normalized, [
+        "mo ",
+        "vao ",
+        "manage",
+        "quan ly",
+        "dang ky",
+        "lich thi dau",
+        "bracket",
+        "so do",
+        "draw",
+        "boc tham",
+      ]) ||
+      (context?.tournamentId &&
+        actions.some((action) =>
+          ["set_page_state", "prefill_text", "focus_element"].includes(
+            action?.type,
+          ),
+        ))
+    ) {
+      return "tournament_navigation";
+    }
+    return "tournament_status";
+  }
+
+  if (route?.kind === "news") return "news_summary";
+  if (route?.kind === "club") return "club_updates";
+  if (route?.kind === "live") return "live_status";
+  if (route?.kind === "personal" || route?.kind === "player") {
+    return "profile_personal";
+  }
+  if (route?.kind === "navigate") return "safe_operator";
+  if (
+    route?.kind === "knowledge" ||
+    route?.kind === "general" ||
+    route?.kind === "direct"
+  ) {
+    return "knowledge_help";
+  }
+  return "safe_operator";
+}
+
+function resolveGroundingStatus({
+  grounded = false,
+  needsDisclaimer = false,
+  toolCount = 0,
+  cardCount = 0,
+}) {
+  if (grounded) return "grounded";
+  if (needsDisclaimer || toolCount > 0 || cardCount > 0) return "partial";
+  return "unsupported";
+}
+
+function resolveOperatorStatus(actions = []) {
+  const list = Array.isArray(actions) ? actions : [];
+  if (
+    list.some((action) =>
+      [
+        "set_page_state",
+        "set_query_param",
+        "open_dialog",
+        "focus_element",
+        "scroll_to_section",
+        "prefill_text",
+      ].includes(action?.type),
+    )
+  ) {
+    return "page_action";
+  }
+  if (
+    list.some((action) =>
+      [
+        "navigate",
+        "open_new_tab",
+        "copy_link",
+        "copy_current_url",
+        "copy_text",
+      ].includes(action?.type),
+    )
+  ) {
+    return "navigate_fallback";
+  }
+  return "unsupported";
+}
+
 function buildCapabilityKeys(route, context = {}, result = {}) {
   const keys = compactList([
     ...(Array.isArray(context?.capabilityKeys) ? context.capabilityKeys : []),
@@ -260,6 +455,12 @@ function buildCapabilityKeys(route, context = {}, result = {}) {
       : "",
     result?.trustMeta?.grounded ? "source_grounding_strong" : "",
     result?.trustMeta?.needsDisclaimer ? "grounding_limited" : "",
+    result?.trustMeta?.groundingStatus === "grounded" ? "grounded" : "",
+    result?.trustMeta?.groundingStatus === "partial" ? "grounding_partial" : "",
+    result?.trustMeta?.operatorStatus === "page_action" ? "page_action" : "",
+    result?.trustMeta?.operatorStatus === "navigate_fallback"
+      ? "navigate_fallback"
+      : "",
     route?.kind || "",
   ]).filter(Boolean);
 
@@ -274,6 +475,8 @@ function buildActionExecutionSummary(actions = []) {
     confirmRequiredCount: safeActions.filter((item) => item?.requiresConfirm).length,
     actionTypes: compactList(safeActions.map((item) => item?.type).filter(Boolean)),
     executed: [],
+    unsupported: [],
+    degraded: [],
   };
 }
 
@@ -401,6 +604,8 @@ function buildTrustMeta({
   answerCards = [],
   actions = [],
   reasoningAvailable = false,
+  guardApplied = false,
+  retrievalMode = "internal",
 }) {
   const sourceCount = Array.isArray(sources) ? sources.length : 0;
   const cardCount = Array.isArray(answerCards) ? answerCards.length : 0;
@@ -417,6 +622,13 @@ function buildTrustMeta({
     sources,
     answerCards,
   );
+  const groundingStatus = resolveGroundingStatus({
+    grounded,
+    needsDisclaimer,
+    toolCount,
+    cardCount,
+  });
+  const operatorStatus = resolveOperatorStatus(actions);
 
   let confidenceLevel = "fast";
   let confidenceLabel = "Phản hồi nhanh";
@@ -457,6 +669,10 @@ function buildTrustMeta({
     cardCount,
     actionCount,
     needsDisclaimer,
+    groundingStatus,
+    operatorStatus,
+    retrievalMode,
+    guardApplied: Boolean(guardApplied),
     confidenceLevel,
     confidenceLabel,
     explanation,
@@ -536,6 +752,12 @@ async function runPikora(message, context, userId, emit, options = {}) {
       classifyRoute(message, context, userId),
       ROUTE_CACHE_TTL_MS,
     );
+  const rolloutDecision = await resolvePikoraRolloutDecision({
+    surface: context?.surface || "web",
+    userId,
+    roles: collectUserRoles(context?.currentUser),
+    cohortId: context?.cohortId || "",
+  });
 
   if (route.directResponse) {
     return finalizeDirectResponse({
@@ -578,6 +800,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
       getToolCacheTtlMs(route),
     );
   }
+  const routeLane = resolveRouteLane(message, route, context, execution);
 
   const groundedTournamentStatusResponse =
     buildGroundedTournamentStatusResponse(message, route, context, execution);
@@ -605,6 +828,36 @@ async function runPikora(message, context, userId, emit, options = {}) {
     personalization,
     execution,
   );
+  const hybridRetrieval = await maybeRunHybridLiveRetrieval({
+    message,
+    route,
+    routeLane,
+    context,
+    execution,
+    rolloutDecision,
+    safeEmit,
+  });
+  if (hybridRetrieval?.attempted) {
+    execution.hybridRetrieval = hybridRetrieval;
+    execution.toolSummary = [
+      ...(execution.toolSummary || []),
+      {
+        tool: "hybrid_live_retrieval",
+        label: "Hybrid live retrieval",
+        resultPreview:
+          hybridRetrieval.items?.length > 0
+            ? `${hybridRetrieval.items.length} nguá»“n live web`
+            : hybridRetrieval.error || "KhÃ´ng cÃ³ nguá»“n live web phÃ¹ há»£p",
+        durationMs: Number(hybridRetrieval.durationMs || 0),
+        error: Boolean(hybridRetrieval.error),
+      },
+    ];
+    execution.toolsUsed = [
+      ...(execution.toolsUsed || []),
+      "hybrid_live_retrieval",
+    ];
+  }
+  const retrievalMode = resolveRetrievalMode(context, hybridRetrieval);
 
   const preferredModel =
     context?.reasoningMode === "force_reasoner" ||
@@ -670,9 +923,17 @@ async function runPikora(message, context, userId, emit, options = {}) {
   }
 
   const processingTime = Date.now() - startTime;
-  const sources = buildSourcesFromToolResults(execution.toolResults, context);
-  const answerCards = buildAnswerCardsFromToolResults(execution.toolResults, context);
-  const finalReply = applyTrustGuard(
+  const sources = buildSourcesFromToolResults(
+    execution.toolResults,
+    context,
+    hybridRetrieval,
+  );
+  const answerCards = buildAnswerCardsFromToolResults(
+    execution.toolResults,
+    context,
+    hybridRetrieval,
+  );
+  const trustGuard = applyTrustGuard(
     result.reply ||
       "Xin lỗi, mình chưa tổng hợp được câu trả lời rõ ràng. Bạn thử hỏi lại ngắn hơn nhé.",
     route,
@@ -681,9 +942,10 @@ async function runPikora(message, context, userId, emit, options = {}) {
     answerCards,
   );
   const finalResult = {
-    reply: finalReply,
+    reply: trustGuard.reply,
     intent: inferIntent(message, route, context, execution),
     routeKind: route.kind || "direct",
+    routeLane,
     toolsPlanned: Array.isArray(route.toolPlan)
       ? route.toolPlan.map((step) => step?.name).filter(Boolean)
       : [],
@@ -702,6 +964,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
       userId,
       personalization,
     ),
+    surface: context?.surface || "web",
     model: result.model,
     mode: result.mode,
     rawThinking: result.rawThinking,
@@ -725,6 +988,8 @@ async function runPikora(message, context, userId, emit, options = {}) {
     answerCards: finalResult.answerCards,
     actions: finalResult.actions,
     reasoningAvailable: finalResult.reasoningAvailable,
+    guardApplied: trustGuard.guardApplied,
+    retrievalMode,
   });
   finalResult.capabilityKeys = buildCapabilityKeys(route, context, finalResult);
 
@@ -732,6 +997,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     text: finalResult.reply,
     intent: finalResult.intent,
     routeKind: finalResult.routeKind,
+    routeLane: finalResult.routeLane,
     toolsUsed: finalResult.toolsUsed,
     model: finalResult.model,
     mode: finalResult.mode,
@@ -745,6 +1011,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     contextInsight: finalResult.contextInsight,
     personalization: finalResult.personalization,
     trustMeta: finalResult.trustMeta,
+    surface: finalResult.surface,
     firstTokenLatencyMs: finalResult.firstTokenLatencyMs,
     processingTimeMs: finalResult.processingTimeMs,
     toolSummary: finalResult.toolSummary,
@@ -753,6 +1020,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     text: finalResult.reply,
     intent: finalResult.intent,
     routeKind: finalResult.routeKind,
+    routeLane: finalResult.routeLane,
     toolsUsed: finalResult.toolsUsed,
     processingTime: finalResult.processingTime,
     processingTimeMs: finalResult.processingTimeMs,
@@ -768,6 +1036,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     contextInsight: finalResult.contextInsight,
     personalization: finalResult.personalization,
     trustMeta: finalResult.trustMeta,
+    surface: finalResult.surface,
     toolSummary: finalResult.toolSummary,
   });
 
@@ -790,6 +1059,9 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     reply: route.directResponse.reply,
     intent: "direct_help",
     routeKind: route.kind || "direct",
+    routeLane: resolveRouteLane("", route, context, {
+      actions: route?.directResponse?.actions || [],
+    }),
     toolsPlanned: [],
     toolsUsed: [],
     toolSummary: [],
@@ -806,6 +1078,7 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     contextInsight: route.directResponse.contextInsight || contextInsight || "",
     personalization: null,
     suggestions: route.directResponse.suggestions || [],
+    surface: context?.surface || "web",
     model: "local-direct",
     mode: "direct",
     rawThinking: "",
@@ -826,6 +1099,7 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     answerCards: result.answerCards,
     actions: result.actions,
     reasoningAvailable: false,
+    guardApplied: false,
   });
   result.capabilityKeys = buildCapabilityKeys(route, context, result);
 
@@ -840,6 +1114,7 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     text: result.reply,
     intent: result.intent,
     routeKind: result.routeKind,
+    routeLane: result.routeLane,
     toolsUsed: [],
     model: result.model,
     mode: result.mode,
@@ -853,6 +1128,7 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
+    surface: result.surface,
     firstTokenLatencyMs: 0,
     processingTimeMs: result.processingTimeMs,
     toolSummary: [],
@@ -861,6 +1137,7 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     text: result.reply,
     intent: result.intent,
     routeKind: result.routeKind,
+    routeLane: result.routeLane,
     toolsUsed: [],
     processingTime: result.processingTime,
     processingTimeMs: result.processingTimeMs,
@@ -876,6 +1153,7 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
+    surface: result.surface,
     toolSummary: [],
   });
   if (result.suggestions.length > 0) {
@@ -896,17 +1174,7 @@ function buildGroundedTournamentStatusResponse(message, route, context, executio
   }
 
   const normalized = sharedNormalizeText(message);
-  if (
-    !hasAny(normalized, [
-      "giai nao",
-      "co giai nao",
-      "bao nhieu giai",
-      "co bao nhieu giai",
-      "sap dien ra",
-      "dang dien ra",
-      "da ket thuc",
-    ])
-  ) {
+  if (!looksLikeTournamentAvailabilityQuestion(message, normalized)) {
     return null;
   }
 
@@ -939,7 +1207,7 @@ function buildGroundedTournamentStatusResponse(message, route, context, executio
   if (!result || !Array.isArray(result.tournaments)) return null;
 
   const requestedStatus =
-    pickTournamentStatus(normalized) ||
+    pickTournamentStatusFromMessage(message, normalized) ||
     route?.toolPlan?.[0]?.args?.status ||
     "";
   const statusLabel = formatTournamentStatusLabel(requestedStatus);
@@ -1007,6 +1275,7 @@ function finalizeGroundedToolResponse({
     reply: direct.reply,
     intent: inferIntent(message, route, context, execution),
     routeKind: route.kind || "lookup",
+    routeLane: resolveRouteLane(message, route, context, execution),
     toolsPlanned: Array.isArray(route.toolPlan)
       ? route.toolPlan.map((step) => step?.name).filter(Boolean)
       : [],
@@ -1019,6 +1288,7 @@ function finalizeGroundedToolResponse({
     contextInsight: direct.contextInsight || contextInsight || "",
     personalization: null,
     suggestions: direct.suggestions || [],
+    surface: context?.surface || "web",
     model: "local-grounded",
     mode: "grounded_direct",
     rawThinking: "",
@@ -1040,6 +1310,7 @@ function finalizeGroundedToolResponse({
     answerCards: result.answerCards,
     actions: result.actions,
     reasoningAvailable: false,
+    guardApplied: false,
   });
 
   safeEmit("message_start", {
@@ -1053,6 +1324,7 @@ function finalizeGroundedToolResponse({
     text: result.reply,
     intent: result.intent,
     routeKind: result.routeKind,
+    routeLane: result.routeLane,
     toolsUsed: result.toolsUsed,
     model: result.model,
     mode: result.mode,
@@ -1066,6 +1338,7 @@ function finalizeGroundedToolResponse({
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
+    surface: result.surface,
     firstTokenLatencyMs: 0,
     processingTimeMs: result.processingTimeMs,
     toolSummary: result.toolSummary,
@@ -1074,6 +1347,7 @@ function finalizeGroundedToolResponse({
     text: result.reply,
     intent: result.intent,
     routeKind: result.routeKind,
+    routeLane: result.routeLane,
     toolsUsed: result.toolsUsed,
     processingTime: result.processingTime,
     processingTimeMs: result.processingTimeMs,
@@ -1089,6 +1363,7 @@ function finalizeGroundedToolResponse({
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
+    surface: result.surface,
     toolSummary: result.toolSummary,
   });
   if (result.suggestions.length > 0) {
@@ -1129,9 +1404,97 @@ function normalizeText(value) {
 }
 
 function hasAny(normalized, keywords = []) {
-  return keywords.some((keyword) =>
-    normalized.includes(sharedNormalizeText(keyword)),
+  const haystack = sharedNormalizeText(normalized);
+  const paddedHaystack = ` ${haystack} `;
+  return keywords.some((keyword) => {
+    const needle = sharedNormalizeText(keyword);
+    if (!needle) return false;
+    if (needle.includes(" ")) {
+      return haystack.includes(needle);
+    }
+    return paddedHaystack.includes(` ${needle} `);
+  });
+}
+
+function hasRawPattern(message, pattern) {
+  return pattern.test(String(message || ""));
+}
+
+function looksLikeGreetingMessage(message) {
+  return hasRawPattern(
+    message,
+    /(^|\s)(xin chào|xin chao|chào pikora|chao pikora|hello|hi|hey)(\s|[!?.,]|$)/iu,
   );
+}
+
+function looksLikeThanksMessage(message) {
+  return hasRawPattern(
+    message,
+    /(^|\s)(cảm ơn|cam on|thanks|thank you)(\s|[!?.,]|$)/iu,
+  );
+}
+
+function looksLikeNavigationRequest(message) {
+  return hasRawPattern(
+    message,
+    /(^|\s)(mở|mo|vào|vao|đi tới|di toi|đến|den|go to|open|truy cập|truy cap|show page)(\s|[!?.,]|$)/iu,
+  );
+}
+
+export function pickTournamentStatusFromMessage(
+  message,
+  normalized = sharedNormalizeText(message),
+) {
+  if (
+    hasAny(normalized, ["sắp tới", "sắp diễn ra", "upcoming", "mở đăng ký"]) ||
+    hasRawPattern(
+      message,
+      /(sắp tới|sắp diễn ra|sap toi|sap dien ra|upcoming|mở đăng ký|mo dang ky)/iu,
+    )
+  ) {
+    return "upcoming";
+  }
+  if (
+    hasAny(normalized, ["đang diễn ra", "ongoing", "live"]) ||
+    hasRawPattern(
+      message,
+      /(đang diễn ra|dang dien ra|ongoing|\blive\b)/iu,
+    )
+  ) {
+    return "ongoing";
+  }
+  if (
+    hasAny(normalized, ["đã kết thúc", "finished"]) ||
+    hasRawPattern(message, /(đã kết thúc|da ket thuc|finished)/iu)
+  ) {
+    return "finished";
+  }
+  return "";
+}
+
+export function looksLikeTournamentAvailabilityQuestion(
+  message,
+  normalized = sharedNormalizeText(message),
+) {
+  const mentionsTournament =
+    hasAny(normalized, ["giai", "tournament"]) ||
+    hasRawPattern(message, /(giải|giai|tournament)/iu);
+  if (!mentionsTournament) return false;
+
+  const asksAvailability =
+    hasAny(normalized, [
+      "co giai nao",
+      "giai nao",
+      "bao nhieu giai",
+      "co bao nhieu giai",
+      "co khong",
+    ]) ||
+    hasRawPattern(
+      message,
+      /(có giải nào|co giai nao|giải nào|giai nao|bao nhiêu giải|bao nhieu giai)/iu,
+    );
+
+  return Boolean(pickTournamentStatusFromMessage(message, normalized)) || asksAvailability;
 }
 
 function isQuestionLike(normalized) {
@@ -1360,7 +1723,7 @@ function createTournamentListTabAction(status) {
   });
 }
 
-function buildTournamentListDirectRoute(normalized, context = {}) {
+function buildTournamentListDirectRoute(message, normalized, context = {}) {
   const pageState = getTournamentListPageState(context);
   if (!pageState) return null;
 
@@ -1385,7 +1748,8 @@ function buildTournamentListDirectRoute(normalized, context = {}) {
 
   if (!asksAboutTournamentList) return null;
 
-  const requestedStatus = pickTournamentStatus(normalized) || pageState.currentTab;
+  const requestedStatus =
+    pickTournamentStatusFromMessage(message, normalized) || pageState.currentTab;
   if (!requestedStatus) return null;
 
   const currentStatus = pageState.currentTab || requestedStatus;
@@ -1444,6 +1808,7 @@ function classifyRoute(message, context, userId) {
   const boostedNormalized = addContextualKeywords(normalized, context);
   const entityName = sharedExtractEntityName(message);
   const tournamentListDirectRoute = buildTournamentListDirectRoute(
+    message,
     boostedNormalized,
     context,
   );
@@ -1452,9 +1817,20 @@ function classifyRoute(message, context, userId) {
     return tournamentListDirectRoute;
   }
 
-  if (
-    hasAny(normalized, ["xin chao", "hello", "hi ", "hey", "chao pikora"])
-  ) {
+  if (looksLikeTournamentAvailabilityQuestion(message, normalized)) {
+    return {
+      kind: "tournament",
+      entityName,
+      toolPlan: buildTournamentToolPlan(
+        message,
+        boostedNormalized,
+        entityName,
+        context,
+      ),
+    };
+  }
+
+  if (looksLikeGreetingMessage(message)) {
     return {
       kind: "direct",
       directResponse: {
@@ -1469,7 +1845,7 @@ function classifyRoute(message, context, userId) {
     };
   }
 
-  if (hasAny(normalized, ["cảm ơn", "thanks", "thank you"])) {
+  if (looksLikeThanksMessage(message)) {
     return {
       kind: "direct",
       directResponse: {
@@ -1640,6 +2016,10 @@ function classifyRoute(message, context, userId) {
       ? [{ name: "search_knowledge", args: { query: message, limit: 2 } }]
       : [],
   };
+}
+
+export function classifyRouteForTest(message, context = {}, userId = null) {
+  return classifyRoute(message, context, userId);
 }
 
 function detectNavigationRoute(message, normalized, context) {
@@ -2069,6 +2449,27 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         ];
       }
     }
+    if (
+      hasAny(normalized, [
+        "bao nhiêu trận",
+        "còn bao nhiêu trận",
+        "trận chưa xong",
+        "trận đã xong",
+        "tổng trận",
+        "match count",
+      ])
+    ) {
+      return [
+        {
+          name: "get_tournament_progress",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_summary",
+          args: { tournamentId: context.tournamentId },
+        },
+      ];
+    }
     if (hasAny(normalized, ["lịch thi đấu", "schedule"])) {
       return [
         {
@@ -2186,7 +2587,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     ];
   }
 
-  const status = pickTournamentStatus(normalized);
+  const status = pickTournamentStatusFromMessage(message, normalized);
   const extractedName = shouldIgnoreTournamentNameFilter(normalized, entityName)
     ? ""
     : entityName || "";
@@ -2289,12 +2690,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
 }
 
 function pickTournamentStatus(normalized) {
-  if (hasAny(normalized, ["sắp tới", "sắp diễn ra", "upcoming", "mở đăng ký"])) {
-    return "upcoming";
-  }
-  if (hasAny(normalized, ["đang diễn ra", "ongoing", "live"])) return "ongoing";
-  if (hasAny(normalized, ["đã kết thúc", "finished"])) return "finished";
-  return "";
+  return pickTournamentStatusFromMessage("", normalized);
 }
 
 function shouldIgnoreTournamentNameFilter(normalized, entityName) {
@@ -2399,6 +2795,7 @@ function createSource(kind, label, path, extra = {}) {
     freshness: extra.freshness || "",
     tool: extra.tool || "",
     url: extra.url || "",
+    tier: extra.tier || "app_data",
   };
 }
 
@@ -2415,7 +2812,179 @@ function createAnswerCard(kind, card = {}) {
   };
 }
 
-function buildSourcesFromToolResults(toolResults = {}, context = {}) {
+function extractJsonFromOpenAIResponse(response) {
+  if (typeof response?.output_text === "string" && response.output_text.trim()) {
+    try {
+      return JSON.parse(response.output_text);
+    } catch {
+      return null;
+    }
+  }
+
+  const output = Array.isArray(response?.output) ? response.output : [];
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const part of content) {
+      if (part?.type === "output_json" && part.json) {
+        return part.json;
+      }
+      if (part?.type === "output_text") {
+        const text =
+          typeof part?.text?.value === "string"
+            ? part.text.value
+            : typeof part?.text === "string"
+              ? part.text
+              : "";
+        if (!text) continue;
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function normalizeHybridRetrievalItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      title: trimText(item?.title || "", 160),
+      url: String(item?.url || "").trim(),
+      sourceName: trimText(item?.sourceName || item?.source || "", 80),
+      publishedAt: trimText(item?.publishedAt || "", 48),
+      summary: trimText(item?.summary || item?.reason || "", 220),
+    }))
+    .filter((item) => item.title && item.url)
+    .slice(0, LIVE_RETRIEVAL_MAX_RESULTS);
+}
+
+function shouldEscalateKnowledgeHelpToHybrid(message, route, execution = {}) {
+  const requestedKinds = new Set(["knowledge", "general"]);
+  if (!requestedKinds.has(String(route?.kind || ""))) return false;
+
+  const normalized = sharedNormalizeText(message);
+  if (
+    hasAny(normalized, [
+      "moi nhat",
+      "hom nay",
+      "gan day",
+      "trend",
+      "cap nhat",
+      "news",
+      "latest",
+      "today",
+      "recent",
+    ])
+  ) {
+    return true;
+  }
+
+  const knowledgeCount =
+    Number(execution?.toolResults?.search_knowledge?.count) ||
+    Number(execution?.toolResults?.search_knowledge?.results?.length || 0);
+
+  return knowledgeCount <= 0;
+}
+
+async function maybeRunHybridLiveRetrieval({
+  message,
+  route,
+  routeLane,
+  context,
+  execution,
+  rolloutDecision,
+  safeEmit,
+}) {
+  if (!LIVE_RETRIEVAL_CLIENT || !rolloutDecision?.allowLiveRetrieval) return null;
+  if (routeLane !== "knowledge_help") return null;
+
+  const knowledgeMode = normalizeKnowledgeMode(context?.knowledgeMode);
+  const shouldTry =
+    knowledgeMode === "hybrid_live" ||
+    (knowledgeMode === "auto" &&
+      shouldEscalateKnowledgeHelpToHybrid(message, route, execution));
+
+  if (!shouldTry) return null;
+
+  safeEmit("thinking", { step: "Đang bổ sung kiểm chứng ngoài hệ thống..." });
+
+  try {
+    const response = await LIVE_RETRIEVAL_CLIENT.responses.create({
+      model: LIVE_RETRIEVAL_MODEL,
+      input: [
+        {
+          role: "system",
+          content:
+            "Bạn là bộ truy xuất live web cho Pikora. Chỉ trả JSON. Ưu tiên nguồn chất lượng cao, ngắn gọn, đúng với câu hỏi.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            query: message,
+            pageType: context?.pageType || "",
+            pageTitle: context?.pageTitle || "",
+            currentPath: context?.currentPath || "",
+            maxResults: LIVE_RETRIEVAL_MAX_RESULTS,
+          }),
+        },
+      ],
+      tools: [{ type: "web_search" }],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "pikora_live_retrieval",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              items: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    url: { type: "string" },
+                    sourceName: { type: "string" },
+                    publishedAt: { type: "string" },
+                    summary: { type: "string" },
+                  },
+                  required: ["title", "url"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["items"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    const parsed = extractJsonFromOpenAIResponse(response);
+    const items = normalizeHybridRetrievalItems(parsed?.items);
+    return {
+      attempted: true,
+      retrievalMode: "hybrid_live",
+      items,
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      retrievalMode: "internal",
+      items: [],
+      error: error?.message || "Hybrid retrieval failed",
+    };
+  }
+}
+
+function buildSourcesFromToolResults(
+  toolResults = {},
+  context = {},
+  hybridRetrieval = null,
+) {
   const sources = [];
 
   (toolResults.search_tournaments?.tournaments || []).slice(0, 2).forEach((item) => {
@@ -2426,6 +2995,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
         entityId: String(item._id),
         freshness: item.status || "db",
         tool: "search_tournaments",
+        tier: "app_data",
       }),
     );
   });
@@ -2441,6 +3011,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
           entityId: context.tournamentId,
           freshness: toolResults.get_tournament_summary.tournament.status || "db",
           tool: "get_tournament_summary",
+          tier: "app_data",
         },
       ),
     );
@@ -2458,6 +3029,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
           freshness:
             toolResults.get_tournament_progress?.overview?.progressPercent || "db",
           tool: "get_tournament_progress",
+          tier: "app_data",
         },
       ),
     );
@@ -2470,6 +3042,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
         entityId: article.slug || "",
         freshness: article.publishedAt || "",
         tool: "search_news",
+        tier: "app_data",
       }),
     );
   });
@@ -2482,6 +3055,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
         entityId: String(club._id),
         freshness: "db",
         tool: "search_clubs",
+        tier: "app_data",
       }),
     );
   });
@@ -2498,6 +3072,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
           entityId: String(clubId || ""),
           freshness: "db",
           tool: "get_club_details",
+          tier: "app_data",
         },
       ),
     );
@@ -2511,6 +3086,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
         entityId: String(user._id),
         freshness: "db",
         tool: "search_users",
+        tier: "app_data",
       }),
     );
   });
@@ -2522,6 +3098,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
         entityId: context.matchId,
         freshness: toolResults.get_match_info.status || "db",
         tool: "get_match_info",
+        tier: "app_data",
       }),
     );
   }
@@ -2537,6 +3114,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
           entityId: context.matchId,
           freshness: toolResults.get_match_score_detail.status || "db",
           tool: "get_match_score_detail",
+          tier: "app_data",
         },
       ),
     );
@@ -2554,6 +3132,7 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
           freshness: stream.status || "live",
           tool: "get_live_streams",
           url: stream.link || "",
+          tier: "app_data",
         },
       ),
     );
@@ -2566,6 +3145,20 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
         entityId: item.title || "",
         freshness: item.category || "knowledge",
         tool: "search_knowledge",
+        tier: "curated_knowledge",
+      }),
+    );
+  });
+
+  (hybridRetrieval?.items || []).slice(0, 2).forEach((item) => {
+    sources.push(
+      createSource("web", item.title || "Live web result", "", {
+        entityType: "knowledge",
+        entityId: item.url || item.title || "",
+        freshness: item.publishedAt || "live_web",
+        tool: "hybrid_live_retrieval",
+        url: item.url || "",
+        tier: "live_web",
       }),
     );
   });
@@ -2574,7 +3167,11 @@ function buildSourcesFromToolResults(toolResults = {}, context = {}) {
     .slice(0, MAX_SOURCES);
 }
 
-function buildAnswerCardsFromToolResults(toolResults = {}, context = {}) {
+function buildAnswerCardsFromToolResults(
+  toolResults = {},
+  context = {},
+  hybridRetrieval = null,
+) {
   const cards = [];
 
   const summaryTournament = toolResults.get_tournament_summary?.tournament;
@@ -2737,6 +3334,29 @@ function buildAnswerCardsFromToolResults(toolResults = {}, context = {}) {
         actions: [buildActionNavigation(`/news/${article.slug}`, "Mở bài viết")],
       }),
     );
+  }
+
+  if (!article?.slug && Array.isArray(hybridRetrieval?.items)) {
+    hybridRetrieval.items.slice(0, 2).forEach((item) => {
+      cards.push(
+        createAnswerCard("news", {
+          title: item.title,
+          subtitle: item.sourceName || item.publishedAt || "Nguồn live",
+          badges: ["live web"],
+          metrics: [item.publishedAt ? `Cập nhật: ${item.publishedAt}` : ""],
+          description: item.summary || "",
+          path: "",
+          actions: item.url
+            ? [
+                createAction("open_new_tab", {
+                  path: item.url,
+                  label: "Mở nguồn live",
+                }),
+              ]
+            : [],
+        }),
+      );
+    });
   }
 
   const liveStream = toolResults.get_live_streams?.streams?.[0];
@@ -3107,16 +3727,160 @@ function needsTrustDisclaimer(route, execution = {}, sources = [], answerCards =
     (!Array.isArray(answerCards) || answerCards.length === 0);
 }
 
-function applyTrustGuard(reply, route, execution = {}, sources = [], answerCards = []) {
+function hasNegativeAvailabilityClaim(normalizedReply) {
+  return (
+    normalizedReply.includes("khong co") ||
+    normalizedReply.includes("chua co") ||
+    normalizedReply.includes("chua thay")
+  );
+}
+
+function hasPositiveAvailabilityClaim(normalizedReply) {
+  return (
+    normalizedReply.includes("hien co") ||
+    normalizedReply.includes("dang co") ||
+    normalizedReply.includes("tim thay")
+  );
+}
+
+function getPrimaryGroundedCountDescriptor(route, execution = {}) {
+  if (route?.kind === "tournament") {
+    const result = execution?.toolResults?.search_tournaments;
+    if (result && Array.isArray(result.tournaments)) {
+      const status = String(route?.toolPlan?.[0]?.args?.status || "");
+      return {
+        count: Number(result.count) || result.tournaments.length || 0,
+        label: `giải ${formatTournamentStatusLabel(status)}`,
+        samples: result.tournaments
+          .map((item) => trimText(item?.name || "", 120))
+          .filter(Boolean)
+          .slice(0, 3),
+      };
+    }
+  }
+
+  if (route?.kind === "club") {
+    const result = execution?.toolResults?.search_clubs;
+    if (result && Array.isArray(result.clubs)) {
+      return {
+        count: Number(result.count) || result.clubs.length || 0,
+        label: "câu lạc bộ phù hợp",
+        samples: result.clubs
+          .map((item) => trimText(item?.name || "", 120))
+          .filter(Boolean)
+          .slice(0, 3),
+      };
+    }
+  }
+
+  if (route?.kind === "news") {
+    const result = execution?.toolResults?.search_news;
+    if (result && Array.isArray(result.articles)) {
+      return {
+        count: Number(result.total) || result.articles.length || 0,
+        label: "bài viết phù hợp",
+        samples: result.articles
+          .map((item) => trimText(item?.title || "", 120))
+          .filter(Boolean)
+          .slice(0, 3),
+      };
+    }
+  }
+
+  if (route?.kind === "player") {
+    const result = execution?.toolResults?.search_users;
+    if (result && Array.isArray(result.users)) {
+      return {
+        count: Number(result.count) || result.users.length || 0,
+        label: "người chơi phù hợp",
+        samples: result.users
+          .map((item) => trimText(item?.name || item?.nickname || "", 120))
+          .filter(Boolean)
+          .slice(0, 3),
+      };
+    }
+  }
+
+  if (route?.kind === "live") {
+    const result = execution?.toolResults?.get_live_matches;
+    if (result && Array.isArray(result.matches)) {
+      return {
+        count: Number(result.total) || result.matches.length || 0,
+        label: "trận đang live",
+        samples: result.matches
+          .map((item) => trimText(item?.title || item?.matchName || "", 120))
+          .filter(Boolean)
+          .slice(0, 3),
+      };
+    }
+  }
+
+  return null;
+}
+
+function applyGroundedCountConsistency(reply, route, execution = {}) {
+  const descriptor = getPrimaryGroundedCountDescriptor(route, execution);
+  if (!descriptor) {
+    return {
+      reply: String(reply || "").trim(),
+      guardApplied: false,
+    };
+  }
+
   const text = String(reply || "").trim();
-  if (!text) return text;
+  const normalizedReply = sharedNormalizeText(text);
+  const count = Number(descriptor.count || 0);
+
+  if (count > 0 && hasNegativeAvailabilityClaim(normalizedReply)) {
+    let nextReply = `Hiện có ${count} ${descriptor.label}.`;
+    if (descriptor.samples?.length) {
+      nextReply += ` Ví dụ: ${descriptor.samples.join(", ")}.`;
+    }
+    return {
+      reply: nextReply,
+      guardApplied: nextReply !== text,
+    };
+  }
+
+  if (count === 0 && hasPositiveAvailabilityClaim(normalizedReply)) {
+    const nextReply = `Hiện tại mình chưa thấy ${descriptor.label} trong dữ liệu hệ thống.`;
+    return {
+      reply: nextReply,
+      guardApplied: nextReply !== text,
+    };
+  }
+
+  return {
+    reply: text,
+    guardApplied: false,
+  };
+}
+
+function applyTrustGuard(reply, route, execution = {}, sources = [], answerCards = []) {
+  const consistency = applyGroundedCountConsistency(reply, route, execution);
+  const text = String(consistency.reply || "").trim();
+  if (!text) {
+    return {
+      reply: text,
+      guardApplied: Boolean(consistency.guardApplied),
+    };
+  }
   if (!needsTrustDisclaimer(route, execution, sources, answerCards)) {
-    return text;
+    return {
+      reply: text,
+      guardApplied: Boolean(consistency.guardApplied),
+    };
   }
   if (sharedNormalizeText(text).includes("khong du du lieu")) {
-    return text;
+    return {
+      reply: text,
+      guardApplied: Boolean(consistency.guardApplied),
+    };
   }
-  return `${text}\n\nLưu ý: Mình chưa có đủ dữ liệu xác minh từ hệ thống để khẳng định chi tiết hơn. Nếu bạn muốn, mình có thể mở đúng trang liên quan hoặc thử truy vấn lại cụ thể hơn.`;
+  return {
+    reply: `${text}\n\nLưu ý: Mình chưa có đủ dữ liệu xác minh từ hệ thống để khẳng định chi tiết hơn. Nếu bạn muốn, mình có thể mở đúng trang liên quan hoặc thử truy vấn lại cụ thể hơn.`,
+    guardApplied: true,
+  };
 }
 
 async function executeToolPlan({ route, context, safeEmit }) {
@@ -3373,7 +4137,10 @@ function buildSynthesisMessages({
   const contextSummary = buildContextSummary(context, userProfile);
   const pageSnapshotSummary = buildPageSnapshotSummary(context);
   const personalizationSummary = buildPersonalizationSummary(personalization);
-  const toolContext = buildToolContext(execution.toolResults);
+  const toolContext = buildToolContext(
+    execution.toolResults,
+    execution.hybridRetrieval,
+  );
 
   return [
     { role: "system", content: systemPrompt },
@@ -3489,11 +4256,19 @@ function buildContextSummary(context, userProfile) {
   return parts.join("\n");
 }
 
-function buildToolContext(toolResults) {
+function buildToolContext(toolResults, hybridRetrieval = null) {
   const sections = [];
   for (const [toolName, result] of Object.entries(toolResults || {})) {
     if (!result) continue;
     sections.push(`### ${toolName}\n${safeSerialize(result)}`);
+  }
+  if (Array.isArray(hybridRetrieval?.items) && hybridRetrieval.items.length) {
+    sections.push(
+      `### hybrid_live_retrieval\n${safeSerialize({
+        retrievalMode: hybridRetrieval.retrievalMode || "hybrid_live",
+        items: hybridRetrieval.items,
+      })}`,
+    );
   }
   return truncate(sections.join("\n\n"), MAX_TOOL_CONTEXT_CHARS);
 }
@@ -3539,7 +4314,9 @@ async function streamDeepSeekSynthesis({
   state,
 }) {
   if (!CHAT_COMPLETIONS_URL) {
-    throw new Error("Thiếu CLIPROXY_BASE_URL cho Pikora");
+    throw new Error(
+      "Thiếu PIKORA_BASE_URL cho Pikora (hoặc fallback CLIPROXY_BASE_URL)",
+    );
   }
 
   const controller = new AbortController();

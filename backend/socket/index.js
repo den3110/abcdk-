@@ -1882,7 +1882,11 @@ export function initSocket(
           mode: "offline_sync_v1",
           snapshot,
           serverVersion: Number(snapshot.liveVersion || 0),
-          owner: normalizeLiveOwnerForClient(owner, device.deviceId),
+          owner: normalizeLiveOwnerForClient(
+            owner,
+            device.deviceId,
+            socket.user?._id || null
+          ),
         });
       } catch (error) {
         console.error("[match:live:bootstrap] error:", error?.message || error);
@@ -1921,7 +1925,11 @@ export function initSocket(
           return ack?.({
             ok: false,
             code: "ownership_conflict",
-            owner: normalizeLiveOwnerForClient(result.owner, device.deviceId),
+            owner: normalizeLiveOwnerForClient(
+              result.owner,
+              device.deviceId,
+              socket.user?._id || null
+            ),
             snapshot,
             serverVersion: Number(snapshot?.liveVersion || 0),
           });
@@ -1930,7 +1938,11 @@ export function initSocket(
         emitMatchOwnershipChanged(io, matchId, result.owner);
         ack?.({
           ok: true,
-          owner: normalizeLiveOwnerForClient(result.owner, device.deviceId),
+          owner: normalizeLiveOwnerForClient(
+            result.owner,
+            device.deviceId,
+            socket.user?._id || null
+          ),
           snapshot,
           serverVersion: Number(snapshot?.liveVersion || 0),
           takeover: Boolean(result.takeover),
@@ -1971,7 +1983,11 @@ export function initSocket(
         emitMatchOwnershipChanged(io, matchId, result.owner);
         ack?.({
           ok: true,
-          owner: normalizeLiveOwnerForClient(result.owner, device.deviceId),
+          owner: normalizeLiveOwnerForClient(
+            result.owner,
+            device.deviceId,
+            socket.user?._id || null
+          ),
           snapshot,
           serverVersion: Number(snapshot?.liveVersion || 0),
           takeover: true,
@@ -1997,7 +2013,11 @@ export function initSocket(
           return ack?.({
             ok: false,
             code: "ownership_conflict",
-            owner: normalizeLiveOwnerForClient(result.owner, device.deviceId),
+            owner: normalizeLiveOwnerForClient(
+              result.owner,
+              device.deviceId,
+              socket.user?._id || null
+            ),
           });
         }
 
@@ -2041,7 +2061,11 @@ export function initSocket(
             rejectedEvents: result.rejectedEvents,
             snapshot: result.snapshot,
             serverVersion: Number(result.serverVersion || 0),
-            owner: normalizeLiveOwnerForClient(result.owner, device.deviceId),
+            owner: normalizeLiveOwnerForClient(
+              result.owner,
+              device.deviceId,
+              socket.user?._id || null
+            ),
           });
         } catch (error) {
           console.error("[match:live:sync] error:", error?.message || error);

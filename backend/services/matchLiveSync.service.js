@@ -16,6 +16,7 @@ import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import {
   claimMatchLiveOwner,
   getMatchLiveOwner,
+  liveOwnerMatchesIdentity,
 } from "./matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "./matchLiveSnapshot.service.js";
 
@@ -101,9 +102,120 @@ function buildNormalizedRules(match) {
   };
 }
 
+function cloneValue(value) {
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeRefereeLayout(layout) {
+  if (layout?.left === "B" || layout?.right === "A") {
+    return { left: "B", right: "A" };
+  }
+  return { left: "A", right: "B" };
+}
+
+function userIdOfPlayer(player) {
+  return String(player?.user?._id || player?.user || player?._id || player?.id || "").trim();
+}
+
+function getTeamPlayerIds(match, team) {
+  const pair = team === "B" ? match?.pairB : match?.pairA;
+  return [pair?.player1, pair?.player2].map(userIdOfPlayer).filter(Boolean);
+}
+
+function validateSlotsBaseForMatch(match, inputBase = {}) {
+  const normalizeTeam = (team) => {
+    const validIds = new Set(getTeamPlayerIds(match, team));
+    const raw = inputBase?.[team] && typeof inputBase[team] === "object" ? inputBase[team] : {};
+    const filtered = {};
+
+    for (const [rawId, rawSlot] of Object.entries(raw)) {
+      const playerId = String(rawId).trim();
+      const slot = Number(rawSlot);
+      if (!playerId || !validIds.has(playerId)) continue;
+      if (slot !== 1 && slot !== 2) continue;
+      filtered[playerId] = slot;
+    }
+
+    if (validIds.size >= 2) {
+      const slots = Object.values(filtered);
+      const count1 = slots.filter((slot) => slot === 1).length;
+      const count2 = slots.filter((slot) => slot === 2).length;
+      if (count1 !== 1 || count2 !== 1) {
+        return {
+          ok: false,
+          code: "invalid_transition",
+          message: `Team ${team} must have one #1 and one #2`,
+        };
+      }
+    }
+
+    return { ok: true, value: filtered };
+  };
+
+  const teamA = normalizeTeam("A");
+  if (!teamA.ok) return teamA;
+  const teamB = normalizeTeam("B");
+  if (!teamB.ok) return teamB;
+
+  return {
+    ok: true,
+    value: {
+      A: teamA.value,
+      B: teamB.value,
+    },
+  };
+}
+
+function validateServeForMatch(match, inputServe = {}) {
+  const sideInput = String(inputServe?.side || "").trim().toUpperCase();
+  const side = sideInput === "B" ? "B" : "A";
+  const server = Number(inputServe?.server) === 1 ? 1 : 2;
+  const rawServerId = String(inputServe?.serverId || "").trim();
+  const validIds = new Set(getTeamPlayerIds(match, side));
+
+  if (rawServerId && !validIds.has(rawServerId)) {
+    return {
+      ok: false,
+      code: "invalid_transition",
+      message: `serverId not in team ${side}`,
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      side,
+      server,
+      serverId: rawServerId || null,
+    },
+  };
+}
+
+function applyServeState(match, serve, options = {}) {
+  const bumpSlotsVersion = options.bumpSlotsVersion !== false;
+  match.serve = {
+    side: validSide(serve?.side),
+    server: validServer(serve?.server),
+    serverId: serve?.serverId || null,
+  };
+
+  if (match.serve.serverId) {
+    match.set("slots.serverId", match.serve.serverId, { strict: false });
+  } else {
+    match.set("slots.serverId", null, { strict: false });
+  }
+  match.set("slots.updatedAt", new Date(), { strict: false });
+  if (bumpSlotsVersion) {
+    const version = Number(match?.slots?.version || 0);
+    match.set("slots.version", version + 1, { strict: false });
+  }
+  match.markModified("slots");
+}
+
 function normalizeEventInput(input) {
   const type = String(input?.type || "").trim().toLowerCase();
-  if (!["start", "point", "undo", "finish", "forfeit"].includes(type)) {
+  if (!["start", "point", "undo", "finish", "forfeit", "serve", "slots"].includes(type)) {
     return { ok: false, code: "invalid_transition", message: "Unsupported event type" };
   }
 
@@ -181,13 +293,14 @@ function applyPointEvent(match, event, actorId) {
   const prevServe = {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
+    serverId: match.serve?.serverId || null,
   };
 
   const servingTeam = prevServe.side;
   if (team !== servingTeam) {
     match.serve = onLostRallyNextServe(prevServe);
 
-    const base = match?.meta?.slots?.base;
+    const base = match?.slots?.base || match?.meta?.slots?.base;
     if (base && base[match.serve.side]) {
       const wanted = Number(match.serve.server);
       const entry = Object.entries(base[match.serve.side]).find(
@@ -230,15 +343,115 @@ function applyPointEvent(match, event, actorId) {
   return { ok: true, emittedType: "point" };
 }
 
-function applyUndoEvent(match) {
-  if (!match?.liveLog?.length) {
-    return { ok: false, code: "invalid_transition", message: "No point to undo" };
+function applyServeEvent(match, event, actorId) {
+  if (match.status === "finished") {
+    return { ok: false, code: "match_closed", message: "Match already finished" };
   }
 
-  for (let index = match.liveLog.length - 1; index >= 0; index -= 1) {
-    const event = match.liveLog[index];
-    if (event?.type !== "point") continue;
+  const nextServe = validateServeForMatch(match, event.payload);
+  if (!nextServe.ok) return nextServe;
 
+  const prevServe = {
+    side: validSide(match.serve?.side),
+    server: validServer(match.serve?.server),
+    serverId: match.serve?.serverId || null,
+  };
+
+  applyServeState(match, nextServe.value);
+  match.liveBy = actorId || match.liveBy || null;
+  ensureLiveLog(match);
+  match.liveLog.push({
+    type: "serve",
+    by: actorId || null,
+    payload: {
+      prevServe,
+      nextServe: cloneValue(match.serve),
+    },
+    at: new Date(),
+  });
+  match.liveVersion = toNum(match.liveVersion, 0) + 1;
+  return { ok: true, emittedType: "serve" };
+}
+
+function applySlotsEvent(match, event, actorId) {
+  if (match.status === "finished") {
+    return { ok: false, code: "match_closed", message: "Match already finished" };
+  }
+
+  const nextBase = validateSlotsBaseForMatch(match, event.payload?.base);
+  if (!nextBase.ok) return nextBase;
+
+  const nextLayout = normalizeRefereeLayout(event.payload?.layout);
+  const hasLayout = Boolean(event.payload?.layout);
+  const nextServe = event.payload?.serve
+    ? validateServeForMatch(match, event.payload.serve)
+    : null;
+  if (nextServe && !nextServe.ok) return nextServe;
+
+  const prevBase = cloneValue(match?.slots?.base || { A: {}, B: {} });
+  const prevLayout = normalizeRefereeLayout(match?.meta?.refereeLayout);
+  const prevServe = {
+    side: validSide(match.serve?.side),
+    server: validServer(match.serve?.server),
+    serverId: match.serve?.serverId || null,
+  };
+
+  match.set("slots.base", cloneValue(nextBase.value), { strict: false });
+  match.set("slots.updatedAt", new Date(), { strict: false });
+  const prevVersion = Number(match?.slots?.version || 0);
+  match.set("slots.version", prevVersion + 1, { strict: false });
+  match.markModified("slots");
+
+  if (hasLayout) {
+    match.set("meta.refereeLayout", nextLayout, { strict: false });
+  }
+  if (nextServe?.value) {
+    applyServeState(match, nextServe.value, { bumpSlotsVersion: false });
+  }
+
+  match.liveBy = actorId || match.liveBy || null;
+  ensureLiveLog(match);
+  match.liveLog.push({
+    type: "slots",
+    by: actorId || null,
+    payload: {
+      prevBase,
+      nextBase: cloneValue(nextBase.value),
+      prevLayout,
+      nextLayout: hasLayout ? nextLayout : null,
+      prevServe: nextServe?.value ? prevServe : null,
+      nextServe: nextServe?.value ? cloneValue(match.serve) : null,
+    },
+    at: new Date(),
+  });
+  match.liveVersion = toNum(match.liveVersion, 0) + 1;
+  return { ok: true, emittedType: "slots" };
+}
+
+function findUndoableLiveLogEntry(match) {
+  const entries = Array.isArray(match?.liveLog) ? match.liveLog : [];
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const event = entries[index];
+    const type = String(event?.type || "").trim().toLowerCase();
+    if (["finish", "forfeit", "start"].includes(type)) {
+      return null;
+    }
+    if (["point", "serve", "slots"].includes(type)) {
+      return { index, event, type };
+    }
+  }
+  return null;
+}
+
+function applyUndoEvent(match) {
+  const found = findUndoableLiveLogEntry(match);
+  if (!found) {
+    return { ok: false, code: "invalid_transition", message: "No action to undo" };
+  }
+
+  const { index, event, type } = found;
+
+  if (type === "point") {
     if (match.status === "finished") {
       match.status = "live";
       match.winner = "";
@@ -263,15 +476,35 @@ function applyUndoEvent(match) {
     if (event.payload?.team === "B") current.b = Math.max(0, toNum(current.b, 0) - step);
 
     if (event.payload?.prevServe) {
-      match.serve = event.payload.prevServe;
+      applyServeState(match, event.payload.prevServe);
     }
+  } else if (type === "serve") {
+    if (!event.payload?.prevServe) {
+      return { ok: false, code: "invalid_transition", message: "No serve state to undo" };
+    }
+    applyServeState(match, event.payload.prevServe);
+  } else if (type === "slots") {
+    match.set("slots.base", cloneValue(event.payload?.prevBase || { A: {}, B: {} }), {
+      strict: false,
+    });
+    match.set("slots.updatedAt", new Date(), { strict: false });
+    const prevVersion = Number(match?.slots?.version || 0);
+    match.set("slots.version", prevVersion + 1, { strict: false });
+    match.markModified("slots");
 
-    match.liveLog.splice(index, 1);
-    match.liveVersion = toNum(match.liveVersion, 0) + 1;
-    return { ok: true, emittedType: "undo" };
+    if (event.payload?.prevLayout) {
+      match.set("meta.refereeLayout", normalizeRefereeLayout(event.payload.prevLayout), {
+        strict: false,
+      });
+    }
+    if (event.payload?.prevServe) {
+      applyServeState(match, event.payload.prevServe);
+    }
   }
 
-  return { ok: false, code: "invalid_transition", message: "No point to undo" };
+  match.liveLog.splice(index, 1);
+  match.liveVersion = toNum(match.liveVersion, 0) + 1;
+  return { ok: true, emittedType: "undo" };
 }
 
 function applyFinishEvent(match, event, actorId, { isForfeit = false } = {}) {
@@ -308,6 +541,8 @@ export function applyLiveSyncEvent(match, input, actorId = null) {
   const { event } = normalized;
   if (event.type === "start") return applyStartEvent(match, event, actorId);
   if (event.type === "point") return applyPointEvent(match, event, actorId);
+  if (event.type === "serve") return applyServeEvent(match, event, actorId);
+  if (event.type === "slots") return applySlotsEvent(match, event, actorId);
   if (event.type === "undo") return applyUndoEvent(match);
   if (event.type === "finish") return applyFinishEvent(match, event, actorId);
   if (event.type === "forfeit") {
@@ -471,11 +706,15 @@ export async function syncMatchLiveEvents({
   }
 
   let owner = await getMatchLiveOwner(matchId);
-  if (enforceOwnership && (!owner || String(owner.deviceId) === String(deviceId))) {
+  const currentUserId = user?._id || null;
+  if (
+    enforceOwnership &&
+    (!owner || liveOwnerMatchesIdentity(owner, { deviceId, userId: currentUserId }))
+  ) {
     const claimResult = await claimMatchLiveOwner({
       matchId,
       deviceId,
-      userId: user?._id || null,
+      userId: currentUserId,
       displayName:
         user?.nickname ||
         user?.name ||
@@ -489,14 +728,14 @@ export async function syncMatchLiveEvents({
   if (
     enforceOwnership &&
     owner &&
-    String(owner.deviceId) !== String(deviceId || "")
+    !liveOwnerMatchesIdentity(owner, { deviceId, userId: currentUserId })
   ) {
     return {
       ackedClientEventIds: [],
       rejectedEvents: buildRejected(
         normalizedEvents,
         "ownership_conflict",
-        "Another scorer device owns this match"
+        "Another referee owns this match"
       ),
       snapshot: await loadMatchLiveSnapshot(matchId),
       serverVersion: toNum(lastKnownServerVersion, 0),
@@ -517,6 +756,31 @@ export async function syncMatchLiveEvents({
       serverVersion: 0,
       owner,
     };
+  }
+
+  const needsRosterContext = normalizedEvents.some((rawEvent) => {
+    const type = String(rawEvent?.type || "").trim().toLowerCase();
+    return type === "serve" || type === "slots";
+  });
+  if (needsRosterContext) {
+    await match.populate([
+      {
+        path: "pairA",
+        select: "player1 player2",
+        populate: [
+          { path: "player1", select: "user" },
+          { path: "player2", select: "user" },
+        ],
+      },
+      {
+        path: "pairB",
+        select: "player1 player2",
+        populate: [
+          { path: "player1", select: "user" },
+          { path: "player2", select: "user" },
+        ],
+      },
+    ]);
   }
 
   const actorId = user?._id || null;

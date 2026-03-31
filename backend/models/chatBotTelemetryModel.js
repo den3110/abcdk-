@@ -40,12 +40,22 @@ const chatBotTelemetrySchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    surface: {
+      type: String,
+      trim: true,
+      default: "web",
+    },
     intent: {
       type: String,
       trim: true,
       default: "",
     },
     routeKind: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    routeLane: {
       type: String,
       trim: true,
       default: "",
@@ -118,6 +128,39 @@ const chatBotTelemetrySchema = new mongoose.Schema(
     sourceCount: {
       type: Number,
       default: 0,
+    },
+    groundingStatus: {
+      type: String,
+      enum: ["grounded", "partial", "unsupported", ""],
+      default: "",
+    },
+    operatorStatus: {
+      type: String,
+      enum: ["page_action", "navigate_fallback", "unsupported", ""],
+      default: "",
+    },
+    retrievalMode: {
+      type: String,
+      enum: ["internal", "hybrid_live", ""],
+      default: "",
+    },
+    guardApplied: {
+      type: Boolean,
+      default: false,
+    },
+    fallbackUsed: {
+      type: Boolean,
+      default: false,
+    },
+    unsupportedIntent: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    unsupportedAction: {
+      type: String,
+      trim: true,
+      default: "",
     },
     outcome: {
       type: String,

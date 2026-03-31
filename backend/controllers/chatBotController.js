@@ -16,6 +16,10 @@ import {
   recordChatTelemetryEvent,
   submitChatFeedback,
 } from "../services/bot/chatBotTelemetryService.js";
+import {
+  getPikoraRolloutConfig,
+  updatePikoraRolloutConfig,
+} from "../services/bot/pikoraRolloutService.js";
 
 // Roles that bypass session limit
 const UNLIMITED_ROLES = ["admin", "referee"];
@@ -52,10 +56,50 @@ function sanitizeSnapshotList(list, limit = 8, maxLength = 96) {
     .slice(0, limit);
 }
 
+function sanitizeSnapshotStats(stats) {
+  if (!stats || typeof stats !== "object") return null;
+
+  const next = {};
+  Object.entries(stats).forEach(([key, value]) => {
+    const safeKey = trimSnapshotText(key, 48);
+    if (!safeKey) return;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      next[safeKey] = value;
+      return;
+    }
+    const safeValue = trimSnapshotText(value, 96);
+    if (safeValue) {
+      next[safeKey] = safeValue;
+    }
+  });
+
+  return Object.keys(next).length ? next : null;
+}
+
+function sanitizeStructuredSnapshotItems(list, limit = 8) {
+  return (Array.isArray(list) ? list : [])
+    .map((item) => ({
+      id: trimSnapshotText(item?.id, 64),
+      name: trimSnapshotText(item?.name, 140),
+      status: trimSnapshotText(item?.status, 32),
+      location: trimSnapshotText(item?.location, 96),
+      startDate: trimSnapshotText(item?.startDate, 48),
+      endDate: trimSnapshotText(item?.endDate, 48),
+    }))
+    .filter((item) => item.name)
+    .slice(0, limit);
+}
+
+function sanitizeSurface(value) {
+  return value === "mobile" ? "mobile" : "web";
+}
+
 function sanitizePageSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return null;
   const next = {
     pageType: trimSnapshotText(snapshot.pageType, 64),
+    pageSection: trimSnapshotText(snapshot.pageSection, 64),
+    pageView: trimSnapshotText(snapshot.pageView, 64),
     entityTitle: trimSnapshotText(snapshot.entityTitle, 140),
     sectionTitle: trimSnapshotText(snapshot.sectionTitle, 120),
     pageSummary: trimSnapshotText(snapshot.pageSummary, 240),
@@ -63,6 +107,16 @@ function sanitizePageSnapshot(snapshot) {
     visibleActions: sanitizeSnapshotList(snapshot.visibleActions, 8, 72),
     highlights: sanitizeSnapshotList(snapshot.highlights, 8, 96),
     metrics: sanitizeSnapshotList(snapshot.metrics, 8, 96),
+    stats: sanitizeSnapshotStats(snapshot.stats),
+    visibleTournaments: sanitizeStructuredSnapshotItems(
+      snapshot.visibleTournaments,
+      8,
+    ),
+    tournamentId: trimSnapshotText(snapshot.tournamentId, 48),
+    clubId: trimSnapshotText(snapshot.clubId, 48),
+    newsSlug: trimSnapshotText(snapshot.newsSlug, 96),
+    matchId: trimSnapshotText(snapshot.matchId, 48),
+    courtId: trimSnapshotText(snapshot.courtId, 48),
   };
 
   return Object.values(next).some((value) =>
@@ -89,11 +143,22 @@ function sanitizeReasoningMode(value) {
   return value === "force_reasoner" ? "force_reasoner" : "auto";
 }
 
+function sanitizeKnowledgeMode(value) {
+  const next = String(value || "").trim().toLowerCase();
+  if (next === "internal") return "internal";
+  if (next === "hybrid_live") return "hybrid_live";
+  return "auto";
+}
+
 function buildRequestContext(req) {
   const currentUser = req.user;
   const pageSnapshot = sanitizePageSnapshot(req.body?.pageSnapshot);
   const reasoningMode = sanitizeReasoningMode(req.body?.reasoningMode);
+  const knowledgeMode = sanitizeKnowledgeMode(req.body?.knowledgeMode);
   const capabilityKeys = sanitizeCapabilityKeys(req.body?.capabilityKeys);
+  const surface = sanitizeSurface(
+    req.body?.surface || readHeaderString(req, "x-pkt-surface"),
+  );
   return {
     currentUser,
     currentUserId: currentUser?._id,
@@ -116,6 +181,11 @@ function buildRequestContext(req) {
     pageSnapshot,
     capabilityKeys,
     reasoningMode,
+    knowledgeMode,
+    surface,
+    cohortId:
+      trimSnapshotText(req.body?.cohortId, 128) ||
+      readHeaderString(req, "x-pkt-cohort-id"),
   };
 }
 
@@ -140,6 +210,9 @@ function buildStoredContext(context) {
     pageSnapshot: context.pageSnapshot || null,
     capabilityKeys: context.capabilityKeys || [],
     reasoningMode: context.reasoningMode || "auto",
+    knowledgeMode: context.knowledgeMode || "auto",
+    surface: context.surface || "web",
+    cohortId: context.cohortId || "",
   };
 }
 
@@ -168,11 +241,13 @@ function buildAgentResponse(result = {}) {
     sources: result.sources || [],
     intent: result.intent || "",
     routeKind: result.routeKind || "",
+    routeLane: result.routeLane || "",
     capabilityKeys: result.capabilityKeys || [],
     actionExecutionSummary: result.actionExecutionSummary || null,
     contextInsight: result.contextInsight || "",
     personalization: result.personalization || null,
     trustMeta: result.trustMeta || null,
+    surface: result.surface || "web",
     botName: BOT_IDENTITY.nameVi,
     ...(result.navigation ? { navigation: result.navigation } : {}),
   };
@@ -198,11 +273,13 @@ function buildBotMeta(result = {}, extra = {}) {
     sources: result.sources || [],
     intent: result.intent || "",
     routeKind: result.routeKind || "",
+    routeLane: result.routeLane || "",
     capabilityKeys: result.capabilityKeys || [],
     actionExecutionSummary: result.actionExecutionSummary || null,
     contextInsight: result.contextInsight || "",
     personalization: result.personalization || null,
     trustMeta: result.trustMeta || null,
+    surface: result.surface || "web",
     feedback: extra.feedback || null,
   };
 }
@@ -225,8 +302,10 @@ function buildTelemetryPayload({
     pageType: context?.pageType || context?.pageSnapshot?.pageType || "",
     pageSection: context?.pageSection || context?.pageSnapshot?.sectionTitle || "",
     pageView: context?.pageView || "",
+    surface: context?.surface || "web",
     intent: result.intent || "",
     routeKind: result.routeKind || "",
+    routeLane: result.routeLane || "",
     toolsPlanned:
       result.toolsPlanned ||
       (Array.isArray(result.toolSummary)
@@ -256,11 +335,25 @@ function buildTelemetryPayload({
       ? result.answerCards.map((item) => item?.kind).filter(Boolean)
       : [],
     sourceCount: Array.isArray(result.sources) ? result.sources.length : 0,
+    groundingStatus: result.trustMeta?.groundingStatus || "",
+    operatorStatus: result.trustMeta?.operatorStatus || "",
+    guardApplied: Boolean(result.trustMeta?.guardApplied),
+    fallbackUsed: Boolean(result.trustMeta?.operatorStatus === "navigate_fallback"),
+    retrievalMode: result.trustMeta?.retrievalMode || "",
+    unsupportedIntent: result.unsupportedIntent || "",
+    unsupportedAction: Array.isArray(result.actionExecutionSummary?.unsupported)
+      ? String(
+          result.actionExecutionSummary.unsupported[0]?.type ||
+            result.actionExecutionSummary.unsupported[0]?.label ||
+            "",
+        )
+      : "",
     outcome,
     meta: errorMessage
       ? { errorMessage }
       : {
           capabilityKeys: result.capabilityKeys || [],
+          knowledgeMode: context?.knowledgeMode || "auto",
         },
   };
 }
@@ -703,6 +796,7 @@ export async function handleChatStream(req, res) {
 /* ========== HEALTH CHECK ========== */
 export async function handleHealthCheck(req, res) {
   const capabilities = getChatCapabilities();
+  const rollout = await getPikoraRolloutConfig().catch(() => null);
   return res.json({
     status: "ok",
     bot: BOT_IDENTITY,
@@ -719,6 +813,8 @@ export async function handleHealthCheck(req, res) {
       answerCards: true,
       sourceGrounding: true,
       telemetry: true,
+      hybridRetrieval: capabilities.hybridRetrieval,
+      rollout: rollout || null,
       tools: [
         "search_tournaments",
         "get_tournament_summary",
@@ -738,9 +834,11 @@ export async function handleHealthCheck(req, res) {
 /* ========== BOT INFO ========== */
 export async function handleBotInfo(req, res) {
   const capabilities = getChatCapabilities();
+  const rollout = await getPikoraRolloutConfig().catch(() => null);
   return res.json({
     ...BOT_IDENTITY,
     capabilities,
+    rollout,
     features: [
       "Greeting & Small Talk",
       "FAQ về PickleTour (RAG)",
@@ -755,8 +853,35 @@ export async function handleBotInfo(req, res) {
       "Answer cards",
       "Source grounding",
       "Feedback telemetry",
+      "Dark launch rollout config",
+      "Hybrid retrieval (flagged)",
     ],
   });
+}
+
+export async function handleGetChatRolloutConfig(req, res) {
+  try {
+    const rollout = await getPikoraRolloutConfig();
+    return res.json({ rollout });
+  } catch (error) {
+    console.error("[handleGetChatRolloutConfig] error:", error);
+    return res.status(500).json({ error: "Không tải được rollout config" });
+  }
+}
+
+export async function handleUpdateChatRolloutConfig(req, res) {
+  try {
+    const rollout = await updatePikoraRolloutConfig(
+      req.body?.rollout || req.body || {},
+      req.user?.email || req.user?._id || "admin",
+    );
+    return res.json({ ok: true, rollout });
+  } catch (error) {
+    console.error("[handleUpdateChatRolloutConfig] error:", error);
+    return res.status(400).json({
+      error: error.message || "Không lưu được rollout config",
+    });
+  }
 }
 
 export async function handleChatFeedback(req, res) {
@@ -820,7 +945,8 @@ export async function handleChatTelemetryTurns(req, res) {
 export async function handleChatTelemetryEvent(req, res) {
   try {
     const currentUser = req.user;
-    const { messageId, type, label, actionType, success, detail } = req.body || {};
+    const { messageId, type, label, actionType, success, detail, surface } =
+      req.body || {};
 
     if (!messageId || !type) {
       return res.status(400).json({ error: "Thiếu messageId hoặc type" });
@@ -834,6 +960,7 @@ export async function handleChatTelemetryEvent(req, res) {
       actionType,
       success,
       detail,
+      surface: sanitizeSurface(surface),
     });
 
     return res.json({ ok: true, event });
