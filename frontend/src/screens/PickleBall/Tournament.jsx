@@ -63,9 +63,8 @@ const GlassCard = styled(Card)(({ theme }) => ({
   display: "flex",
   flexDirection: "column",
   height: "100%",
-  willChange: "transform",
-  transition:
-    "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+  boxShadow: theme.shadows[1],
+  transition: "border-color 0.16s ease, box-shadow 0.16s ease",
 }));
 
 const HoverCardFrame = styled(Box)(({ theme }) => ({
@@ -74,12 +73,8 @@ const HoverCardFrame = styled(Box)(({ theme }) => ({
   display: "flex",
   "@media (hover: hover) and (pointer: fine)": {
     "&:hover .tournament-card": {
-      transform: "translateY(-4px)",
-      boxShadow: theme.shadows[8],
       borderColor: theme.palette.primary.main,
-    },
-    "&:hover .tournament-card .zoom-image": {
-      transform: "scale(1.08)",
+      boxShadow: theme.shadows[2],
     },
   },
 }));
@@ -597,7 +592,6 @@ export default function TournamentDashboard() {
                     width: "100%",
                     height: "100%",
                     objectFit: "cover",
-                    transition: "transform 0.5s ease",
                   }}
                 />
               </Box>

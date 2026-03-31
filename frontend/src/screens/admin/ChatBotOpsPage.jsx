@@ -1,4 +1,4 @@
-/* eslint-disable react/prop-types */
+﻿/* eslint-disable react/prop-types */
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -105,7 +105,7 @@ function TagSection({ title, items = [], color = "default", emptyText }) {
               key={`${title}-${item.label}`}
               color={color}
               variant="outlined"
-              label={`${item.label} · ${item.count}`}
+              label={`${item.label} Â· ${item.count}`}
               sx={{ fontWeight: 700 }}
             />
           ))}
@@ -175,8 +175,8 @@ function TurnCard({ turn }) {
         </Stack>
 
         <Typography variant="body2" color="text.secondary">
-          Model: <strong>{turn.model || "-"}</strong> · First token:{" "}
-          <strong>{formatMs(turn.firstTokenLatencyMs)}</strong> · Total:{" "}
+          Model: <strong>{turn.model || "-"}</strong> Â· First token:{" "}
+          <strong>{formatMs(turn.firstTokenLatencyMs)}</strong> Â· Total:{" "}
           <strong>{formatMs(turn.processingTimeMs)}</strong>
         </Typography>
 
@@ -198,7 +198,7 @@ function TurnCard({ turn }) {
             sx={{ borderRadius: 2 }}
           >
             Feedback: {turn.feedback.value}
-            {turn.feedback.reason ? ` · ${turn.feedback.reason}` : ""}
+            {turn.feedback.reason ? ` Â· ${turn.feedback.reason}` : ""}
           </Alert>
         ) : null}
 
@@ -214,7 +214,7 @@ function TurnCard({ turn }) {
                   key={`${turn._id}-event-${index}`}
                   size="small"
                   variant="outlined"
-                  label={`${event.type}${event.label ? ` · ${event.label}` : ""}`}
+                  label={`${event.type}${event.label ? ` Â· ${event.label}` : ""}`}
                 />
               ))}
             </Stack>
@@ -252,7 +252,7 @@ function SurfaceMetricsSection({ title, data = {} }) {
               </Typography>
               {"executed" in (values || {}) ? (
                 <Typography variant="caption" color="text.secondary" display="block">
-                  Executed: {values?.executed || 0} · Degraded: {values?.degraded || 0} · Unsupported: {values?.unsupported || 0}
+                  Executed: {values?.executed || 0} Â· Degraded: {values?.degraded || 0} Â· Unsupported: {values?.unsupported || 0}
                 </Typography>
               ) : null}
             </Paper>
@@ -260,7 +260,7 @@ function SurfaceMetricsSection({ title, data = {} }) {
         </Stack>
       ) : (
         <Typography variant="body2" color="text.secondary">
-          Chưa có dữ liệu theo surface.
+          ChÆ°a cÃ³ dá»¯ liá»‡u theo surface.
         </Typography>
       )}
     </Paper>
@@ -353,15 +353,15 @@ export default function ChatBotOpsPage() {
     () => ({
       pageType: "admin_chatbot_ops",
       entityTitle: "Pikora Bot Ops",
-      sectionTitle: outcome || "Tổng quan",
-      pageSummary: "Theo dõi quality, latency, failures, actions và feedback của Pikora.",
+      sectionTitle: outcome || "Tá»•ng quan",
+      pageSummary: "Theo dÃµi quality, latency, failures, actions vÃ  feedback cá»§a Pikora.",
       activeLabels: [
-        `Ngày: ${days}`,
+        `NgÃ y: ${days}`,
         outcome ? `Outcome: ${outcome}` : "All outcomes",
         intent ? `Intent: ${intent}` : "",
         routeKind ? `Route: ${routeKind}` : "",
       ],
-      visibleActions: ["Làm mới telemetry", "Lọc theo outcome", "Lọc theo route"],
+      visibleActions: ["LÃ m má»›i telemetry", "Lá»c theo outcome", "Lá»c theo route"],
       highlights: (summary.topFailures || []).slice(0, 3).map((item) => item.label),
       metrics: [
         `Turns: ${summary.totalTurns || 0}`,
@@ -416,7 +416,7 @@ export default function ChatBotOpsPage() {
             Pikora Bot Ops
           </Typography>
           <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-            Theo dõi latency, failures, top intents, feedback và hành vi action của Pikora.
+            Theo dÃµi latency, failures, top intents, feedback vÃ  hÃ nh vi action cá»§a Pikora.
           </Typography>
         </Box>
         <Button
@@ -427,7 +427,7 @@ export default function ChatBotOpsPage() {
             turnsQuery.refetch();
           }}
         >
-          {tx("common.actions.refresh", "Làm mới")}
+          {tx("common.actions.refresh", "LÃ m má»›i")}
         </Button>
       </Stack>
 
@@ -436,7 +436,7 @@ export default function ChatBotOpsPage() {
           <TextField
             select
             size="small"
-            label="Khoảng ngày"
+            label="Khoáº£ng ngÃ y"
             value={days}
             onChange={(event) => {
               setDays(Number(event.target.value) || 7);
@@ -446,7 +446,7 @@ export default function ChatBotOpsPage() {
           >
             {[1, 3, 7, 14, 30].map((value) => (
               <MenuItem key={value} value={value}>
-                {value} ngày
+                {value} ngÃ y
               </MenuItem>
             ))}
           </TextField>
@@ -462,7 +462,7 @@ export default function ChatBotOpsPage() {
             }}
             sx={{ minWidth: 160 }}
           >
-            <MenuItem value="">Tất cả</MenuItem>
+            <MenuItem value="">Táº¥t cáº£</MenuItem>
             <MenuItem value="success">success</MenuItem>
             <MenuItem value="empty">empty</MenuItem>
             <MenuItem value="aborted">aborted</MenuItem>
@@ -508,7 +508,7 @@ export default function ChatBotOpsPage() {
               Pikora V7 rollout
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Dark launch cho hybrid retrieval và surface gating.
+              Dark launch cho hybrid retrieval vÃ  surface gating.
             </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
@@ -540,19 +540,19 @@ export default function ChatBotOpsPage() {
 
         {rolloutQuery.error ? (
           <Alert severity="error" sx={{ borderRadius: 2, mb: 2 }}>
-            KhÃ´ng táº£i Ä‘Æ°á»£c rollout config.
+            Không tải được rollout config.
           </Alert>
         ) : null}
 
         {rolloutMutation.isError ? (
           <Alert severity="error" sx={{ borderRadius: 2, mb: 2 }}>
-            KhÃ´ng lÆ°u Ä‘Æ°á»£c rollout config.
+            Không lưu được rollout config.
           </Alert>
         ) : null}
 
         {rolloutMutation.isSuccess ? (
           <Alert severity="success" sx={{ borderRadius: 2, mb: 2 }}>
-            ÄÃ£ cáº­p nháº­t rollout config.
+            Đã cập nhật rollout config.
           </Alert>
         ) : null}
 
@@ -671,7 +671,7 @@ export default function ChatBotOpsPage() {
         </Stack>
       ) : summaryQuery.error ? (
         <Alert severity="error" sx={{ borderRadius: 3, mb: 2 }}>
-          Không tải được summary telemetry.
+          KhÃ´ng táº£i Ä‘Æ°á»£c summary telemetry.
         </Alert>
       ) : (
         <Box
@@ -688,9 +688,9 @@ export default function ChatBotOpsPage() {
         >
           <MetricCard
             icon={<SmartToyIcon color="primary" />}
-            label="Tổng turns"
+            label="Tá»•ng turns"
             value={summary.totalTurns || 0}
-            hint={`Trung bình ${summary.throughput?.avgTurnsPerDay || 0} turn/ngày`}
+            hint={`Trung bÃ¬nh ${summary.throughput?.avgTurnsPerDay || 0} turn/ngÃ y`}
           />
           <MetricCard
             icon={<TimelineIcon color="info" />}
@@ -706,9 +706,9 @@ export default function ChatBotOpsPage() {
           />
           <MetricCard
             icon={<WarningAmberIcon color="error" />}
-            label="Feedback âm"
+            label="Feedback Ã¢m"
             value={summary.feedback?.negative || 0}
-            hint={`Feedback dương: ${summary.feedback?.positive || 0}`}
+            hint={`Feedback dÆ°Æ¡ng: ${summary.feedback?.positive || 0}`}
           />
           <MetricCard
             icon={<WarningAmberIcon color="warning" />}
@@ -734,31 +734,31 @@ export default function ChatBotOpsPage() {
           title="Top intents"
           items={summary.topIntents}
           color="primary"
-          emptyText="Chưa có intent nào."
+          emptyText="ChÆ°a cÃ³ intent nÃ o."
         />
         <TagSection
           title="Most-used tools"
           items={summary.topTools}
           color="info"
-          emptyText="Chưa có tool usage."
+          emptyText="ChÆ°a cÃ³ tool usage."
         />
         <TagSection
           title="Top failures"
           items={summary.topFailures}
           color="error"
-          emptyText="Chưa có lỗi nào."
+          emptyText="ChÆ°a cÃ³ lá»—i nÃ o."
         />
         <TagSection
           title="Unsupported actions"
           items={summary.topUnsupportedActions}
           color="warning"
-          emptyText="Chưa có unsupported action."
+          emptyText="ChÆ°a cÃ³ unsupported action."
         />
         <TagSection
           title="Unsupported intents"
           items={summary.topUnsupportedIntents}
           color="warning"
-          emptyText="Chưa có unsupported intent."
+          emptyText="ChÆ°a cÃ³ unsupported intent."
         />
       </Box>
 
@@ -776,32 +776,32 @@ export default function ChatBotOpsPage() {
         <TagSection
           title="Feedback reasons"
           items={summary.topFeedbackReasons}
-          emptyText="Chưa có lý do feedback."
+          emptyText="ChÆ°a cÃ³ lÃ½ do feedback."
         />
         <TagSection
           title="Top route kinds"
           items={summary.topRouteKinds}
-          emptyText="Chưa có route kind."
+          emptyText="ChÆ°a cÃ³ route kind."
         />
         <TagSection
           title="Top route lanes"
           items={summary.topRouteLanes}
-          emptyText="Chưa có route lane."
+          emptyText="ChÆ°a cÃ³ route lane."
         />
         <TagSection
           title="Grounding status"
           items={toCountItems(summary.groundingStatuses)}
-          emptyText="Chưa có grounding status."
+          emptyText="ChÆ°a cÃ³ grounding status."
         />
         <TagSection
           title="Operator status"
           items={toCountItems(summary.operatorStatuses)}
-          emptyText="Chưa có operator status."
+          emptyText="ChÆ°a cÃ³ operator status."
         />
         <TagSection
           title="Surface split"
           items={toCountItems(summary.surfaces)}
-          emptyText="Chưa có surface data."
+          emptyText="ChÆ°a cÃ³ surface data."
         />
       </Box>
 
@@ -819,7 +819,7 @@ export default function ChatBotOpsPage() {
         <TagSection
           title="Retrieval modes"
           items={toCountItems(summary.retrievalModes)}
-          emptyText="ChÆ°a cÃ³ retrieval mode."
+          emptyText="Chưa có retrieval mode."
         />
         <SurfaceMetricsSection
           title="Latency by surface"
@@ -840,7 +840,7 @@ export default function ChatBotOpsPage() {
           sx={{ mb: 1.5 }}
         >
           <Typography variant="h6" fontWeight={800}>
-            Turns gần nhất
+            Turns gáº§n nháº¥t
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Trang {page} / {totalPages}
@@ -859,7 +859,7 @@ export default function ChatBotOpsPage() {
           </Stack>
         ) : (
           <Alert severity="info" sx={{ borderRadius: 2 }}>
-            Chưa có telemetry turn nào theo bộ lọc hiện tại.
+            ChÆ°a cÃ³ telemetry turn nÃ o theo bá»™ lá»c hiá»‡n táº¡i.
           </Alert>
         )}
 
@@ -871,7 +871,7 @@ export default function ChatBotOpsPage() {
             disabled={page <= 1}
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
           >
-            Trang trước
+            Trang trÆ°á»›c
           </Button>
           <Button
             variant="contained"
@@ -885,3 +885,4 @@ export default function ChatBotOpsPage() {
     </Box>
   );
 }
+
