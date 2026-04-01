@@ -962,87 +962,112 @@ const ChatComposer = memo(function ChatComposer({
     <>
       <Box
         sx={{
-          p: 1.5,
-          pt: 1.2,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "stretch",
-          gap: 1.1,
+          p: 1.25,
+          pt: 1,
           bgcolor: isDark
             ? alpha(theme.palette.background.paper, 0.6)
             : "#fff",
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1 }}>
-          <TextField
-            inputRef={inputRef}
-            fullWidth
-            multiline
-            maxRows={3}
-            size="small"
-            placeholder={t("chatbot.inputPlaceholder")}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleKeyDown}
+        <Box
+          sx={{
+            borderRadius: 4,
+            border: `1px solid ${alpha(
+              isDark ? "#fff" : theme.palette.primary.main,
+              isDark ? 0.12 : 0.14,
+            )}`,
+            bgcolor: isDark
+              ? alpha(theme.palette.background.default, 0.84)
+              : alpha("#fff", 0.98),
+            boxShadow: isDark
+              ? `0 10px 30px ${alpha("#000", 0.22)}`
+              : `0 10px 30px ${alpha(theme.palette.primary.main, 0.08)}`,
+            overflow: "hidden",
+          }}
+        >
+          <Box
             sx={{
-              "& .MuiOutlinedInput-root": {
-                borderRadius: 3,
-                minHeight: 44,
-                alignItems: "center",
-                bgcolor: isDark
-                  ? alpha(theme.palette.background.default, 0.5)
-                  : alpha(theme.palette.grey[100], 0.8),
-                fontSize: "0.875rem",
-                py: 0.25,
-                "& fieldset": { borderColor: "transparent" },
-                "&:hover fieldset": {
-                  borderColor: alpha(theme.palette.primary.main, 0.3),
-                },
-                "&.Mui-focused fieldset": {
-                  borderColor: theme.palette.primary.main,
-                  borderWidth: 1,
-                },
-              },
-            }}
-          />
-
-          <IconButton
-            onClick={isTyping ? onStop : handleComposerSend}
-            disabled={isTyping ? false : !draft.trim()}
-            sx={{
-              bgcolor: isTyping
-                ? theme.palette.error.main
-                : theme.palette.primary.main,
-              color: "#fff",
-              width: 44,
-              height: 44,
-              flexShrink: 0,
-              "&:hover": {
-                bgcolor: isTyping
-                  ? theme.palette.error.dark
-                  : theme.palette.primary.dark,
-              },
-              "&.Mui-disabled": {
-                bgcolor: alpha(theme.palette.primary.main, 0.3),
-                color: "rgba(255,255,255,0.5)",
-              },
+              display: "flex",
+              alignItems: "flex-end",
+              gap: 1,
+              px: 1.2,
+              pt: 1.05,
+              pb: 0.85,
             }}
           >
-            {isTyping ? (
-              <StopCircleIcon sx={{ fontSize: 20 }} />
-            ) : (
-              <SendIcon sx={{ fontSize: 20 }} />
-            )}
-          </IconButton>
-        </Box>
+            <TextField
+              inputRef={inputRef}
+              fullWidth
+              multiline
+              maxRows={3}
+              size="small"
+              placeholder={t("chatbot.inputPlaceholder")}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleKeyDown}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: 3,
+                  minHeight: 52,
+                  alignItems: "center",
+                  bgcolor: "transparent",
+                  fontSize: "0.92rem",
+                  px: 0,
+                  py: 0.15,
+                  "& fieldset": { borderColor: "transparent" },
+                  "&:hover fieldset": { borderColor: "transparent" },
+                  "&.Mui-focused fieldset": {
+                    borderColor: "transparent",
+                    borderWidth: 0,
+                  },
+                },
+                "& .MuiOutlinedInput-input": {
+                  px: 0.6,
+                  py: 0.6,
+                },
+                "& .MuiInputBase-input::placeholder": {
+                  opacity: 0.88,
+                },
+              }}
+            />
+
+            <IconButton
+              onClick={isTyping ? onStop : handleComposerSend}
+              disabled={isTyping ? false : !draft.trim()}
+              sx={{
+                bgcolor: isTyping
+                  ? theme.palette.error.main
+                  : theme.palette.primary.main,
+                color: "#fff",
+                width: 44,
+                height: 44,
+                flexShrink: 0,
+                mb: 0.15,
+                "&:hover": {
+                  bgcolor: isTyping
+                    ? theme.palette.error.dark
+                    : theme.palette.primary.dark,
+                },
+                "&.Mui-disabled": {
+                  bgcolor: alpha(theme.palette.primary.main, 0.3),
+                  color: "rgba(255,255,255,0.5)",
+                },
+              }}
+            >
+              {isTyping ? (
+                <StopCircleIcon sx={{ fontSize: 20 }} />
+              ) : (
+                <SendIcon sx={{ fontSize: 20 }} />
+              )}
+            </IconButton>
+          </Box>
 
         <Box
           sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 1,
-            minWidth: 0,
+            px: 1.05,
+            pt: 0.75,
+            pb: 1,
+            borderTop: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
           }}
         >
           <Box
@@ -1137,6 +1162,7 @@ const ChatComposer = memo(function ChatComposer({
               </Tooltip>
             ) : null}
           </Box>
+        </Box>
         </Box>
       </Box>
 

@@ -4,6 +4,7 @@ import {
   classifyRouteForTest,
   looksLikeTournamentAvailabilityQuestion,
   pickTournamentStatusFromMessage,
+  resolveContextUsageMode,
 } from "./pikoraService.js";
 
 test("detects tournament status queries with and without accents", () => {
@@ -117,6 +118,30 @@ test("keeps generic knowledge queries on knowledge route even on leaderboard pag
     assert.equal(route.kind, "knowledge");
     assert.equal(route.toolPlan?.[0]?.name, "search_knowledge");
   }
+});
+
+test("routes leaderboard top queries to leaderboard tools even on tournament list pages", () => {
+  const route = classifyRouteForTest(
+    "top 1 bảng xếp hạng hiện tại là ai",
+    {
+      pageType: "tournament_list",
+      pageSnapshot: {
+        pageType: "tournament_list",
+        sectionTitle: "Giải đấu",
+        activeLabels: ["Sắp diễn ra"],
+        stats: {
+          currentTab: "upcoming",
+          total: 35,
+          visible: 0,
+        },
+      },
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "player");
+  assert.equal(route.toolPlan?.[0]?.name, "get_leaderboard");
+  assert.equal(route.toolPlan?.[0]?.args?.limit, 3);
 });
 
 test("routes tournament progress questions to tournament progress tools", () => {
@@ -233,4 +258,71 @@ test("keeps knowledge queries on the knowledge route even when session focus exi
 
   assert.equal(route.kind, "knowledge");
   assert.equal(route.toolPlan?.[0]?.name, "search_knowledge");
+});
+
+test("uses context in ignore, blend, and focus modes appropriately", () => {
+  assert.equal(
+    resolveContextUsageMode(
+      "pickleball là gì",
+      { kind: "knowledge" },
+      {
+        pageType: "leaderboard",
+        pageTitle: "Bảng xếp hạng",
+      },
+    ),
+    "ignore",
+  );
+
+  assert.equal(
+    resolveContextUsageMode(
+      "giải nào đang diễn ra",
+      { kind: "tournament" },
+      {
+        pageType: "tournament_list",
+        pageTitle: "Giải đấu",
+      },
+    ),
+    "blend",
+  );
+
+  assert.equal(
+    resolveContextUsageMode(
+      "lịch thi đấu",
+      { kind: "tournament" },
+      {
+        tournamentId: "demo-tournament-id",
+        pageType: "tournament_schedule",
+      },
+    ),
+    "focus",
+  );
+});
+
+test("keeps tournament list page answers on tournament route instead of instant direct", () => {
+  const route = classifyRouteForTest(
+    "có giải nào đang diễn ra",
+    {
+      pageType: "tournament_list",
+      pageSnapshot: {
+        pageType: "tournament_list",
+        sectionTitle: "Giải đấu",
+        activeLabels: ["Đang diễn ra"],
+        stats: {
+          currentTab: "ongoing",
+          total: 35,
+          visible: 1,
+          ongoing: 1,
+        },
+        visibleTournaments: [
+          {
+            name: "Giải đấu Pickletour Beta",
+          },
+        ],
+      },
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "tournament");
+  assert.ok(route.directResponse);
 });

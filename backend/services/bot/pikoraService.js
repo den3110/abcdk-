@@ -441,6 +441,7 @@ function isBrowsePageType(context = {}) {
 
 function resolveQueryScope(message, route, context = {}) {
   const normalized = sharedNormalizeText(message);
+  const contextUsageMode = resolveContextUsageMode(message, route, context);
 
   if (
     looksLikeGenericKnowledgeQuestion(message, normalized) ||
@@ -455,6 +456,10 @@ function resolveQueryScope(message, route, context = {}) {
     route?.kind === "direct"
   ) {
     return "operator";
+  }
+
+  if (contextUsageMode === "ignore") {
+    return "general_knowledge";
   }
 
   if (
@@ -476,6 +481,130 @@ function resolveQueryScope(message, route, context = {}) {
   }
 
   return "general_knowledge";
+}
+
+function resolvePageDomain(context = {}) {
+  const pageType = String(context?.pageType || "");
+
+  if (
+    context?.tournamentId ||
+    pageType.startsWith("tournament_") ||
+    pageType === "tournament_list"
+  ) {
+    return "tournament";
+  }
+  if (context?.clubId || pageType.startsWith("club_") || pageType === "club_list") {
+    return "club";
+  }
+  if (context?.newsSlug || pageType.startsWith("news_") || pageType === "news_list") {
+    return "news";
+  }
+  if (
+    context?.profileUserId ||
+    pageType === "leaderboard" ||
+    pageType === "public_profile" ||
+    pageType === "profile"
+  ) {
+    return "player";
+  }
+  if (
+    context?.matchId ||
+    context?.courtId ||
+    pageType.startsWith("live_") ||
+    pageType.startsWith("court_")
+  ) {
+    return "live";
+  }
+  return "";
+}
+
+function detectQueryDomain(message, normalized = sharedNormalizeText(message)) {
+  if (looksLikeGenericKnowledgeQuestion(message, normalized)) return "knowledge";
+  if (looksLikeLeaderboardQuestion(message, normalized)) return "player";
+  if (
+    hasAny(normalized, ["tin tuc", "tin tức", "news", "bai viet", "bài viết"])
+  ) {
+    return "news";
+  }
+  if (hasAny(normalized, ["clb", "cau lac bo", "câu lạc bộ", "club"])) {
+    return "club";
+  }
+  if (
+    hasAny(normalized, ["live", "truc tiep", "trực tiếp", "stream", "trận", "tran"])
+  ) {
+    return "live";
+  }
+  if (
+    looksLikeTournamentAvailabilityQuestion(message, normalized) ||
+    hasAny(normalized, [
+      "giai",
+      "giải",
+      "tournament",
+      "lich thi dau",
+      "lịch thi đấu",
+      "nhanh dau",
+      "nhánh đấu",
+      "bracket",
+      "dang ky",
+      "đăng ký",
+      "draw",
+      "boc tham",
+      "bốc thăm",
+      "luat",
+      "luật",
+      "tien do",
+      "tiến độ",
+    ])
+  ) {
+    return "tournament";
+  }
+  return "general";
+}
+
+export function resolveContextUsageMode(message, route, context = {}) {
+  const normalized = sharedNormalizeText(message);
+  if (
+    looksLikeGenericKnowledgeQuestion(message, normalized) ||
+    route?.kind === "knowledge"
+  ) {
+    return "ignore";
+  }
+  if (isCurrentContextReference(normalized)) {
+    return "focus";
+  }
+  if (route?.kind === "navigate" || route?.kind === "direct") {
+    return "focus";
+  }
+
+  const queryDomain = detectQueryDomain(message, normalized);
+  const pageDomain = resolvePageDomain(context);
+  if (!pageDomain || !queryDomain || queryDomain === "general") {
+    return "ignore";
+  }
+  if (queryDomain !== pageDomain) {
+    return "ignore";
+  }
+  if (hasExplicitEntityContext(context) && !isBrowsePageType(context)) {
+    return "focus";
+  }
+  if (isBrowsePageType(context)) {
+    return "blend";
+  }
+  return "blend";
+}
+
+function stripMarkdownLinkLabel(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+  return match ? match[1].trim() : text;
+}
+
+function extractMarkdownLinkPath(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+  return match ? String(match[2] || "").trim() : "";
 }
 
 function resolveContextConfidence(
@@ -1568,8 +1697,12 @@ async function runPikora(message, context, userId, emit, options = {}) {
     roles: collectUserRoles(focusAwareContext?.currentUser),
     cohortId: focusAwareContext?.cohortId || "",
   });
+  const directExecutionSeed =
+    route.directResponse && !shouldFinalizeDirectResponseInstantly(message, route, focusAwareContext)
+      ? buildSeedExecutionFromDirectResponse(route.directResponse)
+      : null;
 
-  if (route.directResponse) {
+  if (route.directResponse && !directExecutionSeed) {
     return finalizeDirectResponse({
       safeEmit,
       message,
@@ -1583,21 +1716,25 @@ async function runPikora(message, context, userId, emit, options = {}) {
   }
 
   const toolCacheKey = getToolCacheKey(route, focusAwareContext);
-  const cachedExecution = getCacheEntry(toolExecutionCache, toolCacheKey);
-  const execution = cachedExecution
-    ? {
-        ...cachedExecution,
-        toolSummary: (cachedExecution.toolSummary || []).map((item) => ({
-          ...item,
-          cached: true,
-        })),
-      }
-    : await executeToolPlan({
-        route,
-        context: focusAwareContext,
-        safeEmit,
-      });
-  if (!cachedExecution && execution.toolsUsed?.length) {
+  const cachedExecution = directExecutionSeed
+    ? null
+    : getCacheEntry(toolExecutionCache, toolCacheKey);
+  let execution = directExecutionSeed
+    ? directExecutionSeed
+    : cachedExecution
+      ? {
+          ...cachedExecution,
+          toolSummary: (cachedExecution.toolSummary || []).map((item) => ({
+            ...item,
+            cached: true,
+          })),
+        }
+      : await executeToolPlan({
+          route,
+          context: focusAwareContext,
+          safeEmit,
+        });
+  if (!cachedExecution && !directExecutionSeed && execution.toolsUsed?.length) {
     setCacheEntry(
       toolExecutionCache,
       toolCacheKey,
@@ -1622,23 +1759,23 @@ async function runPikora(message, context, userId, emit, options = {}) {
       execution,
     );
   if (groundedTournamentStatusResponse) {
-    return finalizeGroundedToolResponse({
-      safeEmit,
-      message,
-      route,
-      context: focusAwareContext,
+    execution = mergeExecutionSeed(
       execution,
-      direct: groundedTournamentStatusResponse,
-      contextInsight: buildContextInsight(
-        focusAwareContext,
-        route,
-        null,
-        execution,
-      ),
-      startTime,
-      rolloutDecision,
-      memory,
-    });
+      buildSeedExecutionFromDirectResponse(groundedTournamentStatusResponse),
+    );
+  }
+
+  const groundedLeaderboardResponse = buildGroundedLeaderboardResponse(
+    message,
+    route,
+    focusAwareContext,
+    execution,
+  );
+  if (groundedLeaderboardResponse) {
+    execution = mergeExecutionSeed(
+      execution,
+      buildSeedExecutionFromDirectResponse(groundedLeaderboardResponse),
+    );
   }
 
   const userProfile = await userProfilePromise;
@@ -2109,6 +2246,89 @@ function finalizeDirectResponse({
   return result;
 }
 
+function shouldFinalizeDirectResponseInstantly(message, route, context = {}) {
+  if (!route?.directResponse) return false;
+  if (looksLikeGreetingMessage(message) || looksLikeThanksMessage(message)) {
+    return true;
+  }
+
+  const navigationPath = String(
+    route?.directResponse?.navigation?.webPath ||
+      route?.directResponse?.navigation?.deepLink ||
+      "",
+  ).toLowerCase();
+  if (navigationPath.includes("/login") || navigationPath.includes("://login")) {
+    return true;
+  }
+
+  const normalized = sharedNormalizeText(message);
+  if (hasAny(normalized, ["dang nhap", "login"]) && route?.directResponse?.navigation) {
+    return true;
+  }
+
+  if (!context?.currentUser?._id && !context?.currentUser?.id && navigationPath) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildSeedExecutionFromDirectResponse(directResponse = {}) {
+  return {
+    toolResults: {},
+    toolSummary: [],
+    toolsUsed: [],
+    navigation: directResponse.navigation || null,
+    prebuiltActions: Array.isArray(directResponse.actions)
+      ? directResponse.actions.filter(Boolean)
+      : [],
+    prebuiltSuggestions: Array.isArray(directResponse.suggestions)
+      ? directResponse.suggestions.filter(Boolean)
+      : [],
+    seedReply: String(directResponse.reply || ""),
+  };
+}
+
+function mergeExecutionSeed(execution = {}, seed = {}) {
+  if (!seed || typeof seed !== "object") {
+    return execution;
+  }
+
+  const merged = {
+    ...execution,
+    navigation: execution.navigation || seed.navigation || null,
+    seedReply: execution.seedReply || seed.seedReply || "",
+    prebuiltActions: [
+      ...(Array.isArray(execution.prebuiltActions) ? execution.prebuiltActions : []),
+      ...(Array.isArray(seed.prebuiltActions) ? seed.prebuiltActions : []),
+    ],
+    prebuiltSuggestions: [
+      ...(Array.isArray(execution.prebuiltSuggestions)
+        ? execution.prebuiltSuggestions
+        : []),
+      ...(Array.isArray(seed.prebuiltSuggestions) ? seed.prebuiltSuggestions : []),
+    ],
+  };
+
+  return merged;
+}
+
+function buildPreparedActionSummary(execution = {}) {
+  const labels = [
+    ...(execution?.navigation?.description ? [execution.navigation.description] : []),
+    ...(Array.isArray(execution?.prebuiltActions)
+      ? execution.prebuiltActions.map((action) => action?.label).filter(Boolean)
+      : []),
+  ];
+
+  const uniqueLabels = labels.filter(
+    (label, index) => labels.findIndex((item) => item === label) === index,
+  );
+  if (!uniqueLabels.length) return "";
+
+  return uniqueLabels.slice(0, 5).join(", ");
+}
+
 function buildGroundedTournamentStatusResponse(message, route, context, execution) {
   if (
     !Array.isArray(route?.toolPlan) ||
@@ -2200,6 +2420,73 @@ function buildGroundedTournamentStatusResponse(message, route, context, executio
   return {
     reply,
     suggestions,
+  };
+}
+
+function buildGroundedLeaderboardResponse(message, route, context, execution) {
+  if (!Array.isArray(route?.toolPlan) || !route.toolPlan.length) {
+    return null;
+  }
+
+  if (route.toolPlan[0]?.name !== "get_leaderboard") {
+    return null;
+  }
+
+  const normalized = sharedNormalizeText(message);
+  if (!looksLikeLeaderboardQuestion(message, normalized)) {
+    return null;
+  }
+
+  const result = execution?.toolResults?.get_leaderboard;
+  const players = Array.isArray(result?.players) ? result.players : [];
+
+  if (!players.length) {
+    return {
+      reply: "Hiện tại mình chưa thấy dữ liệu bảng xếp hạng phù hợp trong hệ thống.",
+      suggestions: ["Mở bảng xếp hạng", "Tìm người chơi", "So sánh 2 VĐV"],
+    };
+  }
+
+  const topPlayer = players[0];
+  const playerName = stripMarkdownLinkLabel(topPlayer?.name || "");
+  const playerPath = extractMarkdownLinkPath(topPlayer?.name || "");
+  const tierLabel =
+    topPlayer?.tierColor === "yellow"
+      ? "điểm xác thực"
+      : topPlayer?.tierColor === "red"
+        ? "tự chấm"
+        : topPlayer?.tierColor === "grey"
+          ? "chưa đấu"
+          : "";
+
+  let reply = "";
+  if (looksLikeLeaderboardTopQuestion(message, normalized)) {
+    reply = `Hiện tại top 1 bảng xếp hạng là ${playerName || "người chơi đứng đầu"}.`;
+  } else {
+    reply = "Đây là nhóm dẫn đầu bảng xếp hạng hiện tại.";
+  }
+
+  const metrics = [];
+  if (topPlayer?.double != null) metrics.push(`đôi ${topPlayer.double}`);
+  if (topPlayer?.single != null) metrics.push(`đơn ${topPlayer.single}`);
+  if (topPlayer?.points != null) metrics.push(`${topPlayer.points} điểm`);
+  if (metrics.length) {
+    reply += ` Chỉ số nổi bật: ${metrics.slice(0, 3).join(", ")}.`;
+  }
+  if (topPlayer?.province) {
+    reply += ` Khu vực: ${topPlayer.province}.`;
+  }
+  if (tierLabel) {
+    reply += ` Nhóm điểm: ${tierLabel}.`;
+  }
+
+  return {
+    reply,
+    suggestions: [
+      playerPath ? "Hồ sơ người chơi này" : "",
+      "Bảng xếp hạng hiện tại",
+      "So sánh 2 VĐV",
+    ].filter(Boolean),
   };
 }
 
@@ -2495,6 +2782,53 @@ function looksLikeGenericKnowledgeQuestion(
     asciiMessage.includes("tai sao") ||
     asciiMessage.includes("giai thich") ||
     asciiMessage.includes("faq")
+  );
+}
+
+function looksLikeLeaderboardQuestion(
+  message,
+  normalized = sharedNormalizeText(message),
+) {
+  if (!String(message || "").trim()) return false;
+  if (looksLikeNavigationRequest(message)) return false;
+
+  const asciiMessage = normalizeAsciiText(message);
+  const mentionsLeaderboard =
+    hasAny(normalized, ["bang xep hang", "xep hang", "bxh", "ranking"]) ||
+    asciiMessage.includes("bang xep hang") ||
+    asciiMessage.includes("xep hang") ||
+    asciiMessage.includes("bxh") ||
+    asciiMessage.includes("ranking");
+
+  const asksTopRank =
+    /\btop\s*\d+\b/.test(asciiMessage) ||
+    asciiMessage.includes("top mot") ||
+    asciiMessage.includes("top one") ||
+    asciiMessage.includes("hang 1") ||
+    asciiMessage.includes("hang dau") ||
+    asciiMessage.includes("dung dau") ||
+    asciiMessage.includes("dan dau");
+
+  return mentionsLeaderboard || asksTopRank;
+}
+
+function looksLikeLeaderboardTopQuestion(
+  message,
+  normalized = sharedNormalizeText(message),
+) {
+  if (!looksLikeLeaderboardQuestion(message, normalized)) return false;
+
+  const asciiMessage = normalizeAsciiText(message);
+  return (
+    /\btop\s*1\b/.test(asciiMessage) ||
+    asciiMessage.includes("top mot") ||
+    asciiMessage.includes("top one") ||
+    asciiMessage.includes("hang 1") ||
+    asciiMessage.includes("hang dau") ||
+    asciiMessage.includes("dung dau") ||
+    asciiMessage.includes("dan dau") ||
+    asciiMessage.includes("la ai") ||
+    asciiMessage.includes("ai la")
   );
 }
 
@@ -2814,6 +3148,10 @@ function createTournamentListTabAction(status) {
 }
 
 function buildTournamentListDirectRoute(message, normalized, context = {}) {
+  if (looksLikeLeaderboardQuestion(message, normalized)) {
+    return null;
+  }
+
   const pageState = getTournamentListPageState(context);
   if (!pageState) return null;
 
@@ -2879,7 +3217,7 @@ function buildTournamentListDirectRoute(message, normalized, context = {}) {
   actions.push(...buildContextActions(context).slice(0, 3));
 
   return {
-    kind: "direct",
+    kind: "tournament",
     directResponse: {
       reply,
       actions: actions.filter(Boolean),
@@ -2901,9 +3239,21 @@ function classifyRoute(message, context, userId) {
   );
   const boostedNormalized = addContextualKeywords(message, normalized, context);
   const entityName = sharedExtractEntityName(message);
+  const tournamentAvailabilityPlanningContext =
+    isCurrentContextReference(normalized) ||
+    context?.sessionFocusApplied === "tournament"
+      ? context
+      : {
+          ...context,
+          tournamentId: "",
+          matchId: "",
+          bracketId: "",
+          courtId: "",
+          courtCode: "",
+        };
   const tournamentListDirectRoute = buildTournamentListDirectRoute(
     message,
-    boostedNormalized,
+    normalized,
     context,
   );
 
@@ -2919,7 +3269,7 @@ function classifyRoute(message, context, userId) {
         message,
         boostedNormalized,
         entityName,
-        context,
+        tournamentAvailabilityPlanningContext,
       ),
     };
   }
@@ -2961,6 +3311,21 @@ function classifyRoute(message, context, userId) {
         {
           name: "search_knowledge",
           args: { query: message, limit: 3 },
+        },
+      ],
+    };
+  }
+
+  if (looksLikeLeaderboardQuestion(message, normalized)) {
+    return {
+      kind: "player",
+      entityName,
+      toolPlan: [
+        {
+          name: "get_leaderboard",
+          args: {
+            limit: looksLikeLeaderboardTopQuestion(message, normalized) ? 3 : 10,
+          },
         },
       ],
     };
@@ -3355,7 +3720,18 @@ function buildNewsToolPlan(message, normalized, entityName, context) {
   const keywordFromContext = buildNewsKeywordFromContext(context);
   const preferContextKeyword =
     isCurrentContextReference(normalized) ||
-    pageTypeStartsWith(context, "news_") ||
+    hasAny(normalized, [
+      "bai nay",
+      "bài này",
+      "tin nay",
+      "tin này",
+      "tom tat bai",
+      "tóm tắt bài",
+      "nguon bai",
+      "nguồn bài",
+      "nguon tin",
+      "nguồn tin",
+    ]) ||
     context?.sessionFocusApplied === "news";
   return [
     {
@@ -3373,9 +3749,35 @@ function buildNewsToolPlan(message, normalized, entityName, context) {
 function buildClubToolPlan(normalized, entityName, context = {}) {
   const useCurrentClub =
     Boolean(context.clubId) &&
-    (!entityName ||
-      isCurrentContextReference(normalized) ||
-      pageTypeStartsWith(context, "club_"));
+    (isCurrentContextReference(normalized) ||
+      context?.sessionFocusApplied === "club" ||
+      (!entityName &&
+        hasAny(normalized, [
+          "thanh vien",
+          "thành viên",
+          "members",
+          "admin",
+          "quan ly",
+          "quản lý",
+          "su kien",
+          "sự kiện",
+          "event",
+          "lich clb",
+          "lịch clb",
+          "binh chon",
+          "bình chọn",
+          "poll",
+          "vote",
+          "tin",
+          "news",
+          "thong bao",
+          "thông báo",
+          "announcements",
+          "chi tiet",
+          "chi tiết",
+          "gioi thieu",
+          "giới thiệu",
+        ])));
 
   if (useCurrentClub) {
     if (
@@ -3431,7 +3833,31 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
 }
 
 function buildLiveToolPlan(normalized, context = {}) {
-  if (context.matchId) {
+  const useCurrentMatch =
+    Boolean(context.matchId) &&
+    (isCurrentContextReference(normalized) ||
+      context?.sessionFocusApplied === "match" ||
+      hasAny(normalized, [
+        "ti so",
+        "tá»‰ sá»‘",
+        "diem",
+        "Ä‘iá»ƒm",
+        "score",
+        "set",
+        "van",
+        "vÃ¡n",
+        "dien bien",
+        "diá»…n biáº¿n",
+        "log",
+        "nhat ky",
+        "nháº­t kÃ½",
+        "video",
+        "xem lai",
+        "xem láº¡i",
+        "record",
+      ]));
+
+  if (useCurrentMatch) {
     if (hasAny(normalized, ["tỉ số", "điểm", "score", "set", "ván"])) {
       return [{ name: "get_match_score_detail", args: { matchId: context.matchId } }];
     }
@@ -3455,8 +3881,21 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
   if (
     context.profileUserId &&
     (isCurrentContextReference(normalized) ||
-      context.pageType === "public_profile" ||
-      context.sessionFocusApplied === "player")
+      context.sessionFocusApplied === "player" ||
+      (!entityName &&
+        !looksLikeLeaderboardQuestion(message, normalized) &&
+        hasAny(normalized, [
+          "rating",
+          "thong ke",
+          "thống kê",
+          "ho so",
+          "hồ sơ",
+          "lich su giai",
+          "lịch sử giải",
+          "tournament history",
+          "thanh tich",
+          "thành tích",
+        ])))
   ) {
     if (hasAny(normalized, ["lịch sử giải", "tournament history"])) {
       return [
@@ -3516,15 +3955,50 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
 function buildTournamentToolPlan(message, normalized, entityName, context) {
   const hasContextTournament =
     Boolean(context.tournamentId) &&
-    (!entityName ||
+    (
+      isCurrentContextReference(normalized) ||
+      context?.sessionFocusApplied === "tournament" ||
       hasAny(normalized, [
-        "giải này",
-        "giải hiện tại",
-        "trang này",
-        "giai nay",
-        "giai hien tai",
-        "trang nay",
-      ]));
+        "lịch thi đấu",
+        "schedule",
+        "luật",
+        "rules",
+        "nhánh đấu",
+        "bracket",
+        "sơ đồ",
+        "đăng ký",
+        "bao nhiêu đội",
+        "đội",
+        "tiến độ",
+        "progress",
+        "tien do",
+        "bao nhiêu trận",
+        "còn bao nhiêu trận",
+        "trận chưa xong",
+        "trận đã xong",
+        "tổng trận",
+        "bao nhieu tran",
+        "con bao nhieu tran",
+        "tran chua xong",
+        "tran da xong",
+        "tong tran",
+        "lệ phí",
+        "thanh toán",
+        "payment",
+        "quản lý",
+        "manager",
+        "btc",
+        "trọng tài",
+        "referee",
+        "sân",
+        "court",
+        "bốc thăm",
+        "draw",
+        "live",
+        "trực tiếp",
+        "streaming",
+      ])
+    );
 
   if (hasContextTournament) {
     if (context.matchId) {
@@ -5137,6 +5611,7 @@ function buildSuggestedActions(route, context, execution = {}) {
           ),
         ]
       : []),
+    ...(Array.isArray(execution?.prebuiltActions) ? execution.prebuiltActions : []),
     ...getActionsFromToolResults(execution?.toolResults, context),
     ...buildContextActions(context),
   ];
@@ -5568,6 +6043,7 @@ function buildSynthesisMessages({
   execution,
 }) {
   const genericKnowledgeQuestion = looksLikeGenericKnowledgeQuestion(message);
+  const contextUsageMode = resolveContextUsageMode(message, route, context);
   const assistantMode = normalizeAssistantMode(personalization?.assistantMode);
   const verificationMode = normalizeVerificationMode(
     personalization?.verificationMode || context?.verificationMode,
@@ -5586,11 +6062,18 @@ function buildSynthesisMessages({
         ? "Phong cách hiện tại là Analyst: ưu tiên cấu trúc phân tích, so sánh, lý do, trade-off và nhận định súc tích."
         : "Phong cách hiện tại là Balanced: cân bằng giữa trả lời trực tiếp, giải thích ngắn và gợi ý thao tác khi hữu ích.";
   const pageAwareInstruction =
-    context?.pageType?.startsWith("tournament_") ||
-    context?.pageType?.startsWith("admin_") ||
-    context?.pageType?.startsWith("live_")
+    contextUsageMode === "focus" &&
+    (context?.pageType?.startsWith("tournament_") ||
+      context?.pageType?.startsWith("admin_") ||
+      context?.pageType?.startsWith("live_"))
       ? "Nếu đang ở một màn thao tác cụ thể, ưu tiên nói đúng theo màn hiện tại và gợi ý bước kế tiếp có thể bấm ngay."
       : "";
+  const contextUsageInstruction =
+    contextUsageMode === "focus"
+      ? "Câu hỏi hiện tại đang bám rõ vào ngữ cảnh hiện tại. Hãy ưu tiên thực thể và màn hình hiện tại nếu dữ liệu công cụ hỗ trợ."
+      : contextUsageMode === "blend"
+        ? "Câu hỏi hiện tại chỉ liên quan nhẹ đến ngữ cảnh hiện tại. Hãy trả lời trực tiếp ý chính trước, chỉ dùng ngữ cảnh như tín hiệu phụ để gợi ý hoặc làm rõ."
+        : "Câu hỏi hiện tại không tập trung vào ngữ cảnh hiện tại. Hãy trả lời như một câu hỏi chung, không để màn hình hiện tại kéo lệch câu trả lời.";
   const verificationInstructionSafe =
     verificationMode === "strict"
       ? "Ch\u1ebf \u0111\u1ed9 x\u00e1c minh hi\u1ec7n t\u1ea1i l\u00e0 Strict: khi grounding ch\u01b0a \u0111\u1ee7, ph\u1ea3i n\u00f3i r\u00f5 l\u00e0 ch\u01b0a \u0111\u1ee7 d\u1eef li\u1ec7u \u0111\u1ec3 kh\u1eb3ng \u0111\u1ecbnh. Tr\u00e1nh kh\u1eb3ng \u0111\u1ecbnh m\u1ea1nh khi ch\u01b0a c\u00f3 \u0111\u1ed1i chi\u1ebfu \u0111\u1ee7 ch\u1eafc."
@@ -5613,11 +6096,19 @@ function buildSynthesisMessages({
     verificationInstructionSafe,
     densityInstruction,
     pageAwareInstruction,
+    contextUsageInstruction,
   ].join("\n");
 
-  const contextSummary = buildContextSummary(context, userProfile);
-  const pageSnapshotSummary = buildPageSnapshotSummary(context);
+  const contextSummary = buildContextSummaryForMessage(
+    message,
+    route,
+    context,
+    userProfile,
+  );
+  const pageSnapshotSummary =
+    contextUsageMode === "focus" ? buildPageSnapshotSummary(context) : "";
   const personalizationSummary = buildPersonalizationSummary(personalization);
+  const preparedActionSummary = buildPreparedActionSummary(execution);
   const toolContext = buildToolContext(
     execution.toolResults,
     execution.hybridRetrieval,
@@ -5637,6 +6128,10 @@ ${pageSnapshotSummary}` : "",
         personalizationSummary
           ? `Tín hiệu cá nhân hóa:
 ${personalizationSummary}`
+          : "",
+        preparedActionSummary
+          ? `Một số hành động an toàn đã được chuẩn bị sẵn:
+${preparedActionSummary}`
           : "",
         `Loại yêu cầu: ${route.kind}`,
         toolContext
@@ -5748,6 +6243,39 @@ function buildContextSummary(context, userProfile) {
   }
   if (context.courtCode) parts.push(`Sân hiện tại: ${context.courtCode}`);
   if (context.courtId) parts.push(`ID sân hiện tại: ${context.courtId}`);
+  return parts.join("\n");
+}
+
+function buildContextSummaryForMessage(message, route, context, userProfile) {
+  const usageMode = resolveContextUsageMode(message, route, context);
+  if (usageMode === "focus") {
+    return buildContextSummary(context, userProfile);
+  }
+
+  const parts = [];
+  if (userProfile) {
+    parts.push(
+      `Người dùng: ${userProfile.name}${userProfile.nickname ? ` (${userProfile.nickname})` : ""}, rating ${userProfile.rating}, khu vực ${userProfile.province || "N/A"}.`,
+    );
+  }
+
+  if (usageMode === "blend") {
+    if (context.pageType) {
+      parts.push(`Trang hiện tại: ${String(context.pageType).replaceAll("_", " ")}.`);
+    }
+    if (context.pageTitle) {
+      parts.push(`Tiêu đề trang: ${sanitizePageTitle(context.pageTitle)}.`);
+    }
+    if (
+      context?.sessionFocus?.activeType &&
+      context?.sessionFocus?.[context.sessionFocus.activeType]?.label
+    ) {
+      parts.push(
+        `Ngữ cảnh gần nhất: ${context.sessionFocus[context.sessionFocus.activeType].label}.`,
+      );
+    }
+  }
+
   return parts.join("\n");
 }
 
@@ -6128,12 +6656,21 @@ function buildEnhancedSuggestions(route, context, userId, personalization) {
 }
 
 function generateSuggestions(route, context, execution, userId, personalization) {
+  const prebuiltSuggestions = Array.isArray(execution?.prebuiltSuggestions)
+    ? execution.prebuiltSuggestions.filter(Boolean)
+    : [];
   const enhancedSuggestions = buildEnhancedSuggestions(
     route,
     context,
     userId,
     personalization,
   );
+  if (prebuiltSuggestions.length >= 3) {
+    return sharedCompactList(prebuiltSuggestions);
+  }
+  if (prebuiltSuggestions.length > 0) {
+    return sharedCompactList([...prebuiltSuggestions, ...enhancedSuggestions]);
+  }
   if (enhancedSuggestions.length >= 3) {
     return enhancedSuggestions;
   }
