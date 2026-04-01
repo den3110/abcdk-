@@ -41,7 +41,15 @@ import {
   ensureReferee,
 } from "../utils/socketAuth.js";
 import UserMatch from "../models/userMatchModel.js";
-import { computeStageInfoForMatchDoc } from "../controllers/refereeController.js";
+import {
+  assignCourtToMatch,
+  computeStageInfoForMatchDoc,
+  listCourtsForMatch,
+  patchScore,
+  refereeSetBreak,
+  unassignCourtFromMatch,
+} from "../controllers/refereeController.js";
+import { updateMatchSettings } from "../controllers/matchController.js";
 import { buildFbPageMonitorSnapshot } from "../services/fbPageMonitor.service.js";
 import {
   registerFbPageMonitorPublisher,
@@ -1469,6 +1477,76 @@ export function initSocket(
       console.error("[socket] on connect addConnection error:", e);
     }
 
+    const invokeControllerOverSocket = async (
+      controller,
+      { params = {}, query = {}, body = {}, headers = {} } = {}
+    ) =>
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        const normalizedHeaders = Object.fromEntries(
+          Object.entries(headers || {}).map(([key, value]) => [
+            String(key).toLowerCase(),
+            value,
+          ])
+        );
+
+        const finish = (result, isError = false) => {
+          if (settled) return;
+          settled = true;
+          if (isError) reject(result);
+          else resolve(result);
+        };
+
+        const req = {
+          params,
+          query,
+          body,
+          headers: normalizedHeaders,
+          user: socket.user || null,
+          header(name) {
+            return normalizedHeaders[String(name || "").toLowerCase()];
+          },
+          app: {
+            get(key) {
+              if (key === "io") return io;
+              return undefined;
+            },
+          },
+        };
+
+        const res = {
+          statusCode: 200,
+          status(code) {
+            this.statusCode = Number(code) || 200;
+            return this;
+          },
+          json(payload) {
+            finish({ status: this.statusCode, body: payload });
+            return this;
+          },
+          send(payload) {
+            finish({ status: this.statusCode, body: payload });
+            return this;
+          },
+        };
+
+        const next = (error) => {
+          if (error) {
+            finish(error, true);
+            return;
+          }
+          finish({ status: res.statusCode, body: null });
+        };
+
+        try {
+          Promise.resolve(controller(req, res, next)).catch((error) =>
+            finish(error, true)
+          );
+        } catch (error) {
+          finish(error, true);
+        }
+      });
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {
@@ -2317,6 +2395,251 @@ export function initSocket(
           io,
           liveDeviceContext(socket)
         );
+      }
+    );
+
+    socket.on(
+      "match:break:set",
+      async (
+        { matchId, userMatch = false, active, note, afterGame, expectedResumeAt } = {},
+        ack
+      ) => {
+        try {
+          const canControl = userMatch
+            ? Boolean(socket.user?._id)
+            : await ensureReferee(socket);
+          if (!canControl) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+
+          const result = await invokeControllerOverSocket(refereeSetBreak, {
+            params: { id: matchId },
+            body: { active, note, afterGame, expectedResumeAt },
+            headers: userMatch ? { "x-pkt-match-kind": "user" } : {},
+          });
+
+          if (result.status >= 400 || result.body?.ok === false) {
+            ack?.({
+              ok: false,
+              status: result.status,
+              message: result.body?.message || "Set break failed",
+            });
+            return;
+          }
+
+          io.to(`match:${String(matchId)}`).emit("match:patched", {
+            matchId: String(matchId),
+            payload: { isBreak: result.body?.isBreak || null },
+          });
+
+          ack?.({
+            ok: true,
+            isBreak: result.body?.isBreak || null,
+            type: result.body?.type || (userMatch ? "userMatch" : "match"),
+          });
+        } catch (error) {
+          console.error("[match:break:set] error:", error?.message || error);
+          ack?.({ ok: false, message: error?.message || "Set break failed" });
+        }
+      }
+    );
+
+    socket.on(
+      "match:nextGame",
+      async ({ matchId, userMatch = false, autoNext } = {}, ack) => {
+        try {
+          const canControl = userMatch
+            ? Boolean(socket.user?._id)
+            : await ensureReferee(socket);
+          if (!canControl) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+
+          const result = await invokeControllerOverSocket(patchScore, {
+            params: { id: matchId },
+            body: { op: "nextGame", autoNext },
+            headers: userMatch ? { "x-pkt-match-kind": "user" } : {},
+          });
+
+          if (result.status >= 400) {
+            ack?.({
+              ok: false,
+              status: result.status,
+              message: result.body?.message || "Next game failed",
+              ...(result.body || {}),
+            });
+            return;
+          }
+
+          ack?.({ ok: true, ...(result.body || {}) });
+        } catch (error) {
+          console.error("[match:nextGame] error:", error?.message || error);
+          ack?.({ ok: false, message: error?.message || "Next game failed" });
+        }
+      }
+    );
+
+    socket.on(
+      "match:courts:list",
+      async ({ matchId, includeBusy = false, cluster, status } = {}, ack) => {
+        try {
+          if (!(await ensureReferee(socket))) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+
+          const result = await invokeControllerOverSocket(listCourtsForMatch, {
+            params: { matchId },
+            query: {
+              includeBusy: includeBusy ? "1" : "0",
+              ...(cluster ? { cluster } : {}),
+              ...(status ? { status } : {}),
+            },
+          });
+
+          if (result.status >= 400) {
+            ack?.({
+              ok: false,
+              status: result.status,
+              message: result.body?.message || "Load courts failed",
+            });
+            return;
+          }
+
+          ack?.({ ok: true, ...(result.body || {}) });
+        } catch (error) {
+          console.error("[match:courts:list] error:", error?.message || error);
+          ack?.({ ok: false, message: error?.message || "Load courts failed" });
+        }
+      }
+    );
+
+    socket.on(
+      "match:court:assign",
+      async (
+        { matchId, courtId, force = false, allowReassignLive = false } = {},
+        ack
+      ) => {
+        try {
+          if (!(await ensureReferee(socket))) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+
+          const result = await invokeControllerOverSocket(assignCourtToMatch, {
+            params: { matchId },
+            body: { courtId, force, allowReassignLive },
+          });
+
+          if (result.status >= 400 || result.body?.ok === false) {
+            ack?.({
+              ok: false,
+              status: result.status,
+              message: result.body?.message || "Assign court failed",
+              ...(result.body || {}),
+            });
+            return;
+          }
+
+          ack?.({ ok: true, ...(result.body || {}) });
+        } catch (error) {
+          console.error("[match:court:assign] error:", error?.message || error);
+          ack?.({ ok: false, message: error?.message || "Assign court failed" });
+        }
+      }
+    );
+
+    socket.on(
+      "match:court:unassign",
+      async ({ matchId, toStatus } = {}, ack) => {
+        try {
+          if (!(await ensureReferee(socket))) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+
+          const result = await invokeControllerOverSocket(
+            unassignCourtFromMatch,
+            {
+              params: { matchId },
+              body: { toStatus },
+            }
+          );
+
+          if (result.status >= 400 || result.body?.ok === false) {
+            ack?.({
+              ok: false,
+              status: result.status,
+              message: result.body?.message || "Unassign court failed",
+              ...(result.body || {}),
+            });
+            return;
+          }
+
+          ack?.({ ok: true, ...(result.body || {}) });
+        } catch (error) {
+          console.error(
+            "[match:court:unassign] error:",
+            error?.message || error
+          );
+          ack?.({
+            ok: false,
+            message: error?.message || "Unassign court failed",
+          });
+        }
+      }
+    );
+
+    socket.on(
+      "match:settings:update",
+      async ({ matchId, userMatch = false, ...body } = {}, ack) => {
+        try {
+          const canControl = userMatch
+            ? Boolean(socket.user?._id)
+            : await ensureReferee(socket);
+          if (!canControl) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+
+          const result = await invokeControllerOverSocket(updateMatchSettings, {
+            params: { matchId },
+            body,
+            headers: userMatch ? { "x-pkt-match-kind": "user" } : {},
+          });
+
+          if (result.status >= 400) {
+            ack?.({
+              ok: false,
+              status: result.status,
+              message: result.body?.message || "Update settings failed",
+            });
+            return;
+          }
+
+          io.to(`match:${String(matchId)}`).emit("match:patched", {
+            matchId: String(matchId),
+            payload: {
+              rules: result.body?.rules || null,
+              timeoutPerGame: result.body?.timeoutPerGame,
+              timeoutMinutes: result.body?.timeoutMinutes,
+              medicalTimeouts: result.body?.medicalTimeouts,
+            },
+          });
+
+          ack?.({ ok: true, match: result.body || null });
+        } catch (error) {
+          console.error(
+            "[match:settings:update] error:",
+            error?.message || error
+          );
+          ack?.({
+            ok: false,
+            message: error?.message || "Update settings failed",
+          });
+        }
       }
     );
 

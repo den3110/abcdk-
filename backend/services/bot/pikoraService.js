@@ -1388,19 +1388,19 @@ function mergeSessionFocus(...focusCandidates) {
 }
 
 function detectSessionFocusType(message, context = {}, sessionFocus = null) {
-  const normalized = sharedNormalizeText(message);
-  if (looksLikeGenericKnowledgeQuestion(message, normalized)) return "";
+  const normalized = normalizeAsciiText(message);
+  if (looksLikeGenericKnowledgeQuestion(message, sharedNormalizeText(message))) return "";
 
   if (
     hasAny(normalized, [
-      "bài này",
-      "tin này",
-      "tóm tắt bài",
-      "tóm tắt tin",
-      "nguồn bài",
-      "nguồn tin",
-      "bài viết",
-      "tin tức",
+      "bai nay",
+      "tin nay",
+      "tom tat bai",
+      "tom tat tin",
+      "nguon bai",
+      "nguon tin",
+      "bai viet",
+      "tin tuc",
       "news",
     ])
   ) {
@@ -1410,12 +1410,12 @@ function detectSessionFocusType(message, context = {}, sessionFocus = null) {
   if (
     hasAny(normalized, [
       "clb",
-      "câu lạc bộ",
+      "cau lac bo",
       "club",
-      "thành viên",
-      "sự kiện",
-      "thông báo",
-      "bình chọn",
+      "thanh vien",
+      "su kien",
+      "thong bao",
+      "binh chon",
       "poll",
     ])
   ) {
@@ -1424,13 +1424,12 @@ function detectSessionFocusType(message, context = {}, sessionFocus = null) {
 
   if (
     hasAny(normalized, [
-      "người chơi",
+      "nguoi choi",
       "vdv",
-      "vđv",
       "rating",
-      "hồ sơ",
-      "thống kê",
-      "xếp hạng",
+      "ho so",
+      "thong ke",
+      "xep hang",
       "ranking",
     ])
   ) {
@@ -1439,15 +1438,15 @@ function detectSessionFocusType(message, context = {}, sessionFocus = null) {
 
   if (
     hasAny(normalized, [
-      "trận này",
-      "tỉ số",
-      "điểm",
+      "tran nay",
+      "ty so",
+      "diem",
       "set",
-      "ván",
-      "diễn biến",
+      "van",
+      "dien bien",
       "video",
-      "xem lại",
-      "nhật ký",
+      "xem lai",
+      "nhat ky",
       "log",
       "live",
     ])
@@ -1456,34 +1455,34 @@ function detectSessionFocusType(message, context = {}, sessionFocus = null) {
   }
 
   if (
-    looksLikeTournamentAvailabilityQuestion(message, normalized) ||
+    looksLikeTournamentAvailabilityQuestion(message, sharedNormalizeText(message)) ||
     hasAny(normalized, [
-      "giải",
+      "giai",
       "tournament",
-      "lịch thi đấu",
-      "nhánh đấu",
-      "sơ đồ",
+      "lich thi dau",
+      "nhanh dau",
+      "so do",
       "bracket",
-      "đăng ký",
-      "bốc thăm",
-      "quản lý",
-      "luật",
-      "tiến độ",
-      "bao nhiêu trận",
-      "còn bao nhiêu trận",
+      "dang ky",
+      "boc tham",
+      "quan ly",
+      "luat",
+      "tien do",
+      "bao nhieu tran",
+      "con bao nhieu tran",
     ])
   ) {
     return "tournament";
   }
 
-  if (isCurrentContextReference(normalized)) {
+  if (isCurrentContextReference(sharedNormalizeText(message))) {
     return sessionFocus?.activeType || getFirstAvailableFocusType(sessionFocus || {});
   }
 
   if (
     !hasExplicitEntityContext(context) &&
     sessionFocus?.activeType &&
-    hasAny(normalized, ["chi tiết", "mở", "xem", "kiểm tra", "thử lại"])
+    hasAny(normalized, ["chi tiet", "mo", "xem", "kiem tra", "thu lai"])
   ) {
     return sessionFocus.activeType;
   }
@@ -4213,7 +4212,7 @@ function buildLiveToolPlan(normalized, context = {}) {
     if (hasAny(normalized, ["tỉ số", "điểm", "score", "set", "ván"])) {
       return [{ name: "get_match_score_detail", args: { matchId: context.matchId } }];
     }
-    if (hasAny(normalized, ["diễn biến", "log", "nhật ký"])) {
+    if (hasAny(normalized, ["diễn biến", "dien bien", "log", "nhật ký", "nhat ky"])) {
       return [{ name: "get_match_live_log", args: { matchId: context.matchId, limit: 20 } }];
     }
     if (hasAny(normalized, ["video", "xem lai", "record", "stream"])) {
@@ -4421,7 +4420,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           },
         ];
       }
-      if (hasAny(normalized, ["video", "xem lại", "record", "stream"])) {
+      if (hasAny(normalized, ["video", "xem lại", "xem lai", "record", "stream"])) {
         return [
           {
             name: "get_match_video",
@@ -4523,7 +4522,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["lịch thi đấu", "schedule"])) {
+    if (hasAny(normalized, ["lịch thi đấu", "lich thi dau", "schedule"])) {
       return [
         {
           name: "get_tournament_schedule",
@@ -4693,7 +4692,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     return plan;
   }
 
-  if (hasAny(normalized, ["lịch thi đấu", "schedule"])) {
+  if (hasAny(normalized, ["lịch thi đấu", "lich thi dau", "schedule"])) {
     plan.push({
       name: "get_tournament_schedule",
       args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
