@@ -883,6 +883,10 @@ const ChatComposer = memo(function ChatComposer({
   const modeMenuOpen = Boolean(modeMenuAnchorEl);
   const assistantModeMeta = getAssistantModeMeta(assistantMode, t);
   const verificationModeMeta = getVerificationModeMeta(verificationMode, t);
+  const hasActiveComposerModes =
+    reasoningMode === "force_reasoner" ||
+    assistantMode !== "balanced" ||
+    verificationMode === "strict";
 
   useEffect(() => {
     setReasoningMode(
@@ -957,6 +961,12 @@ const ChatComposer = memo(function ChatComposer({
     },
     [handleComposerSend],
   );
+
+  const handleResetComposerModes = useCallback(() => {
+    setReasoningMode("auto");
+    setAssistantMode("balanced");
+    setVerificationMode("balanced");
+  }, []);
 
   return (
     <>
@@ -1158,6 +1168,24 @@ const ChatComposer = memo(function ChatComposer({
                   }}
                 >
                   {verificationModeMeta.icon}
+                </IconButton>
+              </Tooltip>
+            ) : null}
+
+            {hasActiveComposerModes ? (
+              <Tooltip title="Tắt nhanh các chế độ đang bật">
+                <IconButton
+                  size="small"
+                  onClick={handleResetComposerModes}
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    border: `1px solid ${alpha(theme.palette.error.main, 0.22)}`,
+                    bgcolor: alpha(theme.palette.error.main, 0.08),
+                    color: theme.palette.error.main,
+                  }}
+                >
+                  <CloseIcon sx={{ fontSize: 17 }} />
                 </IconButton>
               </Tooltip>
             ) : null}
