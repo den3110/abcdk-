@@ -973,109 +973,7 @@ const ChatComposer = memo(function ChatComposer({
             : "#fff",
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.8,
-              flexShrink: 0,
-            }}
-          >
-            <Tooltip
-              title={t("chatbot.reasoner.modeLabel", {}, "Chế độ trả lời")}
-            >
-              <IconButton
-                onClick={(event) => setModeMenuAnchorEl(event.currentTarget)}
-                sx={{
-                  width: 44,
-                  height: 44,
-                  border: `1px solid ${alpha(theme.palette.divider, 0.24)}`,
-                  bgcolor: isDark
-                    ? alpha(theme.palette.background.default, 0.7)
-                    : alpha(theme.palette.grey[100], 0.92),
-                  color:
-                    reasoningMode === "force_reasoner"
-                      ? theme.palette.primary.main
-                      : theme.palette.text.secondary,
-                  "&:hover": {
-                    bgcolor: isDark
-                      ? alpha(theme.palette.background.default, 0.92)
-                      : "#fff",
-                  },
-                }}
-              >
-                <AddRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 0.75,
-                flexWrap: "wrap",
-              }}
-            >
-              {reasoningMode === "force_reasoner" ? (
-                <Chip
-                  size="small"
-                  icon={<PsychologyIcon sx={{ fontSize: 14 }} />}
-                  label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
-                  onDelete={() => setReasoningMode("auto")}
-                  color="primary"
-                  variant="filled"
-                  sx={{
-                    fontWeight: 700,
-                    height: 40,
-                    borderRadius: 999,
-                    "& .MuiChip-label": {
-                      px: 1.15,
-                    },
-                  }}
-                />
-              ) : null}
-
-              {assistantMode !== "balanced" ? (
-                <Chip
-                  size="small"
-                  icon={assistantModeMeta.icon}
-                  label={assistantModeMeta.shortLabel}
-                  onDelete={() => setAssistantMode("balanced")}
-                  color="secondary"
-                  variant="outlined"
-                  sx={{
-                    fontWeight: 700,
-                    height: 40,
-                    borderRadius: 999,
-                    "& .MuiChip-label": {
-                      px: 1.15,
-                    },
-                  }}
-                />
-              ) : null}
-
-              {verificationMode === "strict" ? (
-                <Chip
-                  size="small"
-                  icon={verificationModeMeta.icon}
-                  label={verificationModeMeta.shortLabel}
-                  onDelete={() => setVerificationMode("balanced")}
-                  color="success"
-                  variant="outlined"
-                  sx={{
-                    fontWeight: 700,
-                    height: 40,
-                    borderRadius: 999,
-                    "& .MuiChip-label": {
-                      px: 1.15,
-                    },
-                  }}
-                />
-              ) : null}
-            </Box>
-          </Box>
-
+        <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1 }}>
           <TextField
             inputRef={inputRef}
             fullWidth
@@ -1107,6 +1005,7 @@ const ChatComposer = memo(function ChatComposer({
               },
             }}
           />
+
           <IconButton
             onClick={isTyping ? onStop : handleComposerSend}
             disabled={isTyping ? false : !draft.trim()}
@@ -1135,6 +1034,109 @@ const ChatComposer = memo(function ChatComposer({
               <SendIcon sx={{ fontSize: 20 }} />
             )}
           </IconButton>
+        </Box>
+
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1,
+            minWidth: 0,
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 0.75,
+              minWidth: 0,
+              flexWrap: "wrap",
+            }}
+          >
+            <Tooltip
+              title={t("chatbot.reasoner.modeLabel", {}, "Chế độ trả lời")}
+            >
+              <IconButton
+                onClick={(event) => setModeMenuAnchorEl(event.currentTarget)}
+                sx={{
+                  width: 34,
+                  height: 34,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.24)}`,
+                  bgcolor: isDark
+                    ? alpha(theme.palette.background.default, 0.7)
+                    : alpha(theme.palette.grey[100], 0.92),
+                  color:
+                    reasoningMode === "force_reasoner"
+                      ? theme.palette.primary.main
+                      : theme.palette.text.secondary,
+                  "&:hover": {
+                    bgcolor: isDark
+                      ? alpha(theme.palette.background.default, 0.92)
+                      : "#fff",
+                  },
+                }}
+              >
+                <AddRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            {reasoningMode === "force_reasoner" ? (
+              <Tooltip
+                title={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+              >
+                <IconButton
+                  size="small"
+                  onClick={() => setReasoningMode("auto")}
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    border: `1px solid ${alpha(theme.palette.primary.main, 0.24)}`,
+                    bgcolor: alpha(theme.palette.primary.main, 0.08),
+                    color: theme.palette.primary.main,
+                  }}
+                >
+                  <PsychologyIcon sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+
+            {assistantMode !== "balanced" ? (
+              <Tooltip title={assistantModeMeta.label}>
+                <IconButton
+                  size="small"
+                  onClick={() => setAssistantMode("balanced")}
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    border: `1px solid ${alpha(theme.palette.secondary.main, 0.24)}`,
+                    bgcolor: alpha(theme.palette.secondary.main, 0.08),
+                    color: theme.palette.secondary.main,
+                  }}
+                >
+                  {assistantModeMeta.icon}
+                </IconButton>
+              </Tooltip>
+            ) : null}
+
+            {verificationMode === "strict" ? (
+              <Tooltip title={verificationModeMeta.label}>
+                <IconButton
+                  size="small"
+                  onClick={() => setVerificationMode("balanced")}
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    border: `1px solid ${alpha(theme.palette.success.main, 0.24)}`,
+                    bgcolor: alpha(theme.palette.success.main, 0.08),
+                    color: theme.palette.success.main,
+                  }}
+                >
+                  {verificationModeMeta.icon}
+                </IconButton>
+              </Tooltip>
+            ) : null}
+          </Box>
         </Box>
       </Box>
 
@@ -1994,6 +1996,9 @@ const MessageBubble = memo(function MessageBubble({
   const workflow = msg.workflow || null;
   const mutationPreview = msg.mutationPreview || null;
   const sessionFocusMeta = isBot ? getSessionFocusMeta(msg.sessionFocus, t) : null;
+  const sessionFocusStateMeta = isBot
+    ? getSessionFocusStateMeta(msg.sessionFocusState, t)
+    : null;
   const currentSessionFocusPinned =
     sessionFocusOverride?.mode === "pin" &&
     sessionFocusMatches(sessionFocusOverride?.sessionFocus, msg.sessionFocus);
@@ -2078,10 +2083,10 @@ const MessageBubble = memo(function MessageBubble({
                     sx={{
                       maxWidth: "100%",
                       height: 24,
-                      bgcolor: alpha(theme.palette.info.main, 0.1),
-                      color: theme.palette.info.main,
+                      bgcolor: alpha(sessionFocusMeta.accent || theme.palette.info.main, 0.1),
+                      color: sessionFocusMeta.accent || theme.palette.info.main,
                       fontWeight: 700,
-                      border: `1px solid ${alpha(theme.palette.info.main, 0.16)}`,
+                      border: `1px solid ${alpha(sessionFocusMeta.accent || theme.palette.info.main, 0.16)}`,
                       ".MuiChip-label": {
                         display: "block",
                         overflow: "hidden",
@@ -2091,7 +2096,35 @@ const MessageBubble = memo(function MessageBubble({
                       },
                     }}
                   />
-                  {currentSessionFocusPinned ? (
+                  <Chip
+                    size="small"
+                    label={sessionFocusMeta.typeLabel}
+                    variant="outlined"
+                    sx={{
+                      height: 24,
+                      fontWeight: 700,
+                      color: sessionFocusMeta.accent || theme.palette.info.main,
+                      borderColor: alpha(
+                        sessionFocusMeta.accent || theme.palette.info.main,
+                        0.22,
+                      ),
+                    }}
+                  />
+                  {sessionFocusStateMeta ? (
+                    <Chip
+                      size="small"
+                      label={sessionFocusStateMeta.label}
+                      variant="outlined"
+                      sx={{
+                        height: 24,
+                        fontWeight: 700,
+                        color: sessionFocusStateMeta.accent,
+                        borderColor: alpha(sessionFocusStateMeta.accent, 0.22),
+                        bgcolor: alpha(sessionFocusStateMeta.accent, 0.06),
+                      }}
+                    />
+                  ) : null}
+                  {currentSessionFocusPinned && !sessionFocusStateMeta ? (
                     <Chip
                       size="small"
                       label={t("chatbot.sessionFocus.pinned", {}, "Đã ghim")}
@@ -2099,7 +2132,7 @@ const MessageBubble = memo(function MessageBubble({
                       variant="outlined"
                       sx={{ height: 24, fontWeight: 700 }}
                     />
-                  ) : (
+                  ) : !currentSessionFocusPinned ? (
                     <Button
                       size="small"
                       variant="text"
@@ -2114,7 +2147,7 @@ const MessageBubble = memo(function MessageBubble({
                     >
                       {t("chatbot.sessionFocus.pin", {}, "Ghim")}
                     </Button>
-                  )}
+                  ) : null}
                   {sessionFocusOverride?.mode === "off" ? (
                     <Button
                       size="small"
@@ -3131,6 +3164,8 @@ export default function ChatBotDrawer() {
     actionExecutionSummary: null,
     workflow: null,
     mutationPreview: null,
+    sessionFocus: null,
+    sessionFocusState: null,
     assistantMode: "balanced",
     verificationMode: "balanced",
     surface: "web",
@@ -3864,10 +3899,11 @@ export default function ChatBotDrawer() {
       capabilityKeys: [],
       actionExecutionSummary: null,
       workflow: null,
-        mutationPreview: null,
-        sessionFocus: null,
-        assistantMode: requestAssistantMode,
-        verificationMode: requestVerificationMode,
+      mutationPreview: null,
+      sessionFocus: null,
+      sessionFocusState: null,
+      assistantMode: requestAssistantMode,
+      verificationMode: requestVerificationMode,
       surface: "web",
       messageId: null,
       firstTokenLatencyMs: null,
@@ -3899,6 +3935,7 @@ export default function ChatBotDrawer() {
       workflow: null,
       mutationPreview: null,
       sessionFocus: null,
+      sessionFocusState: null,
       assistantMode: requestAssistantMode,
       verificationMode: requestVerificationMode,
       surface: "web",
@@ -3937,6 +3974,7 @@ export default function ChatBotDrawer() {
         workflow: liveMetaRef.current.workflow,
         mutationPreview: liveMetaRef.current.mutationPreview,
         sessionFocus: liveMetaRef.current.sessionFocus,
+        sessionFocusState: liveMetaRef.current.sessionFocusState,
         contextInsight: liveMetaRef.current.contextInsight,
         personalization: liveMetaRef.current.personalization,
         assistantMode: liveMetaRef.current.assistantMode,
@@ -4038,6 +4076,8 @@ export default function ChatBotDrawer() {
                   data.mutationPreview || liveMetaRef.current.mutationPreview,
                 sessionFocus:
                   data.sessionFocus || liveMetaRef.current.sessionFocus,
+                sessionFocusState:
+                  data.sessionFocusState || liveMetaRef.current.sessionFocusState,
                 contextInsight:
                   data.contextInsight || liveMetaRef.current.contextInsight,
                 personalization:
@@ -4110,6 +4150,8 @@ export default function ChatBotDrawer() {
                   data.mutationPreview || liveMetaRef.current.mutationPreview,
                 sessionFocus:
                   data.sessionFocus || liveMetaRef.current.sessionFocus,
+                sessionFocusState:
+                  data.sessionFocusState || liveMetaRef.current.sessionFocusState,
                 contextInsight:
                   data.contextInsight || liveMetaRef.current.contextInsight,
                 personalization:
@@ -4155,6 +4197,7 @@ export default function ChatBotDrawer() {
                 workflow: liveMetaRef.current.workflow,
                 mutationPreview: liveMetaRef.current.mutationPreview,
                 sessionFocus: liveMetaRef.current.sessionFocus,
+                sessionFocusState: liveMetaRef.current.sessionFocusState,
                 contextInsight: liveMetaRef.current.contextInsight,
                 personalization: liveMetaRef.current.personalization,
                 assistantMode: liveMetaRef.current.assistantMode,
@@ -4197,6 +4240,8 @@ export default function ChatBotDrawer() {
                   data.mutationPreview || liveMetaRef.current.mutationPreview,
                 sessionFocus:
                   data.sessionFocus || liveMetaRef.current.sessionFocus,
+                sessionFocusState:
+                  data.sessionFocusState || liveMetaRef.current.sessionFocusState,
                 contextInsight:
                   data.contextInsight || liveMetaRef.current.contextInsight,
                 personalization:
@@ -4255,6 +4300,7 @@ export default function ChatBotDrawer() {
                 workflow: null,
                 mutationPreview: null,
                 sessionFocus: liveMetaRef.current.sessionFocus,
+                sessionFocusState: liveMetaRef.current.sessionFocusState,
                 surface: liveMetaRef.current.surface,
                 model: liveMetaRef.current.model,
                 mode: liveMetaRef.current.mode,
@@ -4319,6 +4365,8 @@ export default function ChatBotDrawer() {
               liveMetaRef.current.mutationPreview,
             sessionFocus:
               replyData?.sessionFocus || liveMetaRef.current.sessionFocus,
+            sessionFocusState:
+              replyData?.sessionFocusState || liveMetaRef.current.sessionFocusState,
             contextInsight:
               replyData?.contextInsight || liveMetaRef.current.contextInsight,
             personalization:
@@ -4372,6 +4420,7 @@ export default function ChatBotDrawer() {
               workflow: liveMetaRef.current.workflow,
               mutationPreview: liveMetaRef.current.mutationPreview,
               sessionFocus: liveMetaRef.current.sessionFocus,
+              sessionFocusState: liveMetaRef.current.sessionFocusState,
               contextInsight: liveMetaRef.current.contextInsight,
               personalization: liveMetaRef.current.personalization,
               assistantMode: liveMetaRef.current.assistantMode,
