@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = "frontend/src/screens/PickleBall/Tournament.jsx";
 let text = fs.readFileSync(path, "utf8");
 text = text.replace(/content: """",/g, "content: '\"\"',");

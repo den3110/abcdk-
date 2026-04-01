@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = "frontend/src/screens/PickleBall/Tournament.jsx";
 const input = fs.readFileSync(path, "utf8");
 const fixed = Buffer.from(input, "latin1").toString("utf8");

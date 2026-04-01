@@ -1796,7 +1796,7 @@ export async function generateLiveRecordingAiCommentaryArtifact({
 
     await notifyProgress({
       key: "analyze_video",
-      label: "PhÃ¢n tÃ­ch khung hÃ¬nh video",
+      label: "Phý¢n tý­ch khung hý¬nh video",
       progressPercent: 22,
     });
     const visualMoments = await analyzeVideoVisualMoments({

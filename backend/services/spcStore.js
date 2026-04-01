@@ -15,7 +15,7 @@ async function ensureDir() {
 export function vnFold(s = "") {
   return String(s)
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D")
     .toLowerCase()

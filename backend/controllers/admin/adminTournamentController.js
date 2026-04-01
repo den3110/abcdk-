@@ -1556,7 +1556,7 @@ export const updateTournamentAllowedCourtClusters = expressAsyncHandler(
 
     if (existingClusters.length !== nextIds.length) {
       res.status(400);
-      throw new Error("Danh sach cum san khong hop le.");
+      throw new Error("Danh s?ch c?m s?n kh?ng h?p l?.");
     }
 
     const clusterMap = new Map(

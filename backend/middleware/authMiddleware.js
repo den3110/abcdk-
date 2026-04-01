@@ -359,7 +359,7 @@ export const isManagerOrTournamentReferee = asyncHandler(
     const rawUid = req.user?._id || req.user?.id;
     if (!rawUid || !isValidId(String(rawUid))) {
       res.status(401);
-      throw new Error("Not authorized â€“ no user");
+      throw new Error("Not authorized – no user");
     }
 
     const actor = await User.findById(rawUid)
@@ -368,7 +368,7 @@ export const isManagerOrTournamentReferee = asyncHandler(
 
     if (!actor) {
       res.status(401);
-      throw new Error("Not authorized â€“ user not found");
+      throw new Error("Not authorized – user not found");
     }
     if (actor.isDeleted || actor.deletedAt) {
       res.status(403);
@@ -447,7 +447,7 @@ export const isManagerOrTournamentReferee = asyncHandler(
     if (!tm) {
       res.status(403);
       throw new Error(
-        "Forbidden â€“ require tournament manager/owner/admin/referee",
+        "Forbidden – require tournament manager/owner/admin/referee",
       );
     }
 

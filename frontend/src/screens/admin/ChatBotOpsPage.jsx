@@ -1,4 +1,4 @@
-﻿/* eslint-disable react/prop-types */
+/* eslint-disable react/prop-types */
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -160,6 +160,16 @@ function TurnCard({ turn }) {
           {turn.routeLane ? (
             <Chip size="small" label={turn.routeLane} variant="outlined" />
           ) : null}
+          {turn.queryScope ? (
+            <Chip size="small" label={turn.queryScope} variant="outlined" />
+          ) : null}
+          {turn.contextConfidence ? (
+            <Chip
+              size="small"
+              label={`context ${turn.contextConfidence}`}
+              variant="outlined"
+            />
+          ) : null}
           {turn.groundingStatus ? (
             <Chip size="small" label={turn.groundingStatus} color="success" variant="outlined" />
           ) : null}
@@ -171,6 +181,9 @@ function TurnCard({ turn }) {
           ) : null}
           {turn.guardApplied ? (
             <Chip size="small" label="guard applied" color="warning" />
+          ) : null}
+          {turn.mutationType ? (
+            <Chip size="small" label={turn.mutationType} color="secondary" />
           ) : null}
         </Stack>
 
@@ -189,6 +202,19 @@ function TurnCard({ turn }) {
         {(turn.actionTypes || []).length ? (
           <Typography variant="body2" color="text.secondary">
             Actions: {(turn.actionTypes || []).join(", ")}
+          </Typography>
+        ) : null}
+
+        {Number(turn.workflowCount || 0) > 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            Workflow: {turn.workflowCount || 0} · Executed: {turn.workflowExecuted || 0}
+          </Typography>
+        ) : null}
+
+        {turn.mutationType ? (
+          <Typography variant="body2" color="text.secondary">
+            Mutation: {turn.mutationType} · Confirmed: {turn.mutationConfirmed || 0} · Cancelled:{" "}
+            {turn.mutationCancelled || 0}
           </Typography>
         ) : null}
 
@@ -282,6 +308,7 @@ export default function ChatBotOpsPage() {
   const [rolloutDraft, setRolloutDraft] = useState({
     enabled: true,
     allowLiveRetrieval: false,
+    allowConfirmedMutations: false,
     cohortPercentage: 100,
     surfaces: ["web", "mobile"],
     allowlistRoles: ["admin"],
@@ -308,6 +335,7 @@ export default function ChatBotOpsPage() {
     setRolloutDraft({
       enabled: rolloutQuery.data.enabled !== false,
       allowLiveRetrieval: Boolean(rolloutQuery.data.allowLiveRetrieval),
+      allowConfirmedMutations: Boolean(rolloutQuery.data.allowConfirmedMutations),
       cohortPercentage: Number(rolloutQuery.data.cohortPercentage || 100),
       surfaces: Array.isArray(rolloutQuery.data.surfaces)
         ? rolloutQuery.data.surfaces
@@ -329,6 +357,7 @@ export default function ChatBotOpsPage() {
     return JSON.stringify({
       enabled: rolloutDraft.enabled,
       allowLiveRetrieval: rolloutDraft.allowLiveRetrieval,
+      allowConfirmedMutations: rolloutDraft.allowConfirmedMutations,
       cohortPercentage: Number(rolloutDraft.cohortPercentage || 0),
       surfaces: rolloutDraft.surfaces,
       allowlistRoles: rolloutDraft.allowlistRoles,
@@ -336,6 +365,7 @@ export default function ChatBotOpsPage() {
     }) !== JSON.stringify({
       enabled: rolloutQuery.data.enabled !== false,
       allowLiveRetrieval: Boolean(rolloutQuery.data.allowLiveRetrieval),
+      allowConfirmedMutations: Boolean(rolloutQuery.data.allowConfirmedMutations),
       cohortPercentage: Number(rolloutQuery.data.cohortPercentage || 0),
       surfaces: Array.isArray(rolloutQuery.data.surfaces)
         ? rolloutQuery.data.surfaces
@@ -354,7 +384,7 @@ export default function ChatBotOpsPage() {
       pageType: "admin_chatbot_ops",
       entityTitle: "Pikora Bot Ops",
       sectionTitle: outcome || "Tổng quan",
-      pageSummary: "Theo dõi quality, latency, failures, actions và feedback của Pikora.",
+      pageSummary: "Theo dõi chất lượng, độ trễ, lỗi, workflow và feedback của Pikora.",
       activeLabels: [
         `Ngày: ${days}`,
         outcome ? `Outcome: ${outcome}` : "All outcomes",
@@ -505,10 +535,10 @@ export default function ChatBotOpsPage() {
         >
           <Box>
             <Typography variant="h6" fontWeight={800}>
-              Pikora V7 rollout
+              Pikora V8 rollout
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {"Dark launch cho hybrid retrieval và surface gating."}
+              {"Dark launch cho hybrid retrieval, workflow và confirmed light mutations."}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
@@ -526,6 +556,7 @@ export default function ChatBotOpsPage() {
                 await updateChatRolloutConfig({
                   enabled: rolloutDraft.enabled,
                   allowLiveRetrieval: rolloutDraft.allowLiveRetrieval,
+                  allowConfirmedMutations: rolloutDraft.allowConfirmedMutations,
                   cohortPercentage: Number(rolloutDraft.cohortPercentage || 0),
                   surfaces: rolloutDraft.surfaces,
                   allowlistRoles: rolloutDraft.allowlistRoles,
@@ -589,6 +620,20 @@ export default function ChatBotOpsPage() {
               />
             }
             label="Allow live retrieval"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={rolloutDraft.allowConfirmedMutations}
+                onChange={(event) =>
+                  setRolloutDraft((prev) => ({
+                    ...prev,
+                    allowConfirmedMutations: event.target.checked,
+                  }))
+                }
+              />
+            }
+            label="Allow confirmed mutations"
           />
           <FormControlLabel
             control={
@@ -716,6 +761,33 @@ export default function ChatBotOpsPage() {
             value={summary.guardHits || 0}
             hint={`Fallback used: ${summary.fallbackUsed || 0}`}
           />
+          <MetricCard
+            icon={<BoltIcon color="secondary" />}
+            label="Workflow executed"
+            value={
+              Object.values(summary.workflowStatusBySurface || {}).reduce(
+                (total, item) => total + Number(item?.executed || 0),
+                0,
+              ) || 0
+            }
+            hint={`Degraded: ${
+              Object.values(summary.workflowStatusBySurface || {}).reduce(
+                (total, item) => total + Number(item?.degraded || 0),
+                0,
+              ) || 0
+            } · Unsupported: ${
+              Object.values(summary.workflowStatusBySurface || {}).reduce(
+                (total, item) => total + Number(item?.unsupported || 0),
+                0,
+              ) || 0
+            }`}
+          />
+          <MetricCard
+            icon={<SmartToyIcon color="secondary" />}
+            label="Mutations"
+            value={summary.mutationConfirmed || 0}
+            hint={`Cancelled: ${summary.mutationCancelled || 0}`}
+          />
         </Box>
       )}
 
@@ -789,6 +861,11 @@ export default function ChatBotOpsPage() {
           emptyText="Chưa có route lane."
         />
         <TagSection
+          title="Top query scopes"
+          items={summary.topQueryScopes}
+          emptyText="Chưa có query scope."
+        />
+        <TagSection
           title="Grounding status"
           items={toCountItems(summary.groundingStatuses)}
           emptyText="Chưa có grounding status."
@@ -797,6 +874,11 @@ export default function ChatBotOpsPage() {
           title="Operator status"
           items={toCountItems(summary.operatorStatuses)}
           emptyText="Chưa có operator status."
+        />
+        <TagSection
+          title="Context confidence"
+          items={toCountItems(summary.contextConfidences)}
+          emptyText="Chưa có context confidence."
         />
         <TagSection
           title="Surface split"
@@ -821,6 +903,11 @@ export default function ChatBotOpsPage() {
           items={toCountItems(summary.retrievalModes)}
           emptyText="Chưa có retrieval mode."
         />
+        <TagSection
+          title="Mutation types"
+          items={toCountItems(summary.mutationTypes)}
+          emptyText="Chưa có mutation type."
+        />
         <SurfaceMetricsSection
           title="Latency by surface"
           data={summary.latencyBySurface}
@@ -828,6 +915,10 @@ export default function ChatBotOpsPage() {
         <SurfaceMetricsSection
           title="Action status by surface"
           data={summary.actionStatusBySurface}
+        />
+        <SurfaceMetricsSection
+          title="Workflow status by surface"
+          data={summary.workflowStatusBySurface}
         />
       </Box>
 
@@ -885,4 +976,3 @@ export default function ChatBotOpsPage() {
     </Box>
   );
 }
-

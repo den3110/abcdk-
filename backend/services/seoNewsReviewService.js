@@ -1,4 +1,4 @@
-﻿import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
+import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 
 const REVIEW_MODEL =
   process.env.SEO_NEWS_REVIEW_MODEL ||

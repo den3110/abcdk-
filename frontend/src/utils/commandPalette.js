@@ -22,7 +22,7 @@ function replaceVietnameseLetters(value) {
 export function normalizeCommandText(value) {
   return replaceVietnameseLetters(String(value || ""))
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9/#@!?\s-]/g, " ")
     .replace(/\s+/g, " ")

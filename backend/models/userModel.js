@@ -107,6 +107,67 @@ const AvatarOptimizationSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const PikoraBotPreferenceSchema = new mongoose.Schema(
+  {
+    assistantMode: {
+      type: String,
+      enum: ["balanced", "operator", "analyst", ""],
+      default: "",
+    },
+    verificationMode: {
+      type: String,
+      enum: ["balanced", "strict", ""],
+      default: "",
+    },
+    reasoningMode: {
+      type: String,
+      enum: ["auto", "force_reasoner", ""],
+      default: "",
+    },
+    answerDensity: {
+      type: String,
+      enum: ["balanced", "compact_operator", ""],
+      default: "",
+    },
+    suggestionStyle: {
+      type: String,
+      enum: ["default", "operator_first", ""],
+      default: "",
+    },
+    updatedAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
+const PikoraUiPreferenceSchema = new mongoose.Schema(
+  {
+    scopeKey: { type: String, default: "" },
+    pageType: { type: String, default: "" },
+    pageSection: { type: String, default: "" },
+    pageView: { type: String, default: "" },
+    path: { type: String, default: "" },
+    activeLabels: { type: [String], default: [] },
+    filters: { type: [String], default: [] },
+    sort: { type: String, default: "" },
+    updatedAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
+const PikoraFormDraftSchema = new mongoose.Schema(
+  {
+    draftKey: { type: String, default: "" },
+    title: { type: String, default: "" },
+    pageType: { type: String, default: "" },
+    pageSection: { type: String, default: "" },
+    pageView: { type: String, default: "" },
+    path: { type: String, default: "" },
+    data: { type: mongoose.Schema.Types.Mixed, default: null },
+    updatedAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     /* ------- Thông tin cơ bản ------- */
@@ -145,6 +206,22 @@ const userSchema = new mongoose.Schema(
     avatarOptimization: {
       type: AvatarOptimizationSchema,
       default: () => ({}),
+    },
+    assistantPreferences: {
+      bot: {
+        type: PikoraBotPreferenceSchema,
+        default: () => ({}),
+      },
+      ui: {
+        type: Map,
+        of: PikoraUiPreferenceSchema,
+        default: () => new Map(),
+      },
+      formDrafts: {
+        type: Map,
+        of: PikoraFormDraftSchema,
+        default: () => new Map(),
+      },
     },
     cover: { type: String, default: "" }, // 👈 ADD
     bio: { type: String, default: "" },
@@ -246,7 +323,7 @@ const userSchema = new mongoose.Schema(
       default: true,
     },
 
-    /* ------- (ĐÃ BỎ) Login tracking ra model riêng ------- */
+    /* ------- (Đý BỎ) Login tracking ra model riêng ------- */
     // lastLoginAt: { type: Date }
     // loginHistory: [...]
   },

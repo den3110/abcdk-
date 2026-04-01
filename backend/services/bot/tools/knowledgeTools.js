@@ -1,19 +1,24 @@
-// services/bot/tools/knowledgeTools.js
-// RAG Knowledge Base search tool
-
 import Knowledge from "../../../models/knowledgeModel.js";
+import {
+  getCuratedKnowledgeOverride,
+  normalizeUserFacingData,
+} from "../textRepair.js";
 
-/**
- * Tìm kiếm trong knowledge base
- * Hiện tại dùng MongoDB text search
- * Sau này có thể upgrade lên Atlas Vector Search
- */
 export async function search_knowledge({ query, category, limit = 3 }) {
-  if (!query) return { error: "Cần nhập câu hỏi" };
+  if (!query) {
+    return { error: "Cần nhập câu hỏi" };
+  }
+
+  const curatedResult = getCuratedKnowledgeOverride(query);
+  if (curatedResult && (!category || category === curatedResult.category)) {
+    return {
+      results: [curatedResult],
+      count: 1,
+      curated: true,
+    };
+  }
 
   const filter = { isActive: true };
-
-  // Thử text search trước
   let docs = [];
 
   try {
@@ -24,12 +29,10 @@ export async function search_knowledge({ query, category, limit = 3 }) {
       .sort({ score: { $meta: "textScore" } })
       .limit(Number(limit))
       .lean();
-  } catch (e) {
-    // Nếu text search fail, fallback sang regex
+  } catch (error) {
     console.log("[search_knowledge] Text search failed, falling back to regex");
   }
 
-  // Fallback: keyword search bằng regex
   if (docs.length === 0) {
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const regexFilter = {
@@ -49,12 +52,12 @@ export async function search_knowledge({ query, category, limit = 3 }) {
     return { results: [], message: "Không tìm thấy thông tin phù hợp" };
   }
 
-  return {
-    results: docs.map((d) => ({
-      title: d.title,
-      content: d.content,
-      category: d.category,
+  return normalizeUserFacingData({
+    results: docs.map((doc) => ({
+      title: doc.title,
+      content: doc.content,
+      category: doc.category,
     })),
     count: docs.length,
-  };
+  });
 }

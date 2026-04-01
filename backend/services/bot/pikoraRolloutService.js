@@ -1,11 +1,13 @@
 import { getCfgJSON, setCfg } from "../config.service.js";
 
 export const PIKORA_V7_ROLLOUT_CONFIG_KEY = "PIKORA_V7_ROLLOUT";
+export const PIKORA_V8_ROLLOUT_CONFIG_KEY = "PIKORA_V8_ROLLOUT";
 
 const DEFAULT_CONFIG = {
   enabled: true,
   surfaces: ["web", "mobile"],
   allowLiveRetrieval: false,
+  allowConfirmedMutations: false,
   cohortPercentage: 100,
   allowlistUserIds: [],
   allowlistRoles: ["admin"],
@@ -53,6 +55,7 @@ export function normalizePikoraRolloutConfig(input = {}) {
     enabled: input?.enabled !== false,
     surfaces: normalizeSurfaces(input?.surfaces || DEFAULT_CONFIG.surfaces),
     allowLiveRetrieval: Boolean(input?.allowLiveRetrieval),
+    allowConfirmedMutations: Boolean(input?.allowConfirmedMutations),
     cohortPercentage: clampPercentage(
       input?.cohortPercentage,
       DEFAULT_CONFIG.cohortPercentage,
@@ -71,17 +74,22 @@ export function getDefaultPikoraRolloutConfig() {
 }
 
 export async function getPikoraRolloutConfig() {
-  const stored = await getCfgJSON(
+  const v8Stored = await getCfgJSON(PIKORA_V8_ROLLOUT_CONFIG_KEY, null);
+  if (v8Stored && typeof v8Stored === "object") {
+    return normalizePikoraRolloutConfig(v8Stored);
+  }
+
+  const v7Stored = await getCfgJSON(
     PIKORA_V7_ROLLOUT_CONFIG_KEY,
     DEFAULT_CONFIG,
   );
-  return normalizePikoraRolloutConfig(stored);
+  return normalizePikoraRolloutConfig(v7Stored);
 }
 
 export async function updatePikoraRolloutConfig(input = {}, updatedBy = "") {
   const normalized = normalizePikoraRolloutConfig(input);
   await setCfg({
-    key: PIKORA_V7_ROLLOUT_CONFIG_KEY,
+    key: PIKORA_V8_ROLLOUT_CONFIG_KEY,
     value: JSON.stringify(normalized),
     updatedBy,
   });
@@ -139,5 +147,8 @@ export async function resolvePikoraRolloutDecision({
     cohortBucket,
     cohortAllowed,
     allowLiveRetrieval: Boolean(config.allowLiveRetrieval && enabled),
+    allowConfirmedMutations: Boolean(
+      config.allowConfirmedMutations && enabled,
+    ),
   };
 }

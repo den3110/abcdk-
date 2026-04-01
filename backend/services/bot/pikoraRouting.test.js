@@ -44,6 +44,58 @@ test("keeps true knowledge queries on the knowledge route", () => {
   assert.equal(route.toolPlan?.[0]?.name, "search_knowledge");
 });
 
+test("disables memory follow-up routing when session focus override is off", () => {
+  const route = classifyRouteForTest(
+    "lich thi dau",
+    {
+      sessionFocus: {
+        activeType: "tournament",
+        tournament: {
+          entityId: "demo-tournament-id",
+          label: "Giai Demo",
+          path: "/tournament/demo-tournament-id",
+        },
+      },
+      sessionFocusOverride: {
+        mode: "off",
+      },
+    },
+    null,
+  );
+
+  assert.ok(
+    !route.toolPlan?.some(
+      (step) =>
+        step?.name === "get_tournament_schedule" &&
+        step?.args?.tournamentId === "demo-tournament-id",
+    ),
+  );
+});
+
+test("uses pinned session focus override for player follow-up queries", () => {
+  const route = classifyRouteForTest(
+    "rating bao nhieu",
+    {
+      sessionFocusOverride: {
+        mode: "pin",
+        sessionFocus: {
+          activeType: "player",
+          player: {
+            entityId: "demo-player-id",
+            label: "Nguoi choi Demo",
+            path: "/user/demo-player-id",
+          },
+        },
+      },
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "player");
+  assert.equal(route.toolPlan?.[0]?.name, "get_user_profile_detail");
+  assert.equal(route.toolPlan?.[0]?.args?.userId, "demo-player-id");
+});
+
 test("keeps generic knowledge queries on knowledge route even on leaderboard pages", () => {
   const context = {
     pageType: "leaderboard",
@@ -56,7 +108,11 @@ test("keeps generic knowledge queries on knowledge route even on leaderboard pag
     },
   };
 
-  for (const message of ["pickleball là gì", "pickleball la gi"]) {
+  for (const message of [
+    "pickleball là gì",
+    "pickleball la gi",
+    "vi sao phai khoi dong ky",
+  ]) {
     const route = classifyRouteForTest(message, context, null);
     assert.equal(route.kind, "knowledge");
     assert.equal(route.toolPlan?.[0]?.name, "search_knowledge");
@@ -110,4 +166,71 @@ test("routes current club updates to club tools instead of knowledge", () => {
       ["get_club_details", "search_clubs"].includes(step?.name),
     ),
   );
+});
+
+test("uses session focus memory to resolve tournament follow-up queries", () => {
+  const route = classifyRouteForTest(
+    "lịch thi đấu",
+    {
+      sessionFocus: {
+        activeType: "tournament",
+        tournament: {
+          entityId: "demo-tournament-id",
+          label: "Giải Demo",
+          path: "/tournament/demo-tournament-id",
+        },
+      },
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "tournament");
+  assert.ok(
+    route.toolPlan?.some(
+      (step) =>
+        step?.name === "get_tournament_schedule" &&
+        step?.args?.tournamentId === "demo-tournament-id",
+    ),
+  );
+});
+
+test("uses session focus memory to resolve player follow-up queries", () => {
+  const route = classifyRouteForTest(
+    "rating bao nhiêu",
+    {
+      sessionFocus: {
+        activeType: "player",
+        player: {
+          entityId: "demo-player-id",
+          label: "Người chơi Demo",
+          path: "/user/demo-player-id",
+        },
+      },
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "player");
+  assert.equal(route.toolPlan?.[0]?.name, "get_user_profile_detail");
+  assert.equal(route.toolPlan?.[0]?.args?.userId, "demo-player-id");
+});
+
+test("keeps knowledge queries on the knowledge route even when session focus exists", () => {
+  const route = classifyRouteForTest(
+    "pickleball là gì",
+    {
+      sessionFocus: {
+        activeType: "tournament",
+        tournament: {
+          entityId: "demo-tournament-id",
+          label: "Giải Demo",
+          path: "/tournament/demo-tournament-id",
+        },
+      },
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "knowledge");
+  assert.equal(route.toolPlan?.[0]?.name, "search_knowledge");
 });

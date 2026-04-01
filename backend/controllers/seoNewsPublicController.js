@@ -20,8 +20,8 @@ const IMAGE_PROXY_MAX_REDIRECTS = Math.max(
   0,
   Math.min(5, Number(process.env.SEO_NEWS_IMAGE_PROXY_MAX_REDIRECTS) || 3)
 );
-const VIETNAMESE_DIACRITICS_REGEX = /[\u00C0-\u024F\u1E00-\u1EFF]/i;
-const MOJIBAKE_REGEX = /(?:\u00C3.|\u00E1\u00BB|\u00E2\u20AC|\u00C2\s|\uFFFD)/;
+const VIETNAMESE_DIACRITICS_REGEX = /[À-ɏḀ-ỿ]/i;
+const MOJIBAKE_REGEX = /(?:\u00fd.|\u1ecd|\u00e2\u20ac|\u00c2\s|\uFFFD)/u;
 
 function cleanPage(value, fallback = 1) {
   const page = Number(value);

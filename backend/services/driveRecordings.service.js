@@ -210,14 +210,14 @@ async function buildDriveClient(
   if (runtimeConfig.mode === "oauthUser") {
     if (!runtimeConfig.clientId || !runtimeConfig.clientSecret) {
       throw new Error(
-        "Thieu GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET trong System Config"
+        "Thi?u GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET trong System Config"
       );
     }
     if (!runtimeConfig.refreshToken) {
       throw new Error("My Drive OAuth chưa kết nối");
     }
     if (!runtimeConfig.redirectUris?.length) {
-      throw new Error("Thieu GOOGLE_REDIRECT_DRIVE_URI trong System Config");
+      throw new Error("Thi?u GOOGLE_REDIRECT_DRIVE_URI trong System Config");
     }
     if (requireFolderId && !runtimeConfig.folderId) {
       throw new Error("Google Drive recording folder is not configured");
@@ -273,7 +273,7 @@ function normalizeDriveError(error, runtimeConfig) {
     );
   }
   if (/File not found/i.test(message)) {
-    return new Error("Folder dich khong truy cap duoc hoac khong ton tai.");
+    return new Error("Folder ??ch kh?ng truy c?p ???c ho?c kh?ng t?n t?i.");
   }
   if (
     reason === "appNotAuthorizedToFile" ||
@@ -281,14 +281,14 @@ function normalizeDriveError(error, runtimeConfig) {
   ) {
     return new Error(
       runtimeConfig?.useModernPickerFlow === false
-        ? "Folder hien tai khong truy cap duoc bang flow OAuth cu. Hay ket noi lai hoac chuyen sang flow moi."
-        : "Folder hien tai chua duoc cap quyen cho app Recording Drive. Hay chon lai dung folder bang Google Picker."
+        ? "Folder hi?n t?i kh?ng truy c?p ???c b?ng flow OAuth c?. H?y k?t n?i l?i ho?c chuy?n sang flow m?i."
+        : "Folder hi?n t?i ch?a ???c c?p quy?n cho app Recording Drive. H?y ch?n l?i ??ng folder b?ng Google Picker."
     );
   }
   if (/invalid_grant/i.test(message)) {
     if (runtimeConfig?.refreshTokenMalformed) {
       return new Error(
-        "Refresh token Recording Drive luu sai dinh dang. Hay ket noi lai."
+        "Refresh token Recording Drive l?u sai ??nh d?ng. H?y k?t n?i l?i."
       );
     }
     return new Error("My Drive OAuth hết hạn hoặc đã bị revoke. Hãy kết nối lại.");
@@ -308,7 +308,7 @@ async function validateDriveFolder(drive, runtimeConfig, usingSharedDrive) {
   if (!folderId) {
     return {
       ok: false,
-      message: "Folder dich chua duoc cau hinh",
+      message: "Folder ??ch ch?a ???c c?u h?nh",
       folder: null,
     };
   }
@@ -356,7 +356,7 @@ export async function getRecordingDriveStatus() {
       ...base,
       configured: false,
       ready: false,
-      message: "Drive output dang tat",
+      message: "Drive output ?ang t?t",
     };
   }
 
@@ -387,8 +387,8 @@ export async function getRecordingDriveStatus() {
         accountEmail: runtimeConfig.connectedEmail || "",
         message:
           runtimeConfig.useModernPickerFlow === false
-            ? "My Drive OAuth da ket noi. Hay nhap Folder ID roi luu."
-            : "My Drive OAuth da ket noi. Hay chon dung folder bang Google Picker.",
+            ? "My Drive OAuth ?? k?t n?i. H?y nh?p Folder ID r?i l?u."
+            : "My Drive OAuth ?? k?t n?i. H?y ch?n ??ng folder b?ng Google Picker.",
       };
     }
 
@@ -446,7 +446,7 @@ export async function getRecordingDriveStatus() {
       ready: false,
       accountEmail: runtimeConfig.serviceAccountEmail || "",
       message: runtimeConfig.sharedDriveId
-        ? "Service account chua du cau hinh"
+        ? "Service account ch?a ?? c?u h?nh"
         : "Mode service account yeu cau Shared Drive",
     };
   }
@@ -463,7 +463,7 @@ export async function getRecordingDriveStatus() {
       folderAccessible: folderCheck.ok,
       folderName: folderCheck.folder?.name || "",
       message: folderCheck.ok
-        ? "Service account + Shared Drive da san sang"
+        ? "Service account + Shared Drive ?? s?n s?ng"
         : folderCheck.message,
     };
   } catch (error) {

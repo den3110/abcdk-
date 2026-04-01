@@ -392,7 +392,7 @@ function buildTournamentBuckets(sessions = []) {
       map.get(tournamentId) ||
       {
         _id: tournamentId,
-        name: tournament?.name || "Khong ro giai",
+        name: tournament?.name || "Kh?ng r? gi?i",
         count: 0,
         liveCount: 0,
       };
@@ -647,7 +647,7 @@ export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
   try {
     const match = await Match.findById(req.params.id);
     if (!match) {
-      return res.status(404).json({ message: "Khong tim thay tran" });
+      return res.status(404).json({ message: "Kh?ng t?m th?y tr?n" });
     }
 
     const facebookLive = match.facebookLive || {};
@@ -666,7 +666,7 @@ export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
     });
 
     return res.json({
-      message: "Da dung live Facebook cho tran",
+      message: "?? d?ng live Facebook cho tr?n",
       id: match._id,
       facebook: facebookLive,
     });

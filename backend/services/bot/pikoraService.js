@@ -1,9 +1,10 @@
-﻿import fetch from "node-fetch";
+import fetch from "node-fetch";
 import OpenAI from "openai";
 import { TOOL_EXECUTORS } from "./tools/index.js";
 import { getRecentMessages } from "./memoryService.js";
 import { maybeLearn } from "./learningService.js";
 import { resolvePikoraRolloutDecision } from "./pikoraRolloutService.js";
+import { normalizeUserFacingData } from "./textRepair.js";
 import {
   buildToolPreview as sharedBuildToolPreview,
   compactList as sharedCompactList,
@@ -90,56 +91,56 @@ const KNOWLEDGE_CACHE_TTL_MS = Math.max(
 );
 const FIRST_TOURNAMENT_ID = "__FIRST_TOURNAMENT_ID__";
 const FIRST_CLUB_ID = "__FIRST_CLUB_ID__";
-const ROUTE_CACHE_VERSION = "2026-03-31-tournament-status-v3";
+const ROUTE_CACHE_VERSION = "2026-04-01-v12-focus-control";
 const routeDecisionCache = new Map();
 const toolExecutionCache = new Map();
 
-export const BOT_IDENTITY = {
+export const BOT_IDENTITY = normalizeUserFacingData({
   name: "Pikora",
-  nameVi: "Pikora - Trá»£ lÃ½ PickleTour",
-  version: "7.0",
-  engine: "deepseek-proxy-orchestrator-v7",
-  personality: ["Nhanh", "ThÃ¢n thiá»‡n", "ChÃ­nh xÃ¡c", "Ngáº¯n gá»n"],
-};
+  nameVi: "Pikora - Trợ lý PickleTour",
+  version: "12.0",
+  engine: "deepseek-proxy-orchestrator-v12",
+  personality: ["Nhanh", "Thân thiện", "Chính xác", "Ngắn gọn"],
+});
 
-const EXTRA_NAVIGATION_SCREENS = {
+const EXTRA_NAVIGATION_SCREENS = normalizeUserFacingData({
   tournament_manage: {
     screen: "TournamentManage",
     deepLink: "pickletour://tournament/{tournamentId}/manage",
     webPath: "/tournament/{tournamentId}/manage",
-    description: "Quáº£n lÃ½ giáº£i Ä‘áº¥u",
+    description: "Quản lý giải đấu",
   },
   tournament_checkin: {
     screen: "TournamentCheckin",
     deepLink: "pickletour://tournament/{tournamentId}/checkin",
     webPath: "/tournament/{tournamentId}/checkin",
-    description: "Check-in giáº£i Ä‘áº¥u",
+    description: "Check-in giải đấu",
   },
   admin_users: {
     screen: "AdminUsers",
     deepLink: "pickletour://admin/users",
     webPath: "/admin/users",
-    description: "Quáº£n lÃ½ ngÆ°á»i dÃ¹ng",
+    description: "Quản lý người dùng",
   },
   admin_news: {
     screen: "AdminNews",
     deepLink: "pickletour://admin/news",
     webPath: "/admin/news",
-    description: "Quáº£n lÃ½ tin tá»©c",
+    description: "Quản lý tin tức",
   },
   admin_avatar_optimization: {
     screen: "AdminAvatarOptimization",
     deepLink: "pickletour://admin/avatar-optimization",
     webPath: "/admin/avatar-optimization",
-    description: "Tá»‘i Æ°u avatar",
+    description: "Tối ưu avatar",
   },
-};
+});
 
 function getChatCapabilitiesLegacy() {
   const retrievalMode = "internal";
   let explanation = "";
   if (retrievalMode === "hybrid_live") {
-    explanation = `${explanation} Có bổ sung kiểm chứng live retrieval theo rollout V7.`;
+    explanation = `${explanation} Có bổ sung kiểm chứng live retrieval theo rollout hiện tại.`;
   }
 
   return {
@@ -152,6 +153,12 @@ function getChatCapabilitiesLegacy() {
     streaming: true,
     reasoning: true,
     actions: true,
+    workflows: true,
+    confirmedLightMutations: true,
+    sessionFocusMemory: true,
+    sessionFocusControls: true,
+    assistantModes: ["balanced", "operator", "analyst"],
+    verificationModes: ["balanced", "strict"],
     pageStateContext: true,
     personalization: true,
     hybridRetrieval: {
@@ -174,6 +181,12 @@ export function getChatCapabilities() {
     streaming: true,
     reasoning: true,
     actions: true,
+    workflows: true,
+    confirmedLightMutations: true,
+    sessionFocusMemory: true,
+    sessionFocusControls: true,
+    assistantModes: ["balanced", "operator", "analyst"],
+    verificationModes: ["balanced", "strict"],
     pageStateContext: true,
     personalization: true,
     hybridRetrieval: {
@@ -204,6 +217,16 @@ function normalizeKnowledgeMode(value) {
   return "auto";
 }
 
+function normalizeAssistantMode(value) {
+  if (value === "operator") return "operator";
+  if (value === "analyst") return "analyst";
+  return "balanced";
+}
+
+function normalizeVerificationMode(value) {
+  return value === "strict" ? "strict" : "balanced";
+}
+
 function collectUserRoles(user) {
   const roles = new Set();
   if (user?.role) roles.add(String(user.role).trim().toLowerCase());
@@ -222,39 +245,6 @@ function trimText(value, maxLength = 180) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   if (!text) return "";
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
-}
-
-function decodePossibleMojibake(value) {
-  if (typeof value !== "string" || !value) return value;
-
-  let next = value;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (!/[ÃÂÄÆá»â€]/.test(next)) break;
-    try {
-      const decoded = Buffer.from(next, "latin1").toString("utf8");
-      if (!decoded || decoded === next) break;
-      next = decoded;
-    } catch {
-      break;
-    }
-  }
-
-  return next;
-}
-
-function normalizeUserFacingData(value) {
-  if (typeof value === "string") {
-    return decodePossibleMojibake(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeUserFacingData(item));
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, normalizeUserFacingData(item)]),
-    );
-  }
-  return value;
 }
 
 function dedupeByKey(list, getKey) {
@@ -438,6 +428,94 @@ function resolveRouteLane(message, route, context = {}, execution = {}) {
   return "safe_operator";
 }
 
+function isBrowsePageType(context = {}) {
+  return [
+    "home",
+    "leaderboard",
+    "tournament_list",
+    "club_list",
+    "news_list",
+    "status",
+  ].includes(String(context?.pageType || ""));
+}
+
+function resolveQueryScope(message, route, context = {}) {
+  const normalized = sharedNormalizeText(message);
+
+  if (
+    looksLikeGenericKnowledgeQuestion(message, normalized) ||
+    route?.kind === "knowledge"
+  ) {
+    return "general_knowledge";
+  }
+
+  if (
+    looksLikeNavigationRequest(message) ||
+    route?.kind === "navigate" ||
+    route?.kind === "direct"
+  ) {
+    return "operator";
+  }
+
+  if (
+    isCurrentContextReference(normalized) ||
+    context?.tournamentId ||
+    context?.clubId ||
+    context?.newsSlug ||
+    context?.matchId ||
+    context?.profileUserId
+  ) {
+    return "entity_scoped";
+  }
+
+  if (
+    context?.pageSnapshot ||
+    (context?.pageType && !isBrowsePageType(context))
+  ) {
+    return "page_scoped";
+  }
+
+  return "general_knowledge";
+}
+
+function resolveContextConfidence(
+  queryScope,
+  context = {},
+  route = {},
+  execution = {},
+) {
+  if (
+    queryScope === "entity_scoped" &&
+    (
+      context?.tournamentId ||
+      context?.clubId ||
+      context?.newsSlug ||
+      context?.matchId ||
+      context?.profileUserId
+    )
+  ) {
+    return "high";
+  }
+
+  if (
+    queryScope === "page_scoped" &&
+    (context?.pageSnapshot || context?.pageType) &&
+    !isBrowsePageType(context)
+  ) {
+    return execution?.toolsUsed?.length ? "high" : "medium";
+  }
+
+  if (queryScope === "operator") {
+    return execution?.actions?.length ? "high" : "medium";
+  }
+
+  if (queryScope === "general_knowledge") {
+    return route?.kind === "knowledge" ? "medium" : "low";
+  }
+
+  return "low";
+}
+
 function resolveGroundingStatus({
   grounded = false,
   needsDisclaimer = false,
@@ -490,6 +568,8 @@ function buildCapabilityKeys(route, context = {}, result = {}) {
     context?.pageSnapshot ? "page_snapshot" : "",
     result?.answerCards?.length ? "answer_cards" : "",
     result?.sources?.length ? "source_grounding" : "",
+    result?.workflow ? "workflow" : "",
+    result?.mutationPreview ? "confirmed_light_mutation" : "",
     Array.isArray(result?.actions) && result.actions.some((item) => item?.type === "navigate")
       ? "navigate"
       : "",
@@ -512,6 +592,9 @@ function buildCapabilityKeys(route, context = {}, result = {}) {
     result?.trustMeta?.needsDisclaimer ? "grounding_limited" : "",
     result?.trustMeta?.groundingStatus === "grounded" ? "grounded" : "",
     result?.trustMeta?.groundingStatus === "partial" ? "grounding_partial" : "",
+    result?.trustMeta?.verificationMode === "strict"
+      ? "strict_verification"
+      : "",
     result?.trustMeta?.operatorStatus === "page_action" ? "page_action" : "",
     result?.trustMeta?.operatorStatus === "navigate_fallback"
       ? "navigate_fallback"
@@ -538,7 +621,7 @@ function buildActionExecutionSummary(actions = []) {
 function compactText(value, maxLength = 180) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   if (!text) return "";
-  return text.length > maxLength ? `${text.slice(0, maxLength)}â€¦` : text;
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
 function compactTexts(values, limit = 8, maxLength = 96) {
@@ -573,22 +656,31 @@ function inferPersonalization(memory, userProfile, context) {
   );
   const interests = [];
   if (hasAny(joinedMemory, ["giai", "tournament", "schedule", "bracket"])) {
-    interests.push("giáº£i Ä‘áº¥u");
+    interests.push("giải đấu");
   }
   if (hasAny(joinedMemory, ["news", "tin tuc", "chien thuat", "luat"])) {
-    interests.push("ná»™i dung kiáº¿n thá»©c");
+    interests.push("nội dung kiến thức");
   }
   if (hasAny(joinedMemory, ["club", "clb", "cau lac bo"])) {
-    interests.push("cÃ¢u láº¡c bá»™");
+    interests.push("câu lạc bộ");
   }
   if (hasAny(joinedMemory, ["rating", "xep hang", "vdv", "nguoi choi"])) {
-    interests.push("phÃ¢n tÃ­ch VÄV");
+    interests.push("phân tích VĐV");
   }
   if (context?.pageType?.startsWith("tournament_")) {
-    interests.push("Ä‘iá»u hÆ°á»›ng theo giáº£i hiá»‡n táº¡i");
+    interests.push("điều hướng theo giải hiện tại");
   }
 
   const likelyRole = userProfile?.role || (context?.adminSection ? "admin" : "member");
+  const preferredAssistantMode = normalizeAssistantMode(
+    context?.assistantMode ||
+      context?.currentUser?.assistantPreferences?.bot?.assistantMode ||
+      (hasAny(joinedMemory, ["so sanh", "phan tich", "compare", "vi sao", "why"])
+        ? "analyst"
+        : hasAny(joinedMemory, ["mo", "navigate", "tab", "loc", "filter", "tim"])
+          ? "operator"
+          : "balanced"),
+  );
   const preferredAnswerDensity = hasAny(joinedMemory, [
     "mo",
     "navigate",
@@ -604,12 +696,26 @@ function inferPersonalization(memory, userProfile, context) {
     4,
     48,
   );
+  const verificationMode = normalizeVerificationMode(
+    context?.verificationMode ||
+      context?.currentUser?.assistantPreferences?.bot?.verificationMode ||
+      (hasAny(joinedMemory, [
+        "xac minh",
+        "kiem chung",
+        "kiem tra nguon",
+        "fact check",
+      ])
+        ? "strict"
+        : "balanced"),
+  );
 
   return {
     province: userProfile?.province || "",
     rating: userProfile?.rating || null,
     interests: compactTexts(interests, 4, 40),
     likelyRole,
+    assistantMode: preferredAssistantMode,
+    verificationMode,
     preferredAnswerDensity,
     preferredPages,
   };
@@ -619,20 +725,20 @@ function buildPageSnapshotSummary(context = {}) {
   const snapshot = context?.pageSnapshot;
   if (!snapshot) return "";
   const parts = [];
-  if (snapshot.entityTitle) parts.push(`TiÃªu Ä‘á» chÃ­nh: ${snapshot.entityTitle}.`);
-  if (snapshot.sectionTitle) parts.push(`Má»¥c Ä‘ang má»Ÿ: ${snapshot.sectionTitle}.`);
-  if (snapshot.pageSummary) parts.push(`MÃ´ táº£ ngáº¯n: ${snapshot.pageSummary}`);
+  if (snapshot.entityTitle) parts.push(`Tiêu đề chính: ${snapshot.entityTitle}.`);
+  if (snapshot.sectionTitle) parts.push(`Mục đang mở: ${snapshot.sectionTitle}.`);
+  if (snapshot.pageSummary) parts.push(`Mô tả ngắn: ${snapshot.pageSummary}`);
   if (snapshot.activeLabels?.length) {
-    parts.push(`Tab hoáº·c tráº¡ng thÃ¡i ná»•i báº­t: ${snapshot.activeLabels.join(", ")}.`);
+    parts.push(`Tab hoặc trạng thái nổi bật: ${snapshot.activeLabels.join(", ")}.`);
   }
   if (snapshot.visibleActions?.length) {
-    parts.push(`CÃ¡c thao tÃ¡c Ä‘ang tháº¥y trÃªn mÃ n: ${snapshot.visibleActions.join(", ")}.`);
+    parts.push(`Các thao tác đang thấy trên màn: ${snapshot.visibleActions.join(", ")}.`);
   }
   if (snapshot.highlights?.length) {
-    parts.push(`Dáº¥u hiá»‡u ná»•i báº­t trÃªn trang: ${snapshot.highlights.join(", ")}.`);
+    parts.push(`Dấu hiệu nổi bật trên trang: ${snapshot.highlights.join(", ")}.`);
   }
   if (snapshot.metrics?.length) {
-    parts.push(`Chá»‰ sá»‘ Ä‘ang hiá»ƒn thá»‹: ${snapshot.metrics.join(", ")}.`);
+    parts.push(`Chỉ số đang hiển thị: ${snapshot.metrics.join(", ")}.`);
   }
   return parts.join("\n");
 }
@@ -640,14 +746,32 @@ function buildPageSnapshotSummary(context = {}) {
 function buildPersonalizationSummary(personalization) {
   if (!personalization) return "";
   const parts = [];
+  if (personalization.assistantMode) {
+    const label =
+      personalization.assistantMode === "operator"
+        ? "ưu tiên thao tác"
+        : personalization.assistantMode === "analyst"
+          ? "ưu tiên phân tích"
+          : "cân bằng";
+    parts.push(`Phong cách trợ lý đang ưu tiên: ${label}.`);
+  }
+  if (personalization.verificationMode) {
+    parts.push(
+      `Cháº¿ Ä‘á»™ xÃ¡c minh hiá»‡n táº¡i: ${
+        personalization.verificationMode === "strict"
+          ? "xÃ¡c minh cháº·t"
+          : "cÃ¢n báº±ng"
+      }.`,
+    );
+  }
   if (personalization.province) {
-    parts.push(`Khu vá»±c ngÆ°á»i dÃ¹ng quan tÃ¢m nhiá»u: ${personalization.province}.`);
+    parts.push(`Khu vực người dùng quan tâm nhiều: ${personalization.province}.`);
   }
   if (personalization.rating) {
-    parts.push(`Rating Ä‘Ã´i hiá»‡n táº¡i cá»§a ngÆ°á»i dÃ¹ng khoáº£ng ${personalization.rating}.`);
+    parts.push(`Rating đôi hiện tại của người dùng khoảng ${personalization.rating}.`);
   }
   if (personalization.interests?.length) {
-    parts.push(`CÃ¡c nhÃ³m chá»§ Ä‘á» ngÆ°á»i dÃ¹ng hay há»i: ${personalization.interests.join(", ")}.`);
+    parts.push(`Các nhóm chủ đề người dùng hay hỏi: ${personalization.interests.join(", ")}.`);
   }
   return parts.join("\n");
 }
@@ -661,6 +785,9 @@ function buildTrustMeta({
   reasoningAvailable = false,
   guardApplied = false,
   retrievalMode = "internal",
+  queryScope = "general_knowledge",
+  contextConfidence = "low",
+  verificationMode = "balanced",
 }) {
   const sourceCount = Array.isArray(sources) ? sources.length : 0;
   const cardCount = Array.isArray(answerCards) ? answerCards.length : 0;
@@ -686,34 +813,34 @@ function buildTrustMeta({
   const operatorStatus = resolveOperatorStatus(actions);
 
   let confidenceLevel = "fast";
-  let confidenceLabel = "Pháº£n há»“i nhanh";
+  let confidenceLabel = "Phản hồi nhanh";
   let explanation =
-    "CÃ¢u tráº£ lá»i nÃ y thiÃªn vá» Ä‘iá»u hÆ°á»›ng hoáº·c gá»£i Ã½ thao tÃ¡c nhanh.";
+    "Câu trả lời này thiên về điều hướng hoặc gợi ý thao tác nhanh.";
 
   if (grounded) {
     confidenceLevel = toolCount > 1 ? "strong" : "grounded";
     confidenceLabel =
-      toolCount > 1 ? "ÄÃ£ Ä‘á»‘i chiáº¿u nguá»“n tháº­t" : "CÃ³ nguá»“n dá»¯ liá»‡u tháº­t";
+      toolCount > 1 ? "Đã đối chiếu nguồn thật" : "Có nguồn dữ liệu thật";
     explanation =
       sourceCount > 1
-        ? `MÃ¬nh Ä‘ang bÃ¡m ${sourceCount} nguá»“n dá»¯ liá»‡u tháº­t tá»« há»‡ thá»‘ng hoáº·c ná»™i dung Ä‘Ã£ tra cá»©u.`
-        : "MÃ¬nh Ä‘ang bÃ¡m má»™t nguá»“n dá»¯ liá»‡u tháº­t tá»« há»‡ thá»‘ng hoáº·c ná»™i dung Ä‘Ã£ tra cá»©u.";
+        ? `Mình đang bám ${sourceCount} nguồn dữ liệu thật từ hệ thống hoặc nội dung đã tra cứu.`
+        : "Mình đang bám một nguồn dữ liệu thật từ hệ thống hoặc nội dung đã tra cứu.";
   } else if (needsDisclaimer) {
     confidenceLevel = "limited";
-    confidenceLabel = "Cáº§n kiá»ƒm tra thÃªm";
+    confidenceLabel = "Cần kiểm tra thêm";
     explanation =
-      "CÃ¢u tráº£ lá»i nÃ y cÃ³ dÃ¹ng tool nhÆ°ng chÆ°a Ä‘á»§ nguá»“n grounded Ä‘á»ƒ kháº³ng Ä‘á»‹nh máº¡nh nhÆ° fact.";
+      "Câu trả lời này có dùng tool nhưng chưa đủ nguồn grounded để khẳng định mạnh như fact.";
   } else if (toolCount > 0 || cardCount > 0) {
     confidenceLevel = "assisted";
-    confidenceLabel = "CÃ³ dá»¯ liá»‡u há»— trá»£";
+    confidenceLabel = "Có dữ liệu hỗ trợ";
     explanation =
-      "CÃ¢u tráº£ lá»i nÃ y cÃ³ tham chiáº¿u dá»¯ liá»‡u há»— trá»£, nhÆ°ng chÆ°a Ä‘á»§ máº¡nh Ä‘á»ƒ xem nhÆ° Ä‘á»‘i chiáº¿u nguá»“n Ä‘áº§y Ä‘á»§.";
+      "Câu trả lời này có tham chiếu dữ liệu hỗ trợ, nhưng chưa đủ mạnh để xem như đối chiếu nguồn đầy đủ.";
   }
 
   if (reasoned && grounded) {
-    explanation = `${explanation} Pikora cÃ³ dÃ¹ng suy luáº­n Ä‘á»ƒ tá»•ng há»£p cÃ¡c nguá»“n nÃ y.`;
+    explanation = `${explanation} Pikora có dùng suy luận để tổng hợp các nguồn này.`;
   } else if (reasoned) {
-    explanation = `${explanation} Pikora cÅ©ng Ä‘Ã£ dÃ¹ng suy luáº­n Ä‘á»ƒ ná»‘i cÃ¡c tÃ­n hiá»‡u liÃªn quan.`;
+    explanation = `${explanation} Pikora cũng đã dùng suy luận để nối các tín hiệu liên quan.`;
   }
 
   return {
@@ -728,6 +855,9 @@ function buildTrustMeta({
     operatorStatus,
     retrievalMode,
     guardApplied: Boolean(guardApplied),
+    queryScope,
+    contextConfidence,
+    verificationMode: normalizeVerificationMode(verificationMode),
     confidenceLevel,
     confidenceLabel,
     explanation,
@@ -737,26 +867,630 @@ function buildTrustMeta({
 function buildContextInsight(context, route, personalization, execution) {
   const parts = [];
   if (context?.pageType) {
-    parts.push(`MÃ¬nh Ä‘ang bÃ¡m theo ngá»¯ cáº£nh ${context.pageType.replaceAll("_", " ")}.`);
+    parts.push(`Mình đang bám theo ngữ cảnh ${context.pageType.replaceAll("_", " ")}.`);
   }
   if (context?.pageSnapshot?.sectionTitle) {
-    parts.push(`Pháº§n Ä‘ang má»Ÿ lÃ  "${context.pageSnapshot.sectionTitle}".`);
+    parts.push(`Phần đang mở là "${context.pageSnapshot.sectionTitle}".`);
   } else if (context?.pageSnapshot?.activeLabels?.length) {
-    parts.push(`MÃ n hiá»‡n táº¡i Ä‘ang ná»•i báº­t: ${context.pageSnapshot.activeLabels.slice(0, 2).join(", ")}.`);
+    parts.push(`Màn hiện tại đang nổi bật: ${context.pageSnapshot.activeLabels.slice(0, 2).join(", ")}.`);
+  }
+  if (
+    context?.sessionFocusApplied &&
+    context?.sessionFocus?.[context.sessionFocusApplied]?.label
+  ) {
+    parts.push(
+      `Mình cũng đang giữ ngữ cảnh hội thoại gần nhất về ${context.sessionFocus[context.sessionFocusApplied].label}.`,
+    );
   }
   if (execution?.toolSummary?.length > 0) {
-    parts.push(`MÃ¬nh Ä‘Ã£ dÃ¹ng ${execution.toolSummary.length} bÆ°á»›c tra cá»©u Ä‘á»ƒ tráº£ lá»i chÃ­nh xÃ¡c hÆ¡n.`);
+    parts.push(`Mình đã dùng ${execution.toolSummary.length} bước tra cứu để trả lời chính xác hơn.`);
   }
   if (personalization?.province) {
-    parts.push(`MÃ¬nh cÅ©ng Æ°u tiÃªn ngá»¯ cáº£nh theo khu vá»±c ${personalization.province}.`);
+    parts.push(`Mình cũng ưu tiên ngữ cảnh theo khu vực ${personalization.province}.`);
   }
   if (personalization?.interests?.length) {
-    parts.push(`MÃ¬nh Ä‘ang Æ°u tiÃªn cÃ¡c chá»§ Ä‘á» báº¡n hay há»i nhÆ° ${personalization.interests.join(", ")}.`);
+    parts.push(`Mình đang ưu tiên các chủ đề bạn hay hỏi như ${personalization.interests.join(", ")}.`);
   }
   if (!parts.length && route?.kind) {
-    parts.push(`MÃ¬nh Ä‘ang xá»­ lÃ½ theo loáº¡i yÃªu cáº§u: ${route.kind}.`);
+    parts.push(`Mình đang xử lý theo loại yêu cầu: ${route.kind}.`);
   }
   return parts.join(" ");
+}
+
+function hasExplicitEntityContext(context = {}) {
+  return Boolean(
+    context?.tournamentId ||
+      context?.clubId ||
+      context?.newsSlug ||
+      context?.profileUserId ||
+      context?.matchId,
+  );
+}
+
+function defaultSessionFocusLabel(entityType = "") {
+  switch (String(entityType || "")) {
+    case "tournament":
+      return "Giải hiện tại";
+    case "club":
+      return "CLB hiện tại";
+    case "news":
+      return "Bài viết hiện tại";
+    case "player":
+      return "Người chơi hiện tại";
+    case "match":
+      return "Trận hiện tại";
+    default:
+      return "Ngữ cảnh hiện tại";
+  }
+}
+
+function createSessionFocusEntity(entityType, entityId, label, path = "", extra = {}) {
+  const cleanId = String(entityId || "").trim();
+  const cleanLabel = trimText(label || "", 140);
+  const cleanPath = String(path || "").trim();
+  if (!cleanId && !cleanLabel && !cleanPath) return null;
+  return normalizeUserFacingData({
+    entityType,
+    entityId: cleanId,
+    label: cleanLabel || defaultSessionFocusLabel(entityType),
+    path: cleanPath,
+    ...extra,
+  });
+}
+
+function getFirstAvailableFocusType(sessionFocus = {}) {
+  return ["match", "tournament", "news", "club", "player"].find(
+    (type) => sessionFocus?.[type],
+  );
+}
+
+function normalizeSessionFocus(sessionFocus = null) {
+  if (!sessionFocus || typeof sessionFocus !== "object") return null;
+  const focus = {
+    tournament: sessionFocus?.tournament
+      ? createSessionFocusEntity(
+          "tournament",
+          sessionFocus.tournament.entityId,
+          sessionFocus.tournament.label,
+          sessionFocus.tournament.path,
+          sessionFocus.tournament,
+        )
+      : null,
+    club: sessionFocus?.club
+      ? createSessionFocusEntity(
+          "club",
+          sessionFocus.club.entityId,
+          sessionFocus.club.label,
+          sessionFocus.club.path,
+          sessionFocus.club,
+        )
+      : null,
+    news: sessionFocus?.news
+      ? createSessionFocusEntity(
+          "news",
+          sessionFocus.news.entityId,
+          sessionFocus.news.label,
+          sessionFocus.news.path,
+          sessionFocus.news,
+        )
+      : null,
+    player: sessionFocus?.player
+      ? createSessionFocusEntity(
+          "player",
+          sessionFocus.player.entityId,
+          sessionFocus.player.label,
+          sessionFocus.player.path,
+          sessionFocus.player,
+        )
+      : null,
+    match: sessionFocus?.match
+      ? createSessionFocusEntity(
+          "match",
+          sessionFocus.match.entityId,
+          sessionFocus.match.label,
+          sessionFocus.match.path,
+          sessionFocus.match,
+        )
+      : null,
+  };
+  const activeType = ["match", "tournament", "news", "club", "player"].includes(
+    String(sessionFocus?.activeType || ""),
+  )
+    ? String(sessionFocus.activeType)
+    : getFirstAvailableFocusType(focus);
+  if (!activeType) return null;
+  return normalizeUserFacingData({
+    activeType,
+    tournament: focus.tournament,
+    club: focus.club,
+    news: focus.news,
+    player: focus.player,
+    match: focus.match,
+    updatedAt: sessionFocus?.updatedAt || new Date().toISOString(),
+  });
+}
+
+function inferSessionFocusFromContext(context = {}) {
+  const tournamentLabel =
+    compactText(context?.pageSnapshot?.entityTitle, 140) ||
+    compactText(sanitizePageTitle(context?.pageTitle), 140);
+  const clubLabel =
+    compactText(context?.pageSnapshot?.entityTitle, 140) ||
+    compactText(sanitizePageTitle(context?.pageTitle), 140);
+  const newsLabel =
+    compactText(context?.pageSnapshot?.entityTitle, 140) ||
+    compactText(sanitizePageTitle(context?.pageTitle), 140) ||
+    compactText(String(context?.newsSlug || "").replace(/-/g, " "), 140);
+  const playerLabel =
+    compactText(context?.pageSnapshot?.entityTitle, 140) ||
+    compactText(sanitizePageTitle(context?.pageTitle), 140);
+  const matchLabel =
+    compactText(context?.pageSnapshot?.entityTitle, 140) ||
+    compactText(sanitizePageTitle(context?.pageTitle), 140);
+  const focus = normalizeSessionFocus({
+    activeType: pageTypeStartsWith(context, "news_")
+      ? "news"
+      : pageTypeStartsWith(context, "club_")
+        ? "club"
+        : context?.matchId
+          ? "match"
+          : context?.profileUserId
+            ? "player"
+            : context?.tournamentId
+              ? "tournament"
+              : "",
+    tournament: context?.tournamentId
+      ? createSessionFocusEntity(
+          "tournament",
+          context.tournamentId,
+          tournamentLabel,
+          `/tournament/${context.tournamentId}`,
+          {
+            source: "page_context",
+          },
+        )
+      : null,
+    club: context?.clubId
+      ? createSessionFocusEntity(
+          "club",
+          context.clubId,
+          clubLabel,
+          `/clubs/${context.clubId}`,
+          {
+            source: "page_context",
+          },
+        )
+      : null,
+    news: context?.newsSlug
+      ? createSessionFocusEntity(
+          "news",
+          context.newsSlug,
+          newsLabel,
+          `/news/${context.newsSlug}`,
+          {
+            source: "page_context",
+          },
+        )
+      : null,
+    player: context?.profileUserId
+      ? createSessionFocusEntity(
+          "player",
+          context.profileUserId,
+          playerLabel,
+          `/user/${context.profileUserId}`,
+          {
+            source: "page_context",
+          },
+        )
+      : null,
+    match: context?.matchId
+      ? createSessionFocusEntity(
+          "match",
+          context.matchId,
+          matchLabel,
+          context.currentPath || "",
+          {
+            source: "page_context",
+            tournamentId: context?.tournamentId || "",
+          },
+        )
+      : null,
+  });
+  return focus;
+}
+
+function inferSessionFocusFromExecution(execution = {}, context = {}, route = {}) {
+  const toolResults = execution?.toolResults || {};
+  const tournament =
+    toolResults.get_tournament_summary?.tournament ||
+    toolResults.search_tournaments?.tournaments?.[0] ||
+    null;
+  const news = toolResults.search_news?.articles?.[0] || null;
+  const club =
+    toolResults.get_club_details || toolResults.search_clubs?.clubs?.[0] || null;
+  const player =
+    toolResults.get_user_profile_detail ||
+    toolResults.search_users?.users?.[0] ||
+    null;
+  const match =
+    toolResults.get_match_score_detail || toolResults.get_match_info || null;
+  const focus = normalizeSessionFocus({
+    activeType:
+      route?.kind === "live"
+        ? "match"
+        : route?.kind === "tournament"
+          ? "tournament"
+          : route?.kind === "news"
+            ? "news"
+            : route?.kind === "club"
+              ? "club"
+              : route?.kind === "player" || route?.kind === "personal"
+                ? "player"
+                : "",
+    tournament:
+      tournament?._id || context?.tournamentId
+        ? createSessionFocusEntity(
+            "tournament",
+            tournament?._id || context?.tournamentId,
+            tournament?.name || context?.pageSnapshot?.entityTitle || context?.pageTitle,
+            tournament?._id ? `/tournament/${tournament._id}` : `/tournament/${context?.tournamentId || ""}`,
+            {
+              source: "tool_result",
+              tool:
+                tournament?._id && toolResults.search_tournaments?.tournaments?.[0]?._id
+                  ? "search_tournaments"
+                  : "get_tournament_summary",
+            },
+          )
+        : null,
+    club:
+      club?._id || context?.clubId
+        ? createSessionFocusEntity(
+            "club",
+            club?._id || context?.clubId,
+            club?.name || context?.pageSnapshot?.entityTitle || context?.pageTitle,
+            `/clubs/${club?._id || context?.clubId || ""}`,
+            {
+              source: "tool_result",
+              tool:
+                club?.name && toolResults.get_club_details?.name
+                  ? "get_club_details"
+                  : "search_clubs",
+            },
+          )
+        : null,
+    news:
+      news?.slug || context?.newsSlug
+        ? createSessionFocusEntity(
+            "news",
+            news?.slug || context?.newsSlug,
+            news?.title || context?.pageSnapshot?.entityTitle || context?.pageTitle,
+            `/news/${news?.slug || context?.newsSlug || ""}`,
+            {
+              source: "tool_result",
+              tool: "search_news",
+            },
+          )
+        : null,
+    player:
+      player?._id || context?.profileUserId
+        ? createSessionFocusEntity(
+            "player",
+            player?._id || context?.profileUserId,
+            player?.name || player?.nickname || context?.pageSnapshot?.entityTitle || context?.pageTitle,
+            `/user/${player?._id || context?.profileUserId || ""}`,
+            {
+              source: "tool_result",
+              tool:
+                player?._id && toolResults.search_users?.users?.[0]?._id
+                  ? "search_users"
+                  : "get_user_profile_detail",
+            },
+          )
+        : null,
+    match:
+      match?.code || context?.matchId
+        ? createSessionFocusEntity(
+            "match",
+            context?.matchId || match?._id || match?.id,
+            match?.code
+              ? `Trận ${match.code}`
+              : context?.pageSnapshot?.entityTitle || context?.pageTitle,
+            context?.currentPath || "",
+            {
+              source: "tool_result",
+              tool: toolResults.get_match_score_detail ? "get_match_score_detail" : "get_match_info",
+              tournamentId: context?.tournamentId || "",
+            },
+          )
+        : null,
+  });
+  return focus;
+}
+
+function inferSessionFocusFromMemory(memory = []) {
+  const list = Array.isArray(memory) ? memory : [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const item = list[index];
+    const metaFocus = normalizeSessionFocus(item?.meta?.sessionFocus || item?.sessionFocus);
+    if (metaFocus) {
+      return metaFocus;
+    }
+    const contextFocus = inferSessionFocusFromContext(item?.context || {});
+    if (contextFocus) {
+      return normalizeSessionFocus({
+        ...contextFocus,
+        activeType: contextFocus.activeType || getFirstAvailableFocusType(contextFocus),
+      });
+    }
+  }
+  return null;
+}
+
+function mergeSessionFocus(...focusCandidates) {
+  const merged = {
+    activeType: "",
+    tournament: null,
+    club: null,
+    news: null,
+    player: null,
+    match: null,
+  };
+  for (const candidate of focusCandidates) {
+    const focus = normalizeSessionFocus(candidate);
+    if (!focus) continue;
+    for (const type of ["tournament", "club", "news", "player", "match"]) {
+      if (focus[type]) {
+        merged[type] = focus[type];
+      }
+    }
+    if (focus.activeType) {
+      merged.activeType = focus.activeType;
+    }
+  }
+  return normalizeSessionFocus(merged);
+}
+
+function detectSessionFocusType(message, context = {}, sessionFocus = null) {
+  const normalized = sharedNormalizeText(message);
+  if (looksLikeGenericKnowledgeQuestion(message, normalized)) return "";
+
+  if (
+    hasAny(normalized, [
+      "bài này",
+      "tin này",
+      "tóm tắt bài",
+      "tóm tắt tin",
+      "nguồn bài",
+      "nguồn tin",
+      "bài viết",
+      "tin tức",
+      "news",
+    ])
+  ) {
+    return "news";
+  }
+
+  if (
+    hasAny(normalized, [
+      "clb",
+      "câu lạc bộ",
+      "club",
+      "thành viên",
+      "sự kiện",
+      "thông báo",
+      "bình chọn",
+      "poll",
+    ])
+  ) {
+    return "club";
+  }
+
+  if (
+    hasAny(normalized, [
+      "người chơi",
+      "vdv",
+      "vđv",
+      "rating",
+      "hồ sơ",
+      "thống kê",
+      "xếp hạng",
+      "ranking",
+    ])
+  ) {
+    return "player";
+  }
+
+  if (
+    hasAny(normalized, [
+      "trận này",
+      "tỉ số",
+      "điểm",
+      "set",
+      "ván",
+      "diễn biến",
+      "video",
+      "xem lại",
+      "nhật ký",
+      "log",
+      "live",
+    ])
+  ) {
+    return sessionFocus?.match ? "match" : "";
+  }
+
+  if (
+    looksLikeTournamentAvailabilityQuestion(message, normalized) ||
+    hasAny(normalized, [
+      "giải",
+      "tournament",
+      "lịch thi đấu",
+      "nhánh đấu",
+      "sơ đồ",
+      "bracket",
+      "đăng ký",
+      "bốc thăm",
+      "quản lý",
+      "luật",
+      "tiến độ",
+      "bao nhiêu trận",
+      "còn bao nhiêu trận",
+    ])
+  ) {
+    return "tournament";
+  }
+
+  if (isCurrentContextReference(normalized)) {
+    return sessionFocus?.activeType || getFirstAvailableFocusType(sessionFocus || {});
+  }
+
+  if (
+    !hasExplicitEntityContext(context) &&
+    sessionFocus?.activeType &&
+    hasAny(normalized, ["chi tiết", "mở", "xem", "kiểm tra", "thử lại"])
+  ) {
+    return sessionFocus.activeType;
+  }
+
+  return "";
+}
+
+function applySessionFocusToContext(message, context = {}, sessionFocus = null) {
+  const normalizedFocus = normalizeSessionFocus(sessionFocus);
+  if (!normalizedFocus) return context;
+
+  const nextContext = {
+    ...context,
+    sessionFocus: normalizedFocus,
+  };
+
+  if (looksLikeGenericKnowledgeQuestion(message)) {
+    return nextContext;
+  }
+
+  if (hasExplicitEntityContext(context)) {
+    return nextContext;
+  }
+
+  const focusType = detectSessionFocusType(message, context, normalizedFocus);
+  if (!focusType || !normalizedFocus?.[focusType]) {
+    return nextContext;
+  }
+
+  const focus = normalizedFocus[focusType];
+  nextContext.sessionFocusApplied = focusType;
+
+  if (focusType === "tournament" && focus.entityId) {
+    nextContext.tournamentId = focus.entityId;
+    nextContext.pageTitle = nextContext.pageTitle || focus.label;
+  }
+  if (focusType === "club" && focus.entityId) {
+    nextContext.clubId = focus.entityId;
+    nextContext.pageTitle = nextContext.pageTitle || focus.label;
+  }
+  if (focusType === "news" && focus.entityId) {
+    nextContext.newsSlug = focus.entityId;
+    nextContext.pageTitle = nextContext.pageTitle || focus.label;
+  }
+  if (focusType === "player" && focus.entityId) {
+    nextContext.profileUserId = focus.entityId;
+    nextContext.pageTitle = nextContext.pageTitle || focus.label;
+  }
+  if (focusType === "match" && focus.entityId) {
+    nextContext.matchId = focus.entityId;
+    nextContext.pageTitle = nextContext.pageTitle || focus.label;
+    if (!nextContext.tournamentId && focus.tournamentId) {
+      nextContext.tournamentId = focus.tournamentId;
+    }
+  }
+
+  return nextContext;
+}
+
+function buildSessionFocus({ context = {}, execution = {}, memory = [], route = {} }) {
+  const focusOverride = normalizeSessionFocusOverride(context?.sessionFocusOverride);
+  const merged = mergeSessionFocus(
+    focusOverride?.mode === "off" ? null : inferSessionFocusFromMemory(memory),
+    inferSessionFocusFromContext(context),
+    inferSessionFocusFromExecution(execution, context, route),
+    focusOverride?.mode === "pin" ? focusOverride.sessionFocus : null,
+  );
+  if (!merged) return null;
+  return normalizeSessionFocus({
+    ...merged,
+    activeType:
+      merged.activeType ||
+      ({
+        tournament: "tournament",
+        news: "news",
+        club: "club",
+        player: "player",
+        personal: "player",
+        live: "match",
+      }[route?.kind] || getFirstAvailableFocusType(merged)),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function normalizeSessionFocusOverride(override = null) {
+  if (!override || typeof override !== "object") return { mode: "auto" };
+  const mode = ["auto", "off", "pin"].includes(
+    String(override.mode || "").trim().toLowerCase(),
+  )
+    ? String(override.mode).trim().toLowerCase()
+    : "auto";
+
+  if (mode !== "pin") {
+    return { mode };
+  }
+
+  const sessionFocus = normalizeSessionFocus(override.sessionFocus || override.focus || null);
+  if (!sessionFocus) {
+    return { mode: "auto" };
+  }
+
+  return {
+    mode: "pin",
+    sessionFocus,
+  };
+}
+
+function resolveSessionFocusSeed(context = {}, memorySessionFocus = null) {
+  const focusOverride = normalizeSessionFocusOverride(context?.sessionFocusOverride);
+  if (focusOverride.mode === "off") {
+    return {
+      sessionFocus: null,
+      sessionFocusOverride: focusOverride,
+    };
+  }
+  if (focusOverride.mode === "pin" && focusOverride.sessionFocus) {
+    return {
+      sessionFocus: focusOverride.sessionFocus,
+      sessionFocusOverride: focusOverride,
+      sessionFocusPinned: true,
+    };
+  }
+  return {
+    sessionFocus: normalizeSessionFocus(memorySessionFocus),
+    sessionFocusOverride: focusOverride,
+    sessionFocusPinned: false,
+  };
+}
+
+function buildSessionFocusState(context = {}, sessionFocus = null) {
+  const focusOverride = normalizeSessionFocusOverride(context?.sessionFocusOverride);
+  const normalizedSessionFocus = normalizeSessionFocus(sessionFocus);
+  const activeType = normalizedSessionFocus?.activeType || "";
+  const activeLabel =
+    activeType && normalizedSessionFocus?.[activeType]?.label
+      ? normalizedSessionFocus[activeType].label
+      : "";
+  return normalizeUserFacingData({
+    mode: focusOverride.mode || "auto",
+    pinned: focusOverride.mode === "pin",
+    activeType,
+    activeLabel,
+  });
 }
 
 function createAction(type, payload = {}) {
@@ -793,39 +1527,6 @@ async function runPikora(message, context, userId, emit, options = {}) {
   const routeThinking = (step) =>
     safeEmit("thinking", { step: normalizeUserFacingData(step) });
   const state = createStreamState();
-  const initialInsight = buildContextInsight(context, null, null, null);
-
-  routeThinking("Äang hiá»ƒu yÃªu cáº§u...");
-  if (context?.pageSnapshot || context?.pageType) {
-    routeThinking("Äang Ä‘á»c ngá»¯ cáº£nh trang hiá»‡n táº¡i...");
-  }
-  const routeCacheKey = getRouteCacheKey(message, context, userId);
-  const route =
-    getCacheEntry(routeDecisionCache, routeCacheKey) ||
-    setCacheEntry(
-      routeDecisionCache,
-      routeCacheKey,
-      classifyRoute(message, context, userId),
-      ROUTE_CACHE_TTL_MS,
-    );
-  const rolloutDecision = await resolvePikoraRolloutDecision({
-    surface: context?.surface || "web",
-    userId,
-    roles: collectUserRoles(context?.currentUser),
-    cohortId: context?.cohortId || "",
-  });
-
-  if (route.directResponse) {
-    return finalizeDirectResponse({
-      safeEmit,
-      route,
-      context,
-      contextInsight: initialInsight,
-      startTime,
-    });
-  }
-
-  routeThinking("Äang táº£i ngá»¯ cáº£nh há»™i thoáº¡i...");
   const memoryPromise = userId
     ? getRecentMessages(userId, MEMORY_LIMIT)
     : Promise.resolve([]);
@@ -833,7 +1534,55 @@ async function runPikora(message, context, userId, emit, options = {}) {
     ? sharedFetchUserProfile(userId)
     : Promise.resolve(null);
 
-  const toolCacheKey = getToolCacheKey(route, context);
+  routeThinking("Đang hiểu yêu cầu...");
+  if (context?.pageSnapshot || context?.pageType) {
+    routeThinking("Đang đọc ngữ cảnh trang hiện tại...");
+  }
+  routeThinking("Đang tải ngữ cảnh hội thoại...");
+  const memory = await memoryPromise;
+  const memorySessionFocus = inferSessionFocusFromMemory(memory);
+  const focusSeed = resolveSessionFocusSeed(context, memorySessionFocus);
+  const focusAwareContext = applySessionFocusToContext(
+    message,
+    {
+      ...context,
+      sessionFocusOverride: focusSeed.sessionFocusOverride,
+      sessionFocusPinned: focusSeed.sessionFocusPinned,
+    },
+    focusSeed.sessionFocus,
+  );
+  const initialInsight = buildContextInsight(focusAwareContext, null, null, null);
+
+  const routeCacheKey = getRouteCacheKey(message, focusAwareContext, userId);
+  const route =
+    getCacheEntry(routeDecisionCache, routeCacheKey) ||
+    setCacheEntry(
+      routeDecisionCache,
+      routeCacheKey,
+      classifyRoute(message, focusAwareContext, userId),
+      ROUTE_CACHE_TTL_MS,
+    );
+  const rolloutDecision = await resolvePikoraRolloutDecision({
+    surface: focusAwareContext?.surface || "web",
+    userId,
+    roles: collectUserRoles(focusAwareContext?.currentUser),
+    cohortId: focusAwareContext?.cohortId || "",
+  });
+
+  if (route.directResponse) {
+    return finalizeDirectResponse({
+      safeEmit,
+      message,
+      route,
+      context: focusAwareContext,
+      contextInsight: initialInsight,
+      startTime,
+      rolloutDecision,
+      memory,
+    });
+  }
+
+  const toolCacheKey = getToolCacheKey(route, focusAwareContext);
   const cachedExecution = getCacheEntry(toolExecutionCache, toolCacheKey);
   const execution = cachedExecution
     ? {
@@ -845,7 +1594,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
       }
     : await executeToolPlan({
         route,
-        context,
+        context: focusAwareContext,
         safeEmit,
       });
   if (!cachedExecution && execution.toolsUsed?.length) {
@@ -856,30 +1605,46 @@ async function runPikora(message, context, userId, emit, options = {}) {
       getToolCacheTtlMs(route),
     );
   }
-  const routeLane = resolveRouteLane(message, route, context, execution);
+  const routeLane = resolveRouteLane(message, route, focusAwareContext, execution);
+  const queryScope = resolveQueryScope(message, route, focusAwareContext);
+  const contextConfidence = resolveContextConfidence(
+    queryScope,
+    focusAwareContext,
+    route,
+    execution,
+  );
 
   const groundedTournamentStatusResponse =
-    buildGroundedTournamentStatusResponse(message, route, context, execution);
+    buildGroundedTournamentStatusResponse(
+      message,
+      route,
+      focusAwareContext,
+      execution,
+    );
   if (groundedTournamentStatusResponse) {
     return finalizeGroundedToolResponse({
       safeEmit,
       message,
       route,
-      context,
+      context: focusAwareContext,
       execution,
       direct: groundedTournamentStatusResponse,
-      contextInsight: buildContextInsight(context, route, null, execution),
+      contextInsight: buildContextInsight(
+        focusAwareContext,
+        route,
+        null,
+        execution,
+      ),
       startTime,
+      rolloutDecision,
+      memory,
     });
   }
 
-  const [memory, userProfile] = await Promise.all([
-    memoryPromise,
-    userProfilePromise,
-  ]);
-  const personalization = inferPersonalization(memory, userProfile, context);
+  const userProfile = await userProfilePromise;
+  const personalization = inferPersonalization(memory, userProfile, focusAwareContext);
   const contextInsight = buildContextInsight(
-    context,
+    focusAwareContext,
     route,
     personalization,
     execution,
@@ -888,7 +1653,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     message,
     route,
     routeLane,
-    context,
+    context: focusAwareContext,
     execution,
     rolloutDecision,
     safeEmit,
@@ -903,7 +1668,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
         resultPreview:
           hybridRetrieval.items?.length > 0
             ? `${hybridRetrieval.items.length} nguồn live web`
-            : hybridRetrieval.error || "KhÃ´ng cÃ³ nguồn live web phÃ¹ há»£p",
+            : hybridRetrieval.error || "Không có nguồn live web phù hợp",
         durationMs: Number(hybridRetrieval.durationMs || 0),
         error: Boolean(hybridRetrieval.error),
       },
@@ -913,17 +1678,20 @@ async function runPikora(message, context, userId, emit, options = {}) {
       "hybrid_live_retrieval",
     ];
   }
-  const retrievalMode = resolveRetrievalMode(context, hybridRetrieval);
+  const retrievalMode = resolveRetrievalMode(focusAwareContext, hybridRetrieval);
 
   const preferredModel =
     context?.reasoningMode === "force_reasoner" ||
+    (personalization?.assistantMode === "analyst" &&
+      route?.kind !== "navigate" &&
+      route?.kind !== "direct") ||
     shouldUseReasoner(message, route, execution)
       ? REASONER_MODEL
       : CHAT_MODEL;
   const synthesisMessages = buildSynthesisMessages({
     message,
     route,
-    context,
+    context: focusAwareContext,
     memory,
     userProfile,
     personalization,
@@ -932,8 +1700,8 @@ async function runPikora(message, context, userId, emit, options = {}) {
 
   routeThinking(
     preferredModel === REASONER_MODEL
-      ? "Äang suy luáº­n Ä‘á»ƒ soáº¡n cÃ¢u tráº£ lá»i..."
-      : "Äang soáº¡n cÃ¢u tráº£ lá»i...",
+      ? "Đang suy luận để soạn câu trả lời..."
+      : "Đang soạn câu trả lời...",
   );
 
   const modelsToTry =
@@ -967,7 +1735,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
         !error.partialOutput &&
         modelsToTry[index + 1]
       ) {
-        routeThinking("Reasoner Ä‘ang cháº­m, chuyá»ƒn sang tráº£ lá»i nhanh...");
+        routeThinking("Reasoner đang chậm, chuyển sang trả lời nhanh...");
         continue;
       }
       throw error;
@@ -975,23 +1743,23 @@ async function runPikora(message, context, userId, emit, options = {}) {
   }
 
   if (!result) {
-    throw lastError || new Error("KhÃ´ng nháº­n Ä‘Æ°á»£c pháº£n há»“i tá»« AI");
+    throw lastError || new Error("Không nhận được phản hồi từ AI");
   }
 
   const processingTime = Date.now() - startTime;
   const sources = buildSourcesFromToolResults(
     execution.toolResults,
-    context,
+    focusAwareContext,
     hybridRetrieval,
   );
   const answerCards = buildAnswerCardsFromToolResults(
     execution.toolResults,
-    context,
+    focusAwareContext,
     hybridRetrieval,
   );
   const trustGuard = applyTrustGuard(
     result.reply ||
-      "Xin lá»—i, mÃ¬nh chÆ°a tá»•ng há»£p Ä‘Æ°á»£c cÃ¢u tráº£ lá»i rÃµ rÃ ng. Báº¡n thá»­ há»i láº¡i ngáº¯n hÆ¡n nhÃ©.",
+      "Xin lỗi, mình chưa tổng hợp được câu trả lời rõ ràng. Bạn thử hỏi lại ngắn hơn nhé.",
     route,
     execution,
     sources,
@@ -999,28 +1767,30 @@ async function runPikora(message, context, userId, emit, options = {}) {
   );
   const finalResult = {
     reply: trustGuard.reply,
-    intent: inferIntent(message, route, context, execution),
+    intent: inferIntent(message, route, focusAwareContext, execution),
     routeKind: route.kind || "direct",
     routeLane,
+    queryScope,
+    contextConfidence,
     toolsPlanned: Array.isArray(route.toolPlan)
       ? route.toolPlan.map((step) => step?.name).filter(Boolean)
       : [],
     toolsUsed: execution.toolsUsed,
     toolSummary: execution.toolSummary,
     navigation: execution.navigation || null,
-    actions: buildSuggestedActions(route, context, execution),
+    actions: buildSuggestedActions(route, focusAwareContext, execution),
     answerCards,
     sources,
     contextInsight,
     personalization,
     suggestions: generateSuggestions(
       route,
-      context,
+      focusAwareContext,
       execution,
       userId,
       personalization,
     ),
-    surface: context?.surface || "web",
+    surface: focusAwareContext?.surface || "web",
     model: result.model,
     mode: result.mode,
     rawThinking: result.rawThinking,
@@ -1031,13 +1801,50 @@ async function runPikora(message, context, userId, emit, options = {}) {
     processingTimeMs: processingTime,
     capabilityKeys: [],
     actionExecutionSummary: null,
+    workflow: null,
+    mutationPreview: null,
     trustMeta: null,
+    assistantMode: normalizeAssistantMode(
+      personalization?.assistantMode || context?.assistantMode,
+    ),
+    verificationMode: normalizeVerificationMode(
+      personalization?.verificationMode || context?.verificationMode,
+    ),
   };
   Object.assign(finalResult, normalizeUserFacingData(finalResult));
-  finalResult.capabilityKeys = buildCapabilityKeys(route, context, finalResult);
+  finalResult.sessionFocus = buildSessionFocus({
+    context: focusAwareContext,
+    execution,
+    memory,
+    route,
+  });
+  finalResult.sessionFocusState = buildSessionFocusState(
+    focusAwareContext,
+    finalResult.sessionFocus,
+  );
+  finalResult.capabilityKeys = buildCapabilityKeys(
+    route,
+    focusAwareContext,
+    finalResult,
+  );
   finalResult.actionExecutionSummary = buildActionExecutionSummary(
     finalResult.actions,
   );
+  finalResult.workflow = buildWorkflowRecipe(
+    route,
+    focusAwareContext,
+    execution,
+    finalResult.actions,
+  );
+  finalResult.mutationPreview = rolloutDecision?.allowConfirmedMutations
+    ? buildMutationPreview(
+        route,
+        focusAwareContext,
+        personalization,
+        finalResult.actions,
+        finalResult.workflow,
+      )
+    : null;
   finalResult.trustMeta = buildTrustMeta({
     route,
     execution,
@@ -1045,16 +1852,25 @@ async function runPikora(message, context, userId, emit, options = {}) {
     answerCards: finalResult.answerCards,
     actions: finalResult.actions,
     reasoningAvailable: finalResult.reasoningAvailable,
-    guardApplied: trustGuard.guardApplied,
-    retrievalMode,
-  });
-  finalResult.capabilityKeys = buildCapabilityKeys(route, context, finalResult);
+      guardApplied: trustGuard.guardApplied,
+      retrievalMode,
+      queryScope: finalResult.queryScope,
+      contextConfidence: finalResult.contextConfidence,
+      verificationMode: finalResult.verificationMode,
+    });
+  finalResult.capabilityKeys = buildCapabilityKeys(
+    route,
+    focusAwareContext,
+    finalResult,
+  );
 
   safeEmit("message_done", {
     text: finalResult.reply,
     intent: finalResult.intent,
     routeKind: finalResult.routeKind,
     routeLane: finalResult.routeLane,
+    queryScope: finalResult.queryScope,
+    contextConfidence: finalResult.contextConfidence,
     toolsUsed: finalResult.toolsUsed,
     model: finalResult.model,
     mode: finalResult.mode,
@@ -1065,10 +1881,16 @@ async function runPikora(message, context, userId, emit, options = {}) {
     sources: finalResult.sources,
     capabilityKeys: finalResult.capabilityKeys,
     actionExecutionSummary: finalResult.actionExecutionSummary,
+    workflow: finalResult.workflow,
+    mutationPreview: finalResult.mutationPreview,
+    sessionFocus: finalResult.sessionFocus,
+    sessionFocusState: finalResult.sessionFocusState,
     contextInsight: finalResult.contextInsight,
     personalization: finalResult.personalization,
     trustMeta: finalResult.trustMeta,
     surface: finalResult.surface,
+    assistantMode: finalResult.assistantMode,
+    verificationMode: finalResult.verificationMode,
     firstTokenLatencyMs: finalResult.firstTokenLatencyMs,
     processingTimeMs: finalResult.processingTimeMs,
     toolSummary: finalResult.toolSummary,
@@ -1078,6 +1900,8 @@ async function runPikora(message, context, userId, emit, options = {}) {
     intent: finalResult.intent,
     routeKind: finalResult.routeKind,
     routeLane: finalResult.routeLane,
+    queryScope: finalResult.queryScope,
+    contextConfidence: finalResult.contextConfidence,
     toolsUsed: finalResult.toolsUsed,
     processingTime: finalResult.processingTime,
     processingTimeMs: finalResult.processingTimeMs,
@@ -1090,10 +1914,16 @@ async function runPikora(message, context, userId, emit, options = {}) {
     sources: finalResult.sources,
     capabilityKeys: finalResult.capabilityKeys,
     actionExecutionSummary: finalResult.actionExecutionSummary,
+    workflow: finalResult.workflow,
+    mutationPreview: finalResult.mutationPreview,
+    sessionFocus: finalResult.sessionFocus,
+    sessionFocusState: finalResult.sessionFocusState,
     contextInsight: finalResult.contextInsight,
     personalization: finalResult.personalization,
     trustMeta: finalResult.trustMeta,
     surface: finalResult.surface,
+    assistantMode: finalResult.assistantMode,
+    verificationMode: finalResult.verificationMode,
     toolSummary: finalResult.toolSummary,
   });
 
@@ -1110,8 +1940,24 @@ async function runPikora(message, context, userId, emit, options = {}) {
   return finalResult;
 }
 
-function finalizeDirectResponse({ safeEmit, route, context, contextInsight, startTime }) {
+function finalizeDirectResponse({
+  safeEmit,
+  message,
+  route,
+  context,
+  contextInsight,
+  startTime,
+  rolloutDecision = null,
+  memory = [],
+}) {
   const processingTime = Date.now() - startTime;
+  const queryScope = resolveQueryScope(message, route, context);
+  const contextConfidence = resolveContextConfidence(
+    queryScope,
+    context,
+    route,
+    { actions: route?.directResponse?.actions || [] },
+  );
   const result = {
     reply: route.directResponse.reply,
     intent: "direct_help",
@@ -1119,6 +1965,8 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     routeLane: resolveRouteLane("", route, context, {
       actions: route?.directResponse?.actions || [],
     }),
+    queryScope,
+    contextConfidence,
     toolsPlanned: [],
     toolsUsed: [],
     toolSummary: [],
@@ -1145,10 +1993,30 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     processingTimeMs: processingTime,
     capabilityKeys: [],
     actionExecutionSummary: null,
+    workflow: null,
+    mutationPreview: null,
     trustMeta: null,
+    assistantMode: normalizeAssistantMode(context?.assistantMode),
+    verificationMode: normalizeVerificationMode(context?.verificationMode),
+    sessionFocus: buildSessionFocus({
+      context,
+      execution: { toolsUsed: [], toolResults: {}, toolSummary: [] },
+      memory,
+      route,
+    }),
   };
+  result.sessionFocusState = buildSessionFocusState(context, result.sessionFocus);
   result.capabilityKeys = buildCapabilityKeys(route, context, result);
   result.actionExecutionSummary = buildActionExecutionSummary(result.actions);
+  result.workflow = buildWorkflowRecipe(
+    route,
+    context,
+    { actions: result.actions, toolsUsed: [] },
+    result.actions,
+  );
+  result.mutationPreview = rolloutDecision?.allowConfirmedMutations
+    ? buildMutationPreview(route, context, null, result.actions, result.workflow)
+    : null;
   result.trustMeta = buildTrustMeta({
     route,
     execution: { toolsUsed: [], toolSummary: [] },
@@ -1157,6 +2025,9 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     actions: result.actions,
     reasoningAvailable: false,
     guardApplied: false,
+    queryScope: result.queryScope,
+    contextConfidence: result.contextConfidence,
+    verificationMode: result.verificationMode,
   });
   Object.assign(result, normalizeUserFacingData(result));
   result.capabilityKeys = buildCapabilityKeys(route, context, result);
@@ -1173,6 +2044,8 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     intent: result.intent,
     routeKind: result.routeKind,
     routeLane: result.routeLane,
+    queryScope: result.queryScope,
+    contextConfidence: result.contextConfidence,
     toolsUsed: [],
     model: result.model,
     mode: result.mode,
@@ -1183,10 +2056,16 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     sources: result.sources,
     capabilityKeys: result.capabilityKeys,
     actionExecutionSummary: result.actionExecutionSummary,
+    workflow: result.workflow,
+    mutationPreview: result.mutationPreview,
+    sessionFocus: result.sessionFocus,
+    sessionFocusState: result.sessionFocusState,
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
     surface: result.surface,
+    assistantMode: result.assistantMode,
+    verificationMode: result.verificationMode,
     firstTokenLatencyMs: 0,
     processingTimeMs: result.processingTimeMs,
     toolSummary: [],
@@ -1196,6 +2075,8 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     intent: result.intent,
     routeKind: result.routeKind,
     routeLane: result.routeLane,
+    queryScope: result.queryScope,
+    contextConfidence: result.contextConfidence,
     toolsUsed: [],
     processingTime: result.processingTime,
     processingTimeMs: result.processingTimeMs,
@@ -1208,10 +2089,16 @@ function finalizeDirectResponse({ safeEmit, route, context, contextInsight, star
     sources: result.sources,
     capabilityKeys: result.capabilityKeys,
     actionExecutionSummary: result.actionExecutionSummary,
+    workflow: result.workflow,
+    mutationPreview: result.mutationPreview,
+    sessionFocus: result.sessionFocus,
+    sessionFocusState: result.sessionFocusState,
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
     surface: result.surface,
+    assistantMode: result.assistantMode,
+    verificationMode: result.verificationMode,
     toolSummary: [],
   });
   if (result.suggestions.length > 0) {
@@ -1285,27 +2172,27 @@ function buildGroundedTournamentStatusResponse(message, route, context, executio
 
   let reply = "";
   if (count > 0) {
-    reply = `Hiá»‡n cÃ³ ${count} giáº£i ${statusLabel}.`;
+    reply = `Hiện có ${count} giải ${statusLabel}.`;
     if (sampleNames.length) {
-      reply += ` VÃ­ dá»¥: ${sampleNames.join(", ")}.`;
+      reply += ` Ví dụ: ${sampleNames.join(", ")}.`;
     }
     if (firstTournament?.location) {
-      reply += ` Giáº£i gáº§n nháº¥t mÃ¬nh tháº¥y Ä‘ang á»Ÿ ${firstTournament.location}.`;
+      reply += ` Giải gần nhất mình thấy đang ở ${firstTournament.location}.`;
     }
     if (matchedBy) {
-      reply += " MÃ¬nh xÃ¡c nháº­n theo thá»i gian diá»…n ra thá»±c táº¿ cá»§a giáº£i, khÃ´ng chá»‰ dá»±a vÃ o tráº¡ng thÃ¡i lÆ°u sáºµn.";
+      reply += " Mình xác nhận theo thời gian diễn ra thực tế của giải, không chỉ dựa vào trạng thái lưu sẵn.";
     }
   } else {
-    reply = `Hiá»‡n táº¡i mÃ¬nh chÆ°a tháº¥y giáº£i ${statusLabel} trong dá»¯ liá»‡u há»‡ thá»‘ng.`;
+    reply = `Hiện tại mình chưa thấy giải ${statusLabel} trong dữ liệu hệ thống.`;
     if (matchedBy) {
-      reply += " MÃ¬nh Ä‘Ã£ kiá»ƒm tra thÃªm theo má»‘c thá»i gian thá»±c táº¿ cá»§a giáº£i nhÆ°ng váº«n chÆ°a tháº¥y káº¿t quáº£ phÃ¹ há»£p.";
+      reply += " Mình đã kiểm tra thêm theo mốc thời gian thực tế của giải nhưng vẫn chưa thấy kết quả phù hợp.";
     }
   }
 
   const suggestions = [
-    requestedStatus === "ongoing" ? "Tiáº¿n Ä‘á»™ giáº£i nÃ y tháº¿ nÃ o?" : "Giáº£i nÃ o Ä‘ang diá»…n ra?",
-    requestedStatus === "upcoming" ? "Má»Ÿ tab sáº¯p diá»…n ra" : "Giáº£i nÃ o sáº¯p diá»…n ra?",
-    "Má»Ÿ danh sÃ¡ch giáº£i Ä‘áº¥u",
+    requestedStatus === "ongoing" ? "Tiến độ giải này thế nào?" : "Giải nào đang diễn ra?",
+    requestedStatus === "upcoming" ? "Mở tab sắp diễn ra" : "Giải nào sắp diễn ra?",
+    "Mở danh sách giải đấu",
   ]
     .filter(Boolean)
     .slice(0, 3);
@@ -1325,8 +2212,17 @@ function finalizeGroundedToolResponse({
   direct,
   contextInsight,
   startTime,
+  rolloutDecision = null,
+  memory = [],
 }) {
   const processingTime = Date.now() - startTime;
+  const queryScope = resolveQueryScope(message, route, context);
+  const contextConfidence = resolveContextConfidence(
+    queryScope,
+    context,
+    route,
+    execution,
+  );
   const sources = buildSourcesFromToolResults(execution.toolResults, context);
   const answerCards = buildAnswerCardsFromToolResults(execution.toolResults, context);
   const result = {
@@ -1334,6 +2230,8 @@ function finalizeGroundedToolResponse({
     intent: inferIntent(message, route, context, execution),
     routeKind: route.kind || "lookup",
     routeLane: resolveRouteLane(message, route, context, execution),
+    queryScope,
+    contextConfidence,
     toolsPlanned: Array.isArray(route.toolPlan)
       ? route.toolPlan.map((step) => step?.name).filter(Boolean)
       : [],
@@ -1356,11 +2254,30 @@ function finalizeGroundedToolResponse({
     processingTimeMs: processingTime,
     capabilityKeys: [],
     actionExecutionSummary: null,
+    workflow: null,
+    mutationPreview: null,
     trustMeta: null,
+    assistantMode: normalizeAssistantMode(
+      context?.assistantMode || direct?.personalization?.assistantMode,
+    ),
+    verificationMode: normalizeVerificationMode(
+      context?.verificationMode || direct?.personalization?.verificationMode,
+    ),
+    sessionFocus: buildSessionFocus({
+      context,
+      execution,
+      memory,
+      route,
+    }),
   };
+  result.sessionFocusState = buildSessionFocusState(context, result.sessionFocus);
 
   result.capabilityKeys = buildCapabilityKeys(route, context, result);
   result.actionExecutionSummary = buildActionExecutionSummary(result.actions);
+  result.workflow = buildWorkflowRecipe(route, context, execution, result.actions);
+  result.mutationPreview = rolloutDecision?.allowConfirmedMutations
+    ? buildMutationPreview(route, context, null, result.actions, result.workflow)
+    : null;
   result.trustMeta = buildTrustMeta({
     route,
     execution,
@@ -1369,8 +2286,12 @@ function finalizeGroundedToolResponse({
     actions: result.actions,
     reasoningAvailable: false,
     guardApplied: false,
+    queryScope: result.queryScope,
+    contextConfidence: result.contextConfidence,
+    verificationMode: result.verificationMode,
   });
   Object.assign(result, normalizeUserFacingData(result));
+  result.capabilityKeys = buildCapabilityKeys(route, context, result);
 
   safeEmit("message_start", {
     model: result.model,
@@ -1384,6 +2305,8 @@ function finalizeGroundedToolResponse({
     intent: result.intent,
     routeKind: result.routeKind,
     routeLane: result.routeLane,
+    queryScope: result.queryScope,
+    contextConfidence: result.contextConfidence,
     toolsUsed: result.toolsUsed,
     model: result.model,
     mode: result.mode,
@@ -1394,10 +2317,16 @@ function finalizeGroundedToolResponse({
     sources: result.sources,
     capabilityKeys: result.capabilityKeys,
     actionExecutionSummary: result.actionExecutionSummary,
+    workflow: result.workflow,
+    mutationPreview: result.mutationPreview,
+    sessionFocus: result.sessionFocus,
+    sessionFocusState: result.sessionFocusState,
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
     surface: result.surface,
+    assistantMode: result.assistantMode,
+    verificationMode: result.verificationMode,
     firstTokenLatencyMs: 0,
     processingTimeMs: result.processingTimeMs,
     toolSummary: result.toolSummary,
@@ -1407,6 +2336,8 @@ function finalizeGroundedToolResponse({
     intent: result.intent,
     routeKind: result.routeKind,
     routeLane: result.routeLane,
+    queryScope: result.queryScope,
+    contextConfidence: result.contextConfidence,
     toolsUsed: result.toolsUsed,
     processingTime: result.processingTime,
     processingTimeMs: result.processingTimeMs,
@@ -1419,10 +2350,16 @@ function finalizeGroundedToolResponse({
     sources: result.sources,
     capabilityKeys: result.capabilityKeys,
     actionExecutionSummary: result.actionExecutionSummary,
+    workflow: result.workflow,
+    mutationPreview: result.mutationPreview,
+    sessionFocus: result.sessionFocus,
+    sessionFocusState: result.sessionFocusState,
     contextInsight: result.contextInsight,
     personalization: result.personalization,
     trustMeta: result.trustMeta,
     surface: result.surface,
+    assistantMode: result.assistantMode,
+    verificationMode: result.verificationMode,
     toolSummary: result.toolSummary,
   });
   if (result.suggestions.length > 0) {
@@ -1493,21 +2430,21 @@ function normalizeAsciiText(value) {
 function looksLikeGreetingMessage(message) {
   return hasRawPattern(
     message,
-    /(^|\s)(xin chÃ o|xin chao|chÃ o pikora|chao pikora|hello|hi|hey)(\s|[!?.,]|$)/iu,
+    /(^|\s)(xin chào|xin chao|chào pikora|chao pikora|hello|hi|hey)(\s|[!?.,]|$)/iu,
   );
 }
 
 function looksLikeThanksMessage(message) {
   return hasRawPattern(
     message,
-    /(^|\s)(cáº£m Æ¡n|cam on|thanks|thank you)(\s|[!?.,]|$)/iu,
+    /(^|\s)(cảm ơn|cam on|thanks|thank you)(\s|[!?.,]|$)/iu,
   );
 }
 
 function looksLikeNavigationRequest(message) {
   return hasRawPattern(
     message,
-    /(^|\s)(má»Ÿ|mo|vÃ o|vao|Ä‘i tá»›i|di toi|Ä‘áº¿n|den|go to|open|truy cáº­p|truy cap|show page)(\s|[!?.,]|$)/iu,
+    /(^|\s)(mở|mo|vào|vao|đi tới|di toi|đến|den|go to|open|truy cập|truy cap|show page)(\s|[!?.,]|$)/iu,
   );
 }
 
@@ -1566,26 +2503,26 @@ export function pickTournamentStatusFromMessage(
   normalized = sharedNormalizeText(message),
 ) {
   if (
-    hasAny(normalized, ["sáº¯p tá»›i", "sáº¯p diá»…n ra", "upcoming", "má»Ÿ Ä‘Äƒng kÃ½"]) ||
+    hasAny(normalized, ["sắp tới", "sắp diễn ra", "upcoming", "mở đăng ký"]) ||
     hasRawPattern(
       message,
-      /(sáº¯p tá»›i|sáº¯p diá»…n ra|sap toi|sap dien ra|upcoming|má»Ÿ Ä‘Äƒng kÃ½|mo dang ky)/iu,
+      /(sắp tới|sắp diễn ra|sap toi|sap dien ra|upcoming|mở đăng ký|mo dang ky)/iu,
     )
   ) {
     return "upcoming";
   }
   if (
-    hasAny(normalized, ["Ä‘ang diá»…n ra", "ongoing", "live"]) ||
+    hasAny(normalized, ["đang diễn ra", "ongoing", "live"]) ||
     hasRawPattern(
       message,
-      /(Ä‘ang diá»…n ra|dang dien ra|ongoing|\blive\b)/iu,
+      /(đang diễn ra|dang dien ra|ongoing|\blive\b)/iu,
     )
   ) {
     return "ongoing";
   }
   if (
-    hasAny(normalized, ["Ä‘Ã£ káº¿t thÃºc", "finished"]) ||
-    hasRawPattern(message, /(Ä‘Ã£ káº¿t thÃºc|da ket thuc|finished)/iu)
+    hasAny(normalized, ["đã kết thúc", "finished"]) ||
+    hasRawPattern(message, /(đã kết thúc|da ket thuc|finished)/iu)
   ) {
     return "finished";
   }
@@ -1598,7 +2535,7 @@ export function looksLikeTournamentAvailabilityQuestion(
 ) {
   const mentionsTournament =
     hasAny(normalized, ["giai", "tournament"]) ||
-    hasRawPattern(message, /(giáº£i|giai|tournament)/iu);
+    hasRawPattern(message, /(giải|giai|tournament)/iu);
   if (!mentionsTournament) return false;
 
   const asksAvailability =
@@ -1611,7 +2548,7 @@ export function looksLikeTournamentAvailabilityQuestion(
     ]) ||
     hasRawPattern(
       message,
-      /(cÃ³ giáº£i nÃ o|co giai nao|giáº£i nÃ o|giai nao|bao nhiÃªu giáº£i|bao nhieu giai)/iu,
+      /(có giải nào|co giai nao|giải nào|giai nao|bao nhiêu giải|bao nhieu giai)/iu,
     );
 
   return Boolean(pickTournamentStatusFromMessage(message, normalized)) || asksAvailability;
@@ -1619,15 +2556,15 @@ export function looksLikeTournamentAvailabilityQuestion(
 
 function isQuestionLike(normalized) {
   return hasAny(normalized, [
-    "gÃ¬",
-    "lÃ  gÃ¬",
-    "khÃ´ng",
-    "bao nhiÃªu",
-    "tháº¿ nÃ o",
+    "gì",
+    "là gì",
+    "không",
+    "bao nhiêu",
+    "thế nào",
     "sao",
-    "táº¡i sao",
-    "vÃ¬ sao",
-    "nÃ o",
+    "tại sao",
+    "vì sao",
+    "nào",
   ]);
 }
 
@@ -1641,24 +2578,24 @@ function pageTypeStartsWith(context, value) {
 
 function isCurrentContextReference(normalized) {
   return hasAny(normalized, [
-    "trang nÃ y",
-    "má»¥c nÃ y",
-    "tab nÃ y",
-    "view nÃ y",
-    "mÃ n nÃ y",
-    "á»Ÿ Ä‘Ã¢y",
-    "hiá»‡n táº¡i",
-    "bÃ i nÃ y",
-    "tin nÃ y",
-    "giáº£i nÃ y",
-    "clb nÃ y",
-    "tráº­n nÃ y",
-    "sÃ¢n nÃ y",
-    "nhÃ¡nh nÃ y",
-    "báº£ng nÃ y",
-    "club nÃ y",
-    "news nÃ y",
-    "live nÃ y",
+    "trang này",
+    "mục này",
+    "tab này",
+    "view này",
+    "màn này",
+    "ở đây",
+    "hiện tại",
+    "bài này",
+    "tin này",
+    "giải này",
+    "clb này",
+    "trận này",
+    "sân này",
+    "nhánh này",
+    "bảng này",
+    "club này",
+    "news này",
+    "live này",
   ]);
 }
 
@@ -1699,6 +2636,10 @@ function addContextualKeywords(message, normalized, context) {
     return normalized;
   }
 
+  if (isBrowsePageType(context) && !isCurrentContextReference(normalized)) {
+    return normalized;
+  }
+
   const shouldBoost =
     isCurrentContextReference(normalized) ||
     (String(normalized || "").split(/\s+/).filter(Boolean).length <= 6 &&
@@ -1708,25 +2649,25 @@ function addContextualKeywords(message, normalized, context) {
   const hints = [];
 
   if (context?.tournamentId || pageTypeStartsWith(context, "tournament_")) {
-    hints.push("giáº£i", "tournament");
+    hints.push("giải", "tournament");
     if (pageTypeStartsWith(context, "tournament_registration")) {
-      hints.push("Ä‘Äƒng kÃ½");
+      hints.push("đăng ký");
     }
     if (pageTypeStartsWith(context, "tournament_schedule")) {
-      hints.push("lá»‹ch thi Ä‘áº¥u", "schedule");
+      hints.push("lịch thi đấu", "schedule");
     }
     if (pageTypeStartsWith(context, "tournament_bracket")) {
-      hints.push("nhÃ¡nh Ä‘áº¥u", "bracket");
+      hints.push("nhánh đấu", "bracket");
     }
     if (
       pageTypeStartsWith(context, "tournament_draw_live") ||
       pageTypeStartsWith(context, "tournament_draw_manage") ||
       pageTypeStartsWith(context, "tournament_admin_draw")
     ) {
-      hints.push("bá»‘c thÄƒm", "draw");
+      hints.push("bốc thăm", "draw");
     }
     if (pageTypeStartsWith(context, "tournament_manage")) {
-      hints.push("quáº£n lÃ½", "manage");
+      hints.push("quản lý", "manage");
     }
     if (pageTypeStartsWith(context, "tournament_checkin")) {
       hints.push("checkin");
@@ -1734,20 +2675,20 @@ function addContextualKeywords(message, normalized, context) {
   }
 
   if (pageTypeStartsWith(context, "club_") || context?.clubId) {
-    hints.push("clb", "cÃ¢u láº¡c bá»™", "club");
+    hints.push("clb", "câu lạc bộ", "club");
     if (context?.clubTab === "events" || context?.pageSection === "events") {
-      hints.push("sá»± kiá»‡n", "events");
+      hints.push("sự kiện", "events");
     }
     if (context?.clubTab === "polls" || context?.pageSection === "polls") {
-      hints.push("bÃ¬nh chá»n", "polls");
+      hints.push("bình chọn", "polls");
     }
     if (context?.clubTab === "news" || context?.pageSection === "news") {
-      hints.push("tin tá»©c", "thÃ´ng bÃ¡o");
+      hints.push("tin tức", "thông báo");
     }
   }
 
   if (pageTypeStartsWith(context, "news_") || context?.newsSlug) {
-    hints.push("tin tá»©c", "news", "bÃ i viáº¿t");
+    hints.push("tin tức", "news", "bài viết");
   }
 
   if (
@@ -1756,14 +2697,14 @@ function addContextualKeywords(message, normalized, context) {
     context?.matchId ||
     context?.courtId
   ) {
-    hints.push("live", "trá»±c tiáº¿p", "tráº­n", "sÃ¢n", "streaming");
+    hints.push("live", "trực tiếp", "trận", "sân", "streaming");
   }
 
   if (pageTypeStartsWith(context, "admin_") || context?.adminSection) {
-    hints.push("admin", "quáº£n lÃ½");
-    if (context?.adminSection === "news") hints.push("tin tá»©c", "news");
+    hints.push("admin", "quản lý");
+    if (context?.adminSection === "news") hints.push("tin tức", "news");
     if (context?.adminSection === "users") {
-      hints.push("ngÆ°á»i dÃ¹ng", "user");
+      hints.push("người dùng", "user");
     }
   }
 
@@ -1772,7 +2713,7 @@ function addContextualKeywords(message, normalized, context) {
     context?.pageType === "public_profile" ||
     context?.profileUserId
   ) {
-    hints.push("há»“ sÆ¡", "player", "ngÆ°á»i chÆ¡i");
+    hints.push("hồ sơ", "player", "người chơi");
   }
 
   hints.push(...getPageSnapshotSignals(context));
@@ -1782,7 +2723,7 @@ function addContextualKeywords(message, normalized, context) {
 
 function sanitizePageTitle(value) {
   return String(value || "")
-    .replace(/\s*[\-|â€“|â€”]\s*PickleTour.*$/i, "")
+    .replace(/\s*[\-|–|—]\s*PickleTour.*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -1799,13 +2740,13 @@ function buildNewsKeywordFromContext(context) {
 function formatTournamentStatusLabel(status) {
   switch (String(status || "")) {
     case "upcoming":
-      return "sáº¯p diá»…n ra";
+      return "sắp diễn ra";
     case "ongoing":
-      return "Ä‘ang diá»…n ra";
+      return "đang diễn ra";
     case "finished":
-      return "Ä‘Ã£ káº¿t thÃºc";
+      return "đã kết thúc";
     default:
-      return "hiá»‡n táº¡i";
+      return "hiện tại";
   }
 }
 
@@ -1862,8 +2803,8 @@ function getTournamentListPageState(context = {}) {
 
 function createTournamentListTabAction(status) {
   return createAction("set_page_state", {
-    label: `Chuyá»ƒn sang tab ${formatTournamentStatusLabel(status)}`,
-    description: `Äá»•i danh sÃ¡ch giáº£i Ä‘áº¥u sang tráº¡ng thÃ¡i ${formatTournamentStatusLabel(status)}.`,
+    label: `Chuyển sang tab ${formatTournamentStatusLabel(status)}`,
+    description: `Đổi danh sách giải đấu sang trạng thái ${formatTournamentStatusLabel(status)}.`,
     payload: {
       key: "tab",
       handlerKey: "tab",
@@ -1914,21 +2855,21 @@ function buildTournamentListDirectRoute(message, normalized, context = {}) {
   let reply = "";
   if (requestedCount > 0) {
     if (requestedStatus === currentStatus) {
-      reply = `Ngay trÃªn tab "${currentLabel}", mÃ¬nh Ä‘ang tháº¥y ${requestedCount} giáº£i ${requestedLabel}.`;
+      reply = `Ngay trên tab "${currentLabel}", mình đang thấy ${requestedCount} giải ${requestedLabel}.`;
       if (visibleNames.length) {
-        reply += ` VÃ­ dá»¥ Ä‘ang hiá»‡n ${visibleNames.slice(0, 3).join(", ")}.`;
+        reply += ` Ví dụ đang hiện ${visibleNames.slice(0, 3).join(", ")}.`;
       }
     } else {
-      reply = `Theo dá»¯ liá»‡u Ä‘ang hiá»ƒn thá»‹ trÃªn trang nÃ y, hiá»‡n cÃ³ ${requestedCount} giáº£i ${requestedLabel}. Tab báº¡n Ä‘ang má»Ÿ lÃ  "${currentLabel}".`;
+      reply = `Theo dữ liệu đang hiển thị trên trang này, hiện có ${requestedCount} giải ${requestedLabel}. Tab bạn đang mở là "${currentLabel}".`;
     }
   } else if (requestedStatus === currentStatus && visibleNames.length) {
-    reply = `Ngay trÃªn tab "${currentLabel}", mÃ¬nh váº«n Ä‘ang tháº¥y ${visibleNames.length} giáº£i hiá»‡n trÃªn mÃ n hÃ¬nh, gá»“m ${visibleNames.slice(0, 3).join(", ")}.`;
+    reply = `Ngay trên tab "${currentLabel}", mình vẫn đang thấy ${visibleNames.length} giải hiện trên màn hình, gồm ${visibleNames.slice(0, 3).join(", ")}.`;
   } else {
-    reply = `Theo bá»™ lá»c hiá»‡n táº¡i trÃªn trang nÃ y, mÃ¬nh chÆ°a tháº¥y giáº£i ${requestedLabel}. Tab Ä‘ang má»Ÿ lÃ  "${currentLabel}".`;
+    reply = `Theo bộ lọc hiện tại trên trang này, mình chưa thấy giải ${requestedLabel}. Tab đang mở là "${currentLabel}".`;
   }
 
   if (pageState.keyword) {
-    reply += ` LÆ°u Ã½ lÃ  danh sÃ¡ch Ä‘ang cÃ³ bá»™ lá»c tÃ¬m kiáº¿m "${pageState.keyword}".`;
+    reply += ` Lưu ý là danh sách đang có bộ lọc tìm kiếm "${pageState.keyword}".`;
   }
 
   const actions = [];
@@ -1943,10 +2884,10 @@ function buildTournamentListDirectRoute(message, normalized, context = {}) {
       reply,
       actions: actions.filter(Boolean),
       suggestions: [
-        requestedStatus === "ongoing" ? "Tiáº¿n Ä‘á»™ giáº£i nÃ y tháº¿ nÃ o?" : "",
-        requestedStatus === "ongoing" ? "Má»Ÿ lá»‹ch thi Ä‘áº¥u" : "",
-        requestedStatus !== "ongoing" ? "Chuyá»ƒn sang tab Ä‘ang diá»…n ra" : "",
-        "Focus Ã´ tÃ¬m kiáº¿m",
+        requestedStatus === "ongoing" ? "Tiến độ giải này thế nào?" : "",
+        requestedStatus === "ongoing" ? "Mở lịch thi đấu" : "",
+        requestedStatus !== "ongoing" ? "Chuyển sang tab đang diễn ra" : "",
+        "Focus ô tìm kiếm",
       ].filter(Boolean),
     },
   };
@@ -1988,11 +2929,11 @@ function classifyRoute(message, context, userId) {
       kind: "direct",
       directResponse: {
         reply:
-          "Xin chÃ o ðŸ‘‹ MÃ¬nh lÃ  Pikora. Báº¡n cá»© há»i vá» giáº£i Ä‘áº¥u, VÄV, CLB, luáº­t chÆ¡i hoáº·c báº£o mÃ¬nh má»Ÿ Ä‘Ãºng trang trong app nhÃ©.",
+          "Xin chào 👋 Mình là Pikora. Bạn cứ hỏi về giải đấu, VĐV, CLB, luật chơi hoặc bảo mình mở đúng trang trong app nhé.",
         suggestions: [
-          "Giáº£i nÃ o sáº¯p diá»…n ra?",
-          "Rating cá»§a tÃ´i lÃ  bao nhiÃªu?",
-          "Má»Ÿ báº£ng xáº¿p háº¡ng",
+          "Giải nào sắp diễn ra?",
+          "Rating của tôi là bao nhiêu?",
+          "Mở bảng xếp hạng",
         ],
       },
     };
@@ -2002,11 +2943,11 @@ function classifyRoute(message, context, userId) {
     return {
       kind: "direct",
       directResponse: {
-        reply: "KhÃ´ng cÃ³ gÃ¬ ðŸ˜„ Náº¿u cáº§n mÃ¬nh tra tiáº¿p hoáº·c má»Ÿ Ä‘Ãºng trang cho báº¡n luÃ´n nhÃ©.",
+        reply: "Không có gì 😄 Nếu cần mình tra tiếp hoặc mở đúng trang cho bạn luôn nhé.",
         suggestions: [
-          "Giáº£i cá»§a tÃ´i",
-          "Lá»‹ch thi Ä‘áº¥u giáº£i nÃ y",
-          "Tin má»›i nháº¥t",
+          "Giải của tôi",
+          "Lịch thi đấu giải này",
+          "Tin mới nhất",
         ],
       },
     };
@@ -2035,17 +2976,17 @@ function classifyRoute(message, context, userId) {
   }
 
   const wantsOwnInfo =
-    hasAny(boostedNormalized, ["cá»§a tÃ´i", "tÃ´i", "mÃ¬nh", "my "]) &&
+    hasAny(boostedNormalized, ["của tôi", "tôi", "mình", "my "]) &&
     hasAny(boostedNormalized, [
       "rating",
-      "há»“ sÆ¡",
-      "thÃ´ng tin",
-      "giáº£i cá»§a tÃ´i",
-      "Ä‘Äƒng kÃ½",
-      "tráº­n sáº¯p tá»›i",
-      "lá»‹ch sá»­ Ä‘Äƒng nháº­p",
-      "thiáº¿t bá»‹",
-      "biáº¿n Ä‘á»™ng",
+      "hồ sơ",
+      "thông tin",
+      "giải của tôi",
+      "đăng ký",
+      "trận sắp tới",
+      "lịch sử đăng nhập",
+      "thiết bị",
+      "biến động",
     ]);
 
   if (wantsOwnInfo) {
@@ -2054,12 +2995,12 @@ function classifyRoute(message, context, userId) {
         kind: "direct",
         directResponse: {
           reply:
-            "Báº¡n cáº§n Ä‘Äƒng nháº­p trÆ°á»›c Ä‘á»ƒ mÃ¬nh tra thÃ´ng tin cÃ¡ nhÃ¢n chÃ­nh xÃ¡c. MÃ¬nh Ä‘Ã£ chuáº©n bá»‹ nÃºt má»Ÿ trang Ä‘Äƒng nháº­p cho báº¡n.",
+            "Bạn cần đăng nhập trước để mình tra thông tin cá nhân chính xác. Mình đã chuẩn bị nút mở trang đăng nhập cho bạn.",
           navigation: buildNavigation("login", context),
           suggestions: [
-            "CÃ¡ch Ä‘Äƒng kÃ½ tÃ i khoáº£n",
-            "QuÃªn máº­t kháº©u thÃ¬ lÃ m sao?",
-            "Giáº£i nÃ o sáº¯p diá»…n ra?",
+            "Cách đăng ký tài khoản",
+            "Quên mật khẩu thì làm sao?",
+            "Giải nào sắp diễn ra?",
           ],
         },
       };
@@ -2073,14 +3014,14 @@ function classifyRoute(message, context, userId) {
 
   if (
     hasAny(normalized, [
-      "luáº­t",
-      "hÆ°á»›ng dáº«n",
-      "cÃ¡ch ",
+      "luật",
+      "hướng dẫn",
+      "cách ",
       "faq",
-      "giáº£i thÃ­ch",
-      "pickleball lÃ  gÃ¬",
-      "Ä‘Äƒng kÃ½ tÃ i khoáº£n",
-      "quÃªn máº­t kháº©u",
+      "giải thích",
+      "pickleball là gì",
+      "đăng ký tài khoản",
+      "quên mật khẩu",
     ])
   ) {
     return {
@@ -2095,7 +3036,7 @@ function classifyRoute(message, context, userId) {
     };
   }
 
-  if (hasAny(boostedNormalized, ["tin tá»©c", "news", "bÃ i viáº¿t"])) {
+  if (hasAny(boostedNormalized, ["tin tức", "news", "bài viết"])) {
     return {
       kind: "news",
       entityName,
@@ -2103,7 +3044,7 @@ function classifyRoute(message, context, userId) {
     };
   }
 
-  if (hasAny(boostedNormalized, ["clb", "cÃ¢u láº¡c bá»™", "club"])) {
+  if (hasAny(boostedNormalized, ["clb", "câu lạc bộ", "club"])) {
     return {
       kind: "club",
       entityName,
@@ -2115,12 +3056,12 @@ function classifyRoute(message, context, userId) {
     hasAny(boostedNormalized, [
       "v dv",
       "vdv",
-      "ngÆ°á»i chÆ¡i",
+      "người chơi",
       "player",
       "rating",
-      "xáº¿p háº¡ng",
-      "so sÃ¡nh",
-      "há»“ sÆ¡",
+      "xếp hạng",
+      "so sánh",
+      "hồ sơ",
     ])
   ) {
     return {
@@ -2136,7 +3077,7 @@ function classifyRoute(message, context, userId) {
   }
 
   if (
-    hasAny(boostedNormalized, ["live", "trá»±c tiáº¿p", "streaming"]) &&
+    hasAny(boostedNormalized, ["live", "trực tiếp", "streaming"]) &&
     (pageTypeStartsWith(context, "live_") ||
       pageTypeStartsWith(context, "court_") ||
       context.matchId ||
@@ -2153,13 +3094,13 @@ function classifyRoute(message, context, userId) {
     hasAny(boostedNormalized, [
       "giai",
       "tournament",
-      "nhÃ¡nh Ä‘áº¥u",
+      "nhánh đấu",
       "bracket",
-      "lá»‹ch thi Ä‘áº¥u",
-      "Ä‘Äƒng kÃ½",
-      "bá»‘c thÄƒm",
-      "sÃ¢n",
-      "giáº£i nÃ y",
+      "lịch thi đấu",
+      "đăng ký",
+      "bốc thăm",
+      "sân",
+      "giải này",
     ]) ||
     context.tournamentId
   ) {
@@ -2185,18 +3126,31 @@ function classifyRoute(message, context, userId) {
 }
 
 export function classifyRouteForTest(message, context = {}, userId = null) {
-  return classifyRoute(message, context, userId);
+  const focusSeed = resolveSessionFocusSeed(context, context?.sessionFocus);
+  return classifyRoute(
+    message,
+    applySessionFocusToContext(
+      message,
+      {
+        ...context,
+        sessionFocusOverride: focusSeed.sessionFocusOverride,
+        sessionFocusPinned: focusSeed.sessionFocusPinned,
+      },
+      focusSeed.sessionFocus,
+    ),
+    userId,
+  );
 }
 
 function detectNavigationRoute(message, normalized, context) {
   const wantsNavigation = hasAny(normalized, [
-    "má»Ÿ ",
-    "vÃ o ",
-    "Ä‘i tá»›i",
-    "Ä‘áº¿n ",
+    "mở ",
+    "vào ",
+    "đi tới",
+    "đến ",
     "go to",
     "open ",
-    "truy cáº­p",
+    "truy cập",
     "show page",
   ]);
 
@@ -2245,34 +3199,34 @@ function detectNavigationRoute(message, normalized, context) {
 }
 
 function buildNavigationIntent(message, normalized, context) {
-  const tournamentSpecificScreen = hasAny(normalized, ["nhÃ¡nh Ä‘áº¥u", "bracket", "sÆ¡ Ä‘á»“"])
+  const tournamentSpecificScreen = hasAny(normalized, ["nhánh đấu", "bracket", "sơ đồ"])
     ? "bracket"
-    : hasAny(normalized, ["lá»‹ch thi Ä‘áº¥u", "lá»‹ch giáº£i"])
+    : hasAny(normalized, ["lịch thi đấu", "lịch giải"])
       ? "schedule"
-      : hasAny(normalized, ["Ä‘Äƒng kÃ½ giáº£i"])
+      : hasAny(normalized, ["đăng ký giải"])
         ? "registration"
-        : hasAny(normalized, ["quáº£n lÃ½ giáº£i", "manage"])
+        : hasAny(normalized, ["quản lý giải", "manage"])
           ? "tournament_manage"
           : hasAny(normalized, ["check in", "checkin"])
             ? "tournament_checkin"
             : hasAny(normalized, [
-                "sÃ¢n kháº¥u bá»‘c thÄƒm",
+                "sân khấu bốc thăm",
                 "draw live",
-                "bá»‘c thÄƒm live",
+                "bốc thăm live",
               ])
               ? "draw_live"
-              : hasAny(normalized, ["lá»‹ch sá»­ bá»‘c thÄƒm", "draw history"])
+              : hasAny(normalized, ["lịch sử bốc thăm", "draw history"])
                 ? "draw_live_history"
-                : hasAny(normalized, ["báº£ng bá»‘c thÄƒm", "draw board"])
+                : hasAny(normalized, ["bảng bốc thăm", "draw board"])
                   ? "draw_live_board"
-        : hasAny(normalized, ["tá»•ng quan"])
+        : hasAny(normalized, ["tổng quan"])
           ? "tournament_overview"
-          : hasAny(normalized, ["bá»‘c thÄƒm", "draw"])
+          : hasAny(normalized, ["bốc thăm", "draw"])
             ? "draw"
             : hasAny(normalized, [
-                "chi tiáº¿t giáº£i",
-                "giáº£i nÃ y",
-                "giáº£i hiá»‡n táº¡i",
+                "chi tiết giải",
+                "giải này",
+                "giải hiện tại",
               ])
               ? "tournament_detail"
               : "";
@@ -2282,11 +3236,11 @@ function buildNavigationIntent(message, normalized, context) {
       return {
         screen: tournamentSpecificScreen,
         tournamentId: context.tournamentId,
-        reply: "MÃ¬nh Ä‘Ã£ chuáº©n bá»‹ nÃºt má»Ÿ Ä‘Ãºng trang cá»§a giáº£i hiá»‡n táº¡i cho báº¡n.",
+        reply: "Mình đã chuẩn bị nút mở đúng trang của giải hiện tại cho bạn.",
         suggestions: [
-          "Luáº­t cá»§a giáº£i nÃ y",
-          "CÃ³ bao nhiÃªu Ä‘á»™i Ä‘Äƒng kÃ½?",
-          "Lá»‹ch thi Ä‘áº¥u giáº£i nÃ y",
+          "Luật của giải này",
+          "Có bao nhiêu đội đăng ký?",
+          "Lịch thi đấu giải này",
         ],
       };
     }
@@ -2301,59 +3255,59 @@ function buildNavigationIntent(message, normalized, context) {
     }
   }
 
-  const screen = hasAny(normalized, ["Ä‘Äƒng nháº­p", "login"])
+  const screen = hasAny(normalized, ["đăng nhập", "login"])
     ? "login"
-    : hasAny(normalized, ["Ä‘Äƒng kÃ½ tÃ i khoáº£n", "register"])
+    : hasAny(normalized, ["đăng ký tài khoản", "register"])
       ? "register"
-      : hasAny(normalized, ["quÃªn máº­t kháº©u", "forgot password"])
+      : hasAny(normalized, ["quên mật khẩu", "forgot password"])
         ? "forgot_password"
-        : hasAny(normalized, ["há»“ sÆ¡ cá»§a tÃ´i", "trang cÃ¡ nhÃ¢n", "profile"])
+        : hasAny(normalized, ["hồ sơ của tôi", "trang cá nhân", "profile"])
           ? "profile"
-          : hasAny(normalized, ["báº£ng xáº¿p háº¡ng", "bxh", "ranking"])
+          : hasAny(normalized, ["bảng xếp hạng", "bxh", "ranking"])
           ? "leaderboard"
-            : hasAny(normalized, ["giáº£i cá»§a tÃ´i", "my tournaments"])
+            : hasAny(normalized, ["giải của tôi", "my tournaments"])
               ? "my_tournaments"
-              : hasAny(normalized, ["admin news", "quáº£n lÃ½ tin tá»©c"])
+              : hasAny(normalized, ["admin news", "quản lý tin tức"])
                 ? "admin_news"
-                : hasAny(normalized, ["admin users", "quáº£n lÃ½ ngÆ°á»i dÃ¹ng"])
+                : hasAny(normalized, ["admin users", "quản lý người dùng"])
                   ? "admin_users"
                     : hasAny(normalized, ["admin avatar", "avatar optimization"])
                       ? "admin_avatar_optimization"
-                    : hasAny(normalized, ["tin tá»©c", "news"])
+                    : hasAny(normalized, ["tin tức", "news"])
                       ? "news_list"
-                : hasAny(normalized, ["danh sÃ¡ch giáº£i", "cÃ¡c giáº£i", "tournaments"])
+                : hasAny(normalized, ["danh sách giải", "các giải", "tournaments"])
                   ? "tournament_list"
-                  : hasAny(normalized, ["cÃ¢u láº¡c bá»™", "clb", "clubs"])
+                  : hasAny(normalized, ["câu lạc bộ", "clb", "clubs"])
                     ? "clubs"
-                  : hasAny(normalized, ["live", "trá»±c tiáº¿p"])
+                  : hasAny(normalized, ["live", "trực tiếp"])
                     ? "live_matches"
-                    : hasAny(normalized, ["trang chá»§", "home"])
+                    : hasAny(normalized, ["trang chủ", "home"])
                       ? "home"
-                      : hasAny(normalized, ["xÃ¡c minh", "kyc"])
+                      : hasAny(normalized, ["xác minh", "kyc"])
                         ? "kyc"
-                      : hasAny(normalized, ["Ä‘iá»ƒm trÃ¬nh", "level point"])
+                      : hasAny(normalized, ["điểm trình", "level point"])
                           ? "level_point"
                           : "";
 
-  if (!screen && context.clubId && hasAny(normalized, ["clb nÃ y", "club nÃ y"])) {
+  if (!screen && context.clubId && hasAny(normalized, ["clb này", "club này"])) {
     return {
       screen: "club_detail",
       clubId: context.clubId,
-      reply: "MÃ¬nh Ä‘Ã£ chuáº©n bá»‹ nÃºt má»Ÿ Ä‘Ãºng CLB hiá»‡n táº¡i cho báº¡n.",
-      suggestions: ["ThÃ nh viÃªn CLB nÃ y", "Sá»± kiá»‡n CLB nÃ y", "ThÃ´ng bÃ¡o CLB nÃ y"],
+      reply: "Mình đã chuẩn bị nút mở đúng CLB hiện tại cho bạn.",
+      suggestions: ["Thành viên CLB này", "Sự kiện CLB này", "Thông báo CLB này"],
     };
   }
 
   if (
     !screen &&
     context.newsSlug &&
-    hasAny(normalized, ["bÃ i nÃ y", "tin nÃ y", "news nÃ y"])
+    hasAny(normalized, ["bài này", "tin này", "news này"])
   ) {
     return {
       screen: "news_detail",
       newsSlug: context.newsSlug,
-      reply: "MÃ¬nh Ä‘Ã£ chuáº©n bá»‹ nÃºt má»Ÿ láº¡i Ä‘Ãºng bÃ i viáº¿t hiá»‡n táº¡i cho báº¡n.",
-      suggestions: ["TÃ³m táº¯t bÃ i nÃ y", "Tin má»›i nháº¥t", "BÃ i nÃ y tá»« nguá»“n nÃ o?"],
+      reply: "Mình đã chuẩn bị nút mở lại đúng bài viết hiện tại cho bạn.",
+      suggestions: ["Tóm tắt bài này", "Tin mới nhất", "Bài này từ nguồn nào?"],
     };
   }
 
@@ -2361,23 +3315,23 @@ function buildNavigationIntent(message, normalized, context) {
 
   return {
     screen,
-    reply: "MÃ¬nh Ä‘Ã£ chuáº©n bá»‹ nÃºt má»Ÿ Ä‘Ãºng trang cho báº¡n.",
+    reply: "Mình đã chuẩn bị nút mở đúng trang cho bạn.",
     suggestions: [
-      "Giáº£i nÃ o sáº¯p diá»…n ra?",
-      "Tin má»›i nháº¥t",
-      "CÃ¡ch Ä‘Äƒng kÃ½ tÃ i khoáº£n",
+      "Giải nào sắp diễn ra?",
+      "Tin mới nhất",
+      "Cách đăng ký tài khoản",
     ],
   };
 }
 
 function buildPersonalToolPlan(normalized, context) {
-  if (hasAny(normalized, ["giáº£i cá»§a tÃ´i", "giáº£i Ä‘Ã£ Ä‘Äƒng kÃ½", "Ä‘Äƒng kÃ½ giáº£i"])) {
+  if (hasAny(normalized, ["giải của tôi", "giải đã đăng ký", "đăng ký giải"])) {
     return [{ name: "get_my_registrations", args: { limit: 6 } }];
   }
-  if (hasAny(normalized, ["biáº¿n Ä‘á»™ng", "lá»‹ch sá»­ rating", "rating changes"])) {
+  if (hasAny(normalized, ["biến động", "lịch sử rating", "rating changes"])) {
     return [{ name: "get_my_rating_changes", args: { limit: 8 } }];
   }
-  if (hasAny(normalized, ["tráº­n sáº¯p tá»›i", "upcoming"])) {
+  if (hasAny(normalized, ["trận sắp tới", "upcoming"])) {
     return [
       {
         name: "get_upcoming_matches",
@@ -2388,10 +3342,10 @@ function buildPersonalToolPlan(normalized, context) {
       },
     ];
   }
-  if (hasAny(normalized, ["lá»‹ch sá»­ Ä‘Äƒng nháº­p", "login"])) {
+  if (hasAny(normalized, ["lịch sử đăng nhập", "login"])) {
     return [{ name: "get_login_history", args: { limit: 10 } }];
   }
-  if (hasAny(normalized, ["thiáº¿t bá»‹", "device"])) {
+  if (hasAny(normalized, ["thiết bị", "device"])) {
     return [{ name: "get_my_devices", args: {} }];
   }
   return [{ name: "get_my_info", args: {} }];
@@ -2400,7 +3354,9 @@ function buildPersonalToolPlan(normalized, context) {
 function buildNewsToolPlan(message, normalized, entityName, context) {
   const keywordFromContext = buildNewsKeywordFromContext(context);
   const preferContextKeyword =
-    isCurrentContextReference(normalized) || pageTypeStartsWith(context, "news_");
+    isCurrentContextReference(normalized) ||
+    pageTypeStartsWith(context, "news_") ||
+    context?.sessionFocusApplied === "news";
   return [
     {
       name: "search_news",
@@ -2423,25 +3379,25 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
 
   if (useCurrentClub) {
     if (
-      hasAny(normalized, ["thÃ nh viÃªn", "members", "admin", "quáº£n lÃ½"]) ||
+      hasAny(normalized, ["thành viên", "members", "admin", "quản lý"]) ||
       context.pageSection === "members"
     ) {
       return [{ name: "get_club_members", args: { clubId: context.clubId, limit: 20 } }];
     }
     if (
-      hasAny(normalized, ["sá»± kiá»‡n", "event", "lá»‹ch clb"]) ||
+      hasAny(normalized, ["sự kiện", "event", "lịch clb"]) ||
       context.pageSection === "events"
     ) {
       return [{ name: "get_club_events", args: { clubId: context.clubId, upcoming: true, limit: 8 } }];
     }
     if (
-      hasAny(normalized, ["bÃ¬nh chá»n", "poll", "vote"]) ||
+      hasAny(normalized, ["bình chọn", "poll", "vote"]) ||
       context.pageSection === "polls"
     ) {
       return [{ name: "get_club_polls", args: { clubId: context.clubId, limit: 5 } }];
     }
     if (
-      hasAny(normalized, ["tin", "news", "thÃ´ng bÃ¡o", "announcements"]) ||
+      hasAny(normalized, ["tin", "news", "thông báo", "announcements"]) ||
       context.pageSection === "news"
     ) {
       return [
@@ -2464,7 +3420,7 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
     },
   ];
 
-  if (entityName && hasAny(normalized, ["chi tiáº¿t", "má»Ÿ CLB", "xem CLB"])) {
+  if (entityName && hasAny(normalized, ["chi tiết", "mở CLB", "xem CLB"])) {
     plan.push({
       name: "get_club_details",
       args: { clubId: FIRST_CLUB_ID },
@@ -2476,10 +3432,10 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
 
 function buildLiveToolPlan(normalized, context = {}) {
   if (context.matchId) {
-    if (hasAny(normalized, ["tá»‰ sá»‘", "Ä‘iá»ƒm", "score", "set", "vÃ¡n"])) {
+    if (hasAny(normalized, ["tỉ số", "điểm", "score", "set", "ván"])) {
       return [{ name: "get_match_score_detail", args: { matchId: context.matchId } }];
     }
-    if (hasAny(normalized, ["diá»…n biáº¿n", "log", "nháº­t kÃ½"])) {
+    if (hasAny(normalized, ["diễn biến", "log", "nhật ký"])) {
       return [{ name: "get_match_live_log", args: { matchId: context.matchId, limit: 20 } }];
     }
     if (hasAny(normalized, ["video", "xem lai", "record", "stream"])) {
@@ -2499,9 +3455,10 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
   if (
     context.profileUserId &&
     (isCurrentContextReference(normalized) ||
-      context.pageType === "public_profile")
+      context.pageType === "public_profile" ||
+      context.sessionFocusApplied === "player")
   ) {
-    if (hasAny(normalized, ["lá»‹ch sá»­ giáº£i", "tournament history"])) {
+    if (hasAny(normalized, ["lịch sử giải", "tournament history"])) {
       return [
         {
           name: "get_player_tournament_history",
@@ -2509,7 +3466,7 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
         },
       ];
     }
-    if (hasAny(normalized, ["xáº¿p háº¡ng", "ranking"])) {
+    if (hasAny(normalized, ["xếp hạng", "ranking"])) {
       return [
         {
           name: "get_player_ranking",
@@ -2525,7 +3482,7 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
     ];
   }
 
-  if (hasAny(normalized, ["so sÃ¡nh", "compare"])) {
+  if (hasAny(normalized, ["so sánh", "compare"])) {
     const [firstName, secondName] = sharedExtractPairNames(message);
     const plan = [];
     if (firstName) {
@@ -2545,11 +3502,11 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
       : [{ name: "search_users", args: { name: entityName || message, limit: 5 } }];
   }
 
-  if (hasAny(normalized, ["xáº¿p háº¡ng", "bxh", "ranking"])) {
+  if (hasAny(normalized, ["xếp hạng", "bxh", "ranking"])) {
     return [{ name: "get_leaderboard", args: { limit: 10 } }];
   }
 
-  if (entityName && hasAny(normalized, ["rating", "thá»‘ng kÃª", "há»“ sÆ¡"])) {
+  if (entityName && hasAny(normalized, ["rating", "thống kê", "hồ sơ"])) {
     return [{ name: "get_user_stats", args: { name: entityName } }];
   }
 
@@ -2561,9 +3518,9 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     Boolean(context.tournamentId) &&
     (!entityName ||
       hasAny(normalized, [
-        "giáº£i nÃ y",
-        "giáº£i hiá»‡n táº¡i",
-        "trang nÃ y",
+        "giải này",
+        "giải hiện tại",
+        "trang này",
         "giai nay",
         "giai hien tai",
         "trang nay",
@@ -2571,7 +3528,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
 
   if (hasContextTournament) {
     if (context.matchId) {
-      if (hasAny(normalized, ["tá»‰ sá»‘", "Ä‘iá»ƒm", "score", "set", "vÃ¡n"])) {
+      if (hasAny(normalized, ["tỉ số", "điểm", "score", "set", "ván"])) {
         return [
           {
             name: "get_match_score_detail",
@@ -2579,7 +3536,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           },
         ];
       }
-      if (hasAny(normalized, ["diá»…n biáº¿n", "log", "nháº­t kÃ½"])) {
+      if (hasAny(normalized, ["diễn biến", "log", "nhật ký"])) {
         return [
           {
             name: "get_match_live_log",
@@ -2587,7 +3544,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           },
         ];
       }
-      if (hasAny(normalized, ["video", "xem láº¡i", "record", "stream"])) {
+      if (hasAny(normalized, ["video", "xem lại", "record", "stream"])) {
         return [
           {
             name: "get_match_video",
@@ -2597,7 +3554,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
       }
     }
     if (context.bracketId) {
-      if (hasAny(normalized, ["xáº¿p háº¡ng báº£ng", "standings", "báº£ng nÃ y"])) {
+      if (hasAny(normalized, ["xếp hạng bảng", "standings", "bảng này"])) {
         return [
           {
             name: "get_bracket_standings",
@@ -2605,7 +3562,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           },
         ];
       }
-      if (hasAny(normalized, ["nhÃ³m", "group", "báº£ng Ä‘áº¥u"])) {
+      if (hasAny(normalized, ["nhóm", "group", "bảng đấu"])) {
         return [
           {
             name: "get_bracket_groups",
@@ -2613,7 +3570,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           },
         ];
       }
-      if (hasAny(normalized, ["cÃ¢y nhÃ¡nh", "match tree", "tree"])) {
+      if (hasAny(normalized, ["cây nhánh", "match tree", "tree"])) {
         return [
           {
             name: "get_bracket_match_tree",
@@ -2624,11 +3581,11 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     }
     if (
       hasAny(normalized, [
-        "bao nhiÃªu tráº­n",
-        "cÃ²n bao nhiÃªu tráº­n",
-        "tráº­n chÆ°a xong",
-        "tráº­n Ä‘Ã£ xong",
-        "tá»•ng tráº­n",
+        "bao nhiêu trận",
+        "còn bao nhiêu trận",
+        "trận chưa xong",
+        "trận đã xong",
+        "tổng trận",
         "bao nhieu tran",
         "con bao nhieu tran",
         "tran chua xong",
@@ -2648,7 +3605,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["lá»‹ch thi Ä‘áº¥u", "schedule"])) {
+    if (hasAny(normalized, ["lịch thi đấu", "schedule"])) {
       return [
         {
           name: "get_tournament_schedule",
@@ -2658,11 +3615,11 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     }
     if (
       hasAny(normalized, [
-        "bao nhiÃªu tráº­n",
-        "cÃ²n bao nhiÃªu tráº­n",
-        "tráº­n chÆ°a xong",
-        "tráº­n Ä‘Ã£ xong",
-        "tá»•ng tráº­n",
+        "bao nhiêu trận",
+        "còn bao nhiêu trận",
+        "trận chưa xong",
+        "trận đã xong",
+        "tổng trận",
         "bao nhieu tran",
         "con bao nhieu tran",
         "tran chua xong",
@@ -2682,7 +3639,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["luáº­t", "rules"])) {
+    if (hasAny(normalized, ["luật", "rules"])) {
       return [
         {
           name: "get_tournament_rules",
@@ -2690,7 +3647,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["nhÃ¡nh Ä‘áº¥u", "bracket", "sÆ¡ Ä‘á»“"])) {
+    if (hasAny(normalized, ["nhánh đấu", "bracket", "sơ đồ"])) {
       return [
         {
           name: "get_tournament_brackets",
@@ -2698,7 +3655,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["Ä‘Äƒng kÃ½", "bao nhiÃªu Ä‘á»™i", "Ä‘á»™i"])) {
+    if (hasAny(normalized, ["đăng ký", "bao nhiêu đội", "đội"])) {
       return [
         {
           name: "get_tournament_registrations",
@@ -2706,7 +3663,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["lá»‡ phÃ­", "thanh toÃ¡n", "payment"])) {
+    if (hasAny(normalized, ["lệ phí", "thanh toán", "payment"])) {
       return [
         {
           name: "get_tournament_payment_info",
@@ -2714,7 +3671,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["tiáº¿n Ä‘á»™", "progress", "tien do"])) {
+    if (hasAny(normalized, ["tiến độ", "progress", "tien do"])) {
       return [
         {
           name: "get_tournament_progress",
@@ -2722,7 +3679,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["quáº£n lÃ½", "manager", "btc"])) {
+    if (hasAny(normalized, ["quản lý", "manager", "btc"])) {
       return [
         {
           name: "get_tournament_managers",
@@ -2730,7 +3687,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["trá»ng tÃ i", "referee"])) {
+    if (hasAny(normalized, ["trọng tài", "referee"])) {
       return [
         {
           name: "get_tournament_referees",
@@ -2738,7 +3695,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["sÃ¢n", "court"])) {
+    if (hasAny(normalized, ["sân", "court"])) {
       return [
         {
           name: "get_tournament_courts",
@@ -2746,7 +3703,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["bá»‘c thÄƒm", "draw"])) {
+    if (hasAny(normalized, ["bốc thăm", "draw"])) {
       return [
         {
           name: "get_draw_results",
@@ -2754,7 +3711,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
       ];
     }
-    if (hasAny(normalized, ["live", "trá»±c tiáº¿p", "streaming"])) {
+    if (hasAny(normalized, ["live", "trực tiếp", "streaming"])) {
       return [
         {
           name: "get_live_matches",
@@ -2788,21 +3745,21 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
   const needsSpecificTournament =
     Boolean(extractedName) &&
     hasAny(normalized, [
-      "chi tiáº¿t",
-      "tá»•ng quan",
-      "lá»‹ch thi Ä‘áº¥u",
-      "luáº­t",
-      "nhÃ¡nh Ä‘áº¥u",
-      "Ä‘Äƒng kÃ½",
-      "sÃ¢n",
-      "bá»‘c thÄƒm",
+      "chi tiết",
+      "tổng quan",
+      "lịch thi đấu",
+      "luật",
+      "nhánh đấu",
+      "đăng ký",
+      "sân",
+      "bốc thăm",
     ]);
 
   if (!needsSpecificTournament) {
     return plan;
   }
 
-  if (hasAny(normalized, ["lá»‹ch thi Ä‘áº¥u", "schedule"])) {
+  if (hasAny(normalized, ["lịch thi đấu", "schedule"])) {
     plan.push({
       name: "get_tournament_schedule",
       args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
@@ -2811,11 +3768,11 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
   }
   if (
     hasAny(normalized, [
-      "bao nhiÃªu tráº­n",
-      "cÃ²n bao nhiÃªu tráº­n",
-      "tráº­n chÆ°a xong",
-      "tráº­n Ä‘Ã£ xong",
-      "tá»•ng tráº­n",
+      "bao nhiêu trận",
+      "còn bao nhiêu trận",
+      "trận chưa xong",
+      "trận đã xong",
+      "tổng trận",
       "match count",
     ])
   ) {
@@ -2829,35 +3786,35 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     });
     return plan;
   }
-  if (hasAny(normalized, ["luáº­t", "rules"])) {
+  if (hasAny(normalized, ["luật", "rules"])) {
     plan.push({
       name: "get_tournament_rules",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
     });
     return plan;
   }
-  if (hasAny(normalized, ["nhÃ¡nh Ä‘áº¥u", "bracket", "sÆ¡ Ä‘á»“"])) {
+  if (hasAny(normalized, ["nhánh đấu", "bracket", "sơ đồ"])) {
     plan.push({
       name: "get_tournament_brackets",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
     });
     return plan;
   }
-  if (hasAny(normalized, ["Ä‘Äƒng kÃ½", "bao nhiÃªu Ä‘á»™i", "Ä‘á»™i"])) {
+  if (hasAny(normalized, ["đăng ký", "bao nhiêu đội", "đội"])) {
     plan.push({
       name: "get_tournament_registrations",
       args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
     });
     return plan;
   }
-  if (hasAny(normalized, ["sÃ¢n", "court"])) {
+  if (hasAny(normalized, ["sân", "court"])) {
     plan.push({
       name: "get_tournament_courts",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
     });
     return plan;
   }
-  if (hasAny(normalized, ["bá»‘c thÄƒm", "draw"])) {
+  if (hasAny(normalized, ["bốc thăm", "draw"])) {
     plan.push({
       name: "get_draw_results",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
@@ -2906,11 +3863,11 @@ function extractEntityName(message) {
   const cleaned = String(message || "")
     .replace(/[?!.]/g, " ")
     .replace(
-      /\b(xin|cho|toi|mÃ¬nh|minh|giup|hÃ£y|hay|lam on|vui long|mo|vao|xem|tim|tra cuu|cho toi biet|co the|giup toi)\b/gi,
+      /\b(xin|cho|toi|mình|minh|giup|hãy|hay|lam on|vui long|mo|vao|xem|tim|tra cuu|cho toi biet|co the|giup toi)\b/gi,
       " ",
     )
     .replace(
-      /\b(giáº£i|giai|tournament|cÃ¢u láº¡c bá»™|cau lac bo|clb|club|tin tá»©c|tin tuc|news|vÄ‘v|vdv|ngÆ°á»i chÆ¡i|nguoi choi|player|báº£ng xáº¿p háº¡ng|bxh|rating|há»“ sÆ¡|ho so|lá»‹ch thi Ä‘áº¥u|lich thi dau|nhÃ¡nh Ä‘áº¥u|nhanh dau|bracket|trang|page)\b/gi,
+      /\b(giải|giai|tournament|câu lạc bộ|cau lac bo|clb|club|tin tức|tin tuc|news|vđv|vdv|người chơi|nguoi choi|player|bảng xếp hạng|bxh|rating|hồ sơ|ho so|lịch thi đấu|lich thi dau|nhánh đấu|nhanh dau|bracket|trang|page)\b/gi,
       " ",
     )
     .replace(/\s+/g, " ")
@@ -2921,7 +3878,7 @@ function extractEntityName(message) {
 
 function extractPairNames(message) {
   const raw = String(message || "");
-  const splitters = [" vá»›i ", " va ", " vs ", " vÃ  "];
+  const splitters = [" với ", " va ", " vs ", " và "];
   for (const splitter of splitters) {
     const parts = raw.split(new RegExp(splitter, "i"));
     if (parts.length >= 2) {
@@ -3092,7 +4049,7 @@ async function maybeRunHybridLiveRetrieval({
 
   if (!shouldTry) return null;
 
-  safeEmit("thinking", { step: "Äang bá»• sung kiá»ƒm chá»©ng ngoÃ i há»‡ thá»‘ng..." });
+  safeEmit("thinking", { step: "Đang bổ sung kiểm chứng ngoài hệ thống..." });
 
   try {
     const response = await LIVE_RETRIEVAL_CLIENT.responses.create({
@@ -3101,7 +4058,7 @@ async function maybeRunHybridLiveRetrieval({
         {
           role: "system",
           content:
-            "Báº¡n lÃ  bá»™ truy xuáº¥t live web cho Pikora. Chá»‰ tráº£ JSON. Æ¯u tiÃªn nguá»“n cháº¥t lÆ°á»£ng cao, ngáº¯n gá»n, Ä‘Ãºng vá»›i cÃ¢u há»i.",
+            "Bạn là bộ truy xuất live web cho Pikora. Chỉ trả JSON. Ưu tiên nguồn chất lượng cao, ngắn gọn, đúng với câu hỏi.",
         },
         {
           role: "user",
@@ -3173,7 +4130,7 @@ function buildSourcesFromToolResults(
   (toolResults.search_tournaments?.tournaments || []).slice(0, 2).forEach((item) => {
     if (!item?._id) return;
     sources.push(
-      createSource("entity", item.name || "Giáº£i Ä‘áº¥u", `/tournament/${item._id}`, {
+      createSource("entity", item.name || "Giải đấu", `/tournament/${item._id}`, {
         entityType: "tournament",
         entityId: String(item._id),
         freshness: item.status || "db",
@@ -3204,7 +4161,7 @@ function buildSourcesFromToolResults(
     sources.push(
       createSource(
         "entity",
-        context?.pageSnapshot?.entityTitle || "Tiáº¿n Ä‘á»™ giáº£i Ä‘áº¥u",
+        context?.pageSnapshot?.entityTitle || "Tiến độ giải đấu",
         `/tournament/${context.tournamentId}/schedule`,
         {
           entityType: "tournament_progress",
@@ -3220,7 +4177,7 @@ function buildSourcesFromToolResults(
 
   (toolResults.search_news?.articles || []).slice(0, 2).forEach((article) => {
     sources.push(
-      createSource("article", article.title || "BÃ i viáº¿t", article.slug ? `/news/${article.slug}` : "", {
+      createSource("article", article.title || "Bài viết", article.slug ? `/news/${article.slug}` : "", {
         entityType: "news",
         entityId: article.slug || "",
         freshness: article.publishedAt || "",
@@ -3264,7 +4221,7 @@ function buildSourcesFromToolResults(
   (toolResults.search_users?.users || []).slice(0, 2).forEach((user) => {
     if (!user?._id) return;
     sources.push(
-      createSource("entity", user.name || user.nickname || "VÄV", `/user/${user._id}`, {
+      createSource("entity", user.name || user.nickname || "VĐV", `/user/${user._id}`, {
         entityType: "player",
         entityId: String(user._id),
         freshness: "db",
@@ -3276,7 +4233,7 @@ function buildSourcesFromToolResults(
 
   if (toolResults.get_match_info?.code && context?.matchId) {
     sources.push(
-      createSource("match", `Tráº­n ${toolResults.get_match_info.code}`, context.currentPath || "", {
+      createSource("match", `Trận ${toolResults.get_match_info.code}`, context.currentPath || "", {
         entityType: "match",
         entityId: context.matchId,
         freshness: toolResults.get_match_info.status || "db",
@@ -3290,7 +4247,7 @@ function buildSourcesFromToolResults(
     sources.push(
       createSource(
         "match",
-        `Chi tiáº¿t ${toolResults.get_match_score_detail.code}`,
+        `Chi tiết ${toolResults.get_match_score_detail.code}`,
         context.currentPath || "",
         {
           entityType: "match",
@@ -3323,7 +4280,7 @@ function buildSourcesFromToolResults(
 
   (toolResults.search_knowledge?.results || []).slice(0, 2).forEach((item) => {
     sources.push(
-      createSource("knowledge", item.title || item.category || "Kiáº¿n thá»©c", "", {
+      createSource("knowledge", item.title || item.category || "Kiến thức", "", {
         entityType: "knowledge",
         entityId: item.title || "",
         freshness: item.category || "knowledge",
@@ -3363,21 +4320,21 @@ function buildAnswerCardsFromToolResults(
     cards.push(
       createAnswerCard("tournament", {
         title: summaryTournament.name,
-        subtitle: summaryTournament.location || summaryTournament.code || "Giáº£i Ä‘áº¥u",
+        subtitle: summaryTournament.location || summaryTournament.code || "Giải đấu",
         badges: [summaryTournament.status, summaryTournament.eventType],
         metrics: [
-          `ÄÄƒng kÃ½: ${stats.totalRegistrations || 0}`,
-          `Tráº­n: ${stats.totalMatches || 0}`,
-          `SÃ¢n: ${stats.totalCourts || 0}`,
-          `Tiáº¿n Ä‘á»™: ${stats.progress || "0%"}`,
+          `Đăng ký: ${stats.totalRegistrations || 0}`,
+          `Trận: ${stats.totalMatches || 0}`,
+          `Sân: ${stats.totalCourts || 0}`,
+          `Tiến độ: ${stats.progress || "0%"}`,
         ],
-        description: `Tá»•ng quan nhanh cá»§a giáº£i ${summaryTournament.name}.`,
+        description: `Tổng quan nhanh của giải ${summaryTournament.name}.`,
         path: `/tournament/${context.tournamentId}`,
         actions: [
-          buildActionNavigation(`/tournament/${context.tournamentId}`, "Má»Ÿ giáº£i"),
+          buildActionNavigation(`/tournament/${context.tournamentId}`, "Mở giải"),
           buildActionNavigation(
             `/tournament/${context.tournamentId}/schedule`,
-            "Má»Ÿ lá»‹ch thi Ä‘áº¥u",
+            "Mở lịch thi đấu",
           ),
         ],
       }),
@@ -3388,19 +4345,19 @@ function buildAnswerCardsFromToolResults(
       cards.push(
         createAnswerCard("tournament", {
           title: tournament.name,
-          subtitle: tournament.location || tournament.eventType || "Giáº£i Ä‘áº¥u",
+          subtitle: tournament.location || tournament.eventType || "Giải đấu",
           badges: [tournament.status, tournament.eventType],
           metrics: [
-            tournament.startDate ? `Báº¯t Ä‘áº§u: ${tournament.startDate}` : "",
+            tournament.startDate ? `Bắt đầu: ${tournament.startDate}` : "",
             tournament.registrationDeadline
-              ? `Háº¡n Ä‘Äƒng kÃ½: ${tournament.registrationDeadline}`
+              ? `Hạn đăng ký: ${tournament.registrationDeadline}`
               : "",
           ],
           description: tournament.description || "",
           path: `/tournament/${tournament._id}`,
           actions: [
-            buildActionNavigation(`/tournament/${tournament._id}`, "Má»Ÿ giáº£i"),
-            buildOpenNewTabAction(`/tournament/${tournament._id}/schedule`, "Má»Ÿ lá»‹ch á»Ÿ tab má»›i"),
+            buildActionNavigation(`/tournament/${tournament._id}`, "Mở giải"),
+            buildOpenNewTabAction(`/tournament/${tournament._id}/schedule`, "Mở lịch ở tab mới"),
           ],
         }),
       );
@@ -3411,22 +4368,22 @@ function buildAnswerCardsFromToolResults(
   if (progress?.overview && context?.tournamentId) {
     cards.push(
       createAnswerCard("status_metric", {
-        title: context?.pageSnapshot?.entityTitle || "Tiáº¿n Ä‘á»™ giáº£i hiá»‡n táº¡i",
-        subtitle: "Tiáº¿n Ä‘á»™ thi Ä‘áº¥u",
+        title: context?.pageSnapshot?.entityTitle || "Tiến độ giải hiện tại",
+        subtitle: "Tiến độ thi đấu",
         badges: [progress.overview.progressPercent, context?.pageType || ""],
         metrics: [
-          `Tá»•ng tráº­n: ${progress.overview.total || 0}`,
-          `ÄÃ£ xong: ${progress.overview.finished || 0}`,
-          `Äang live: ${progress.overview.live || 0}`,
-          `Chá» thi Ä‘áº¥u: ${progress.overview.pending || 0}`,
+          `Tổng trận: ${progress.overview.total || 0}`,
+          `Đã xong: ${progress.overview.finished || 0}`,
+          `Đang live: ${progress.overview.live || 0}`,
+          `Chờ thi đấu: ${progress.overview.pending || 0}`,
         ],
         description:
-          "TÃ³m táº¯t tiáº¿n Ä‘á»™ hiá»‡n táº¡i cá»§a giáº£i, phÃ¹ há»£p cho cÃ¡c cÃ¢u há»i vá» sá»‘ tráº­n cÃ²n láº¡i hoáº·c Ä‘Ã£ hoÃ n táº¥t.",
+          "Tóm tắt tiến độ hiện tại của giải, phù hợp cho các câu hỏi về số trận còn lại hoặc đã hoàn tất.",
         path: `/tournament/${context.tournamentId}/schedule`,
         actions: [
           buildActionNavigation(
             `/tournament/${context.tournamentId}/schedule`,
-            "Má»Ÿ lá»‹ch thi Ä‘áº¥u",
+            "Mở lịch thi đấu",
           ),
         ],
       }),
@@ -3438,15 +4395,15 @@ function buildAnswerCardsFromToolResults(
     cards.push(
       createAnswerCard("player", {
         title: userStats.name,
-        subtitle: userStats.nickname || userStats.province || "NgÆ°á»i chÆ¡i",
+        subtitle: userStats.nickname || userStats.province || "Người chơi",
         badges: [userStats.gender, userStats.province],
         metrics: [
-          `ÄÃ´i: ${userStats.ratingDoubles || 0}`,
-          `ÄÆ¡n: ${userStats.ratingSingles || 0}`,
+          `Đôi: ${userStats.ratingDoubles || 0}`,
+          `Đơn: ${userStats.ratingSingles || 0}`,
           `Win rate: ${userStats.winRate || "0%"}`,
-          `Giáº£i: ${userStats.totalTournaments || 0}`,
+          `Giải: ${userStats.totalTournaments || 0}`,
         ],
-        description: `Tá»•ng ${userStats.totalMatches || 0} tráº­n, tháº¯ng ${userStats.wonMatches || 0}.`,
+        description: `Tổng ${userStats.totalMatches || 0} trận, thắng ${userStats.wonMatches || 0}.`,
         path: context?.profileUserId ? `/user/${context.profileUserId}` : "",
       }),
     );
@@ -3455,16 +4412,16 @@ function buildAnswerCardsFromToolResults(
     if (user?._id) {
       cards.push(
         createAnswerCard("player", {
-          title: user.name || user.nickname || "NgÆ°á»i chÆ¡i",
+          title: user.name || user.nickname || "Người chơi",
           subtitle: user.nickname || user.province || "",
           badges: [user.gender, user.province],
           metrics: [
-            user.double ? `ÄÃ´i: ${user.double}` : "",
-            user.single ? `ÄÆ¡n: ${user.single}` : "",
+            user.double ? `Đôi: ${user.double}` : "",
+            user.single ? `Đơn: ${user.single}` : "",
           ],
           description: user.bio || "",
           path: `/user/${user._id}`,
-          actions: [buildActionNavigation(`/user/${user._id}`, "Má»Ÿ há»“ sÆ¡")],
+          actions: [buildActionNavigation(`/user/${user._id}`, "Mở hồ sơ")],
         }),
       );
     }
@@ -3476,12 +4433,12 @@ function buildAnswerCardsFromToolResults(
     cards.push(
       createAnswerCard("club", {
         title: clubDetails.name,
-        subtitle: clubDetails.city || clubDetails.province || "CÃ¢u láº¡c bá»™",
-        badges: [clubDetails.visibility, clubDetails.joinPolicy, clubDetails.isVerified ? "ÄÃ£ xÃ¡c minh" : ""],
+        subtitle: clubDetails.city || clubDetails.province || "Câu lạc bộ",
+        badges: [clubDetails.visibility, clubDetails.joinPolicy, clubDetails.isVerified ? "Đã xác minh" : ""],
         metrics: [
-          `ThÃ nh viÃªn: ${clubDetails.memberCount || 0}`,
+          `Thành viên: ${clubDetails.memberCount || 0}`,
           `Admin: ${clubDetails.adminCount || 0}`,
-          `Danh hiá»‡u: ${clubDetails.tournamentWins || 0}`,
+          `Danh hiệu: ${clubDetails.tournamentWins || 0}`,
         ],
         description: clubDetails.description || "",
         path: clubPath,
@@ -3494,11 +4451,11 @@ function buildAnswerCardsFromToolResults(
         createAnswerCard("club", {
           title: club.name,
           subtitle: [club.city, club.province].filter(Boolean).join(", "),
-          badges: [club.joinPolicy, club.isVerified ? "ÄÃ£ xÃ¡c minh" : ""],
-          metrics: [`ThÃ nh viÃªn: ${club.memberCount || 0}`],
+          badges: [club.joinPolicy, club.isVerified ? "Đã xác minh" : ""],
+          metrics: [`Thành viên: ${club.memberCount || 0}`],
           description: club.description || "",
           path: `/clubs/${club._id}`,
-          actions: [buildActionNavigation(`/clubs/${club._id}`, "Má»Ÿ CLB")],
+          actions: [buildActionNavigation(`/clubs/${club._id}`, "Mở CLB")],
         }),
       );
     }
@@ -3509,12 +4466,12 @@ function buildAnswerCardsFromToolResults(
     cards.push(
       createAnswerCard("news", {
         title: article.title,
-        subtitle: article.source || article.publishedAt || "Tin tá»©c",
+        subtitle: article.source || article.publishedAt || "Tin tức",
         badges: article.tags || [],
-        metrics: [article.publishedAt ? `Xuáº¥t báº£n: ${article.publishedAt}` : ""],
+        metrics: [article.publishedAt ? `Xuất bản: ${article.publishedAt}` : ""],
         description: article.summary || "",
         path: `/news/${article.slug}`,
-        actions: [buildActionNavigation(`/news/${article.slug}`, "Má»Ÿ bÃ i viáº¿t")],
+        actions: [buildActionNavigation(`/news/${article.slug}`, "Mở bài viết")],
       }),
     );
   }
@@ -3524,16 +4481,16 @@ function buildAnswerCardsFromToolResults(
       cards.push(
         createAnswerCard("news", {
           title: item.title,
-          subtitle: item.sourceName || item.publishedAt || "Nguá»“n live",
+          subtitle: item.sourceName || item.publishedAt || "Nguồn live",
           badges: ["live web"],
-          metrics: [item.publishedAt ? `Cáº­p nháº­t: ${item.publishedAt}` : ""],
+          metrics: [item.publishedAt ? `Cập nhật: ${item.publishedAt}` : ""],
           description: item.summary || "",
           path: "",
           actions: item.url
             ? [
                 createAction("open_new_tab", {
                   path: item.url,
-                  label: "Má»Ÿ nguá»“n live",
+                  label: "Mở nguồn live",
                 }),
               ]
             : [],
@@ -3549,13 +4506,13 @@ function buildAnswerCardsFromToolResults(
         title: liveStream.match?.code
           ? `Live ${liveStream.match.code}`
           : liveStream.provider || "Live stream",
-        subtitle: liveStream.match?.tournament || liveStream.provider || "Trá»±c tiáº¿p",
+        subtitle: liveStream.match?.tournament || liveStream.provider || "Trực tiếp",
         badges: [liveStream.status, liveStream.match?.court],
-        metrics: [liveStream.startedAt ? `Báº¯t Ä‘áº§u: ${liveStream.startedAt}` : ""],
+        metrics: [liveStream.startedAt ? `Bắt đầu: ${liveStream.startedAt}` : ""],
         description: liveStream.link || "",
         path: "",
         actions: liveStream.link
-          ? [createAction("open_new_tab", { path: liveStream.link, label: "Má»Ÿ luá»“ng live" })]
+          ? [createAction("open_new_tab", { path: liveStream.link, label: "Mở luồng live" })]
           : [],
       }),
     );
@@ -3565,16 +4522,16 @@ function buildAnswerCardsFromToolResults(
   if (schedule?.total) {
     cards.push(
       createAnswerCard("schedule", {
-        title: "Lá»‹ch thi Ä‘áº¥u",
-        subtitle: context?.pageSnapshot?.entityTitle || "Giáº£i hiá»‡n táº¡i",
+        title: "Lịch thi đấu",
+        subtitle: context?.pageSnapshot?.entityTitle || "Giải hiện tại",
         badges: [context?.pageType || "", context?.pageSection || ""],
         metrics: [
-          `Tá»•ng tráº­n: ${schedule.total || 0}`,
+          `Tổng trận: ${schedule.total || 0}`,
           ...Object.entries(schedule.courtSummary || {})
             .slice(0, 2)
             .map(([court, count]) => `${court}: ${count}`),
         ],
-        description: "Lá»‹ch thi Ä‘áº¥u hiá»‡n táº¡i cá»§a giáº£i hoáº·c bá»™ lá»c Ä‘ang má»Ÿ.",
+        description: "Lịch thi đấu hiện tại của giải hoặc bộ lọc đang mở.",
         path: context?.tournamentId ? `/tournament/${context.tournamentId}/schedule` : "",
       }),
     );
@@ -3584,19 +4541,19 @@ function buildAnswerCardsFromToolResults(
   if (matchScore?.code) {
     cards.push(
       createAnswerCard("match", {
-        title: `Tráº­n ${matchScore.code}`,
-        subtitle: matchScore.round ? `VÃ²ng ${matchScore.round}` : matchScore.status || "Tráº­n Ä‘áº¥u",
+        title: `Trận ${matchScore.code}`,
+        subtitle: matchScore.round ? `Vòng ${matchScore.round}` : matchScore.status || "Trận đấu",
         badges: [matchScore.status, matchScore.court || matchScore.courtLabel, matchScore.format],
         metrics: [
           matchScore.teamA ? `A: ${matchScore.teamA}` : "",
           matchScore.teamB ? `B: ${matchScore.teamB}` : "",
-          Array.isArray(matchScore.games) ? `VÃ¡n: ${matchScore.games.length}` : "",
+          Array.isArray(matchScore.games) ? `Ván: ${matchScore.games.length}` : "",
         ],
         description: Array.isArray(matchScore.games)
           ? matchScore.games
               .slice(0, 2)
-              .map((game) => `VÃ¡n ${game.game}: ${game.scoreA}-${game.scoreB}`)
-              .join(" â€¢ ")
+              .map((game) => `Ván ${game.game}: ${game.scoreA}-${game.scoreB}`)
+              .join(" • ")
           : "",
         path: context?.currentPath || "",
       }),
@@ -3616,13 +4573,13 @@ function getActionsFromToolResults(toolResults = {}, context = {}) {
     actions.push(
       buildActionNavigation(
         `/tournament/${tournament._id}`,
-        `Má»Ÿ giáº£i ${tournament.name || ""}`.trim(),
+        `Mở giải ${tournament.name || ""}`.trim(),
       ),
     );
     actions.push(
       buildOpenNewTabAction(
         `/tournament/${tournament._id}/schedule`,
-        "Má»Ÿ lá»‹ch giáº£i á»Ÿ tab má»›i",
+        "Mở lịch giải ở tab mới",
       ),
     );
   }
@@ -3630,39 +4587,39 @@ function getActionsFromToolResults(toolResults = {}, context = {}) {
   const article = toolResults.search_news?.articles?.[0];
   if (article?.slug) {
     actions.push(
-      buildActionNavigation(`/news/${article.slug}`, article.title || "Má»Ÿ bÃ i viáº¿t"),
+      buildActionNavigation(`/news/${article.slug}`, article.title || "Mở bài viết"),
     );
   }
 
   const club = toolResults.search_clubs?.clubs?.[0];
   if (club?._id) {
     actions.push(
-      buildActionNavigation(`/clubs/${club._id}`, club.name || "Má»Ÿ CLB"),
+      buildActionNavigation(`/clubs/${club._id}`, club.name || "Mở CLB"),
     );
   }
 
   const user = toolResults.search_users?.users?.[0];
   if (user?._id) {
     actions.push(
-      buildActionNavigation(`/user/${user._id}`, user.name || "Má»Ÿ há»“ sÆ¡ VÄV"),
+      buildActionNavigation(`/user/${user._id}`, user.name || "Mở hồ sơ VĐV"),
     );
   }
 
   if (String(context?.pageType || "") === "tournament_draw_live") {
     actions.push(
       createAction("set_query_param", {
-        label: "Äá»•i sang sÃ¢n kháº¥u",
-        description: "Chuyá»ƒn view bá»‘c thÄƒm sang sÃ¢n kháº¥u.",
+        label: "Đổi sang sân khấu",
+        description: "Chuyển view bốc thăm sang sân khấu.",
         payload: { key: "view", value: "stage" },
       }),
       createAction("set_query_param", {
-        label: "Äá»•i sang báº£ng",
-        description: "Chuyá»ƒn view bá»‘c thÄƒm sang báº£ng.",
+        label: "Đổi sang bảng",
+        description: "Chuyển view bốc thăm sang bảng.",
         payload: { key: "view", value: "board" },
       }),
       createAction("set_query_param", {
-        label: "Äá»•i sang lá»‹ch sá»­",
-        description: "Chuyá»ƒn view bá»‘c thÄƒm sang lá»‹ch sá»­.",
+        label: "Đổi sang lịch sử",
+        description: "Chuyển view bốc thăm sang lịch sử.",
         payload: { key: "view", value: "history" },
       }),
     );
@@ -3671,22 +4628,22 @@ function getActionsFromToolResults(toolResults = {}, context = {}) {
   if (String(context?.pageType || "") === "my_tournaments") {
     actions.push(
       createAction("set_page_state", {
-        label: "Chuyá»ƒn sang dáº¡ng tháº»",
-        description: "Äá»•i trang Giáº£i cá»§a tÃ´i sang giao diá»‡n tháº».",
+        label: "Chuyển sang dạng thẻ",
+        description: "Đổi trang Giải của tôi sang giao diện thẻ.",
         payload: { key: "viewMode", value: "card" },
       }),
       createAction("set_page_state", {
-        label: "Chuyá»ƒn sang dáº¡ng danh sÃ¡ch",
-        description: "Äá»•i trang Giáº£i cá»§a tÃ´i sang giao diá»‡n danh sÃ¡ch.",
+        label: "Chuyển sang dạng danh sách",
+        description: "Đổi trang Giải của tôi sang giao diện danh sách.",
         payload: { key: "viewMode", value: "list" },
       }),
       createAction("prefill_text", {
-        label: "Äiá»n nhanh Ã´ tÃ¬m giáº£i",
-        description: "Äiá»n sáºµn tá»« khÃ³a vÃ o Ã´ tÃ¬m giáº£i.",
+        label: "Điền nhanh ô tìm giải",
+        description: "Điền sẵn từ khóa vào ô tìm giải.",
         payload: {
           handlerKey: "search",
           selector:
-            'input[placeholder*=\"giáº£i\"], input[placeholder*=\"TÃ¬m\"], input[name=\"search\"]',
+            "input[placeholder*=\"giải\"], input[placeholder*=\"Tìm\"], input[name=\"search\"]",
         },
       }),
     );
@@ -3758,22 +4715,23 @@ function buildContextActions(context = {}) {
   if (context?.currentUrl) {
     actions.push(
       createAction("copy_current_url", {
-        label: "Sao chÃ©p link trang nÃ y",
+        label: "Sao chép link trang này",
         value: context.currentUrl,
       }),
     );
     actions.push(
-      buildOpenNewTabAction(context.currentPath || context.currentUrl, "Má»Ÿ trang nÃ y á»Ÿ tab má»›i"),
+      buildOpenNewTabAction(context.currentPath || context.currentUrl, "Mở trang này ở tab mới"),
     );
   }
 
   actions.push(
     createAction("focus_element", {
-      label: "Focus Ã´ tÃ¬m kiáº¿m",
-      description: "ÄÆ°a con trá» tá»›i Ã´ tÃ¬m kiáº¿m gáº§n nháº¥t trÃªn trang.",
+      label: "Focus ô tìm kiếm",
+      description: "Đưa con trỏ tới ô tìm kiếm gần nhất trên trang.",
       payload: {
+        handlerKey: "focusSearch",
         selector:
-          'input[type=\"search\"], input[placeholder*=\"TÃ¬m\"], input[placeholder*=\"Search\"], input[name=\"search\"]',
+          "input[type=\"search\"], input[placeholder*=\"Tìm\"], input[placeholder*=\"Search\"], input[name=\"search\"]",
       },
     }),
   );
@@ -3782,11 +4740,11 @@ function buildContextActions(context = {}) {
     actions.push(
       buildActionNavigation(
         `/tournament/${context.tournamentId}/schedule`,
-        "Má»Ÿ lá»‹ch thi Ä‘áº¥u",
+        "Mở lịch thi đấu",
       ),
       buildActionNavigation(
         `/tournament/${context.tournamentId}/bracket`,
-        "Má»Ÿ nhÃ¡nh Ä‘áº¥u",
+        "Mở nhánh đấu",
       ),
     );
 
@@ -3794,15 +4752,15 @@ function buildContextActions(context = {}) {
       actions.push(
         buildActionNavigation(
           `/tournament/${context.tournamentId}/draw/live?view=stage`,
-          "Má»Ÿ sÃ¢n kháº¥u bá»‘c thÄƒm",
+          "Mở sân khấu bốc thăm",
         ),
         buildActionNavigation(
           `/tournament/${context.tournamentId}/draw/live?view=board`,
-          "Má»Ÿ báº£ng bá»‘c thÄƒm",
+          "Mở bảng bốc thăm",
         ),
         buildActionNavigation(
           `/tournament/${context.tournamentId}/draw/live?view=history`,
-          "Má»Ÿ lá»‹ch sá»­ bá»‘c thÄƒm",
+          "Mở lịch sử bốc thăm",
         ),
       );
     }
@@ -3811,8 +4769,8 @@ function buildContextActions(context = {}) {
   if (String(context?.pageType || "") === "tournament_schedule") {
     actions.push(
       createAction("scroll_to_section", {
-        label: "Cuá»™n tá»›i lá»‹ch thi Ä‘áº¥u",
-        description: "Cuá»™n tá»›i khu vá»±c lá»‹ch thi Ä‘áº¥u Ä‘ang hiá»ƒn thá»‹.",
+        label: "Cuộn tới lịch thi đấu",
+        description: "Cuộn tới khu vực lịch thi đấu đang hiển thị.",
         payload: {
           selector:
             '[data-chatbot-section=\"schedule\"], [data-chatbot-page-title], main',
@@ -3824,27 +4782,27 @@ function buildContextActions(context = {}) {
   if (String(context?.pageType || "") === "club_list") {
     actions.push(
       createAction("set_page_state", {
-        label: "Xem táº¥t cáº£ CLB",
-        description: "Chuyá»ƒn danh sÃ¡ch CLB sang tab táº¥t cáº£.",
+        label: "Xem tất cả CLB",
+        description: "Chuyển danh sách CLB sang tab tất cả.",
         payload: { key: "tab", value: "all" },
       }),
       createAction("set_page_state", {
-        label: "Xem CLB cá»§a tÃ´i",
-        description: "Chuyá»ƒn danh sÃ¡ch CLB sang tab CLB cá»§a tÃ´i.",
+        label: "Xem CLB của tôi",
+        description: "Chuyển danh sách CLB sang tab CLB của tôi.",
         payload: { key: "tab", value: "mine" },
       }),
       createAction("prefill_text", {
-        label: "Äiá»n Ã´ tÃ¬m CLB",
-        description: "Äiá»n sáºµn tá»« khÃ³a vÃ o Ã´ tÃ¬m cÃ¢u láº¡c bá»™.",
+        label: "Điền ô tìm CLB",
+        description: "Điền sẵn từ khóa vào ô tìm câu lạc bộ.",
         payload: {
           handlerKey: "search",
           selector:
-            'input[placeholder*=\"CLB\"], input[placeholder*=\"TÃ¬m\"], input[name=\"search\"]',
+            "input[placeholder*=\"CLB\"], input[placeholder*=\"Tìm\"], input[name=\"search\"]",
         },
       }),
       createAction("open_dialog", {
-        label: "Má»Ÿ form táº¡o CLB",
-        description: "Má»Ÿ nhanh há»™p thoáº¡i táº¡o cÃ¢u láº¡c bá»™ má»›i trÃªn trang nÃ y.",
+        label: "Mở form tạo CLB",
+        description: "Mở nhanh hộp thoại tạo câu lạc bộ mới trên trang này.",
         payload: {
           handlerKey: "openDialog",
           value: "createClub",
@@ -3855,19 +4813,318 @@ function buildContextActions(context = {}) {
 
   if (context?.clubId) {
     actions.push(
-      buildActionNavigation(`/clubs/${context.clubId}`, "Má»Ÿ CLB hiá»‡n táº¡i"),
-      buildActionNavigation(`/clubs/${context.clubId}?tab=events`, "Má»Ÿ sá»± kiá»‡n CLB"),
+      buildActionNavigation(`/clubs/${context.clubId}`, "Mở CLB hiện tại"),
+      buildActionNavigation(`/clubs/${context.clubId}?tab=events`, "Mở sự kiện CLB"),
     );
   }
 
   if (context?.newsSlug) {
     actions.push(
-      buildActionNavigation(`/news/${context.newsSlug}`, "Má»Ÿ bÃ i viáº¿t hiá»‡n táº¡i"),
-      buildActionNavigation("/news", "Má»Ÿ danh sÃ¡ch tin tá»©c"),
+      buildActionNavigation(`/news/${context.newsSlug}`, "Mở bài viết hiện tại"),
+      buildActionNavigation("/news", "Mở danh sách tin tức"),
     );
   }
 
   return actions;
+}
+
+function toWorkflowStep(action, index) {
+  if (!action?.type) return null;
+  return {
+    id: `step_${index + 1}`,
+    title: action.label || `Bước ${index + 1}`,
+    description: action.description || "",
+    type: action.type,
+    requiresConfirm: Boolean(action.requiresConfirm),
+    action,
+  };
+}
+
+function buildWorkflowRecipe(route, context = {}, execution = {}, actions = []) {
+  const safeActions = (Array.isArray(actions) ? actions : []).filter(
+    (item) =>
+      item?.type &&
+      [
+        "navigate",
+        "open_new_tab",
+        "copy_link",
+        "copy_text",
+        "set_query_param",
+        "set_page_state",
+        "open_dialog",
+        "focus_element",
+        "scroll_to_section",
+        "prefill_text",
+      ].includes(item.type),
+  );
+
+  if (safeActions.length < 2) return null;
+
+  const focusAction = safeActions.find((item) =>
+    ["focus_element", "prefill_text", "scroll_to_section"].includes(item.type),
+  );
+  const pageStateAction = safeActions.find((item) =>
+    ["set_page_state", "set_query_param", "open_dialog"].includes(item.type),
+  );
+  const navigationAction = safeActions.find((item) =>
+    ["navigate", "open_new_tab"].includes(item.type),
+  );
+  const copyAction = safeActions.find((item) =>
+    ["copy_link", "copy_text"].includes(item.type),
+  );
+
+  let steps = [];
+  let title = "Quy trình thao tác an toàn";
+  let summary =
+    "Pikora có thể chạy một chuỗi thao tác nhẹ, an toàn để đưa bạn tới đúng chỗ nhanh hơn.";
+
+  if (pageStateAction && focusAction) {
+    steps = [pageStateAction, focusAction];
+    title = "Chuẩn bị đúng màn hình";
+    summary =
+      "Chuyển trang về đúng tab hoặc trạng thái trước, rồi đưa con trỏ tới đúng vị trí để bạn thao tác ngay.";
+  } else if (navigationAction && focusAction) {
+    steps = [navigationAction, focusAction];
+    title = "Mở đúng nơi rồi focus";
+    summary =
+      "Đi tới đúng màn hình liên quan trước, sau đó đặt con trỏ vào ô phù hợp để bạn nhập tiếp.";
+  } else if (navigationAction && copyAction) {
+    steps = [navigationAction, copyAction];
+    title = "Mở và sao chép nhanh";
+    summary =
+      "Mở đúng trang liên quan trước, đồng thời chuẩn bị thao tác sao chép nếu bạn cần chia sẻ hoặc lưu lại.";
+  } else {
+    steps = safeActions.slice(0, 2);
+  }
+
+  const normalizedSteps = steps
+    .map((item, index) => toWorkflowStep(item, index))
+    .filter(Boolean);
+
+  if (normalizedSteps.length < 2) return null;
+
+  return {
+    title,
+    summary,
+    runLabel: `Chạy ${normalizedSteps.length} bước an toàn`,
+    requiresConfirm: normalizedSteps.some((item) => item.requiresConfirm),
+    routeLane: resolveRouteLane("", route, context, {
+      actions: normalizedSteps.map((item) => item.action),
+      toolsUsed: execution?.toolsUsed || [],
+    }),
+    steps: normalizedSteps,
+  };
+}
+
+function buildUiPreferenceScopeKey(context = {}) {
+  const parts = [
+    context?.pageType,
+    context?.pageSection,
+    context?.pageView,
+  ]
+    .filter(Boolean)
+    .map((item) =>
+      String(item)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_"),
+    );
+  return parts.join("_") || "page_default";
+}
+
+function buildMutationPreview(
+  route,
+  context = {},
+  personalization = null,
+  actions = [],
+  workflow = null,
+) {
+  const normalizedPageType = String(context?.pageType || "");
+  const snapshot = context?.pageSnapshot || {};
+
+  if (context?.reasoningMode === "force_reasoner") {
+    return {
+      type: "save_bot_preference",
+      title: "Lưu phong cách trợ lý hiện tại",
+      summary:
+        "Lưu chế độ suy luận và phong cách trợ lý hiện tại làm mặc định cho tài khoản này để Pikora trả lời đúng kiểu bạn muốn.",
+      changes: [
+        `Phong cách: ${
+          personalization?.assistantMode === "operator"
+            ? "Operator Pro"
+            : personalization?.assistantMode === "analyst"
+              ? "Phân tích"
+              : "Cân bằng"
+        }`,
+        "Chế độ mặc định: Suy luận",
+        `Mật độ trả lời: ${
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "ngắn gọn, ưu tiên thao tác"
+            : "cân bằng"
+        }`,
+      ],
+      requiresConfirm: true,
+      payload: {
+        assistantMode: normalizeAssistantMode(personalization?.assistantMode),
+        verificationMode: normalizeVerificationMode(
+          personalization?.verificationMode,
+        ),
+        reasoningMode: "force_reasoner",
+        answerDensity:
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "compact_operator"
+            : "balanced",
+        suggestionStyle:
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "operator_first"
+            : "default",
+      },
+    };
+  }
+
+  if (normalizeAssistantMode(personalization?.assistantMode) !== "balanced") {
+    return {
+      type: "save_bot_preference",
+      title: "Lưu phong cách trợ lý hiện tại",
+      summary:
+        "Lưu phong cách trả lời hiện tại làm mặc định cho tài khoản này để Pikora giữ cùng kiểu hỗ trợ ở các lần chat sau.",
+      changes: [
+        `Phong cách: ${
+          personalization?.assistantMode === "operator"
+            ? "Operator Pro"
+            : "Phân tích"
+        }`,
+        `Mật độ trả lời: ${
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "ngắn gọn, ưu tiên thao tác"
+            : "cân bằng"
+        }`,
+      ],
+      requiresConfirm: true,
+      payload: {
+        assistantMode: normalizeAssistantMode(personalization?.assistantMode),
+        verificationMode: normalizeVerificationMode(
+          personalization?.verificationMode,
+        ),
+        reasoningMode:
+          context?.reasoningMode === "force_reasoner" ? "force_reasoner" : "auto",
+        answerDensity:
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "compact_operator"
+            : "balanced",
+        suggestionStyle:
+          personalization?.assistantMode === "operator" ||
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "operator_first"
+            : "default",
+      },
+    };
+  }
+
+  if (normalizeVerificationMode(personalization?.verificationMode) === "strict") {
+    return {
+      type: "save_bot_preference",
+      title: "Lưu chế độ xác minh hiện tại",
+      summary:
+        "Lưu chế độ xác minh chặt làm mặc định để Pikora hạn chế khẳng định khi chưa đủ nguồn kiểm chứng.",
+      changes: [
+        "Chế độ xác minh: Xác minh chặt",
+        `Phong cÃ¡ch trá»£ lÃ½: ${
+          personalization?.assistantMode === "operator"
+            ? "Operator Pro"
+            : personalization?.assistantMode === "analyst"
+              ? "Phân tích"
+              : "Cân bằng"
+        }`,
+      ],
+      requiresConfirm: true,
+      payload: {
+        assistantMode: normalizeAssistantMode(personalization?.assistantMode),
+        verificationMode: "strict",
+        reasoningMode:
+          context?.reasoningMode === "force_reasoner" ? "force_reasoner" : "auto",
+        answerDensity:
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "compact_operator"
+            : "balanced",
+        suggestionStyle:
+          personalization?.assistantMode === "operator" ||
+          personalization?.preferredAnswerDensity === "compact_operator"
+            ? "operator_first"
+            : "default",
+      },
+    };
+  }
+
+  if (
+    normalizedPageType &&
+    (context?.pageView || context?.pageSection || snapshot?.activeLabels?.length) &&
+    (workflow ||
+      actions.some((item) =>
+        ["set_page_state", "set_query_param", "focus_element"].includes(
+          item?.type,
+        ),
+      ))
+  ) {
+    return {
+      type: "save_ui_preference",
+      title: "Lưu cách hiển thị màn này",
+      summary:
+        "Lưu tab, view hoặc bộ lọc hiện tại làm mặc định nhẹ cho màn này trên tài khoản của bạn.",
+      changes: compactList([
+        context?.pageView ? `View: ${context.pageView}` : "",
+        context?.pageSection ? `Mục: ${context.pageSection}` : "",
+        snapshot?.activeLabels?.length
+          ? `Nhãn nổi bật: ${snapshot.activeLabels.slice(0, 2).join(", ")}`
+          : "",
+      ]).slice(0, 3),
+      requiresConfirm: true,
+      payload: {
+        scopeKey: buildUiPreferenceScopeKey(context),
+        pageType: context?.pageType || "",
+        pageSection: context?.pageSection || "",
+        pageView: context?.pageView || "",
+        path: context?.currentPath || context?.currentUrl || "",
+        activeLabels: snapshot?.activeLabels || [],
+        filters: snapshot?.highlights || [],
+      },
+    };
+  }
+
+  if (
+    normalizedPageType.includes("registration") ||
+    normalizedPageType.includes("form") ||
+    snapshot?.visibleActions?.some((item) =>
+      sharedNormalizeText(item).includes("dang ky"),
+    )
+  ) {
+    return {
+      type: "stage_form_draft",
+      title: "Lưu nháp biểu mẫu hiện tại",
+      summary:
+        "Lưu ngữ cảnh biểu mẫu hiện tại làm nháp nhẹ để dùng lại sau, không gửi submit cuối cùng.",
+      changes: compactList([
+        snapshot?.entityTitle ? `Biểu mẫu: ${snapshot.entityTitle}` : "",
+        context?.pageSection ? `Mục: ${context.pageSection}` : "",
+        context?.currentPath ? `Trang: ${context.currentPath}` : "",
+      ]).slice(0, 3),
+      requiresConfirm: true,
+      payload: {
+        draftKey: buildUiPreferenceScopeKey(context),
+        title: snapshot?.entityTitle || context?.pageTitle || "Nháp Pikora",
+        pageType: context?.pageType || "",
+        pageSection: context?.pageSection || "",
+        pageView: context?.pageView || "",
+        path: context?.currentPath || context?.currentUrl || "",
+        data: {
+          pageSnapshot: snapshot,
+          routeKind: route?.kind || "",
+        },
+      },
+    };
+  }
+
+  return null;
 }
 
 function buildSuggestedActions(route, context, execution = {}) {
@@ -3876,7 +5133,7 @@ function buildSuggestedActions(route, context, execution = {}) {
       ? [
           buildActionNavigation(
             execution.navigation.webPath,
-            execution.navigation.description || "Má»Ÿ trang liÃªn quan",
+            execution.navigation.description || "Mở trang liên quan",
           ),
         ]
       : []),
@@ -3933,7 +5190,7 @@ function getPrimaryGroundedCountDescriptor(route, execution = {}) {
       const status = String(route?.toolPlan?.[0]?.args?.status || "");
       return {
         count: Number(result.count) || result.tournaments.length || 0,
-        label: `giáº£i ${formatTournamentStatusLabel(status)}`,
+        label: `giải ${formatTournamentStatusLabel(status)}`,
         samples: result.tournaments
           .map((item) => trimText(item?.name || "", 120))
           .filter(Boolean)
@@ -3947,7 +5204,7 @@ function getPrimaryGroundedCountDescriptor(route, execution = {}) {
     if (result && Array.isArray(result.clubs)) {
       return {
         count: Number(result.count) || result.clubs.length || 0,
-        label: "cÃ¢u láº¡c bá»™ phÃ¹ há»£p",
+        label: "câu lạc bộ phù hợp",
         samples: result.clubs
           .map((item) => trimText(item?.name || "", 120))
           .filter(Boolean)
@@ -3961,7 +5218,7 @@ function getPrimaryGroundedCountDescriptor(route, execution = {}) {
     if (result && Array.isArray(result.articles)) {
       return {
         count: Number(result.total) || result.articles.length || 0,
-        label: "bÃ i viáº¿t phÃ¹ há»£p",
+        label: "bài viết phù hợp",
         samples: result.articles
           .map((item) => trimText(item?.title || "", 120))
           .filter(Boolean)
@@ -3975,7 +5232,7 @@ function getPrimaryGroundedCountDescriptor(route, execution = {}) {
     if (result && Array.isArray(result.users)) {
       return {
         count: Number(result.count) || result.users.length || 0,
-        label: "ngÆ°á»i chÆ¡i phÃ¹ há»£p",
+        label: "người chơi phù hợp",
         samples: result.users
           .map((item) => trimText(item?.name || item?.nickname || "", 120))
           .filter(Boolean)
@@ -3989,7 +5246,7 @@ function getPrimaryGroundedCountDescriptor(route, execution = {}) {
     if (result && Array.isArray(result.matches)) {
       return {
         count: Number(result.total) || result.matches.length || 0,
-        label: "tráº­n Ä‘ang live",
+        label: "trận đang live",
         samples: result.matches
           .map((item) => trimText(item?.title || item?.matchName || "", 120))
           .filter(Boolean)
@@ -4015,9 +5272,9 @@ function applyGroundedCountConsistency(reply, route, execution = {}) {
   const count = Number(descriptor.count || 0);
 
   if (count > 0 && hasNegativeAvailabilityClaim(normalizedReply)) {
-    let nextReply = `Hiá»‡n cÃ³ ${count} ${descriptor.label}.`;
+    let nextReply = `Hiện có ${count} ${descriptor.label}.`;
     if (descriptor.samples?.length) {
-      nextReply += ` VÃ­ dá»¥: ${descriptor.samples.join(", ")}.`;
+      nextReply += ` Ví dụ: ${descriptor.samples.join(", ")}.`;
     }
     return {
       reply: nextReply,
@@ -4026,7 +5283,7 @@ function applyGroundedCountConsistency(reply, route, execution = {}) {
   }
 
   if (count === 0 && hasPositiveAvailabilityClaim(normalizedReply)) {
-    const nextReply = `Hiá»‡n táº¡i mÃ¬nh chÆ°a tháº¥y ${descriptor.label} trong dá»¯ liá»‡u há»‡ thá»‘ng.`;
+    const nextReply = `Hiện tại mình chưa thấy ${descriptor.label} trong dữ liệu hệ thống.`;
     return {
       reply: nextReply,
       guardApplied: nextReply !== text,
@@ -4039,9 +5296,17 @@ function applyGroundedCountConsistency(reply, route, execution = {}) {
   };
 }
 
-function applyTrustGuard(reply, route, execution = {}, sources = [], answerCards = []) {
+function applyTrustGuard(
+  reply,
+  route,
+  execution = {},
+  sources = [],
+  answerCards = [],
+  verificationMode = "balanced",
+) {
   const consistency = applyGroundedCountConsistency(reply, route, execution);
   const text = String(consistency.reply || "").trim();
+  const normalizedVerificationMode = normalizeVerificationMode(verificationMode);
   if (!text) {
     return {
       reply: text,
@@ -4060,8 +5325,18 @@ function applyTrustGuard(reply, route, execution = {}, sources = [], answerCards
       guardApplied: Boolean(consistency.guardApplied),
     };
   }
+  if (normalizedVerificationMode === "strict") {
+    return {
+      reply: `${text}
+
+Lưu ý xác minh chặt: Hiện mình chưa có đủ nguồn kiểm chứng từ hệ thống để khẳng định chi tiết hơn. Nếu bạn muốn, mình sẽ giữ mức trả lời an toàn này và chỉ khẳng định khi có thêm dữ liệu đối chiếu.`,
+      guardApplied: true,
+    };
+  }
   return {
-    reply: `${text}\n\nLÆ°u Ã½: MÃ¬nh chÆ°a cÃ³ Ä‘á»§ dá»¯ liá»‡u xÃ¡c minh tá»« há»‡ thá»‘ng Ä‘á»ƒ kháº³ng Ä‘á»‹nh chi tiáº¿t hÆ¡n. Náº¿u báº¡n muá»‘n, mÃ¬nh cÃ³ thá»ƒ má»Ÿ Ä‘Ãºng trang liÃªn quan hoáº·c thá»­ truy váº¥n láº¡i cá»¥ thá»ƒ hÆ¡n.`,
+    reply: `${text}
+
+Lưu ý: Mình chưa có đủ dữ liệu xác minh từ hệ thống để khẳng định chi tiết hơn. Nếu bạn muốn, mình có thể mở đúng trang liên quan hoặc thử truy vấn lại cụ thể hơn.`,
     guardApplied: true,
   };
 }
@@ -4118,7 +5393,7 @@ async function executeToolPlan({ route, context, safeEmit }) {
       const summary = {
         tool: step.name,
         label,
-        resultPreview: `Lá»—i: ${error.message}`,
+        resultPreview: `Lỗi: ${error.message}`,
         durationMs: Date.now() - startedAt,
         error: true,
       };
@@ -4126,7 +5401,7 @@ async function executeToolPlan({ route, context, safeEmit }) {
       safeEmit("tool_done", {
         tool: step.name,
         label,
-        resultPreview: "Lá»—i khi xá»­ lÃ½",
+        resultPreview: "Lỗi khi xử lý",
         durationMs: summary.durationMs,
         error: true,
       });
@@ -4176,80 +5451,80 @@ function hasMissingPlaceholder(originalArgs, resolvedArgs) {
 }
 
 function buildToolPreview(tool, result) {
-  if (!result) return "KhÃ´ng cÃ³ káº¿t quáº£";
-  if (result.error) return `Lá»—i: ${result.error}`;
+  if (!result) return "Không có kết quả";
+  if (result.error) return `Lỗi: ${result.error}`;
 
   switch (tool) {
     case "search_knowledge":
       return result.count
-        ? `TÃ¬m tháº¥y ${result.count} má»¥c kiáº¿n thá»©c`
-        : "KhÃ´ng tÃ¬m tháº¥y thÃ´ng tin";
+        ? `Tìm thấy ${result.count} mục kiến thức`
+        : "Không tìm thấy thông tin";
     case "search_tournaments":
       return result.count
-        ? `TÃ¬m tháº¥y ${result.count} giáº£i Ä‘áº¥u`
-        : "KhÃ´ng tÃ¬m tháº¥y giáº£i nÃ o";
+        ? `Tìm thấy ${result.count} giải đấu`
+        : "Không tìm thấy giải nào";
     case "get_tournament_summary":
       return result.tournament?.name
-        ? `${result.tournament.name} â€¢ ${result.stats?.totalRegistrations || 0} Ä‘á»™i`
-        : "ÄÃ£ láº¥y tá»•ng quan giáº£i";
+        ? `${result.tournament.name} • ${result.stats?.totalRegistrations || 0} đội`
+        : "Đã lấy tổng quan giải";
     case "get_tournament_schedule":
       return result.total
-        ? `${result.total} tráº­n trong lá»‹ch`
-        : "KhÃ´ng cÃ³ lá»‹ch thi Ä‘áº¥u";
+        ? `${result.total} trận trong lịch`
+        : "Không có lịch thi đấu";
     case "get_tournament_rules":
       return result.total
-        ? `${result.total} báº£ng cÃ³ luáº­t thi Ä‘áº¥u`
-        : "ÄÃ£ láº¥y luáº­t";
+        ? `${result.total} bảng có luật thi đấu`
+        : "Đã lấy luật";
     case "get_tournament_brackets":
-      return result.total != null ? `${result.total} báº£ng Ä‘áº¥u` : "ÄÃ£ láº¥y báº£ng Ä‘áº¥u";
+      return result.total != null ? `${result.total} bảng đấu` : "Đã lấy bảng đấu";
     case "get_tournament_registrations":
       return result.totalRegistrations != null
-        ? `${result.totalRegistrations} Ä‘á»™i Ä‘Äƒng kÃ½`
-        : "ÄÃ£ láº¥y Ä‘á»™i Ä‘Äƒng kÃ½";
+        ? `${result.totalRegistrations} đội đăng ký`
+        : "Đã lấy đội đăng ký";
     case "get_tournament_courts":
-      return result.total != null ? `${result.total} sÃ¢n Ä‘áº¥u` : "ÄÃ£ láº¥y sÃ¢n Ä‘áº¥u";
+      return result.total != null ? `${result.total} sân đấu` : "Đã lấy sân đấu";
     case "get_draw_results":
       return result.total
-        ? `${result.total} káº¿t quáº£ bá»‘c thÄƒm`
-        : "ChÆ°a cÃ³ káº¿t quáº£ bá»‘c thÄƒm";
+        ? `${result.total} kết quả bốc thăm`
+        : "Chưa có kết quả bốc thăm";
     case "search_users":
-      return result.count ? `TÃ¬m tháº¥y ${result.count} VÄV` : "KhÃ´ng tÃ¬m tháº¥y VÄV";
+      return result.count ? `Tìm thấy ${result.count} VĐV` : "Không tìm thấy VĐV";
     case "get_user_stats":
       return result.name
-        ? `${result.name} â€¢ ${result.winRate || "0%"} win rate`
-        : "ÄÃ£ láº¥y thá»‘ng kÃª VÄV";
+        ? `${result.name} • ${result.winRate || "0%"} win rate`
+        : "Đã lấy thống kê VĐV";
     case "get_my_info":
       return result.name
-        ? `ÄÃ£ láº¥y há»“ sÆ¡ cá»§a ${result.name}`
-        : "ÄÃ£ láº¥y thÃ´ng tin cÃ¡ nhÃ¢n";
+        ? `Đã lấy hồ sơ của ${result.name}`
+        : "Đã lấy thông tin cá nhân";
     case "get_my_registrations":
-      return result.count != null ? `${result.count} Ä‘Äƒng kÃ½` : "ÄÃ£ láº¥y Ä‘Äƒng kÃ½ cá»§a báº¡n";
+      return result.count != null ? `${result.count} đăng ký` : "Đã lấy đăng ký của bạn";
     case "get_my_rating_changes":
       return result.count != null
-        ? `${result.count} biáº¿n Ä‘á»™ng rating`
-        : "ÄÃ£ láº¥y lá»‹ch sá»­ rating";
+        ? `${result.count} biến động rating`
+        : "Đã lấy lịch sử rating";
     case "get_upcoming_matches":
-      return result.total != null ? `${result.total} tráº­n sáº¯p tá»›i` : "ÄÃ£ láº¥y lá»‹ch thi Ä‘áº¥u";
+      return result.total != null ? `${result.total} trận sắp tới` : "Đã lấy lịch thi đấu";
     case "get_login_history":
-      return result.lastLogin ? `Láº§n Ä‘Äƒng nháº­p cuá»‘i ${result.lastLogin}` : "ÄÃ£ láº¥y lá»‹ch sá»­ Ä‘Äƒng nháº­p";
+      return result.lastLogin ? `Lần đăng nhập cuối ${result.lastLogin}` : "Đã lấy lịch sử đăng nhập";
     case "get_my_devices":
-      return result.total != null ? `${result.total} thiáº¿t bá»‹` : "ÄÃ£ láº¥y thiáº¿t bá»‹";
+      return result.total != null ? `${result.total} thiết bị` : "Đã lấy thiết bị";
     case "search_clubs":
-      return result.count ? `TÃ¬m tháº¥y ${result.count} CLB` : "KhÃ´ng tÃ¬m tháº¥y CLB";
+      return result.count ? `Tìm thấy ${result.count} CLB` : "Không tìm thấy CLB";
     case "get_club_details":
       return result.name
-        ? `${result.name} â€¢ ${result.memberCount || 0} thÃ nh viÃªn`
-        : "ÄÃ£ láº¥y chi tiáº¿t CLB";
+        ? `${result.name} • ${result.memberCount || 0} thành viên`
+        : "Đã lấy chi tiết CLB";
     case "search_news":
-      return result.total ? `${result.total} bÃ i viáº¿t` : "KhÃ´ng tÃ¬m tháº¥y bÃ i viáº¿t";
+      return result.total ? `${result.total} bài viết` : "Không tìm thấy bài viết";
     case "navigate":
-      return result.description || "ÄÃ£ chuáº©n bá»‹ Ä‘iá»u hÆ°á»›ng";
+      return result.description || "Đã chuẩn bị điều hướng";
     case "get_leaderboard":
       return result.players?.length
-        ? `${result.players.length} VÄV trÃªn BXH`
-        : "ÄÃ£ láº¥y báº£ng xáº¿p háº¡ng";
+        ? `${result.players.length} VĐV trên BXH`
+        : "Đã lấy bảng xếp hạng";
     default:
-      return "HoÃ n táº¥t";
+      return "Hoàn tất";
   }
 }
 
@@ -4257,18 +5532,18 @@ function shouldUseReasoner(message, route, execution) {
   const normalized = sharedNormalizeText(message);
   if (
     hasAny(normalized, [
-      "táº¡i sao",
-      "vÃ¬ sao",
-      "so sÃ¡nh",
-      "khÃ¡c nhau",
-      "phÃ¢n tÃ­ch",
-      "giáº£i thÃ­ch",
-      "káº¿ hoáº¡ch",
-      "nÃªn ",
-      "Ä‘Ã¡nh giÃ¡",
+      "tại sao",
+      "vì sao",
+      "so sánh",
+      "khác nhau",
+      "phân tích",
+      "giải thích",
+      "kế hoạch",
+      "nên ",
+      "đánh giá",
       "strategy",
-      "chiáº¿n thuáº­t",
-      "tá»‘i Æ°u",
+      "chiến thuật",
+      "tối ưu",
       "plan",
     ])
   ) {
@@ -4277,7 +5552,7 @@ function shouldUseReasoner(message, route, execution) {
 
   if (route.kind === "general" && message.length > 120) return true;
   if (execution.toolSummary.length >= 2) return true;
-  if (route.kind === "player" && hasAny(normalized, ["so sÃ¡nh", "compare"])) {
+  if (route.kind === "player" && hasAny(normalized, ["so sánh", "compare"])) {
     return true;
   }
   return false;
@@ -4293,30 +5568,49 @@ function buildSynthesisMessages({
   execution,
 }) {
   const genericKnowledgeQuestion = looksLikeGenericKnowledgeQuestion(message);
+  const assistantMode = normalizeAssistantMode(personalization?.assistantMode);
+  const verificationMode = normalizeVerificationMode(
+    personalization?.verificationMode || context?.verificationMode,
+  );
   const densityInstruction =
+    assistantMode === "operator" ||
     personalization?.preferredAnswerDensity === "compact_operator"
-      ? "Æ¯u tiÃªn cÃ¢u tráº£ lá»i ngáº¯n, thao tÃ¡c trÆ°á»›c, giáº£i thÃ­ch sau. Náº¿u cÃ³ bÆ°á»›c tiáº¿p theo rÃµ rÃ ng thÃ¬ nÃªu trong 1-2 bullet Ä‘áº§u tiÃªn."
-      : "Giá»¯ cÃ¢u tráº£ lá»i cÃ¢n báº±ng: ngáº¯n gá»n nhÆ°ng váº«n Ä‘á»§ Ã½ Ä‘á»ƒ ngÆ°á»i dÃ¹ng hiá»ƒu nhanh.";
+      ? "Ưu tiên câu trả lời ngắn, thao tác trước, giải thích sau. Nếu có bước tiếp theo rõ ràng thì nêu trong 1-2 bullet đầu tiên."
+      : assistantMode === "analyst"
+        ? "Ưu tiên phân tích rõ ràng hơn bình thường: nêu nhận định chính trước, sau đó giải thích nguyên nhân hoặc so sánh ngắn gọn."
+        : "Giữ câu trả lời cân bằng: ngắn gọn nhưng vẫn đủ ý để người dùng hiểu nhanh.";
+  const assistantModeInstruction =
+    assistantMode === "operator"
+      ? "Phong cách hiện tại là Operator Pro: ưu tiên hành động, điều hướng, bộ lọc, tab và bước tiếp theo có thể bấm."
+      : assistantMode === "analyst"
+        ? "Phong cách hiện tại là Analyst: ưu tiên cấu trúc phân tích, so sánh, lý do, trade-off và nhận định súc tích."
+        : "Phong cách hiện tại là Balanced: cân bằng giữa trả lời trực tiếp, giải thích ngắn và gợi ý thao tác khi hữu ích.";
   const pageAwareInstruction =
     context?.pageType?.startsWith("tournament_") ||
     context?.pageType?.startsWith("admin_") ||
     context?.pageType?.startsWith("live_")
-      ? "Náº¿u Ä‘ang á»Ÿ má»™t mÃ n thao tÃ¡c cá»¥ thá»ƒ, Æ°u tiÃªn nÃ³i Ä‘Ãºng theo mÃ n hiá»‡n táº¡i vÃ  gá»£i Ã½ bÆ°á»›c káº¿ tiáº¿p cÃ³ thá»ƒ báº¥m ngay."
+      ? "Nếu đang ở một màn thao tác cụ thể, ưu tiên nói đúng theo màn hiện tại và gợi ý bước kế tiếp có thể bấm ngay."
       : "";
+  const verificationInstructionSafe =
+    verificationMode === "strict"
+      ? "Ch\u1ebf \u0111\u1ed9 x\u00e1c minh hi\u1ec7n t\u1ea1i l\u00e0 Strict: khi grounding ch\u01b0a \u0111\u1ee7, ph\u1ea3i n\u00f3i r\u00f5 l\u00e0 ch\u01b0a \u0111\u1ee7 d\u1eef li\u1ec7u \u0111\u1ec3 kh\u1eb3ng \u0111\u1ecbnh. Tr\u00e1nh kh\u1eb3ng \u0111\u1ecbnh m\u1ea1nh khi ch\u01b0a c\u00f3 \u0111\u1ed1i chi\u1ebfu \u0111\u1ee7 ch\u1eafc."
+      : "Ch\u1ebf \u0111\u1ed9 x\u00e1c minh hi\u1ec7n t\u1ea1i l\u00e0 c\u00e2n b\u1eb1ng: v\u1eabn \u01b0u ti\u00ean \u0111\u1ed9 \u0111\u00fang, nh\u01b0ng c\u00f3 th\u1ec3 \u0111\u1ecbnh h\u01b0\u1edbng ng\u1eafn g\u1ecdn khi ch\u01b0a \u0111\u1ee7 grounding.";
   const systemPrompt = [
-    "Báº¡n lÃ  Pikora, trá»£ lÃ½ PickleTour.",
-    "Tráº£ lá»i gá»n, chÃ­nh xÃ¡c, tá»± nhiÃªn.",
-    "Náº¿u ngÆ°á»i dÃ¹ng dÃ¹ng tiáº¿ng Anh thÃ¬ tráº£ lá»i tiáº¿ng Anh, cÃ²n láº¡i dÃ¹ng tiáº¿ng Viá»‡t.",
-    "Chá»‰ dÃ¹ng dá»¯ liá»‡u Ä‘Ã£ xÃ¡c minh trong pháº§n káº¿t quáº£ cÃ´ng cá»¥ khi cÃ¢u há»i cáº§n dá»¯ liá»‡u cá»¥ thá»ƒ.",
-    "Náº¿u dá»¯ liá»‡u thiáº¿u hoáº·c khÃ´ng tháº¥y, nÃ³i rÃµ vÃ  gá»£i Ã½ bÆ°á»›c tiáº¿p theo.",
-    "Náº¿u cÃ³ sá»‘ liá»‡u hoáº·c thá»±c thá»ƒ cá»¥ thá»ƒ mÃ  khÃ´ng cÃ³ dá»¯ liá»‡u xÃ¡c minh Ä‘á»§ cháº¯c, pháº£i nÃ³i rÃµ lÃ  chÆ°a Ä‘á»§ dá»¯ liá»‡u xÃ¡c minh thay vÃ¬ kháº³ng Ä‘á»‹nh nhÆ° fact.",
-    "KhÃ´ng nháº¯c tá»›i JSON, model, proxy hay ná»™i bá»™ há»‡ thá»‘ng.",
-    "KhÃ´ng in raw <think> trong cÃ¢u tráº£ lá»i cuá»‘i.",
-    "Náº¿u cÃ³ navigation, cÃ³ thá»ƒ nÃ³i ráº±ng Ä‘Ã£ chuáº©n bá»‹ nÃºt má»Ÿ Ä‘Ãºng trang.",
+    "Bạn là Pikora, trợ lý PickleTour.",
+    "Trả lời gọn, chính xác, tự nhiên.",
+    "Nếu người dùng dùng tiếng Anh thì trả lời tiếng Anh, còn lại dùng tiếng Việt.",
+    "Chỉ dùng dữ liệu đã xác minh trong phần kết quả công cụ khi câu hỏi cần dữ liệu cụ thể.",
+    "Nếu dữ liệu thiếu hoặc không thấy, nói rõ và gợi ý bước tiếp theo.",
+    "Nếu có số liệu hoặc thực thể cụ thể mà không có dữ liệu xác minh đủ chắc, phải nói rõ là chưa đủ dữ liệu xác minh thay vì khẳng định như fact.",
+    "Không nhắc tới JSON, model, proxy hay nội bộ hệ thống.",
+    "Không in raw <think> trong câu trả lời cuối.",
+    "Nếu có navigation, có thể nói rằng đã chuẩn bị nút mở đúng trang.",
     genericKnowledgeQuestion
-      ? "Vá»›i cÃ¢u há»i kiáº¿n thá»©c chung, hÃ£y tráº£ lá»i trá»±c tiáº¿p ná»™i dung cáº§n biáº¿t. KhÃ´ng chuyá»ƒn sang Ä‘iá»u hÆ°á»›ng theo trang hiá»‡n táº¡i trá»« khi ngÆ°á»i dÃ¹ng yÃªu cáº§u rÃµ."
+      ? "Với câu hỏi kiến thức chung, hãy trả lời trực tiếp nội dung cần biết. Không chuyển sang điều hướng theo trang hiện tại trừ khi người dùng yêu cầu rõ."
       : "",
-    "DÃ¹ng markdown nháº¹: bullet hoáº·c báº£ng khi cÃ³ Ã­ch, trÃ¡nh dÃ i dÃ²ng.",
+    "Dùng markdown nhẹ: bullet hoặc bảng khi có ích, tránh dài dòng.",
+    assistantModeInstruction,
+    verificationInstructionSafe,
     densityInstruction,
     pageAwareInstruction,
   ].join("\n");
@@ -4335,16 +5629,20 @@ function buildSynthesisMessages({
     {
       role: "user",
       content: [
-        `CÃ¢u há»i hiá»‡n táº¡i: ${message}`,
-        contextSummary ? `Ngá»¯ cáº£nh hiá»‡n táº¡i:\n${contextSummary}` : "",
-        pageSnapshotSummary ? `áº¢nh chá»¥p giao diá»‡n hiá»‡n táº¡i:\n${pageSnapshotSummary}` : "",
+        `Câu hỏi hiện tại: ${message}`,
+        contextSummary ? `Ngữ cảnh hiện tại:
+${contextSummary}` : "",
+        pageSnapshotSummary ? `Ảnh chụp giao diện hiện tại:
+${pageSnapshotSummary}` : "",
         personalizationSummary
-          ? `TÃ­n hiá»‡u cÃ¡ nhÃ¢n hÃ³a:\n${personalizationSummary}`
+          ? `Tín hiệu cá nhân hóa:
+${personalizationSummary}`
           : "",
-        `Loáº¡i yÃªu cáº§u: ${route.kind}`,
+        `Loại yêu cầu: ${route.kind}`,
         toolContext
-          ? `Dá»¯ liá»‡u Ä‘Ã£ xÃ¡c minh:\n${toolContext}`
-          : "Dá»¯ liá»‡u Ä‘Ã£ xÃ¡c minh: KhÃ´ng cÃ³ tool nÃ o Ä‘Æ°á»£c dÃ¹ng.",
+          ? `Dữ liệu đã xác minh:
+${toolContext}`
+          : "Dữ liệu đã xác minh: Không có tool nào được dùng.",
       ]
         .filter(Boolean)
         .join("\n\n"),
@@ -4356,14 +5654,14 @@ function legacyBuildContextSummary(context, userProfile) {
   const parts = [];
   if (userProfile) {
     parts.push(
-      `NgÆ°á»i dÃ¹ng: ${userProfile.name}${userProfile.nickname ? ` (${userProfile.nickname})` : ""}, rating ${userProfile.rating}, khu vá»±c ${userProfile.province || "N/A"}.`,
+      `Người dùng: ${userProfile.name}${userProfile.nickname ? ` (${userProfile.nickname})` : ""}, rating ${userProfile.rating}, khu vực ${userProfile.province || "N/A"}.`,
     );
   }
-  if (context.currentPath) parts.push(`ÄÆ°á»ng dáº«n hiá»‡n táº¡i: ${context.currentPath}`);
-  if (context.tournamentId) parts.push(`ID giáº£i hiá»‡n táº¡i: ${context.tournamentId}`);
-  if (context.matchId) parts.push(`ID tráº­n hiá»‡n táº¡i: ${context.matchId}`);
-  if (context.bracketId) parts.push(`ID nhÃ¡nh hiá»‡n táº¡i: ${context.bracketId}`);
-  if (context.courtCode) parts.push(`SÃ¢n hiá»‡n táº¡i: ${context.courtCode}`);
+  if (context.currentPath) parts.push(`Đường dẫn hiện tại: ${context.currentPath}`);
+  if (context.tournamentId) parts.push(`ID giải hiện tại: ${context.tournamentId}`);
+  if (context.matchId) parts.push(`ID trận hiện tại: ${context.matchId}`);
+  if (context.bracketId) parts.push(`ID nhánh hiện tại: ${context.bracketId}`);
+  if (context.courtCode) parts.push(`Sân hiện tại: ${context.courtCode}`);
   return parts.join("\n");
 }
 
@@ -4379,67 +5677,77 @@ function trimMemory(memory) {
 function buildContextSummary(context, userProfile) {
   const parts = [];
   const PAGE_LABELS = {
-    home: "trang chá»§",
-    tournament_list: "danh sÃ¡ch giáº£i Ä‘áº¥u",
-    tournament_registration: "trang Ä‘Äƒng kÃ½ giáº£i hiá»‡n táº¡i",
-    tournament_checkin: "trang check-in giáº£i hiá»‡n táº¡i",
-    tournament_bracket: "trang nhÃ¡nh Ä‘áº¥u cá»§a giáº£i hiá»‡n táº¡i",
-    tournament_schedule: "trang lá»‹ch thi Ä‘áº¥u cá»§a giáº£i hiá»‡n táº¡i",
-    tournament_admin_draw: "trang admin bá»‘c thÄƒm cá»§a bracket hiá»‡n táº¡i",
-    tournament_draw_live: "trang bá»‘c thÄƒm trá»±c tiáº¿p",
-    tournament_draw_manage: "khÃ´ng gian lÃ m viá»‡c bá»‘c thÄƒm cá»§a giáº£i hiá»‡n táº¡i",
-    tournament_manage: "khÃ´ng gian quáº£n lÃ½ giáº£i hiá»‡n táº¡i",
-    tournament_overview: "trang tá»•ng quan giáº£i hiá»‡n táº¡i",
-    news_list: "trang tin tá»©c",
-    news_detail: "trang bÃ i viáº¿t hiá»‡n táº¡i",
-    club_list: "trang danh sÃ¡ch cÃ¢u láº¡c bá»™",
-    club_detail: "trang cÃ¢u láº¡c bá»™ hiá»‡n táº¡i",
-    live_clusters: "trang live tá»•ng",
-    live_studio: "trang studio trá»±c tiáº¿p",
-    court_streaming: "trang phÃ¡t trá»±c tiáº¿p sÃ¢n",
-    court_live_studio: "trang studio sÃ¢n Ä‘áº¥u hiá»‡n táº¡i",
-    admin_users: "trang admin quáº£n lÃ½ ngÆ°á»i dÃ¹ng",
-    admin_news: "trang admin quáº£n lÃ½ tin tá»©c",
-    admin_avatar_optimization: "trang admin tá»‘i Æ°u avatar",
-    profile: "trang há»“ sÆ¡ cá»§a báº¡n",
-    public_profile: "trang há»“ sÆ¡ cÃ´ng khai",
-    my_tournaments: "trang giáº£i cá»§a tÃ´i",
-    leaderboard: "trang báº£ng xáº¿p háº¡ng",
-    contact: "trang liÃªn há»‡",
-    status: "trang tráº¡ng thÃ¡i há»‡ thá»‘ng",
+    home: "trang chủ",
+    tournament_list: "danh sách giải đấu",
+    tournament_registration: "trang đăng ký giải hiện tại",
+    tournament_checkin: "trang check-in giải hiện tại",
+    tournament_bracket: "trang nhánh đấu của giải hiện tại",
+    tournament_schedule: "trang lịch thi đấu của giải hiện tại",
+    tournament_admin_draw: "trang admin bốc thăm của bracket hiện tại",
+    tournament_draw_live: "trang bốc thăm trực tiếp",
+    tournament_draw_manage: "không gian làm việc bốc thăm của giải hiện tại",
+    tournament_manage: "không gian quản lý giải hiện tại",
+    tournament_overview: "trang tổng quan giải hiện tại",
+    news_list: "trang tin tức",
+    news_detail: "trang bài viết hiện tại",
+    club_list: "trang danh sách câu lạc bộ",
+    club_detail: "trang câu lạc bộ hiện tại",
+    live_clusters: "trang live tổng",
+    live_studio: "trang studio trực tiếp",
+    court_streaming: "trang phát trực tiếp sân",
+    court_live_studio: "trang studio sân đấu hiện tại",
+    admin_users: "trang admin quản lý người dùng",
+    admin_news: "trang admin quản lý tin tức",
+    admin_avatar_optimization: "trang admin tối ưu avatar",
+    profile: "trang hồ sơ của bạn",
+    public_profile: "trang hồ sơ công khai",
+    my_tournaments: "trang giải của tôi",
+    leaderboard: "trang bảng xếp hạng",
+    contact: "trang liên hệ",
+    status: "trang trạng thái hệ thống",
   };
 
   if (userProfile) {
     parts.push(
-      `NgÆ°á»i dÃ¹ng: ${userProfile.name}${userProfile.nickname ? ` (${userProfile.nickname})` : ""}, rating ${userProfile.rating}, khu vá»±c ${userProfile.province || "N/A"}.`,
+      `Người dùng: ${userProfile.name}${userProfile.nickname ? ` (${userProfile.nickname})` : ""}, rating ${userProfile.rating}, khu vực ${userProfile.province || "N/A"}.`,
     );
   }
   if (context.pageType) {
     parts.push(
-      `Äang á»Ÿ ${PAGE_LABELS[context.pageType] || `trang ${context.pageType}`}.`,
+      `Đang ở ${PAGE_LABELS[context.pageType] || `trang ${context.pageType}`}.`,
     );
   }
   if (context.pageTitle) {
-    parts.push(`TiÃªu Ä‘á» trang: ${sanitizePageTitle(context.pageTitle)}.`);
+    parts.push(`Tiêu đề trang: ${sanitizePageTitle(context.pageTitle)}.`);
   }
-  if (context.pageSection) parts.push(`Khu vá»±c hiá»‡n táº¡i: ${context.pageSection}.`);
-  if (context.pageView) parts.push(`Cháº¿ Ä‘á»™ xem hiá»‡n táº¡i: ${context.pageView}.`);
+  if (context.pageSection) parts.push(`Khu vực hiện tại: ${context.pageSection}.`);
+  if (context.pageView) parts.push(`Chế độ xem hiện tại: ${context.pageView}.`);
   if (context.adminSection) {
-    parts.push(`Má»¥c admin hiá»‡n táº¡i: ${context.adminSection}.`);
+    parts.push(`Mục admin hiện tại: ${context.adminSection}.`);
   }
-  if (context.currentPath) parts.push(`ÄÆ°á»ng dáº«n hiá»‡n táº¡i: ${context.currentPath}`);
+  if (
+    context?.sessionFocus?.activeType &&
+    context?.sessionFocus?.[context.sessionFocus.activeType]?.label
+  ) {
+    parts.push(
+      `Ngữ cảnh hội thoại gần nhất đang bám: ${
+        context.sessionFocus[context.sessionFocus.activeType].label
+      }.`,
+    );
+  }
+  if (context.currentPath) parts.push(`Đường dẫn hiện tại: ${context.currentPath}`);
   if (context.tournamentId) {
-    parts.push(`ID giáº£i hiá»‡n táº¡i: ${context.tournamentId}`);
+    parts.push(`ID giải hiện tại: ${context.tournamentId}`);
   }
-  if (context.matchId) parts.push(`ID tráº­n hiá»‡n táº¡i: ${context.matchId}`);
-  if (context.bracketId) parts.push(`ID nhÃ¡nh hiá»‡n táº¡i: ${context.bracketId}`);
-  if (context.clubId) parts.push(`ID CLB hiá»‡n táº¡i: ${context.clubId}`);
-  if (context.newsSlug) parts.push(`Slug bÃ i viáº¿t hiá»‡n táº¡i: ${context.newsSlug}`);
+  if (context.matchId) parts.push(`ID trận hiện tại: ${context.matchId}`);
+  if (context.bracketId) parts.push(`ID nhánh hiện tại: ${context.bracketId}`);
+  if (context.clubId) parts.push(`ID CLB hiện tại: ${context.clubId}`);
+  if (context.newsSlug) parts.push(`Slug bài viết hiện tại: ${context.newsSlug}`);
   if (context.profileUserId) {
-    parts.push(`ID há»“ sÆ¡ hiá»‡n táº¡i: ${context.profileUserId}`);
+    parts.push(`ID hồ sơ hiện tại: ${context.profileUserId}`);
   }
-  if (context.courtCode) parts.push(`SÃ¢n hiá»‡n táº¡i: ${context.courtCode}`);
-  if (context.courtId) parts.push(`ID sÃ¢n hiá»‡n táº¡i: ${context.courtId}`);
+  if (context.courtCode) parts.push(`Sân hiện tại: ${context.courtCode}`);
+  if (context.courtId) parts.push(`ID sân hiện tại: ${context.courtId}`);
   return parts.join("\n");
 }
 
@@ -4502,7 +5810,7 @@ async function streamDeepSeekSynthesis({
 }) {
   if (!CHAT_COMPLETIONS_URL) {
     throw new Error(
-      "Thiáº¿u PIKORA_BASE_URL cho Pikora (hoáº·c fallback CLIPROXY_BASE_URL)",
+      "Thiếu PIKORA_BASE_URL cho Pikora (hoặc fallback CLIPROXY_BASE_URL)",
     );
   }
 
@@ -4757,62 +6065,62 @@ function buildEnhancedSuggestions(route, context, userId, personalization) {
 
   if (pageType === "tournament_registration") {
     suggestions.push(
-      "Giáº£i nÃ y cÃ²n bao nhiÃªu tráº­n?",
-      "CÃ³ bao nhiÃªu Ä‘á»™i Ä‘Ã£ thanh toÃ¡n?",
-      "Focus Ã´ tÃ¬m kiáº¿m VÄV",
+      "Giải này còn bao nhiêu trận?",
+      "Có bao nhiêu đội đã thanh toán?",
+      "Focus ô tìm kiếm VĐV",
     );
   } else if (pageType === "tournament_schedule") {
     suggestions.push(
-      "Giáº£i nÃ y cÃ²n bao nhiÃªu tráº­n?",
-      "Lá»c cÃ¡c tráº­n live",
-      "Má»Ÿ nhÃ¡nh Ä‘áº¥u",
+      "Giải này còn bao nhiêu trận?",
+      "Lọc các trận live",
+      "Mở nhánh đấu",
     );
   } else if (pageType === "tournament_manage") {
     suggestions.push(
-      "Tiáº¿n Ä‘á»™ giáº£i nÃ y",
-      "Ai Ä‘ang quáº£n lÃ½ giáº£i nÃ y?",
-      "Má»Ÿ lá»‹ch thi Ä‘áº¥u",
+      "Tiến độ giải này",
+      "Ai đang quản lý giải này?",
+      "Mở lịch thi đấu",
     );
   } else if (pageType === "news_detail") {
     suggestions.push(
-      "BÃ i nÃ y nÃ³i gÃ¬?",
-      "Nguá»“n cá»§a bÃ i nÃ y lÃ  gÃ¬?",
-      "TÃ³m táº¯t bÃ i nÃ y",
+      "Bài này nói gì?",
+      "Nguồn của bài này là gì?",
+      "Tóm tắt bài này",
     );
   } else if (pageType === "admin_users") {
-    suggestions.push("TÃ¬m user theo tÃªn", "Lá»c theo role", "Focus Ã´ tÃ¬m user");
+    suggestions.push("Tìm user theo tên", "Lọc theo role", "Focus ô tìm user");
   } else if (pageType === "admin_news") {
     suggestions.push(
-      "TÃ¬m bÃ i viáº¿t theo tiÃªu Ä‘á»",
-      "Lá»c bÃ i chÆ°a xuáº¥t báº£n",
-      "Táº¡o bÃ i viáº¿t má»›i",
+      "Tìm bài viết theo tiêu đề",
+      "Lọc bài chưa xuất bản",
+      "Tạo bài viết mới",
     );
   } else if (pageTypeStartsWith(context, "tournament_draw_live")) {
     suggestions.push(
-      "Xem báº£ng bá»‘c thÄƒm",
-      "Xem lá»‹ch sá»­ bá»‘c thÄƒm",
-      "TÃ³m táº¯t lÆ°á»£t bá»‘c gáº§n nháº¥t",
+      "Xem bảng bốc thăm",
+      "Xem lịch sử bốc thăm",
+      "Tóm tắt lượt bốc gần nhất",
     );
   }
 
   if (context?.clubId) {
-    suggestions.push("ThÃ nh viÃªn CLB nÃ y", "Sá»± kiá»‡n CLB nÃ y", "ThÃ´ng bÃ¡o CLB nÃ y");
+    suggestions.push("Thành viên CLB này", "Sự kiện CLB này", "Thông báo CLB này");
   }
 
   if (personalization?.preferredAnswerDensity === "compact_operator") {
-    suggestions.push("Má»Ÿ Ä‘Ãºng trang nÃ y", "Copy link trang nÃ y");
+    suggestions.push("Mở đúng trang này", "Copy link trang này");
   }
   if (personalization?.likelyRole === "admin") {
-    suggestions.push("Má»Ÿ admin users", "Má»Ÿ admin news");
+    suggestions.push("Mở admin users", "Mở admin news");
   }
-  if (personalization?.interests?.includes("giáº£i Ä‘áº¥u") && !context?.tournamentId) {
-    suggestions.push("TÃ¬m giáº£i á»Ÿ HÃ  Ná»™i", "Giáº£i nÃ o sáº¯p diá»…n ra?", "Má»Ÿ giáº£i cá»§a tÃ´i");
+  if (personalization?.interests?.includes("giải đấu") && !context?.tournamentId) {
+    suggestions.push("Tìm giải ở Hà Nội", "Giải nào sắp diễn ra?", "Mở giải của tôi");
   }
-  if (personalization?.interests?.includes("phÃ¢n tÃ­ch VÄV")) {
+  if (personalization?.interests?.includes("phân tích VĐV")) {
     suggestions.push(
-      "So sÃ¡nh 2 VÄV",
-      "Báº£ng xáº¿p háº¡ng hiá»‡n táº¡i",
-      userId ? "Rating cá»§a tÃ´i lÃ  bao nhiÃªu?" : "Há»“ sÆ¡ ngÆ°á»i chÆ¡i nÃ y",
+      "So sánh 2 VĐV",
+      "Bảng xếp hạng hiện tại",
+      userId ? "Rating của tôi là bao nhiêu?" : "Hồ sơ người chơi này",
     );
   }
 
@@ -4831,82 +6139,82 @@ function generateSuggestions(route, context, execution, userId, personalization)
   }
   const pageAwareSuggestions =
     context?.pageType === "status"
-      ? ["API nÃ o Ä‘ang cháº­m?", "Worker nÃ o Ä‘ang lá»—i?", "Storage cÃ³ á»•n khÃ´ng?"]
+      ? ["API nào đang chậm?", "Worker nào đang lỗi?", "Storage có ổn không?"]
       : pageTypeStartsWith(context, "tournament_draw_live")
-        ? ["Xem báº£ng bá»‘c thÄƒm", "Xem lá»‹ch sá»­ bá»‘c thÄƒm", "TÃ³m táº¯t lÆ°á»£t bá»‘c gáº§n nháº¥t"]
+        ? ["Xem bảng bốc thăm", "Xem lịch sử bốc thăm", "Tóm tắt lượt bốc gần nhất"]
         : context?.clubId
-          ? ["ThÃ nh viÃªn CLB nÃ y", "Sá»± kiá»‡n CLB nÃ y", "ThÃ´ng bÃ¡o CLB nÃ y"]
+          ? ["Thành viên CLB này", "Sự kiện CLB này", "Thông báo CLB này"]
           : [];
 
   const personalized =
-    personalization?.interests?.includes("giáº£i Ä‘áº¥u") && !context?.tournamentId
-      ? ["TÃ¬m giáº£i á»Ÿ HÃ  Ná»™i", "Giáº£i nÃ o sáº¯p diá»…n ra?", "Má»Ÿ giáº£i cá»§a tÃ´i"]
-      : personalization?.interests?.includes("phÃ¢n tÃ­ch VÄV")
-        ? ["So sÃ¡nh 2 VÄV", "Báº£ng xáº¿p háº¡ng hiá»‡n táº¡i", "Há»“ sÆ¡ ngÆ°á»i chÆ¡i nÃ y"]
+    personalization?.interests?.includes("giải đấu") && !context?.tournamentId
+      ? ["Tìm giải ở Hà Nội", "Giải nào sắp diễn ra?", "Mở giải của tôi"]
+      : personalization?.interests?.includes("phân tích VĐV")
+        ? ["So sánh 2 VĐV", "Bảng xếp hạng hiện tại", "Hồ sơ người chơi này"]
         : [];
 
   switch (route.kind) {
     case "personal":
       return sharedCompactList([
-        "Rating cá»§a tÃ´i lÃ  bao nhiÃªu?",
-        "Tráº­n sáº¯p tá»›i cá»§a tÃ´i",
-        "Giáº£i cá»§a tÃ´i",
+        "Rating của tôi là bao nhiêu?",
+        "Trận sắp tới của tôi",
+        "Giải của tôi",
         ...pageAwareSuggestions,
       ]);
     case "tournament":
       return sharedCompactList([
-        context.tournamentId ? "Lá»‹ch thi Ä‘áº¥u giáº£i nÃ y" : "Giáº£i nÃ o sáº¯p diá»…n ra?",
-        context.tournamentId ? "Luáº­t cá»§a giáº£i nÃ y" : "TÃ¬m giáº£i á»Ÿ HÃ  Ná»™i",
-        context.tournamentId ? "CÃ³ bao nhiÃªu Ä‘á»™i Ä‘Äƒng kÃ½?" : "NhÃ¡nh Ä‘áº¥u cá»§a giáº£i nÃ y",
+        context.tournamentId ? "Lịch thi đấu giải này" : "Giải nào sắp diễn ra?",
+        context.tournamentId ? "Luật của giải này" : "Tìm giải ở Hà Nội",
+        context.tournamentId ? "Có bao nhiêu đội đăng ký?" : "Nhánh đấu của giải này",
         ...pageAwareSuggestions,
       ]);
     case "club":
       return sharedCompactList([
-        "CLB nÃ y cÃ³ bao nhiÃªu thÃ nh viÃªn?",
-        "CÃ³ sá»± kiá»‡n CLB nÃ o sáº¯p tá»›i?",
-        "CÃ¡ch tham gia CLB nÃ y",
+        "CLB này có bao nhiêu thành viên?",
+        "Có sự kiện CLB nào sắp tới?",
+        "Cách tham gia CLB này",
         ...pageAwareSuggestions,
       ]);
     case "player":
       return sharedCompactList([
-        "Báº£ng xáº¿p háº¡ng hiá»‡n táº¡i",
-        "So sÃ¡nh 2 VÄV",
-        userId ? "Rating cá»§a tÃ´i lÃ  bao nhiÃªu?" : "TÃ¬m VÄV á»Ÿ HÃ  Ná»™i",
+        "Bảng xếp hạng hiện tại",
+        "So sánh 2 VĐV",
+        userId ? "Rating của tôi là bao nhiêu?" : "Tìm VĐV ở Hà Nội",
         ...pageAwareSuggestions,
       ]);
     case "news":
       return sharedCompactList([
-        "Tin má»›i nháº¥t vá» pickleball",
-        "CÃ³ bÃ i nÃ o vá» chiáº¿n thuáº­t khÃ´ng?",
-        "Giáº£i nÃ o Ä‘ang hot?",
+        "Tin mới nhất về pickleball",
+        "Có bài nào về chiến thuật không?",
+        "Giải nào đang hot?",
         ...pageAwareSuggestions,
       ]);
     case "live":
       return sharedCompactList([
-        context.matchId ? "Tá»· sá»‘ tráº­n nÃ y ra sao?" : "CÃ³ nhá»¯ng tráº­n nÃ o Ä‘ang live?",
-        context.matchId ? "Diá»…n biáº¿n tráº­n nÃ y" : "Luá»“ng live nÃ o Ä‘ang hoáº¡t Ä‘á»™ng?",
-        context.tournamentId ? "Tiáº¿n Ä‘á»™ giáº£i nÃ y" : "Live studio Ä‘ang má»Ÿ á»Ÿ Ä‘Ã¢u?",
+        context.matchId ? "Tỷ số trận này ra sao?" : "Có những trận nào đang live?",
+        context.matchId ? "Diễn biến trận này" : "Luồng live nào đang hoạt động?",
+        context.tournamentId ? "Tiến độ giải này" : "Live studio đang mở ở đâu?",
         ...pageAwareSuggestions,
       ]);
     case "knowledge":
       return sharedCompactList([
-        "Luáº­t giao bÃ³ng pickleball lÃ  gÃ¬?",
-        "CÃ¡ch tÃ­nh Ä‘iá»ƒm nhÆ° tháº¿ nÃ o?",
-        "HÆ°á»›ng dáº«n Ä‘Äƒng kÃ½ giáº£i",
+        "Luật giao bóng pickleball là gì?",
+        "Cách tính điểm như thế nào?",
+        "Hướng dẫn đăng ký giải",
         ...pageAwareSuggestions,
       ]);
     case "navigate":
       return sharedCompactList([
-        "Má»Ÿ báº£ng xáº¿p háº¡ng",
-        "Má»Ÿ giáº£i cá»§a tÃ´i",
-        "Tin má»›i nháº¥t",
+        "Mở bảng xếp hạng",
+        "Mở giải của tôi",
+        "Tin mới nhất",
         ...pageAwareSuggestions,
       ]);
     default:
       return sharedCompactList([
-        "Giáº£i nÃ o sáº¯p diá»…n ra?",
-        userId ? "Rating cá»§a tÃ´i lÃ  bao nhiÃªu?" : "CÃ¡ch Ä‘Äƒng kÃ½ tÃ i khoáº£n",
-        "Tin má»›i nháº¥t",
+        "Giải nào sắp diễn ra?",
+        userId ? "Rating của tôi là bao nhiêu?" : "Cách đăng ký tài khoản",
+        "Tin mới nhất",
         ...pageAwareSuggestions,
         ...personalized,
       ]);
@@ -4914,28 +6222,28 @@ function generateSuggestions(route, context, execution, userId, personalization)
 }
 
 const TOOL_LABELS = {
-  search_knowledge: "Tra cá»©u kiáº¿n thá»©c",
-  search_tournaments: "TÃ¬m giáº£i",
-  get_tournament_summary: "Tá»•ng quan giáº£i",
-  get_tournament_schedule: "Lá»‹ch thi Ä‘áº¥u",
-  get_tournament_rules: "Luáº­t thi Ä‘áº¥u",
-  get_tournament_brackets: "NhÃ¡nh Ä‘áº¥u",
-  get_tournament_registrations: "ÄÄƒng kÃ½ giáº£i",
-  get_tournament_courts: "SÃ¢n Ä‘áº¥u",
-  get_draw_results: "Bá»‘c thÄƒm",
-  search_users: "TÃ¬m VÄV",
-  get_user_stats: "Thá»‘ng kÃª VÄV",
-  get_my_info: "ThÃ´ng tin cá»§a tÃ´i",
-  get_my_registrations: "Giáº£i cá»§a tÃ´i",
-  get_my_rating_changes: "Biáº¿n Ä‘á»™ng rating",
-  get_upcoming_matches: "Tráº­n sáº¯p tá»›i",
-  get_login_history: "Lá»‹ch sá»­ Ä‘Äƒng nháº­p",
-  get_my_devices: "Thiáº¿t bá»‹ cá»§a tÃ´i",
-  search_clubs: "TÃ¬m CLB",
-  get_club_details: "Chi tiáº¿t CLB",
-  search_news: "Tin tá»©c",
-  navigate: "Äiá»u hÆ°á»›ng",
-  get_leaderboard: "Báº£ng xáº¿p háº¡ng",
+  search_knowledge: "Tra cứu kiến thức",
+  search_tournaments: "Tìm giải",
+  get_tournament_summary: "Tổng quan giải",
+  get_tournament_schedule: "Lịch thi đấu",
+  get_tournament_rules: "Luật thi đấu",
+  get_tournament_brackets: "Nhánh đấu",
+  get_tournament_registrations: "Đăng ký giải",
+  get_tournament_courts: "Sân đấu",
+  get_draw_results: "Bốc thăm",
+  search_users: "Tìm VĐV",
+  get_user_stats: "Thống kê VĐV",
+  get_my_info: "Thông tin của tôi",
+  get_my_registrations: "Giải của tôi",
+  get_my_rating_changes: "Biến động rating",
+  get_upcoming_matches: "Trận sắp tới",
+  get_login_history: "Lịch sử đăng nhập",
+  get_my_devices: "Thiết bị của tôi",
+  search_clubs: "Tìm CLB",
+  get_club_details: "Chi tiết CLB",
+  search_news: "Tin tức",
+  navigate: "Điều hướng",
+  get_leaderboard: "Bảng xếp hạng",
 };
 
 const NAVIGATION_SCREENS = {
@@ -4943,145 +6251,144 @@ const NAVIGATION_SCREENS = {
     screen: "Login",
     deepLink: "pickletour://login",
     webPath: "/login",
-    description: "ÄÄƒng nháº­p",
+    description: "Đăng nhập",
   },
   register: {
     screen: "Register",
     deepLink: "pickletour://register",
     webPath: "/register",
-    description: "ÄÄƒng kÃ½ tÃ i khoáº£n",
+    description: "Đăng ký tài khoản",
   },
   forgot_password: {
     screen: "ForgotPassword",
     deepLink: "pickletour://forgot-password",
     webPath: "/forgot-password",
-    description: "QuÃªn máº­t kháº©u",
+    description: "Quên mật khẩu",
   },
   profile: {
     screen: "Profile",
     deepLink: "pickletour://profile",
     webPath: "/profile",
-    description: "Trang cÃ¡ nhÃ¢n",
+    description: "Trang cá nhân",
   },
   leaderboard: {
     screen: "Leaderboard",
     deepLink: "pickletour://rankings",
     webPath: "/pickle-ball/rankings",
-    description: "Báº£ng xáº¿p háº¡ng",
+    description: "Bảng xếp hạng",
   },
   my_tournaments: {
     screen: "MyTournaments",
     deepLink: "pickletour://my-tournaments",
     webPath: "/my-tournaments",
-    description: "Giáº£i cá»§a tÃ´i",
+    description: "Giải của tôi",
   },
   tournament_list: {
     screen: "TournamentList",
     deepLink: "pickletour://tournaments",
     webPath: "/pickle-ball/tournaments",
-    description: "Danh sÃ¡ch giáº£i Ä‘áº¥u",
+    description: "Danh sách giải đấu",
   },
   clubs: {
     screen: "Clubs",
     deepLink: "pickletour://clubs",
     webPath: "/clubs",
-    description: "Danh sÃ¡ch cÃ¢u láº¡c bá»™",
+    description: "Danh sách câu lạc bộ",
   },
   club_detail: {
     screen: "ClubDetail",
     deepLink: "pickletour://clubs/{clubId}",
     webPath: "/clubs/{clubId}",
-    description: "Chi tiáº¿t cÃ¢u láº¡c bá»™",
+    description: "Chi tiết câu lạc bộ",
   },
   live_matches: {
     screen: "LiveMatches",
     deepLink: "pickletour://live",
     webPath: "/live",
-    description: "Tráº­n Ä‘áº¥u Ä‘ang live",
+    description: "Trận đấu đang live",
   },
   home: {
     screen: "Home",
     deepLink: "pickletour://home",
     webPath: "/",
-    description: "Trang chá»§",
+    description: "Trang chủ",
   },
   kyc: {
     screen: "KYC",
     deepLink: "pickletour://kyc",
     webPath: "/kyc",
-    description: "XÃ¡c thá»±c danh tÃ­nh",
+    description: "Xác thực danh tính",
   },
   level_point: {
     screen: "LevelPoint",
     deepLink: "pickletour://levelpoint",
     webPath: "/levelpoint",
-    description: "Äiá»ƒm trÃ¬nh Ä‘á»™",
+    description: "Điểm trình độ",
   },
   news_list: {
     screen: "NewsList",
     deepLink: "pickletour://news",
     webPath: "/news",
-    description: "Tin tá»©c PickleTour",
+    description: "Tin tức PickleTour",
   },
   news_detail: {
     screen: "NewsDetail",
     deepLink: "pickletour://news/{newsSlug}",
     webPath: "/news/{newsSlug}",
-    description: "Chi tiáº¿t bÃ i viáº¿t",
+    description: "Chi tiết bài viết",
   },
   bracket: {
     screen: "Bracket",
     deepLink: "pickletour://bracket/{tournamentId}",
     webPath: "/tournament/{tournamentId}/bracket",
-    description: "SÆ¡ Ä‘á»“ nhÃ¡nh Ä‘áº¥u",
+    description: "Sơ đồ nhánh đấu",
   },
   schedule: {
     screen: "Schedule",
     deepLink: "pickletour://schedule/{tournamentId}",
     webPath: "/tournament/{tournamentId}/schedule",
-    description: "Lá»‹ch thi Ä‘áº¥u",
+    description: "Lịch thi đấu",
   },
   registration: {
     screen: "Registration",
     deepLink: "pickletour://register/{tournamentId}",
     webPath: "/tournament/{tournamentId}/register",
-    description: "ÄÄƒng kÃ½ giáº£i Ä‘áº¥u",
+    description: "Đăng ký giải đấu",
   },
   tournament_overview: {
     screen: "TournamentOverview",
     deepLink: "pickletour://tournament/{tournamentId}/overview",
     webPath: "/tournament/{tournamentId}/overview",
-    description: "Tá»•ng quan giáº£i Ä‘áº¥u",
+    description: "Tổng quan giải đấu",
   },
   draw: {
     screen: "Draw",
     deepLink: "pickletour://tournament/{tournamentId}/draw",
     webPath: "/tournament/{tournamentId}/draw",
-    description: "Bá»‘c thÄƒm",
+    description: "Bốc thăm",
   },
   draw_live: {
     screen: "DrawLive",
     deepLink: "pickletour://tournament/{tournamentId}/draw/live",
     webPath: "/tournament/{tournamentId}/draw/live",
-    description: "SÃ¢n kháº¥u bá»‘c thÄƒm trá»±c tiáº¿p",
+    description: "Sân khấu bốc thăm trực tiếp",
   },
   draw_live_board: {
     screen: "DrawLiveBoard",
     deepLink: "pickletour://tournament/{tournamentId}/draw/live?view=board",
     webPath: "/tournament/{tournamentId}/draw/live?view=board",
-    description: "Báº£ng bá»‘c thÄƒm trá»±c tiáº¿p",
+    description: "Bảng bốc thăm trực tiếp",
   },
   draw_live_history: {
     screen: "DrawLiveHistory",
     deepLink: "pickletour://tournament/{tournamentId}/draw/live?view=history",
     webPath: "/tournament/{tournamentId}/draw/live?view=history",
-    description: "Lá»‹ch sá»­ bá»‘c thÄƒm trá»±c tiáº¿p",
+    description: "Lịch sử bốc thăm trực tiếp",
   },
   tournament_detail: {
     screen: "TournamentDetail",
     deepLink: "pickletour://tournament/{tournamentId}",
     webPath: "/tournament/{tournamentId}",
-    description: "Chi tiáº¿t giáº£i Ä‘áº¥u",
+    description: "Chi tiết giải đấu",
   },
 };
-

@@ -376,12 +376,12 @@ export const assignSpecificHttp = asyncHandler(async (req, res) => {
 
     await clearCourtPresentationCaches();
     return res.json({
-      message: "Da gan tran vao san thanh cong.",
+      message: "?? g?n tr?n v?o s?n th?nh c?ng.",
       court: result.court,
       match: result.match,
     });
   } catch (error) {
-    return res.status(400).json({ message: error.message || "Gan tran that bai." });
+    return res.status(400).json({ message: error.message || "G?n tr?n th?t b?i." });
   }
 });
 
@@ -420,7 +420,7 @@ export const setCourtMatchListHttp = asyncHandler(async (req, res) => {
       assignedMatch: result.assignedMatch || null,
     });
   } catch (error) {
-    return res.status(400).json({ message: error.message || "Luu list that bai." });
+    return res.status(400).json({ message: error.message || "L?u list th?t b?i." });
   }
 });
 
@@ -447,7 +447,7 @@ export const clearCourtMatchListHttp = asyncHandler(async (req, res) => {
     await clearCourtPresentationCaches();
     return res.json({ ok: true, courtId });
   } catch (error) {
-    return res.status(400).json({ message: error.message || "Xoa list that bai." });
+    return res.status(400).json({ message: error.message || "X?a list th?t b?i." });
   }
 });
 
@@ -478,7 +478,7 @@ export const advanceCourtMatchListHttp = asyncHandler(async (req, res) => {
       match: result.match || null,
     });
   } catch (error) {
-    return res.status(400).json({ message: error.message || "Skip tran that bai." });
+    return res.status(400).json({ message: error.message || "B? qua tr?n th?t b?i." });
   }
 });
 

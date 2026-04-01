@@ -52,6 +52,19 @@ export async function logChatTelemetry(payload = {}) {
       intent: compactString(payload.intent, 80),
       routeKind: compactString(payload.routeKind, 80),
       routeLane: compactString(payload.routeLane, 80),
+      queryScope: [
+        "general_knowledge",
+        "page_scoped",
+        "entity_scoped",
+        "operator",
+      ].includes(payload.queryScope)
+        ? payload.queryScope
+        : "",
+      contextConfidence: ["high", "medium", "low"].includes(
+        payload.contextConfidence,
+      )
+        ? payload.contextConfidence
+        : "",
       toolsPlanned: compactStringList(payload.toolsPlanned, 12, 48),
       toolsUsed: compactStringList(payload.toolsUsed, 12, 48),
       toolLatencyMs: (Array.isArray(payload.toolLatencyMs) ? payload.toolLatencyMs : [])
@@ -76,6 +89,8 @@ export async function logChatTelemetry(payload = {}) {
           success: item?.success !== false,
           at: item?.at ? new Date(item.at) : new Date(),
         })),
+      workflowCount: Number(payload.workflowCount || 0),
+      workflowExecuted: Number(payload.workflowExecuted || 0),
       cardKinds: compactStringList(payload.cardKinds, 12, 48),
       sourceCount: Number(payload.sourceCount || 0),
       groundingStatus: ["grounded", "partial", "unsupported"].includes(
@@ -95,6 +110,9 @@ export async function logChatTelemetry(payload = {}) {
       fallbackUsed: Boolean(payload.fallbackUsed),
       unsupportedIntent: compactString(payload.unsupportedIntent, 80),
       unsupportedAction: compactString(payload.unsupportedAction, 96),
+      mutationType: compactString(payload.mutationType, 64),
+      mutationConfirmed: Number(payload.mutationConfirmed || 0),
+      mutationCancelled: Number(payload.mutationCancelled || 0),
       outcome: ["success", "aborted", "error", "empty"].includes(payload.outcome)
         ? payload.outcome
         : "success",
@@ -185,6 +203,11 @@ function normalizeClientEventType(value) {
       "action_unsupported",
       "action_degraded",
       "suggestion_clicked",
+      "workflow_executed",
+      "workflow_degraded",
+      "workflow_unsupported",
+      "mutation_confirmed",
+      "mutation_cancelled",
     ].includes(
       next,
     )
@@ -258,6 +281,18 @@ export async function recordChatTelemetryEvent({
       at: event.at,
     };
   }
+  if (event.type === "workflow_executed") {
+    messageUpdate.$set = {
+      ...(messageUpdate.$set || {}),
+      "meta.workflowExecutionSummary.lastRunAt": event.at,
+    };
+  }
+  if (event.type === "mutation_confirmed") {
+    messageUpdate.$set = {
+      ...(messageUpdate.$set || {}),
+      "meta.mutationPreview.lastConfirmedAt": event.at,
+    };
+  }
 
   await ChatBotMessage.updateOne({ _id: messageId }, messageUpdate);
 
@@ -302,6 +337,48 @@ export async function recordChatTelemetryEvent({
       unsupportedAction: compactString(event.actionType || event.label, 96),
     };
   }
+  if (event.type === "workflow_executed") {
+    telemetryUpdate.$inc = {
+      ...(telemetryUpdate.$inc || {}),
+      workflowExecuted: 1,
+    };
+  }
+  if (event.type === "workflow_degraded") {
+    telemetryUpdate.$inc = {
+      ...(telemetryUpdate.$inc || {}),
+      workflowExecuted: 1,
+    };
+    telemetryUpdate.$set = {
+      ...(telemetryUpdate.$set || {}),
+      fallbackUsed: true,
+    };
+  }
+  if (event.type === "workflow_unsupported") {
+    telemetryUpdate.$set = {
+      ...(telemetryUpdate.$set || {}),
+      unsupportedAction: compactString(event.actionType || event.label, 96),
+    };
+  }
+  if (event.type === "mutation_confirmed") {
+    telemetryUpdate.$inc = {
+      ...(telemetryUpdate.$inc || {}),
+      mutationConfirmed: 1,
+    };
+    telemetryUpdate.$set = {
+      ...(telemetryUpdate.$set || {}),
+      mutationType: compactString(event.actionType || event.label, 64),
+    };
+  }
+  if (event.type === "mutation_cancelled") {
+    telemetryUpdate.$inc = {
+      ...(telemetryUpdate.$inc || {}),
+      mutationCancelled: 1,
+    };
+    telemetryUpdate.$set = {
+      ...(telemetryUpdate.$set || {}),
+      mutationType: compactString(event.actionType || event.label, 64),
+    };
+  }
 
   await ChatBotTelemetry.findOneAndUpdate(
     userId ? { messageId, userId } : { messageId, userId: null },
@@ -330,6 +407,8 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
   const intents = {};
   const routeKinds = {};
   const routeLanes = {};
+  const queryScopes = {};
+  const contextConfidences = {};
   const surfaces = {};
   const actionTypes = {};
   const cardKinds = {};
@@ -341,15 +420,19 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
   const groundingStatuses = {};
   const operatorStatuses = {};
   const retrievalModes = {};
+  const mutationTypes = {};
   let positiveFeedback = 0;
   let negativeFeedback = 0;
   let guardHits = 0;
   let fallbackUsed = 0;
+  let mutationConfirmed = 0;
+  let mutationCancelled = 0;
 
   const firstTokenLatencies = [];
   const processingLatencies = [];
   const latencyBySurface = {};
   const actionStatusBySurface = {};
+  const workflowStatusBySurface = {};
 
   turns.forEach((turn) => {
     outcomes[turn.outcome || "success"] = (outcomes[turn.outcome || "success"] || 0) + 1;
@@ -362,6 +445,13 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
     }
     if (turn.routeLane) {
       routeLanes[turn.routeLane] = (routeLanes[turn.routeLane] || 0) + 1;
+    }
+    if (turn.queryScope) {
+      queryScopes[turn.queryScope] = (queryScopes[turn.queryScope] || 0) + 1;
+    }
+    if (turn.contextConfidence) {
+      contextConfidences[turn.contextConfidence] =
+        (contextConfidences[turn.contextConfidence] || 0) + 1;
     }
     if (turn.surface) {
       surfaces[turn.surface] = (surfaces[turn.surface] || 0) + 1;
@@ -388,6 +478,12 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
     }
     if (turn.guardApplied) guardHits += 1;
     if (turn.fallbackUsed) fallbackUsed += 1;
+    if (turn.mutationType) {
+      mutationTypes[turn.mutationType] =
+        (mutationTypes[turn.mutationType] || 0) + 1;
+    }
+    mutationConfirmed += Number(turn.mutationConfirmed || 0);
+    mutationCancelled += Number(turn.mutationCancelled || 0);
 
     (turn.actionTypes || []).forEach((item) => {
       actionTypes[item] = (actionTypes[item] || 0) + 1;
@@ -439,6 +535,11 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
         unsupported: 0,
         degraded: 0,
       };
+      workflowStatusBySurface[surfaceKey] = workflowStatusBySurface[surfaceKey] || {
+        executed: 0,
+        unsupported: 0,
+        degraded: 0,
+      };
       if (event?.type === "action_executed") {
         actionStatusBySurface[surfaceKey].executed += 1;
       }
@@ -457,6 +558,21 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
           96,
         );
         unsupportedActions[label] = (unsupportedActions[label] || 0) + 1;
+      }
+      if (event?.type === "workflow_executed") {
+        workflowStatusBySurface[surfaceKey].executed += 1;
+      }
+      if (event?.type === "workflow_unsupported") {
+        workflowStatusBySurface[surfaceKey].unsupported += 1;
+      }
+      if (event?.type === "workflow_degraded") {
+        workflowStatusBySurface[surfaceKey].degraded += 1;
+      }
+      if (event?.type === "mutation_confirmed") {
+        mutationConfirmed += 1;
+      }
+      if (event?.type === "mutation_cancelled") {
+        mutationCancelled += 1;
       }
     });
   });
@@ -503,6 +619,7 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
     topIntents: sortCountEntries(intents),
     topRouteKinds: sortCountEntries(routeKinds),
     topRouteLanes: sortCountEntries(routeLanes),
+    topQueryScopes: sortCountEntries(queryScopes),
     topTools: sortCountEntries(toolUsage),
     topActionTypes: sortCountEntries(actionTypes),
     topCardKinds: sortCountEntries(cardKinds),
@@ -512,11 +629,17 @@ export async function getChatTelemetrySummary({ days = 7 } = {}) {
     topUnsupportedIntents: sortCountEntries(unsupportedIntents),
     groundingStatuses,
     operatorStatuses,
+    contextConfidences,
     retrievalModes,
+    queryScopes,
     surfaces,
     guardHits,
     fallbackUsed,
+    mutationTypes,
+    mutationConfirmed,
+    mutationCancelled,
     actionStatusBySurface,
+    workflowStatusBySurface,
     latencyBySurface: latencyBySurfaceSummary,
     throughput: {
       avgTurnsPerDay: Number((turns.length / safeDays).toFixed(2)),

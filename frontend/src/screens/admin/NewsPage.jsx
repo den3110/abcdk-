@@ -44,7 +44,7 @@ const DEFAULT_FORM = {
   targetArticlesPerDay: 6,
   discoveryProvider: "auto",
   articleGenerationModel: "",
-  mainKeywords: "pickleball, pickletour, giai pickleball",
+  mainKeywords: "pickleball, pickletour, giải pickleball",
   extraKeywords: "",
   allowedDomains: "",
   blockedDomains: "",
@@ -1123,7 +1123,7 @@ export default function AdminNewsPage() {
                     Job đang chạy: {formatPipelineJobType(activeJob.type)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {activeJob.currentStep?.label || "Dang cho worker xu ly"}
+                    {activeJob.currentStep?.label || "?ang ch? worker x? l?"}
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>

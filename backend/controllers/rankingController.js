@@ -630,7 +630,7 @@ const enforceRankingSearchLimit = async (
   const GUEST_LIMIT_NO_LOGIN = 3; // guest, IP chưa login: 3 lượt
   const totalLimitForGuest = DEFAULT_TOTAL_LIMIT;
 
-  // Limit khi ĐÃ đăng nhập: nếu user có custom thì dùng, không thì default 5
+  // Limit khi Đý đăng nhập: nếu user có custom thì dùng, không thì default 5
   const totalLimitForLogin =
     typeof loginLimit === "number" && loginLimit > 0
       ? loginLimit
@@ -687,7 +687,7 @@ const enforceRankingSearchLimit = async (
     return { remainingTime };
   }
 
-  // ===== CASE: ĐÃ ĐĂNG NHẬP =====
+  // ===== CASE: Đý ĐĂNG NHẬP =====
   if (quota.total >= totalLimitForLogin) {
     throw buildError(
       "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, vui lòng quay lại vào ngày mai.",

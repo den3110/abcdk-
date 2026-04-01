@@ -736,7 +736,7 @@ export const managerUpdateRegPlayerAvatar = expressAsyncHandler(
     if (!isAdmin && isTournamentFinished(tour)) {
       res.status(403);
       throw new Error(
-        "Quan ly chi duoc sua avatar o giai sap dien ra hoac dang dien ra"
+        "Qu?n l? ch? ???c s?a avatar ? gi?i s?p di?n ra ho?c ?ang di?n ra"
       );
     }
 
@@ -934,7 +934,7 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   if (!isAdmin && isTournamentFinished(tour)) {
     res.status(403);
     throw new Error(
-      "Quan ly chi duoc thay VDV o giai sap dien ra hoac dang dien ra"
+      "Qu?n l? ch? ???c thay V?V ? gi?i s?p di?n ra ho?c ?ang di?n ra"
     );
   }
 
@@ -1082,7 +1082,7 @@ export const searchRegistrations = async (req, res, next) => {
       const rows = await Registration.aggregate([
         { $match: { tournament: new ObjectId(id) } },
 
-        // Join user cho player1 & player2
+        // Join users for player1 and player2
         {
           $lookup: {
             from: "users",
@@ -1236,7 +1236,7 @@ export const searchRegistrations = async (req, res, next) => {
     const pipeline = [
       { $match: { tournament: new ObjectId(id) } },
 
-      // Join user cho player1 & player2
+      // Join users for player1 and player2
       {
         $lookup: {
           from: "users",

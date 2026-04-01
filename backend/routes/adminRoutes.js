@@ -297,7 +297,7 @@ router.post(
   assignMatchToCourt,
 );
 
-// DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bá» gán sân
+// DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bọĩ gán sân
 router.delete("/tournaments/:tid/matches/:mid/court", protect, clearMatchCourt);
 
 router.get(
@@ -802,10 +802,10 @@ router.get(
 //   assignNextToCourtCtrl
 // );
 
-// (Tuá»³ chá»n) Giải phóng sân + auto-assign
+// (Tùy chọn) Giải phóng sân + auto-assign
 // router.post("/courts/:courtId/free", freeCourtCtrl);
 
-// Táº¥t cáº£ endpoint yêu cầu quyá»n admin ở middleware global cá»§a bạn
+// Tất cả endpoint yêu cầu quyền admin ở middleware global của bạn
 // router.post("/brackets/:bracketId/courts",protect, authorize("admin"), upsertBracketCourts);
 
 // Tất cả require admin
@@ -852,7 +852,7 @@ router.post(
   advanceCourtMatchListHttp,
 );
 
-// Realtime panel (FE gá»i Ä‘á»ƒ láº¥y state ban Ä‘áº§u / fallback polling)
+// Realtime panel (FE gọíi Đ‘ọƒ lấy state ban Đ‘ầu / fallback polling)
 router.get(
   "/tournaments/:tournamentId/scheduler/state",
   protect,

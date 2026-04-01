@@ -1,4 +1,4 @@
-﻿import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
+import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
 import { runSeoNewsPipeline } from "../services/seoNewsPipelineService.js";
 
 let timer = null;

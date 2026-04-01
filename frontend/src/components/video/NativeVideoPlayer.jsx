@@ -391,7 +391,7 @@ export default function NativeVideoPlayer({
     };
     const onError = () => {
       if (kind === "hls") {
-        setHlsError("Khong phat duoc luong HLS nay.");
+        setHlsError("Kh?ng ph?t ???c lu?ng HLS n?y.");
       }
       setFrozenFrameUrl("");
     };
@@ -441,7 +441,7 @@ export default function NativeVideoPlayer({
             const HlsCtor = await loadHlsFromCDN();
             if (cancelled) return;
             if (!HlsCtor?.isSupported()) {
-              setHlsError("Trinh duyet khong ho tro HLS.");
+              setHlsError("Tr?nh duy?t kh?ng h? tr? HLS.");
               return;
             }
 
@@ -460,12 +460,12 @@ export default function NativeVideoPlayer({
             });
             hls.on(HlsCtor.Events.ERROR, (_event, data) => {
               if (data?.fatal) {
-                setHlsError("Luong HLS dang loi hoac tam ngat.");
+                setHlsError("Lu?ng HLS ?ang l?i ho?c t?m ng?t.");
               }
             });
           } catch {
             if (!cancelled) {
-              setHlsError("Khong tai duoc trinh phat HLS.");
+              setHlsError("Kh?ng t?i ???c tr?nh ph?t HLS.");
             }
           }
         })();

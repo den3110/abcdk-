@@ -2400,7 +2400,14 @@ function coerceBoolean(value) {
   const text = String(value || "")
     .trim()
     .toLowerCase();
-  return ["1", "true", "yes", "y", "review", "can xem lai"].includes(text);
+  const reviewText = "cần xem lại";
+  const plainText = text.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  const plainReviewText = reviewText.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  return (
+    ["1", "true", "yes", "y", "review"].includes(text) ||
+    text === reviewText ||
+    plainText === plainReviewText
+  );
 }
 
 function normalizeGatewayPaymentStatus(value) {
@@ -2431,7 +2438,7 @@ function buildGatewaySourcePreview(registration) {
       registration?.sourceLabel
         ? `rows ${registration.sourceLabel}`
         : "row ?",
-      names || "chua tach duoc ten",
+      names || "ch?a t?ch ???c t?n",
       registration?.eventGuess ? `event: ${registration.eventGuess}` : null,
       registration?.paymentStatus
         ? `payment: ${normalizeGatewayPaymentStatus(registration.paymentStatus)}`
@@ -2575,7 +2582,7 @@ async function requestCatgptGateway({
   stage,
 }) {
   if (!CATGPT_GATEWAY_BASE_URL) {
-    throw new Error("Thieu CATGPT_GATEWAY_BASE_URL cho AI import.");
+    throw new Error("Thi?u CATGPT_GATEWAY_BASE_URL cho AI import.");
   }
 
   const controller = new AbortController();
@@ -3033,7 +3040,7 @@ function buildCatgptAiRows(registrations, sourceGroups) {
     const primary = playerMap.get(1) || registration?.players?.[0] || {};
     const secondary = playerMap.get(2) || registration?.players?.[1] || {};
     const notes = compactList(
-      [registration?.eventGuess ? `Noi dung doan: ${registration.eventGuess}` : "", registration?.notes]
+      [registration?.eventGuess ? `N?i dung ?o?n: ${registration.eventGuess}` : "", registration?.notes]
         .filter(Boolean)
     ).join(" | ");
     const reasons = compactList([

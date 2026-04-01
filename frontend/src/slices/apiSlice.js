@@ -249,7 +249,7 @@ const baseQuery = async (args, api, extraOptions) => {
   }
   if (
     status === 403 &&
-    result?.error?.data?.message === "Not authorized â€“ no token"
+    result?.error?.data?.message === "Not authorized – no token"
   ) {
     try {
       api.dispatch(logout());

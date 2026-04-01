@@ -1,7 +1,7 @@
 // server/bot/telegramBot.js
 // --------------------------------------------------------------
 // Bot KYC + Chấm điểm nhanh (/rank)
-// ĐÃ BỌC TRY/CATCH TOÀN DIỆN + GLOBAL GUARDS (không crash app)
+// Đý BỌC TRY/CATCH TOÀN DIỆN + GLOBAL GUARDS (không crash app)
 // --------------------------------------------------------------
 
 import { Telegraf } from "telegraf";
@@ -117,7 +117,7 @@ const fmtPaymentLine = (payment = {}) => {
     ? new Date(payment.paidAt).toLocaleString("vi-VN")
     : "";
   return isPaid
-    ? `💰 Lệ phí: <b>ĐÃ THANH TOÁN</b>${when ? ` <i>(${when})</i>` : ""}`
+    ? `💰 Lệ phí: <b>Đý THANH TOÁN</b>${when ? ` <i>(${when})</i>` : ""}`
     : "💰 Lệ phí: <b>CHƯA THANH TOÁN</b>";
 };
 
@@ -130,7 +130,7 @@ const buildPayKeyboard = (regId, isPaid) => ({
             callback_data: `reg:unpay:${regId}`,
           }
         : {
-            text: "✅ Xác nhận ĐÃ thanh toán",
+            text: "✅ Xác nhận Đý thanh toán",
             callback_data: `reg:pay:${regId}`,
           },
     ],
@@ -307,7 +307,7 @@ async function findUserByQuery(q) {
 function vnFold(s = "") {
   return String(s)
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D")
     .toLowerCase()
@@ -432,8 +432,8 @@ export async function initKycBot(app) {
         }
 
         const confirmTitle = isPaid
-          ? "✅ ĐÃ XÁC NHẬN THANH TOÁN"
-          : "↩️ ĐÃ ĐÁNH DẤU CHƯA THANH TOÁN";
+          ? "✅ Đý XÁC NHẬN THANH TOÁN"
+          : "↩️ Đý ĐÁNH DẤU CHƯA THANH TOÁN";
 
         const et = normET(tour?.eventType);
         const whoLine =
@@ -465,7 +465,7 @@ export async function initKycBot(app) {
 
         await ctx.answerCbQuery(
           isPaid
-            ? "Đã đánh dấu: ĐÃ thanh toán"
+            ? "Đã đánh dấu: Đý thanh toán"
             : "Đã đánh dấu: CHƯA thanh toán",
         );
       }),
@@ -516,7 +516,7 @@ export async function initKycBot(app) {
       }),
     );
 
-    // ===== Complaint: ĐÃ XỬ LÝ / TỪ CHỐI =====
+    // ===== Complaint: Đý XỬ LÝ / TỪ CHỐI =====
     bot.action(
       /^complaint:(resolve|reject):([a-fA-F0-9]{24})$/,
       safe("complaint:resolve|reject", async (ctx) => {
@@ -566,7 +566,7 @@ export async function initKycBot(app) {
 
         await ctx.answerCbQuery(
           newStatus === "resolved"
-            ? "Đã đánh dấu: ĐÃ XỬ LÝ"
+            ? "Đã đánh dấu: Đý XỬ LÝ"
             : "Đã đánh dấu: TỪ CHỐI",
         );
       }),
@@ -910,7 +910,7 @@ export async function initKycBot(app) {
 
           return ctx.reply(
             [
-              "✅ ĐÃ GHI LỊCH SỬ (KHÔNG TÍNH ĐIỂM)",
+              "✅ Đý GHI LỊCH SỬ (KHÔNG TÍNH ĐIỂM)",
               `• Người dùng: ${u?.name || "—"}${
                 u?.nickname ? ` (@${u.nickname})` : ""
               }`,
@@ -979,7 +979,7 @@ export async function initKycBot(app) {
 
         return ctx.reply(
           [
-            "✅ ĐÃ CẬP NHẬT ĐIỂM",
+            "✅ Đý CẬP NHẬT ĐIỂM",
             `• Người dùng: ${u?.name || "—"}${
               u?.nickname ? ` (@${u.nickname})` : ""
             }`,

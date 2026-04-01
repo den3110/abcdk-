@@ -1,4 +1,4 @@
-﻿import SeoNewsArticle from "../models/seoNewsArticleModel.js";
+import SeoNewsArticle from "../models/seoNewsArticleModel.js";
 import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
 import { discoverSeoNewsCandidates } from "./seoNewsDiscoveryService.js";
 import { runSeoNewsCrawl } from "./seoNewsCrawlService.js";

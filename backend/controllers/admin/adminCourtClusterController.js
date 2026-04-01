@@ -718,7 +718,7 @@ export const forceReleaseAdminCourtStationPresenceHttp = asyncHandler(
         throw new Error("Court station not found");
       }
       res.status(400);
-      throw new Error("KhÃ´ng thá»ƒ gá»¡ lock sÃ¢n.");
+      throw new Error("Không thọƒ gọ¡ lock sý¢n.");
     }
 
     await emitClusterRuntime(

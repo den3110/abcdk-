@@ -377,7 +377,7 @@ const startServer = async () => {
             if (bot) {
               console.log("✅ KYC bot initialized successfully");
             } else {
-              console.warn("⚠️ KYC bot returned null");
+              console.warn("⚠️ĩ KYC bot returned null");
             }
           })
           .catch((e) => {

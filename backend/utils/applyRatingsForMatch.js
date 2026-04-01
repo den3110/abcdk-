@@ -5,7 +5,7 @@ import Tournament from "../models/tournamentModel.js";
 
 // helpers: áp dụng cộng/trừ điểm khi trận đã finished
 async function applyRatingsForMatch(mt, bracketId, reqUserId) {
-  // ĐÃ áp dụng rồi thì bỏ
+  // Đý áp dụng rồi thì bỏ
   if (mt.ratingApplied) return;
 
   const delta = Number(mt.ratingDelta) || 0;

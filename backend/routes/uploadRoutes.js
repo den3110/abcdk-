@@ -33,7 +33,7 @@ const MIME_EXT = {
 function slugify(name) {
   return String(name)
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^\w.-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/(^-|-$)/g, "")

@@ -23,8 +23,8 @@ import {
   evaluateSeoNewsRelevance,
 } from "../services/seoNewsRelevanceService.js";
 
-const VIETNAMESE_DIACRITICS_REGEX = /[\u00C0-\u024F\u1E00-\u1EFF]/i;
-const MOJIBAKE_REGEX = /(?:\u00C3.|\u00E1\u00BB|\u00E2\u20AC|\u00C2\s|\uFFFD)/;
+const VIETNAMESE_DIACRITICS_REGEX = /[À-ɏḀ-ỿ]/i;
+const MOJIBAKE_REGEX = /(?:\u00fd.|\u1ecd|\u00e2\u20ac|\u00c2\s|\uFFFD)/u;
 
 function toStringArray(value) {
   if (Array.isArray(value)) {
@@ -598,14 +598,14 @@ export const queueSeoNewsPipelineJobNow = async (req, res) => {
 
     return res.status(201).json({
       ok: true,
-      message: "Da tao job worker SEO news",
+      message: "?? t?o job worker SEO news",
       ...result,
     });
   } catch (error) {
     console.error("[SeoNewsAdmin] queue pipeline job failed:", error);
     return res.status(500).json({
       ok: false,
-      message: "Tao job worker SEO news that bai",
+      message: "T?o job worker SEO news th?t b?i",
       error: error?.message || "internal_error",
     });
   }
@@ -619,7 +619,7 @@ export const getSeoNewsPipelineMonitorNow = async (_req, res) => {
     console.error("[SeoNewsAdmin] get pipeline monitor failed:", error);
     return res.status(500).json({
       ok: false,
-      message: "Lay monitor worker SEO news that bai",
+      message: "L?y monitor worker SEO news th?t b?i",
       error: error?.message || "internal_error",
     });
   }
@@ -644,14 +644,14 @@ export const runSeoNewsSyncNow = async (req, res) => {
 
     return res.json({
       ok: true,
-      message: "Da chay pipeline SEO news",
+      message: "?? ch?y pipeline SEO news",
       ...result,
     });
   } catch (error) {
     console.error("[SeoNewsAdmin] run failed:", error);
     return res.status(500).json({
       ok: false,
-      message: "Chay pipeline SEO news that bai",
+      message: "Ch?y pipeline SEO news th?t b?i",
       error: error?.message || "internal_error",
     });
   }
@@ -679,7 +679,7 @@ export const runSeoNewsPendingCandidates = async (req, res) => {
       const crawl = emptyCrawlStats();
       return res.json({
         ok: true,
-        message: "Khong co pending candidates de chay",
+        message: "Kh?ng c? pending candidates ?? ch?y",
         pendingBefore: pendingCount,
         processedLimit: 0,
         crawl,
@@ -695,7 +695,7 @@ export const runSeoNewsPendingCandidates = async (req, res) => {
 
     return res.json({
       ok: true,
-      message: "Da chay pending candidates",
+      message: "?? ch?y pending candidates",
       pendingBefore: pendingCount,
       processedLimit: runLimit,
       crawl,
@@ -705,7 +705,7 @@ export const runSeoNewsPendingCandidates = async (req, res) => {
     console.error("[SeoNewsAdmin] run pending candidates failed:", error);
     return res.status(500).json({
       ok: false,
-      message: "Chay pending candidates that bai",
+      message: "Ch?y pending candidates th?t b?i",
       error: error?.message || "internal_error",
     });
   }
@@ -736,14 +736,14 @@ export const createSeoNewsReadyArticlesNow = async (req, res) => {
 
     return res.json({
       ok: true,
-      message: "Da tao san bai AI",
+      message: "?? t?o s?n b?i AI",
       ...result,
     });
   } catch (error) {
     console.error("[SeoNewsAdmin] create ready articles failed:", error);
     return res.status(500).json({
       ok: false,
-      message: "Tao san bai AI that bai",
+      message: "T?o s?n b?i AI th?t b?i",
       error: error?.message || "internal_error",
     });
   }
@@ -780,7 +780,7 @@ export const cleanupSeoNewsGatewaySourceImagesNow = async (req, res) => {
     console.error("[SeoNewsAdmin] cleanup source images failed:", error);
     return res.status(500).json({
       ok: false,
-      message: "Don source images that bai",
+      message: "D?n source images th?t b?i",
       error: error?.message || "internal_error",
     });
   }
@@ -964,7 +964,7 @@ export const getSeoNewsImageStats = async (req, res) => {
     console.error("[SeoNewsAdmin] get image stats failed:", error);
     return res.status(500).json({
       ok: false,
-      message: "Lay thong ke anh that bai",
+      message: "L?y th?ng k? ?nh th?t b?i",
       error: error?.message || "internal_error",
     });
   }
@@ -989,7 +989,7 @@ export const queueSeoNewsImageRegenerationNow = async (req, res) => {
 
     return res.status(201).json({
       ok: true,
-      message: "Da tao job gen lai anh AI",
+      message: "?? t?o job gen l?i ?nh AI",
       ...result,
     });
   } catch (error) {
@@ -997,7 +997,7 @@ export const queueSeoNewsImageRegenerationNow = async (req, res) => {
     console.error("[SeoNewsAdmin] queue image regeneration failed:", error);
     return res.status(statusCode).json({
       ok: false,
-      message: error?.message || "Tao hang cho gen lai anh that bai",
+      message: error?.message || "T?o h?ng ch? gen l?i ?nh th?t b?i",
       error: error?.message || "internal_error",
     });
   }

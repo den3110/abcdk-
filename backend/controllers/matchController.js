@@ -2276,7 +2276,7 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
-    throw new Error("matchId khong hop le");
+    throw new Error("matchId kh?ng h?p l?");
   }
 
   const platform = normPlatform(req.body?.platform);
@@ -2293,8 +2293,8 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error(
       matchKind === "userMatch"
-        ? "UserMatch khong ton tai"
-        : "Match khong ton tai"
+        ? "UserMatch kh?ng t?n t?i"
+        : "Match kh?ng t?n t?i"
     );
   }
 
@@ -2323,7 +2323,7 @@ export const notifyStreamHeartbeat = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
-    throw new Error("matchId khong hop le");
+    throw new Error("matchId kh?ng h?p l?");
   }
 
   const platform = normPlatform(req.body?.platform);
@@ -2353,7 +2353,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
-    throw new Error("matchId khong hop le");
+    throw new Error("matchId kh?ng h?p l?");
   }
 
   const platform = normPlatform(req.body?.platform);

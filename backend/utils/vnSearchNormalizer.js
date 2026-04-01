@@ -2,11 +2,11 @@ export const VOWELS = "aăâeêioôơuưy";
 
 // Các dấu thanh trong bảng mã Unicode Combining Diacritical Marks (NFD)
 export const TONE_MARKS = [
-  "\u0300", // Huyền
-  "\u0301", // Sắc
-  "\u0303", // Ngã
-  "\u0309", // Hỏi
-  "\u0323", // Nặng
+  "̀", // Huyền
+  "́", // Sắc
+  "̃", // Ngã
+  "̉", // Hỏi
+  "̣", // Nặng
 ];
 
 // Danh sách ký tự ẩn cần dọn dẹp
@@ -49,7 +49,7 @@ export function canonicalize_vietnamese_tones(text_nfd) {
     // Tìm đoạn chứa nguyên âm (A, E, I, O, U, Y)
     // Cần match cả các Regex bao gồm ký tự unicode NFD
     const vowelPattern = new RegExp(
-      `[${VOWELS}][\\u0302\\u0306\\u031B]*`,
+      `[${VOWELS}][\̂\̆\̛]*`,
       "gi",
     );
 
@@ -104,17 +104,17 @@ export function canonicalize_vietnamese_tones(text_nfd) {
     let nucleusLength = 0;
 
     // Phân tích Nucleus trong bestCluster
-    // Các phần tử trong bestCluster có dạng: string, index. Ví dụ "o", "a", "ê" (e + \u0302)
+    // Các phần tử trong bestCluster có dạng: string, index. Ví dụ "o", "a", "ê" (e + ̂)
     const chars = bestCluster.map((m) => m[0].toLowerCase());
 
     // Rule 1: Chứa các nguyên âm có mũ/râu (ê, ơ, â, ă, ô) -> ưu tiên nó
     for (let i = 0; i < bestCluster.length; i++) {
       const c = bestCluster[i][0].toLowerCase();
-      // Ký tự mang mark mũ/râu (trong NFD là ký tự gốc theo sau bởi \u0302, \u0306, \u031B)
+      // Ký tự mang mark mũ/râu (trong NFD là ký tự gốc theo sau bởi ̂, ̆, ̛)
       if (
-        c.includes("\u0302") ||
-        c.includes("\u0306") ||
-        c.includes("\u031B")
+        c.includes("̂") ||
+        c.includes("̆") ||
+        c.includes("̛")
       ) {
         nucleusIndex = bestCluster[i].index;
         nucleusLength = bestCluster[i][0].length;
@@ -177,8 +177,8 @@ export function canonicalize_vietnamese_tones(text_nfd) {
  * Xóa toàn bộ dấu (kể cả dấu thanh và dấu phụ âm), chuyển đ/Đ thành d/D
  */
 export function remove_diacritics(str_nfd) {
-  // Loại bỏ toàn bộ diacritics (Combining marks - \p{M} category \u0300-\u036F)
-  let folded = str_nfd.replace(/[\u0300-\u036f]/g, "");
+  // Loại bỏ toàn bộ diacritics (Combining marks - \p{M} category ̀-ͯ)
+  let folded = str_nfd.replace(/[̀-ͯ]/g, "");
 
   // Xử lý riêng chữ đ/Đ: Unicode của đ là U+0111
   folded = folded.replace(/đ/g, "d").replace(/Đ/g, "D");
@@ -194,8 +194,8 @@ export function remove_diacritics(str_nfd) {
 export function clean_whitespace_and_hidden_chars(input) {
   if (!input) return "";
   let cleaned = input.replace(HIDDEN_CHARS_REGEX, "");
-  // Chuyển NBSP (\u00A0) và các loại space khác thành space thường
-  cleaned = cleaned.replace(/[\s\u00A0]+/g, " ");
+  // Chuyển NBSP ( ) và các loại space khác thành space thường
+  cleaned = cleaned.replace(/[\s ]+/g, " ");
 
   // Clean telex trailing tone marks (f, s, r, x, j) ngay sau nguyên âm
   // Việc này xử lý trường hợp user type "quang hof" thay vì "quang hoà"
@@ -267,7 +267,7 @@ export function normalize_for_search(input, options = {}) {
 /**
  * Tạo Regex Pattern tiếng Việt hỗ trợ tìm kiếm không dấu (Accent-insensitive) cho MongoDB.
  * Chuyển một chuỗi đã được bỏ dấu (folded) thành regex pattern khớp với mọi biến thể có dấu (NFC hoặc NFD).
- * Ví dụ: "nguyen" -> "ng[\u0300-\u036f]*[uúùủũụưứừửữự][\u0300-\u036f]*[yýỳỷỹỵ][\u0300-\u036f]*[eéèẻẽẹêếềểễệ][\u0300-\u036f]*n[\u0300-\u036f]*"
+ * Ví dụ: "nguyen" -> "ng[̀-ͯ]*[uúùủũụưứừửữự][̀-ͯ]*[yýỳỷỹỵ][̀-ͯ]*[eéèẻẽẹêếềểễệ][̀-ͯ]*n[̀-ͯ]*"
  *
  * @param {string} folded_str - Chuỗi đã được normalize_for_search và bỏ dấu
  * @returns {string} Regex pattern

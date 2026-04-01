@@ -9,6 +9,7 @@ import {
   handleChatTelemetryEvent,
   handleChatTelemetrySummary,
   handleChatTelemetryTurns,
+  handleChatMutationCommit,
   handleGetChatRolloutConfig,
   handleUpdateChatRolloutConfig,
   handleGetChatHistory,
@@ -22,6 +23,7 @@ router.post("/", passProtect, handleChat);
 router.post("/stream", passProtect, handleChatStream);
 router.post("/feedback", protect, handleChatFeedback);
 router.post("/telemetry/event", passProtect, handleChatTelemetryEvent);
+router.post("/mutation/commit", passProtect, handleChatMutationCommit);
 router.get("/rollout", protect, authorize("admin"), handleGetChatRolloutConfig);
 router.put("/rollout", protect, authorize("admin"), handleUpdateChatRolloutConfig);
 router.get("/history", protect, handleGetChatHistory);

@@ -1,4 +1,4 @@
-﻿import sanitizeHtml from "sanitize-html";
+import sanitizeHtml from "sanitize-html";
 
 const ALLOWED_TAGS = [
   "p",

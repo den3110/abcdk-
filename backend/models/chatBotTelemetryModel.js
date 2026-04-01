@@ -60,6 +60,22 @@ const chatBotTelemetrySchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    queryScope: {
+      type: String,
+      enum: [
+        "general_knowledge",
+        "page_scoped",
+        "entity_scoped",
+        "operator",
+        "",
+      ],
+      default: "",
+    },
+    contextConfidence: {
+      type: String,
+      enum: ["high", "medium", "low", ""],
+      default: "",
+    },
     toolsPlanned: {
       type: [String],
       default: [],
@@ -121,6 +137,14 @@ const chatBotTelemetrySchema = new mongoose.Schema(
       ],
       default: [],
     },
+    workflowCount: {
+      type: Number,
+      default: 0,
+    },
+    workflowExecuted: {
+      type: Number,
+      default: 0,
+    },
     cardKinds: {
       type: [String],
       default: [],
@@ -161,6 +185,19 @@ const chatBotTelemetrySchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
+    },
+    mutationType: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    mutationConfirmed: {
+      type: Number,
+      default: 0,
+    },
+    mutationCancelled: {
+      type: Number,
+      default: 0,
     },
     outcome: {
       type: String,

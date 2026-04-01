@@ -1,4 +1,4 @@
-﻿import axios from "axios";
+import axios from "axios";
 import * as cheerio from "cheerio";
 import crypto from "crypto";
 import slugify from "slugify";
@@ -18,7 +18,7 @@ import {
 import { resolveSeoNewsImages } from "./seoNewsImageService.js";
 import { evaluateSeoNewsRelevance } from "./seoNewsRelevanceService.js";
 
-const MOJIBAKE_REGEX = /(?:\u00C3.|\u00E1\u00BB|\u00E2\u20AC|\u00C2\s|\uFFFD)/;
+const MOJIBAKE_REGEX = /(?:\u00fd.|\u1ecd|\u00e2\u20ac|\u00c2\s|\uFFFD)/u;
 
 async function safeFetch(url) {
   const response = await axios.get(url, {

@@ -246,7 +246,7 @@ const maskPhone = (phone) => {
 const normalizeNoAccent = (s) =>
   (s || "")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^\w\s-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();

@@ -228,7 +228,7 @@ function buildTournamentBuckets(items = []) {
       map.get(tournamentId) ||
       {
         _id: tournamentId,
-        name: String(item?.tournament?.name || "Khong ro giai").trim(),
+        name: String(item?.tournament?.name || "Kh?ng r? gi?i").trim(),
         image: item?.tournament?.image || "",
         count: 0,
         liveCount: 0,
@@ -512,13 +512,13 @@ export async function deleteLiveVideoForMatch(req, res) {
     ).lean();
 
     if (!updated) {
-      return res.status(404).json({ message: "Match khong ton tai" });
+      return res.status(404).json({ message: "Match kh?ng t?n t?i" });
     }
 
     liveMatchesCache.clear();
 
     return res.json({
-      message: "Da xoa thong tin video khoi match",
+      message: "?? x?a th?ng tin video kh?i match",
       matchId: updated._id,
       facebookLive: updated.facebookLive || null,
     });

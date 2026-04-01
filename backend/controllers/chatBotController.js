@@ -16,6 +16,7 @@ import {
   recordChatTelemetryEvent,
   submitChatFeedback,
 } from "../services/bot/chatBotTelemetryService.js";
+import { commitPikoraMutation } from "../services/bot/pikoraMutationService.js";
 import {
   getPikoraRolloutConfig,
   updatePikoraRolloutConfig,
@@ -143,6 +144,16 @@ function sanitizeReasoningMode(value) {
   return value === "force_reasoner" ? "force_reasoner" : "auto";
 }
 
+function sanitizeAssistantMode(value) {
+  if (value === "operator") return "operator";
+  if (value === "analyst") return "analyst";
+  return "balanced";
+}
+
+function sanitizeVerificationMode(value) {
+  return value === "strict" ? "strict" : "balanced";
+}
+
 function sanitizeKnowledgeMode(value) {
   const next = String(value || "").trim().toLowerCase();
   if (next === "internal") return "internal";
@@ -150,11 +161,69 @@ function sanitizeKnowledgeMode(value) {
   return "auto";
 }
 
+function sanitizeSessionFocusEntity(entity) {
+  if (!entity || typeof entity !== "object") return null;
+  const entityId = trimSnapshotText(entity.entityId, 96);
+  const label = trimSnapshotText(entity.label, 140);
+  const path = trimSnapshotText(entity.path, 240);
+  const tournamentId = trimSnapshotText(entity.tournamentId, 96);
+  if (!entityId && !label && !path) return null;
+  return {
+    entityId,
+    label,
+    path,
+    tournamentId,
+  };
+}
+
+function sanitizeSessionFocusOverride(value) {
+  if (!value || typeof value !== "object") return null;
+  const mode = ["auto", "off", "pin"].includes(
+    String(value.mode || "").trim().toLowerCase(),
+  )
+    ? String(value.mode).trim().toLowerCase()
+    : "auto";
+
+  if (mode === "auto" || mode === "off") {
+    return { mode };
+  }
+
+  const rawSessionFocus =
+    value.sessionFocus && typeof value.sessionFocus === "object"
+      ? value.sessionFocus
+      : null;
+  if (!rawSessionFocus) return { mode: "auto" };
+
+  const activeType = ["tournament", "club", "news", "player", "match"].includes(
+    String(rawSessionFocus.activeType || "").trim(),
+  )
+    ? String(rawSessionFocus.activeType).trim()
+    : "";
+  const sessionFocus = {
+    activeType,
+    tournament: sanitizeSessionFocusEntity(rawSessionFocus.tournament),
+    club: sanitizeSessionFocusEntity(rawSessionFocus.club),
+    news: sanitizeSessionFocusEntity(rawSessionFocus.news),
+    player: sanitizeSessionFocusEntity(rawSessionFocus.player),
+    match: sanitizeSessionFocusEntity(rawSessionFocus.match),
+    updatedAt: trimSnapshotText(rawSessionFocus.updatedAt, 64),
+  };
+  const hasEntity = ["tournament", "club", "news", "player", "match"].some(
+    (key) => sessionFocus[key],
+  );
+  return hasEntity ? { mode: "pin", sessionFocus } : { mode: "auto" };
+}
+
 function buildRequestContext(req) {
   const currentUser = req.user;
   const pageSnapshot = sanitizePageSnapshot(req.body?.pageSnapshot);
   const reasoningMode = sanitizeReasoningMode(req.body?.reasoningMode);
+  const assistantMode = sanitizeAssistantMode(req.body?.assistantMode);
+  const verificationMode = sanitizeVerificationMode(req.body?.verificationMode);
   const knowledgeMode = sanitizeKnowledgeMode(req.body?.knowledgeMode);
+  const sessionFocusOverride = sanitizeSessionFocusOverride(
+    req.body?.sessionFocusOverride,
+  );
   const capabilityKeys = sanitizeCapabilityKeys(req.body?.capabilityKeys);
   const surface = sanitizeSurface(
     req.body?.surface || readHeaderString(req, "x-pkt-surface"),
@@ -181,7 +250,10 @@ function buildRequestContext(req) {
     pageSnapshot,
     capabilityKeys,
     reasoningMode,
+    assistantMode,
+    verificationMode,
     knowledgeMode,
+    sessionFocusOverride,
     surface,
     cohortId:
       trimSnapshotText(req.body?.cohortId, 128) ||
@@ -210,7 +282,10 @@ function buildStoredContext(context) {
     pageSnapshot: context.pageSnapshot || null,
     capabilityKeys: context.capabilityKeys || [],
     reasoningMode: context.reasoningMode || "auto",
+    assistantMode: context.assistantMode || "balanced",
+    verificationMode: context.verificationMode || "balanced",
     knowledgeMode: context.knowledgeMode || "auto",
+    sessionFocusOverride: context.sessionFocusOverride || null,
     surface: context.surface || "web",
     cohortId: context.cohortId || "",
   };
@@ -242,12 +317,20 @@ function buildAgentResponse(result = {}) {
     intent: result.intent || "",
     routeKind: result.routeKind || "",
     routeLane: result.routeLane || "",
+    queryScope: result.queryScope || "",
+    contextConfidence: result.contextConfidence || "",
     capabilityKeys: result.capabilityKeys || [],
     actionExecutionSummary: result.actionExecutionSummary || null,
+    workflow: result.workflow || null,
+    mutationPreview: result.mutationPreview || null,
+    sessionFocus: result.sessionFocus || null,
+    sessionFocusState: result.sessionFocusState || null,
     contextInsight: result.contextInsight || "",
     personalization: result.personalization || null,
     trustMeta: result.trustMeta || null,
     surface: result.surface || "web",
+    assistantMode: result.assistantMode || "balanced",
+    verificationMode: result.verificationMode || "balanced",
     botName: BOT_IDENTITY.nameVi,
     ...(result.navigation ? { navigation: result.navigation } : {}),
   };
@@ -274,12 +357,20 @@ function buildBotMeta(result = {}, extra = {}) {
     intent: result.intent || "",
     routeKind: result.routeKind || "",
     routeLane: result.routeLane || "",
+    queryScope: result.queryScope || "",
+    contextConfidence: result.contextConfidence || "",
     capabilityKeys: result.capabilityKeys || [],
     actionExecutionSummary: result.actionExecutionSummary || null,
+    workflow: result.workflow || null,
+    mutationPreview: result.mutationPreview || null,
+    sessionFocus: result.sessionFocus || null,
+    sessionFocusState: result.sessionFocusState || null,
     contextInsight: result.contextInsight || "",
     personalization: result.personalization || null,
     trustMeta: result.trustMeta || null,
     surface: result.surface || "web",
+    assistantMode: result.assistantMode || "balanced",
+    verificationMode: result.verificationMode || "balanced",
     feedback: extra.feedback || null,
   };
 }
@@ -306,6 +397,8 @@ function buildTelemetryPayload({
     intent: result.intent || "",
     routeKind: result.routeKind || "",
     routeLane: result.routeLane || "",
+    queryScope: result.queryScope || "",
+    contextConfidence: result.contextConfidence || "",
     toolsPlanned:
       result.toolsPlanned ||
       (Array.isArray(result.toolSummary)
@@ -331,6 +424,10 @@ function buildTelemetryPayload({
     actionExecuted: Array.isArray(result.actionExecutionSummary?.executed)
       ? result.actionExecutionSummary.executed
       : [],
+    workflowCount: result.workflow ? 1 : 0,
+    workflowExecuted: Array.isArray(result.actionExecutionSummary?.executed)
+      ? 0
+      : 0,
     cardKinds: Array.isArray(result.answerCards)
       ? result.answerCards.map((item) => item?.kind).filter(Boolean)
       : [],
@@ -340,6 +437,9 @@ function buildTelemetryPayload({
     guardApplied: Boolean(result.trustMeta?.guardApplied),
     fallbackUsed: Boolean(result.trustMeta?.operatorStatus === "navigate_fallback"),
     retrievalMode: result.trustMeta?.retrievalMode || "",
+    mutationType: result.mutationPreview?.type || "",
+    mutationConfirmed: 0,
+    mutationCancelled: 0,
     unsupportedIntent: result.unsupportedIntent || "",
     unsupportedAction: Array.isArray(result.actionExecutionSummary?.unsupported)
       ? String(
@@ -354,6 +454,10 @@ function buildTelemetryPayload({
       : {
           capabilityKeys: result.capabilityKeys || [],
           knowledgeMode: context?.knowledgeMode || "auto",
+          verificationMode:
+            result.verificationMode || context?.verificationMode || "balanced",
+          sessionFocusMode: result.sessionFocusState?.mode || "auto",
+          sessionFocusPinned: Boolean(result.sessionFocusState?.pinned),
         },
   };
 }
@@ -855,6 +959,9 @@ export async function handleBotInfo(req, res) {
       "Feedback telemetry",
       "Dark launch rollout config",
       "Hybrid retrieval (flagged)",
+      "Workflow recipes",
+      "Confirmed light mutations",
+      "Session focus memory",
     ],
   });
 }
@@ -968,6 +1075,29 @@ export async function handleChatTelemetryEvent(req, res) {
     console.error("[handleChatTelemetryEvent] error:", error);
     return res.status(400).json({
       error: error.message || "Không ghi được telemetry event",
+    });
+  }
+}
+
+export async function handleChatMutationCommit(req, res) {
+  try {
+    const currentUser = req.user || null;
+    const { mutationPreview, surface } = req.body || {};
+    if (!mutationPreview?.type) {
+      return res.status(400).json({ error: "Thiếu mutationPreview.type" });
+    }
+
+    const result = await commitPikoraMutation({
+      currentUser,
+      mutationPreview,
+      surface: sanitizeSurface(surface),
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error("[handleChatMutationCommit] error:", error);
+    return res.status(400).json({
+      error: error.message || "Không lưu được mutation nhẹ",
     });
   }
 }

@@ -1288,7 +1288,7 @@ export function initSocket(
     bracket ? String(bracket) : cluster ?? "Main";
 
   // Scheduler state broadcaster (ưu tiên bracket)
-  // ---------------- Broadcaster (ĐÃ SỬA) ----------------
+  // ---------------- Broadcaster (Đý SỬA) ----------------
 
   io.on("connection", async (socket) => {
     const userId = String(socket?.data?.userId || socket?.user?._id || "");

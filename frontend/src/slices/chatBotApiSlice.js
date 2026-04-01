@@ -42,6 +42,13 @@ export const chatBotApiSlice = apiSlice.injectEndpoints({
         body: data,
       }),
     }),
+    commitChatMutation: builder.mutation({
+      query: (data) => ({
+        url: "/api/chat/mutation/commit",
+        method: "POST",
+        body: data,
+      }),
+    }),
     getChatTelemetrySummary: builder.query({
       query: ({ days = 7 } = {}) => ({
         url: `/api/chat/telemetry/summary?days=${days}`,
@@ -81,6 +88,7 @@ export const {
   useClearLearningMemoryMutation,
   useSendChatFeedbackMutation,
   useSendChatTelemetryEventMutation,
+  useCommitChatMutationMutation,
   useGetChatTelemetrySummaryQuery,
   useGetChatTelemetryTurnsQuery,
   useGetChatRolloutConfigQuery,

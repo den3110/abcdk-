@@ -69,7 +69,220 @@ import { useChatBotPageContext } from "../context/ChatBotPageContext.jsx";
 
 const BOT_ICON = "/icon-chatbot-192.png";
 const REASONING_MODE_STORAGE_KEY = "pikora-reasoning-mode";
+const ASSISTANT_MODE_STORAGE_KEY = "pikora-assistant-mode";
+const VERIFICATION_MODE_STORAGE_KEY = "pikora-verification-mode";
+const SESSION_FOCUS_OVERRIDE_STORAGE_KEY = "pikora-session-focus-override";
 const CHATBOT_COHORT_STORAGE_KEY = "pikora-cohort-id";
+const CHATBOT_UI_PREFS_STORAGE_KEY = "pikora-ui-preferences";
+const CHATBOT_FORM_DRAFTS_STORAGE_KEY = "pikora-form-drafts";
+const PICKLETOUR_VERSION =
+  import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_VERSION || "dev";
+
+function normalizeAssistantModeValue(value) {
+  if (value === "operator") return "operator";
+  if (value === "analyst") return "analyst";
+  return "balanced";
+}
+
+function normalizeVerificationModeValue(value) {
+  return value === "strict" ? "strict" : "balanced";
+}
+
+function getAssistantModeMeta(mode, t) {
+  const normalized = normalizeAssistantModeValue(mode);
+  if (normalized === "operator") {
+    return {
+      value: "operator",
+      label: t("chatbot.assistantMode.operator", {}, "Operator Pro"),
+      description: t(
+        "chatbot.assistantMode.operatorHint",
+        {},
+        "Ưu tiên thao tác, điều hướng và bước tiếp theo có thể bấm ngay.",
+      ),
+      shortLabel: t(
+        "chatbot.assistantMode.operatorShort",
+        {},
+        "Operator Pro",
+      ),
+      icon: <TipsAndUpdatesIcon fontSize="small" />,
+    };
+  }
+  if (normalized === "analyst") {
+    return {
+      value: "analyst",
+      label: t("chatbot.assistantMode.analyst", {}, "Phân tích"),
+      description: t(
+        "chatbot.assistantMode.analystHint",
+        {},
+        "Ưu tiên so sánh, lý do, cấu trúc phân tích và nhận định ngắn gọn.",
+      ),
+      shortLabel: t("chatbot.assistantMode.analystShort", {}, "Phân tích"),
+      icon: <SchoolIcon fontSize="small" />,
+    };
+  }
+  return {
+    value: "balanced",
+    label: t("chatbot.assistantMode.balanced", {}, "Cân bằng"),
+    description: t(
+      "chatbot.assistantMode.balancedHint",
+      {},
+      "Cân bằng giữa trả lời trực tiếp, giải thích ngắn và gợi ý thao tác.",
+    ),
+    shortLabel: t("chatbot.assistantMode.balancedShort", {}, "Cân bằng"),
+    icon: <SmartToyIcon fontSize="small" />,
+  };
+}
+
+function getVerificationModeMeta(mode, t) {
+  const normalized = normalizeVerificationModeValue(mode);
+  if (normalized === "strict") {
+    return {
+      value: "strict",
+      label: t("chatbot.verificationMode.strict", {}, "Xác minh chặt"),
+      description: t(
+        "chatbot.verificationMode.strictHint",
+        {},
+        "Ưu tiên trả lời đã kiểm chứng, thiếu dữ liệu thì nói rõ là chưa đủ xác minh.",
+      ),
+      shortLabel: t(
+        "chatbot.verificationMode.strictShort",
+        {},
+        "Xác minh chặt",
+      ),
+      icon: <CheckCircleOutlineIcon fontSize="small" />,
+    };
+  }
+  return {
+    value: "balanced",
+    label: t("chatbot.verificationMode.balanced", {}, "Xác minh cân bằng"),
+    description: t(
+      "chatbot.verificationMode.balancedHint",
+      {},
+      "Giữ độ đúng cao nhưng vẫn cho phép định hướng ngắn gọn khi chưa đủ grounding.",
+    ),
+    shortLabel: t(
+      "chatbot.verificationMode.balancedShort",
+      {},
+      "Xác minh cân bằng",
+    ),
+    icon: <AutoAwesomeIcon fontSize="small" />,
+  };
+}
+
+function getSessionFocusMeta(sessionFocus, t) {
+  if (!sessionFocus || typeof sessionFocus !== "object") return null;
+  const activeType = String(sessionFocus.activeType || "").trim();
+  if (!activeType) return null;
+  const activeFocus = sessionFocus?.[activeType];
+  if (!activeFocus || typeof activeFocus !== "object") return null;
+
+  const fallbackLabels = {
+    tournament: t("chatbot.sessionFocus.tournament", {}, "Giải hiện tại"),
+    club: t("chatbot.sessionFocus.club", {}, "Câu lạc bộ hiện tại"),
+    news: t("chatbot.sessionFocus.news", {}, "Bài viết hiện tại"),
+    player: t("chatbot.sessionFocus.player", {}, "Người chơi hiện tại"),
+    match: t("chatbot.sessionFocus.match", {}, "Trận hiện tại"),
+  };
+
+  const rawLabel = String(activeFocus.label || "").trim();
+  const label = rawLabel || fallbackLabels[activeType] || fallbackLabels.tournament;
+  if (!label) return null;
+
+  return {
+    activeType,
+    label,
+    chipLabel: `${t("chatbot.sessionFocus.tracking", {}, "Đang theo dõi")}: ${label}`,
+    typeLabel:
+      {
+        tournament: t("chatbot.sessionFocus.typeTournament", {}, "Giải"),
+        club: t("chatbot.sessionFocus.typeClub", {}, "CLB"),
+        news: t("chatbot.sessionFocus.typeNews", {}, "Tin"),
+        player: t("chatbot.sessionFocus.typePlayer", {}, "VĐV"),
+        match: t("chatbot.sessionFocus.typeMatch", {}, "Trận"),
+      }[activeType] || t("chatbot.sessionFocus.typeGeneric", {}, "Ngữ cảnh"),
+    accent:
+      {
+        tournament: "#2563EB",
+        club: "#0F766E",
+        news: "#7C3AED",
+        player: "#EA580C",
+        match: "#DC2626",
+      }[activeType] || "#2563EB",
+  };
+}
+
+function getSessionFocusStateMeta(sessionFocusState, t) {
+  if (!sessionFocusState || typeof sessionFocusState !== "object") return null;
+  const mode = String(sessionFocusState.mode || "").trim().toLowerCase();
+  if (mode === "pin") {
+    return {
+      label: t("chatbot.sessionFocus.pinned", {}, "Đã ghim"),
+      accent: "#7C3AED",
+    };
+  }
+  if (mode === "off") {
+    return {
+      label: t("chatbot.sessionFocus.off", {}, "Ngữ cảnh hội thoại đang tắt"),
+      accent: "#D97706",
+    };
+  }
+  if (mode === "auto") {
+    return {
+      label: t("chatbot.sessionFocus.auto", {}, "Tự động"),
+      accent: "#0F9D58",
+    };
+  }
+  return null;
+}
+
+function getActiveSessionFocusEntity(sessionFocus) {
+  if (!sessionFocus || typeof sessionFocus !== "object") return null;
+  const activeType = String(sessionFocus.activeType || "").trim();
+  if (!activeType) return null;
+  const activeFocus = sessionFocus?.[activeType];
+  if (!activeFocus || typeof activeFocus !== "object") return null;
+  return {
+    activeType,
+    entityId: String(activeFocus.entityId || "").trim(),
+    label: String(activeFocus.label || "").trim(),
+  };
+}
+
+function normalizeSessionFocusOverrideValue(override) {
+  if (!override || typeof override !== "object") {
+    return { mode: "auto", sessionFocus: null };
+  }
+  const mode = ["auto", "off", "pin"].includes(
+    String(override.mode || "").trim().toLowerCase(),
+  )
+    ? String(override.mode).trim().toLowerCase()
+    : "auto";
+
+  if (mode !== "pin") {
+    return { mode, sessionFocus: null };
+  }
+
+  const activeFocus = getActiveSessionFocusEntity(override.sessionFocus);
+  if (!activeFocus) {
+    return { mode: "auto", sessionFocus: null };
+  }
+
+  return {
+    mode: "pin",
+    sessionFocus: override.sessionFocus,
+  };
+}
+
+function sessionFocusMatches(leftFocus, rightFocus) {
+  const left = getActiveSessionFocusEntity(leftFocus);
+  const right = getActiveSessionFocusEntity(rightFocus);
+  if (!left || !right) return false;
+  if (left.activeType !== right.activeType) return false;
+  if (left.entityId && right.entityId) {
+    return left.entityId === right.entityId;
+  }
+  return left.label && right.label ? left.label === right.label : false;
+}
 
 // ─── Initial Suggestions (only for welcome screen) ───
 function getWelcomeSuggestions(userInfo, t) {
@@ -646,20 +859,44 @@ const ChatComposer = memo(function ChatComposer({
   t,
   onSend,
   onStop,
+  reasoningMode: externalReasoningMode = "auto",
+  assistantMode: externalAssistantMode = "balanced",
+  verificationMode: externalVerificationMode = "balanced",
   onReasoningModeChange,
+  onAssistantModeChange,
+  onVerificationModeChange,
 }) {
   const isDark = theme.palette.mode === "dark";
   const inputRef = useRef(null);
   const [draft, setDraft] = useState("");
   const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState(null);
-  const [reasoningMode, setReasoningMode] = useState(() => {
-    if (typeof window === "undefined") return "auto";
-    return window.localStorage.getItem(REASONING_MODE_STORAGE_KEY) === "force_reasoner"
-      ? "force_reasoner"
-      : "auto";
-  });
+  const [reasoningMode, setReasoningMode] = useState(() =>
+    externalReasoningMode === "force_reasoner" ? "force_reasoner" : "auto",
+  );
+  const [assistantMode, setAssistantMode] = useState(() =>
+    normalizeAssistantModeValue(externalAssistantMode),
+  );
+  const [verificationMode, setVerificationMode] = useState(() =>
+    normalizeVerificationModeValue(externalVerificationMode),
+  );
 
   const modeMenuOpen = Boolean(modeMenuAnchorEl);
+  const assistantModeMeta = getAssistantModeMeta(assistantMode, t);
+  const verificationModeMeta = getVerificationModeMeta(verificationMode, t);
+
+  useEffect(() => {
+    setReasoningMode(
+      externalReasoningMode === "force_reasoner" ? "force_reasoner" : "auto",
+    );
+  }, [externalReasoningMode]);
+
+  useEffect(() => {
+    setAssistantMode(normalizeAssistantModeValue(externalAssistantMode));
+  }, [externalAssistantMode]);
+
+  useEffect(() => {
+    setVerificationMode(normalizeVerificationModeValue(externalVerificationMode));
+  }, [externalVerificationMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -667,8 +904,36 @@ const ChatComposer = memo(function ChatComposer({
   }, [reasoningMode]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const nextMode = normalizeAssistantModeValue(assistantMode);
+    if (nextMode === "balanced") {
+      window.localStorage.removeItem(ASSISTANT_MODE_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(ASSISTANT_MODE_STORAGE_KEY, nextMode);
+  }, [assistantMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const nextMode = normalizeVerificationModeValue(verificationMode);
+    if (nextMode === "balanced") {
+      window.localStorage.removeItem(VERIFICATION_MODE_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(VERIFICATION_MODE_STORAGE_KEY, nextMode);
+  }, [verificationMode]);
+
+  useEffect(() => {
     onReasoningModeChange?.(reasoningMode);
   }, [onReasoningModeChange, reasoningMode]);
+
+  useEffect(() => {
+    onAssistantModeChange?.(assistantMode);
+  }, [assistantMode, onAssistantModeChange]);
+
+  useEffect(() => {
+    onVerificationModeChange?.(verificationMode);
+  }, [onVerificationModeChange, verificationMode]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -680,8 +945,8 @@ const ChatComposer = memo(function ChatComposer({
     const text = draft.trim();
     if (!text || isTyping) return;
     setDraft("");
-    void onSend(text, reasoningMode);
-  }, [draft, isTyping, onSend, reasoningMode]);
+    void onSend(text, reasoningMode, assistantMode, verificationMode);
+  }, [assistantMode, draft, isTyping, onSend, reasoningMode, verificationMode]);
 
   const handleKeyDown = useCallback(
     (event) => {
@@ -744,24 +1009,71 @@ const ChatComposer = memo(function ChatComposer({
               </IconButton>
             </Tooltip>
 
-            {reasoningMode === "force_reasoner" ? (
-              <Chip
-                size="small"
-                icon={<PsychologyIcon sx={{ fontSize: 14 }} />}
-                label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
-                onDelete={() => setReasoningMode("auto")}
-                color="primary"
-                variant="filled"
-                sx={{
-                  fontWeight: 700,
-                  height: 40,
-                  borderRadius: 999,
-                  "& .MuiChip-label": {
-                    px: 1.15,
-                  },
-                }}
-              />
-            ) : null}
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.75,
+                flexWrap: "wrap",
+              }}
+            >
+              {reasoningMode === "force_reasoner" ? (
+                <Chip
+                  size="small"
+                  icon={<PsychologyIcon sx={{ fontSize: 14 }} />}
+                  label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+                  onDelete={() => setReasoningMode("auto")}
+                  color="primary"
+                  variant="filled"
+                  sx={{
+                    fontWeight: 700,
+                    height: 40,
+                    borderRadius: 999,
+                    "& .MuiChip-label": {
+                      px: 1.15,
+                    },
+                  }}
+                />
+              ) : null}
+
+              {assistantMode !== "balanced" ? (
+                <Chip
+                  size="small"
+                  icon={assistantModeMeta.icon}
+                  label={assistantModeMeta.shortLabel}
+                  onDelete={() => setAssistantMode("balanced")}
+                  color="secondary"
+                  variant="outlined"
+                  sx={{
+                    fontWeight: 700,
+                    height: 40,
+                    borderRadius: 999,
+                    "& .MuiChip-label": {
+                      px: 1.15,
+                    },
+                  }}
+                />
+              ) : null}
+
+              {verificationMode === "strict" ? (
+                <Chip
+                  size="small"
+                  icon={verificationModeMeta.icon}
+                  label={verificationModeMeta.shortLabel}
+                  onDelete={() => setVerificationMode("balanced")}
+                  color="success"
+                  variant="outlined"
+                  sx={{
+                    fontWeight: 700,
+                    height: 40,
+                    borderRadius: 999,
+                    "& .MuiChip-label": {
+                      px: 1.15,
+                    },
+                  }}
+                />
+              ) : null}
+            </Box>
           </Box>
 
           <TextField
@@ -877,6 +1189,68 @@ const ChatComposer = memo(function ChatComposer({
             primary={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
           />
         </MenuItem>
+        <Divider />
+        <Box sx={{ px: 2, pt: 1, pb: 0.5 }}>
+          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700 }}>
+            {t("chatbot.assistantMode.modeLabel", {}, "Phong cách trợ lý")}
+          </Typography>
+        </Box>
+        {["balanced", "operator", "analyst"].map((modeValue) => {
+          const option = getAssistantModeMeta(modeValue, t);
+          return (
+            <MenuItem
+              key={modeValue}
+              selected={assistantMode === modeValue}
+              onClick={() => {
+                setAssistantMode(modeValue);
+                setModeMenuAnchorEl(null);
+              }}
+            >
+              <ListItemIcon>
+                {assistantMode === modeValue ? (
+                  <DoneRoundedIcon color="primary" fontSize="small" />
+                ) : (
+                  option.icon
+                )}
+              </ListItemIcon>
+              <ListItemText
+                primary={option.label}
+                secondary={option.description}
+              />
+            </MenuItem>
+          );
+        })}
+        <Divider />
+        <Box sx={{ px: 2, pt: 1, pb: 0.5 }}>
+          <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700 }}>
+            {t("chatbot.verificationMode.modeLabel", {}, "Chế độ xác minh")}
+          </Typography>
+        </Box>
+        {["balanced", "strict"].map((modeValue) => {
+          const option = getVerificationModeMeta(modeValue, t);
+          return (
+            <MenuItem
+              key={`verification-${modeValue}`}
+              selected={verificationMode === modeValue}
+              onClick={() => {
+                setVerificationMode(modeValue);
+                setModeMenuAnchorEl(null);
+              }}
+            >
+              <ListItemIcon>
+                {verificationMode === modeValue ? (
+                  <DoneRoundedIcon color="primary" fontSize="small" />
+                ) : (
+                  option.icon
+                )}
+              </ListItemIcon>
+              <ListItemText
+                primary={option.label}
+                secondary={option.description}
+              />
+            </MenuItem>
+          );
+        })}
       </Menu>
     </>
   );
@@ -1599,6 +1973,12 @@ const MessageBubble = memo(function MessageBubble({
   theme,
   onNavigate,
   onAction,
+  onRunWorkflow,
+  onCommitMutation,
+  sessionFocusOverride,
+  onPinSessionFocus,
+  onDisableSessionFocus,
+  onResetSessionFocusOverride,
   onClose,
   onOpenReasoner,
   onFeedback,
@@ -1611,6 +1991,12 @@ const MessageBubble = memo(function MessageBubble({
   const showReasoning = isBot && msg.reasoningAvailable && !isStreaming;
   const hasThinkingBlock =
     isBot && Array.isArray(msg.thinkingSteps) && msg.thinkingSteps.length > 0 && !msg.isStreaming;
+  const workflow = msg.workflow || null;
+  const mutationPreview = msg.mutationPreview || null;
+  const sessionFocusMeta = isBot ? getSessionFocusMeta(msg.sessionFocus, t) : null;
+  const currentSessionFocusPinned =
+    sessionFocusOverride?.mode === "pin" &&
+    sessionFocusMatches(sessionFocusOverride?.sessionFocus, msg.sessionFocus);
 
   return (
     <Box
@@ -1676,6 +2062,108 @@ const MessageBubble = memo(function MessageBubble({
         >
           {isBot ? (
             <>
+              {sessionFocusMeta ? (
+                <Box
+                  sx={{
+                    mb: 0.9,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 0.7,
+                    alignItems: "center",
+                  }}
+                >
+                  <Chip
+                    size="small"
+                    label={sessionFocusMeta.chipLabel}
+                    sx={{
+                      maxWidth: "100%",
+                      height: 24,
+                      bgcolor: alpha(theme.palette.info.main, 0.1),
+                      color: theme.palette.info.main,
+                      fontWeight: 700,
+                      border: `1px solid ${alpha(theme.palette.info.main, 0.16)}`,
+                      ".MuiChip-label": {
+                        display: "block",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        px: 1.1,
+                      },
+                    }}
+                  />
+                  {currentSessionFocusPinned ? (
+                    <Chip
+                      size="small"
+                      label={t("chatbot.sessionFocus.pinned", {}, "Đã ghim")}
+                      color="secondary"
+                      variant="outlined"
+                      sx={{ height: 24, fontWeight: 700 }}
+                    />
+                  ) : (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => onPinSessionFocus?.(msg.sessionFocus, msg)}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.4,
+                        fontSize: "0.72rem",
+                        textTransform: "none",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {t("chatbot.sessionFocus.pin", {}, "Ghim")}
+                    </Button>
+                  )}
+                  {sessionFocusOverride?.mode === "off" ? (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => onResetSessionFocusOverride?.(msg)}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.4,
+                        fontSize: "0.72rem",
+                        textTransform: "none",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {t("chatbot.sessionFocus.auto", {}, "Tự động")}
+                    </Button>
+                  ) : currentSessionFocusPinned ? (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => onResetSessionFocusOverride?.(msg)}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.4,
+                        fontSize: "0.72rem",
+                        textTransform: "none",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {t("chatbot.sessionFocus.auto", {}, "Tự động")}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => onDisableSessionFocus?.(msg)}
+                      sx={{
+                        minWidth: 0,
+                        px: 0.4,
+                        fontSize: "0.72rem",
+                        textTransform: "none",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {t("chatbot.sessionFocus.clear", {}, "Bỏ")}
+                    </Button>
+                  )}
+                </Box>
+              ) : null}
+
               {isStreaming ? (
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.8 }}>
                   <Chip
@@ -1835,6 +2323,161 @@ const MessageBubble = memo(function MessageBubble({
                 {getChatActionLabel(action, t)}
               </Button>
             ))}
+          </Box>
+        ) : null}
+
+        {isBot && workflow?.steps?.length ? (
+          <Box
+            sx={{
+              mt: 1,
+              p: 1.2,
+              borderRadius: 2.5,
+              border: `1px solid ${alpha(theme.palette.primary.main, 0.16)}`,
+              bgcolor: alpha(theme.palette.primary.main, 0.04),
+            }}
+          >
+            <Typography
+              variant="subtitle2"
+              sx={{ fontWeight: 800, color: theme.palette.text.primary }}
+            >
+              {workflow.title || "Quy trình an toàn"}
+            </Typography>
+            {workflow.summary ? (
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  mt: 0.4,
+                  color: theme.palette.text.secondary,
+                  lineHeight: 1.45,
+                }}
+              >
+                {workflow.summary}
+              </Typography>
+            ) : null}
+            <Box sx={{ mt: 1, display: "grid", gap: 0.6 }}>
+              {workflow.steps.slice(0, 3).map((step, index) => (
+                <Box
+                  key={step.id || `${msg.id}-workflow-${index}`}
+                  sx={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 0.9,
+                    minWidth: 0,
+                  }}
+                >
+                  <Chip
+                    size="small"
+                    label={index + 1}
+                    sx={{
+                      height: 22,
+                      minWidth: 22,
+                      fontWeight: 800,
+                      bgcolor: alpha(theme.palette.primary.main, 0.12),
+                      color: theme.palette.primary.main,
+                    }}
+                  />
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        display: "block",
+                        fontWeight: 700,
+                        color: theme.palette.text.primary,
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {step.title}
+                    </Typography>
+                    {step.description ? (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          display: "block",
+                          color: theme.palette.text.secondary,
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        {step.description}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onRunWorkflow?.(workflow, msg)}
+              sx={{
+                mt: 1,
+                borderRadius: 999,
+                textTransform: "none",
+                fontWeight: 700,
+              }}
+            >
+              {workflow.runLabel || "Chạy workflow"}
+            </Button>
+          </Box>
+        ) : null}
+
+        {isBot && mutationPreview?.type ? (
+          <Box
+            sx={{
+              mt: 1,
+              p: 1.2,
+              borderRadius: 2.5,
+              border: `1px solid ${alpha(theme.palette.warning.main, 0.2)}`,
+              bgcolor: alpha(theme.palette.warning.main, 0.06),
+            }}
+          >
+            <Typography
+              variant="subtitle2"
+              sx={{ fontWeight: 800, color: theme.palette.text.primary }}
+            >
+              {mutationPreview.title || "Thay đổi nhẹ có xác nhận"}
+            </Typography>
+            {mutationPreview.summary ? (
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  mt: 0.4,
+                  color: theme.palette.text.secondary,
+                  lineHeight: 1.45,
+                }}
+              >
+                {mutationPreview.summary}
+              </Typography>
+            ) : null}
+            {Array.isArray(mutationPreview.changes) &&
+            mutationPreview.changes.length ? (
+              <Box sx={{ mt: 0.8, display: "grid", gap: 0.35 }}>
+                {mutationPreview.changes.slice(0, 3).map((change, index) => (
+                  <Typography
+                    key={`${msg.id}-mutation-change-${index}`}
+                    variant="caption"
+                    sx={{ color: theme.palette.text.secondary }}
+                  >
+                    • {change}
+                  </Typography>
+                ))}
+              </Box>
+            ) : null}
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
+              onClick={() => onCommitMutation?.(mutationPreview, msg)}
+              sx={{
+                mt: 1,
+                borderRadius: 999,
+                textTransform: "none",
+                fontWeight: 700,
+              }}
+            >
+              {"Xác nhận thay đổi nhẹ"}
+            </Button>
           </Box>
         ) : null}
 
@@ -2169,8 +2812,11 @@ async function sendMessageStream(
   pageSnapshot,
   capabilityKeys,
   reasoningMode,
+  assistantMode,
+  verificationMode,
   knowledgeMode,
   cohortId,
+  sessionFocusOverride,
   onEvent,
   signal,
 ) {
@@ -2185,8 +2831,13 @@ async function sendMessageStream(
       pageSnapshot: pageSnapshot || null,
       capabilityKeys: Array.isArray(capabilityKeys) ? capabilityKeys : [],
       reasoningMode: reasoningMode || "auto",
+      assistantMode: normalizeAssistantModeValue(assistantMode),
+      verificationMode: normalizeVerificationModeValue(verificationMode),
       knowledgeMode: knowledgeMode || "auto",
       cohortId: cohortId || "",
+      sessionFocusOverride: normalizeSessionFocusOverrideValue(
+        sessionFocusOverride,
+      ),
       surface: "web",
     }),
     credentials: "include",
@@ -2336,6 +2987,14 @@ async function runChatAction(action, { navigate, onClose, t, getActionHandler })
       throw new Error(t("chatbot.actions.unsupported"));
     }
     case "focus_element": {
+      const handlerKey =
+        payload.handlerKey || action.handlerKey || "focusSearch";
+      const handler = getActionHandler?.(handlerKey);
+      if (typeof handler === "function") {
+        await handler(undefined, payload, action);
+        return { status: "executed", detail: handlerKey };
+      }
+
       const selector = payload.selector || action.selector;
       if (!selector) throw new Error(t("chatbot.actions.unsupported"));
       const el = document.querySelector(selector);
@@ -2399,12 +3058,46 @@ export default function ChatBotDrawer() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [reasonerMessage, setReasonerMessage] = useState(null);
   const [pendingActionConfirm, setPendingActionConfirm] = useState(null);
+  const [pendingWorkflowConfirm, setPendingWorkflowConfirm] = useState(null);
+  const [pendingMutationConfirm, setPendingMutationConfirm] = useState(null);
   const [feedbackDialog, setFeedbackDialog] = useState(null);
   const [feedbackReason, setFeedbackReason] = useState("");
   const [feedbackNote, setFeedbackNote] = useState("");
   const [feedbackSubmittingId, setFeedbackSubmittingId] = useState("");
   const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState(null);
-  const [reasoningMode, setReasoningMode] = useState("auto");
+  const [reasoningMode, setReasoningMode] = useState(() => {
+    if (typeof window === "undefined") return "auto";
+    return window.localStorage.getItem(REASONING_MODE_STORAGE_KEY) === "force_reasoner"
+      ? "force_reasoner"
+      : "auto";
+  });
+  const [assistantMode, setAssistantMode] = useState(() => {
+    if (typeof window === "undefined") return "balanced";
+    return normalizeAssistantModeValue(
+      window.localStorage.getItem(ASSISTANT_MODE_STORAGE_KEY),
+    );
+  });
+  const [verificationMode, setVerificationMode] = useState(() => {
+    if (typeof window === "undefined") return "balanced";
+    return normalizeVerificationModeValue(
+      window.localStorage.getItem(VERIFICATION_MODE_STORAGE_KEY),
+    );
+  });
+  const [sessionFocusOverride, setSessionFocusOverride] = useState(() => {
+    if (typeof window === "undefined") {
+      return { mode: "auto", sessionFocus: null };
+    }
+    try {
+      return normalizeSessionFocusOverrideValue(
+        JSON.parse(
+          window.localStorage.getItem(SESSION_FOCUS_OVERRIDE_STORAGE_KEY) ||
+            "null",
+        ),
+      );
+    } catch {
+      return { mode: "auto", sessionFocus: null };
+    }
+  });
 
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -2412,6 +3105,9 @@ export default function ChatBotDrawer() {
   const abortControllerRef = useRef(null);
   const draftFrameRef = useRef(null);
   const composerReasoningModeRef = useRef("auto");
+  const composerAssistantModeRef = useRef("balanced");
+  const composerVerificationModeRef = useRef("balanced");
+  const sessionFocusOverrideRef = useRef({ mode: "auto", sessionFocus: null });
   const liveStepsRef = useRef([]);
   const liveReplyRef = useRef("");
   const liveReasoningRef = useRef("");
@@ -2429,8 +3125,14 @@ export default function ChatBotDrawer() {
     intent: "",
     routeKind: "",
     routeLane: "",
+    queryScope: "",
+    contextConfidence: "",
     capabilityKeys: [],
     actionExecutionSummary: null,
+    workflow: null,
+    mutationPreview: null,
+    assistantMode: "balanced",
+    verificationMode: "balanced",
     surface: "web",
     messageId: null,
     firstTokenLatencyMs: null,
@@ -2443,11 +3145,78 @@ export default function ChatBotDrawer() {
   const [clearLearning] = useClearLearningMemoryMutation();
   const [sendChatFeedback] = useSendChatFeedbackMutation();
   const [sendChatTelemetryEvent] = useSendChatTelemetryEventMutation();
+  const [commitChatMutation] = chatBotApiSlice.useCommitChatMutationMutation();
   const [fetchHistory] = chatBotApiSlice.useLazyGetChatHistoryQuery();
   const historyLoaded = useRef(false);
   const nextCursorRef = useRef(null);
   const hasMoreRef = useRef(true);
   const tipItems = t("chatbot.settings.tips");
+  const sessionFocusOverrideMeta = useMemo(() => {
+    const normalized = normalizeSessionFocusOverrideValue(sessionFocusOverride);
+    if (normalized.mode === "off") {
+      return {
+        label: t("chatbot.sessionFocus.off", {}, "Ngữ cảnh hội thoại đang tắt"),
+        color: "warning",
+      };
+    }
+    if (normalized.mode === "pin") {
+      const activeFocus = getActiveSessionFocusEntity(normalized.sessionFocus);
+      return {
+        label: `${t("chatbot.sessionFocus.pinned", {}, "Đã ghim")}: ${
+          activeFocus?.label || t("chatbot.sessionFocus.tracking", {}, "Ngữ cảnh")
+        }`,
+        color: "secondary",
+      };
+    }
+    return null;
+  }, [sessionFocusOverride, t]);
+
+  useEffect(() => {
+    composerReasoningModeRef.current =
+      reasoningMode === "force_reasoner" ? "force_reasoner" : "auto";
+    if (typeof window === "undefined") return;
+    if (reasoningMode === "force_reasoner") {
+      window.localStorage.setItem(REASONING_MODE_STORAGE_KEY, reasoningMode);
+    } else {
+      window.localStorage.removeItem(REASONING_MODE_STORAGE_KEY);
+    }
+  }, [reasoningMode]);
+
+  useEffect(() => {
+    const nextMode = normalizeAssistantModeValue(assistantMode);
+    composerAssistantModeRef.current = nextMode;
+    if (typeof window === "undefined") return;
+    if (nextMode === "balanced") {
+      window.localStorage.removeItem(ASSISTANT_MODE_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(ASSISTANT_MODE_STORAGE_KEY, nextMode);
+    }
+  }, [assistantMode]);
+
+  useEffect(() => {
+    const nextMode = normalizeVerificationModeValue(verificationMode);
+    composerVerificationModeRef.current = nextMode;
+    if (typeof window === "undefined") return;
+    if (nextMode === "balanced") {
+      window.localStorage.removeItem(VERIFICATION_MODE_STORAGE_KEY);
+    } else {
+      window.localStorage.setItem(VERIFICATION_MODE_STORAGE_KEY, nextMode);
+    }
+  }, [verificationMode]);
+
+  useEffect(() => {
+    const normalized = normalizeSessionFocusOverrideValue(sessionFocusOverride);
+    sessionFocusOverrideRef.current = normalized;
+    if (typeof window === "undefined") return;
+    if (normalized.mode === "auto") {
+      window.localStorage.removeItem(SESSION_FOCUS_OVERRIDE_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      SESSION_FOCUS_OVERRIDE_STORAGE_KEY,
+      JSON.stringify(normalized),
+    );
+  }, [sessionFocusOverride]);
 
   useEffect(
     () => () => {
@@ -2475,10 +3244,25 @@ export default function ChatBotDrawer() {
       intent: m.meta?.intent || "",
       routeKind: m.meta?.routeKind || "",
       routeLane: m.meta?.routeLane || "",
+      queryScope: m.meta?.queryScope || "",
+      contextConfidence: m.meta?.contextConfidence || "",
       capabilityKeys: m.meta?.capabilityKeys || [],
       actionExecutionSummary: m.meta?.actionExecutionSummary || null,
+      workflow: m.meta?.workflow || null,
+      mutationPreview: m.meta?.mutationPreview || null,
+      sessionFocus: m.meta?.sessionFocus || null,
+      sessionFocusState: m.meta?.sessionFocusState || null,
       contextInsight: m.meta?.contextInsight || "",
       personalization: m.meta?.personalization || null,
+      assistantMode:
+        m.meta?.assistantMode ||
+        m.meta?.personalization?.assistantMode ||
+        "balanced",
+      verificationMode:
+        m.meta?.verificationMode ||
+        m.meta?.trustMeta?.verificationMode ||
+        m.meta?.personalization?.verificationMode ||
+        "balanced",
       trustMeta: m.meta?.trustMeta || null,
       surface: m.meta?.surface || "web",
       feedback: m.meta?.feedback || null,
@@ -2603,8 +3387,15 @@ export default function ChatBotDrawer() {
   );
 
   const handleComposerModeChange = useCallback((mode) => {
-    composerReasoningModeRef.current =
-      mode === "force_reasoner" ? "force_reasoner" : "auto";
+    setReasoningMode(mode === "force_reasoner" ? "force_reasoner" : "auto");
+  }, []);
+
+  const handleComposerAssistantModeChange = useCallback((mode) => {
+    setAssistantMode(normalizeAssistantModeValue(mode));
+  }, []);
+
+  const handleComposerVerificationModeChange = useCallback((mode) => {
+    setVerificationMode(normalizeVerificationModeValue(mode));
   }, []);
 
   const executeChatAction = useCallback(
@@ -2630,6 +3421,135 @@ export default function ChatBotDrawer() {
     [routerNavigate, handleCloseDrawer, t, getActionHandler, logChatClientEvent],
   );
 
+  const applyLocalMutationFallback = useCallback(async (mutationPreview) => {
+    if (!mutationPreview?.type) return;
+
+    if (mutationPreview.type === "save_bot_preference") {
+      const nextMode =
+        mutationPreview?.payload?.reasoningMode === "force_reasoner"
+          ? "force_reasoner"
+          : "auto";
+      const nextAssistantMode = normalizeAssistantModeValue(
+        mutationPreview?.payload?.assistantMode,
+      );
+      const nextVerificationMode = normalizeVerificationModeValue(
+        mutationPreview?.payload?.verificationMode,
+      );
+      setReasoningMode(nextMode);
+      setAssistantMode(nextAssistantMode);
+      setVerificationMode(nextVerificationMode);
+      return;
+    }
+
+    if (mutationPreview.type === "save_ui_preference") {
+      const key = String(
+        mutationPreview?.payload?.scopeKey || "page_default",
+      ).trim();
+      const current = JSON.parse(
+        localStorage.getItem(CHATBOT_UI_PREFS_STORAGE_KEY) || "{}",
+      );
+      current[key] = {
+        ...mutationPreview.payload,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(
+        CHATBOT_UI_PREFS_STORAGE_KEY,
+        JSON.stringify(current),
+      );
+      return;
+    }
+
+    if (mutationPreview.type === "stage_form_draft") {
+      const key = String(
+        mutationPreview?.payload?.draftKey || "form_draft",
+      ).trim();
+      const current = JSON.parse(
+        localStorage.getItem(CHATBOT_FORM_DRAFTS_STORAGE_KEY) || "{}",
+      );
+      current[key] = {
+        ...mutationPreview.payload,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(
+        CHATBOT_FORM_DRAFTS_STORAGE_KEY,
+        JSON.stringify(current),
+      );
+    }
+  }, []);
+
+  const executeWorkflow = useCallback(
+    async (workflow, msg) => {
+      const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+      if (!steps.length) return;
+
+      let finalStatus = "workflow_executed";
+      for (const step of steps) {
+        try {
+          const actionResult = await runChatAction(step.action, {
+            navigate: routerNavigate,
+            onClose: handleCloseDrawer,
+            t,
+            getActionHandler,
+          });
+          if (actionResult?.status === "degraded") {
+            finalStatus = "workflow_degraded";
+          }
+          if (["navigate", "open_new_tab"].includes(step.action?.type)) {
+            break;
+          }
+        } catch (error) {
+          finalStatus = "workflow_unsupported";
+          await logChatClientEvent({
+            messageId: msg?.id,
+            type: "workflow_unsupported",
+            label: workflow?.title || "workflow",
+            actionType: step?.action?.type || "",
+            success: false,
+            detail: error?.message || t("chatbot.actions.unsupported"),
+          });
+          throw error;
+        }
+      }
+
+      await logChatClientEvent({
+        messageId: msg?.id,
+        type: finalStatus,
+        label: workflow?.title || "workflow",
+        actionType: "workflow",
+        success: finalStatus !== "workflow_unsupported",
+        detail: workflow?.runLabel || "",
+      });
+    },
+    [
+      getActionHandler,
+      handleCloseDrawer,
+      logChatClientEvent,
+      routerNavigate,
+      t,
+    ],
+  );
+
+  const commitLightMutation = useCallback(
+    async (mutationPreview, msg) => {
+      const response = await commitChatMutation({
+        mutationPreview,
+        surface: "web",
+      }).unwrap();
+
+      await applyLocalMutationFallback(response?.mutation || mutationPreview);
+
+      await logChatClientEvent({
+        messageId: msg?.id,
+        type: "mutation_confirmed",
+        label: mutationPreview?.title || mutationPreview?.type || "mutation",
+        actionType: mutationPreview?.type || "",
+        success: true,
+        detail: response?.localOnly ? "local_only" : "server_committed",
+      });
+    },
+    [applyLocalMutationFallback, commitChatMutation, logChatClientEvent],
+  );
+
   const handleChatAction = useCallback(
     async (action, msg) => {
       if (action?.requiresConfirm) {
@@ -2650,6 +3570,96 @@ export default function ChatBotDrawer() {
       }
     },
     [executeChatAction, logChatClientEvent, t],
+  );
+
+  const handleWorkflowRun = useCallback(
+    async (workflow, msg) => {
+      if (!workflow?.steps?.length) return;
+      if (workflow?.requiresConfirm) {
+        setPendingWorkflowConfirm({ workflow, msg });
+        return;
+      }
+      try {
+        await executeWorkflow(workflow, msg);
+      } catch {
+        // already logged
+      }
+    },
+    [executeWorkflow],
+  );
+
+  const handleMutationPreview = useCallback(
+    async (mutationPreview, msg) => {
+      if (!mutationPreview?.type) return;
+      if (mutationPreview?.requiresConfirm !== false) {
+        setPendingMutationConfirm({ mutationPreview, msg });
+        return;
+      }
+      try {
+        await commitLightMutation(mutationPreview, msg);
+      } catch (error) {
+        await logChatClientEvent({
+          messageId: msg?.id,
+          type: "mutation_cancelled",
+          label: mutationPreview?.title || mutationPreview?.type || "mutation",
+          actionType: mutationPreview?.type || "",
+          success: false,
+          detail: error?.message || "mutation_failed",
+        });
+      }
+    },
+    [commitLightMutation, logChatClientEvent],
+  );
+
+  const handlePinSessionFocus = useCallback(
+    async (sessionFocus, msg) => {
+      const normalized = normalizeSessionFocusOverrideValue({
+        mode: "pin",
+        sessionFocus,
+      });
+      if (normalized.mode !== "pin" || !normalized.sessionFocus) return;
+      setSessionFocusOverride(normalized);
+      await logChatClientEvent({
+        messageId: msg?.id,
+        type: "action_executed",
+        label: "Ghim ngữ cảnh hội thoại",
+        actionType: "session_focus_pin",
+        success: true,
+        detail:
+          getActiveSessionFocusEntity(normalized.sessionFocus)?.label || "",
+      });
+    },
+    [logChatClientEvent],
+  );
+
+  const handleDisableSessionFocus = useCallback(
+    async (msg) => {
+      setSessionFocusOverride({ mode: "off", sessionFocus: null });
+      await logChatClientEvent({
+        messageId: msg?.id,
+        type: "action_executed",
+        label: "Tắt ngữ cảnh hội thoại",
+        actionType: "session_focus_off",
+        success: true,
+        detail: "off",
+      });
+    },
+    [logChatClientEvent],
+  );
+
+  const handleResetSessionFocusOverride = useCallback(
+    async (msg) => {
+      setSessionFocusOverride({ mode: "auto", sessionFocus: null });
+      await logChatClientEvent({
+        messageId: msg?.id,
+        type: "action_executed",
+        label: "Trả về ngữ cảnh tự động",
+        actionType: "session_focus_auto",
+        success: true,
+        detail: "auto",
+      });
+    },
+    [logChatClientEvent],
   );
 
   const handleFeedback = useCallback(
@@ -2818,6 +3828,12 @@ export default function ChatBotDrawer() {
     const nextText = String(text ?? "").trim();
     const requestReasoningMode =
       options?.reasoningMode === "force_reasoner" ? "force_reasoner" : "auto";
+    const requestAssistantMode = normalizeAssistantModeValue(
+      options?.assistantMode || composerAssistantModeRef.current,
+    );
+    const requestVerificationMode = normalizeVerificationModeValue(
+      options?.verificationMode || composerVerificationModeRef.current,
+    );
     if (!nextText || isTyping) return;
     userJustSentRef.current = true;
     isNearBottomRef.current = true;
@@ -2843,8 +3859,15 @@ export default function ChatBotDrawer() {
       intent: "",
       routeKind: "",
       routeLane: "",
+      queryScope: "",
+      contextConfidence: "",
       capabilityKeys: [],
       actionExecutionSummary: null,
+      workflow: null,
+        mutationPreview: null,
+        sessionFocus: null,
+        assistantMode: requestAssistantMode,
+        verificationMode: requestVerificationMode,
       surface: "web",
       messageId: null,
       firstTokenLatencyMs: null,
@@ -2869,8 +3892,15 @@ export default function ChatBotDrawer() {
       intent: "",
       routeKind: "",
       routeLane: "",
+      queryScope: "",
+      contextConfidence: "",
       capabilityKeys: [],
       actionExecutionSummary: null,
+      workflow: null,
+      mutationPreview: null,
+      sessionFocus: null,
+      assistantMode: requestAssistantMode,
+      verificationMode: requestVerificationMode,
       surface: "web",
       messageId: null,
     });
@@ -2900,10 +3930,17 @@ export default function ChatBotDrawer() {
         intent: liveMetaRef.current.intent,
         routeKind: liveMetaRef.current.routeKind,
         routeLane: liveMetaRef.current.routeLane,
+        queryScope: liveMetaRef.current.queryScope,
+        contextConfidence: liveMetaRef.current.contextConfidence,
         capabilityKeys: liveMetaRef.current.capabilityKeys,
         actionExecutionSummary: liveMetaRef.current.actionExecutionSummary,
+        workflow: liveMetaRef.current.workflow,
+        mutationPreview: liveMetaRef.current.mutationPreview,
+        sessionFocus: liveMetaRef.current.sessionFocus,
         contextInsight: liveMetaRef.current.contextInsight,
         personalization: liveMetaRef.current.personalization,
+        assistantMode: liveMetaRef.current.assistantMode,
+        verificationMode: liveMetaRef.current.verificationMode,
         trustMeta: liveMetaRef.current.trustMeta,
         surface: liveMetaRef.current.surface,
       });
@@ -2929,8 +3966,11 @@ export default function ChatBotDrawer() {
         requestPageSnapshot,
         capabilityKeys,
         requestReasoningMode,
+        requestAssistantMode,
+        requestVerificationMode,
         "auto",
         getOrCreateChatCohortId(),
+        sessionFocusOverrideRef.current,
         (event, data) => {
           switch (event) {
             case "thinking": {
@@ -2984,15 +4024,33 @@ export default function ChatBotDrawer() {
                 intent: data.intent || liveMetaRef.current.intent,
                 routeKind: data.routeKind || liveMetaRef.current.routeKind,
                 routeLane: data.routeLane || liveMetaRef.current.routeLane,
+                queryScope: data.queryScope || liveMetaRef.current.queryScope,
+                contextConfidence:
+                  data.contextConfidence ||
+                  liveMetaRef.current.contextConfidence,
                 capabilityKeys:
                   data.capabilityKeys || liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
                   data.actionExecutionSummary ||
                   liveMetaRef.current.actionExecutionSummary,
+                workflow: data.workflow || liveMetaRef.current.workflow,
+                mutationPreview:
+                  data.mutationPreview || liveMetaRef.current.mutationPreview,
+                sessionFocus:
+                  data.sessionFocus || liveMetaRef.current.sessionFocus,
                 contextInsight:
                   data.contextInsight || liveMetaRef.current.contextInsight,
                 personalization:
                   data.personalization || liveMetaRef.current.personalization,
+                assistantMode:
+                  data.assistantMode ||
+                  data.personalization?.assistantMode ||
+                  liveMetaRef.current.assistantMode,
+                verificationMode:
+                  data.verificationMode ||
+                  data.trustMeta?.verificationMode ||
+                  data.personalization?.verificationMode ||
+                  liveMetaRef.current.verificationMode,
                 trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
                 surface: data.surface || liveMetaRef.current.surface,
               };
@@ -3038,15 +4096,29 @@ export default function ChatBotDrawer() {
                 intent: data.intent || liveMetaRef.current.intent,
                 routeKind: data.routeKind || liveMetaRef.current.routeKind,
                 routeLane: data.routeLane || liveMetaRef.current.routeLane,
+                queryScope: data.queryScope || liveMetaRef.current.queryScope,
+                contextConfidence:
+                  data.contextConfidence ||
+                  liveMetaRef.current.contextConfidence,
                 capabilityKeys:
                   data.capabilityKeys || liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
                   data.actionExecutionSummary ||
                   liveMetaRef.current.actionExecutionSummary,
+                workflow: data.workflow || liveMetaRef.current.workflow,
+                mutationPreview:
+                  data.mutationPreview || liveMetaRef.current.mutationPreview,
+                sessionFocus:
+                  data.sessionFocus || liveMetaRef.current.sessionFocus,
                 contextInsight:
                   data.contextInsight || liveMetaRef.current.contextInsight,
                 personalization:
                   data.personalization || liveMetaRef.current.personalization,
+                verificationMode:
+                  data.verificationMode ||
+                  data.trustMeta?.verificationMode ||
+                  data.personalization?.verificationMode ||
+                  liveMetaRef.current.verificationMode,
                 trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
                 surface: data.surface || liveMetaRef.current.surface,
                 reasoningAvailable: Boolean(
@@ -3075,11 +4147,18 @@ export default function ChatBotDrawer() {
                 intent: liveMetaRef.current.intent,
                 routeKind: liveMetaRef.current.routeKind,
                 routeLane: liveMetaRef.current.routeLane,
+                queryScope: liveMetaRef.current.queryScope,
+                contextConfidence: liveMetaRef.current.contextConfidence,
                 capabilityKeys: liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
                   liveMetaRef.current.actionExecutionSummary,
+                workflow: liveMetaRef.current.workflow,
+                mutationPreview: liveMetaRef.current.mutationPreview,
+                sessionFocus: liveMetaRef.current.sessionFocus,
                 contextInsight: liveMetaRef.current.contextInsight,
                 personalization: liveMetaRef.current.personalization,
+                assistantMode: liveMetaRef.current.assistantMode,
+                verificationMode: liveMetaRef.current.verificationMode,
                 trustMeta: liveMetaRef.current.trustMeta,
                 surface: liveMetaRef.current.surface,
                 rawThinking: liveReasoningRef.current,
@@ -3104,15 +4183,33 @@ export default function ChatBotDrawer() {
                 intent: data.intent || liveMetaRef.current.intent,
                 routeKind: data.routeKind || liveMetaRef.current.routeKind,
                 routeLane: data.routeLane || liveMetaRef.current.routeLane,
+                queryScope: data.queryScope || liveMetaRef.current.queryScope,
+                contextConfidence:
+                  data.contextConfidence ||
+                  liveMetaRef.current.contextConfidence,
                 capabilityKeys:
                   data.capabilityKeys || liveMetaRef.current.capabilityKeys,
                 actionExecutionSummary:
                   data.actionExecutionSummary ||
                   liveMetaRef.current.actionExecutionSummary,
+                workflow: data.workflow || liveMetaRef.current.workflow,
+                mutationPreview:
+                  data.mutationPreview || liveMetaRef.current.mutationPreview,
+                sessionFocus:
+                  data.sessionFocus || liveMetaRef.current.sessionFocus,
                 contextInsight:
                   data.contextInsight || liveMetaRef.current.contextInsight,
                 personalization:
                   data.personalization || liveMetaRef.current.personalization,
+                assistantMode:
+                  data.assistantMode ||
+                  data.personalization?.assistantMode ||
+                  liveMetaRef.current.assistantMode,
+                verificationMode:
+                  data.verificationMode ||
+                  data.trustMeta?.verificationMode ||
+                  data.personalization?.verificationMode ||
+                  liveMetaRef.current.verificationMode,
                 trustMeta: data.trustMeta || liveMetaRef.current.trustMeta,
                 surface: data.surface || liveMetaRef.current.surface,
                 rawThinking: liveReasoningRef.current,
@@ -3151,8 +4248,13 @@ export default function ChatBotDrawer() {
                 intent: "",
                 routeKind: "",
                 routeLane: "",
+                queryScope: "",
+                contextConfidence: "",
                 capabilityKeys: [],
                 actionExecutionSummary: null,
+                workflow: null,
+                mutationPreview: null,
+                sessionFocus: liveMetaRef.current.sessionFocus,
                 surface: liveMetaRef.current.surface,
                 model: liveMetaRef.current.model,
                 mode: liveMetaRef.current.mode,
@@ -3201,15 +4303,31 @@ export default function ChatBotDrawer() {
               replyData?.routeKind || liveMetaRef.current.routeKind,
             routeLane:
               replyData?.routeLane || liveMetaRef.current.routeLane,
+            queryScope:
+              replyData?.queryScope || liveMetaRef.current.queryScope,
+            contextConfidence:
+              replyData?.contextConfidence ||
+              liveMetaRef.current.contextConfidence,
             capabilityKeys:
               replyData?.capabilityKeys || liveMetaRef.current.capabilityKeys,
             actionExecutionSummary:
               replyData?.actionExecutionSummary ||
               liveMetaRef.current.actionExecutionSummary,
+            workflow: replyData?.workflow || liveMetaRef.current.workflow,
+            mutationPreview:
+              replyData?.mutationPreview ||
+              liveMetaRef.current.mutationPreview,
+            sessionFocus:
+              replyData?.sessionFocus || liveMetaRef.current.sessionFocus,
             contextInsight:
               replyData?.contextInsight || liveMetaRef.current.contextInsight,
             personalization:
               replyData?.personalization || liveMetaRef.current.personalization,
+            assistantMode:
+              replyData?.assistantMode || liveMetaRef.current.assistantMode,
+            verificationMode:
+              replyData?.verificationMode ||
+              liveMetaRef.current.verificationMode,
             trustMeta: replyData?.trustMeta || liveMetaRef.current.trustMeta,
             surface: replyData?.surface || liveMetaRef.current.surface,
             rawThinking: replyData?.rawThinking || liveReasoningRef.current,
@@ -3246,11 +4364,18 @@ export default function ChatBotDrawer() {
               intent: liveMetaRef.current.intent,
               routeKind: liveMetaRef.current.routeKind,
               routeLane: liveMetaRef.current.routeLane,
+              queryScope: liveMetaRef.current.queryScope,
+              contextConfidence: liveMetaRef.current.contextConfidence,
               capabilityKeys: liveMetaRef.current.capabilityKeys,
               actionExecutionSummary:
                 liveMetaRef.current.actionExecutionSummary,
+              workflow: liveMetaRef.current.workflow,
+              mutationPreview: liveMetaRef.current.mutationPreview,
+              sessionFocus: liveMetaRef.current.sessionFocus,
               contextInsight: liveMetaRef.current.contextInsight,
               personalization: liveMetaRef.current.personalization,
+              assistantMode: liveMetaRef.current.assistantMode,
+              verificationMode: liveMetaRef.current.verificationMode,
               trustMeta: liveMetaRef.current.trustMeta,
               surface: liveMetaRef.current.surface,
               rawThinking: liveReasoningRef.current,
@@ -3289,9 +4414,15 @@ export default function ChatBotDrawer() {
           intent: "",
           routeKind: "",
           routeLane: "",
+          queryScope: "",
+          contextConfidence: "",
           capabilityKeys: [],
           actionExecutionSummary: null,
+          workflow: null,
+          mutationPreview: null,
+          sessionFocus: null,
           surface: liveMetaRef.current.surface,
+          verificationMode: liveMetaRef.current.verificationMode,
           rawThinking: liveReasoningRef.current,
           reasoningAvailable: Boolean(liveReasoningRef.current),
           model: liveMetaRef.current.model,
@@ -3317,9 +4448,16 @@ export default function ChatBotDrawer() {
   }, [capabilityKeys, isTyping, registeredPageSnapshot, t]);
 
   const handleSend = useCallback(
-    (text, reasoningModeOverride = composerReasoningModeRef.current) =>
+    (
+      text,
+      reasoningModeOverride = composerReasoningModeRef.current,
+      assistantModeOverride = composerAssistantModeRef.current,
+      verificationModeOverride = composerVerificationModeRef.current,
+    ) =>
       startSend(text, {
         reasoningMode: reasoningModeOverride,
+        assistantMode: assistantModeOverride,
+        verificationMode: verificationModeOverride,
       }),
     [startSend],
   );
@@ -3339,6 +4477,8 @@ export default function ChatBotDrawer() {
       }
       void startSend(text, {
         reasoningMode: composerReasoningModeRef.current,
+        assistantMode: composerAssistantModeRef.current,
+        verificationMode: composerVerificationModeRef.current,
       });
     },
     [logChatClientEvent, messages, startSend],
@@ -3444,6 +4584,12 @@ export default function ChatBotDrawer() {
           theme={theme}
           onNavigate={handleChatNavigate}
           onAction={handleChatAction}
+          onRunWorkflow={handleWorkflowRun}
+          onCommitMutation={handleMutationPreview}
+          sessionFocusOverride={sessionFocusOverride}
+          onPinSessionFocus={handlePinSessionFocus}
+          onDisableSessionFocus={handleDisableSessionFocus}
+          onResetSessionFocusOverride={handleResetSessionFocusOverride}
           onClose={handleCloseDrawer}
           onOpenReasoner={setReasonerMessage}
           onFeedback={feedbackEnabled ? handleFeedback : undefined}
@@ -3458,7 +4604,13 @@ export default function ChatBotDrawer() {
       handleChatNavigate,
       handleCloseDrawer,
       handleFeedback,
+      handleDisableSessionFocus,
+      handleMutationPreview,
+      handlePinSessionFocus,
+      handleResetSessionFocusOverride,
+      handleWorkflowRun,
       messages,
+      sessionFocusOverride,
       theme,
       t,
     ],
@@ -3472,6 +4624,12 @@ export default function ChatBotDrawer() {
         theme={theme}
         onNavigate={handleChatNavigate}
         onAction={handleChatAction}
+        onRunWorkflow={handleWorkflowRun}
+        onCommitMutation={handleMutationPreview}
+        sessionFocusOverride={sessionFocusOverride}
+        onPinSessionFocus={handlePinSessionFocus}
+        onDisableSessionFocus={handleDisableSessionFocus}
+        onResetSessionFocusOverride={handleResetSessionFocusOverride}
         onClose={handleCloseDrawer}
         onOpenReasoner={setReasonerMessage}
         onFeedback={feedbackEnabled ? handleFeedback : undefined}
@@ -3486,7 +4644,13 @@ export default function ChatBotDrawer() {
     handleChatNavigate,
     handleCloseDrawer,
     handleFeedback,
+    handleDisableSessionFocus,
+    handleMutationPreview,
+    handlePinSessionFocus,
+    handleResetSessionFocusOverride,
+    handleWorkflowRun,
     liveDraft,
+    sessionFocusOverride,
     theme,
     t,
   ]);
@@ -3734,6 +4898,8 @@ export default function ChatBotDrawer() {
                 <br />
                 <b>{t("chatbot.settings.capabilitiesLabel")}:</b>{" "}
                 {t("chatbot.settings.capabilitiesValue")}
+                <br />
+                <b>Phiên bản PickleTour:</b> {PICKLETOUR_VERSION}
               </Typography>
             </Box>
 
@@ -4272,15 +5438,46 @@ export default function ChatBotDrawer() {
             </Box>
           </>
         )}
-            <ChatComposer
-              open={open}
-              isTyping={isTyping}
-              theme={theme}
-              t={t}
-              onSend={handleSend}
-              onStop={handleStopStreaming}
-              onReasoningModeChange={handleComposerModeChange}
-            />
+            {sessionFocusOverrideMeta && !showSettings && (
+              <Box sx={{ px: 2, pb: 0.8 }}>
+                <Chip
+                  size="small"
+                  label={sessionFocusOverrideMeta.label}
+                  onDelete={() => {
+                    void handleResetSessionFocusOverride();
+                  }}
+                  color={sessionFocusOverrideMeta.color}
+                  variant="outlined"
+                  sx={{
+                    maxWidth: "100%",
+                    height: 28,
+                    fontWeight: 700,
+                    ".MuiChip-label": {
+                      display: "block",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    },
+                  }}
+                />
+              </Box>
+            )}
+            {!showSettings && (
+              <ChatComposer
+                open={open}
+                isTyping={isTyping}
+                theme={theme}
+                t={t}
+                onSend={handleSend}
+                onStop={handleStopStreaming}
+                reasoningMode={reasoningMode}
+                assistantMode={assistantMode}
+                verificationMode={verificationMode}
+                onReasoningModeChange={handleComposerModeChange}
+                onAssistantModeChange={handleComposerAssistantModeChange}
+                onVerificationModeChange={handleComposerVerificationModeChange}
+              />
+            )}
       </Drawer>
 
       <Menu
@@ -4421,6 +5618,154 @@ export default function ChatBotDrawer() {
             }}
           >
             {pendingActionConfirm?.action?.label || t("chatbot.actions.run")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingWorkflowConfirm)}
+        onClose={() => setPendingWorkflowConfirm(null)}
+        PaperProps={{
+          sx: { borderRadius: 3, maxWidth: 420 },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, fontSize: "1rem", pb: 0.5 }}>
+          {pendingWorkflowConfirm?.workflow?.title || "Xác nhận workflow"}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontSize: "0.875rem", mb: 1 }}>
+            {pendingWorkflowConfirm?.workflow?.summary ||
+              "Pikora sẽ chạy một chuỗi thao tác nhẹ, an toàn trên trang hiện tại."}
+          </DialogContentText>
+          <Box sx={{ display: "grid", gap: 0.7 }}>
+            {(pendingWorkflowConfirm?.workflow?.steps || []).slice(0, 3).map((step, index) => (
+              <Typography
+                key={step.id || `wf-step-${index}`}
+                variant="caption"
+                sx={{ color: "text.secondary" }}
+              >
+                {index + 1}. {step.title}
+              </Typography>
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={async () => {
+              const pending = pendingWorkflowConfirm;
+              setPendingWorkflowConfirm(null);
+              await logChatClientEvent({
+                messageId: pending?.msg?.id,
+                type: "workflow_unsupported",
+                label: pending?.workflow?.title || "workflow",
+                actionType: "workflow",
+                success: false,
+                detail: "cancelled_by_user",
+              });
+            }}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            {t("common.actions.cancel")}
+          </Button>
+          <Button
+            variant="contained"
+            sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2 }}
+            onClick={async () => {
+              const pending = pendingWorkflowConfirm;
+              setPendingWorkflowConfirm(null);
+              if (!pending?.workflow) return;
+              try {
+                await executeWorkflow(pending.workflow, pending.msg);
+              } catch {
+                // already logged
+              }
+            }}
+          >
+            {pendingWorkflowConfirm?.workflow?.runLabel || "Chạy workflow"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(pendingMutationConfirm)}
+        onClose={() => setPendingMutationConfirm(null)}
+        PaperProps={{
+          sx: { borderRadius: 3, maxWidth: 420 },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, fontSize: "1rem", pb: 0.5 }}>
+          {pendingMutationConfirm?.mutationPreview?.title ||
+            "Xác nhận thay đổi nhẹ"}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontSize: "0.875rem", mb: 1 }}>
+            {pendingMutationConfirm?.mutationPreview?.summary ||
+              "Pikora sẽ lưu một thay đổi nhẹ, có thể hoàn tác hoặc xóa sau."}
+          </DialogContentText>
+          <Box sx={{ display: "grid", gap: 0.7 }}>
+            {(pendingMutationConfirm?.mutationPreview?.changes || [])
+              .slice(0, 3)
+              .map((change, index) => (
+                <Typography
+                  key={`mutation-change-${index}`}
+                  variant="caption"
+                  sx={{ color: "text.secondary" }}
+                >
+                  • {change}
+                </Typography>
+              ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={async () => {
+              const pending = pendingMutationConfirm;
+              setPendingMutationConfirm(null);
+              await logChatClientEvent({
+                messageId: pending?.msg?.id,
+                type: "mutation_cancelled",
+                label:
+                  pending?.mutationPreview?.title ||
+                  pending?.mutationPreview?.type ||
+                  "mutation",
+                actionType: pending?.mutationPreview?.type || "",
+                success: false,
+                detail: "cancelled_by_user",
+              });
+            }}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            {t("common.actions.cancel")}
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2 }}
+            onClick={async () => {
+              const pending = pendingMutationConfirm;
+              setPendingMutationConfirm(null);
+              if (!pending?.mutationPreview) return;
+              try {
+                await commitLightMutation(
+                  pending.mutationPreview,
+                  pending.msg,
+                );
+              } catch (error) {
+                await logChatClientEvent({
+                  messageId: pending?.msg?.id,
+                  type: "mutation_cancelled",
+                  label:
+                    pending?.mutationPreview?.title ||
+                    pending?.mutationPreview?.type ||
+                    "mutation",
+                  actionType: pending?.mutationPreview?.type || "",
+                  success: false,
+                  detail: error?.message || "mutation_failed",
+                });
+              }
+            }}
+          >
+            {"Xác nhận lưu"}
           </Button>
         </DialogActions>
       </Dialog>

@@ -59,30 +59,30 @@ export const updateUserRole = asyncHandler(async (req, res) => {
   const { role } = req.body;
   if (!["user", "referee", "admin"].includes(role)) {
     res.status(400);
-    throw new Error("Role khong hop le");
+    throw new Error("Role kh?ng h?p l?");
   }
 
   const user = await User.findById(req.params.id);
   if (!user) {
     res.status(404);
-    throw new Error("User khong ton tai");
+    throw new Error("User kh?ng t?n t?i");
   }
 
   const actorIsSuper = isSuperAdminActor(req);
   if (user.isSuperUser && !actorIsSuper) {
     res.status(403);
-    throw new Error("Chi super admin moi duoc sua role cua super admin");
+    throw new Error("Ch? super admin m?i ???c s?a role c?a super admin");
   }
 
   if (user.isSuperUser && role !== "admin") {
     res.status(400);
-    throw new Error("Super admin phai co role admin");
+    throw new Error("Super admin ph?i c? role admin");
   }
 
   user.role = role;
   await user.save();
   res.json({
-    message: "Cap nhat role thanh cong",
+    message: "C?p nh?t role th?nh c?ng",
     role: user.role,
     isSuperUser: Boolean(user.isSuperUser),
   });
@@ -92,24 +92,24 @@ export const updateUserSuperAdmin = asyncHandler(async (req, res) => {
   const actorIsSuper = isSuperAdminActor(req);
   if (!actorIsSuper) {
     res.status(403);
-    throw new Error("Chi super admin moi duoc cap quyen super admin");
+    throw new Error("Ch? super admin m?i ???c c?p quy?n super admin");
   }
 
   const { isSuperUser } = req.body || {};
   if (typeof isSuperUser !== "boolean") {
     res.status(400);
-    throw new Error("isSuperUser phai la boolean");
+    throw new Error("isSuperUser ph?i l? boolean");
   }
 
   const user = await User.findById(req.params.id);
   if (!user) {
     res.status(404);
-    throw new Error("User khong ton tai");
+    throw new Error("User kh?ng t?n t?i");
   }
 
   if (String(user._id) === String(req.user?._id) && isSuperUser === false) {
     res.status(400);
-    throw new Error("Khong the tu go quyen super admin cua chinh minh");
+    throw new Error("Kh?ng th? t? g? quy?n super admin c?a ch?nh m?nh");
   }
 
   user.isSuperUser = isSuperUser;
@@ -119,8 +119,8 @@ export const updateUserSuperAdmin = asyncHandler(async (req, res) => {
 
   res.json({
     message: isSuperUser
-      ? "Da thang cap super admin"
-      : "Da go quyen super admin",
+      ? "?? th?ng c?p super admin"
+      : "?? g? quy?n super admin",
     user: {
       _id: user._id,
       role: user.role,

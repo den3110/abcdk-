@@ -823,7 +823,7 @@ function pairLabel(reg, isSingle, displayMode = "nickname") {
         String(reg?._id || reg?.id || reg)
           .slice(-5)
           .toUpperCase() ||
-        "â€”",
+        "—",
     },
   ); /*
   if (!reg) return "—";

@@ -1,4 +1,4 @@
-﻿import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
+import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
 import SeoNewsLinkCandidate from "../models/seoNewsLinkCandidateModel.js";
 import { gemini } from "../lib/geminiClient.js";
 import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";

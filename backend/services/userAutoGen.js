@@ -17,7 +17,7 @@ const MID_NAMES  = ["Văn","Hữu","Đình","Quốc","Nhật","Ngọc","Thị","
 const FIRST_NAMES = ["Anh","Bảo","Châu","Dung","Dũng","Giang","Hà","Hải","Hạnh","Hiếu","Hương","Khánh","Lan","Linh","Long","Nam","Ngân","Ngọc","Phong","Phúc","Quân","Quang","Quỳnh","Thảo","Thành","Trang","Trung","Tú","Vy","Yến"];
 
 const slug = (s) =>
-  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "")
     .replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/(^\.|\.$)/g, "");
 
 const randPick = (rng, arr) => arr[Math.floor(rng()*arr.length)];

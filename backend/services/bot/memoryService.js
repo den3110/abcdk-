@@ -24,5 +24,7 @@ export async function getRecentMessages(userId, limit = 10) {
   return docs.map((d) => ({
     role: d.role === "bot" ? "assistant" : "user",
     content: d.message,
+    meta: d.meta || null,
+    context: d.context || null,
   }));
 }

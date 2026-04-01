@@ -281,7 +281,7 @@ export async function notifyComplaintStatusChange({
 
   const statusLabel = (s) =>
     s === "resolved"
-      ? "✅ ĐÃ XỬ LÝ"
+      ? "✅ Đý XỬ LÝ"
       : s === "rejected"
       ? "❌ TỪ CHỐI"
       : s === "in_progress"

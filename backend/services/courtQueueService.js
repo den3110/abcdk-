@@ -288,16 +288,16 @@ async function runAssignSpecific({
   ]);
 
   if (!court) {
-    throw new Error("Khong tim thay san hop le.");
+    throw new Error("Kh?ng t?m th?y s?n h?p l?.");
   }
   if (!match) {
-    throw new Error("Khong tim thay tran can gan.");
+    throw new Error("Kh?ng t?m th?y tr?n c?n g?n.");
   }
   if (bracket && toIdString(match.bracket) !== toIdString(bracket)) {
-    throw new Error("Tran va bracket khong khop.");
+    throw new Error("Tr?n v? bracket kh?ng kh?p.");
   }
   if (FINISHED_LIKE.has(String(match.status || "").toLowerCase())) {
-    throw new Error("Tran da ket thuc; khong the gan.");
+    throw new Error("Tr?n ?? k?t th?c; kh?ng th? g?n.");
   }
 
   const reservationMap = await getManualReservationMap({
@@ -309,7 +309,7 @@ async function runAssignSpecific({
   const reserved = reservationMap.get(toIdString(matchId));
   if (reserved) {
     throw new Error(
-      `Tran dang nam trong list cua san ${reserved.courtName || reserved.courtId}.`
+      `Tr?n ?ang n?m trong list c?a s?n ${reserved.courtName || reserved.courtId}.`
     );
   }
 
@@ -328,7 +328,7 @@ async function runAssignSpecific({
     toIdString(court.currentMatch) !== toIdString(match._id) &&
     !replace
   ) {
-    throw new Error("San dang co tran. Thieu quyen thay the.");
+    throw new Error("S?n ?ang c? tr?n. Thi?u quy?n thay th?.");
   }
 
   let replacedMatchId = null;
@@ -421,7 +421,7 @@ async function loadCourtForManualList({ tournamentId, courtId, session }) {
   );
 
   if (!court) {
-    throw new Error("Khong tim thay san.");
+    throw new Error("Kh?ng t?m th?y s?n.");
   }
 
   return court;
@@ -436,7 +436,7 @@ async function validateManualListMatches({
 }) {
   const uniqueIds = [...new Set((matchIds || []).map(toIdString).filter(Boolean))];
   if (!uniqueIds.every((id) => mongoose.Types.ObjectId.isValid(id))) {
-    throw new Error("Danh sach tran khong hop le.");
+    throw new Error("Danh s?ch tr?n kh?ng h?p l?.");
   }
 
   const matches = await withSession(
@@ -448,7 +448,7 @@ async function validateManualListMatches({
   ).lean();
 
   if (matches.length !== uniqueIds.length) {
-    throw new Error("Co tran khong ton tai trong giai dau nay.");
+    throw new Error("C? tr?n kh?ng t?n t?i trong gi?i ??u n?y.");
   }
 
   const reservationMap = await getManualReservationMap({
@@ -460,22 +460,22 @@ async function validateManualListMatches({
 
   for (const match of matches) {
     if (bracketId && toIdString(match.bracket) !== toIdString(bracketId)) {
-      throw new Error("Chi duoc chon tran trong bracket hien tai.");
+      throw new Error("Ch? ???c ch?n tr?n trong bracket hi?n t?i.");
     }
     if (FINISHED_LIKE.has(String(match.status || "").toLowerCase())) {
-      throw new Error("Khong the dua tran da ket thuc vao list.");
+      throw new Error("Kh?ng th? ??a tr?n ?? k?t th?c v?o list.");
     }
     if (
       match.court &&
       toIdString(match.court) !== toIdString(courtId) &&
       ACTIVE_MATCH_STATUSES.includes(String(match.status || "").toLowerCase())
     ) {
-      throw new Error("Co tran dang nam o san khac.");
+      throw new Error("C? tr?n ?ang n?m ? s?n kh?c.");
     }
     const reserved = reservationMap.get(toIdString(match._id));
     if (reserved) {
       throw new Error(
-        `Tran dang nam trong list cua san ${reserved.courtName || reserved.courtId}.`
+        `Tr?n ?ang n?m trong list c?a s?n ${reserved.courtName || reserved.courtId}.`
       );
     }
   }
@@ -600,7 +600,7 @@ export async function advanceCourtMatchList({
     .lean();
 
   if (!court) {
-    throw new Error("Khong tim thay san.");
+    throw new Error("Kh?ng t?m th?y s?n.");
   }
 
   const match = await freeCourtAndAssignNext({ courtId });

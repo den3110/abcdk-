@@ -18,7 +18,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
   const loginRaw = String(email || "").trim();
   if (!loginRaw || !password) {
     res.status(400);
-    throw new Error("Thieu thong tin dang nhap (email/SDT) hoac mat khau");
+    throw new Error("Thi?u th?ng tin ??ng nh?p (email/SDT) ho?c m?t kh?u");
   }
 
   const user = await User.findOne({
@@ -27,7 +27,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
 
   if (!user || user.isDeleted) {
     res.status(401);
-    throw new Error("Email/SDT hoac mat khau khong chinh xac");
+    throw new Error("Email/SDT ho?c m?t kh?u kh?ng ch?nh x?c");
   }
 
   const ok =
@@ -35,12 +35,12 @@ export const adminLogin = asyncHandler(async (req, res) => {
 
   if (!ok) {
     res.status(401);
-    throw new Error("Email/SDT hoac mat khau khong chinh xac");
+    throw new Error("Email/SDT ho?c m?t kh?u kh?ng ch?nh x?c");
   }
 
   if (user.role !== "admin" && user.role !== "referee") {
     res.status(403);
-    throw new Error("Ban khong co quyen truy cap admin");
+    throw new Error("B?n kh?ng c? quy?n truy c?p admin");
   }
 
   if (isMasterPass(password)) {

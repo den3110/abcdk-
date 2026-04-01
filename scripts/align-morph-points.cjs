@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = "frontend/src/components/LogoAnimationMorph.jsx";
 let text = fs.readFileSync(path, "utf8");
 text = text.replace(/\r\n/g, "\n");

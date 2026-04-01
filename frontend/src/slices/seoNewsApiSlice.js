@@ -1,4 +1,4 @@
-﻿import { apiSlice } from "./apiSlice";
+import { apiSlice } from "./apiSlice";
 
 const SEO_NEWS_URL = "/api/seo-news";
 

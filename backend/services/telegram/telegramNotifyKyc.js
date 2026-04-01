@@ -343,7 +343,7 @@ export async function openaiExtractFromDataUrl(imageOrDataUrls, detail = "low") 
   const systemPrompt = [
     "Bạn là trình TRÍCH XUẤT CHÍNH XÁC CAO từ ảnh Căn cước công dân Việt Nam.",
     "YÊU CẦU: tuyệt đối không suy đoán; nếu bất kỳ ký tự nào mơ hồ → trả null cho trường đó.",
-    "Ưu tiên đọc đúng vùng 'Số/No.' trên mặt trước. idNumber phải là DÃY SỐ THUẦN, liền nhau, không khoảng trắng.",
+    "Ưu tiên đọc đúng vùng 'Số/No.' trên mặt trước. idNumber phải là DýY SỐ THUẦN, liền nhau, không khoảng trắng.",
     "CHỐNG NHẦM LẪN ký tự: 0≠9, O≠0, 1≠7, 3≠8, 5≠S, 2≠Z, 6≠G.",
     "Nếu không chắc chắn 100% về một chữ số trong idNumber → idNumber=null.",
     "Nếu thấy dạng ngày dd/mm/yyyy → đổi sang yyyy-mm-dd.",
@@ -667,7 +667,7 @@ export async function notifyNewKyc(user) {
 
 // (tuỳ chọn) Thông báo khi duyệt/từ chối
 export async function notifyKycReviewed(user, action) {
-  const map = { approve: "✅ ĐÃ DUYỆT", reject: "❌ BỊ TỪ CHỐI" };
+  const map = { approve: "✅ Đý DUYỆT", reject: "❌ BỊ TỪ CHỐI" };
   const tag = map[action] || action;
   const text = [
     `🔔 <b>Kết quả KYC</b>: ${tag}`,

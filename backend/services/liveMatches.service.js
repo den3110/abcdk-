@@ -361,7 +361,7 @@ export async function collectStreamCandidatesFromDB({
       match: {
         _id: m._id,
 
-        // === MÃ HIỂN THỊ MỚI ===
+        // === Mý HIỂN THỊ MỚI ===
         code: codeVT, // ví dụ: V3-T1 hoặc V1-B2-T3
 
         // Thông tin tham chiếu / tương thích

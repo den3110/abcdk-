@@ -443,7 +443,7 @@ const parseQPBool = (raw) => {
 
 const teamNameFull = (team, eventType = "double", displayMode = "nickname") => {
   return getTournamentTeamName(team, eventType, displayMode, {
-    fallback: readStr(team?.name, "â€”"),
+    fallback: readStr(team?.name, "—"),
   }); /*
   if (Array.isArray(team?.players) && team.players.length) {
     const nicks = team.players.map(preferNick).filter(Boolean);

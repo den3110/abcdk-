@@ -58,7 +58,7 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
   const asciiFold = (s = "") =>
     String(s)
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // bỏ dấu tiếng Việt
+      .replace(/[̀-ͯ]/g, "") // bỏ dấu tiếng Việt
       .replace(/đ/g, "d")
       .replace(/Đ/g, "D");
 

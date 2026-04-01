@@ -44,7 +44,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    /** âœ¨ DUYá»†T hoặc TỪ CHỐI KYC */
+    /** ✨ DUYỆT hoặc TỪ CHỐI KYC */
     reviewKyc: builder.mutation({
       query: ({ id, action }) => ({
         url: `/api/admin/users/${id}/kyc`,
@@ -79,7 +79,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       keepUnusedDataFor: 30,
     }),
 
-    /** Cáº­p nháº­t pháº¡m vi cháº¥m (nhiá»u tá»‰nh + nhiều môn) */
+    /** Cập nhật phạm vi chấm (nhiều tỉnh + nhiều môn) */
     updateEvaluatorScopes: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/evaluators/${id}/scopes`,

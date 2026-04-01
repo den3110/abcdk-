@@ -672,9 +672,9 @@ function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
       </div>
       <div class="meta">
         <div><strong>${safeTitle}</strong></div>
-        <div id="segmentMeta">Dang tai danh sach segment...</div>
+        <div id="segmentMeta">?ang t?i danh s?ch segment...</div>
       </div>
-      <div id="status" class="status">Dang tai temp playback tu R2...</div>
+      <div id="status" class="status">?ang t?i temp playback t? R2...</div>
     </div>
     <script>
       const playlistUrl = ${JSON.stringify(playlistUrl)};
@@ -692,7 +692,7 @@ function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
 
       function setSegmentMeta() {
         if (!playlist.length) {
-          segmentMetaEl.textContent = "Khong co segment nao de phat";
+          segmentMetaEl.textContent = "Kh?ng c? segment n?o ?? ph?t";
           return;
         }
         const current = playlist[currentIndex] || playlist[0];
@@ -710,7 +710,7 @@ function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
 
       function playIndex(index) {
         if (!playlist[index]) {
-          setStatus("Da phat xong recording tam.");
+          setStatus("?? ph?t xong recording t?m.");
           return;
         }
 
@@ -718,7 +718,7 @@ function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
         setSegmentMeta();
         const item = playlist[index];
         setStatus(
-          "Dang phat segment " +
+          "?ang ph?t segment " +
             (index + 1) +
             "/" +
             playlist.length +
@@ -735,7 +735,7 @@ function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
       video.addEventListener("error", () => {
         const failedSegment = playlist[currentIndex];
         const failedLabel = failedSegment ? "#" + failedSegment.index : "hien tai";
-        setStatus("Khong the phat segment " + failedLabel + ".", true);
+        setStatus("Kh?ng th? ph?t segment " + failedLabel + ".", true);
       });
 
       async function bootstrap() {
@@ -746,7 +746,7 @@ function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
           });
           const payload = await response.json();
           if (!response.ok || payload?.ok === false) {
-            throw new Error(payload?.message || "Khong tai duoc playlist temp.");
+            throw new Error(payload?.message || "Kh?ng t?i ???c playlist temp.");
           }
           if (payload?.redirectUrl) {
             window.location.replace(payload.redirectUrl);
@@ -754,18 +754,18 @@ function buildTemporaryPlaybackHtml({ recording, playlistUrl, playbackUrl }) {
           }
           playlist = Array.isArray(payload?.segments) ? payload.segments : [];
           if (!playlist.length) {
-            throw new Error(payload?.message || "Recording tam chua co segment.");
+            throw new Error(payload?.message || "Recording t?m ch?a c? segment.");
           }
           playIndex(0);
         } catch (error) {
-          setStatus(error?.message || "Khong the mo temp playback.", true);
+          setStatus(error?.message || "Kh?ng th? m? temp playback.", true);
           if (fallbackPlaybackUrl && window.location.href !== fallbackPlaybackUrl) {
             const link = document.createElement("a");
             link.href = fallbackPlaybackUrl;
-            link.textContent = "Thu mo playback URL";
+            link.textContent = "Th? m? playback URL";
             link.target = "_top";
             statusEl.innerHTML = "";
-            statusEl.appendChild(document.createTextNode(error?.message || "Khong the mo temp playback."));
+            statusEl.appendChild(document.createTextNode(error?.message || "Kh?ng th? m? temp playback."));
             statusEl.appendChild(document.createElement("br"));
             statusEl.appendChild(link);
           }
@@ -831,7 +831,7 @@ function getRecordingDriveAssetInfo(recording, target = "source") {
 
   return {
     target: "source",
-    label: "Video goc",
+    label: "Video gốc",
     fileId: asTrimmed(recording?.driveFileId) || null,
     rawUrl: asTrimmed(recording?.driveRawUrl) || null,
     previewUrl: asTrimmed(recording?.drivePreviewUrl) || null,
@@ -905,7 +905,7 @@ function clearRecordingDriveAsset(recording, target, reason = "", file = null) {
   nextMeta.exportPipeline = {
     ...currentPipeline,
     stage: "failed",
-    label: "Video Drive da bi dua vao thung rac",
+    label: "Video Drive ?? b? ??a v?o th?ng r?c",
     updatedAt: new Date(),
     failedAt: new Date(),
     error: message,
@@ -1898,7 +1898,7 @@ export const getLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
     return res.status(404).json({
-      message: `${asset.label} chua co Drive fileId`,
+      message: `${asset.label} ch?a c? Drive fileId`,
       target,
       recording: serializeRecording(recording),
     });
@@ -1946,7 +1946,7 @@ export const renameLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => 
 
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
-    return res.status(404).json({ message: `${asset.label} chua co Drive fileId` });
+    return res.status(404).json({ message: `${asset.label} ch?a c? Drive fileId` });
   }
 
   try {
@@ -1990,7 +1990,7 @@ export const moveLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
 
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
-    return res.status(404).json({ message: `${asset.label} chua co Drive fileId` });
+    return res.status(404).json({ message: `${asset.label} ch?a c? Drive fileId` });
   }
 
   try {
@@ -2034,7 +2034,7 @@ export const trashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
 
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
-    return res.status(404).json({ message: `${asset.label} chua co Drive fileId` });
+    return res.status(404).json({ message: `${asset.label} ch?a c? Drive fileId` });
   }
 
   try {

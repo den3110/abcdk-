@@ -1,4 +1,4 @@
-﻿import crypto from "crypto";
+import crypto from "crypto";
 import slugify from "slugify";
 
 import SeoNewsArticle from "../models/seoNewsArticleModel.js";

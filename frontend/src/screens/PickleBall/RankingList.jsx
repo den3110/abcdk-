@@ -1173,8 +1173,8 @@ export default function RankingList() {
       pageSummary: t("rankings.seoDescription"),
       activeLabels: [
         desktopCards ? t("rankings.viewModes.cards") : t("rankings.viewModes.list"),
-        searchInput ? `TÃ¬m: ${searchInput}` : "",
-        isFetching ? "Äang táº£i dá»¯ liá»‡u xáº¿p háº¡ng" : "",
+        searchInput ? `Tìm: ${searchInput}` : "",
+        isFetching ? "Đang tải dữ liệu xếp hạng" : "",
       ],
       visibleActions: [
         t("rankings.searchLabel"),
@@ -1185,9 +1185,9 @@ export default function RankingList() {
       ],
       highlights: rankingHighlights,
       metrics: [
-        `Hiá»ƒn thá»‹: ${list.length}`,
+        `Hiển thị: ${list.length}`,
         `Trang: ${page + 1}/${Math.max(totalPages, 1)}`,
-        isMobile ? "Cháº¿ Ä‘á»™ mobile" : "Cháº¿ Ä‘á»™ desktop",
+        isMobile ? "Chế độ mobile" : "Chế độ desktop",
       ],
       stats: {
         visible: list.length,

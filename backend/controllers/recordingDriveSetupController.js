@@ -36,7 +36,7 @@ async function makeRecordingDriveOAuth(req) {
 
   if (!id || !secret || !redirect) {
     throw new Error(
-      "Thieu GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET / GOOGLE_REDIRECT_DRIVE_URI trong System Config cho recording drive",
+      "Thi?u GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET / GOOGLE_REDIRECT_DRIVE_URI trong System Config cho recording drive",
     );
   }
 
@@ -78,7 +78,7 @@ export async function recordingDriveOAuthCallback(req, res) {
       return res
         .status(400)
         .send(
-          "Google khong tra refresh_token. Hay Remove access roi ket noi lai.",
+          "Google kh?ng tr? refresh_token. H?y Remove access r?i k?t n?i l?i.",
         );
     }
 
@@ -132,8 +132,8 @@ export async function recordingDriveOAuthCallback(req, res) {
     const html = `
 <!doctype html><meta charset="utf-8" />
 <body style="font-family:system-ui;padding:24px">
-  <h3>Ket noi Google Drive recording thanh cong</h3>
-  <p>Popup se tu dong dong trong giay lat.</p>
+  <h3>K?t n?i Google Drive recording th?nh c?ng</h3>
+  <p>Popup s? t? ??ng ??ng trong gi?y l?t.</p>
   <button
     id="close-btn"
     type="button"
@@ -186,17 +186,17 @@ export async function recordingDrivePickerSession(req, res) {
     const runtimeConfig = await getRecordingDriveRuntimeConfig();
     if (runtimeConfig.mode !== "oauthUser") {
       return res.status(400).json({
-        message: "Recording Drive dang o mode service account.",
+        message: "Recording Drive ?ang ? mode service account.",
       });
     }
     if (!runtimeConfig.refreshToken) {
       return res.status(400).json({
-        message: "My Drive OAuth chua ket noi.",
+        message: "My Drive OAuth ch?a k?t n?i.",
       });
     }
     if (runtimeConfig.useModernPickerFlow === false) {
       return res.status(400).json({
-        message: "Dang dung flow OAuth cu. Bat flow moi de dung Google Picker.",
+        message: "?ang d?ng flow OAuth c?. B?t flow m?i ?? d?ng Google Picker.",
       });
     }
 
@@ -215,7 +215,7 @@ export async function recordingDrivePickerSession(req, res) {
     );
 
     if (!accessToken) {
-      throw new Error("Khong lay duoc access token cho Google Picker.");
+      throw new Error("Kh?ng l?y ???c access token cho Google Picker.");
     }
 
     const pickerApiKey = asTrimmed(
@@ -226,7 +226,7 @@ export async function recordingDrivePickerSession(req, res) {
     );
     if (!pickerApiKey) {
       throw new Error(
-        "Thieu GOOGLE_DRIVE_PICKER_API_KEY trong System Config hoac ENV."
+        "Thi?u GOOGLE_DRIVE_PICKER_API_KEY trong System Config ho?c ENV."
       );
     }
 
@@ -239,7 +239,7 @@ export async function recordingDrivePickerSession(req, res) {
     );
     if (!pickerAppId) {
       throw new Error(
-        "Thieu GOOGLE_DRIVE_PICKER_APP_ID trong System Config hoac ENV."
+        "Thi?u GOOGLE_DRIVE_PICKER_APP_ID trong System Config ho?c ENV."
       );
     }
 
@@ -291,7 +291,7 @@ export async function disconnectRecordingDriveOAuth(req, res) {
 
     return res.json({
       ok: 1,
-      message: "Da ngat ket noi Google Drive recording",
+      message: "?? ng?t k?t n?i Google Drive recording",
     });
   } catch (e) {
     return res.status(500).json({
