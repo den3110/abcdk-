@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildClarificationStateForTest,
   classifyRouteForTest,
+  looksLikeTournamentProgressQuestion,
   looksLikeTournamentAvailabilityQuestion,
   pickTournamentStatusFromMessage,
   resolveContextUsageMode,
@@ -102,15 +104,15 @@ test("keeps generic knowledge queries on knowledge route even on leaderboard pag
     pageType: "leaderboard",
     pageSnapshot: {
       pageType: "leaderboard",
-      sectionTitle: "Bảng xếp hạng",
-      activeLabels: ["Điểm trình"],
-      visibleActions: ["Hồ sơ", "Chấm trình", "Xem KYC"],
-      highlights: ["Bảng xếp hạng"],
+      sectionTitle: "Bang xep hang",
+      activeLabels: ["Diem trinh"],
+      visibleActions: ["Ho so", "Cham trinh", "Xem KYC"],
+      highlights: ["Bang xep hang"],
     },
   };
 
   for (const message of [
-    "pickleball là gì",
+    "pickleball la gi",
     "pickleball la gi",
     "vi sao phai khoi dong ky",
   ]) {
@@ -122,13 +124,13 @@ test("keeps generic knowledge queries on knowledge route even on leaderboard pag
 
 test("routes leaderboard top queries to leaderboard tools even on tournament list pages", () => {
   const route = classifyRouteForTest(
-    "top 1 bảng xếp hạng hiện tại là ai",
+    "top 1 bang xep hang hien tai la ai",
     {
       pageType: "tournament_list",
       pageSnapshot: {
         pageType: "tournament_list",
-        sectionTitle: "Giải đấu",
-        activeLabels: ["Sắp diễn ra"],
+        sectionTitle: "Giai dau",
+        activeLabels: ["Sap dien ra"],
         stats: {
           currentTab: "upcoming",
           total: 35,
@@ -150,6 +152,27 @@ test("routes tournament progress questions to tournament progress tools", () => 
     {
       tournamentId: "demo-tournament-id",
       pageType: "tournament_schedule",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "tournament");
+  assert.ok(
+    route.toolPlan?.some((step) => step?.name === "get_tournament_progress"),
+  );
+});
+
+test("detects broader tournament progress phrases", () => {
+  assert.equal(looksLikeTournamentProgressQuestion("co bao nhieu tran xong roi"), true);
+  assert.equal(looksLikeTournamentProgressQuestion("da xong bao nhieu tran"), true);
+});
+
+test("routes completed-match questions to tournament progress tools", () => {
+  const route = classifyRouteForTest(
+    "co bao nhieu tran xong roi",
+    {
+      tournamentId: "demo-tournament-id",
+      pageType: "tournament_bracket",
     },
     null,
   );
@@ -195,13 +218,13 @@ test("routes current club updates to club tools instead of knowledge", () => {
 
 test("uses session focus memory to resolve tournament follow-up queries", () => {
   const route = classifyRouteForTest(
-    "lịch thi đấu",
+    "lich thi dau",
     {
       sessionFocus: {
         activeType: "tournament",
         tournament: {
           entityId: "demo-tournament-id",
-          label: "Giải Demo",
+          label: "Giai Demo",
           path: "/tournament/demo-tournament-id",
         },
       },
@@ -221,13 +244,13 @@ test("uses session focus memory to resolve tournament follow-up queries", () => 
 
 test("uses session focus memory to resolve player follow-up queries", () => {
   const route = classifyRouteForTest(
-    "rating bao nhiêu",
+    "rating bao nhieu",
     {
       sessionFocus: {
         activeType: "player",
         player: {
           entityId: "demo-player-id",
-          label: "Người chơi Demo",
+          label: "Nguoi choi Demo",
           path: "/user/demo-player-id",
         },
       },
@@ -242,13 +265,13 @@ test("uses session focus memory to resolve player follow-up queries", () => {
 
 test("keeps knowledge queries on the knowledge route even when session focus exists", () => {
   const route = classifyRouteForTest(
-    "pickleball là gì",
+    "pickleball la gi",
     {
       sessionFocus: {
         activeType: "tournament",
         tournament: {
           entityId: "demo-tournament-id",
-          label: "Giải Demo",
+          label: "Giai Demo",
           path: "/tournament/demo-tournament-id",
         },
       },
@@ -263,11 +286,11 @@ test("keeps knowledge queries on the knowledge route even when session focus exi
 test("uses context in ignore, blend, and focus modes appropriately", () => {
   assert.equal(
     resolveContextUsageMode(
-      "pickleball là gì",
+      "pickleball la gi",
       { kind: "knowledge" },
       {
         pageType: "leaderboard",
-        pageTitle: "Bảng xếp hạng",
+        pageTitle: "Bang xep hang",
       },
     ),
     "ignore",
@@ -275,11 +298,11 @@ test("uses context in ignore, blend, and focus modes appropriately", () => {
 
   assert.equal(
     resolveContextUsageMode(
-      "giải nào đang diễn ra",
+      "giai nao dang dien ra",
       { kind: "tournament" },
       {
         pageType: "tournament_list",
-        pageTitle: "Giải đấu",
+        pageTitle: "Giai dau",
       },
     ),
     "blend",
@@ -287,7 +310,7 @@ test("uses context in ignore, blend, and focus modes appropriately", () => {
 
   assert.equal(
     resolveContextUsageMode(
-      "lịch thi đấu",
+      "lich thi dau",
       { kind: "tournament" },
       {
         tournamentId: "demo-tournament-id",
@@ -300,13 +323,13 @@ test("uses context in ignore, blend, and focus modes appropriately", () => {
 
 test("keeps tournament list page answers on tournament route instead of instant direct", () => {
   const route = classifyRouteForTest(
-    "có giải nào đang diễn ra",
+    "co giai nao dang dien ra",
     {
       pageType: "tournament_list",
       pageSnapshot: {
         pageType: "tournament_list",
-        sectionTitle: "Giải đấu",
-        activeLabels: ["Đang diễn ra"],
+        sectionTitle: "Giai dau",
+        activeLabels: ["Dang dien ra"],
         stats: {
           currentTab: "ongoing",
           total: 35,
@@ -315,7 +338,7 @@ test("keeps tournament list page answers on tournament route instead of instant 
         },
         visibleTournaments: [
           {
-            name: "Giải đấu Pickletour Beta",
+            name: "Giai dau Pickletour Beta",
           },
         ],
       },
@@ -325,4 +348,97 @@ test("keeps tournament list page answers on tournament route instead of instant 
 
   assert.equal(route.kind, "tournament");
   assert.ok(route.directResponse);
+});
+
+test("asks for clarification on ambiguous current-context tournament questions without anchor", () => {
+  const clarification = buildClarificationStateForTest(
+    "lich thi dau",
+    { kind: "tournament" },
+    { pageType: "tournament_list" },
+    { toolsUsed: [] },
+    "entity_scoped",
+    "low",
+  );
+
+  assert.equal(clarification?.type, "missing_current_context");
+  assert.ok(Array.isArray(clarification?.hints));
+  assert.ok(clarification.hints.length > 0);
+});
+
+test("routes current tournament registration checks to the dedicated registration tool", () => {
+  const route = classifyRouteForTest(
+    "toi da dang ky giai nay chua",
+    {
+      tournamentId: "demo-tournament-id",
+      pageType: "tournament_registration",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "tournament");
+  assert.equal(route.toolPlan?.[0]?.name, "check_my_registration");
+  assert.equal(route.toolPlan?.[0]?.args?.tournamentId, "demo-tournament-id");
+});
+
+test("routes current tournament age checks to the dedicated age tool", () => {
+  const route = classifyRouteForTest(
+    "toi co du tuoi dang ky khong",
+    {
+      tournamentId: "demo-tournament-id",
+      pageType: "tournament_registration",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "tournament");
+  assert.equal(route.toolPlan?.[0]?.name, "get_tournament_age_check");
+  assert.equal(route.toolPlan?.[0]?.args?.tournamentId, "demo-tournament-id");
+});
+
+test("routes current match duration questions to the match duration tool", () => {
+  const route = classifyRouteForTest(
+    "tran nay keo dai bao lau",
+    {
+      tournamentId: "demo-tournament-id",
+      matchId: "demo-match-id",
+      pageType: "tournament_live",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "live");
+  assert.equal(route.toolPlan?.[0]?.name, "get_match_duration");
+  assert.equal(route.toolPlan?.[0]?.args?.matchId, "demo-match-id");
+});
+
+test("routes current match rating-impact questions to the dedicated rating tool", () => {
+  const route = classifyRouteForTest(
+    "anh huong rating tran nay the nao",
+    {
+      tournamentId: "demo-tournament-id",
+      matchId: "demo-match-id",
+      pageType: "tournament_live",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "live");
+  assert.equal(route.toolPlan?.[0]?.name, "get_match_rating_impact");
+  assert.equal(route.toolPlan?.[0]?.args?.matchId, "demo-match-id");
+});
+
+test("routes bracket seeding questions to the seeding tool", () => {
+  const route = classifyRouteForTest(
+    "hat giong cua nhanh nay la gi",
+    {
+      tournamentId: "demo-tournament-id",
+      bracketId: "demo-bracket-id",
+      pageType: "tournament_bracket",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "tournament");
+  assert.equal(route.toolPlan?.[0]?.name, "get_seeding_info");
+  assert.equal(route.toolPlan?.[0]?.args?.bracketId, "demo-bracket-id");
 });

@@ -76,6 +76,15 @@ const chatBotTelemetrySchema = new mongoose.Schema(
       enum: ["high", "medium", "low", ""],
       default: "",
     },
+    clarificationRequested: {
+      type: Boolean,
+      default: false,
+    },
+    clarificationType: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     toolsPlanned: {
       type: [String],
       default: [],

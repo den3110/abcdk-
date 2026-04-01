@@ -2,6 +2,7 @@ import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
+import { publishFbVodDriveMonitorUpdate } from "../services/fbVodDriveMonitorEvents.service.js";
 import { scheduleFacebookVodFallbackForMatch } from "../services/liveRecordingFacebookVodFallback.service.js";
 
 const matchPop = [
@@ -61,6 +62,15 @@ function detectPlatformFromUrl(url = "") {
 
 function pick(primary, fallback) {
   return primary != null && primary !== "" ? primary : fallback;
+}
+
+async function publishFbVodMonitorMatchUpdate(matchId, reason) {
+  const normalizedMatchId = String(matchId || "").trim();
+  if (!normalizedMatchId) return;
+  await publishFbVodDriveMonitorUpdate({
+    reason,
+    matchIds: [normalizedMatchId],
+  }).catch(() => {});
 }
 
 function normalizeStatus(value) {
@@ -658,6 +668,7 @@ export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
     facebookLive.stream_key = "";
     match.facebookLive = facebookLive;
     await match.save();
+    await publishFbVodMonitorMatchUpdate(match._id, "facebook_live_ended");
     await scheduleFacebookVodFallbackForMatch(match).catch((error) => {
       console.warn(
         "[adminStopLiveSession] schedule facebook vod fallback failed:",

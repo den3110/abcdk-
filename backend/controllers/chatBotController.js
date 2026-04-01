@@ -314,6 +314,7 @@ function buildAgentResponse(result = {}) {
     actions: result.actions || [],
     answerCards: result.answerCards || [],
     sources: result.sources || [],
+    clarification: result.clarification || null,
     intent: result.intent || "",
     routeKind: result.routeKind || "",
     routeLane: result.routeLane || "",
@@ -354,6 +355,7 @@ function buildBotMeta(result = {}, extra = {}) {
     actions: result.actions || [],
     answerCards: result.answerCards || [],
     sources: result.sources || [],
+    clarification: result.clarification || null,
     intent: result.intent || "",
     routeKind: result.routeKind || "",
     routeLane: result.routeLane || "",
@@ -399,6 +401,8 @@ function buildTelemetryPayload({
     routeLane: result.routeLane || "",
     queryScope: result.queryScope || "",
     contextConfidence: result.contextConfidence || "",
+    clarificationRequested: Boolean(result.clarification),
+    clarificationType: result.clarification?.type || "",
     toolsPlanned:
       result.toolsPlanned ||
       (Array.isArray(result.toolSummary)
@@ -456,6 +460,7 @@ function buildTelemetryPayload({
           knowledgeMode: context?.knowledgeMode || "auto",
           verificationMode:
             result.verificationMode || context?.verificationMode || "balanced",
+          clarificationType: result.clarification?.type || "",
           sessionFocusMode: result.sessionFocusState?.mode || "auto",
           sessionFocusPinned: Boolean(result.sessionFocusState?.pinned),
         },

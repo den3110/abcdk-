@@ -47,6 +47,11 @@ import {
   registerFbPageMonitorPublisher,
   setFbPageMonitorMeta,
 } from "../services/fbPageMonitorEvents.service.js";
+import {
+  getFbVodDriveMonitorEventsChannel,
+  registerFbVodDriveMonitorPublisher,
+  setFbVodDriveMonitorMeta,
+} from "../services/fbVodDriveMonitorEvents.service.js";
 import { buildTournamentCourtLivePresenceSnapshot } from "../services/courtLivePresence.service.js";
 import { registerCourtLivePresencePublisher } from "../services/courtLivePresenceEvents.service.js";
 import { registerCourtStationPresencePublishers } from "../services/courtStationPresenceEvents.service.js";
@@ -91,6 +96,13 @@ let fbPageMonitorPublishTimer = null;
 let fbPageMonitorPendingReasons = new Set();
 let fbPageMonitorPendingPageIds = new Set();
 let fbPageMonitorPendingHasEvent = false;
+let fbVodMonitorTickerStarted = false;
+let fbVodMonitorPublishTimer = null;
+let fbVodMonitorPendingReasons = new Set();
+let fbVodMonitorPendingMatchIds = new Set();
+let fbVodMonitorPendingHasEvent = false;
+let fbVodMonitorRedisSubscriber = null;
+let fbVodMonitorRedisSubscriberStarted = false;
 let courtLiveTickerStarted = false;
 const courtLivePendingByTournamentId = new Map();
 let courtClusterTickerStarted = false;
@@ -109,6 +121,11 @@ let liveRecordingMonitorRedisSubscriberStarted = false;
 const FB_PAGE_MONITOR_ROOM = "fb-pages:watchers";
 const FB_PAGE_MONITOR_TICK_MS = 15000;
 const FB_PAGE_MONITOR_DEBOUNCE_MS = 300;
+const FB_VOD_MONITOR_ROOM = "fb-vod-monitor:watchers";
+const FB_VOD_MONITOR_TICK_MS = 15000;
+const FB_VOD_MONITOR_DEBOUNCE_MS = 300;
+const FB_VOD_MONITOR_REDIS_URL =
+  process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const COURT_LIVE_ROOM_PREFIX = "court-live:watch:";
 const COURT_LIVE_RECONCILE_TICK_MS = 15000;
 const COURT_LIVE_DEBOUNCE_MS = 300;
@@ -236,6 +253,101 @@ function scheduleFbPageMonitorPublish(io, payload = {}) {
   fbPageMonitorPublishTimer = setTimeout(() => {
     void flushNow();
   }, FB_PAGE_MONITOR_DEBOUNCE_MS);
+}
+
+function normalizeFbVodMonitorPayload(payload = {}) {
+  return {
+    reason: String(payload.reason || "unknown_event").trim() || "unknown_event",
+    matchIds: Array.from(
+      new Set(
+        (Array.isArray(payload.matchIds) ? payload.matchIds : [])
+          .filter(Boolean)
+          .map((value) => String(value).trim())
+          .filter(Boolean)
+      )
+    ),
+    mode: payload.mode === "reconcile" ? "reconcile" : "event",
+    at:
+      payload.at instanceof Date && Number.isFinite(payload.at.getTime())
+        ? payload.at
+        : new Date(),
+  };
+}
+
+async function emitFbVodMonitorUpdate(io, payload = {}, options = {}) {
+  const { socketId = null } =
+    typeof options === "string" ? { socketId: options } : options;
+  try {
+    const normalized = normalizeFbVodMonitorPayload(payload);
+    if (socketId) {
+      io.to(socketId).emit("fb-vod-monitor:update", normalized);
+      return;
+    }
+    io.to(FB_VOD_MONITOR_ROOM).emit("fb-vod-monitor:update", normalized);
+  } catch (error) {
+    console.error(
+      "[socket] fb-vod-monitor:update error:",
+      error?.message || error
+    );
+  }
+}
+
+function resetFbVodMonitorPendingState() {
+  fbVodMonitorPendingReasons = new Set();
+  fbVodMonitorPendingMatchIds = new Set();
+  fbVodMonitorPendingHasEvent = false;
+}
+
+async function flushFbVodMonitorPublish(io) {
+  const reasons = Array.from(fbVodMonitorPendingReasons);
+  const matchIds = Array.from(fbVodMonitorPendingMatchIds);
+  const mode = fbVodMonitorPendingHasEvent ? "event" : "reconcile";
+  resetFbVodMonitorPendingState();
+  fbVodMonitorPublishTimer = null;
+
+  const payload = normalizeFbVodMonitorPayload({
+    reason: reasons.length ? reasons.join(", ") : "unknown_event",
+    matchIds,
+    mode,
+    at: new Date(),
+  });
+  setFbVodDriveMonitorMeta(payload);
+
+  const watchers = io.sockets.adapter.rooms.get(FB_VOD_MONITOR_ROOM)?.size || 0;
+  if (!watchers) return;
+  await emitFbVodMonitorUpdate(io, payload);
+}
+
+function scheduleFbVodMonitorPublish(io, payload = {}) {
+  const normalized = normalizeFbVodMonitorPayload(payload);
+
+  fbVodMonitorPendingReasons.add(normalized.reason);
+  for (const matchId of normalized.matchIds) {
+    fbVodMonitorPendingMatchIds.add(matchId);
+  }
+  if (normalized.mode === "event") fbVodMonitorPendingHasEvent = true;
+
+  const flushNow = async () => {
+    try {
+      await flushFbVodMonitorPublish(io);
+    } catch (error) {
+      console.error("[socket] fb-vod-monitor flush error:", error);
+    }
+  };
+
+  if (normalized.mode === "reconcile") {
+    if (fbVodMonitorPublishTimer) {
+      clearTimeout(fbVodMonitorPublishTimer);
+      fbVodMonitorPublishTimer = null;
+    }
+    void flushNow();
+    return;
+  }
+
+  if (fbVodMonitorPublishTimer) return;
+  fbVodMonitorPublishTimer = setTimeout(() => {
+    void flushNow();
+  }, FB_VOD_MONITOR_DEBOUNCE_MS);
 }
 
 function courtLiveRoom(tournamentId) {
@@ -1134,6 +1246,9 @@ export function initSocket(
   registerFbPageMonitorPublisher((payload) => {
     scheduleFbPageMonitorPublish(io, payload);
   });
+  registerFbVodDriveMonitorPublisher((payload) => {
+    scheduleFbVodMonitorPublish(io, payload);
+  });
   registerCourtLivePresencePublisher((payload) => {
     scheduleCourtLivePresencePublish(io, payload);
   });
@@ -1192,6 +1307,43 @@ export function initSocket(
       } catch (error) {
         console.error(
           "[socket] recordings-v2 redis message parse failed:",
+          error?.message || error
+        );
+      }
+    });
+  }
+
+  if (!fbVodMonitorRedisSubscriberStarted) {
+    fbVodMonitorRedisSubscriberStarted = true;
+    fbVodMonitorRedisSubscriber = new IORedis(FB_VOD_MONITOR_REDIS_URL, {
+      maxRetriesPerRequest: null,
+    });
+    fbVodMonitorRedisSubscriber.on("error", (error) => {
+      console.error(
+        "[socket] fb-vod-monitor redis subscriber error:",
+        error?.message || error
+      );
+    });
+    fbVodMonitorRedisSubscriber.subscribe(
+      getFbVodDriveMonitorEventsChannel(),
+      (error) => {
+        if (error) {
+          console.error(
+            "[socket] fb-vod-monitor subscribe failed:",
+            error?.message || error
+          );
+        }
+      }
+    );
+    fbVodMonitorRedisSubscriber.on("message", (channel, message) => {
+      if (channel !== getFbVodDriveMonitorEventsChannel()) return;
+      try {
+        const payload = JSON.parse(message || "{}");
+        if (payload?.at) payload.at = new Date(payload.at);
+        scheduleFbVodMonitorPublish(io, payload);
+      } catch (error) {
+        console.error(
+          "[socket] fb-vod-monitor redis message parse failed:",
           error?.message || error
         );
       }
@@ -1342,6 +1494,33 @@ export function initSocket(
         socket.leave(FB_PAGE_MONITOR_ROOM);
       } catch (e) {
         console.error("[socket] fb-pages:unwatch error:", e);
+      }
+    });
+
+    socket.on("fb-vod-monitor:watch", async () => {
+      try {
+        if (!(await ensureAdmin(socket))) return;
+        socket.join(FB_VOD_MONITOR_ROOM);
+        await emitFbVodMonitorUpdate(
+          io,
+          {
+            reason: "bootstrap",
+            matchIds: [],
+            mode: "event",
+            at: new Date(),
+          },
+          socket.id
+        );
+      } catch (e) {
+        console.error("[socket] fb-vod-monitor:watch error:", e);
+      }
+    });
+
+    socket.on("fb-vod-monitor:unwatch", () => {
+      try {
+        socket.leave(FB_VOD_MONITOR_ROOM);
+      } catch (e) {
+        console.error("[socket] fb-vod-monitor:unwatch error:", e);
       }
     });
 
@@ -3593,6 +3772,20 @@ export function initSocket(
         console.error("[socket] fb-pages ticker error:", e);
       }
     }, FB_PAGE_MONITOR_TICK_MS);
+  }
+
+  if (!fbVodMonitorTickerStarted) {
+    fbVodMonitorTickerStarted = true;
+    setInterval(async () => {
+      try {
+        scheduleFbVodMonitorPublish(io, {
+          reason: "fallback_reconcile",
+          mode: "reconcile",
+        });
+      } catch (e) {
+        console.error("[socket] fb-vod-monitor ticker error:", e);
+      }
+    }, FB_VOD_MONITOR_TICK_MS);
   }
 
   if (!courtLiveTickerStarted) {

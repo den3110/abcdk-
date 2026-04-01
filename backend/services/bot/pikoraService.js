@@ -98,8 +98,8 @@ const toolExecutionCache = new Map();
 export const BOT_IDENTITY = normalizeUserFacingData({
   name: "Pikora",
   nameVi: "Pikora - Trợ lý PickleTour",
-  version: "12.0",
-  engine: "deepseek-proxy-orchestrator-v12",
+  version: "13.0",
+  engine: "deepseek-proxy-orchestrator-v13",
   personality: ["Nhanh", "Thân thiện", "Chính xác", "Ngắn gọn"],
 });
 
@@ -138,9 +138,14 @@ const EXTRA_NAVIGATION_SCREENS = normalizeUserFacingData({
 
 function getChatCapabilitiesLegacy() {
   const retrievalMode = "internal";
+  const needsClarification = false;
   let explanation = "";
   if (retrievalMode === "hybrid_live") {
     explanation = `${explanation} Có bổ sung kiểm chứng live retrieval theo rollout hiện tại.`;
+  }
+
+  if (needsClarification) {
+    explanation = `${explanation} Pikora đang cần làm rõ thêm một chút ngữ cảnh trước khi chốt câu trả lời thật chắc.`;
   }
 
   return {
@@ -157,6 +162,7 @@ function getChatCapabilitiesLegacy() {
     confirmedLightMutations: true,
     sessionFocusMemory: true,
     sessionFocusControls: true,
+    clarificationLayer: true,
     assistantModes: ["balanced", "operator", "analyst"],
     verificationModes: ["balanced", "strict"],
     pageStateContext: true,
@@ -185,6 +191,7 @@ export function getChatCapabilities() {
     confirmedLightMutations: true,
     sessionFocusMemory: true,
     sessionFocusControls: true,
+    clarificationLayer: true,
     assistantModes: ["balanced", "operator", "analyst"],
     verificationModes: ["balanced", "strict"],
     pageStateContext: true,
@@ -368,14 +375,7 @@ function resolveRouteLane(message, route, context = {}, execution = {}) {
       return "tournament_status";
     }
     if (
-      hasAny(normalized, [
-        "con bao nhieu tran",
-        "bao nhieu tran",
-        "tien do",
-        "progress",
-        "da xong bao nhieu",
-        "con lai bao nhieu",
-      ]) ||
+      looksLikeTournamentProgressQuestion(message, normalized) ||
       toolsUsed.some((tool) =>
         [
           "get_tournament_progress",
@@ -536,6 +536,7 @@ function detectQueryDomain(message, normalized = sharedNormalizeText(message)) {
   }
   if (
     looksLikeTournamentAvailabilityQuestion(message, normalized) ||
+    looksLikeTournamentProgressQuestion(message, normalized) ||
     hasAny(normalized, [
       "giai",
       "giải",
@@ -913,6 +914,7 @@ function buildTrustMeta({
   actions = [],
   reasoningAvailable = false,
   guardApplied = false,
+  needsClarification = false,
   retrievalMode = "internal",
   queryScope = "general_knowledge",
   contextConfidence = "low",
@@ -972,6 +974,10 @@ function buildTrustMeta({
     explanation = `${explanation} Pikora cũng đã dùng suy luận để nối các tín hiệu liên quan.`;
   }
 
+  if (needsClarification) {
+    explanation = `${explanation} Pikora đang cần làm rõ thêm một chút ngữ cảnh trước khi chốt câu trả lời thật chắc.`;
+  }
+
   return {
     grounded,
     reasoned,
@@ -984,6 +990,7 @@ function buildTrustMeta({
     operatorStatus,
     retrievalMode,
     guardApplied: Boolean(guardApplied),
+    needsClarification: Boolean(needsClarification),
     queryScope,
     contextConfidence,
     verificationMode: normalizeVerificationMode(verificationMode),
@@ -1816,6 +1823,14 @@ async function runPikora(message, context, userId, emit, options = {}) {
     ];
   }
   const retrievalMode = resolveRetrievalMode(focusAwareContext, hybridRetrieval);
+  const clarification = buildClarificationState({
+    message,
+    route,
+    context: focusAwareContext,
+    execution,
+    queryScope,
+    contextConfidence,
+  });
 
   const preferredModel =
     context?.reasoningMode === "force_reasoner" ||
@@ -1833,6 +1848,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     userProfile,
     personalization,
     execution,
+    clarification,
   });
 
   routeThinking(
@@ -1902,6 +1918,20 @@ async function runPikora(message, context, userId, emit, options = {}) {
     sources,
     answerCards,
   );
+  const suggestedActions = clarification
+    ? []
+    : buildSuggestedActions(route, focusAwareContext, execution);
+  const baseSuggestions = generateSuggestions(
+    route,
+    focusAwareContext,
+    execution,
+    userId,
+    personalization,
+  );
+  const finalSuggestions =
+    clarification?.hints?.length > 0
+      ? sharedCompactList([...clarification.hints, ...baseSuggestions], 8)
+      : baseSuggestions;
   const finalResult = {
     reply: trustGuard.reply,
     intent: inferIntent(message, route, focusAwareContext, execution),
@@ -1915,18 +1945,13 @@ async function runPikora(message, context, userId, emit, options = {}) {
     toolsUsed: execution.toolsUsed,
     toolSummary: execution.toolSummary,
     navigation: execution.navigation || null,
-    actions: buildSuggestedActions(route, focusAwareContext, execution),
+    actions: suggestedActions,
     answerCards,
     sources,
+    clarification,
     contextInsight,
     personalization,
-    suggestions: generateSuggestions(
-      route,
-      focusAwareContext,
-      execution,
-      userId,
-      personalization,
-    ),
+    suggestions: finalSuggestions,
     surface: focusAwareContext?.surface || "web",
     model: result.model,
     mode: result.mode,
@@ -1967,21 +1992,19 @@ async function runPikora(message, context, userId, emit, options = {}) {
   finalResult.actionExecutionSummary = buildActionExecutionSummary(
     finalResult.actions,
   );
-  finalResult.workflow = buildWorkflowRecipe(
-    route,
-    focusAwareContext,
-    execution,
-    finalResult.actions,
-  );
-  finalResult.mutationPreview = rolloutDecision?.allowConfirmedMutations
-    ? buildMutationPreview(
-        route,
-        focusAwareContext,
-        personalization,
-        finalResult.actions,
-        finalResult.workflow,
-      )
-    : null;
+  finalResult.workflow = clarification
+    ? null
+    : buildWorkflowRecipe(route, focusAwareContext, execution, finalResult.actions);
+  finalResult.mutationPreview =
+    clarification || !rolloutDecision?.allowConfirmedMutations
+      ? null
+      : buildMutationPreview(
+          route,
+          focusAwareContext,
+          personalization,
+          finalResult.actions,
+          finalResult.workflow,
+        );
   finalResult.trustMeta = buildTrustMeta({
     route,
     execution,
@@ -1989,12 +2012,13 @@ async function runPikora(message, context, userId, emit, options = {}) {
     answerCards: finalResult.answerCards,
     actions: finalResult.actions,
     reasoningAvailable: finalResult.reasoningAvailable,
-      guardApplied: trustGuard.guardApplied,
-      retrievalMode,
-      queryScope: finalResult.queryScope,
-      contextConfidence: finalResult.contextConfidence,
-      verificationMode: finalResult.verificationMode,
-    });
+    guardApplied: trustGuard.guardApplied,
+    needsClarification: Boolean(clarification),
+    retrievalMode,
+    queryScope: finalResult.queryScope,
+    contextConfidence: finalResult.contextConfidence,
+    verificationMode: finalResult.verificationMode,
+  });
   finalResult.capabilityKeys = buildCapabilityKeys(
     route,
     focusAwareContext,
@@ -2016,6 +2040,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     actions: finalResult.actions,
     answerCards: finalResult.answerCards,
     sources: finalResult.sources,
+    clarification: finalResult.clarification,
     capabilityKeys: finalResult.capabilityKeys,
     actionExecutionSummary: finalResult.actionExecutionSummary,
     workflow: finalResult.workflow,
@@ -2049,6 +2074,7 @@ async function runPikora(message, context, userId, emit, options = {}) {
     actions: finalResult.actions,
     answerCards: finalResult.answerCards,
     sources: finalResult.sources,
+    clarification: finalResult.clarification,
     capabilityKeys: finalResult.capabilityKeys,
     actionExecutionSummary: finalResult.actionExecutionSummary,
     workflow: finalResult.workflow,
@@ -2117,6 +2143,7 @@ function finalizeDirectResponse({
       }),
     answerCards: [],
     sources: [],
+    clarification: null,
     contextInsight: route.directResponse.contextInsight || contextInsight || "",
     personalization: null,
     suggestions: route.directResponse.suggestions || [],
@@ -2191,6 +2218,7 @@ function finalizeDirectResponse({
     actions: result.actions,
     answerCards: result.answerCards,
     sources: result.sources,
+    clarification: result.clarification,
     capabilityKeys: result.capabilityKeys,
     actionExecutionSummary: result.actionExecutionSummary,
     workflow: result.workflow,
@@ -2224,6 +2252,7 @@ function finalizeDirectResponse({
     actions: result.actions,
     answerCards: result.answerCards,
     sources: result.sources,
+    clarification: result.clarification,
     capabilityKeys: result.capabilityKeys,
     actionExecutionSummary: result.actionExecutionSummary,
     workflow: result.workflow,
@@ -2266,10 +2295,6 @@ function shouldFinalizeDirectResponseInstantly(message, route, context = {}) {
     return true;
   }
 
-  if (!context?.currentUser?._id && !context?.currentUser?.id && navigationPath) {
-    return true;
-  }
-
   return false;
 }
 
@@ -2285,7 +2310,10 @@ function buildSeedExecutionFromDirectResponse(directResponse = {}) {
     prebuiltSuggestions: Array.isArray(directResponse.suggestions)
       ? directResponse.suggestions.filter(Boolean)
       : [],
-    seedReply: String(directResponse.reply || ""),
+    seedReply:
+      directResponse?.forceSeedReply || directResponse?.seedReply === true
+        ? String(directResponse.reply || "")
+        : "",
   };
 }
 
@@ -2327,6 +2355,118 @@ function buildPreparedActionSummary(execution = {}) {
   if (!uniqueLabels.length) return "";
 
   return uniqueLabels.slice(0, 5).join(", ");
+}
+
+function buildClarificationHints(route, context = {}, message = "") {
+  const normalized = sharedNormalizeText(message);
+
+  switch (route?.kind) {
+    case "tournament":
+      return compactList([
+        context?.tournamentId ? "Lịch thi đấu của giải này" : "Giải nào bạn muốn xem?",
+        looksLikeTournamentAvailabilityQuestion(message, normalized)
+          ? "Giải nào đang diễn ra?"
+          : "Tiến độ giải nào?",
+        "Nói rõ tên giải hoặc tab bạn đang quan tâm",
+      ]).slice(0, 3);
+    case "player":
+      return compactList([
+        "Bạn muốn xem bảng xếp hạng hay hồ sơ VĐV?",
+        "Top đôi hay top đơn?",
+        "Nói rõ tên người chơi nếu bạn đang hỏi về một VĐV cụ thể",
+      ]).slice(0, 3);
+    case "news":
+      return compactList([
+        context?.newsSlug ? "Tóm tắt bài này" : "Bài viết nào bạn muốn xem?",
+        "Bạn muốn tóm tắt hay xem nguồn?",
+        "Nói rõ tiêu đề bài hoặc mở đúng bài viết trước",
+      ]).slice(0, 3);
+    case "club":
+      return compactList([
+        context?.clubId ? "Thông báo mới của CLB này" : "CLB nào bạn muốn xem?",
+        "Bạn muốn xem thành viên, sự kiện hay thông báo?",
+        "Nói rõ tên CLB để mình tra đúng hơn",
+      ]).slice(0, 3);
+    case "live":
+      return compactList([
+        context?.matchId ? "Tỷ số trận này" : "Trận nào bạn muốn xem?",
+        "Bạn muốn xem tỷ số hay diễn biến live?",
+        "Nói rõ mã trận hoặc mở đúng màn live trước",
+      ]).slice(0, 3);
+    case "navigate":
+      return compactList([
+        "Bạn muốn mở mục nào cụ thể hơn?",
+        "Nói rõ tab, màn hình hoặc tên giải/CLB",
+        "Ví dụ: mở lịch thi đấu, mở bảng xếp hạng",
+      ]).slice(0, 3);
+    default:
+      return compactList([
+        "Nói rõ hơn một chút để mình tra đúng hơn",
+        "Bạn đang hỏi về giải, VĐV, CLB hay tin tức?",
+        "Nếu đang nói về mục hiện tại, hãy nói rõ “giải này”, “bài này” hoặc “CLB này”",
+      ]).slice(0, 3);
+  }
+}
+
+function buildClarificationState({
+  message,
+  route,
+  context = {},
+  execution = {},
+  queryScope = "general_knowledge",
+  contextConfidence = "low",
+}) {
+  if (!String(message || "").trim()) return null;
+  if (looksLikeGreetingMessage(message) || looksLikeThanksMessage(message)) return null;
+  if (route?.kind === "direct" || route?.kind === "knowledge") return null;
+
+  const normalized = sharedNormalizeText(message);
+  const asciiMessage = normalizeAsciiText(message);
+  const wordCount = asciiMessage.split(" ").filter(Boolean).length;
+  const shortQuery = wordCount > 0 && wordCount <= 6;
+  const currentContextDependent =
+    isCurrentContextReference(normalized) ||
+    [
+      "giai hien tai",
+      "bai hien tai",
+      "clb hien tai",
+      "tran hien tai",
+      "lich thi dau",
+      "luat cua giai nay",
+      "top hien tai",
+      "giai nay",
+      "bai nay",
+      "clb nay",
+      "tran nay",
+    ].some((token) => asciiMessage.includes(token));
+  const strongAnchor =
+    hasExplicitEntityContext(context) ||
+    Boolean(context?.sessionFocusApplied) ||
+    Boolean(context?.sessionFocus?.activeType);
+  const toolCount = Array.isArray(execution?.toolsUsed) ? execution.toolsUsed.length : 0;
+
+  if (strongAnchor && contextConfidence !== "low") return null;
+
+  const shouldClarify =
+    (currentContextDependent && !strongAnchor) ||
+    (shortQuery &&
+      toolCount === 0 &&
+      contextConfidence === "low" &&
+      ["tournament", "player", "club", "news", "live", "navigate"].includes(
+        route?.kind,
+      )) ||
+    (queryScope === "entity_scoped" && !strongAnchor);
+
+  if (!shouldClarify) return null;
+
+  const hints = buildClarificationHints(route, context, message);
+  if (!hints.length) return null;
+
+  return normalizeUserFacingData({
+    type: currentContextDependent ? "missing_current_context" : "missing_target",
+    routeKind: route?.kind || "general",
+    hints,
+  });
 }
 
 function buildGroundedTournamentStatusResponse(message, route, context, execution) {
@@ -2888,6 +3028,52 @@ export function looksLikeTournamentAvailabilityQuestion(
   return Boolean(pickTournamentStatusFromMessage(message, normalized)) || asksAvailability;
 }
 
+export function looksLikeTournamentProgressQuestion(
+  message,
+  normalized = sharedNormalizeText(message),
+) {
+  const asciiMessage = normalizeAsciiText(message);
+
+  return (
+    hasAny(normalized, [
+      "bao nhiêu trận",
+      "còn bao nhiêu trận",
+      "trận chưa xong",
+      "trận đã xong",
+      "tổng trận",
+      "tiến độ",
+      "đã xong bao nhiêu",
+      "còn lại bao nhiêu",
+      "đã đấu bao nhiêu",
+      "đã hoàn thành bao nhiêu",
+      "hoàn thành",
+      "xong rồi",
+    ]) ||
+    [
+      "bao nhieu tran",
+      "con bao nhieu tran",
+      "tran chua xong",
+      "tran da xong",
+      "tong tran",
+      "tien do",
+      "progress",
+      "da xong bao nhieu",
+      "con lai bao nhieu",
+      "da dau bao nhieu",
+      "da hoan thanh bao nhieu",
+      "hoan thanh roi",
+      "xong roi",
+      "bao nhieu tran xong",
+      "bao nhieu tran da dau",
+      "so tran da dau",
+      "so tran hoan thanh",
+      "match count",
+      "finished matches",
+      "completed matches",
+    ].some((keyword) => asciiMessage.includes(keyword))
+  );
+}
+
 function isQuestionLike(normalized) {
   return hasAny(normalized, [
     "gì",
@@ -3340,6 +3526,56 @@ function classifyRoute(message, context, userId) {
     return navigationRoute;
   }
 
+  if (
+    context.tournamentId &&
+    hasAny(boostedNormalized, [
+      "toi da dang ky giai nay chua",
+      "da dang ky giai nay chua",
+      "toi da dang ky chua",
+      "da dang ky chua",
+      "ma dang ky",
+      "check in cua toi",
+      "checkin cua toi",
+      "dang ky cua toi",
+      "dang ky giai nay",
+    ])
+  ) {
+    return {
+      kind: "tournament",
+      entityName,
+      toolPlan: [
+        {
+          name: "check_my_registration",
+          args: { tournamentId: context.tournamentId },
+        },
+      ],
+    };
+  }
+
+  if (
+    context.tournamentId &&
+    hasAny(boostedNormalized, [
+      "co du tuoi dang ky khong",
+      "du tuoi",
+      "du tuoi dang ky",
+      "gioi han tuoi",
+      "nam sinh",
+      "tuoi toi co hop le",
+      "age check",
+    ])
+  ) {
+    return {
+      kind: "tournament",
+      entityName,
+      toolPlan: [
+        {
+          name: "get_tournament_age_check",
+          args: { tournamentId: context.tournamentId },
+        },
+      ],
+    };
+  }
+
   const wantsOwnInfo =
     hasAny(boostedNormalized, ["của tôi", "tôi", "mình", "my "]) &&
     hasAny(boostedNormalized, [
@@ -3414,6 +3650,69 @@ function classifyRoute(message, context, userId) {
       kind: "club",
       entityName,
       toolPlan: buildClubToolPlan(boostedNormalized, entityName, context),
+    };
+  }
+
+  if (
+    context.profileUserId &&
+    hasAny(boostedNormalized, ["casual", "tran tu do", "giao huu", "practice"])
+  ) {
+    return {
+      kind: "player",
+      entityName,
+      toolPlan: [
+        {
+          name: "get_user_casual_stats",
+          args: { userId: context.profileUserId },
+        },
+      ],
+    };
+  }
+
+  if (
+    context.profileUserId &&
+    hasAny(boostedNormalized, ["lich su tran", "match history", "tran gan day"])
+  ) {
+    return {
+      kind: "player",
+      entityName,
+      toolPlan: [
+        {
+          name: "get_user_match_history",
+          args: { userId: context.profileUserId, limit: 12 },
+        },
+      ],
+    };
+  }
+
+  if (
+    context.matchId &&
+    hasAny(boostedNormalized, [
+      "thoi luong",
+      "bao lau",
+      "duration",
+      "keo dai",
+      "anh huong rating",
+      "rating impact",
+      "delta rating",
+      "doi rating",
+      "ti so",
+      "diem",
+      "score",
+      "set",
+      "van",
+      "dien bien",
+      "log",
+      "nhat ky",
+      "video",
+      "xem lai",
+      "record",
+    ])
+  ) {
+    return {
+      kind: "live",
+      entityName,
+      toolPlan: buildLiveToolPlan(boostedNormalized, context),
     };
   }
 
@@ -3505,6 +3804,24 @@ export function classifyRouteForTest(message, context = {}, userId = null) {
     ),
     userId,
   );
+}
+
+export function buildClarificationStateForTest(
+  message,
+  route,
+  context = {},
+  execution = {},
+  queryScope = "general_knowledge",
+  contextConfidence = "low",
+) {
+  return buildClarificationState({
+    message,
+    route,
+    context,
+    execution,
+    queryScope,
+    contextConfidence,
+  });
 }
 
 function detectNavigationRoute(message, normalized, context) {
@@ -3690,6 +4007,28 @@ function buildNavigationIntent(message, normalized, context) {
 }
 
 function buildPersonalToolPlan(normalized, context) {
+  if (hasAny(normalized, ["loi moi", "invite", "invites"])) {
+    return [
+      {
+        name: "get_reg_invites",
+        args: {
+          tournamentId: context.tournamentId || undefined,
+        },
+      },
+    ];
+  }
+  if (hasAny(normalized, ["diem trinh", "lich su cham diem", "score history"])) {
+    return [{ name: "get_score_history", args: { limit: 12 } }];
+  }
+  if (hasAny(normalized, ["uy tin", "reputation"])) {
+    return [{ name: "get_reputation_history", args: { limit: 12 } }];
+  }
+  if (hasAny(normalized, ["tran tu do", "casual", "practice", "giao huu"])) {
+    return [{ name: "get_user_casual_stats", args: {} }];
+  }
+  if (hasAny(normalized, ["lich su tran", "match history", "tran gan day"])) {
+    return [{ name: "get_user_match_history", args: { limit: 12 } }];
+  }
   if (hasAny(normalized, ["giải của tôi", "giải đã đăng ký", "đăng ký giải"])) {
     return [{ name: "get_my_registrations", args: { limit: 6 } }];
   }
@@ -3858,6 +4197,19 @@ function buildLiveToolPlan(normalized, context = {}) {
       ]));
 
   if (useCurrentMatch) {
+    if (hasAny(normalized, ["thoi luong", "bao lau", "duration", "keo dai"])) {
+      return [{ name: "get_match_duration", args: { matchId: context.matchId } }];
+    }
+    if (
+      hasAny(normalized, [
+        "anh huong rating",
+        "rating impact",
+        "delta rating",
+        "doi rating",
+      ])
+    ) {
+      return [{ name: "get_match_rating_impact", args: { matchId: context.matchId } }];
+    }
     if (hasAny(normalized, ["tỉ số", "điểm", "score", "set", "ván"])) {
       return [{ name: "get_match_score_detail", args: { matchId: context.matchId } }];
     }
@@ -3868,6 +4220,21 @@ function buildLiveToolPlan(normalized, context = {}) {
       return [{ name: "get_match_video", args: { matchId: context.matchId } }];
     }
     return [{ name: "get_match_info", args: { matchId: context.matchId } }];
+  }
+
+  if (
+    context.tournamentId &&
+    hasAny(normalized, ["san", "court", "tinh hinh san", "court status", "san nao"])
+  ) {
+    return [
+      {
+        name: "get_court_status",
+        args: {
+          tournamentId: context.tournamentId,
+          courtName: context.courtCode || undefined,
+        },
+      },
+    ];
   }
 
   if (context.tournamentId) {
@@ -3958,6 +4325,7 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     (
       isCurrentContextReference(normalized) ||
       context?.sessionFocusApplied === "tournament" ||
+      looksLikeTournamentProgressQuestion(message, normalized) ||
       hasAny(normalized, [
         "lịch thi đấu",
         "schedule",
@@ -4001,7 +4369,42 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     );
 
   if (hasContextTournament) {
+    if (looksLikeTournamentProgressQuestion(message, normalized)) {
+      return [
+        {
+          name: "get_tournament_progress",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_summary",
+          args: { tournamentId: context.tournamentId },
+        },
+      ];
+    }
     if (context.matchId) {
+      if (hasAny(normalized, ["thoi luong", "bao lau", "duration", "keo dai"])) {
+        return [
+          {
+            name: "get_match_duration",
+            args: { matchId: context.matchId },
+          },
+        ];
+      }
+      if (
+        hasAny(normalized, [
+          "anh huong rating",
+          "rating impact",
+          "delta rating",
+          "doi rating",
+        ])
+      ) {
+        return [
+          {
+            name: "get_match_rating_impact",
+            args: { matchId: context.matchId },
+          },
+        ];
+      }
       if (hasAny(normalized, ["tỉ số", "điểm", "score", "set", "ván"])) {
         return [
           {
@@ -4028,6 +4431,14 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
       }
     }
     if (context.bracketId) {
+      if (hasAny(normalized, ["hat giong", "seed", "seeding", "draw size"])) {
+        return [
+          {
+            name: "get_seeding_info",
+            args: { bracketId: context.bracketId, tournamentId: context.tournamentId },
+          },
+        ];
+      }
       if (hasAny(normalized, ["xếp hạng bảng", "standings", "bảng này"])) {
         return [
           {
@@ -4052,6 +4463,39 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           },
         ];
       }
+    }
+    if (
+      hasAny(normalized, [
+        "toi da dang ky chua",
+        "da dang ky chua",
+        "ma dang ky",
+        "check in cua toi",
+        "checkin cua toi",
+        "dang ky cua toi",
+      ])
+    ) {
+      return [
+        {
+          name: "check_my_registration",
+          args: { tournamentId: context.tournamentId },
+        },
+      ];
+    }
+    if (
+      hasAny(normalized, [
+        "du tuoi",
+        "gioi han tuoi",
+        "nam sinh",
+        "tuoi toi co hop le",
+        "age check",
+      ])
+    ) {
+      return [
+        {
+          name: "get_tournament_age_check",
+          args: { tournamentId: context.tournamentId },
+        },
+      ];
     }
     if (
       hasAny(normalized, [
@@ -4131,6 +4575,10 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     }
     if (hasAny(normalized, ["đăng ký", "bao nhiêu đội", "đội"])) {
       return [
+        {
+          name: "count_registrations",
+          args: { tournamentId: context.tournamentId },
+        },
         {
           name: "get_tournament_registrations",
           args: { tournamentId: context.tournamentId, limit: 10 },
@@ -4233,6 +4681,18 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     return plan;
   }
 
+  if (looksLikeTournamentProgressQuestion(message, normalized)) {
+    plan.push({
+      name: "get_tournament_progress",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
+    plan.push({
+      name: "get_tournament_summary",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
+    return plan;
+  }
+
   if (hasAny(normalized, ["lịch thi đấu", "schedule"])) {
     plan.push({
       name: "get_tournament_schedule",
@@ -4275,6 +4735,10 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     return plan;
   }
   if (hasAny(normalized, ["đăng ký", "bao nhiêu đội", "đội"])) {
+    plan.push({
+      name: "count_registrations",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
     plan.push({
       name: "get_tournament_registrations",
       args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
@@ -6041,6 +6505,7 @@ function buildSynthesisMessages({
   userProfile,
   personalization,
   execution,
+  clarification = null,
 }) {
   const genericKnowledgeQuestion = looksLikeGenericKnowledgeQuestion(message);
   const contextUsageMode = resolveContextUsageMode(message, route, context);
@@ -6074,6 +6539,9 @@ function buildSynthesisMessages({
       : contextUsageMode === "blend"
         ? "Câu hỏi hiện tại chỉ liên quan nhẹ đến ngữ cảnh hiện tại. Hãy trả lời trực tiếp ý chính trước, chỉ dùng ngữ cảnh như tín hiệu phụ để gợi ý hoặc làm rõ."
         : "Câu hỏi hiện tại không tập trung vào ngữ cảnh hiện tại. Hãy trả lời như một câu hỏi chung, không để màn hình hiện tại kéo lệch câu trả lời.";
+  const clarificationInstruction = clarification
+    ? "Ngữ cảnh hiện tại vẫn chưa đủ chắc để chốt ngay. Hãy hỏi lại đúng 1 câu làm rõ ngắn gọn, tự nhiên, không máy móc. Chỉ sau khi làm rõ mới chốt câu trả lời cụ thể. Đừng tự khẳng định mạnh nếu chưa đủ thực thể hoặc mục tiêu."
+    : "";
   const verificationInstructionSafe =
     verificationMode === "strict"
       ? "Ch\u1ebf \u0111\u1ed9 x\u00e1c minh hi\u1ec7n t\u1ea1i l\u00e0 Strict: khi grounding ch\u01b0a \u0111\u1ee7, ph\u1ea3i n\u00f3i r\u00f5 l\u00e0 ch\u01b0a \u0111\u1ee7 d\u1eef li\u1ec7u \u0111\u1ec3 kh\u1eb3ng \u0111\u1ecbnh. Tr\u00e1nh kh\u1eb3ng \u0111\u1ecbnh m\u1ea1nh khi ch\u01b0a c\u00f3 \u0111\u1ed1i chi\u1ebfu \u0111\u1ee7 ch\u1eafc."
@@ -6097,6 +6565,7 @@ function buildSynthesisMessages({
     densityInstruction,
     pageAwareInstruction,
     contextUsageInstruction,
+    clarificationInstruction,
   ].join("\n");
 
   const contextSummary = buildContextSummaryForMessage(
@@ -6108,7 +6577,9 @@ function buildSynthesisMessages({
   const pageSnapshotSummary =
     contextUsageMode === "focus" ? buildPageSnapshotSummary(context) : "";
   const personalizationSummary = buildPersonalizationSummary(personalization);
-  const preparedActionSummary = buildPreparedActionSummary(execution);
+  const preparedActionSummary = clarification
+    ? ""
+    : buildPreparedActionSummary(execution);
   const toolContext = buildToolContext(
     execution.toolResults,
     execution.hybridRetrieval,

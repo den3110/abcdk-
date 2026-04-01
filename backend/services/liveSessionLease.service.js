@@ -11,6 +11,7 @@ import {
   markFacebookPageFreeByPage,
 } from "./facebookPagePool.service.js";
 import { publishFbPageMonitorUpdate } from "./fbPageMonitorEvents.service.js";
+import { publishFbVodDriveMonitorUpdate } from "./fbVodDriveMonitorEvents.service.js";
 import { scheduleFacebookVodFallbackForMatch } from "./liveRecordingFacebookVodFallback.service.js";
 
 const HEARTBEAT_INTERVAL_DEFAULT_MS = 15_000;
@@ -36,6 +37,15 @@ function normalizeHeartbeatIntervalMs(value) {
   return Number.isFinite(value) && value >= HEARTBEAT_INTERVAL_MIN_MS
     ? Math.round(value)
     : HEARTBEAT_INTERVAL_DEFAULT_MS;
+}
+
+async function publishFbVodMonitorMatchUpdate(matchId, reason) {
+  const normalizedMatchId = String(matchId || "").trim();
+  if (!normalizedMatchId) return;
+  await publishFbVodDriveMonitorUpdate({
+    reason,
+    matchIds: [normalizedMatchId],
+  }).catch(() => {});
 }
 
 function normalizeLeaseTimeoutMs(value, heartbeatIntervalMs) {
@@ -234,13 +244,17 @@ async function markTargetPlatformStarted({
   live.status = "live";
   live.lastChangedAt = new Date();
 
-  return persistLiveState({
+  const updated = await persistLiveState({
     matchId,
     matchKind,
     live,
     extraSet:
       platform === "facebook" ? { "facebookLive.status": "LIVE" } : {},
   });
+  if (platform === "facebook" && normalizeMatchKind(matchKind) === "match") {
+    await publishFbVodMonitorMatchUpdate(matchId, "facebook_live_started");
+  }
+  return updated;
 }
 
 function findOpenSessionIndex(live, platform, clientSessionId = "") {
@@ -344,6 +358,10 @@ async function markTargetPlatformEnded({
     extraSet,
     extraUnset,
   });
+
+  if (platform === "facebook" && normalizeMatchKind(matchKind) === "match") {
+    await publishFbVodMonitorMatchUpdate(matchId, "facebook_live_ended");
+  }
 
   if (platform === "facebook" && !anyActive && normalizeMatchKind(matchKind) === "match") {
     await scheduleFacebookVodFallbackForMatch(matchId).catch((error) => {

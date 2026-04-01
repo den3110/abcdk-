@@ -2,6 +2,7 @@ import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import Match from "../models/matchModel.js";
 import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
 import { queueLiveRecordingExport } from "./liveRecordingV2Transition.service.js";
+import { publishFbVodDriveMonitorUpdate } from "./fbVodDriveMonitorEvents.service.js";
 import {
   buildFacebookVodRetryPlan,
   buildFacebookVodSourceMeta,
@@ -22,6 +23,15 @@ function asMutableMeta(meta) {
   return meta && typeof meta === "object" && !Array.isArray(meta)
     ? { ...meta }
     : {};
+}
+
+async function publishFbVodMonitorForMatch(matchId, reason) {
+  const normalizedMatchId = asTrimmed(matchId);
+  if (!normalizedMatchId) return;
+  await publishFbVodDriveMonitorUpdate({
+    reason,
+    matchIds: [normalizedMatchId],
+  }).catch(() => {});
 }
 
 function createFacebookVodRecordingSessionId(matchId) {
@@ -185,21 +195,34 @@ export async function scheduleFacebookVodFallbackForMatch(matchOrId) {
       : await Match.findById(matchOrId)
           .select("_id court facebookLive updatedAt")
           .lean();
+  const normalizedMatchId = asTrimmed(match?._id || matchOrId);
 
   if (!match) {
     return { skipped: true, reason: "match_not_found" };
   }
 
   if (!isMatchEligibleForFacebookVod(match)) {
+    await publishFbVodMonitorForMatch(
+      normalizedMatchId,
+      "facebook_vod_not_eligible"
+    );
     return { skipped: true, reason: "facebook_vod_not_eligible" };
   }
 
   const ensured = await ensureFacebookVodFallbackRecording(match);
   if (ensured.skipped || !ensured.recording) {
+    await publishFbVodMonitorForMatch(
+      normalizedMatchId,
+      ensured.reason || "facebook_vod_recording_skipped"
+    );
     return ensured;
   }
 
   if (shouldSkipQueuedRetry(ensured.recording)) {
+    await publishFbVodMonitorForMatch(
+      normalizedMatchId,
+      "facebook_vod_retry_already_scheduled"
+    );
     return {
       ...ensured,
       queued: false,
@@ -224,6 +247,12 @@ export async function scheduleFacebookVodFallbackForMatch(matchOrId) {
     currentPipeline,
     forceReason: "facebook_vod_fallback",
   });
+  await publishFbVodMonitorForMatch(
+    normalizedMatchId,
+    ensured.created
+      ? "recording_export_facebook_vod_created"
+      : "recording_export_facebook_vod_scheduled"
+  );
 
   return {
     ...ensured,

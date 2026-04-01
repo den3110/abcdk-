@@ -17,6 +17,7 @@ import {
   releaseFacebookPagePoolAfterEnd,
   startOrRenewLease,
 } from "../services/liveSessionLease.service.js";
+import { publishFbVodDriveMonitorUpdate } from "../services/fbVodDriveMonitorEvents.service.js";
 import { scheduleFacebookVodFallbackForMatch } from "../services/liveRecordingFacebookVodFallback.service.js";
 import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.service.js";
 import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js";
@@ -27,6 +28,15 @@ import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 function isFacebookVideoUrl(url) {
   const value = String(url || "").trim().toLowerCase();
   return value.includes("facebook.com") || value.includes("fb.watch");
+}
+
+async function publishFbVodMonitorMatchUpdate(matchId, reason) {
+  const normalizedMatchId = String(matchId || "").trim();
+  if (!normalizedMatchId) return;
+  await publishFbVodDriveMonitorUpdate({
+    reason,
+    matchIds: [normalizedMatchId],
+  }).catch(() => {});
 }
 
 function isInternalRecordingVideoUrl(url) {
@@ -2243,6 +2253,7 @@ async function cleanupFacebookLiveAfterEnd({
   matchId,
   matchKind,
   endedAt = new Date(),
+  scheduleFallback = true,
 }) {
   const normalizedMatchKind = normalizeMatchKind(matchKind);
   const TargetModel =
@@ -2263,6 +2274,10 @@ async function cleanupFacebookLiveAfterEnd({
   ).catch(() => {});
 
   if (normalizedMatchKind !== "userMatch") {
+    await publishFbVodMonitorMatchUpdate(matchId, "facebook_live_cleanup_ended");
+  }
+
+  if (normalizedMatchKind !== "userMatch" && scheduleFallback) {
     await scheduleFacebookVodFallbackForMatch(matchId).catch((error) => {
       console.warn(
         "[matchController] schedule facebook vod fallback failed:",
@@ -2407,6 +2422,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
       matchId: id,
       matchKind,
       endedAt: req.body?.timestamp,
+      scheduleFallback: false,
     });
   }
 
@@ -2556,6 +2572,7 @@ const legacyNotifyStreamStarted = asyncHandler(async (req, res) => {
 
   if (platform === "facebook") {
     await Match.updateOne({ _id: id }, { $set: { "facebookLive.status": "LIVE" } }).catch(() => {});
+    await publishFbVodMonitorMatchUpdate(id, "facebook_live_started");
   }
 
   emitSocket(req, id, {
@@ -2913,6 +2930,7 @@ const legacyNotifyStreamEnded = asyncHandler(async (req, res) => {
         },
       }
     ).catch(() => {});
+    await publishFbVodMonitorMatchUpdate(id, "facebook_live_ended");
     await scheduleFacebookVodFallbackForMatch(id).catch((error) => {
       console.warn(
         "[legacyNotifyStreamEnded] schedule facebook vod fallback failed:",
