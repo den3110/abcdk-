@@ -883,10 +883,6 @@ const ChatComposer = memo(function ChatComposer({
   const modeMenuOpen = Boolean(modeMenuAnchorEl);
   const assistantModeMeta = getAssistantModeMeta(assistantMode, t);
   const verificationModeMeta = getVerificationModeMeta(verificationMode, t);
-  const hasActiveComposerModes =
-    reasoningMode === "force_reasoner" ||
-    assistantMode !== "balanced" ||
-    verificationMode === "strict";
 
   useEffect(() => {
     setReasoningMode(
@@ -961,12 +957,6 @@ const ChatComposer = memo(function ChatComposer({
     },
     [handleComposerSend],
   );
-
-  const handleResetComposerModes = useCallback(() => {
-    setReasoningMode("auto");
-    setAssistantMode("balanced");
-    setVerificationMode("balanced");
-  }, []);
 
   return (
     <>
@@ -1117,76 +1107,108 @@ const ChatComposer = memo(function ChatComposer({
             </Tooltip>
 
             {reasoningMode === "force_reasoner" ? (
-              <Tooltip
-                title={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
-              >
-                <IconButton
+              <Tooltip title={t("chatbot.reasoner.forceMode", {}, "Suy luận")}>
+                <Chip
                   size="small"
-                  onClick={() => setReasoningMode("auto")}
+                  icon={<PsychologyIcon sx={{ fontSize: 16 }} />}
+                  label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+                  onDelete={() => setReasoningMode("auto")}
+                  deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
-                    width: 32,
                     height: 32,
+                    borderRadius: 999,
                     border: `1px solid ${alpha(theme.palette.primary.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.primary.main, 0.08),
                     color: theme.palette.primary.main,
+                    "& .MuiChip-icon": {
+                      color: "inherit",
+                      ml: 0.5,
+                    },
+                    "& .MuiChip-label": {
+                      px: 0.25,
+                      fontWeight: 700,
+                    },
+                    "& .MuiChip-deleteIcon": {
+                      color: alpha(theme.palette.primary.main, 0.82),
+                      mr: 0.35,
+                      ml: 0,
+                      transition: "opacity 0.18s ease",
+                    },
+                    "&:hover .MuiChip-deleteIcon": {
+                      color: theme.palette.primary.main,
+                    },
                   }}
-                >
-                  <PsychologyIcon sx={{ fontSize: 17 }} />
-                </IconButton>
+                />
               </Tooltip>
             ) : null}
 
             {assistantMode !== "balanced" ? (
               <Tooltip title={assistantModeMeta.label}>
-                <IconButton
+                <Chip
                   size="small"
-                  onClick={() => setAssistantMode("balanced")}
+                  icon={assistantModeMeta.icon}
+                  label={assistantModeMeta.shortLabel}
+                  onDelete={() => setAssistantMode("balanced")}
+                  deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
-                    width: 32,
                     height: 32,
+                    borderRadius: 999,
                     border: `1px solid ${alpha(theme.palette.secondary.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.secondary.main, 0.08),
                     color: theme.palette.secondary.main,
+                    "& .MuiChip-icon": {
+                      color: "inherit",
+                      ml: 0.5,
+                    },
+                    "& .MuiChip-label": {
+                      px: 0.25,
+                      fontWeight: 700,
+                    },
+                    "& .MuiChip-deleteIcon": {
+                      color: alpha(theme.palette.secondary.main, 0.82),
+                      mr: 0.35,
+                      ml: 0,
+                    },
+                    "&:hover .MuiChip-deleteIcon": {
+                      color: theme.palette.secondary.main,
+                    },
                   }}
-                >
-                  {assistantModeMeta.icon}
-                </IconButton>
+                />
               </Tooltip>
             ) : null}
 
             {verificationMode === "strict" ? (
               <Tooltip title={verificationModeMeta.label}>
-                <IconButton
+                <Chip
                   size="small"
-                  onClick={() => setVerificationMode("balanced")}
+                  icon={verificationModeMeta.icon}
+                  label={verificationModeMeta.shortLabel}
+                  onDelete={() => setVerificationMode("balanced")}
+                  deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
-                    width: 32,
                     height: 32,
+                    borderRadius: 999,
                     border: `1px solid ${alpha(theme.palette.success.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.success.main, 0.08),
                     color: theme.palette.success.main,
+                    "& .MuiChip-icon": {
+                      color: "inherit",
+                      ml: 0.5,
+                    },
+                    "& .MuiChip-label": {
+                      px: 0.25,
+                      fontWeight: 700,
+                    },
+                    "& .MuiChip-deleteIcon": {
+                      color: alpha(theme.palette.success.main, 0.82),
+                      mr: 0.35,
+                      ml: 0,
+                    },
+                    "&:hover .MuiChip-deleteIcon": {
+                      color: theme.palette.success.main,
+                    },
                   }}
-                >
-                  {verificationModeMeta.icon}
-                </IconButton>
-              </Tooltip>
-            ) : null}
-
-            {hasActiveComposerModes ? (
-              <Tooltip title="Tắt nhanh các chế độ đang bật">
-                <IconButton
-                  size="small"
-                  onClick={handleResetComposerModes}
-                  sx={{
-                    width: 32,
-                    height: 32,
-                    border: `1px solid ${alpha(theme.palette.error.main, 0.22)}`,
-                    bgcolor: alpha(theme.palette.error.main, 0.08),
-                    color: theme.palette.error.main,
-                  }}
-                >
-                  <CloseIcon sx={{ fontSize: 17 }} />
-                </IconButton>
+                />
               </Tooltip>
             ) : null}
           </Box>
