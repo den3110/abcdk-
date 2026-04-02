@@ -442,3 +442,69 @@ test("routes bracket seeding questions to the seeding tool", () => {
   assert.equal(route.toolPlan?.[0]?.name, "get_seeding_info");
   assert.equal(route.toolPlan?.[0]?.args?.bracketId, "demo-bracket-id");
 });
+
+test("routes personal support questions to support snapshot tools", () => {
+  const route = classifyRouteForTest(
+    "ho tro cua toi",
+    {},
+    "demo-user-id",
+  );
+
+  assert.equal(route.kind, "personal");
+  assert.deepEqual(
+    route.toolPlan?.map((step) => step?.name),
+    ["get_support_tickets", "get_user_support_snapshot_preset"],
+  );
+});
+
+test("routes personal login history questions to activity snapshot tools", () => {
+  const route = classifyRouteForTest(
+    "lich su dang nhap cua toi",
+    {},
+    "demo-user-id",
+  );
+
+  assert.equal(route.kind, "personal");
+  assert.deepEqual(
+    route.toolPlan?.map((step) => step?.name),
+    ["get_login_history", "get_user_activity_summary_preset"],
+  );
+});
+
+test("routes current club event questions to club event presets", () => {
+  const route = classifyRouteForTest(
+    "su kien clb nay",
+    {
+      clubId: "demo-club-id",
+      pageType: "club_detail",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "club");
+  assert.deepEqual(
+    route.toolPlan?.map((step) => step?.name),
+    ["get_club_events", "get_club_event_overview_preset"],
+  );
+});
+
+test("routes current player profile follow-up questions to player presets", () => {
+  const route = classifyRouteForTest(
+    "rating nguoi choi nay",
+    {
+      profileUserId: "demo-player-id",
+      pageType: "public_profile",
+    },
+    null,
+  );
+
+  assert.equal(route.kind, "player");
+  assert.deepEqual(
+    route.toolPlan?.map((step) => step?.name),
+    [
+      "get_user_profile_detail",
+      "get_player_profile_snapshot_preset",
+      "get_player_strength_snapshot_preset",
+    ],
+  );
+});

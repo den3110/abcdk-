@@ -1926,14 +1926,14 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         : 1;
       const globalRound = base + localRound; // KO ngay sau group => 2
 
-      let code;
+      let displayCode;
       if (groupStage) {
         const bNo = getGroupNo(m, br);
         const T = getGroupT(m);
-        code = `V1-${bNo ? `B${bNo}` : "B?"}-T${T}`;
+        displayCode = `V1-${bNo ? `B${bNo}` : "B?"}-T${T}`;
       } else {
         const T = getNonGroupT(m);
-        code = `V${globalRound}-T${T}`;
+        displayCode = `V${globalRound}-T${T}`;
       }
 
       const globalCode = `V${globalRound}`;
@@ -1956,7 +1956,10 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         courtCluster,
         globalRound,
         globalCode, // "V1", "V2", ...
-        code, // "V1-Bx-Ty" hoặc "V2-Tz" ...
+        code: displayCode,
+        displayCode,
+        codeResolved: displayCode,
+        roundCode: displayCode,
       };
     });
 

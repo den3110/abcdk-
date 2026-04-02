@@ -3118,6 +3118,32 @@ function isCurrentContextReference(normalized) {
   ]);
 }
 
+function looksLikeGenericEntityPlaceholder(entityName) {
+  const asciiEntity = normalizeAsciiText(entityName);
+  if (!asciiEntity) return false;
+
+  return [
+    "nay",
+    "hien tai",
+    "current",
+    "this",
+    "nguoi choi nay",
+    "player nay",
+    "giai nay",
+    "clb nay",
+    "club nay",
+    "bai nay",
+    "tin nay",
+    "news nay",
+    "tran nay",
+    "san nay",
+    "nhanh nay",
+    "bang nay",
+    "ho so nay",
+    "user nay",
+  ].includes(asciiEntity);
+}
+
 function allowsLooseContextBoost(context = {}) {
   if (
     context?.tournamentId ||
@@ -3575,27 +3601,29 @@ function classifyRoute(message, context, userId) {
     };
   }
 
+  const asciiBoostedNormalized = normalizeAsciiText(boostedNormalized);
   const wantsOwnInfo =
-    hasAny(boostedNormalized, ["c?a t?i", "t?i", "m?nh", "my "]) &&
-    hasAny(boostedNormalized, [
+    (asciiBoostedNormalized.includes("cua toi") ||
+      /\b(toi|minh|my)\b/.test(asciiBoostedNormalized)) &&
+    [
       "rating",
-      "h? s?",
-      "th?ng tin",
-      "gi?i c?a t?i",
-      "??ng k?",
-      "tr?n s?p t?i",
-      "l?ch s? ??ng nh?p",
-      "thi?t b?",
-      "bi?n ??ng",
-      "h? tr?",
+      "ho so",
+      "thong tin",
+      "giai cua toi",
+      "dang ky",
+      "tran sap toi",
+      "lich su dang nhap",
+      "thiet bi",
+      "bien dong",
+      "ho tro",
       "support",
       "ticket",
-      "khi?u n?i",
+      "khieu nai",
       "complaint",
       "subscription",
-      "g?i",
+      "goi",
       "plan",
-    ]);
+    ].some((token) => asciiBoostedNormalized.includes(token));
 
   if (wantsOwnInfo) {
     if (!userId) {
@@ -3644,7 +3672,39 @@ function classifyRoute(message, context, userId) {
     };
   }
 
-  if (hasAny(boostedNormalized, ["tin tức", "news", "bài viết"])) {
+    const asciiClubScopedQuery = normalizeAsciiText(boostedNormalized);
+  if (
+    context.clubId &&
+    (isCurrentContextReference(boostedNormalized) ||
+      asciiClubScopedQuery.includes("clb nay") ||
+      asciiClubScopedQuery.includes("club nay")) &&
+    [
+      "thanh vien",
+      "members",
+      "admin",
+      "quan ly",
+      "su kien",
+      "event",
+      "lich clb",
+      "binh chon",
+      "poll",
+      "vote",
+      "tin",
+      "news",
+      "thong bao",
+      "announcement",
+      "chi tiet",
+      "gioi thieu",
+    ].some((token) => asciiClubScopedQuery.includes(token))
+  ) {
+    return {
+      kind: "club",
+      entityName,
+      toolPlan: buildClubToolPlan(boostedNormalized, entityName, context),
+    };
+  }
+
+if (hasAny(boostedNormalized, ["tin tức", "news", "bài viết"])) {
     return {
       kind: "news",
       entityName,
@@ -4014,13 +4074,22 @@ function buildNavigationIntent(message, normalized, context) {
 }
 
 function buildPersonalToolPlan(normalized, context) {
-  if (hasAny(normalized, ["ho tro", "h? tr?", "ticket", "support"])) {
+  const asciiNormalized = normalizeAsciiText(normalized);
+  const hasPersonalTerm = (...terms) =>
+    terms.some(
+      (term) =>
+        String(normalized || "").includes(term) ||
+        asciiNormalized.includes(normalizeAsciiText(term)),
+    );
+
+  if (hasPersonalTerm("ỗ trợ", "ticket", "support")) {
     return [
       { name: "get_support_tickets", args: { status: "open" } },
       { name: "get_user_support_snapshot_preset", args: { status: "open", limit: 10 } },
     ];
   }
-  if (hasAny(normalized, ["khieu nai", "khi?u n?i", "complaint"])) {
+
+  if (hasPersonalTerm("khiếu nại", "complaint")) {
     return [
       {
         name: "get_complaints",
@@ -4032,13 +4101,15 @@ function buildPersonalToolPlan(normalized, context) {
       },
     ];
   }
-  if (hasAny(normalized, ["goi", "g?i", "subscription", "plan"])) {
+
+  if (hasPersonalTerm("gói", "subscription", "plan")) {
     return [
       { name: "get_my_subscriptions", args: {} },
       { name: "get_user_subscription_snapshot_preset", args: {} },
     ];
   }
-  if (hasAny(normalized, ["loi moi", "invite", "invites"])) {
+
+  if (hasPersonalTerm("lời mời", "invite", "invites")) {
     return [
       {
         name: "get_reg_invites",
@@ -4048,25 +4119,32 @@ function buildPersonalToolPlan(normalized, context) {
       },
     ];
   }
-  if (hasAny(normalized, ["diem trinh", "lich su cham diem", "score history"])) {
+
+  if (hasPersonalTerm("điểm trình", "lịch sử chấm điểm", "score history")) {
     return [{ name: "get_score_history", args: { limit: 12 } }];
   }
-  if (hasAny(normalized, ["uy tin", "reputation"])) {
+
+  if (hasPersonalTerm("uy tín", "reputation")) {
     return [{ name: "get_reputation_history", args: { limit: 12 } }];
   }
-  if (hasAny(normalized, ["tran tu do", "casual", "practice", "giao huu"])) {
+
+  if (hasPersonalTerm("trận tự do", "casual", "practice", "giao hữu")) {
     return [{ name: "get_user_casual_stats", args: {} }];
   }
-  if (hasAny(normalized, ["lich su tran", "match history", "tran gan day"])) {
+
+  if (hasPersonalTerm("lịch sử trận", "match history", "trận gần đây")) {
     return [{ name: "get_user_match_history", args: { limit: 12 } }];
   }
-  if (hasAny(normalized, ["gi?i c?a t?i", "gi?i ?? ??ng k?", "??ng k? gi?i"])) {
+
+  if (hasPersonalTerm("giải của tôi", "giải đã đăng ký", "đăng ký giải")) {
     return [{ name: "get_my_registrations", args: { limit: 6 } }];
   }
-  if (hasAny(normalized, ["bi?n ??ng", "l?ch s? rating", "rating changes"])) {
+
+  if (hasPersonalTerm("biến động", "lịch sử rating", "rating changes")) {
     return [{ name: "get_my_rating_changes", args: { limit: 8 } }];
   }
-  if (hasAny(normalized, ["tr?n s?p t?i", "upcoming"])) {
+
+  if (hasPersonalTerm("trận sắp tới", "upcoming")) {
     return [
       {
         name: "get_upcoming_matches",
@@ -4077,15 +4155,18 @@ function buildPersonalToolPlan(normalized, context) {
       },
     ];
   }
-  if (hasAny(normalized, ["l?ch s? ??ng nh?p", "login"])) {
+
+  if (hasPersonalTerm("lịch sử đăng nhập", "login")) {
     return [
       { name: "get_login_history", args: { limit: 10 } },
       { name: "get_user_activity_summary_preset", args: { limit: 10 } },
     ];
   }
-  if (hasAny(normalized, ["thi?t b?", "device"])) {
+
+  if (hasPersonalTerm("thiết bị", "device")) {
     return [{ name: "get_my_devices", args: {} }];
   }
+
   return [
     { name: "get_my_info", args: {} },
     { name: "get_user_account_snapshot_preset", args: {} },
@@ -4093,25 +4174,32 @@ function buildPersonalToolPlan(normalized, context) {
 }
 
 function buildNewsToolPlan(message, normalized, entityName, context) {
+  const asciiNormalized = normalizeAsciiText(normalized);
   const keywordFromContext = buildNewsKeywordFromContext(context);
   const preferContextKeyword =
     isCurrentContextReference(normalized) ||
-    hasAny(normalized, [
+    [
+      "bài này",
+      "tin này",
+      "tóm tắt bài",
+      "nguồn bài",
+      "nguồn tin",
       "bai nay",
-      "b?i n?y",
       "tin nay",
-      "tin n?y",
       "tom tat bai",
-      "t?m t?t b?i",
       "nguon bai",
-      "ngu?n b?i",
       "nguon tin",
-      "ngu?n tin",
-    ]) ||
+    ].some(
+      (term) =>
+        String(normalized || "").includes(term) ||
+        asciiNormalized.includes(normalizeAsciiText(term)),
+    ) ||
     context?.sessionFocusApplied === "news";
+
   const keyword = preferContextKeyword
     ? keywordFromContext || entityName || message
     : entityName || keywordFromContext || message;
+
   const plan = [
     {
       name: "search_news",
@@ -4121,13 +4209,21 @@ function buildNewsToolPlan(message, normalized, entityName, context) {
       },
     },
   ];
-  if (hasAny(normalized, ["nguon", "ngu?n", "source"])) {
+
+  if (
+    ["ngu?n", "nguon", "source"].some(
+      (term) =>
+        String(normalized || "").includes(term) ||
+        asciiNormalized.includes(normalizeAsciiText(term)),
+    )
+  ) {
     plan.push({
       name: "get_news_source_snapshot_preset",
       args: { keyword, limit: 10 },
     });
     return plan;
   }
+
   plan.push({
     name: "get_news_search_overview_preset",
     args: { keyword, limit: 8 },
@@ -4136,70 +4232,61 @@ function buildNewsToolPlan(message, normalized, entityName, context) {
 }
 
 function buildClubToolPlan(normalized, entityName, context = {}) {
+  const asciiNormalized = normalizeAsciiText(normalized);
+  const effectiveEntityName = looksLikeGenericEntityPlaceholder(entityName)
+    ? ""
+    : entityName;
+  const hasClubTerm = (...terms) =>
+    terms.some(
+      (term) =>
+        String(normalized || "").includes(term) ||
+        asciiNormalized.includes(normalizeAsciiText(term)),
+    );
+
   const useCurrentClub =
     Boolean(context.clubId) &&
     (isCurrentContextReference(normalized) ||
       context?.sessionFocusApplied === "club" ||
-      (!entityName &&
-        hasAny(normalized, [
-          "thanh vien",
-          "th?nh vi?n",
+      (!effectiveEntityName &&
+        hasClubTerm(
+          "thành viên",
           "members",
           "admin",
-          "quan ly",
-          "qu?n l?",
-          "su kien",
-          "s? ki?n",
+          "quản lý",
+          "sự kiện",
           "event",
-          "lich clb",
-          "l?ch clb",
-          "binh chon",
-          "b?nh ch?n",
+          "lịch clb",
+          "bình chọn",
           "poll",
           "vote",
           "tin",
           "news",
-          "thong bao",
-          "th?ng b?o",
+          "thông báo",
           "announcements",
-          "chi tiet",
-          "chi ti?t",
-          "gioi thieu",
-          "gi?i thi?u",
-        ])));
+          "chi tiết",
+          "giới thiệu",
+        )));
 
   if (useCurrentClub) {
-    if (
-      hasAny(normalized, ["th?nh vi?n", "members", "admin", "qu?n l?"]) ||
-      context.pageSection === "members"
-    ) {
+    if (hasClubTerm("thành viên", "members", "admin", "quản lý") || context.pageSection === "members") {
       return [
         { name: "get_club_members", args: { clubId: context.clubId, limit: 20 } },
         { name: "get_club_roles_summary_preset", args: { clubId: context.clubId, limit: 20 } },
       ];
     }
-    if (
-      hasAny(normalized, ["s? ki?n", "event", "l?ch clb"]) ||
-      context.pageSection === "events"
-    ) {
+    if (hasClubTerm("sự kiện", "event", "lịch clb") || context.pageSection === "events") {
       return [
         { name: "get_club_events", args: { clubId: context.clubId, upcoming: true, limit: 8 } },
         { name: "get_club_event_overview_preset", args: { clubId: context.clubId, limit: 8 } },
       ];
     }
-    if (
-      hasAny(normalized, ["b?nh ch?n", "poll", "vote"]) ||
-      context.pageSection === "polls"
-    ) {
+    if (hasClubTerm("bình chọn", "poll", "vote") || context.pageSection === "polls") {
       return [
         { name: "get_club_polls", args: { clubId: context.clubId, limit: 5 } },
         { name: "get_club_poll_snapshot_preset", args: { clubId: context.clubId, limit: 5 } },
       ];
     }
-    if (
-      hasAny(normalized, ["tin", "news", "th?ng b?o", "announcements"]) ||
-      context.pageSection === "news"
-    ) {
+    if (hasClubTerm("tin", "news", "thông báo", "announcements") || context.pageSection === "news") {
       return [
         {
           name: "get_club_announcements",
@@ -4222,13 +4309,13 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
     {
       name: "search_clubs",
       args: {
-        name: entityName || "",
+        name: effectiveEntityName || "",
         limit: 5,
       },
     },
   ];
 
-  if (entityName && hasAny(normalized, ["chi ti?t", "m? clb", "xem clb"])) {
+  if (effectiveEntityName && hasClubTerm("chi tiết", "mở clb", "xem clb")) {
     plan.push({
       name: "get_club_details",
       args: { clubId: FIRST_CLUB_ID },
@@ -4315,26 +4402,33 @@ function buildLiveToolPlan(normalized, context = {}) {
 }
 
 function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
+  const asciiNormalized = normalizeAsciiText(normalized);
+  const effectiveEntityName = looksLikeGenericEntityPlaceholder(entityName)
+    ? ""
+    : entityName;
+  const hasPlayerTerm = (...terms) =>
+    terms.some(
+      (term) =>
+        String(normalized || "").includes(term) ||
+        asciiNormalized.includes(normalizeAsciiText(term)),
+    );
+
   if (
     context.profileUserId &&
     (isCurrentContextReference(normalized) ||
       context.sessionFocusApplied === "player" ||
-      (!entityName &&
+      (!effectiveEntityName &&
         !looksLikeLeaderboardQuestion(message, normalized) &&
-        hasAny(normalized, [
+        hasPlayerTerm(
           "rating",
-          "thong ke",
-          "th?ng k?",
-          "ho so",
-          "h? s?",
-          "lich su giai",
-          "l?ch s? gi?i",
+          "thống kê",
+          "hồ sơ",
+          "lịch sử giải",
           "tournament history",
-          "thanh tich",
           "th?nh t?ch",
-        ])))
+        )))
   ) {
-    if (hasAny(normalized, ["l?ch s? gi?i", "tournament history"])) {
+    if (hasPlayerTerm("lịch sử giải", "tournament history")) {
       return [
         {
           name: "get_player_tournament_history",
@@ -4346,7 +4440,7 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
         },
       ];
     }
-    if (hasAny(normalized, ["x?p h?ng", "ranking"])) {
+    if (hasPlayerTerm("xếp hạng", "ranking")) {
       return [
         {
           name: "get_player_ranking",
@@ -4374,7 +4468,7 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
     ];
   }
 
-  if (hasAny(normalized, ["so s?nh", "compare"])) {
+  if (hasPlayerTerm("so sánh", "compare")) {
     const [firstName, secondName] = sharedExtractPairNames(message);
     const plan = [];
     if (firstName) {
@@ -4391,22 +4485,22 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
     }
     return plan.length
       ? plan
-      : [{ name: "search_users", args: { name: entityName || message, limit: 5 } }];
+      : [{ name: "search_users", args: { name: effectiveEntityName || message, limit: 5 } }];
   }
 
-  if (hasAny(normalized, ["x?p h?ng", "bxh", "ranking"])) {
+  if (hasPlayerTerm("xếp hạng", "bxh", "ranking")) {
     return [{ name: "get_leaderboard", args: { limit: 10 } }];
   }
 
-  if (entityName && hasAny(normalized, ["rating", "th?ng k?", "h? s?"])) {
+  if (effectiveEntityName && hasPlayerTerm("rating", "thống kê", "hồ sơ")) {
     return [
-      { name: "get_user_stats", args: { name: entityName } },
-      { name: "get_player_profile_snapshot_preset", args: { name: entityName } },
-      { name: "get_player_strength_snapshot_preset", args: { name: entityName } },
+      { name: "get_user_stats", args: { name: effectiveEntityName } },
+      { name: "get_player_profile_snapshot_preset", args: { name: effectiveEntityName } },
+      { name: "get_player_strength_snapshot_preset", args: { name: effectiveEntityName } },
     ];
   }
 
-  return [{ name: "search_users", args: { name: entityName || message, limit: 5 } }];
+  return [{ name: "search_users", args: { name: effectiveEntityName || message, limit: 5 } }];
 }
 
 function buildTournamentToolPlan(message, normalized, entityName, context) {

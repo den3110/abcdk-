@@ -93,6 +93,40 @@ async function alreadyRegistered(tourId, userIds) {
   return exist || null;
 }
 
+function buildDuplicateRegistrationMessage(
+  existingReg,
+  userIds,
+  { isSingle = false, actor = "user" } = {},
+) {
+  const ids = (userIds || []).filter(Boolean).map(String);
+  const dupeNames = [];
+
+  const addNameIfMatched = (player) => {
+    const playerUserId = player?.user ? String(player.user) : null;
+    if (!playerUserId || !ids.includes(playerUserId)) return;
+    const name = player?.nickName || player?.nickname || player?.fullName || "VĐV";
+    if (!dupeNames.includes(name)) dupeNames.push(name);
+  };
+
+  addNameIfMatched(existingReg?.player1);
+  addNameIfMatched(existingReg?.player2);
+
+  if (isSingle) {
+    if (actor === "admin") {
+      const who = dupeNames[0] || "này";
+      return `Vận động viên ${who} đã đăng ký giải đấu rồi`;
+    }
+    return "Bạn đã đăng ký giải đấu rồi";
+  }
+
+  if (dupeNames.length >= 2) {
+    return "Cả 2 VĐV đã đăng ký giải đấu rồi";
+  }
+
+  const who = dupeNames[0] || "VĐV";
+  return `Vận động viên ${who} đã đăng ký giải đấu rồi`;
+}
+
 const buildFreeTournamentPayment = (tour) =>
   tour?.isFreeRegistration === true
     ? { status: "Paid", paidAt: new Date() }
@@ -152,27 +186,12 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   // (3) Duplicate đã đăng ký
   const existReg = await alreadyRegistered(tour._id, ids);
   if (existReg) {
-    const dupeNames = [];
-    const p1u = existReg.player1?.user ? String(existReg.player1.user) : null;
-    const p2u = existReg.player2?.user ? String(existReg.player2.user) : null;
-    for (const uid of ids) {
-      if (p1u === String(uid)) dupeNames.push(existReg.player1.nickName || existReg.player1.fullName || "VĐV");
-      if (p2u === String(uid)) dupeNames.push(existReg.player2?.nickName || existReg.player2?.fullName || "VĐV");
-    }
-
-    let msg;
-    if (isSingle) {
-      msg = "Bạn đã đăng ký giải đấu rồi";
-    } else if (dupeNames.length >= 2) {
-      msg = "Cả 2 VĐV đã đăng ký giải đấu rồi";
-    } else {
-      const who = dupeNames[0] || "VĐV";
-      msg = `Vận động viên ${who} đã đăng ký giải đấu rồi`;
-    }
     return {
       ok: false,
       reason: "duplicate",
-      message: msg,
+      message: buildDuplicateRegistrationMessage(existReg, ids, {
+        isSingle,
+      }),
     };
   }
 
@@ -423,6 +442,17 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
 
   // ====== NHÁNH ADMIN: tạo trực tiếp, bỏ qua mọi kiểm tra ======
   if (isAdmin) {
+    const duplicateReg = await alreadyRegistered(tour._id, ids);
+    if (duplicateReg) {
+      res.status(400);
+      throw new Error(
+        buildDuplicateRegistrationMessage(duplicateReg, ids, {
+          isSingle,
+          actor: "admin",
+        }),
+      );
+    }
+
     const [rank1, rank2] = await Promise.all([
       getRankingScore(u1._id, eventType),
       isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),

@@ -1650,7 +1650,12 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
 
   return res.json(
     attachPublicStreamsToMatch(
-      { ...m, code: m.codeDisplay },
+      {
+        ...m,
+        code: m.codeDisplay,
+        displayCode: m.codeDisplay,
+        codeResolved: m.codeDisplay,
+      },
       latestRecording
     )
   );

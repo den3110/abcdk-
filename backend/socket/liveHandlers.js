@@ -1,4 +1,6 @@
 // socket/liveHandlers.js
+import mongoose from "mongoose";
+import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Tournament from "../models/tournamentModel.js";
@@ -24,6 +26,10 @@ import {
   applyLegacyLiveAction,
 } from "../services/matchLiveSync.service.js";
 import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
+
+const MATCH_CODE_OFFSET_CACHE_TTL_MS = 10000;
+const MATCH_CODE_GROUPISH_TYPES = new Set(["group", "round_robin", "gsl"]);
+const matchCodeOffsetCache = new Map();
 
 // ===== CAP-AWARE helpers =====
 function isFinitePos(n) {
@@ -74,6 +80,117 @@ function evaluateGameFinish(aRaw, bRaw, rules) {
 }
 
 const pickTrim = (v) => (v && String(v).trim()) || "";
+const matchCodeTypeKey = (value) => String(value || "").trim().toLowerCase();
+const isGroupishBracketType = (value) =>
+  MATCH_CODE_GROUPISH_TYPES.has(matchCodeTypeKey(value));
+const ceilPow2 = (n) => {
+  const value = Math.max(1, Number(n) || 1);
+  return 1 << Math.ceil(Math.log2(value));
+};
+
+function countRoundsForBracketRealtime(bracket, maxRoundByBracket) {
+  if (!bracket) return 1;
+  if (isGroupishBracketType(bracket?.type)) return 1;
+
+  const bid = String(bracket?._id || "");
+  const fromMatches = Number(maxRoundByBracket.get(bid) || 0);
+  if (fromMatches > 0) return Math.max(1, fromMatches);
+
+  const explicit =
+    Number(bracket?.meta?.maxRounds) || Number(bracket?.drawRounds) || 0;
+  if (explicit > 0) return Math.max(1, explicit);
+
+  const drawSize = Number(bracket?.meta?.drawSize) || 0;
+  if (drawSize >= 2) return Math.ceil(Math.log2(ceilPow2(drawSize)));
+
+  return 1;
+}
+
+async function getMatchCodeOptionsForTournament(tournamentId) {
+  const key = String(tournamentId || "").trim();
+  if (!mongoose.Types.ObjectId.isValid(key)) return null;
+
+  const now = Date.now();
+  const cached = matchCodeOffsetCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  const objectId = new mongoose.Types.ObjectId(key);
+  const [brackets, roundsAgg] = await Promise.all([
+    Bracket.find({ tournament: objectId })
+      .select("_id type stage order createdAt meta.maxRounds meta.drawSize drawRounds")
+      .sort({ stage: 1, order: 1, createdAt: 1, _id: 1 })
+      .lean(),
+    Match.aggregate([
+      { $match: { tournament: objectId } },
+      { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
+    ]),
+  ]);
+
+  const maxRoundByBracket = new Map(
+    roundsAgg.map((item) => [String(item?._id || ""), Number(item?.maxRound) || 0])
+  );
+
+  const groupBrackets = brackets.filter((bracket) =>
+    isGroupishBracketType(bracket?.type)
+  );
+  const nonGroupBrackets = brackets.filter(
+    (bracket) => !isGroupishBracketType(bracket?.type)
+  );
+
+  const buckets = [];
+  if (groupBrackets.length) {
+    buckets.push({
+      sortStage: 0,
+      sortOrder: Math.min(...groupBrackets.map((bracket) => Number(bracket?.order ?? 0))),
+      spanRounds: 1,
+      brackets: groupBrackets,
+    });
+  }
+
+  const nonGroupByStage = new Map();
+  for (const bracket of nonGroupBrackets) {
+    const stageKey = Number.isFinite(Number(bracket?.stage))
+      ? Number(bracket.stage)
+      : 9999;
+    const list = nonGroupByStage.get(stageKey) || [];
+    list.push(bracket);
+    nonGroupByStage.set(stageKey, list);
+  }
+
+  for (const [stageKey, stageBrackets] of nonGroupByStage.entries()) {
+    const spanRounds = stageBrackets.reduce(
+      (sum, bracket) => sum + countRoundsForBracketRealtime(bracket, maxRoundByBracket),
+      0
+    );
+    buckets.push({
+      sortStage: stageKey,
+      sortOrder: Math.min(...stageBrackets.map((bracket) => Number(bracket?.order ?? 0))),
+      spanRounds: Math.max(1, spanRounds),
+      brackets: stageBrackets,
+    });
+  }
+
+  buckets.sort((left, right) => {
+    if (left.sortStage !== right.sortStage) return left.sortStage - right.sortStage;
+    return left.sortOrder - right.sortOrder;
+  });
+
+  const baseByBracketId = new Map();
+  let acc = 0;
+  for (const bucket of buckets) {
+    for (const bracket of bucket.brackets) {
+      baseByBracketId.set(String(bracket?._id || ""), acc);
+    }
+    acc += bucket.spanRounds;
+  }
+
+  const value = { baseByBracketId };
+  matchCodeOffsetCache.set(key, {
+    value,
+    expiresAt: now + MATCH_CODE_OFFSET_CACHE_TTL_MS,
+  });
+  return value;
+}
 
 export const resolveMatchDisplayMode = (m) => {
   const raw =
@@ -562,6 +679,35 @@ export async function toRealtimePublicMatchDTO(matchDoc) {
   const decorated = decorateServeAndSlots(matchDoc);
   const dto = toDTO(decorated);
   const matchId = String(dto?._id || matchDoc?._id || "").trim();
+  const tournamentId =
+    decorated?.tournament?._id ||
+    decorated?.tournament ||
+    dto?.tournament?._id ||
+    dto?.tournament ||
+    "";
+
+  if (tournamentId) {
+    try {
+      const codeOptions = await getMatchCodeOptionsForTournament(tournamentId);
+      const codePayload = buildMatchCodePayload(decorated, codeOptions || {});
+      const resolvedCode =
+        codePayload?.displayCode || codePayload?.code || dto?.displayCode || dto?.code || "";
+
+      if (resolvedCode) {
+        dto.code = resolvedCode;
+        dto.displayCode = resolvedCode;
+        dto.codeResolved = resolvedCode;
+      }
+      if (codePayload?.globalCode) {
+        dto.globalCode = codePayload.globalCode;
+      }
+    } catch (error) {
+      console.error(
+        "[socket realtime dto] match code resolve error:",
+        error?.message || error
+      );
+    }
+  }
 
   let recording = null;
   if (matchId && !matchDoc?.isUserMatch) {

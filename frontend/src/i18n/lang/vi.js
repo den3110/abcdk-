@@ -1032,7 +1032,7 @@ export default {
     },
     streaming: {
       badge: "Đang stream",
-      reasoning: "Pikora đang suy luận",
+      reasoning: "Đang suy luận",
       interrupted: "Đã dừng giữa chừng",
     },
     reasoner: {

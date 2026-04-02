@@ -888,6 +888,60 @@ async function getCurrentScore(userId, eventType) {
   return 0;
 }
 
+function buildDuplicateRegistrationMessage(
+  existingReg,
+  userIds,
+  { isSingles = false } = {},
+) {
+  const ids = (userIds || []).filter(Boolean).map(String);
+  const dupeNames = [];
+
+  const addNameIfMatched = (player) => {
+    const playerUserId = player?.user ? String(player.user) : null;
+    if (!playerUserId || !ids.includes(playerUserId)) return;
+    const name = player?.nickName || player?.nickname || player?.fullName || "VĐV";
+    if (!dupeNames.includes(name)) dupeNames.push(name);
+  };
+
+  addNameIfMatched(existingReg?.player1);
+  addNameIfMatched(existingReg?.player2);
+
+  if (isSingles) {
+    const who = dupeNames[0] || "này";
+    return `Vận động viên ${who} đã đăng ký giải đấu rồi`;
+  }
+
+  if (dupeNames.length >= 2) {
+    return "Cả 2 VĐV đã đăng ký giải đấu rồi";
+  }
+
+  const who = dupeNames[0] || "VĐV";
+  return `Vận động viên ${who} đã đăng ký giải đấu rồi`;
+}
+
+async function findDuplicateRegistration({
+  tournamentId,
+  userIds,
+  excludeRegId = null,
+}) {
+  const ids = (userIds || []).filter(Boolean).map(String);
+  if (!ids.length) return null;
+
+  const filter = {
+    tournament: tournamentId,
+    $or: [
+      { "player1.user": { $in: ids } },
+      { "player2.user": { $in: ids } },
+    ],
+  };
+
+  if (excludeRegId) {
+    filter._id = { $ne: excludeRegId };
+  }
+
+  return Registration.findOne(filter).select("_id player1 player2").lean();
+}
+
 export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   const { regId } = req.params;
   const { slot, userId } = req.body || {};
@@ -977,6 +1031,25 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
     else reg.player2.score = newScore;
     await reg.save();
     return res.json({ message: "Không có thay đổi", registration: reg });
+  }
+
+  const nextUserIds = [
+    slot === "p1" ? user._id : reg.player1?.user,
+    isSingles ? null : slot === "p2" ? user._id : reg.player2?.user,
+  ].filter(Boolean);
+
+  const duplicateReg = await findDuplicateRegistration({
+    tournamentId: reg.tournament,
+    userIds: nextUserIds,
+    excludeRegId: reg._id,
+  });
+  if (duplicateReg) {
+    res.status(400);
+    throw new Error(
+      buildDuplicateRegistrationMessage(duplicateReg, nextUserIds, {
+        isSingles,
+      }),
+    );
   }
 
   // --- Tạo subdoc đúng playerSchema và GÁN SCORE MỚI ---

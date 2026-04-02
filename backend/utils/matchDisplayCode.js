@@ -230,6 +230,8 @@ export function buildMatchDisplayMeta(match, options = {}) {
     computedDisplayCode = `V${globalRound}-T${matchOrder}`;
   }
 
+  const hasRoundOffsets = options?.baseByBracketId instanceof Map;
+
   const explicit =
     normalizeCode(match?.displayCode) ||
     normalizeCode(match?.codeResolved) ||
@@ -244,7 +246,11 @@ export function buildMatchDisplayMeta(match, options = {}) {
         ""
     ).trim() || "";
 
-  const displayCode = computedDisplayCode || explicit || fallback;
+  const displayCode =
+    (hasRoundOffsets ? computedDisplayCode : "") ||
+    explicit ||
+    fallback ||
+    computedDisplayCode;
   const code = displayCode || fallback;
   const globalCode = globalRound ? `V${globalRound}` : "";
 
