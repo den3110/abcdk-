@@ -804,6 +804,51 @@ function buildClusterSummary(cluster) {
   };
 }
 
+async function buildAssignedTournamentMapForClusters(clusterIds = []) {
+  const normalizedClusterIds = normalizeObjectIdArray(clusterIds);
+  if (!normalizedClusterIds.length) {
+    return new Map();
+  }
+
+  const docs = await Tournament.find({
+    allowedCourtClusterIds: { $in: normalizedClusterIds },
+  })
+    .select("_id name image status eventType nameDisplayMode allowedCourtClusterIds")
+    .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
+    .lean();
+
+  const tournamentMap = new Map(
+    normalizedClusterIds.map((clusterId) => [clusterId, []])
+  );
+
+  docs.forEach((doc) => {
+    const summary = buildRuntimeTournamentSummary(doc);
+    if (!summary?._id) return;
+
+    normalizeObjectIdArray(doc?.allowedCourtClusterIds).forEach((clusterId) => {
+      if (!tournamentMap.has(clusterId)) return;
+      tournamentMap.get(clusterId).push(summary);
+    });
+  });
+
+  return tournamentMap;
+}
+
+function attachAssignedTournamentsToCluster(cluster, tournamentMap = new Map()) {
+  const summary = buildClusterSummary(cluster);
+  if (!summary) return null;
+
+  const assignedTournaments = Array.isArray(tournamentMap.get(summary._id))
+    ? tournamentMap.get(summary._id).filter(Boolean)
+    : [];
+
+  return {
+    ...summary,
+    assignedTournamentCount: assignedTournaments.length,
+    assignedTournaments,
+  };
+}
+
 function buildQueueItemSummary(item, options = {}) {
   if (!item) return null;
   const match = buildMatchSummary(item.matchId || item.match, options);
@@ -1524,7 +1569,12 @@ export async function listManageableCourtClustersForUser(user) {
   const docs = await CourtCluster.find(query)
     .sort({ order: 1, name: 1, createdAt: 1 })
     .lean();
-  return docs.map(buildClusterSummary);
+  const assignedTournamentMap = await buildAssignedTournamentMapForClusters(
+    docs.map((doc) => doc?._id)
+  );
+  return docs
+    .map((doc) => attachAssignedTournamentsToCluster(doc, assignedTournamentMap))
+    .filter(Boolean);
 }
 
 export async function canManageCourtCluster(user, clusterId) {
@@ -2579,38 +2629,41 @@ export async function buildPublicLiveClusters() {
   if (!clusters.length) return [];
 
   const clusterIds = clusters.map((cluster) => cluster._id);
-  const stations = await CourtStation.find({
-    clusterId: { $in: clusterIds },
-    isActive: true,
-  })
-    .populate({
-      path: "assignmentQueue.items.matchId",
-      select: MATCH_SUMMARY_SELECT,
-      populate: MATCH_REF_POPULATE,
+  const [stations, assignedTournamentMap] = await Promise.all([
+    CourtStation.find({
+      clusterId: { $in: clusterIds },
+      isActive: true,
     })
-    .populate({
-      path: "currentMatch",
-      select: MATCH_SUMMARY_SELECT,
-      populate: [
-        { path: "tournament", select: "name image status" },
-        {
-          path: "pairA",
-          populate: [
-            { path: "player1.user", select: "name" },
-            { path: "player2.user", select: "name" },
-          ],
-        },
-        {
-          path: "pairB",
-          populate: [
-            { path: "player1.user", select: "name" },
-            { path: "player2.user", select: "name" },
-          ],
-        },
-      ],
-    })
-    .sort({ order: 1, name: 1, createdAt: 1 })
-    .lean();
+      .populate({
+        path: "assignmentQueue.items.matchId",
+        select: MATCH_SUMMARY_SELECT,
+        populate: MATCH_REF_POPULATE,
+      })
+      .populate({
+        path: "currentMatch",
+        select: MATCH_SUMMARY_SELECT,
+        populate: [
+          { path: "tournament", select: "name image status" },
+          {
+            path: "pairA",
+            populate: [
+              { path: "player1.user", select: "name" },
+              { path: "player2.user", select: "name" },
+            ],
+          },
+          {
+            path: "pairB",
+            populate: [
+              { path: "player1.user", select: "name" },
+              { path: "player2.user", select: "name" },
+            ],
+          },
+        ],
+      })
+      .sort({ order: 1, name: 1, createdAt: 1 })
+      .lean(),
+    buildAssignedTournamentMapForClusters(clusterIds),
+  ]);
 
   const currentMatches = stations
     .map((station) => selectPreferredStationMatchDocs(station).currentMatch)
@@ -2638,8 +2691,12 @@ export async function buildPublicLiveClusters() {
       const liveCount = stationRows.filter(
         (station) => safeText(station.status) === "live"
       ).length;
+      const clusterSummary = attachAssignedTournamentsToCluster(
+        cluster,
+        assignedTournamentMap
+      );
       return {
-        ...buildClusterSummary(cluster),
+        ...clusterSummary,
         stationsCount: stationRows.length,
         liveCount,
         hasActiveMatch: stationRows.some((station) => station.currentMatch),
@@ -2652,24 +2709,27 @@ export async function buildPublicLiveClusters() {
 export async function buildPublicLiveClusterDetail(clusterId) {
   const cluster = await CourtCluster.findById(clusterId).lean();
   if (!cluster) return null;
-  const stationDocs = await CourtStation.find({
-    clusterId,
-    isActive: true,
-  })
-    .populate("clusterId", "name slug description venueName notes color order isActive")
-    .populate({
-      path: "currentMatch",
-      select: MATCH_SUMMARY_SELECT,
-      populate: MATCH_REF_POPULATE,
+  const [stationDocs, assignedTournamentMap] = await Promise.all([
+    CourtStation.find({
+      clusterId,
+      isActive: true,
     })
-    .populate({
-      path: "assignmentQueue.items.matchId",
-      select: MATCH_SUMMARY_SELECT,
-      populate: MATCH_REF_POPULATE,
-    })
-    .populate("currentTournament", "name image status")
-    .sort({ order: 1, name: 1, createdAt: 1 })
-    .lean();
+      .populate("clusterId", "name slug description venueName notes color order isActive")
+      .populate({
+        path: "currentMatch",
+        select: MATCH_SUMMARY_SELECT,
+        populate: MATCH_REF_POPULATE,
+      })
+      .populate({
+        path: "assignmentQueue.items.matchId",
+        select: MATCH_SUMMARY_SELECT,
+        populate: MATCH_REF_POPULATE,
+      })
+      .populate("currentTournament", "name image status")
+      .sort({ order: 1, name: 1, createdAt: 1 })
+      .lean(),
+    buildAssignedTournamentMapForClusters([clusterId]),
+  ]);
 
   const currentMatches = stationDocs
     .map((station) => selectPreferredStationMatchDocs(station).currentMatch)
@@ -2688,7 +2748,7 @@ export async function buildPublicLiveClusterDetail(clusterId) {
     .filter(isRenderablePublicLiveStation);
 
   return {
-    cluster: buildClusterSummary(cluster),
+    cluster: attachAssignedTournamentsToCluster(cluster, assignedTournamentMap),
     stations,
   };
 }

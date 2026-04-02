@@ -29,6 +29,7 @@ import {
   forceReleaseCourtStationPresence,
   getCourtStationPresenceSummaryMap,
 } from "../../services/courtStationPresence.service.js";
+import { emitTournamentInvalidate } from "../../socket/tournamentRealtime.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
 
 function ensureValidObjectId(value, label = "id") {
@@ -132,6 +133,118 @@ async function emitClusterRuntime(clusterId, reason, stationId = null) {
         })
       : Promise.resolve(false),
   ]);
+}
+
+function collectStationMatchIds(station) {
+  if (!station || typeof station !== "object") return [];
+
+  const ids = new Set();
+  const currentMatchId = toIdString(
+    station?.currentMatchId || station?.currentMatch?._id || station?.currentMatch
+  );
+  if (currentMatchId) ids.add(currentMatchId);
+
+  const queueItems = Array.isArray(station?.queueItems)
+    ? station.queueItems
+    : Array.isArray(station?.assignmentQueue?.items)
+      ? station.assignmentQueue.items
+      : [];
+
+  queueItems.forEach((item) => {
+    const matchId = toIdString(
+      item?.matchId || item?.match?._id || item?.match || item?._id
+    );
+    if (matchId) ids.add(matchId);
+  });
+
+  return Array.from(ids);
+}
+
+async function collectTournamentIdsFromStationSnapshots(...snapshots) {
+  const tournamentIds = new Set();
+  const matchIds = new Set();
+
+  snapshots.filter(Boolean).forEach((raw) => {
+    const station = raw?.station || raw;
+    if (!station || typeof station !== "object") return;
+
+    const currentTournamentId = toIdString(
+      station?.currentTournamentId ||
+        station?.currentTournament?._id ||
+        station?.currentTournament
+    );
+    if (currentTournamentId) {
+      tournamentIds.add(currentTournamentId);
+    }
+
+    collectStationMatchIds(station).forEach((matchId) => matchIds.add(matchId));
+  });
+
+  if (matchIds.size) {
+    const matches = await Match.find({
+      _id: { $in: Array.from(matchIds) },
+    })
+      .select("_id tournament")
+      .lean();
+
+    matches.forEach((match) => {
+      const tournamentId = toIdString(match?.tournament);
+      if (tournamentId) tournamentIds.add(tournamentId);
+    });
+  }
+
+  return Array.from(tournamentIds);
+}
+
+async function emitTournamentInvalidatesForStations(
+  req,
+  {
+    reason,
+    fallbackTournamentIds = [],
+    extraMatchIds = [],
+    snapshots = [],
+  } = {}
+) {
+  const io = req.app?.get?.("io");
+  if (!io) return;
+
+  const tournamentIds = new Set(
+    (Array.isArray(fallbackTournamentIds) ? fallbackTournamentIds : [fallbackTournamentIds])
+      .map((value) => toIdString(value))
+      .filter(Boolean)
+  );
+
+  const snapshotTournamentIds = await collectTournamentIdsFromStationSnapshots(
+    ...(Array.isArray(snapshots) ? snapshots : [snapshots])
+  );
+  snapshotTournamentIds.forEach((tournamentId) => tournamentIds.add(tournamentId));
+
+  const normalizedExtraMatchIds = Array.from(
+    new Set(
+      (Array.isArray(extraMatchIds) ? extraMatchIds : [extraMatchIds])
+        .map((value) => toIdString(value))
+        .filter(Boolean)
+    )
+  );
+  if (normalizedExtraMatchIds.length) {
+    const matches = await Match.find({
+      _id: { $in: normalizedExtraMatchIds },
+    })
+      .select("_id tournament")
+      .lean();
+
+    matches.forEach((match) => {
+      const tournamentId = toIdString(match?.tournament);
+      if (tournamentId) tournamentIds.add(tournamentId);
+    });
+  }
+
+  tournamentIds.forEach((tournamentId) => {
+    emitTournamentInvalidate(io, {
+      tournamentId,
+      reason: safeText(reason, "court_station_runtime_updated"),
+    });
+  });
 }
 
 export const listAdminCourtClusters = asyncHandler(async (req, res) => {
@@ -372,24 +485,42 @@ export const createAdminCourtStation = asyncHandler(async (req, res) => {
 export const updateAdminCourtStation = asyncHandler(async (req, res) => {
   ensureValidObjectId(req.params.id, "clusterId");
   ensureValidObjectId(req.params.stationId, "stationId");
+  const previousStation = await CourtStation.findById(req.params.stationId)
+    .select(
+      "_id currentMatch currentTournament assignmentQueue.items.matchId"
+    )
+    .lean();
   const item = await updateCourtStation(req.params.stationId, req.body || {});
   if (!item) {
     res.status(404);
     throw new Error("Court station not found");
   }
   await emitClusterRuntime(req.params.id, "station_updated", req.params.stationId);
+  await emitTournamentInvalidatesForStations(req, {
+    reason: "court_station_updated",
+    snapshots: [previousStation, item],
+  });
   res.json(item);
 });
 
 export const deleteAdminCourtStation = asyncHandler(async (req, res) => {
   ensureValidObjectId(req.params.id, "clusterId");
   ensureValidObjectId(req.params.stationId, "stationId");
+  const previousStation = await CourtStation.findById(req.params.stationId)
+    .select(
+      "_id currentMatch currentTournament assignmentQueue.items.matchId"
+    )
+    .lean();
   const deleted = await deleteCourtStation(req.params.stationId);
   if (!deleted) {
     res.status(404);
     throw new Error("Court station not found");
   }
   await emitClusterRuntime(req.params.id, "station_deleted", req.params.stationId);
+  await emitTournamentInvalidatesForStations(req, {
+    reason: "court_station_deleted",
+    snapshots: [previousStation],
+  });
   res.json({ ok: true, deletedId: String(deleted._id) });
 });
 
@@ -430,7 +561,9 @@ export const updateTournamentCourtStationAssignmentConfigHttp = asyncHandler(
     ensureValidObjectId(req.params.stationId, "stationId");
 
     const station = await CourtStation.findById(req.params.stationId)
-      .select("_id clusterId currentTournament")
+      .select(
+        "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+      )
       .lean();
     if (!station) {
       res.status(404);
@@ -473,6 +606,11 @@ export const updateTournamentCourtStationAssignmentConfigHttp = asyncHandler(
       "station_assignment_config_updated",
       req.params.stationId
     );
+    await emitTournamentInvalidatesForStations(req, {
+      reason: "court_station_assignment_config_updated",
+      fallbackTournamentIds: [req.params.tournamentId],
+      snapshots: [station, payload],
+    });
     res.json(payload);
   }
 );
@@ -484,7 +622,9 @@ export const appendTournamentCourtStationQueueItemHttp = asyncHandler(
     ensureValidObjectId(req.body?.matchId, "matchId");
 
     const station = await CourtStation.findById(req.params.stationId)
-      .select("_id clusterId currentTournament")
+      .select(
+        "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+      )
       .lean();
     if (!station) {
       res.status(404);
@@ -520,6 +660,12 @@ export const appendTournamentCourtStationQueueItemHttp = asyncHandler(
       "station_queue_item_appended",
       req.params.stationId
     );
+    await emitTournamentInvalidatesForStations(req, {
+      reason: "court_station_queue_item_appended",
+      fallbackTournamentIds: [req.params.tournamentId],
+      snapshots: [station, payload],
+      extraMatchIds: [req.body.matchId],
+    });
     res.status(201).json(payload);
   }
 );
@@ -531,7 +677,9 @@ export const removeTournamentCourtStationQueueItemHttp = asyncHandler(
     ensureValidObjectId(req.params.matchId, "matchId");
 
     const station = await CourtStation.findById(req.params.stationId)
-      .select("_id clusterId currentTournament")
+      .select(
+        "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+      )
       .lean();
     if (!station) {
       res.status(404);
@@ -572,6 +720,12 @@ export const removeTournamentCourtStationQueueItemHttp = asyncHandler(
       "station_queue_item_removed",
       req.params.stationId
     );
+    await emitTournamentInvalidatesForStations(req, {
+      reason: "court_station_queue_item_removed",
+      fallbackTournamentIds: [req.params.tournamentId],
+      snapshots: [station, payload],
+      extraMatchIds: [req.params.matchId],
+    });
     res.json(payload);
   }
 );
@@ -579,12 +733,22 @@ export const removeTournamentCourtStationQueueItemHttp = asyncHandler(
 export const assignMatchToCourtStationHttp = asyncHandler(async (req, res) => {
   ensureValidObjectId(req.params.id, "stationId");
   ensureValidObjectId(req.body?.matchId, "matchId");
+  const previousStation = await CourtStation.findById(req.params.id)
+    .select(
+      "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+    )
+    .lean();
   const payload = await assignMatchToCourtStation(req.params.id, req.body.matchId);
   await emitClusterRuntime(
     payload?.station?.clusterId,
     "station_match_assigned",
     req.params.id
   );
+  await emitTournamentInvalidatesForStations(req, {
+    reason: "court_station_match_assigned",
+    snapshots: [previousStation, payload],
+    extraMatchIds: [req.body.matchId],
+  });
   res.json(payload);
 });
 
@@ -596,7 +760,9 @@ export const assignTournamentMatchToCourtStationHttp = asyncHandler(
 
     const [station, match] = await Promise.all([
       CourtStation.findById(req.params.stationId)
-        .select("_id clusterId currentMatch currentTournament")
+        .select(
+          "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+        )
         .lean(),
       Match.findById(req.body.matchId).select("_id tournament").lean(),
     ]);
@@ -650,12 +816,23 @@ export const assignTournamentMatchToCourtStationHttp = asyncHandler(
       "station_match_assigned",
       req.params.stationId
     );
+    await emitTournamentInvalidatesForStations(req, {
+      reason: "court_station_match_assigned",
+      fallbackTournamentIds: [req.params.tournamentId],
+      snapshots: [station, payload],
+      extraMatchIds: [req.body.matchId],
+    });
     res.json(payload);
   }
 );
 
 export const freeCourtStationHttp = asyncHandler(async (req, res) => {
   ensureValidObjectId(req.params.id, "stationId");
+  const previousStation = await CourtStation.findById(req.params.id)
+    .select(
+      "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+    )
+    .lean();
   const payload = await freeCourtStation(req.params.id);
   if (!payload) {
     res.status(404);
@@ -666,6 +843,10 @@ export const freeCourtStationHttp = asyncHandler(async (req, res) => {
     "station_freed",
     req.params.id
   );
+  await emitTournamentInvalidatesForStations(req, {
+    reason: "court_station_freed",
+    snapshots: [previousStation, payload],
+  });
   res.json(payload);
 });
 
@@ -673,7 +854,9 @@ export const forceFreeAdminCourtStationHttp = asyncHandler(async (req, res) => {
   ensureValidObjectId(req.params.id, "stationId");
 
   const station = await CourtStation.findById(req.params.id)
-    .select("_id clusterId")
+    .select(
+      "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+    )
     .lean();
   if (!station) {
     res.status(404);
@@ -693,6 +876,10 @@ export const forceFreeAdminCourtStationHttp = asyncHandler(async (req, res) => {
     "station_force_freed",
     req.params.id
   );
+  await emitTournamentInvalidatesForStations(req, {
+    reason: "court_station_force_freed",
+    snapshots: [station, freePayload],
+  });
 
   res.json({
     ok: true,
@@ -736,7 +923,9 @@ export const freeTournamentCourtStationHttp = asyncHandler(async (req, res) => {
   ensureValidObjectId(req.params.stationId, "stationId");
 
   const station = await CourtStation.findById(req.params.stationId)
-    .select("_id clusterId currentTournament")
+    .select(
+      "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
+    )
     .lean();
   if (!station) {
     res.status(404);
@@ -777,6 +966,11 @@ export const freeTournamentCourtStationHttp = asyncHandler(async (req, res) => {
     "station_freed",
     req.params.stationId
   );
+  await emitTournamentInvalidatesForStations(req, {
+    reason: "court_station_freed",
+    fallbackTournamentIds: [req.params.tournamentId],
+    snapshots: [station, payload],
+  });
   res.json(payload);
 });
 

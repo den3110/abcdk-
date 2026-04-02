@@ -1360,52 +1360,50 @@ export default function TournamentCourtClusterDialog({
                                     </MenuItem>
                                   </TextField>
 
-                                  {assignmentMode === "queue" && (
-                                    <Autocomplete
-                                      componentsProps={{
-                                        popper: { style: { zIndex: 1400 } },
-                                      }}
-                                      options={refereeOptions}
-                                      value={selectedReferee}
-                                      disabled={
-                                        clusterInteractionDisabled ||
-                                        loadingReferees
-                                      }
-                                      onChange={(_, value) =>
-                                        setDraft(stationId, {
-                                          defaultRefereeIds: value
-                                            ? [getRefId(value)]
-                                            : [],
-                                        })
-                                      }
-                                      isOptionEqualToValue={(option, value) =>
-                                        getRefId(option) === getRefId(value)
-                                      }
-                                      getOptionLabel={(option) =>
-                                        refDisplayName(option)
-                                      }
-                                      noOptionsText={
-                                        loadingReferees
-                                          ? "Đang tải trọng tài..."
-                                          : "Chưa có trọng tài trong giải"
-                                      }
-                                      renderInput={(params) => (
-                                        <TextField
-                                          {...params}
-                                          size="small"
-                                          label="Trọng tài đứng sân"
-                                          placeholder="Chọn trọng tài..."
-                                          sx={{
-                                            bgcolor: "background.paper",
-                                            "& .MuiOutlinedInput-root": {
-                                              borderRadius: 1,
-                                            },
-                                          }}
-                                        />
-                                      )}
-                                      sx={{ flex: 1 }}
-                                    />
-                                  )}
+                                  <Autocomplete
+                                    componentsProps={{
+                                      popper: { style: { zIndex: 1400 } },
+                                    }}
+                                    options={refereeOptions}
+                                    value={selectedReferee}
+                                    disabled={
+                                      clusterInteractionDisabled ||
+                                      loadingReferees
+                                    }
+                                    onChange={(_, value) =>
+                                      setDraft(stationId, {
+                                        defaultRefereeIds: value
+                                          ? [getRefId(value)]
+                                          : [],
+                                      })
+                                    }
+                                    isOptionEqualToValue={(option, value) =>
+                                      getRefId(option) === getRefId(value)
+                                    }
+                                    getOptionLabel={(option) =>
+                                      refDisplayName(option)
+                                    }
+                                    noOptionsText={
+                                      loadingReferees
+                                        ? "Đang tải trọng tài..."
+                                        : "Chưa có trọng tài trong giải"
+                                    }
+                                    renderInput={(params) => (
+                                      <TextField
+                                        {...params}
+                                        size="small"
+                                        label="Trọng tài đứng sân"
+                                        placeholder="Chọn trọng tài..."
+                                        sx={{
+                                          bgcolor: "background.paper",
+                                          "& .MuiOutlinedInput-root": {
+                                            borderRadius: 1,
+                                          },
+                                        }}
+                                      />
+                                    )}
+                                    sx={{ flex: 1 }}
+                                  />
                                   </Stack>
 
                                   <Stack
