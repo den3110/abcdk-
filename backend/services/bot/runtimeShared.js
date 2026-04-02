@@ -1,20 +1,21 @@
 import User from "../../models/userModel.js";
+import { normalizeUserFacingData } from "./textRepair.js";
 
 export function createBotIdentity({
   version,
   engine,
   personality = ["Thân thiện", "Vui vẻ", "Chuyên nghiệp", "Ngắn gọn"],
 } = {}) {
-  return {
+  return normalizeUserFacingData({
     name: "Pikora",
     nameVi: "Pikora - Trợ lý PickleTour",
     version: version || "4.0",
     engine: engine || "shared-runtime",
     personality,
-  };
+  });
 }
 
-export const TOOL_LABELS = {
+export const TOOL_LABELS = normalizeUserFacingData({
   search_tournaments: "Tìm giải",
   get_tournament_details: "Chi tiết giải",
   count_registrations: "Đếm đăng ký",
@@ -92,13 +93,14 @@ export const TOOL_LABELS = {
   search_knowledge: "Tra cứu",
   query_db: "Truy vấn DB",
   get_app_config: "Cấu hình app",
-};
+});
 
 export function buildToolPreview(
   tool,
   result,
   { isDev = process.env.NODE_ENV !== "production" } = {},
 ) {
+  const preview = (() => {
   if (!result) return "Không có kết quả";
   if (result.error) return isDev ? `Lỗi: ${result.error}` : "Lỗi khi xử lý";
 
@@ -387,6 +389,9 @@ export function buildToolPreview(
     default:
       return "Hoàn tất";
   }
+  })();
+
+  return normalizeUserFacingData(preview);
 }
 
 export async function fetchUserProfile(userId) {

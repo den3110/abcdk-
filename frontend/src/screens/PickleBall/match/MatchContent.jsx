@@ -174,6 +174,17 @@ function isMatchEqual(a, b) {
   return saA === saB && sbA === sbB && paA === paB && pbA === pbB;
 }
 
+const hasResolvedPair = (pair) =>
+  Boolean(
+    pair &&
+      (pair?.player1 ||
+        pair?.player2 ||
+        pair?.name ||
+        pair?.teamName ||
+        pair?.label ||
+        pair?.displayName),
+  );
+
 /* ====================== current V helpers (label fix) ====================== */
 function extractCurrentV(m) {
   const tryStrings = [
@@ -1354,8 +1365,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   const isSingle =
     String(mm?.tournament?.eventType || "").toLowerCase() === "single";
-  const blockA = isSeedBlockedByUnfinishedGroup(mm?.seedA);
-  const blockB = isSeedBlockedByUnfinishedGroup(mm?.seedB);
+  const blockA =
+    !hasResolvedPair(mm?.pairA) && isSeedBlockedByUnfinishedGroup(mm?.seedA);
+  const blockB =
+    !hasResolvedPair(mm?.pairB) && isSeedBlockedByUnfinishedGroup(mm?.seedB);
 
   // ====== Edit scores ======
   const [editMode, setEditMode] = useState(false);
@@ -1958,7 +1971,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Typography variant="body2" color="text.secondary">
               Đội A
             </Typography>
-            {mm?.pairA && !blockA ? (
+            {hasResolvedPair(mm?.pairA) && !blockA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
                 <PlayerLink
                   person={mm.pairA?.player1}
@@ -2010,7 +2023,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Typography variant="body2" color="text.secondary">
               Đội B
             </Typography>
-            {mm?.pairB && !blockB ? (
+            {hasResolvedPair(mm?.pairB) && !blockB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
                 <PlayerLink
                   person={mm.pairB?.player1}

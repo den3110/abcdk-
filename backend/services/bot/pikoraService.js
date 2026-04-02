@@ -2358,6 +2358,7 @@ function buildPreparedActionSummary(execution = {}) {
 
 function buildClarificationHints(route, context = {}, message = "") {
   const normalized = sharedNormalizeText(message);
+  const preview = (() => {
 
   switch (route?.kind) {
     case "tournament":
@@ -2405,6 +2406,9 @@ function buildClarificationHints(route, context = {}, message = "") {
         "Nếu đang nói về mục hiện tại, hãy nói rõ “giải này”, “bài này” hoặc “CLB này”",
       ]).slice(0, 3);
   }
+  })();
+
+  return normalizeUserFacingData(preview);
 }
 
 function buildClarificationState({
@@ -6662,6 +6666,7 @@ function hasMissingPlaceholder(originalArgs, resolvedArgs) {
 }
 
 function buildToolPreview(tool, result) {
+  const preview = (() => {
   if (!result) return "Không có kết quả";
   if (result.error) return `Lỗi: ${result.error}`;
 
@@ -6737,6 +6742,9 @@ function buildToolPreview(tool, result) {
     default:
       return "Hoàn tất";
   }
+  })();
+
+  return normalizeUserFacingData(preview);
 }
 
 function shouldUseReasoner(message, route, execution) {

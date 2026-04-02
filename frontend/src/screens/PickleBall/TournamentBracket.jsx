@@ -262,6 +262,17 @@ export const depLabel = (prev) => {
   return `W-V${r}-T${idx}`;
 };
 
+const hasResolvedPair = (pair) =>
+  Boolean(
+    pair &&
+      (pair?.player1 ||
+        pair?.player2 ||
+        pair?.name ||
+        pair?.teamName ||
+        pair?.label ||
+        pair?.displayName),
+  );
+
 const isThirdPlaceMatch = (m) => {
   if (!m) return false;
   const type = String(m?.bracket?.type || m?.format || "").toLowerCase();
@@ -2919,15 +2930,17 @@ export default function TournamentBracket() {
       if (!m) return pendingTeamLabel;
 
       const seed = side === "A" ? m.seedA : m.seedB;
+      const pair = side === "A" ? m.pairA : m.pairB;
+
+      // Nếu đã có đội thật thì luôn ưu tiên hiển thị đội thật.
+      if (hasResolvedPair(pair)) {
+        return pairLabelWithNick(pair, eventType, displayMode);
+      }
 
       // ⛔ Nếu seed đến từ GROUP và bảng chưa hoàn tất → KHÔNG fill tên đội
       if (seed && isSeedBlockedByUnfinishedGroup(seed)) {
         return resolveSeedReferenceLabel(seed, m); // ví dụ "V{stage}-B{group}-T{rank}"
       }
-
-      // Có cặp thật rồi → ưu tiên tên cặp
-      const pair = side === "A" ? m.pairA : m.pairB;
-      if (pair) return pairLabelWithNick(pair, eventType, displayMode);
 
       const prev = side === "A" ? m.previousA : m.previousB;
       if (prev) {

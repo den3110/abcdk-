@@ -32,6 +32,38 @@ const VIETNAMESE_CHAR_REGEX =
 const MOJIBAKE_REGEX =
   /(?:\u00c3.|\u00c2.|\u00c4.|\u00c6.|\u00e1[\u0080-\u00ff]{1,2}|\u00e2[\u0080-\u00ff]{1,2}|\u00e2\u20ac.|\u00ef\u00bf\u00bd|\ufffd)/gu;
 
+const USER_FACING_PHRASE_FIXES = [
+  [/chi ti\?t clb/giu, "chi tiết CLB"],
+  [/chi ti\?t giải/giu, "chi tiết giải"],
+  [/chi ti\?t gi\?i/giu, "chi tiết giải"],
+  [/chi ti\?t trận/giu, "chi tiết trận"],
+  [/chi ti\?t tr\?n/giu, "chi tiết trận"],
+  [/chi ti\?t điểm/giu, "chi tiết điểm"],
+  [/chi ti\?t đi\?m/giu, "chi tiết điểm"],
+  [/m\?\s*clb hiện tại/giu, "mở CLB hiện tại"],
+  [/m\?\s*clb hi\?n t\?i/giu, "mở CLB hiện tại"],
+  [/m\?\s*clb/giu, "mở CLB"],
+  [/thi\?t b\?/giu, "thiết bị"],
+  [/lịch s\?/giu, "lịch sử"],
+  [/l\u1ecbch s\?/giu, "lịch sử"],
+  [/h\? tr\?/giu, "hỗ trợ"],
+  [/khi\?u n\?i/giu, "khiếu nại"],
+  [/s\? ki\?n/giu, "sự kiện"],
+  [/bình ch\?n/giu, "bình chọn"],
+  [/b\u00ecnh ch\?n/giu, "bình chọn"],
+  [/người ch\?i/giu, "người chơi"],
+  [/ng\u01b0\u1eddi ch\?i/giu, "người chơi"],
+  [/ng\u01b0\?i ch\?i/giu, "người chơi"],
+  [/h\? s\?/giu, "hồ sơ"],
+  [/h\?i tho\?i/giu, "hội thoại"],
+  [/đăng k\?/giu, "đăng ký"],
+  [/đăng nh\?p/giu, "đăng nhập"],
+  [/xác th\?c/giu, "xác thực"],
+  [/giới thi\?u/giu, "giới thiệu"],
+  [/th\? th\u1ee9c/giu, "thể thức"],
+  [/điều h\u01b0\u1edbng/giu, "điều hướng"],
+];
+
 function normalizeQuery(value) {
   return String(value || "")
     .toLowerCase()
@@ -125,6 +157,14 @@ function collectRepairCandidates(value) {
   return [...candidates];
 }
 
+function applyUserFacingPhraseFixes(value) {
+  let next = String(value || "");
+  USER_FACING_PHRASE_FIXES.forEach(([pattern, replacement]) => {
+    next = next.replace(pattern, replacement);
+  });
+  return next;
+}
+
 export function repairUserFacingText(value) {
   if (typeof value !== "string" || !value) return value;
 
@@ -139,7 +179,7 @@ export function repairUserFacingText(value) {
     }
   }
 
-  return best;
+  return applyUserFacingPhraseFixes(best);
 }
 
 export function normalizeUserFacingData(value) {

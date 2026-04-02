@@ -197,6 +197,8 @@ function scoreText(m) {
 function courtNameOf(m, fallback = "Chưa phân sân") {
   return (
     (m?.courtName && m.courtName.trim()) ||
+    (m?.courtStationName && m.courtStationName.trim()) ||
+    (m?.courtStationLabel && m.courtStationLabel.trim()) ||
     m?.court?.name ||
     m?.courtLabel ||
     fallback
