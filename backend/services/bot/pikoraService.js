@@ -7627,19 +7627,19 @@ const NAVIGATION_SCREENS = {
   },
   bracket: {
     screen: "Bracket",
-    deepLink: "pickletour://bracket/{tournamentId}",
+    deepLink: "pickletour://tournament/{tournamentId}/bracket",
     webPath: "/tournament/{tournamentId}/bracket",
     description: "Sơ đồ nhánh đấu",
   },
   schedule: {
     screen: "Schedule",
-    deepLink: "pickletour://schedule/{tournamentId}",
+    deepLink: "pickletour://tournament/{tournamentId}/schedule",
     webPath: "/tournament/{tournamentId}/schedule",
     description: "Lịch thi đấu",
   },
   registration: {
     screen: "Registration",
-    deepLink: "pickletour://register/{tournamentId}",
+    deepLink: "pickletour://tournament/{tournamentId}/register",
     webPath: "/tournament/{tournamentId}/register",
     description: "Đăng ký giải đấu",
   },

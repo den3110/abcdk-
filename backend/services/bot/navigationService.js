@@ -31,7 +31,7 @@ export const NAVIGATION_INTENTS = {
   registration: {
     screen: "Registration",
     keywords: ["đăng ký", "đăng kí", "tham gia giải", "ghi danh", "register"],
-    deepLink: "pickletour://register/{tournamentId}",
+    deepLink: "pickletour://tournament/{tournamentId}/register",
     requiresContext: ["tournamentId"],
     description: "Đăng ký tham gia giải"
   },
@@ -46,14 +46,14 @@ export const NAVIGATION_INTENTS = {
   bracket: {
     screen: "Bracket",
     keywords: ["sơ đồ", "bracket", "nhánh đấu", "bảng đấu", "vòng đấu", "xem bảng"],
-    deepLink: "pickletour://bracket/{bracketId}",
+    deepLink: "pickletour://tournament/{tournamentId}/bracket",
     requiresContext: ["bracketId", "tournamentId"],
     description: "Sơ đồ/nhánh đấu"
   },
   schedule: {
     screen: "Schedule",
     keywords: ["lịch đấu", "lịch thi đấu", "schedule", "thời gian đấu", "lịch trình"],
-    deepLink: "pickletour://schedule/{tournamentId}",
+    deepLink: "pickletour://tournament/{tournamentId}/schedule",
     requiresContext: ["tournamentId"],
     description: "Lịch thi đấu"
   },

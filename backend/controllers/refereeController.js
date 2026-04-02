@@ -2678,6 +2678,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
           label,
           clusterId,
           clusterLabel: "",
+          matchIds,
           matchCount: matchIds.length,
           liveCount,
         };

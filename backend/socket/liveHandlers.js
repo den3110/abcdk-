@@ -529,6 +529,8 @@ export const toDTO = (matchDoc) => {
             : undefined,
         }
       : undefined;
+  const teamAName = teams?.A?.name || teamNameFromReg(m?.pairA) || undefined;
+  const teamBName = teams?.B?.name || teamNameFromReg(m?.pairB) || undefined;
 
   // ================= Build DTO =================
   return {
@@ -544,6 +546,8 @@ export const toDTO = (matchDoc) => {
       m.code ||
       undefined,
     globalCode: codePayload.globalCode || m.globalCode || undefined,
+    teamAName,
+    teamBName,
 
     status: m.status,
     winner: m.winner,

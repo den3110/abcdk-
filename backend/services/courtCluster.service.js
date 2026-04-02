@@ -685,6 +685,12 @@ export function buildMatchSummary(match, options = {}) {
           player2: buildRegistrationPlayerSummary(match.pairB.player2),
         }
       : null,
+    teamAName: match.pairA
+      ? teamNameFromReg(match.pairA, { displayMode, eventType })
+      : "",
+    teamBName: match.pairB
+      ? teamNameFromReg(match.pairB, { displayMode, eventType })
+      : "",
     score: Array.isArray(match.gameScores) && match.gameScores.length
       ? match.gameScores[match.gameScores.length - 1]
       : null,

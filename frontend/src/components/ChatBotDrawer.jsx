@@ -1134,7 +1134,7 @@ const ChatComposer = memo(function ChatComposer({
               top: 0,
               display: "inline-flex",
               alignItems: "center",
-              gap: 0.75,
+              gap: compactModeChips ? 1.2 : 0.75,
               width: "max-content",
               minWidth: 0,
               flexWrap: "nowrap",
@@ -1189,7 +1189,7 @@ const ChatComposer = memo(function ChatComposer({
             sx={{
               display: "flex",
               alignItems: "center",
-              gap: 0.75,
+              gap: compactModeChips ? 1.2 : 0.75,
               minWidth: 0,
               flexWrap: "wrap",
             }}
