@@ -108,6 +108,45 @@ function sanitizeSeedSource(seed, fallback = null) {
   };
 }
 
+function isByeSeed(seed) {
+  if (!seed) return false;
+  const type = String(seed?.type || "").toLowerCase();
+  if (type === "bye") return true;
+  return String(seed?.label || "").trim().toUpperCase() === "BYE";
+}
+
+function buildDoubleElimRoundMap(winnersRounds) {
+  const wb = {};
+  const lb = {};
+  let cursor = 1;
+
+  wb[1] = cursor++;
+  lb[1] = cursor++;
+
+  for (let roundIndex = 2; roundIndex < winnersRounds; roundIndex += 1) {
+    wb[roundIndex] = cursor++;
+    lb[roundIndex * 2 - 2] = cursor++;
+    lb[roundIndex * 2 - 1] = cursor++;
+  }
+
+  wb[winnersRounds] = cursor++;
+  lb[winnersRounds * 2 - 2] = cursor++;
+
+  return {
+    wb,
+    lb,
+    gf: cursor++,
+  };
+}
+
+function createMatchLoserSeed(round, order, label) {
+  return {
+    type: "matchLoser",
+    ref: { round, order },
+    label: label || `L-V${round}-T${Number(order) + 1}`,
+  };
+}
+
 /* ====================== KO Builder (2^n) ====================== */
 export async function buildKnockoutBracket({
   tournamentId,
@@ -349,6 +388,285 @@ export async function buildKnockoutBracket({
   }
 
   return { bracket, matchesByRound: created };
+}
+
+/* ====================== Double Elimination Builder ====================== */
+export async function buildDoubleElimBracket({
+  tournamentId,
+  name = "Double Elimination",
+  order = 1,
+  stage = 1,
+  drawSize,
+  firstRoundSeeds = [],
+  rules = undefined,
+  semiRules = null,
+  finalRules = null,
+  hasGrandFinalReset = false,
+  session = null,
+}) {
+  const size = Math.max(4, ceilPow2(drawSize || 4));
+  const winnersRounds = Math.round(Math.log2(size));
+  const firstPairs = size / 2;
+  const baseRules = sanitizeRules(rules);
+  const finalOnly = finalRules ? sanitizeRules(finalRules) : null;
+  const roundMap = buildDoubleElimRoundMap(winnersRounds);
+
+  const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
+    const found = firstRoundSeeds.find((seed) => Number(seed.pair) === i + 1);
+    const A =
+      found?.A && found.A.type ? sanitizeSeedSource(found.A, SEED_BYE) || SEED_BYE : SEED_BYE;
+    const B =
+      found?.B && found.B.type ? sanitizeSeedSource(found.B, SEED_BYE) || SEED_BYE : SEED_BYE;
+    return { pair: i + 1, A, B };
+  });
+
+  const bracket = await Bracket.create(
+    [
+      {
+        tournament: tournamentId,
+        name,
+        type: "double_elim",
+        order,
+        stage,
+        config: {
+          rules: baseRules,
+          doubleElim: {
+            hasGrandFinalReset: !!hasGrandFinalReset,
+          },
+          blueprint: {
+            format: "double_elim",
+            drawSize: size,
+            seeds: r1Seeds,
+            rules: baseRules,
+            semiRules: semiRules ? sanitizeRules(semiRules) : null,
+            finalRules: finalOnly,
+            doubleElim: {
+              hasGrandFinalReset: !!hasGrandFinalReset,
+            },
+          },
+        },
+        meta: {
+          drawSize: size,
+          maxRounds: roundMap.gf,
+          expectedFirstRoundMatches: firstPairs,
+        },
+        prefill: {
+          roundKey: roundTitleByPairs(firstPairs),
+          seeds: r1Seeds,
+        },
+      },
+    ],
+    { session }
+  ).then((arr) => arr[0]);
+
+  const createdWB = {};
+  const createdLB = {};
+
+  const setWinnerLink = async (matchDoc, nextMatch, slot) => {
+    if (!matchDoc?._id || !nextMatch?._id) return;
+    matchDoc.nextMatch = nextMatch._id;
+    matchDoc.nextSlot = slot;
+    await matchDoc.save({ session });
+  };
+
+  createdWB[1] = await Match.insertMany(
+    r1Seeds.map((seed, idx) => ({
+      tournament: tournamentId,
+      bracket: bracket._id,
+      format: "double_elim",
+      branch: "wb",
+      phase: "winners",
+      round: roundMap.wb[1],
+      order: idx,
+      seedA: seed.A || null,
+      seedB: seed.B || null,
+      rules: baseRules,
+    })),
+    { session }
+  );
+
+  for (let roundIndex = 2; roundIndex <= winnersRounds; roundIndex += 1) {
+    const prev = createdWB[roundIndex - 1] || [];
+    const pairs = Math.ceil(prev.length / 2);
+    createdWB[roundIndex] = await Match.insertMany(
+      Array.from({ length: pairs }, (_, idx) => ({
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "double_elim",
+        branch: "wb",
+        phase: "winners",
+        round: roundMap.wb[roundIndex],
+        order: idx,
+        previousA: prev[idx * 2]?._id || null,
+        previousB: prev[idx * 2 + 1]?._id || null,
+        rules: baseRules,
+      })),
+      { session }
+    );
+  }
+
+  for (let roundIndex = 1; roundIndex < winnersRounds; roundIndex += 1) {
+    const current = createdWB[roundIndex] || [];
+    const next = createdWB[roundIndex + 1] || [];
+    for (let idx = 0; idx < next.length; idx += 1) {
+      await setWinnerLink(current[idx * 2], next[idx], "A");
+      await setWinnerLink(current[idx * 2 + 1], next[idx], "B");
+    }
+  }
+
+  createdLB[1] = await Match.insertMany(
+    Array.from({ length: Math.max(1, createdWB[1].length / 2) }, (_, idx) => {
+      const leftSeed = r1Seeds[idx * 2];
+      const rightSeed = r1Seeds[idx * 2 + 1];
+      const leftLoser =
+        isByeSeed(leftSeed?.A) || isByeSeed(leftSeed?.B)
+          ? SEED_BYE
+          : createMatchLoserSeed(roundMap.wb[1], idx * 2, `L-WB1-T${idx * 2 + 1}`);
+      const rightLoser =
+        isByeSeed(rightSeed?.A) || isByeSeed(rightSeed?.B)
+          ? SEED_BYE
+          : createMatchLoserSeed(roundMap.wb[1], idx * 2 + 1, `L-WB1-T${idx * 2 + 2}`);
+
+      return {
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "double_elim",
+        branch: "lb",
+        phase: "losers",
+        round: roundMap.lb[1],
+        order: idx,
+        seedA: leftLoser,
+        seedB: rightLoser,
+        rules: baseRules,
+      };
+    }),
+    { session }
+  );
+
+  for (let winnersRound = 2; winnersRound < winnersRounds; winnersRound += 1) {
+    const entryRoundIndex = winnersRound * 2 - 2;
+    const consolidateRoundIndex = winnersRound * 2 - 1;
+    const prevLbRound = createdLB[entryRoundIndex - 1] || [];
+    const wbRound = createdWB[winnersRound] || [];
+
+    createdLB[entryRoundIndex] = await Match.insertMany(
+      Array.from({ length: wbRound.length }, (_, idx) => ({
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "double_elim",
+        branch: "lb",
+        phase: "losers",
+        round: roundMap.lb[entryRoundIndex],
+        order: idx,
+        previousA: prevLbRound[idx]?._id || null,
+        seedB: createMatchLoserSeed(
+          roundMap.wb[winnersRound],
+          idx,
+          `L-WB${winnersRound}-T${idx + 1}`
+        ),
+        rules: baseRules,
+      })),
+      { session }
+    );
+
+    createdLB[consolidateRoundIndex] = await Match.insertMany(
+      Array.from({ length: Math.ceil(createdLB[entryRoundIndex].length / 2) }, (_, idx) => ({
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "double_elim",
+        branch: "lb",
+        phase: "losers",
+        round: roundMap.lb[consolidateRoundIndex],
+        order: idx,
+        previousA: createdLB[entryRoundIndex][idx * 2]?._id || null,
+        previousB: createdLB[entryRoundIndex][idx * 2 + 1]?._id || null,
+        rules: baseRules,
+      })),
+      { session }
+    );
+  }
+
+  const finalLbRoundIndex = winnersRounds * 2 - 2;
+  const finalLbSourceRoundIndex = winnersRounds === 2 ? 1 : finalLbRoundIndex - 1;
+  createdLB[finalLbRoundIndex] = await Match.insertMany(
+    [
+      {
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "double_elim",
+        branch: "lb",
+        phase: "losers",
+        round: roundMap.lb[finalLbRoundIndex],
+        order: 0,
+        previousA: createdLB[finalLbSourceRoundIndex]?.[0]?._id || null,
+        seedB: createMatchLoserSeed(
+          roundMap.wb[winnersRounds],
+          0,
+          `L-WB${winnersRounds}-T1`
+        ),
+        rules: baseRules,
+      },
+    ],
+    { session }
+  );
+
+  const grandFinal = await Match.insertMany(
+    [
+      {
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "double_elim",
+        branch: "gf",
+        phase: "grand_final",
+        round: roundMap.gf,
+        order: 0,
+        previousA: createdWB[winnersRounds]?.[0]?._id || null,
+        previousB: createdLB[finalLbRoundIndex]?.[0]?._id || null,
+        rules: finalOnly || baseRules,
+      },
+    ],
+    { session }
+  ).then((arr) => arr[0]);
+
+  if (createdLB[1]?.length) {
+    const nextRound = createdLB[2] || [];
+    for (let idx = 0; idx < createdLB[1].length; idx += 1) {
+      await setWinnerLink(createdLB[1][idx], nextRound[idx], "A");
+    }
+  }
+
+  for (let winnersRound = 2; winnersRound < winnersRounds; winnersRound += 1) {
+    const entryRoundIndex = winnersRound * 2 - 2;
+    const consolidateRoundIndex = winnersRound * 2 - 1;
+    const entryRound = createdLB[entryRoundIndex] || [];
+    const consolidateRound = createdLB[consolidateRoundIndex] || [];
+
+    for (let idx = 0; idx < consolidateRound.length; idx += 1) {
+      await setWinnerLink(entryRound[idx * 2], consolidateRound[idx], "A");
+      await setWinnerLink(entryRound[idx * 2 + 1], consolidateRound[idx], "B");
+    }
+
+    const nextEntryRound = createdLB[consolidateRoundIndex + 1] || [];
+    for (let idx = 0; idx < nextEntryRound.length; idx += 1) {
+      await setWinnerLink(consolidateRound[idx], nextEntryRound[idx], "A");
+    }
+  }
+
+  await setWinnerLink(createdWB[winnersRounds]?.[0], grandFinal, "A");
+  await setWinnerLink(createdLB[finalLbRoundIndex]?.[0], grandFinal, "B");
+
+  if (typeof Match.compileSeedsForBracket === "function") {
+    await Match.compileSeedsForBracket(bracket._id);
+  }
+
+  return {
+    bracket,
+    matchesByRound: {
+      wb: createdWB,
+      lb: createdLB,
+      gf: grandFinal,
+    },
+  };
 }
 
 /* ====================== PO Builder (non-2^n round-elim) ====================== */

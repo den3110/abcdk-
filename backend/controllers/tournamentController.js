@@ -30,10 +30,6 @@ const TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS || 2000)
 );
-const TOURNAMENT_BRACKETS_CACHE_TTL_MS = Math.max(
-  3000,
-  Number(process.env.TOURNAMENT_BRACKETS_CACHE_TTL_MS || 10000)
-);
 const tournamentBracketMatchesCache = createShortTtlCache(
   TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS,
   {
@@ -52,16 +48,6 @@ const tournamentScheduleMatchesCache = createShortTtlCache(
     scope: "public",
   }
 );
-const tournamentBracketsCache = createShortTtlCache(
-  TOURNAMENT_BRACKETS_CACHE_TTL_MS,
-  {
-    id: CACHE_GROUP_IDS.tournamentBrackets,
-    label: "Tournament public brackets",
-    category: "tournament",
-    scope: "public",
-  }
-);
-
 const normalizeTournamentPublicUrls = async (req, tournament) => {
   if (!tournament || typeof tournament !== "object") return tournament;
 
@@ -86,9 +72,6 @@ const buildBracketMatchFastCacheKey = (tournamentId) =>
   `bracket:${String(tournamentId || "").trim()}`;
 const buildScheduleMatchFastCacheKey = (tournamentId) =>
   `schedule:${String(tournamentId || "").trim()}`;
-const buildTournamentBracketsCacheKey = (tournamentId) =>
-  `brackets:${String(tournamentId || "").trim()}`;
-
 const ROUND_ELIM_TYPES = new Set(["roundelim", "po", "playoff"]);
 const DEFAULT_MATCH_RULES = {
   bestOf: 1,
@@ -701,6 +684,8 @@ const listTournamentMatchesBracketView = async (req, res) => {
         "tournament",
         "bracket",
         "format",
+        "branch",
+        "phase",
         "pool",
         "round",
         "order",
@@ -814,6 +799,8 @@ const listTournamentMatchesScheduleView = async (req, res) => {
         "tournament",
         "bracket",
         "format",
+        "branch",
+        "phase",
         "pool",
         "round",
         "order",
@@ -1352,16 +1339,13 @@ export const listTournamentBrackets = asyncHandler(async (req, res, next) => {
       return res.status(400).json({ message: "Invalid tournament id" });
     }
 
-    const cacheKey = buildTournamentBracketsCacheKey(id);
-    const cached = tournamentBracketsCache.get(cacheKey);
-    if (cached) {
-      res.setHeader(
-        "Cache-Control",
-        "public, max-age=10, stale-while-revalidate=20"
-      );
-      res.setHeader("X-PKT-Cache", "HIT");
-      return res.json(cached);
-    }
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("X-PKT-Cache", "BYPASS");
 
     const rows = await Bracket.aggregate([
       { $match: { tournament: new mongoose.Types.ObjectId(id) } },
@@ -1539,12 +1523,6 @@ export const listTournamentBrackets = asyncHandler(async (req, res, next) => {
       return out;
     });
 
-    tournamentBracketsCache.set(cacheKey, list);
-    res.setHeader(
-      "Cache-Control",
-      "public, max-age=10, stale-while-revalidate=20"
-    );
-    res.setHeader("X-PKT-Cache", "MISS");
     res.json(list);
   } catch (err) {
     next(err);

@@ -43,7 +43,7 @@ import "dayjs/locale/vi";
 import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
 
 // ====== Zoom components ======
-import { DEFAULT_FALLBACK } from "../../components/Zoom";
+import { DEFAULT_FALLBACK, ZoomableWrapper } from "../../components/Zoom";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
@@ -400,6 +400,31 @@ export default function TournamentDashboard() {
         })
       : "--";
 
+  const formatDateRange = (startDate, endDate) => {
+    if (!startDate && !endDate) return "--";
+
+    const effectiveStart = startDate || endDate;
+    const effectiveEnd = endDate || startDate;
+    const startLabel = formatDate(effectiveStart);
+    const endLabel = formatDate(effectiveEnd);
+
+    if (!startDate || !endDate) {
+      return startLabel !== "--" ? startLabel : endLabel;
+    }
+
+    const startDay = dayjs(startDate);
+    const endDay = dayjs(endDate);
+
+    if (
+      (startDay.isValid() && endDay.isValid() && startDay.isSame(endDay, "day")) ||
+      startLabel === endLabel
+    ) {
+      return startLabel;
+    }
+
+    return `${startLabel} — ${endLabel}`;
+  };
+
   const emptyStateDescription = useMemo(() => {
     const statusLabel = String(statusMeta[tab]?.label || "").toLowerCase();
     const hasDateFilter = Boolean(dateRange[0] || dateRange[1]);
@@ -579,10 +604,14 @@ export default function TournamentDashboard() {
 
   // --- COMPONENT: Tournament Card ---
   const TournamentCard = ({ t }) => {
-    const percent = Math.min(
-      100,
-      Math.round((t.registered / t.maxPairs) * 100),
-    );
+    const registeredCount = Number(t?.registered) || 0;
+    const maxPairs = Number(t?.maxPairs) || 0;
+    const percent =
+      maxPairs > 0
+        ? Math.min(100, Math.round((registeredCount / maxPairs) * 100))
+        : 0;
+    const dateLabel = formatDateRange(t?.startDate, t?.endDate);
+    const imageSrc = t?.image || DEFAULT_FALLBACK;
 
     return (
       <HoverCardFrame>
@@ -602,13 +631,12 @@ export default function TournamentDashboard() {
               </StatusBadge>
             </Box>
 
-            <Box sx={{ width: "100%", height: "100%" }}>
+            <ZoomableWrapper src={imageSrc} fallback={DEFAULT_FALLBACK}>
               <img
-                src={t.image || DEFAULT_FALLBACK}
+                src={imageSrc}
                 alt={t.name}
                 loading="lazy"
                 decoding="async"
-                className="zoom-image"
                 onError={(e) => {
                   if (e.currentTarget.dataset.fallbackApplied === "1") return;
                   e.currentTarget.dataset.fallbackApplied = "1";
@@ -619,9 +647,10 @@ export default function TournamentDashboard() {
                   height: "100%",
                   objectFit: "cover",
                   display: "block",
+                  cursor: "zoom-in",
                 }}
               />
-            </Box>
+            </ZoomableWrapper>
           </Box>
 
           <CardContent sx={{ flexGrow: 1, p: 2, pb: 1 }}>
@@ -650,7 +679,7 @@ export default function TournamentDashboard() {
               >
                 <CalendarMonthIcon fontSize="small" color="action" />
                 <Typography variant="body2" fontWeight={500}>
-                  {formatDate(t.startDate)} - {formatDate(t.endDate)}
+                  {dateLabel}
                 </Typography>
               </Stack>
 
@@ -679,9 +708,13 @@ export default function TournamentDashboard() {
                   <Typography
                     variant="caption"
                     fontWeight={700}
-                    color={percent >= 100 ? "error.main" : "primary.main"}
+                    color={
+                      maxPairs > 0 && percent >= 100
+                        ? "error.main"
+                        : "primary.main"
+                    }
                   >
-                    {t.registered} / {t.maxPairs}
+                    {registeredCount} / {maxPairs}
                   </Typography>
                 </Stack>
 

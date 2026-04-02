@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS } from "./tools/index.js";
+import { GENERATED_PRESET_TOOL_COUNT } from "./tools/generatedToolCatalog.js";
 
 function getRawExecutorKeys(source) {
   const match = source.match(
@@ -79,5 +80,13 @@ test("pikora only plans tools that exist in the registry", () => {
     missingToolNames,
     [],
     `Pikora references unknown tools: ${missingToolNames.join(", ")}`,
+  );
+});
+
+test("generated preset catalog contains 1000 tools", () => {
+  assert.equal(
+    GENERATED_PRESET_TOOL_COUNT,
+    1000,
+    `Expected 1000 generated preset tools, received ${GENERATED_PRESET_TOOL_COUNT}`,
   );
 });

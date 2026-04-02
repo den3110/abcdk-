@@ -3576,17 +3576,25 @@ function classifyRoute(message, context, userId) {
   }
 
   const wantsOwnInfo =
-    hasAny(boostedNormalized, ["của tôi", "tôi", "mình", "my "]) &&
+    hasAny(boostedNormalized, ["c?a t?i", "t?i", "m?nh", "my "]) &&
     hasAny(boostedNormalized, [
       "rating",
-      "hồ sơ",
-      "thông tin",
-      "giải của tôi",
-      "đăng ký",
-      "trận sắp tới",
-      "lịch sử đăng nhập",
-      "thiết bị",
-      "biến động",
+      "h? s?",
+      "th?ng tin",
+      "gi?i c?a t?i",
+      "??ng k?",
+      "tr?n s?p t?i",
+      "l?ch s? ??ng nh?p",
+      "thi?t b?",
+      "bi?n ??ng",
+      "h? tr?",
+      "support",
+      "ticket",
+      "khi?u n?i",
+      "complaint",
+      "subscription",
+      "g?i",
+      "plan",
     ]);
 
   if (wantsOwnInfo) {
@@ -4006,6 +4014,30 @@ function buildNavigationIntent(message, normalized, context) {
 }
 
 function buildPersonalToolPlan(normalized, context) {
+  if (hasAny(normalized, ["ho tro", "h? tr?", "ticket", "support"])) {
+    return [
+      { name: "get_support_tickets", args: { status: "open" } },
+      { name: "get_user_support_snapshot_preset", args: { status: "open", limit: 10 } },
+    ];
+  }
+  if (hasAny(normalized, ["khieu nai", "khi?u n?i", "complaint"])) {
+    return [
+      {
+        name: "get_complaints",
+        args: { tournamentId: context.tournamentId || undefined, status: "open" },
+      },
+      {
+        name: "get_support_complaint_summary_preset",
+        args: { tournamentId: context.tournamentId || undefined, status: "open", limit: 10 },
+      },
+    ];
+  }
+  if (hasAny(normalized, ["goi", "g?i", "subscription", "plan"])) {
+    return [
+      { name: "get_my_subscriptions", args: {} },
+      { name: "get_user_subscription_snapshot_preset", args: {} },
+    ];
+  }
   if (hasAny(normalized, ["loi moi", "invite", "invites"])) {
     return [
       {
@@ -4028,13 +4060,13 @@ function buildPersonalToolPlan(normalized, context) {
   if (hasAny(normalized, ["lich su tran", "match history", "tran gan day"])) {
     return [{ name: "get_user_match_history", args: { limit: 12 } }];
   }
-  if (hasAny(normalized, ["giải của tôi", "giải đã đăng ký", "đăng ký giải"])) {
+  if (hasAny(normalized, ["gi?i c?a t?i", "gi?i ?? ??ng k?", "??ng k? gi?i"])) {
     return [{ name: "get_my_registrations", args: { limit: 6 } }];
   }
-  if (hasAny(normalized, ["biến động", "lịch sử rating", "rating changes"])) {
+  if (hasAny(normalized, ["bi?n ??ng", "l?ch s? rating", "rating changes"])) {
     return [{ name: "get_my_rating_changes", args: { limit: 8 } }];
   }
-  if (hasAny(normalized, ["trận sắp tới", "upcoming"])) {
+  if (hasAny(normalized, ["tr?n s?p t?i", "upcoming"])) {
     return [
       {
         name: "get_upcoming_matches",
@@ -4045,13 +4077,19 @@ function buildPersonalToolPlan(normalized, context) {
       },
     ];
   }
-  if (hasAny(normalized, ["lịch sử đăng nhập", "login"])) {
-    return [{ name: "get_login_history", args: { limit: 10 } }];
+  if (hasAny(normalized, ["l?ch s? ??ng nh?p", "login"])) {
+    return [
+      { name: "get_login_history", args: { limit: 10 } },
+      { name: "get_user_activity_summary_preset", args: { limit: 10 } },
+    ];
   }
-  if (hasAny(normalized, ["thiết bị", "device"])) {
+  if (hasAny(normalized, ["thi?t b?", "device"])) {
     return [{ name: "get_my_devices", args: {} }];
   }
-  return [{ name: "get_my_info", args: {} }];
+  return [
+    { name: "get_my_info", args: {} },
+    { name: "get_user_account_snapshot_preset", args: {} },
+  ];
 }
 
 function buildNewsToolPlan(message, normalized, entityName, context) {
@@ -4060,28 +4098,41 @@ function buildNewsToolPlan(message, normalized, entityName, context) {
     isCurrentContextReference(normalized) ||
     hasAny(normalized, [
       "bai nay",
-      "bài này",
+      "b?i n?y",
       "tin nay",
-      "tin này",
+      "tin n?y",
       "tom tat bai",
-      "tóm tắt bài",
+      "t?m t?t b?i",
       "nguon bai",
-      "nguồn bài",
+      "ngu?n b?i",
       "nguon tin",
-      "nguồn tin",
+      "ngu?n tin",
     ]) ||
     context?.sessionFocusApplied === "news";
-  return [
+  const keyword = preferContextKeyword
+    ? keywordFromContext || entityName || message
+    : entityName || keywordFromContext || message;
+  const plan = [
     {
       name: "search_news",
       args: {
-        keyword: preferContextKeyword
-          ? keywordFromContext || entityName || message
-          : entityName || keywordFromContext || message,
+        keyword,
         limit: pageTypeStartsWith(context, "news_detail") ? 3 : 5,
       },
     },
   ];
+  if (hasAny(normalized, ["nguon", "ngu?n", "source"])) {
+    plan.push({
+      name: "get_news_source_snapshot_preset",
+      args: { keyword, limit: 10 },
+    });
+    return plan;
+  }
+  plan.push({
+    name: "get_news_search_overview_preset",
+    args: { keyword, limit: 8 },
+  });
+  return plan;
 }
 
 function buildClubToolPlan(normalized, entityName, context = {}) {
@@ -4092,52 +4143,61 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
       (!entityName &&
         hasAny(normalized, [
           "thanh vien",
-          "thành viên",
+          "th?nh vi?n",
           "members",
           "admin",
           "quan ly",
-          "quản lý",
+          "qu?n l?",
           "su kien",
-          "sự kiện",
+          "s? ki?n",
           "event",
           "lich clb",
-          "lịch clb",
+          "l?ch clb",
           "binh chon",
-          "bình chọn",
+          "b?nh ch?n",
           "poll",
           "vote",
           "tin",
           "news",
           "thong bao",
-          "thông báo",
+          "th?ng b?o",
           "announcements",
           "chi tiet",
-          "chi tiết",
+          "chi ti?t",
           "gioi thieu",
-          "giới thiệu",
+          "gi?i thi?u",
         ])));
 
   if (useCurrentClub) {
     if (
-      hasAny(normalized, ["thành viên", "members", "admin", "quản lý"]) ||
+      hasAny(normalized, ["th?nh vi?n", "members", "admin", "qu?n l?"]) ||
       context.pageSection === "members"
     ) {
-      return [{ name: "get_club_members", args: { clubId: context.clubId, limit: 20 } }];
+      return [
+        { name: "get_club_members", args: { clubId: context.clubId, limit: 20 } },
+        { name: "get_club_roles_summary_preset", args: { clubId: context.clubId, limit: 20 } },
+      ];
     }
     if (
-      hasAny(normalized, ["sự kiện", "event", "lịch clb"]) ||
+      hasAny(normalized, ["s? ki?n", "event", "l?ch clb"]) ||
       context.pageSection === "events"
     ) {
-      return [{ name: "get_club_events", args: { clubId: context.clubId, upcoming: true, limit: 8 } }];
+      return [
+        { name: "get_club_events", args: { clubId: context.clubId, upcoming: true, limit: 8 } },
+        { name: "get_club_event_overview_preset", args: { clubId: context.clubId, limit: 8 } },
+      ];
     }
     if (
-      hasAny(normalized, ["bình chọn", "poll", "vote"]) ||
+      hasAny(normalized, ["b?nh ch?n", "poll", "vote"]) ||
       context.pageSection === "polls"
     ) {
-      return [{ name: "get_club_polls", args: { clubId: context.clubId, limit: 5 } }];
+      return [
+        { name: "get_club_polls", args: { clubId: context.clubId, limit: 5 } },
+        { name: "get_club_poll_snapshot_preset", args: { clubId: context.clubId, limit: 5 } },
+      ];
     }
     if (
-      hasAny(normalized, ["tin", "news", "thông báo", "announcements"]) ||
+      hasAny(normalized, ["tin", "news", "th?ng b?o", "announcements"]) ||
       context.pageSection === "news"
     ) {
       return [
@@ -4145,9 +4205,17 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
           name: "get_club_announcements",
           args: { clubId: context.clubId, limit: 8 },
         },
+        {
+          name: "get_club_news_digest_preset",
+          args: { clubId: context.clubId, limit: 8 },
+        },
       ];
     }
-    return [{ name: "get_club_details", args: { clubId: context.clubId } }];
+    return [
+      { name: "get_club_details", args: { clubId: context.clubId } },
+      { name: "get_club_profile_snapshot_preset", args: { clubId: context.clubId } },
+      { name: "get_club_engagement_overview_preset", args: { clubId: context.clubId } },
+    ];
   }
 
   const plan = [
@@ -4160,7 +4228,7 @@ function buildClubToolPlan(normalized, entityName, context = {}) {
     },
   ];
 
-  if (entityName && hasAny(normalized, ["chi tiết", "mở CLB", "xem CLB"])) {
+  if (entityName && hasAny(normalized, ["chi ti?t", "m? clb", "xem clb"])) {
     plan.push({
       name: "get_club_details",
       args: { clubId: FIRST_CLUB_ID },
@@ -4237,7 +4305,10 @@ function buildLiveToolPlan(normalized, context = {}) {
   }
 
   if (context.tournamentId) {
-    return [{ name: "get_live_matches", args: { tournamentId: context.tournamentId, limit: 10 } }];
+    return [
+      { name: "get_live_matches", args: { tournamentId: context.tournamentId, limit: 10 } },
+      { name: "get_court_live_snapshot_preset", args: { tournamentId: context.tournamentId, limit: 10 } },
+    ];
   }
 
   return [{ name: "get_live_streams", args: { status: "LIVE" } }];
@@ -4253,28 +4324,36 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
         hasAny(normalized, [
           "rating",
           "thong ke",
-          "thống kê",
+          "th?ng k?",
           "ho so",
-          "hồ sơ",
+          "h? s?",
           "lich su giai",
-          "lịch sử giải",
+          "l?ch s? gi?i",
           "tournament history",
           "thanh tich",
-          "thành tích",
+          "th?nh t?ch",
         ])))
   ) {
-    if (hasAny(normalized, ["lịch sử giải", "tournament history"])) {
+    if (hasAny(normalized, ["l?ch s? gi?i", "tournament history"])) {
       return [
         {
           name: "get_player_tournament_history",
           args: { userId: context.profileUserId },
         },
+        {
+          name: "get_player_tournaments_overview_preset",
+          args: { userId: context.profileUserId, limit: 10 },
+        },
       ];
     }
-    if (hasAny(normalized, ["xếp hạng", "ranking"])) {
+    if (hasAny(normalized, ["x?p h?ng", "ranking"])) {
       return [
         {
           name: "get_player_ranking",
+          args: { userId: context.profileUserId },
+        },
+        {
+          name: "get_player_ranking_snapshot_preset",
           args: { userId: context.profileUserId },
         },
       ];
@@ -4284,10 +4363,18 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
         name: "get_user_profile_detail",
         args: { userId: context.profileUserId },
       },
+      {
+        name: "get_player_profile_snapshot_preset",
+        args: { userId: context.profileUserId },
+      },
+      {
+        name: "get_player_strength_snapshot_preset",
+        args: { userId: context.profileUserId },
+      },
     ];
   }
 
-  if (hasAny(normalized, ["so sánh", "compare"])) {
+  if (hasAny(normalized, ["so s?nh", "compare"])) {
     const [firstName, secondName] = sharedExtractPairNames(message);
     const plan = [];
     if (firstName) {
@@ -4307,12 +4394,16 @@ function buildPlayerToolPlan(message, normalized, entityName, context = {}) {
       : [{ name: "search_users", args: { name: entityName || message, limit: 5 } }];
   }
 
-  if (hasAny(normalized, ["xếp hạng", "bxh", "ranking"])) {
+  if (hasAny(normalized, ["x?p h?ng", "bxh", "ranking"])) {
     return [{ name: "get_leaderboard", args: { limit: 10 } }];
   }
 
-  if (entityName && hasAny(normalized, ["rating", "thống kê", "hồ sơ"])) {
-    return [{ name: "get_user_stats", args: { name: entityName } }];
+  if (entityName && hasAny(normalized, ["rating", "th?ng k?", "h? s?"])) {
+    return [
+      { name: "get_user_stats", args: { name: entityName } },
+      { name: "get_player_profile_snapshot_preset", args: { name: entityName } },
+      { name: "get_player_strength_snapshot_preset", args: { name: entityName } },
+    ];
   }
 
   return [{ name: "search_users", args: { name: entityName || message, limit: 5 } }];
@@ -4376,6 +4467,14 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
         {
           name: "get_tournament_summary",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_status_snapshot_preset",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_timeline_overview_preset",
           args: { tournamentId: context.tournamentId },
         },
       ];
@@ -4456,11 +4555,15 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
       }
       if (hasAny(normalized, ["cây nhánh", "match tree", "tree"])) {
         return [
-          {
-            name: "get_bracket_match_tree",
-            args: { bracketId: context.bracketId },
-          },
-        ];
+        {
+          name: "get_bracket_match_tree",
+          args: { bracketId: context.bracketId },
+        },
+        {
+          name: "get_bracket_progress_snapshot_preset",
+          args: { bracketId: context.bracketId, tournamentId: context.tournamentId },
+        },
+      ];
       }
     }
     if (
@@ -4520,12 +4623,24 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           name: "get_tournament_summary",
           args: { tournamentId: context.tournamentId },
         },
+        {
+          name: "get_tournament_status_snapshot_preset",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_timeline_overview_preset",
+          args: { tournamentId: context.tournamentId },
+        },
       ];
     }
     if (hasAny(normalized, ["lịch thi đấu", "lich thi dau", "schedule"])) {
       return [
         {
           name: "get_tournament_schedule",
+          args: { tournamentId: context.tournamentId, limit: 10 },
+        },
+        {
+          name: "get_tournament_schedule_overview_preset",
           args: { tournamentId: context.tournamentId, limit: 10 },
         },
       ];
@@ -4554,6 +4669,14 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           name: "get_tournament_summary",
           args: { tournamentId: context.tournamentId },
         },
+        {
+          name: "get_tournament_status_snapshot_preset",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_timeline_overview_preset",
+          args: { tournamentId: context.tournamentId },
+        },
       ];
     }
     if (hasAny(normalized, ["luật", "rules"])) {
@@ -4562,12 +4685,20 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           name: "get_tournament_rules",
           args: { tournamentId: context.tournamentId },
         },
+        {
+          name: "get_tournament_content_summary",
+          args: { tournamentId: context.tournamentId },
+        },
       ];
     }
     if (hasAny(normalized, ["nhánh đấu", "bracket", "sơ đồ"])) {
       return [
         {
           name: "get_tournament_brackets",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_bracket_overview_preset",
           args: { tournamentId: context.tournamentId },
         },
       ];
@@ -4580,6 +4711,14 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
         },
         {
           name: "get_tournament_registrations",
+          args: { tournamentId: context.tournamentId, limit: 10 },
+        },
+        {
+          name: "get_tournament_registration_breakdown_preset",
+          args: { tournamentId: context.tournamentId, limit: 10 },
+        },
+        {
+          name: "get_tournament_participant_overview_preset",
           args: { tournamentId: context.tournamentId, limit: 10 },
         },
       ];
@@ -4622,6 +4761,10 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           name: "get_tournament_courts",
           args: { tournamentId: context.tournamentId },
         },
+        {
+          name: "get_tournament_court_overview_preset",
+          args: { tournamentId: context.tournamentId },
+        },
       ];
     }
     if (hasAny(normalized, ["bốc thăm", "draw"])) {
@@ -4638,14 +4781,22 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
           name: "get_live_matches",
           args: { tournamentId: context.tournamentId, limit: 10 },
         },
+        {
+          name: "get_tournament_stream_overview_preset",
+          args: { tournamentId: context.tournamentId, limit: 10 },
+        },
       ];
     }
     return [
-      {
-        name: "get_tournament_summary",
-        args: { tournamentId: context.tournamentId },
-      },
-    ];
+        {
+          name: "get_tournament_summary",
+          args: { tournamentId: context.tournamentId },
+        },
+        {
+          name: "get_tournament_status_snapshot_preset",
+          args: { tournamentId: context.tournamentId },
+        },
+      ];
   }
 
   const status = pickTournamentStatusFromMessage(message, normalized);
@@ -4689,12 +4840,20 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
       name: "get_tournament_summary",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
     });
+    plan.push({
+      name: "get_tournament_status_snapshot_preset",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
     return plan;
   }
 
   if (hasAny(normalized, ["lịch thi đấu", "lich thi dau", "schedule"])) {
     plan.push({
       name: "get_tournament_schedule",
+      args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
+    });
+    plan.push({
+      name: "get_tournament_schedule_overview_preset",
       args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
     });
     return plan;
@@ -4717,6 +4876,10 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
       name: "get_tournament_summary",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
     });
+    plan.push({
+      name: "get_tournament_status_snapshot_preset",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
     return plan;
   }
   if (hasAny(normalized, ["luật", "rules"])) {
@@ -4724,11 +4887,19 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
       name: "get_tournament_rules",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
     });
+    plan.push({
+      name: "get_tournament_content_summary",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
     return plan;
   }
   if (hasAny(normalized, ["nhánh đấu", "bracket", "sơ đồ"])) {
     plan.push({
       name: "get_tournament_brackets",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
+    plan.push({
+      name: "get_tournament_bracket_overview_preset",
       args: { tournamentId: FIRST_TOURNAMENT_ID },
     });
     return plan;
@@ -4740,6 +4911,10 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
     });
     plan.push({
       name: "get_tournament_registrations",
+      args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
+    });
+    plan.push({
+      name: "get_tournament_registration_breakdown_preset",
       args: { tournamentId: FIRST_TOURNAMENT_ID, limit: 10 },
     });
     return plan;
@@ -4760,10 +4935,14 @@ function buildTournamentToolPlan(message, normalized, entityName, context) {
   }
 
   plan.push({
-    name: "get_tournament_summary",
-    args: { tournamentId: FIRST_TOURNAMENT_ID },
-  });
-  return plan;
+      name: "get_tournament_summary",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
+    plan.push({
+      name: "get_tournament_status_snapshot_preset",
+      args: { tournamentId: FIRST_TOURNAMENT_ID },
+    });
+    return plan;
 }
 
 function pickTournamentStatus(normalized) {
@@ -5012,7 +5191,7 @@ async function maybeRunHybridLiveRetrieval({
       text: {
         format: {
           type: "json_schema",
-          name: "pikora_live_retrieval",
+          name: "pikoraLiveRetrievalSchema",
           strict: true,
           schema: {
             type: "object",

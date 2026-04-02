@@ -1004,7 +1004,7 @@ export async function handleChatFeedback(req, res) {
     }
 
     const { messageId, value, reason, note } = req.body || {};
-    if (!messageId || !value) {
+    if (!messageId || typeof value === "undefined") {
       return res.status(400).json({ error: "Thiếu messageId hoặc value" });
     }
 

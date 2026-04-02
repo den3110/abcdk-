@@ -322,7 +322,9 @@ const matchCodeKO = (m) => `V${m?.round ?? "?"}-T${displayOrder(m)}`;
 const extractDisplayCodeText = (value) => {
   const text = String(value || "").trim();
   if (!text) return "";
-  const match = text.match(/\bV\d+(?:-B[^-\s]+)?-T\d+\b/i);
+  const match = text.match(
+    /\b(?:V\d+(?:-B[^-\s]+)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
+  );
   return match ? match[0].toUpperCase() : "";
 };
 
@@ -1872,6 +1874,61 @@ function buildRoundsWithPlaceholders(
   return res;
 }
 
+function normalizeDoubleElimBranch(match) {
+  const branch = String(match?.branch || "").trim().toLowerCase();
+  const phase = String(match?.phase || "").trim().toLowerCase();
+  if (branch === "gf" || phase === "grand_final") return "gf";
+  if (branch === "lb" || phase === "losers") return "lb";
+  return "wb";
+}
+
+function buildDoubleElimRounds(
+  matches,
+  resolveSideLabel,
+  {
+    pendingTeamLabel = "Chưa có đội",
+    expectedFirstRoundPairs = 0,
+    labelBuilder = (_localRound, seedsCount) => koRoundTitle(seedsCount),
+  } = {},
+) {
+  const real = (matches || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(a?.round || 1) - Number(b?.round || 1) ||
+        Number(a?.order || 0) - Number(b?.order || 0),
+    );
+
+  const uniqueRounds = Array.from(
+    new Set(real.map((match) => Number(match?.round || 1)).filter(Number.isFinite)),
+  ).sort((a, b) => a - b);
+
+  const roundMap = new Map(uniqueRounds.map((roundNo, index) => [roundNo, index + 1]));
+  const localizedMatches = real.map((match) => ({
+    ...match,
+    round: roundMap.get(Number(match?.round || 1)) || 1,
+    __sourceRound: Number(match?.round || 1),
+    displayCode:
+      normalizeDoubleElimBranch(match) === "gf"
+        ? `GF-T${Number(match?.order || 0) + 1}`
+        : `${normalizeDoubleElimBranch(match).toUpperCase()}${
+            roundMap.get(Number(match?.round || 1)) || 1
+          }-T${Number(match?.order || 0) + 1}`,
+  }));
+
+  const rounds = buildRoundsWithPlaceholders(localizedMatches, resolveSideLabel, {
+    minRounds: Math.max(1, uniqueRounds.length),
+    extendForward: true,
+    expectedFirstRoundPairs,
+    pendingTeamLabel,
+  });
+
+  return rounds.map((round, index) => ({
+    ...round,
+    title: labelBuilder(index + 1, round.seeds.length, uniqueRounds[index] || index + 1),
+  }));
+}
+
 // Số vòng của từng bracket (để cộng dồn baseRoundStart)
 function roundsCountForBracket(bracket, matchesOfThis = []) {
   const type = String(bracket?.type || "").toLowerCase();
@@ -2472,6 +2529,8 @@ export default function TournamentBracket() {
       ? "Vòng bảng"
       : current?.type === "roundElim"
         ? "Round Elim"
+        : current?.type === "double_elim"
+          ? "Nhánh thắng / nhánh thua"
         : "Nhánh đấu");
   const chatBotSnapshot = useMemo(
     () => ({
@@ -2487,6 +2546,8 @@ export default function TournamentBracket() {
           ? "Vòng bảng"
           : current?.type === "roundElim"
             ? "Round Elim"
+            : current?.type === "double_elim"
+              ? "Nhánh thắng / nhánh thua"
             : current?.type || "Bracket",
         `Zoom: ${Math.round(zoom * 100)}%`,
         current?.type === "group"
@@ -3494,6 +3555,8 @@ export default function TournamentBracket() {
         ? t("tournaments.bracket.typeGroup")
         : b.type === "roundElim"
           ? t("tournaments.bracket.typeRoundElim")
+          : b.type === "double_elim"
+            ? t("tournaments.bracket.typeDoubleElim")
           : t("tournaments.bracket.typeKnockout");
     return (
       <Stack key={b._id} direction="row" spacing={1} alignItems="center">
@@ -5218,6 +5281,199 @@ export default function TournamentBracket() {
                     {t("tournaments.bracket.emptyRoundElimHint")}
                   </Typography>
                 )}
+              </>
+            );
+          })()}
+        </Paper>
+      ) : current.type === "double_elim" ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h6" gutterBottom>
+            {t("tournaments.bracket.doubleElimTitle", { name: current.name })}
+          </Typography>
+
+          {(() => {
+            const activeMatches = (currentMatches || []).filter((m) => !isThirdPlaceMatch(m));
+            const winnersMatches = activeMatches.filter(
+              (m) => normalizeDoubleElimBranch(m) === "wb",
+            );
+            const losersMatches = activeMatches.filter(
+              (m) => normalizeDoubleElimBranch(m) === "lb",
+            );
+            const grandFinalMatches = activeMatches.filter(
+              (m) => normalizeDoubleElimBranch(m) === "gf",
+            );
+            const sortedGrandFinals = grandFinalMatches
+              .slice()
+              .sort(
+                (a, b) =>
+                  Number(a?.round || 1) - Number(b?.round || 1) ||
+                  Number(a?.order || 0) - Number(b?.order || 0),
+              );
+            const lastGrandFinal = sortedGrandFinals[sortedGrandFinals.length - 1] || null;
+            const grandFinalDone =
+              lastGrandFinal &&
+              String(lastGrandFinal?.status || "").toLowerCase() === "finished" &&
+              (lastGrandFinal?.winner === "A" || lastGrandFinal?.winner === "B");
+            const championPair = grandFinalDone
+              ? lastGrandFinal.winner === "A"
+                ? lastGrandFinal.pairA
+                : lastGrandFinal.pairB
+              : null;
+            const grandFinalMatchId = grandFinalDone ? lastGrandFinal._id : null;
+            const expectedFirstRoundPairs = scaleForCurrent
+              ? Math.max(1, Math.floor(scaleForCurrent / 2))
+              : 0;
+
+            if (!activeMatches.length) {
+              return (
+                <Typography variant="caption" color="text.secondary">
+                  {t("tournaments.bracket.emptyDoubleElimHint")}
+                </Typography>
+              );
+            }
+
+            const winnersRounds = buildDoubleElimRounds(winnersMatches, resolveSideLabel, {
+              pendingTeamLabel,
+              expectedFirstRoundPairs,
+              labelBuilder: (_localRound, seedsCount) =>
+                `WB • ${koRoundTitle(seedsCount)}`,
+            });
+            const losersRounds = buildDoubleElimRounds(losersMatches, resolveSideLabel, {
+              pendingTeamLabel,
+              labelBuilder: (localRound) =>
+                `${t("tournaments.bracket.losersBracketTitle")} • R${localRound}`,
+            });
+            const grandFinalRounds = buildDoubleElimRounds(
+              grandFinalMatches,
+              resolveSideLabel,
+              {
+                pendingTeamLabel,
+                expectedFirstRoundPairs: 1,
+                labelBuilder: () => t("tournaments.bracket.grandFinalTitle"),
+              },
+            );
+
+            const winnersKey = `de-wb:${current._id}:${winnersRounds.length}:${winnersRounds
+              .map((round) => round.seeds.length)
+              .join(",")}`;
+            const losersKey = `de-lb:${current._id}:${losersRounds.length}:${losersRounds
+              .map((round) => round.seeds.length)
+              .join(",")}`;
+            const grandFinalKey = `de-gf:${current._id}:${grandFinalRounds.length}:${grandFinalRounds
+              .map((round) => round.seeds.length)
+              .join(",")}`;
+
+            return (
+              <>
+                <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap">
+                  <Chip
+                    size="small"
+                    color="info"
+                    variant="outlined"
+                    label={t("tournaments.bracket.typeDoubleElim")}
+                  />
+                </Stack>
+
+                {championPair && (
+                  <Alert severity="success" sx={{ mb: 1 }}>
+                    {t("tournaments.bracket.champion")}{" "}
+                    <b>
+                      {pairLabelWithNick(championPair, tour?.eventType, displayMode)}
+                    </b>
+                  </Alert>
+                )}
+
+                <Box sx={{ position: "relative" }}>
+                  <ZoomControls
+                    zoom={zoom}
+                    onZoomIn={zoomIn}
+                    onZoomOut={zoomOut}
+                    onReset={zoomReset}
+                    mobileFixed
+                    mobileBottomGap={80}
+                  />
+                  <Box sx={{ overflow: "auto", pb: 1, borderRadius: 1 }}>
+                    <Box
+                      className="ko-bracket"
+                      sx={{
+                        display: "inline-block",
+                        transform: `scale(${zoom})`,
+                        transformOrigin: "0 0",
+                      }}
+                    >
+                      <Stack spacing={3}>
+                        <Box>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
+                            {t("tournaments.bracket.winnersBracketTitle")}
+                          </Typography>
+                          <HighlightProvider>
+                            <HeightSyncProvider roundsKey={winnersKey}>
+                              <Bracket
+                                rounds={winnersRounds}
+                                renderSeedComponent={(props) => (
+                                  <CustomSeed
+                                    {...props}
+                                    onOpen={openMatchModal}
+                                    championMatchId={null}
+                                    resolveSideLabel={resolveSideLabel}
+                                    baseRoundStart={1}
+                                  />
+                                )}
+                                mobileBreakpoint={0}
+                              />
+                            </HeightSyncProvider>
+                          </HighlightProvider>
+                        </Box>
+
+                        <Box>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
+                            {t("tournaments.bracket.losersBracketTitle")}
+                          </Typography>
+                          <HighlightProvider>
+                            <HeightSyncProvider roundsKey={losersKey}>
+                              <Bracket
+                                rounds={losersRounds}
+                                renderSeedComponent={(props) => (
+                                  <CustomSeed
+                                    {...props}
+                                    onOpen={openMatchModal}
+                                    championMatchId={null}
+                                    resolveSideLabel={resolveSideLabel}
+                                    baseRoundStart={1}
+                                  />
+                                )}
+                                mobileBreakpoint={0}
+                              />
+                            </HeightSyncProvider>
+                          </HighlightProvider>
+                        </Box>
+
+                        <Box>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
+                            {t("tournaments.bracket.grandFinalTitle")}
+                          </Typography>
+                          <HighlightProvider>
+                            <HeightSyncProvider roundsKey={grandFinalKey}>
+                              <Bracket
+                                rounds={grandFinalRounds}
+                                renderSeedComponent={(props) => (
+                                  <CustomSeed
+                                    {...props}
+                                    onOpen={openMatchModal}
+                                    championMatchId={grandFinalMatchId}
+                                    resolveSideLabel={resolveSideLabel}
+                                    baseRoundStart={1}
+                                  />
+                                )}
+                                mobileBreakpoint={0}
+                              />
+                            </HeightSyncProvider>
+                          </HighlightProvider>
+                        </Box>
+                      </Stack>
+                    </Box>
+                  </Box>
+                </Box>
               </>
             );
           })()}

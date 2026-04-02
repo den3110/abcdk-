@@ -41,6 +41,7 @@ import {
 } from "../services/liveRecordingV2Storage.service.js";
 import {
   buildLiveRecordingMonitorPage,
+  getLiveRecordingMonitorRow,
   reconcileStaleLiveRecordingExports,
 } from "../services/liveRecordingMonitor.service.js";
 import { getLiveRecordingWorkerHealth } from "../services/liveRecordingWorkerHealth.service.js";
@@ -1824,6 +1825,23 @@ export const getLiveRecordingMonitorV2 = asyncHandler(async (req, res) => {
       String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
   });
   return res.json(snapshot);
+});
+
+export const getLiveRecordingMonitorRowV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.query?.recordingId);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const row = await getLiveRecordingMonitorRow(recordingId);
+  if (!row) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  return res.json({
+    ok: true,
+    row,
+  });
 });
 
 export const getLiveRecordingWorkerHealthV2 = asyncHandler(

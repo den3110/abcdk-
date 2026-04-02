@@ -4,6 +4,844 @@
 import * as dbTools from "./dbTools.js";
 import * as navTools from "./navTools.js";
 import * as knowledgeTools from "./knowledgeTools.js";
+import { GENERATED_PRESET_TOOL_SPECS } from "./generatedToolCatalog.js";
+
+const TOOL_PARAM_LIBRARY = {
+  tournamentId: { type: "string", description: "Tournament ID" },
+  bracketId: { type: "string", description: "Bracket ID" },
+  matchId: { type: "string", description: "Match ID" },
+  userId: { type: "string", description: "User ID" },
+  clubId: { type: "string", description: "Club ID" },
+  slug: { type: "string", description: "Readable slug value" },
+  keyword: { type: "string", description: "Keyword for search or lookup" },
+  tag: { type: "string", description: "Tag for filtering content" },
+  limit: { type: "number", description: "Maximum number of items to return" },
+  courtLabel: { type: "string", description: "Exact court label" },
+  courtName: { type: "string", description: "Court name filter" },
+  groupName: { type: "string", description: "Group name filter" },
+  role: { type: "string", description: "Role filter" },
+  upcoming: { type: "boolean", description: "Whether to fetch upcoming items" },
+  status: { type: "string", description: "Status filter" },
+  category: { type: "string", description: "Category filter" },
+  name: { type: "string", description: "Player name" },
+  dob: { type: "string", description: "Date of birth in ISO format" },
+  platform: { type: "string", description: "Platform filter such as ios or android" },
+  provider: { type: "string", description: "Provider filter" },
+  topicType: { type: "string", description: "Subscription topic type" },
+};
+
+function buildToolParameters(keys = [], required = []) {
+  const properties = {};
+  keys.forEach((key) => {
+    if (TOOL_PARAM_LIBRARY[key]) {
+      properties[key] = { ...TOOL_PARAM_LIBRARY[key] };
+    }
+  });
+
+  const parameters = { type: "object", properties };
+  if (required.length) {
+    parameters.required = required;
+  }
+  return parameters;
+}
+
+function createWrapperToolSpec(name, description, keys = [], required = []) {
+  return {
+    name,
+    description,
+    parameters: buildToolParameters(keys, required),
+  };
+}
+
+const EXTRA_WRAPPER_TOOL_SPECS = [
+  {
+    name: "get_tournament_basic_info",
+    description:
+      "Get a compact tournament overview with identity, status, dates, and aggregate stats.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_location_info",
+    description: "Get tournament location, timezone, and active date range.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_deadlines",
+    description: "Get tournament registration deadline and important dates.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_format_info",
+    description: "Get tournament format and bracket structure overview.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_registration_status",
+    description: "Get registration progress for a tournament, including spots left.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_checkin_status",
+    description: "Get check-in progress for a tournament.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_live_overview",
+    description: "Get live match overview for a tournament.",
+    parameters: buildToolParameters(["tournamentId", "limit"]),
+  },
+  {
+    name: "get_tournament_recent_results",
+    description: "Get the latest finished matches for a tournament.",
+    parameters: buildToolParameters(["tournamentId", "limit"]),
+  },
+  {
+    name: "get_tournament_upcoming_schedule",
+    description: "Get upcoming schedule items for a tournament.",
+    parameters: buildToolParameters(["tournamentId", "courtLabel", "limit"]),
+  },
+  {
+    name: "get_tournament_match_counts",
+    description: "Get match counts and progress numbers for a tournament.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_bracket_overview",
+    description: "Get overview of tournament brackets and their progress.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_draw_overview",
+    description: "Get latest draw results and committed draw sessions.",
+    parameters: buildToolParameters(["tournamentId", "bracketId"]),
+  },
+  {
+    name: "get_tournament_staff_overview",
+    description: "Get combined staff overview for managers and referees.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_payment_summary",
+    description: "Get tournament payment and banking summary.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_referee_overview",
+    description: "Get referee roster summary for a tournament.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_manager_overview",
+    description: "Get tournament manager roster summary.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_court_overview",
+    description: "Get court usage summary for a tournament.",
+    parameters: buildToolParameters(["tournamentId"]),
+  },
+  {
+    name: "get_tournament_rule_summary",
+    description: "Get condensed tournament rules across brackets.",
+    parameters: buildToolParameters(["tournamentId", "bracketId"]),
+  },
+  {
+    name: "get_tournament_age_rule",
+    description: "Get tournament age restriction information or eligibility check.",
+    parameters: buildToolParameters(["tournamentId", "userId", "dob"]),
+  },
+  {
+    name: "get_tournament_seeding_overview",
+    description: "Get seeding summary for a tournament or bracket.",
+    parameters: buildToolParameters(["tournamentId", "bracketId"]),
+  },
+  {
+    name: "get_tournament_group_overview",
+    description: "Get grouped team overview for a tournament or bracket.",
+    parameters: buildToolParameters(["tournamentId", "bracketId", "groupName"]),
+  },
+  {
+    name: "get_tournament_stream_overview",
+    description: "Get live stream overview filtered to a tournament.",
+    parameters: buildToolParameters(["tournamentId", "limit"]),
+  },
+  {
+    name: "get_bracket_overview",
+    description: "Get summary information for one bracket or a bracket set.",
+    parameters: buildToolParameters(["bracketId", "tournamentId"]),
+  },
+  {
+    name: "get_bracket_group_overview",
+    description: "Get group composition for a specific bracket.",
+    parameters: buildToolParameters(["bracketId", "tournamentId", "groupName"]),
+  },
+  {
+    name: "get_bracket_tree_overview",
+    description: "Get bracket tree and match flow overview.",
+    parameters: buildToolParameters(["bracketId", "tournamentId"]),
+  },
+  {
+    name: "get_match_participants",
+    description: "Get participants and teams for a specific match.",
+    parameters: buildToolParameters(["matchId"]),
+  },
+  {
+    name: "get_match_schedule_info",
+    description: "Get scheduling information for a match.",
+    parameters: buildToolParameters(["matchId"]),
+  },
+  {
+    name: "get_match_result_summary",
+    description: "Get final result and score summary for a match.",
+    parameters: buildToolParameters(["matchId"]),
+  },
+  {
+    name: "get_match_stream_summary",
+    description: "Get livestream summary for a match.",
+    parameters: buildToolParameters(["matchId"]),
+  },
+  {
+    name: "get_match_recording_summary",
+    description: "Get recording summary for a match.",
+    parameters: buildToolParameters(["matchId", "status"]),
+  },
+  {
+    name: "get_match_timeline_summary",
+    description: "Get condensed live timeline for a match.",
+    parameters: buildToolParameters(["matchId", "limit"]),
+  },
+  {
+    name: "get_court_schedule_overview",
+    description: "Get schedule overview for one court within a tournament.",
+    parameters: buildToolParameters(["tournamentId", "courtName", "limit"]),
+  },
+  {
+    name: "get_court_live_overview",
+    description: "Get live status overview for courts in a tournament.",
+    parameters: buildToolParameters(["tournamentId", "courtName"]),
+  },
+  {
+    name: "get_user_rating_snapshot",
+    description: "Get a rating snapshot for a user or player.",
+    parameters: buildToolParameters(["userId", "name"]),
+  },
+  {
+    name: "get_user_reputation_snapshot",
+    description: "Get a condensed reputation history snapshot for a user.",
+    parameters: buildToolParameters(["userId", "limit"]),
+  },
+  {
+    name: "get_user_registration_summary",
+    description: "Get registration summary for a user.",
+    parameters: buildToolParameters(["userId", "limit"]),
+  },
+  {
+    name: "get_user_upcoming_match_summary",
+    description: "Get upcoming tournament matches for a user.",
+    parameters: buildToolParameters(["userId", "tournamentId", "limit"]),
+  },
+  {
+    name: "get_user_device_summary",
+    description: "Get device summary for a user.",
+    parameters: buildToolParameters(["userId"]),
+  },
+  {
+    name: "get_user_login_summary",
+    description: "Get login history summary for a user.",
+    parameters: buildToolParameters(["userId", "limit"]),
+  },
+  {
+    name: "get_user_profile_summary",
+    description: "Get condensed public and account profile summary for a user.",
+    parameters: buildToolParameters(["userId"]),
+  },
+  {
+    name: "get_user_match_history_summary",
+    description: "Get summarized casual match history for a user.",
+    parameters: buildToolParameters(["userId", "category", "status", "limit"]),
+  },
+  {
+    name: "get_player_ranking_snapshot",
+    description: "Get player ranking snapshot by user ID or name.",
+    parameters: buildToolParameters(["userId", "name"]),
+  },
+  {
+    name: "get_player_history_summary",
+    description: "Get summarized tournament history for a player.",
+    parameters: buildToolParameters(["userId", "limit"]),
+  },
+  {
+    name: "get_club_member_summary",
+    description: "Get condensed club member summary and sample roster.",
+    parameters: buildToolParameters(["clubId", "slug", "role", "limit"]),
+  },
+  {
+    name: "get_club_event_summary",
+    description: "Get condensed club event summary.",
+    parameters: buildToolParameters(["clubId", "slug", "upcoming", "limit"]),
+  },
+  {
+    name: "get_club_announcement_summary",
+    description: "Get condensed club announcement summary.",
+    parameters: buildToolParameters(["clubId", "slug", "limit"]),
+  },
+  {
+    name: "get_club_poll_summary",
+    description: "Get condensed club poll summary.",
+    parameters: buildToolParameters(["clubId", "slug", "limit"]),
+  },
+  {
+    name: "get_club_activity_overview",
+    description:
+      "Get combined overview of club profile, members, events, announcements, and polls.",
+    parameters: buildToolParameters(["clubId", "slug"]),
+  },
+  {
+    name: "get_news_article_summary",
+    description: "Get a single published article summary by slug or keyword.",
+    parameters: buildToolParameters(["slug", "keyword"]),
+  },
+  {
+    name: "get_news_feed_summary",
+    description: "Get summarized published news feed results.",
+    parameters: buildToolParameters(["keyword", "tag", "limit"]),
+  },
+];
+
+const EXTRA_WRAPPER_TOOL_SPECS_V2 = [
+  createWrapperToolSpec(
+    "get_tournament_status_snapshot",
+    "Get current tournament status with dates and progress snapshot.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_timeline_overview",
+    "Get tournament timeline including registration deadline and event dates.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_recent_live_matches",
+    "Get recent live matches for a tournament.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_recent_finished_matches",
+    "Get latest finished matches for a tournament.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_unfinished_matches",
+    "Get unfinished matches for a tournament.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_registration_breakdown",
+    "Get registration payment breakdown for a tournament.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_checkin_breakdown",
+    "Get check-in breakdown for a tournament.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_bracket_statuses",
+    "Get draw and type statuses across all brackets in a tournament.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_group_statuses",
+    "Get group-stage bracket counts for a tournament.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_court_load",
+    "Get match load by court for a tournament.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_match_status_breakdown",
+    "Get tournament match status counts.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_stream_links",
+    "Get tournament live stream links and metadata.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_recording_overview",
+    "Get tournament recording overview.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_draw_history",
+    "Get tournament draw session history.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_staff_contacts",
+    "Get tournament manager and referee contact roster summary.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_sponsor_overview",
+    "Get sponsor overview for a tournament.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_event_copy",
+    "Get a compact content excerpt for a tournament.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_content_summary",
+    "Get content availability and summary for a tournament.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_location_snapshot",
+    "Get a compact tournament location snapshot.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_tournament_participant_overview",
+    "Get participant and registration overview for a tournament.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_round_overview",
+    "Get round counts inside a bracket.",
+    ["bracketId", "tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_match_statuses",
+    "Get status counts for matches in a bracket.",
+    ["bracketId"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_live_matches",
+    "Get live matches for a bracket.",
+    ["bracketId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_finished_matches",
+    "Get finished matches for a bracket.",
+    ["bracketId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_upcoming_matches",
+    "Get upcoming or unfinished matches for a bracket.",
+    ["bracketId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_team_count",
+    "Get team count for a bracket.",
+    ["bracketId"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_draw_status",
+    "Get draw status for a bracket.",
+    ["bracketId"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_format_summary",
+    "Get format summary for a bracket.",
+    ["bracketId"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_progress_snapshot",
+    "Get progress snapshot for a bracket.",
+    ["bracketId"],
+  ),
+  createWrapperToolSpec(
+    "get_bracket_leaderboard_snapshot",
+    "Get leaderboard snapshot for a bracket.",
+    ["bracketId", "tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_scoreboard",
+    "Get compact scoreboard for a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_game_scores",
+    "Get raw game scores for a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_status_snapshot",
+    "Get status timing snapshot for a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_winner_summary",
+    "Get winner summary for a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_context_bundle",
+    "Get bundled match context, log, and recordings.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_court_assignment",
+    "Get court assignment for a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_pair_summary",
+    "Get pair and participant summary for a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_progress_snapshot",
+    "Get duration and progress snapshot for a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_match_log_snapshot",
+    "Get compact live log snapshot for a match.",
+    ["matchId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_match_related_recordings",
+    "Get recordings related to a match.",
+    ["matchId", "status"],
+  ),
+  createWrapperToolSpec(
+    "get_court_assignment_summary",
+    "Get assignment summary for a court.",
+    ["tournamentId", "courtName"],
+  ),
+  createWrapperToolSpec(
+    "get_court_match_queue",
+    "Get queued and unfinished matches for a court.",
+    ["tournamentId", "courtName", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_court_recent_results",
+    "Get recent finished matches on a court.",
+    ["tournamentId", "courtName", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_court_upcoming_matches",
+    "Get upcoming matches on a court.",
+    ["tournamentId", "courtName", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_court_idle_status",
+    "Get idle status for a court.",
+    ["tournamentId", "courtName"],
+  ),
+  createWrapperToolSpec(
+    "get_court_cluster_summary",
+    "Get cluster summary for tournament courts.",
+    ["tournamentId"],
+  ),
+  createWrapperToolSpec(
+    "get_live_session_summary",
+    "Get live session overview.",
+    ["tournamentId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_live_session_match_summary",
+    "Get live sessions associated with a match.",
+    ["matchId"],
+  ),
+  createWrapperToolSpec(
+    "get_live_recording_feed",
+    "Get recent live recording feed.",
+    ["matchId", "status", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_live_channel_summary",
+    "Get live channel directory summary.",
+    ["provider"],
+  ),
+  createWrapperToolSpec(
+    "get_user_account_snapshot",
+    "Get a compact account snapshot for a user.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_user_security_snapshot",
+    "Get login and device security snapshot for a user.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_user_subscription_summary",
+    "Get subscription summary for a user.",
+    ["userId", "topicType"],
+  ),
+  createWrapperToolSpec(
+    "get_user_support_summary",
+    "Get support ticket summary for a user.",
+    ["userId", "status"],
+  ),
+  createWrapperToolSpec(
+    "get_user_complaint_summary",
+    "Get complaint summary for a user.",
+    ["userId", "tournamentId", "status"],
+  ),
+  createWrapperToolSpec(
+    "get_user_rating_history_summary",
+    "Get rating history summary for a user.",
+    ["userId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_user_assessment_summary",
+    "Get assessment summary for a user.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_user_casual_overview",
+    "Get casual match overview for a user.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_user_registration_statuses",
+    "Get registration status breakdown for a user.",
+    ["userId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_user_recent_results",
+    "Get recent finished results for a user.",
+    ["userId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_user_upcoming_tournaments",
+    "Get upcoming tournaments for a user.",
+    ["userId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_user_ticket_statuses",
+    "Get support ticket status counts for a user.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_user_subscription_statuses",
+    "Get subscription topic status counts for a user.",
+    ["userId", "topicType"],
+  ),
+  createWrapperToolSpec(
+    "get_user_device_activity",
+    "Get device activity summary for a user.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_user_login_activity",
+    "Get login activity summary for a user.",
+    ["userId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_user_profile_flags",
+    "Get profile completeness and KYC flags for a user.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_user_reputation_overview",
+    "Get reputation overview for a user.",
+    ["userId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_player_strength_snapshot",
+    "Get player strength snapshot from ranking and evaluations.",
+    ["userId", "name"],
+  ),
+  createWrapperToolSpec(
+    "get_player_recent_form",
+    "Get recent form for a player.",
+    ["userId", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_player_evaluation_summary",
+    "Get evaluation summary for a player.",
+    ["userId"],
+  ),
+  createWrapperToolSpec(
+    "get_club_profile_snapshot",
+    "Get compact club profile snapshot.",
+    ["clubId", "slug"],
+  ),
+  createWrapperToolSpec(
+    "get_club_join_request_summary",
+    "Get club join request summary.",
+    ["clubId", "slug", "status"],
+  ),
+  createWrapperToolSpec(
+    "get_club_event_rsvp_summary",
+    "Get RSVP summary across club events.",
+    ["clubId", "slug"],
+  ),
+  createWrapperToolSpec(
+    "get_club_poll_vote_summary",
+    "Get poll vote summary for a club.",
+    ["clubId", "slug"],
+  ),
+  createWrapperToolSpec(
+    "get_club_news_summary",
+    "Get club announcement news summary.",
+    ["clubId", "slug", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_club_member_roles",
+    "Get role distribution of club members.",
+    ["clubId", "slug"],
+  ),
+  createWrapperToolSpec(
+    "get_club_upcoming_events",
+    "Get upcoming events for a club.",
+    ["clubId", "slug", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_club_recent_events",
+    "Get recent events for a club.",
+    ["clubId", "slug", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_club_active_polls",
+    "Get active club polls.",
+    ["clubId", "slug", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_club_recent_announcements",
+    "Get recent club announcements.",
+    ["clubId", "slug", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_club_growth_snapshot",
+    "Get club growth snapshot.",
+    ["clubId", "slug"],
+  ),
+  createWrapperToolSpec(
+    "get_club_engagement_overview",
+    "Get club engagement overview from RSVPs and votes.",
+    ["clubId", "slug"],
+  ),
+  createWrapperToolSpec(
+    "get_news_source_summary",
+    "Get news source distribution summary.",
+    ["keyword", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_news_tag_summary",
+    "Get news tag distribution summary.",
+    ["tag", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_news_recent_articles",
+    "Get recent published articles.",
+    ["limit"],
+  ),
+  createWrapperToolSpec(
+    "get_news_search_overview",
+    "Get summarized overview for a news search query.",
+    ["keyword", "tag", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_cms_block_summary",
+    "Get CMS block summary by slug.",
+    ["slug"],
+  ),
+  createWrapperToolSpec(
+    "get_cms_homepage_summary",
+    "Get homepage CMS summary.",
+  ),
+  createWrapperToolSpec(
+    "get_cms_help_summary",
+    "Get help or FAQ CMS summary.",
+  ),
+  createWrapperToolSpec(
+    "get_cms_section_summary",
+    "Get CMS section summary by slug or keyword.",
+    ["slug", "keyword"],
+  ),
+  createWrapperToolSpec(
+    "get_support_ticket_overview",
+    "Get support ticket overview.",
+    ["userId", "status"],
+  ),
+  createWrapperToolSpec(
+    "get_subscription_plan_overview",
+    "Get subscription plan overview.",
+    ["userId", "topicType"],
+  ),
+  createWrapperToolSpec(
+    "get_complaint_overview",
+    "Get complaint overview.",
+    ["userId", "tournamentId", "status"],
+  ),
+  createWrapperToolSpec(
+    "get_app_release_summary",
+    "Get app release summary.",
+    ["platform"],
+  ),
+  createWrapperToolSpec(
+    "get_app_update_summary",
+    "Get app update summary.",
+    ["platform"],
+  ),
+  createWrapperToolSpec(
+    "get_ota_bundle_summary",
+    "Get OTA bundle summary.",
+    ["platform", "limit"],
+  ),
+  createWrapperToolSpec(
+    "get_radar_presence_summary",
+    "Get radar presence summary.",
+    ["limit"],
+  ),
+  createWrapperToolSpec(
+    "get_radar_intent_summary",
+    "Get radar intent summary.",
+    ["limit"],
+  ),
+  createWrapperToolSpec(
+    "get_channel_directory_summary",
+    "Get live channel directory overview.",
+    ["provider"],
+  ),
+  createWrapperToolSpec(
+    "get_sponsor_directory_summary",
+    "Get sponsor directory overview.",
+    ["limit"],
+  ),
+];
+
+const ALL_EXTRA_WRAPPER_TOOL_SPECS = [
+  ...EXTRA_WRAPPER_TOOL_SPECS,
+  ...EXTRA_WRAPPER_TOOL_SPECS_V2,
+];
+
+const EXTRA_TOOL_EXECUTORS = Object.fromEntries(
+  ALL_EXTRA_WRAPPER_TOOL_SPECS.map((spec) => [spec.name, dbTools[spec.name]]),
+);
+
+const EXTRA_WRAPPER_TOOL_DEFINITIONS = ALL_EXTRA_WRAPPER_TOOL_SPECS.map((spec) => ({
+  type: "function",
+  function: {
+    name: spec.name,
+    description: spec.description,
+    parameters: spec.parameters,
+  },
+}));
+
+const GENERATED_PRESET_TOOL_EXECUTORS = Object.fromEntries(
+  GENERATED_PRESET_TOOL_SPECS.map((spec) => [
+    spec.name,
+    (args, ctx) => dbTools.execute_generated_preset_tool(spec.name, args, ctx),
+  ]),
+);
+
+const GENERATED_PRESET_TOOL_DEFINITIONS = GENERATED_PRESET_TOOL_SPECS.map((spec) => ({
+  type: "function",
+  function: {
+    name: spec.name,
+    description: spec.description,
+    parameters: buildToolParameters(spec.paramKeys, spec.required),
+  },
+}));
 
 // ─────────────── TOOL EXECUTORS ───────────────
 // Map tool name → function
@@ -82,6 +920,8 @@ export const TOOL_EXECUTORS = {
   get_user_match_history: dbTools.get_user_match_history,
   get_tournament_age_check: dbTools.get_tournament_age_check,
   get_match_duration: dbTools.get_match_duration,
+  ...EXTRA_TOOL_EXECUTORS,
+  ...GENERATED_PRESET_TOOL_EXECUTORS,
   navigate: navTools.navigate,
   search_knowledge: knowledgeTools.search_knowledge,
 };
@@ -1715,4 +2555,8 @@ function dedupeToolDefinitions(definitions = []) {
   });
 }
 
-export const TOOL_DEFINITIONS = dedupeToolDefinitions(RAW_TOOL_DEFINITIONS);
+export const TOOL_DEFINITIONS = dedupeToolDefinitions([
+  ...RAW_TOOL_DEFINITIONS,
+  ...EXTRA_WRAPPER_TOOL_DEFINITIONS,
+  ...GENERATED_PRESET_TOOL_DEFINITIONS,
+]);

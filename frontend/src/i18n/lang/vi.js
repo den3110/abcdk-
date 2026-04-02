@@ -1743,6 +1743,7 @@ export default {
       typeGroup: "Vòng bảng",
       typeRoundElim: "Round Elim",
       typeKnockout: "Knockout",
+      typeDoubleElim: "Nhánh thắng / nhánh thua",
       metaTeams: "Số đội: {count}",
       metaCheckin: "Check-in: {count}",
       metaLocation: "Địa điểm: {value}",
@@ -1815,6 +1816,10 @@ export default {
       videoTooltip: "Có video/stream",
       roundElimTitle: "Vòng loại rút gọn (Round Elimination): {name}",
       knockoutTitle: "Vòng knock-out: {name}",
+      doubleElimTitle: "Knockout nhánh thắng / nhánh thua: {name}",
+      winnersBracketTitle: "Nhánh thắng",
+      losersBracketTitle: "Nhánh thua",
+      grandFinalTitle: "Chung kết tổng",
       startFrom: "Bắt đầu: {value}",
       virtualPrefill: "Prefill ảo",
       sourceFrom: "Nguồn: {value}",
@@ -1833,6 +1838,8 @@ export default {
       prefillVirtualSuffix: " (ảo theo seeding)",
       emptyKoHint:
         "* Chưa bốc thăm / chưa lấy đội từ vòng trước — tạm hiển thị khung theo quy mô. Khi có trận thật, nhánh sẽ tự cập nhật.",
+      emptyDoubleElimHint:
+        "* Nhánh thắng / nhánh thua sẽ hiển thị khi hệ thống đã tạo các trận double elimination.",
       emptyRoundElimHint:
         "* Chưa bốc cặp — đang hiển thị khung theo vòng cắt (V1..Vk).",
       pendingTeam: "Chưa có đội",

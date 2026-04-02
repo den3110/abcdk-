@@ -1,20 +1,110 @@
+import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 
+const normalizeRole = (role) =>
+  String(role || "")
+    .trim()
+    .toLowerCase();
+
+const extractUserId = (userOrId) => {
+  if (!userOrId) return "";
+  if (typeof userOrId === "string" || typeof userOrId === "number") {
+    return String(userOrId);
+  }
+  if (userOrId?._id || userOrId?.id) {
+    return String(userOrId._id || userOrId.id || "");
+  }
+  if (typeof userOrId?.toString === "function") {
+    const value = String(userOrId);
+    if (value && value !== "[object Object]") return value;
+  }
+  return "";
+};
+
+const isAdminLike = (user) => {
+  if (!user || typeof user !== "object") return false;
+  if (
+    user?.isAdmin === true ||
+    user?.isSuperAdmin === true ||
+    user?.isSuperUser === true
+  ) {
+    return true;
+  }
+
+  if (
+    ["admin", "superadmin", "superuser"].includes(normalizeRole(user?.role))
+  ) {
+    return true;
+  }
+
+  if (Array.isArray(user?.roles)) {
+    return user.roles.some((role) => {
+      const normalized = normalizeRole(role);
+      return (
+        normalized === "admin" ||
+        normalized === "superadmin" ||
+        normalized === "superuser"
+      );
+    });
+  }
+
+  return false;
+};
+
+const includesUser = (items, userId) =>
+  Array.isArray(items) &&
+  items.some((item) => {
+    const value =
+      typeof item === "object" && item !== null ? item.user ?? item._id ?? item : item;
+    return extractUserId(value) === String(userId);
+  });
+
+async function loadTournamentManagerMeta(tournamentId) {
+  if (!tournamentId) return null;
+  return Tournament.findById(tournamentId)
+    .select("createdBy owner managers staffs organizers")
+    .lean();
+}
+
 export async function isTournamentManager(userId, tournamentId) {
-  if (!userId || !tournamentId) return false;
+  const normalizedUserId = extractUserId(userId);
+  if (!normalizedUserId || !tournamentId) return false;
+
+  const tournament = await loadTournamentManagerMeta(tournamentId);
+  if (!tournament) return false;
+
+  const ownerId = extractUserId(tournament?.owner);
+  const creatorId = extractUserId(tournament?.createdBy);
+
+  if (
+    String(ownerId || "") === normalizedUserId ||
+    String(creatorId || "") === normalizedUserId
+  ) {
+    return true;
+  }
+
+  if (
+    includesUser(tournament?.managers, normalizedUserId) ||
+    includesUser(tournament?.staffs, normalizedUserId) ||
+    includesUser(tournament?.organizers, normalizedUserId)
+  ) {
+    return true;
+  }
+
   const ok = await TournamentManager.exists({
     tournament: tournamentId,
-    user: userId,
+    user: normalizedUserId,
   });
   return !!ok;
 }
 
 export async function canManageTournament(user, tournamentId) {
-  if (!user) return false;
-  if (user.role === "admin") return true;
-  const check = await isTournamentManager(user._id, tournamentId);
-  return check;
-  
+  const normalizedUserId = extractUserId(user);
+  if (!normalizedUserId || !tournamentId) return false;
+
+  if (isAdminLike(user)) return true;
+
+  return isTournamentManager(normalizedUserId, tournamentId);
 }
 
 /**

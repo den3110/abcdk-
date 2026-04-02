@@ -144,13 +144,21 @@ export async function submitChatFeedback({
     throw new Error("Thiếu userId hoặc messageId");
   }
 
-  const normalizedValue = value === "negative" ? "negative" : "positive";
-  const feedback = {
-    value: normalizedValue,
-    reason: compactString(reason, 120),
-    note: compactString(note, 320),
-    at: new Date(),
-  };
+  const normalizedValue =
+    value === "clear" || value === "none" || value === ""
+      ? ""
+      : value === "negative"
+        ? "negative"
+        : "positive";
+  const feedback =
+    normalizedValue === ""
+      ? null
+      : {
+          value: normalizedValue,
+          reason: compactString(reason, 120),
+          note: compactString(note, 320),
+          at: new Date(),
+        };
 
   const message = await ChatBotMessage.findOne({
     _id: messageId,
@@ -160,6 +168,45 @@ export async function submitChatFeedback({
 
   if (!message) {
     throw new Error("Không tìm thấy tin nhắn bot để gửi feedback");
+  }
+
+  if (!feedback) {
+    await ChatBotMessage.updateOne(
+      { _id: messageId, userId },
+      {
+        $unset: {
+          "meta.feedback": 1,
+        },
+      },
+    );
+
+    await ChatBotTelemetry.findOneAndUpdate(
+      { messageId, userId },
+      {
+        $set: {
+          feedback: {
+            value: "",
+            reason: "",
+            note: "",
+            at: null,
+          },
+        },
+        $setOnInsert: {
+          turnId: String(message.replyTo || message._id),
+          userId,
+          messageId,
+          replyTo: message.replyTo || null,
+          outcome: "success",
+          expiresAt: computeExpiresAt(),
+        },
+      },
+      {
+        upsert: true,
+        new: true,
+      },
+    );
+
+    return null;
   }
 
   await ChatBotMessage.updateOne(

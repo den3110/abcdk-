@@ -43,6 +43,127 @@ let liveRecordingMonitorSnapshotCache = {
   promise: null,
 };
 
+const LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT = [
+  "_id",
+  "match",
+  "courtId",
+  "mode",
+  "quality",
+  "recordingSessionId",
+  "status",
+  "segments.index",
+  "segments.uploadStatus",
+  "segments.sizeBytes",
+  "segments.isFinal",
+  "segments.meta.totalSizeBytes",
+  "segments.meta.segmentSizeBytes",
+  "segments.meta.partSizeBytes",
+  "segments.meta.completedParts.sizeBytes",
+  "segments.meta.lastPartUploadedAt",
+  "segments.meta.startedAt",
+  "durationSeconds",
+  "sizeBytes",
+  "r2TargetId",
+  "r2BucketName",
+  "driveFileId",
+  "driveRawUrl",
+  "drivePreviewUrl",
+  "exportAttempts",
+  "finalizedAt",
+  "scheduledExportAt",
+  "readyAt",
+  "error",
+  "createdAt",
+  "updatedAt",
+  "meta.source",
+  "meta.facebookVod",
+  "meta.exportPipeline",
+  "meta.sourceCleanup.status",
+  "aiCommentary.status",
+  "aiCommentary.latestJobId",
+  "aiCommentary.sourceDriveFileId",
+  "aiCommentary.language",
+  "aiCommentary.voicePreset",
+  "aiCommentary.tonePreset",
+  "aiCommentary.sourceFingerprint",
+  "aiCommentary.dubbedDriveFileId",
+  "aiCommentary.dubbedDriveRawUrl",
+  "aiCommentary.dubbedDrivePreviewUrl",
+  "aiCommentary.dubbedPlaybackUrl",
+  "aiCommentary.outputSizeBytes",
+  "aiCommentary.renderedAt",
+  "aiCommentary.error",
+].join(" ");
+
+const LIVE_RECORDING_MONITOR_DETAIL_RECORDING_SELECT = [
+  LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT,
+  "segments.objectKey",
+  "segments.storageTargetId",
+  "segments.bucketName",
+  "segments.etag",
+  "segments.durationSeconds",
+  "segments.uploadedAt",
+  "segments.meta.completedAt",
+].join(" ");
+
+const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
+  {
+    path: "match",
+    select:
+      "code displayCode labelKey globalRound stageIndex courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
+    populate: [
+      {
+        path: "pairA",
+        select: "player1 player2 teamName label",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: {
+              path: "user",
+              select: "name fullName nickname nickName",
+            },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: {
+              path: "user",
+              select: "name fullName nickname nickName",
+            },
+          },
+        ],
+      },
+      {
+        path: "pairB",
+        select: "player1 player2 teamName label",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: {
+              path: "user",
+              select: "name fullName nickname nickName",
+            },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: {
+              path: "user",
+              select: "name fullName nickname nickName",
+            },
+          },
+        ],
+      },
+      { path: "court", select: "name label number" },
+      { path: "bracket", select: "name stage type" },
+      { path: "tournament", select: "name status" },
+    ],
+  },
+  { path: "courtId", select: "name label number" },
+];
+
 function getLiveRecordingMonitorSnapshotTtlMs() {
   const configured = Number(process.env.LIVE_RECORDING_MONITOR_SNAPSHOT_TTL_MS);
   if (Number.isFinite(configured) && configured >= 500) {
@@ -199,11 +320,19 @@ function sanitizeSegmentMeta(meta) {
   return meta && typeof meta === "object" ? { ...meta } : {};
 }
 
+function applyLiveRecordingMonitorRecordingPopulate(query) {
+  return query.populate(LIVE_RECORDING_MONITOR_RECORDING_POPULATE);
+}
+
 function hasCompletedSourceCleanup(recording) {
   return recording?.meta?.sourceCleanup?.status === "completed";
 }
 
-function summarizeSegments(segments = [], recording = null) {
+function summarizeSegments(
+  segments = [],
+  recording = null,
+  { includeDetailedSegments = true } = {}
+) {
   const sortedSegments = [...segments].sort((a, b) => a.index - b.index);
   const uploadedSegments = sortedSegments.filter(
     (segment) => segment.uploadStatus === "uploaded"
@@ -276,9 +405,9 @@ function summarizeSegments(segments = [], recording = null) {
     };
   };
 
-  const detailedSegments = sortedSegments
-    .map(buildSegmentProgress)
-    .filter(Boolean);
+  const detailedSegments = includeDetailedSegments
+    ? sortedSegments.map(buildSegmentProgress).filter(Boolean)
+    : [];
   return {
     totalSegments: sortedSegments.length,
     uploadedSegments: uploadedSegments.length,
@@ -868,14 +997,20 @@ export function startLiveRecordingAutoExportSweep() {
   return liveRecordingAutoExportSweepTimer;
 }
 
-function buildRow(recording, context = {}) {
+function buildRow(
+  recording,
+  context = {},
+  { includeDetailedSegments = true } = {}
+) {
   const match = recording.match || {};
   const participantsLabel = buildParticipantsLabel(match);
   const tournamentName = match?.tournament?.name || "";
   const bracketName = match?.bracket?.name || "";
   const bracketStage = match?.bracket?.stage || "";
   const courtLabel = buildCourtLabel(match, recording);
-  const segmentSummary = summarizeSegments(recording.segments || [], recording);
+  const segmentSummary = summarizeSegments(recording.segments || [], recording, {
+    includeDetailedSegments,
+  });
   const statusMeta = buildStatusMeta(recording.status);
   const exportPipeline = buildExportPipelineInfo(recording, context);
   const driveAuthMode =
@@ -1287,64 +1422,11 @@ async function buildLiveRecordingMonitorSnapshotUncached({
     mode: "serviceAccount",
   }));
 
-  const recordings = await LiveRecordingV2.find({})
-    .sort({ updatedAt: -1, createdAt: -1 })
-    .populate({
-      path: "match",
-      select:
-        "code displayCode labelKey globalRound stageIndex courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
-      populate: [
-        {
-          path: "pairA",
-          select: "player1 player2 teamName label",
-          populate: [
-            {
-              path: "player1",
-              select: "fullName name shortName nickname nickName user",
-              populate: {
-                path: "user",
-                select: "name fullName nickname nickName",
-              },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: {
-                path: "user",
-                select: "name fullName nickname nickName",
-              },
-            },
-          ],
-        },
-        {
-          path: "pairB",
-          select: "player1 player2 teamName label",
-          populate: [
-            {
-              path: "player1",
-              select: "fullName name shortName nickname nickName user",
-              populate: {
-                path: "user",
-                select: "name fullName nickname nickName",
-              },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: {
-                path: "user",
-                select: "name fullName nickname nickName",
-              },
-            },
-          ],
-        },
-        { path: "court", select: "name label number" },
-        { path: "bracket", select: "name stage type" },
-        { path: "tournament", select: "name status" },
-      ],
-    })
-    .populate({ path: "courtId", select: "name label number" })
-    .lean();
+  const recordings = await applyLiveRecordingMonitorRecordingPopulate(
+    LiveRecordingV2.find({})
+      .select(LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT)
+      .sort({ updatedAt: -1, createdAt: -1 })
+  ).lean();
 
   const rows = sortRows(
     recordings.map((recording) =>
@@ -1352,6 +1434,8 @@ async function buildLiveRecordingMonitorSnapshotUncached({
         workerHealth,
         queueSnapshot,
         currentDriveMode: currentDriveSettings.mode,
+      }, {
+        includeDetailedSegments: false,
       })
     )
   );
@@ -1546,4 +1630,37 @@ export async function buildLiveRecordingMonitorPage(options = {}) {
       generatedAt: new Date(),
     },
   };
+}
+
+export async function getLiveRecordingMonitorRow(recordingId) {
+  const normalizedRecordingId = String(recordingId || "").trim();
+  if (!normalizedRecordingId) return null;
+
+  const [currentDriveSettings, workerHealth, queueSnapshot, recording] =
+    await Promise.all([
+      getRecordingDriveSettings().catch(() => ({
+        mode: "serviceAccount",
+      })),
+      getLiveRecordingWorkerHealth().catch(() => null),
+      getLiveRecordingExportQueueSnapshot().catch(() => null),
+      applyLiveRecordingMonitorRecordingPopulate(
+        LiveRecordingV2.findById(normalizedRecordingId).select(
+          LIVE_RECORDING_MONITOR_DETAIL_RECORDING_SELECT
+        )
+      ).lean(),
+    ]);
+
+  if (!recording) return null;
+
+  return buildRow(
+    recording,
+    {
+      workerHealth,
+      queueSnapshot,
+      currentDriveMode: currentDriveSettings.mode,
+    },
+    {
+      includeDetailedSegments: true,
+    }
+  );
 }

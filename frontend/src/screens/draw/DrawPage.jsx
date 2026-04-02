@@ -2685,21 +2685,29 @@ export default function DrawPage() {
   // Xác định quyền bốc thăm
   // isTournamentManager: người quản lý giải
   // ⚠️ tuỳ schema của bạn mà chỉnh lại list managers/staff nhé
-  const isTournamentManager = (() => {
+  const isTournamentManager = useMemo(() => {
     if (!tournament || !userInfo) return false;
-    const uid = String(userInfo._id || userInfo.id);
+    const uid = String(userInfo._id || userInfo.id || "");
+    if (!uid) return false;
+
+    if (tournament?.amOwner || tournament?.amManager) return true;
 
     // owner giải
-    const ownerId = tournament.owner
+    const ownerId = tournament?.owner
       ? String(tournament.owner._id || tournament.owner)
-      : null;
-    if (uid === ownerId) return true;
+      : "";
+    const creatorId = tournament?.createdBy
+      ? String(tournament.createdBy._id || tournament.createdBy)
+      : "";
+    if (uid === ownerId || uid === creatorId) return true;
 
     // các field có thể đang dùng cho quản lý giải
-    const managerCandidates =
-      tournament.managers || tournament.staffs || tournament.organizers || [];
-    return managerCandidates.some((m) => String(m.user || m._id || m) === uid);
-  })();
+    return [tournament?.managers, tournament?.staffs, tournament?.organizers].some(
+      (items) =>
+        Array.isArray(items) &&
+        items.some((item) => String(item?.user || item?._id || item || "") === uid),
+    );
+  }, [tournament, userInfo]);
 
   // người được phép bốc thăm
   const canManageDraw = isAdmin || isSuperAdmin || isTournamentManager;

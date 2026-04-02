@@ -4035,6 +4035,30 @@ export default function ChatBotDrawer() {
   const handleFeedback = useCallback(
     async (msg, value) => {
       if (!msg?.id) return;
+      const currentValue = msg.feedback?.value || "";
+
+      if (currentValue === value) {
+        setFeedbackSubmittingId(msg.id);
+        try {
+          const response = await sendChatFeedback({
+            messageId: msg.id,
+            value: "clear",
+          }).unwrap();
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === msg.id
+                ? { ...item, feedback: response.feedback || null }
+                : item,
+            ),
+          );
+        } catch {
+          // silent
+        } finally {
+          setFeedbackSubmittingId("");
+        }
+        return;
+      }
+
       if (value === "negative") {
         setFeedbackReason("");
         setFeedbackNote("");

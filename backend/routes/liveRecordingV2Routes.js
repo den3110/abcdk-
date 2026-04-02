@@ -10,6 +10,7 @@ import {
   getLiveRecordingDriveAssetV2,
   forceUploadingRecordingToExportV2,
   getLiveRecordingMonitorV2,
+  getLiveRecordingMonitorRowV2,
   getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
   moveLiveRecordingDriveAssetV2,
@@ -89,6 +90,12 @@ router.get(
   protect,
   authorize("admin"),
   getLiveRecordingAiCommentaryMonitorV2
+);
+router.get(
+  "/admin/:id/monitor-row",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorRowV2
 );
 router.get(
   "/admin/:id/drive-asset",

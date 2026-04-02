@@ -11,6 +11,7 @@ import { addTournamentReputationBonus } from "../../services/reputationService.j
 import { autoPlan } from "../../services/tournamentPlanner.js";
 import {
   buildGroupBracket,
+  buildDoubleElimBracket,
   buildKnockoutBracket,
   buildRoundElimBracket,
 } from "../../services/bracketBuilder.js";
@@ -1824,6 +1825,10 @@ function buildStageRuleBundle(stageKey, stagePlan, bracket) {
 
   if (stageKey === "ko") {
     const baseRule = normalizeRule(stagePlan.rules);
+    const format =
+      String(stagePlan?.format || "single_elim").trim().toLowerCase() === "double_elim"
+        ? "double_elim"
+        : "single_elim";
     const semiRule = stagePlan.semiRules ? normalizeRule(stagePlan.semiRules) : null;
     const finalRule = stagePlan.finalRules ? normalizeRule(stagePlan.finalRules) : null;
     const thirdPlaceRule = stagePlan.thirdPlaceRules
@@ -1839,13 +1844,28 @@ function buildStageRuleBundle(stageKey, stagePlan, bracket) {
       finalRule,
       thirdPlaceRule,
       blueprintPatch: {
+        format,
+        ...(format === "double_elim"
+          ? {
+              doubleElim: {
+                hasGrandFinalReset:
+                  stagePlan?.doubleElim?.hasGrandFinalReset ?? false,
+              },
+            }
+          : {}),
         rules: baseRule,
         semiRules: semiRule,
         finalRules: finalRule,
-        thirdPlaceEnabled: !!stagePlan.thirdPlaceEnabled,
-        thirdPlaceRules: thirdPlaceRule,
+        thirdPlaceEnabled: format === "double_elim" ? false : !!stagePlan.thirdPlaceEnabled,
+        thirdPlaceRules: format === "double_elim" ? undefined : thirdPlaceRule,
       },
       matchRuleFor: (matchDoc) => {
+        if (format === "double_elim") {
+          if (matchDoc?.branch === "gf" || matchDoc?.phase === "grand_final") {
+            return finalRule || baseRule;
+          }
+          return baseRule;
+        }
         if (matchDoc?.isThirdPlace) {
           return thirdPlaceRule || finalRule || semiRule || baseRule;
         }
@@ -1879,6 +1899,13 @@ function applyStageRuleBundleToBracket(bracketDoc, stageKey, bundle) {
 
   if (stageKey === "po") {
     nextConfig.roundRules = bundle.roundRules || [];
+  }
+
+  if (stageKey === "ko" && bracketDoc?.type === "double_elim") {
+    nextConfig.doubleElim = {
+      ...(nextConfig.doubleElim || {}),
+      ...(bundle.blueprintPatch?.doubleElim || {}),
+    };
   }
 
   nextConfig.blueprint = nextBlueprint;
@@ -1967,7 +1994,7 @@ async function updatePublishedStageRulesInPlace({
 async function autoAdvanceByesForBracket(bracketId, session) {
   if (!bracketId) return;
   const bracket = await Bracket.findById(bracketId).session(session);
-  const baseRule = normalizeRule(bracket?.rules);
+  const baseRule = normalizeRule(bracket?.config?.rules || bracket?.rules);
   const roundRules = Array.isArray(bracket?.config?.roundRules)
     ? bracket.config.roundRules.map((r) => normalizeRule(r))
     : [];
@@ -2153,9 +2180,15 @@ async function buildBlueprintStagesFromPlan({
   }
 
   if (stageKeys.includes("ko") && plan?.ko && positions.ko) {
-    const { bracket } = await buildKnockoutBracket({
+    const koFormat =
+      String(plan?.ko?.format || "single_elim").trim().toLowerCase() === "double_elim"
+        ? "double_elim"
+        : "single_elim";
+    const buildKo =
+      koFormat === "double_elim" ? buildDoubleElimBracket : buildKnockoutBracket;
+    const { bracket } = await buildKo({
       tournamentId,
-      name: plan.ko.name || "Knockout",
+      name: plan.ko.name || (koFormat === "double_elim" ? "Double Elimination" : "Knockout"),
       order: positions.ko.order,
       stage: positions.ko.stage,
       drawSize: Number(plan.ko.drawSize || 0),
@@ -2163,13 +2196,23 @@ async function buildBlueprintStagesFromPlan({
       rules: normalizePlanRule(plan.ko.rules),
       semiRules: normalizePlanRule(plan.ko.semiRules),
       finalRules: normalizePlanRule(plan.ko.finalRules),
-      thirdPlace: toBool(
-        plan.ko.thirdPlaceEnabled !== undefined
-          ? plan.ko.thirdPlaceEnabled
-          : plan.ko.thirdPlace,
-        false
-      ),
-      thirdPlaceRules: normalizePlanRule(plan.ko.thirdPlaceRules),
+      ...(koFormat === "double_elim"
+        ? {
+            hasGrandFinalReset: toBool(
+              plan?.ko?.doubleElim?.hasGrandFinalReset ??
+                plan?.ko?.hasGrandFinalReset,
+              false
+            ),
+          }
+        : {
+            thirdPlace: toBool(
+              plan.ko.thirdPlaceEnabled !== undefined
+                ? plan.ko.thirdPlaceEnabled
+                : plan.ko.thirdPlace,
+              false
+            ),
+            thirdPlaceRules: normalizePlanRule(plan.ko.thirdPlaceRules),
+          }),
       session,
     });
     created.ko = bracket;
@@ -2332,14 +2375,31 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
     const k = { ...ko };
 
     if (k.drawSize !== undefined) k.drawSize = Number(k.drawSize) || 0;
+    k.format =
+      String(k.format || k.mode || "single_elim").trim().toLowerCase() === "double_elim"
+        ? "double_elim"
+        : "single_elim";
 
     k.rules = normalizePlanRule(k.rules);
     k.semiRules = normalizePlanRule(k.semiRules);
     k.finalRules = normalizePlanRule(k.finalRules);
+    if (k.format === "double_elim") {
+      k.doubleElim = {
+        hasGrandFinalReset: toBool(
+          k?.doubleElim?.hasGrandFinalReset ?? k?.hasGrandFinalReset,
+          false
+        ),
+      };
+    } else {
+      delete k.doubleElim;
+    }
 
     // ✅ NEW: nhận flag trận tranh hạng 3–4
     // FE có thể gửi: thirdPlaceEnabled hoặc thirdPlace
-    if (k.thirdPlaceEnabled !== undefined || k.thirdPlace !== undefined) {
+    if (k.format === "double_elim") {
+      k.thirdPlaceEnabled = false;
+      delete k.thirdPlaceRules;
+    } else if (k.thirdPlaceEnabled !== undefined || k.thirdPlace !== undefined) {
       k.thirdPlaceEnabled = toBool(
         k.thirdPlaceEnabled !== undefined ? k.thirdPlaceEnabled : k.thirdPlace
       );
@@ -2361,6 +2421,12 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
     if (normalizedKo) {
       k.drawSize = normalizedKo.drawSize;
       k.seeds = normalizedKo.seeds;
+      k.format = normalizedKo.format;
+      if (normalizedKo.doubleElim) {
+        k.doubleElim = normalizedKo.doubleElim;
+      } else {
+        delete k.doubleElim;
+      }
       k.rules = normalizedKo.rules;
       k.semiRules = normalizedKo.semiRules;
       k.finalRules = normalizedKo.finalRules;

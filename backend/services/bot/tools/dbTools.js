@@ -41,6 +41,7 @@ import { OTABundle } from "../../../models/otaBundleModel.js";
 import Channel from "../../../models/channelModel.js";
 import AppConfig from "../../../models/appConfigModel.js";
 import ClubEventRsvp from "../../../models/clubEventRsvpModel.js";
+import { GENERATED_PRESET_TOOL_MAP } from "./generatedToolCatalog.js";
 
 // ─────────────────── helpers ───────────────────
 
@@ -4330,3 +4331,2353 @@ export async function get_tournament_standings(
     return { error: err.message };
   }
 }
+
+function normalizeWrapperLimit(value, fallback = 5, max = 20) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function compactObject(value = {}) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  );
+}
+
+async function loadRichMatch(matchId) {
+  if (!matchId) return null;
+  return Match.findById(toObjectId(matchId))
+    .populate("tournament", "name")
+    .populate("bracket", "name type")
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .lean();
+}
+
+function matchSummary(match) {
+  if (!match) return null;
+  return compactObject({
+    code: match.code || null,
+    tournament: match.tournament?.name || null,
+    bracket: match.bracket?.name || null,
+    round: match.round ?? null,
+    status: match.status || null,
+    court: match.courtLabel || null,
+    scheduledAt: match.scheduledAt || null,
+    startedAt: match.startedAt || null,
+    finishedAt: match.finishedAt || null,
+    teamA: pairLabelPlain(match.pairA),
+    teamB: pairLabelPlain(match.pairB),
+    winner: match.winner || null,
+  });
+}
+
+function countBy(items, getKey, fallback = "unknown") {
+  return asArray(items).reduce((acc, item) => {
+    const rawKey = getKey(item);
+    const key = rawKey === null || typeof rawKey === "undefined" || rawKey === ""
+      ? fallback
+      : String(rawKey);
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function stripHtmlSnippet(html, maxLength = 220) {
+  const plain = String(html || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) return "";
+  return plain.length > maxLength ? `${plain.slice(0, maxLength - 1)}…` : plain;
+}
+
+async function resolveClubWrapperContext({ clubId, slug } = {}, ctx = {}) {
+  let resolvedClubId = clubId || ctx?.clubId || null;
+  let clubDetails = null;
+
+  if (!resolvedClubId && slug) {
+    clubDetails = await get_club_details({ slug }, ctx);
+    if (clubDetails?.error) return { error: clubDetails.error };
+    resolvedClubId = clubDetails?._id || null;
+  }
+
+  return {
+    clubId: resolvedClubId,
+    clubDetails,
+  };
+}
+
+export const get_tournament_basic_info = async ({ tournamentId }, ctx) => {
+  const summary = await get_tournament_summary({ tournamentId }, ctx);
+  if (summary?.error) return summary;
+  return {
+    tournament: summary.tournament,
+    stats: summary.stats,
+  };
+};
+
+export const get_tournament_location_info = async ({ tournamentId }, ctx) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+
+  const tournament = await Tournament.findById(toObjectId(tid))
+    .select("name location timezone startDate endDate")
+    .lean();
+
+  if (!tournament) return { error: "Tournament not found" };
+
+  return {
+    tournament: tournament.name,
+    location: tournament.location || null,
+    timezone: tournament.timezone || null,
+    startDate: tournament.startDate || null,
+    endDate: tournament.endDate || null,
+  };
+};
+
+export const get_tournament_deadlines = async ({ tournamentId }, ctx) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+
+  const tournament = await Tournament.findById(toObjectId(tid))
+    .select("name status startDate endDate registrationDeadline")
+    .lean();
+
+  if (!tournament) return { error: "Tournament not found" };
+
+  return {
+    tournament: tournament.name,
+    status: tournament.status,
+    registrationDeadline: tournament.registrationDeadline || null,
+    startDate: tournament.startDate || null,
+    endDate: tournament.endDate || null,
+  };
+};
+
+export const get_tournament_format_info = async ({ tournamentId }, ctx) => {
+  const summary = await get_tournament_summary({ tournamentId }, ctx);
+  if (summary?.error) return summary;
+
+  return {
+    tournament: summary.tournament?.name || null,
+    eventType: summary.tournament?.eventType || null,
+    bracketCount: summary.stats?.totalBrackets || 0,
+    brackets: asArray(summary.brackets).map((bracket) => ({
+      name: bracket.name,
+      type: bracket.type,
+      eventType: bracket.eventType || null,
+    })),
+  };
+};
+
+export const get_tournament_registration_status = async (
+  { tournamentId },
+  ctx,
+) => {
+  const summary = await get_tournament_summary({ tournamentId }, ctx);
+  if (summary?.error) return summary;
+
+  const maxPairs = Number(summary.tournament?.maxPairs || 0);
+  const totalRegistrations = Number(summary.stats?.totalRegistrations || 0);
+
+  return {
+    tournament: summary.tournament?.name || null,
+    totalRegistrations,
+    maxPairs: maxPairs || null,
+    spotsRemaining: maxPairs ? Math.max(maxPairs - totalRegistrations, 0) : null,
+    progress: summary.stats?.progress || "0%",
+  };
+};
+
+export const get_tournament_checkin_status = async ({ tournamentId }, ctx) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+
+  const [tournament, totalRegistrations, checkedIn] = await Promise.all([
+    Tournament.findById(toObjectId(tid)).select("name").lean(),
+    Registration.countDocuments({ tournament: toObjectId(tid) }),
+    Registration.countDocuments({
+      tournament: toObjectId(tid),
+      checkinAt: { $exists: true, $ne: null },
+    }),
+  ]);
+
+  if (!tournament) return { error: "Tournament not found" };
+
+  return {
+    tournament: tournament.name,
+    totalRegistrations,
+    checkedIn,
+    notCheckedIn: Math.max(totalRegistrations - checkedIn, 0),
+  };
+};
+
+export const get_tournament_live_overview = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => {
+  const data = await get_live_matches(
+    { tournamentId, limit: normalizeWrapperLimit(limit, 10, 30) },
+    ctx,
+  );
+  if (data?.error) return data;
+
+  return {
+    total: data.total || 0,
+    matches: asArray(data.matches).slice(0, normalizeWrapperLimit(limit, 5, 10)),
+  };
+};
+
+export const get_tournament_recent_results = async (
+  { tournamentId, limit = 5 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+
+  const safeLimit = normalizeWrapperLimit(limit, 5, 15);
+  const matches = await Match.find({
+    tournament: toObjectId(tid),
+    status: "finished",
+  })
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ finishedAt: -1, updatedAt: -1, _id: -1 })
+    .limit(safeLimit)
+    .lean();
+
+  return {
+    results: matches.map((match) => ({
+      code: match.code || null,
+      round: match.round ?? null,
+      teamA: pairLabelPlain(match.pairA),
+      teamB: pairLabelPlain(match.pairB),
+      winner: match.winner || null,
+      scores: asArray(match.gameScores).map((game) => `${game.a}-${game.b}`),
+      finishedAt: match.finishedAt || match.updatedAt || null,
+    })),
+    total: matches.length,
+  };
+};
+
+export const get_tournament_upcoming_schedule = async (
+  { tournamentId, limit = 10, courtLabel },
+  ctx,
+) => {
+  const schedule = await get_tournament_schedule(
+    {
+      tournamentId,
+      courtLabel,
+      limit: normalizeWrapperLimit(limit, 10, 30),
+    },
+    ctx,
+  );
+  if (schedule?.error) return schedule;
+
+  const items = asArray(schedule.schedule).filter(
+    (match) => match.status !== "finished",
+  );
+
+  return {
+    total: items.length,
+    schedule: items.slice(0, normalizeWrapperLimit(limit, 8, 20)),
+    courtSummary: schedule.courtSummary || {},
+  };
+};
+
+export const get_tournament_match_counts = async ({ tournamentId }, ctx) => {
+  const progress = await get_tournament_progress({ tournamentId }, ctx);
+  if (progress?.error) return progress;
+
+  return {
+    tournament: progress.tournament || null,
+    status: progress.status || null,
+    matches: progress.matches || {},
+  };
+};
+
+export const get_tournament_bracket_overview = async (
+  { tournamentId },
+  ctx,
+) => {
+  const progress = await get_tournament_progress({ tournamentId }, ctx);
+  if (progress?.error) return progress;
+
+  return {
+    tournament: progress.tournament || null,
+    total: asArray(progress.brackets).length,
+    brackets: asArray(progress.brackets),
+  };
+};
+
+export const get_tournament_draw_overview = async (
+  { tournamentId, bracketId },
+  ctx,
+) => {
+  const draws = await get_draw_results({ tournamentId, bracketId }, ctx);
+  if (draws?.error) return draws;
+
+  return {
+    total: draws.total || 0,
+    latest: asArray(draws.draws)[0] || null,
+    draws: asArray(draws.draws),
+  };
+};
+
+export const get_tournament_staff_overview = async (
+  { tournamentId },
+  ctx,
+) => {
+  const [managers, referees] = await Promise.all([
+    get_tournament_managers({ tournamentId }, ctx),
+    get_tournament_referees({ tournamentId }, ctx),
+  ]);
+
+  if (managers?.error) return managers;
+  if (referees?.error) return referees;
+
+  return {
+    managers: {
+      total: managers.total || 0,
+      roleCounts: managers.roleCounts || {},
+    },
+    referees: {
+      total: referees.total || 0,
+    },
+  };
+};
+
+export const get_tournament_payment_summary = async (
+  { tournamentId },
+  ctx,
+) => get_tournament_payment_info({ tournamentId }, ctx);
+
+export const get_tournament_referee_overview = async (
+  { tournamentId },
+  ctx,
+) => {
+  const referees = await get_tournament_referees({ tournamentId }, ctx);
+  if (referees?.error) return referees;
+
+  return {
+    total: referees.total || 0,
+    referees: asArray(referees.referees).slice(0, 10),
+  };
+};
+
+export const get_tournament_manager_overview = async (
+  { tournamentId },
+  ctx,
+) => {
+  const managers = await get_tournament_managers({ tournamentId }, ctx);
+  if (managers?.error) return managers;
+
+  return {
+    total: managers.total || 0,
+    roleCounts: managers.roleCounts || {},
+    managers: asArray(managers.managers).slice(0, 10),
+  };
+};
+
+export const get_tournament_court_overview = async (
+  { tournamentId },
+  ctx,
+) => {
+  const courts = await get_court_status({ tournamentId }, ctx);
+  if (courts?.error) return courts;
+
+  return {
+    summary: {
+      total: courts.total || 0,
+      idle: courts.idle || 0,
+      live: courts.live || 0,
+      assigned: courts.assigned || 0,
+      maintenance: courts.maintenance || 0,
+    },
+    courts: asArray(courts.courts).slice(0, 10),
+  };
+};
+
+export const get_tournament_rule_summary = async (
+  { tournamentId, bracketId },
+  ctx,
+) => {
+  const rules = await get_tournament_rules({ tournamentId, bracketId }, ctx);
+  if (rules?.error) return rules;
+
+  return {
+    total: rules.total || 0,
+    brackets: asArray(rules.brackets).slice(0, 10).map((bracket) => ({
+      name: bracket.name,
+      type: bracket.type,
+      drawStatus: bracket.drawStatus,
+      rules: bracket.rules || null,
+      seeding: bracket.seeding || null,
+      formatConfig: bracket.formatConfig || null,
+    })),
+  };
+};
+
+export const get_tournament_age_rule = async (
+  { tournamentId, userId, dob },
+  ctx,
+) => get_tournament_age_check({ tournamentId, userId, dob }, ctx);
+
+export const get_tournament_seeding_overview = async (
+  { tournamentId, bracketId },
+  ctx,
+) => {
+  const seeding = await get_seeding_info({ tournamentId, bracketId }, ctx);
+  if (seeding?.error) return seeding;
+
+  const bracketList = asArray(seeding.brackets);
+  return {
+    total: bracketList.length,
+    brackets: bracketList.slice(0, 10),
+  };
+};
+
+export const get_tournament_group_overview = async (
+  { tournamentId, bracketId, groupName },
+  ctx,
+) => {
+  const groups = await get_bracket_groups({ tournamentId, bracketId, groupName }, ctx);
+  if (groups?.error) return groups;
+
+  return {
+    bracket: groups.bracket || null,
+    type: groups.type || null,
+    totalGroups: groups.totalGroups || 0,
+    groups: asArray(groups.groups),
+  };
+};
+
+export const get_tournament_stream_overview = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+
+  const safeLimit = normalizeWrapperLimit(limit, 10, 30);
+  const sessions = await LiveSession.find({ status: "LIVE" })
+    .select("provider status permalinkUrl startedAt matchId")
+    .populate({
+      path: "matchId",
+      select: "code courtLabel tournament",
+      populate: { path: "tournament", select: "name" },
+    })
+    .sort({ startedAt: -1, _id: -1 })
+    .limit(60)
+    .lean();
+
+  const streams = sessions
+    .filter(
+      (session) =>
+        String(session.matchId?.tournament?._id || session.matchId?.tournament) ===
+        String(tid),
+    )
+    .slice(0, safeLimit)
+    .map((session) => ({
+      provider: session.provider || null,
+      status: session.status || null,
+      link: session.permalinkUrl || null,
+      startedAt: session.startedAt || null,
+      matchCode: session.matchId?.code || null,
+      court: session.matchId?.courtLabel || null,
+      tournament: session.matchId?.tournament?.name || null,
+    }));
+
+  return {
+    total: streams.length,
+    streams,
+  };
+};
+
+export const get_bracket_overview = async (
+  { bracketId, tournamentId },
+  ctx,
+) => {
+  const rules = await get_tournament_rules({ bracketId, tournamentId }, ctx);
+  if (rules?.error) return rules;
+
+  return {
+    total: rules.total || 0,
+    brackets: asArray(rules.brackets),
+  };
+};
+
+export const get_bracket_group_overview = async (
+  { bracketId, tournamentId, groupName },
+  ctx,
+) => get_bracket_groups({ bracketId, tournamentId, groupName }, ctx);
+
+export const get_bracket_tree_overview = async (
+  { bracketId, tournamentId },
+  ctx,
+) => {
+  const tree = await get_bracket_match_tree({ bracketId, tournamentId }, ctx);
+  if (tree?.error) return tree;
+
+  return {
+    total: tree.total || 0,
+    matches: asArray(tree.matches).slice(0, 30),
+  };
+};
+
+export const get_match_participants = async ({ matchId }, ctx) => {
+  const mid = matchId || ctx?.matchId;
+  if (!mid) return { error: "Missing matchId" };
+
+  const match = await loadRichMatch(mid);
+  if (!match) return { error: "Match not found" };
+
+  return {
+    code: match.code || null,
+    teamA: pairLabelPlain(match.pairA),
+    teamB: pairLabelPlain(match.pairB),
+    tournament: match.tournament?.name || null,
+    bracket: match.bracket?.name || null,
+  };
+};
+
+export const get_match_schedule_info = async ({ matchId }, ctx) => {
+  const mid = matchId || ctx?.matchId;
+  if (!mid) return { error: "Missing matchId" };
+
+  const match = await loadRichMatch(mid);
+  if (!match) return { error: "Match not found" };
+
+  return {
+    code: match.code || null,
+    status: match.status || null,
+    round: match.round ?? null,
+    court: match.courtLabel || null,
+    scheduledAt: match.scheduledAt || null,
+    startedAt: match.startedAt || null,
+    finishedAt: match.finishedAt || null,
+    teamA: pairLabelPlain(match.pairA),
+    teamB: pairLabelPlain(match.pairB),
+  };
+};
+
+export const get_match_result_summary = async ({ matchId }, ctx) => {
+  const mid = matchId || ctx?.matchId;
+  if (!mid) return { error: "Missing matchId" };
+
+  const match = await loadRichMatch(mid);
+  if (!match) return { error: "Match not found" };
+
+  return {
+    ...matchSummary(match),
+    scores: asArray(match.gameScores).map((game) => `${game.a}-${game.b}`),
+  };
+};
+
+export const get_match_stream_summary = async ({ matchId }, ctx) =>
+  get_match_video({ matchId }, ctx);
+
+export const get_match_recording_summary = async (
+  { matchId, status = "ready" },
+  ctx,
+) => get_match_recordings({ matchId, status }, ctx);
+
+export const get_match_timeline_summary = async (
+  { matchId, limit = 15 },
+  ctx,
+) => get_match_live_log({ matchId, limit }, ctx);
+
+export const get_court_schedule_overview = async (
+  { tournamentId, courtName, limit = 10 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+
+  const safeLimit = normalizeWrapperLimit(limit, 10, 30);
+  const filter = { tournament: toObjectId(tid) };
+  if (courtName) filter.courtLabel = { $regex: escapeRegex(courtName), $options: "i" };
+
+  const matches = await Match.find(filter)
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ scheduledAt: 1, round: 1, order: 1, _id: 1 })
+    .limit(safeLimit)
+    .lean();
+
+  return {
+    court: courtName || null,
+    total: matches.length,
+    schedule: matches.map((match) => matchSummary(match)),
+  };
+};
+
+export const get_court_live_overview = async (
+  { tournamentId, courtName },
+  ctx,
+) => get_court_status({ tournamentId, courtName }, ctx);
+
+export const get_user_rating_snapshot = async (
+  { userId, name },
+  ctx,
+) => get_player_ranking({ userId, name }, ctx);
+
+export const get_user_reputation_snapshot = async (
+  { userId, limit = 10 },
+  ctx,
+) => {
+  const history = await get_reputation_history(
+    { userId, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+  if (history?.error) return history;
+
+  return {
+    total: history.total || 0,
+    totalBonus: history.totalBonus || 0,
+    history: asArray(history.history).slice(0, 10),
+  };
+};
+
+export const get_user_registration_summary = async (
+  { userId, limit = 5 },
+  ctx,
+) => {
+  const uid = userId || ctx?.currentUserId;
+  if (!uid) return { error: "Missing userId" };
+
+  const safeLimit = normalizeWrapperLimit(limit, 5, 15);
+  const filter = {
+    $or: [
+      { "player1.user": toObjectId(uid) },
+      { "player2.user": toObjectId(uid) },
+    ],
+  };
+
+  const [total, registrations] = await Promise.all([
+    Registration.countDocuments(filter),
+    Registration.find(filter)
+      .populate("tournament", "name status startDate endDate location")
+      .select("code tournament payment.status checkinAt createdAt")
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(safeLimit)
+      .lean(),
+  ]);
+
+  const paymentStatusCounts = {};
+  registrations.forEach((registration) => {
+    const paymentStatus = registration.payment?.status || "unknown";
+    paymentStatusCounts[paymentStatus] =
+      (paymentStatusCounts[paymentStatus] || 0) + 1;
+  });
+
+  return {
+    total,
+    checkedIn: registrations.filter((registration) => registration.checkinAt).length,
+    paymentStatusCounts,
+    registrations: registrations.map((registration) => ({
+      code: registration.code || null,
+      tournament: registration.tournament?.name || null,
+      status: registration.tournament?.status || null,
+      startDate: registration.tournament?.startDate || null,
+      endDate: registration.tournament?.endDate || null,
+      location: registration.tournament?.location || null,
+      paymentStatus: registration.payment?.status || null,
+      checkinAt: registration.checkinAt || null,
+    })),
+  };
+};
+
+export const get_user_upcoming_match_summary = async (
+  { userId, tournamentId, limit = 10 },
+  ctx,
+) => {
+  const matches = await get_upcoming_matches(
+    { userId, tournamentId, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+  if (matches?.error) return matches;
+
+  return {
+    total: matches.total || 0,
+    matches: asArray(matches.matches).slice(0, 10),
+  };
+};
+
+export const get_user_device_summary = async ({ userId }, ctx) =>
+  get_my_devices({ userId }, ctx);
+
+export const get_user_login_summary = async (
+  { userId, limit = 10 },
+  ctx,
+) => get_login_history({ userId, limit }, ctx);
+
+export const get_user_profile_summary = async ({ userId }, ctx) =>
+  get_user_profile_detail({ userId }, ctx);
+
+export const get_user_match_history_summary = async (
+  { userId, category, status, limit = 10 },
+  ctx,
+) => {
+  const history = await get_user_match_history(
+    { userId, category, status, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+  if (history?.error) return history;
+
+  return {
+    total: history.total || 0,
+    matches: asArray(history.matches).slice(0, 10),
+  };
+};
+
+export const get_player_ranking_snapshot = async (
+  { userId, name },
+  ctx,
+) => get_player_ranking({ userId, name }, ctx);
+
+export const get_player_history_summary = async (
+  { userId, limit = 10 },
+  ctx,
+) => {
+  const history = await get_player_tournament_history(
+    { userId, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+  if (history?.error) return history;
+
+  return {
+    total: history.total || 0,
+    history: asArray(history.history).slice(0, 10),
+  };
+};
+
+export const get_club_member_summary = async (
+  { clubId, role, limit = 10, slug },
+  ctx,
+) => {
+  let resolvedClubId = clubId || ctx?.clubId || null;
+  if (!resolvedClubId && slug) {
+    const club = await get_club_details({ slug });
+    if (club?.error) return club;
+    resolvedClubId = club._id;
+  }
+  if (!resolvedClubId) return { error: "Missing clubId" };
+
+  return get_club_members(
+    {
+      clubId: resolvedClubId,
+      role,
+      limit: normalizeWrapperLimit(limit, 10, 25),
+    },
+    ctx,
+  );
+};
+
+export const get_club_event_summary = async (
+  { clubId, upcoming = true, limit = 10, slug },
+  ctx,
+) => {
+  let resolvedClubId = clubId || ctx?.clubId || null;
+  if (!resolvedClubId && slug) {
+    const club = await get_club_details({ slug });
+    if (club?.error) return club;
+    resolvedClubId = club._id;
+  }
+  if (!resolvedClubId) return { error: "Missing clubId" };
+
+  return get_club_events(
+    {
+      clubId: resolvedClubId,
+      upcoming,
+      limit: normalizeWrapperLimit(limit, 10, 20),
+    },
+    ctx,
+  );
+};
+
+export const get_club_announcement_summary = async (
+  { clubId, limit = 10, slug },
+  ctx,
+) => {
+  let resolvedClubId = clubId || ctx?.clubId || null;
+  if (!resolvedClubId && slug) {
+    const club = await get_club_details({ slug });
+    if (club?.error) return club;
+    resolvedClubId = club._id;
+  }
+  if (!resolvedClubId) return { error: "Missing clubId" };
+
+  return get_club_announcements(
+    { clubId: resolvedClubId, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+};
+
+export const get_club_poll_summary = async (
+  { clubId, limit = 5, slug },
+  ctx,
+) => {
+  let resolvedClubId = clubId || ctx?.clubId || null;
+  if (!resolvedClubId && slug) {
+    const club = await get_club_details({ slug });
+    if (club?.error) return club;
+    resolvedClubId = club._id;
+  }
+  if (!resolvedClubId) return { error: "Missing clubId" };
+
+  return get_club_polls(
+    { clubId: resolvedClubId, limit: normalizeWrapperLimit(limit, 5, 15) },
+    ctx,
+  );
+};
+
+export const get_club_activity_overview = async (
+  { clubId, slug },
+  ctx,
+) => {
+  let resolvedClubId = clubId || ctx?.clubId || null;
+  let clubDetails = null;
+
+  if (resolvedClubId || slug) {
+    clubDetails = await get_club_details({ clubId: resolvedClubId, slug });
+    if (clubDetails?.error) return clubDetails;
+    resolvedClubId = clubDetails._id;
+  }
+
+  if (!resolvedClubId) return { error: "Missing clubId" };
+
+  const [members, events, announcements, polls] = await Promise.all([
+    get_club_members({ clubId: resolvedClubId, limit: 5 }, ctx),
+    get_club_events({ clubId: resolvedClubId, limit: 5, upcoming: true }, ctx),
+    get_club_announcements({ clubId: resolvedClubId, limit: 5 }, ctx),
+    get_club_polls({ clubId: resolvedClubId, limit: 5 }, ctx),
+  ]);
+
+  return {
+    club: {
+      _id: clubDetails._id,
+      name: clubDetails.name,
+      province: clubDetails.province,
+      city: clubDetails.city,
+      memberCount: clubDetails.memberCount || 0,
+      isVerified: !!clubDetails.isVerified,
+    },
+    members: {
+      totalMembers: members.totalMembers || members.total || 0,
+      sample: asArray(members.members).slice(0, 5),
+    },
+    upcomingEvents: {
+      total: events.total || 0,
+      sample: asArray(events.events).slice(0, 5),
+    },
+    announcements: {
+      total: announcements.total || 0,
+      sample: asArray(announcements.announcements).slice(0, 5),
+    },
+    polls: {
+      total: polls.total || 0,
+      sample: asArray(polls.polls).slice(0, 5),
+    },
+  };
+};
+
+export const get_news_article_summary = async (
+  { slug, keyword },
+  _ctx,
+) => {
+  let article = null;
+
+  if (slug) {
+    article = await NewsArticle.findOne({ slug, status: "published" })
+      .select("title summary sourceName tags originalPublishedAt slug")
+      .lean();
+  } else if (keyword) {
+    const result = await search_news({ keyword, limit: 1 });
+    if (result?.error) return result;
+    article = asArray(result.articles)[0] || null;
+  } else {
+    return { error: "Missing slug or keyword" };
+  }
+
+  if (!article) return { error: "News article not found" };
+
+  return {
+    article: {
+      title: article.title,
+      summary: article.summary || null,
+      source: article.sourceName || article.source || null,
+      tags: article.tags || [],
+      publishedAt: article.originalPublishedAt || article.publishedAt || null,
+      slug: article.slug || slug || null,
+    },
+  };
+};
+
+export const get_news_feed_summary = async (
+  { keyword, tag, limit = 10 },
+  _ctx,
+) => search_news({ keyword, tag, limit: normalizeWrapperLimit(limit, 10, 20) });
+
+export const get_tournament_status_snapshot = async ({ tournamentId }, ctx) => {
+  const summary = await get_tournament_summary({ tournamentId }, ctx);
+  if (summary?.error) return summary;
+  return {
+    tournament: summary.tournament?.name || null,
+    status: summary.tournament?.status || null,
+    startDate: summary.tournament?.startDate || null,
+    endDate: summary.tournament?.endDate || null,
+    progress: summary.stats?.progress || "0%",
+  };
+};
+
+export const get_tournament_timeline_overview = async ({ tournamentId }, ctx) => {
+  const [summary, deadlines] = await Promise.all([
+    get_tournament_summary({ tournamentId }, ctx),
+    get_tournament_deadlines({ tournamentId }, ctx),
+  ]);
+  if (summary?.error) return summary;
+  if (deadlines?.error) return deadlines;
+  return {
+    tournament: summary.tournament?.name || null,
+    status: summary.tournament?.status || null,
+    registrationDeadline: deadlines.registrationDeadline || null,
+    startDate: summary.tournament?.startDate || null,
+    endDate: summary.tournament?.endDate || null,
+  };
+};
+
+export const get_tournament_recent_live_matches = async (
+  { tournamentId, limit = 5 },
+  ctx,
+) => get_live_matches({ tournamentId, limit: normalizeWrapperLimit(limit, 5, 15) }, ctx);
+
+export const get_tournament_recent_finished_matches = async (
+  { tournamentId, limit = 5 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const safeLimit = normalizeWrapperLimit(limit, 5, 15);
+  const matches = await Match.find({
+    tournament: toObjectId(tid),
+    status: "finished",
+  })
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ finishedAt: -1, updatedAt: -1, _id: -1 })
+    .limit(safeLimit)
+    .lean();
+
+  return {
+    total: matches.length,
+    matches: matches.map((match) => ({
+      ...matchSummary(match),
+      scores: asArray(match.gameScores).map((game) => `${game.a}-${game.b}`),
+    })),
+  };
+};
+
+export const get_tournament_unfinished_matches = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const safeLimit = normalizeWrapperLimit(limit, 10, 20);
+  const matches = await Match.find({
+    tournament: toObjectId(tid),
+    status: { $ne: "finished" },
+  })
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ scheduledAt: 1, round: 1, order: 1, _id: 1 })
+    .limit(safeLimit)
+    .lean();
+
+  return {
+    total: matches.length,
+    matches: matches.map((match) => matchSummary(match)),
+  };
+};
+
+export const get_tournament_registration_breakdown = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const registrations = await Registration.find({
+    tournament: toObjectId(tid),
+  })
+    .select("payment.status checkinAt")
+    .lean();
+
+  return {
+    total: registrations.length,
+    paymentStatusCounts: countBy(
+      registrations,
+      (registration) => registration.payment?.status || "unknown",
+    ),
+    checkedIn: registrations.filter((registration) => registration.checkinAt).length,
+  };
+};
+
+export const get_tournament_checkin_breakdown = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const total = await Registration.countDocuments({ tournament: toObjectId(tid) });
+  const checkedIn = await Registration.countDocuments({
+    tournament: toObjectId(tid),
+    checkinAt: { $exists: true, $ne: null },
+  });
+  return {
+    total,
+    checkedIn,
+    pending: Math.max(total - checkedIn, 0),
+    ratio: total ? `${Math.round((checkedIn / total) * 100)}%` : "0%",
+  };
+};
+
+export const get_tournament_bracket_statuses = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const brackets = await Bracket.find({ tournament: toObjectId(tid) })
+    .select("name type drawStatus teamsCount matchesCount")
+    .sort({ order: 1, _id: 1 })
+    .lean();
+
+  return {
+    total: brackets.length,
+    drawStatusCounts: countBy(brackets, (bracket) => bracket.drawStatus || "unknown"),
+    typeCounts: countBy(brackets, (bracket) => bracket.type || "unknown"),
+    brackets,
+  };
+};
+
+export const get_tournament_group_statuses = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const brackets = await Bracket.find({
+    tournament: toObjectId(tid),
+    type: { $in: ["group", "group_stage", "round_robin"] },
+  })
+    .select("name type meta")
+    .sort({ order: 1, _id: 1 })
+    .lean();
+
+  return {
+    total: brackets.length,
+    brackets: brackets.map((bracket) => ({
+      name: bracket.name || null,
+      type: bracket.type || null,
+      groupCount:
+        asArray(bracket.meta?.groups).length ||
+        asArray(bracket.meta?.pools).length ||
+        0,
+    })),
+  };
+};
+
+export const get_tournament_court_load = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const matches = await Match.find({
+    tournament: toObjectId(tid),
+    courtLabel: { $exists: true, $ne: null },
+  })
+    .select("courtLabel status")
+    .lean();
+
+  const byCourt = {};
+  matches.forEach((match) => {
+    const label = match.courtLabel || "Unassigned";
+    if (!byCourt[label]) {
+      byCourt[label] = { total: 0, live: 0, finished: 0, pending: 0 };
+    }
+    byCourt[label].total += 1;
+    if (match.status === "live") byCourt[label].live += 1;
+    else if (match.status === "finished") byCourt[label].finished += 1;
+    else byCourt[label].pending += 1;
+  });
+
+  return {
+    totalCourts: Object.keys(byCourt).length,
+    courts: Object.entries(byCourt).map(([court, counts]) => ({
+      court,
+      ...counts,
+    })),
+  };
+};
+
+export const get_tournament_match_status_breakdown = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const matches = await Match.find({ tournament: toObjectId(tid) })
+    .select("status")
+    .lean();
+  return {
+    total: matches.length,
+    statusCounts: countBy(matches, (match) => match.status || "unknown"),
+  };
+};
+
+export const get_tournament_stream_links = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => get_tournament_stream_overview({ tournamentId, limit }, ctx);
+
+export const get_tournament_recording_overview = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const matchIds = await Match.find({ tournament: toObjectId(tid) })
+    .select("_id")
+    .limit(500)
+    .lean();
+  const recordings = await LiveRecording.find({
+    matchId: { $in: matchIds.map((item) => item._id) },
+  })
+    .select("status createdAt matchId url")
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+
+  return {
+    total: recordings.length,
+    statusCounts: countBy(recordings, (recording) => recording.status || "unknown"),
+    recordings,
+  };
+};
+
+export const get_tournament_draw_history = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const draws = await DrawSession.find({ tournament: toObjectId(tid) })
+    .select("status committedAt createdAt bracket")
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: draws.length,
+    statusCounts: countBy(draws, (draw) => draw.status || "unknown"),
+    draws,
+  };
+};
+
+export const get_tournament_staff_contacts = async (
+  { tournamentId },
+  ctx,
+) => {
+  const [managers, referees] = await Promise.all([
+    get_tournament_managers({ tournamentId }, ctx),
+    get_tournament_referees({ tournamentId }, ctx),
+  ]);
+  if (managers?.error) return managers;
+  if (referees?.error) return referees;
+  return {
+    managers: asArray(managers.managers).slice(0, 10),
+    referees: asArray(referees.referees).slice(0, 10),
+  };
+};
+
+export const get_tournament_sponsor_overview = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  const filter = {};
+  if (tid) filter.tournament = toObjectId(tid);
+  const sponsors = await Sponsor.find(filter)
+    .select("name category tier website isActive")
+    .sort({ tier: 1, name: 1, _id: 1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: sponsors.length,
+    tierCounts: countBy(sponsors, (sponsor) => sponsor.tier || "unknown"),
+    sponsors,
+  };
+};
+
+export const get_tournament_event_copy = async ({ tournamentId }, ctx) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const tournament = await Tournament.findById(toObjectId(tid))
+    .select("name contentHtml")
+    .lean();
+  if (!tournament) return { error: "Tournament not found" };
+  return {
+    tournament: tournament.name,
+    excerpt: stripHtmlSnippet(tournament.contentHtml, 260),
+  };
+};
+
+export const get_tournament_content_summary = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const tournament = await Tournament.findById(toObjectId(tid))
+    .select("name contentHtml")
+    .lean();
+  if (!tournament) return { error: "Tournament not found" };
+  const plain = stripHtmlSnippet(tournament.contentHtml, 4000);
+  return {
+    tournament: tournament.name,
+    hasContent: Boolean(plain),
+    excerpt: stripHtmlSnippet(tournament.contentHtml, 260),
+    textLength: plain.length,
+  };
+};
+
+export const get_tournament_location_snapshot = async (
+  { tournamentId },
+  ctx,
+) => get_tournament_location_info({ tournamentId }, ctx);
+
+export const get_tournament_participant_overview = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => {
+  const registrations = await get_tournament_registrations(
+    { tournamentId, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+  if (registrations?.error) return registrations;
+  return {
+    total: registrations.total || 0,
+    paymentStatusCounts: registrations.paymentStatusCounts || {},
+    registrations: asArray(registrations.registrations).slice(0, 10),
+  };
+};
+
+export const get_bracket_round_overview = async (
+  { bracketId, tournamentId },
+  ctx,
+) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const matches = await Match.find({ bracket: toObjectId(bid) })
+    .select("round status")
+    .lean();
+  return {
+    total: matches.length,
+    rounds: Object.entries(countBy(matches, (match) => match.round ?? "unknown")).map(
+      ([round, count]) => ({ round, count }),
+    ),
+    tournamentId: tournamentId || ctx?.tournamentId || null,
+  };
+};
+
+export const get_bracket_match_statuses = async (
+  { bracketId },
+  ctx,
+) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const matches = await Match.find({ bracket: toObjectId(bid) })
+    .select("status")
+    .lean();
+  return {
+    total: matches.length,
+    statusCounts: countBy(matches, (match) => match.status || "unknown"),
+  };
+};
+
+export const get_bracket_live_matches = async ({ bracketId, limit = 10 }, ctx) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const matches = await Match.find({ bracket: toObjectId(bid), status: "live" })
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ startedAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: matches.length,
+    matches: matches.map((match) => matchSummary(match)),
+  };
+};
+
+export const get_bracket_finished_matches = async (
+  { bracketId, limit = 10 },
+  ctx,
+) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const matches = await Match.find({ bracket: toObjectId(bid), status: "finished" })
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ finishedAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: matches.length,
+    matches: matches.map((match) => matchSummary(match)),
+  };
+};
+
+export const get_bracket_upcoming_matches = async (
+  { bracketId, limit = 10 },
+  ctx,
+) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const matches = await Match.find({
+    bracket: toObjectId(bid),
+    status: { $nin: ["finished"] },
+  })
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ scheduledAt: 1, round: 1, order: 1, _id: 1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: matches.length,
+    matches: matches.map((match) => matchSummary(match)),
+  };
+};
+
+export const get_bracket_team_count = async ({ bracketId }, ctx) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const bracket = await Bracket.findById(toObjectId(bid))
+    .select("name teamsCount matchesCount")
+    .lean();
+  if (!bracket) return { error: "Bracket not found" };
+  return {
+    bracket: bracket.name || null,
+    teamsCount: bracket.teamsCount || 0,
+    matchesCount: bracket.matchesCount || 0,
+  };
+};
+
+export const get_bracket_draw_status = async ({ bracketId }, ctx) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const bracket = await Bracket.findById(toObjectId(bid))
+    .select("name type drawStatus")
+    .lean();
+  if (!bracket) return { error: "Bracket not found" };
+  return {
+    bracket: bracket.name || null,
+    type: bracket.type || null,
+    drawStatus: bracket.drawStatus || null,
+  };
+};
+
+export const get_bracket_format_summary = async ({ bracketId }, ctx) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const bracket = await Bracket.findById(toObjectId(bid))
+    .select("name type meta")
+    .lean();
+  if (!bracket) return { error: "Bracket not found" };
+  return {
+    bracket: bracket.name || null,
+    type: bracket.type || null,
+    meta: compactObject({
+      seeding: bracket.meta?.seeding,
+      groups: asArray(bracket.meta?.groups).length || undefined,
+      pools: asArray(bracket.meta?.pools).length || undefined,
+    }),
+  };
+};
+
+export const get_bracket_progress_snapshot = async ({ bracketId }, ctx) => {
+  const bid = bracketId || ctx?.bracketId;
+  if (!bid) return { error: "Missing bracketId" };
+  const matches = await Match.find({ bracket: toObjectId(bid) })
+    .select("status")
+    .lean();
+  const statusCounts = countBy(matches, (match) => match.status || "unknown");
+  return {
+    total: matches.length,
+    finished: statusCounts.finished || 0,
+    live: statusCounts.live || 0,
+    pending: Math.max(
+      matches.length - (statusCounts.finished || 0) - (statusCounts.live || 0),
+      0,
+    ),
+    statusCounts,
+  };
+};
+
+export const get_bracket_leaderboard_snapshot = async (
+  { bracketId, tournamentId },
+  ctx,
+) => get_bracket_standings({ bracketId, tournamentId }, ctx);
+
+export const get_match_scoreboard = async ({ matchId }, ctx) => {
+  const result = await get_match_result_summary({ matchId }, ctx);
+  if (result?.error) return result;
+  return {
+    code: result.code || null,
+    teamA: result.teamA || null,
+    teamB: result.teamB || null,
+    scores: result.scores || [],
+    winner: result.winner || null,
+  };
+};
+
+export const get_match_game_scores = async ({ matchId }, ctx) => {
+  const mid = matchId || ctx?.matchId;
+  if (!mid) return { error: "Missing matchId" };
+  const match = await Match.findById(toObjectId(mid))
+    .select("code status gameScores")
+    .lean();
+  if (!match) return { error: "Match not found" };
+  return {
+    code: match.code || null,
+    status: match.status || null,
+    gameScores: asArray(match.gameScores),
+  };
+};
+
+export const get_match_status_snapshot = async ({ matchId }, ctx) => {
+  const info = await get_match_schedule_info({ matchId }, ctx);
+  if (info?.error) return info;
+  return {
+    code: info.code || null,
+    status: info.status || null,
+    scheduledAt: info.scheduledAt || null,
+    startedAt: info.startedAt || null,
+    finishedAt: info.finishedAt || null,
+  };
+};
+
+export const get_match_winner_summary = async ({ matchId }, ctx) => {
+  const result = await get_match_result_summary({ matchId }, ctx);
+  if (result?.error) return result;
+  return {
+    code: result.code || null,
+    winner: result.winner || null,
+    teamA: result.teamA || null,
+    teamB: result.teamB || null,
+  };
+};
+
+export const get_match_context_bundle = async ({ matchId }, ctx) => {
+  const [summary, logs, recordings] = await Promise.all([
+    get_match_result_summary({ matchId }, ctx),
+    get_match_log_snapshot({ matchId, limit: 5 }, ctx),
+    get_match_related_recordings({ matchId, status: "ready" }, ctx),
+  ]);
+  if (summary?.error) return summary;
+  return {
+    summary,
+    log: logs?.log || logs?.events || logs?.items || logs || null,
+    recordings: recordings?.recordings || recordings?.items || recordings || null,
+  };
+};
+
+export const get_match_court_assignment = async ({ matchId }, ctx) =>
+  get_match_schedule_info({ matchId }, ctx);
+
+export const get_match_pair_summary = async ({ matchId }, ctx) =>
+  get_match_participants({ matchId }, ctx);
+
+export const get_match_progress_snapshot = async ({ matchId }, ctx) => {
+  const mid = matchId || ctx?.matchId;
+  if (!mid) return { error: "Missing matchId" };
+  const match = await Match.findById(toObjectId(mid))
+    .select("code status startedAt finishedAt scheduledAt")
+    .lean();
+  if (!match) return { error: "Match not found" };
+  const durationMinutes =
+    match.startedAt && match.finishedAt
+      ? Math.max(
+          Math.round(
+            (new Date(match.finishedAt).getTime() -
+              new Date(match.startedAt).getTime()) /
+              60000,
+          ),
+          0,
+        )
+      : null;
+  return {
+    code: match.code || null,
+    status: match.status || null,
+    durationMinutes,
+    scheduledAt: match.scheduledAt || null,
+    startedAt: match.startedAt || null,
+    finishedAt: match.finishedAt || null,
+  };
+};
+
+export const get_match_log_snapshot = async (
+  { matchId, limit = 8 },
+  ctx,
+) => get_match_live_log({ matchId, limit: normalizeWrapperLimit(limit, 8, 20) }, ctx);
+
+export const get_match_related_recordings = async (
+  { matchId, status = "ready" },
+  ctx,
+) => get_match_recordings({ matchId, status }, ctx);
+
+export const get_court_assignment_summary = async (
+  { tournamentId, courtName },
+  ctx,
+) => get_court_status({ tournamentId, courtName }, ctx);
+
+export const get_court_match_queue = async (
+  { tournamentId, courtName, limit = 10 },
+  ctx,
+) => {
+  const schedule = await get_court_schedule_overview(
+    { tournamentId, courtName, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+  if (schedule?.error) return schedule;
+  return {
+    court: schedule.court || null,
+    total: schedule.total || 0,
+    queue: asArray(schedule.schedule).filter(
+      (match) => match.status !== "finished",
+    ),
+  };
+};
+
+export const get_court_recent_results = async (
+  { tournamentId, courtName, limit = 10 },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const filter = {
+    tournament: toObjectId(tid),
+    status: "finished",
+  };
+  if (courtName) filter.courtLabel = { $regex: escapeRegex(courtName), $options: "i" };
+  const matches = await Match.find(filter)
+    .populate("pairA", "player1.fullName player2.fullName player1.user player2.user")
+    .populate("pairB", "player1.fullName player2.fullName player1.user player2.user")
+    .sort({ finishedAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: matches.length,
+    matches: matches.map((match) => matchSummary(match)),
+  };
+};
+
+export const get_court_upcoming_matches = async (
+  { tournamentId, courtName, limit = 10 },
+  ctx,
+) => {
+  const schedule = await get_court_schedule_overview(
+    { tournamentId, courtName, limit: normalizeWrapperLimit(limit, 10, 20) },
+    ctx,
+  );
+  if (schedule?.error) return schedule;
+  return {
+    total: schedule.total || 0,
+    matches: asArray(schedule.schedule).filter(
+      (match) => match.status !== "finished",
+    ),
+  };
+};
+
+export const get_court_idle_status = async (
+  { tournamentId, courtName },
+  ctx,
+) => {
+  const status = await get_court_status({ tournamentId, courtName }, ctx);
+  if (status?.error) return status;
+  const courts = asArray(status.courts);
+  const target = courtName
+    ? courts.find((court) =>
+        String(court.name || court.court || "")
+          .toLowerCase()
+          .includes(String(courtName).toLowerCase()),
+      )
+    : courts[0];
+  if (!target) return { idle: true, court: courtName || null };
+  return {
+    court: target.name || target.court || courtName || null,
+    idle: !target.currentMatch,
+    status: target.status || null,
+    currentMatch: target.currentMatch || null,
+  };
+};
+
+export const get_court_cluster_summary = async (
+  { tournamentId },
+  ctx,
+) => {
+  const tid = tournamentId || ctx?.tournamentId;
+  if (!tid) return { error: "Missing tournamentId" };
+  const courts = await Court.find({ tournament: toObjectId(tid) })
+    .select("name cluster status isActive")
+    .lean();
+  return {
+    total: courts.length,
+    clusterCounts: countBy(courts, (court) => court.cluster || "default"),
+    statusCounts: countBy(courts, (court) => court.status || "unknown"),
+  };
+};
+
+export const get_live_session_summary = async (
+  { tournamentId, limit = 10 },
+  ctx,
+) => get_live_streams({ tournamentId, limit: normalizeWrapperLimit(limit, 10, 20) }, ctx);
+
+export const get_live_session_match_summary = async (
+  { matchId },
+  _ctx,
+) => {
+  const mid = matchId ? toObjectId(matchId) : null;
+  if (!mid) return { error: "Missing matchId" };
+  const sessions = await LiveSession.find({ matchId: mid })
+    .select("provider status permalinkUrl startedAt")
+    .sort({ startedAt: -1, _id: -1 })
+    .lean();
+  return {
+    total: sessions.length,
+    sessions,
+  };
+};
+
+export const get_live_recording_feed = async (
+  { matchId, status = "ready", limit = 10 },
+  _ctx,
+) => {
+  const filter = {};
+  if (matchId) filter.matchId = toObjectId(matchId);
+  if (status) filter.status = status;
+  const recordings = await LiveRecording.find(filter)
+    .select("status matchId url createdAt")
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: recordings.length,
+    recordings,
+  };
+};
+
+export const get_live_channel_summary = async ({ provider }, ctx) =>
+  get_live_channels({ provider }, ctx);
+
+export const get_user_account_snapshot = async ({ userId }, ctx) =>
+  get_user_profile_detail({ userId }, ctx);
+
+export const get_user_security_snapshot = async ({ userId }, ctx) => {
+  const [devices, logins] = await Promise.all([
+    get_my_devices({ userId }, ctx),
+    get_login_history({ userId, limit: 5 }, ctx),
+  ]);
+  if (devices?.error) return devices;
+  if (logins?.error) return logins;
+  return {
+    deviceCount: devices.total || 0,
+    latestLogin: asArray(logins.logins)[0] || null,
+    devices: asArray(devices.devices).slice(0, 5),
+  };
+};
+
+export const get_user_subscription_summary = async (
+  { userId, topicType },
+  ctx,
+) => get_my_subscriptions({ userId, topicType }, ctx);
+
+export const get_user_support_summary = async ({ userId, status }, ctx) =>
+  get_support_tickets({ userId, status }, ctx);
+
+export const get_user_complaint_summary = async (
+  { userId, tournamentId, status },
+  ctx,
+) => get_complaints({ userId, tournamentId, status }, ctx);
+
+export const get_user_rating_history_summary = async (
+  { userId, limit = 10 },
+  ctx,
+) => get_score_history({ userId, limit: normalizeWrapperLimit(limit, 10, 20) }, ctx);
+
+export const get_user_assessment_summary = async ({ userId }, ctx) =>
+  get_player_evaluations({ userId }, ctx);
+
+export const get_user_casual_overview = async ({ userId }, ctx) =>
+  get_user_casual_stats({ userId }, ctx);
+
+export const get_user_registration_statuses = async (
+  { userId, limit = 20 },
+  ctx,
+) => {
+  const summary = await get_user_registration_summary(
+    { userId, limit: normalizeWrapperLimit(limit, 20, 30) },
+    ctx,
+  );
+  if (summary?.error) return summary;
+  return {
+    total: summary.total || 0,
+    paymentStatusCounts: summary.paymentStatusCounts || {},
+    tournamentStatusCounts: countBy(
+      asArray(summary.registrations),
+      (registration) => registration.status || "unknown",
+    ),
+  };
+};
+
+export const get_user_recent_results = async (
+  { userId, limit = 10 },
+  ctx,
+) => get_user_match_history({ userId, status: "finished", limit }, ctx);
+
+export const get_user_upcoming_tournaments = async (
+  { userId, limit = 10 },
+  ctx,
+) => {
+  const summary = await get_user_registration_summary(
+    { userId, limit: normalizeWrapperLimit(limit, 15, 30) },
+    ctx,
+  );
+  if (summary?.error) return summary;
+  const now = Date.now();
+  const upcoming = asArray(summary.registrations).filter((registration) => {
+    const startDate = registration.startDate ? new Date(registration.startDate).getTime() : 0;
+    return startDate > now;
+  });
+  return {
+    total: upcoming.length,
+    tournaments: upcoming.slice(0, 10),
+  };
+};
+
+export const get_user_ticket_statuses = async ({ userId }, ctx) => {
+  const tickets = await get_support_tickets({ userId }, ctx);
+  if (tickets?.error) return tickets;
+  return {
+    total: tickets.total || 0,
+    statusCounts: countBy(asArray(tickets.tickets), (ticket) => ticket.status || "unknown"),
+  };
+};
+
+export const get_user_subscription_statuses = async (
+  { userId, topicType },
+  ctx,
+) => {
+  const subscriptions = await get_my_subscriptions({ userId, topicType }, ctx);
+  if (subscriptions?.error) return subscriptions;
+  return {
+    total: subscriptions.total || 0,
+    topicTypeCounts: countBy(
+      asArray(subscriptions.subscriptions),
+      (subscription) => subscription.topicType || "unknown",
+    ),
+  };
+};
+
+export const get_user_device_activity = async ({ userId }, ctx) =>
+  get_my_devices({ userId }, ctx);
+
+export const get_user_login_activity = async (
+  { userId, limit = 10 },
+  ctx,
+) => get_login_history({ userId, limit }, ctx);
+
+export const get_user_profile_flags = async ({ userId }, ctx) => {
+  const profile = await get_user_profile_detail({ userId }, ctx);
+  if (profile?.error) return profile;
+  return {
+    user: profile.user || null,
+    flags: compactObject({
+      kycStatus: profile.kycStatus,
+      hasPhone: Boolean(profile.phone),
+      hasEmail: Boolean(profile.email),
+      hasDob: Boolean(profile.dob),
+      province: profile.province || null,
+    }),
+  };
+};
+
+export const get_user_reputation_overview = async (
+  { userId, limit = 10 },
+  ctx,
+) => get_reputation_history({ userId, limit }, ctx);
+
+export const get_player_strength_snapshot = async (
+  { userId, name },
+  ctx,
+) => {
+  const [ranking, evaluations] = await Promise.all([
+    get_player_ranking({ userId, name }, ctx),
+    get_player_evaluations({ userId }, ctx),
+  ]);
+  if (ranking?.error) return ranking;
+  return {
+    ranking,
+    evaluations: evaluations?.evaluations || evaluations?.items || [],
+  };
+};
+
+export const get_player_recent_form = async (
+  { userId, limit = 10 },
+  ctx,
+) => get_user_match_history({ userId, limit, status: "finished" }, ctx);
+
+export const get_player_evaluation_summary = async ({ userId }, ctx) =>
+  get_player_evaluations({ userId }, ctx);
+
+export const get_club_profile_snapshot = async (
+  { clubId, slug },
+  ctx,
+) => get_club_details({ clubId: clubId || ctx?.clubId, slug }, ctx);
+
+export const get_club_join_request_summary = async (
+  { clubId, status, slug },
+  ctx,
+) => {
+  const resolved = await resolveClubWrapperContext({ clubId, slug }, ctx);
+  if (resolved?.error) return { error: resolved.error };
+  if (!resolved.clubId) return { error: "Missing clubId" };
+  return get_club_join_requests({ clubId: resolved.clubId, status }, ctx);
+};
+
+export const get_club_event_rsvp_summary = async (
+  { clubId, slug },
+  ctx,
+) => {
+  const resolved = await resolveClubWrapperContext({ clubId, slug }, ctx);
+  if (resolved?.error) return { error: resolved.error };
+  if (!resolved.clubId) return { error: "Missing clubId" };
+  const eventIds = await ClubEvent.find({ club: toObjectId(resolved.clubId) })
+    .select("_id")
+    .limit(200)
+    .lean();
+  const rsvps = await ClubEventRsvp.find({
+    event: { $in: eventIds.map((item) => item._id) },
+  })
+    .select("status event")
+    .lean();
+  return {
+    total: rsvps.length,
+    statusCounts: countBy(rsvps, (rsvp) => rsvp.status || "unknown"),
+    eventCount: eventIds.length,
+  };
+};
+
+export const get_club_poll_vote_summary = async (
+  { clubId, slug },
+  ctx,
+) => {
+  const resolved = await resolveClubWrapperContext({ clubId, slug }, ctx);
+  if (resolved?.error) return { error: resolved.error };
+  if (!resolved.clubId) return { error: "Missing clubId" };
+  const pollIds = await ClubPoll.find({ club: toObjectId(resolved.clubId) })
+    .select("_id status")
+    .limit(200)
+    .lean();
+  const votes = await ClubPollVote.find({
+    poll: { $in: pollIds.map((item) => item._id) },
+  })
+    .select("poll option")
+    .lean();
+  return {
+    totalVotes: votes.length,
+    pollCount: pollIds.length,
+    activePolls: pollIds.filter((poll) => poll.status === "active").length,
+  };
+};
+
+export const get_club_news_summary = async (
+  { clubId, slug, limit = 5 },
+  ctx,
+) => {
+  const announcements = await get_club_announcement_summary({ clubId, slug, limit }, ctx);
+  if (announcements?.error) return announcements;
+  return {
+    total: announcements.total || 0,
+    announcements: asArray(
+      announcements.announcements ||
+        announcements.items ||
+        announcements.sample,
+    ).slice(0, 5),
+  };
+};
+
+export const get_club_member_roles = async (
+  { clubId, slug },
+  ctx,
+) => {
+  const resolved = await resolveClubWrapperContext({ clubId, slug }, ctx);
+  if (resolved?.error) return { error: resolved.error };
+  if (!resolved.clubId) return { error: "Missing clubId" };
+  const members = await ClubMember.find({ club: toObjectId(resolved.clubId) })
+    .select("role status")
+    .lean();
+  return {
+    total: members.length,
+    roleCounts: countBy(members, (member) => member.role || "member"),
+    statusCounts: countBy(members, (member) => member.status || "active"),
+  };
+};
+
+export const get_club_upcoming_events = async (
+  { clubId, slug, limit = 10 },
+  ctx,
+) => get_club_event_summary({ clubId, slug, upcoming: true, limit }, ctx);
+
+export const get_club_recent_events = async (
+  { clubId, slug, limit = 10 },
+  ctx,
+) => get_club_event_summary({ clubId, slug, upcoming: false, limit }, ctx);
+
+export const get_club_active_polls = async (
+  { clubId, slug, limit = 10 },
+  ctx,
+) => get_club_poll_summary({ clubId, slug, limit }, ctx);
+
+export const get_club_recent_announcements = async (
+  { clubId, slug, limit = 10 },
+  ctx,
+) => get_club_announcement_summary({ clubId, slug, limit }, ctx);
+
+export const get_club_growth_snapshot = async (
+  { clubId, slug },
+  ctx,
+) => {
+  const resolved = await resolveClubWrapperContext({ clubId, slug }, ctx);
+  if (resolved?.error) return { error: resolved.error };
+  if (!resolved.clubId) return { error: "Missing clubId" };
+  const [members, joinRequests, events, announcements] = await Promise.all([
+    ClubMember.countDocuments({ club: toObjectId(resolved.clubId) }),
+    ClubJoinRequest.countDocuments({ club: toObjectId(resolved.clubId) }),
+    ClubEvent.countDocuments({ club: toObjectId(resolved.clubId) }),
+    ClubAnnouncement.countDocuments({ club: toObjectId(resolved.clubId) }),
+  ]);
+  return {
+    members,
+    joinRequests,
+    events,
+    announcements,
+  };
+};
+
+export const get_club_engagement_overview = async (
+  { clubId, slug },
+  ctx,
+) => {
+  const [rsvps, votes, growth] = await Promise.all([
+    get_club_event_rsvp_summary({ clubId, slug }, ctx),
+    get_club_poll_vote_summary({ clubId, slug }, ctx),
+    get_club_growth_snapshot({ clubId, slug }, ctx),
+  ]);
+  if (rsvps?.error) return rsvps;
+  if (votes?.error) return votes;
+  return {
+    growth,
+    rsvps,
+    votes,
+  };
+};
+
+export const get_news_source_summary = async (
+  { keyword, limit = 20 },
+  _ctx,
+) => {
+  const articles = await NewsArticle.find({ status: "published" })
+    .select("sourceName source")
+    .sort({ originalPublishedAt: -1, createdAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 20, 50))
+    .lean();
+  const filtered = keyword
+    ? articles.filter((article) =>
+        String(article.sourceName || article.source || "")
+          .toLowerCase()
+          .includes(String(keyword).toLowerCase()),
+      )
+    : articles;
+  return {
+    total: filtered.length,
+    sourceCounts: countBy(
+      filtered,
+      (article) => article.sourceName || article.source || "unknown",
+    ),
+  };
+};
+
+export const get_news_tag_summary = async (
+  { tag, limit = 30 },
+  _ctx,
+) => {
+  const articles = await NewsArticle.find({ status: "published" })
+    .select("tags")
+    .sort({ originalPublishedAt: -1, createdAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 30, 60))
+    .lean();
+  const tags = articles.flatMap((article) => asArray(article.tags));
+  const counts = countBy(tags, (item) => item || "unknown");
+  if (tag) {
+    return {
+      tag,
+      count: counts[tag] || 0,
+    };
+  }
+  return {
+    totalTags: Object.keys(counts).length,
+    tagCounts: counts,
+  };
+};
+
+export const get_news_recent_articles = async (
+  { limit = 10 },
+  _ctx,
+) => {
+  const articles = await NewsArticle.find({ status: "published" })
+    .select("title slug summary sourceName tags originalPublishedAt")
+    .sort({ originalPublishedAt: -1, createdAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: articles.length,
+    articles,
+  };
+};
+
+export const get_news_search_overview = async (
+  { keyword, tag, limit = 10 },
+  ctx,
+) => {
+  const result = await search_news({ keyword, tag, limit }, ctx);
+  if (result?.error) return result;
+  return {
+    total: result.total || 0,
+    sourceCounts: countBy(
+      asArray(result.articles),
+      (article) => article.sourceName || article.source || "unknown",
+    ),
+    articles: asArray(result.articles).slice(0, 10),
+  };
+};
+
+export const get_cms_block_summary = async ({ slug }, _ctx) =>
+  get_cms_content({ slug });
+
+export const get_cms_homepage_summary = async (_args, _ctx) =>
+  get_cms_content({ slug: "home" });
+
+export const get_cms_help_summary = async (_args, _ctx) => {
+  for (const slug of ["help", "support", "faq"]) {
+    const result = await get_cms_content({ slug });
+    if (!result?.error) return result;
+  }
+  return { error: "CMS help content not found" };
+};
+
+export const get_cms_section_summary = async (
+  { slug, keyword },
+  _ctx,
+) => {
+  if (slug) return get_cms_content({ slug });
+  if (keyword) return get_cms_content({ slug: keyword });
+  return { error: "Missing slug or keyword" };
+};
+
+export const get_support_ticket_overview = async (
+  { userId, status },
+  ctx,
+) => {
+  const tickets = await get_support_tickets({ userId, status }, ctx);
+  if (tickets?.error) return tickets;
+  return {
+    total: tickets.total || 0,
+    statusCounts: countBy(asArray(tickets.tickets), (ticket) => ticket.status || "unknown"),
+    tickets: asArray(tickets.tickets).slice(0, 10),
+  };
+};
+
+export const get_subscription_plan_overview = async (
+  { userId, topicType },
+  ctx,
+) => {
+  const subscriptions = await get_my_subscriptions({ userId, topicType }, ctx);
+  if (subscriptions?.error) return subscriptions;
+  return {
+    total: subscriptions.total || 0,
+    topicTypeCounts: countBy(
+      asArray(subscriptions.subscriptions),
+      (subscription) => subscription.topicType || "unknown",
+    ),
+    subscriptions: asArray(subscriptions.subscriptions).slice(0, 10),
+  };
+};
+
+export const get_complaint_overview = async (
+  { userId, tournamentId, status },
+  ctx,
+) => {
+  const complaints = await get_complaints({ userId, tournamentId, status }, ctx);
+  if (complaints?.error) return complaints;
+  return {
+    total: complaints.total || 0,
+    statusCounts: countBy(
+      asArray(complaints.complaints),
+      (complaint) => complaint.status || "unknown",
+    ),
+    complaints: asArray(complaints.complaints).slice(0, 10),
+  };
+};
+
+export const get_app_release_summary = async ({ platform }, ctx) =>
+  get_app_version({ platform }, ctx);
+
+export const get_app_update_summary = async ({ platform }, ctx) =>
+  get_app_update_info({ platform }, ctx);
+
+export const get_ota_bundle_summary = async ({ platform, limit = 10 }, _ctx) => {
+  const filter = {};
+  if (platform && platform !== "all") filter.platform = platform;
+  const bundles = await OTABundle.find(filter)
+    .select("platform runtimeVersion version isMandatory isActive createdAt")
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 10, 20))
+    .lean();
+  return {
+    total: bundles.length,
+    platformCounts: countBy(bundles, (bundle) => bundle.platform || "unknown"),
+    bundles,
+  };
+};
+
+export const get_radar_presence_summary = async ({ limit = 20 }, _ctx) => {
+  const presences = await RadarPresence.find({})
+    .select("status updatedAt user")
+    .sort({ updatedAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 20, 40))
+    .lean();
+  return {
+    total: presences.length,
+    statusCounts: countBy(presences, (presence) => presence.status || "unknown"),
+    presences,
+  };
+};
+
+export const get_radar_intent_summary = async ({ limit = 20 }, _ctx) => {
+  const intents = await RadarIntent.find({})
+    .select("intent status updatedAt user")
+    .sort({ updatedAt: -1, _id: -1 })
+    .limit(normalizeWrapperLimit(limit, 20, 40))
+    .lean();
+  return {
+    total: intents.length,
+    intentCounts: countBy(intents, (intent) => intent.intent || "unknown"),
+    statusCounts: countBy(intents, (intent) => intent.status || "unknown"),
+    intents,
+  };
+};
+
+export const get_channel_directory_summary = async ({ provider }, ctx) =>
+  get_live_channels({ provider }, ctx);
+
+export const get_sponsor_directory_summary = async (
+  { limit = 20 },
+  _ctx,
+) => {
+  const sponsors = await Sponsor.find({})
+    .select("name category tier website isActive")
+    .sort({ tier: 1, name: 1, _id: 1 })
+    .limit(normalizeWrapperLimit(limit, 20, 40))
+    .lean();
+  return {
+    total: sponsors.length,
+    categoryCounts: countBy(sponsors, (sponsor) => sponsor.category || "unknown"),
+    tierCounts: countBy(sponsors, (sponsor) => sponsor.tier || "unknown"),
+    sponsors,
+  };
+};
+
+const GENERATED_PRESET_VIEW_LIMITS = {
+  overview: 8,
+  snapshot: 6,
+  summary: 6,
+  details: 20,
+  recent: 8,
+  breakdown: 12,
+  trend: 12,
+  digest: 5,
+  report: 20,
+  focus: 3,
+};
+
+function formatGeneratedPresetTitle(value) {
+  return String(value || "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function clipGeneratedPresetValue(value, limit, view) {
+  if (Array.isArray(value)) {
+    return value.slice(0, limit);
+  }
+  if (view === "digest" && typeof value === "string") {
+    return stripHtmlSnippet(value, 220);
+  }
+  return value;
+}
+
+function shapeGeneratedPresetResult(baseResult, spec, args = {}) {
+  const viewLimit = GENERATED_PRESET_VIEW_LIMITS[spec.view] || 8;
+  const limit = normalizeWrapperLimit(args?.limit, viewLimit, Math.max(viewLimit, 20));
+  const shaped = Object.fromEntries(
+    Object.entries(baseResult || {}).map(([key, value]) => [
+      key,
+      clipGeneratedPresetValue(value, limit, spec.view),
+    ]),
+  );
+
+  return {
+    preset: {
+      name: spec.name,
+      family: spec.family,
+      signal: spec.signal,
+      view: spec.view,
+      handlerName: spec.handlerName,
+      title: `${formatGeneratedPresetTitle(spec.family)} ${formatGeneratedPresetTitle(spec.signal)} ${formatGeneratedPresetTitle(spec.view)}`,
+    },
+    ...shaped,
+  };
+}
+
+const GENERATED_PRESET_HANDLER_EXECUTORS = {
+  get_tournament_status_snapshot,
+  get_tournament_timeline_overview,
+  get_tournament_upcoming_schedule,
+  get_tournament_registration_breakdown,
+  get_tournament_checkin_breakdown,
+  get_tournament_bracket_statuses,
+  get_tournament_group_statuses,
+  get_tournament_court_load,
+  get_tournament_stream_links,
+  get_tournament_participant_overview,
+  get_bracket_match_statuses,
+  get_bracket_progress_snapshot,
+  get_bracket_live_matches,
+  get_bracket_upcoming_matches,
+  get_bracket_finished_matches,
+  get_bracket_round_overview,
+  get_bracket_draw_status,
+  get_bracket_format_summary,
+  get_bracket_team_count,
+  get_bracket_leaderboard_snapshot,
+  get_match_status_snapshot,
+  get_match_scoreboard,
+  get_match_game_scores,
+  get_match_winner_summary,
+  get_match_context_bundle,
+  get_match_court_assignment,
+  get_match_pair_summary,
+  get_match_progress_snapshot,
+  get_match_log_snapshot,
+  get_match_related_recordings,
+  get_court_assignment_summary,
+  get_court_match_queue,
+  get_court_recent_results,
+  get_court_upcoming_matches,
+  get_court_idle_status,
+  get_court_cluster_summary,
+  get_live_session_summary,
+  get_live_recording_feed,
+  get_live_channel_summary,
+  get_live_session_match_summary,
+  get_player_strength_snapshot,
+  get_player_recent_form,
+  get_player_evaluation_summary,
+  get_player_ranking_snapshot,
+  get_user_reputation_overview,
+  get_user_recent_results,
+  get_user_upcoming_tournaments,
+  get_user_profile_summary,
+  get_user_account_snapshot,
+  get_user_security_snapshot,
+  get_user_subscription_summary,
+  get_user_support_summary,
+  get_user_complaint_summary,
+  get_user_rating_history_summary,
+  get_user_assessment_summary,
+  get_user_casual_overview,
+  get_user_registration_statuses,
+  get_user_login_activity,
+  get_club_profile_snapshot,
+  get_club_join_request_summary,
+  get_club_event_rsvp_summary,
+  get_club_poll_vote_summary,
+  get_club_news_summary,
+  get_club_member_roles,
+  get_club_upcoming_events,
+  get_club_recent_events,
+  get_club_growth_snapshot,
+  get_club_engagement_overview,
+  get_news_source_summary,
+  get_news_tag_summary,
+  get_news_recent_articles,
+  get_news_search_overview,
+  get_cms_block_summary,
+  get_cms_homepage_summary,
+  get_cms_help_summary,
+  get_cms_section_summary,
+  get_support_ticket_overview,
+  get_complaint_overview,
+  get_subscription_plan_overview,
+  get_radar_presence_summary,
+  get_radar_intent_summary,
+  get_channel_directory_summary,
+  get_sponsor_directory_summary,
+  get_app_release_summary,
+  get_app_update_summary,
+  get_ota_bundle_summary,
+};
+
+export const execute_generated_preset_tool = async (
+  toolName,
+  args = {},
+  ctx,
+) => {
+  const spec = GENERATED_PRESET_TOOL_MAP[toolName];
+  if (!spec) {
+    return { error: `Unknown generated preset tool: ${toolName}` };
+  }
+
+  const handler = GENERATED_PRESET_HANDLER_EXECUTORS[spec.handlerName];
+  if (typeof handler !== "function") {
+    return {
+      error: `Missing generated preset handler for ${spec.name} (${spec.handlerName})`,
+    };
+  }
+
+  const baseResult = await handler(args, ctx);
+  if (baseResult?.error) {
+    return baseResult;
+  }
+
+  return shapeGeneratedPresetResult(baseResult, spec, args);
+};

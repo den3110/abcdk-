@@ -1744,6 +1744,7 @@ export default {
       typeGroup: "Group stage",
       typeRoundElim: "Round Elim",
       typeKnockout: "Knockout",
+      typeDoubleElim: "Winners / losers bracket",
       metaTeams: "Teams: {count}",
       metaCheckin: "Check-in: {count}",
       metaLocation: "Location: {value}",
@@ -1817,6 +1818,10 @@ export default {
       videoTooltip: "Has video/stream",
       roundElimTitle: "Round elimination: {name}",
       knockoutTitle: "Knockout: {name}",
+      doubleElimTitle: "Double elimination: {name}",
+      winnersBracketTitle: "Winners bracket",
+      losersBracketTitle: "Losers bracket",
+      grandFinalTitle: "Grand final",
       startFrom: "Start from: {value}",
       virtualPrefill: "Virtual prefill",
       sourceFrom: "Source: {value}",
@@ -1835,6 +1840,8 @@ export default {
       prefillVirtualSuffix: " (virtual seeding)",
       emptyKoHint:
         "* No draw or no teams carried from the previous round yet — showing a bracket shell by scale for now. It updates automatically once real matches arrive.",
+      emptyDoubleElimHint:
+        "* Winners and losers brackets will appear once the double elimination matches are generated.",
       emptyRoundElimHint:
         "* No pairs drawn yet — showing the elimination shell for the current rounds (V1..Vk).",
       pendingTeam: "No team yet",

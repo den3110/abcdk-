@@ -90,7 +90,9 @@ export function semanticStageKeyFromBracketType(type) {
   if (["roundelim", "po", "playoff", "round_elim", "round-elim"].includes(key)) {
     return "po";
   }
-  if (["knockout", "ko"].includes(key)) return "ko";
+  if (["knockout", "ko", "double_elim", "double-elim", "doubleelim"].includes(key)) {
+    return "ko";
+  }
   return null;
 }
 
@@ -261,20 +263,41 @@ function normalizePoPlan(po) {
 function normalizeKoPlan(ko) {
   if (!ko || Number(ko.drawSize) <= 0) return null;
 
-  const drawSize = ceilPow2(ko.drawSize);
+  const rawFormat = String(
+    ko.format ?? ko.mode ?? ko.variant ?? ko.structure ?? "single_elim"
+  )
+    .trim()
+    .toLowerCase();
+  const format =
+    rawFormat === "double_elim" || rawFormat === "double-elim" || rawFormat === "doubleelim"
+      ? "double_elim"
+      : "single_elim";
+  const drawSize = Math.max(format === "double_elim" ? 4 : 2, ceilPow2(ko.drawSize));
   const firstPairs = drawSize / 2;
+  const hasGrandFinalReset =
+    ko?.doubleElim?.hasGrandFinalReset !== undefined
+      ? !!ko.doubleElim.hasGrandFinalReset
+      : ko?.hasGrandFinalReset !== undefined
+      ? !!ko.hasGrandFinalReset
+      : false;
 
   return {
     drawSize,
     seeds: sanitizeSeeds(ko.seeds, { firstPairs }),
+    format,
+    doubleElim:
+      format === "double_elim" ? { hasGrandFinalReset } : undefined,
     rules: normalizePlanRule(ko.rules),
     semiRules: normalizePlanRule(ko.semiRules),
     finalRules: normalizePlanRule(ko.finalRules),
     thirdPlaceEnabled:
-      ko.thirdPlaceEnabled !== undefined
+      format === "double_elim"
+        ? false
+        : ko.thirdPlaceEnabled !== undefined
         ? !!ko.thirdPlaceEnabled
         : !!ko.thirdPlace,
-    thirdPlaceRules: normalizePlanRule(ko.thirdPlaceRules),
+    thirdPlaceRules:
+      format === "double_elim" ? undefined : normalizePlanRule(ko.thirdPlaceRules),
   };
 }
 
@@ -350,10 +373,24 @@ function deriveKoPlanFromBracket(bracket) {
     Number(blueprint?.drawSize || 0) ||
     Number(bracket?.meta?.drawSize || 0) ||
     Math.max(2, (Array.isArray(seeds) ? seeds.length : 1) * 2);
+  const bracketType = String(bracket?.type || "").trim().toLowerCase();
+  const format =
+    bracketType === "double_elim" ? "double_elim" : blueprint?.format || "single_elim";
+  const doubleElim =
+    format === "double_elim"
+      ? {
+          hasGrandFinalReset:
+            blueprint?.doubleElim?.hasGrandFinalReset ??
+            bracket?.config?.doubleElim?.hasGrandFinalReset ??
+            false,
+        }
+      : undefined;
 
   return normalizeKoPlan({
     drawSize,
     seeds,
+    format,
+    doubleElim,
     rules:
       normalizePlanRule(blueprint?.rules) || normalizePlanRule(bracket?.config?.rules),
     semiRules: normalizePlanRule(blueprint?.semiRules),
