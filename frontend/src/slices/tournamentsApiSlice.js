@@ -178,7 +178,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         if (res?.list && Array.isArray(res.list)) return res.list;
         return [];
       },
-      keepUnusedDataFor: 60,
+      keepUnusedDataFor: 0,
     }),
 
     // GET /api/tournaments/:id/matches  (user route)
