@@ -1222,9 +1222,12 @@ const ChatComposer = memo(function ChatComposer({
                   sx={{
                     height: 32,
                     borderRadius: 999,
+                    position: "relative",
+                    overflow: "visible",
                     border: `1px solid ${alpha(theme.palette.primary.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.primary.main, 0.08),
                     color: theme.palette.primary.main,
+                    pr: compactModeChips ? 1.2 : 1,
                     "& .MuiChip-icon": {
                       color: "inherit",
                       ml: 0.5,
@@ -1237,8 +1240,20 @@ const ChatComposer = memo(function ChatComposer({
                     },
                     "& .MuiChip-deleteIcon": {
                       color: alpha(theme.palette.primary.main, 0.82),
-                      mr: 0.35,
-                      ml: compactModeChips ? 0.25 : 0,
+                      position: "absolute",
+                      top: -6,
+                      right: -6,
+                      m: 0,
+                      width: 18,
+                      height: 18,
+                      fontSize: 12,
+                      borderRadius: "50%",
+                      border: `1px solid ${alpha(theme.palette.primary.main, 0.22)}`,
+                      bgcolor: isDark
+                        ? alpha(theme.palette.background.paper, 0.98)
+                        : "#fff",
+                      boxSizing: "border-box",
+                      boxShadow: `0 4px 10px ${alpha(theme.palette.primary.main, 0.14)}`,
                       transition: "opacity 0.18s ease",
                     },
                     "&:hover .MuiChip-deleteIcon": {
@@ -1260,9 +1275,12 @@ const ChatComposer = memo(function ChatComposer({
                   sx={{
                     height: 32,
                     borderRadius: 999,
+                    position: "relative",
+                    overflow: "visible",
                     border: `1px solid ${alpha(theme.palette.secondary.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.secondary.main, 0.08),
                     color: theme.palette.secondary.main,
+                    pr: compactModeChips ? 1.2 : 1,
                     "& .MuiChip-icon": {
                       color: "inherit",
                       ml: 0.5,
@@ -1275,8 +1293,20 @@ const ChatComposer = memo(function ChatComposer({
                     },
                     "& .MuiChip-deleteIcon": {
                       color: alpha(theme.palette.secondary.main, 0.82),
-                      mr: 0.35,
-                      ml: compactModeChips ? 0.25 : 0,
+                      position: "absolute",
+                      top: -6,
+                      right: -6,
+                      m: 0,
+                      width: 18,
+                      height: 18,
+                      fontSize: 12,
+                      borderRadius: "50%",
+                      border: `1px solid ${alpha(theme.palette.secondary.main, 0.22)}`,
+                      bgcolor: isDark
+                        ? alpha(theme.palette.background.paper, 0.98)
+                        : "#fff",
+                      boxSizing: "border-box",
+                      boxShadow: `0 4px 10px ${alpha(theme.palette.secondary.main, 0.14)}`,
                     },
                     "&:hover .MuiChip-deleteIcon": {
                       color: theme.palette.secondary.main,
@@ -1297,9 +1327,12 @@ const ChatComposer = memo(function ChatComposer({
                   sx={{
                     height: 32,
                     borderRadius: 999,
+                    position: "relative",
+                    overflow: "visible",
                     border: `1px solid ${alpha(theme.palette.success.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.success.main, 0.08),
                     color: theme.palette.success.main,
+                    pr: compactModeChips ? 1.2 : 1,
                     "& .MuiChip-icon": {
                       color: "inherit",
                       ml: 0.5,
@@ -1312,8 +1345,20 @@ const ChatComposer = memo(function ChatComposer({
                     },
                     "& .MuiChip-deleteIcon": {
                       color: alpha(theme.palette.success.main, 0.82),
-                      mr: 0.35,
-                      ml: compactModeChips ? 0.25 : 0,
+                      position: "absolute",
+                      top: -6,
+                      right: -6,
+                      m: 0,
+                      width: 18,
+                      height: 18,
+                      fontSize: 12,
+                      borderRadius: "50%",
+                      border: `1px solid ${alpha(theme.palette.success.main, 0.22)}`,
+                      bgcolor: isDark
+                        ? alpha(theme.palette.background.paper, 0.98)
+                        : "#fff",
+                      boxSizing: "border-box",
+                      boxShadow: `0 4px 10px ${alpha(theme.palette.success.main, 0.14)}`,
                     },
                     "&:hover .MuiChip-deleteIcon": {
                       color: theme.palette.success.main,
