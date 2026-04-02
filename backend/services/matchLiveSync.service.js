@@ -20,6 +20,80 @@ import {
 } from "./matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "./matchLiveSnapshot.service.js";
 
+function isFinitePos(value) {
+  return Number.isFinite(value) && value > 0;
+}
+
+function buildNormalizedRules(match) {
+  return {
+    bestOf: toNum(match?.rules?.bestOf, 3),
+    pointsToWin: toNum(match?.rules?.pointsToWin, 11),
+    winByTwo:
+      match?.rules?.winByTwo === undefined
+        ? true
+        : Boolean(match?.rules?.winByTwo),
+    cap: {
+      mode: String(match?.rules?.cap?.mode ?? "none"),
+      points:
+        match?.rules?.cap?.points === undefined
+          ? null
+          : Number(match.rules.cap.points),
+    },
+  };
+}
+
+function evaluateGameFinish(aRaw, bRaw, rules) {
+  const a = Number(aRaw) || 0;
+  const b = Number(bRaw) || 0;
+  const base = Number(rules?.pointsToWin ?? 11);
+  const byTwo = rules?.winByTwo !== false;
+  const mode = String(rules?.cap?.mode ?? "none");
+  const capPoints =
+    rules?.cap?.points != null ? Number(rules.cap.points) : null;
+
+  if (mode === "hard" && isFinitePos(capPoints)) {
+    if (a >= capPoints || b >= capPoints) {
+      if (a === b) return { finished: false, winner: null };
+      return { finished: true, winner: a > b ? "A" : "B" };
+    }
+  }
+
+  if (mode === "soft" && isFinitePos(capPoints)) {
+    if (a >= capPoints || b >= capPoints) {
+      if (a === b) return { finished: false, winner: null };
+      return { finished: true, winner: a > b ? "A" : "B" };
+    }
+  }
+
+  if (byTwo) {
+    if ((a >= base || b >= base) && Math.abs(a - b) >= 2) {
+      return { finished: true, winner: a > b ? "A" : "B" };
+    }
+  } else if ((a >= base || b >= base) && a !== b) {
+    return { finished: true, winner: a > b ? "A" : "B" };
+  }
+
+  return { finished: false, winner: null };
+}
+
+function resolveFinishedWinnerByScore(match) {
+  const rules = buildNormalizedRules(match);
+  let aWins = 0;
+  let bWins = 0;
+
+  for (const game of Array.isArray(match?.gameScores) ? match.gameScores : []) {
+    const result = evaluateGameFinish(toNum(game?.a, 0), toNum(game?.b, 0), rules);
+    if (!result.finished) continue;
+    if (result.winner === "A") aWins += 1;
+    if (result.winner === "B") bWins += 1;
+  }
+
+  const needWins = Math.floor(Number(rules.bestOf) / 2) + 1;
+  if (aWins >= needWins) return "A";
+  if (bWins >= needWins) return "B";
+  return "";
+}
+
 function onLostRallyNextServe(prev) {
   if (prev.server === 1) return { side: prev.side, server: 2 };
   return { side: prev.side === "A" ? "B" : "A", server: 1 };
@@ -434,6 +508,29 @@ function applyUndoEvent(match) {
 function applyFinishEvent(match, event, actorId, { isForfeit = false } = {}) {
   if (!event.payload?.winner) {
     return { ok: false, code: "invalid_transition", message: "Winner is required" };
+  }
+  if (match.status === "finished") {
+    if (String(match.winner || "") === String(event.payload.winner || "")) {
+      return { ok: true, emittedType: isForfeit ? "forfeit" : "finish" };
+    }
+    return { ok: false, code: "invalid_transition", message: "Match already finished" };
+  }
+  if (!isForfeit) {
+    const winnerByScore = resolveFinishedWinnerByScore(match);
+    if (!winnerByScore) {
+      return {
+        ok: false,
+        code: "invalid_transition",
+        message: "Match score is not finished yet",
+      };
+    }
+    if (winnerByScore !== event.payload.winner) {
+      return {
+        ok: false,
+        code: "invalid_transition",
+        message: "Winner does not match current score",
+      };
+    }
   }
 
   match.status = "finished";

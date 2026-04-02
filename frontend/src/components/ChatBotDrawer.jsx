@@ -1726,7 +1726,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
                 }}
               >
                 {isActive
-                  ? t("chatbot.reasoner.streaming", {}, "Suy luận đang hiện dần")
+                  ? t("chatbot.reasoner.streaming", {}, "Đang suy luận")
                   : t("chatbot.reasoner.summaryInline", {}, "Tóm tắt suy luận")}
               </Typography>
               <Typography
