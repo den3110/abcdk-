@@ -20,45 +20,6 @@ import {
 } from "./matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "./matchLiveSnapshot.service.js";
 
-function isFinitePos(n) {
-  return Number.isFinite(n) && n > 0;
-}
-
-function evaluateGameFinish(aRaw, bRaw, rules) {
-  const a = Number(aRaw) || 0;
-  const b = Number(bRaw) || 0;
-
-  const base = Number(rules?.pointsToWin ?? 11);
-  const byTwo = rules?.winByTwo !== false;
-  const mode = String(rules?.cap?.mode ?? "none");
-  const capPoints =
-    rules?.cap?.points != null ? Number(rules.cap.points) : null;
-
-  if (mode === "hard" && isFinitePos(capPoints)) {
-    if (a >= capPoints || b >= capPoints) {
-      if (a === b) return { finished: false, winner: null, capped: false };
-      return { finished: true, winner: a > b ? "A" : "B", capped: true };
-    }
-  }
-
-  if (mode === "soft" && isFinitePos(capPoints)) {
-    if (a >= capPoints || b >= capPoints) {
-      if (a === b) return { finished: false, winner: null, capped: false };
-      return { finished: true, winner: a > b ? "A" : "B", capped: true };
-    }
-  }
-
-  if (byTwo) {
-    if ((a >= base || b >= base) && Math.abs(a - b) >= 2) {
-      return { finished: true, winner: a > b ? "A" : "B", capped: false };
-    }
-  } else if ((a >= base || b >= base) && a !== b) {
-    return { finished: true, winner: a > b ? "A" : "B", capped: false };
-  }
-
-  return { finished: false, winner: null, capped: false };
-}
-
 function onLostRallyNextServe(prev) {
   if (prev.server === 1) return { side: prev.side, server: 2 };
   return { side: prev.side === "A" ? "B" : "A", server: 1 };
@@ -82,24 +43,6 @@ function duplicateError(error) {
     error?.code === 11000 ||
     String(error?.message || "").toLowerCase().includes("duplicate key")
   );
-}
-
-function buildNormalizedRules(match) {
-  return {
-    bestOf: toNum(match.rules?.bestOf, 3),
-    pointsToWin: toNum(match.rules?.pointsToWin, 11),
-    winByTwo:
-      match.rules?.winByTwo === undefined
-        ? true
-        : Boolean(match.rules?.winByTwo),
-    cap: {
-      mode: String(match.rules?.cap?.mode ?? "none"),
-      points:
-        match.rules?.cap?.points === undefined
-          ? null
-          : Number(match.rules.cap.points),
-    },
-  };
 }
 
 function cloneValue(value) {
@@ -309,25 +252,6 @@ function applyPointEvent(match, event, actorId) {
       match.serve.serverId = entry ? entry[0] : null;
     } else if (match.serve?.serverId) {
       match.serve.serverId = undefined;
-    }
-  }
-
-  const rules = buildNormalizedRules(match);
-  const evaluation = evaluateGameFinish(score.a, score.b, rules);
-  if (evaluation.finished) {
-    let aWins = 0;
-    let bWins = 0;
-    for (const game of match.gameScores) {
-      const result = evaluateGameFinish(toNum(game?.a, 0), toNum(game?.b, 0), rules);
-      if (!result.finished) continue;
-      if (result.winner === "A") aWins += 1;
-      if (result.winner === "B") bWins += 1;
-    }
-    const need = Math.floor(Number(rules.bestOf) / 2) + 1;
-    if (aWins >= need || bWins >= need) {
-      match.status = "finished";
-      match.winner = aWins > bWins ? "A" : "B";
-      if (!match.finishedAt) match.finishedAt = new Date();
     }
   }
 

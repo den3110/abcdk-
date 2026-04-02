@@ -40,7 +40,7 @@ import {
   isRecordingR2Configured,
 } from "../services/liveRecordingV2Storage.service.js";
 import {
-  buildLiveRecordingMonitorSnapshot,
+  buildLiveRecordingMonitorPage,
   reconcileStaleLiveRecordingExports,
 } from "../services/liveRecordingMonitor.service.js";
 import { getLiveRecordingWorkerHealth } from "../services/liveRecordingWorkerHealth.service.js";
@@ -1810,8 +1810,19 @@ export const getLiveRecordingByMatchV2 = asyncHandler(async (req, res) => {
   });
 });
 
-export const getLiveRecordingMonitorV2 = asyncHandler(async (_req, res) => {
-  const snapshot = await buildLiveRecordingMonitorSnapshot();
+export const getLiveRecordingMonitorV2 = asyncHandler(async (req, res) => {
+  const snapshot = await buildLiveRecordingMonitorPage({
+    section: req.query?.section,
+    status: req.query?.status,
+    commentary: req.query?.commentary,
+    view: req.query?.view,
+    q: req.query?.q,
+    tournament: req.query?.tournament,
+    page: req.query?.page,
+    limit: req.query?.limit,
+    forceRefresh:
+      String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
+  });
   return res.json(snapshot);
 });
 

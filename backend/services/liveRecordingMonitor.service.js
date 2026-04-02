@@ -963,6 +963,322 @@ function sortRows(rows) {
   });
 }
 
+const LIVE_RECORDING_MONITOR_SECTIONS = new Set([
+  "all",
+  "export",
+  "commentary",
+]);
+const LIVE_RECORDING_MONITOR_VIEWS = new Set([
+  "all",
+  "ready",
+  "needs_action",
+  "ai_ready",
+]);
+const LIVE_RECORDING_MONITOR_COMMENTARY_FILTERS = new Set([
+  "all",
+  "ready",
+  "processing",
+  "missing",
+  "failed",
+]);
+const LIVE_RECORDING_MONITOR_STATUS_FILTERS = new Set([
+  "ALL",
+  "recording",
+  "uploading",
+  "pending_export_window",
+  "exporting",
+  "ready",
+  "failed",
+  "needs_action",
+]);
+
+function parsePositiveInt(
+  value,
+  fallback,
+  { min = 1, max = Number.MAX_SAFE_INTEGER } = {}
+) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  const normalized = Math.trunc(number);
+  if (normalized < min) return fallback;
+  return Math.min(normalized, max);
+}
+
+function normalizeMonitorSection(section) {
+  const normalized = String(section || "").trim().toLowerCase() || "all";
+  return LIVE_RECORDING_MONITOR_SECTIONS.has(normalized) ? normalized : "all";
+}
+
+function normalizeMonitorView(view) {
+  const normalized = String(view || "").trim().toLowerCase() || "all";
+  return LIVE_RECORDING_MONITOR_VIEWS.has(normalized) ? normalized : "all";
+}
+
+function normalizeMonitorStatus(status) {
+  const raw = String(status || "").trim();
+  if (!raw) return "ALL";
+  if (raw === "ALL") return "ALL";
+  const normalized = raw.toLowerCase();
+  if (normalized === "all") return "ALL";
+  return LIVE_RECORDING_MONITOR_STATUS_FILTERS.has(normalized)
+    ? normalized
+    : "ALL";
+}
+
+function normalizeMonitorCommentaryFilter(filter) {
+  const normalized = String(filter || "").trim().toLowerCase() || "all";
+  return LIVE_RECORDING_MONITOR_COMMENTARY_FILTERS.has(normalized)
+    ? normalized
+    : "all";
+}
+
+function hasDriveLinks(row) {
+  return Boolean(
+    row?.playbackUrl ||
+      row?.drivePreviewUrl ||
+      row?.driveRawUrl ||
+      row?.rawStreamAvailable ||
+      row?.rawStreamUrl
+  );
+}
+
+function canRetryExport(row) {
+  const stage = String(row?.exportPipeline?.stage || "").toLowerCase();
+  const staleReason = String(row?.exportPipeline?.staleReason || "").toLowerCase();
+  return (
+    row?.status === "failed" ||
+    stage === "stale_no_job" ||
+    staleReason === "stale_no_job" ||
+    staleReason === "worker_offline"
+  );
+}
+
+function canForceExport(row) {
+  return row?.status === "pending_export_window";
+}
+
+function rowNeedsAction(row) {
+  return (
+    row?.status !== "ready" ||
+    canRetryExport(row) ||
+    canForceExport(row) ||
+    (row?.status === "ready" && !hasDriveLinks(row))
+  );
+}
+
+function matchesCommentaryFilter(row, commentaryFilter) {
+  if (commentaryFilter === "all") return true;
+  const status = String(row?.aiCommentary?.status || "idle").toLowerCase();
+  const ready = Boolean(row?.aiCommentary?.ready);
+  if (commentaryFilter === "ready") return ready;
+  if (commentaryFilter === "processing") {
+    return ["queued", "running"].includes(status);
+  }
+  if (commentaryFilter === "failed") return status === "failed";
+  if (commentaryFilter === "missing") {
+    return !ready && !["queued", "running"].includes(status);
+  }
+  return true;
+}
+
+function matchesViewMode(row, view) {
+  if (view === "ready") return row?.status === "ready";
+  if (view === "needs_action") return rowNeedsAction(row);
+  if (view === "ai_ready") return Boolean(row?.aiCommentary?.ready);
+  return true;
+}
+
+function buildMonitorSearchText(row) {
+  return [
+    row?.recordingId,
+    row?.recordingSessionId,
+    row?.matchId,
+    row?.matchCode,
+    row?.participantsLabel,
+    row?.competitionLabel,
+    row?.tournamentName,
+    row?.bracketName,
+    row?.courtLabel,
+    row?.modeLabel,
+    row?.status,
+    row?.exportPipeline?.label,
+    row?.exportPipeline?.detail,
+    row?.exportPipeline?.stage,
+    row?.error,
+    row?.driveFileId,
+    row?.drivePreviewUrl,
+    row?.driveRawUrl,
+    row?.playbackUrl,
+    row?.aiCommentary?.status,
+    row?.aiCommentary?.error,
+    row?.aiCommentary?.latestJobId,
+    row?.aiCommentary?.language,
+    row?.aiCommentary?.voicePreset,
+    row?.aiCommentary?.sourceFingerprint,
+    row?.source?.label,
+    row?.source?.type,
+    row?.source?.videoId,
+    row?.source?.pageId,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function paginateRows(items = [], page = 1, limit = 50) {
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(Math.max(1, page), pages);
+  const start = (safePage - 1) * limit;
+  return {
+    total,
+    page: safePage,
+    pages,
+    items: items.slice(start, start + limit),
+  };
+}
+
+function buildTournamentFacets(rows = []) {
+  const map = new Map();
+  for (const row of rows) {
+    const name = String(row?.tournamentName || "").trim();
+    if (!name) continue;
+    const current = map.get(name) || {
+      name,
+      status: row?.tournamentStatus || "",
+      count: 0,
+    };
+    current.count += 1;
+    map.set(name, current);
+  }
+  return [...map.values()].sort((a, b) =>
+    String(a.name || "").localeCompare(String(b.name || ""))
+  );
+}
+
+function buildSectionRows(rows = [], section = "all") {
+  if (section === "export") {
+    return rows.filter((row) =>
+      ["pending_export_window", "exporting", "ready", "failed"].includes(
+        row.status
+      )
+    );
+  }
+
+  if (section === "commentary") {
+    return rows.filter((row) => {
+      const commentaryStatus = String(row?.aiCommentary?.status || "").toLowerCase();
+      return (
+        row?.status === "ready" ||
+        Boolean(row?.aiCommentary?.ready) ||
+        ["queued", "running", "failed", "completed"].includes(commentaryStatus)
+      );
+    });
+  }
+
+  return rows;
+}
+
+function buildSectionSummary(rows = [], baseSummary = null) {
+  if (baseSummary && rows.length === Number(baseSummary.total || 0)) {
+    return { ...baseSummary };
+  }
+
+  return rows.reduce(
+    (acc, row) => {
+      const commentaryStatus = String(row?.aiCommentary?.status || "").toLowerCase();
+      const commentaryReady = Boolean(row?.aiCommentary?.ready);
+      acc.total += 1;
+      if (row.status === "recording") acc.recording += 1;
+      if (row.status === "uploading") acc.uploading += 1;
+      if (row.status === "pending_export_window") acc.pendingExportWindow += 1;
+      if (row.status === "exporting") acc.exporting += 1;
+      if (row.status === "ready") acc.ready += 1;
+      if (row.status === "failed") acc.failed += 1;
+      if (
+        [
+          "recording",
+          "uploading",
+          "pending_export_window",
+          "exporting",
+        ].includes(row.status)
+      ) {
+        acc.active += 1;
+      }
+      if (commentaryReady) acc.commentaryReady += 1;
+      if (
+        row.status === "ready" &&
+        !commentaryReady &&
+        !["queued", "running"].includes(commentaryStatus)
+      ) {
+        acc.commentaryMissing += 1;
+      }
+      if (rowNeedsAction(row)) acc.needsAction += 1;
+      acc.totalDurationSeconds += toNumber(row.durationSeconds);
+      acc.totalSizeBytes += toNumber(row.sizeBytes);
+      acc.totalSegments += toNumber(row.segmentSummary?.totalSegments);
+      acc.uploadedSegments += toNumber(row.segmentSummary?.uploadedSegments);
+      acc.pendingSegments += Math.max(
+        0,
+        toNumber(row.segmentSummary?.totalSegments) -
+          toNumber(row.segmentSummary?.uploadedSegments)
+      );
+      return acc;
+    },
+    {
+      total: 0,
+      active: 0,
+      recording: 0,
+      uploading: 0,
+      pendingExportWindow: 0,
+      exporting: 0,
+      ready: 0,
+      failed: 0,
+      commentaryReady: 0,
+      commentaryMissing: 0,
+      needsAction: 0,
+      totalDurationSeconds: 0,
+      totalSizeBytes: 0,
+      totalSegments: 0,
+      uploadedSegments: 0,
+      pendingSegments: 0,
+    }
+  );
+}
+
+function filterSectionRows(
+  rows = [],
+  {
+    status = "ALL",
+    q = "",
+    tournament = "",
+    commentary = "all",
+    view = "all",
+  } = {}
+) {
+  const keyword = String(q || "").trim().toLowerCase();
+  const normalizedTournament = String(tournament || "").trim();
+
+  return rows.filter((row) => {
+    if (status !== "ALL") {
+      if (status === "needs_action") {
+        if (!rowNeedsAction(row)) return false;
+      } else if (row.status !== status) {
+        return false;
+      }
+    }
+
+    if (normalizedTournament && row.tournamentName !== normalizedTournament) {
+      return false;
+    }
+
+    if (!matchesCommentaryFilter(row, commentary)) return false;
+    if (!matchesViewMode(row, view)) return false;
+    if (!keyword) return true;
+    return buildMonitorSearchText(row).includes(keyword);
+  });
+}
+
 async function buildLiveRecordingMonitorSnapshotUncached({
   workerHealth,
   queueSnapshot,
@@ -1041,6 +1357,8 @@ async function buildLiveRecordingMonitorSnapshotUncached({
   );
   const summary = rows.reduce(
     (acc, row) => {
+      const commentaryStatus = String(row?.aiCommentary?.status || "").toLowerCase();
+      const commentaryReady = Boolean(row?.aiCommentary?.ready);
       acc.total += 1;
       if (row.status === "recording") acc.recording += 1;
       if (row.status === "uploading") acc.uploading += 1;
@@ -1057,6 +1375,14 @@ async function buildLiveRecordingMonitorSnapshotUncached({
         ].includes(row.status)
       ) {
         acc.active += 1;
+      }
+      if (commentaryReady) acc.commentaryReady += 1;
+      if (
+        row.status === "ready" &&
+        !commentaryReady &&
+        !["queued", "running"].includes(commentaryStatus)
+      ) {
+        acc.commentaryMissing += 1;
       }
       acc.totalDurationSeconds += toNumber(row.durationSeconds);
       acc.totalSizeBytes += toNumber(row.sizeBytes);
@@ -1078,6 +1404,8 @@ async function buildLiveRecordingMonitorSnapshotUncached({
       exporting: 0,
       ready: 0,
       failed: 0,
+      commentaryReady: 0,
+      commentaryMissing: 0,
       totalDurationSeconds: 0,
       totalSizeBytes: 0,
       totalSegments: 0,
@@ -1153,4 +1481,56 @@ export async function buildLiveRecordingMonitorSnapshot({
   };
 
   return snapshotPromise;
+}
+
+export async function buildLiveRecordingMonitorPage(options = {}) {
+  const snapshot = await buildLiveRecordingMonitorSnapshot({
+    forceRefresh: Boolean(options.forceRefresh),
+  });
+
+  const section = normalizeMonitorSection(options.section);
+  const page = parsePositiveInt(options.page, 1, { min: 1, max: 100000 });
+  const limit = parsePositiveInt(options.limit, 40, { min: 1, max: 500 });
+  const status = normalizeMonitorStatus(options.status);
+  const commentary = normalizeMonitorCommentaryFilter(options.commentary);
+  const view = normalizeMonitorView(options.view);
+  const q = String(options.q || "").trim();
+  const tournament = String(options.tournament || "").trim();
+
+  const sectionRows = buildSectionRows(snapshot?.rows || [], section);
+  const summary =
+    section === "all"
+      ? { ...(snapshot?.summary || {}) }
+      : buildSectionSummary(sectionRows);
+  const filteredRows = filterSectionRows(sectionRows, {
+    status,
+    q,
+    tournament,
+    commentary,
+    view,
+  });
+  const paged = paginateRows(filteredRows, page, limit);
+
+  return {
+    summary,
+    rows: paged.items,
+    count: paged.total,
+    page: paged.page,
+    pages: paged.pages,
+    limit,
+    hasMore: paged.page < paged.pages,
+    meta: {
+      ...(snapshot?.meta || {}),
+      section,
+      filters: {
+        status,
+        commentary,
+        view,
+        q,
+        tournament,
+      },
+      tournaments: buildTournamentFacets(sectionRows),
+      generatedAt: new Date(),
+    },
+  };
 }

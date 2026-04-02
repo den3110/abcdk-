@@ -64,7 +64,6 @@ import { buildTournamentCourtLivePresenceSnapshot } from "../services/courtLiveP
 import { registerCourtLivePresencePublisher } from "../services/courtLivePresenceEvents.service.js";
 import { registerCourtStationPresencePublishers } from "../services/courtStationPresenceEvents.service.js";
 import { ensureCourtStationPresenceSweeperStarted } from "../services/courtStationPresence.service.js";
-import { buildLiveRecordingMonitorSnapshot } from "../services/liveRecordingMonitor.service.js";
 import {
   getLiveRecordingMonitorEventsChannel,
   registerLiveRecordingMonitorPublisher,
@@ -630,16 +629,35 @@ function scheduleCourtStationPublish(io, payload = {}) {
   }, COURT_STATION_DEBOUNCE_MS);
 }
 
-async function emitLiveRecordingMonitorSnapshot(io, options = {}) {
+function normalizeLiveRecordingMonitorPayload(payload = {}) {
+  return {
+    reason: String(payload.reason || "unknown_event").trim() || "unknown_event",
+    recordingIds: Array.from(
+      new Set(
+        (Array.isArray(payload.recordingIds) ? payload.recordingIds : [])
+          .filter(Boolean)
+          .map((value) => String(value).trim())
+          .filter(Boolean)
+      )
+    ),
+    mode: payload.mode === "reconcile" ? "reconcile" : "event",
+    at:
+      payload.at instanceof Date && Number.isFinite(payload.at.getTime())
+        ? payload.at
+        : new Date(),
+  };
+}
+
+async function emitLiveRecordingMonitorUpdate(io, payload = {}, options = {}) {
   const { socketId = null } =
     typeof options === "string" ? { socketId: options } : options;
   try {
-    const snapshot = await buildLiveRecordingMonitorSnapshot();
+    const normalized = normalizeLiveRecordingMonitorPayload(payload);
     if (socketId) {
-      io.to(socketId).emit("recordings-v2:update", snapshot);
+      io.to(socketId).emit("recordings-v2:update", normalized);
       return;
     }
-    io.to(LIVE_RECORDING_MONITOR_ROOM).emit("recordings-v2:update", snapshot);
+    io.to(LIVE_RECORDING_MONITOR_ROOM).emit("recordings-v2:update", normalized);
   } catch (error) {
     console.error(
       "[socket] recordings-v2:update error:",
@@ -661,17 +679,18 @@ async function flushLiveRecordingMonitorPublish(io) {
   resetLiveRecordingMonitorPendingState();
   liveRecordingMonitorPublishTimer = null;
 
-  setLiveRecordingMonitorMeta({
+  const payload = normalizeLiveRecordingMonitorPayload({
     reason: reasons.length ? reasons.join(", ") : "unknown_event",
     recordingIds,
     mode,
     at: new Date(),
   });
+  setLiveRecordingMonitorMeta(payload);
 
   const watchers =
     io.sockets.adapter.rooms.get(LIVE_RECORDING_MONITOR_ROOM)?.size || 0;
   if (!watchers) return;
-  await emitLiveRecordingMonitorSnapshot(io);
+  await emitLiveRecordingMonitorUpdate(io, payload);
 }
 
 function scheduleLiveRecordingMonitorPublish(io, payload = {}) {
@@ -1674,7 +1693,16 @@ export function initSocket(
       try {
         if (!(await ensureAdmin(socket))) return;
         socket.join(LIVE_RECORDING_MONITOR_ROOM);
-        await emitLiveRecordingMonitorSnapshot(io, socket.id);
+        await emitLiveRecordingMonitorUpdate(
+          io,
+          {
+            reason: "bootstrap",
+            recordingIds: [],
+            mode: "event",
+            at: new Date(),
+          },
+          socket.id
+        );
       } catch (e) {
         console.error("[socket] recordings-v2:watch error:", e);
       }

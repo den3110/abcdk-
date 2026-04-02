@@ -78,6 +78,16 @@ const CHATBOT_FORM_DRAFTS_STORAGE_KEY = "pikora-form-drafts";
 const PICKLETOUR_VERSION =
   import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_VERSION || "dev";
 
+function hasWrappedItems(node) {
+  if (!node) return false;
+  const children = Array.from(node.children).filter(
+    (child) => child instanceof HTMLElement && child.dataset.measureItem === "true",
+  );
+  if (children.length <= 1) return false;
+  const firstTop = children[0].offsetTop;
+  return children.some((child) => Math.abs(child.offsetTop - firstTop) > 2);
+}
+
 function normalizeAssistantModeValue(value) {
   if (value === "operator") return "operator";
   if (value === "analyst") return "analyst";
@@ -868,8 +878,11 @@ const ChatComposer = memo(function ChatComposer({
 }) {
   const isDark = theme.palette.mode === "dark";
   const inputRef = useRef(null);
+  const modeToolbarRef = useRef(null);
+  const modeMeasureRef = useRef(null);
   const [draft, setDraft] = useState("");
   const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState(null);
+  const [compactModeChips, setCompactModeChips] = useState(false);
   const [reasoningMode, setReasoningMode] = useState(() =>
     externalReasoningMode === "force_reasoner" ? "force_reasoner" : "auto",
   );
@@ -940,6 +953,35 @@ const ChatComposer = memo(function ChatComposer({
     const timer = window.setTimeout(() => inputRef.current?.focus(), 300);
     return () => window.clearTimeout(timer);
   }, [open]);
+
+  const measureModeChips = useCallback(() => {
+    const nextCompact = hasWrappedItems(modeMeasureRef.current);
+    setCompactModeChips((currentValue) =>
+      currentValue === nextCompact ? currentValue : nextCompact,
+    );
+  }, []);
+
+  useEffect(() => {
+    measureModeChips();
+    const container = modeToolbarRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return undefined;
+    let rafId = 0;
+    const observer = new ResizeObserver(() => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      rafId = window.requestAnimationFrame(() => {
+        measureModeChips();
+      });
+    });
+    observer.observe(container);
+    return () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      observer.disconnect();
+    };
+  }, [measureModeChips, reasoningMode, assistantMode, verificationMode]);
 
   const handleComposerSend = useCallback(() => {
     const text = draft.trim();
@@ -1063,13 +1105,72 @@ const ChatComposer = memo(function ChatComposer({
           </Box>
 
         <Box
+          ref={modeToolbarRef}
           sx={{
+            position: "relative",
             px: 1.05,
             pt: 0.75,
             pb: 1,
             borderTop: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
           }}
         >
+          <Box
+            ref={modeMeasureRef}
+            aria-hidden="true"
+            sx={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 0.75,
+              minWidth: 0,
+              flexWrap: "wrap",
+              visibility: "hidden",
+              pointerEvents: "none",
+              overflow: "hidden",
+              zIndex: -1,
+            }}
+          >
+            <Box
+              data-measure-item="true"
+              sx={{
+                width: 34,
+                height: 34,
+                flexShrink: 0,
+              }}
+            />
+
+            {reasoningMode === "force_reasoner" ? (
+              <Chip
+                data-measure-item="true"
+                size="small"
+                icon={<PsychologyIcon sx={{ fontSize: 16 }} />}
+                label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+                deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
+              />
+            ) : null}
+
+            {assistantMode !== "balanced" ? (
+              <Chip
+                data-measure-item="true"
+                size="small"
+                icon={assistantModeMeta.icon}
+                label={assistantModeMeta.shortLabel}
+                deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
+              />
+            ) : null}
+
+            {verificationMode === "strict" ? (
+              <Chip
+                data-measure-item="true"
+                size="small"
+                icon={verificationModeMeta.icon}
+                label={verificationModeMeta.shortLabel}
+                deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
+              />
+            ) : null}
+          </Box>
+
           <Box
             sx={{
               display: "flex",
@@ -1111,7 +1212,11 @@ const ChatComposer = memo(function ChatComposer({
                 <Chip
                   size="small"
                   icon={<PsychologyIcon sx={{ fontSize: 16 }} />}
-                  label={t("chatbot.reasoner.forceMode", {}, "Suy luận")}
+                  label={
+                    compactModeChips
+                      ? ""
+                      : t("chatbot.reasoner.forceMode", {}, "Suy luận")
+                  }
                   onDelete={() => setReasoningMode("auto")}
                   deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
@@ -1123,15 +1228,17 @@ const ChatComposer = memo(function ChatComposer({
                     "& .MuiChip-icon": {
                       color: "inherit",
                       ml: 0.5,
+                      mr: compactModeChips ? 0.1 : undefined,
                     },
                     "& .MuiChip-label": {
-                      px: 0.25,
+                      display: compactModeChips ? "none" : "block",
+                      px: compactModeChips ? 0 : 0.25,
                       fontWeight: 700,
                     },
                     "& .MuiChip-deleteIcon": {
                       color: alpha(theme.palette.primary.main, 0.82),
                       mr: 0.35,
-                      ml: 0,
+                      ml: compactModeChips ? 0.25 : 0,
                       transition: "opacity 0.18s ease",
                     },
                     "&:hover .MuiChip-deleteIcon": {
@@ -1147,7 +1254,7 @@ const ChatComposer = memo(function ChatComposer({
                 <Chip
                   size="small"
                   icon={assistantModeMeta.icon}
-                  label={assistantModeMeta.shortLabel}
+                  label={compactModeChips ? "" : assistantModeMeta.shortLabel}
                   onDelete={() => setAssistantMode("balanced")}
                   deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
@@ -1159,15 +1266,17 @@ const ChatComposer = memo(function ChatComposer({
                     "& .MuiChip-icon": {
                       color: "inherit",
                       ml: 0.5,
+                      mr: compactModeChips ? 0.1 : undefined,
                     },
                     "& .MuiChip-label": {
-                      px: 0.25,
+                      display: compactModeChips ? "none" : "block",
+                      px: compactModeChips ? 0 : 0.25,
                       fontWeight: 700,
                     },
                     "& .MuiChip-deleteIcon": {
                       color: alpha(theme.palette.secondary.main, 0.82),
                       mr: 0.35,
-                      ml: 0,
+                      ml: compactModeChips ? 0.25 : 0,
                     },
                     "&:hover .MuiChip-deleteIcon": {
                       color: theme.palette.secondary.main,
@@ -1182,7 +1291,7 @@ const ChatComposer = memo(function ChatComposer({
                 <Chip
                   size="small"
                   icon={verificationModeMeta.icon}
-                  label={verificationModeMeta.shortLabel}
+                  label={compactModeChips ? "" : verificationModeMeta.shortLabel}
                   onDelete={() => setVerificationMode("balanced")}
                   deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
@@ -1194,15 +1303,17 @@ const ChatComposer = memo(function ChatComposer({
                     "& .MuiChip-icon": {
                       color: "inherit",
                       ml: 0.5,
+                      mr: compactModeChips ? 0.1 : undefined,
                     },
                     "& .MuiChip-label": {
-                      px: 0.25,
+                      display: compactModeChips ? "none" : "block",
+                      px: compactModeChips ? 0 : 0.25,
                       fontWeight: 700,
                     },
                     "& .MuiChip-deleteIcon": {
                       color: alpha(theme.palette.success.main, 0.82),
                       mr: 0.35,
-                      ml: 0,
+                      ml: compactModeChips ? 0.25 : 0,
                     },
                     "&:hover .MuiChip-deleteIcon": {
                       color: theme.palette.success.main,
