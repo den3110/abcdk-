@@ -1,5 +1,6 @@
 // controllers/systemSettings.controller.js
 import { invalidateSettingsCache } from "../middleware/settings.middleware.js";
+import { invalidateMaintenanceCache } from "../middleware/maintainance.js";
 import SystemSettings from "../models/systemSettingsModel.js";
 import { invalidateLiveRecordingAiCommentaryGatewayHealthCache } from "../services/liveRecordingAiCommentaryGateway.service.js";
 
@@ -248,6 +249,7 @@ export const updateSystemSettings = async (req, res, next) => {
     );
 
     invalidateSettingsCache();
+    invalidateMaintenanceCache();
     invalidateLiveRecordingAiCommentaryGatewayHealthCache();
     return res.json(normalizeSystemSettings(updated));
   } catch (err) {
