@@ -1528,11 +1528,16 @@ const ThinkingBlock = memo(function ThinkingBlock({
   isActive,
   processingTime,
   trustMeta,
+  reasoningText,
   t,
 }) {
   const displaySteps = useMemo(
     () => normalizeThinkingSteps(steps, { forceDone: !isActive }),
     [isActive, steps],
+  );
+  const normalizedReasoningText = useMemo(
+    () => String(reasoningText || "").trim(),
+    [reasoningText],
   );
   const [expanded, setExpanded] = useState(isActive);
   const wasActiveRef = useRef(isActive);
@@ -1701,6 +1706,62 @@ const ThinkingBlock = memo(function ThinkingBlock({
               </Typography>
             </Box>
           ))}
+          {normalizedReasoningText ? (
+            <Box
+              sx={{
+                mt: 1,
+                p: 1.1,
+                borderRadius: 2,
+                bgcolor: alpha(theme.palette.primary.main, 0.05),
+                border: `1px solid ${alpha(theme.palette.primary.main, 0.12)}`,
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  mb: 0.55,
+                  fontWeight: 800,
+                  color: theme.palette.primary.main,
+                }}
+              >
+                {isActive
+                  ? t("chatbot.reasoner.streaming", {}, "Suy luận đang hiện dần")
+                  : t("chatbot.reasoner.summaryInline", {}, "Tóm tắt suy luận")}
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  lineHeight: 1.55,
+                  color: theme.palette.text.secondary,
+                }}
+              >
+                {normalizedReasoningText}
+                {isActive ? (
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "inline-block",
+                      width: 7,
+                      height: "0.95em",
+                      ml: 0.35,
+                      borderRadius: 0.5,
+                      bgcolor: theme.palette.primary.main,
+                      verticalAlign: "text-bottom",
+                      animation: "pikoraReasoningCursor 1s steps(1) infinite",
+                      "@keyframes pikoraReasoningCursor": {
+                        "0%, 45%": { opacity: 1 },
+                        "46%, 100%": { opacity: 0 },
+                      },
+                    }}
+                  />
+                ) : null}
+              </Typography>
+            </Box>
+          ) : null}
           {!isActive && trustMeta ? (
             <TrustStrip trustMeta={trustMeta} theme={theme} t={t} embedded />
           ) : null}
@@ -2300,6 +2361,7 @@ const MessageBubble = memo(function MessageBubble({
             isActive={false}
             processingTime={msg.processingTime}
             trustMeta={msg.trustMeta}
+            reasoningText={msg.rawThinking}
             t={t}
           />
         )}
@@ -2862,7 +2924,7 @@ const MessageBubble = memo(function MessageBubble({
 // ═══════════════════════════════════════════
 //  Active Thinking Indicator (live streaming)
 // ═══════════════════════════════════════════
-const LiveThinking = memo(function LiveThinking({ theme, steps, t }) {
+const LiveThinking = memo(function LiveThinking({ theme, steps, reasoningText, t }) {
   return (
     <Box sx={{ display: "flex", alignItems: "flex-start", px: 1, mb: 1.5 }}>
       <Avatar
@@ -2875,7 +2937,13 @@ const LiveThinking = memo(function LiveThinking({ theme, steps, t }) {
         }}
       />
       <Box sx={{ maxWidth: "85%", minWidth: 120 }}>
-        <ThinkingBlock steps={steps} theme={theme} isActive={true} t={t} />
+        <ThinkingBlock
+          steps={steps}
+          theme={theme}
+          isActive={true}
+          reasoningText={reasoningText}
+          t={t}
+        />
       </Box>
     </Box>
   );
@@ -5440,7 +5508,12 @@ export default function ChatBotDrawer() {
 
               {/* Live thinking (during streaming) */}
               {isTyping && liveSteps.length > 0 && (
-                <LiveThinking theme={theme} steps={liveSteps} t={t} />
+                <LiveThinking
+                  theme={theme}
+                  steps={liveSteps}
+                  reasoningText={liveDraft?.rawThinking || ""}
+                  t={t}
+                />
               )}
               {renderedLiveDraft}
               {isTyping && liveSteps.length === 0 && !liveDraft && (
