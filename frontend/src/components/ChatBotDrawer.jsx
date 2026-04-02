@@ -78,14 +78,15 @@ const CHATBOT_FORM_DRAFTS_STORAGE_KEY = "pikora-form-drafts";
 const PICKLETOUR_VERSION =
   import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_VERSION || "dev";
 
-function hasWrappedItems(node) {
-  if (!node) return false;
-  const children = Array.from(node.children).filter(
-    (child) => child instanceof HTMLElement && child.dataset.measureItem === "true",
-  );
-  if (children.length <= 1) return false;
-  const firstTop = children[0].offsetTop;
-  return children.some((child) => Math.abs(child.offsetTop - firstTop) > 2);
+function normalizeThinkingSteps(steps, { forceDone = false } = {}) {
+  if (!Array.isArray(steps) || steps.length === 0) return [];
+  return steps.map((step) => {
+    if (!step || typeof step !== "object") return step;
+    if (forceDone && step.status === "running") {
+      return { ...step, status: "done" };
+    }
+    return step;
+  });
 }
 
 function normalizeAssistantModeValue(value) {
@@ -879,6 +880,7 @@ const ChatComposer = memo(function ChatComposer({
   const isDark = theme.palette.mode === "dark";
   const inputRef = useRef(null);
   const modeToolbarRef = useRef(null);
+  const modeRowRef = useRef(null);
   const modeMeasureRef = useRef(null);
   const [draft, setDraft] = useState("");
   const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState(null);
@@ -896,6 +898,10 @@ const ChatComposer = memo(function ChatComposer({
   const modeMenuOpen = Boolean(modeMenuAnchorEl);
   const assistantModeMeta = getAssistantModeMeta(assistantMode, t);
   const verificationModeMeta = getVerificationModeMeta(verificationMode, t);
+  const activeModeChipCount =
+    (reasoningMode === "force_reasoner" ? 1 : 0) +
+    (assistantMode !== "balanced" ? 1 : 0) +
+    (verificationMode === "strict" ? 1 : 0);
 
   useEffect(() => {
     setReasoningMode(
@@ -955,16 +961,20 @@ const ChatComposer = memo(function ChatComposer({
   }, [open]);
 
   const measureModeChips = useCallback(() => {
-    const nextCompact = hasWrappedItems(modeMeasureRef.current);
+    const availableWidth = modeRowRef.current?.clientWidth ?? 0;
+    const requiredWidth = modeMeasureRef.current?.scrollWidth ?? 0;
+    const nextCompact =
+      activeModeChipCount > 1 && availableWidth > 0 && requiredWidth > availableWidth + 1;
     setCompactModeChips((currentValue) =>
       currentValue === nextCompact ? currentValue : nextCompact,
     );
-  }, []);
+  }, [activeModeChipCount]);
 
   useEffect(() => {
     measureModeChips();
     const container = modeToolbarRef.current;
-    if (!container || typeof ResizeObserver === "undefined") return undefined;
+    const row = modeRowRef.current;
+    if ((!container && !row) || typeof ResizeObserver === "undefined") return undefined;
     let rafId = 0;
     const observer = new ResizeObserver(() => {
       if (rafId) {
@@ -974,7 +984,8 @@ const ChatComposer = memo(function ChatComposer({
         measureModeChips();
       });
     });
-    observer.observe(container);
+    if (container) observer.observe(container);
+    if (row && row !== container) observer.observe(row);
     return () => {
       if (rafId) {
         window.cancelAnimationFrame(rafId);
@@ -1119,12 +1130,14 @@ const ChatComposer = memo(function ChatComposer({
             aria-hidden="true"
             sx={{
               position: "absolute",
-              inset: 0,
-              display: "flex",
+              left: 0,
+              top: 0,
+              display: "inline-flex",
               alignItems: "center",
               gap: 0.75,
+              width: "max-content",
               minWidth: 0,
-              flexWrap: "wrap",
+              flexWrap: "nowrap",
               visibility: "hidden",
               pointerEvents: "none",
               overflow: "hidden",
@@ -1172,6 +1185,7 @@ const ChatComposer = memo(function ChatComposer({
           </Box>
 
           <Box
+            ref={modeRowRef}
             sx={{
               display: "flex",
               alignItems: "center",
@@ -1221,17 +1235,22 @@ const ChatComposer = memo(function ChatComposer({
                   deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
                     height: 32,
+                    width: compactModeChips ? 32 : "auto",
+                    minWidth: compactModeChips ? 32 : 0,
                     borderRadius: 999,
                     position: "relative",
                     overflow: "visible",
                     border: `1px solid ${alpha(theme.palette.primary.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.primary.main, 0.08),
                     color: theme.palette.primary.main,
-                    pr: compactModeChips ? 1.2 : 1,
+                    px: compactModeChips ? "0 !important" : undefined,
+                    pr: compactModeChips ? "0 !important" : 1,
+                    pl: compactModeChips ? "0 !important" : undefined,
+                    justifyContent: compactModeChips ? "center" : undefined,
                     "& .MuiChip-icon": {
                       color: "inherit",
-                      ml: 0.5,
-                      mr: compactModeChips ? 0.1 : undefined,
+                      ml: compactModeChips ? 0 : 0.5,
+                      mr: compactModeChips ? 0 : undefined,
                     },
                     "& .MuiChip-label": {
                       display: compactModeChips ? "none" : "block",
@@ -1274,17 +1293,22 @@ const ChatComposer = memo(function ChatComposer({
                   deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
                     height: 32,
+                    width: compactModeChips ? 32 : "auto",
+                    minWidth: compactModeChips ? 32 : 0,
                     borderRadius: 999,
                     position: "relative",
                     overflow: "visible",
                     border: `1px solid ${alpha(theme.palette.secondary.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.secondary.main, 0.08),
                     color: theme.palette.secondary.main,
-                    pr: compactModeChips ? 1.2 : 1,
+                    px: compactModeChips ? "0 !important" : undefined,
+                    pr: compactModeChips ? "0 !important" : 1,
+                    pl: compactModeChips ? "0 !important" : undefined,
+                    justifyContent: compactModeChips ? "center" : undefined,
                     "& .MuiChip-icon": {
                       color: "inherit",
-                      ml: 0.5,
-                      mr: compactModeChips ? 0.1 : undefined,
+                      ml: compactModeChips ? 0 : 0.5,
+                      mr: compactModeChips ? 0 : undefined,
                     },
                     "& .MuiChip-label": {
                       display: compactModeChips ? "none" : "block",
@@ -1326,17 +1350,22 @@ const ChatComposer = memo(function ChatComposer({
                   deleteIcon={<CloseIcon sx={{ fontSize: 16 }} />}
                   sx={{
                     height: 32,
+                    width: compactModeChips ? 32 : "auto",
+                    minWidth: compactModeChips ? 32 : 0,
                     borderRadius: 999,
                     position: "relative",
                     overflow: "visible",
                     border: `1px solid ${alpha(theme.palette.success.main, 0.24)}`,
                     bgcolor: alpha(theme.palette.success.main, 0.08),
                     color: theme.palette.success.main,
-                    pr: compactModeChips ? 1.2 : 1,
+                    px: compactModeChips ? "0 !important" : undefined,
+                    pr: compactModeChips ? "0 !important" : 1,
+                    pl: compactModeChips ? "0 !important" : undefined,
+                    justifyContent: compactModeChips ? "center" : undefined,
                     "& .MuiChip-icon": {
                       color: "inherit",
-                      ml: 0.5,
-                      mr: compactModeChips ? 0.1 : undefined,
+                      ml: compactModeChips ? 0 : 0.5,
+                      mr: compactModeChips ? 0 : undefined,
                     },
                     "& .MuiChip-label": {
                       display: compactModeChips ? "none" : "block",
@@ -1501,6 +1530,10 @@ const ThinkingBlock = memo(function ThinkingBlock({
   trustMeta,
   t,
 }) {
+  const displaySteps = useMemo(
+    () => normalizeThinkingSteps(steps, { forceDone: !isActive }),
+    [isActive, steps],
+  );
   const [expanded, setExpanded] = useState(isActive);
   const wasActiveRef = useRef(isActive);
 
@@ -1511,13 +1544,13 @@ const ThinkingBlock = memo(function ThinkingBlock({
 
   // Auto-collapse only when transitioning from active → done (not on history load)
   useEffect(() => {
-    if (!isActive && wasActiveRef.current && steps.length > 0) {
+    if (!isActive && wasActiveRef.current && displaySteps.length > 0) {
       const t = setTimeout(() => setExpanded(false), 1000);
       return () => clearTimeout(t);
     }
-  }, [isActive, steps.length]);
+  }, [displaySteps.length, isActive]);
 
-  if (steps.length === 0 && !isActive) return null;
+  if (displaySteps.length === 0 && !isActive) return null;
 
   return (
     <Box sx={{ mb: 1 }}>
@@ -1622,7 +1655,7 @@ const ThinkingBlock = memo(function ThinkingBlock({
             mt: 0.3,
           }}
         >
-          {steps.map((step, i) => (
+          {displaySteps.map((step, i) => (
             <Box
               key={i}
               sx={{
@@ -3503,7 +3536,9 @@ export default function ChatBotDrawer() {
       text: m.message || "",
       toolsUsed: m.meta?.toolsUsed || [],
       processingTime: m.meta?.processingTimeMs || m.meta?.processingTime || null,
-      thinkingSteps: m.meta?.thinkingSteps || [],
+      thinkingSteps: normalizeThinkingSteps(m.meta?.thinkingSteps || [], {
+        forceDone: true,
+      }),
       navigation: m.navigation || null,
       actions: m.meta?.actions || [],
       answerCards: m.meta?.answerCards || [],
@@ -4570,7 +4605,9 @@ export default function ChatBotDrawer() {
             toolsUsed: replyData?.toolsUsed || [],
             processingTime:
               replyData?.processingTime || liveMetaRef.current.processingTimeMs,
-            thinkingSteps: [...liveStepsRef.current],
+            thinkingSteps: normalizeThinkingSteps(liveStepsRef.current, {
+              forceDone: true,
+            }),
             navigation: replyData?.navigation || liveMetaRef.current.navigation,
             actions: replyData?.actions || liveMetaRef.current.actions,
             answerCards:
@@ -4636,7 +4673,9 @@ export default function ChatBotDrawer() {
               text: liveReplyRef.current,
               toolsUsed: [],
               processingTime: liveMetaRef.current.processingTimeMs,
-              thinkingSteps: [...liveStepsRef.current],
+              thinkingSteps: normalizeThinkingSteps(liveStepsRef.current, {
+                forceDone: true,
+              }),
               navigation: liveMetaRef.current.navigation,
               actions: liveMetaRef.current.actions,
               answerCards: liveMetaRef.current.answerCards,
@@ -4685,7 +4724,9 @@ export default function ChatBotDrawer() {
         {
           role: "bot",
           text: errorText,
-          thinkingSteps: [...liveStepsRef.current],
+          thinkingSteps: normalizeThinkingSteps(liveStepsRef.current, {
+            forceDone: true,
+          }),
           actions: [],
           answerCards: [],
           sources: [],

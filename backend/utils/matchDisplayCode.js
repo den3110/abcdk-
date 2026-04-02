@@ -34,6 +34,10 @@ function extractBracketId(match) {
   return String(match?.bracket?._id || match?.bracket || "").trim();
 }
 
+function extractRegistrationId(value) {
+  return String(value?._id || value || "").trim();
+}
+
 function resolvePoolIndex(match) {
   const directCandidates = [
     match?.pool?.index,
@@ -65,6 +69,20 @@ function resolvePoolIndex(match) {
 
   const groupIndex = toPositiveInt(Number(match?.groupIndex) + 1);
   if (groupIndex) return groupIndex;
+
+  const pairAId = extractRegistrationId(match?.pairA);
+  const pairBId = extractRegistrationId(match?.pairB);
+  const bracketGroups = Array.isArray(match?.bracket?.groups)
+    ? match.bracket.groups
+    : [];
+  if (pairAId && pairBId && bracketGroups.length) {
+    const matchedIndex = bracketGroups.findIndex((group) => {
+      const regIds = Array.isArray(group?.regIds) ? group.regIds : [];
+      const normalized = regIds.map((regId) => String(regId || "").trim());
+      return normalized.includes(pairAId) && normalized.includes(pairBId);
+    });
+    if (matchedIndex >= 0) return matchedIndex + 1;
+  }
 
   return null;
 }

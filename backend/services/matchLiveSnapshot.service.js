@@ -79,6 +79,8 @@ export async function loadMatchLiveSnapshot(matchId) {
         "meta.expectedFirstRoundMatches",
         "groups._id",
         "groups.name",
+        "groups.code",
+        "groups.regIds",
         "groups.expectedSize",
         "config.rules",
         "config.doubleElim",

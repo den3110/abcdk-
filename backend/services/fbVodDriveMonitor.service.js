@@ -598,8 +598,14 @@ export async function getFbVodDriveMonitorSnapshot({
   const normalizedRange = normalizeRange(range);
   const normalizedStatus = normalizeStatusFilter(status);
   const keyword = asTrimmed(q).toLowerCase();
-  const pageNumber = parsePositiveInt(page, 1, { min: 1 });
-  const limitNumber = parsePositiveInt(limit, 20, { min: 1, max: 100 });
+  const rawLimit = Number(limit);
+  const useFullSnapshot = Number.isFinite(rawLimit) && Math.trunc(rawLimit) === 0;
+  const pageNumber = useFullSnapshot
+    ? 1
+    : parsePositiveInt(page, 1, { min: 1 });
+  const limitNumber = useFullSnapshot
+    ? 0
+    : parsePositiveInt(limit, 20, { min: 1, max: 100 });
   const context = await loadMonitorContext();
   const matches = await loadMatches(normalizedRange);
   const allRows = await buildRowsForMatches(matches, context);
@@ -610,7 +616,14 @@ export async function getFbVodDriveMonitorSnapshot({
     if (!keyword) return true;
     return buildSearchText(row).includes(keyword);
   });
-  const paged = paginate(filteredRows, pageNumber, limitNumber);
+  const paged = useFullSnapshot
+    ? {
+        items: filteredRows,
+        total: filteredRows.length,
+        page: 1,
+        pages: 1,
+      }
+    : paginate(filteredRows, pageNumber, limitNumber);
 
   return {
     summary,

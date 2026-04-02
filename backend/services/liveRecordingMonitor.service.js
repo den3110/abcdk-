@@ -1489,8 +1489,14 @@ export async function buildLiveRecordingMonitorPage(options = {}) {
   });
 
   const section = normalizeMonitorSection(options.section);
-  const page = parsePositiveInt(options.page, 1, { min: 1, max: 100000 });
-  const limit = parsePositiveInt(options.limit, 40, { min: 1, max: 500 });
+  const rawLimit = Number(options.limit);
+  const useFullSnapshot = Number.isFinite(rawLimit) && Math.trunc(rawLimit) === 0;
+  const page = useFullSnapshot
+    ? 1
+    : parsePositiveInt(options.page, 1, { min: 1, max: 100000 });
+  const limit = useFullSnapshot
+    ? 0
+    : parsePositiveInt(options.limit, 40, { min: 1, max: 500 });
   const status = normalizeMonitorStatus(options.status);
   const commentary = normalizeMonitorCommentaryFilter(options.commentary);
   const view = normalizeMonitorView(options.view);
@@ -1509,7 +1515,14 @@ export async function buildLiveRecordingMonitorPage(options = {}) {
     commentary,
     view,
   });
-  const paged = paginateRows(filteredRows, page, limit);
+  const paged = useFullSnapshot
+    ? {
+        items: filteredRows,
+        total: filteredRows.length,
+        page: 1,
+        pages: 1,
+      }
+    : paginateRows(filteredRows, page, limit);
 
   return {
     summary,

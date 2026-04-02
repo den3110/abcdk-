@@ -19,6 +19,7 @@ import {
   getLatestRecordingsByMatchIds,
 } from "../services/publicStreams.service.js";
 import { resolveMatchCourtStationFields } from "../services/courtCluster.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 import {
   applyLegacyLiveAction,
 } from "../services/matchLiveSync.service.js";
@@ -354,6 +355,7 @@ export const toDTO = (matchDoc) => {
       }
     : undefined;
   const courtStationFields = resolveMatchCourtStationFields(m);
+  const codePayload = buildMatchCodePayload(m);
 
   // ================= Format & Pool =================
   const format = (m.format || "").toLowerCase() || undefined;
@@ -415,6 +417,16 @@ export const toDTO = (matchDoc) => {
   return {
     _id: m._id,
     matchId: String(m._id),
+    code: codePayload.code || m.code || undefined,
+    displayCode: codePayload.displayCode || m.displayCode || undefined,
+    codeResolved:
+      codePayload.displayCode ||
+      codePayload.code ||
+      m.displayCode ||
+      m.codeResolved ||
+      m.code ||
+      undefined,
+    globalCode: codePayload.globalCode || m.globalCode || undefined,
 
     status: m.status,
     winner: m.winner,
