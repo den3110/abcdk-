@@ -2992,8 +2992,8 @@ export function initSocket(
     );
 
     // ======== SLOTS: setBase (referee/admin) ========
-    // Payload: { matchId, base: { A: { [userId]: 1|2 }, B: { [userId]: 1|2 } } }
-    socket.on("slots:setBase", async ({ matchId, base, userMatch }, ack) => {
+    // Payload: { matchId, base: { A: { [userId]: 1|2 }, B: { [userId]: 1|2 } }, layout?: { left, right } }
+    socket.on("slots:setBase", async ({ matchId, base, layout, userMatch }, ack) => {
       try {
         if (!isObjectIdString(matchId) || !base || typeof base !== "object") {
           return ack?.({ ok: false, message: "Invalid payload" });
@@ -3001,6 +3001,12 @@ export function initSocket(
 
         // ========== HELPER CHUNG ==========
         const in01 = (v) => v === 1 || v === 2;
+        const normalizedLayout =
+          layout && typeof layout === "object"
+            ? layout.left === "B" || layout.right === "A"
+              ? { left: "B", right: "A" }
+              : { left: "A", right: "B" }
+            : null;
 
         // ========== NHÁNH USER MATCH ==========
         if (userMatch) {
@@ -3088,6 +3094,9 @@ export function initSocket(
           const prevVer = Number(m?.slots?.version || 0);
           m.set("slots.version", prevVer + 1, { strict: false });
           m.markModified("slots");
+          if (normalizedLayout) {
+            m.set("meta.refereeLayout", normalizedLayout, { strict: false });
+          }
 
           // 🔹 CẬP NHẬT LUÔN participants.order THEO base (dùng userId chuẩn)
           const applyOrderByBase = (list, filtered) => {
@@ -3111,13 +3120,22 @@ export function initSocket(
 
           await m.save();
 
-          // 🔔 vẫn bắn event y như match thường để FE không cần đổi
-          io.to(`match:${matchId}`).emit("match:patched", {
-            matchId: String(matchId),
-            payload: { slots: { base: nowBase } },
+          let snap = await loadMatchForSnapshot(m._id, true);
+          if (!snap) {
+            return ack?.({ ok: true });
+          }
+
+          snap = await postprocessSnapshotLikeJoin(snap);
+          const dto = await toRealtimePublicMatchDTO(snap);
+
+          emitTournamentMatchUpdate(io, dto, dto, {
+            type: "slots:setBase",
+            matchId,
+            emitMatchSnapshot: true,
+            emitScoreUpdated: true,
           });
 
-          return ack?.({ ok: true });
+          return ack?.({ ok: true, data: dto });
         }
 
         // ========== NHÁNH MATCH BÌNH THƯỜNG ==========
@@ -3200,14 +3218,27 @@ export function initSocket(
         const prevVer = Number(m?.slots?.version || 0);
         m.set("slots.version", prevVer + 1, { strict: false });
         m.markModified("slots");
+        if (normalizedLayout) {
+          m.set("meta.refereeLayout", normalizedLayout, { strict: false });
+        }
         await m.save();
 
-        io.to(`match:${matchId}`).emit("match:patched", {
-          matchId: String(matchId),
-          payload: { slots: { base: nowBase } },
+        let snap = await loadMatchForSnapshot(m._id, false);
+        if (!snap) {
+          return ack?.({ ok: true });
+        }
+
+        snap = await postprocessSnapshotLikeJoin(snap);
+        const dto = await toRealtimePublicMatchDTO(snap);
+
+        emitTournamentMatchUpdate(io, dto, dto, {
+          type: "slots:setBase",
+          matchId,
+          emitMatchSnapshot: true,
+          emitScoreUpdated: true,
         });
 
-        ack?.({ ok: true });
+        ack?.({ ok: true, data: dto });
       } catch (e) {
         console.error("[slots:setBase] error:", e?.message || e);
         ack?.({ ok: false, message: e?.message || "Internal error" });

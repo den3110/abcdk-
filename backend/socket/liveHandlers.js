@@ -325,6 +325,23 @@ export const toDTO = (matchDoc) => {
   const m = normalizeMatchDisplayShape(matchDoc);
   const pick = pickTrim;
   const displayMode = resolveMatchDisplayMode(m);
+  const refereeLayout =
+    m?.meta?.refereeLayout &&
+    typeof m.meta.refereeLayout === "object"
+      ? m.meta.refereeLayout.left === "B" || m.meta.refereeLayout.right === "A"
+        ? { left: "B", right: "A" }
+        : { left: "A", right: "B" }
+      : null;
+  const slots =
+    m?.slots && typeof m.slots === "object"
+      ? {
+          ...m.slots,
+          base: {
+            A: { ...(m?.slots?.base?.A || {}) },
+            B: { ...(m?.slots?.base?.B || {}) },
+          },
+        }
+      : undefined;
   const normPlayer = (p) => normalizePlayerDisplay(p, displayMode);
 
   const playersFromReg = (reg) => {
@@ -564,12 +581,14 @@ export const toDTO = (matchDoc) => {
     roundName,
     isThirdPlace: !!m?.isThirdPlace,
     meta:
-      m?.meta && (m.meta.thirdPlace !== undefined || m.meta.stageLabel)
+      m?.meta &&
+      (m.meta.thirdPlace !== undefined || m.meta.stageLabel || refereeLayout)
         ? {
             ...(m.meta.thirdPlace !== undefined
               ? { thirdPlace: !!m.meta.thirdPlace }
               : {}),
             ...(m.meta.stageLabel ? { stageLabel: m.meta.stageLabel } : {}),
+            ...(refereeLayout ? { refereeLayout } : {}),
           }
         : undefined,
 
@@ -583,6 +602,7 @@ export const toDTO = (matchDoc) => {
     rules: m.rules || {},
     currentGame: m.currentGame ?? 0,
     gameScores: Array.isArray(m.gameScores) ? m.gameScores : [],
+    slots,
 
     pairA: m.pairA || null,
     pairB: m.pairB || null,

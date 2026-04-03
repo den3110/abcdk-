@@ -159,8 +159,8 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
           opening,
           userMatch,
         }),
-      setSlotsBase: ({ base, serve = null, userMatch = false } = {}) => {
-        socket?.emit("slots:setBase", { matchId, base, userMatch });
+      setSlotsBase: ({ base, layout = null, serve = null, userMatch = false } = {}) => {
+        socket?.emit("slots:setBase", { matchId, base, layout, userMatch });
         if (serve) {
           socket?.emit("serve:set", {
             matchId,
