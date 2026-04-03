@@ -24,7 +24,7 @@ import {
 } from "@mui/icons-material";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AspectMediaFrame from "./AspectMediaFrame";
-import loadHlsFromCDN from "./hlsLoader";
+import loadHlsPlayer from "./hlsLoader";
 
 function formatMediaTime(value) {
   const total = Number(value);
@@ -42,6 +42,39 @@ function formatMediaTime(value) {
   }
 
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function buildHlsErrorMessage(data) {
+  const detail = String(data?.details || "").trim();
+  const type = String(data?.type || "").trim();
+  const responseCode = Number(data?.response?.code);
+  const httpLabel = Number.isFinite(responseCode) ? ` (HTTP ${responseCode})` : "";
+
+  switch (detail) {
+    case "manifestLoadError":
+    case "manifestLoadTimeout":
+      return `Không tải được manifest HLS${httpLabel}.`;
+    case "manifestParsingError":
+      return "Manifest HLS không hợp lệ.";
+    case "levelLoadError":
+    case "levelLoadTimeout":
+      return `Không tải được danh sách phân đoạn HLS${httpLabel}.`;
+    case "fragLoadError":
+    case "fragLoadTimeout":
+      return `Không tải được phân đoạn video HLS${httpLabel}.`;
+    case "bufferAppendError":
+    case "bufferAddCodecError":
+    case "bufferStalledError":
+      return "Trình duyệt không giải mã được luồng HLS này.";
+    default:
+      if (type === "networkError") {
+        return `Luồng HLS gặp lỗi mạng${httpLabel}.`;
+      }
+      if (type === "mediaError") {
+        return "Trình duyệt không phát được dữ liệu HLS.";
+      }
+      return "Luồng HLS đang lỗi hoặc tạm ngắt.";
+  }
 }
 
 export default function NativeVideoPlayer({
@@ -438,7 +471,7 @@ export default function NativeVideoPlayer({
       } else {
         (async () => {
           try {
-            const HlsCtor = await loadHlsFromCDN();
+            const HlsCtor = await loadHlsPlayer();
             if (cancelled) return;
             if (!HlsCtor?.isSupported()) {
               setHlsError("Trình duyệt không hỗ trợ HLS.");
@@ -456,16 +489,30 @@ export default function NativeVideoPlayer({
             hls.loadSource(src);
             hls.attachMedia(video);
             hls.on(HlsCtor.Events.MANIFEST_PARSED, () => {
+              if (!cancelled) {
+                setHlsError("");
+              }
               startPlayback();
             });
             hls.on(HlsCtor.Events.ERROR, (_event, data) => {
               if (data?.fatal) {
-                setHlsError("Luồng HLS đang lỗi hoặc tạm ngắt.");
+                const message = buildHlsErrorMessage(data);
+                console.error("[NativeVideoPlayer] HLS fatal error:", {
+                  src,
+                  type: data?.type,
+                  details: data?.details,
+                  response: data?.response,
+                  fatal: data?.fatal,
+                });
+                if (!cancelled) {
+                  setHlsError(message);
+                }
               }
             });
-          } catch {
+          } catch (error) {
+            console.error("[NativeVideoPlayer] Failed to load hls.js:", error);
             if (!cancelled) {
-              setHlsError("Không tải được trình phát HLS.");
+              setHlsError("Không tải được thư viện phát HLS.");
             }
           }
         })();
