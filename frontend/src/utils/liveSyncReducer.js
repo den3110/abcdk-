@@ -1,5 +1,3 @@
-const DEFAULT_SERVE = { side: "A", server: 2 };
-
 function cloneSnapshot(value) {
   if (!value) return value;
   return JSON.parse(JSON.stringify(value));
@@ -15,12 +13,15 @@ function validSide(side) {
 }
 
 function validServer(server) {
-  return server === 1 || server === 2 ? server : 2;
+  return server === 1 || server === 2 ? server : 1;
 }
 
 function onLostRallyNextServe(prev) {
-  if (prev.server === 1) return { side: prev.side, server: 2 };
-  return { side: prev.side === "A" ? "B" : "A", server: 1 };
+  if (prev?.opening) {
+    return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
+  }
+  if (prev.server === 1) return { side: prev.side, server: 2, opening: false };
+  return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
 }
 
 function normalizeRefereeLayout(layout) {
@@ -31,10 +32,12 @@ function normalizeRefereeLayout(layout) {
 }
 
 function applyServeState(snapshot, serve) {
+  const server = validServer(serve?.server);
   snapshot.serve = {
     side: validSide(serve?.side),
-    server: validServer(serve?.server),
+    server,
     serverId: serve?.serverId || null,
+    opening: server === 1 && Boolean(serve?.opening),
   };
   if (!snapshot.slots || typeof snapshot.slots !== "object") {
     snapshot.slots = {};
@@ -90,7 +93,12 @@ export function applyLiveSyncEventLocally(snapshot, input) {
       next.gameScores = [{ a: 0, b: 0 }];
       next.currentGame = 0;
     }
-    if (!next.serve) next.serve = { ...DEFAULT_SERVE };
+    next.serve = {
+      side: validSide(next.serve?.side),
+      server: 1,
+      serverId: next.serve?.serverId || null,
+      opening: true,
+    };
     ensureLiveLog(next);
     next.liveLog.push({ type: "start", at: new Date().toISOString() });
     next.liveVersion = toNum(next.liveVersion, 0) + 1;
@@ -124,6 +132,7 @@ export function applyLiveSyncEventLocally(snapshot, input) {
       side: validSide(next.serve?.side),
       server: validServer(next.serve?.server),
       serverId: next.serve?.serverId || null,
+      opening: Boolean(next.serve?.opening),
     };
     if (team !== prevServe.side) {
       next.serve = onLostRallyNextServe(prevServe);
@@ -154,6 +163,7 @@ export function applyLiveSyncEventLocally(snapshot, input) {
       side: validSide(next.serve?.side),
       server: validServer(next.serve?.server),
       serverId: next.serve?.serverId || null,
+      opening: Boolean(next.serve?.opening),
     };
     applyServeState(next, payload);
     ensureLiveLog(next);
@@ -177,6 +187,7 @@ export function applyLiveSyncEventLocally(snapshot, input) {
       side: validSide(next.serve?.side),
       server: validServer(next.serve?.server),
       serverId: next.serve?.serverId || null,
+      opening: Boolean(next.serve?.opening),
     };
     if (!next.slots || typeof next.slots !== "object") {
       next.slots = {};

@@ -144,12 +144,19 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
         socket?.emit("match:point", { matchId, team: "A", step }),
       pointB: (step = 1) =>
         socket?.emit("match:point", { matchId, team: "B", step }),
-      setServe: ({ side, server, serverId = null, userMatch = false } = {}) =>
+      setServe: ({
+        side,
+        server,
+        serverId = null,
+        opening = undefined,
+        userMatch = false,
+      } = {}) =>
         socket?.emit("serve:set", {
           matchId,
           side,
           server,
           serverId,
+          opening,
           userMatch,
         }),
       setSlotsBase: ({ base, serve = null, userMatch = false } = {}) => {
@@ -160,6 +167,7 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
             side: serve.side,
             server: serve.server,
             serverId: serve.serverId,
+            opening: serve.opening,
             userMatch,
           });
         }

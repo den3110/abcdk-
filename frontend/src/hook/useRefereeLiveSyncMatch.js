@@ -1127,8 +1127,8 @@ export function useRefereeLiveSyncMatch(
       start: () => enqueueEvent("start"),
       pointA: (step = 1) => enqueueEvent("point", { team: "A", step }),
       pointB: (step = 1) => enqueueEvent("point", { team: "B", step }),
-      setServe: ({ side, server, serverId = null } = {}) =>
-        enqueueEvent("serve", { side, server, serverId }),
+      setServe: ({ side, server, serverId = null, opening = undefined } = {}) =>
+        enqueueEvent("serve", { side, server, serverId, opening }),
       setSlotsBase: ({ base, layout = null, serve = null } = {}) =>
         enqueueEvent("slots", { base, layout, serve }),
       undo: () => enqueueEvent("undo"),

@@ -136,6 +136,9 @@ const normalizeLayout = (layout) =>
     ? { left: "B", right: "A" }
     : { left: "A", right: "B" };
 
+const preStartRightSlotForSide = (side, layout) =>
+  normalizeLayout(layout).left === side ? 2 : 1;
+
 const normalizeBreakState = (rawBreak) => {
   if (!rawBreak) return null;
   if (typeof rawBreak === "object") {
@@ -503,9 +506,10 @@ export default function RefereeScoreDialog({
     [match?.meta?.refereeLayout],
   );
   const activeSide = match?.serve?.side === "B" ? "B" : "A";
-  const activeServerNum = Number(match?.serve?.server) === 1 ? 1 : 2;
+  const rawServerNum = Number(match?.serve?.server ?? 1) === 2 ? 2 : 1;
   const leftSide = currentLayout.left;
   const rightSide = currentLayout.right;
+  const isDouble = eventType !== "single";
   const playersA = useMemo(() => playersOf(sidePairOf(match, "A"), eventType), [eventType, match]);
   const playersB = useMemo(() => playersOf(sidePairOf(match, "B"), eventType), [eventType, match]);
   const pairPlayers = useMemo(() => ({ A: playersA, B: playersB }), [playersA, playersB]);
@@ -538,6 +542,12 @@ export default function RefereeScoreDialog({
   );
   const needsStartAction =
     Boolean(match?._id) && match?.status !== "live" && match?.status !== "finished";
+  const activeServerNum = needsStartAction && isDouble ? 1 : rawServerNum;
+  const isOpeningServe =
+    isDouble && Boolean(match?.serve?.opening) && activeServerNum === 1;
+  const isPreStartOrOpening =
+    needsStartAction ||
+    (Number(currentScore.a) === 0 && Number(currentScore.b) === 0 && isOpeningServe);
   const isOwner = sync?.isOwner ?? true;
   const featureEnabled = sync?.featureEnabled !== false;
   const canScoreByMatchState =
@@ -589,9 +599,19 @@ export default function RefereeScoreDialog({
   const serverUidShow = useMemo(() => {
     const serveUid = textOf(match?.serve?.serverId);
     if (serveUid) return serveUid;
-    const fallback = findUidAtCurrentSlot(activeSide, activeServerNum);
+    const fallbackSlot = isPreStartOrOpening
+      ? preStartRightSlotForSide(activeSide, currentLayout)
+      : activeServerNum;
+    const fallback = findUidAtCurrentSlot(activeSide, fallbackSlot);
     return fallback || "";
-  }, [activeServerNum, activeSide, findUidAtCurrentSlot, match?.serve?.serverId]);
+  }, [
+    activeServerNum,
+    activeSide,
+    currentLayout,
+    findUidAtCurrentSlot,
+    isPreStartOrOpening,
+    match?.serve?.serverId,
+  ]);
 
   const headerText = [
     String(matchCode(match || {})).toUpperCase(),
@@ -613,10 +633,10 @@ export default function RefereeScoreDialog({
         : "Timeout đang diễn ra";
     }
     if (needsStartAction) {
-      return `0-0-${activeServerNum}`;
+      return isDouble ? "0-0-1" : "0-0";
     }
     return serveNotation;
-  }, [activeServerNum, breakState?.active, breakState?.type, needsStartAction, serveNotation]);
+  }, [breakState?.active, breakState?.type, isDouble, needsStartAction, serveNotation]);
 
   const handleError = useCallback((nextError) => {
     setActionError(textOf(nextError?.message) || "Thao tác không thành công.");
@@ -697,14 +717,40 @@ export default function RefereeScoreDialog({
     };
     const nextLayout =
       currentLayout.left === "B" ? { left: "A", right: "B" } : { left: "B", right: "A" };
+    let nextServe = match?.serve || null;
+    if (isPreStartOrOpening) {
+      const targetSlot = preStartRightSlotForSide(activeSide, nextLayout);
+      const serverId =
+        findUidAtCurrentSlot(activeSide, targetSlot, nextBase, { a: 0, b: 0 }) ||
+        firstPlayerIdOfSide(match, activeSide, eventType) ||
+        null;
+      nextServe = {
+        side: activeSide,
+        server: 1,
+        serverId,
+        opening: isDouble,
+      };
+    }
     await runProtectedBusy("swap-sides", () =>
       api.setSlotsBase({
         base: nextBase,
         layout: nextLayout,
-        serve: match?.serve || null,
+        serve: nextServe,
       }),
     );
-  }, [api, currentBase, currentLayout, ensureInteractionAllowed, match?.serve, runProtectedBusy]);
+  }, [
+    activeSide,
+    api,
+    currentBase,
+    currentLayout,
+    ensureInteractionAllowed,
+    eventType,
+    findUidAtCurrentSlot,
+    isDouble,
+    isPreStartOrOpening,
+    match,
+    runProtectedBusy,
+  ]);
 
   const flipTeamSlots = useCallback(
     async (side) => {
@@ -713,22 +759,52 @@ export default function RefereeScoreDialog({
         ...currentBase,
         [side]: flipSlotNumbers(currentBase?.[side] || {}),
       };
+      let nextServe = match?.serve || null;
+      if (isPreStartOrOpening && side === activeSide) {
+        const targetSlot = preStartRightSlotForSide(side, currentLayout);
+        const serverId =
+          findUidAtCurrentSlot(side, targetSlot, nextBase, { a: 0, b: 0 }) ||
+          firstPlayerIdOfSide(match, side, eventType) ||
+          null;
+        nextServe = {
+          side,
+          server: 1,
+          serverId,
+          opening: isDouble,
+        };
+      }
       await runProtectedBusy(`swap-${side}`, () =>
         api.setSlotsBase({
           base: nextBase,
           layout: currentLayout,
-          serve: match?.serve || null,
+          serve: nextServe,
         }),
       );
     },
-    [api, currentBase, currentLayout, ensureInteractionAllowed, match?.serve, runProtectedBusy],
+    [
+      activeSide,
+      api,
+      currentBase,
+      currentLayout,
+      ensureInteractionAllowed,
+      eventType,
+      findUidAtCurrentSlot,
+      isDouble,
+      isPreStartOrOpening,
+      match,
+      runProtectedBusy,
+    ],
   );
 
   const toggleServerNum = useCallback(async () => {
     if (!match?._id) return;
     if (!ensureInteractionAllowed()) return;
-    const nextServer = activeServerNum === 1 ? 2 : 1;
-    let serverId = findUidAtCurrentSlot(activeSide, nextServer);
+    const preStartOpening = isDouble && isPreStartOrOpening;
+    const nextServer = preStartOpening ? 1 : activeServerNum === 1 ? 2 : 1;
+    const nextSlot = preStartOpening
+      ? preStartRightSlotForSide(activeSide, currentLayout)
+      : nextServer;
+    let serverId = findUidAtCurrentSlot(activeSide, nextSlot);
     if (!serverId) {
       const teamPlayers = pairPlayers[activeSide] || [];
       serverId =
@@ -741,14 +817,18 @@ export default function RefereeScoreDialog({
         side: activeSide,
         server: nextServer,
         serverId: serverId || null,
+        opening: preStartOpening,
       }),
     );
   }, [
     activeServerNum,
     activeSide,
     api,
+    currentLayout,
     ensureInteractionAllowed,
     findUidAtCurrentSlot,
+    isDouble,
+    isPreStartOrOpening,
     match?._id,
     match?.serve?.serverId,
     pairPlayers,
@@ -759,9 +839,10 @@ export default function RefereeScoreDialog({
     if (!match?._id) return;
     if (!ensureInteractionAllowed()) return;
     const nextSide = activeSide === "A" ? "B" : "A";
-    const preMatchSlot = currentLayout.left === nextSide ? 2 : 1;
-    const nextServer = needsStartAction ? 2 : 1;
-    const preferredSlot = needsStartAction ? preMatchSlot : 1;
+    const opening = isDouble && isPreStartOrOpening;
+    const preferredSlot = opening
+      ? preStartRightSlotForSide(nextSide, currentLayout)
+      : 1;
     let serverId = findUidAtCurrentSlot(nextSide, preferredSlot);
     if (!serverId) {
       serverId = firstPlayerIdOfSide(match, nextSide, eventType);
@@ -769,19 +850,21 @@ export default function RefereeScoreDialog({
     await runProtectedBusy("toggle-serve-side", () =>
       api.setServe({
         side: nextSide,
-        server: nextServer,
+        server: 1,
         serverId: serverId || null,
+        opening,
       }),
     );
   }, [
     activeSide,
     api,
-    currentLayout.left,
+    currentLayout,
     ensureInteractionAllowed,
     eventType,
     findUidAtCurrentSlot,
+    isDouble,
+    isPreStartOrOpening,
     match,
-    needsStartAction,
     runProtectedBusy,
   ]);
 
@@ -789,7 +872,9 @@ export default function RefereeScoreDialog({
     if (!ensureInteractionAllowed()) return;
     const nextLayout = Math.random() > 0.5 ? { left: "A", right: "B" } : { left: "B", right: "A" };
     const nextSide = Math.random() > 0.5 ? "A" : "B";
-    const preferredSlot = nextLayout.left === nextSide ? 2 : 1;
+    const preferredSlot = isDouble
+      ? preStartRightSlotForSide(nextSide, nextLayout)
+      : 1;
     const serverId =
       findUidAtCurrentSlot(nextSide, preferredSlot, currentBase, { a: 0, b: 0 }) ||
       firstPlayerIdOfSide(match, nextSide, eventType) ||
@@ -801,12 +886,22 @@ export default function RefereeScoreDialog({
         layout: nextLayout,
         serve: {
           side: nextSide,
-          server: 2,
+          server: 1,
           serverId,
+          opening: isDouble,
         },
       }),
     );
-  }, [api, currentBase, ensureInteractionAllowed, eventType, findUidAtCurrentSlot, match, runProtectedBusy]);
+  }, [
+    api,
+    currentBase,
+    ensureInteractionAllowed,
+    eventType,
+    findUidAtCurrentSlot,
+    isDouble,
+    match,
+    runProtectedBusy,
+  ]);
 
   const handleBreak = useCallback(
     async (type, side) => {
@@ -1836,7 +1931,14 @@ export default function RefereeScoreDialog({
                           variant="outlined"
                           onClick={() =>
                             runProtectedBusy(item, () =>
-                              api.setServe({ side, server: Number(server) }),
+                              api.setServe({
+                                side,
+                                server: Number(server),
+                                opening:
+                                  Number(server) === 1 &&
+                                  isDouble &&
+                                  isPreStartOrOpening,
+                              }),
                             )
                           }
                           disabled={!match?._id || Boolean(busy)}
