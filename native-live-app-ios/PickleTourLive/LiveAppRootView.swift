@@ -241,6 +241,20 @@ private struct LoginScreen: View {
                                 DetailLine(label: "Deep link", value: streamURLString)
                             }
 
+                            if let recoveryDialog = Optional<OperatorRecoveryDialogState>.none {
+                                DetailLine(label: "Stage", value: recoveryDialog.stage.label)
+                                DetailLine(label: "Severity", value: recoveryDialog.severity.label)
+                                DetailLine(label: "Attempt", value: "\(recoveryDialog.attempt)")
+                                DetailLine(label: "Budget", value: "\(recoveryDialog.budgetRemaining)")
+                                DetailLine(label: "Fail-soft", value: recoveryDialog.isFailSoftImminent ? "Sáº¯p chÆ¡m ngÆ°á»¡ng" : "ChÆ°a")
+                                if let lastFatal = recoveryDialog.lastFatalReason?.trimmedNilIfBlank {
+                                    DetailLine(label: "Last fatal", value: lastFatal)
+                                }
+                                if !recoveryDialog.activeMitigations.isEmpty {
+                                        DetailLine(label: "Mitigation", value: recoveryDialog.activeMitigations.joined(separator: " | "))
+                                }
+                            }
+
                             HStack(spacing: 10) {
                                 if let streamURLString {
                                     SecondaryActionButton(
@@ -1440,6 +1454,8 @@ private struct LiveStreamScreen: View {
                     DetailLine(label: "Pin", value: store.batteryStatusSummary)
                     DetailLine(label: "Nhiệt độ máy", value: store.thermalStateLabel)
                     DetailLine(label: "Low Power Mode", value: store.systemLowPowerModeEnabled ? "Đang bật" : "Đang tắt")
+                    DetailLine(label: "Queue local", value: formatStorageBytes(store.recordingPendingQueueBytes))
+                    DetailLine(label: "Runway recording", value: store.recordingEstimatedRunwayMinutes.map { "\($0) phút" } ?? "Chưa rõ")
                     DetailLine(label: "Overlay / branding", value: "\(store.overlayDataReady ? "OK" : "Thiếu") / \(store.brandingReady ? "OK" : "Thiếu")")
                 }
             }
@@ -1547,6 +1563,12 @@ private struct LiveStreamScreen: View {
                         accent: store.recordingPendingUploads > 0 ? LivePalette.warning : LivePalette.success
                     )
                     MetricTile(
+                        title: "Queue local",
+                        value: formatStorageBytes(store.recordingPendingQueueBytes),
+                        subtitle: "Dung lượng segment chưa tải xong",
+                        accent: store.recordingPendingQueueBytes > 0 ? LivePalette.warning : LivePalette.success
+                    )
+                    MetricTile(
                         title: "Segments",
                         value: "\(store.recordingSegmentCount)",
                         subtitle: store.recordingSnapshot?.status?.trimmedNilIfBlank ?? "Chưa mở phiên",
@@ -1564,14 +1586,20 @@ private struct LiveStreamScreen: View {
                         subtitle: "Ngưỡng tối thiểu \(formatStorageBytes(store.minimumRecordingStorageBytes))",
                         accent: store.recordingStorageHardBlock ? LivePalette.danger : (store.recordingStorageWarning ? LivePalette.warning : LivePalette.success)
                     )
+                    MetricTile(
+                        title: "Runway ước tính",
+                        value: store.recordingEstimatedRunwayMinutes.map { "\($0) phút" } ?? "Chưa rõ",
+                        subtitle: store.recordingStorageStrategyLabel,
+                        accent: store.recordingStorageRedWarning ? LivePalette.warning : LivePalette.cardMuted
+                    )
                 }
 
-                if store.recordingStorageHardBlock || store.recordingStorageWarning {
+                if let storageMessage = store.recordingStorageStatusMessage {
                     InlineInfoCard(
-                        title: store.recordingStorageHardBlock ? "Bộ nhớ đang chặn recording" : "Bộ nhớ đang thấp cho recording",
-                        message: store.recordingStorageHardBlock
-                            ? "Nên giải phóng thêm dung lượng trước khi vào mode có recording."
-                            : "App vẫn có thể ghi, nhưng nên dọn bớt máy để tránh lỗi ở phiên dài.",
+                        title: store.recordingStorageHardBlock
+                            ? "Bộ nhớ đang chặn recording"
+                            : (store.recordingStorageRedWarning ? "Bộ nhớ đang thấp hơn mức chạy chuẩn" : "Bộ nhớ đang thấp cho recording"),
+                        message: storageMessage,
                         tint: store.recordingStorageHardBlock ? LivePalette.danger : LivePalette.warning
                     )
                 }
@@ -1584,7 +1612,20 @@ private struct LiveStreamScreen: View {
                         DetailLine(label: "Match ID", value: store.recordingSnapshot?.matchId?.trimmedNilIfBlank ?? store.activeMatch?.id ?? "Chưa có")
                         DetailLine(label: "Storage total", value: formatStorageBytes(store.totalStorageBytes))
                         DetailLine(label: "Storage free", value: formatStorageBytes(store.availableStorageBytes))
-                        DetailLine(label: "Min / rec", value: "\(formatStorageBytes(store.minimumRecordingStorageBytes)) / \(formatStorageBytes(store.recommendedRecordingStorageBytes))")
+                        DetailLine(label: "Queue local", value: formatStorageBytes(store.recordingPendingQueueBytes))
+                        DetailLine(label: "Runway", value: store.recordingEstimatedRunwayMinutes.map { "\($0) phút" } ?? "Chưa rõ")
+                        DetailLine(label: "Segment strategy", value: store.recordingStorageStrategyLabel)
+                        DetailLine(label: "Minimum / standard / recommended", value: "\(formatStorageBytes(store.minimumRecordingStorageBytes)) / \(formatStorageBytes(store.standardRecordingStorageBytes)) / \(formatStorageBytes(store.recommendedRecordingStorageBytes))")
+
+                        if store.recordingMinimumAdditionalBytesNeeded > 0 {
+                            DetailLine(label: "Đang thiếu tối thiểu", value: formatStorageBytes(store.recordingMinimumAdditionalBytesNeeded))
+                        } else if store.recordingStandardAdditionalBytesNeeded > 0 {
+                            DetailLine(label: "Cần thêm để về mức chuẩn", value: formatStorageBytes(store.recordingStandardAdditionalBytesNeeded))
+                        } else if store.recordingRecommendedAdditionalBytesNeeded > 0 {
+                            DetailLine(label: "Cần thêm để đạt mức khuyến nghị", value: formatStorageBytes(store.recordingRecommendedAdditionalBytesNeeded))
+                        } else {
+                            DetailLine(label: "Bộ nhớ ghi hình", value: "Đủ để bắt đầu")
+                        }
 
                         if let playback = store.recordingPlaybackURLString?.trimmedNilIfBlank {
                             HStack(spacing: 10) {
@@ -1693,6 +1734,14 @@ private struct LiveStreamScreen: View {
                     ) {
                         store.clearDiagnostics()
                     }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    DetailLine(label: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "Chưa có")
+                    DetailLine(label: "App build", value: buildVersionText)
+                    DetailLine(label: "Mode / quality", value: "\(store.liveMode.title) / \(store.selectedQuality.title)")
+                    DetailLine(label: "Court / match", value: "\(store.currentCourtIdentifier ?? "-") / \(store.activeMatch?.id ?? "-")")
+                    DetailLine(label: "Socket room", value: store.activeSocketMatchId?.trimmedNilIfBlank ?? "Chưa join")
                 }
 
                 DisclosureGroup(isExpanded: $diagnosticsExpanded) {
@@ -1914,9 +1963,30 @@ private struct LiveStreamScreen: View {
         return String(format: "Preview lease %02d:%02d", minutes, seconds)
     }
 
+    private var buildVersionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        return "\(version) (\(build))"
+    }
+
     private var warningItems: [String] {
         let _ = now
         var items: [String] = []
+        if store.freshEntryRequired {
+            items.append("Cần xác nhận lại context foreground")
+        }
+        if store.recoveryState.isActive {
+            items.append("Recovery: \(store.recoveryState.stage.label)")
+        }
+        if let lastIssue = store.overlayHealth.lastIssue?.trimmedNilIfBlank {
+            items.append("Overlay issue: \(lastIssue)")
+        }
+        if let memoryPressure = store.latestMemoryPressureSummary {
+            items.append(memoryPressure)
+        }
+        if let safetyDegradeReason = store.safetyDegradeReason?.trimmedNilIfBlank {
+            items.append("Safety mode: \(safetyDegradeReason)")
+        }
         if !store.networkConnected {
             items.append("Thiết bị đang offline")
         }
@@ -1940,13 +2010,27 @@ private struct LiveStreamScreen: View {
         if store.socketPayloadStale {
             items.append("Payload overlay đang stale")
         }
+        if store.socketRoomMismatch {
+            items.append("Socket đang chờ room match mới")
+        }
         if store.previewLeaseWarning, let leaseText = previewLeaseText {
             items.append("\(leaseText) sắp hết")
         }
+        if let lastIssue = store.overlayHealth.lastIssue?.trimmedNilIfBlank {
+            items.append("Overlay đang cần tự-heal: \(lastIssue).")
+        }
         if store.recordingStorageHardBlock {
             items.append("Bộ nhớ quá thấp cho recording")
+        } else if store.recordingStorageRedWarning {
+            items.append("Bộ nhớ đang thấp hơn mức chạy chuẩn")
         } else if store.recordingStorageWarning {
             items.append("Bộ nhớ còn thấp cho recording")
+        }
+        if store.recordingPendingQueueBytes > 0 {
+            items.append("Queue local \(formatStorageBytes(store.recordingPendingQueueBytes))")
+        }
+        if store.recordingPendingFinalizations > 0 {
+            items.append("Còn \(store.recordingPendingFinalizations) recording chờ finalize")
         }
         if !store.overlayDataReady && store.activeMatch != nil {
             items.append("Overlay chưa có snapshot mới")
@@ -1972,17 +2056,29 @@ private struct LiveStreamScreen: View {
 
     private var signalIssueCount: Int {
         var issues = 0
+        if store.freshEntryRequired { issues += 1 }
         if !store.networkConnected { issues += 1 }
         if !store.socketConnected || store.socketPayloadStale { issues += 1 }
+        if store.socketRoomMismatch { issues += 1 }
         if !store.overlayDataReady && store.activeMatch != nil { issues += 1 }
         if !store.brandingReady && store.activeMatch != nil { issues += 1 }
+        if store.overlayHealth.lastIssue?.trimmedNilIfBlank != nil { issues += 1 }
+        if store.recoveryState.isActive { issues += 1 }
         if !store.previewReady { issues += 1 }
         if store.batteryLowWarning { issues += 1 }
         if store.thermalWarning { issues += 1 }
+        if store.lastMemoryPressure != nil { issues += 1 }
+        if store.recordingStorageWarning { issues += 1 }
         return issues
     }
 
     private var overlaySignalStatusLabel: String {
+        if store.recoveryState.isActive {
+            return store.recoveryState.stage.label
+        }
+        if store.freshEntryRequired {
+            return "Chờ xác nhận"
+        }
         if store.thermalCritical {
             return "Quá nóng"
         }
@@ -1991,6 +2087,18 @@ private struct LiveStreamScreen: View {
         }
         if store.batteryLowWarning {
             return "Pin thấp"
+        }
+        if store.recordingStorageHardBlock {
+            return "Thiếu bộ nhớ"
+        }
+        if store.socketRoomMismatch {
+            return "Sai room"
+        }
+        if store.overlayHealth.lastIssue?.trimmedNilIfBlank != nil {
+            return "Overlay lỗi"
+        }
+        if store.recordingStorageRedWarning {
+            return "Bộ nhớ thấp"
         }
         if store.waitingForCourt || store.waitingForMatchLive || store.waitingForNextMatch {
             return "Đang chờ"
@@ -2008,19 +2116,31 @@ private struct LiveStreamScreen: View {
     }
 
     private var overlaySignalTint: Color {
+        if store.recoveryState.severity == .critical {
+            return LivePalette.danger
+        }
         if store.thermalCritical {
             return LivePalette.danger
         }
         if !store.networkConnected {
             return LivePalette.danger
         }
-        if !store.socketConnected || store.socketPayloadStale || !store.overlayDataReady || store.thermalWarning || store.batteryLowWarning {
+        if store.recordingStorageHardBlock {
+            return LivePalette.danger
+        }
+        if store.freshEntryRequired || !store.socketConnected || store.socketPayloadStale || store.socketRoomMismatch || !store.overlayDataReady || store.overlayHealth.lastIssue?.trimmedNilIfBlank != nil || store.thermalWarning || store.batteryLowWarning || store.recordingStorageWarning {
             return LivePalette.warning
         }
         return LivePalette.success
     }
 
     private var overlaySignalSummary: String {
+        if let dialog = store.operatorRecoveryDialog {
+            return dialog.detail
+        }
+        if store.freshEntryRequired {
+            return "App vừa quay lại foreground sau lúc đang giữ phiên hoặc đang armed. Hãy refresh context hoặc bấm start lại có chủ đích để tránh vào sai nhịp."
+        }
         if store.thermalCritical {
             return "Thiết bị đang quá nóng. Đây là trạng thái có thể làm encoder hoặc camera bị dừng đột ngột trên iPhone."
         }
@@ -2029,6 +2149,15 @@ private struct LiveStreamScreen: View {
         }
         if store.batteryLowWarning {
             return "Thiết bị đang pin thấp và không cắm sạc. Nên cấp nguồn trước khi tiếp tục phiên dài."
+        }
+        if store.socketRoomMismatch {
+            return "Socket đã nối nhưng vẫn chưa đứng đúng room của match hiện tại. Overlay có thể đang chờ room mới hoặc vừa đổi trận."
+        }
+        if store.recordingStorageHardBlock {
+            return "Bộ nhớ hiện tại không đủ để bắt đầu recording an toàn. App sẽ chặn phiên có ghi hình để tránh mất record."
+        }
+        if let storageMessage = store.recordingStorageStatusMessage, store.recordingStorageWarning {
+            return storageMessage
         }
         if store.waitingForCourt {
             return "App đang giữ preview theo sân và chờ runtime đẩy match mới trước khi nạp overlay."
@@ -2056,11 +2185,23 @@ private struct LiveStreamScreen: View {
 
     private var overlaySignalReasons: [String] {
         var reasons: [String] = []
+        if store.freshEntryRequired {
+            reasons.append("App vừa quay lại foreground và đang yêu cầu xác nhận lại context trước khi auto-start.")
+        }
+        if store.recoveryState.isActive {
+            reasons.append("Recovery đang ở stage \(store.recoveryState.stage.label.lowercased()) với budget còn lại \(store.recoveryState.budgetRemaining).")
+        }
+        if let lastIssue = store.overlayHealth.lastIssue?.trimmedNilIfBlank {
+            reasons.append("Overlay health báo lỗi: \(lastIssue).")
+        }
         if !store.overlayDataReady {
             reasons.append("Chưa có overlay snapshot mới cho match hiện tại.")
         }
         if !store.socketConnected {
             reasons.append("Socket overlay chưa kết nối hoặc chưa join room match.")
+        }
+        if store.socketRoomMismatch {
+            reasons.append("Socket đang ở room match \(store.activeSocketMatchId?.trimmedNilIfBlank ?? "khác") thay vì match hiện tại.")
         }
         if store.socketPayloadStale {
             reasons.append("Payload socket đã stale \(store.socketPayloadAgeSeconds ?? 0) giây.")
@@ -2076,6 +2217,15 @@ private struct LiveStreamScreen: View {
         }
         if store.systemLowPowerModeEnabled {
             reasons.append("iOS đang bật Low Power Mode, dư địa hiệu năng encode có thể thấp hơn.")
+        }
+        if let memoryPressure = store.latestMemoryPressureSummary {
+            reasons.append(memoryPressure)
+        }
+        if let storageMessage = store.recordingStorageStatusMessage {
+            reasons.append(storageMessage)
+        }
+        if store.recordingPendingFinalizations > 0 {
+            reasons.append("Còn \(store.recordingPendingFinalizations) recording đang chờ finalize.")
         }
         if let pendingNextMatchId = store.pendingNextMatchId {
             reasons.append("Match kế tiếp đang chờ chuyển context: \(pendingNextMatchId).")
@@ -2130,20 +2280,35 @@ private struct LiveStreamScreen: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(LivePalette.textSecondary)
 
-                            HStack(spacing: 10) {
-                                SecondaryActionButton(
-                                    title: "Retry preview",
-                                    systemImage: "arrow.triangle.2.circlepath.camera"
-                                ) {
-                                    store.retryPreviewPipeline()
+                            VStack(alignment: .leading, spacing: 10) {
+                                if let recoveryDialog = store.operatorRecoveryDialog {
+                                    DetailLine(label: "Stage", value: recoveryDialog.stage.label)
+                                    DetailLine(label: "Severity", value: recoveryDialog.severity.label)
+                                    DetailLine(label: "Attempt", value: "\(recoveryDialog.attempt)")
+                                    DetailLine(label: "Budget", value: "\(recoveryDialog.budgetRemaining)")
+                                    DetailLine(label: "Fail-soft", value: recoveryDialog.isFailSoftImminent ? "Near limit" : "No")
+                                    if let lastFatal = recoveryDialog.lastFatalReason?.trimmedNilIfBlank {
+                                        DetailLine(label: "Last fatal", value: lastFatal)
+                                    }
+                                    if !recoveryDialog.activeMitigations.isEmpty {
+                                        DetailLine(label: "Mitigation", value: recoveryDialog.activeMitigations.joined(separator: " | "))
+                                    }
                                 }
 
-                                SecondaryActionButton(
-                                    title: "Retry session",
-                                    systemImage: "bolt.horizontal.circle"
-                                ) {
-                                    store.retryActiveSession()
-                                }
+                                HStack(spacing: 10) {
+                                    SecondaryActionButton(
+                                        title: "Retry preview",
+                                        systemImage: "arrow.triangle.2.circlepath.camera"
+                                    ) {
+                                        store.retryPreviewPipeline()
+                                    }
+
+                                    SecondaryActionButton(
+                                        title: "Retry session",
+                                        systemImage: "bolt.horizontal.circle"
+                                    ) {
+                                        store.retryActiveSession()
+                                    }
                             }
                         }
                     }
@@ -2220,10 +2385,17 @@ private struct LiveStreamScreen: View {
                             DetailLine(label: "App state", value: store.appIsActive ? "Foreground" : "Background")
                             DetailLine(label: "Socket", value: store.socketConnected ? "Connected" : "Offline")
                             DetailLine(label: "Payload age", value: store.socketPayloadAgeSeconds.map { "\($0) giây" } ?? "Chưa có")
+                            DetailLine(label: "Room mismatch", value: store.socketRoomMismatch ? "Có" : "Không")
                             DetailLine(label: "Preview ready", value: store.previewReady ? "Sẵn sàng" : "Chưa sẵn sàng")
                             DetailLine(label: "Court", value: store.currentCourtIdentifier ?? store.selectedCourt?.displayName ?? "Chưa có")
                             DetailLine(label: "Match", value: store.activeMatch?.id ?? store.launchTarget.matchId ?? "Chưa có")
                             DetailLine(label: "Room socket", value: store.activeSocketMatchId?.trimmedNilIfBlank ?? "Chưa join")
+                            DetailLine(label: "Lease ID", value: store.leaseId?.trimmedNilIfBlank ?? "None")
+                            DetailLine(label: "Lease heartbeat", value: "\(max(store.leaseHeartbeatIntervalMs / 1000, 5))s")
+                            DetailLine(label: "Recovery stage", value: store.recoveryState.isActive ? store.recoveryState.stage.label : "Stable")
+                            DetailLine(label: "Recovery severity", value: store.recoveryState.isActive ? store.recoveryState.severity.label : "None")
+                            DetailLine(label: "Overlay issue age", value: store.overlayIssueAgeSeconds.map { "\($0)s" } ?? "None")
+                            DetailLine(label: "Memory pressure", value: store.latestMemoryPressureSummary ?? "None")
                             DetailLine(label: "Pin", value: store.batteryStatusSummary)
                             DetailLine(label: "Nhiệt độ máy", value: store.thermalStateLabel)
                         }

@@ -531,85 +531,337 @@ final class LiveAppAuthCoordinator: NSObject {
 actor LiveRecordingUploadCoordinator {
     private let apiClient: LiveAPIClient
     private let urlSession: URLSession
+    private let fileManager: FileManager
     private let multipartThresholdBytes: Int64 = 8 * 1024 * 1024
     private let multipartChunkBytes: Int = 8 * 1024 * 1024
+    private let queueRootDirectory: URL
+    private let queueSegmentsDirectory: URL
+    private let manifestFileURL: URL
+    private var manifest: RecordingQueueManifest
+    private var inFlightSegmentIDs = Set<String>()
+    private var inFlightFinalizeIDs = Set<String>()
 
-    init(apiClient: LiveAPIClient, urlSession: URLSession = .shared) {
+    var onQueueSnapshotChange: (@MainActor @Sendable (RecordingQueueSnapshot) -> Void)?
+    var onRecordingUpdate: (@MainActor @Sendable (MatchRecording) -> Void)?
+    var onError: (@MainActor @Sendable (String) -> Void)?
+
+    init(apiClient: LiveAPIClient, urlSession: URLSession = .shared, fileManager: FileManager = .default) {
         self.apiClient = apiClient
         self.urlSession = urlSession
+        self.fileManager = fileManager
+
+        let rootDirectory = Self.resolveQueueRootDirectory(fileManager: fileManager)
+        let segmentsDirectory = rootDirectory.appendingPathComponent("segments", isDirectory: true)
+        let manifestFileURL = rootDirectory.appendingPathComponent("queue-manifest.json")
+
+        try? fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true, attributes: nil)
+        try? fileManager.createDirectory(at: segmentsDirectory, withIntermediateDirectories: true, attributes: nil)
+
+        self.queueRootDirectory = rootDirectory
+        self.queueSegmentsDirectory = segmentsDirectory
+        self.manifestFileURL = manifestFileURL
+        self.manifest = Self.loadManifest(from: manifestFileURL)
+    }
+
+    func setCallbacks(
+        onQueueSnapshotChange: (@MainActor @Sendable (RecordingQueueSnapshot) -> Void)?,
+        onRecordingUpdate: (@MainActor @Sendable (MatchRecording) -> Void)?,
+        onError: (@MainActor @Sendable (String) -> Void)?
+    ) {
+        self.onQueueSnapshotChange = onQueueSnapshotChange
+        self.onRecordingUpdate = onRecordingUpdate
+        self.onError = onError
+    }
+
+    func restorePersistedQueue() async -> RecordingQueueSnapshot {
+        manifest = Self.loadManifest(from: manifestFileURL)
+        manifest.pendingSegments = manifest.pendingSegments.filter { segment in
+            fileManager.fileExists(atPath: segment.filePath)
+        }
+        persistManifest()
+        publishSnapshot()
+        return queueSnapshot()
+    }
+
+    func queueSnapshot() -> RecordingQueueSnapshot {
+        RecordingQueueSnapshot(
+            pendingSegments: manifest.pendingSegments,
+            pendingFinalizations: manifest.pendingFinalizations,
+            pendingQueueBytes: manifest.pendingSegments.reduce(Int64(0)) { partial, segment in
+                partial + max(0, segment.sizeBytes - segment.uploadedBytes)
+            }
+        )
     }
 
     func uploadSegment(recordingId: String, fileURL: URL) async throws -> MatchRecordingResponse {
-        let size = try fileURL.fileSizeBytes()
-        if size >= multipartThresholdBytes {
-            return try await uploadMultipartSegment(recordingId: recordingId, fileURL: fileURL)
-        }
-        return try await uploadSinglePartSegment(recordingId: recordingId, fileURL: fileURL)
+        let pending = PendingRecordingSegment(
+            recordingId: recordingId,
+            matchId: "",
+            segmentIndex: Int(Self.nowMs() % 1_000_000),
+            filePath: fileURL.path,
+            fileName: fileURL.lastPathComponent,
+            durationSeconds: fileURL.mediaDurationSeconds(),
+            sizeBytes: try fileURL.fileSizeBytes(),
+            isFinal: false,
+            uploadMode: nil,
+            segmentId: nil,
+            uploadId: nil,
+            objectKey: nil,
+            uploadedBytes: 0,
+            parts: [],
+            lastError: nil,
+            createdAtMs: Self.nowMs()
+        )
+        return try await uploadPendingSegment(pending)
     }
 
-    func uploadSinglePartSegment(recordingId: String, fileURL: URL) async throws -> MatchRecordingResponse {
-        let fileName = fileURL.lastPathComponent
-        let size = try fileURL.fileSizeBytes()
-        let duration = fileURL.mediaDurationSeconds()
+    @discardableResult
+    func enqueueSegment(_ segment: LocalRecordingSegment) async throws -> RecordingQueueSnapshot {
+        let persistedURL = try persistSegmentFile(segment)
+        let size = try persistedURL.fileSizeBytes()
+
+        let pending = PendingRecordingSegment(
+            recordingId: segment.recordingId,
+            matchId: segment.matchId,
+            segmentIndex: segment.segmentIndex,
+            filePath: persistedURL.path,
+            fileName: persistedURL.lastPathComponent,
+            durationSeconds: segment.durationSeconds,
+            sizeBytes: size,
+            isFinal: segment.isFinal,
+            uploadMode: size >= multipartThresholdBytes ? "multipart" : "single",
+            segmentId: nil,
+            uploadId: nil,
+            objectKey: nil,
+            uploadedBytes: 0,
+            parts: [],
+            lastError: nil,
+            createdAtMs: Self.nowMs()
+        )
+
+        manifest.pendingSegments.removeAll { $0.id == pending.id }
+        manifest.pendingSegments.append(pending)
+
+        if segment.isFinal {
+            let finalize = PendingFinalizeRecording(recordingId: segment.recordingId, matchId: segment.matchId)
+            if !manifest.pendingFinalizations.contains(finalize) {
+                manifest.pendingFinalizations.append(finalize)
+            }
+        }
+
+        persistManifest()
+        publishSnapshot()
+        return queueSnapshot()
+    }
+
+    @discardableResult
+    func resumePendingUploads() async -> [MatchRecording] {
+        var updatedRecordings: [MatchRecording] = []
+
+        while let nextSegment = nextPendingSegment() {
+            if Task.isCancelled { break }
+            guard !inFlightSegmentIDs.contains(nextSegment.id) else { break }
+
+            inFlightSegmentIDs.insert(nextSegment.id)
+            do {
+                let response = try await uploadPendingSegment(nextSegment)
+                if let recording = response.recording {
+                    updatedRecordings.append(recording)
+                    publishRecordingUpdate(recording)
+                }
+                inFlightSegmentIDs.remove(nextSegment.id)
+                removePendingSegment(nextSegment.id)
+            } catch {
+                inFlightSegmentIDs.remove(nextSegment.id)
+                markSegmentError(nextSegment.id, message: error.localizedDescription)
+                publishError(error.localizedDescription)
+                break
+            }
+        }
+
+        let finalizations = manifest.pendingFinalizations
+        for finalize in finalizations {
+            if Task.isCancelled { break }
+            guard !manifest.pendingSegments.contains(where: { $0.recordingId == finalize.recordingId }) else {
+                continue
+            }
+            guard !inFlightFinalizeIDs.contains(finalize.id) else { continue }
+
+            inFlightFinalizeIDs.insert(finalize.id)
+            do {
+                if let recording = try await finalizeRecordingIfPossible(finalize) {
+                    updatedRecordings.append(recording)
+                    publishRecordingUpdate(recording)
+                }
+                inFlightFinalizeIDs.remove(finalize.id)
+                removePendingFinalize(finalize.id)
+            } catch {
+                inFlightFinalizeIDs.remove(finalize.id)
+                publishError(error.localizedDescription)
+            }
+        }
+
+        publishSnapshot()
+        return updatedRecordings
+    }
+
+    func finalizeWhenReady(recordingId: String, matchId: String) async throws -> MatchRecording? {
+        let finalize = PendingFinalizeRecording(recordingId: recordingId, matchId: matchId)
+        if !manifest.pendingFinalizations.contains(finalize) {
+            manifest.pendingFinalizations.append(finalize)
+            persistManifest()
+            publishSnapshot()
+        }
+
+        guard !manifest.pendingSegments.contains(where: { $0.recordingId == recordingId }) else {
+            return nil
+        }
+
+        let recording = try await finalizeRecordingIfPossible(finalize)
+        removePendingFinalize(finalize.id)
+        if let recording {
+            publishRecordingUpdate(recording)
+        }
+        publishSnapshot()
+        return recording
+    }
+
+    func clearCompletedArtifacts() async {
+        let referencedPaths = Set(manifest.pendingSegments.map(\.filePath))
+        let persistedFiles = (try? fileManager.subpathsOfDirectory(atPath: queueSegmentsDirectory.path)) ?? []
+        for relativePath in persistedFiles {
+            let fileURL = queueSegmentsDirectory.appendingPathComponent(relativePath)
+            if fileManager.directoryExists(at: fileURL) { continue }
+            if !referencedPaths.contains(fileURL.path) {
+                try? fileManager.removeItem(at: fileURL)
+            }
+        }
+    }
+
+    private func uploadPendingSegment(_ segment: PendingRecordingSegment) async throws -> MatchRecordingResponse {
+        if segment.uploadMode == "multipart" || segment.sizeBytes >= multipartThresholdBytes {
+            return try await uploadMultipartSegment(segment)
+        }
+        return try await uploadSinglePartSegment(segment)
+    }
+
+    private func uploadSinglePartSegment(_ segment: PendingRecordingSegment) async throws -> MatchRecordingResponse {
+        if let segmentId = segment.segmentId?.trimmedNilIfBlank {
+            do {
+                return try await apiClient.completeSegment(
+                    RecordingSegmentCompleteRequest(
+                        recordingId: segment.recordingId,
+                        segmentId: segmentId,
+                        bytes: segment.sizeBytes,
+                        durationSeconds: segment.durationSeconds
+                    )
+                )
+            } catch {
+                updatePendingSegment(segment.id) { current in
+                    current.segmentId = nil
+                    current.objectKey = nil
+                    current.uploadedBytes = 0
+                    current.lastError = "Complete lại thất bại, app sẽ presign lại."
+                }
+            }
+        }
+
         let presign = try await apiClient.presignSegment(
             RecordingSegmentPresignRequest(
-                recordingId: recordingId,
-                fileName: fileName,
+                recordingId: segment.recordingId,
+                fileName: segment.fileName,
                 contentType: "video/mp4",
-                durationSeconds: duration,
-                bytes: size
+                durationSeconds: segment.durationSeconds,
+                bytes: segment.sizeBytes
             )
         )
 
-        guard let uploadURLString = presign.uploadURL, let uploadURL = URL(string: uploadURLString), let segmentId = presign.segmentId else {
+        guard
+            let uploadURLString = presign.uploadURL?.trimmedNilIfBlank,
+            let uploadURL = URL(string: uploadURLString),
+            let segmentId = presign.segmentId?.trimmedNilIfBlank
+        else {
             throw LiveAPIError.missingUploadTarget
+        }
+
+        updatePendingSegment(segment.id) { current in
+            current.segmentId = segmentId
+            current.objectKey = presign.objectKey?.trimmedNilIfBlank
+            current.uploadMode = "single"
+            current.lastError = nil
         }
 
         var request = URLRequest(url: uploadURL)
         request.httpMethod = "PUT"
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
-        _ = try await urlSession.upload(for: request, fromFile: fileURL)
+        _ = try await urlSession.upload(for: request, fromFile: segment.fileURL)
 
         let response = try await apiClient.completeSegment(
             RecordingSegmentCompleteRequest(
-                recordingId: recordingId,
+                recordingId: segment.recordingId,
                 segmentId: segmentId,
-                bytes: size,
-                durationSeconds: duration
+                bytes: segment.sizeBytes,
+                durationSeconds: segment.durationSeconds
             )
         )
-        try? FileManager.default.removeItem(at: fileURL)
         return response
     }
 
-    private func uploadMultipartSegment(recordingId: String, fileURL: URL) async throws -> MatchRecordingResponse {
-        let fileName = fileURL.lastPathComponent
-        let size = try fileURL.fileSizeBytes()
-        let duration = fileURL.mediaDurationSeconds()
-        let started = try await apiClient.startMultipartSegment(
-            RecordingMultipartStartRequest(
-                recordingId: recordingId,
-                fileName: fileName,
-                contentType: "video/mp4",
-                bytes: size
+    private func uploadMultipartSegment(_ segment: PendingRecordingSegment) async throws -> MatchRecordingResponse {
+        var working = segment
+        if working.segmentId?.trimmedNilIfBlank == nil || working.uploadId?.trimmedNilIfBlank == nil {
+            let started = try await apiClient.startMultipartSegment(
+                RecordingMultipartStartRequest(
+                    recordingId: working.recordingId,
+                    fileName: working.fileName,
+                    contentType: "video/mp4",
+                    bytes: working.sizeBytes
+                )
             )
-        )
+
+            guard
+                let segmentId = started.segmentId?.trimmedNilIfBlank,
+                let uploadId = started.uploadId?.trimmedNilIfBlank
+            else {
+                throw LiveAPIError.missingUploadTarget
+            }
+
+            updatePendingSegment(working.id) { current in
+                current.segmentId = segmentId
+                current.uploadId = uploadId
+                current.objectKey = started.objectKey?.trimmedNilIfBlank
+                current.uploadMode = "multipart"
+                current.parts = []
+                current.uploadedBytes = 0
+                current.lastError = nil
+            }
+
+            working = manifest.pendingSegments.first(where: { $0.id == segment.id }) ?? working
+        }
 
         guard
-            let segmentId = started.segmentId?.trimmedNilIfBlank,
-            let uploadId = started.uploadId?.trimmedNilIfBlank
+            let segmentId = working.segmentId?.trimmedNilIfBlank,
+            let uploadId = working.uploadId?.trimmedNilIfBlank
         else {
             throw LiveAPIError.missingUploadTarget
         }
 
-        let handle = try FileHandle(forReadingFrom: fileURL)
+        let handle = try FileHandle(forReadingFrom: working.fileURL)
         defer {
             try? handle.close()
         }
 
-        var parts: [RecordingMultipartPartETag] = []
-        var uploadedBytes: Int64 = 0
-        var partNumber = 1
+        let completedParts = working.parts.sorted { $0.partNumber < $1.partNumber }
+        let completedPartCount = completedParts.count
+
+        if completedPartCount > 0 {
+            let offset = UInt64(completedPartCount * multipartChunkBytes)
+            try handle.seek(toOffset: offset)
+        }
+
+        var parts = completedParts
+        var uploadedBytes = working.uploadedBytes
+        var partNumber = completedPartCount + 1
 
         while true {
             let chunk = try handle.read(upToCount: multipartChunkBytes) ?? Data()
@@ -619,14 +871,14 @@ actor LiveRecordingUploadCoordinator {
 
             let uploadPart = try await apiClient.getMultipartPartURL(
                 RecordingMultipartPartURLRequest(
-                    recordingId: recordingId,
+                    recordingId: working.recordingId,
                     segmentId: segmentId,
                     uploadId: uploadId,
                     partNumber: partNumber
                 )
             )
 
-            guard let uploadURLString = uploadPart.uploadURL, let uploadURL = URL(string: uploadURLString) else {
+            guard let uploadURLString = uploadPart.uploadURL?.trimmedNilIfBlank, let uploadURL = URL(string: uploadURLString) else {
                 throw LiveAPIError.missingUploadTarget
             }
 
@@ -652,27 +904,159 @@ actor LiveRecordingUploadCoordinator {
 
             _ = try? await apiClient.reportMultipartProgress(
                 RecordingMultipartProgressRequest(
-                    recordingId: recordingId,
+                    recordingId: working.recordingId,
                     segmentId: segmentId,
                     uploadedBytes: uploadedBytes
                 )
             )
+
+            updatePendingSegment(working.id) { current in
+                current.parts = parts.sorted { $0.partNumber < $1.partNumber }
+                current.uploadedBytes = uploadedBytes
+                current.lastError = nil
+            }
 
             partNumber += 1
         }
 
         let response = try await apiClient.completeMultipartSegment(
             RecordingMultipartCompleteRequest(
-                recordingId: recordingId,
+                recordingId: working.recordingId,
                 segmentId: segmentId,
                 uploadId: uploadId,
-                parts: parts,
-                bytes: size,
-                durationSeconds: duration
+                parts: parts.sorted { $0.partNumber < $1.partNumber },
+                bytes: working.sizeBytes,
+                durationSeconds: working.durationSeconds
             )
         )
-        try? FileManager.default.removeItem(at: fileURL)
         return response
+    }
+
+    private func finalizeRecordingIfPossible(_ finalize: PendingFinalizeRecording) async throws -> MatchRecording? {
+        guard !manifest.pendingSegments.contains(where: { $0.recordingId == finalize.recordingId }) else {
+            return nil
+        }
+
+        let response = try await apiClient.finalizeRecording(recordingId: finalize.recordingId)
+        return response.recording
+    }
+
+    private func nextPendingSegment() -> PendingRecordingSegment? {
+        manifest.pendingSegments
+            .sorted {
+                if $0.createdAtMs == $1.createdAtMs {
+                    return $0.segmentIndex < $1.segmentIndex
+                }
+                return $0.createdAtMs < $1.createdAtMs
+            }
+            .first
+    }
+
+    private func removePendingSegment(_ id: String) {
+        guard let segment = manifest.pendingSegments.first(where: { $0.id == id }) else { return }
+        manifest.pendingSegments.removeAll { $0.id == id }
+        try? fileManager.removeItem(at: segment.fileURL)
+        persistManifest()
+        publishSnapshot()
+    }
+
+    private func removePendingFinalize(_ id: String) {
+        manifest.pendingFinalizations.removeAll { $0.id == id }
+        persistManifest()
+        publishSnapshot()
+    }
+
+    private func markSegmentError(_ id: String, message: String) {
+        updatePendingSegment(id) { current in
+            current.lastError = message
+        }
+    }
+
+    private func updatePendingSegment(_ id: String, update: (inout PendingRecordingSegment) -> Void) {
+        guard let index = manifest.pendingSegments.firstIndex(where: { $0.id == id }) else { return }
+        var current = manifest.pendingSegments[index]
+        update(&current)
+        manifest.pendingSegments[index] = current
+        persistManifest()
+        publishSnapshot()
+    }
+
+    private func persistSegmentFile(_ segment: LocalRecordingSegment) throws -> URL {
+        let recordingDirectory = queueSegmentsDirectory.appendingPathComponent(segment.recordingId, isDirectory: true)
+        try fileManager.createDirectory(at: recordingDirectory, withIntermediateDirectories: true, attributes: nil)
+        let destinationURL = recordingDirectory.appendingPathComponent(segment.fileURL.lastPathComponent)
+
+        if destinationURL.path == segment.fileURL.path {
+            return destinationURL
+        }
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try? fileManager.removeItem(at: destinationURL)
+        }
+
+        do {
+            try fileManager.moveItem(at: segment.fileURL, to: destinationURL)
+        } catch {
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try? fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.copyItem(at: segment.fileURL, to: destinationURL)
+            try? fileManager.removeItem(at: segment.fileURL)
+        }
+
+        return destinationURL
+    }
+
+    private func persistManifest() {
+        do {
+            let data = try JSONEncoder.liveApp.encode(manifest)
+            try data.write(to: manifestFileURL, options: [.atomic])
+        } catch {
+            publishError("Không ghi được recording manifest: \(error.localizedDescription)")
+        }
+    }
+
+    private func publishSnapshot() {
+        let snapshot = queueSnapshot()
+        let callback = onQueueSnapshotChange
+        Task { @MainActor in
+            callback?(snapshot)
+        }
+    }
+
+    private func publishRecordingUpdate(_ recording: MatchRecording) {
+        let callback = onRecordingUpdate
+        Task { @MainActor in
+            callback?(recording)
+        }
+    }
+
+    private func publishError(_ message: String) {
+        let callback = onError
+        Task { @MainActor in
+            callback?(message)
+        }
+    }
+
+    private static func resolveQueueRootDirectory(fileManager: FileManager) -> URL {
+        if let url = try? fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {
+            return url.appendingPathComponent("PickleTourLiveRecordingQueue", isDirectory: true)
+        }
+        if let url = try? fileManager.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {
+            return url.appendingPathComponent("PickleTourLiveRecordingQueue", isDirectory: true)
+        }
+        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("PickleTourLiveRecordingQueue", isDirectory: true)
+    }
+
+    private static func loadManifest(from url: URL) -> RecordingQueueManifest {
+        guard let data = try? Data(contentsOf: url) else {
+            return RecordingQueueManifest()
+        }
+        return (try? JSONDecoder.liveApp.decode(RecordingQueueManifest.self, from: data)) ?? RecordingQueueManifest()
+    }
+
+    private static func nowMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 }
 
@@ -738,6 +1122,10 @@ final class LiveDeviceMonitor: ObservableObject {
     @Published private(set) var batteryState = UIDevice.current.batteryState
     @Published private(set) var lowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
     @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
+    @Published private(set) var lastThermalEvent: ThermalEvent?
+    @Published private(set) var thermalEvents: [ThermalEvent] = []
+    @Published private(set) var lastMemoryPressure: MemoryPressureEvent?
+    @Published private(set) var memoryPressureEvents: [MemoryPressureEvent] = []
 
     private let notificationCenter: NotificationCenter
     private var observers: [NSObjectProtocol] = []
@@ -783,7 +1171,18 @@ final class LiveDeviceMonitor: ObservableObject {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
+                self?.recordThermalEvent()
                 self?.refresh()
+            }
+        )
+
+        observers.append(
+            notificationCenter.addObserver(
+                forName: UIApplication.didReceiveMemoryWarningNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.recordMemoryPressure(level: 2, summary: "iOS vừa phát memory warning.")
             }
         )
     }
@@ -798,6 +1197,26 @@ final class LiveDeviceMonitor: ObservableObject {
         batteryState = UIDevice.current.batteryState
         lowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
         thermalState = ProcessInfo.processInfo.thermalState
+    }
+
+    private func recordThermalEvent() {
+        let event = ThermalEvent(
+            thermalStateRawValue: ProcessInfo.processInfo.thermalState.rawValue,
+            atMs: Int64(Date().timeIntervalSince1970 * 1000),
+            tempC: nil
+        )
+        lastThermalEvent = event
+        thermalEvents = Array(([event] + thermalEvents).prefix(6))
+    }
+
+    private func recordMemoryPressure(level: Int, summary: String) {
+        let event = MemoryPressureEvent(
+            level: level,
+            summary: summary,
+            atMs: Int64(Date().timeIntervalSince1970 * 1000)
+        )
+        lastMemoryPressure = event
+        memoryPressureEvents = Array(([event] + memoryPressureEvents).prefix(6))
     }
 }
 
@@ -846,5 +1265,13 @@ private extension URL {
         let asset = AVURLAsset(url: self)
         let seconds = CMTimeGetSeconds(asset.duration)
         return seconds.isFinite ? seconds : 0
+    }
+}
+
+private extension FileManager {
+    func directoryExists(at url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        let exists = fileExists(atPath: url.path, isDirectory: &isDirectory)
+        return exists && isDirectory.boolValue
     }
 }

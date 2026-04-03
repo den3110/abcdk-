@@ -30,6 +30,12 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var overlaySnapshot: LiveOverlaySnapshot?
     @Published private(set) var recordingStateText = "Chưa ghi hình"
     @Published private(set) var recordingPendingUploads = 0
+    @Published private(set) var recordingPendingQueueBytes: Int64 = 0
+    @Published private(set) var recordingPendingFinalizations = 0
+    @Published private(set) var recoveryState = StreamRecoveryState()
+    @Published private(set) var overlayHealth = OverlayHealth()
+    @Published private(set) var lastRecovery: RecoveryEvent?
+    @Published private(set) var operatorRecoveryDialog: OperatorRecoveryDialogState?
 
     @Published private(set) var waitingForCourt = false
     @Published private(set) var waitingForMatchLive = false
@@ -57,12 +63,20 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var batteryState: UIDevice.BatteryState = UIDevice.current.batteryState
     @Published private(set) var systemLowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
     @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
+    @Published private(set) var lastThermalEvent: ThermalEvent?
+    @Published private(set) var thermalEvents: [ThermalEvent] = []
+    @Published private(set) var lastMemoryPressure: MemoryPressureEvent?
+    @Published private(set) var memoryPressureEvents: [MemoryPressureEvent] = []
     @Published private(set) var appIsActive = true
     @Published private(set) var availableStorageBytes: Int64 = 0
     @Published private(set) var totalStorageBytes: Int64 = 0
     @Published private(set) var activeSocketMatchId: String?
     @Published private(set) var lastSocketPayloadAt: Date?
     @Published private(set) var streamState: StreamConnectionState = .idle
+    @Published private(set) var leaseId: String?
+    @Published private(set) var leaseHeartbeatIntervalMs = 10_000
+    @Published private(set) var freshEntryRequired = false
+    @Published private(set) var safetyDegradeReason: String?
 
     let streamingService = LiveStreamingService()
 
@@ -86,6 +100,24 @@ final class LiveAppStore: ObservableObject {
         session = environment.sessionStore.session
         bind()
         configureSockets()
+        Task {
+            await restoreRecordingQueue()
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.environment.recordingCoordinator.setCallbacks(
+                onQueueSnapshotChange: { [weak self] snapshot in
+                    self?.applyRecordingQueueSnapshot(snapshot)
+                },
+                onRecordingUpdate: { [weak self] recording in
+                    self?.activeRecording = recording
+                },
+                onError: { [weak self] message in
+                    self?.errorMessage = message
+                }
+            )
+        }
     }
 
     func bootstrapIfPossible() async {
@@ -165,6 +197,12 @@ final class LiveAppStore: ObservableObject {
         recordingFinalizeRequested = false
         recordingStateText = "Chưa ghi hình"
         recordingPendingUploads = 0
+        recordingPendingQueueBytes = 0
+        recordingPendingFinalizations = 0
+        recoveryState = StreamRecoveryState()
+        overlayHealth = OverlayHealth()
+        lastRecovery = nil
+        operatorRecoveryDialog = nil
         waitingForCourt = false
         waitingForMatchLive = false
         waitingForNextMatch = false
@@ -177,6 +215,10 @@ final class LiveAppStore: ObservableObject {
         goLiveArmed = false
         batterySaverEnabled = false
         orientationMode = .auto
+        leaseId = nil
+        leaseHeartbeatIntervalMs = 10_000
+        freshEntryRequired = false
+        safetyDegradeReason = nil
         LiveAppOrientationController.apply(.auto)
         bannerMessage = nil
         errorMessage = nil
@@ -221,6 +263,7 @@ final class LiveAppStore: ObservableObject {
 
     func continueFromSetup() async {
         errorMessage = nil
+        freshEntryRequired = false
         isWorking = true
         defer { isWorking = false }
 
@@ -301,6 +344,7 @@ final class LiveAppStore: ObservableObject {
             overlaySnapshot = enrichedSnapshot
             streamingService.overlaySnapshot = enrichedSnapshot
         }
+        updateOverlayHealthState()
     }
 
     func extendPreviewLease() async {
@@ -381,7 +425,11 @@ final class LiveAppStore: ObservableObject {
                 recordingStateText = recordingResponse.recording?.status ?? "Đã mở phiên recording"
 
                 if let recordingId = recordingResponse.recording?.id?.trimmedNilIfBlank {
-                    try await streamingService.startRecording(recordingId: recordingId, matchId: activeMatch.id)
+                    try await streamingService.startRecording(
+                        recordingId: recordingId,
+                        matchId: activeMatch.id,
+                        segmentDuration: TimeInterval(recordingSegmentDurationSeconds)
+                    )
                 } else {
                     throw LiveAPIError.server(statusCode: 0, message: "Server không trả recordingId hợp lệ.")
                 }
@@ -521,6 +569,7 @@ final class LiveAppStore: ObservableObject {
         cancelStopLiveCountdown()
         queuedCourtMatchId = nil
         orientationMode = .auto
+        safetyDegradeReason = nil
         LiveAppOrientationController.apply(.auto)
         route = .adminHome
     }
@@ -556,6 +605,43 @@ final class LiveAppStore: ObservableObject {
     func applyQuality(_ quality: LiveQualityPreset) {
         selectedQuality = quality
         streamingService.applyQuality(quality)
+    }
+
+    private func engageSafetyDegrade(reason: String) {
+        var changed = false
+
+        if selectedQuality != .stable720 {
+            selectedQuality = .stable720
+            streamingService.applyQuality(.stable720)
+            changed = true
+        }
+
+        if streamingService.stats.torchEnabled {
+            do {
+                try streamingService.setTorchEnabled(false)
+                changed = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+
+        if !batterySaverEnabled {
+            batterySaverEnabled = true
+            changed = true
+        }
+
+        if safetyDegradeReason?.trimmedNilIfBlank != reason.trimmedNilIfBlank {
+            safetyDegradeReason = reason
+            changed = true
+        }
+
+        if changed {
+            bannerMessage = "App đã tự hạ tải để giữ phiên ổn định."
+        }
+    }
+
+    var safetyDegradeActive: Bool {
+        safetyDegradeReason?.trimmedNilIfBlank != nil
     }
 
     var recordingSnapshot: MatchRecording? {
@@ -661,6 +747,12 @@ final class LiveAppStore: ObservableObject {
         return socketPayloadAgeSeconds >= 20
     }
 
+    var socketRoomMismatch: Bool {
+        guard let activeMatchId = activeMatch?.id.trimmedNilIfBlank else { return false }
+        guard let activeSocketMatchId = activeSocketMatchId?.trimmedNilIfBlank else { return false }
+        return activeSocketMatchId != activeMatchId
+    }
+
     var previewLeaseRemainingSeconds: Int? {
         guard let raw = courtPresence?.previewReleaseAt?.trimmedNilIfBlank else { return nil }
         guard let date = ISO8601DateFormatter.liveApp.date(from: raw) else { return nil }
@@ -677,24 +769,100 @@ final class LiveAppStore: ObservableObject {
         overlaySnapshot != nil
     }
 
+    private var recordingBytesPerSecondBudget: Int64 {
+        let rawBytesPerSecond = Double(selectedQuality.videoBitrate + 128_000) / 8.0
+        return Int64((rawBytesPerSecond * 1.25).rounded(.up))
+    }
+
+    private var recordingDefaultSegmentEstimateBytes: Int64 {
+        Int64((Double(recordingBytesPerSecondBudget) * 6.0).rounded(.up))
+    }
+
+    private var recordingStorageHeadroomBytes: Int64 {
+        256 * 1024 * 1024
+    }
+
+    private var recordingLowStorageHeadroomBytes: Int64 {
+        160 * 1024 * 1024
+    }
+
     var minimumRecordingStorageBytes: Int64 {
         guard liveMode.includesRecording else { return 0 }
-        let bitrateFloor = Int64(selectedQuality.videoBitrate + 128_000) / 8
-        return max(bitrateFloor * 120, 900_000_000)
+        return max(
+            512 * 1024 * 1024,
+            recordingPendingQueueBytes + (recordingDefaultSegmentEstimateBytes * 4) + recordingLowStorageHeadroomBytes
+        )
+    }
+
+    var standardRecordingStorageBytes: Int64 {
+        guard liveMode.includesRecording else { return 0 }
+        return max(
+            768 * 1024 * 1024,
+            recordingPendingQueueBytes + (recordingDefaultSegmentEstimateBytes * 8) + recordingStorageHeadroomBytes
+        )
     }
 
     var recommendedRecordingStorageBytes: Int64 {
         guard liveMode.includesRecording else { return 0 }
-        let bitrateFloor = Int64(selectedQuality.videoBitrate + 128_000) / 8
-        return max(bitrateFloor * 600, 2_500_000_000)
+        return recordingPendingQueueBytes + (recordingDefaultSegmentEstimateBytes * 15) + recordingStorageHeadroomBytes
     }
 
     var recordingStorageHardBlock: Bool {
         liveMode.includesRecording && availableStorageBytes > 0 && availableStorageBytes < minimumRecordingStorageBytes
     }
 
+    var recordingStorageRedWarning: Bool {
+        liveMode.includesRecording
+            && availableStorageBytes > 0
+            && !recordingStorageHardBlock
+            && availableStorageBytes < standardRecordingStorageBytes
+    }
+
     var recordingStorageWarning: Bool {
-        liveMode.includesRecording && availableStorageBytes > 0 && availableStorageBytes < recommendedRecordingStorageBytes
+        liveMode.includesRecording
+            && availableStorageBytes > 0
+            && !recordingStorageHardBlock
+            && availableStorageBytes < recommendedRecordingStorageBytes
+    }
+
+    var recordingMinimumAdditionalBytesNeeded: Int64 {
+        max(minimumRecordingStorageBytes - availableStorageBytes, 0)
+    }
+
+    var recordingStandardAdditionalBytesNeeded: Int64 {
+        max(standardRecordingStorageBytes - availableStorageBytes, 0)
+    }
+
+    var recordingRecommendedAdditionalBytesNeeded: Int64 {
+        max(recommendedRecordingStorageBytes - availableStorageBytes, 0)
+    }
+
+    var recordingEstimatedRunwayMinutes: Int? {
+        guard liveMode.includesRecording else { return nil }
+        let runwayBytes = max(availableStorageBytes - recordingPendingQueueBytes - recordingStorageHeadroomBytes, 0)
+        let bytesPerMinute = max(recordingBytesPerSecondBudget * 60, 1)
+        return Int(runwayBytes / bytesPerMinute)
+    }
+
+    var recordingSegmentDurationSeconds: Int {
+        6
+    }
+
+    var recordingStorageStrategyLabel: String {
+        recordingStorageRedWarning ? "Căng bộ nhớ • segment \(recordingSegmentDurationSeconds)s" : "Chuẩn • segment \(recordingSegmentDurationSeconds)s"
+    }
+
+    var recordingStorageStatusMessage: String? {
+        if recordingStorageHardBlock {
+            return "Bộ nhớ không đủ để bắt đầu ghi hình an toàn. Hãy giải phóng thêm dung lượng rồi thử lại."
+        }
+        if recordingStorageRedWarning {
+            return "Bộ nhớ đang thấp hơn mức chạy chuẩn. App vẫn có thể ghi, nhưng nên giải phóng thêm dung lượng ngay."
+        }
+        if recordingStorageWarning {
+            return "Bộ nhớ đang thấp. Vẫn có thể ghi hình, nhưng nên dọn thêm máy để phiên dài ổn định hơn."
+        }
+        return nil
     }
 
     var brandingReady: Bool {
@@ -709,6 +877,15 @@ final class LiveAppStore: ObservableObject {
     }
 
     var recoverySummary: LiveRecoverySummary? {
+        if recoveryState.isActive {
+            return LiveRecoverySummary(
+                title: recoveryState.summary.isEmpty ? recoveryState.stage.label : recoveryState.summary,
+                detail: recoveryState.detail ?? recoveryState.summary,
+                canRetryPreview: recoveryState.stage == .overlayRebuild || recoveryState.stage == .cameraRebuild || recoveryState.stage == .pipelineRebuild,
+                canRetrySession: recoveryState.stage != .idle
+            )
+        }
+
         switch streamState {
         case let .reconnecting(message):
             return LiveRecoverySummary(
@@ -729,8 +906,27 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    var overlayIssueAgeSeconds: Int? {
+        guard overlayHealth.lastIssueAtMs > 0 else { return nil }
+        let ageMs = Int64(Date().timeIntervalSince1970 * 1000) - overlayHealth.lastIssueAtMs
+        return max(Int(ageMs / 1000), 0)
+    }
+
+    var latestThermalEventSummary: String? {
+        guard let event = lastThermalEvent else { return nil }
+        let ageSeconds = max(Int((Int64(Date().timeIntervalSince1970 * 1000) - event.atMs) / 1000), 0)
+        return "\(thermalStateLabel) • \(ageSeconds) giây trước"
+    }
+
+    var latestMemoryPressureSummary: String? {
+        guard let event = lastMemoryPressure else { return nil }
+        let ageSeconds = max(Int((Int64(Date().timeIntervalSince1970 * 1000) - event.atMs) / 1000), 0)
+        return "\(event.summary) • \(ageSeconds) giây trước"
+    }
+
     func handlePrimaryAction() {
         refreshStorageMetrics()
+        freshEntryRequired = false
         let issues = computePreflightIssues()
         let hasBlocker = issues.contains { $0.severity == .blocker }
         let hasWarning = issues.contains { $0.severity == .warning }
@@ -751,6 +947,7 @@ final class LiveAppStore: ObservableObject {
 
     func proceedPreflight() {
         preflightIssues = []
+        freshEntryRequired = false
         Task {
             await beginPrimarySessionFlow()
         }
@@ -844,6 +1041,7 @@ final class LiveAppStore: ObservableObject {
         }
 
         if errorMessage == nil {
+            freshEntryRequired = false
             bannerMessage = "Đã làm mới court runtime và match context."
         }
     }
@@ -945,6 +1143,17 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        if freshEntryRequired {
+            issues.append(
+                LivePreflightIssue(
+                    id: "fresh_entry_required",
+                    severity: .warning,
+                    title: "Cần xác nhận lại context",
+                    detail: "App vừa rời foreground trong lúc đang giữ phiên hoặc đang armed. Hãy xác nhận lại rồi mới auto-start tiếp để tránh vào sai trạng thái."
+                )
+            )
+        }
+
         if !networkConnected {
             issues.append(
                 LivePreflightIssue(
@@ -964,7 +1173,7 @@ final class LiveAppStore: ObservableObject {
                     id: "storage_hard_block",
                     severity: .blocker,
                     title: "Bộ nhớ quá thấp để ghi hình",
-                    detail: "Dung lượng còn trống thấp hơn ngưỡng tối thiểu cho recording ở quality hiện tại."
+                    detail: recordingStorageStatusMessage ?? "Dung lượng còn trống thấp hơn ngưỡng tối thiểu cho recording ở quality hiện tại."
                 )
             )
         } else if recordingStorageWarning {
@@ -972,8 +1181,8 @@ final class LiveAppStore: ObservableObject {
                 LivePreflightIssue(
                     id: "storage_warning",
                     severity: .warning,
-                    title: "Bộ nhớ còn thấp cho recording",
-                    detail: "Vẫn có thể ghi hình, nhưng nên giải phóng thêm dung lượng để tránh hỏng phiên dài."
+                    title: recordingStorageRedWarning ? "Bộ nhớ đang thấp hơn mức chạy chuẩn" : "Bộ nhớ còn thấp cho recording",
+                    detail: recordingStorageStatusMessage ?? "Vẫn có thể ghi hình, nhưng nên giải phóng thêm dung lượng để tránh hỏng phiên dài."
                 )
             )
         }
@@ -1247,6 +1456,7 @@ final class LiveAppStore: ObservableObject {
 
     private func maybeAutoStartArmedSession() {
         guard appIsActive else { return }
+        guard !freshEntryRequired else { return }
         guard !isWorking else { return }
         guard goLiveCountdownTask == nil else { return }
         guard stopLiveCountdownTask == nil else { return }
@@ -1379,6 +1589,11 @@ final class LiveAppStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connected in
                 self?.networkConnected = connected
+                if connected {
+                    Task { [weak self] in
+                        await self?.resumeRecordingQueueIfPossible()
+                    }
+                }
             }
             .store(in: &cancellables)
 
@@ -1417,6 +1632,51 @@ final class LiveAppStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        environment.deviceMonitor.$lastThermalEvent
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self else { return }
+                self.lastThermalEvent = event
+                if let event {
+                    self.streamingService.noteThermalPressure(
+                        summary: "Thermal event mới ở trạng thái \(self.thermalStateLabel.lowercased()).",
+                        critical: self.thermalCritical
+                    )
+                    if self.thermalCritical {
+                        self.engageSafetyDegrade(reason: "Thiết bị quá nóng")
+                    } else if self.thermalWarning {
+                        self.engageSafetyDegrade(reason: "Thiết bị đang nóng")
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        environment.deviceMonitor.$thermalEvents
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] events in
+                self?.thermalEvents = events
+            }
+            .store(in: &cancellables)
+
+        environment.deviceMonitor.$lastMemoryPressure
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self else { return }
+                self.lastMemoryPressure = event
+                if let event {
+                    self.streamingService.noteMemoryPressure(summary: event.summary)
+                    self.engageSafetyDegrade(reason: event.summary)
+                }
+            }
+            .store(in: &cancellables)
+
+        environment.deviceMonitor.$memoryPressureEvents
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] events in
+                self?.memoryPressureEvents = events
+            }
+            .store(in: &cancellables)
+
         refreshStorageMetrics()
 
         NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
@@ -1430,6 +1690,13 @@ final class LiveAppStore: ObservableObject {
                     LiveAppOrientationController.apply(self.orientationMode)
                     if let courtId = self.currentCourtId?.trimmedNilIfBlank {
                         await self.refreshCourtRuntime(courtId: courtId)
+                        let presence = try? await self.environment.apiClient.heartbeatCourtPresence(
+                            courtId: courtId,
+                            clientSessionId: self.streamingService.clientSessionId,
+                            screenState: self.currentPresenceScreenState(),
+                            matchId: self.activeMatch?.id
+                        )
+                        self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
                     }
                     if self.activeMatch != nil {
                         await self.refreshOverlay()
@@ -1439,6 +1706,7 @@ final class LiveAppStore: ObservableObject {
                     if let matchId = self.activeMatch?.id.trimmedNilIfBlank {
                         self.environment.matchSocket.watch(matchId: matchId)
                     }
+                    await self.resumeRecordingQueueIfPossible()
                 }
             }
             .store(in: &cancellables)
@@ -1446,28 +1714,67 @@ final class LiveAppStore: ObservableObject {
         NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.appIsActive = false
+                guard let self else { return }
+                self.appIsActive = false
+                if self.hasPrimarySessionIntent {
+                    self.freshEntryRequired = true
+                    self.bannerMessage = "App vừa rời foreground. Auto-start sẽ bị giữ lại cho đến khi context được xác nhận lại."
+                }
             }
             .store(in: &cancellables)
 
         streamingService.$connectionState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                self?.streamState = state
+                guard let self else { return }
+                self.streamState = state
                 if case .live = state {
-                    if self?.liveStartedAt == nil {
-                        self?.liveStartedAt = Date()
+                    if self.liveStartedAt == nil {
+                        self.liveStartedAt = Date()
                     }
-                    self?.endingLive = false
+                    self.endingLive = false
+                    self.freshEntryRequired = false
                 }
+                if case .failed(let message) = state {
+                    self.errorMessage = message
+                }
+                if case .reconnecting(let detail) = state {
+                    self.streamingService.noteSocketSelfHeal(detail)
+                }
+                self.refreshOperatorRecoveryDialog()
             }
             .store(in: &cancellables)
 
         streamingService.$overlaySnapshot
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshot in
+                guard let self else { return }
                 guard let snapshot else { return }
-                self?.overlaySnapshot = snapshot
+                self.overlaySnapshot = snapshot
+                self.updateOverlayHealthState()
+            }
+            .store(in: &cancellables)
+
+        streamingService.$recoveryState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.recoveryState = state
+                self?.refreshOperatorRecoveryDialog()
+            }
+            .store(in: &cancellables)
+
+        streamingService.$overlayHealth
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.overlayHealth = state
+            }
+            .store(in: &cancellables)
+
+        streamingService.$lastRecovery
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                self?.lastRecovery = event
+                self?.refreshOperatorRecoveryDialog()
             }
             .store(in: &cancellables)
 
@@ -1533,12 +1840,14 @@ final class LiveAppStore: ObservableObject {
                 let enrichedSnapshot = self.enrichOverlaySnapshot(snapshot, match: self.activeMatch) ?? snapshot
                 self.overlaySnapshot = enrichedSnapshot
                 self.streamingService.overlaySnapshot = enrichedSnapshot
+                self.updateOverlayHealthState()
             }
         }
 
         environment.matchSocket.onConnectionChange = { [weak self] connected in
             Task { @MainActor in
                 self?.socketConnected = connected
+                self?.updateOverlayHealthState()
             }
         }
 
@@ -1556,12 +1865,14 @@ final class LiveAppStore: ObservableObject {
         environment.matchSocket.onActiveMatchChange = { [weak self] matchId in
             Task { @MainActor in
                 self?.activeSocketMatchId = matchId
+                self?.updateOverlayHealthState()
             }
         }
 
         environment.matchSocket.onPayloadTimestamp = { [weak self] date in
             Task { @MainActor in
                 self?.lastSocketPayloadAt = date
+                self?.updateOverlayHealthState()
             }
         }
 
@@ -1786,6 +2097,7 @@ final class LiveAppStore: ObservableObject {
         activeRecording = nil
         recordingFinalizeRequested = false
         recordingPendingUploads = 0
+        recordingPendingQueueBytes = 0
         goLiveCountdownSeconds = nil
         stopLiveCountdownSeconds = nil
         endingLive = false
@@ -1800,6 +2112,7 @@ final class LiveAppStore: ObservableObject {
             let runtime = try await environment.apiClient.getCourtRuntime(courtId: courtId)
             courtRuntime = runtime
             courtPresence = runtime.presence
+            leaseHeartbeatIntervalMs = max(runtime.leaseHints?.heartbeatIntervalMs ?? leaseHeartbeatIntervalMs, 5_000)
             let response = try? await environment.apiClient.startCourtPresence(
                 courtId: courtId,
                 clientSessionId: streamingService.clientSessionId,
@@ -1847,12 +2160,15 @@ final class LiveAppStore: ObservableObject {
                     self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
                 }
 
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                let intervalMs = max(self.leaseHeartbeatIntervalMs, 5_000)
+                try? await Task.sleep(nanoseconds: UInt64(intervalMs) * 1_000_000)
             }
         }
     }
 
     private func applyPresenceResponse(_ response: CourtPresenceResponse?, matchId: String?) {
+        leaseId = response?.leaseId?.trimmedNilIfBlank ?? leaseId
+        leaseHeartbeatIntervalMs = max(response?.heartbeatIntervalMs ?? courtRuntime?.leaseHints?.heartbeatIntervalMs ?? 10_000, 5_000)
         courtPresence = CourtLiveScreenPresence(
             occupied: response?.occupied,
             status: nil,
@@ -1865,8 +2181,7 @@ final class LiveAppStore: ObservableObject {
             previewReleaseAt: response?.previewReleaseAt,
             warningAt: nil,
             previewWarningMs: nil
-            )
-        }
+        )
     }
 
     private func handleRuntimeMatchCandidate(currentMatchId: String?, announcement: String?) {
@@ -1945,8 +2260,37 @@ final class LiveAppStore: ObservableObject {
     }
 
     private func enqueueRecordingUpload(_ segment: LocalRecordingSegment) async {
+        do {
+            let snapshot = try await environment.recordingCoordinator.enqueueSegment(segment)
+            applyRecordingQueueSnapshot(snapshot)
+            if segment.isFinal {
+                recordingFinalizeRequested = true
+            }
+
+            let updatedRecordings = await environment.recordingCoordinator.resumePendingUploads()
+            for recording in updatedRecordings {
+                if activeRecording?.id == nil || activeRecording?.id == recording.id {
+                    activeRecording = recording
+                }
+            }
+
+            let latestSnapshot = await environment.recordingCoordinator.queueSnapshot()
+            applyRecordingQueueSnapshot(latestSnapshot)
+            await maybeFinalizeRecordingIfReady(recordingId: segment.recordingId, matchId: segment.matchId)
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+            recordingStateText = "Upload recording lỗi"
+            return
+        }
+
         let recordingId = activeRecording?.id?.trimmedNilIfBlank ?? segment.recordingId
+        let segmentBytes: Int64 = {
+            let values = try? segment.fileURL.resourceValues(forKeys: [.fileSizeKey])
+            return Int64(values?.fileSize ?? 0)
+        }()
         recordingPendingUploads += 1
+        recordingPendingQueueBytes += max(segmentBytes, 0)
         if segment.isFinal {
             recordingFinalizeRequested = true
         }
@@ -1974,6 +2318,7 @@ final class LiveAppStore: ObservableObject {
                 guard let self else { return }
                 self.recordingUploadTasks.removeValue(forKey: taskId)
                 self.recordingPendingUploads = max(0, self.recordingPendingUploads - 1)
+                self.recordingPendingQueueBytes = max(0, self.recordingPendingQueueBytes - max(segmentBytes, 0))
 
                 if self.recordingPendingUploads > 0 {
                     self.recordingStateText = "Đang tải \(self.recordingPendingUploads) segment"
@@ -1992,7 +2337,34 @@ final class LiveAppStore: ObservableObject {
         recordingUploadTasks[taskId] = task
     }
 
-    private func maybeFinalizeRecordingIfReady() async {
+    private func maybeFinalizeRecordingIfReady(recordingId: String? = nil, matchId: String? = nil) async {
+        let requestedRecordingId = recordingId?.trimmedNilIfBlank ?? activeRecording?.id?.trimmedNilIfBlank
+        let requestedMatchId =
+            matchId?.trimmedNilIfBlank
+            ?? activeRecording?.matchId?.trimmedNilIfBlank
+            ?? activeMatch?.id.trimmedNilIfBlank
+
+        if (recordingFinalizeRequested || requestedRecordingId != nil),
+           recordingPendingUploads == 0,
+           let requestedRecordingId,
+           let requestedMatchId {
+            do {
+                if let recording = try await environment.recordingCoordinator.finalizeWhenReady(recordingId: requestedRecordingId, matchId: requestedMatchId) {
+                    activeRecording = recording
+                    recordingStateText = recording.status ?? "Đã chốt recording"
+                }
+                recordingFinalizeRequested = false
+                let snapshot = await environment.recordingCoordinator.queueSnapshot()
+                applyRecordingQueueSnapshot(snapshot)
+                return
+            } catch {
+                recordingFinalizeRequested = true
+                recordingStateText = "Chốt recording lỗi"
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+
         guard recordingFinalizeRequested else { return }
         guard recordingPendingUploads == 0 else { return }
         guard let recordingId = activeRecording?.id?.trimmedNilIfBlank else { return }
@@ -2012,6 +2384,86 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    private func restoreRecordingQueue() async {
+        let snapshot = await environment.recordingCoordinator.restorePersistedQueue()
+        applyRecordingQueueSnapshot(snapshot)
+        await resumeRecordingQueueIfPossible()
+    }
+
+    private func resumeRecordingQueueIfPossible() async {
+        guard session?.accessToken.trimmedNilIfBlank != nil else { return }
+        let updatedRecordings = await environment.recordingCoordinator.resumePendingUploads()
+        for recording in updatedRecordings {
+            if activeRecording?.id == nil || activeRecording?.id == recording.id {
+                activeRecording = recording
+            }
+        }
+        let snapshot = await environment.recordingCoordinator.queueSnapshot()
+        applyRecordingQueueSnapshot(snapshot)
+        await environment.recordingCoordinator.clearCompletedArtifacts()
+    }
+
+    private func applyRecordingQueueSnapshot(_ snapshot: RecordingQueueSnapshot) {
+        recordingPendingUploads = snapshot.pendingUploadCount
+        recordingPendingQueueBytes = snapshot.pendingQueueBytes
+        recordingPendingFinalizations = snapshot.pendingFinalizations.count
+
+        if recordingPendingUploads > 0 {
+            recordingStateText = "Đang tải \(recordingPendingUploads) segment"
+        } else if recordingPendingFinalizations > 0 || recordingFinalizeRequested {
+            recordingStateText = "Đang chốt recording"
+        } else if let status = activeRecording?.status?.trimmedNilIfBlank {
+            recordingStateText = status
+        } else if !streamingService.isRecordingLocally {
+            recordingStateText = "Chưa ghi hình"
+        }
+    }
+
+    private func updateOverlayHealthState() {
+        let snapshotFresh = overlaySnapshot != nil && (!socketConnected || !socketPayloadStale)
+        streamingService.noteOverlayInputs(
+            snapshotFresh: snapshotFresh,
+            roomMismatch: socketRoomMismatch,
+            brandingReady: brandingReady
+        )
+    }
+
+    private func refreshOperatorRecoveryDialog() {
+        guard recoveryState.isActive else {
+            operatorRecoveryDialog = nil
+            return
+        }
+
+        guard hasPrimarySessionIntent || streamState != .idle else {
+            operatorRecoveryDialog = nil
+            return
+        }
+
+        let detail = [
+            recoveryState.detail?.trimmedNilIfBlank ?? recoveryState.summary.trimmedNilIfBlank,
+            "Stage: \(recoveryState.stage.label)",
+            "Severity: \(recoveryState.severity.label)",
+            "Attempt: \(recoveryState.attempt)",
+            "Budget còn lại: \(recoveryState.budgetRemaining)",
+            recoveryState.lastFatalReason?.trimmedNilIfBlank.map { "Nguồn lỗi gần nhất: \($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
+
+        operatorRecoveryDialog = OperatorRecoveryDialogState(
+            title: recoveryState.severity == .critical ? "Live đang tự cứu ở mức nghiêm trọng" : "Live đang tự hồi phục",
+            summary: recoveryState.summary,
+            detail: detail,
+            severity: recoveryState.severity,
+            stage: recoveryState.stage,
+            attempt: recoveryState.attempt,
+            budgetRemaining: recoveryState.budgetRemaining,
+            activeMitigations: recoveryState.activeMitigations,
+            lastFatalReason: recoveryState.lastFatalReason,
+            isFailSoftImminent: recoveryState.isFailSoftImminent
+        )
+    }
+
     private func parseLaunchTarget(from url: URL) -> LiveLaunchTarget {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let items = components?.queryItems ?? []
@@ -2020,7 +2472,6 @@ final class LiveAppStore: ObservableObject {
             matchId: items.first(where: { $0.name == "matchId" })?.value?.trimmedNilIfBlank,
             pageId: items.first(where: { $0.name == "pageId" })?.value?.trimmedNilIfBlank
         )
-        }
     }
 
     private func applyLaunchTarget(_ target: LiveLaunchTarget) async {

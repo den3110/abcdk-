@@ -461,6 +461,7 @@ struct CourtPresenceRequest: Codable {
 
 struct CourtPresenceResponse: Codable, Equatable {
     var ok: Bool
+    var leaseId: String?
     var occupied: Bool?
     var screenState: String?
     var expiresAt: String?
@@ -917,6 +918,195 @@ struct LiveRecoverySummary: Equatable {
     let detail: String
     let canRetryPreview: Bool
     let canRetrySession: Bool
+}
+
+enum RecoveryStage: String, Codable, CaseIterable, Identifiable {
+    case idle
+    case socketSelfHeal = "socket_self_heal"
+    case degraded
+    case overlayRebuild = "overlay_rebuild"
+    case pipelineRebuild = "pipeline_rebuild"
+    case cameraRebuild = "camera_rebuild"
+    case failSoftGuard = "fail_soft_guard"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .idle:
+            return "Ổn định"
+        case .socketSelfHeal:
+            return "Tự nối lại"
+        case .degraded:
+            return "Giảm tải"
+        case .overlayRebuild:
+            return "Dựng lại overlay"
+        case .pipelineRebuild:
+            return "Dựng lại pipeline"
+        case .cameraRebuild:
+            return "Dựng lại camera"
+        case .failSoftGuard:
+            return "Ngưỡng cảnh báo"
+        }
+    }
+}
+
+enum RecoverySeverity: String, Codable, CaseIterable, Identifiable {
+    case info
+    case warning
+    case critical
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .info:
+            return "Thông tin"
+        case .warning:
+            return "Cảnh báo"
+        case .critical:
+            return "Nghiêm trọng"
+        }
+    }
+}
+
+struct RecoveryEvent: Codable, Equatable, Hashable, Identifiable {
+    var reason: String
+    var atMs: Int64
+
+    var id: String {
+        "\(atMs)-\(reason)"
+    }
+}
+
+struct StreamRecoveryState: Codable, Equatable {
+    var stage: RecoveryStage = .idle
+    var severity: RecoverySeverity = .info
+    var summary: String = ""
+    var detail: String?
+    var attempt: Int = 0
+    var budgetRemaining: Int = 0
+    var activeMitigations: [String] = []
+    var lastFatalReason: String?
+    var isFailSoftImminent: Bool = false
+    var atMs: Int64 = 0
+
+    var isActive: Bool {
+        stage != .idle
+    }
+}
+
+struct OverlayHealth: Codable, Equatable {
+    var attached: Bool = false
+    var reattaching: Bool = false
+    var snapshotFresh: Bool = false
+    var roomMismatch: Bool = false
+    var brandingReady: Bool = false
+    var destinationBound: Bool = false
+    var lastAttachedAtMs: Int64 = 0
+    var lastIssue: String?
+    var lastIssueAtMs: Int64 = 0
+    var lastEvent: String?
+
+    var healthy: Bool {
+        attached && snapshotFresh && !roomMismatch && lastIssue == nil
+    }
+}
+
+struct ThermalEvent: Codable, Equatable, Hashable, Identifiable {
+    var thermalStateRawValue: Int
+    var atMs: Int64
+    var tempC: Double?
+
+    var id: String {
+        "\(atMs)-\(thermalStateRawValue)"
+    }
+}
+
+struct MemoryPressureEvent: Codable, Equatable, Hashable, Identifiable {
+    var level: Int
+    var summary: String
+    var atMs: Int64
+
+    var id: String {
+        "\(atMs)-\(level)"
+    }
+}
+
+struct OperatorRecoveryDialogState: Equatable {
+    var title: String
+    var summary: String
+    var detail: String
+    var severity: RecoverySeverity
+    var stage: RecoveryStage
+    var attempt: Int
+    var budgetRemaining: Int
+    var activeMitigations: [String]
+    var lastFatalReason: String?
+    var isFailSoftImminent: Bool
+}
+
+struct PendingRecordingSegment: Codable, Equatable, Hashable, Identifiable {
+    var recordingId: String
+    var matchId: String
+    var segmentIndex: Int
+    var filePath: String
+    var fileName: String
+    var durationSeconds: Double
+    var sizeBytes: Int64
+    var isFinal: Bool
+    var uploadMode: String?
+    var segmentId: String?
+    var uploadId: String?
+    var objectKey: String?
+    var uploadedBytes: Int64
+    var parts: [RecordingMultipartPartETag]
+    var lastError: String?
+    var createdAtMs: Int64
+
+    var id: String {
+        "\(recordingId)-\(segmentIndex)-\(fileName)"
+    }
+
+    var fileURL: URL {
+        URL(fileURLWithPath: filePath)
+    }
+}
+
+struct PendingFinalizeRecording: Codable, Equatable, Hashable, Identifiable {
+    var recordingId: String
+    var matchId: String
+
+    var id: String {
+        "\(recordingId)-\(matchId)"
+    }
+}
+
+struct RecordingQueueManifest: Codable, Equatable {
+    var pendingSegments: [PendingRecordingSegment] = []
+    var pendingFinalizations: [PendingFinalizeRecording] = []
+}
+
+struct RecordingQueueSnapshot: Equatable {
+    var pendingSegments: [PendingRecordingSegment] = []
+    var pendingFinalizations: [PendingFinalizeRecording] = []
+    var pendingQueueBytes: Int64 = 0
+
+    var pendingUploadCount: Int {
+        pendingSegments.count
+    }
+}
+
+struct RecordingStorageStatus: Equatable {
+    var minimumBytes: Int64 = 0
+    var standardBytes: Int64 = 0
+    var recommendedBytes: Int64 = 0
+    var pendingQueueBytes: Int64 = 0
+    var runwayMinutes: Int? = nil
+    var hardBlock: Bool = false
+    var redWarning: Bool = false
+    var warning: Bool = false
+    var message: String? = nil
 }
 
 struct RTMPDestination: Equatable {

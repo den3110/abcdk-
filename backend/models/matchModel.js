@@ -275,6 +275,7 @@ const matchSchema = new Schema(
             "finish",
             "forfeit",
             "serve",
+            "slots",
             "sideout",
             "rotate",
             "rules",

@@ -35,10 +35,25 @@ final class LiveStreamingService: NSObject, ObservableObject {
     @Published var overlaySnapshot: LiveOverlaySnapshot? {
         didSet {
             overlayEffect.update(snapshot: overlaySnapshot)
+            if overlaySnapshot == nil {
+                markOverlayIssue("Overlay snapshot bị mất khỏi pipeline.")
+            } else {
+                overlayHealth.snapshotFresh = true
+                overlayHealth.lastEvent = "Overlay snapshot updated"
+                if !overlayHealth.attached || !overlayEffectRegistered {
+                    reattachOverlay(reason: "Có snapshot mới nhưng overlay effect chưa gắn.")
+                } else {
+                    overlayHealth.lastIssue = nil
+                    overlayHealth.lastIssueAtMs = 0
+                }
+            }
         }
     }
     @Published private(set) var diagnostics: [String] = []
     @Published private(set) var localRecordingState: LocalRecordingState = .idle
+    @Published private(set) var recoveryState = StreamRecoveryState()
+    @Published private(set) var overlayHealth = OverlayHealth()
+    @Published private(set) var lastRecovery: RecoveryEvent?
 
     let clientSessionId = UUID().uuidString
 
@@ -97,7 +112,11 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var currentCamera: AVCaptureDevice?
     private var pendingPublishName: String?
     private var pendingStartContinuation: CheckedContinuation<Void, Error>?
-    private var currentDestination: RTMPDestination?
+    private var currentDestination: RTMPDestination? {
+        didSet {
+            overlayHealth.destinationBound = currentDestination != nil
+        }
+    }
     private var statsTimer: Timer?
     private var publishTimeoutTask: Task<Void, Never>?
     private var recordingRotationTimer: Timer?
@@ -105,6 +124,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var activeRecordingSession: ActiveLocalRecordingSession?
     private var pendingRecordingBoundary: PendingRecordingBoundary?
     private var overlayEffectRegistered = false
+    private let recoveryBudgetWindowMs: Int64 = 180_000
+    private let maxRecoveryBudget = 6
+    private var recoveryEventWindow: [Int64] = []
 
     override init() {
         stream = RTMPStream(connection: connection)
@@ -132,43 +154,57 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     func preparePreview(quality: LiveQualityPreset = .balanced1080) async throws {
         connectionState = .preparingPreview
-        try configureAudioSession()
-        try await requestCapturePermissions()
-        applyQuality(quality)
-        registerOverlayEffectIfNeeded()
+        do {
+            try configureAudioSession()
+            try await requestCapturePermissions()
+            applyQuality(quality)
+            registerOverlayEffectIfNeeded()
 
-        if stats.micEnabled, let microphone = AVCaptureDevice.default(for: .audio) {
-            stream.attachAudio(microphone)
-        } else {
-            stream.attachAudio(nil)
-        }
-
-        if let currentCamera, currentCamera.position == currentCameraPosition {
-            syncTorchStateWithCurrentCamera()
-            refreshPreviewBindings()
-            startStatsTimer()
-
-            switch connectionState {
-            case .live, .connecting, .reconnecting:
-                break
-            default:
-                connectionState = .previewReady
+            if stats.micEnabled, let microphone = AVCaptureDevice.default(for: .audio) {
+                stream.attachAudio(microphone)
+            } else {
+                stream.attachAudio(nil)
             }
 
-            appendDiagnostic("Preview reused on \(currentCameraPosition == .back ? "rear" : "front") camera.")
-            return
+            if let currentCamera, currentCamera.position == currentCameraPosition {
+                syncTorchStateWithCurrentCamera()
+                refreshPreviewBindings()
+                startStatsTimer()
+
+                switch connectionState {
+                case .live, .connecting, .reconnecting:
+                    break
+                default:
+                    connectionState = .previewReady
+                }
+
+                clearRecoveryIfNeeded()
+                appendDiagnostic("Preview reused on \(currentCameraPosition == .back ? "rear" : "front") camera.")
+                return
+            }
+
+            let camera = try resolveCamera(position: currentCameraPosition)
+            currentCamera = camera
+
+            try await attachCameraAndAwait(camera)
+
+            syncTorchStateWithCurrentCamera()
+            refreshPreviewBindings()
+            connectionState = .previewReady
+            startStatsTimer()
+            clearRecoveryIfNeeded()
+            appendDiagnostic("Preview attached to \(currentCameraPosition == .back ? "rear" : "front") camera.")
+        } catch {
+            reportRecovery(
+                stage: .cameraRebuild,
+                severity: .warning,
+                summary: "Không dựng được preview camera",
+                detail: error.localizedDescription,
+                activeMitigations: ["Kiểm tra quyền camera", "Dựng lại pipeline preview"],
+                lastFatalReason: error.localizedDescription
+            )
+            throw error
         }
-
-        let camera = try resolveCamera(position: currentCameraPosition)
-        currentCamera = camera
-
-        try await attachCameraAndAwait(camera)
-
-        syncTorchStateWithCurrentCamera()
-        refreshPreviewBindings()
-        connectionState = .previewReady
-        startStatsTimer()
-        appendDiagnostic("Preview attached to \(currentCameraPosition == .back ? "rear" : "front") camera.")
     }
 
     func startPublishing(to destination: RTMPDestination) async throws {
@@ -196,6 +232,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
             pendingStartContinuation = continuation
             pendingPublishName = destination.publishName
             connectionState = .connecting
+            reportRecovery(
+                stage: .socketSelfHeal,
+                severity: .info,
+                summary: "Đang kết nối RTMP",
+                detail: destination.connectURL,
+                activeMitigations: ["Giữ preview", "Mở RTMP session mới"]
+            )
             appendDiagnostic("Connecting to \(destination.connectURL)")
             beginPublishTimeout()
             connection.connect(destination.connectURL)
@@ -211,6 +254,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         connection.close()
         connectionState = currentCamera == nil ? .stopped : .previewReady
         stats.currentBitrate = 0
+        overlayHealth.destinationBound = false
         appendDiagnostic("Publishing stopped.")
     }
 
@@ -226,6 +270,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         stream.attachAudio(nil)
         currentCamera = nil
         connectionState = .idle
+        overlayHealth.destinationBound = false
         refreshPreviewBindings()
         appendDiagnostic("Preview released.")
     }
@@ -367,10 +412,149 @@ final class LiveStreamingService: NSObject, ObservableObject {
         appendDiagnostic("Đã xoá diagnostics cũ.")
     }
 
+    func noteOverlayInputs(snapshotFresh: Bool, roomMismatch: Bool, brandingReady: Bool) {
+        overlayHealth.snapshotFresh = snapshotFresh
+        overlayHealth.roomMismatch = roomMismatch
+        overlayHealth.brandingReady = brandingReady
+
+        if roomMismatch {
+            markOverlayIssue("Overlay đang đứng sai room match.")
+            reportRecovery(
+                stage: .socketSelfHeal,
+                severity: .warning,
+                summary: "Overlay đang chờ đúng room match",
+                detail: "Socket overlay đang đứng sai room so với match hiện tại.",
+                activeMitigations: ["Chờ room mới", "Giữ preview", "Không burn-in payload cũ"]
+            )
+            return
+        }
+
+        if !snapshotFresh {
+            markOverlayIssue("Overlay snapshot đang stale hoặc chưa có.")
+            reportRecovery(
+                stage: .overlayRebuild,
+                severity: .warning,
+                summary: "Overlay snapshot đang stale",
+                detail: "Chưa có snapshot mới hoặc payload overlay đã quá cũ.",
+                activeMitigations: ["Giữ preview", "Chờ payload mới", "Cho phép refresh context"]
+            )
+            return
+        }
+
+        if !overlayHealth.attached || !overlayEffectRegistered {
+            reattachOverlay(reason: "Overlay health báo detached.")
+            return
+        }
+
+        if !brandingReady {
+            overlayHealth.lastEvent = "Overlay running with partial branding"
+            return
+        }
+
+        overlayHealth.lastIssue = nil
+        overlayHealth.lastIssueAtMs = 0
+        overlayHealth.lastEvent = "Overlay health nominal"
+    }
+
+    func noteSocketSelfHeal(_ detail: String) {
+        reportRecovery(
+            stage: .socketSelfHeal,
+            severity: .warning,
+            summary: "Socket đang tự nối lại",
+            detail: detail,
+            activeMitigations: ["Giữ preview", "Chờ room match khớp lại"]
+        )
+    }
+
+    func noteMemoryPressure(summary: String) {
+        reportRecovery(
+            stage: .degraded,
+            severity: .warning,
+            summary: "Thiết bị đang bị áp lực bộ nhớ",
+            detail: summary,
+            activeMitigations: ["Giữ cấu hình encode an toàn", "Ưu tiên giữ app sống"]
+        )
+    }
+
+    func noteThermalPressure(summary: String, critical: Bool) {
+        reportRecovery(
+            stage: critical ? .failSoftGuard : .degraded,
+            severity: critical ? .critical : .warning,
+            summary: critical ? "Thiết bị quá nóng" : "Thiết bị đang nóng",
+            detail: summary,
+            activeMitigations: critical
+                ? ["Chặn start mới", "Yêu cầu hạ nhiệt máy"]
+                : ["Giảm tải operator", "Theo dõi camera / encoder"],
+            lastFatalReason: critical ? summary : nil
+        )
+    }
+
     private func refreshPreviewBindings() {
         for view in previewViews.allObjects {
             view.attachStream(stream)
         }
+    }
+
+    private func reportRecovery(
+        stage: RecoveryStage,
+        severity: RecoverySeverity,
+        summary: String,
+        detail: String?,
+        activeMitigations: [String] = [],
+        lastFatalReason: String? = nil
+    ) {
+        let nowMs = Self.nowMs()
+        recoveryEventWindow = recoveryEventWindow.filter { nowMs - $0 <= recoveryBudgetWindowMs }
+        recoveryEventWindow.append(nowMs)
+
+        let attempt = recoveryEventWindow.count
+        let budgetRemaining = max(maxRecoveryBudget - attempt, 0)
+        let failSoftImminent = budgetRemaining <= 1 || severity == .critical
+
+        recoveryState = StreamRecoveryState(
+            stage: failSoftImminent && stage != .failSoftGuard ? .failSoftGuard : stage,
+            severity: failSoftImminent ? maxSeverity(severity, .critical) : severity,
+            summary: summary,
+            detail: detail,
+            attempt: attempt,
+            budgetRemaining: budgetRemaining,
+            activeMitigations: activeMitigations,
+            lastFatalReason: lastFatalReason,
+            isFailSoftImminent: failSoftImminent,
+            atMs: nowMs
+        )
+        lastRecovery = RecoveryEvent(reason: summary, atMs: nowMs)
+    }
+
+    private func clearRecoveryIfNeeded() {
+        guard recoveryState.isActive else { return }
+        recoveryState = StreamRecoveryState()
+    }
+
+    private func markOverlayIssue(_ message: String) {
+        overlayHealth.lastIssue = message
+        overlayHealth.lastIssueAtMs = Self.nowMs()
+        overlayHealth.lastEvent = message
+    }
+
+    private func reattachOverlay(reason: String) {
+        overlayHealth.reattaching = true
+        overlayEffect.update(snapshot: overlaySnapshot)
+        registerOverlayEffectIfNeeded()
+        overlayHealth.attached = overlayEffectRegistered
+        overlayHealth.reattaching = false
+        overlayHealth.lastAttachedAtMs = Self.nowMs()
+        overlayHealth.lastIssue = nil
+        overlayHealth.lastIssueAtMs = 0
+        overlayHealth.lastEvent = "Overlay reattached"
+
+        reportRecovery(
+            stage: .overlayRebuild,
+            severity: .warning,
+            summary: "Overlay vừa được gắn lại",
+            detail: reason,
+            activeMitigations: ["Gắn lại burn-in", "Giữ preview", "Đợi payload socket mới"]
+        )
     }
 
     private func requestCapturePermissions() async throws {
@@ -407,6 +591,14 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 self.stream.close()
                 self.connection.close()
                 self.connectionState = .failed("RTMP timeout")
+                self.reportRecovery(
+                    stage: .pipelineRebuild,
+                    severity: .critical,
+                    summary: "RTMP timeout",
+                    detail: "RTMP kết nối quá lâu và đã bị huỷ.",
+                    activeMitigations: ["Đóng connection cũ", "Cho phép retry session"],
+                    lastFatalReason: "RTMP timeout"
+                )
                 self.appendDiagnostic("RTMP connect timed out.")
                 self.resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP kết nối quá lâu và đã bị hủy."))
             }
@@ -463,9 +655,18 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     private func registerOverlayEffectIfNeeded() {
-        guard !overlayEffectRegistered else { return }
+        guard !overlayEffectRegistered else {
+            overlayHealth.attached = true
+            if overlayHealth.lastAttachedAtMs == 0 {
+                overlayHealth.lastAttachedAtMs = Self.nowMs()
+            }
+            return
+        }
         _ = stream.registerVideoEffect(overlayEffect)
         overlayEffectRegistered = true
+        overlayHealth.attached = true
+        overlayHealth.lastAttachedAtMs = Self.nowMs()
+        overlayHealth.lastEvent = "Overlay effect registered"
     }
 
     private func beginRecordingSegment() {
@@ -571,6 +772,14 @@ final class LiveStreamingService: NSObject, ObservableObject {
         pendingRecordingBoundary = nil
         recordingRotationTimer?.invalidate()
         recordingRotationTimer = nil
+        reportRecovery(
+            stage: .pipelineRebuild,
+            severity: .warning,
+            summary: "Recording engine lỗi",
+            detail: message,
+            activeMitigations: ["Dừng segment hiện tại", "Chờ operator retry"],
+            lastFatalReason: message
+        )
         onRecordingFailure?(message)
         resolvePendingRecordingStop()
     }
@@ -624,17 +833,34 @@ final class LiveStreamingService: NSObject, ObservableObject {
             } else {
                 connectionState = currentCamera == nil ? .stopped : .previewReady
             }
+            clearRecoveryIfNeeded()
         case RTMPConnection.Code.connectClosed.rawValue:
             cancelPublishTimeout()
             appendDiagnostic("RTMP closed.")
             currentDestination = nil
             connectionState = currentCamera == nil ? .stopped : .previewReady
+            reportRecovery(
+                stage: .pipelineRebuild,
+                severity: .warning,
+                summary: "RTMP đã đóng",
+                detail: "Connection RTMP đóng trước khi phiên ổn định.",
+                activeMitigations: ["Giữ preview", "Cho phép retry session"],
+                lastFatalReason: "RTMP closed"
+            )
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP đã đóng trước khi publish."))
         case RTMPConnection.Code.connectRejected.rawValue:
             cancelPublishTimeout()
             appendDiagnostic("RTMP rejected.")
             currentDestination = nil
             connectionState = .failed("RTMP bị từ chối.")
+            reportRecovery(
+                stage: .pipelineRebuild,
+                severity: .critical,
+                summary: "RTMP bị từ chối",
+                detail: "Server RTMP từ chối phiên publish hiện tại.",
+                activeMitigations: ["Đóng session cũ", "Xin live session mới"],
+                lastFatalReason: "RTMP rejected"
+            )
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP bị từ chối."))
         default:
             if code.lowercased().contains("failed") {
@@ -642,10 +868,25 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 appendDiagnostic("RTMP failure: \(code)")
                 currentDestination = nil
                 connectionState = .failed(code)
+                reportRecovery(
+                    stage: .pipelineRebuild,
+                    severity: .critical,
+                    summary: "RTMP publish thất bại",
+                    detail: code,
+                    activeMitigations: ["Đóng session cũ", "Cho phép retry session"],
+                    lastFatalReason: code
+                )
                 resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: code))
             } else if code.lowercased().contains("reconnect") {
                 appendDiagnostic("RTMP reconnecting: \(code)")
                 connectionState = .reconnecting(code)
+                reportRecovery(
+                    stage: .pipelineRebuild,
+                    severity: .warning,
+                    summary: "RTMP đang reconnect",
+                    detail: code,
+                    activeMitigations: ["Giữ preview", "Chờ RTMP ổn định lại"]
+                )
             }
         }
     }
@@ -656,6 +897,14 @@ final class LiveStreamingService: NSObject, ObservableObject {
         appendDiagnostic("RTMP I/O error.")
         currentDestination = nil
         connectionState = .failed("RTMP I/O error")
+        reportRecovery(
+            stage: .pipelineRebuild,
+            severity: .critical,
+            summary: "RTMP I/O error",
+            detail: "RTMP I/O error",
+            activeMitigations: ["Đóng session cũ", "Cho phép retry session"],
+            lastFatalReason: "RTMP I/O error"
+        )
         resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP I/O error"))
     }
 
@@ -667,6 +916,21 @@ final class LiveStreamingService: NSObject, ObservableObject {
         } else {
             continuation.resume(returning: ())
         }
+    }
+
+    private func maxSeverity(_ lhs: RecoverySeverity, _ rhs: RecoverySeverity) -> RecoverySeverity {
+        switch (lhs, rhs) {
+        case (.critical, _), (_, .critical):
+            return .critical
+        case (.warning, _), (_, .warning):
+            return .warning
+        default:
+            return .info
+        }
+    }
+
+    private static func nowMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 }
 
