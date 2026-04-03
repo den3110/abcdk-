@@ -73,6 +73,8 @@ struct LiveAppRootView: View {
 
 private struct LoginScreen: View {
     @EnvironmentObject private var store: LiveAppStore
+    @State private var diagnosticsTapCount = 0
+    @State private var diagnosticsVisible = false
 
     private var targetSummary: String? {
         if let courtId = store.launchTarget.courtId?.trimmedNilIfBlank, let matchId = store.launchTarget.matchId?.trimmedNilIfBlank {
@@ -87,9 +89,41 @@ private struct LoginScreen: View {
         return nil
     }
 
+    private var buildVersionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        return "App build \(version) (\(build))"
+    }
+
+    private var streamURLString: String? {
+        guard store.launchTarget.courtId?.trimmedNilIfBlank != nil || store.launchTarget.matchId?.trimmedNilIfBlank != nil else {
+            return nil
+        }
+
+        var components = URLComponents()
+        components.scheme = "pickletour-live"
+        components.host = "stream"
+        components.queryItems = [
+            URLQueryItem(name: "courtId", value: store.launchTarget.courtId?.trimmedNilIfBlank),
+            URLQueryItem(name: "matchId", value: store.launchTarget.matchId?.trimmedNilIfBlank),
+            URLQueryItem(name: "pageId", value: store.launchTarget.pageId?.trimmedNilIfBlank)
+        ]
+        .compactMap { item in
+            guard let value = item.value else { return nil }
+            return URLQueryItem(name: item.name, value: value)
+        }
+
+        return components.url?.absoluteString
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 22) {
+                Text(buildVersionText)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(LivePalette.textSecondary)
+                    .padding(.top, 4)
+
                 Spacer(minLength: 24)
 
                 VStack(spacing: 18) {
@@ -113,6 +147,14 @@ private struct LoginScreen: View {
                         Text("PickleTour Live")
                             .font(.system(size: 34, weight: .black, design: .rounded))
                             .foregroundStyle(.white)
+                            .onTapGesture {
+                                guard !diagnosticsVisible else { return }
+                                diagnosticsTapCount += 1
+                                if diagnosticsTapCount >= 7 {
+                                    diagnosticsTapCount = 0
+                                    diagnosticsVisible = true
+                                }
+                            }
 
                         Text("App live iOS riêng cho operator. Nhận phiên từ PickleTour hoặc đăng nhập OAuth để vào đúng luồng live theo court hoặc match.")
                             .font(.system(size: 15, weight: .medium))
@@ -187,6 +229,83 @@ private struct LoginScreen: View {
                     }
                 }
 
+                if diagnosticsVisible {
+                    LiveCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SectionHeader(
+                                title: "Diagnostics nội bộ",
+                                subtitle: "Khối ẩn kiểu Android để test handoff, deeplink và session"
+                            )
+
+                            DetailLine(label: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "Chưa có")
+                            DetailLine(label: "Redirect URI", value: "pickletour-live://auth-init")
+                            DetailLine(label: "Launch target", value: targetSummary ?? "Chưa có")
+                            DetailLine(label: "User ID", value: store.session?.userId?.trimmedNilIfBlank ?? "Chưa có phiên")
+
+                            if let streamURLString {
+                                DetailLine(label: "Deep link", value: streamURLString)
+                            }
+
+                            HStack(spacing: 10) {
+                                if let streamURLString {
+                                    SecondaryActionButton(
+                                        title: "Copy stream URL",
+                                        systemImage: "doc.on.doc"
+                                    ) {
+                                        UIPasteboard.general.string = streamURLString
+                                        store.bannerMessage = "Đã copy deep link stream."
+                                    }
+                                }
+
+                                SecondaryActionButton(
+                                    title: "Xoá notice",
+                                    systemImage: "trash"
+                                ) {
+                                    store.bannerMessage = nil
+                                    store.errorMessage = nil
+                                }
+                            }
+                        }
+                    }
+                } else if diagnosticsTapCount > 0 {
+                    Text("Nhấn thêm \(7 - diagnosticsTapCount) lần vào tiêu đề để mở diagnostics.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(LivePalette.textSecondary)
+                }
+
+                LiveCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        SectionHeader(
+                            title: "Operator status",
+                            subtitle: store.bootstrap?.roleSummary?.trimmedNilIfBlank ?? "Tài khoản đã có quyền dùng PickleTour Live"
+                        )
+
+                        WrapBadgeFlow {
+                            TinyBadge(
+                                title: store.networkConnected ? "Mạng online" : "Mạng offline",
+                                tint: store.networkConnected ? LivePalette.success : LivePalette.danger
+                            )
+                            TinyBadge(
+                                title: store.appIsActive ? "App foreground" : "App background",
+                                tint: store.appIsActive ? LivePalette.success : LivePalette.warning
+                            )
+                            TinyBadge(
+                                title: store.cameraPermissionGranted ? "Camera OK" : "Thiếu camera",
+                                tint: store.cameraPermissionGranted ? LivePalette.success : LivePalette.danger
+                            )
+                            TinyBadge(
+                                title: store.microphonePermissionGranted ? "Mic OK" : "Thiếu mic",
+                                tint: store.microphonePermissionGranted ? LivePalette.success : LivePalette.danger
+                            )
+                        }
+
+                        if let selectedCluster = store.selectedCluster {
+                            DetailLine(label: "Cluster đang chọn", value: selectedCluster.displayName)
+                            DetailLine(label: "Giải được gán", value: "\(selectedCluster.assignedTournamentCount ?? selectedCluster.assignedTournaments.count)")
+                        }
+                    }
+                }
+
                 LiveCard {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Điểm cần nhớ")
@@ -215,6 +334,21 @@ private struct AdminHomeScreen: View {
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
+
+    private var occupiedCourtCount: Int {
+        store.courts.filter { $0.activePresence?.occupied == true }.count
+    }
+
+    private var liveCourtCount: Int {
+        store.courts.filter { court in
+            let state = court.activePresence?.screenState?.trimmedNilIfBlank?.lowercased()
+            return state == "live" || state == "connecting" || state == "reconnecting"
+        }.count
+    }
+
+    private var idleCourtCount: Int {
+        max(store.courts.count - occupiedCourtCount, 0)
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -260,6 +394,18 @@ private struct AdminHomeScreen: View {
                             value: store.presenceSocketConnected ? "Online" : "Offline",
                             subtitle: "Court live occupancy",
                             accent: store.presenceSocketConnected ? LivePalette.success : LivePalette.warning
+                        )
+                        MetricTile(
+                            title: "Sân bận",
+                            value: "\(occupiedCourtCount)",
+                            subtitle: "\(liveCourtCount) sân đang live / reconnect",
+                            accent: occupiedCourtCount > 0 ? LivePalette.warning : LivePalette.success
+                        )
+                        MetricTile(
+                            title: "Sân rảnh",
+                            value: "\(idleCourtCount)",
+                            subtitle: "Court có thể giữ preview hoặc vào setup",
+                            accent: LivePalette.cardMuted
                         )
                     }
                 }
