@@ -177,12 +177,12 @@ function isMatchEqual(a, b) {
 const hasResolvedPair = (pair) =>
   Boolean(
     pair &&
-      (pair?.player1 ||
-        pair?.player2 ||
-        pair?.name ||
-        pair?.teamName ||
-        pair?.label ||
-        pair?.displayName),
+    (pair?.player1 ||
+      pair?.player2 ||
+      pair?.name ||
+      pair?.teamName ||
+      pair?.label ||
+      pair?.displayName),
   );
 
 /* ====================== current V helpers (label fix) ====================== */
@@ -426,7 +426,7 @@ function isFacebookUrl(url) {
 
 function isTemporaryRecordingPlaybackUrl(url) {
   return /\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
-    String(url || "").trim()
+    String(url || "").trim(),
   );
 }
 
@@ -733,6 +733,43 @@ function stripLocalStreamPatch(patch) {
       delete next.meta;
       changed = true;
     }
+  }
+
+  if (!changed) return patch;
+  return Object.keys(next).length ? next : null;
+}
+
+function stripResolvedRealtimePatch(
+  patch,
+  { preserveGameScores = false } = {},
+) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    return patch;
+  }
+
+  let changed = false;
+  const next = { ...patch };
+  [
+    "status",
+    "winner",
+    "currentGame",
+    "serve",
+    "rules",
+    "pairA",
+    "pairB",
+    "startedAt",
+    "finishedAt",
+    "assignedAt",
+  ].forEach((key) => {
+    if (key in next) {
+      delete next[key];
+      changed = true;
+    }
+  });
+
+  if (!preserveGameScores && "gameScores" in next) {
+    delete next.gameScores;
+    changed = true;
   }
 
   if (!changed) return patch;
@@ -1249,6 +1286,22 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     if (!["finished", "ended", "stopped"].includes(normalizedStatus)) return;
     setLocalPatch((previous) => stripLocalStreamPatch(previous));
   }, [mm?.status, mm?.streams, mm?.video, mm?.videoUrl, mm?.defaultStreamKey]);
+
+  const realtimeVersion = Number(mm?.liveVersion ?? mm?.version ?? NaN);
+  const lastRealtimeVersionRef = useRef(null);
+  useEffect(() => {
+    if (!Number.isFinite(realtimeVersion)) return;
+    if (lastRealtimeVersionRef.current === realtimeVersion) return;
+    lastRealtimeVersionRef.current = realtimeVersion;
+    setLocalPatch((previous) =>
+      stripResolvedRealtimePatch(previous, {
+        preserveGameScores: editMode,
+      }),
+    );
+  }, [editMode, realtimeVersion]);
+  useEffect(() => {
+    lastRealtimeVersionRef.current = null;
+  }, [lockedId]);
 
   const status = localPatch?.status || mm?.status || "scheduled";
   const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];

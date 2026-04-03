@@ -391,7 +391,7 @@ export default function NativeVideoPlayer({
     };
     const onError = () => {
       if (kind === "hls") {
-        setHlsError("Kh?ng ph?t ???c lu?ng HLS n?y.");
+        setHlsError("Không phát được luồng HLS này.");
       }
       setFrozenFrameUrl("");
     };
@@ -441,7 +441,7 @@ export default function NativeVideoPlayer({
             const HlsCtor = await loadHlsFromCDN();
             if (cancelled) return;
             if (!HlsCtor?.isSupported()) {
-              setHlsError("Tr?nh duy?t kh?ng h? tr? HLS.");
+              setHlsError("Trình duyệt không hỗ trợ HLS.");
               return;
             }
 
@@ -460,12 +460,12 @@ export default function NativeVideoPlayer({
             });
             hls.on(HlsCtor.Events.ERROR, (_event, data) => {
               if (data?.fatal) {
-                setHlsError("Lu?ng HLS ?ang l?i ho?c t?m ng?t.");
+                setHlsError("Luồng HLS đang lỗi hoặc tạm ngắt.");
               }
             });
           } catch {
             if (!cancelled) {
-              setHlsError("Kh?ng t?i ???c tr?nh ph?t HLS.");
+              setHlsError("Không tải được trình phát HLS.");
             }
           }
         })();

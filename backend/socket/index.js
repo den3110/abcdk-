@@ -1754,6 +1754,7 @@ export function initSocket(
         roomRefs.set(normalizedMatchId, nextRefCount);
         if (nextRefCount === 1) {
           await socket.join(`match:${normalizedMatchId}`);
+          await socket.join(normalizedMatchId);
         }
         socket.emit("match:joined", {
           matchId: normalizedMatchId,
@@ -3766,6 +3767,7 @@ export function initSocket(
           roomRefs.delete(normalizedMatchId);
           getSocketMatchSnapshotTracker(socket).delete(normalizedMatchId);
           socket.leave(`match:${normalizedMatchId}`);
+          socket.leave(normalizedMatchId);
         } else {
           roomRefs.set(normalizedMatchId, nextRefCount);
         }

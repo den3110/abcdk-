@@ -43,6 +43,7 @@ const SystemSettingsSchema = new mongoose.Schema(
 
     // 👇 NEW: OTA force update policy
     ota: {
+      enabled: { type: Boolean, default: true },
       forceUpdateEnabled: { type: Boolean, default: false },
       minAppVersion: { type: String, default: "0.0.0", trim: true },
       iosMinBundleVersion: { type: String, default: "0", trim: true },

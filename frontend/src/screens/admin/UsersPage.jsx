@@ -1115,30 +1115,56 @@ export default function UsersPage() {
             {t("admin.users.systemSettingsBody")}
           </Typography>
         </Box>
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={sysSettings?.notifications?.systemPushEnabled !== false}
-              onChange={(e) =>
-                handle(
-                  updateSystemSettingsMut({
-                    notifications: {
-                      ...sysSettings?.notifications,
-                      systemPushEnabled: e.target.checked,
-                    },
-                  }).unwrap(),
-                  t("admin.users.push.systemSaved"),
-                  () => {}, // system settings update no-op skip user refetch
-                )
-              }
-            />
-          }
-          label={
-            sysSettings?.notifications?.systemPushEnabled !== false
-              ? t("admin.users.systemPushOn")
-              : t("admin.users.systemPushOff")
-          }
-        />
+        <Stack direction="row" spacing={3} alignItems="center">
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={sysSettings?.ota?.enabled !== false}
+                onChange={(e) =>
+                  handle(
+                    updateSystemSettingsMut({
+                      ota: {
+                        ...sysSettings?.ota,
+                        enabled: e.target.checked,
+                      },
+                    }).unwrap(),
+                    "Đã lưu cài đặt cập nhật ứng dụng",
+                    () => {},
+                  )
+                }
+              />
+            }
+            label={
+              sysSettings?.ota?.enabled !== false
+                ? "OTA: Bật"
+                : "OTA: Tắt"
+            }
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={sysSettings?.notifications?.systemPushEnabled !== false}
+                onChange={(e) =>
+                  handle(
+                    updateSystemSettingsMut({
+                      notifications: {
+                        ...sysSettings?.notifications,
+                        systemPushEnabled: e.target.checked,
+                      },
+                    }).unwrap(),
+                    t("admin.users.push.systemSaved"),
+                    () => {}, // system settings update no-op skip user refetch
+                  )
+                }
+              />
+            }
+            label={
+              sysSettings?.notifications?.systemPushEnabled !== false
+                ? t("admin.users.systemPushOn")
+                : t("admin.users.systemPushOff")
+            }
+          />
+        </Stack>
       </Paper>
 
       {/* FILTER BAR */}

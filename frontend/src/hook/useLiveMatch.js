@@ -2,6 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSocket } from "../context/SocketContext";
 
+const isPlainObject = (value) =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
 const getPayloadMatchId = (payload = {}) =>
   String(
     payload?.data?._id ??
@@ -10,6 +13,10 @@ const getPayloadMatchId = (payload = {}) =>
       payload?.snapshot?._id ??
       payload?.snapshot?.id ??
       payload?.snapshot?.matchId ??
+      payload?.match?._id ??
+      payload?.match?.id ??
+      payload?.match?.matchId ??
+      payload?.payload?.matchId ??
       payload?._id ??
       payload?.id ??
       payload?.matchId ??
@@ -19,7 +26,154 @@ const getPayloadMatchId = (payload = {}) =>
   );
 
 const normalizeMatchPayload = (payload = {}) =>
-  payload?.data ?? payload?.snapshot ?? payload ?? null;
+  payload?.data ?? payload?.snapshot ?? payload?.match ?? payload ?? null;
+
+const extractMatchPatch = (payload = {}) => {
+  const source =
+    payload?.payload ??
+    payload?.data ??
+    payload?.snapshot ??
+    payload?.match ??
+    payload ??
+    {};
+
+  if (!isPlainObject(source)) return {};
+
+  const patch = {};
+
+  if (typeof source.status === "string" && source.status.trim()) {
+    patch.status = source.status.trim();
+  }
+  if ("winner" in source) {
+    patch.winner = source.winner ?? "";
+  }
+  if (Array.isArray(source.gameScores)) {
+    patch.gameScores = source.gameScores;
+  } else if (Array.isArray(source.scores)) {
+    patch.gameScores = source.scores;
+  }
+  if ("currentGame" in source) {
+    patch.currentGame = source.currentGame;
+  }
+  if (isPlainObject(source.serve)) {
+    patch.serve = source.serve;
+  }
+  if (isPlainObject(source.rules)) {
+    patch.rules = source.rules;
+  }
+  if (source.pairA) {
+    patch.pairA = source.pairA;
+  }
+  if (source.pairB) {
+    patch.pairB = source.pairB;
+  }
+  if ("startedAt" in source) {
+    patch.startedAt = source.startedAt ?? null;
+  }
+  if ("finishedAt" in source) {
+    patch.finishedAt = source.finishedAt ?? null;
+  }
+  if ("assignedAt" in source) {
+    patch.assignedAt = source.assignedAt ?? null;
+  }
+  if ("liveVersion" in source) {
+    patch.liveVersion = source.liveVersion;
+  }
+  if ("version" in source) {
+    patch.version = source.version;
+  }
+  if ("isBreak" in source) {
+    patch.isBreak = source.isBreak;
+  }
+  if (Array.isArray(source.streams)) {
+    patch.streams = source.streams;
+  }
+  if (typeof source.video === "string" && source.video.trim()) {
+    patch.video = source.video.trim();
+  }
+  if (typeof source.videoUrl === "string" && source.videoUrl.trim()) {
+    patch.videoUrl = source.videoUrl.trim();
+  }
+  if (
+    typeof source.defaultStreamKey === "string" &&
+    source.defaultStreamKey.trim()
+  ) {
+    patch.defaultStreamKey = source.defaultStreamKey.trim();
+  }
+
+  return patch;
+};
+
+const mergeMatchState = (current, payload = {}, fallbackMatchId = "") => {
+  const incoming = normalizeMatchPayload(payload);
+  const patch = extractMatchPatch(payload);
+  const hasPatch = Object.keys(patch).length > 0;
+  const incomingLooksLikeMatch =
+    isPlainObject(incoming) &&
+    ("_id" in incoming ||
+      "id" in incoming ||
+      "status" in incoming ||
+      "gameScores" in incoming ||
+      "pairA" in incoming ||
+      "pairB" in incoming ||
+      "rules" in incoming);
+
+  if (!current) {
+    if (incomingLooksLikeMatch) return incoming;
+    if (!hasPatch) return null;
+    return {
+      _id: getPayloadMatchId(payload) || fallbackMatchId || undefined,
+      ...patch,
+    };
+  }
+
+  const prevVersion = Number(current?.liveVersion ?? current?.version ?? -1);
+  const incomingVersion = Number(
+    incoming?.liveVersion ??
+      incoming?.version ??
+      patch?.liveVersion ??
+      patch?.version ??
+      -1,
+  );
+
+  let next = current;
+  if (
+    incomingLooksLikeMatch &&
+    !(
+      incomingVersion >= 0 &&
+      prevVersion >= 0 &&
+      incomingVersion < prevVersion &&
+      !hasPatch
+    )
+  ) {
+    next = { ...current, ...incoming };
+  }
+
+  if (!hasPatch) return next;
+
+  next = {
+    ...next,
+    ...patch,
+    ...(isPlainObject(patch.rules)
+      ? {
+          rules: {
+            ...(isPlainObject(next.rules) ? next.rules : {}),
+            ...patch.rules,
+          },
+        }
+      : {}),
+    ...(isPlainObject(patch.serve)
+      ? {
+          serve: {
+            ...(isPlainObject(next.serve) ? next.serve : {}),
+            ...patch.serve,
+          },
+        }
+      : {}),
+  };
+
+  return next;
+};
 
 /**
  * Realtime match state over Socket.IO
@@ -57,45 +211,58 @@ export function useLiveMatch(matchId, token) {
       return Boolean(incomingId) && incomingId === String(matchId);
     };
 
-    const onSnapshot = (payload) => {
+    const onLiveEvent = (payload) => {
       if (!mountedRef.current || !isForThisMatch(payload)) return;
-      setState({ loading: false, data: normalizeMatchPayload(payload) });
-    };
-
-    const onUpdate = (evt) => {
-      if (!mountedRef.current || !isForThisMatch(evt)) return;
-      setState((prev) => {
-        // evt có thể là { data, patch } tuỳ server. Ở đây ưu tiên evt.data + version
-        const incoming = normalizeMatchPayload(evt);
-        if (!prev.data) return { loading: false, data: incoming };
-        const vIn = incoming?.version ?? 0;
-        const vCur = prev.data?.version ?? 0;
-        // chỉ nhận khi version mới hơn hoặc bằng (bằng để đồng bộ khi refetch server phát lại)
-        if (vIn >= vCur) return { loading: false, data: incoming };
-        return prev;
-      });
-    };
-
-    // 🔥 CHỈNH SỬA: nhận sự kiện tăng/giảm điểm nhẹ từ server và cập nhật ngay UI
-    const onScoreUpdated = (evt) => {
-      if (!mountedRef.current || !isForThisMatch(evt)) return;
-      setState({ loading: false, data: normalizeMatchPayload(evt) });
+      setState((prev) => ({
+        loading: false,
+        data: mergeMatchState(prev.data, payload, String(matchId)),
+      }));
     };
 
     // Join phòng và lắng nghe sự kiện
     socket.emit("match:join", { matchId });
-    socket.on("match:snapshot", onSnapshot);
-    socket.on("match:update", onUpdate);
-    socket.on("score:updated", onScoreUpdated);
+    [
+      "match:snapshot",
+      "match:update",
+      "score:updated",
+      "score:patched",
+      "score:added",
+      "score:undone",
+      "score:reset",
+      "match:patched",
+      "match:started",
+      "match:finished",
+      "match:forfeited",
+      "status:updated",
+      "winner:updated",
+      "video:set",
+      "stream:updated",
+      "match:teamsUpdated",
+    ].forEach((eventName) => socket.on(eventName, onLiveEvent));
 
     // Optionally xin snapshot ngay (nếu server hỗ trợ)
 
     return () => {
       mountedRef.current = false;
       socket.emit("match:leave", { matchId });
-      socket.off("match:snapshot", onSnapshot);
-      socket.off("match:update", onUpdate);
-      socket.off("score:updated", onScoreUpdated);
+      [
+        "match:snapshot",
+        "match:update",
+        "score:updated",
+        "score:patched",
+        "score:added",
+        "score:undone",
+        "score:reset",
+        "match:patched",
+        "match:started",
+        "match:finished",
+        "match:forfeited",
+        "status:updated",
+        "winner:updated",
+        "video:set",
+        "stream:updated",
+        "match:teamsUpdated",
+      ].forEach((eventName) => socket.off(eventName, onLiveEvent));
     };
   }, [socket, matchId]);
 

@@ -30,6 +30,7 @@ const DEFAULTS = {
   },
   // 👇 NEW: OTA force update policy
   ota: {
+    enabled: true,
     forceUpdateEnabled: false,
     minAppVersion: "0.0.0", // semver, ví dụ "1.2.3"
     iosMinBundleVersion: "0", // build/bundle number, ví dụ "34"
@@ -307,10 +308,10 @@ export const getOtaAllowed = async (req, res, next) => {
 
     const ota = doc.ota || DEFAULTS.ota;
 
-    // ✅ đúng chiều theo bạn: bật force update => allowed = true
-    const allowed = Boolean(ota.forceUpdateEnabled);
+    const allowed = typeof ota.enabled === "boolean" ? ota.enabled : true;
+    const forceUpdate = Boolean(ota.forceUpdateEnabled);
 
-    return res.json({ allowed });
+    return res.json({ allowed, forceUpdate });
   } catch (err) {
     next(err);
   }

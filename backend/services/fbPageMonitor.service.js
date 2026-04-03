@@ -2,8 +2,21 @@ import FbToken from "../models/fbTokenModel.js";
 import Match from "../models/matchModel.js";
 import UserMatch from "../models/userMatchModel.js";
 import LiveSessionLease from "../models/liveSessionLeaseModel.js";
+import { buildMatchDisplayMeta } from "../utils/matchDisplayCode.js";
 import { listScheduledFacebookPageReleases } from "./facebookPagePool.service.js";
 import { getFbPageMonitorMeta } from "./fbPageMonitorEvents.service.js";
+import { buildMatchDisplayContextsFromMatches } from "./courtCluster.service.js";
+
+const NORMALIZED_MATCH_CODE_RE = /^V\d+(?:-B\d+)?-T\d+$/i;
+
+function trimText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeDisplayCode(value) {
+  const text = trimText(value).toUpperCase();
+  return NORMALIZED_MATCH_CODE_RE.test(text) ? text : "";
+}
 
 function pickPersonName(person) {
   return (
@@ -64,6 +77,9 @@ function toTargetLabel(doc, fallback = "Match") {
     doc.facebookLive?.title ||
     doc.title ||
     doc.displayName ||
+    doc.displayCode ||
+    doc.codeResolved ||
+    doc.globalCode ||
     doc.code ||
     doc.roundCode ||
     doc.roundName ||
@@ -71,7 +87,42 @@ function toTargetLabel(doc, fallback = "Match") {
   );
 }
 
-function buildTargetInfo(doc, matchKind) {
+function extractTournamentId(doc) {
+  return trimText(doc?.tournament?._id || doc?.tournament);
+}
+
+function getMatchDisplayOptions(doc, matchDisplayContexts) {
+  if (!(matchDisplayContexts instanceof Map)) return {};
+  const tournamentId = extractTournamentId(doc);
+  const context = tournamentId ? matchDisplayContexts.get(tournamentId) : null;
+  return context?.baseByBracketId instanceof Map
+    ? { baseByBracketId: context.baseByBracketId }
+    : {};
+}
+
+function resolveTargetCode(doc, matchDisplayOptions = {}) {
+  if (!doc) return null;
+
+  const meta = buildMatchDisplayMeta(doc, matchDisplayOptions);
+  if (meta?.matchOrder) {
+    if (meta.isGroupLike) {
+      if (meta.poolIndex) return `V1-B${meta.poolIndex}-T${meta.matchOrder}`;
+      return `V1-T${meta.matchOrder}`;
+    }
+    if (meta.globalRound) return `V${meta.globalRound}-T${meta.matchOrder}`;
+  }
+
+  return (
+    normalizeDisplayCode(doc?.displayCode) ||
+    normalizeDisplayCode(doc?.codeResolved) ||
+    normalizeDisplayCode(doc?.globalCode) ||
+    normalizeDisplayCode(doc?.code) ||
+    trimText(doc?.labelKey) ||
+    null
+  );
+}
+
+function buildTargetInfo(doc, matchKind, matchDisplayOptions = {}) {
   if (!doc?._id) return null;
   const tournamentName =
     doc?.tournament?.name || doc?.customLeague?.name || doc?.location?.name || "";
@@ -93,7 +144,7 @@ function buildTargetInfo(doc, matchKind) {
       participantsLabel ||
       toTargetLabel(doc, matchKind === "userMatch" ? "User match" : "Match"),
     status: doc.status || null,
-    code: doc.code || null,
+    code: resolveTargetCode(doc, matchDisplayOptions),
     tournamentName: tournamentName || null,
     bracketName: bracketName || null,
     bracketStage: bracketStage || null,
@@ -188,6 +239,13 @@ function serializeLease(lease, targetInfo) {
   };
 }
 
+function resolveBusyTarget({ busyMatchTarget, latestTarget, activeLeaseCount }) {
+  if (activeLeaseCount > 0 && latestTarget) {
+    return latestTarget;
+  }
+  return busyMatchTarget || latestTarget || null;
+}
+
 function sortRows(rows) {
   const priority = {
     LIVE: 0,
@@ -272,10 +330,14 @@ export async function buildFbPageMonitorSnapshot() {
             ],
           })
           .populate({ path: "tournament", select: "name" })
-          .populate({ path: "bracket", select: "name stage" })
+          .populate({ path: "bracket", select: "name stage order type" })
           .populate({ path: "court", select: "name number label" })
           .select(
-            "code roundCode roundName status facebookLive courtLabel tournament bracket court pairA pairB"
+            "code displayCode codeResolved globalCode globalRound labelKey format phase " +
+              "pool group groupCode groupNo groupIndex rrRound swissRound " +
+              "round order orderInGroup matchNo index stageIndex " +
+              "roundCode roundName status facebookLive courtLabel " +
+              "tournament bracket court pairA pairB"
           )
           .lean()
       : Promise.resolve([]),
@@ -284,14 +346,32 @@ export async function buildFbPageMonitorSnapshot() {
           .populate({ path: "tournament", select: "name" })
           .populate({ path: "court", select: "name number label" })
           .select(
-            "code title displayName status facebookLive customLeague location courtLabel tournament court pairA pairB"
+            "code displayCode codeResolved globalCode globalRound labelKey format phase " +
+              "pool group groupCode groupNo groupIndex rrRound swissRound " +
+              "round order orderInGroup matchNo index stageIndex " +
+              "title displayName status facebookLive customLeague location " +
+              "courtLabel tournament court pairA pairB"
           )
           .lean()
       : Promise.resolve([]),
   ]);
 
-  const matchMap = new Map(matches.map((item) => [String(item._id), item]));
-  const userMatchMap = new Map(userMatches.map((item) => [String(item._id), item]));
+  const matchDisplayContexts = await buildMatchDisplayContextsFromMatches([
+    ...matches,
+    ...userMatches,
+  ]);
+  const matchTargetMap = new Map(
+    matches.map((item) => [
+      String(item._id),
+      buildTargetInfo(item, "match", getMatchDisplayOptions(item, matchDisplayContexts)),
+    ])
+  );
+  const userMatchTargetMap = new Map(
+    userMatches.map((item) => [
+      String(item._id),
+      buildTargetInfo(item, "userMatch", getMatchDisplayOptions(item, matchDisplayContexts)),
+    ])
+  );
   const leasesByPageId = new Map();
 
   for (const lease of activeLeases) {
@@ -309,14 +389,16 @@ export async function buildFbPageMonitorSnapshot() {
     const latestLease = pageLeases[0] || null;
     const latestTarget =
       latestLease?.matchKind === "userMatch"
-        ? buildTargetInfo(
-            userMatchMap.get(String(latestLease.userMatchId || "")),
-            "userMatch"
-          )
-        : buildTargetInfo(matchMap.get(String(latestLease?.matchId || "")), "match");
-    const busyTarget = doc.busyMatch
-      ? buildTargetInfo(matchMap.get(String(doc.busyMatch)), "match")
-      : latestTarget;
+        ? userMatchTargetMap.get(String(latestLease.userMatchId || "")) || null
+        : matchTargetMap.get(String(latestLease?.matchId || "")) || null;
+    const busyMatchTarget = doc.busyMatch
+      ? matchTargetMap.get(String(doc.busyMatch)) || null
+      : null;
+    const busyTarget = resolveBusyTarget({
+      busyMatchTarget,
+      latestTarget,
+      activeLeaseCount: pageLeases.length,
+    });
     const releasePending = releaseMap.get(pageId) || null;
     const monitorState = buildMonitorState({
       doc,
@@ -351,11 +433,8 @@ export async function buildFbPageMonitorSnapshot() {
         serializeLease(
           lease,
           lease.matchKind === "userMatch"
-            ? buildTargetInfo(
-                userMatchMap.get(String(lease.userMatchId || "")),
-                "userMatch"
-              )
-            : buildTargetInfo(matchMap.get(String(lease.matchId || "")), "match")
+            ? userMatchTargetMap.get(String(lease.userMatchId || "")) || null
+            : matchTargetMap.get(String(lease.matchId || "")) || null
         )
       ),
       latestLease: serializeLease(latestLease, latestTarget),
