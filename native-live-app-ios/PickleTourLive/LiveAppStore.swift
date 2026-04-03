@@ -208,7 +208,17 @@ final class LiveAppStore: ObservableObject {
             self.bootstrap = bootstrap
             user = bootstrap.user
             clusters = bootstrap.manageableCourtClusters.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
-            route = .adminHome
+
+            let launchInFlight =
+                pendingLaunchTarget != nil ||
+                launchTarget.courtId?.trimmedNilIfBlank != nil ||
+                launchTarget.matchId?.trimmedNilIfBlank != nil ||
+                route == .courtSetup ||
+                route == .liveStream
+
+            if !launchInFlight || route == .login {
+                route = .adminHome
+            }
 
             if let tournamentId = bootstrap.manageableTournaments.first?.id.trimmedNilIfBlank {
                 watchTournament(tournamentId)
@@ -332,13 +342,19 @@ final class LiveAppStore: ObservableObject {
             startHeartbeats()
             bannerMessage = liveMode.includesRecording ? "Đã bắt đầu live và recording." : "Đã bắt đầu live."
         } catch {
-            if let recordingId = activeRecording?.id?.trimmedNilIfBlank {
-                _ = try? await environment.apiClient.finalizeRecording(recordingId: recordingId)
+            if streamingService.isRecordingLocally {
+                await streamingService.stopRecording()
             }
-            activeRecording = nil
-            recordingFinalizeRequested = false
-            recordingStateText = "Chưa ghi hình"
+            recordingFinalizeRequested = activeRecording != nil
+            if activeRecording != nil {
+                recordingStateText = recordingPendingUploads > 0 ? "Đang tải segment cuối" : "Đang chốt recording"
+            } else {
+                recordingStateText = "Chưa ghi hình"
+            }
             errorMessage = error.localizedDescription
+            if activeRecording != nil {
+                await maybeFinalizeRecordingIfReady()
+            }
         }
     }
 
@@ -1037,11 +1053,39 @@ final class LiveAppStore: ObservableObject {
         var handoff = URLComponents()
         handoff.scheme = "pickletourapp"
         handoff.host = "live-auth"
-        handoff.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "continueUrl", value: continueURL.absoluteString),
             URLQueryItem(name: "callbackUri", value: "pickletour-live://auth-init")
         ]
+        let preferredTarget =
+            pendingLaunchTarget ??
+            ((launchTarget.courtId?.trimmedNilIfBlank != nil || launchTarget.matchId?.trimmedNilIfBlank != nil)
+                ? launchTarget
+                : nil)
+        if let preferredTarget, let targetURL = buildNativeStreamURL(for: preferredTarget) {
+            queryItems.append(URLQueryItem(name: "targetUrl", value: targetURL.absoluteString))
+        }
+        handoff.queryItems = queryItems
         return handoff.url
+    }
+
+    private func buildNativeStreamURL(for target: LiveLaunchTarget) -> URL? {
+        var components = URLComponents()
+        components.scheme = "pickletour-live"
+        components.host = "stream"
+
+        let queryItems = [
+            URLQueryItem(name: "courtId", value: target.courtId?.trimmedNilIfBlank),
+            URLQueryItem(name: "matchId", value: target.matchId?.trimmedNilIfBlank),
+            URLQueryItem(name: "pageId", value: target.pageId?.trimmedNilIfBlank)
+        ]
+        .compactMap { item in
+            guard let value = item.value else { return nil }
+            return URLQueryItem(name: item.name, value: value)
+        }
+
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        return components.url
     }
 
     private func watchCluster(_ clusterId: String) {

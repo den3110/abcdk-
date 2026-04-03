@@ -27,40 +27,39 @@ import {
 } from "@mui/icons-material";
 import { useSelector } from "react-redux";
 import { useLiveMatch } from "../../hook/useLiveMatch";
+import {
+  getMatchCourtStationName,
+  getMatchDisplayCode,
+  getPairDisplayName,
+  normalizeMatchDisplay,
+} from "../../utils/matchDisplay";
 
 const textOf = (value) => (value && String(value).trim()) || "";
 
-const playerName = (player) =>
-  player?.displayName ||
-  player?.nickname ||
-  player?.nickName ||
-  player?.fullName ||
-  player?.name ||
-  "TBD";
-
-const pairLabel = (pair) => {
-  if (!pair) return "TBD";
-  return (
-    pair?.displayName ||
-    pair?.name ||
-    [pair?.player1, pair?.player2].filter(Boolean).map(playerName).join(" / ") ||
-    "TBD"
-  );
-};
+const pairLabel = (pair, source) => getPairDisplayName(pair, source) || "TBD";
 
 const matchCode = (match) =>
+  getMatchDisplayCode(match) ||
   textOf(match?.displayCode) ||
   textOf(match?.globalCode) ||
   textOf(match?.code) ||
   `R${match?.round ?? "?"}-${(match?.order ?? 0) + 1}`;
 
 const courtLabelOf = (match) =>
+  textOf(getMatchCourtStationName(match)) ||
   textOf(match?.courtStationName) ||
   textOf(match?.courtStationLabel) ||
   textOf(match?.courtLabel) ||
   textOf(match?.court?.name) ||
   textOf(match?.court?.label) ||
   "Chưa gán sân";
+
+const sidePairOf = (match, side) => {
+  if (side === "A") {
+    return match?.pairA || match?.teams?.A || match?.teamA || match?.sideA || null;
+  }
+  return match?.pairB || match?.teams?.B || match?.teamB || match?.sideB || null;
+};
 
 const currentGameIndexOf = (match) =>
   Number.isInteger(match?.currentGame) ? match.currentGame : 0;
@@ -99,7 +98,10 @@ export default function RefereeScoreDialog({
     enabled: open && Boolean(matchId),
   });
 
-  const match = data || initialMatch || null;
+  const match = useMemo(
+    () => normalizeMatchDisplay(data || initialMatch || null, data || initialMatch || null),
+    [data, initialMatch],
+  );
   const currentScore = useMemo(() => currentScoreOf(match || {}), [match]);
   const currentGame = currentGameIndexOf(match || {});
   const localBreak = match?.isBreak;
@@ -294,7 +296,9 @@ export default function RefereeScoreDialog({
           <Box sx={{ p: 2.5, borderRadius: 3, bgcolor: "grey.50", border: "1px solid", borderColor: "divider" }}>
             <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }} gap={2}>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="h5" fontWeight={800}>{pairLabel(match?.pairA)}</Typography>
+                <Typography variant="h5" fontWeight={800}>
+                  {pairLabel(sidePairOf(match, "A"), match)}
+                </Typography>
                 <Typography variant="body2" color="text.secondary">Đội A</Typography>
               </Box>
               <Box sx={{ textAlign: "center", minWidth: 220 }}>
@@ -309,7 +313,9 @@ export default function RefereeScoreDialog({
                 </Typography>
               </Box>
               <Box sx={{ flex: 1, textAlign: { xs: "left", md: "right" } }}>
-                <Typography variant="h5" fontWeight={800}>{pairLabel(match?.pairB)}</Typography>
+                <Typography variant="h5" fontWeight={800}>
+                  {pairLabel(sidePairOf(match, "B"), match)}
+                </Typography>
                 <Typography variant="body2" color="text.secondary">Đội B</Typography>
               </Box>
             </Stack>

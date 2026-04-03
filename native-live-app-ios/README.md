@@ -21,7 +21,7 @@ Standalone iOS operator app for PickleTour Live.
 
 The app mirrors the Android `native-live-app` contract:
 
-- Auth handoff: `pickletour-live://auth-init?osAuthToken=...&continueUrl=...`
+- Auth handoff: `pickletour-live://auth-init?osAuthToken=...&targetUrl=...&continueUrl=...`
 - OAuth callback: `pickletour-live://auth`
 - Stream launch: `pickletour-live://stream?courtId=...&matchId=...&pageId=...`
 

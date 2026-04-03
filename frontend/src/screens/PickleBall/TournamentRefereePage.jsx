@@ -34,6 +34,13 @@ import {
   useVerifyRefereeQuery,
 } from "../../slices/tournamentsApiSlice";
 import RefereeScoreDialog from "../../components/referee/RefereeScoreDialog";
+import {
+  getMatchCourtStationName,
+  getMatchDisplayCode,
+  getPairDisplayName,
+  getPlayerDisplayName,
+  normalizeMatchDisplay,
+} from "../../utils/matchDisplay";
 
 const TAB_ALL = "__all_matches__";
 const TAB_STATION_PREFIX = "__station__:";
@@ -42,33 +49,32 @@ const textOf = (value) => (value && String(value).trim()) || "";
 
 const normalizeId = (value) => textOf(value?._id || value?.id || value);
 
-const playerName = (player) =>
-  player?.displayName ||
-  player?.nickname ||
-  player?.nickName ||
-  player?.fullName ||
-  player?.name ||
-  "";
+const playerName = (player, source) => getPlayerDisplayName(player, source) || "";
 
-const pairLabel = (pair) =>
-  textOf(pair?.displayName) ||
-  textOf(pair?.name) ||
-  [pair?.player1, pair?.player2].filter(Boolean).map(playerName).join(" / ") ||
-  "TBD";
+const pairLabel = (pair, source) => getPairDisplayName(pair, source) || "TBD";
 
 const matchCode = (match) =>
+  getMatchDisplayCode(match) ||
   textOf(match?.displayCode) ||
   textOf(match?.globalCode) ||
   textOf(match?.code) ||
   `R${match?.round ?? "?"}-${(match?.order ?? 0) + 1}`;
 
 const courtLabelOf = (match) =>
+  textOf(getMatchCourtStationName(match)) ||
   textOf(match?.courtStationName) ||
   textOf(match?.courtStationLabel) ||
   textOf(match?.courtLabel) ||
   textOf(match?.court?.name) ||
   textOf(match?.court?.label) ||
   "";
+
+const sidePairOf = (match, side) => {
+  if (side === "A") {
+    return match?.pairA || match?.teams?.A || match?.teamA || match?.sideA || null;
+  }
+  return match?.pairB || match?.teams?.B || match?.teamB || match?.sideB || null;
+};
 
 const getStatusMeta = (status) => {
   const key = textOf(status).toLowerCase();
@@ -152,10 +158,12 @@ export default function TournamentRefereePage() {
   );
 
   const allMatches = useMemo(() => {
-    const items = Array.isArray(matchesResp?.items) ? matchesResp.items : [];
+    const items = (Array.isArray(matchesResp?.items) ? matchesResp.items : []).map((match) =>
+      normalizeMatchDisplay(match, tournament || match),
+    );
     if (isAdmin) return items;
     return items.filter((match) => isUserRefereeOfMatch(match, userInfo));
-  }, [isAdmin, matchesResp?.items, userInfo]);
+  }, [isAdmin, matchesResp?.items, tournament, userInfo]);
   const stationTabs = useMemo(
     () => (Array.isArray(matchesResp?.stationTabs) ? matchesResp.stationTabs : []),
     [matchesResp?.stationTabs],
@@ -261,12 +269,12 @@ export default function TournamentRefereePage() {
       list = list.filter((match) =>
         [
           matchCode(match),
-          pairLabel(match?.pairA),
-          pairLabel(match?.pairB),
-          playerName(match?.pairA?.player1),
-          playerName(match?.pairA?.player2),
-          playerName(match?.pairB?.player1),
-          playerName(match?.pairB?.player2),
+          pairLabel(sidePairOf(match, "A"), match),
+          pairLabel(sidePairOf(match, "B"), match),
+          playerName(sidePairOf(match, "A")?.player1, match),
+          playerName(sidePairOf(match, "A")?.player2, match),
+          playerName(sidePairOf(match, "B")?.player1, match),
+          playerName(sidePairOf(match, "B")?.player2, match),
           textOf(match?.video),
           textOf(match?.status),
           courtLabelOf(match),
@@ -397,8 +405,12 @@ export default function TournamentRefereePage() {
                     </Stack>
 
                     <Box>
-                      <Typography variant="h6" fontWeight={800}>{pairLabel(match?.pairA)}</Typography>
-                      <Typography variant="body2" color="text.secondary">{pairLabel(match?.pairB)}</Typography>
+                      <Typography variant="h6" fontWeight={800}>
+                        {pairLabel(sidePairOf(match, "A"), match)}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {pairLabel(sidePairOf(match, "B"), match)}
+                      </Typography>
                     </Box>
 
                     <Stack direction="row" spacing={1} flexWrap="wrap">
