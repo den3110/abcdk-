@@ -649,15 +649,26 @@ export function useRefereeLiveSyncMatch(
           );
 
           const acked = new Set(result?.ackedClientEventIds || []);
+          const rejected = Array.isArray(result?.rejectedEvents)
+            ? result.rejectedEvents
+            : [];
+          const rejectedIds = new Set(
+            rejected
+              .map((item) => String(item?.clientEventId || "").trim())
+              .filter(Boolean)
+          );
           const currentQueue = Array.isArray(persistRef.current.queue)
             ? persistRef.current.queue
             : [];
           const remainingQueue = currentQueue.filter(
-            (event) => !acked.has(String(event?.clientEventId || ""))
+            (event) => {
+              const clientEventId = String(event?.clientEventId || "").trim();
+              return (
+                !acked.has(clientEventId) &&
+                !rejectedIds.has(clientEventId)
+              );
+            }
           );
-          const rejected = Array.isArray(result?.rejectedEvents)
-            ? result.rejectedEvents
-            : [];
           const runtimeState = buildRuntimeState(result, {
             owner: result?.owner || null,
             lastRejectedBatch: rejected,

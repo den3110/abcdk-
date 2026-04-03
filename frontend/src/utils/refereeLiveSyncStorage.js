@@ -27,11 +27,22 @@ export async function loadRefereeLiveSyncState(matchId) {
     const raw = window.localStorage.getItem(storageKey(matchId));
     if (!raw) return createEmptyLiveSyncState(matchId);
     const parsed = JSON.parse(raw);
+    const rejectedIds = new Set(
+      (Array.isArray(parsed?.lastRejectedBatch) ? parsed.lastRejectedBatch : [])
+        .map((item) => String(item?.clientEventId || "").trim())
+        .filter(Boolean)
+    );
+    const queue = Array.isArray(parsed?.queue)
+      ? parsed.queue.filter((event) => {
+          const clientEventId = String(event?.clientEventId || "").trim();
+          return !clientEventId || !rejectedIds.has(clientEventId);
+        })
+      : [];
     return {
       ...createEmptyLiveSyncState(matchId),
       ...parsed,
       matchId: String(matchId),
-      queue: Array.isArray(parsed?.queue) ? parsed.queue : [],
+      queue,
       lastRejectedBatch: Array.isArray(parsed?.lastRejectedBatch)
         ? parsed.lastRejectedBatch
         : [],

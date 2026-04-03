@@ -1152,7 +1152,7 @@ export default function RefereeScoreDialog({
               >
                 <Button
                   variant="outlined"
-                  onClick={() => runBusy("undo", () => api.undo())}
+                  onClick={() => runProtectedBusy("undo", () => api.undo())}
                   disabled={!canUndo || busy === "undo"}
                   startIcon={busy === "undo" ? <CircularProgress size={14} /> : <UndoIcon />}
                   sx={{
