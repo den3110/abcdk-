@@ -739,9 +739,11 @@ final class LiveDeviceMonitor: ObservableObject {
     @Published private(set) var lowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
     @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
 
+    private let notificationCenter: NotificationCenter
     private var observers: [NSObjectProtocol] = []
 
     init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
         UIDevice.current.isBatteryMonitoringEnabled = true
         refresh()
 
@@ -787,7 +789,7 @@ final class LiveDeviceMonitor: ObservableObject {
     }
 
     deinit {
-        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.forEach(notificationCenter.removeObserver)
         UIDevice.current.isBatteryMonitoringEnabled = false
     }
 

@@ -56,7 +56,11 @@ final class MatchSocketCoordinator {
             return
         }
 
-        if self.token == token, socket?.status == .connected || socket?.status == .connecting {
+        if
+            self.token == token,
+            let status = socket?.status,
+            status == .connected || status == .connecting
+        {
             return
         }
 
@@ -205,7 +209,11 @@ final class CourtRuntimeSocketCoordinator {
             return
         }
 
-        if self.token == token, socket?.status == .connected || socket?.status == .connecting {
+        if
+            self.token == token,
+            let status = socket?.status,
+            status == .connected || status == .connecting
+        {
             return
         }
 
@@ -361,7 +369,11 @@ final class CourtPresenceSocketCoordinator {
             return
         }
 
-        if self.token == token, socket?.status == .connected || socket?.status == .connecting {
+        if
+            self.token == token,
+            let status = socket?.status,
+            status == .connected || status == .connecting
+        {
             return
         }
 

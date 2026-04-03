@@ -1,8 +1,11 @@
 import AVFoundation
-import ActivityKit
 import Combine
 import Foundation
 import UIKit
+
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 
 @MainActor
 final class LiveAppStore: ObservableObject {
@@ -322,6 +325,11 @@ final class LiveAppStore: ObservableObject {
 
         refreshStorageMetrics()
 
+        if !appIsActive {
+            errorMessage = "App đang ở background nên chưa thể bắt đầu phiên live hoặc recording."
+            return
+        }
+
         if !cameraPermissionGranted || !microphonePermissionGranted {
             errorMessage = "Thiếu quyền camera hoặc micro để bắt đầu phiên."
             return
@@ -334,6 +342,11 @@ final class LiveAppStore: ObservableObject {
 
         if liveMode.includesRecording, recordingStorageHardBlock {
             errorMessage = "Bộ nhớ còn trống quá thấp cho recording ở quality hiện tại."
+            return
+        }
+
+        if thermalCritical {
+            errorMessage = "Thiết bị đang quá nóng. Hãy hạ nhiệt iPhone trước khi bắt đầu để tránh crash hoặc rớt phiên."
             return
         }
 
@@ -965,6 +978,48 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        if thermalCritical {
+            issues.append(
+                LivePreflightIssue(
+                    id: "thermal_critical",
+                    severity: .blocker,
+                    title: "Thiết bị đang quá nóng",
+                    detail: "iPhone đang ở mức nhiệt độ rất cao. Nên hạ nhiệt máy trước khi bắt đầu để tránh rớt encoder, văng app hoặc dừng camera."
+                )
+            )
+        } else if thermalWarning {
+            issues.append(
+                LivePreflightIssue(
+                    id: "thermal_warning",
+                    severity: .warning,
+                    title: "Thiết bị đang nóng",
+                    detail: "Máy đang ở trạng thái nhiệt độ cao. Có thể vẫn live được nhưng nguy cơ tụt hiệu năng hoặc encoder mất ổn định sẽ cao hơn."
+                )
+            )
+        }
+
+        if batteryLowWarning {
+            issues.append(
+                LivePreflightIssue(
+                    id: "battery_low",
+                    severity: .warning,
+                    title: "Pin đang thấp",
+                    detail: "Thiết bị còn \(batteryPercent ?? 0)% pin và không cắm sạc. Nên cắm nguồn trước khi vào phiên dài để tránh dừng giữa chừng."
+                )
+            )
+        }
+
+        if systemLowPowerModeEnabled {
+            issues.append(
+                LivePreflightIssue(
+                    id: "system_low_power",
+                    severity: .info,
+                    title: "iOS đang bật Low Power Mode",
+                    detail: "Chế độ tiết kiệm pin của hệ thống có thể làm giảm dư địa hiệu năng khi encode hoặc upload recording."
+                )
+            )
+        }
+
         if activeMatch == nil, currentCourtId?.trimmedNilIfBlank != nil {
             issues.append(
                 LivePreflightIssue(
@@ -1191,6 +1246,7 @@ final class LiveAppStore: ObservableObject {
     }
 
     private func maybeAutoStartArmedSession() {
+        guard appIsActive else { return }
         guard !isWorking else { return }
         guard goLiveCountdownTask == nil else { return }
         guard stopLiveCountdownTask == nil else { return }
@@ -1422,6 +1478,7 @@ final class LiveAppStore: ObservableObject {
         Publishers.CombineLatest3(liveActivityPrimary, liveActivitySecondary, liveActivityTertiary)
             .receive(on: DispatchQueue.main)
             .sink { primary, secondary, tertiary in
+#if canImport(ActivityKit)
                 if #available(iOS 16.1, *) {
                     let (route, activeMatch, overlaySnapshot, streamState) = primary
                     let (waitingForCourt, waitingForMatchLive, waitingForNextMatch, liveMode) = secondary
@@ -1444,6 +1501,7 @@ final class LiveAppStore: ObservableObject {
                         )
                     }
                 }
+#endif
             }
             .store(in: &cancellables)
 
@@ -2098,6 +2156,7 @@ final class LiveAppStore: ObservableObject {
     }
 }
 
+#if canImport(ActivityKit)
 @available(iOS 16.1, *)
 actor LiveMatchActivityCoordinator {
     static let shared = LiveMatchActivityCoordinator()
@@ -2465,3 +2524,4 @@ actor LiveMatchActivityCoordinator {
         )
     }
 }
+#endif

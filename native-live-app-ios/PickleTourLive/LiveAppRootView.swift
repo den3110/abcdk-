@@ -1157,6 +1157,14 @@ private struct LiveStreamScreen: View {
                         title: store.microphonePermissionGranted ? "Mic OK" : "Thiếu mic",
                         tint: store.microphonePermissionGranted ? LivePalette.success : LivePalette.danger
                     )
+                    TinyBadge(
+                        title: "Pin: \(store.batteryStatusSummary)",
+                        tint: store.batteryLowWarning ? LivePalette.warning : LivePalette.cardMuted
+                    )
+                    TinyBadge(
+                        title: "Nhiệt: \(store.thermalStateLabel)",
+                        tint: store.thermalWarning ? LivePalette.warning : LivePalette.success
+                    )
                     if let leaseText = previewLeaseText {
                         TinyBadge(
                             title: leaseText,
@@ -1405,6 +1413,18 @@ private struct LiveStreamScreen: View {
                         subtitle: store.appIsActive ? "App đang foreground" : "App đang background",
                         accent: store.networkConnected ? LivePalette.success : LivePalette.danger
                     )
+                    MetricTile(
+                        title: "Pin",
+                        value: store.batteryPercent.map { "\($0)%" } ?? "Chưa rõ",
+                        subtitle: store.batteryStateLabel,
+                        accent: store.batteryLowWarning ? LivePalette.warning : LivePalette.success
+                    )
+                    MetricTile(
+                        title: "Nhiệt độ máy",
+                        value: store.thermalStateLabel,
+                        subtitle: store.systemLowPowerModeEnabled ? "Low Power Mode đang bật" : "Low Power Mode đang tắt",
+                        accent: store.thermalWarning ? LivePalette.warning : LivePalette.success
+                    )
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -1417,6 +1437,9 @@ private struct LiveStreamScreen: View {
                     DetailLine(label: "Payload stale", value: store.socketPayloadStale ? "Có" : "Không")
                     DetailLine(label: "Preview ready", value: store.previewReady ? "Sẵn sàng" : "Chưa sẵn sàng")
                     DetailLine(label: "Camera / mic", value: "\(store.cameraPermissionGranted ? "OK" : "Thiếu") / \(store.microphonePermissionGranted ? "OK" : "Thiếu")")
+                    DetailLine(label: "Pin", value: store.batteryStatusSummary)
+                    DetailLine(label: "Nhiệt độ máy", value: store.thermalStateLabel)
+                    DetailLine(label: "Low Power Mode", value: store.systemLowPowerModeEnabled ? "Đang bật" : "Đang tắt")
                     DetailLine(label: "Overlay / branding", value: "\(store.overlayDataReady ? "OK" : "Thiếu") / \(store.brandingReady ? "OK" : "Thiếu")")
                 }
             }
@@ -1903,6 +1926,17 @@ private struct LiveStreamScreen: View {
         if !store.cameraPermissionGranted || !store.microphonePermissionGranted {
             items.append("Thiếu quyền camera hoặc micro")
         }
+        if store.batteryLowWarning {
+            items.append("Pin thấp \(store.batteryPercent ?? 0)%")
+        }
+        if store.thermalCritical {
+            items.append("Thiết bị đang quá nóng")
+        } else if store.thermalWarning {
+            items.append("Thiết bị đang nóng")
+        }
+        if store.systemLowPowerModeEnabled {
+            items.append("iOS đang bật Low Power Mode")
+        }
         if store.socketPayloadStale {
             items.append("Payload overlay đang stale")
         }
@@ -1924,7 +1958,13 @@ private struct LiveStreamScreen: View {
     }
 
     private var warningTint: Color {
-        if warningItems.contains(where: { $0.contains("offline") || $0.contains("Thiếu quyền") || $0.contains("quá thấp") }) {
+        if warningItems.contains(where: {
+            $0.contains("offline")
+                || $0.contains("Thiếu quyền")
+                || $0.contains("quá thấp")
+                || $0.contains("Pin thấp")
+                || $0.contains("quá nóng")
+        }) {
             return LivePalette.danger
         }
         return LivePalette.warning
@@ -1937,10 +1977,21 @@ private struct LiveStreamScreen: View {
         if !store.overlayDataReady && store.activeMatch != nil { issues += 1 }
         if !store.brandingReady && store.activeMatch != nil { issues += 1 }
         if !store.previewReady { issues += 1 }
+        if store.batteryLowWarning { issues += 1 }
+        if store.thermalWarning { issues += 1 }
         return issues
     }
 
     private var overlaySignalStatusLabel: String {
+        if store.thermalCritical {
+            return "Quá nóng"
+        }
+        if store.thermalWarning {
+            return "Thiết bị nóng"
+        }
+        if store.batteryLowWarning {
+            return "Pin thấp"
+        }
         if store.waitingForCourt || store.waitingForMatchLive || store.waitingForNextMatch {
             return "Đang chờ"
         }
@@ -1957,16 +2008,28 @@ private struct LiveStreamScreen: View {
     }
 
     private var overlaySignalTint: Color {
+        if store.thermalCritical {
+            return LivePalette.danger
+        }
         if !store.networkConnected {
             return LivePalette.danger
         }
-        if !store.socketConnected || store.socketPayloadStale || !store.overlayDataReady {
+        if !store.socketConnected || store.socketPayloadStale || !store.overlayDataReady || store.thermalWarning || store.batteryLowWarning {
             return LivePalette.warning
         }
         return LivePalette.success
     }
 
     private var overlaySignalSummary: String {
+        if store.thermalCritical {
+            return "Thiết bị đang quá nóng. Đây là trạng thái có thể làm encoder hoặc camera bị dừng đột ngột trên iPhone."
+        }
+        if store.thermalWarning {
+            return "Thiết bị đang nóng. Nên giảm tải, hạn chế torch hoặc cắm nguồn ổn định để tránh phiên bị rớt."
+        }
+        if store.batteryLowWarning {
+            return "Thiết bị đang pin thấp và không cắm sạc. Nên cấp nguồn trước khi tiếp tục phiên dài."
+        }
         if store.waitingForCourt {
             return "App đang giữ preview theo sân và chờ runtime đẩy match mới trước khi nạp overlay."
         }
@@ -2004,6 +2067,15 @@ private struct LiveStreamScreen: View {
         }
         if !store.brandingReady {
             reasons.append("Overlay config chưa có đủ logo giải, web logo hoặc sponsor.")
+        }
+        if store.batteryLowWarning {
+            reasons.append("Thiết bị đang còn ít pin: \(store.batteryStatusSummary).")
+        }
+        if store.thermalWarning {
+            reasons.append("Nhiệt độ máy đang ở trạng thái \(store.thermalStateLabel.lowercased()).")
+        }
+        if store.systemLowPowerModeEnabled {
+            reasons.append("iOS đang bật Low Power Mode, dư địa hiệu năng encode có thể thấp hơn.")
         }
         if let pendingNextMatchId = store.pendingNextMatchId {
             reasons.append("Match kế tiếp đang chờ chuyển context: \(pendingNextMatchId).")
@@ -2152,6 +2224,8 @@ private struct LiveStreamScreen: View {
                             DetailLine(label: "Court", value: store.currentCourtIdentifier ?? store.selectedCourt?.displayName ?? "Chưa có")
                             DetailLine(label: "Match", value: store.activeMatch?.id ?? store.launchTarget.matchId ?? "Chưa có")
                             DetailLine(label: "Room socket", value: store.activeSocketMatchId?.trimmedNilIfBlank ?? "Chưa join")
+                            DetailLine(label: "Pin", value: store.batteryStatusSummary)
+                            DetailLine(label: "Nhiệt độ máy", value: store.thermalStateLabel)
                         }
                     }
 

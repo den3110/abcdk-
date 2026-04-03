@@ -419,11 +419,19 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     private func resetTorchState() {
-        if let camera = currentCamera, camera.hasTorch {
-            try? camera.lockForConfiguration()
-            camera.torchMode = .off
-            camera.unlockForConfiguration()
+        guard let camera = currentCamera, camera.hasTorch else {
+            stats.torchEnabled = false
+            return
         }
+
+        guard (try? camera.lockForConfiguration()) != nil else {
+            stats.torchEnabled = false
+            appendDiagnostic("Torch reset skipped because camera configuration lock failed.")
+            return
+        }
+
+        camera.torchMode = .off
+        camera.unlockForConfiguration()
         stats.torchEnabled = false
     }
 
