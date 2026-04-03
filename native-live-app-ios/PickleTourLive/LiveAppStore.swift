@@ -583,6 +583,10 @@ final class LiveAppStore: ObservableObject {
     }
 
     func toggleTorch() {
+        if thermalWarning && !streamingService.stats.torchEnabled {
+            bannerMessage = "Thiết bị đang nóng, app sẽ không bật torch để tránh rớt phiên."
+            return
+        }
         do {
             try streamingService.setTorchEnabled(!streamingService.stats.torchEnabled)
         } catch {
@@ -603,6 +607,12 @@ final class LiveAppStore: ObservableObject {
     }
 
     func applyQuality(_ quality: LiveQualityPreset) {
+        if safetyDegradeActive && quality != .stable720 {
+            selectedQuality = .stable720
+            streamingService.applyQuality(.stable720)
+            bannerMessage = "App đang ở safety mode, tạm khoá quality về 720p ổn định."
+            return
+        }
         selectedQuality = quality
         streamingService.applyQuality(quality)
     }
@@ -636,8 +646,16 @@ final class LiveAppStore: ObservableObject {
         }
 
         if changed {
-            bannerMessage = "App đã tự hạ tải để giữ phiên ổn định."
+            bannerMessage = "App đã tự hạ tải để giữ phiên ổn định: \(reason)."
         }
+    }
+
+    private func maybeReleaseSafetyDegrade() {
+        guard safetyDegradeActive else { return }
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let recentMemoryPressure = lastMemoryPressure.map { nowMs - $0.atMs < 180_000 } ?? false
+        guard !thermalWarning, !recentMemoryPressure else { return }
+        safetyDegradeReason = nil
     }
 
     var safetyDegradeActive: Bool {
@@ -1154,6 +1172,17 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        if let safetyDegradeReason = safetyDegradeReason?.trimmedNilIfBlank {
+            issues.append(
+                LivePreflightIssue(
+                    id: "safety_degrade_active",
+                    severity: .warning,
+                    title: "App đang tự hạ tải",
+                    detail: "Thiết bị đang ở chế độ an toàn để giữ phiên ổn định: \(safetyDegradeReason)."
+                )
+            )
+        }
+
         if !networkConnected {
             issues.append(
                 LivePreflightIssue(
@@ -1629,6 +1658,7 @@ final class LiveAppStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] thermalState in
                 self?.thermalState = thermalState
+                self?.maybeReleaseSafetyDegrade()
             }
             .store(in: &cancellables)
 
@@ -1701,6 +1731,7 @@ final class LiveAppStore: ObservableObject {
                     if self.activeMatch != nil {
                         await self.refreshOverlay()
                     }
+                    self.maybeReleaseSafetyDegrade()
                     self.environment.courtRuntimeSocket.connectIfNeeded()
                     self.environment.courtPresenceSocket.connectIfNeeded()
                     if let matchId = self.activeMatch?.id.trimmedNilIfBlank {
