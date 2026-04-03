@@ -52,6 +52,8 @@ private extension Notification.Name {
 }
 
 final class LiveAppDelegate: NSObject, UIApplicationDelegate {
+    static var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
+
     func application(
         _ app: UIApplication,
         open url: URL,
@@ -64,5 +66,46 @@ final class LiveAppDelegate: NSObject, UIApplicationDelegate {
             }
         }
         return handledAuth || url.scheme == "pickletour-live"
+    }
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        Self.orientationMask
+    }
+}
+
+enum LiveAppOrientationController {
+    @MainActor
+    static func apply(_ mode: DeviceOrientationMode) {
+        let mask: UIInterfaceOrientationMask
+        let orientationValue: UIInterfaceOrientation
+
+        switch mode {
+        case .auto:
+            mask = .allButUpsideDown
+            orientationValue = .unknown
+        case .portrait:
+            mask = .portrait
+            orientationValue = .portrait
+        case .landscape:
+            mask = .landscape
+            orientationValue = .landscapeRight
+        }
+
+        LiveAppDelegate.orientationMask = mask
+
+        if #available(iOS 16.0, *) {
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .forEach { scene in
+                    try? scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
+                }
+        } else if orientationValue != .unknown {
+            UIDevice.current.setValue(orientationValue.rawValue, forKey: "orientation")
+        }
+
+        UIViewController.attemptRotationToDeviceOrientation()
     }
 }

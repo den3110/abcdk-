@@ -414,7 +414,6 @@ export default function TournamentOverviewPage() {
   });
   const { data: refereeRes } = useVerifyRefereeQuery(me?._id ? id : skipToken);
   const canReferee = Boolean(refereeRes?.isReferee);
-  const canOpenRefereeCenter = isAdmin || canReferee;
 
   const loadingTour = tourLoading;
   const loadingRegs = regsLoading;
@@ -510,6 +509,7 @@ export default function TournamentOverviewPage() {
     return !!tour?.isManager;
   }, [tour, me]);
   const canManage = isAdmin || isManager;
+  const canOpenRefereeCenter = isAdmin || canReferee;
 
   // KPIs
   const regTotal = regs.length;

@@ -502,6 +502,16 @@ struct MatchRecording: Codable, Equatable {
     }
 }
 
+extension MatchRecording {
+    var playbackURLString: String? {
+        playback?.mp4URL?.trimmedNilIfBlank ?? playback?.manifestURL?.trimmedNilIfBlank
+    }
+
+    var segmentCount: Int {
+        segments?.count ?? 0
+    }
+}
+
 struct RecordingLivePlayback: Codable, Equatable {
     var manifestURL: String?
     var mp4URL: String?
@@ -732,6 +742,32 @@ enum LiveStreamMode: String, Codable, CaseIterable, Identifiable {
     var includesRecording: Bool {
         self == .streamAndRecord || self == .recordOnly
     }
+
+    var includesLivestream: Bool {
+        self == .streamOnly || self == .streamAndRecord
+    }
+
+    var title: String {
+        switch self {
+        case .streamOnly:
+            return "Chỉ live"
+        case .streamAndRecord:
+            return "Live + ghi hình"
+        case .recordOnly:
+            return "Chỉ ghi hình"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .streamOnly:
+            return "Phát RTMP, không lưu recording cục bộ."
+        case .streamAndRecord:
+            return "Phát RTMP và cắt segment recording để tải nền."
+        case .recordOnly:
+            return "Giữ preview và tự ghi theo trận, không phát RTMP."
+        }
+    }
 }
 
 enum LiveQualityPreset: String, CaseIterable, Identifiable, Codable {
@@ -807,6 +843,80 @@ struct LiveLaunchTarget: Equatable {
     var courtId: String?
     var matchId: String?
     var pageId: String?
+}
+
+enum DeviceOrientationMode: String, CaseIterable, Identifiable, Codable {
+    case auto
+    case portrait
+    case landscape
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .auto:
+            return "Auto"
+        case .portrait:
+            return "Dọc"
+        case .landscape:
+            return "Ngang"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .auto:
+            return "arrow.trianglehead.2.clockwise.rotate.90"
+        case .portrait:
+            return "iphone"
+        case .landscape:
+            return "iphone.landscape"
+        }
+    }
+
+    func next() -> DeviceOrientationMode {
+        switch self {
+        case .auto:
+            return .portrait
+        case .portrait:
+            return .landscape
+        case .landscape:
+            return .auto
+        }
+    }
+}
+
+enum LivePreflightSeverity: String, Identifiable, Codable {
+    case blocker
+    case warning
+    case info
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .blocker:
+            return "Chặn"
+        case .warning:
+            return "Cảnh báo"
+        case .info:
+            return "Thông tin"
+        }
+    }
+}
+
+struct LivePreflightIssue: Identifiable, Equatable, Codable {
+    let id: String
+    let severity: LivePreflightSeverity
+    let title: String
+    let detail: String
+}
+
+struct LiveRecoverySummary: Equatable {
+    let title: String
+    let detail: String
+    let canRetryPreview: Bool
+    let canRetrySession: Bool
 }
 
 struct RTMPDestination: Equatable {
