@@ -285,7 +285,7 @@ private struct CourtSetupScreen: View {
                     .buttonStyle(PrimaryPillButtonStyle(fill: Color(red: 0.15, green: 0.76, blue: 0.63)))
 
                     Button {
-                        store.route = .adminHome
+                        store.goBackToAdminHome()
                     } label: {
                         Text("Quay lại")
                             .frame(maxWidth: .infinity)
@@ -384,7 +384,7 @@ private struct LiveStreamScreen: View {
                             Button {
                                 Task { await store.startLive() }
                             } label: {
-                                Text("Go Live")
+                                Text(store.liveMode == .recordOnly ? "Record" : "Go Live")
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(PrimaryPillButtonStyle(fill: Color(red: 0.84, green: 0.24, blue: 0.24)))
@@ -393,6 +393,16 @@ private struct LiveStreamScreen: View {
                                 Task { await store.stopLive() }
                             } label: {
                                 Text("Stop")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(SecondaryPillButtonStyle())
+                        }
+
+                        if store.courtPresence?.screenState == "preview" {
+                            Button {
+                                Task { await store.extendPreviewLease() }
+                            } label: {
+                                Text("Gia hạn preview")
                                     .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(SecondaryPillButtonStyle())
@@ -438,7 +448,8 @@ private struct LiveStreamScreen: View {
                             ("Court", store.selectedCourt?.displayName ?? store.launchTarget.courtId ?? "N/A"),
                             ("Match", store.activeMatch?.displayCode ?? store.activeMatch?.id ?? "N/A"),
                             ("Presence", store.courtPresence?.screenState ?? "idle"),
-                            ("Bitrate", "\(store.streamingService.stats.currentBitrate / 1000) kbps")
+                            ("Bitrate", "\(store.streamingService.stats.currentBitrate / 1000) kbps"),
+                            ("Uploads", "\(store.recordingPendingUploads)")
                         ])
 
                         if let activeMatch = store.activeMatch {

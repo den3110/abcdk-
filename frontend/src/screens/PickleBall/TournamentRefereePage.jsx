@@ -119,6 +119,18 @@ export default function TournamentRefereePage() {
   const { id } = useParams();
   const socket = useSocket();
   const { userInfo } = useSelector((state) => state.auth || {});
+  const roleStr = textOf(userInfo?.role).toLowerCase();
+  const roles = new Set(
+    [...(userInfo?.roles || []), ...(userInfo?.permissions || [])]
+      .filter(Boolean)
+      .map((value) => textOf(value).toLowerCase()),
+  );
+  const isAdmin = Boolean(
+    userInfo?.isAdmin ||
+      roleStr === "admin" ||
+      roles.has("admin") ||
+      roles.has("superadmin"),
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState(TAB_ALL);
   const [q, setQ] = useState("");
@@ -139,13 +151,11 @@ export default function TournamentRefereePage() {
     { refetchOnFocus: true, refetchOnReconnect: true },
   );
 
-  const allMatches = useMemo(
-    () =>
-      (Array.isArray(matchesResp?.items) ? matchesResp.items : []).filter((match) =>
-        isUserRefereeOfMatch(match, userInfo),
-      ),
-    [matchesResp?.items, userInfo],
-  );
+  const allMatches = useMemo(() => {
+    const items = Array.isArray(matchesResp?.items) ? matchesResp.items : [];
+    if (isAdmin) return items;
+    return items.filter((match) => isUserRefereeOfMatch(match, userInfo));
+  }, [isAdmin, matchesResp?.items, userInfo]);
   const stationTabs = useMemo(
     () => (Array.isArray(matchesResp?.stationTabs) ? matchesResp.stationTabs : []),
     [matchesResp?.stationTabs],
@@ -288,7 +298,7 @@ export default function TournamentRefereePage() {
     setSearchParams(next, { replace: true });
   };
 
-  if (!verifying && verifyRes && !verifyRes.isReferee) {
+  if (!verifying && !isAdmin && verifyRes && !verifyRes.isReferee) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>
         <Alert severity="error">Bạn không có quyền truy cập màn trọng tài của giải này.</Alert>

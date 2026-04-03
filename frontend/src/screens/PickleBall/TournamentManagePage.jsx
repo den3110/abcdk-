@@ -11,7 +11,7 @@ import React, {
   useTransition,
 } from "react";
 import { skipToken } from "@reduxjs/toolkit/query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
   Alert,
@@ -251,6 +251,32 @@ const refereeNames = (m) => {
   if (Array.isArray(list) && list.length) return list.map(pickOne).join(", ");
   if (r1) return pickOne(r1);
   return "";
+};
+
+const normalizeEntityId = (value) => {
+  const raw = value?._id ?? value?.id ?? value;
+  return raw == null ? "" : String(raw).trim();
+};
+
+const normalizeMatchRefereeIds = (match) =>
+  Array.from(
+    new Set(
+      [
+        ...(Array.isArray(match?.referee) ? match.referee : [match?.referee]),
+        ...(Array.isArray(match?.referees) ? match.referees : []),
+        ...(Array.isArray(match?.courtStationReferees)
+          ? match.courtStationReferees
+          : []),
+      ]
+        .map(normalizeEntityId)
+        .filter(Boolean),
+    ),
+  );
+
+const isUserRefereeOfMatch = (match, user) => {
+  const userId = normalizeEntityId(user);
+  if (!userId) return false;
+  return normalizeMatchRefereeIds(match).includes(userId);
 };
 
 const buildRefReportHTML = ({
@@ -607,14 +633,17 @@ const pickRealtimeFields = (src = {}) => {
 /* ---------------- Row & Card (memo) ---------------- */
 const ActionChips = React.memo(function ActionChips({
   match,
+  canStartReferee = false,
   onOpenVideo,
   onDeleteVideo,
   onAssignCourt,
   onAssignRef,
   onExportRefNote,
+  onStartReferee,
 }) {
   const st = String(match?.status || "").toLowerCase();
   const canAssignCourt = !(st === "live" || st === "finished");
+  const canStartMatch = Boolean(canStartReferee && onStartReferee);
   return (
     <Box
       onClick={(e) => e.stopPropagation()}
@@ -663,6 +692,16 @@ const ActionChips = React.memo(function ActionChips({
         label="Gán trọng tài"
         onClick={() => onAssignRef(match)}
       />
+      {canStartMatch ? (
+        <Chip
+          size="small"
+          color="warning"
+          variant="filled"
+          icon={<SportsIcon />}
+          label="Bắt trận"
+          onClick={() => onStartReferee(match)}
+        />
+      ) : null}
     </Box>
   );
 });
@@ -671,6 +710,7 @@ const ActionChipsLocalized = React.memo(function ActionChipsLocalized(props) {
   const { t, locale } = useLanguage();
   const st = String(props.match?.status || "").toLowerCase();
   const canAssignCourt = !(st === "live" || st === "finished");
+  const canStartMatch = Boolean(props.canStartReferee && props.onStartReferee);
 
   return (
     <Box
@@ -724,6 +764,16 @@ const ActionChipsLocalized = React.memo(function ActionChipsLocalized(props) {
         label={t("tournaments.manage.assignSingleReferee")}
         onClick={() => props.onAssignRef(props.match)}
       />
+      {canStartMatch ? (
+        <Chip
+          size="small"
+          color="warning"
+          variant="filled"
+          icon={<SportsIcon />}
+          label="Bắt trận"
+          onClick={() => props.onStartReferee(props.match)}
+        />
+      ) : null}
     </Box>
   );
 });
@@ -734,12 +784,14 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   liveStore,
   eventType = "double",
   displayMode = "nickname",
+  canStartReferee = false,
   onRowClick,
   onOpenVideo,
   onDeleteVideo,
   onAssignCourt,
   onAssignRef,
   onExportRefNote,
+  onStartReferee,
   checked = false,
   onToggleSelect,
 }) {
@@ -825,11 +877,13 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
       <TableCell colSpan={8} sx={{ py: 0.75, whiteSpace: "normal" }}>
         <ActionChipsLocalized
           match={merged}
+          canStartReferee={canStartReferee}
           onOpenVideo={onOpenVideo}
           onDeleteVideo={onDeleteVideo}
           onAssignCourt={onAssignCourt}
           onAssignRef={onAssignRef}
           onExportRefNote={onExportRefNote}
+          onStartReferee={onStartReferee}
         />
       </TableCell>
     </TableRow>
@@ -848,12 +902,14 @@ const MatchCard = React.memo(function MatchCard({
   liveStore,
   eventType = "double",
   displayMode = "nickname",
+  canStartReferee = false,
   onCardClick,
   onOpenVideo,
   onDeleteVideo,
   onAssignCourt,
   onAssignRef,
   onExportRefNote,
+  onStartReferee,
   checked = false,
   onToggleSelect,
 }) {
@@ -991,11 +1047,13 @@ const MatchCard = React.memo(function MatchCard({
 
           <ActionChipsLocalized
             match={merged}
+            canStartReferee={canStartReferee}
             onOpenVideo={onOpenVideo}
             onDeleteVideo={onDeleteVideo}
             onAssignCourt={onAssignCourt}
             onAssignRef={onAssignRef}
             onExportRefNote={onExportRefNote}
+            onStartReferee={onStartReferee}
           />
         </Stack>
       </CardContent>
@@ -1124,6 +1182,7 @@ export default function TournamentManagePage() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const { id } = useParams();
+  const navigate = useNavigate();
   const me = useSelector((s) => s.auth?.userInfo || null);
 
   // Queries
@@ -1174,6 +1233,7 @@ export default function TournamentManagePage() {
   }, [tour, me]);
   const canManage = isAdmin || isManager;
   const canReferee = !!verifyRefereeRes?.isReferee;
+  const canOpenRefereeCenter = isAdmin || canReferee;
   const canManageManagers = useMemo(
     () =>
       isAdmin ||
@@ -1279,6 +1339,22 @@ export default function TournamentManagePage() {
   const closeMatch = useCallback(
     () => setViewer({ open: false, matchId: null }),
     [],
+  );
+  const openRefereeMatch = useCallback(
+    (match) => {
+      const matchId = normalizeEntityId(match);
+      if (!id || !matchId) return;
+      navigate(`/tournament/${id}/referee?matchId=${matchId}`);
+    },
+    [id, navigate],
+  );
+  const canStartRefereeMatch = useCallback(
+    (match) => {
+      const status = String(match?.status || "").toLowerCase();
+      if (!match?._id || status === "finished") return false;
+      return isAdmin || isUserRefereeOfMatch(match, me);
+    },
+    [isAdmin, me],
   );
 
   // Dialog gán video
@@ -2365,7 +2441,7 @@ export default function TournamentManagePage() {
             >
               {t("tournaments.manage.overview")}
             </Button>
-            {canReferee ? (
+            {canOpenRefereeCenter ? (
               <Button
                 component={Link}
                 to={`/tournament/${id}/referee`}
@@ -2487,7 +2563,7 @@ export default function TournamentManagePage() {
 
                 <Divider />
 
-                {canReferee ? (
+                {canOpenRefereeCenter ? (
                   <MenuItem
                     component={Link}
                     to={`/tournament/${id}/referee`}
@@ -2896,12 +2972,14 @@ export default function TournamentManagePage() {
                               liveStore={liveStore}
                               eventType={tour?.eventType || "double"}
                               displayMode={displayMode}
+                              canStartReferee={canStartRefereeMatch(m)}
                               onRowClick={(mid) => openMatch(mid)}
                               onOpenVideo={openVideoDlg}
                               onDeleteVideo={deleteVideoDlg}
                               onAssignCourt={openAssignCourt}
                               onAssignRef={openAssignRef}
                               onExportRefNote={handleExportRefNote}
+                              onStartReferee={openRefereeMatch}
                               checked={selectedMatchIds.has(String(m._id))}
                               onToggleSelect={toggleSelectMatch}
                             />
@@ -2975,12 +3053,14 @@ export default function TournamentManagePage() {
                               liveStore={liveStore}
                               eventType={tour?.eventType || "double"}
                               displayMode={displayMode}
+                              canStartReferee={canStartRefereeMatch(m)}
                               onCardClick={(mid) => openMatch(mid)}
                               onOpenVideo={openVideoDlg}
                               onDeleteVideo={deleteVideoDlg}
                               onAssignCourt={openAssignCourt}
                               onAssignRef={openAssignRef}
                               onExportRefNote={handleExportRefNote}
+                              onStartReferee={openRefereeMatch}
                               checked={selectedMatchIds.has(String(m._id))}
                               onToggleSelect={toggleSelectMatch}
                             />

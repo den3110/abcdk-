@@ -940,6 +940,7 @@ export default function TournamentSchedule() {
   );
   const isManager = !!verifyRes?.isManager;
   const canReferee = !!verifyRefereeRes?.isReferee;
+  const canOpenRefereeCenter = isAdmin || canReferee;
   const canEdit = isAdmin || isManager;
   const theme = useTheme();
   // Detect mobile để render skeleton
@@ -1290,7 +1291,7 @@ export default function TournamentSchedule() {
                   {t("tournaments.schedule.manageTournament")}
                 </Button>
               )}
-              {canReferee && (
+              {canOpenRefereeCenter && (
                 <Button
                   component={RouterLink}
                   to={`/tournament/${id}/referee`}

@@ -414,6 +414,7 @@ export default function TournamentOverviewPage() {
   });
   const { data: refereeRes } = useVerifyRefereeQuery(me?._id ? id : skipToken);
   const canReferee = Boolean(refereeRes?.isReferee);
+  const canOpenRefereeCenter = isAdmin || canReferee;
 
   const loadingTour = tourLoading;
   const loadingRegs = regsLoading;
@@ -881,7 +882,7 @@ export default function TournamentOverviewPage() {
               >
                 {t("tournaments.overview.draw")}
               </Button>
-              {canReferee ? (
+              {canOpenRefereeCenter ? (
                 <Button
                   component={Link}
                   to={`/tournament/${id}/referee`}

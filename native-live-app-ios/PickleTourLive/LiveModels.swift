@@ -845,6 +845,17 @@ extension String {
     }
 }
 
+extension Optional where Wrapped == String {
+    var trimmedNilIfBlank: String? {
+        switch self {
+        case let .some(value):
+            return value.trimmedNilIfBlank
+        case .none:
+            return nil
+        }
+    }
+}
+
 extension Date {
     var iso8601UTCString: String {
         ISO8601DateFormatter.liveApp.string(from: self)

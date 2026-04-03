@@ -598,10 +598,6 @@ actor LiveRecordingUploadCoordinator {
         var partNumber = 1
 
         while true {
-            autoreleasepool {
-                // Read the local MP4 in deterministic chunks so retries can be resumed server-side.
-            }
-
             let chunk = try handle.read(upToCount: multipartChunkBytes) ?? Data()
             if chunk.isEmpty {
                 break
