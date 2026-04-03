@@ -122,15 +122,25 @@ function normalizeBreakPayload(value) {
       active: false,
       afterGame: null,
       note: "",
+      type: "",
       startedAt: null,
       expectedResumeAt: null,
     };
   }
+  const note = pick(value.note);
+  const rawType = pick(value.type).toLowerCase();
+  const notePrefix = note.split(":")[0].trim().toLowerCase();
   return {
     active: !!value.active,
     afterGame:
       typeof value.afterGame === "number" ? value.afterGame : null,
-    note: pick(value.note),
+    note,
+    type:
+      rawType === "timeout" || rawType === "medical"
+        ? rawType
+        : notePrefix === "timeout" || notePrefix === "medical"
+          ? notePrefix
+          : "",
     startedAt: value.startedAt || null,
     expectedResumeAt: value.expectedResumeAt || null,
   };

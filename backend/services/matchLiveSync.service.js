@@ -265,6 +265,20 @@ function ensureLiveLog(match) {
   if (!Array.isArray(match.liveLog)) match.liveLog = [];
 }
 
+function isBreakActive(match) {
+  const rawBreak = match?.isBreak;
+  return Boolean(
+    rawBreak &&
+      typeof rawBreak === "object" &&
+      !Array.isArray(rawBreak) &&
+      rawBreak.active === true
+  );
+}
+
+function isBlockedByActiveBreak(eventType) {
+  return ["point", "undo", "serve", "slots"].includes(eventType);
+}
+
 function applyStartEvent(match, event, actorId) {
   if (match.status === "finished") {
     return { ok: false, code: "match_closed", message: "Match already finished" };
@@ -574,6 +588,13 @@ export function applyLiveSyncEvent(match, input, actorId = null) {
   if (!normalized.ok) return normalized;
 
   const { event } = normalized;
+  if (isBreakActive(match) && isBlockedByActiveBreak(event.type)) {
+    return {
+      ok: false,
+      code: "break_active",
+      message: "Break is active. Resume the match before changing score or serve.",
+    };
+  }
   if (event.type === "start") return applyStartEvent(match, event, actorId);
   if (event.type === "point") return applyPointEvent(match, event, actorId);
   if (event.type === "serve") return applyServeEvent(match, event, actorId);

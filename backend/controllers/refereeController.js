@@ -3485,13 +3485,21 @@ export const refereeSetBreak = async (req, res) => {
       return res.status(400).json({ message: "Invalid match id" });
     }
 
-    const { active, note, afterGame, expectedResumeAt } = req.body || {};
+    const { active, note, type, afterGame, expectedResumeAt } = req.body || {};
+    const normalizedNote = typeof note === "string" ? note : "";
+    const normalizedType = (() => {
+      const rawType = String(type || "").trim().toLowerCase();
+      if (rawType === "timeout" || rawType === "medical") return rawType;
+      const notePrefix = normalizedNote.split(":")[0].trim().toLowerCase();
+      return notePrefix === "timeout" || notePrefix === "medical" ? notePrefix : "";
+    })();
 
     // build object chuẩn
     const nextBreak = active
       ? {
           active: true,
-          note: note || "",
+          note: normalizedNote,
+          type: normalizedType,
           afterGame: typeof afterGame === "number" ? afterGame : null,
           startedAt: new Date(),
           expectedResumeAt: expectedResumeAt
@@ -3500,7 +3508,8 @@ export const refereeSetBreak = async (req, res) => {
         }
       : {
           active: false,
-          note: note || "",
+          note: normalizedNote,
+          type: "",
           afterGame: typeof afterGame === "number" ? afterGame : null,
           startedAt: null,
           expectedResumeAt: null,

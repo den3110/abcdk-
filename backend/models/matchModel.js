@@ -17,22 +17,32 @@ const BREAK_DEFAULT = {
   active: false,
   afterGame: null,
   note: "",
+  type: "",
   startedAt: null,
   expectedResumeAt: null,
 };
+
+function normalizeBreakType(type, note = "") {
+  const rawType = String(type || "").trim().toLowerCase();
+  if (rawType === "timeout" || rawType === "medical") return rawType;
+  const notePrefix = String(note || "").split(":")[0].trim().toLowerCase();
+  return notePrefix === "timeout" || notePrefix === "medical" ? notePrefix : "";
+}
 
 function normalizeBreak(val) {
   // case cũ: false / null / undefined / string linh tinh
   if (!val || typeof val !== "object" || Array.isArray(val)) {
     return { ...BREAK_DEFAULT };
   }
+  const note = typeof val.note === "string" ? val.note : BREAK_DEFAULT.note;
   return {
     active: !!val.active,
     afterGame:
       typeof val.afterGame === "number"
         ? val.afterGame
         : BREAK_DEFAULT.afterGame,
-    note: typeof val.note === "string" ? val.note : BREAK_DEFAULT.note,
+    note,
+    type: normalizeBreakType(val.type, note),
     startedAt: val.startedAt
       ? new Date(val.startedAt)
       : BREAK_DEFAULT.startedAt,
