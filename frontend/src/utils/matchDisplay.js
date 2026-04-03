@@ -104,11 +104,11 @@ export const getPairDisplayName = (pair, source) => {
     .join(" / ");
 
   return (
-    trim(pair?.displayName) ||
-    joined ||
     trim(pair?.teamName) ||
     trim(pair?.label) ||
     trim(pair?.title) ||
+    joined ||
+    trim(pair?.displayName) ||
     trim(pair?.name) ||
     ""
   );
@@ -305,12 +305,16 @@ const normalizeTeamDisplay = (team, source) => {
   const players = Array.isArray(team?.players)
     ? team.players.map((player) => normalizePlayerDisplay(player, mode))
     : [];
+  const joinedPlayers = players
+    .map((player) => player?.displayName)
+    .filter(Boolean)
+    .join(" / ");
   const displayName =
-    trim(team?.displayName) ||
-    trim(team?.name) ||
-    players.map((player) => player?.displayName).filter(Boolean).join(" / ") ||
     trim(team?.teamName) ||
     trim(team?.label) ||
+    joinedPlayers ||
+    trim(team?.displayName) ||
+    trim(team?.name) ||
     "";
   return {
     ...team,

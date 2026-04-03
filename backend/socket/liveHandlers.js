@@ -267,13 +267,13 @@ export const resolvePairDisplayName = (
   const player2 = normalizePlayerDisplay(pair?.player2, displayMode);
   const joined = [player1?.displayName, player2?.displayName]
     .filter(Boolean)
-    .join(" & ");
+    .join(" / ");
   return (
-    pickTrim(pair?.displayName) ||
-    joined ||
     pickTrim(pair?.teamName) ||
     pickTrim(pair?.label) ||
     pickTrim(pair?.title) ||
+    joined ||
+    pickTrim(pair?.displayName) ||
     pickTrim(pair?.name)
   );
 };
@@ -338,11 +338,12 @@ export const toDTO = (matchDoc) => {
     const fallbackNames = [fallbackPlayerName(reg?.player1)];
     if (reg?.player2) fallbackNames.push(fallbackPlayerName(reg?.player2));
     return (
-      pick(reg?.displayName) ||
       pick(reg?.teamName) ||
       pick(reg?.label) ||
       pick(reg?.title) ||
-      fallbackNames.filter(Boolean).join(" & ")
+      fallbackNames.filter(Boolean).join(" / ") ||
+      pick(reg?.displayName) ||
+      pick(reg?.name)
     );
   };
 
