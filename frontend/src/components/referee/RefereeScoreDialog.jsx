@@ -47,14 +47,12 @@ import { useLiveMatch } from "../../hook/useLiveMatch";
 import {
   getMatchCourtStationName,
   getMatchDisplayCode,
-  getPairDisplayName,
+  getMatchSideDisplayName,
   getPlayerDisplayName,
   normalizeMatchDisplay,
 } from "../../utils/matchDisplay";
 
 const textOf = (value) => (value && String(value).trim()) || "";
-
-const pairLabel = (pair, source) => getPairDisplayName(pair, source) || "TBD";
 
 const playerLabel = (player, source) => getPlayerDisplayName(player, source) || "";
 
@@ -305,7 +303,7 @@ function PlayerRow({ label, isServer, muted, borderColor, accentColor }) {
 
 function TeamPanel({
   title,
-  pair,
+  teamLabel,
   players,
   isServing,
   isActiveSide,
@@ -382,7 +380,7 @@ function TeamPanel({
             lineHeight: 1.05,
           }}
         >
-          {pairLabel(pair, match)}
+          {teamLabel}
         </Typography>
       </Box>
 
@@ -508,8 +506,6 @@ export default function RefereeScoreDialog({
   const activeServerNum = Number(match?.serve?.server) === 1 ? 1 : 2;
   const leftSide = currentLayout.left;
   const rightSide = currentLayout.right;
-  const leftPair = sidePairOf(match, leftSide);
-  const rightPair = sidePairOf(match, rightSide);
   const playersA = useMemo(() => playersOf(sidePairOf(match, "A"), eventType), [eventType, match]);
   const playersB = useMemo(() => playersOf(sidePairOf(match, "B"), eventType), [eventType, match]);
   const pairPlayers = useMemo(() => ({ A: playersA, B: playersB }), [playersA, playersB]);
@@ -1229,7 +1225,7 @@ export default function RefereeScoreDialog({
             >
               <TeamPanel
                 title="Đội bên trái"
-                pair={leftPair}
+                teamLabel={getMatchSideDisplayName(match, leftSide, "TBD")}
                 players={pairPlayers[leftSide] || []}
                 isServing={activeSide === leftSide}
                 isActiveSide={activeSide === leftSide}
@@ -1466,7 +1462,7 @@ export default function RefereeScoreDialog({
 
               <TeamPanel
                 title="Đội bên phải"
-                pair={rightPair}
+                teamLabel={getMatchSideDisplayName(match, rightSide, "TBD")}
                 players={pairPlayers[rightSide] || []}
                 isServing={activeSide === rightSide}
                 isActiveSide={activeSide === rightSide}

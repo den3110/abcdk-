@@ -35,15 +35,28 @@ enum LiveAppConfig {
     }
 
     static func plistValue(for key: String, fallback: String) -> String {
-        let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String
-        return raw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? raw! : fallback
+        guard
+            let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+            !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return fallback
+        }
+        return raw
     }
 
     private static func requiredURL(for key: String, fallback: String) -> URL {
-        guard let url = URL(string: plistValue(for: key, fallback: fallback)) else {
-            fatalError("Invalid URL for \(key)")
+        let rawValue = plistValue(for: key, fallback: fallback)
+        if let url = URL(string: rawValue) {
+            return url
         }
-        return url
+
+        if let fallbackURL = URL(string: fallback) {
+            assertionFailure("Invalid URL for \(key): \(rawValue). Falling back to \(fallback).")
+            return fallbackURL
+        }
+
+        assertionFailure("Invalid fallback URL for \(key): \(fallback). Using emergency base URL.")
+        return URL(string: "https://pickletour.vn/") ?? URL(fileURLWithPath: "/")
     }
 }
 
@@ -675,10 +688,12 @@ final class LiveAppEnvironment {
     let courtPresenceSocket: CourtPresenceSocketCoordinator
     let recordingCoordinator: LiveRecordingUploadCoordinator
     let networkMonitor: LiveNetworkMonitor
+    let deviceMonitor: LiveDeviceMonitor
 
     private init() {
         sessionStore = LiveSessionStore(keychain: keychain)
         networkMonitor = LiveNetworkMonitor()
+        deviceMonitor = LiveDeviceMonitor()
         apiClient = LiveAPIClient(sessionProvider: { [weak sessionStore] in
             sessionStore?.session?.accessToken
         })
@@ -715,6 +730,72 @@ final class LiveNetworkMonitor: ObservableObject {
 
     deinit {
         monitor.cancel()
+    }
+}
+
+final class LiveDeviceMonitor: ObservableObject {
+    @Published private(set) var batteryLevel = UIDevice.current.batteryLevel
+    @Published private(set) var batteryState = UIDevice.current.batteryState
+    @Published private(set) var lowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
+
+    private var observers: [NSObjectProtocol] = []
+
+    init(notificationCenter: NotificationCenter = .default) {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        refresh()
+
+        observers.append(
+            notificationCenter.addObserver(
+                forName: UIDevice.batteryLevelDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.refresh()
+            }
+        )
+
+        observers.append(
+            notificationCenter.addObserver(
+                forName: UIDevice.batteryStateDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.refresh()
+            }
+        )
+
+        observers.append(
+            notificationCenter.addObserver(
+                forName: .NSProcessInfoPowerStateDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.refresh()
+            }
+        )
+
+        observers.append(
+            notificationCenter.addObserver(
+                forName: ProcessInfo.thermalStateDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.refresh()
+            }
+        )
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        UIDevice.current.isBatteryMonitoringEnabled = false
+    }
+
+    func refresh() {
+        batteryLevel = UIDevice.current.batteryLevel
+        batteryState = UIDevice.current.batteryState
+        lowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
+        thermalState = ProcessInfo.processInfo.thermalState
     }
 }
 

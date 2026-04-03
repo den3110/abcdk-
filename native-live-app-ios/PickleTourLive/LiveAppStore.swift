@@ -50,6 +50,10 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var presenceSocketConnected = false
     @Published private(set) var networkConnected = true
     @Published private(set) var networkIsWiFi = false
+    @Published private(set) var batteryLevel = UIDevice.current.batteryLevel
+    @Published private(set) var batteryState: UIDevice.BatteryState = UIDevice.current.batteryState
+    @Published private(set) var systemLowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState
     @Published private(set) var appIsActive = true
     @Published private(set) var availableStorageBytes: Int64 = 0
     @Published private(set) var totalStorageBytes: Int64 = 0
@@ -170,6 +174,7 @@ final class LiveAppStore: ObservableObject {
         goLiveArmed = false
         batterySaverEnabled = false
         orientationMode = .auto
+        LiveAppOrientationController.apply(.auto)
         bannerMessage = nil
         errorMessage = nil
         route = .login
@@ -207,7 +212,8 @@ final class LiveAppStore: ObservableObject {
             courtId: courtId?.trimmedNilIfBlank,
             matchId: matchId?.trimmedNilIfBlank,
             pageId: pageId?.trimmedNilIfBlank
-        )
+            )
+        }
     }
 
     func continueFromSetup() async {
@@ -501,6 +507,8 @@ final class LiveAppStore: ObservableObject {
         cancelGoLiveCountdown()
         cancelStopLiveCountdown()
         queuedCourtMatchId = nil
+        orientationMode = .auto
+        LiveAppOrientationController.apply(.auto)
         route = .adminHome
     }
 
@@ -563,6 +571,62 @@ final class LiveAppStore: ObservableObject {
 
     var cameraPermissionGranted: Bool {
         LiveStreamingService.cameraPermissionGranted
+    }
+
+    var batteryPercent: Int? {
+        guard batteryLevel >= 0 else { return nil }
+        return min(100, max(0, Int((batteryLevel * 100).rounded())))
+    }
+
+    var batteryStateLabel: String {
+        switch batteryState {
+        case .charging:
+            return "Đang sạc"
+        case .full:
+            return "Đầy pin"
+        case .unplugged:
+            return "Đang dùng pin"
+        case .unknown:
+            return "Chưa rõ"
+        @unknown default:
+            return "Chưa rõ"
+        }
+    }
+
+    var batteryStatusSummary: String {
+        if let batteryPercent {
+            return "\(batteryPercent)% • \(batteryStateLabel)"
+        }
+        return batteryStateLabel
+    }
+
+    var batteryLowWarning: Bool {
+        guard let batteryPercent else { return false }
+        guard batteryState != .charging, batteryState != .full else { return false }
+        return batteryPercent <= 15
+    }
+
+    var thermalStateLabel: String {
+        switch thermalState {
+        case .nominal:
+            return "Ổn định"
+        case .fair:
+            return "Ấm nhẹ"
+        case .serious:
+            return "Nóng"
+        case .critical:
+            return "Rất nóng"
+        @unknown default:
+            return "Chưa rõ"
+        }
+    }
+
+    var thermalWarning: Bool {
+        thermalState == .serious || thermalState == .critical
+    }
+
+    var thermalCritical: Bool {
+        thermalState == .critical
     }
 
     var microphonePermissionGranted: Bool {
@@ -1269,6 +1333,34 @@ final class LiveAppStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        environment.deviceMonitor.$batteryLevel
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] batteryLevel in
+                self?.batteryLevel = batteryLevel
+            }
+            .store(in: &cancellables)
+
+        environment.deviceMonitor.$batteryState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] batteryState in
+                self?.batteryState = batteryState
+            }
+            .store(in: &cancellables)
+
+        environment.deviceMonitor.$lowPowerModeEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                self?.systemLowPowerModeEnabled = isEnabled
+            }
+            .store(in: &cancellables)
+
+        environment.deviceMonitor.$thermalState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] thermalState in
+                self?.thermalState = thermalState
+            }
+            .store(in: &cancellables)
+
         refreshStorageMetrics()
 
         NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
@@ -1277,7 +1369,9 @@ final class LiveAppStore: ObservableObject {
                 guard let self else { return }
                 self.appIsActive = true
                 self.refreshStorageMetrics()
+                self.environment.deviceMonitor.refresh()
                 Task { @MainActor in
+                    LiveAppOrientationController.apply(self.orientationMode)
                     if let courtId = self.currentCourtId?.trimmedNilIfBlank {
                         await self.refreshCourtRuntime(courtId: courtId)
                     }
@@ -1321,16 +1415,32 @@ final class LiveAppStore: ObservableObject {
             }
             .store(in: &cancellables)
 
-        Publishers.CombineLatest4($route, $activeMatch, $overlaySnapshot, $streamState)
+        let liveActivityPrimary = Publishers.CombineLatest4($route, $activeMatch, $overlaySnapshot, $streamState)
+        let liveActivitySecondary = Publishers.CombineLatest4($waitingForCourt, $waitingForMatchLive, $waitingForNextMatch, $liveMode)
+        let liveActivityTertiary = Publishers.CombineLatest4($recordOnlyArmed, $goLiveArmed, $recordingStateText, $liveStartedAt)
+
+        Publishers.CombineLatest3(liveActivityPrimary, liveActivitySecondary, liveActivityTertiary)
             .receive(on: DispatchQueue.main)
-            .sink { route, activeMatch, overlaySnapshot, streamState in
+            .sink { primary, secondary, tertiary in
                 if #available(iOS 16.1, *) {
+                    let (route, activeMatch, overlaySnapshot, streamState) = primary
+                    let (waitingForCourt, waitingForMatchLive, waitingForNextMatch, liveMode) = secondary
+                    let (recordOnlyArmed, goLiveArmed, recordingStateText, liveStartedAt) = tertiary
+
                     Task {
                         await LiveMatchActivityCoordinator.shared.sync(
                             route: route,
                             match: activeMatch,
                             snapshot: overlaySnapshot,
-                            streamState: streamState
+                            streamState: streamState,
+                            waitingForCourt: waitingForCourt,
+                            waitingForMatchLive: waitingForMatchLive,
+                            waitingForNextMatch: waitingForNextMatch,
+                            liveMode: liveMode,
+                            recordOnlyArmed: recordOnlyArmed,
+                            goLiveArmed: goLiveArmed,
+                            recordingStateText: recordingStateText,
+                            liveStartedAt: liveStartedAt
                         )
                     }
                 }
@@ -1697,7 +1807,8 @@ final class LiveAppStore: ObservableObject {
             previewReleaseAt: response?.previewReleaseAt,
             warningAt: nil,
             previewWarningMs: nil
-        )
+            )
+        }
     }
 
     private func handleRuntimeMatchCandidate(currentMatchId: String?, announcement: String?) {
@@ -1851,6 +1962,7 @@ final class LiveAppStore: ObservableObject {
             matchId: items.first(where: { $0.name == "matchId" })?.value?.trimmedNilIfBlank,
             pageId: items.first(where: { $0.name == "pageId" })?.value?.trimmedNilIfBlank
         )
+        }
     }
 
     private func applyLaunchTarget(_ target: LiveLaunchTarget) async {
@@ -1992,12 +2104,34 @@ actor LiveMatchActivityCoordinator {
 
     private var currentActivity: Activity<PickleTourMatchActivityAttributes>?
     private var lastState: PickleTourMatchActivityAttributes.ContentState?
+    private var lastKey: MatchActivitySnapshotKey?
+
+    private struct MatchActivitySnapshotKey: Equatable {
+        var matchId: String
+        var tournamentName: String
+        var courtName: String
+        var matchCode: String
+        var teamAName: String
+        var teamBName: String
+        var scoreA: Int
+        var scoreB: Int
+        var statusText: String
+        var detailText: String
+    }
 
     func sync(
         route: AppRoute,
         match: MatchData?,
         snapshot: LiveOverlaySnapshot?,
-        streamState: StreamConnectionState
+        streamState: StreamConnectionState,
+        waitingForCourt: Bool,
+        waitingForMatchLive: Bool,
+        waitingForNextMatch: Bool,
+        liveMode: LiveStreamMode,
+        recordOnlyArmed: Bool,
+        goLiveArmed: Bool,
+        recordingStateText: String,
+        liveStartedAt: Date?
     ) async {
         guard route == .liveStream, let match else {
             await endCurrent()
@@ -2010,12 +2144,26 @@ actor LiveMatchActivityCoordinator {
             return
         }
 
-        let nextState = makeState(match: match, snapshot: snapshot, streamState: streamState)
+        let nextState = makeState(
+            match: match,
+            snapshot: snapshot,
+            streamState: streamState,
+            waitingForCourt: waitingForCourt,
+            waitingForMatchLive: waitingForMatchLive,
+            waitingForNextMatch: waitingForNextMatch,
+            liveMode: liveMode,
+            recordOnlyArmed: recordOnlyArmed,
+            goLiveArmed: goLiveArmed,
+            recordingStateText: recordingStateText,
+            liveStartedAt: liveStartedAt
+        )
+        let nextKey = makeKey(matchId: matchId, state: nextState)
 
         if let currentActivity, currentActivity.attributes.matchId == matchId {
-            guard nextState != lastState else { return }
+            guard nextKey != lastKey else { return }
             await currentActivity.update(using: nextState)
             lastState = nextState
+            lastKey = nextKey
             return
         }
 
@@ -2030,27 +2178,38 @@ actor LiveMatchActivityCoordinator {
             )
             currentActivity = activity
             lastState = nextState
+            lastKey = nextKey
         } catch {
             currentActivity = nil
             lastState = nil
+            lastKey = nil
         }
     }
 
     private func endCurrent() async {
         if let currentActivity {
             await currentActivity.end(
-                using: lastState ?? fallbackState(),
+                using: lastState ?? endedFallbackState(),
                 dismissalPolicy: .immediate
             )
         }
         currentActivity = nil
         lastState = nil
+        lastKey = nil
     }
 
     private func makeState(
         match: MatchData,
         snapshot: LiveOverlaySnapshot?,
-        streamState: StreamConnectionState
+        streamState: StreamConnectionState,
+        waitingForCourt: Bool,
+        waitingForMatchLive: Bool,
+        waitingForNextMatch: Bool,
+        liveMode: LiveStreamMode,
+        recordOnlyArmed: Bool,
+        goLiveArmed: Bool,
+        recordingStateText: String,
+        liveStartedAt: Date?
     ) -> PickleTourMatchActivityAttributes.ContentState {
         let tournamentName =
             snapshot?.tournamentName?.trimmedNilIfBlank ??
@@ -2087,7 +2246,17 @@ actor LiveMatchActivityCoordinator {
             .compactMap { $0 }
             .joined(separator: " • ")
 
-        return PickleTourMatchActivityAttributes.ContentState(
+        do {
+            let detailText = liveActivityDetailText(
+                baseDetailText: detailText,
+                waitingForCourt: waitingForCourt,
+                waitingForMatchLive: waitingForMatchLive,
+                waitingForNextMatch: waitingForNextMatch,
+                liveMode: liveMode,
+                recordingStateText: recordingStateText
+            )
+
+            return PickleTourMatchActivityAttributes.ContentState(
             tournamentName: tournamentName,
             courtName: courtName,
             matchCode: matchCode,
@@ -2095,8 +2264,151 @@ actor LiveMatchActivityCoordinator {
             teamBName: teamBName,
             scoreA: scoreA,
             scoreB: scoreB,
-            statusText: statusText(streamState: streamState, matchStatus: match.status),
+            statusText: liveActivityStatusText(
+                streamState: streamState,
+                matchStatus: match.status,
+                waitingForCourt: waitingForCourt,
+                waitingForMatchLive: waitingForMatchLive,
+                waitingForNextMatch: waitingForNextMatch,
+                liveMode: liveMode,
+                recordOnlyArmed: recordOnlyArmed,
+                goLiveArmed: goLiveArmed,
+                liveStartedAt: liveStartedAt
+            ),
             detailText: detailText.trimmedNilIfBlank ?? "Đang cập nhật tỉ số",
+            updatedAt: Date()
+        )
+        }
+    }
+
+    private func makeKey(
+        matchId: String,
+        state: PickleTourMatchActivityAttributes.ContentState
+    ) -> MatchActivitySnapshotKey {
+        MatchActivitySnapshotKey(
+            matchId: matchId,
+            tournamentName: state.tournamentName,
+            courtName: state.courtName,
+            matchCode: state.matchCode,
+            teamAName: state.teamAName,
+            teamBName: state.teamBName,
+            scoreA: state.scoreA,
+            scoreB: state.scoreB,
+            statusText: state.statusText,
+            detailText: state.detailText
+        )
+    }
+
+    private func liveActivityStatusText(
+        streamState: StreamConnectionState,
+        matchStatus: String?,
+        waitingForCourt: Bool,
+        waitingForMatchLive: Bool,
+        waitingForNextMatch: Bool,
+        liveMode: LiveStreamMode,
+        recordOnlyArmed: Bool,
+        goLiveArmed: Bool,
+        liveStartedAt: Date?
+    ) -> String {
+        if waitingForNextMatch {
+            return "Chờ trận kế tiếp"
+        }
+
+        if waitingForCourt {
+            return liveMode == .recordOnly ? "Chờ ghi hình" : "Chờ lên sân"
+        }
+
+        if waitingForMatchLive {
+            return liveMode == .recordOnly ? "Chờ trận vào live" : "Armed chờ live"
+        }
+
+        if recordOnlyArmed {
+            return "Armed ghi hình"
+        }
+
+        if goLiveArmed {
+            return "Armed phát live"
+        }
+
+        switch streamState {
+        case .live:
+            return liveMode == .recordOnly ? "Đang ghi hình" : "Đang live"
+        case .connecting:
+            return "Đang kết nối"
+        case .preparingPreview:
+            return "Đang chuẩn bị"
+        case .previewReady:
+            if liveStartedAt != nil {
+                return liveMode == .recordOnly ? "Đang ghi hình" : "Preview sẵn sàng"
+            }
+            return "Preview sẵn sàng"
+        case let .reconnecting(reason):
+            return reason.trimmedNilIfBlank ?? "Đang nối lại"
+        case let .failed(message):
+            return message.trimmedNilIfBlank ?? (liveMode == .recordOnly ? "Ghi hình lỗi" : "Live lỗi")
+        case .stopped:
+            return liveMode == .recordOnly ? "Đã dừng ghi" : "Đã dừng"
+        case .idle:
+            break
+        }
+
+        switch matchStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "live":
+            return "Trận đang diễn ra"
+        case "finished":
+            return "Trận đã kết thúc"
+        case "assigned":
+            return "Đã gán sân"
+        case "scheduled":
+            return "Chờ bắt đầu"
+        default:
+            return "Đang theo dõi"
+        }
+    }
+
+    private func liveActivityDetailText(
+        baseDetailText: String,
+        waitingForCourt: Bool,
+        waitingForMatchLive: Bool,
+        waitingForNextMatch: Bool,
+        liveMode: LiveStreamMode,
+        recordingStateText: String
+    ) -> String {
+        if waitingForCourt {
+            return liveMode == .recordOnly
+                ? "Đã armed, app sẽ tự ghi khi sân có trận."
+                : "Đã armed, app sẽ tự mở khi sân có trận."
+        }
+
+        if waitingForMatchLive {
+            return liveMode == .recordOnly
+                ? "App sẽ tự ghi khi trận chuyển sang LIVE."
+                : "App sẽ tự vào phiên khi trận chuyển sang LIVE."
+        }
+
+        if waitingForNextMatch {
+            return "Phiên hiện tại đang kết thúc, chờ chuyển sang trận kế tiếp."
+        }
+
+        if liveMode.includesRecording, let recordingState = recordingStateText.trimmedNilIfBlank {
+            let enriched = [baseDetailText.trimmedNilIfBlank, recordingState].compactMap { $0 }
+            return enriched.isEmpty ? "Đang cập nhật tỉ số" : enriched.joined(separator: " | ")
+        }
+
+        return baseDetailText.trimmedNilIfBlank ?? "Đang cập nhật tỉ số"
+    }
+
+    private func endedFallbackState() -> PickleTourMatchActivityAttributes.ContentState {
+        PickleTourMatchActivityAttributes.ContentState(
+            tournamentName: "PickleTour",
+            courtName: "Court",
+            matchCode: "-",
+            teamAName: "Đội A",
+            teamBName: "Đội B",
+            scoreA: 0,
+            scoreB: 0,
+            statusText: "Đã dừng",
+            detailText: "Phiên live đã kết thúc",
             updatedAt: Date()
         )
     }

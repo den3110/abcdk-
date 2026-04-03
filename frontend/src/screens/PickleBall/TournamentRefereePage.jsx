@@ -38,7 +38,7 @@ import RefereeScoreDialog from "../../components/referee/RefereeScoreDialog";
 import {
   getMatchCourtStationName,
   getMatchDisplayCode,
-  getPairDisplayName,
+  getMatchSideDisplayName,
   getPlayerDisplayName,
   normalizeMatchDisplay,
 } from "../../utils/matchDisplay";
@@ -49,22 +49,8 @@ const TAB_STATION_PREFIX = "__station__:";
 const textOf = (value) => (value && String(value).trim()) || "";
 const normalizeId = (value) => textOf(value?._id || value?.id || value);
 
-const hasPlayerIdentity = (player) =>
-  Boolean(
-    normalizeId(player?._id || player?.id || player?.uid || player?.user?._id || player?.user) ||
-      textOf(
-        player?.displayName ||
-          player?.nickname ||
-          player?.nickName ||
-          player?.nick ||
-          player?.fullName ||
-          player?.name ||
-          player?.shortName,
-      ),
-  );
-
 const playerName = (player, source) => getPlayerDisplayName(player, source) || "";
-const pairLabel = (pair, source) => getPairDisplayName(pair, source) || "TBD";
+const sideLabel = (match, side) => getMatchSideDisplayName(match, side, "TBD");
 
 const matchCode = (match) =>
   getMatchDisplayCode(match) ||
@@ -89,30 +75,9 @@ const sidePairOf = (match, side) => {
   return match?.pairB || match?.teams?.B || match?.teamB || match?.sideB || null;
 };
 
-const pairHasCompetitor = (pair) => {
-  if (!pair || typeof pair !== "object") return false;
-
-  const players = [
-    pair?.player1,
-    pair?.player2,
-    ...(Array.isArray(pair?.players) ? pair.players : []),
-  ].filter(Boolean);
-
-  if (players.some(hasPlayerIdentity)) return true;
-
-  return Boolean(
-    normalizeId(pair?._id || pair?.id) ||
-      textOf(pair?.displayName || pair?.teamName || pair?.name || pair?.label || pair?.title),
-  );
-};
-
 const isRenderableRefereeMatch = (match) => {
   const matchId = normalizeId(match?._id || match?.matchId);
-  if (!matchId) return false;
-
-  const sideA = sidePairOf(match, "A");
-  const sideB = sidePairOf(match, "B");
-  return pairHasCompetitor(sideA) || pairHasCompetitor(sideB);
+  return Boolean(matchId);
 };
 
 const getStatusMeta = (status) => {
@@ -382,8 +347,8 @@ export default function TournamentRefereePage() {
       list = list.filter((match) =>
         [
           matchCode(match),
-          pairLabel(sidePairOf(match, "A"), match),
-          pairLabel(sidePairOf(match, "B"), match),
+          sideLabel(match, "A"),
+          sideLabel(match, "B"),
           playerName(sidePairOf(match, "A")?.player1, match),
           playerName(sidePairOf(match, "A")?.player2, match),
           playerName(sidePairOf(match, "B")?.player1, match),
@@ -680,13 +645,13 @@ export default function TournamentRefereePage() {
                         {matchCode(match)}
                       </Typography>
                       <Typography variant="subtitle1" fontWeight={700} sx={{ lineHeight: 1.35 }}>
-                        {pairLabel(sidePairOf(match, "A"), match)}
+                        {sideLabel(match, "A")}
                       </Typography>
                       <Typography
                         variant="subtitle1"
                         sx={{ color: ui.textMuted, lineHeight: 1.35 }}
                       >
-                        {pairLabel(sidePairOf(match, "B"), match)}
+                        {sideLabel(match, "B")}
                       </Typography>
                     </Box>
 

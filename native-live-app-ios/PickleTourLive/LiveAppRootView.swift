@@ -119,11 +119,6 @@ private struct LoginScreen: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 22) {
-                Text(buildVersionText)
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(LivePalette.textSecondary)
-                    .padding(.top, 4)
-
                 Spacer(minLength: 24)
 
                 VStack(spacing: 18) {
@@ -318,6 +313,11 @@ private struct LoginScreen: View {
                     }
                 }
 
+                Text(buildVersionText)
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(LivePalette.textSecondary)
+                    .padding(.top, 4)
+
                 Spacer(minLength: 24)
             }
             .padding(.horizontal, 20)
@@ -507,6 +507,28 @@ private struct CourtSetupScreen: View {
     @State private var matchId = ""
     @State private var pageId = ""
 
+    private var setupPreviewMatch: MatchData? {
+        let targetMatchId =
+            matchId.trimmedNilIfBlank
+            ?? store.launchTarget.matchId?.trimmedNilIfBlank
+            ?? store.courtRuntime?.currentMatchId?.trimmedNilIfBlank
+            ?? store.courtRuntime?.nextMatchId?.trimmedNilIfBlank
+        guard let targetMatchId, store.activeMatch?.id == targetMatchId else {
+            return nil
+        }
+        return store.activeMatch
+    }
+
+    private var launchSummary: String {
+        if matchId.trimmedNilIfBlank != nil {
+            return "Ưu tiên vào theo match. App sẽ nạp runtime, overlay và socket ngay trước khi mở màn live."
+        }
+        if courtId.trimmedNilIfBlank != nil {
+            return "Đang ở chế độ theo sân. App sẽ giữ preview, giữ lease và chờ match xuất hiện hoặc chuyển sang LIVE."
+        }
+        return "Nhập courtId hoặc matchId để khoá target trước khi operator vào live."
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
@@ -517,6 +539,30 @@ private struct CourtSetupScreen: View {
                 ) {
                     SecondaryIconButton(systemImage: "chevron.left") {
                         store.goBackToAdminHome()
+                    }
+                }
+
+                LiveCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        SectionHeader(
+                            title: "Target summary",
+                            subtitle: launchSummary
+                        )
+
+                        WrapBadgeFlow {
+                            TinyBadge(
+                                title: courtId.trimmedNilIfBlank == nil ? "Chưa có courtId" : "Court đã khoá",
+                                tint: courtId.trimmedNilIfBlank == nil ? LivePalette.warning : LivePalette.success
+                            )
+                            TinyBadge(
+                                title: matchId.trimmedNilIfBlank == nil ? "Chờ theo sân" : "Có matchId",
+                                tint: matchId.trimmedNilIfBlank == nil ? LivePalette.cardMuted : LivePalette.accent
+                            )
+                            TinyBadge(
+                                title: store.networkConnected ? "Mạng online" : "Mạng offline",
+                                tint: store.networkConnected ? LivePalette.success : LivePalette.danger
+                            )
+                        }
                     }
                 }
 
@@ -586,6 +632,16 @@ private struct CourtSetupScreen: View {
                             .disabled(!canContinue)
                             .opacity(canContinue ? 1 : 0.55)
                         }
+
+                        SecondaryActionButton(
+                            title: "Làm mới runtime",
+                            systemImage: "arrow.clockwise.circle"
+                        ) {
+                            pushTargetToStore()
+                            Task {
+                                await store.refreshCurrentContext()
+                            }
+                        }
                     }
                 }
 
@@ -619,6 +675,34 @@ private struct CourtSetupScreen: View {
                             DetailLine(label: "Assignment", value: runtime.assignmentMode?.trimmedNilIfBlank ?? "Chưa rõ")
                             DetailLine(label: "Queue count", value: "\(runtime.queueCount ?? 0)")
                             DetailLine(label: "Presence", value: presenceDescription(runtime.presence))
+                        }
+                    }
+                }
+
+                if let setupPreviewMatch {
+                    LiveCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SectionHeader(
+                                title: "Match preview",
+                                subtitle: setupPreviewMatch.displayCode?.trimmedNilIfBlank ?? setupPreviewMatch.id
+                            )
+
+                            HStack(spacing: 12) {
+                                TeamScorePanel(
+                                    teamName: setupPreviewMatch.teamADisplayName,
+                                    score: setupPreviewMatch.scoreA ?? 0,
+                                    accent: LivePalette.teamA
+                                )
+                                TeamScorePanel(
+                                    teamName: setupPreviewMatch.teamBDisplayName,
+                                    score: setupPreviewMatch.scoreB ?? 0,
+                                    accent: LivePalette.teamB
+                                )
+                            }
+
+                            DetailLine(label: "Status", value: setupPreviewMatch.status?.trimmedNilIfBlank ?? "Chưa có")
+                            DetailLine(label: "Tournament", value: setupPreviewMatch.tournamentDisplayName)
+                            DetailLine(label: "Court", value: setupPreviewMatch.courtDisplayName)
                         }
                     }
                 }
@@ -676,6 +760,8 @@ private struct LiveStreamScreen: View {
     @State private var diagnosticsExpanded = false
     @State private var sessionExpanded = true
     @State private var recordingExpanded = true
+    @State private var showWarningsSheet = false
+    @State private var showSignalsSheet = false
     @State private var showSignOutDialog = false
     @State private var storedBrightness: CGFloat?
     @State private var brightnessReduced = false
@@ -740,6 +826,16 @@ private struct LiveStreamScreen: View {
                     }
                 }
 
+                if let pendingNextMatchId = store.pendingNextMatchId {
+                    LiveCard {
+                        InlineInfoCard(
+                            title: "Match kế tiếp đã được queue",
+                            message: "Runtime sân đang trỏ sang match \(pendingNextMatchId). App sẽ nạp context mới sau khi phiên hiện tại dừng xong.",
+                            tint: LivePalette.warning
+                        )
+                    }
+                }
+
                 streamModeSection
                 liveControlsSection
                 matchInfoSection
@@ -771,6 +867,12 @@ private struct LiveStreamScreen: View {
                     store.proceedPreflight()
                 }
             )
+        }
+        .sheet(isPresented: $showWarningsSheet) {
+            warningCenterSheet
+        }
+        .sheet(isPresented: $showSignalsSheet) {
+            signalCenterSheet
         }
         .confirmationDialog(
             "Đăng xuất khỏi PickleTour Live?",
@@ -990,6 +1092,22 @@ private struct LiveStreamScreen: View {
                                 await store.refreshOverlay()
                             }
                         }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    SecondaryActionButton(
+                        title: "Warning center",
+                        systemImage: "exclamationmark.bubble"
+                    ) {
+                        showWarningsSheet = true
+                    }
+
+                    SecondaryActionButton(
+                        title: "Signal center",
+                        systemImage: "antenna.radiowaves.left.and.right"
+                    ) {
+                        showSignalsSheet = true
                     }
                 }
             }
@@ -1536,6 +1654,24 @@ private struct LiveStreamScreen: View {
                     subtitle: "Log gần nhất từ streaming service để soi reconnect, preview và recorder"
                 )
 
+                HStack(spacing: 10) {
+                    SecondaryActionButton(
+                        title: "Refresh context",
+                        systemImage: "arrow.clockwise.circle"
+                    ) {
+                        Task {
+                            await store.refreshCurrentContext()
+                        }
+                    }
+
+                    SecondaryActionButton(
+                        title: "Clear diagnostics",
+                        systemImage: "trash"
+                    ) {
+                        store.clearDiagnostics()
+                    }
+                }
+
                 DisclosureGroup(isExpanded: $diagnosticsExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
                         if store.streamingService.diagnostics.isEmpty {
@@ -1572,11 +1708,35 @@ private struct LiveStreamScreen: View {
     private var activationCard: some View {
         if let waitingLabel = waitingStateLabel {
             LiveCard {
-                InlineInfoCard(
-                    title: waitingLabel,
-                    message: waitingStateMessage,
-                    tint: LivePalette.warning
-                )
+                VStack(alignment: .leading, spacing: 14) {
+                    InlineInfoCard(
+                        title: waitingLabel,
+                        message: waitingStateMessage,
+                        tint: LivePalette.warning
+                    )
+
+                    HStack(spacing: 10) {
+                        SecondaryActionButton(
+                            title: "Làm mới runtime",
+                            systemImage: "arrow.clockwise.circle"
+                        ) {
+                            Task {
+                                await store.refreshCurrentContext()
+                            }
+                        }
+
+                        if store.previewLeaseWarning {
+                            SecondaryActionButton(
+                                title: "Giữ sân thêm",
+                                systemImage: "clock.badge.checkmark"
+                            ) {
+                                Task {
+                                    await store.extendPreviewLease()
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1770,13 +1930,268 @@ private struct LiveStreamScreen: View {
         return LivePalette.warning
     }
 
+    private var signalIssueCount: Int {
+        var issues = 0
+        if !store.networkConnected { issues += 1 }
+        if !store.socketConnected || store.socketPayloadStale { issues += 1 }
+        if !store.overlayDataReady && store.activeMatch != nil { issues += 1 }
+        if !store.brandingReady && store.activeMatch != nil { issues += 1 }
+        if !store.previewReady { issues += 1 }
+        return issues
+    }
+
+    private var overlaySignalStatusLabel: String {
+        if store.waitingForCourt || store.waitingForMatchLive || store.waitingForNextMatch {
+            return "Đang chờ"
+        }
+        if !store.overlayDataReady {
+            return "Chưa đủ dữ liệu"
+        }
+        if !store.socketConnected || store.socketPayloadStale {
+            return "Đang dự phòng"
+        }
+        if !store.brandingReady {
+            return "Thiếu branding"
+        }
+        return "Ổn định"
+    }
+
+    private var overlaySignalTint: Color {
+        if !store.networkConnected {
+            return LivePalette.danger
+        }
+        if !store.socketConnected || store.socketPayloadStale || !store.overlayDataReady {
+            return LivePalette.warning
+        }
+        return LivePalette.success
+    }
+
+    private var overlaySignalSummary: String {
+        if store.waitingForCourt {
+            return "App đang giữ preview theo sân và chờ runtime đẩy match mới trước khi nạp overlay."
+        }
+        if store.waitingForMatchLive {
+            return "Overlay đã có thể seed từ match hiện tại, nhưng app vẫn chờ status chuyển LIVE để tự khởi động phiên."
+        }
+        if store.waitingForNextMatch {
+            return "Overlay cũ đã được dọn. App đang chờ match kế tiếp trên cùng sân để nối lại room socket."
+        }
+        if !store.overlayDataReady {
+            return "Scoreboard chưa có snapshot mới. App vẫn giữ preview và sẽ tiếp tục poll hoặc watch socket."
+        }
+        if !store.socketConnected {
+            return "Socket overlay đang offline. Dữ liệu đang dựa nhiều hơn vào refresh thủ công hoặc poll nền."
+        }
+        if store.socketPayloadStale {
+            return "Socket vẫn nối nhưng payload đang stale. App cần thêm payload mới để coi overlay là hoàn toàn ổn định."
+        }
+        if !store.brandingReady {
+            return "Overlay có dữ liệu trận nhưng logo hoặc sponsor chưa đầy đủ nên burn-in sẽ mỏng hơn bản Android."
+        }
+        return "Overlay đang ổn định và có đủ dữ liệu trận để burn-in lên preview hoặc RTMP."
+    }
+
+    private var overlaySignalReasons: [String] {
+        var reasons: [String] = []
+        if !store.overlayDataReady {
+            reasons.append("Chưa có overlay snapshot mới cho match hiện tại.")
+        }
+        if !store.socketConnected {
+            reasons.append("Socket overlay chưa kết nối hoặc chưa join room match.")
+        }
+        if store.socketPayloadStale {
+            reasons.append("Payload socket đã stale \(store.socketPayloadAgeSeconds ?? 0) giây.")
+        }
+        if !store.brandingReady {
+            reasons.append("Overlay config chưa có đủ logo giải, web logo hoặc sponsor.")
+        }
+        if let pendingNextMatchId = store.pendingNextMatchId {
+            reasons.append("Match kế tiếp đang chờ chuyển context: \(pendingNextMatchId).")
+        }
+        if reasons.isEmpty {
+            reasons.append("Không có tín hiệu lỗi nổi bật ở thời điểm hiện tại.")
+        }
+        return reasons
+    }
+
+    private var warningCenterSheet: some View {
+        ZStack {
+            LiveBackdrop()
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Warning center")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Text("Tổng hợp cảnh báo operator, recovery và các nút cứu nhanh khi đang giữ preview hoặc đang live.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(LivePalette.textSecondary)
+
+                    if warningItems.isEmpty {
+                        InlineInfoCard(
+                            title: "Ổn định",
+                            message: "Không có cảnh báo vận hành nào nổi bật. App đang ở trạng thái tương đối an toàn.",
+                            tint: LivePalette.success
+                        )
+                    } else {
+                        ForEach(warningItems, id: \.self) { item in
+                            LiveCard {
+                                InlineInfoCard(
+                                    title: "Cảnh báo",
+                                    message: item,
+                                    tint: warningTint
+                                )
+                            }
+                        }
+                    }
+
+                    LiveCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionHeader(
+                                title: "Recovery",
+                                subtitle: store.recoverySummary?.title ?? "Không có recovery chủ động"
+                            )
+
+                            Text(store.recoverySummary?.detail ?? "Nếu stream vừa tự phục hồi hoặc preview vừa được dựng lại, chi tiết sẽ hiện ở diagnostics.")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(LivePalette.textSecondary)
+
+                            HStack(spacing: 10) {
+                                SecondaryActionButton(
+                                    title: "Retry preview",
+                                    systemImage: "arrow.triangle.2.circlepath.camera"
+                                ) {
+                                    store.retryPreviewPipeline()
+                                }
+
+                                SecondaryActionButton(
+                                    title: "Retry session",
+                                    systemImage: "bolt.horizontal.circle"
+                                ) {
+                                    store.retryActiveSession()
+                                }
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        SecondaryActionButton(
+                            title: "Refresh context",
+                            systemImage: "arrow.clockwise.circle"
+                        ) {
+                            Task {
+                                await store.refreshCurrentContext()
+                            }
+                        }
+
+                        if store.previewLeaseWarning {
+                            SecondaryActionButton(
+                                title: "Giữ sân thêm",
+                                systemImage: "clock.badge.checkmark"
+                            ) {
+                                Task {
+                                    await store.extendPreviewLease()
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+        }
+    }
+
+    private var signalCenterSheet: some View {
+        ZStack {
+            LiveBackdrop()
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Signal center")
+                        .font(.system(size: 28, weight: .black, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Text("Soi overlay, room socket, mạng và context sân để quyết định có cần dừng phiên hay chỉ refresh nhẹ.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(LivePalette.textSecondary)
+
+                    LiveCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                TinyBadge(title: overlaySignalStatusLabel, tint: overlaySignalTint)
+                                Spacer()
+                                TinyBadge(title: "\(signalIssueCount) issue", tint: signalIssueCount == 0 ? LivePalette.success : LivePalette.warning)
+                            }
+
+                            Text(overlaySignalSummary)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(LivePalette.textSecondary)
+
+                            ForEach(overlaySignalReasons, id: \.self) { reason in
+                                BulletText(text: reason)
+                            }
+                        }
+                    }
+
+                    LiveCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionHeader(
+                                title: "Realtime",
+                                subtitle: "Tín hiệu runtime, socket và preview hiện tại"
+                            )
+
+                            DetailLine(label: "Mạng", value: store.networkConnected ? (store.networkIsWiFi ? "Wi-Fi" : "4G/5G") : "Offline")
+                            DetailLine(label: "App state", value: store.appIsActive ? "Foreground" : "Background")
+                            DetailLine(label: "Socket", value: store.socketConnected ? "Connected" : "Offline")
+                            DetailLine(label: "Payload age", value: store.socketPayloadAgeSeconds.map { "\($0) giây" } ?? "Chưa có")
+                            DetailLine(label: "Preview ready", value: store.previewReady ? "Sẵn sàng" : "Chưa sẵn sàng")
+                            DetailLine(label: "Court", value: store.currentCourtIdentifier ?? store.selectedCourt?.displayName ?? "Chưa có")
+                            DetailLine(label: "Match", value: store.activeMatch?.id ?? store.launchTarget.matchId ?? "Chưa có")
+                            DetailLine(label: "Room socket", value: store.activeSocketMatchId?.trimmedNilIfBlank ?? "Chưa join")
+                        }
+                    }
+
+                    if let watchURL = store.liveSession?.facebook?.watchURL?.trimmedNilIfBlank {
+                        LiveCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                SectionHeader(
+                                    title: "Live URL",
+                                    subtitle: "Có thể mở nhanh để kiểm tra livestream public"
+                                )
+
+                                DetailLine(label: "Watch URL", value: watchURL)
+
+                                SecondaryActionButton(
+                                    title: "Mở live URL",
+                                    systemImage: "link"
+                                ) {
+                                    if let url = URL(string: watchURL) {
+                                        openURL(url)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+        }
+    }
+
     private func captureBrightnessIfNeeded() {
         guard storedBrightness == nil else { return }
+        guard UIApplication.shared.applicationState == .active else { return }
         storedBrightness = UIScreen.main.brightness
     }
 
     private func updateBrightnessIfNeeded() {
         captureBrightnessIfNeeded()
+        guard UIApplication.shared.applicationState == .active else { return }
         if store.batterySaverEnabled {
             guard !brightnessReduced else { return }
             UIScreen.main.brightness = min(UIScreen.main.brightness, 0.26)
@@ -1788,6 +2203,7 @@ private struct LiveStreamScreen: View {
 
     private func restoreBrightnessIfNeeded() {
         guard brightnessReduced, let storedBrightness else { return }
+        guard UIApplication.shared.applicationState == .active else { return }
         UIScreen.main.brightness = storedBrightness
         brightnessReduced = false
     }

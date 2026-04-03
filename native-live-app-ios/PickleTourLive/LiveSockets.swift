@@ -64,7 +64,11 @@ final class MatchSocketCoordinator {
     }
 
     func watch(matchId: String) {
-        desiredMatchId = matchId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let normalized = matchId.trimmedNilIfBlank else {
+            unwatch()
+            return
+        }
+        desiredMatchId = normalized
         connectIfNeeded()
         joinDesiredMatchIfPossible()
     }
@@ -78,21 +82,25 @@ final class MatchSocketCoordinator {
         onActiveMatchChange?(nil)
     }
 
-    func disconnect() {
+    func disconnect(clearDesiredMatch: Bool = true) {
         socket?.removeAllHandlers()
         socket?.disconnect()
         manager = nil
         socket = nil
         token = nil
         joinedMatchId = nil
-        desiredMatchId = nil
+        if clearDesiredMatch {
+            desiredMatchId = nil
+        }
         onConnectionChange?(false)
         onActiveMatchChange?(nil)
     }
 
     private func reconnect(token: String) {
-        disconnect()
+        let desiredMatchId = desiredMatchId
+        disconnect(clearDesiredMatch: false)
         self.token = token
+        self.desiredMatchId = desiredMatchId
 
         let manager = SocketManager(
             socketURL: LiveAppConfig.socketURL,

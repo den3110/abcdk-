@@ -11,7 +11,7 @@ import React, {
   useTransition,
 } from "react";
 import { skipToken } from "@reduxjs/toolkit/query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
   Alert,
@@ -99,6 +99,7 @@ import LiveSetupDialog from "../../components/LiveSetupDialog";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
 import SEOHead from "../../components/SEOHead";
+import RefereeScoreDialog from "../../components/referee/RefereeScoreDialog";
 import { useLanguage } from "../../context/LanguageContext";
 import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import { formatDateTime } from "../../i18n/format";
@@ -1182,7 +1183,6 @@ export default function TournamentManagePage() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const { id } = useParams();
-  const navigate = useNavigate();
   const me = useSelector((s) => s.auth?.userInfo || null);
 
   // Queries
@@ -1340,13 +1340,31 @@ export default function TournamentManagePage() {
     () => setViewer({ open: false, matchId: null }),
     [],
   );
+  const [refereeViewer, setRefereeViewer] = useState({
+    open: false,
+    matchId: null,
+    initialMatch: null,
+  });
+  const closeRefereeMatch = useCallback(
+    () =>
+      setRefereeViewer({
+        open: false,
+        matchId: null,
+        initialMatch: null,
+      }),
+    [],
+  );
   const openRefereeMatch = useCallback(
     (match) => {
       const matchId = normalizeEntityId(match);
-      if (!id || !matchId) return;
-      navigate(`/tournament/${id}/referee?matchId=${matchId}`);
+      if (!matchId) return;
+      setRefereeViewer({
+        open: true,
+        matchId,
+        initialMatch: match || null,
+      });
     },
-    [id, navigate],
+    [],
   );
   const canStartRefereeMatch = useCallback(
     (match) => {
@@ -3155,6 +3173,12 @@ export default function TournamentManagePage() {
         open={viewer.open}
         matchId={viewer.matchId}
         onClose={closeMatch}
+      />
+      <RefereeScoreDialog
+        open={refereeViewer.open}
+        matchId={refereeViewer.matchId}
+        initialMatch={refereeViewer.initialMatch}
+        onClose={closeRefereeMatch}
       />
 
       {/* ===== Dialog gán trọng tài (batch) ===== */}

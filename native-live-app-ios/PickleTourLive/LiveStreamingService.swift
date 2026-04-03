@@ -99,6 +99,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var pendingStartContinuation: CheckedContinuation<Void, Error>?
     private var currentDestination: RTMPDestination?
     private var statsTimer: Timer?
+    private var publishTimeoutTask: Task<Void, Never>?
     private var recordingRotationTimer: Timer?
     private var pendingRecordingStopContinuation: CheckedContinuation<Void, Never>?
     private var activeRecordingSession: ActiveLocalRecordingSession?
@@ -121,6 +122,12 @@ final class LiveStreamingService: NSObject, ObservableObject {
     deinit {
         statsTimer?.invalidate()
         recordingRotationTimer?.invalidate()
+        publishTimeoutTask?.cancel()
+        resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "Streaming service disposed before publish completed."))
+        resolvePendingRecordingStop()
+        stream.attachCamera(nil)
+        stream.attachAudio(nil)
+        connection.close()
     }
 
     func preparePreview(quality: LiveQualityPreset = .balanced1080) async throws {
@@ -136,11 +143,28 @@ final class LiveStreamingService: NSObject, ObservableObject {
             stream.attachAudio(nil)
         }
 
+        if let currentCamera, currentCamera.position == currentCameraPosition {
+            syncTorchStateWithCurrentCamera()
+            refreshPreviewBindings()
+            startStatsTimer()
+
+            switch connectionState {
+            case .live, .connecting, .reconnecting:
+                break
+            default:
+                connectionState = .previewReady
+            }
+
+            appendDiagnostic("Preview reused on \(currentCameraPosition == .back ? "rear" : "front") camera.")
+            return
+        }
+
         let camera = try resolveCamera(position: currentCameraPosition)
         currentCamera = camera
 
         try await attachCameraAndAwait(camera)
 
+        syncTorchStateWithCurrentCamera()
         refreshPreviewBindings()
         connectionState = .previewReady
         startStatsTimer()
@@ -148,6 +172,16 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func startPublishing(to destination: RTMPDestination) async throws {
+        if case .live = connectionState {
+            appendDiagnostic("Publish request ignored because RTMP is already live.")
+            return
+        }
+
+        if case .connecting = connectionState {
+            appendDiagnostic("Publish request ignored because RTMP is already connecting.")
+            return
+        }
+
         currentDestination = destination
 
         switch connectionState {
@@ -158,26 +192,36 @@ final class LiveStreamingService: NSObject, ObservableObject {
         }
 
         try await withCheckedThrowingContinuation { continuation in
+            resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "Superseded by a new publish attempt."))
             pendingStartContinuation = continuation
             pendingPublishName = destination.publishName
             connectionState = .connecting
             appendDiagnostic("Connecting to \(destination.connectURL)")
+            beginPublishTimeout()
             connection.connect(destination.connectURL)
         }
     }
 
     func stopPublishing() {
+        cancelPublishTimeout()
         pendingPublishName = nil
         resolvePendingStart(with: nil)
         currentDestination = nil
         stream.close()
         connection.close()
         connectionState = currentCamera == nil ? .stopped : .previewReady
+        stats.currentBitrate = 0
         appendDiagnostic("Publishing stopped.")
     }
 
     func stopPreview() {
+        cancelPublishTimeout()
         recordingRotationTimer?.invalidate()
+        recordingRotationTimer = nil
+        statsTimer?.invalidate()
+        statsTimer = nil
+        stats.currentBitrate = 0
+        resetTorchState()
         stream.attachCamera(nil)
         stream.attachAudio(nil)
         currentCamera = nil
@@ -234,11 +278,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func toggleCamera() async throws {
+        resetTorchState()
         currentCameraPosition = currentCameraPosition == .back ? .front : .back
         let camera = try resolveCamera(position: currentCameraPosition)
         currentCamera = camera
 
         try await attachCameraAndAwait(camera)
+        syncTorchStateWithCurrentCamera()
 
         appendDiagnostic("Switched to \(currentCameraPosition == .back ? "rear" : "front") camera.")
     }
@@ -347,6 +393,54 @@ final class LiveStreamingService: NSObject, ObservableObject {
             return device
         }
         throw LiveAPIError.server(statusCode: 0, message: "Không tìm thấy camera phù hợp.")
+    }
+
+    private func beginPublishTimeout(seconds: TimeInterval = 18) {
+        publishTimeoutTask?.cancel()
+        publishTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(seconds, 5) * 1_000_000_000))
+            await MainActor.run {
+                guard let self else { return }
+                guard case .connecting = self.connectionState else { return }
+                self.pendingPublishName = nil
+                self.currentDestination = nil
+                self.stream.close()
+                self.connection.close()
+                self.connectionState = .failed("RTMP timeout")
+                self.appendDiagnostic("RTMP connect timed out.")
+                self.resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP kết nối quá lâu và đã bị hủy."))
+            }
+        }
+    }
+
+    private func cancelPublishTimeout() {
+        publishTimeoutTask?.cancel()
+        publishTimeoutTask = nil
+    }
+
+    private func resetTorchState() {
+        if let camera = currentCamera, camera.hasTorch {
+            try? camera.lockForConfiguration()
+            camera.torchMode = .off
+            camera.unlockForConfiguration()
+        }
+        stats.torchEnabled = false
+    }
+
+    private func syncTorchStateWithCurrentCamera() {
+        guard let camera = currentCamera, camera.hasTorch else {
+            stats.torchEnabled = false
+            return
+        }
+
+        do {
+            try camera.lockForConfiguration()
+            camera.torchMode = stats.torchEnabled ? .on : .off
+            camera.unlockForConfiguration()
+        } catch {
+            stats.torchEnabled = false
+            appendDiagnostic("Torch sync failed: \(error.localizedDescription)")
+        }
     }
 
     private func attachCameraAndAwait(_ camera: AVCaptureDevice) async throws {
@@ -512,6 +606,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
         switch code {
         case RTMPConnection.Code.connectSuccess.rawValue:
+            cancelPublishTimeout()
             appendDiagnostic("RTMP connected.")
             if let publishName = pendingPublishName {
                 stream.publish(publishName)
@@ -522,16 +617,22 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 connectionState = currentCamera == nil ? .stopped : .previewReady
             }
         case RTMPConnection.Code.connectClosed.rawValue:
+            cancelPublishTimeout()
             appendDiagnostic("RTMP closed.")
+            currentDestination = nil
             connectionState = currentCamera == nil ? .stopped : .previewReady
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP đã đóng trước khi publish."))
         case RTMPConnection.Code.connectRejected.rawValue:
+            cancelPublishTimeout()
             appendDiagnostic("RTMP rejected.")
+            currentDestination = nil
             connectionState = .failed("RTMP bị từ chối.")
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP bị từ chối."))
         default:
             if code.lowercased().contains("failed") {
+                cancelPublishTimeout()
                 appendDiagnostic("RTMP failure: \(code)")
+                currentDestination = nil
                 connectionState = .failed(code)
                 resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: code))
             } else if code.lowercased().contains("reconnect") {
@@ -543,7 +644,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     @objc
     private func handleRTMPError(_ notification: Notification) {
+        cancelPublishTimeout()
         appendDiagnostic("RTMP I/O error.")
+        currentDestination = nil
         connectionState = .failed("RTMP I/O error")
         resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP I/O error"))
     }
@@ -596,7 +699,7 @@ final class LivePreviewContainerView: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return nil
     }
 }
 

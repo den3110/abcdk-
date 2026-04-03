@@ -2311,14 +2311,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$pairBReg", preserveNullAndEmptyArrays: true } },
 
-      // Không trả placeholder match chưa có đủ cặp đấu thực
-      {
-        $match: {
-          "pairAReg._id": { $exists: true, $ne: null },
-          "pairBReg._id": { $exists: true, $ne: null },
-        },
-      },
-
       // lookup User để fallback nickname
       {
         $lookup: {
@@ -2418,6 +2410,10 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 bracket: "$$it.bracket",
                 groupKey: "$$it.groupKey",
                 groupIndex: "$$it.groupIndex",
+                seedA: "$$it.seedA",
+                seedB: "$$it.seedB",
+                previousA: "$$it.previousA",
+                previousB: "$$it.previousB",
 
                 pairA: {
                   _id: "$$it.pairAReg._id",
@@ -2482,7 +2478,9 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     ];
 
     const result = await Match.aggregate(pipeline).allowDiskUse(true);
-    const items = result[0]?.items || [];
+    const items = Array.isArray(result[0]?.items)
+      ? result[0].items.filter((item) => normalizeIdString(item?._id))
+      : [];
     const total = result[0]?.total || 0;
 
     // =======================
@@ -2602,6 +2600,80 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     }
 
     // Map kết quả: group giữ nguyên codeGroup; KO/PO dùng global V…
+    const bracketById = new Map(
+      sortedBrs.map((bracket) => [String(bracket?._id || ""), bracket])
+    );
+
+    const resolveMatchCode = (matchLike) => {
+      if (!matchLike) return null;
+
+      const bracketId = normalizeIdString(matchLike?.bracket?._id || matchLike?.bracket);
+      const bracketMeta = bracketById.get(bracketId) || matchLike?.bracket || {};
+      const bracketType = String(bracketMeta?.type || "").toLowerCase();
+
+      if (bracketType === "group" || bracketType === "roundrobin") {
+        return (
+          String(
+            matchLike?.codeResolved ||
+              matchLike?.codeGroup ||
+              matchLike?.globalCode ||
+              matchLike?.code ||
+              ""
+          ).trim() || null
+        );
+      }
+
+      const base = offsetByBracket.get(bracketId) || 0;
+      const localRound = Number.isFinite(Number(matchLike?.round))
+        ? Number(matchLike.round)
+        : Number.isFinite(Number(matchLike?.rrRound))
+          ? Number(matchLike.rrRound)
+          : 1;
+      const orderIndex = Number.isFinite(Number(matchLike?.order))
+        ? Number(matchLike.order) + 1
+        : null;
+      const globalRound = base + localRound;
+
+      return `V${globalRound}${orderIndex ? `-T${orderIndex}` : ""}`;
+    };
+
+    const previousMatchIds = Array.from(
+      new Set(
+        items
+          .flatMap((item) => [
+            normalizeIdString(item?.previousA?._id || item?.previousA),
+            normalizeIdString(item?.previousB?._id || item?.previousB),
+          ])
+          .filter(Boolean)
+      )
+    );
+
+    const previousMatches = previousMatchIds.length
+      ? await Match.find({
+          _id: {
+            $in: previousMatchIds
+              .filter((matchId) => Types.ObjectId.isValid(matchId))
+              .map((matchId) => new Types.ObjectId(matchId)),
+          },
+          tournament: tid,
+        })
+          .select("_id round rrRound order bracket code codeGroup labelKey")
+          .lean()
+      : [];
+
+    const previousMatchById = new Map(
+      previousMatches.map((matchDoc) => {
+        const matchId = normalizeIdString(matchDoc?._id);
+        return [
+          matchId,
+          {
+            ...matchDoc,
+            codeResolved: resolveMatchCode(matchDoc),
+          },
+        ];
+      })
+    );
+
     const mapped = items.map((it) => {
       const br = it.bracket || {};
       const bid = String(br?._id || "");
@@ -2638,38 +2710,50 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const userIdString = normalizeIdString(userId);
     const enrichedItems = mapped.map((item) => {
       const matchId = normalizeIdString(item?._id);
-      if (!matchId || !validStationMatchIds.has(matchId)) return item;
+      const previousAId = normalizeIdString(item?.previousA?._id || item?.previousA);
+      const previousBId = normalizeIdString(item?.previousB?._id || item?.previousB);
+      const nextItem = {
+        ...item,
+        previousA: previousAId
+          ? previousMatchById.get(previousAId) || { _id: previousAId }
+          : null,
+        previousB: previousBId
+          ? previousMatchById.get(previousBId) || { _id: previousBId }
+          : null,
+      };
+
+      if (!matchId || !validStationMatchIds.has(matchId)) return nextItem;
 
       const stationMeta = stationMatchMetaByMatchId.get(matchId);
-      if (!stationMeta?.stationId) return item;
+      if (!stationMeta?.stationId) return nextItem;
 
       const stationRefereeIds = Array.from(
         new Set([
-          ...normalizeIdArray(item?.courtStationReferees),
+          ...normalizeIdArray(nextItem?.courtStationReferees),
           ...normalizeIdArray(stationMeta.defaultRefereeIds),
         ])
       );
 
       return {
-        ...item,
+        ...nextItem,
         courtStation: stationMeta.stationId,
         courtStationId: stationMeta.stationId,
         courtStationLabel:
           stationMeta.label ||
-          item?.courtStationLabel ||
-          item?.courtLabel ||
-          item?.court?.name ||
-          item?.court?.label ||
+          nextItem?.courtStationLabel ||
+          nextItem?.courtLabel ||
+          nextItem?.court?.name ||
+          nextItem?.court?.label ||
           "",
         courtStationName:
           stationMeta.label ||
-          item?.courtStationLabel ||
-          item?.courtLabel ||
-          item?.court?.name ||
-          item?.court?.label ||
+          nextItem?.courtStationLabel ||
+          nextItem?.courtLabel ||
+          nextItem?.court?.name ||
+          nextItem?.court?.label ||
           "",
         courtClusterId:
-          stationMeta.clusterId || normalizeIdString(item?.courtClusterId),
+          stationMeta.clusterId || normalizeIdString(nextItem?.courtClusterId),
         courtStationReferees: stationRefereeIds,
       };
     });

@@ -114,6 +114,110 @@ export const getPairDisplayName = (pair, source) => {
   );
 };
 
+const sideKeyOf = (side) => (String(side).toUpperCase() === "B" ? "B" : "A");
+const getSideValue = (match, side, prefix) => match?.[`${prefix}${sideKeyOf(side)}`];
+const positiveInt = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.trunc(number) : null;
+};
+const referencePrefixFromSeed = (seed) => {
+  const type = trim(seed?.type).toLowerCase();
+  if (type === "stagematchloser" || type === "matchloser") return "L";
+  if (type === "stagematchwinner" || type === "matchwinner") return "W";
+  return "";
+};
+const stripReferencePrefix = (value) => trim(value).replace(/^[WL]\s*-\s*/i, "");
+
+export const getSeedDisplayName = (seed) => {
+  if (!seed) return "";
+
+  const direct =
+    trim(seed?.label) ||
+    trim(seed?.displayName) ||
+    trim(seed?.teamName) ||
+    trim(seed?.name) ||
+    trim(seed?.title);
+  if (direct) return direct;
+
+  const type = trim(seed?.type).toLowerCase();
+  const ref = seed?.ref || {};
+
+  if (type === "bye") return "BYE";
+
+  if (type === "grouprank") {
+    const stage = positiveInt(ref?.stage ?? seed?.stage);
+    const groupCode = trim(
+      ref?.groupCode || ref?.group?.name || ref?.group?.code || seed?.groupCode
+    );
+    const rank = positiveInt(ref?.rank ?? seed?.rank);
+    if (stage && groupCode && rank) return `V${stage}-B${groupCode}-T${rank}`;
+  }
+
+  const prefix = referencePrefixFromSeed(seed);
+  const stageIndex = positiveInt(ref?.stageIndex ?? seed?.stageIndex ?? ref?.stage);
+  const order = positiveInt(ref?.order ?? seed?.order);
+  if (prefix && stageIndex && order) return `${prefix}-V${stageIndex}-T${order}`;
+
+  return textValue(seed);
+};
+
+export const getPreviousMatchDisplayCode = (previous) => {
+  if (!previous) return "";
+
+  const directCandidates = [
+    previous?.codeResolved,
+    previous?.globalCode,
+    previous?.codeDisplay,
+    previous?.codeGroup,
+    previous?.code,
+    previous?.label,
+    previous?.displayCode,
+  ];
+
+  for (const candidate of directCandidates) {
+    const normalized = normalizeMatchCodeCandidate(candidate);
+    if (normalized) return normalized;
+  }
+
+  const vIndex = positiveInt(previous?.vIndex ?? previous?.globalRound);
+  const tIndex = positiveInt(previous?.tIndex);
+  if (vIndex && tIndex) return `V${vIndex}-T${tIndex}`;
+
+  const round = positiveInt(previous?.round ?? previous?.rrRound);
+  const order =
+    previous?.order != null && Number.isFinite(Number(previous.order))
+      ? Math.trunc(Number(previous.order)) + 1
+      : null;
+  if (round && order) return `V${round}-T${order}`;
+
+  return "";
+};
+
+export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
+  const normalizedSide = sideKeyOf(side);
+  const pair =
+    getSideValue(match, normalizedSide, "pair") ||
+    match?.teams?.[normalizedSide] ||
+    match?.[`team${normalizedSide}`] ||
+    match?.[`side${normalizedSide}`] ||
+    null;
+  const seed = getSideValue(match, normalizedSide, "seed");
+  const previous = getSideValue(match, normalizedSide, "previous");
+  const pairName = getPairDisplayName(pair, match);
+  if (pairName) return pairName;
+
+  const seedName = getSeedDisplayName(seed);
+  if (seedName) return seedName;
+
+  const previousCode = getPreviousMatchDisplayCode(previous);
+  if (previousCode) {
+    const prefix = referencePrefixFromSeed(seed) || "W";
+    return `${prefix}-${stripReferencePrefix(previousCode)}`;
+  }
+
+  return fallback;
+};
+
 export const getMatchDisplayStatus = (match = {}) => {
   const raw = trim(match?.status || match?.state || match?.match_status).toLowerCase();
   if (

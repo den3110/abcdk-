@@ -95,6 +95,9 @@ enum LiveAppOrientationController {
         }
 
         LiveAppDelegate.orientationMask = mask
+        guard UIApplication.shared.applicationState == .active else {
+            return
+        }
 
         if #available(iOS 16.0, *) {
             UIApplication.shared.connectedScenes
