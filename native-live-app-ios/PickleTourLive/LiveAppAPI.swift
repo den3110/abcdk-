@@ -1,6 +1,7 @@
 import AVFoundation
 import AppAuth
 import Foundation
+import Network
 import Security
 import UIKit
 
@@ -673,9 +674,11 @@ final class LiveAppEnvironment {
     let courtRuntimeSocket: CourtRuntimeSocketCoordinator
     let courtPresenceSocket: CourtPresenceSocketCoordinator
     let recordingCoordinator: LiveRecordingUploadCoordinator
+    let networkMonitor: LiveNetworkMonitor
 
     private init() {
         sessionStore = LiveSessionStore(keychain: keychain)
+        networkMonitor = LiveNetworkMonitor()
         apiClient = LiveAPIClient(sessionProvider: { [weak sessionStore] in
             sessionStore?.session?.accessToken
         })
@@ -690,6 +693,28 @@ final class LiveAppEnvironment {
             sessionStore?.session?.accessToken
         })
         recordingCoordinator = LiveRecordingUploadCoordinator(apiClient: apiClient)
+    }
+}
+
+final class LiveNetworkMonitor: ObservableObject {
+    @Published private(set) var isConnected = true
+    @Published private(set) var isWiFi = false
+
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "PickleTourLive.NetworkMonitor")
+
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.isConnected = path.status == .satisfied
+                self?.isWiFi = path.usesInterfaceType(.wifi)
+            }
+        }
+        monitor.start(queue: queue)
+    }
+
+    deinit {
+        monitor.cancel()
     }
 }
 

@@ -56,6 +56,23 @@ final class LiveStreamingService: NSObject, ObservableObject {
         }
     }
 
+    var isPreviewReady: Bool {
+        switch connectionState {
+        case .previewReady, .connecting, .live, .reconnecting:
+            return true
+        case .idle, .preparingPreview, .stopped, .failed:
+            return false
+        }
+    }
+
+    static var cameraPermissionGranted: Bool {
+        AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+    }
+
+    static var microphonePermissionGranted: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
     private let connection = RTMPConnection()
     private let stream: RTMPStream
     private let overlayEffect = LiveScoreboardVideoEffect()
@@ -297,6 +314,11 @@ final class LiveStreamingService: NSObject, ObservableObject {
     func detachPreviewView(_ view: MTHKView) {
         view.attachStream(nil)
         previewViews.remove(view)
+    }
+
+    func clearDiagnostics() {
+        diagnostics.removeAll()
+        appendDiagnostic("Đã xoá diagnostics cũ.")
     }
 
     private func refreshPreviewBindings() {
@@ -680,6 +702,9 @@ private final class LiveScoreboardOverlayRenderer {
             snapshot?.serveSide,
             snapshot?.phaseText,
             snapshot?.roundLabel,
+            snapshot?.webLogoURL,
+            snapshot?.sponsorLogoURLs?.joined(separator: ","),
+            snapshot?.sets?.map { "\($0.index):\($0.a ?? 0)-\($0.b ?? 0)" }.joined(separator: ";"),
             "\(Int(size.width))x\(Int(size.height))"
         ]
         .compactMap { $0 }
@@ -769,12 +794,56 @@ private final class LiveScoreboardOverlayRenderer {
                 snapshot.serveSide?.trimmedNilIfBlank.map { "Giao bóng: \($0)" }
             ]
             .compactMap { $0 }
-            .joined(separator: " • ")
+            .joined(separator: " | ")
 
             if !footer.isEmpty {
                 NSString(string: footer).draw(
                     in: CGRect(x: contentRect.minX, y: cardRect.maxY - 38, width: contentRect.width, height: 20),
                     withAttributes: smallTextAttributes
+                )
+            }
+
+            if let sets = snapshot.sets, !sets.isEmpty {
+                let setSummary = sets
+                    .prefix(3)
+                    .map { "S\($0.index + 1) \($0.a ?? 0)-\($0.b ?? 0)" }
+                    .joined(separator: " | ")
+
+                NSString(string: setSummary).draw(
+                    in: CGRect(x: contentRect.minX, y: cardRect.maxY - 62, width: contentRect.width, height: 18),
+                    withAttributes: smallTextAttributes
+                )
+            }
+
+            let brandingBits = [
+                snapshot.webLogoURL?.trimmedNilIfBlank.map { _ in "WEB" },
+                snapshot.sponsorLogoURLs?.isEmpty == false ? "SPONSOR x\(snapshot.sponsorLogoURLs?.count ?? 0)" : nil
+            ]
+            .compactMap { $0 }
+            .joined(separator: " | ")
+
+            if !brandingBits.isEmpty {
+                let badgeRect = CGRect(
+                    x: cardRect.maxX - 164,
+                    y: cardRect.maxY - 46,
+                    width: 144,
+                    height: 26
+                )
+                let badgePath = UIBezierPath(roundedRect: badgeRect, cornerRadius: 12)
+                UIColor(red: 0.12, green: 0.19, blue: 0.25, alpha: 0.92).setFill()
+                badgePath.fill()
+                UIColor.white.withAlphaComponent(0.16).setStroke()
+                badgePath.lineWidth = 1
+                badgePath.stroke()
+
+                let brandingAttributes: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 12, weight: .bold),
+                    .foregroundColor: UIColor.white.withAlphaComponent(0.84)
+                ]
+
+                NSString(string: brandingBits).draw(
+                    in: badgeRect.insetBy(dx: 10, dy: 6),
+                    withAttributes: brandingAttributes
                 )
             }
         }

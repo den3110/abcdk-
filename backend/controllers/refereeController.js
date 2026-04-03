@@ -2311,6 +2311,14 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$pairBReg", preserveNullAndEmptyArrays: true } },
 
+      // Không trả placeholder match chưa có đủ cặp đấu thực
+      {
+        $match: {
+          "pairAReg._id": { $exists: true, $ne: null },
+          "pairBReg._id": { $exists: true, $ne: null },
+        },
+      },
+
       // lookup User để fallback nickname
       {
         $lookup: {
@@ -2666,6 +2674,12 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       };
     });
 
+    const visibleMatchIds = new Set(
+      enrichedItems
+        .map((item) => normalizeIdString(item?._id))
+        .filter(Boolean)
+    );
+
     const stationTabs = refereeStations
       .map((station) => {
         const stationId = normalizeIdString(station?._id);
@@ -2687,7 +2701,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 : []),
             ]
               .filter(Boolean)
-              .filter((matchId) => validStationMatchIds.has(matchId))
+              .filter((matchId) => visibleMatchIds.has(matchId))
           )
         );
 

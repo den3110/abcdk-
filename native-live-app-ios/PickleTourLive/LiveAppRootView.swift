@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -532,6 +533,9 @@ private struct LiveStreamScreen: View {
     @State private var showSignOutDialog = false
     @State private var storedBrightness: CGFloat?
     @State private var brightnessReduced = false
+    @State private var now = Date()
+
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private let controlColumns = [
         GridItem(.flexible(), spacing: 12),
@@ -564,6 +568,7 @@ private struct LiveStreamScreen: View {
                 }
 
                 previewSection
+                operationsSection
 
                 activationCard
 
@@ -592,6 +597,7 @@ private struct LiveStreamScreen: View {
                 streamModeSection
                 liveControlsSection
                 matchInfoSection
+                brandingSection
                 healthSection
                 recordingSection
                 sessionSection
@@ -639,6 +645,9 @@ private struct LiveStreamScreen: View {
         }
         .onDisappear {
             restoreBrightnessIfNeeded()
+        }
+        .onReceive(ticker) { date in
+            now = date
         }
     }
 
@@ -835,6 +844,68 @@ private struct LiveStreamScreen: View {
                                 await store.refreshOverlay()
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    private var operationsSection: some View {
+        let _ = now
+
+        return LiveCard {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(
+                    title: "Operator status",
+                    subtitle: "Tín hiệu nhanh cho mạng, quyền thiết bị, payload socket và lease preview"
+                )
+
+                if warningItems.isEmpty {
+                    InlineInfoCard(
+                        title: "Ổn định",
+                        message: "Không có cảnh báo vận hành nào nổi bật ở thời điểm hiện tại.",
+                        tint: LivePalette.success
+                    )
+                } else {
+                    InlineInfoCard(
+                        title: "Có \(warningItems.count) cảnh báo",
+                        message: warningItems.joined(separator: " | "),
+                        tint: warningTint
+                    )
+                }
+
+                WrapBadgeFlow {
+                    TinyBadge(
+                        title: store.networkConnected
+                            ? (store.networkIsWiFi ? "Mạng: Wi-Fi" : "Mạng: 4G/5G")
+                            : "Mạng: OFFLINE",
+                        tint: store.networkConnected ? LivePalette.success : LivePalette.danger
+                    )
+                    TinyBadge(
+                        title: store.appIsActive ? "App: foreground" : "App: background",
+                        tint: store.appIsActive ? LivePalette.success : LivePalette.warning
+                    )
+                    TinyBadge(
+                        title: store.cameraPermissionGranted ? "Camera OK" : "Thiếu camera",
+                        tint: store.cameraPermissionGranted ? LivePalette.success : LivePalette.danger
+                    )
+                    TinyBadge(
+                        title: store.microphonePermissionGranted ? "Mic OK" : "Thiếu mic",
+                        tint: store.microphonePermissionGranted ? LivePalette.success : LivePalette.danger
+                    )
+                    if let leaseText = previewLeaseText {
+                        TinyBadge(
+                            title: leaseText,
+                            tint: store.previewLeaseWarning ? LivePalette.warning : LivePalette.cardMuted
+                        )
+                    }
+                    if store.socketConnected {
+                        TinyBadge(
+                            title: store.socketPayloadStale
+                                ? "Payload stale \(store.socketPayloadAgeSeconds ?? 0)s"
+                                : "Payload mới \(store.socketPayloadAgeSeconds ?? 0)s",
+                            tint: store.socketPayloadStale ? LivePalette.warning : LivePalette.success
+                        )
                     }
                 }
             }
@@ -1064,6 +1135,12 @@ private struct LiveStreamScreen: View {
                         subtitle: store.courtPresence?.screenState?.trimmedNilIfBlank ?? "Chưa có lease",
                         accent: store.presenceSocketConnected ? LivePalette.success : LivePalette.warning
                     )
+                    MetricTile(
+                        title: "Mạng",
+                        value: store.networkConnected ? (store.networkIsWiFi ? "Wi-Fi" : "4G/5G") : "Offline",
+                        subtitle: store.appIsActive ? "App đang foreground" : "App đang background",
+                        accent: store.networkConnected ? LivePalette.success : LivePalette.danger
+                    )
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -1073,6 +1150,86 @@ private struct LiveStreamScreen: View {
                     DetailLine(label: "Hết lease preview", value: formattedTimestamp(store.courtPresence?.previewReleaseAt) ?? "Không có")
                     DetailLine(label: "Hết lease tổng", value: formattedTimestamp(store.courtPresence?.expiresAt) ?? "Không có")
                     DetailLine(label: "Payload socket gần nhất", value: relativeTimestamp(store.lastSocketPayloadAt))
+                    DetailLine(label: "Payload stale", value: store.socketPayloadStale ? "Có" : "Không")
+                    DetailLine(label: "Preview ready", value: store.previewReady ? "Sẵn sàng" : "Chưa sẵn sàng")
+                    DetailLine(label: "Camera / mic", value: "\(store.cameraPermissionGranted ? "OK" : "Thiếu") / \(store.microphonePermissionGranted ? "OK" : "Thiếu")")
+                    DetailLine(label: "Overlay / branding", value: "\(store.overlayDataReady ? "OK" : "Thiếu") / \(store.brandingReady ? "OK" : "Thiếu")")
+                }
+            }
+        }
+    }
+
+    private var brandingSection: some View {
+        LiveCard {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(
+                    title: "Branding và overlay assets",
+                    subtitle: "Theo dõi sponsor, logo giải và web logo đang gắn cho overlay"
+                )
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
+                ], spacing: 12) {
+                    MetricTile(
+                        title: "Sponsors",
+                        value: "\(store.overlayConfig?.sponsors.count ?? 0)",
+                        subtitle: "Số sponsor app đã nạp từ overlay config",
+                        accent: (store.overlayConfig?.sponsors.isEmpty == false) ? LivePalette.success : LivePalette.warning
+                    )
+                    MetricTile(
+                        title: "Tournament logo",
+                        value: store.overlaySnapshot?.tournamentLogoURL?.trimmedNilIfBlank == nil ? "Thiếu" : "Có",
+                        subtitle: store.overlaySnapshot?.tournamentLogoURL?.trimmedNilIfBlank ?? "Snapshot chưa có tournamentLogoUrl",
+                        accent: store.overlaySnapshot?.tournamentLogoURL?.trimmedNilIfBlank == nil ? LivePalette.warning : LivePalette.success
+                    )
+                    MetricTile(
+                        title: "Tournament image",
+                        value: store.overlayConfig?.tournamentImageURL?.trimmedNilIfBlank == nil ? "Thiếu" : "Có",
+                        subtitle: store.overlayConfig?.tournamentImageURL?.trimmedNilIfBlank ?? "Overlay config chưa có tournamentImageUrl",
+                        accent: store.overlayConfig?.tournamentImageURL?.trimmedNilIfBlank == nil ? LivePalette.warning : LivePalette.success
+                    )
+                    MetricTile(
+                        title: "Web logo",
+                        value: store.overlayConfig?.webLogoURL?.trimmedNilIfBlank == nil ? "Thiếu" : "Có",
+                        subtitle: store.overlayConfig?.webLogoURL?.trimmedNilIfBlank ?? "Overlay config chưa có webLogoUrl",
+                        accent: store.overlayConfig?.webLogoURL?.trimmedNilIfBlank == nil ? LivePalette.warning : LivePalette.success
+                    )
+                }
+
+                if let sponsors = store.overlayConfig?.sponsors, !sponsors.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(Array(sponsors.prefix(10)), id: \.id) { sponsor in
+                                SponsorChip(sponsor: sponsor)
+                            }
+                        }
+                    }
+                } else {
+                    EmptyStateCard(
+                        title: "Chưa có sponsor",
+                        message: "Overlay config hiện chưa trả sponsor nào. App vẫn live được, nhưng branding sẽ mỏng hơn so với cấu hình chuẩn."
+                    )
+                }
+
+                HStack(spacing: 10) {
+                    if let tournamentImageURL = store.overlayConfig?.tournamentImageURL?.trimmedNilIfBlank, let url = URL(string: tournamentImageURL) {
+                        SecondaryActionButton(
+                            title: "Mở tournament image",
+                            systemImage: "photo"
+                        ) {
+                            openURL(url)
+                        }
+                    }
+
+                    if let webLogoURL = store.overlayConfig?.webLogoURL?.trimmedNilIfBlank, let url = URL(string: webLogoURL) {
+                        SecondaryActionButton(
+                            title: "Mở web logo",
+                            systemImage: "globe"
+                        ) {
+                            openURL(url)
+                        }
+                    }
                 }
             }
         }
@@ -1114,6 +1271,22 @@ private struct LiveStreamScreen: View {
                         subtitle: store.recordingPlaybackURLString?.trimmedNilIfBlank ?? "Finalize xong sẽ có playback URL",
                         accent: store.recordingPlaybackURLString?.trimmedNilIfBlank == nil ? LivePalette.cardMuted : LivePalette.success
                     )
+                    MetricTile(
+                        title: "Storage trống",
+                        value: formatStorageBytes(store.availableStorageBytes),
+                        subtitle: "Ngưỡng tối thiểu \(formatStorageBytes(store.minimumRecordingStorageBytes))",
+                        accent: store.recordingStorageHardBlock ? LivePalette.danger : (store.recordingStorageWarning ? LivePalette.warning : LivePalette.success)
+                    )
+                }
+
+                if store.recordingStorageHardBlock || store.recordingStorageWarning {
+                    InlineInfoCard(
+                        title: store.recordingStorageHardBlock ? "Bộ nhớ đang chặn recording" : "Bộ nhớ đang thấp cho recording",
+                        message: store.recordingStorageHardBlock
+                            ? "Nên giải phóng thêm dung lượng trước khi vào mode có recording."
+                            : "App vẫn có thể ghi, nhưng nên dọn bớt máy để tránh lỗi ở phiên dài.",
+                        tint: store.recordingStorageHardBlock ? LivePalette.danger : LivePalette.warning
+                    )
                 }
 
                 DisclosureGroup(isExpanded: $recordingExpanded) {
@@ -1122,6 +1295,9 @@ private struct LiveStreamScreen: View {
                         DetailLine(label: "Upload mode", value: store.recordingSnapshot?.uploadMode?.trimmedNilIfBlank ?? "Chưa có")
                         DetailLine(label: "Status", value: store.recordingSnapshot?.status?.trimmedNilIfBlank ?? store.recordingStateText)
                         DetailLine(label: "Match ID", value: store.recordingSnapshot?.matchId?.trimmedNilIfBlank ?? store.activeMatch?.id ?? "Chưa có")
+                        DetailLine(label: "Storage total", value: formatStorageBytes(store.totalStorageBytes))
+                        DetailLine(label: "Storage free", value: formatStorageBytes(store.availableStorageBytes))
+                        DetailLine(label: "Min / rec", value: "\(formatStorageBytes(store.minimumRecordingStorageBytes)) / \(formatStorageBytes(store.recommendedRecordingStorageBytes))")
 
                         if let playback = store.recordingPlaybackURLString?.trimmedNilIfBlank {
                             HStack(spacing: 10) {
@@ -1399,6 +1575,53 @@ private struct LiveStreamScreen: View {
         }
 
         return nil
+    }
+
+    private var previewLeaseText: String? {
+        let _ = now
+        guard let remaining = store.previewLeaseRemainingSeconds else { return nil }
+        let minutes = remaining / 60
+        let seconds = remaining % 60
+        return String(format: "Preview lease %02d:%02d", minutes, seconds)
+    }
+
+    private var warningItems: [String] {
+        let _ = now
+        var items: [String] = []
+        if !store.networkConnected {
+            items.append("Thiết bị đang offline")
+        }
+        if !store.appIsActive {
+            items.append("App đang background")
+        }
+        if !store.cameraPermissionGranted || !store.microphonePermissionGranted {
+            items.append("Thiếu quyền camera hoặc micro")
+        }
+        if store.socketPayloadStale {
+            items.append("Payload overlay đang stale")
+        }
+        if store.previewLeaseWarning, let leaseText = previewLeaseText {
+            items.append("\(leaseText) sắp hết")
+        }
+        if store.recordingStorageHardBlock {
+            items.append("Bộ nhớ quá thấp cho recording")
+        } else if store.recordingStorageWarning {
+            items.append("Bộ nhớ còn thấp cho recording")
+        }
+        if !store.overlayDataReady && store.activeMatch != nil {
+            items.append("Overlay chưa có snapshot mới")
+        }
+        if !store.brandingReady && store.activeMatch != nil {
+            items.append("Branding chưa đầy đủ")
+        }
+        return items
+    }
+
+    private var warningTint: Color {
+        if warningItems.contains(where: { $0.contains("offline") || $0.contains("Thiếu quyền") || $0.contains("quá thấp") }) {
+            return LivePalette.danger
+        }
+        return LivePalette.warning
     }
 
     private func captureBrightnessIfNeeded() {
@@ -2310,6 +2533,48 @@ private struct TeamScorePanel: View {
     }
 }
 
+private struct SponsorChip: View {
+    let sponsor: SponsorItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles.rectangle.stack.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(LivePalette.accentSoft)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(sponsor.name)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(sponsor.tier?.trimmedNilIfBlank ?? "sponsor")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(LivePalette.textSecondary)
+                }
+            }
+
+            if let logoURL = sponsor.logoURL?.trimmedNilIfBlank {
+                Text(logoURL)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(LivePalette.textMuted)
+                    .lineLimit(2)
+            }
+        }
+        .padding(12)
+        .frame(width: 190, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(LivePalette.cardMuted.opacity(0.54))
+        )
+    }
+}
+
 private struct DetailLine: View {
     let label: String
     let value: String
@@ -2361,7 +2626,7 @@ private struct BulletText: View {
                 .fill(LivePalette.accent)
                 .frame(width: 8, height: 8)
                 .padding(.top, 6)
-            Text(.init(text))
+            Text(text)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(LivePalette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2413,6 +2678,16 @@ private func formattedBitrate(_ bitrate: Int) -> String {
         return String(format: "%.2f Mbps", mbps)
     }
     return "\(bitrate / 1_000) kbps"
+}
+
+private func formatStorageBytes(_ bytes: Int64) -> String {
+    guard bytes > 0 else { return "0 B" }
+    let formatter = ByteCountFormatter()
+    formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+    formatter.countStyle = .file
+    formatter.includesUnit = true
+    formatter.isAdaptive = true
+    return formatter.string(fromByteCount: bytes)
 }
 
 private func humanReadableState(_ state: StreamConnectionState) -> String {

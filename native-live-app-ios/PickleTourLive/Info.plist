@@ -41,6 +41,10 @@
 	<string>PickleTour Live cần camera để phát hình trận đấu.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PickleTour Live cần micro để ghi âm thanh sân đấu.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>PTLiveAuthorizationEndpoint</key>
 	<string>https://pickletour.vn/oauth/authorize</string>
 	<key>PTLiveBaseURL</key>

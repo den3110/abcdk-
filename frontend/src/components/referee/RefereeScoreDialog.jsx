@@ -16,6 +16,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -40,7 +41,6 @@ import {
   SwapVert as SwapVertIcon,
   Sync as SyncIcon,
   Undo as UndoIcon,
-  WarningAmber as WarningAmberIcon,
 } from "@mui/icons-material";
 import { useSelector } from "react-redux";
 import { useLiveMatch } from "../../hook/useLiveMatch";
@@ -260,12 +260,12 @@ function LiveClock({ color = "inherit" }) {
   );
 }
 
-function PlayerRow({ label, slot, isServer, muted, borderColor, accentColor }) {
+function PlayerRow({ label, isServer, muted, borderColor, accentColor }) {
   return (
     <Stack
       direction="row"
       alignItems="center"
-      justifyContent="space-between"
+      justifyContent="flex-start"
       spacing={1}
       sx={{
         px: 1.25,
@@ -299,18 +299,6 @@ function PlayerRow({ label, slot, isServer, muted, borderColor, accentColor }) {
           {label || "Chưa có VĐV"}
         </Typography>
       </Stack>
-      <Chip
-        size="small"
-        label={`Ô ${slot || "?"}`}
-        sx={{
-          height: 24,
-          fontWeight: 800,
-          bgcolor: alpha("#ffffff", 0.06),
-          color: muted,
-          border: "1px solid",
-          borderColor: alpha("#ffffff", 0.08),
-        }}
-      />
     </Stack>
   );
 }
@@ -319,7 +307,6 @@ function TeamPanel({
   title,
   pair,
   players,
-  slotMap,
   isServing,
   isActiveSide,
   serverUid,
@@ -403,12 +390,10 @@ function TeamPanel({
         {players.length ? (
           players.map((player) => {
             const uid = userIdOf(player);
-            const slot = slotMap?.[uid] || slotMap?.[String(uid)] || null;
             return (
               <PlayerRow
                 key={uid || playerLabel(player, match)}
                 label={playerLabel(player, match)}
-                slot={slot}
                 isServer={Boolean(uid) && String(serverUid || "") === String(uid)}
                 muted={muted}
                 borderColor={borderColor}
@@ -559,13 +544,11 @@ export default function RefereeScoreDialog({
     Boolean(match?._id) && match?.status !== "live" && match?.status !== "finished";
   const isOwner = sync?.isOwner ?? true;
   const featureEnabled = sync?.featureEnabled !== false;
-  const canControl = Boolean(match?._id) && (!featureEnabled || isOwner);
   const canScoreByMatchState =
     Boolean(match?._id) &&
     match?.status === "live" &&
-    canControl &&
     !breakState?.active;
-  const canUndo = Boolean(match?._id) && match?.status === "live" && canControl;
+  const canUndo = Boolean(match?._id) && match?.status === "live";
 
   const [pointsToWin, setPointsToWin] = useState("");
   const [selectedCourtId, setSelectedCourtId] = useState("");
@@ -574,9 +557,16 @@ export default function RefereeScoreDialog({
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [courtDialogOpen, setCourtDialogOpen] = useState(false);
+  const [toast, setToast] = useState({
+    open: false,
+    message: "",
+    severity: "info",
+  });
 
   const currentCourtId = textOf(match?.court?._id || match?.courtId || match?.courtStationId);
   const currentCourtLabel = courtLabelOf(match || {});
+  const isInteractionLocked = Boolean(match?._id) && featureEnabled && !isOwner;
 
   useEffect(() => {
     setPointsToWin(
@@ -587,20 +577,6 @@ export default function RefereeScoreDialog({
   useEffect(() => {
     setSelectedCourtId(currentCourtId);
   }, [currentCourtId]);
-
-  const buildSlotMap = useCallback(
-    (side) => {
-      const score = side === "A" ? currentScore.a : currentScore.b;
-      return Object.entries(currentBase?.[side] || {}).reduce((acc, [uid, baseSlot]) => {
-        acc[String(uid)] = currentSlotFromBase(baseSlot, score);
-        return acc;
-      }, {});
-    },
-    [currentBase, currentScore.a, currentScore.b],
-  );
-
-  const slotMapA = useMemo(() => buildSlotMap("A"), [buildSlotMap]);
-  const slotMapB = useMemo(() => buildSlotMap("B"), [buildSlotMap]);
 
   const findUidAtCurrentSlot = useCallback(
     (side, slot, base = currentBase, score = currentScore) => {
@@ -629,6 +605,11 @@ export default function RefereeScoreDialog({
 
   const preStartServeSideLabel =
     activeSide === leftSide ? "Đội bên trái" : "Đội bên phải";
+  const serveNotation = useMemo(() => {
+    const servingScore = activeSide === "A" ? currentScore.a : currentScore.b;
+    const receivingScore = activeSide === "A" ? currentScore.b : currentScore.a;
+    return `${servingScore}-${receivingScore}-${activeServerNum}`;
+  }, [activeServerNum, activeSide, currentScore.a, currentScore.b]);
   const callout = useMemo(() => {
     if (breakState?.active) {
       return breakState?.type === "medical"
@@ -636,14 +617,36 @@ export default function RefereeScoreDialog({
         : "Timeout đang diễn ra";
     }
     if (needsStartAction) {
-      return "Chạm để chọn đội giao trước cho game này";
+      return `0-0-${activeServerNum}`;
     }
-    return `${activeSide === leftSide ? "Đội bên trái" : "Đội bên phải"} giao · Người giao ${activeServerNum}`;
-  }, [activeServerNum, activeSide, breakState?.active, breakState?.type, leftSide, needsStartAction]);
+    return serveNotation;
+  }, [activeServerNum, breakState?.active, breakState?.type, needsStartAction, serveNotation]);
 
   const handleError = useCallback((nextError) => {
     setActionError(textOf(nextError?.message) || "Thao tác không thành công.");
   }, []);
+
+  const pushToast = useCallback((message, severity = "info") => {
+    setToast({
+      open: true,
+      message,
+      severity,
+    });
+  }, []);
+
+  const closeToast = useCallback(() => {
+    setToast((prev) => ({ ...prev, open: false }));
+  }, []);
+
+  const ensureInteractionAllowed = useCallback(() => {
+    if (!match?._id) return false;
+    if (!isInteractionLocked) return true;
+    const lockedMessage = sync?.hasConflict
+      ? `Trận đang bị khóa bởi ${ownerLabel(sync?.owner)}.`
+      : `Trận đang do ${ownerLabel(sync?.owner)} điều khiển.`;
+    pushToast(lockedMessage, "info");
+    return false;
+  }, [isInteractionLocked, match?._id, pushToast, sync?.hasConflict, sync?.owner]);
 
   const runBusy = useCallback(
     async (key, task) => {
@@ -660,6 +663,14 @@ export default function RefereeScoreDialog({
     [handleError],
   );
 
+  const runProtectedBusy = useCallback(
+    async (key, task) => {
+      if (!ensureInteractionAllowed()) return;
+      await runBusy(key, task);
+    },
+    [ensureInteractionAllowed, runBusy],
+  );
+
   const loadCourts = useCallback(async () => {
     setCourtsLoading(true);
     await runBusy("courts", async () => {
@@ -674,29 +685,39 @@ export default function RefereeScoreDialog({
     setCourtsLoading(false);
   }, [api, runBusy]);
 
+  const openCourtDialog = useCallback(async () => {
+    if (!ensureInteractionAllowed()) return;
+    setCourtDialogOpen(true);
+    if (!courts.length && !courtsLoading) {
+      await loadCourts();
+    }
+  }, [courts.length, courtsLoading, ensureInteractionAllowed, loadCourts]);
+
   const flipWholeMatch = useCallback(async () => {
+    if (!ensureInteractionAllowed()) return;
     const nextBase = {
       A: flipSlotNumbers(currentBase?.A || {}),
       B: flipSlotNumbers(currentBase?.B || {}),
     };
     const nextLayout =
       currentLayout.left === "B" ? { left: "A", right: "B" } : { left: "B", right: "A" };
-    await runBusy("swap-sides", () =>
+    await runProtectedBusy("swap-sides", () =>
       api.setSlotsBase({
         base: nextBase,
         layout: nextLayout,
         serve: match?.serve || null,
       }),
     );
-  }, [api, currentBase, currentLayout, match?.serve, runBusy]);
+  }, [api, currentBase, currentLayout, ensureInteractionAllowed, match?.serve, runProtectedBusy]);
 
   const flipTeamSlots = useCallback(
     async (side) => {
+      if (!ensureInteractionAllowed()) return;
       const nextBase = {
         ...currentBase,
         [side]: flipSlotNumbers(currentBase?.[side] || {}),
       };
-      await runBusy(`swap-${side}`, () =>
+      await runProtectedBusy(`swap-${side}`, () =>
         api.setSlotsBase({
           base: nextBase,
           layout: currentLayout,
@@ -704,11 +725,12 @@ export default function RefereeScoreDialog({
         }),
       );
     },
-    [api, currentBase, currentLayout, match?.serve, runBusy],
+    [api, currentBase, currentLayout, ensureInteractionAllowed, match?.serve, runProtectedBusy],
   );
 
   const toggleServerNum = useCallback(async () => {
-    if (!match?._id || !canControl) return;
+    if (!match?._id) return;
+    if (!ensureInteractionAllowed()) return;
     const nextServer = activeServerNum === 1 ? 2 : 1;
     let serverId = findUidAtCurrentSlot(activeSide, nextServer);
     if (!serverId) {
@@ -718,7 +740,7 @@ export default function RefereeScoreDialog({
           .map((player) => userIdOf(player))
           .find((uid) => uid && uid !== textOf(match?.serve?.serverId)) || "";
     }
-    await runBusy("toggle-server-num", () =>
+    await runProtectedBusy("toggle-server-num", () =>
       api.setServe({
         side: activeSide,
         server: nextServer,
@@ -729,16 +751,17 @@ export default function RefereeScoreDialog({
     activeServerNum,
     activeSide,
     api,
-    canControl,
+    ensureInteractionAllowed,
     findUidAtCurrentSlot,
     match?._id,
     match?.serve?.serverId,
     pairPlayers,
-    runBusy,
+    runProtectedBusy,
   ]);
 
   const toggleServeSide = useCallback(async () => {
-    if (!match?._id || !canControl) return;
+    if (!match?._id) return;
+    if (!ensureInteractionAllowed()) return;
     const nextSide = activeSide === "A" ? "B" : "A";
     const preMatchSlot = currentLayout.left === nextSide ? 2 : 1;
     const nextServer = needsStartAction ? 2 : 1;
@@ -747,7 +770,7 @@ export default function RefereeScoreDialog({
     if (!serverId) {
       serverId = firstPlayerIdOfSide(match, nextSide, eventType);
     }
-    await runBusy("toggle-serve-side", () =>
+    await runProtectedBusy("toggle-serve-side", () =>
       api.setServe({
         side: nextSide,
         server: nextServer,
@@ -757,16 +780,17 @@ export default function RefereeScoreDialog({
   }, [
     activeSide,
     api,
-    canControl,
     currentLayout.left,
+    ensureInteractionAllowed,
     eventType,
     findUidAtCurrentSlot,
     match,
     needsStartAction,
-    runBusy,
+    runProtectedBusy,
   ]);
 
   const handleRandomDraw = useCallback(async () => {
+    if (!ensureInteractionAllowed()) return;
     const nextLayout = Math.random() > 0.5 ? { left: "A", right: "B" } : { left: "B", right: "A" };
     const nextSide = Math.random() > 0.5 ? "A" : "B";
     const preferredSlot = nextLayout.left === nextSide ? 2 : 1;
@@ -775,7 +799,7 @@ export default function RefereeScoreDialog({
       firstPlayerIdOfSide(match, nextSide, eventType) ||
       null;
 
-    await runBusy("draw", () =>
+    await runProtectedBusy("draw", () =>
       api.setSlotsBase({
         base: currentBase,
         layout: nextLayout,
@@ -786,13 +810,14 @@ export default function RefereeScoreDialog({
         },
       }),
     );
-  }, [api, currentBase, eventType, findUidAtCurrentSlot, match, runBusy]);
+  }, [api, currentBase, ensureInteractionAllowed, eventType, findUidAtCurrentSlot, match, runProtectedBusy]);
 
   const handleBreak = useCallback(
     async (type, side) => {
+      if (!ensureInteractionAllowed()) return;
       const timeoutMinutes = Number(match?.timeoutMinutes || 1);
       const expectedResumeAt = new Date(Date.now() + timeoutMinutes * 60000).toISOString();
-      await runBusy(`${type}-${side}`, () =>
+      await runProtectedBusy(`${type}-${side}`, () =>
         api.setBreak({
           active: true,
           note: `${type}:${side}`,
@@ -802,35 +827,43 @@ export default function RefereeScoreDialog({
         }),
       );
     },
-    [api, currentGame, match?.timeoutMinutes, runBusy],
+    [api, currentGame, ensureInteractionAllowed, match?.timeoutMinutes, runProtectedBusy],
   );
 
   const handleContinue = useCallback(async () => {
-    await runBusy("continue", () =>
+    if (!ensureInteractionAllowed()) return;
+    await runProtectedBusy("continue", () =>
       api.setBreak({
         active: false,
         note: "",
         afterGame: currentGame,
       }),
     );
-  }, [api, currentGame, runBusy]);
+  }, [api, currentGame, ensureInteractionAllowed, runProtectedBusy]);
 
   const handleUpdateSettings = useCallback(async () => {
-    await runBusy("settings", () =>
+    if (!ensureInteractionAllowed()) return;
+    await runProtectedBusy("settings", () =>
       api.updateSettings({
         pointsToWin: Number(pointsToWin || match?.rules?.pointsToWin || 11),
       }),
     );
-  }, [api, match?.rules?.pointsToWin, pointsToWin, runBusy]);
+  }, [api, ensureInteractionAllowed, match?.rules?.pointsToWin, pointsToWin, runProtectedBusy]);
 
   const handleAssignCourt = useCallback(async () => {
     if (!selectedCourtId) return;
-    await runBusy("assign-court", () => api.assignCourt({ courtId: selectedCourtId }));
-  }, [api, runBusy, selectedCourtId]);
+    if (!ensureInteractionAllowed()) return;
+    await runProtectedBusy("assign-court", () => api.assignCourt({ courtId: selectedCourtId }));
+    setCourtDialogOpen(false);
+    pushToast("Đã gán sân.", "success");
+  }, [api, ensureInteractionAllowed, pushToast, runProtectedBusy, selectedCourtId]);
 
   const handleUnassignCourt = useCallback(async () => {
-    await runBusy("unassign-court", () => api.unassignCourt({ toStatus: "queued" }));
-  }, [api, runBusy]);
+    if (!ensureInteractionAllowed()) return;
+    await runProtectedBusy("unassign-court", () => api.unassignCourt({ toStatus: "queued" }));
+    setCourtDialogOpen(false);
+    pushToast("Đã bỏ gán sân.", "success");
+  }, [api, ensureInteractionAllowed, pushToast, runProtectedBusy]);
 
   const cta = useMemo(() => {
     if (match?.status === "finished") return null;
@@ -838,7 +871,7 @@ export default function RefereeScoreDialog({
       return {
         label: "Bắt đầu",
         danger: false,
-        onPress: () => runBusy("start", () => api.start()),
+        onPress: () => runProtectedBusy("start", () => api.start()),
       };
     }
 
@@ -849,7 +882,10 @@ export default function RefereeScoreDialog({
       return {
         label: "Kết thúc trận",
         danger: true,
-        onPress: () => runBusy(`finish-${decidedWinner}`, () => api.finish(decidedWinner, "finish")),
+        onPress: () =>
+          runProtectedBusy(`finish-${decidedWinner}`, () =>
+            api.finish(decidedWinner, "finish"),
+          ),
       };
     }
 
@@ -864,14 +900,17 @@ export default function RefereeScoreDialog({
           label: "Kết thúc trận",
           danger: true,
           onPress: () =>
-            runBusy(`finish-${winnerBySets}`, () => api.finish(winnerBySets, "finish")),
+            runProtectedBusy(`finish-${winnerBySets}`, () =>
+              api.finish(winnerBySets, "finish"),
+            ),
         };
       }
 
       return {
         label: "Bắt game tiếp",
         danger: false,
-        onPress: () => runBusy("next-game", () => api.nextGame({ autoNext: true })),
+        onPress: () =>
+          runProtectedBusy("next-game", () => api.nextGame({ autoNext: true })),
       };
     }
 
@@ -885,7 +924,7 @@ export default function RefereeScoreDialog({
     matchDecided,
     needsStartAction,
     rules.bestOf,
-    runBusy,
+    runProtectedBusy,
     wins.a,
     wins.b,
   ]);
@@ -895,45 +934,75 @@ export default function RefereeScoreDialog({
   const onMidPress = activeServerNum === 1 ? toggleServerNum : toggleServeSide;
   const leftEnabled = canScoreByMatchState && activeSide === leftSide && !busy;
   const rightEnabled = canScoreByMatchState && activeSide === rightSide && !busy;
-  const syncTone = !featureEnabled
-    ? "default"
-    : sync?.hasConflict
-      ? "error"
-      : isOwner
-        ? "success"
-        : "warning";
-  const syncLabel = !featureEnabled
-    ? "Khóa trọng tài tắt"
-    : sync?.hasConflict
-      ? `Đang khóa bởi ${ownerLabel(sync?.owner)}`
-      : isOwner
-        ? "Bạn đang giữ quyền"
-        : `Đang do ${ownerLabel(sync?.owner)} điều khiển`;
-
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      fullScreen={fullScreen}
-      fullWidth
-      maxWidth="xl"
-      PaperProps={{
-        sx: {
-          background: ui.paper,
-          backgroundImage: "none",
-          color: ui.text,
-          borderRadius: fullScreen ? 0 : 4,
-          overflow: "hidden",
-        },
-      }}
-    >
+    <>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        fullScreen={fullScreen}
+        fullWidth
+        maxWidth="lg"
+        BackdropProps={{
+          sx: {
+            background:
+              theme.palette.mode === "dark"
+                ? "rgba(2, 6, 12, 0.78)"
+                : "rgba(15, 23, 42, 0.52)",
+            backdropFilter: "blur(12px) saturate(130%)",
+          },
+        }}
+        PaperProps={{
+          sx: {
+            background: ui.paper,
+            backgroundImage: "none",
+            color: ui.text,
+            borderRadius: fullScreen ? 0 : 4,
+            overflow: "hidden",
+            width: fullScreen ? "100%" : "min(1240px, calc(100vw - 72px))",
+            border: "1px solid",
+            borderColor: alpha("#ffffff", theme.palette.mode === "dark" ? 0.08 : 0.12),
+            boxShadow:
+              theme.palette.mode === "dark"
+                ? "0 32px 120px rgba(0, 0, 0, 0.58)"
+                : "0 32px 100px rgba(15, 23, 42, 0.22)",
+          },
+        }}
+      >
       <DialogContent
         sx={{
           p: { xs: 1.2, sm: 1.6, md: 2 },
           bgcolor: "transparent",
         }}
       >
-        <Stack spacing={1.5}>
+        <Box
+          sx={{
+            position: "relative",
+            p: { xs: 0.9, sm: 1.1, md: 1.25 },
+            borderRadius: fullScreen ? 0 : 4.5,
+            border: "1px solid",
+            borderColor: alpha("#ffffff", theme.palette.mode === "dark" ? 0.06 : 0.1),
+            bgcolor:
+              theme.palette.mode === "dark"
+                ? "rgba(9, 11, 15, 0.76)"
+                : "rgba(255, 255, 255, 0.9)",
+            boxShadow:
+              theme.palette.mode === "dark"
+                ? "inset 0 1px 0 rgba(255,255,255,0.04)"
+                : "inset 0 1px 0 rgba(255,255,255,0.55)",
+            overflow: "hidden",
+            "&::before": {
+              content: '""',
+              position: "absolute",
+              inset: 0,
+              background:
+                theme.palette.mode === "dark"
+                  ? "radial-gradient(circle at top left, rgba(96,165,250,0.14), transparent 30%), radial-gradient(circle at top right, rgba(245,158,11,0.08), transparent 24%), linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0))"
+                  : "radial-gradient(circle at top left, rgba(37,99,235,0.08), transparent 30%), radial-gradient(circle at top right, rgba(245,158,11,0.06), transparent 24%), linear-gradient(180deg, rgba(255,255,255,0.45), rgba(255,255,255,0))",
+              pointerEvents: "none",
+            },
+          }}
+        >
+          <Stack spacing={1.5} sx={{ position: "relative", zIndex: 1 }}>
           <Box
             sx={{
               p: { xs: 1.25, md: 1.5 },
@@ -1011,7 +1080,7 @@ export default function RefereeScoreDialog({
                 <Button
                   variant="outlined"
                   onClick={flipWholeMatch}
-                  disabled={!canControl || Boolean(busy)}
+                  disabled={!match?._id || Boolean(busy)}
                   startIcon={<SwapHorizIcon />}
                   sx={{
                     minHeight: 40,
@@ -1029,7 +1098,7 @@ export default function RefereeScoreDialog({
                 <Button
                   variant="outlined"
                   onClick={toggleServerNum}
-                  disabled={!canControl || Boolean(busy)}
+                  disabled={!match?._id || Boolean(busy)}
                   sx={{
                     minWidth: 44,
                     minHeight: 40,
@@ -1047,13 +1116,7 @@ export default function RefereeScoreDialog({
 
                 <Button
                   variant="outlined"
-                  onClick={async () => {
-                    setToolsOpen(true);
-                    if (!courts.length && !courtsLoading) {
-                      await loadCourts();
-                    }
-                  }}
-                  disabled={!canControl}
+                  onClick={openCourtDialog}
                   startIcon={<LocationOnIcon />}
                   sx={{
                     minHeight: 40,
@@ -1098,40 +1161,11 @@ export default function RefereeScoreDialog({
             </Alert>
           ) : null}
           {actionError ? <Alert severity="error">{actionError}</Alert> : null}
-          {sync?.hasConflict ? (
-            <Alert
-              severity="warning"
-              icon={<WarningAmberIcon />}
-              action={
-                <Stack direction="row" spacing={1}>
-                  <Button size="small" onClick={() => sync.takeover?.()}>
-                    Take over
-                  </Button>
-                  <Button size="small" onClick={() => sync.discardRejected?.()}>
-                    Bỏ queue
-                  </Button>
-                </Stack>
-              }
-            >
-              Trận đang bị khóa bởi {ownerLabel(sync?.owner)}. Bạn cần takeover để tiếp tục chấm.
-            </Alert>
-          ) : null}
-          {featureEnabled && !sync?.hasConflict && !isOwner ? (
-            <Alert
-              severity="info"
-              action={
-                <Button size="small" onClick={() => sync.takeover?.()}>
-                  Take over
-                </Button>
-              }
-            >
-              Trận hiện do {ownerLabel(sync?.owner)} điều khiển.
-            </Alert>
-          ) : null}
 
           <Box
             sx={{
-              p: { xs: 1.25, md: 1.4 },
+              px: { xs: 1.25, md: 1.4 },
+              py: 1,
               borderRadius: 4,
               border: "1px solid",
               borderColor: ui.border,
@@ -1139,66 +1173,43 @@ export default function RefereeScoreDialog({
             }}
           >
             <Stack
-              direction={{ xs: "column", md: "row" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "flex-start", md: "center" }}
+              direction="row"
+              justifyContent="flex-end"
+              alignItems="center"
               spacing={1}
+              useFlexGap
+              flexWrap="wrap"
             >
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                <Chip
-                  label={syncLabel}
-                  color={syncTone}
-                  sx={{
-                    fontWeight: 800,
-                    maxWidth: "100%",
-                  }}
-                />
-                {sync?.pendingCount ? (
-                  <Chip
-                    label={`Chờ sync ${sync.pendingCount}`}
-                    sx={{
-                      fontWeight: 800,
-                      color: "#fbbf24",
-                      bgcolor: alpha("#fbbf24", 0.12),
-                      border: "1px solid",
-                      borderColor: alpha("#fbbf24", 0.24),
-                    }}
-                  />
-                ) : null}
-              </Stack>
-
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                <Chip
-                  label={currentCourtLabel}
-                  sx={{
-                    fontWeight: 800,
-                    bgcolor: alpha("#ffffff", 0.05),
-                    color: ui.muted,
-                    border: "1px solid",
-                    borderColor: ui.border,
-                  }}
-                />
-                <Chip
-                  label={textOf(match?.status || "scheduled").toUpperCase()}
-                  sx={{
-                    fontWeight: 900,
-                    bgcolor:
-                      match?.status === "live"
-                        ? alpha(ui.warning, 0.14)
-                        : match?.status === "finished"
-                          ? alpha(ui.success, 0.14)
-                          : alpha("#ffffff", 0.05),
-                    color:
-                      match?.status === "live"
-                        ? "#ffcc80"
-                        : match?.status === "finished"
-                          ? "#86efac"
-                          : ui.muted,
-                    border: "1px solid",
-                    borderColor: ui.border,
-                  }}
-                />
-              </Stack>
+              <Chip
+                label={currentCourtLabel}
+                sx={{
+                  fontWeight: 800,
+                  bgcolor: alpha("#ffffff", 0.05),
+                  color: ui.muted,
+                  border: "1px solid",
+                  borderColor: ui.border,
+                }}
+              />
+              <Chip
+                label={textOf(match?.status || "scheduled").toUpperCase()}
+                sx={{
+                  fontWeight: 900,
+                  bgcolor:
+                    match?.status === "live"
+                      ? alpha(ui.warning, 0.14)
+                      : match?.status === "finished"
+                        ? alpha(ui.success, 0.14)
+                        : alpha("#ffffff", 0.05),
+                  color:
+                    match?.status === "live"
+                      ? "#ffcc80"
+                      : match?.status === "finished"
+                        ? "#86efac"
+                        : ui.muted,
+                  border: "1px solid",
+                  borderColor: ui.border,
+                }}
+              />
             </Stack>
           </Box>
 
@@ -1220,7 +1231,6 @@ export default function RefereeScoreDialog({
                 title="Đội bên trái"
                 pair={leftPair}
                 players={pairPlayers[leftSide] || []}
-                slotMap={leftSide === "A" ? slotMapA : slotMapB}
                 isServing={activeSide === leftSide}
                 isActiveSide={activeSide === leftSide}
                 serverUid={serverUidShow}
@@ -1264,7 +1274,7 @@ export default function RefereeScoreDialog({
                     <Button
                       variant="outlined"
                       onClick={toggleServeSide}
-                      disabled={!canControl || Boolean(busy)}
+                      disabled={!match?._id || Boolean(busy)}
                       startIcon={<SwapCallsIcon />}
                       sx={{
                         minHeight: 56,
@@ -1458,7 +1468,6 @@ export default function RefereeScoreDialog({
                 title="Đội bên phải"
                 pair={rightPair}
                 players={pairPlayers[rightSide] || []}
-                slotMap={rightSide === "A" ? slotMapA : slotMapB}
                 isServing={activeSide === rightSide}
                 isActiveSide={activeSide === rightSide}
                 serverUid={serverUidShow}
@@ -1575,7 +1584,7 @@ export default function RefereeScoreDialog({
                   <Button
                     variant="outlined"
                     onClick={flipWholeMatch}
-                    disabled={!canControl || Boolean(busy)}
+                    disabled={!match?._id || Boolean(busy)}
                     startIcon={<SwapHorizIcon />}
                     sx={{
                       minHeight: 52,
@@ -1591,7 +1600,7 @@ export default function RefereeScoreDialog({
                   <Button
                     variant="outlined"
                     onClick={handleRandomDraw}
-                    disabled={!canControl || Boolean(busy)}
+                    disabled={!match?._id || Boolean(busy)}
                     startIcon={<CasinoIcon />}
                     sx={{
                       minHeight: 52,
@@ -1617,7 +1626,11 @@ export default function RefereeScoreDialog({
                 >
                   <Button
                     variant="outlined"
-                    onClick={() => runBusy("point-left", () => api[leftSide === "A" ? "pointA" : "pointB"](1))}
+                    onClick={() =>
+                      runProtectedBusy("point-left", () =>
+                        api[leftSide === "A" ? "pointA" : "pointB"](1),
+                      )
+                    }
                     disabled={!leftEnabled}
                     startIcon={busy === "point-left" ? <CircularProgress size={14} /> : <RefreshIcon sx={{ transform: "rotate(90deg)" }} />}
                     sx={{
@@ -1639,7 +1652,7 @@ export default function RefereeScoreDialog({
                   <Button
                     variant="contained"
                     onClick={onMidPress}
-                    disabled={!canControl || Boolean(busy)}
+                    disabled={!match?._id || Boolean(busy)}
                     startIcon={midIcon}
                     sx={{
                       minHeight: 56,
@@ -1657,7 +1670,11 @@ export default function RefereeScoreDialog({
 
                   <Button
                     variant="outlined"
-                    onClick={() => runBusy("point-right", () => api[rightSide === "A" ? "pointA" : "pointB"](1))}
+                    onClick={() =>
+                      runProtectedBusy("point-right", () =>
+                        api[rightSide === "A" ? "pointA" : "pointB"](1),
+                      )
+                    }
                     disabled={!rightEnabled}
                     startIcon={busy === "point-right" ? <CircularProgress size={14} /> : <RefreshIcon sx={{ transform: "rotate(90deg)" }} />}
                     sx={{
@@ -1796,7 +1813,7 @@ export default function RefereeScoreDialog({
                       <Button
                         variant="contained"
                         onClick={handleUpdateSettings}
-                        disabled={busy === "settings" || !canControl}
+                        disabled={busy === "settings" || !match?._id}
                         sx={{
                           minHeight: 42,
                           borderRadius: 999,
@@ -1805,63 +1822,6 @@ export default function RefereeScoreDialog({
                         }}
                       >
                         Lưu cấu hình
-                      </Button>
-                    </Stack>
-                  </Stack>
-
-                  <Stack spacing={0.8} flex={1}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
-                      Gán sân
-                    </Typography>
-                    <Stack
-                      direction={{ xs: "column", sm: "row" }}
-                      spacing={1.25}
-                      alignItems={{ xs: "stretch", sm: "center" }}
-                    >
-                      <Button
-                        variant="outlined"
-                        startIcon={courtsLoading ? <CircularProgress size={14} /> : <RefreshIcon />}
-                        onClick={loadCourts}
-                        disabled={courtsLoading || busy === "courts" || !canControl}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        Tải sân
-                      </Button>
-                      <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 220 } }}>
-                        <InputLabel id="referee-court-select-label">Sân</InputLabel>
-                        <Select
-                          labelId="referee-court-select-label"
-                          label="Sân"
-                          value={selectedCourtId}
-                          onChange={(event) => setSelectedCourtId(event.target.value)}
-                          sx={{
-                            borderRadius: 3,
-                            bgcolor: alpha("#ffffff", 0.02),
-                          }}
-                        >
-                          {courts.map((court) => (
-                            <MenuItem key={court?._id || court?.id} value={court?._id || court?.id}>
-                              {textOf(court?.name) || textOf(court?.label) || textOf(court?.code)}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                      <Button
-                        variant="contained"
-                        onClick={handleAssignCourt}
-                        disabled={!selectedCourtId || !canControl}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        Gán
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="warning"
-                        onClick={handleUnassignCourt}
-                        disabled={!currentCourtId || !canControl}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        Bỏ gán
                       </Button>
                     </Stack>
                   </Stack>
@@ -1879,11 +1839,11 @@ export default function RefereeScoreDialog({
                           key={item}
                           variant="outlined"
                           onClick={() =>
-                            runBusy(item, () =>
+                            runProtectedBusy(item, () =>
                               api.setServe({ side, server: Number(server) }),
                             )
                           }
-                          disabled={!canControl || Boolean(busy)}
+                          disabled={!match?._id || Boolean(busy)}
                           sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                         >
                           {item}
@@ -1944,8 +1904,10 @@ export default function RefereeScoreDialog({
                       <Button
                         variant="contained"
                         color="success"
-                        onClick={() => runBusy("finish-a", () => api.finish("A", "finish"))}
-                        disabled={!canControl || Boolean(busy)}
+                        onClick={() =>
+                          runProtectedBusy("finish-a", () => api.finish("A", "finish"))
+                        }
+                        disabled={!match?._id || Boolean(busy)}
                         sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                       >
                         Finish A
@@ -1953,8 +1915,10 @@ export default function RefereeScoreDialog({
                       <Button
                         variant="contained"
                         color="success"
-                        onClick={() => runBusy("finish-b", () => api.finish("B", "finish"))}
-                        disabled={!canControl || Boolean(busy)}
+                        onClick={() =>
+                          runProtectedBusy("finish-b", () => api.finish("B", "finish"))
+                        }
+                        disabled={!match?._id || Boolean(busy)}
                         sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                       >
                         Finish B
@@ -1962,8 +1926,10 @@ export default function RefereeScoreDialog({
                       <Button
                         variant="outlined"
                         color="error"
-                        onClick={() => runBusy("forfeit-a", () => api.forfeit("A", "forfeit"))}
-                        disabled={!canControl || Boolean(busy)}
+                        onClick={() =>
+                          runProtectedBusy("forfeit-a", () => api.forfeit("A", "forfeit"))
+                        }
+                        disabled={!match?._id || Boolean(busy)}
                         sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                       >
                         Forfeit A
@@ -1971,8 +1937,10 @@ export default function RefereeScoreDialog({
                       <Button
                         variant="outlined"
                         color="error"
-                        onClick={() => runBusy("forfeit-b", () => api.forfeit("B", "forfeit"))}
-                        disabled={!canControl || Boolean(busy)}
+                        onClick={() =>
+                          runProtectedBusy("forfeit-b", () => api.forfeit("B", "forfeit"))
+                        }
+                        disabled={!match?._id || Boolean(busy)}
                         sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                       >
                         Forfeit B
@@ -1983,8 +1951,117 @@ export default function RefereeScoreDialog({
               </Stack>
             </AccordionDetails>
           </Accordion>
-        </Stack>
+          </Stack>
+        </Box>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog
+        open={courtDialogOpen}
+        onClose={() => setCourtDialogOpen(false)}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: ui.paper,
+            color: ui.text,
+            border: "1px solid",
+            borderColor: ui.border,
+            boxShadow: "0 24px 80px rgba(0,0,0,0.42)",
+          },
+        }}
+      >
+        <DialogContent sx={{ p: 2 }}>
+          <Stack spacing={2}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Box>
+                <Typography sx={{ fontSize: 22, fontWeight: 900, color: ui.text }}>
+                  Gán sân
+                </Typography>
+                <Typography sx={{ fontSize: 13, color: ui.muted }}>
+                  Chọn sân để gán cho trận hiện tại.
+                </Typography>
+              </Box>
+              <IconButton
+                onClick={() => setCourtDialogOpen(false)}
+                sx={{
+                  width: 40,
+                  height: 40,
+                  border: "1px solid",
+                  borderColor: ui.border,
+                  color: ui.text,
+                }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Stack>
+
+            <Stack spacing={1.25}>
+              <Button
+                variant="outlined"
+                startIcon={courtsLoading ? <CircularProgress size={14} /> : <RefreshIcon />}
+                onClick={loadCourts}
+                disabled={courtsLoading || busy === "courts"}
+                sx={{ minHeight: 44, borderRadius: 999, fontWeight: 800, alignSelf: "flex-start" }}
+              >
+                Tải sân
+              </Button>
+
+              <FormControl size="small" fullWidth>
+                <InputLabel id="referee-court-dialog-select-label">Sân</InputLabel>
+                <Select
+                  labelId="referee-court-dialog-select-label"
+                  label="Sân"
+                  value={selectedCourtId}
+                  onChange={(event) => setSelectedCourtId(event.target.value)}
+                  sx={{
+                    borderRadius: 3,
+                    bgcolor: alpha("#ffffff", 0.02),
+                  }}
+                >
+                  {courts.map((court) => (
+                    <MenuItem key={court?._id || court?.id} value={court?._id || court?.id}>
+                      {textOf(court?.name) || textOf(court?.label) || textOf(court?.code)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+              <Button
+                variant="contained"
+                onClick={handleAssignCourt}
+                disabled={!selectedCourtId}
+                sx={{ minHeight: 44, borderRadius: 999, fontWeight: 800, flex: 1 }}
+              >
+                Gán sân
+              </Button>
+              <Button
+                variant="outlined"
+                color="warning"
+                onClick={handleUnassignCourt}
+                disabled={!currentCourtId}
+                sx={{ minHeight: 44, borderRadius: 999, fontWeight: 800, flex: 1 }}
+              >
+                Bỏ gán
+              </Button>
+            </Stack>
+          </Stack>
+        </DialogContent>
+      </Dialog>
+
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={2200}
+        onClose={closeToast}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert onClose={closeToast} severity={toast.severity} variant="filled" sx={{ width: "100%" }}>
+          {toast.message}
+        </Alert>
+      </Snackbar>
+    </>
   );
 }

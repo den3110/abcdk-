@@ -1,3 +1,5 @@
+import AVFoundation
+import ActivityKit
 import Combine
 import Foundation
 import UIKit
@@ -46,6 +48,11 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var socketConnected = false
     @Published private(set) var runtimeSocketConnected = false
     @Published private(set) var presenceSocketConnected = false
+    @Published private(set) var networkConnected = true
+    @Published private(set) var networkIsWiFi = false
+    @Published private(set) var appIsActive = true
+    @Published private(set) var availableStorageBytes: Int64 = 0
+    @Published private(set) var totalStorageBytes: Int64 = 0
     @Published private(set) var activeSocketMatchId: String?
     @Published private(set) var lastSocketPayloadAt: Date?
     @Published private(set) var streamState: StreamConnectionState = .idle
@@ -278,12 +285,12 @@ final class LiveAppStore: ObservableObject {
         let snapshot = await snapshotTask
         let config = await configTask
 
-        if let snapshot {
-            overlaySnapshot = snapshot
-            streamingService.overlaySnapshot = snapshot
-        }
         if let config {
             overlayConfig = config
+        }
+        if let enrichedSnapshot = enrichOverlaySnapshot(snapshot, config: config, match: activeMatch) {
+            overlaySnapshot = enrichedSnapshot
+            streamingService.overlaySnapshot = enrichedSnapshot
         }
     }
 
@@ -304,6 +311,23 @@ final class LiveAppStore: ObservableObject {
     func startLive() async {
         guard let activeMatch else {
             errorMessage = "Chưa có trận để phát live."
+            return
+        }
+
+        refreshStorageMetrics()
+
+        if !cameraPermissionGranted || !microphonePermissionGranted {
+            errorMessage = "Thiếu quyền camera hoặc micro để bắt đầu phiên."
+            return
+        }
+
+        if liveMode.includesLivestream, !networkConnected {
+            errorMessage = "Thiết bị đang offline nên chưa thể tạo livestream."
+            return
+        }
+
+        if liveMode.includesRecording, recordingStorageHardBlock {
+            errorMessage = "Bộ nhớ còn trống quá thấp cho recording ở quality hiện tại."
             return
         }
 
@@ -529,6 +553,80 @@ final class LiveAppStore: ObservableObject {
         liveStartedAt != nil || matchesLiveSessionState || streamingService.isRecordingLocally || isWaitingForActivation
     }
 
+    var pendingNextMatchId: String? {
+        queuedCourtMatchId?.trimmedNilIfBlank
+    }
+
+    var currentCourtIdentifier: String? {
+        currentCourtId?.trimmedNilIfBlank
+    }
+
+    var cameraPermissionGranted: Bool {
+        LiveStreamingService.cameraPermissionGranted
+    }
+
+    var microphonePermissionGranted: Bool {
+        LiveStreamingService.microphonePermissionGranted
+    }
+
+    var previewReady: Bool {
+        streamingService.isPreviewReady
+    }
+
+    var socketPayloadAgeSeconds: Int? {
+        guard let lastSocketPayloadAt else { return nil }
+        return max(0, Int(Date().timeIntervalSince(lastSocketPayloadAt)))
+    }
+
+    var socketPayloadStale: Bool {
+        guard socketConnected else { return false }
+        guard let socketPayloadAgeSeconds else { return false }
+        return socketPayloadAgeSeconds >= 20
+    }
+
+    var previewLeaseRemainingSeconds: Int? {
+        guard let raw = courtPresence?.previewReleaseAt?.trimmedNilIfBlank else { return nil }
+        guard let date = ISO8601DateFormatter.liveApp.date(from: raw) else { return nil }
+        return max(0, Int(date.timeIntervalSinceNow.rounded(.down)))
+    }
+
+    var previewLeaseWarning: Bool {
+        guard let remaining = previewLeaseRemainingSeconds else { return false }
+        let warningThresholdMs = max(courtPresence?.previewWarningMs ?? 300_000, 60_000)
+        return remaining > 0 && remaining * 1_000 <= warningThresholdMs
+    }
+
+    var overlayDataReady: Bool {
+        overlaySnapshot != nil
+    }
+
+    var minimumRecordingStorageBytes: Int64 {
+        guard liveMode.includesRecording else { return 0 }
+        let bitrateFloor = Int64(selectedQuality.videoBitrate + 128_000) / 8
+        return max(bitrateFloor * 120, 900_000_000)
+    }
+
+    var recommendedRecordingStorageBytes: Int64 {
+        guard liveMode.includesRecording else { return 0 }
+        let bitrateFloor = Int64(selectedQuality.videoBitrate + 128_000) / 8
+        return max(bitrateFloor * 600, 2_500_000_000)
+    }
+
+    var recordingStorageHardBlock: Bool {
+        liveMode.includesRecording && availableStorageBytes > 0 && availableStorageBytes < minimumRecordingStorageBytes
+    }
+
+    var recordingStorageWarning: Bool {
+        liveMode.includesRecording && availableStorageBytes > 0 && availableStorageBytes < recommendedRecordingStorageBytes
+    }
+
+    var brandingReady: Bool {
+        let hasTournamentLogo = overlaySnapshot?.tournamentLogoURL?.trimmedNilIfBlank != nil
+        let hasWebLogo = overlayConfig?.webLogoURL?.trimmedNilIfBlank != nil
+        let hasSponsor = overlayConfig?.sponsors.isEmpty == false
+        return hasTournamentLogo || hasWebLogo || hasSponsor
+    }
+
     var isWaitingForActivation: Bool {
         waitingForCourt || waitingForMatchLive || waitingForNextMatch
     }
@@ -555,6 +653,7 @@ final class LiveAppStore: ObservableObject {
     }
 
     func handlePrimaryAction() {
+        refreshStorageMetrics()
         let issues = computePreflightIssues()
         let hasBlocker = issues.contains { $0.severity == .blocker }
         let hasWarning = issues.contains { $0.severity == .warning }
@@ -632,6 +731,49 @@ final class LiveAppStore: ObservableObject {
         Task {
             await retryPrimarySession()
         }
+    }
+
+    func refreshCurrentContext() async {
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        if let courtId = currentCourtId?.trimmedNilIfBlank {
+            await refreshCourtRuntime(courtId: courtId)
+        }
+
+        if let activeMatchId = activeMatch?.id.trimmedNilIfBlank {
+            do {
+                let refreshedMatch = try await environment.apiClient.getMatchRuntime(matchId: activeMatchId)
+                activeMatch = refreshedMatch
+                overlaySnapshot = enrichOverlaySnapshot(overlaySnapshot, match: refreshedMatch)
+                streamingService.overlaySnapshot = overlaySnapshot
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            await refreshOverlay()
+        } else if route == .courtSetup {
+            let setupMatchId =
+                launchTarget.matchId?.trimmedNilIfBlank
+                ?? courtRuntime?.currentMatchId?.trimmedNilIfBlank
+                ?? courtRuntime?.nextMatchId?.trimmedNilIfBlank
+            if let setupMatchId {
+                do {
+                    activeMatch = try await environment.apiClient.getMatchRuntime(matchId: setupMatchId)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+
+        if errorMessage == nil {
+            bannerMessage = "Đã làm mới court runtime và match context."
+        }
+    }
+
+    func clearDiagnostics() {
+        streamingService.clearDiagnostics()
+        bannerMessage = "Đã xoá diagnostics nội bộ."
     }
 
     func handleIncomingURL(_ url: URL) {
@@ -715,6 +857,50 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        if !cameraPermissionGranted || !microphonePermissionGranted {
+            issues.append(
+                LivePreflightIssue(
+                    id: "capture_permissions",
+                    severity: .blocker,
+                    title: "Thiếu quyền camera hoặc micro",
+                    detail: "Cần cấp đủ quyền camera và micro cho PickleTour Live trước khi preview hoặc vào phiên."
+                )
+            )
+        }
+
+        if !networkConnected {
+            issues.append(
+                LivePreflightIssue(
+                    id: "network_offline",
+                    severity: liveMode.includesLivestream ? .blocker : .warning,
+                    title: "Thiết bị đang offline",
+                    detail: liveMode.includesLivestream
+                        ? "Livestream cần mạng để xin RTMP session, heartbeat và đồng bộ overlay."
+                        : "Record only vẫn có thể ghi cục bộ, nhưng upload recording và heartbeat presence sẽ bị chậm."
+                )
+            )
+        }
+
+        if recordingStorageHardBlock {
+            issues.append(
+                LivePreflightIssue(
+                    id: "storage_hard_block",
+                    severity: .blocker,
+                    title: "Bộ nhớ quá thấp để ghi hình",
+                    detail: "Dung lượng còn trống thấp hơn ngưỡng tối thiểu cho recording ở quality hiện tại."
+                )
+            )
+        } else if recordingStorageWarning {
+            issues.append(
+                LivePreflightIssue(
+                    id: "storage_warning",
+                    severity: .warning,
+                    title: "Bộ nhớ còn thấp cho recording",
+                    detail: "Vẫn có thể ghi hình, nhưng nên giải phóng thêm dung lượng để tránh hỏng phiên dài."
+                )
+            )
+        }
+
         if activeMatch == nil, currentCourtId?.trimmedNilIfBlank != nil {
             issues.append(
                 LivePreflightIssue(
@@ -737,6 +923,17 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        if socketPayloadStale {
+            issues.append(
+                LivePreflightIssue(
+                    id: "socket_stale",
+                    severity: .warning,
+                    title: "Payload overlay đang stale",
+                    detail: "Socket đã nối nhưng chưa nhận payload mới trong \(socketPayloadAgeSeconds ?? 0) giây."
+                )
+            )
+        }
+
         if currentCourtId?.trimmedNilIfBlank != nil, !presenceSocketConnected {
             issues.append(
                 LivePreflightIssue(
@@ -748,6 +945,17 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        if previewLeaseWarning {
+            issues.append(
+                LivePreflightIssue(
+                    id: "preview_lease_warning",
+                    severity: .warning,
+                    title: "Preview lease sắp hết",
+                    detail: "Lease preview còn khoảng \(previewLeaseRemainingSeconds ?? 0) giây. Nên gia hạn trước khi vào phiên."
+                )
+            )
+        }
+
         if activeMatch != nil, overlaySnapshot == nil {
             issues.append(
                 LivePreflightIssue(
@@ -755,6 +963,17 @@ final class LiveAppStore: ObservableObject {
                     severity: .warning,
                     title: "Overlay chưa sẵn sàng",
                     detail: "Có thể vào phiên ngay, nhưng bảng điểm burn-in chưa có dữ liệu mới nhất."
+                )
+            )
+        }
+
+        if activeMatch != nil, !brandingReady {
+            issues.append(
+                LivePreflightIssue(
+                    id: "branding_missing",
+                    severity: .info,
+                    title: "Branding chưa đầy đủ",
+                    detail: "Overlay config chưa có đủ logo giải, web logo hoặc sponsor để burn-in trông giống bản Android."
                 )
             )
         }
@@ -937,6 +1156,69 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    private func enrichOverlaySnapshot(
+        _ snapshot: LiveOverlaySnapshot?,
+        config: OverlayConfig? = nil,
+        match: MatchData? = nil
+    ) -> LiveOverlaySnapshot? {
+        var next = snapshot ?? match.map(LiveOverlaySnapshot.init)
+        guard next != nil else { return nil }
+
+        let resolvedConfig = config ?? overlayConfig
+        let resolvedMatch = match ?? activeMatch
+
+        if next?.tournamentName?.trimmedNilIfBlank == nil {
+            next?.tournamentName = resolvedMatch?.tournamentDisplayName
+        }
+        if next?.courtName?.trimmedNilIfBlank == nil {
+            next?.courtName = resolvedMatch?.courtDisplayName
+        }
+        if next?.teamAName?.trimmedNilIfBlank == nil {
+            next?.teamAName = resolvedMatch?.teamADisplayName
+        }
+        if next?.teamBName?.trimmedNilIfBlank == nil {
+            next?.teamBName = resolvedMatch?.teamBDisplayName
+        }
+        if next?.tournamentLogoURL?.trimmedNilIfBlank == nil {
+            next?.tournamentLogoURL = resolvedMatch?.tournament?.logoURL?.trimmedNilIfBlank
+                ?? resolvedMatch?.tournamentLogoURL?.trimmedNilIfBlank
+                ?? resolvedConfig?.tournamentImageURL?.trimmedNilIfBlank
+        }
+        if next?.webLogoURL?.trimmedNilIfBlank == nil {
+            next?.webLogoURL = resolvedConfig?.webLogoURL?.trimmedNilIfBlank
+        }
+        if next?.sponsorLogoURLs?.isEmpty != false {
+            next?.sponsorLogoURLs = resolvedConfig?.sponsors.compactMap { $0.logoURL?.trimmedNilIfBlank }
+        }
+        if next?.phaseText?.trimmedNilIfBlank == nil {
+            next?.phaseText = resolvedMatch?.phaseText?.trimmedNilIfBlank
+        }
+        if next?.roundLabel?.trimmedNilIfBlank == nil {
+            next?.roundLabel = resolvedMatch?.roundLabel?.trimmedNilIfBlank
+        }
+        if next?.stageName?.trimmedNilIfBlank == nil {
+            next?.stageName = resolvedMatch?.stageName?.trimmedNilIfBlank
+        }
+        if next?.serveSide?.trimmedNilIfBlank == nil {
+            next?.serveSide = resolvedMatch?.serveSide?.trimmedNilIfBlank
+        }
+        if next?.serveCount == nil {
+            next?.serveCount = resolvedMatch?.serveCount
+        }
+        if next?.sets?.isEmpty != false {
+            next?.sets = resolvedMatch?.gameScores
+        }
+
+        return next
+    }
+
+    private func refreshStorageMetrics() {
+        let homePath = NSHomeDirectory()
+        guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: homePath) else { return }
+        totalStorageBytes = (attributes[.systemSize] as? NSNumber)?.int64Value ?? totalStorageBytes
+        availableStorageBytes = (attributes[.systemFreeSize] as? NSNumber)?.int64Value ?? availableStorageBytes
+    }
+
     private func rebuildPreviewPipeline() async {
         do {
             streamingService.stopPublishing()
@@ -958,7 +1240,7 @@ final class LiveAppStore: ObservableObject {
             await streamingService.stopRecording()
         }
         await rebuildPreviewPipeline()
-        if activeMatch != nil {
+        if activeMatch != nil || currentCourtId?.trimmedNilIfBlank != nil {
             goLiveArmed = liveMode.includesLivestream
             recordOnlyArmed = liveMode == .recordOnly
             maybeAutoStartArmedSession()
@@ -970,6 +1252,51 @@ final class LiveAppStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] session in
                 self?.session = session
+            }
+            .store(in: &cancellables)
+
+        environment.networkMonitor.$isConnected
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] connected in
+                self?.networkConnected = connected
+            }
+            .store(in: &cancellables)
+
+        environment.networkMonitor.$isWiFi
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isWiFi in
+                self?.networkIsWiFi = isWiFi
+            }
+            .store(in: &cancellables)
+
+        refreshStorageMetrics()
+
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.appIsActive = true
+                self.refreshStorageMetrics()
+                Task { @MainActor in
+                    if let courtId = self.currentCourtId?.trimmedNilIfBlank {
+                        await self.refreshCourtRuntime(courtId: courtId)
+                    }
+                    if self.activeMatch != nil {
+                        await self.refreshOverlay()
+                    }
+                    self.environment.courtRuntimeSocket.connectIfNeeded()
+                    self.environment.courtPresenceSocket.connectIfNeeded()
+                    if let matchId = self.activeMatch?.id.trimmedNilIfBlank {
+                        self.environment.matchSocket.watch(matchId: matchId)
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.appIsActive = false
             }
             .store(in: &cancellables)
 
@@ -991,6 +1318,22 @@ final class LiveAppStore: ObservableObject {
             .sink { [weak self] snapshot in
                 guard let snapshot else { return }
                 self?.overlaySnapshot = snapshot
+            }
+            .store(in: &cancellables)
+
+        Publishers.CombineLatest4($route, $activeMatch, $overlaySnapshot, $streamState)
+            .receive(on: DispatchQueue.main)
+            .sink { route, activeMatch, overlaySnapshot, streamState in
+                if #available(iOS 16.1, *) {
+                    Task {
+                        await LiveMatchActivityCoordinator.shared.sync(
+                            route: route,
+                            match: activeMatch,
+                            snapshot: overlaySnapshot,
+                            streamState: streamState
+                        )
+                    }
+                }
             }
             .store(in: &cancellables)
 
@@ -1018,14 +1361,27 @@ final class LiveAppStore: ObservableObject {
     private func configureSockets() {
         environment.matchSocket.onOverlaySnapshot = { [weak self] snapshot in
             Task { @MainActor in
-                self?.overlaySnapshot = snapshot
-                self?.streamingService.overlaySnapshot = snapshot
+                guard let self else { return }
+                let enrichedSnapshot = self.enrichOverlaySnapshot(snapshot, match: self.activeMatch) ?? snapshot
+                self.overlaySnapshot = enrichedSnapshot
+                self.streamingService.overlaySnapshot = enrichedSnapshot
             }
         }
 
         environment.matchSocket.onConnectionChange = { [weak self] connected in
             Task { @MainActor in
                 self?.socketConnected = connected
+            }
+        }
+
+        environment.matchSocket.onStatusChange = { [weak self] status in
+            Task { @MainActor in
+                guard let self else { return }
+                guard let normalizedStatus = status?.trimmedNilIfBlank else { return }
+                guard var activeMatch = self.activeMatch else { return }
+                activeMatch.status = normalizedStatus
+                self.activeMatch = activeMatch
+                self.maybeAutoStartArmedSession()
             }
         }
 
@@ -1238,12 +1594,14 @@ final class LiveAppStore: ObservableObject {
         if let matchId {
             let match = try await environment.apiClient.getMatchRuntime(matchId: matchId)
             activeMatch = match
-            overlaySnapshot = LiveOverlaySnapshot(match: match)
+            overlaySnapshot = enrichOverlaySnapshot(LiveOverlaySnapshot(match: match), match: match)
             streamingService.overlaySnapshot = overlaySnapshot
 
             if let tournamentId = match.tournament?.id.trimmedNilIfBlank {
                 overlayConfig = try? await environment.apiClient.getOverlayConfig(tournamentId: tournamentId)
                 watchTournament(tournamentId)
+                overlaySnapshot = enrichOverlaySnapshot(overlaySnapshot, match: match)
+                streamingService.overlaySnapshot = overlaySnapshot
             }
         } else {
             activeMatch = nil
@@ -1274,12 +1632,13 @@ final class LiveAppStore: ObservableObject {
             let runtime = try await environment.apiClient.getCourtRuntime(courtId: courtId)
             courtRuntime = runtime
             courtPresence = runtime.presence
-            _ = try? await environment.apiClient.startCourtPresence(
+            let response = try? await environment.apiClient.startCourtPresence(
                 courtId: courtId,
                 clientSessionId: streamingService.clientSessionId,
                 screenState: currentPresenceScreenState(),
                 matchId: matchId
             )
+            applyPresenceResponse(response, matchId: matchId)
             watchCourt(courtId)
             await startRuntimePolling(for: courtId)
         }
@@ -1384,13 +1743,15 @@ final class LiveAppStore: ObservableObject {
             waitingForCourt = false
             waitingForMatchLive = false
             waitingForNextMatch = false
-            overlaySnapshot = LiveOverlaySnapshot(match: match)
+            overlaySnapshot = enrichOverlaySnapshot(LiveOverlaySnapshot(match: match), match: match)
             streamingService.overlaySnapshot = overlaySnapshot
             environment.matchSocket.watch(matchId: match.id)
 
             if let tournamentId = match.tournament?.id.trimmedNilIfBlank {
                 watchTournament(tournamentId)
                 overlayConfig = try? await environment.apiClient.getOverlayConfig(tournamentId: tournamentId)
+                overlaySnapshot = enrichOverlaySnapshot(overlaySnapshot, match: match)
+                streamingService.overlaySnapshot = overlaySnapshot
             }
 
             if let courtId = currentCourtId {
@@ -1622,5 +1983,173 @@ final class LiveAppStore: ObservableObject {
     private func cancelRecordingUploads() {
         recordingUploadTasks.values.forEach { $0.cancel() }
         recordingUploadTasks.removeAll()
+    }
+}
+
+@available(iOS 16.1, *)
+actor LiveMatchActivityCoordinator {
+    static let shared = LiveMatchActivityCoordinator()
+
+    private var currentActivity: Activity<PickleTourMatchActivityAttributes>?
+    private var lastState: PickleTourMatchActivityAttributes.ContentState?
+
+    func sync(
+        route: AppRoute,
+        match: MatchData?,
+        snapshot: LiveOverlaySnapshot?,
+        streamState: StreamConnectionState
+    ) async {
+        guard route == .liveStream, let match else {
+            await endCurrent()
+            return
+        }
+
+        let matchId = match.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !matchId.isEmpty else {
+            await endCurrent()
+            return
+        }
+
+        let nextState = makeState(match: match, snapshot: snapshot, streamState: streamState)
+
+        if let currentActivity, currentActivity.attributes.matchId == matchId {
+            guard nextState != lastState else { return }
+            await currentActivity.update(using: nextState)
+            lastState = nextState
+            return
+        }
+
+        await endCurrent()
+
+        let attributes = PickleTourMatchActivityAttributes(matchId: matchId)
+        do {
+            let activity = try Activity.request(
+                attributes: attributes,
+                contentState: nextState,
+                pushType: nil
+            )
+            currentActivity = activity
+            lastState = nextState
+        } catch {
+            currentActivity = nil
+            lastState = nil
+        }
+    }
+
+    private func endCurrent() async {
+        if let currentActivity {
+            await currentActivity.end(
+                using: lastState ?? fallbackState(),
+                dismissalPolicy: .immediate
+            )
+        }
+        currentActivity = nil
+        lastState = nil
+    }
+
+    private func makeState(
+        match: MatchData,
+        snapshot: LiveOverlaySnapshot?,
+        streamState: StreamConnectionState
+    ) -> PickleTourMatchActivityAttributes.ContentState {
+        let tournamentName =
+            snapshot?.tournamentName?.trimmedNilIfBlank ??
+            match.tournamentDisplayName
+        let courtName =
+            snapshot?.courtName?.trimmedNilIfBlank ??
+            match.courtDisplayName
+        let matchCode =
+            match.displayCode?.trimmedNilIfBlank ??
+            match.code?.trimmedNilIfBlank ??
+            match.id
+        let teamAName =
+            snapshot?.teamAName?.trimmedNilIfBlank ??
+            match.teamADisplayName
+        let teamBName =
+            snapshot?.teamBName?.trimmedNilIfBlank ??
+            match.teamBDisplayName
+        let scoreA = snapshot?.scoreA ?? match.scoreA ?? 0
+        let scoreB = snapshot?.scoreB ?? match.scoreB ?? 0
+
+        let roundBits = [
+            snapshot?.stageName?.trimmedNilIfBlank,
+            snapshot?.roundLabel?.trimmedNilIfBlank,
+            snapshot?.phaseText?.trimmedNilIfBlank
+        ].compactMap { $0 }
+        let serveText: String? = {
+            guard let serveSide = snapshot?.serveSide?.trimmedNilIfBlank else {
+                return nil
+            }
+            let serveCount = snapshot?.serveCount ?? match.serveCount ?? 1
+            return "Giao \(serveSide) · \(serveCount)"
+        }()
+        let detailText = [roundBits.joined(separator: " · ").trimmedNilIfBlank, serveText]
+            .compactMap { $0 }
+            .joined(separator: " • ")
+
+        return PickleTourMatchActivityAttributes.ContentState(
+            tournamentName: tournamentName,
+            courtName: courtName,
+            matchCode: matchCode,
+            teamAName: teamAName,
+            teamBName: teamBName,
+            scoreA: scoreA,
+            scoreB: scoreB,
+            statusText: statusText(streamState: streamState, matchStatus: match.status),
+            detailText: detailText.trimmedNilIfBlank ?? "Đang cập nhật tỉ số",
+            updatedAt: Date()
+        )
+    }
+
+    private func statusText(
+        streamState: StreamConnectionState,
+        matchStatus: String?
+    ) -> String {
+        switch streamState {
+        case .live:
+            return "Đang live"
+        case .connecting:
+            return "Đang kết nối"
+        case .preparingPreview:
+            return "Đang chuẩn bị"
+        case .previewReady:
+            return "Preview sẵn sàng"
+        case let .reconnecting(reason):
+            return reason.trimmedNilIfBlank ?? "Đang nối lại"
+        case let .failed(message):
+            return message.trimmedNilIfBlank ?? "Live lỗi"
+        case .stopped:
+            return "Đã dừng"
+        case .idle:
+            break
+        }
+
+        switch matchStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "live":
+            return "Trận đang diễn ra"
+        case "finished":
+            return "Trận đã kết thúc"
+        case "assigned":
+            return "Đã gán sân"
+        case "scheduled":
+            return "Chờ bắt đầu"
+        default:
+            return "Đang theo dõi"
+        }
+    }
+
+    private func fallbackState() -> PickleTourMatchActivityAttributes.ContentState {
+        PickleTourMatchActivityAttributes.ContentState(
+            tournamentName: "PickleTour",
+            courtName: "Court",
+            matchCode: "—",
+            teamAName: "Đội A",
+            teamBName: "Đội B",
+            scoreA: 0,
+            scoreB: 0,
+            statusText: "Đã dừng",
+            detailText: "Phiên live đã kết thúc",
+            updatedAt: Date()
+        )
     }
 }

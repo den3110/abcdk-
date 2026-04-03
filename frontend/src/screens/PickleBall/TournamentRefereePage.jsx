@@ -49,6 +49,20 @@ const TAB_STATION_PREFIX = "__station__:";
 const textOf = (value) => (value && String(value).trim()) || "";
 const normalizeId = (value) => textOf(value?._id || value?.id || value);
 
+const hasPlayerIdentity = (player) =>
+  Boolean(
+    normalizeId(player?._id || player?.id || player?.uid || player?.user?._id || player?.user) ||
+      textOf(
+        player?.displayName ||
+          player?.nickname ||
+          player?.nickName ||
+          player?.nick ||
+          player?.fullName ||
+          player?.name ||
+          player?.shortName,
+      ),
+  );
+
 const playerName = (player, source) => getPlayerDisplayName(player, source) || "";
 const pairLabel = (pair, source) => getPairDisplayName(pair, source) || "TBD";
 
@@ -73,6 +87,32 @@ const sidePairOf = (match, side) => {
     return match?.pairA || match?.teams?.A || match?.teamA || match?.sideA || null;
   }
   return match?.pairB || match?.teams?.B || match?.teamB || match?.sideB || null;
+};
+
+const pairHasCompetitor = (pair) => {
+  if (!pair || typeof pair !== "object") return false;
+
+  const players = [
+    pair?.player1,
+    pair?.player2,
+    ...(Array.isArray(pair?.players) ? pair.players : []),
+  ].filter(Boolean);
+
+  if (players.some(hasPlayerIdentity)) return true;
+
+  return Boolean(
+    normalizeId(pair?._id || pair?.id) ||
+      textOf(pair?.displayName || pair?.teamName || pair?.name || pair?.label || pair?.title),
+  );
+};
+
+const isRenderableRefereeMatch = (match) => {
+  const matchId = normalizeId(match?._id || match?.matchId);
+  if (!matchId) return false;
+
+  const sideA = sidePairOf(match, "A");
+  const sideB = sidePairOf(match, "B");
+  return pairHasCompetitor(sideA) || pairHasCompetitor(sideB);
 };
 
 const getStatusMeta = (status) => {
@@ -226,9 +266,9 @@ export default function TournamentRefereePage() {
   );
 
   const allMatches = useMemo(() => {
-    const items = (Array.isArray(matchesResp?.items) ? matchesResp.items : []).map(
-      (match) => normalizeMatchDisplay(match, tournament || match),
-    );
+    const items = (Array.isArray(matchesResp?.items) ? matchesResp.items : [])
+      .map((match) => normalizeMatchDisplay(match, tournament || match))
+      .filter(isRenderableRefereeMatch);
     if (isAdmin) return items;
     return items.filter((match) => isUserRefereeOfMatch(match, userInfo));
   }, [isAdmin, matchesResp?.items, tournament, userInfo]);
@@ -708,7 +748,7 @@ export default function TournamentRefereePage() {
       </Container>
 
       <RefereeScoreDialog
-        open={Boolean(selectedMatchId)}
+        open={Boolean(selectedMatchId && selectedMatch)}
         matchId={selectedMatchId}
         initialMatch={selectedMatch}
         onClose={closeMatch}
