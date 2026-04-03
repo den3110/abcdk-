@@ -1589,14 +1589,42 @@ export async function listRefereeTournaments(req, res, next) {
 
     // Nếu model của bạn dùng 'referees: [ObjectId]' hoặc 'referee: ObjectId'
     // thì query theo cả hai trường với $or cho an toàn:
+    const refereeStations = await CourtStation.find({
+      defaultReferees: userId,
+      $or: [
+        { currentMatch: { $type: "objectId" } },
+        { "assignmentQueue.items.0": { $exists: true } },
+      ],
+    })
+      .select("_id currentMatch assignmentQueue")
+      .lean();
+
+    const candidateStationMatchObjectIds = Array.from(
+      new Set(
+        refereeStations.flatMap((station) =>
+          [
+            normalizeIdString(station?.currentMatch),
+            ...(Array.isArray(station?.assignmentQueue?.items)
+              ? station.assignmentQueue.items.map((item) =>
+                  normalizeIdString(item?.matchId)
+                )
+              : []),
+          ].filter((id) => Types.ObjectId.isValid(id))
+        )
+      )
+    ).map((id) => new Types.ObjectId(id));
+
+    const refereeMatchOrClauses = [{ referees: userId }, { referee: userId }];
+    if (candidateStationMatchObjectIds.length) {
+      refereeMatchOrClauses.push({
+        _id: { $in: candidateStationMatchObjectIds },
+      });
+    }
+
     const agg = await Match.aggregate([
       {
         $match: {
-          $or: [
-            { referees: userId },
-            { referee: userId },
-            { courtStationReferees: userId },
-          ],
+          $or: refereeMatchOrClauses,
         },
       },
       {
@@ -1774,7 +1802,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const refereeMatchOrClauses = [
       { referee: userId },
       { referees: userId },
-      { courtStationReferees: userId },
     ];
     if (validStationMatchObjectIds.length) {
       refereeMatchOrClauses.push({ _id: { $in: validStationMatchObjectIds } });

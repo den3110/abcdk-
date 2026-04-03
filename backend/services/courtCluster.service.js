@@ -2309,6 +2309,9 @@ export async function updateCourtStationAssignmentConfig(
     }
   );
 
+  for (const removedMatchId of removedMatchIds) {
+    await clearMatchStationFields(removedMatchId, station._id);
+  }
   await syncStationRefereesForMatches(removedMatchIds, []);
   await syncStationRefereesForMatches(nextAssignedMatchIds, nextDefaultRefs);
 
