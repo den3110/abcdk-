@@ -1,0 +1,49 @@
+name: ios-live-beta
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "native-live-app-ios/**"
+      - ".github/workflows/ios-live-beta.yml"
+
+jobs:
+  beta:
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+        working-directory: native-live-app-ios
+
+    env:
+      IOS_LIVE_APP_IDENTIFIER: com.pkt.pickletour.live
+      IOS_LIVE_APPLE_ID: ${{ secrets.IOS_LIVE_APPLE_ID }}
+      IOS_LIVE_ITC_TEAM_ID: ${{ secrets.IOS_LIVE_ITC_TEAM_ID }}
+      IOS_LIVE_DEVELOPER_TEAM: ${{ secrets.IOS_LIVE_DEVELOPER_TEAM }}
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+      MATCH_PASSWORD: ${{ secrets.IOS_LIVE_MATCH_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: false
+
+      - name: Install Bundler
+        run: gem install bundler
+
+      - name: Install Fastlane and CocoaPods
+        run: gem install fastlane cocoapods
+
+      - name: Install Pods
+        run: pod install
+
+      - name: Build and upload beta
+        run: fastlane ios beta

@@ -29,7 +29,6 @@ uploads
 node_modules
 micro-services/downloader-video/downloads/*
 native-live-app
-native-live-app-ios
 backend-go/.env
 backend-go/bin/
 backend-go/tmp/

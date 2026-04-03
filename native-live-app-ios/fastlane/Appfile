@@ -1,0 +1,4 @@
+app_identifier(ENV.fetch("IOS_LIVE_APP_IDENTIFIER", "com.pkt.pickletour.live"))
+apple_id(ENV["IOS_LIVE_APPLE_ID"])
+itc_team_id(ENV["IOS_LIVE_ITC_TEAM_ID"])
+team_id(ENV["IOS_LIVE_DEVELOPER_TEAM"])

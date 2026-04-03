@@ -7,6 +7,9 @@ import {
   captureApiException,
   captureBusinessMessage,
 } from "../utils/sentry";
+import { getDeviceIdentity } from "../utils/deviceIdentity";
+
+export const BASE_URL = import.meta.env.VITE_API_URL;
 
 const generateRequestId = () => {
   try {
@@ -24,7 +27,7 @@ const generateRequestId = () => {
 };
 
 const rawBaseQuery = fetchBaseQuery({
-  baseUrl: import.meta.env.VITE_API_URL,
+  baseUrl: BASE_URL,
   credentials: "include",
   prepareHeaders: (headers, { getState }) => {
     try {
@@ -60,6 +63,19 @@ const rawBaseQuery = fetchBaseQuery({
 
     try {
       const state = getState();
+      const token = state?.auth?.userInfo?.token;
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+
+      const { deviceId, deviceName } = getDeviceIdentity();
+      if (deviceId) {
+        headers.set("X-Device-Id", deviceId);
+      }
+      if (deviceName) {
+        headers.set("X-Device-Name", deviceName);
+      }
+
       const botCtx = state.botContext;
 
       if (botCtx?.matchId) {
@@ -323,6 +339,7 @@ export const apiSlice = createApi({
     "CourtClusterRuntime",
     "TournamentManagers",
     "Tournaments",
+    "REFEREE_MATCHES",
   ],
   endpoints: () => ({}),
 });

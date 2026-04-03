@@ -460,6 +460,25 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       keepUnusedDataFor: 30,
       providesTags: (r, e, { tid }) => [{ type: "TournamentMatches", id: tid }],
     }),
+    listRefereeMatchesByTournament: builder.query({
+      query: ({ tid, ...params }) => {
+        const qs = new URLSearchParams(params).toString();
+        return {
+          url: `/api/referee/tournaments/${tid}/matches${qs ? `?${qs}` : ""}`,
+          method: "GET",
+        };
+      },
+      transformResponse: (res) => ({
+        items: Array.isArray(res?.items) ? res.items : [],
+        stationTabs: Array.isArray(res?.stationTabs) ? res.stationTabs : [],
+        total: Number(res?.total) || 0,
+        page: Number(res?.page) || 1,
+        pageSize: Number(res?.pageSize) || 0,
+        totalPages: Number(res?.totalPages) || 1,
+      }),
+      providesTags: ["REFEREE_MATCHES"],
+      keepUnusedDataFor: 10,
+    }),
     adminGetBrackets: builder.query({
       query: (tournamentId) => ({
         url: `/api/tournaments/${tournamentId}/brackets`,
@@ -582,6 +601,9 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     }),
     verifyManager: builder.query({
       query: (tid) => `/api/tournaments/${tid}/is-manager`,
+    }),
+    verifyReferee: builder.query({
+      query: (tid) => `/api/tournaments/${tid}/is-referee`,
     }),
     adminSearchReferees: builder.query({
       query: ({ tid, q = "", limit = 50 } = {}) => {
@@ -747,6 +769,7 @@ export const {
   useManagerReplaceRegPlayerMutation,
   useManagerUpdateRegPlayerAvatarMutation,
   useListPublicMatchesByTournamentQuery,
+  useListRefereeMatchesByTournamentQuery,
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,
   useAdminSetMatchLiveUrlMutation,
@@ -757,6 +780,7 @@ export const {
   useSearchRegistrationsQuery,
   useLazySearchRegistrationsQuery,
   useVerifyManagerQuery,
+  useVerifyRefereeQuery,
   useAdminSearchRefereesQuery,
   useAdminAssignMatchToCourtMutation,
   useAdminClearMatchCourtMutation,

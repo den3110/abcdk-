@@ -10,6 +10,7 @@ import React, {
   useSyncExternalStore,
   useTransition,
 } from "react";
+import { skipToken } from "@reduxjs/toolkit/query";
 import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -77,6 +78,7 @@ import {
   useAdminListMatchesByTournamentQuery,
   useAdminSetMatchLiveUrlMutation,
   useAdminBatchSetMatchLiveUrlMutation,
+  useVerifyRefereeQuery,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -1148,6 +1150,9 @@ export default function TournamentManagePage() {
     page: 1,
     pageSize: 1000,
   });
+  const { data: verifyRefereeRes } = useVerifyRefereeQuery(
+    me?._id && id ? id : skipToken,
+  );
 
   const [setLiveUrl, { isLoading: savingVideo }] =
     useAdminSetMatchLiveUrlMutation();
@@ -1168,6 +1173,7 @@ export default function TournamentManagePage() {
     return !!tour?.isManager;
   }, [tour, me]);
   const canManage = isAdmin || isManager;
+  const canReferee = !!verifyRefereeRes?.isReferee;
   const canManageManagers = useMemo(
     () =>
       isAdmin ||
@@ -2359,6 +2365,18 @@ export default function TournamentManagePage() {
             >
               {t("tournaments.manage.overview")}
             </Button>
+            {canReferee ? (
+              <Button
+                component={Link}
+                to={`/tournament/${id}/referee`}
+                variant="contained"
+                size="small"
+                color="warning"
+                startIcon={<SportsIcon />}
+              >
+                Trọng tài
+              </Button>
+            ) : null}
           </Stack>
 
           {/* Mobile actions */}
@@ -2468,6 +2486,19 @@ export default function TournamentManagePage() {
                 </MenuItem>
 
                 <Divider />
+
+                {canReferee ? (
+                  <MenuItem
+                    component={Link}
+                    to={`/tournament/${id}/referee`}
+                    onClick={closeActionMenu}
+                  >
+                    <ListItemIcon>
+                      <SportsIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText primary="Trọng tài" />
+                  </MenuItem>
+                ) : null}
 
                 <MenuItem
                   component={Link}

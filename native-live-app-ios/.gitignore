@@ -1,0 +1,7 @@
+Pods/
+build/
+*.xcworkspace
+DerivedData/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots

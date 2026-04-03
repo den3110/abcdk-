@@ -1,6 +1,8 @@
+/* eslint-disable react/prop-types */
 import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import { useSelector } from "react-redux";
 import { socket } from "../lib/socket";
+import { getDeviceIdentity } from "../utils/deviceIdentity";
 
 const SocketContext = createContext(socket);
 
@@ -38,9 +40,14 @@ export function SocketProvider({ children }) {
 
   useEffect(() => {
     try {
+      const { deviceId, deviceName } = getDeviceIdentity();
       const nextAuth = { ...(socket.auth || {}) };
       if (token) nextAuth.token = token;
       else delete nextAuth.token;
+      if (deviceId) nextAuth.deviceId = deviceId;
+      else delete nextAuth.deviceId;
+      if (deviceName) nextAuth.deviceName = deviceName;
+      else delete nextAuth.deviceName;
       socket.auth = nextAuth;
       socket.io.opts.query = {
         ...(socket.io.opts.query || {}),

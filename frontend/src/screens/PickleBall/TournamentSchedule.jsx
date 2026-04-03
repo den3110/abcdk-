@@ -34,6 +34,7 @@ import {
   useGetTournamentQuery,
   useListPublicMatchesByTournamentQuery,
   useVerifyManagerQuery,
+  useVerifyRefereeQuery,
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
@@ -934,7 +935,11 @@ export default function TournamentSchedule() {
   );
   const { id } = useParams();
   const { data: verifyRes } = useVerifyManagerQuery(id ? id : skipToken);
+  const { data: verifyRefereeRes } = useVerifyRefereeQuery(
+    userInfo?._id && id ? id : skipToken,
+  );
   const isManager = !!verifyRes?.isManager;
+  const canReferee = !!verifyRefereeRes?.isReferee;
   const canEdit = isAdmin || isManager;
   const theme = useTheme();
   // Detect mobile để render skeleton
@@ -1283,6 +1288,18 @@ export default function TournamentSchedule() {
                   size="small"
                 >
                   {t("tournaments.schedule.manageTournament")}
+                </Button>
+              )}
+              {canReferee && (
+                <Button
+                  component={RouterLink}
+                  to={`/tournament/${id}/referee`}
+                  variant="outlined"
+                  color="warning"
+                  size="small"
+                  startIcon={<SportsTennisIcon />}
+                >
+                  Trọng tài
                 </Button>
               )}
               <Button

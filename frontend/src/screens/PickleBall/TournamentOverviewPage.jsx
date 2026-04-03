@@ -2,6 +2,7 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
+import { skipToken } from "@reduxjs/toolkit/query";
 import {
   Alert,
   Box,
@@ -31,6 +32,7 @@ import {
   CheckCircle as CheckCircleIcon,
   Movie as MovieIcon,
   SportsScore as SportsScoreIcon,
+  Sports as SportsIcon,
   Schedule as ScheduleIcon,
   PlayCircle as PlayCircleIcon,
   DoneAll as DoneAllIcon,
@@ -46,6 +48,7 @@ import {
   useGetRegistrationsQuery,
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,
+  useVerifyRefereeQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
@@ -409,6 +412,8 @@ export default function TournamentOverviewPage() {
     page: 1,
     pageSize: 2000,
   });
+  const { data: refereeRes } = useVerifyRefereeQuery(me?._id ? id : skipToken);
+  const canReferee = Boolean(refereeRes?.isReferee);
 
   const loadingTour = tourLoading;
   const loadingRegs = regsLoading;
@@ -876,6 +881,19 @@ export default function TournamentOverviewPage() {
               >
                 {t("tournaments.overview.draw")}
               </Button>
+              {canReferee ? (
+                <Button
+                  component={Link}
+                  to={`/tournament/${id}/referee`}
+                  variant="contained"
+                  color="warning"
+                  disableElevation
+                  startIcon={<SportsIcon />}
+                  sx={{ flex: { xs: 1, md: "none" }, minWidth: 140 }}
+                >
+                  Trọng tài
+                </Button>
+              ) : null}
             </Stack>
           </Stack>
         </Container>

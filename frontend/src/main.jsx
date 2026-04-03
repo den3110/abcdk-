@@ -45,6 +45,7 @@ import NotFound from "./screens/NotFound.jsx";
 import TournamentSchedule from "./screens/PickleBall/TournamentSchedule.jsx";
 import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
 import TournamentOverviewPage from "./screens/PickleBall/TournamentOverviewPage.jsx";
+import TournamentRefereePage from "./screens/PickleBall/TournamentRefereePage.jsx";
 import MyTournamentsPage from "./screens/MyTournaments.jsx";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen.jsx";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen.jsx";
@@ -149,6 +150,10 @@ const router = sentryCreateBrowserRouter(
           <Route
             path="/tournament/:id/manage"
             element={<TournamentManagePage />}
+          />
+          <Route
+            path="/tournament/:id/referee"
+            element={<TournamentRefereePage />}
           />
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/levelpoint" element={<LevelPointPage />} />

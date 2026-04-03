@@ -1,0 +1,275 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		001000000000000000000001 /* PickleTourLiveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000001 /* PickleTourLiveApp.swift */; };
+		001000000000000000000002 /* LiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000002 /* LiveModels.swift */; };
+		001000000000000000000003 /* LiveAppAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000003 /* LiveAppAPI.swift */; };
+		001000000000000000000004 /* LiveSockets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000004 /* LiveSockets.swift */; };
+		001000000000000000000005 /* LiveStreamingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000005 /* LiveStreamingService.swift */; };
+		001000000000000000000006 /* LiveAppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000006 /* LiveAppStore.swift */; };
+		001000000000000000000007 /* LiveAppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000007 /* LiveAppRootView.swift */; };
+		001000000000000000000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000008 /* Assets.xcassets */; };
+		001000000000000000000009 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000B /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		002000000000000000000000 /* PickleTourLive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PickleTourLive.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		002000000000000000000001 /* PickleTourLiveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickleTourLiveApp.swift; sourceTree = "<group>"; };
+		002000000000000000000002 /* LiveModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveModels.swift; sourceTree = "<group>"; };
+		002000000000000000000003 /* LiveAppAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAppAPI.swift; sourceTree = "<group>"; };
+		002000000000000000000004 /* LiveSockets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSockets.swift; sourceTree = "<group>"; };
+		002000000000000000000005 /* LiveStreamingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStreamingService.swift; sourceTree = "<group>"; };
+		002000000000000000000006 /* LiveAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAppStore.swift; sourceTree = "<group>"; };
+		002000000000000000000007 /* LiveAppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAppRootView.swift; sourceTree = "<group>"; };
+		002000000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		002000000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		00200000000000000000000A /* PickleTourLive.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PickleTourLive.entitlements; sourceTree = "<group>"; };
+		00200000000000000000000B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		003000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		004000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				004000000000000000000002 /* PickleTourLive */,
+				004000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		004000000000000000000002 /* PickleTourLive */ = {
+			isa = PBXGroup;
+			children = (
+				002000000000000000000001 /* PickleTourLiveApp.swift */,
+				002000000000000000000002 /* LiveModels.swift */,
+				002000000000000000000003 /* LiveAppAPI.swift */,
+				002000000000000000000004 /* LiveSockets.swift */,
+				002000000000000000000005 /* LiveStreamingService.swift */,
+				002000000000000000000006 /* LiveAppStore.swift */,
+				002000000000000000000007 /* LiveAppRootView.swift */,
+				002000000000000000000008 /* Assets.xcassets */,
+				002000000000000000000009 /* Info.plist */,
+				00200000000000000000000A /* PickleTourLive.entitlements */,
+				00200000000000000000000B /* PrivacyInfo.xcprivacy */,
+			);
+			path = PickleTourLive;
+			sourceTree = "<group>";
+		};
+		004000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				002000000000000000000000 /* PickleTourLive.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		005000000000000000000001 /* PickleTourLive */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 008000000000000000000002 /* Build configuration list for PBXNativeTarget "PickleTourLive" */;
+			buildPhases = (
+				006000000000000000000001 /* Sources */,
+				003000000000000000000001 /* Frameworks */,
+				007000000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PickleTourLive;
+			productName = PickleTourLive;
+			productReference = 002000000000000000000000 /* PickleTourLive.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		009000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1500;
+				ORGANIZATIONNAME = PickleTour;
+				TargetAttributes = {
+					005000000000000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 008000000000000000000001 /* Build configuration list for PBXProject "PickleTourLive" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 004000000000000000000001;
+			productRefGroup = 004000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				005000000000000000000001 /* PickleTourLive */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		007000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				001000000000000000000008 /* Assets.xcassets in Resources */,
+				001000000000000000000009 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		006000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				001000000000000000000001 /* PickleTourLiveApp.swift in Sources */,
+				001000000000000000000002 /* LiveModels.swift in Sources */,
+				001000000000000000000003 /* LiveAppAPI.swift in Sources */,
+				001000000000000000000004 /* LiveSockets.swift in Sources */,
+				001000000000000000000005 /* LiveStreamingService.swift in Sources */,
+				001000000000000000000006 /* LiveAppStore.swift in Sources */,
+				001000000000000000000007 /* LiveAppRootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		00A000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_BITCODE = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				MARKETING_VERSION = 1.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		00A000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_BITCODE = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				MARKETING_VERSION = 1.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		00B000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_BITCODE = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PickleTourLive/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pkt.pickletour.live;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		00B000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_BITCODE = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PickleTourLive/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pkt.pickletour.live;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		008000000000000000000001 /* Build configuration list for PBXProject "PickleTourLive" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00A000000000000000000001 /* Debug */,
+				00A000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		008000000000000000000002 /* Build configuration list for PBXNativeTarget "PickleTourLive" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00B000000000000000000001 /* Debug */,
+				00B000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 009000000000000000000001 /* Project object */;
+}
