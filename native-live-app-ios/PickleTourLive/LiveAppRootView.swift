@@ -1817,6 +1817,9 @@ private struct LiveStreamScreen: View {
         if store.waitingForNextMatch {
             return ("Chờ trận tiếp", "hourglass", LivePalette.warning)
         }
+        if store.safetyDegradeActive {
+            return ("Safety mode", "exclamationmark.shield", LivePalette.warning)
+        }
         if store.waitingForCourt {
             return ("Giữ preview", "camera.viewfinder", LivePalette.warning)
         }
@@ -2068,6 +2071,7 @@ private struct LiveStreamScreen: View {
         if store.batteryLowWarning { issues += 1 }
         if store.thermalWarning { issues += 1 }
         if store.lastMemoryPressure != nil { issues += 1 }
+        if store.safetyDegradeActive { issues += 1 }
         if store.recordingStorageWarning { issues += 1 }
         return issues
     }
@@ -2087,6 +2091,9 @@ private struct LiveStreamScreen: View {
         }
         if store.batteryLowWarning {
             return "Pin thấp"
+        }
+        if store.safetyDegradeActive {
+            return "Safety mode"
         }
         if store.recordingStorageHardBlock {
             return "Thiếu bộ nhớ"
@@ -2128,7 +2135,7 @@ private struct LiveStreamScreen: View {
         if store.recordingStorageHardBlock {
             return LivePalette.danger
         }
-        if store.freshEntryRequired || !store.socketConnected || store.socketPayloadStale || store.socketRoomMismatch || !store.overlayDataReady || store.overlayHealth.lastIssue?.trimmedNilIfBlank != nil || store.thermalWarning || store.batteryLowWarning || store.recordingStorageWarning {
+        if store.freshEntryRequired || !store.socketConnected || store.socketPayloadStale || store.socketRoomMismatch || !store.overlayDataReady || store.overlayHealth.lastIssue?.trimmedNilIfBlank != nil || store.thermalWarning || store.batteryLowWarning || store.safetyDegradeActive || store.recordingStorageWarning {
             return LivePalette.warning
         }
         return LivePalette.success
@@ -2158,6 +2165,9 @@ private struct LiveStreamScreen: View {
         }
         if let storageMessage = store.recordingStorageStatusMessage, store.recordingStorageWarning {
             return storageMessage
+        }
+        if let safetyDegradeReason = store.safetyDegradeReason?.trimmedNilIfBlank {
+            return "App đang tự hạ tải để giữ phiên ổn định: \(safetyDegradeReason)."
         }
         if store.waitingForCourt {
             return "App đang giữ preview theo sân và chờ runtime đẩy match mới trước khi nạp overlay."
@@ -2220,6 +2230,9 @@ private struct LiveStreamScreen: View {
         }
         if let memoryPressure = store.latestMemoryPressureSummary {
             reasons.append(memoryPressure)
+        }
+        if let safetyDegradeReason = store.safetyDegradeReason?.trimmedNilIfBlank {
+            reasons.append("App đã tự hạ tải để giữ ổn định: \(safetyDegradeReason).")
         }
         if let storageMessage = store.recordingStorageStatusMessage {
             reasons.append(storageMessage)
