@@ -1,44 +1,27 @@
 // middleware/settings.middleware.js
-import SystemSettings from "../models/systemSettingsModel.js";
-
-const DEFAULTS = {
-  _id: "system",
-  maintenance: { enabled: false, message: "" },
-  registration: { open: true },
-  kyc: { enabled: true, autoApprove: false, faceMatchThreshold: 0.78 },
-  security: { enforce2FAForAdmins: false, sessionTTLHours: 72 },
-  uploads: { maxAvatarSizeMB: 5 },
-  notifications: { telegramEnabled: false, telegramComplaintChatId: "" },
-  liveRecording: { autoExportNoSegmentMinutes: 15 },
-};
-
-let cache = { doc: null, ts: 0 };
-const TTL_MS = 10_000; // 10s
+import {
+  DEFAULT_SYSTEM_SETTINGS,
+  getSystemSettingsRuntime,
+  invalidateSystemSettingsRuntimeCache,
+} from "../services/systemSettingsRuntime.service.js";
 
 export async function loadSettings(req, _res, next) {
   try {
-    const now = Date.now();
-    if (!cache.doc || now - cache.ts > TTL_MS) {
-      const doc = (await SystemSettings.findById("system").lean()) || DEFAULTS;
-      cache = { doc, ts: now };
-    }
-    req.settings = cache.doc || DEFAULTS;
+    req.settings = await getSystemSettingsRuntime();
     next();
   } catch (e) {
-    // fallback an toàn
-    req.settings = DEFAULTS;
+    req.settings = DEFAULT_SYSTEM_SETTINGS;
     next();
   }
 }
 
 export function invalidateSettingsCache() {
-  cache.ts = 0;
+  invalidateSystemSettingsRuntimeCache();
 }
 
 export function maintenanceGuard(req, res, next) {
   const m = req.settings?.maintenance;
   const isAdmin = !!req.user?.roles?.includes("admin");
-  // Cho phép admin và health check đi qua
   if (m?.enabled && !isAdmin && !req.path.startsWith("/api/health")) {
     return res
       .status(503)

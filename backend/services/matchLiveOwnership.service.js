@@ -146,4 +146,38 @@ export async function releaseMatchLiveOwner(matchId, deviceId = "") {
   return { ok: true, released: true, owner: current };
 }
 
+export async function clearAllMatchLiveOwners() {
+  if (!redisAvailable()) {
+    return { ok: true, count: 0, matchIds: [] };
+  }
+
+  const keys = [];
+  const matchIds = new Set();
+  let cursor = "0";
+
+  do {
+    const result = await presenceRedis.scan(String(cursor), {
+      MATCH: `${OWNER_KEY_PREFIX}*`,
+      COUNT: "200",
+    });
+
+    cursor = String(result?.cursor ?? "0");
+    for (const key of result?.keys || []) {
+      keys.push(key);
+      const matchId = String(key || "").slice(OWNER_KEY_PREFIX.length).trim();
+      if (matchId) matchIds.add(matchId);
+    }
+  } while (cursor !== "0");
+
+  for (const key of keys) {
+    await presenceRedis.del(key);
+  }
+
+  return {
+    ok: true,
+    count: keys.length,
+    matchIds: Array.from(matchIds),
+  };
+}
+
 export const MATCH_LIVE_OWNER_TTL_SECONDS = DEFAULT_TTL_SECONDS;

@@ -19,6 +19,7 @@ import {
   liveOwnerMatchesIdentity,
 } from "./matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "./matchLiveSnapshot.service.js";
+import { getRefereeMatchControlLockRuntime } from "./systemSettingsRuntime.service.js";
 
 function isFinitePos(value) {
   return Number.isFinite(value) && value > 0;
@@ -697,6 +698,15 @@ function buildRejected(events, code, message) {
   }));
 }
 
+function buildLiveSyncModePayload(lockRuntime) {
+  const featureEnabled = lockRuntime?.enabled !== false;
+  return {
+    featureEnabled,
+    mode: featureEnabled ? "offline_sync_v1" : "legacy_realtime_v1",
+    settingsUpdatedAt: lockRuntime?.updatedAt || null,
+  };
+}
+
 export async function syncMatchLiveEvents({
   matchId,
   user,
@@ -712,8 +722,13 @@ export async function syncMatchLiveEvents({
   if (!matchId) {
     throw new Error("matchId is required");
   }
+  const lockRuntime = await getRefereeMatchControlLockRuntime();
+  const modePayload = buildLiveSyncModePayload(lockRuntime);
+  const ownershipEnabled = modePayload.featureEnabled && enforceOwnership !== false;
+
   if (!deviceId) {
     return {
+      ...modePayload,
       ackedClientEventIds: [],
       rejectedEvents: buildRejected(
         normalizedEvents,
@@ -726,10 +741,10 @@ export async function syncMatchLiveEvents({
     };
   }
 
-  let owner = await getMatchLiveOwner(matchId);
+  let owner = ownershipEnabled ? await getMatchLiveOwner(matchId) : null;
   const currentUserId = user?._id || null;
   if (
-    enforceOwnership &&
+    ownershipEnabled &&
     (!owner || liveOwnerMatchesIdentity(owner, { deviceId, userId: currentUserId }))
   ) {
     const claimResult = await claimMatchLiveOwner({
@@ -747,11 +762,12 @@ export async function syncMatchLiveEvents({
   }
 
   if (
-    enforceOwnership &&
+    ownershipEnabled &&
     owner &&
     !liveOwnerMatchesIdentity(owner, { deviceId, userId: currentUserId })
   ) {
     return {
+      ...modePayload,
       ackedClientEventIds: [],
       rejectedEvents: buildRejected(
         normalizedEvents,
@@ -767,6 +783,7 @@ export async function syncMatchLiveEvents({
   const match = await Match.findById(matchId);
   if (!match) {
     return {
+      ...modePayload,
       ackedClientEventIds: [],
       rejectedEvents: buildRejected(
         normalizedEvents,
@@ -894,11 +911,12 @@ export async function syncMatchLiveEvents({
   }
 
   return {
+    ...modePayload,
     ackedClientEventIds,
     rejectedEvents,
     snapshot,
     serverVersion: toNum(snapshot?.liveVersion, toNum(match.liveVersion, 0)),
-    owner: await getMatchLiveOwner(matchId),
+    owner: ownershipEnabled ? await getMatchLiveOwner(matchId) : null,
   };
 }
 

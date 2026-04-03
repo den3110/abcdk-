@@ -100,6 +100,10 @@ const SystemSettingsSchema = new mongoose.Schema(
       },
     },
 
+    referee: {
+      matchControlLockEnabled: { type: Boolean, default: true },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },

@@ -87,6 +87,7 @@ import {
 } from "../services/matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
 import { syncMatchLiveEvents } from "../services/matchLiveSync.service.js";
+import { getRefereeMatchControlLockRuntime } from "../services/systemSettingsRuntime.service.js";
 import {
   buildDrawLiveSnapshot,
   DRAW_CONTROL_HEARTBEAT_MS,
@@ -182,6 +183,29 @@ function emitMatchOwnershipChanged(io, matchId, owner = null) {
     matchId: String(matchId),
     owner: owner ? { ...owner } : null,
   });
+}
+
+function buildLiveSyncModePayload(lockRuntime) {
+  const featureEnabled = lockRuntime?.enabled !== false;
+  return {
+    featureEnabled,
+    mode: featureEnabled ? "offline_sync_v1" : "legacy_realtime_v1",
+    settingsUpdatedAt: lockRuntime?.updatedAt || null,
+  };
+}
+
+async function loadSocketLiveSyncContext(matchId, deviceId = "", userId = null) {
+  const lockRuntime = await getRefereeMatchControlLockRuntime();
+  const snapshot = await loadMatchLiveSnapshot(matchId);
+  const owner =
+    lockRuntime.enabled !== false ? await getMatchLiveOwner(matchId) : null;
+
+  return {
+    snapshot,
+    serverVersion: Number(snapshot?.liveVersion || 0),
+    owner: normalizeLiveOwnerForClient(owner, deviceId, userId),
+    ...buildLiveSyncModePayload(lockRuntime),
+  };
 }
 
 async function emitFbPageMonitorSnapshot(io, options = {}) {
@@ -2155,24 +2179,17 @@ export function initSocket(
           return ack?.({ ok: false, message: "Forbidden" });
         }
         const device = liveDeviceContext(socket);
-        const [snapshot, owner] = await Promise.all([
-          loadMatchLiveSnapshot(matchId),
-          getMatchLiveOwner(matchId),
-        ]);
-        if (!snapshot) {
+        const context = await loadSocketLiveSyncContext(
+          matchId,
+          device.deviceId,
+          socket.user?._id || null
+        );
+        if (!context.snapshot) {
           return ack?.({ ok: false, code: "not_found", message: "Match not found" });
         }
         ack?.({
           ok: true,
-          featureEnabled: true,
-          mode: "offline_sync_v1",
-          snapshot,
-          serverVersion: Number(snapshot.liveVersion || 0),
-          owner: normalizeLiveOwnerForClient(
-            owner,
-            device.deviceId,
-            socket.user?._id || null
-          ),
+          ...context,
         });
       } catch (error) {
         console.error("[match:live:bootstrap] error:", error?.message || error);
@@ -2190,11 +2207,26 @@ export function initSocket(
           return ack?.({ ok: false, message: "Forbidden" });
         }
         const device = liveDeviceContext(socket);
+        const lockRuntime = await getRefereeMatchControlLockRuntime();
+        const modePayload = buildLiveSyncModePayload(lockRuntime);
+        if (!modePayload.featureEnabled) {
+          const context = await loadSocketLiveSyncContext(
+            matchId,
+            device.deviceId,
+            socket.user?._id || null
+          );
+          return ack?.({
+            ok: true,
+            ...context,
+            takeover: false,
+          });
+        }
         if (!matchId || !device.deviceId) {
           return ack?.({
             ok: false,
             code: "invalid_transition",
             message: "matchId and deviceId are required",
+            ...modePayload,
           });
         }
 
@@ -2205,32 +2237,26 @@ export function initSocket(
           displayName: liveSyncDisplayName(socket.user, device.deviceName),
           force: false,
         });
-        const snapshot = await loadMatchLiveSnapshot(matchId);
+        const context = await loadSocketLiveSyncContext(
+          matchId,
+          device.deviceId,
+          socket.user?._id || null
+        );
 
         if (!result.ok) {
           return ack?.({
             ok: false,
             code: "ownership_conflict",
-            owner: normalizeLiveOwnerForClient(
-              result.owner,
-              device.deviceId,
-              socket.user?._id || null
-            ),
-            snapshot,
-            serverVersion: Number(snapshot?.liveVersion || 0),
+            ...context,
+            owner: normalizeLiveOwnerForClient(result.owner, device.deviceId, socket.user?._id || null),
           });
         }
 
         emitMatchOwnershipChanged(io, matchId, result.owner);
         ack?.({
           ok: true,
-          owner: normalizeLiveOwnerForClient(
-            result.owner,
-            device.deviceId,
-            socket.user?._id || null
-          ),
-          snapshot,
-          serverVersion: Number(snapshot?.liveVersion || 0),
+          ...context,
+          owner: normalizeLiveOwnerForClient(result.owner, device.deviceId, socket.user?._id || null),
           takeover: Boolean(result.takeover),
         });
       } catch (error) {
@@ -2249,11 +2275,26 @@ export function initSocket(
           return ack?.({ ok: false, message: "Forbidden" });
         }
         const device = liveDeviceContext(socket);
+        const lockRuntime = await getRefereeMatchControlLockRuntime();
+        const modePayload = buildLiveSyncModePayload(lockRuntime);
+        if (!modePayload.featureEnabled) {
+          const context = await loadSocketLiveSyncContext(
+            matchId,
+            device.deviceId,
+            socket.user?._id || null
+          );
+          return ack?.({
+            ok: true,
+            ...context,
+            takeover: false,
+          });
+        }
         if (!matchId || !device.deviceId) {
           return ack?.({
             ok: false,
             code: "invalid_transition",
             message: "matchId and deviceId are required",
+            ...modePayload,
           });
         }
 
@@ -2264,18 +2305,17 @@ export function initSocket(
           displayName: liveSyncDisplayName(socket.user, device.deviceName),
           force: true,
         });
-        const snapshot = await loadMatchLiveSnapshot(matchId);
+        const context = await loadSocketLiveSyncContext(
+          matchId,
+          device.deviceId,
+          socket.user?._id || null
+        );
 
         emitMatchOwnershipChanged(io, matchId, result.owner);
         ack?.({
           ok: true,
-          owner: normalizeLiveOwnerForClient(
-            result.owner,
-            device.deviceId,
-            socket.user?._id || null
-          ),
-          snapshot,
-          serverVersion: Number(snapshot?.liveVersion || 0),
+          ...context,
+          owner: normalizeLiveOwnerForClient(result.owner, device.deviceId, socket.user?._id || null),
           takeover: true,
         });
       } catch (error) {
@@ -2294,22 +2334,35 @@ export function initSocket(
           return ack?.({ ok: false, message: "Forbidden" });
         }
         const device = liveDeviceContext(socket);
+        const lockRuntime = await getRefereeMatchControlLockRuntime();
+        const modePayload = buildLiveSyncModePayload(lockRuntime);
+        if (!modePayload.featureEnabled) {
+          const context = await loadSocketLiveSyncContext(
+            matchId,
+            device.deviceId,
+            socket.user?._id || null
+          );
+          return ack?.({
+            ok: true,
+            ...context,
+            released: false,
+            owner: null,
+          });
+        }
         const result = await releaseMatchLiveOwner(matchId, device.deviceId);
         if (!result.ok) {
           return ack?.({
             ok: false,
             code: "ownership_conflict",
-            owner: normalizeLiveOwnerForClient(
-              result.owner,
-              device.deviceId,
-              socket.user?._id || null
-            ),
+            ...modePayload,
+            owner: normalizeLiveOwnerForClient(result.owner, device.deviceId, socket.user?._id || null),
           });
         }
 
         emitMatchOwnershipChanged(io, matchId, null);
         ack?.({
           ok: true,
+          ...modePayload,
           released: Boolean(result.released),
           owner: null,
         });
@@ -2341,17 +2394,20 @@ export function initSocket(
             io,
           });
 
+          if (result.featureEnabled && result.owner) {
+            emitMatchOwnershipChanged(io, matchId, result.owner);
+          }
+
           ack?.({
             ok: true,
+            featureEnabled: result.featureEnabled,
+            mode: result.mode,
+            settingsUpdatedAt: result.settingsUpdatedAt || null,
             ackedClientEventIds: result.ackedClientEventIds,
             rejectedEvents: result.rejectedEvents,
             snapshot: result.snapshot,
             serverVersion: Number(result.serverVersion || 0),
-            owner: normalizeLiveOwnerForClient(
-              result.owner,
-              device.deviceId,
-              socket.user?._id || null
-            ),
+            owner: normalizeLiveOwnerForClient(result.owner, device.deviceId, socket.user?._id || null),
           });
         } catch (error) {
           console.error("[match:live:sync] error:", error?.message || error);

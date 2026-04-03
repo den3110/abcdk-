@@ -7,6 +7,7 @@ import {
 } from "../services/matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
 import { syncMatchLiveEvents } from "../services/matchLiveSync.service.js";
+import { getRefereeMatchControlLockRuntime } from "../services/systemSettingsRuntime.service.js";
 
 function pickTrim(value) {
   return (value && String(value).trim()) || "";
@@ -39,7 +40,7 @@ function ownerPayload(owner, deviceId = "", userId = null) {
   return normalizeLiveOwnerForClient(owner, deviceId, userId);
 }
 
-function emitOwnershipChanged(io, matchId, owner, deviceId = "") {
+function emitOwnershipChanged(io, matchId, owner) {
   if (!io || !matchId) return;
   io.to(`match:${String(matchId)}`).emit("match:ownership_changed", {
     matchId: String(matchId),
@@ -47,27 +48,43 @@ function emitOwnershipChanged(io, matchId, owner, deviceId = "") {
   });
 }
 
+function buildLiveSyncModePayload(lockRuntime) {
+  const featureEnabled = lockRuntime?.enabled !== false;
+  return {
+    featureEnabled,
+    mode: featureEnabled ? "offline_sync_v1" : "legacy_realtime_v1",
+    settingsUpdatedAt: lockRuntime?.updatedAt || null,
+  };
+}
+
+async function loadLiveSyncContext(matchId, deviceId = "", userId = null) {
+  const lockRuntime = await getRefereeMatchControlLockRuntime();
+  const snapshot = await loadMatchLiveSnapshot(matchId);
+  const owner =
+    lockRuntime.enabled !== false ? await getMatchLiveOwner(matchId) : null;
+
+  return {
+    snapshot,
+    serverVersion: Number(snapshot?.liveVersion || 0),
+    owner: ownerPayload(owner, deviceId, userId),
+    ...buildLiveSyncModePayload(lockRuntime),
+  };
+}
+
 export const bootstrapMatchLiveSync = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { deviceId } = getDeviceContext(req);
   const userId = req.user?._id || null;
-  const [snapshot, owner] = await Promise.all([
-    loadMatchLiveSnapshot(id),
-    getMatchLiveOwner(id),
-  ]);
+  const context = await loadLiveSyncContext(id, deviceId, userId);
 
-  if (!snapshot) {
+  if (!context.snapshot) {
     res.status(404);
     throw new Error("Match not found");
   }
 
   res.json({
     ok: true,
-    featureEnabled: true,
-    mode: "offline_sync_v1",
-    snapshot,
-    serverVersion: Number(snapshot.liveVersion || 0),
-    owner: ownerPayload(owner, deviceId, userId),
+    ...context,
   });
 });
 
@@ -76,11 +93,24 @@ export const claimMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const io = req.app?.get?.("io");
   const { deviceId, deviceName } = getDeviceContext(req);
   const userId = req.user?._id || null;
+  const lockRuntime = await getRefereeMatchControlLockRuntime();
+  const modePayload = buildLiveSyncModePayload(lockRuntime);
+
+  if (!modePayload.featureEnabled) {
+    const context = await loadLiveSyncContext(id, deviceId, userId);
+    return res.json({
+      ok: true,
+      ...context,
+      takeover: false,
+    });
+  }
+
   if (!deviceId) {
     return res.status(400).json({
       ok: false,
       code: "invalid_transition",
       message: "deviceId is required",
+      ...modePayload,
     });
   }
 
@@ -92,24 +122,22 @@ export const claimMatchLiveSyncOwner = asyncHandler(async (req, res) => {
     force: false,
   });
 
-  const snapshot = await loadMatchLiveSnapshot(id);
+  const context = await loadLiveSyncContext(id, deviceId, userId);
   if (!result.ok) {
     return res.status(409).json({
       ok: false,
       code: "ownership_conflict",
+      ...context,
       owner: ownerPayload(result.owner, deviceId, userId),
-      snapshot,
-      serverVersion: Number(snapshot?.liveVersion || 0),
     });
   }
 
-  emitOwnershipChanged(io, id, result.owner, deviceId);
+  emitOwnershipChanged(io, id, result.owner);
 
   res.json({
     ok: true,
+    ...context,
     owner: ownerPayload(result.owner, deviceId, userId),
-    snapshot,
-    serverVersion: Number(snapshot?.liveVersion || 0),
     takeover: Boolean(result.takeover),
   });
 });
@@ -119,11 +147,24 @@ export const takeoverMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const io = req.app?.get?.("io");
   const { deviceId, deviceName } = getDeviceContext(req);
   const userId = req.user?._id || null;
+  const lockRuntime = await getRefereeMatchControlLockRuntime();
+  const modePayload = buildLiveSyncModePayload(lockRuntime);
+
+  if (!modePayload.featureEnabled) {
+    const context = await loadLiveSyncContext(id, deviceId, userId);
+    return res.json({
+      ok: true,
+      ...context,
+      takeover: false,
+    });
+  }
+
   if (!deviceId) {
     return res.status(400).json({
       ok: false,
       code: "invalid_transition",
       message: "deviceId is required",
+      ...modePayload,
     });
   }
 
@@ -135,14 +176,13 @@ export const takeoverMatchLiveSyncOwner = asyncHandler(async (req, res) => {
     force: true,
   });
 
-  const snapshot = await loadMatchLiveSnapshot(id);
-  emitOwnershipChanged(io, id, result.owner, deviceId);
+  const context = await loadLiveSyncContext(id, deviceId, userId);
+  emitOwnershipChanged(io, id, result.owner);
 
   res.json({
     ok: true,
+    ...context,
     owner: ownerPayload(result.owner, deviceId, userId),
-    snapshot,
-    serverVersion: Number(snapshot?.liveVersion || 0),
     takeover: true,
   });
 });
@@ -152,20 +192,35 @@ export const releaseMatchLiveSyncOwner = asyncHandler(async (req, res) => {
   const io = req.app?.get?.("io");
   const { deviceId } = getDeviceContext(req);
   const userId = req.user?._id || null;
+  const lockRuntime = await getRefereeMatchControlLockRuntime();
+  const modePayload = buildLiveSyncModePayload(lockRuntime);
+
+  if (!modePayload.featureEnabled) {
+    const context = await loadLiveSyncContext(id, deviceId, userId);
+    return res.json({
+      ok: true,
+      ...context,
+      released: false,
+      owner: null,
+    });
+  }
+
   const result = await releaseMatchLiveOwner(id, deviceId);
 
   if (!result.ok) {
     return res.status(409).json({
       ok: false,
       code: "ownership_conflict",
+      ...modePayload,
       owner: ownerPayload(result.owner, deviceId, userId),
     });
   }
 
-  emitOwnershipChanged(io, id, null, deviceId);
+  emitOwnershipChanged(io, id, null);
 
   res.json({
     ok: true,
+    ...modePayload,
     released: Boolean(result.released),
     owner: null,
   });
@@ -187,12 +242,15 @@ export const syncMatchLiveSyncEvents = asyncHandler(async (req, res) => {
     io,
   });
 
-  if (result.owner) {
-    emitOwnershipChanged(io, id, result.owner, deviceId);
+  if (result.featureEnabled && result.owner) {
+    emitOwnershipChanged(io, id, result.owner);
   }
 
   res.json({
     ok: true,
+    featureEnabled: result.featureEnabled,
+    mode: result.mode,
+    settingsUpdatedAt: result.settingsUpdatedAt || null,
     ackedClientEventIds: result.ackedClientEventIds,
     rejectedEvents: result.rejectedEvents,
     snapshot: result.snapshot,
