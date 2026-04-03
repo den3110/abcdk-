@@ -1,3 +1,5 @@
+import { dispatchMatchLiveActivityUpdate } from "../services/liveActivityApns.service.js";
+
 const normalizeId = (value) => {
   if (value == null) return "";
   if (typeof value === "string" || typeof value === "number") {
@@ -85,6 +87,18 @@ export function emitTournamentMatchUpdate(
       "tournament:match:update",
       payload
     );
+  }
+
+  const liveActivitySource =
+    (data && typeof data === "object" ? data : null) ||
+    (source && typeof source === "object" ? source : null);
+  if (liveActivitySource) {
+    void dispatchMatchLiveActivityUpdate(liveActivitySource).catch((error) => {
+      console.error(
+        "[live-activity] emitTournamentMatchUpdate error:",
+        error?.message || error
+      );
+    });
   }
 
   return payload;

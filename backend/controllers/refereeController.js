@@ -20,6 +20,7 @@ import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 import { broadcastState } from "../services/broadcastState.js";
 import UserMatch from "../models/userMatchModel.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
+import { dispatchMatchLiveActivityUpdate } from "../services/liveActivityApns.service.js";
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
   const { pointsToWin = 11, winByTwo = true } = rules || {};
@@ -536,6 +537,12 @@ async function broadcastUserMatchScoreUpdated(io, matchId) {
   };
 
   io?.to(`match:${String(snap._id)}`)?.emit("score:updated", payload);
+  void dispatchMatchLiveActivityUpdate(payload).catch((error) => {
+    console.error(
+      "[live-activity] broadcastUserMatchScoreUpdated error:",
+      error?.message || error
+    );
+  });
   return payload;
 }
 
@@ -1255,6 +1262,12 @@ export const patchStatus = asyncHandler(async (req, res) => {
     snap.stageName = "Trận đấu PickleTour";
 
     io?.to(`match:${String(match._id)}`).emit("match:snapshot", snap);
+    void dispatchMatchLiveActivityUpdate(snap).catch((error) => {
+      console.error(
+        "[live-activity] patchStatus(userMatch) error:",
+        error?.message || error
+      );
+    });
 
     return res.json({
       message: "Status updated",
@@ -3508,6 +3521,20 @@ export const refereeSetBreak = async (req, res) => {
         return res.status(404).json({ message: "UserMatch not found" });
       }
 
+      void dispatchMatchLiveActivityUpdate({
+        ...m,
+        _id: String(m._id),
+        matchId: String(m._id),
+        type: "userMatch",
+        stageType: "userMatch",
+        stageName: "Trận đấu PickleTour",
+      }).catch((error) => {
+        console.error(
+          "[live-activity] refereeSetBreak(userMatch) error:",
+          error?.message || error
+        );
+      });
+
       return res.json({
         ok: true,
         isBreak: nextBreak,
@@ -3529,6 +3556,28 @@ export const refereeSetBreak = async (req, res) => {
 
     if (!m) {
       return res.status(404).json({ message: "Match not found" });
+    }
+
+    const liveActivitySnapshot = await loadMatchWithNickForEmit(id);
+    if (liveActivitySnapshot) {
+      const baseDto = toDTO(liveActivitySnapshot);
+      const { stageType, stageName } =
+        computeStageInfoForMatchDoc(liveActivitySnapshot);
+      const payload =
+        stageType || stageName
+          ? {
+              ...baseDto,
+              ...(stageType ? { stageType } : {}),
+              ...(stageName ? { stageName } : {}),
+            }
+          : baseDto;
+
+      void dispatchMatchLiveActivityUpdate(payload).catch((error) => {
+        console.error(
+          "[live-activity] refereeSetBreak(match) error:",
+          error?.message || error
+        );
+      });
     }
 
     return res.json({
