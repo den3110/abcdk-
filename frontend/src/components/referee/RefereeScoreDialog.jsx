@@ -193,10 +193,9 @@ const playerCurrentSlot = (player, side, base = {}, score = { a: 0, b: 0 }) => {
 
 const orderPlayersForPanel = (
   players,
-  { side, align = "left", base = {}, score = { a: 0, b: 0 } } = {},
+  { side, base = {}, score = { a: 0, b: 0 } } = {},
 ) => {
   const list = Array.isArray(players) ? [...players] : [];
-  const slotDirection = align === "right" ? -1 : 1;
   return list
     .map((player, index) => ({
       player,
@@ -206,7 +205,7 @@ const orderPlayersForPanel = (
     .sort((left, right) => {
       const leftSlot = Number.isFinite(left.slot) ? left.slot : Number.POSITIVE_INFINITY;
       const rightSlot = Number.isFinite(right.slot) ? right.slot : Number.POSITIVE_INFINITY;
-      if (leftSlot !== rightSlot) return slotDirection * (leftSlot - rightSlot);
+      if (leftSlot !== rightSlot) return leftSlot - rightSlot;
       return left.index - right.index;
     })
     .map((item) => item.player);
@@ -556,13 +555,11 @@ export default function RefereeScoreDialog({
     () => ({
       left: orderPlayersForPanel(pairPlayers[leftSide] || [], {
         side: leftSide,
-        align: "left",
         base: currentBase,
         score: currentScore,
       }),
       right: orderPlayersForPanel(pairPlayers[rightSide] || [], {
         side: rightSide,
-        align: "right",
         base: currentBase,
         score: currentScore,
       }),

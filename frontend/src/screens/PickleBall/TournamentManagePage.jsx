@@ -520,6 +520,9 @@ const scoreSummary = (m) => {
   return detail ? `${main} ${detail}` : main;
 };
 
+const extractRealtimeMatchPayload = (payload) =>
+  payload?.data ?? payload?.snapshot ?? payload?.match ?? payload ?? null;
+
 /* ========= Live store ========= */
 function createLiveStore() {
   const map = new Map();
@@ -531,7 +534,20 @@ function createLiveStore() {
     set(id, partial) {
       const key = String(id);
       const prev = map.get(key) || {};
-      const next = { ...prev, ...partial };
+      const nextVersion = Number(
+        partial?.liveVersion ??
+          partial?.version ??
+          (partial?.updatedAt ? new Date(partial.updatedAt).getTime() : 0),
+      );
+      const prevVersion = Number(
+        prev?.liveVersion ??
+          prev?.version ??
+          (prev?.updatedAt ? new Date(prev.updatedAt).getTime() : 0),
+      );
+      const next =
+        prevVersion > 0 && nextVersion > 0 && nextVersion < prevVersion
+          ? prev
+          : { ...prev, ...partial };
       map.set(key, next);
       const subs = listeners.get(key);
       if (subs) subs.forEach((fn) => fn());
@@ -614,13 +630,18 @@ function MatchCardSkeleton() {
 const pickRealtimeFields = (src = {}) => {
   const keys = [
     "status",
+    "liveVersion",
+    "version",
+    "updatedAt",
     "scoreA",
     "scoreB",
     "setsWonA",
     "setsWonB",
     "scores",
     "gameScores",
+    "currentGame",
     "sets",
+    "serve",
     "courtAssigned",
     "assignedCourt",
   ];
@@ -1872,13 +1893,13 @@ export default function TournamentManagePage() {
     (payload) => {
       if (!payload) return;
       const mid =
-        String(payload?.matchId || payload?.id || payload?._id || "") ||
+        String(payload?.matchId || payload?.id || payload?._id || payload?.data?._id || "") ||
         String(
           payload?.match?._id || payload?.match?.id || payload?.matchId || "",
         );
       if (!mid) return;
 
-      const data = payload?.snapshot || payload?.match || payload;
+      const data = extractRealtimeMatchPayload(payload);
       const partial = pickRealtimeFields(data);
       if (Object.keys(partial).length === 0) return;
 
