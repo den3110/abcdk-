@@ -605,7 +605,7 @@ export const toDTO = (matchDoc) => {
     liveVersion: m.liveVersion ?? m.version ?? 0,
     version: m.liveVersion ?? m.version ?? 0,
 
-    serve: m.serve || { side: "A", server: 2 },
+    serve: m.serve || { side: "A", server: 1, opening: true },
 
     tournament,
     bracket,
@@ -746,12 +746,13 @@ export async function toRealtimePublicMatchDTO(matchDoc) {
   );
 }
 
-// ✅ helper: đội mất bóng -> đổi lượt theo luật pickleball đơn giản
+// ✅ helper local rule: opening serve 0-0-1 chỉ có 1 lượt giao
 function onLostRallyNextServe(prev) {
-  // nếu đang server #1 thua -> chuyển #2 (cùng đội)
-  // nếu đang server #2 thua -> side-out: đổi sang đội kia, server #1
-  if (prev.server === 1) return { side: prev.side, server: 2 };
-  return { side: prev.side === "A" ? "B" : "A", server: 1 };
+  if (prev?.opening) {
+    return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
+  }
+  if (prev.server === 1) return { side: prev.side, server: 2, opening: false };
+  return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
 }
 
 async function emitMatchRealtimeUpdate(io, matchId, type, doc) {
@@ -889,7 +890,7 @@ export async function undoLast(matchId, by, io, opts = {}) {
 }
 
 // ✅ optional: set serve thủ công
-export async function setServe(matchId, side, server, serverId, by, io) {
+export async function setServe(matchId, side, server, serverId, by, io, opening = undefined) {
   // --- validate đầu vào ---
   if (!matchId) throw new Error("matchId required");
 
@@ -997,10 +998,12 @@ export async function setServe(matchId, side, server, serverId, by, io) {
   }
 
   // --- lưu serve + serverId + receiverId ---
-  const prevServe = m.serve || { side: "A", server: 2 };
+  const prevServe = m.serve || { side: "A", server: 1, opening: true };
+  const wantOpening = srvNum === 1 && Boolean(opening ?? m?.serve?.opening);
 
   m.set("serve.side", sideU, { strict: false });
   m.set("serve.server", srvNum, { strict: false });
+  m.set("serve.opening", wantOpening, { strict: false });
   if (serverUid) m.set("serve.serverId", serverUid, { strict: false });
   if (receiverUid) m.set("serve.receiverId", receiverUid, { strict: false });
 
@@ -1022,6 +1025,7 @@ export async function setServe(matchId, side, server, serverId, by, io) {
       next: {
         side: sideU,
         server: srvNum,
+        opening: wantOpening,
         serverId: serverUid || null,
         receiverId: receiverUid || null,
       },

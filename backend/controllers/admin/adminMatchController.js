@@ -59,6 +59,12 @@ const toDTO = (m) => ({
 
 const ACTIVE_COURT_MATCH_STATUSES = ["scheduled", "queued", "assigned", "live"];
 
+function buildResetOpeningServe(match) {
+  const opening =
+    String(match?.tournament?.eventType || "").toLowerCase() !== "single";
+  return { side: "A", server: 1, opening };
+}
+
 /** GET /api/admin/matches/:id */
 export const getMatchAdmin = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -282,7 +288,7 @@ export const resetMatchScores = asyncHandler(async (req, res) => {
 
   if (resetServe) {
     // về default theo schema
-    match.serve = { side: "A", server: 2 };
+    match.serve = buildResetOpeningServe(match);
   }
 
   // Nếu không còn finished, đảm bảo winner & mốc thời gian hợp lý

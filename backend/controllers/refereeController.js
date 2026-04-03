@@ -42,6 +42,20 @@ function winsCount(gameScores = [], rules) {
   return { aWins, bWins };
 }
 
+function resetOpeningServeState(matchDoc) {
+  const opening =
+    String(matchDoc?.tournament?.eventType || "").toLowerCase() !== "single";
+  matchDoc.serve = matchDoc.serve || { side: "A", server: 1, opening };
+  matchDoc.serve.side = matchDoc.serve.side || "A";
+  matchDoc.serve.server = 1;
+  matchDoc.serve.opening = opening;
+  return {
+    side: matchDoc.serve.side,
+    server: 1,
+    opening,
+  };
+}
+
 /* 
   GET /api/referee/matches/assigned-to-me
   → trả về các trận có referee == req.user._id (đã populate)
@@ -738,16 +752,14 @@ export const patchScore = asyncHandler(async (req, res) => {
               freshDoc.gameScores.push({ a: 0, b: 0 });
               freshDoc.currentGame = freshDoc.gameScores.length - 1;
 
-              // reset giao bóng đầu ván
-              freshDoc.serve = freshDoc.serve || { side: "A", server: 2 };
-              freshDoc.serve.side = freshDoc.serve.side || "A";
-              freshDoc.serve.server = 2;
+              // reset giao bóng đầu ván theo local rule 0-0-1
+              const nextServe = resetOpeningServeState(freshDoc);
 
               freshDoc.liveLog = freshDoc.liveLog || [];
               freshDoc.liveLog.push({
                 type: "serve",
                 by: req.user?._id || null,
-                payload: { side: freshDoc.serve.side, server: 2 },
+                payload: nextServe,
                 at: new Date(),
               });
 
@@ -909,15 +921,13 @@ export const patchScore = asyncHandler(async (req, res) => {
       match.gameScores.push({ a: 0, b: 0 });
       match.currentGame = match.gameScores.length - 1;
 
-      match.serve = match.serve || { side: "A", server: 2 };
-      match.serve.side = match.serve.side || "A";
-      match.serve.server = 2;
+      const nextServe = resetOpeningServeState(match);
 
       match.liveLog = match.liveLog || [];
       match.liveLog.push({
         type: "serve",
         by: req.user?._id || null,
-        payload: { side: match.serve.side, server: 2 },
+        payload: nextServe,
         at: new Date(),
       });
 
@@ -1002,16 +1012,14 @@ export const patchScore = asyncHandler(async (req, res) => {
           if (!matchDone) {
             freshDoc.gameScores.push({ a: 0, b: 0 });
             freshDoc.currentGame = freshDoc.gameScores.length - 1;
-            // reset giao bóng đầu ván
-            freshDoc.serve = freshDoc.serve || { side: "A", server: 2 };
-            freshDoc.serve.side = freshDoc.serve.side || "A";
-            freshDoc.serve.server = 2;
+            // reset giao bóng đầu ván theo local rule 0-0-1
+            const nextServe = resetOpeningServeState(freshDoc);
             // log (tuỳ dùng)
             freshDoc.liveLog = freshDoc.liveLog || [];
             freshDoc.liveLog.push({
               type: "serve",
               by: req.user?._id || null,
-              payload: { side: freshDoc.serve.side, server: 2 },
+              payload: nextServe,
               at: new Date(),
             });
             await freshDoc.save();
@@ -1177,16 +1185,14 @@ export const patchScore = asyncHandler(async (req, res) => {
     match.gameScores.push({ a: 0, b: 0 });
     match.currentGame = match.gameScores.length - 1;
 
-    // reset giao bóng đầu ván
-    match.serve = match.serve || { side: "A", server: 2 };
-    match.serve.side = match.serve.side || "A";
-    match.serve.server = 2;
+    // reset giao bóng đầu ván theo local rule 0-0-1
+    const nextServe = resetOpeningServeState(match);
 
     match.liveLog = match.liveLog || [];
     match.liveLog.push({
       type: "serve",
       by: req.user?._id || null,
-      payload: { side: match.serve.side, server: 2 },
+      payload: nextServe,
       at: new Date(),
     });
 

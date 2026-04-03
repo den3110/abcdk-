@@ -368,8 +368,9 @@ const userMatchSchema = new Schema(
     currentGame: { type: Number, default: 0 },
     serve: {
       side: { type: String, enum: ["A", "B"], default: "A" },
-      server: { type: Number, enum: [1, 2], default: 2 },
+      server: { type: Number, enum: [1, 2], default: 1 },
       serverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+      opening: { type: Boolean, default: false },
     },
 
     isBreak: {

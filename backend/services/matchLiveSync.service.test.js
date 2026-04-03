@@ -8,7 +8,7 @@ function createMatch(overrides = {}) {
     rules: { bestOf: 3, pointsToWin: 11, winByTwo: true },
     gameScores: [],
     currentGame: 0,
-    serve: { side: "A", server: 2 },
+    serve: { side: "A", server: 1, opening: true },
     liveLog: [],
     liveVersion: 0,
     meta: {},
@@ -28,6 +28,12 @@ test("start initializes live status and first game", () => {
   assert.equal(match.status, "live");
   assert.equal(match.currentGame, 0);
   assert.deepEqual(match.gameScores, [{ a: 0, b: 0 }]);
+  assert.deepEqual(match.serve, {
+    side: "A",
+    server: 1,
+    serverId: null,
+    opening: true,
+  });
   assert.equal(match.liveVersion, 1);
 });
 
@@ -35,7 +41,7 @@ test("point updates score and flips serve on receiver point", () => {
   const match = createMatch({
     status: "live",
     gameScores: [{ a: 0, b: 0 }],
-    serve: { side: "A", server: 2 },
+    serve: { side: "A", server: 1, opening: true },
   });
 
   const result = applyLiveSyncEvent(match, {
@@ -48,6 +54,7 @@ test("point updates score and flips serve on receiver point", () => {
   assert.deepEqual(match.gameScores, [{ a: 0, b: 1 }]);
   assert.equal(match.serve.side, "B");
   assert.equal(match.serve.server, 1);
+  assert.equal(match.serve.opening, false);
   assert.equal(match.liveVersion, 1);
 });
 
@@ -66,7 +73,7 @@ test("undo reopens a finished match and restores previous serve", () => {
         payload: {
           team: "A",
           step: 1,
-          prevServe: { side: "A", server: 2 },
+          prevServe: { side: "A", server: 1, opening: true },
         },
       },
     ],
@@ -83,7 +90,12 @@ test("undo reopens a finished match and restores previous serve", () => {
   assert.equal(match.winner, "");
   assert.equal(match.finishedAt, null);
   assert.deepEqual(match.gameScores, [{ a: 10, b: 9 }]);
-  assert.deepEqual(match.serve, { side: "A", server: 2 });
+  assert.deepEqual(match.serve, {
+    side: "A",
+    server: 1,
+    serverId: null,
+    opening: true,
+  });
   assert.equal(match.liveVersion, 6);
 });
 

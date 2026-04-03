@@ -2728,10 +2728,10 @@ export function initSocket(
       }
     );
 
-    // Payload: { matchId, side?: "A"|"B", server?: 1|2, serverId?: "<userId>" }
+    // Payload: { matchId, side?: "A"|"B", server?: 1|2, serverId?: "<userId>", opening?: boolean }
     socket.on(
       "serve:set",
-      async ({ matchId, side, server, serverId, userMatch }, ack) => {
+      async ({ matchId, side, server, serverId, opening, userMatch }, ack) => {
         try {
           if (!isObjectIdString(matchId)) {
             return ack?.({ ok: false, message: "Invalid matchId" });
@@ -2740,7 +2740,8 @@ export function initSocket(
           const hasAny =
             side !== undefined ||
             server !== undefined ||
-            serverId !== undefined;
+            serverId !== undefined ||
+            opening !== undefined;
           if (!hasAny) {
             return ack?.({ ok: false, message: "Empty payload" });
           }
@@ -2786,6 +2787,11 @@ export function initSocket(
                 : Number(m.serve?.server) === 1
                 ? 1
                 : 2;
+            const wantOpening =
+              wantServer === 1 &&
+              (opening !== undefined
+                ? Boolean(opening)
+                : Boolean(m.serve?.opening));
 
             // validate serverId thuộc team tương ứng
             let validServerId = null;
@@ -2812,13 +2818,14 @@ export function initSocket(
               validServerId = okOnSide ? sid : null;
             }
 
-            const prevServe = m.serve || { side: "A", server: 2 };
+            const prevServe = m.serve || { side: "A", server: 1, opening: true };
 
             // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
             m.serve = {
               side: wantSide,
               server: wantServer,
               serverId: validServerId, // <-- Fix lỗi ở đây
+              opening: wantOpening,
             };
 
             // Sync vào slots (để tương thích ngược nếu cần)
@@ -2894,6 +2901,11 @@ export function initSocket(
               : Number(m.serve?.server) === 1
               ? 1
               : 2;
+          const wantOpening =
+            wantServer === 1 &&
+            (opening !== undefined
+              ? Boolean(opening)
+              : Boolean(m.serve?.opening));
 
           // validate serverId
           // Với Match giải đấu, toId chỉ lấy _id thật
@@ -2921,13 +2933,14 @@ export function initSocket(
             validServerId = okOnSide ? sid : null;
           }
 
-          const prevServe = m.serve || { side: "A", server: 2 };
+          const prevServe = m.serve || { side: "A", server: 1, opening: true };
 
           // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
           m.serve = {
             side: wantSide,
             server: wantServer,
             serverId: validServerId, // <-- Fix lỗi ở đây
+            opening: wantOpening,
           };
 
           // lưu serverId động vào slots

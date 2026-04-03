@@ -96,8 +96,11 @@ function resolveFinishedWinnerByScore(match) {
 }
 
 function onLostRallyNextServe(prev) {
-  if (prev.server === 1) return { side: prev.side, server: 2 };
-  return { side: prev.side === "A" ? "B" : "A", server: 1 };
+  if (prev?.opening) {
+    return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
+  }
+  if (prev.server === 1) return { side: prev.side, server: 2, opening: false };
+  return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
 }
 
 function toNum(value, fallback = 0) {
@@ -110,7 +113,7 @@ function validSide(side) {
 }
 
 function validServer(server) {
-  return server === 1 || server === 2 ? server : 2;
+  return server === 1 || server === 2 ? server : 1;
 }
 
 function duplicateError(error) {
@@ -190,6 +193,7 @@ function validateServeForMatch(match, inputServe = {}) {
   const side = sideInput === "B" ? "B" : "A";
   const server = Number(inputServe?.server) === 1 ? 1 : 2;
   const rawServerId = String(inputServe?.serverId || "").trim();
+  const opening = server === 1 && Boolean(inputServe?.opening);
   const validIds = new Set(getTeamPlayerIds(match, side));
 
   if (rawServerId && !validIds.has(rawServerId)) {
@@ -206,16 +210,19 @@ function validateServeForMatch(match, inputServe = {}) {
       side,
       server,
       serverId: rawServerId || null,
+      opening,
     },
   };
 }
 
 function applyServeState(match, serve, options = {}) {
   const bumpSlotsVersion = options.bumpSlotsVersion !== false;
+  const server = validServer(serve?.server);
   match.serve = {
     side: validSide(serve?.side),
-    server: validServer(serve?.server),
+    server,
     serverId: serve?.serverId || null,
+    opening: server === 1 && Boolean(serve?.opening),
   };
 
   if (match.serve.serverId) {
@@ -269,9 +276,12 @@ function applyStartEvent(match, event, actorId) {
     match.gameScores = [{ a: 0, b: 0 }];
     match.currentGame = 0;
   }
-  if (!match.serve) {
-    match.serve = { side: "A", server: 2 };
-  }
+  match.serve = {
+    side: validSide(match.serve?.side),
+    server: 1,
+    serverId: match.serve?.serverId || null,
+    opening: true,
+  };
 
   match.liveBy = actorId || match.liveBy || null;
   ensureLiveLog(match);
@@ -312,6 +322,7 @@ function applyPointEvent(match, event, actorId) {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
     serverId: match.serve?.serverId || null,
+    opening: Boolean(match.serve?.opening),
   };
 
   const servingTeam = prevServe.side;
@@ -354,6 +365,7 @@ function applyServeEvent(match, event, actorId) {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
     serverId: match.serve?.serverId || null,
+    opening: Boolean(match.serve?.opening),
   };
 
   applyServeState(match, nextServe.value);
@@ -393,6 +405,7 @@ function applySlotsEvent(match, event, actorId) {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
     serverId: match.serve?.serverId || null,
+    opening: Boolean(match.serve?.opening),
   };
 
   match.set("slots.base", cloneValue(nextBase.value), { strict: false });
