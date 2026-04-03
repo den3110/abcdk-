@@ -1275,6 +1275,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const showError = !waiting && !mm;
 
   const [localPatch, setLocalPatch] = useState(null);
+  const [editMode, setEditMode] = useState(false);
   useEffect(() => {
     setLocalPatch(null);
   }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1424,7 +1425,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     !hasResolvedPair(mm?.pairB) && isSeedBlockedByUnfinishedGroup(mm?.seedB);
 
   // ====== Edit scores ======
-  const [editMode, setEditMode] = useState(false);
   const [editScores, setEditScores] = useState(() => [
     ...(shownGameScores || []),
   ]);
