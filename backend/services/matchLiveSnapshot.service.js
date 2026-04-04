@@ -25,12 +25,12 @@ export async function loadMatchLiveSnapshot(matchId) {
         {
           path: "player1",
           select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          populate: { path: "user", select: "name fullName nickname nickName" },
         },
         {
           path: "player2",
           select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          populate: { path: "user", select: "name fullName nickname nickName" },
         },
       ],
     })
@@ -41,12 +41,12 @@ export async function loadMatchLiveSnapshot(matchId) {
         {
           path: "player1",
           select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          populate: { path: "user", select: "name fullName nickname nickName" },
         },
         {
           path: "player2",
           select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          populate: { path: "user", select: "name fullName nickname nickName" },
         },
       ],
     })

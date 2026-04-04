@@ -193,6 +193,8 @@ async function getMatchCodeOptionsForTournament(tournamentId) {
 }
 
 export const resolveMatchDisplayMode = (m) => {
+  if (m === "fullName") return "fullName";
+  if (m === "nickname") return "nickname";
   const raw =
     m?.displayNameMode ||
     m?.nameDisplayMode ||
@@ -210,11 +212,23 @@ export const resolvePlayerNickname = (p) =>
 
 export const resolvePlayerFullName = (p) =>
   pickTrim(p?.fullName) ||
-  pickTrim(p?.name) ||
   pickTrim(p?.user?.fullName) ||
   pickTrim(p?.user?.name) ||
+  pickTrim(p?.name) ||
   pickTrim(p?.shortName) ||
   resolvePlayerNickname(p);
+
+const displayModeValue = (value) =>
+  value === "fullName" || value === "nickname" ? value : "";
+
+const storedDisplayNameForMode = (entity, displayMode) => {
+  const storedName = pickTrim(entity?.displayName);
+  const storedMode = displayModeValue(
+    pickTrim(entity?.displayNameMode) || pickTrim(entity?.nameDisplayMode)
+  );
+  if (storedName && storedMode === displayMode) return storedName;
+  return "";
+};
 
 export const resolvePlayerDisplayName = (
   p,
@@ -222,8 +236,15 @@ export const resolvePlayerDisplayName = (
 ) => {
   const nickname = resolvePlayerNickname(p);
   const fullName = resolvePlayerFullName(p);
-  if (displayMode === "fullName") return fullName || nickname || "";
-  return nickname || pickTrim(p?.shortName) || fullName || "";
+  const storedDisplayName = pickTrim(p?.displayName);
+  return (
+    storedDisplayNameForMode(p, displayMode) ||
+    (displayMode === "fullName"
+      ? fullName || nickname
+      : nickname || pickTrim(p?.shortName) || fullName) ||
+    storedDisplayName ||
+    ""
+  );
 };
 
 export const normalizePlayerDisplay = (

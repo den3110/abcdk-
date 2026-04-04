@@ -833,12 +833,12 @@ const loadMatchForSnapshot = async (matchId, userMatch = false) => {
           {
             path: "player1",
             select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
+            populate: { path: "user", select: "name fullName nickname nickName" },
           },
           {
             path: "player2",
             select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
+            populate: { path: "user", select: "name fullName nickname nickName" },
           },
         ],
       })
@@ -849,12 +849,12 @@ const loadMatchForSnapshot = async (matchId, userMatch = false) => {
           {
             path: "player1",
             select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
+            populate: { path: "user", select: "name fullName nickname nickName" },
           },
           {
             path: "player2",
             select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
+            populate: { path: "user", select: "name fullName nickname nickName" },
           },
         ],
       })
@@ -1843,12 +1843,12 @@ export function initSocket(
                   path: "player1",
                   // có đủ các tên + user.nickname để FE fallback
                   select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
+                  populate: { path: "user", select: "name fullName nickname nickName" },
                 },
                 {
                   path: "player2",
                   select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
+                  populate: { path: "user", select: "name fullName nickname nickName" },
                 },
               ],
             })
@@ -1859,12 +1859,12 @@ export function initSocket(
                 {
                   path: "player1",
                   select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
+                  populate: { path: "user", select: "name fullName nickname nickName" },
                 },
                 {
                   path: "player2",
                   select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
+                  populate: { path: "user", select: "name fullName nickname nickName" },
                 },
               ],
             })
@@ -3379,12 +3379,12 @@ export function initSocket(
               path: "player1",
               // thêm name/fullName/shortName để fallback, vẫn giữ user->nickname
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
           ],
         })
@@ -3395,12 +3395,12 @@ export function initSocket(
             {
               path: "player1",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
           ],
         })
@@ -3528,12 +3528,12 @@ export function initSocket(
               path: "player1",
               // đủ các tên + user.nickname để FE fallback
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
           ],
         })
@@ -3544,12 +3544,12 @@ export function initSocket(
             {
               path: "player1",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
           ],
         })
@@ -3893,12 +3893,12 @@ export function initSocket(
               path: "player1",
               // có đủ các tên + user.nickname để FE fallback
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
           ],
         })
@@ -3909,12 +3909,12 @@ export function initSocket(
             {
               path: "player1",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
             {
               path: "player2",
               select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
+              populate: { path: "user", select: "name fullName nickname nickName" },
             },
           ],
         })

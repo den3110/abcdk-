@@ -21,6 +21,8 @@ const textValue = (value) => {
 
 export const resolveDisplayMode = (...sources) => {
   for (const source of sources) {
+    if (source === "fullName") return "fullName";
+    if (source === "nickname") return "nickname";
     const raw =
       source?.displayNameMode ||
       source?.nameDisplayMode ||
@@ -55,15 +57,15 @@ export const getPlayerNickname = (player) =>
 
 export const getPlayerFullName = (player) =>
   trim(player?.fullName) ||
-  trim(player?.name) ||
   trim(player?.user?.fullName) ||
   trim(player?.user?.name) ||
+  trim(player?.name) ||
   trim(player?.shortName) ||
   getPlayerNickname(player);
 
 export const getPlayerDisplayName = (player, source) => {
   if (!player) return "";
-  const mode = resolveDisplayMode(player, source);
+  const mode = resolveDisplayMode(source, player);
   const nickname = getPlayerNickname(player);
   const fullName = getPlayerFullName(player);
   const storedDisplayName = trim(player?.displayName);
@@ -91,7 +93,7 @@ export const normalizePlayerDisplay = (player, source) => {
     };
   }
 
-  const mode = resolveDisplayMode(player, source);
+  const mode = resolveDisplayMode(source, player);
   const nickname = getPlayerNickname(player);
   const fullName = getPlayerFullName(player);
   const displayName = getPlayerDisplayName(player, source);
@@ -110,7 +112,7 @@ export const normalizePlayerDisplay = (player, source) => {
 
 export const getPairDisplayName = (pair, source) => {
   if (!pair) return "";
-  const mode = resolveDisplayMode(pair, source);
+  const mode = resolveDisplayMode(source, pair);
   const player1 = normalizePlayerDisplay(pair?.player1, mode);
   const player2 = normalizePlayerDisplay(pair?.player2, mode);
   const joined = [player1?.displayName, player2?.displayName]
@@ -302,7 +304,7 @@ export const getMatchCourtDisplayText = (match = {}) => {
 
 export const normalizePairDisplay = (pair, source) => {
   if (!pair || typeof pair !== "object") return pair;
-  const mode = resolveDisplayMode(pair, source);
+  const mode = resolveDisplayMode(source, pair);
   const player1 = normalizePlayerDisplay(pair?.player1, mode);
   const player2 = normalizePlayerDisplay(pair?.player2, mode);
   const displayName = getPairDisplayName({ ...pair, player1, player2 }, mode);
@@ -319,7 +321,7 @@ export const normalizePairDisplay = (pair, source) => {
 
 const normalizeTeamDisplay = (team, source) => {
   if (!team || typeof team !== "object") return team;
-  const mode = resolveDisplayMode(team, source);
+  const mode = resolveDisplayMode(source, team);
   const players = Array.isArray(team?.players)
     ? team.players.map((player) => normalizePlayerDisplay(player, mode))
     : [];
