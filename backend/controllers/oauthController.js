@@ -125,6 +125,72 @@ function issueLiveAccessToken(user) {
   );
 }
 
+/**
+ * GET /api/oauth/authorize
+ *
+ * Main OAuth authorize endpoint opened by native-live-ios in a webview.
+ * Validates the request, resolves user from os_auth_token,
+ * auto-approves and redirects to redirect_uri with authorization code.
+ */
+export const authorizeRedirect = asyncHandler(async (req, res) => {
+  const input = parseAuthorizeInput(req.query || {});
+  const validationError = buildAuthorizeValidationError(input);
+  if (validationError) {
+    return res.status(400).json({
+      ok: false,
+      reason: "invalid_request",
+      message: validationError,
+    });
+  }
+
+  // Resolve user from os_auth_token
+  const user = await resolveOAuthUser(req, input.osAuthToken);
+  if (!user) {
+    return res.status(401).json({
+      ok: false,
+      reason: input.osAuthToken ? "os_auth_invalid" : "login_required",
+      message: input.osAuthToken
+        ? "Phiên xác thực PickleTour đã hết hạn. Hãy đăng nhập lại."
+        : "Bạn cần đăng nhập PickleTour trước khi cấp quyền cho app live.",
+      loginUrl: buildWebLoginUrl(req),
+    });
+  }
+
+  // Check live access
+  const bootstrap = await buildLiveAppBootstrapForUser(user);
+  if (!bootstrap.canUseLiveApp) {
+    return res.status(403).json({
+      ok: false,
+      reason: bootstrap.reason || "live_access_denied",
+      message:
+        bootstrap.message ||
+        "Tài khoản này chưa có quyền dùng PickleTour Live.",
+    });
+  }
+
+  // Auto-approve: generate authorization code
+  const code = makeCode();
+  const expiresAt = new Date(Date.now() + OAUTH_CODE_TTL_MS);
+
+  await OAuthAuthorizationCode.create({
+    code,
+    clientId: input.clientId,
+    redirectUri: input.redirectUri,
+    scope: input.scope,
+    codeChallenge: input.codeChallenge,
+    codeChallengeMethod: input.codeChallengeMethod,
+    user: user._id,
+    expiresAt,
+  });
+
+  // Build redirect URL with code + state
+  const redirect = new URL(input.redirectUri);
+  redirect.searchParams.set("code", code);
+  redirect.searchParams.set("state", input.state);
+
+  return res.redirect(redirect.toString());
+});
+
 export const getAuthorizeContext = asyncHandler(async (req, res) => {
   const input = parseAuthorizeInput(req.query || {});
   const validationError = buildAuthorizeValidationError(input);

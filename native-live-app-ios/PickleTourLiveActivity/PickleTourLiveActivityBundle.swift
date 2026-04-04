@@ -11,7 +11,7 @@ struct PickleTourLiveActivityBundle: WidgetBundle {
 
 @available(iOSApplicationExtension 16.1, *)
 private struct PickleTourMatchLiveActivity: Widget {
-    var body: some Widget {
+    var body: some WidgetConfiguration {
         ActivityConfiguration(for: PickleTourMatchActivityAttributes.self) { context in
             LiveActivityLockScreenView(context: context)
                 .activityBackgroundTint(Color.black.opacity(0.92))

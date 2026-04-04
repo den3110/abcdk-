@@ -185,9 +185,18 @@ final class LiveStreamingService: NSObject, ObservableObject {
         recordingRotationTimer?.invalidate()
         publishTimeoutTask?.cancel()
         recordingStopTimeoutTask?.cancel()
+        let pendingStartContinuation = pendingStartContinuation
+        self.pendingStartContinuation = nil
+        let pendingRecordingStopContinuation = pendingRecordingStopContinuation
+        self.pendingRecordingStopContinuation = nil
         notificationObservers.forEach(NotificationCenter.default.removeObserver)
-        resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "Streaming service disposed before publish completed."))
-        resolvePendingRecordingStop()
+        pendingStartContinuation?.resume(
+            throwing: LiveAPIError.server(
+                statusCode: 0,
+                message: "Streaming service disposed before publish completed."
+            )
+        )
+        pendingRecordingStopContinuation?.resume(returning: ())
         stream.attachCamera(nil)
         stream.attachAudio(nil)
         connection.close()
@@ -468,7 +477,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         stream.sessionPreset = resolution.width >= 1900 ? .hd1920x1080 : .hd1280x720
 
         var videoSettings = stream.videoSettings
-        videoSettings.bitRate = UInt32(max(0, quality.videoBitrate))
+        videoSettings.bitRate = max(0, quality.videoBitrate)
         videoSettings.maxKeyFrameIntervalDuration = 2
         videoSettings.profileLevel = resolution.width >= 1900
             ? String(kVTProfileLevel_H264_High_AutoLevel)
@@ -927,7 +936,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     private func attachCameraAndAwait(_ camera: AVCaptureDevice) async throws {
         var attachError: Error?
-        stream.attachCamera(camera) { error in
+        stream.attachCamera(camera) { _, error in
             attachError = error
         }
         try await Task.sleep(nanoseconds: 300_000_000)
@@ -1505,8 +1514,9 @@ private final class LiveScoreboardOverlayRenderer {
             )
         )
 
-        let task = Task(priority: .utility) { [weak self] in
-            await self?.loadAssets(for: snapshotForAssets, assetKey: nextAssetKey)
+        let task = Task<Void, Never>(priority: .utility) { [weak self] in
+            guard let self else { return }
+            await self.loadAssets(for: snapshotForAssets, assetKey: nextAssetKey)
         }
 
         lock.lock()
@@ -1593,7 +1603,7 @@ private final class LiveScoreboardOverlayRenderer {
             .compactMap { $0.trimmedNilIfBlank }
             .joined(separator: ",")
 
-        [
+        return [
             snapshot?.tournamentName,
             snapshot?.courtName,
             snapshot?.teamAName,
@@ -1619,7 +1629,7 @@ private final class LiveScoreboardOverlayRenderer {
             .compactMap { $0.trimmedNilIfBlank }
             .joined(separator: ",")
 
-        [
+        return [
             snapshot?.tournamentLogoURL?.trimmedNilIfBlank,
             snapshot?.webLogoURL?.trimmedNilIfBlank,
             sponsorKey.isEmpty ? nil : sponsorKey
@@ -1964,6 +1974,7 @@ private final class LiveScoreboardOverlayRenderer {
                 )
             }
         }
+    }
 
         return CIImage(image: image)
     }
