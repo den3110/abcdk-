@@ -35,8 +35,19 @@ const ARCHIVE_LIMIT = 12;
 
 const sid = (value) => String(value?._id || value?.id || value || "").trim();
 
+function teamName(match, side) {
+  const sideKey = String(side || "A").toUpperCase() === "B" ? "B" : "A";
+  return (
+    match?.[`team${sideKey}Name`] ||
+    match?.teams?.[sideKey]?.name ||
+    match?.[`pair${sideKey}`]?.displayName ||
+    match?.[`pair${sideKey}`]?.name ||
+    `Đội ${sideKey}`
+  );
+}
+
 function teamLine(match) {
-  return `${match?.pairA?.name || "Đội A"} vs ${match?.pairB?.name || "Đội B"}`;
+  return `${teamName(match, "A")} vs ${teamName(match, "B")}`;
 }
 
 function statusLabel(status) {

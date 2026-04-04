@@ -91,14 +91,21 @@ export default function TournamentCheckin() {
   const { locale, t } = useLanguage();
 
   /* fetch tournament / registrations / matches */
-  const { data: tour, isLoading: tourLoading } = useGetTournamentQuery(id);
+  const {
+    data: tour,
+    isLoading: tourLoading,
+    refetch: refetchTour,
+  } = useGetTournamentQuery(id);
 
   // ... existing code ...
 
   const { error: regsError, refetch: refetchRegs } =
     useGetRegistrationsQuery(id);
-  const { data: matchesResp = [], isLoading: matchesLoading } =
-    useGetTournamentMatchesForCheckinQuery(id);
+  const {
+    data: matchesResp = [],
+    isLoading: matchesLoading,
+    refetch: refetchMatches,
+  } = useGetTournamentMatchesForCheckinQuery(id);
   const { data: brackets = [], isLoading: bracketsLoading } =
     useListTournamentBracketsQuery(id);
 
@@ -274,6 +281,14 @@ export default function TournamentCheckin() {
   useEffect(() => {
     if (!socket) return;
     const onUpsert = (payload) => queueUpsert(payload);
+    const onInvalidate = (payload) => {
+      const tournamentId = String(payload?.tournamentId || "").trim();
+      if (tournamentId && tournamentId !== String(id || "").trim()) return;
+      refetchTour?.();
+      refetchRegs?.();
+      refetchMatches?.();
+      if (submittedQ) refetchSearch?.();
+    };
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
       if (!id) return;
@@ -284,17 +299,30 @@ export default function TournamentCheckin() {
     };
 
     socket.on("tournament:match:update", onUpsert);
+    socket.on("tournament:invalidate", onInvalidate);
     socket.on("match:deleted", onRemove);
 
     return () => {
       socket.off("tournament:match:update", onUpsert);
+      socket.off("tournament:invalidate", onInvalidate);
       socket.off("match:deleted", onRemove);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [socket, id, bracketIdsSig, matchIdsSig, queueUpsert]);
+  }, [
+    socket,
+    id,
+    bracketIdsSig,
+    matchIdsSig,
+    queueUpsert,
+    refetchMatches,
+    refetchRegs,
+    refetchSearch,
+    refetchTour,
+    submittedQ,
+  ]);
 
   const matches = useMemo(
     () =>

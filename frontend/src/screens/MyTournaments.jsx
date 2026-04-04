@@ -1055,6 +1055,11 @@ export default function MyTournamentsPage() {
     () => (tournamentsRaw || []).map((t) => String(t?._id)).filter(Boolean),
     [tournamentsRaw],
   );
+  const tournamentRoomIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    tournamentRoomIdsRef.current = new Set(tournamentRoomIds);
+  }, [tournamentRoomIds]);
 
   useSocketRoomSet(socket, tournamentRoomIds, {
     subscribeEvent: "tournament:subscribe",
@@ -1065,6 +1070,13 @@ export default function MyTournamentsPage() {
   useEffect(() => {
     if (!socket) return;
     const onUpsert = (payload) => queueUpsert(payload);
+    const onInvalidate = (payload) => {
+      const tournamentId = String(payload?.tournamentId || "").trim();
+      if (tournamentId && !tournamentRoomIdsRef.current.has(tournamentId)) {
+        return;
+      }
+      refetch?.();
+    };
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
       if (!id) return;
@@ -1075,9 +1087,11 @@ export default function MyTournamentsPage() {
     };
 
     socket.on("tournament:match:update", onUpsert);
+    socket.on("tournament:invalidate", onInvalidate);
     socket.on("match:deleted", onRemove);
     return () => {
       socket.off("tournament:match:update", onUpsert);
+      socket.off("tournament:invalidate", onInvalidate);
       socket.off("match:deleted", onRemove);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
@@ -1085,7 +1099,7 @@ export default function MyTournamentsPage() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, queueUpsert]);
+  }, [socket, queueUpsert, refetch]);
   useEffect(() => {
     subscribedBracketsRef.current = new Set();
     joinedMatchesRef.current = new Set();

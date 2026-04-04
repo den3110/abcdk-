@@ -15,6 +15,7 @@ import {
   getTournamentNameDisplayMode,
   getTournamentTeamName,
 } from "../../utils/tournamentName";
+import { getPairDisplayName } from "../../utils/matchDisplay";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
@@ -28,6 +29,20 @@ const readStr = (...cands) => {
     if (v) return v;
   }
   return "";
+};
+
+const pairDisplayName = (reg, evType, displayMode = "nickname") => {
+  if (!reg) return "-";
+  return (
+    getPairDisplayName(reg, {
+      eventType: evType,
+      nameDisplayMode: displayMode,
+      tournament: {
+        eventType: evType,
+        nameDisplayMode: displayMode,
+      },
+    }) || "N/A"
+  );
 };
 
 const preferNick = (p) =>
@@ -131,24 +146,6 @@ const preferFull = (p) =>
     p?.user?.name,
   );
 
-const regDisplayName = (reg, evType) => {
-  if (!reg) return "—";
-  if (evType === "single") {
-    return preferFull(reg?.player1) || preferNick(reg?.player1) || "N/A";
-  }
-  const a = preferFull(reg?.player1) || preferNick(reg?.player1) || "N/A";
-  const b = preferFull(reg?.player2) || preferNick(reg?.player2) || "";
-  return b ? `${a} & ${b}` : a;
-};
-
-const regDisplayNick = (reg, evType) => {
-  if (!reg) return "—";
-  if (evType === "single") return preferNick(reg?.player1) || "N/A";
-  const a = preferNick(reg?.player1) || "N/A";
-  const b = preferNick(reg?.player2) || "";
-  return b ? `${a} & ${b}` : a;
-};
-
 function normalizePayload(p) {
   if (!p) return null;
 
@@ -156,6 +153,7 @@ function normalizePayload(p) {
     (p?.tournament?.eventType || p?.eventType || "").toLowerCase() === "single"
       ? "single"
       : "double";
+  const displayMode = getTournamentNameDisplayMode(p?.tournament || p);
 
   const rules = {
     bestOf: Number(p?.rules?.bestOf ?? 3),
@@ -256,15 +254,11 @@ function normalizePayload(p) {
     const listB = [b1, b2].filter(Boolean);
 
     teams.A = {
-      name:
-        listA.map(preferNick).filter(Boolean).join(" & ") ||
-        regDisplayNick(p?.pairA, eventType),
+      name: pairDisplayName(p?.pairA, eventType, displayMode),
       players: listA,
     };
     teams.B = {
-      name:
-        listB.map(preferNick).filter(Boolean).join(" & ") ||
-        regDisplayNick(p?.pairB, eventType),
+      name: pairDisplayName(p?.pairB, eventType, displayMode),
       players: listB,
     };
   }
@@ -276,7 +270,7 @@ function normalizePayload(p) {
       p?.pairA?.teamName,
       p?.pairA?.label,
       p?.teams?.A?.name,
-    ) || regDisplayName(p?.pairA, eventType);
+    ) || pairDisplayName(p?.pairA, eventType, displayMode);
   const teamBFallbackName =
     readStr(
       p?.teams?.B?.teamName,
@@ -284,7 +278,7 @@ function normalizePayload(p) {
       p?.pairB?.teamName,
       p?.pairB?.label,
       p?.teams?.B?.name,
-    ) || regDisplayName(p?.pairB, eventType);
+    ) || pairDisplayName(p?.pairB, eventType, displayMode);
 
   teams = {
     A: {
@@ -321,7 +315,7 @@ function normalizePayload(p) {
       id: p?.tournament?._id || p?.tournament?.id || p?.tournamentId || null,
       name: p?.tournament?.name || readStr(p?.tournamentName) || "",
       image: p?.tournament?.image || "",
-      nameDisplayMode: getTournamentNameDisplayMode(p?.tournament),
+      nameDisplayMode: displayMode,
       eventType:
         (p?.tournament?.eventType || p?.eventType || "").toLowerCase() ===
         "single"

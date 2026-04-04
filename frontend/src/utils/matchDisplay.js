@@ -289,12 +289,14 @@ export const normalizePairDisplay = (pair, source) => {
   const mode = resolveDisplayMode(pair, source);
   const player1 = normalizePlayerDisplay(pair?.player1, mode);
   const player2 = normalizePlayerDisplay(pair?.player2, mode);
+  const displayName = getPairDisplayName({ ...pair, player1, player2 }, mode);
   return {
     ...pair,
     _id: pair?._id ?? pair?.id ?? pair,
     player1,
     player2,
-    displayName: getPairDisplayName({ ...pair, player1, player2 }, mode),
+    name: displayName || trim(pair?.name) || "",
+    displayName,
     displayNameMode: mode,
   };
 };

@@ -392,6 +392,7 @@ export default function TournamentOverviewPage() {
     data: tour,
     isLoading: tourLoading,
     error: tourErr,
+    refetch: refetchTour,
   } = useGetTournamentQuery(id);
   const {
     data: regs = [],
@@ -402,11 +403,13 @@ export default function TournamentOverviewPage() {
     data: brackets = [],
     isLoading: brLoading,
     error: brErr,
+    refetch: refetchBrackets,
   } = useAdminGetBracketsQuery(id);
   const {
     data: matchPage,
     isLoading: mLoading,
     error: mErr,
+    refetch: refetchMatches,
   } = useAdminListMatchesByTournamentQuery({
     tid: id,
     page: 1,
@@ -615,6 +618,13 @@ export default function TournamentOverviewPage() {
   useEffect(() => {
     if (!socket) return;
     const onUpd = (payload) => queueUpsert(payload);
+    const onInvalidate = (payload) => {
+      const tournamentId = String(payload?.tournamentId || "").trim();
+      if (tournamentId && tournamentId !== String(id || "").trim()) return;
+      refetchTour?.();
+      refetchBrackets?.();
+      refetchMatches?.();
+    };
     const onRemove = (payload) => {
       const matchId = String(payload?.id ?? payload?._id ?? "");
       if (!matchId) return;
@@ -624,16 +634,18 @@ export default function TournamentOverviewPage() {
       }
     };
     socket.on("tournament:match:update", onUpd);
+    socket.on("tournament:invalidate", onInvalidate);
     socket.on("match:deleted", onRemove);
     return () => {
       socket.off("tournament:match:update", onUpd);
+      socket.off("tournament:invalidate", onInvalidate);
       socket.off("match:deleted", onRemove);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [socket, queueUpsert]);
+  }, [socket, queueUpsert, id, refetchBrackets, refetchMatches, refetchTour]);
 
   const openMatch = () => {};
   const currentTabLabel =

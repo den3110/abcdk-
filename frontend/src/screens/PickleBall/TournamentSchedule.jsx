@@ -961,7 +961,11 @@ export default function TournamentSchedule() {
   };
 
   // API
-  const { data: tournament, isLoading: tLoading } = useGetTournamentQuery(id);
+  const {
+    data: tournament,
+    isLoading: tLoading,
+    refetch: refetchTournament,
+  } = useGetTournamentQuery(id);
   const eventType = useMemo(
     () =>
       String(tournament?.eventType || "double")
@@ -972,7 +976,7 @@ export default function TournamentSchedule() {
     [tournament?.eventType],
   );
   const displayMode = getTournamentNameDisplayMode(tournament);
-  const { data: matchesResp, isLoading: mLoading } =
+  const { data: matchesResp, isLoading: mLoading, refetch: refetchMatches } =
     useListPublicMatchesByTournamentQuery({
       tid: id,
     });
@@ -1061,6 +1065,12 @@ export default function TournamentSchedule() {
   useEffect(() => {
     if (!socket) return;
     const onUpsert = (payload) => queueUpsert(payload);
+    const onInvalidate = (payload) => {
+      const tournamentId = String(payload?.tournamentId || "").trim();
+      if (tournamentId && tournamentId !== String(id || "").trim()) return;
+      refetchTournament?.();
+      refetchMatches?.();
+    };
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
       if (!id) return;
@@ -1070,16 +1080,18 @@ export default function TournamentSchedule() {
       }
     };
     socket.on("tournament:match:update", onUpsert);
+    socket.on("tournament:invalidate", onInvalidate);
     socket.on("match:deleted", onRemove);
     return () => {
       socket.off("tournament:match:update", onUpsert);
+      socket.off("tournament:invalidate", onInvalidate);
       socket.off("match:deleted", onRemove);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-  }, [socket, queueUpsert]);
+  }, [socket, queueUpsert, id, refetchMatches, refetchTournament]);
 
   // Aggregation
   const matches = useMemo(
@@ -1097,12 +1109,23 @@ export default function TournamentSchedule() {
         (typeof m?.code === "string" && m.code.trim()) ||
         (typeof m?.globalCode === "string" && m.globalCode.trim()) ||
         t("tournaments.schedule.fallbackMatchCode");
+      const matchEventType = String(
+        m?.tournament?.eventType || eventType || "double",
+      )
+        .toLowerCase()
+        .includes("single")
+        ? "single"
+        : "double";
+      const matchDisplayMode = m?.tournament
+        ? getTournamentNameDisplayMode(m.tournament)
+        : displayMode;
       return {
         ...m,
         tournament: {
           ...(m?.tournament || {}),
-          eventType,
-          nameDisplayMode: displayMode,
+          eventType: matchEventType,
+          nameDisplayMode: matchDisplayMode,
+          displayNameMode: matchDisplayMode,
         },
         __displayCode: label,
       };

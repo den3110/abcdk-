@@ -217,7 +217,10 @@ export default function TournamentRefereePage() {
     [theme],
   );
 
-  const { data: tournament } = useGetTournamentQuery(id || skipToken);
+  const {
+    data: tournament,
+    refetch: refetchTournament,
+  } = useGetTournamentQuery(id || skipToken);
   const { data: verifyRes, isLoading: verifying } = useVerifyRefereeQuery(
     id || skipToken,
   );
@@ -307,11 +310,19 @@ export default function TournamentRefereePage() {
   useEffect(() => {
     if (!socket) return undefined;
     const onUpdate = () => queueRefetch();
+    const onInvalidate = (payload) => {
+      const tournamentId = String(payload?.tournamentId || "").trim();
+      if (tournamentId && tournamentId !== String(id || "").trim()) return;
+      refetchTournament?.();
+      queueRefetch();
+    };
     socket.on("tournament:match:update", onUpdate);
+    socket.on("tournament:invalidate", onInvalidate);
     socket.on("match:deleted", onUpdate);
     socket.on("court-station:update", onUpdate);
     return () => {
       socket.off("tournament:match:update", onUpdate);
+      socket.off("tournament:invalidate", onInvalidate);
       socket.off("match:deleted", onUpdate);
       socket.off("court-station:update", onUpdate);
       if (refetchTimerRef.current) {
@@ -319,7 +330,7 @@ export default function TournamentRefereePage() {
         refetchTimerRef.current = null;
       }
     };
-  }, [queueRefetch, socket]);
+  }, [queueRefetch, socket, id, refetchTournament]);
 
   const filteredMatches = useMemo(() => {
     const dir = sortDir === "asc" ? 1 : -1;

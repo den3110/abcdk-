@@ -41,6 +41,11 @@ import {
   clearTournamentPresentationCaches,
 } from "../../services/cacheInvalidation.service.js";
 import {
+  emitTournamentInvalidate,
+  emitTournamentMatchUpdate,
+} from "../../socket/tournamentRealtime.js";
+import { toRealtimePublicMatchDTO } from "../../socket/liveHandlers.js";
+import {
   cleanupTournamentAssignmentsForRemovedClusters,
   listCourtClusters,
 } from "../../services/courtCluster.service.js";
@@ -62,8 +67,40 @@ import {
   normalizePlanRoundRules,
   semanticStageKeyFromBracketType,
 } from "../../services/blueprintRuntime.service.js";
+import { loadMatchLiveSnapshot } from "../../services/matchLiveSnapshot.service.js";
 
 dotenv.config();
+
+const normalizeRealtimeNameDisplayMode = (value) =>
+  value === "fullName" ? "fullName" : "nickname";
+
+const normalizeRealtimeEventType = (value) =>
+  String(value || "").toLowerCase().includes("single") ? "single" : "double";
+
+async function rebroadcastTournamentMatchSnapshots(io, tournamentId) {
+  const normalizedTournamentId = String(tournamentId || "").trim();
+  if (!io || !mongoose.Types.ObjectId.isValid(normalizedTournamentId)) return 0;
+
+  const rows = await Match.find({ tournament: normalizedTournamentId })
+    .select("_id")
+    .lean();
+
+  let emittedCount = 0;
+  for (const row of rows) {
+    const snapshot = await loadMatchLiveSnapshot(row?._id);
+    if (!snapshot) continue;
+    const dto = await toRealtimePublicMatchDTO(snapshot);
+    if (!dto) continue;
+
+    emitTournamentMatchUpdate(io, snapshot, dto, {
+      type: "snapshot",
+      emitMatchSnapshot: true,
+    });
+    emittedCount += 1;
+  }
+
+  return emittedCount;
+}
 
 // 🔹 Map kết quả geocode (AI) -> schema locationGeo
 const buildLocationGeoFromAI = (geo, fallbackLocation) => {
@@ -1206,7 +1243,7 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
 
   // ✅ chỉ geocode nếu client gửi location mới
   const existing = await Tournament.findById(req.params.id).select(
-    "location tournamentMode teamConfig isFreeRegistration"
+    "location tournamentMode teamConfig isFreeRegistration nameDisplayMode eventType"
   );
   if (
     Object.prototype.hasOwnProperty.call(payload, "tournamentMode") ||
@@ -1233,6 +1270,10 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       : existing.isFreeRegistration === true;
   const switchedToFree =
     existing.isFreeRegistration !== true && nextIsFreeRegistration === true;
+  const previousNameDisplayMode = normalizeRealtimeNameDisplayMode(
+    existing?.nameDisplayMode
+  );
+  const previousEventType = normalizeRealtimeEventType(existing?.eventType);
 
   const nextLocation =
     typeof payload.location === "string" ? payload.location : existing.location;
@@ -1258,6 +1299,13 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
+  const nextNameDisplayMode = normalizeRealtimeNameDisplayMode(
+    t?.nameDisplayMode
+  );
+  const nextEventType = normalizeRealtimeEventType(t?.eventType);
+  const shouldRebroadcastMatchSnapshots =
+    previousNameDisplayMode !== nextNameDisplayMode ||
+    previousEventType !== nextEventType;
 
   (function autoDeriveStatus() {
     const tz = t.timezone || "Asia/Ho_Chi_Minh";
@@ -1341,6 +1389,48 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
 
       // Trả kết quả update cho client trước
       res.json(t);
+
+      const io = req.app.get("io");
+      if (io) {
+        setImmediate(async () => {
+          try {
+            emitTournamentInvalidate(io, {
+              tournamentId: t._id,
+              reason: shouldRebroadcastMatchSnapshots
+                ? "tournament_presentation_updated"
+                : "tournament_updated",
+            });
+
+            if (!shouldRebroadcastMatchSnapshots) return;
+
+            const emittedCount = await rebroadcastTournamentMatchSnapshots(
+              io,
+              t._id
+            );
+
+            console.log(
+              "[adminUpdateTournament] rebroadcast tournament snapshots",
+              {
+                tournamentId: String(t._id),
+                emittedCount,
+                previousNameDisplayMode,
+                nextNameDisplayMode,
+                previousEventType,
+                nextEventType,
+              }
+            );
+          } catch (e) {
+            console.error(
+              "[adminUpdateTournament] realtime rebroadcast failed:",
+              e?.message || e,
+              {
+                tournamentId: String(t._id),
+                shouldRebroadcastMatchSnapshots,
+              }
+            );
+          }
+        });
+      }
 
       // ⏱ Countdown – giữ nguyên
       setImmediate(() => {

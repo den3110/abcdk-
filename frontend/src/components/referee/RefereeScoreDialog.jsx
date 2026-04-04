@@ -25,6 +25,7 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import {
+  Add as AddIcon,
   Cached as CachedIcon,
   Casino as CasinoIcon,
   Close as CloseIcon,
@@ -1868,7 +1869,7 @@ export default function RefereeScoreDialog({
                       )
                     }
                     disabled={!leftEnabled}
-                    startIcon={busy === "point-left" ? <CircularProgress size={14} /> : <RefreshIcon sx={{ transform: "rotate(90deg)" }} />}
+                    startIcon={busy === "point-left" ? <CircularProgress size={14} /> : <AddIcon />}
                     sx={{
                       minHeight: 56,
                       flex: 1,
@@ -1912,7 +1913,7 @@ export default function RefereeScoreDialog({
                       )
                     }
                     disabled={!rightEnabled}
-                    startIcon={busy === "point-right" ? <CircularProgress size={14} /> : <RefreshIcon sx={{ transform: "rotate(90deg)" }} />}
+                    startIcon={busy === "point-right" ? <CircularProgress size={14} /> : <AddIcon />}
                     sx={{
                       minHeight: 56,
                       flex: 1,

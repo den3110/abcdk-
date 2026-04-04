@@ -28,6 +28,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useSelector } from "react-redux";
 import { UnifiedStreamPlayer } from "../../components/video";
 import { useDeleteLiveVideoMutation } from "../../slices/liveApiSlice";
+import { getPairDisplayName } from "../../utils/matchDisplay";
 
 function timeAgo(date) {
   if (!date) return "";
@@ -733,24 +734,12 @@ export default function LiveMatchCard({ item, onDeleted }) {
               <Box sx={{ mt: 0.5 }}>
                 {m.pairA && (
                   <Typography variant="body2">
-                    A:{" "}
-                    {(m.pairA.player1?.user?.name ||
-                      m.pairA.player1?.name ||
-                      "") +
-                      (m.pairA.player2?.user?.name
-                        ? ` / ${m.pairA.player2.user.name}`
-                        : "")}
+                    A: {getPairDisplayName(m.pairA, m) || "?"}
                   </Typography>
                 )}
                 {m.pairB && (
                   <Typography variant="body2">
-                    B:{" "}
-                    {(m.pairB.player1?.user?.name ||
-                      m.pairB.player1?.name ||
-                      "") +
-                      (m.pairB.player2?.user?.name
-                        ? ` / ${m.pairB.player2.user.name}`
-                        : "")}
+                    B: {getPairDisplayName(m.pairB, m) || "?"}
                   </Typography>
                 )}
               </Box>

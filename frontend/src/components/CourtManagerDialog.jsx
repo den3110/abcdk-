@@ -35,6 +35,7 @@ import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import { toast } from "react-toastify";
 import { useSocket } from "../context/SocketContext";
+import { getPairDisplayName } from "../utils/matchDisplay";
 import {
   useUpsertCourtsMutation,
   useBuildGroupsQueueMutation,
@@ -207,8 +208,10 @@ const personName = (p) => {
   return "";
 };
 
-const pairName = (pair) => {
+const pairName = (pair, source) => {
   if (!pair) return "";
+  const resolved = getPairDisplayName(pair, source);
+  if (resolved) return resolved;
   const names = [];
   if (pair.player1) names.push(personName(pair.player1));
   if (pair.player2) names.push(personName(pair.player2));
@@ -302,8 +305,8 @@ function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
   const optionLabel = useCallback((m) => {
     if (!m) return "";
     const code = buildMatchCode(m);
-    const A = (m.pairA ? pairName(m.pairA) : "") || m.pairAName || "Đội A";
-    const B = (m.pairB ? pairName(m.pairB) : "") || m.pairBName || "Đội B";
+    const A = (m.pairA ? pairName(m.pairA, m) : "") || m.pairAName || "Đội A";
+    const B = (m.pairB ? pairName(m.pairB, m) : "") || m.pairBName || "Đội B";
     const st = viMatchStatus(m.status);
     return `${code} · ${A} vs ${B} · ${st}`;
   }, []);
@@ -600,8 +603,8 @@ export default function CourtManagerDialog({
   const getTeamsForCourt = (c) => {
     const m = getMatchForCourt(c);
     if (!m) return { A: "", B: "" };
-    const A = (m.pairA ? pairName(m.pairA) : "") || m.pairAName || "";
-    const B = (m.pairB ? pairName(m.pairB) : "") || m.pairBName || "";
+    const A = (m.pairA ? pairName(m.pairA, m) : "") || m.pairAName || "";
+    const B = (m.pairB ? pairName(m.pairB, m) : "") || m.pairBName || "";
     return { A, B };
   };
 

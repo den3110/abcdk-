@@ -131,6 +131,7 @@ const TABS = ["upcoming", "ongoing", "finished"];
 export default function TournamentDashboard() {
   const theme = useTheme();
   const { t: translate, locale } = useLanguage();
+  const tournamentTitleLineHeight = 1.42;
   const me = useSelector((s) => s.auth?.userInfo || null);
   const statusMeta = useMemo(
     () => ({
@@ -658,12 +659,15 @@ export default function TournamentDashboard() {
               variant="subtitle1"
               fontWeight={800}
               sx={{
-                minHeight: "3rem",
-                lineHeight: 1.3,
+                minHeight: `calc(2em * ${tournamentTitleLineHeight} + 0.16em)`,
+                lineHeight: tournamentTitleLineHeight,
                 display: "-webkit-box",
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: "vertical",
                 overflow: "hidden",
+                textOverflow: "ellipsis",
+                pt: "0.08em",
+                pb: "0.08em",
                 mb: 1,
               }}
             >

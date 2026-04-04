@@ -285,15 +285,17 @@ export const normalizePairDisplay = (
   if (!pair || typeof pair !== "object") return pair;
   const player1 = normalizePlayerDisplay(pair?.player1, displayMode);
   const player2 = normalizePlayerDisplay(pair?.player2, displayMode);
+  const displayName = resolvePairDisplayName(
+    { ...pair, player1, player2 },
+    displayMode
+  );
   return {
     ...pair,
     _id: pair?._id || pair?.id || pair,
     player1,
     player2,
-    displayName: resolvePairDisplayName(
-      { ...pair, player1, player2 },
-      displayMode
-    ),
+    name: displayName || pickTrim(pair?.name) || "",
+    displayName,
     displayNameMode: displayMode,
   };
 };
