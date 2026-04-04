@@ -23,6 +23,7 @@ import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
 import {
   Link as RouterLink,
+  useNavigate,
   useParams,
   useSearchParams,
 } from "react-router-dom";
@@ -164,6 +165,7 @@ const isUserRefereeOfMatch = (match, user) => {
 
 export default function TournamentRefereePage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const socket = useSocket();
   const theme = useTheme();
   const { userInfo } = useSelector((state) => state.auth || {});
@@ -417,8 +419,7 @@ export default function TournamentRefereePage() {
                 <Button
                   size="small"
                   startIcon={<ArrowBackIcon />}
-                  component={RouterLink}
-                  to={`/tournament/${id}/overview`}
+                  onClick={() => navigate(-1)}
                   sx={{ mb: 1, color: ui.accent }}
                 >
                   Quay lại giải

@@ -26,7 +26,9 @@
     "recording:r2-cleanup": "node backend/scripts/cleanupExportedRecordingR2.js",
     "recording:r2-clear-all": "node backend/scripts/clearRecordingR2Storage.js",
     "recording:r2-abort-multipart": "node backend/scripts/abortRecordingMultipartUploads.js",
-    "recording:url-backfill": "node backend/scripts/backfillLiveRecordingPlaybackUrls.js"
+    "recording:url-backfill": "node backend/scripts/backfillLiveRecordingPlaybackUrls.js",
+    "tiktok:avatar:upload": "node scripts/tiktok-avatar-upload.mjs",
+    "tiktok:avatar:upload:api": "node scripts/tiktok-avatar-api-upload.mjs"
   },
   "author": "Brad Traversy",
   "license": "MIT",

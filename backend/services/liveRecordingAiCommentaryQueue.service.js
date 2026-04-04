@@ -16,6 +16,7 @@ import {
   getAiCommentaryTonePresets,
   getAiCommentaryVoicePresets,
 } from "./liveRecordingAiCommentaryGateway.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 const WORKER_TICK_MS = Math.max(
   5_000,
@@ -329,6 +330,7 @@ function serializeJob(jobDoc) {
   const job = jobDoc.toObject ? jobDoc.toObject() : jobDoc;
   const match = job?.match || {};
   const recording = job?.recording || {};
+  const matchCodePayload = buildMatchCodePayload(match);
   const displayMode = safeText(
     match?.tournament?.nameDisplayMode
   ).toLowerCase();
@@ -358,7 +360,10 @@ function serializeJob(jobDoc) {
       ? String(recording._id)
       : String(job.recording || ""),
     matchId: match?._id ? String(match._id) : String(job.match || ""),
-    matchCode: safeText(match?.code),
+    matchCode:
+      safeText(matchCodePayload?.displayCode) ||
+      safeText(matchCodePayload?.code) ||
+      safeText(match?.code),
     participantsLabel: buildParticipantsLabel({
       ...match,
       tournament: match?.tournament || { nameDisplayMode: displayMode },

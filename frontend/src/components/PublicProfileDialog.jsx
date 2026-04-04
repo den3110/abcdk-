@@ -65,6 +65,7 @@ import {
   useDeleteRatingHistoryMutation,
   useGetUserAchievementsQuery,
 } from "../slices/usersApiSlice";
+import ResponsiveMatchViewer from "../screens/PickleBall/match/ResponsiveMatchViewer";
 
 /* ---------- placeholders ---------- */
 const AVA_PLACE = "";
@@ -558,14 +559,23 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     ? matchQ.data
     : matchQ.data?.items || [];
   const matchTotal = matchQ.data?.total ?? 0;
+  const matchViewerZIndex = theme.zIndex.modal + 20;
 
   /* --- match detail modal --- */
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [matchViewerOpen, setMatchViewerOpen] = useState(false);
+  const [matchViewerRow, setMatchViewerRow] = useState(null);
   const openDetail = (row) => {
-    setDetail(row);
-    setDetailOpen(true);
+    setMatchViewerRow(row || null);
+    setMatchViewerOpen(true);
   };
+
+  useEffect(() => {
+    if (open) return;
+    setMatchViewerOpen(false);
+    setMatchViewerRow(null);
+  }, [open]);
 
   /* --- ZOOM image state & dialog --- */
   const [zoom, setZoom] = useState({ open: false, src: "", title: "" });
@@ -2326,6 +2336,18 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           title={zoom.title}
           onClose={closeZoom}
         />
+        <ResponsiveMatchViewer
+          open={matchViewerOpen}
+          onClose={() => setMatchViewerOpen(false)}
+          matchId={matchViewerRow?._id || matchViewerRow?.id || null}
+          courtStationId={
+            matchViewerRow?.courtStationId ||
+            matchViewerRow?.courtStation?._id ||
+            null
+          }
+          initialMatch={matchViewerRow || null}
+          zIndex={matchViewerZIndex}
+        />
         {SnackRender}
       </>
     );
@@ -2413,6 +2435,18 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         src={zoom.src}
         title={zoom.title}
         onClose={closeZoom}
+      />
+      <ResponsiveMatchViewer
+        open={matchViewerOpen}
+        onClose={() => setMatchViewerOpen(false)}
+        matchId={matchViewerRow?._id || matchViewerRow?.id || null}
+        courtStationId={
+          matchViewerRow?.courtStationId ||
+          matchViewerRow?.courtStation?._id ||
+          null
+        }
+        initialMatch={matchViewerRow || null}
+        zIndex={matchViewerZIndex}
       />
       {SnackRender}
     </>

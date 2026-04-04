@@ -241,7 +241,7 @@ private struct LoginScreen: View {
                                 DetailLine(label: "Deep link", value: streamURLString)
                             }
 
-                            if let recoveryDialog = Optional<OperatorRecoveryDialogState>.none {
+                            if let recoveryDialog = store.operatorRecoveryDialog {
                                 DetailLine(label: "Stage", value: recoveryDialog.stage.label)
                                 DetailLine(label: "Severity", value: recoveryDialog.severity.label)
                                 DetailLine(label: "Attempt", value: "\(recoveryDialog.attempt)")
@@ -2013,6 +2013,9 @@ private struct LiveStreamScreen: View {
         if store.socketPayloadStale {
             items.append("Payload overlay đang stale")
         }
+        if store.socketRoomPending {
+            items.append("Socket đang chờ join room match")
+        }
         if store.socketRoomMismatch {
             items.append("Socket đang chờ room match mới")
         }
@@ -2062,6 +2065,7 @@ private struct LiveStreamScreen: View {
         if store.freshEntryRequired { issues += 1 }
         if !store.networkConnected { issues += 1 }
         if !store.socketConnected || store.socketPayloadStale { issues += 1 }
+        if store.socketRoomPending { issues += 1 }
         if store.socketRoomMismatch { issues += 1 }
         if !store.overlayDataReady && store.activeMatch != nil { issues += 1 }
         if !store.brandingReady && store.activeMatch != nil { issues += 1 }
@@ -2097,6 +2101,9 @@ private struct LiveStreamScreen: View {
         }
         if store.recordingStorageHardBlock {
             return "Thiếu bộ nhớ"
+        }
+        if store.socketRoomPending {
+            return "Chờ room"
         }
         if store.socketRoomMismatch {
             return "Sai room"
@@ -2135,7 +2142,7 @@ private struct LiveStreamScreen: View {
         if store.recordingStorageHardBlock {
             return LivePalette.danger
         }
-        if store.freshEntryRequired || !store.socketConnected || store.socketPayloadStale || store.socketRoomMismatch || !store.overlayDataReady || store.overlayHealth.lastIssue?.trimmedNilIfBlank != nil || store.thermalWarning || store.batteryLowWarning || store.safetyDegradeActive || store.recordingStorageWarning {
+        if store.freshEntryRequired || !store.socketConnected || store.socketPayloadStale || store.socketRoomPending || store.socketRoomMismatch || !store.overlayDataReady || store.overlayHealth.lastIssue?.trimmedNilIfBlank != nil || store.thermalWarning || store.batteryLowWarning || store.safetyDegradeActive || store.recordingStorageWarning {
             return LivePalette.warning
         }
         return LivePalette.success
@@ -2156,6 +2163,9 @@ private struct LiveStreamScreen: View {
         }
         if store.batteryLowWarning {
             return "Thiết bị đang pin thấp và không cắm sạc. Nên cấp nguồn trước khi tiếp tục phiên dài."
+        }
+        if store.socketRoomPending {
+            return "Socket đã nối nhưng app vẫn chưa join vào room của match hiện tại. App sẽ đợi room khớp trước khi tự vào phiên."
         }
         if store.socketRoomMismatch {
             return "Socket đã nối nhưng vẫn chưa đứng đúng room của match hiện tại. Overlay có thể đang chờ room mới hoặc vừa đổi trận."
@@ -2209,6 +2219,9 @@ private struct LiveStreamScreen: View {
         }
         if !store.socketConnected {
             reasons.append("Socket overlay chưa kết nối hoặc chưa join room match.")
+        }
+        if store.socketRoomPending {
+            reasons.append("Socket đã nối nhưng app vẫn chưa xác nhận được room của match hiện tại.")
         }
         if store.socketRoomMismatch {
             reasons.append("Socket đang ở room match \(store.activeSocketMatchId?.trimmedNilIfBlank ?? "khác") thay vì match hiện tại.")
@@ -2398,6 +2411,7 @@ private struct LiveStreamScreen: View {
                             DetailLine(label: "App state", value: store.appIsActive ? "Foreground" : "Background")
                             DetailLine(label: "Socket", value: store.socketConnected ? "Connected" : "Offline")
                             DetailLine(label: "Payload age", value: store.socketPayloadAgeSeconds.map { "\($0) giây" } ?? "Chưa có")
+                            DetailLine(label: "Room state", value: store.socketRoomPending ? "Pending join" : (store.socketRoomMismatch ? "Mismatch" : "OK"))
                             DetailLine(label: "Room mismatch", value: store.socketRoomMismatch ? "Có" : "Không")
                             DetailLine(label: "Preview ready", value: store.previewReady ? "Sẵn sàng" : "Chưa sẵn sàng")
                             DetailLine(label: "Court", value: store.currentCourtIdentifier ?? store.selectedCourt?.displayName ?? "Chưa có")

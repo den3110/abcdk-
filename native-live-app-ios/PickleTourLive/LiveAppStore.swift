@@ -89,12 +89,16 @@ final class LiveAppStore: ObservableObject {
     private var pendingLaunchTarget: LiveLaunchTarget?
     private var activeRecording: MatchRecording?
     private var recordingFinalizeRequested = false
-    private var recordingUploadTasks: [UUID: Task<Void, Never>] = [:]
     private var watchedClusterId: String?
     private var watchedCourtId: String?
     private var watchedTournamentId: String?
     private var queuedCourtMatchId: String?
     private var isSwitchingMatch = false
+    private var isRefreshingOverlay = false
+    private var isResumingRecordingQueue = false
+    private var lastOverlayRefreshAttemptAt: Date?
+    private var lastSocketSelfHealAt: Date?
+    private var lastRecordingQueueResumeAt: Date?
 
     init() {
         session = environment.sessionStore.session
@@ -257,8 +261,8 @@ final class LiveAppStore: ObservableObject {
             courtId: courtId?.trimmedNilIfBlank,
             matchId: matchId?.trimmedNilIfBlank,
             pageId: pageId?.trimmedNilIfBlank
-            )
-        }
+        )
+    }
     }
 
     func continueFromSetup() async {
@@ -328,8 +332,20 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
-    func refreshOverlay() async {
+    func refreshOverlay(force: Bool = true) async {
         guard let matchId = activeMatch?.id.trimmedNilIfBlank else { return }
+        if isRefreshingOverlay { return }
+        if
+            !force,
+            let lastOverlayRefreshAttemptAt,
+            Date().timeIntervalSince(lastOverlayRefreshAttemptAt) < 8
+        {
+            return
+        }
+
+        isRefreshingOverlay = true
+        lastOverlayRefreshAttemptAt = Date()
+        defer { isRefreshingOverlay = false }
 
         async let snapshotTask = try? environment.apiClient.getOverlaySnapshot(matchId: matchId)
         async let configTask = try? environment.apiClient.getOverlayConfig(tournamentId: activeMatch?.tournament?.id)
@@ -407,6 +423,25 @@ final class LiveAppStore: ObservableObject {
         do {
             recordingFinalizeRequested = false
             queuedCourtMatchId = nil
+
+            if liveMode.includesLivestream, (overlaySnapshot == nil || socketRoomPending || socketRoomMismatch || socketPayloadStale) {
+                await refreshOverlay()
+            }
+
+            if liveMode.includesLivestream, let matchId = activeMatch.id.trimmedNilIfBlank, (socketRoomPending || socketRoomMismatch) {
+                environment.matchSocket.watch(matchId: matchId)
+            }
+
+            if liveMode.includesLivestream, socketRoomPending {
+                errorMessage = "Socket đang chờ join vào room của match hiện tại. Hãy thử lại sau vài giây."
+                return
+            }
+
+            if liveMode.includesLivestream, socketRoomMismatch {
+                errorMessage = "Socket vẫn đang đứng sai room match. App sẽ không vào live cho đến khi room khớp lại."
+                return
+            }
+
             streamingService.applyQuality(selectedQuality)
             try await streamingService.preparePreview(quality: selectedQuality)
 
@@ -771,6 +806,12 @@ final class LiveAppStore: ObservableObject {
         return activeSocketMatchId != activeMatchId
     }
 
+    var socketRoomPending: Bool {
+        guard socketConnected else { return false }
+        guard activeMatch?.id.trimmedNilIfBlank != nil else { return false }
+        return activeSocketMatchId?.trimmedNilIfBlank == nil
+    }
+
     var previewLeaseRemainingSeconds: Int? {
         guard let raw = courtPresence?.previewReleaseAt?.trimmedNilIfBlank else { return nil }
         guard let date = ISO8601DateFormatter.liveApp.date(from: raw) else { return nil }
@@ -785,6 +826,29 @@ final class LiveAppStore: ObservableObject {
 
     var overlayDataReady: Bool {
         overlaySnapshot != nil
+    }
+
+    private var autoStartDelayReason: String? {
+        guard liveMode.includesLivestream else { return nil }
+        guard let activeMatchId = activeMatch?.id.trimmedNilIfBlank else { return nil }
+
+        if overlaySnapshot == nil {
+            return "App đang chờ snapshot overlay mới trước khi auto-start."
+        }
+
+        if socketConnected {
+            guard let roomMatchId = activeSocketMatchId?.trimmedNilIfBlank else {
+                return "App đang chờ socket join vào đúng room match trước khi auto-start."
+            }
+            if roomMatchId != activeMatchId {
+                return "App đang chờ socket khớp lại room của match hiện tại trước khi auto-start."
+            }
+            if socketPayloadStale {
+                return "Payload overlay đang stale, app sẽ đợi thêm dữ liệu mới trước khi auto-start."
+            }
+        }
+
+        return nil
     }
 
     private var recordingBytesPerSecondBudget: Int64 {
@@ -1291,6 +1355,26 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        if socketRoomPending {
+            issues.append(
+                LivePreflightIssue(
+                    id: "socket_room_pending",
+                    severity: .warning,
+                    title: "Socket chưa đứng đúng room match",
+                    detail: "Socket đã nối nhưng app vẫn chưa xác nhận được room của match hiện tại."
+                )
+            )
+        } else if socketRoomMismatch {
+            issues.append(
+                LivePreflightIssue(
+                    id: "socket_room_mismatch",
+                    severity: .warning,
+                    title: "Socket đang đứng sai room",
+                    detail: "App đang nối vào room khác với match hiện tại. Nên chờ tự đồng bộ xong rồi mới auto-start."
+                )
+            )
+        }
+
         if currentCourtId?.trimmedNilIfBlank != nil, !presenceSocketConnected {
             issues.append(
                 LivePreflightIssue(
@@ -1506,6 +1590,20 @@ final class LiveAppStore: ObservableObject {
             return
         }
 
+        if let autoStartDelayReason {
+            waitingForMatchLive = false
+            bannerMessage = autoStartDelayReason
+            if let matchId = activeMatch?.id.trimmedNilIfBlank, (socketRoomPending || socketRoomMismatch) {
+                environment.matchSocket.watch(matchId: matchId)
+            }
+            if overlaySnapshot == nil || socketPayloadStale {
+                Task { [weak self] in
+                    await self?.refreshOverlay(force: false)
+                }
+            }
+            return
+        }
+
         waitingForMatchLive = false
         goLiveArmed = false
         recordOnlyArmed = false
@@ -1578,6 +1676,46 @@ final class LiveAppStore: ObservableObject {
         availableStorageBytes = (attributes[.systemFreeSize] as? NSNumber)?.int64Value ?? availableStorageBytes
     }
 
+    private func performHealthMaintenanceIfNeeded(force: Bool = false) async {
+        guard session?.accessToken.trimmedNilIfBlank != nil else { return }
+
+        if force || !runtimeSocketConnected {
+            environment.courtRuntimeSocket.connectIfNeeded()
+        }
+        if force || !presenceSocketConnected {
+            environment.courtPresenceSocket.connectIfNeeded()
+        }
+
+        if let matchId = activeMatch?.id.trimmedNilIfBlank {
+            let shouldSelfHealSocket =
+                force
+                || !socketConnected
+                || socketRoomPending
+                || socketRoomMismatch
+                || socketPayloadStale
+
+            if shouldSelfHealSocket {
+                let canRunNow =
+                    force
+                    || lastSocketSelfHealAt == nil
+                    || Date().timeIntervalSince(lastSocketSelfHealAt ?? .distantPast) >= 6
+                if canRunNow {
+                    lastSocketSelfHealAt = Date()
+                    environment.matchSocket.connectIfNeeded()
+                    environment.matchSocket.watch(matchId: matchId)
+                }
+            }
+
+            if force || overlaySnapshot == nil || socketPayloadStale || overlayHealth.lastIssue?.trimmedNilIfBlank != nil {
+                await refreshOverlay(force: force)
+            }
+        }
+
+        if networkConnected, (recordingPendingUploads > 0 || recordingPendingFinalizations > 0) {
+            await resumeRecordingQueueIfPossible(force: force)
+        }
+    }
+
     private func rebuildPreviewPipeline() async {
         do {
             streamingService.stopPublishing()
@@ -1597,6 +1735,9 @@ final class LiveAppStore: ObservableObject {
         } else {
             streamingService.stopPublishing()
             await streamingService.stopRecording()
+        }
+        if activeMatch != nil || currentCourtId?.trimmedNilIfBlank != nil {
+            await refreshCurrentContext()
         }
         await rebuildPreviewPipeline()
         if activeMatch != nil || currentCourtId?.trimmedNilIfBlank != nil {
@@ -1620,7 +1761,7 @@ final class LiveAppStore: ObservableObject {
                 self?.networkConnected = connected
                 if connected {
                     Task { [weak self] in
-                        await self?.resumeRecordingQueueIfPossible()
+                        await self?.resumeRecordingQueueIfPossible(force: true)
                     }
                 }
             }
@@ -1728,16 +1869,8 @@ final class LiveAppStore: ObservableObject {
                         )
                         self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
                     }
-                    if self.activeMatch != nil {
-                        await self.refreshOverlay()
-                    }
                     self.maybeReleaseSafetyDegrade()
-                    self.environment.courtRuntimeSocket.connectIfNeeded()
-                    self.environment.courtPresenceSocket.connectIfNeeded()
-                    if let matchId = self.activeMatch?.id.trimmedNilIfBlank {
-                        self.environment.matchSocket.watch(matchId: matchId)
-                    }
-                    await self.resumeRecordingQueueIfPossible()
+                    await self.performHealthMaintenanceIfNeeded(force: true)
                 }
             }
             .store(in: &cancellables)
@@ -2191,6 +2324,8 @@ final class LiveAppStore: ObservableObject {
                     self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
                 }
 
+                await self.performHealthMaintenanceIfNeeded()
+
                 let intervalMs = max(self.leaseHeartbeatIntervalMs, 5_000)
                 try? await Task.sleep(nanoseconds: UInt64(intervalMs) * 1_000_000)
             }
@@ -2312,60 +2447,7 @@ final class LiveAppStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             recordingStateText = "Upload recording lỗi"
-            return
         }
-
-        let recordingId = activeRecording?.id?.trimmedNilIfBlank ?? segment.recordingId
-        let segmentBytes: Int64 = {
-            let values = try? segment.fileURL.resourceValues(forKeys: [.fileSizeKey])
-            return Int64(values?.fileSize ?? 0)
-        }()
-        recordingPendingUploads += 1
-        recordingPendingQueueBytes += max(segmentBytes, 0)
-        if segment.isFinal {
-            recordingFinalizeRequested = true
-        }
-        recordingStateText = "Đang tải \(recordingPendingUploads) segment"
-
-        let taskId = UUID()
-        let coordinator = environment.recordingCoordinator
-
-        let task = Task.detached(priority: .utility) { [weak self] in
-            do {
-                let response = try await coordinator.uploadSegment(recordingId: recordingId, fileURL: segment.fileURL)
-                await MainActor.run {
-                    if let recording = response.recording {
-                        self?.activeRecording = recording
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self?.errorMessage = error.localizedDescription
-                    self?.recordingStateText = "Upload recording lỗi"
-                }
-            }
-
-            await MainActor.run {
-                guard let self else { return }
-                self.recordingUploadTasks.removeValue(forKey: taskId)
-                self.recordingPendingUploads = max(0, self.recordingPendingUploads - 1)
-                self.recordingPendingQueueBytes = max(0, self.recordingPendingQueueBytes - max(segmentBytes, 0))
-
-                if self.recordingPendingUploads > 0 {
-                    self.recordingStateText = "Đang tải \(self.recordingPendingUploads) segment"
-                } else if self.recordingFinalizeRequested {
-                    self.recordingStateText = "Đang chốt recording"
-                }
-            }
-
-            await MainActor.run {
-                Task { [weak self] in
-                    await self?.maybeFinalizeRecordingIfReady()
-                }
-            }
-        }
-
-        recordingUploadTasks[taskId] = task
     }
 
     private func maybeFinalizeRecordingIfReady(recordingId: String? = nil, matchId: String? = nil) async {
@@ -2418,11 +2500,27 @@ final class LiveAppStore: ObservableObject {
     private func restoreRecordingQueue() async {
         let snapshot = await environment.recordingCoordinator.restorePersistedQueue()
         applyRecordingQueueSnapshot(snapshot)
-        await resumeRecordingQueueIfPossible()
+        await resumeRecordingQueueIfPossible(force: true)
     }
 
-    private func resumeRecordingQueueIfPossible() async {
+    private func resumeRecordingQueueIfPossible(force: Bool = false) async {
         guard session?.accessToken.trimmedNilIfBlank != nil else { return }
+        guard !isResumingRecordingQueue else { return }
+        if
+            !force,
+            let lastRecordingQueueResumeAt,
+            Date().timeIntervalSince(lastRecordingQueueResumeAt) < 6
+        {
+            return
+        }
+
+        isResumingRecordingQueue = true
+        lastRecordingQueueResumeAt = Date()
+        defer {
+            isResumingRecordingQueue = false
+            lastRecordingQueueResumeAt = Date()
+        }
+
         let updatedRecordings = await environment.recordingCoordinator.resumePendingUploads()
         for recording in updatedRecordings {
             if activeRecording?.id == nil || activeRecording?.id == recording.id {
@@ -2454,7 +2552,7 @@ final class LiveAppStore: ObservableObject {
         let snapshotFresh = overlaySnapshot != nil && (!socketConnected || !socketPayloadStale)
         streamingService.noteOverlayInputs(
             snapshotFresh: snapshotFresh,
-            roomMismatch: socketRoomMismatch,
+            roomMismatch: socketRoomMismatch || socketRoomPending,
             brandingReady: brandingReady
         )
     }
@@ -2633,8 +2731,8 @@ final class LiveAppStore: ObservableObject {
     }
 
     private func cancelRecordingUploads() {
-        recordingUploadTasks.values.forEach { $0.cancel() }
-        recordingUploadTasks.removeAll()
+        isResumingRecordingQueue = false
+        lastRecordingQueueResumeAt = nil
     }
 }
 

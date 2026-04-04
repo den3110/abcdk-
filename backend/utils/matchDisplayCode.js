@@ -224,13 +224,13 @@ export function buildMatchDisplayMeta(match, options = {}) {
     : resolveKnockoutOrder(match);
 
   let computedDisplayCode = "";
-  if (groupLike && poolIndex) {
-    computedDisplayCode = `V1-B${poolIndex}-T${matchOrder}`;
-  } else if (!groupLike && globalRound) {
+  if (groupLike) {
+    computedDisplayCode = poolIndex
+      ? `V1-B${poolIndex}-T${matchOrder}`
+      : `V1-T${matchOrder}`;
+  } else if (globalRound) {
     computedDisplayCode = `V${globalRound}-T${matchOrder}`;
   }
-
-  const hasRoundOffsets = options?.baseByBracketId instanceof Map;
 
   const explicit =
     normalizeCode(match?.displayCode) ||
@@ -246,11 +246,7 @@ export function buildMatchDisplayMeta(match, options = {}) {
         ""
     ).trim() || "";
 
-  const displayCode =
-    (hasRoundOffsets ? computedDisplayCode : "") ||
-    explicit ||
-    fallback ||
-    computedDisplayCode;
+  const displayCode = explicit || computedDisplayCode || fallback;
   const code = displayCode || fallback;
   const globalCode = globalRound ? `V${globalRound}` : "";
 

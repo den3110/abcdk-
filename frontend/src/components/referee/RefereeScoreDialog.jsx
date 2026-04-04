@@ -181,11 +181,55 @@ const userIdOf = (user) => {
   );
 };
 
+const playerIdCandidatesOf = (player) => {
+  const candidates = [
+    player?.user?._id,
+    player?.user,
+    player?._id,
+    player?.id,
+    player?.uid,
+    player?.fullName,
+    player?.name,
+    player?.displayName,
+    player?.nickName,
+    player?.nickname,
+  ]
+    .map((value) => textOf(value))
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+};
+
+const resolveBaseSlotForPlayer = (player, teamBase = {}) => {
+  const keys = playerIdCandidatesOf(player);
+  for (const key of keys) {
+    const slot = Number(teamBase?.[key]);
+    if (slot === 1 || slot === 2) return slot;
+  }
+  return null;
+};
+
+const normalizeSlotsBaseForPlayers = (players, rawTeamBase = {}) => {
+  const teamBase = rawTeamBase && typeof rawTeamBase === "object" ? { ...rawTeamBase } : {};
+  (Array.isArray(players) ? players : []).slice(0, 2).forEach((player, index) => {
+    const existingSlot = resolveBaseSlotForPlayer(player, teamBase);
+    if (existingSlot === 1 || existingSlot === 2) return;
+    const fallbackKey = playerIdCandidatesOf(player)[0] || userIdOf(player);
+    if (!fallbackKey) return;
+    teamBase[fallbackKey] = index === 0 ? 1 : 2;
+  });
+  return teamBase;
+};
+
+const playerMatchesId = (player, value) => {
+  const target = textOf(value);
+  if (!target) return false;
+  return playerIdCandidatesOf(player).some((candidate) => candidate === target);
+};
+
 const playerCurrentSlot = (player, side, base = {}, score = { a: 0, b: 0 }) => {
-  const uid = userIdOf(player);
-  if (!uid) return null;
   const teamBase = base?.[side] || {};
-  const baseSlot = Number(teamBase?.[uid]);
+  const baseSlot = resolveBaseSlotForPlayer(player, teamBase);
   if (baseSlot !== 1 && baseSlot !== 2) return null;
   const teamScore = side === "A" ? Number(score?.a || 0) : Number(score?.b || 0);
   return Number(currentSlotFromBase(baseSlot, teamScore));
@@ -433,7 +477,7 @@ function TeamPanel({
               <PlayerRow
                 key={uid || playerLabel(player, match)}
                 label={playerLabel(player, match)}
-                isServer={Boolean(uid) && String(serverUid || "") === String(uid)}
+                isServer={playerMatchesId(player, serverUid)}
                 muted={muted}
                 borderColor={borderColor}
                 accentColor={accentColor}
@@ -535,7 +579,7 @@ export default function RefereeScoreDialog({
     () => normalizeBreakState(match?.isBreak || match?.break || match?.pause),
     [match?.break, match?.isBreak, match?.pause],
   );
-  const currentBase = useMemo(
+  const rawBase = useMemo(
     () => match?.slots?.base || match?.meta?.slots?.base || { A: {}, B: {} },
     [match?.meta?.slots?.base, match?.slots?.base],
   );
@@ -551,6 +595,13 @@ export default function RefereeScoreDialog({
   const playersA = useMemo(() => playersOf(sidePairOf(match, "A"), eventType), [eventType, match]);
   const playersB = useMemo(() => playersOf(sidePairOf(match, "B"), eventType), [eventType, match]);
   const pairPlayers = useMemo(() => ({ A: playersA, B: playersB }), [playersA, playersB]);
+  const currentBase = useMemo(
+    () => ({
+      A: normalizeSlotsBaseForPlayers(pairPlayers.A || [], rawBase?.A || {}),
+      B: normalizeSlotsBaseForPlayers(pairPlayers.B || [], rawBase?.B || {}),
+    }),
+    [pairPlayers, rawBase],
+  );
   const displayedPlayers = useMemo(
     () => ({
       left: orderPlayersForPanel(pairPlayers[leftSide] || [], {
@@ -593,8 +644,16 @@ export default function RefereeScoreDialog({
     rules.pointsToWin,
     rules.winByTwo,
   );
+  const waitingNextGameStart =
+    Boolean(match?._id) &&
+    Boolean(breakState?.active) &&
+    Number.isInteger(breakState?.afterGame) &&
+    Number(breakState.afterGame) < Number(currentGame) &&
+    Number(currentScore.a) === 0 &&
+    Number(currentScore.b) === 0;
   const needsStartAction =
-    Boolean(match?._id) && match?.status !== "live" && match?.status !== "finished";
+    Boolean(match?._id) &&
+    ((match?.status !== "live" && match?.status !== "finished") || waitingNextGameStart);
   const activeServerNum = needsStartAction && isDouble ? 1 : rawServerNum;
   const isOpeningServe =
     isDouble && Boolean(match?.serve?.opening) && activeServerNum === 1;
@@ -975,8 +1034,8 @@ export default function RefereeScoreDialog({
   const handleBreak = useCallback(
     async (type, side) => {
       if (!ensureInteractionAllowed()) return;
-      const timeoutMinutes = Number(match?.timeoutMinutes || 1);
-      const expectedResumeAt = new Date(Date.now() + timeoutMinutes * 60000).toISOString();
+      const durationMinutes = type === "medical" ? 5 : Number(match?.timeoutMinutes || 1);
+      const expectedResumeAt = new Date(Date.now() + durationMinutes * 60000).toISOString();
       await runProtectedBusy(`${type}-${side}`, () =>
         api.setBreak({
           active: true,
@@ -1025,13 +1084,27 @@ export default function RefereeScoreDialog({
     pushToast("Đã bỏ gán sân.", "success");
   }, [api, ensureInteractionAllowed, pushToast, runProtectedBusy]);
 
+  const handleStart = useCallback(async () => {
+    if (!ensureInteractionAllowed()) return;
+    await runProtectedBusy("start", async () => {
+      await api.start();
+      if (breakState?.active) {
+        await api.setBreak({
+          active: false,
+          note: "",
+          afterGame: currentGame,
+        });
+      }
+    });
+  }, [api, breakState?.active, currentGame, ensureInteractionAllowed, runProtectedBusy]);
+
   const cta = useMemo(() => {
     if (match?.status === "finished") return null;
     if (needsStartAction) {
       return {
         label: "Bắt đầu",
         danger: false,
-        onPress: () => runProtectedBusy("start", () => api.start()),
+        onPress: handleStart,
       };
     }
 
@@ -1080,6 +1153,7 @@ export default function RefereeScoreDialog({
     currentGameFinished,
     currentScore.a,
     currentScore.b,
+    handleStart,
     match?.status,
     matchDecided,
     needsStartAction,

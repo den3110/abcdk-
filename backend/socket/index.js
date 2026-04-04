@@ -2486,7 +2486,7 @@ export function initSocket(
     socket.on(
       "match:break:set",
       async (
-        { matchId, userMatch = false, active, note, afterGame, expectedResumeAt } = {},
+        { matchId, userMatch = false, active, note, type, afterGame, expectedResumeAt } = {},
         ack
       ) => {
         try {
@@ -2500,7 +2500,7 @@ export function initSocket(
 
           const result = await invokeControllerOverSocket(refereeSetBreak, {
             params: { id: matchId },
-            body: { active, note, afterGame, expectedResumeAt },
+            body: { active, note, type, afterGame, expectedResumeAt },
             headers: userMatch ? { "x-pkt-match-kind": "user" } : {},
           });
 

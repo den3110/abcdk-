@@ -12,6 +12,7 @@ import { onMatchFinished } from "../../services/courtQueueService.js";
 import { scheduleMatchStartSoon } from "../../utils/scheduleNotifications.js";
 import { decorateServeAndSlots } from "../../utils/liveServeUtils.js";
 import UserMatch from "../../models/userMatchModel.js";
+import { buildMatchCodePayload } from "../../utils/matchDisplayCode.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -740,8 +741,13 @@ export const adminGetAllMatchesPagination = expressAsyncHandler(
       const base = offsetByBracket.get(bid) || 0;
       const localRound = isGroup ? 1 : Number.isFinite(m.round) ? m.round : 1;
       const globalRound = base + localRound;
-      const tIdx = Number.isFinite(m.order) ? m.order + 1 : null;
-      const globalCode = `V${globalRound}${tIdx ? `-T${tIdx}` : ""}`;
+      const codePayload = buildMatchCodePayload(m, { baseByBracketId: offsetByBracket });
+      const displayCode =
+        String(codePayload?.displayCode || "").trim() ||
+        String(codePayload?.code || "").trim() ||
+        String(m?.displayCode || "").trim() ||
+        String(m?.code || "").trim();
+      const globalCode = displayCode;
 
       return {
         ...m,
