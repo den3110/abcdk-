@@ -15,11 +15,11 @@ enum LiveAppConfig {
     }
 
     static var authorizationEndpoint: URL {
-        requiredURL(for: "PTLiveAuthorizationEndpoint", fallback: "https://pickletour.vn/oauth/authorize")
+        requiredURL(for: "PTLiveAuthorizationEndpoint", fallback: "https://pickletour.vn/api/api/oauth/authorize")
     }
 
     static var tokenEndpoint: URL {
-        requiredURL(for: "PTLiveTokenEndpoint", fallback: "https://pickletour.vn/api/oauth/token")
+        requiredURL(for: "PTLiveTokenEndpoint", fallback: "https://pickletour.vn/api/api/oauth/token")
     }
 
     static var oauthClientId: String {
@@ -31,7 +31,11 @@ enum LiveAppConfig {
     }
 
     static var oauthScope: String {
-        plistValue(for: "PTLiveOAuthScope", fallback: "live_app_access")
+        plistValue(for: "PTLiveOAuthScope", fallback: "openid profile")
+    }
+
+    static var oauthApproveEndpoint: URL {
+        requiredURL(for: "PTLiveOAuthApproveEndpoint", fallback: "https://pickletour.vn/api/api/oauth/authorize/approve")
     }
 
     static func plistValue(for key: String, fallback: String) -> String {
@@ -68,6 +72,8 @@ enum LiveAPIError: LocalizedError {
     case missingPresenter
     case missingToken
     case missingUploadTarget
+    case missingAuthorizationCode
+    case invalidAuthorizationState
 
     var errorDescription: String? {
         switch self {
@@ -85,6 +91,10 @@ enum LiveAPIError: LocalizedError {
             return "Không lấy được access token."
         case .missingUploadTarget:
             return "Thiếu địa chỉ tải tệp lên."
+        case .missingAuthorizationCode:
+            return "Không nhận được mã xác thực từ máy chủ."
+        case .invalidAuthorizationState:
+            return "Phiên xác thực không còn khớp, hãy thử đăng nhập lại."
         }
     }
 }
@@ -453,6 +463,13 @@ final class LiveAPIClient {
 
 final class LiveAppAuthCoordinator: NSObject {
     private var currentAuthorizationFlow: OIDExternalUserAgentSession?
+    private var pendingAuthorizationRequest: OIDAuthorizationRequest?
+    private let urlSession: URLSession
+
+    override init() {
+        self.urlSession = .shared
+        super.init()
+    }
 
     func handleOpenURL(_ url: URL) -> Bool {
         guard let currentAuthorizationFlow else { return false }
@@ -463,31 +480,35 @@ final class LiveAppAuthCoordinator: NSObject {
         return handled
     }
 
+    func prepareAuthorizationRequestURL() -> URL {
+        let request = buildAuthorizationRequest()
+        pendingAuthorizationRequest = request
+        return request.authorizationRequestURL()
+    }
+
+    @MainActor
+    func cancelInteractiveAuthorizationFlow() {
+        pendingAuthorizationRequest = nil
+        currentAuthorizationFlow?.cancel()
+        currentAuthorizationFlow = nil
+    }
+
     @MainActor
     func signIn(osAuthToken: String? = nil) async throws -> AuthSession {
+        if let osAuthToken = osAuthToken?.trimmedNilIfBlank {
+            return try await signInWithOsAuthToken(osAuthToken)
+        }
+
+        let request = pendingAuthorizationRequest ?? buildAuthorizationRequest()
+        pendingAuthorizationRequest = request
+
         guard let presenter = UIApplication.shared.topViewController() else {
             throw LiveAPIError.missingPresenter
         }
 
-        let config = OIDServiceConfiguration(
-            authorizationEndpoint: LiveAppConfig.authorizationEndpoint,
-            tokenEndpoint: LiveAppConfig.tokenEndpoint
-        )
-
-        var additionalParameters: [String: String] = [:]
-        if let osAuthToken = osAuthToken?.trimmedNilIfBlank {
-            additionalParameters["os_auth_token"] = osAuthToken
+        defer {
+            pendingAuthorizationRequest = nil
         }
-
-        let request = OIDAuthorizationRequest(
-            configuration: config,
-            clientId: LiveAppConfig.oauthClientId,
-            clientSecret: nil,
-            scopes: LiveAppConfig.oauthScope.split(separator: " ").map(String.init),
-            redirectURL: LiveAppConfig.oauthRedirectURI,
-            responseType: OIDResponseTypeCode,
-            additionalParameters: additionalParameters.isEmpty ? nil : additionalParameters
-        )
 
         return try await withCheckedThrowingContinuation { continuation in
             self.currentAuthorizationFlow = OIDAuthState.authState(
@@ -507,7 +528,6 @@ final class LiveAppAuthCoordinator: NSObject {
                 }
 
                 let token = authState.lastTokenResponse?.accessToken?.trimmedNilIfBlank
-                    ?? authState.accessToken?.trimmedNilIfBlank
 
                 guard let accessToken = token else {
                     continuation.resume(throwing: LiveAPIError.missingToken)
@@ -525,6 +545,226 @@ final class LiveAppAuthCoordinator: NSObject {
                 )
             }
         }
+    }
+
+    private func buildAuthorizationRequest(osAuthToken: String? = nil) -> OIDAuthorizationRequest {
+        let config = OIDServiceConfiguration(
+            authorizationEndpoint: LiveAppConfig.authorizationEndpoint,
+            tokenEndpoint: LiveAppConfig.tokenEndpoint
+        )
+
+        var additionalParameters: [String: String] = [:]
+        if let osAuthToken = osAuthToken?.trimmedNilIfBlank {
+            additionalParameters["os_auth_token"] = osAuthToken
+        }
+
+        return OIDAuthorizationRequest(
+            configuration: config,
+            clientId: LiveAppConfig.oauthClientId,
+            clientSecret: nil,
+            scopes: LiveAppConfig.oauthScope.split(separator: " ").map(String.init),
+            redirectURL: LiveAppConfig.oauthRedirectURI,
+            responseType: OIDResponseTypeCode,
+            additionalParameters: additionalParameters.isEmpty ? nil : additionalParameters
+        )
+    }
+
+    private func signInWithOsAuthToken(_ token: String) async throws -> AuthSession {
+        let request = pendingAuthorizationRequest ?? buildAuthorizationRequest()
+        pendingAuthorizationRequest = request
+        defer {
+            pendingAuthorizationRequest = nil
+        }
+
+        let redirectURL = try await approveAuthorizationRequest(request, osAuthToken: token)
+        let components = URLComponents(url: redirectURL, resolvingAgainstBaseURL: false)
+        let code = components?
+            .queryItems?
+            .first(where: { $0.name == "code" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let state = components?
+            .queryItems?
+            .first(where: { $0.name == "state" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let code, !code.isEmpty else {
+            throw LiveAPIError.missingAuthorizationCode
+        }
+        guard state == request.state else {
+            throw LiveAPIError.invalidAuthorizationState
+        }
+
+        let tokenResponse = try await exchangeAuthorizationCode(code: code, request: request)
+        guard let accessToken = tokenResponse.accessToken?.trimmedNilIfBlank else {
+            throw LiveAPIError.missingToken
+        }
+
+        return AuthSession(
+            accessToken: accessToken,
+            refreshToken: tokenResponse.refreshToken?.trimmedNilIfBlank,
+            idToken: tokenResponse.idToken?.trimmedNilIfBlank,
+            userId: nil,
+            displayName: nil
+        )
+    }
+
+    private func approveAuthorizationRequest(
+        _ request: OIDAuthorizationRequest,
+        osAuthToken: String
+    ) async throws -> URL {
+        guard let redirectURL = request.redirectURL else {
+            throw LiveAPIError.invalidURL
+        }
+
+        let requestBody = OAuthApproveRequest(
+            clientID: request.clientID,
+            redirectURI: redirectURL.absoluteString,
+            responseType: request.responseType,
+            scope: request.scope ?? LiveAppConfig.oauthScope,
+            state: request.state ?? "",
+            codeChallenge: request.codeChallenge ?? "",
+            codeChallengeMethod: request.codeChallengeMethod ?? "",
+            osAuthToken: osAuthToken
+        )
+
+        var urlRequest = URLRequest(url: LiveAppConfig.oauthApproveEndpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONEncoder.liveApp.encode(requestBody)
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        let payload = try decodeJSON(OAuthApproveResponse.self, from: data, response: response)
+
+        guard let redirectTo = payload.redirectTo?.trimmedNilIfBlank, let redirectURL = URL(string: redirectTo) else {
+            throw LiveAPIError.invalidResponse
+        }
+        return redirectURL
+    }
+
+    private func exchangeAuthorizationCode(
+        code: String,
+        request: OIDAuthorizationRequest
+    ) async throws -> OAuthTokenResponse {
+        guard let redirectURL = request.redirectURL else {
+            throw LiveAPIError.invalidURL
+        }
+        guard let codeVerifier = request.codeVerifier?.trimmedNilIfBlank else {
+            throw LiveAPIError.invalidResponse
+        }
+
+        var bodyComponents = URLComponents()
+        bodyComponents.queryItems = [
+            URLQueryItem(name: "grant_type", value: "authorization_code"),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "client_id", value: request.clientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURL.absoluteString),
+            URLQueryItem(name: "code_verifier", value: codeVerifier)
+        ]
+
+        var urlRequest = URLRequest(url: LiveAppConfig.tokenEndpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = bodyComponents.percentEncodedQuery?.data(using: .utf8)
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        return try decodeJSON(OAuthTokenResponse.self, from: data, response: response)
+    }
+
+    private func decodeJSON<Response: Decodable>(
+        _ type: Response.Type,
+        from data: Data,
+        response: URLResponse
+    ) throws -> Response {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LiveAPIError.invalidResponse
+        }
+
+        if (200..<300).contains(httpResponse.statusCode) {
+            return try JSONDecoder.liveApp.decode(type, from: data)
+        }
+
+        if let apiError = try? JSONDecoder.liveApp.decode(OAuthErrorResponse.self, from: data) {
+            let message =
+                apiError.message?.trimmedNilIfBlank ??
+                apiError.errorDescription?.trimmedNilIfBlank ??
+                apiError.reason?.trimmedNilIfBlank ??
+                apiError.error?.trimmedNilIfBlank ??
+                HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+            throw LiveAPIError.server(statusCode: httpResponse.statusCode, message: message)
+        }
+
+        throw LiveAPIError.server(
+            statusCode: httpResponse.statusCode,
+            message: HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+        )
+    }
+}
+
+private struct OAuthApproveRequest: Encodable {
+    let clientID: String
+    let redirectURI: String
+    let responseType: String
+    let scope: String
+    let state: String
+    let codeChallenge: String
+    let codeChallengeMethod: String
+    let osAuthToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case clientID = "client_id"
+        case redirectURI = "redirect_uri"
+        case responseType = "response_type"
+        case scope
+        case state
+        case codeChallenge = "code_challenge"
+        case codeChallengeMethod = "code_challenge_method"
+        case osAuthToken = "os_auth_token"
+    }
+}
+
+private struct OAuthApproveResponse: Decodable {
+    let redirectTo: String?
+    let message: String?
+    let reason: String?
+}
+
+private struct OAuthTokenResponse: Decodable {
+    let accessToken: String?
+    let refreshToken: String?
+    let idToken: String?
+    let tokenType: String?
+    let expiresIn: Int?
+    let scope: String?
+    let error: String?
+    let errorDescription: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case refreshToken = "refresh_token"
+        case idToken = "id_token"
+        case tokenType = "token_type"
+        case expiresIn = "expires_in"
+        case scope
+        case error
+        case errorDescription = "error_description"
+    }
+}
+
+private struct OAuthErrorResponse: Decodable {
+    let message: String?
+    let reason: String?
+    let error: String?
+    let errorDescription: String?
+
+    enum CodingKeys: String, CodingKey {
+        case message
+        case reason
+        case error
+        case errorDescription = "error_description"
     }
 }
 

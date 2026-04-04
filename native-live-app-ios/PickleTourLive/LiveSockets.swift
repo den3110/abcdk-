@@ -362,7 +362,7 @@ final class CourtPresenceSocketCoordinator {
         onConnectionChange?(false)
     }
 
-    private func connectIfNeeded() {
+    func connectIfNeeded() {
         let token = tokenProvider()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !token.isEmpty else {
             disconnect()

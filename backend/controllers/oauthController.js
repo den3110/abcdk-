@@ -125,6 +125,86 @@ function issueLiveAccessToken(user) {
   );
 }
 
+/**
+ * GET /api/oauth/authorize
+ *
+ * Main OAuth authorize endpoint opened by native-live-ios via AppAuth/ASWebAuthenticationSession.
+ *
+ * WITH os_auth_token: validates, auto-approves, redirects to redirect_uri with code+state.
+ * WITHOUT os_auth_token: serves HTML that redirects to pickletourapp:// deep link
+ *   so the user can authenticate via the PickleTour app first.
+ */
+export const authorizeRedirect = asyncHandler(async (req, res) => {
+  const input = parseAuthorizeInput(req.query || {});
+  const validationError = buildAuthorizeValidationError(input);
+  if (validationError) {
+    return res.status(400).json({
+      ok: false,
+      reason: "invalid_request",
+      message: validationError,
+    });
+  }
+
+  // Resolve user from os_auth_token
+  const user = await resolveOAuthUser(req, input.osAuthToken);
+  if (!user) {
+    // No valid auth token — build a deep link to pickletour app for authentication
+    const continueUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+    const deepLink = `pickletourapp://live-auth?continueUrl=${encodeURIComponent(continueUrl)}&callbackUri=${encodeURIComponent(input.redirectUri || OAUTH_LIVE_REDIRECT_URI)}`;
+
+    // Serve HTML that auto-redirects to the pickletour app deep link
+    return res.status(200).send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PickleTour Live – Đăng nhập</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0a0e14;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center;padding:20px}
+.card{max-width:400px;background:#161b22;border-radius:20px;padding:32px 24px;border:1px solid #30363d}
+h1{font-size:20px;margin:0 0 12px}p{color:#8b949e;font-size:14px;line-height:1.6;margin:0 0 24px}
+a{display:block;background:#2ea043;color:#fff;text-decoration:none;padding:14px 24px;border-radius:999px;font-weight:700;font-size:15px;margin-bottom:12px}
+a:active{opacity:.85}.sub{color:#58a6ff;font-size:13px}</style>
+<script>setTimeout(function(){window.location.href="${deepLink.replace(/"/g, '\\"')}"},600)</script>
+</head><body><div class="card">
+<h1>Đăng nhập PickleTour Live</h1>
+<p>Bạn cần đăng nhập qua app PickleTour để tiếp tục.</p>
+<a href="${deepLink.replace(/"/g, '&quot;')}">Mở PickleTour</a>
+<span class="sub">Đang chuyển hướng...</span>
+</div></body></html>`);
+  }
+
+  // Check live access
+  const bootstrap = await buildLiveAppBootstrapForUser(user);
+  if (!bootstrap.canUseLiveApp) {
+    return res.status(403).json({
+      ok: false,
+      reason: bootstrap.reason || "live_access_denied",
+      message:
+        bootstrap.message ||
+        "Tài khoản này chưa có quyền dùng PickleTour Live.",
+    });
+  }
+
+  // Auto-approve: generate authorization code
+  const code = makeCode();
+  const expiresAt = new Date(Date.now() + OAUTH_CODE_TTL_MS);
+
+  await OAuthAuthorizationCode.create({
+    code,
+    clientId: input.clientId,
+    redirectUri: input.redirectUri,
+    scope: input.scope,
+    codeChallenge: input.codeChallenge,
+    codeChallengeMethod: input.codeChallengeMethod,
+    user: user._id,
+    expiresAt,
+  });
+
+  // Build redirect URL with code + state
+  const redirect = new URL(input.redirectUri);
+  redirect.searchParams.set("code", code);
+  redirect.searchParams.set("state", input.state);
+
+  return res.redirect(redirect.toString());
+});
+
 export const getAuthorizeContext = asyncHandler(async (req, res) => {
   const input = parseAuthorizeInput(req.query || {});
   const validationError = buildAuthorizeValidationError(input);

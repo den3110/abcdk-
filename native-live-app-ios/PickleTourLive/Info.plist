@@ -46,19 +46,21 @@
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
 	<key>PTLiveAuthorizationEndpoint</key>
-	<string>https://pickletour.vn/oauth/authorize</string>
+	<string>https://pickletour.vn/api/api/oauth/authorize</string>
 	<key>PTLiveBaseURL</key>
 	<string>https://pickletour.vn/</string>
 	<key>PTLiveOAuthClientId</key>
 	<string>pickletour-live-app</string>
+	<key>PTLiveOAuthApproveEndpoint</key>
+	<string>https://pickletour.vn/api/api/oauth/authorize/approve</string>
 	<key>PTLiveOAuthRedirectURI</key>
 	<string>pickletour-live://auth</string>
 	<key>PTLiveOAuthScope</key>
-	<string>live_app_access</string>
+	<string>openid profile</string>
 	<key>PTLiveSocketURL</key>
 	<string>https://pickletour.vn</string>
 	<key>PTLiveTokenEndpoint</key>
-	<string>https://pickletour.vn/api/oauth/token</string>
+	<string>https://pickletour.vn/api/api/oauth/token</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

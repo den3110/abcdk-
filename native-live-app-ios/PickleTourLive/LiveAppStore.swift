@@ -77,6 +77,10 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var leaseHeartbeatIntervalMs = 10_000
     @Published private(set) var freshEntryRequired = false
     @Published private(set) var safetyDegradeReason: String?
+    @Published private(set) var authDebugHandoffURL: String?
+    @Published private(set) var authDebugContinueURL: String?
+    @Published private(set) var authDebugTargetURL: String?
+    @Published private(set) var authDebugIncomingURL: String?
 
     let streamingService = LiveStreamingService()
 
@@ -100,6 +104,8 @@ final class LiveAppStore: ObservableObject {
     private var lastOverlayRefreshAttemptAt: Date?
     private var lastSocketSelfHealAt: Date?
     private var lastRecordingQueueResumeAt: Date?
+    private var lastHandledIncomingURL: String?
+    private var lastHandledIncomingURLAt: Date?
 
     init() {
         session = environment.sessionStore.session
@@ -130,10 +136,17 @@ final class LiveAppStore: ObservableObject {
     }
 
     deinit {
-        stopBackgroundLoops()
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        runtimePollTask?.cancel()
+        runtimePollTask = nil
+        goLiveCountdownTask?.cancel()
+        goLiveCountdownTask = nil
+        stopLiveCountdownTask?.cancel()
+        stopLiveCountdownTask = nil
+        backgroundExitTask?.cancel()
+        backgroundExitTask = nil
         environment.runtimeRegistry.clear()
-        streamingService.onRecordingSegmentReady = nil
-        streamingService.onRecordingFailure = nil
 
         environment.matchSocket.onOverlaySnapshot = nil
         environment.matchSocket.onConnectionChange = nil
@@ -169,18 +182,31 @@ final class LiveAppStore: ObservableObject {
         defer { isWorking = false }
 
         do {
+            authDebugContinueURL = environment.authCoordinator.prepareAuthorizationRequestURL().absoluteString
             let nextSession = try await environment.authCoordinator.signIn()
             environment.sessionStore.replace(nextSession)
             bannerMessage = "Đăng nhập thành công."
             await refreshBootstrap()
         } catch {
+            if shouldIgnoreProgrammaticAuthCancellation(error) {
+                return
+            }
             errorMessage = error.localizedDescription
         }
     }
 
     func requestPickleTourHandoff() {
+        environment.authCoordinator.cancelInteractiveAuthorizationFlow()
+
         guard let handoffURL = buildPickleTourHandoffURL() else {
             errorMessage = "Không tạo được liên kết handoff với PickleTour."
+            return
+        }
+
+        errorMessage = nil
+
+        guard UIApplication.shared.canOpenURL(handoffURL) else {
+            errorMessage = "Không mở được app PickleTour. Hãy kiểm tra app đã cài và thử lại."
             return
         }
 
@@ -188,8 +214,7 @@ final class LiveAppStore: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 if !opened {
-                    self.bannerMessage = "Không mở được app PickleTour, chuyển sang đăng nhập web."
-                    await self.signInWithWeb()
+                    self.errorMessage = "Không chuyển được sang PickleTour. Hãy thử lại."
                 }
             }
         }
@@ -1228,14 +1253,25 @@ final class LiveAppStore: ObservableObject {
     }
 
     func handleIncomingURL(_ url: URL) {
-        if environment.authCoordinator.handleOpenURL(url) {
+        authDebugIncomingURL = url.absoluteString
+
+        let urlKey = url.absoluteString
+        let now = Date()
+        if
+            lastHandledIncomingURL == urlKey,
+            let lastHandledIncomingURLAt,
+            now.timeIntervalSince(lastHandledIncomingURLAt) < 1
+        {
             return
         }
+        lastHandledIncomingURL = urlKey
+        lastHandledIncomingURLAt = now
 
         guard url.scheme == "pickletour-live" else { return }
 
         switch url.host {
         case "auth-init":
+            environment.authCoordinator.cancelInteractiveAuthorizationFlow()
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             let token = components?
                 .queryItems?
@@ -1258,10 +1294,14 @@ final class LiveAppStore: ObservableObject {
                 pendingLaunchTarget = parseLaunchTarget(from: targetURL)
             }
 
+            bannerMessage = "Đang nhận phiên đăng nhập từ PickleTour..."
             Task {
                 await continueWithOsAuthToken(token)
             }
         case "auth":
+            if environment.authCoordinator.handleOpenURL(url) {
+                return
+            }
             break
         case "stream":
             let target = parseLaunchTarget(from: url)
@@ -2373,6 +2413,7 @@ final class LiveAppStore: ObservableObject {
         defer { isWorking = false }
 
         do {
+            environment.authCoordinator.cancelInteractiveAuthorizationFlow()
             let nextSession = try await environment.authCoordinator.signIn(osAuthToken: token)
             environment.sessionStore.replace(nextSession)
             bannerMessage = "Đã nhận phiên từ PickleTour."
@@ -2380,6 +2421,11 @@ final class LiveAppStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func shouldIgnoreProgrammaticAuthCancellation(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "org.openid.appauth.general" && nsError.code == -4
     }
 
     private func loadCourts(clusterId: String) async {
@@ -2431,12 +2477,13 @@ final class LiveAppStore: ObservableObject {
 
         if let courtId = target.courtId?.trimmedNilIfBlank {
             let runtime = try await environment.apiClient.getCourtRuntime(courtId: courtId)
+            let nextMatchId = try await environment.apiClient.getNextMatchByCourt(courtId: courtId)
             courtRuntime = runtime
             courtPresence = runtime.presence
             resolved.matchId = target.matchId?.trimmedNilIfBlank
                 ?? runtime.currentMatchId?.trimmedNilIfBlank
                 ?? runtime.nextMatchId?.trimmedNilIfBlank
-                ?? (try await environment.apiClient.getNextMatchByCourt(courtId: courtId))
+                ?? nextMatchId?.trimmedNilIfBlank
         }
 
         guard resolved.matchId?.trimmedNilIfBlank != nil || resolved.courtId?.trimmedNilIfBlank != nil else {
@@ -2892,21 +2939,11 @@ final class LiveAppStore: ObservableObject {
     }
 
     private func buildPickleTourHandoffURL() -> URL? {
-        var continueComponents = URLComponents(url: LiveAppConfig.authorizationEndpoint, resolvingAgainstBaseURL: false)
-        continueComponents?.queryItems = [
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "client_id", value: LiveAppConfig.oauthClientId),
-            URLQueryItem(name: "redirect_uri", value: LiveAppConfig.oauthRedirectURI.absoluteString),
-            URLQueryItem(name: "scope", value: LiveAppConfig.oauthScope)
-        ]
-
-        guard let continueURL = continueComponents?.url else {
-            return nil
-        }
-
         var handoff = URLComponents()
         handoff.scheme = "pickletourapp"
         handoff.host = "live-auth"
+        let continueURL = environment.authCoordinator.prepareAuthorizationRequestURL()
+        authDebugContinueURL = continueURL.absoluteString
         var queryItems = [
             URLQueryItem(name: "continueUrl", value: continueURL.absoluteString),
             URLQueryItem(name: "callbackUri", value: "pickletour-live://auth-init")
@@ -2918,9 +2955,14 @@ final class LiveAppStore: ObservableObject {
                 : nil)
         if let preferredTarget, let targetURL = buildNativeStreamURL(for: preferredTarget) {
             queryItems.append(URLQueryItem(name: "targetUrl", value: targetURL.absoluteString))
+            authDebugTargetURL = targetURL.absoluteString
+        } else {
+            authDebugTargetURL = nil
         }
         handoff.queryItems = queryItems
-        return handoff.url
+        let handoffURL = handoff.url
+        authDebugHandoffURL = handoffURL?.absoluteString
+        return handoffURL
     }
 
     private func buildNativeStreamURL(for target: LiveLaunchTarget) -> URL? {
@@ -2928,14 +2970,15 @@ final class LiveAppStore: ObservableObject {
         components.scheme = "pickletour-live"
         components.host = "stream"
 
-        let queryItems = [
-            URLQueryItem(name: "courtId", value: target.courtId?.trimmedNilIfBlank),
-            URLQueryItem(name: "matchId", value: target.matchId?.trimmedNilIfBlank),
-            URLQueryItem(name: "pageId", value: target.pageId?.trimmedNilIfBlank)
-        ]
-        .compactMap { item in
-            guard let value = item.value else { return nil }
-            return URLQueryItem(name: item.name, value: value)
+        var queryItems: [URLQueryItem] = []
+        if let courtId = target.courtId?.trimmedNilIfBlank {
+            queryItems.append(URLQueryItem(name: "courtId", value: courtId))
+        }
+        if let matchId = target.matchId?.trimmedNilIfBlank {
+            queryItems.append(URLQueryItem(name: "matchId", value: matchId))
+        }
+        if let pageId = target.pageId?.trimmedNilIfBlank {
+            queryItems.append(URLQueryItem(name: "pageId", value: pageId))
         }
 
         components.queryItems = queryItems.isEmpty ? nil : queryItems

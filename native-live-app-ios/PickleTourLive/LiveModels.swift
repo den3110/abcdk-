@@ -595,7 +595,7 @@ struct RecordingMultipartProgressRequest: Codable {
     var uploadedBytes: Int64
 }
 
-struct RecordingMultipartPartETag: Codable, Equatable {
+struct RecordingMultipartPartETag: Codable, Equatable, Hashable {
     var partNumber: Int
     var etag: String
 }
@@ -1058,7 +1058,6 @@ struct LiveRuntimeSnapshot: Equatable {
     }
 }
 
-@MainActor
 final class LiveStreamRuntimeRegistry: ObservableObject {
     @Published private(set) var snapshot = LiveRuntimeSnapshot()
 

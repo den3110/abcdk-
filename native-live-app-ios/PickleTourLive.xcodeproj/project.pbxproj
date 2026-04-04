@@ -20,6 +20,7 @@
 		00100000000000000000000B /* PickleTourLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000D /* PickleTourLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		00100000000000000000000C /* MatchLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000C /* MatchLiveActivityAttributes.swift */; };
 		00100000000000000000000D /* PickleTourLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000E /* PickleTourLiveActivityBundle.swift */; };
+		8DF893355118019665FA940E /* Pods_PickleTourLive.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89A6BCA0D87D3AE6B5484D16 /* Pods_PickleTourLive.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +64,9 @@
 		00200000000000000000000D /* PickleTourLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PickleTourLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		00200000000000000000000E /* PickleTourLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickleTourLiveActivityBundle.swift; sourceTree = "<group>"; };
 		00200000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		1988DDE2B942ED3C59B0CFEA /* Pods-PickleTourLive.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PickleTourLive.debug.xcconfig"; path = "Target Support Files/Pods-PickleTourLive/Pods-PickleTourLive.debug.xcconfig"; sourceTree = "<group>"; };
+		89A6BCA0D87D3AE6B5484D16 /* Pods_PickleTourLive.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_PickleTourLive.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		F25C79DA6A87439C199DF9BD /* Pods-PickleTourLive.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PickleTourLive.release.xcconfig"; path = "Target Support Files/Pods-PickleTourLive/Pods-PickleTourLive.release.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +74,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8DF893355118019665FA940E /* Pods_PickleTourLive.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +94,8 @@
 				004000000000000000000002 /* PickleTourLive */,
 				004000000000000000000004 /* PickleTourLiveActivity */,
 				004000000000000000000003 /* Products */,
+				AEB98B85468AC220C65F1D5B /* Pods */,
+				D3269DD0FD55337480E3D10B /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -111,15 +118,6 @@
 			path = PickleTourLive;
 			sourceTree = "<group>";
 		};
-		004000000000000000000004 /* PickleTourLiveActivity */ = {
-			isa = PBXGroup;
-			children = (
-				00200000000000000000000E /* PickleTourLiveActivityBundle.swift */,
-				00200000000000000000000F /* Info.plist */,
-			);
-			path = PickleTourLiveActivity;
-			sourceTree = "<group>";
-		};
 		004000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -129,6 +127,33 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		004000000000000000000004 /* PickleTourLiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				00200000000000000000000E /* PickleTourLiveActivityBundle.swift */,
+				00200000000000000000000F /* Info.plist */,
+			);
+			path = PickleTourLiveActivity;
+			sourceTree = "<group>";
+		};
+		AEB98B85468AC220C65F1D5B /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				1988DDE2B942ED3C59B0CFEA /* Pods-PickleTourLive.debug.xcconfig */,
+				F25C79DA6A87439C199DF9BD /* Pods-PickleTourLive.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		D3269DD0FD55337480E3D10B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				89A6BCA0D87D3AE6B5484D16 /* Pods_PickleTourLive.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -136,10 +161,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 008000000000000000000002 /* Build configuration list for PBXNativeTarget "PickleTourLive" */;
 			buildPhases = (
+				64B70E2A1C39CD529C3D3CC5 /* [CP] Check Pods Manifest.lock */,
 				006000000000000000000001 /* Sources */,
 				003000000000000000000001 /* Frameworks */,
 				007000000000000000000001 /* Resources */,
 				00D000000000000000000001 /* Embed App Extensions */,
+				61B6243D23AA39DC5891D32A /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -169,14 +196,6 @@
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
-
-/* Begin PBXTargetDependency section */
-		00F000000000000000000001 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 005000000000000000000002 /* PickleTourLiveActivity */;
-			targetProxy = 00E000000000000000000001 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		009000000000000000000001 /* Project object */ = {
@@ -233,6 +252,48 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		61B6243D23AA39DC5891D32A /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-PickleTourLive/Pods-PickleTourLive-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-PickleTourLive/Pods-PickleTourLive-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-PickleTourLive/Pods-PickleTourLive-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		64B70E2A1C39CD529C3D3CC5 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-PickleTourLive-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		006000000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -259,6 +320,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		00F000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 005000000000000000000002 /* PickleTourLiveActivity */;
+			targetProxy = 00E000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		00A000000000000000000001 /* Debug */ = {
@@ -298,6 +367,7 @@
 		};
 		00B000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1988DDE2B942ED3C59B0CFEA /* Pods-PickleTourLive.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;
@@ -324,6 +394,7 @@
 		};
 		00B000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F25C79DA6A87439C199DF9BD /* Pods-PickleTourLive.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;

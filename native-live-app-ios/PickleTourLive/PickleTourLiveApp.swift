@@ -16,6 +16,9 @@ struct PickleTourLiveApp: App {
                         store.handleIncomingURL(url)
                     }
                 }
+                .onOpenURL { url in
+                    store.handleIncomingURL(url)
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .liveAppDidReceiveURL)) { notification in
                     guard let url = notification.object as? URL else { return }
                     store.handleIncomingURL(url)
