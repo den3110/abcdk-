@@ -32,6 +32,18 @@ export const resolveDisplayMode = (...sources) => {
   return "nickname";
 };
 
+const displayModeValue = (value) =>
+  value === "fullName" || value === "nickname" ? value : "";
+
+const storedDisplayNameForMode = (entity, mode) => {
+  const storedName = trim(entity?.displayName);
+  const storedMode = displayModeValue(
+    trim(entity?.displayNameMode) || trim(entity?.nameDisplayMode)
+  );
+  if (storedName && storedMode === mode) return storedName;
+  return "";
+};
+
 export const getPlayerNickname = (player) =>
   trim(player?.nickname) ||
   trim(player?.nickName) ||
@@ -52,13 +64,15 @@ export const getPlayerFullName = (player) =>
 export const getPlayerDisplayName = (player, source) => {
   if (!player) return "";
   const mode = resolveDisplayMode(player, source);
+  const nickname = getPlayerNickname(player);
+  const fullName = getPlayerFullName(player);
+  const storedDisplayName = trim(player?.displayName);
   return (
-    trim(player?.displayName) ||
+    storedDisplayNameForMode(player, mode) ||
     (mode === "fullName"
-      ? getPlayerFullName(player) || getPlayerNickname(player)
-      : getPlayerNickname(player) ||
-        trim(player?.shortName) ||
-        getPlayerFullName(player)) ||
+      ? fullName || nickname
+      : nickname || trim(player?.shortName) || fullName) ||
+    storedDisplayName ||
     ""
   );
 };
@@ -102,14 +116,16 @@ export const getPairDisplayName = (pair, source) => {
   const joined = [player1?.displayName, player2?.displayName]
     .filter(Boolean)
     .join(" / ");
+  const storedDisplayName = trim(pair?.displayName);
 
   return (
+    joined ||
+    storedDisplayNameForMode(pair, mode) ||
     trim(pair?.teamName) ||
     trim(pair?.label) ||
     trim(pair?.title) ||
-    joined ||
-    trim(pair?.displayName) ||
     trim(pair?.name) ||
+    storedDisplayName ||
     ""
   );
 };
@@ -311,12 +327,14 @@ const normalizeTeamDisplay = (team, source) => {
     .map((player) => player?.displayName)
     .filter(Boolean)
     .join(" / ");
+  const storedDisplayName = trim(team?.displayName);
   const displayName =
+    joinedPlayers ||
+    storedDisplayNameForMode(team, mode) ||
     trim(team?.teamName) ||
     trim(team?.label) ||
-    joinedPlayers ||
-    trim(team?.displayName) ||
     trim(team?.name) ||
+    storedDisplayName ||
     "";
   return {
     ...team,

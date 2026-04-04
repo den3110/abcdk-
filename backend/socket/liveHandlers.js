@@ -268,13 +268,17 @@ export const resolvePairDisplayName = (
   const joined = [player1?.displayName, player2?.displayName]
     .filter(Boolean)
     .join(" / ");
+  const storedDisplayName = pickTrim(pair?.displayName);
+  const storedMode =
+    pickTrim(pair?.displayNameMode) || pickTrim(pair?.nameDisplayMode);
   return (
+    joined ||
+    (storedMode === displayMode ? storedDisplayName : "") ||
     pickTrim(pair?.teamName) ||
     pickTrim(pair?.label) ||
     pickTrim(pair?.title) ||
-    joined ||
-    pickTrim(pair?.displayName) ||
-    pickTrim(pair?.name)
+    pickTrim(pair?.name) ||
+    storedDisplayName
   );
 };
 
