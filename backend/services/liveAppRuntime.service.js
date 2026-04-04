@@ -153,78 +153,175 @@ function buildCurrentScore(gameScores) {
   };
 }
 
-const STAGE_NAME_MAP = {
-  // Group / Round Robin
-  "group stage": "Vòng bảng",
-  "group": "Vòng bảng",
-  "round robin": "Vòng bảng",
-  "round_robin": "Vòng bảng",
-  "vong bang": "Vòng bảng",
-  "pool play": "Vòng bảng",
-  // Knockout / Single Elimination
-  "knockout": "Loại trực tiếp",
-  "single elimination": "Loại trực tiếp",
-  "single_elimination": "Loại trực tiếp",
-  "roundelim": "Loại trực tiếp",
-  // Double Elimination
-  "double elimination": "Nhánh đấu",
-  "double_elimination": "Nhánh đấu",
-  "double_elim": "Nhánh đấu",
-  "nhanh dau": "Nhánh đấu",
-  // Specific rounds
-  "round of 32": "Vòng 32 đội",
-  "round of 16": "Vòng 16 đội",
-  "quarterfinal": "Tứ kết",
-  "quarterfinals": "Tứ kết",
-  "quarter-final": "Tứ kết",
-  "quarter final": "Tứ kết",
-  "tu ket": "Tứ kết",
-  "semifinal": "Bán kết",
-  "semifinals": "Bán kết",
-  "semi-final": "Bán kết",
-  "semi final": "Bán kết",
-  "ban ket": "Bán kết",
-  "final": "Chung kết",
-  "finals": "Chung kết",
-  "grand final": "Chung kết",
-  "chung ket": "Chung kết",
-  // Consolation
-  "consolation": "Tranh hạng 3",
-  "3rd place": "Tranh hạng 3",
-  "bronze": "Tranh hạng 3",
-};
-
-function normalizeStageName(raw) {
-  if (!raw) return "";
-  const key = raw.trim().toLowerCase();
-  if (STAGE_NAME_MAP[key]) return STAGE_NAME_MAP[key];
-  // Partial match for "round of N"
-  const roundOfMatch = key.match(/^round\s+of\s+(\d+)$/);
-  if (roundOfMatch) return `Vòng ${roundOfMatch[1]} đội`;
-  return raw.trim(); // keep original if no mapping found
-}
-
-function buildStageName(match) {
-  const bracketName = pick(match?.bracket?.name);
-  if (bracketName) {
-    const normalized = normalizeStageName(bracketName);
-    if (normalized) return normalized;
-  }
-
-  const format = pick(match?.format).toLowerCase();
-  if (format) {
-    const normalized = normalizeStageName(format);
-    if (normalized) return normalized;
+function firstText(...values) {
+  for (const value of values) {
+    const text = pick(value);
+    if (text) return text;
   }
   return "";
 }
 
-function buildRoundLabel(match) {
-  return (
-    pick(match?.code) ||
-    pick(match?.labelKey) ||
-    (Number.isFinite(Number(match?.round)) ? `R${Number(match.round)}` : "")
-  );
+function normalizeStageKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function codeToRoundLabel(code) {
+  const normalized = String(code || "").trim().toUpperCase();
+  if (!normalized) return "";
+  if (normalized === "F" || normalized === "GF") return "Chung kết";
+  if (normalized === "SF") return "Bán kết";
+  if (normalized === "QF") return "Tứ kết";
+  const matched = normalized.match(/^R(\d+)$/);
+  if (!matched) return normalized;
+  const size = Number(matched[1]);
+  if (size === 8) return "Tứ kết";
+  if (size === 4) return "Bán kết";
+  if (size === 2) return "Chung kết";
+  if (size > 2) return `1/${Math.max(2, size / 2)}`;
+  return normalized;
+}
+
+function parseRoundSize(roundCode) {
+  const matched = String(roundCode || "")
+    .trim()
+    .toUpperCase()
+    .match(/^R(\d+)$/);
+  return matched ? Number(matched[1]) : null;
+}
+
+function inferRoundCode(match) {
+  const explicit = firstText(match?.roundCode);
+  if (explicit) return explicit.toUpperCase();
+
+  const drawSizeCandidates = [
+    Number(match?.bracket?.meta?.drawSize),
+    Number(match?.bracket?.config?.roundElim?.drawSize),
+    Number(match?.bracket?.meta?.expectedFirstRoundMatches) * 2,
+    Number.isInteger(Number(match?.bracket?.drawRounds))
+      ? 1 << Number(match.bracket.drawRounds)
+      : 0,
+  ].filter((value) => Number.isFinite(value) && value > 1);
+
+  const roundNo = Number(match?.round);
+  if (!Number.isInteger(roundNo) || roundNo <= 0 || !drawSizeCandidates.length) {
+    return "";
+  }
+
+  const drawSize = Math.max(...drawSizeCandidates);
+  const roundSize = Math.max(2, Math.floor(drawSize / Math.pow(2, roundNo - 1)));
+  return `R${roundSize}`;
+}
+
+function inferMaxRounds(match) {
+  const candidates = [
+    Number(match?.bracket?.meta?.maxRounds),
+    Number(match?.bracket?.config?.roundElim?.maxRounds),
+  ].filter((value) => Number.isFinite(value) && value > 0);
+  if (candidates.length) return Math.max(...candidates);
+
+  const firstRoundMatches = Number(match?.bracket?.meta?.expectedFirstRoundMatches);
+  if (Number.isFinite(firstRoundMatches) && firstRoundMatches > 0) {
+    return Math.log2(firstRoundMatches * 2);
+  }
+
+  const drawSize = Number(match?.bracket?.config?.roundElim?.drawSize);
+  if (Number.isFinite(drawSize) && drawSize > 1) {
+    return Math.log2(drawSize);
+  }
+  return null;
+}
+
+function buildRoundElimOrdinalLabel(match, roundCode) {
+  const bracketType = normalizeStageKey(match?.bracket?.type || match?.format);
+  if (bracketType !== "roundelim") return "";
+
+  const roundNumber = Number(match?.round);
+  if (Number.isInteger(roundNumber) && roundNumber > 0) {
+    return `Vòng ${roundNumber}`;
+  }
+
+  const roundSize = parseRoundSize(roundCode);
+  const maxRounds = inferMaxRounds(match);
+  if (!roundSize || !maxRounds) return "";
+
+  const ordinal = maxRounds - Math.log2(roundSize) + 1;
+  return Number.isInteger(ordinal) && ordinal > 0 ? `Vòng ${ordinal}` : "";
+}
+
+function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
+  const bracketType = String(match?.bracket?.type || match?.format || "")
+    .trim()
+    .toLowerCase();
+  if (!bracketType || bracketType === "group") return "";
+  if (bracketType === "roundelim") {
+    const ordinal = buildRoundElimOrdinalLabel(match, roundCode);
+    if (ordinal) return ordinal;
+  }
+  return firstText(match?.roundName, codeToRoundLabel(roundCode));
+}
+
+function buildRuntimePhaseText(match) {
+  const bracketType = String(match?.bracket?.type || match?.format || "")
+    .trim()
+    .toLowerCase();
+  if (bracketType === "group") return "Vòng bảng";
+
+  const roundLabel = (() => {
+    const roundCode = inferRoundCode(match);
+    const byName = firstText(match?.roundName);
+    if (byName) return byName;
+    const normalized = String(roundCode || "").toUpperCase();
+    if (normalized === "QF") return "Tứ kết";
+    if (normalized === "SF") return "Bán kết";
+    if (normalized === "F" || normalized === "GF") return "Chung kết";
+    const matched = normalized.match(/^R(\d+)$/);
+    if (!matched) return "";
+    const size = Number(matched[1]);
+    if (size >= 16) return `Vòng ${size} đội`;
+    if (size === 8) return "Tứ kết";
+    if (size === 4) return "Bán kết";
+    if (size === 2) return "Chung kết";
+    return size > 0 ? `Vòng ${size}` : "";
+  })();
+
+  if (bracketType === "roundelim") {
+    return (
+      firstText(
+        buildRoundElimOrdinalLabel(match, inferRoundCode(match)),
+        match?.roundName,
+        codeToRoundLabel(inferRoundCode(match))
+      ) || "Vòng loại"
+    );
+  }
+
+  if (
+    [
+      "po",
+      "playoff",
+      "play-offs",
+      "knockout",
+      "ko",
+      "single",
+      "singleelimination",
+      "single_elimination",
+      "double",
+      "doubleelimination",
+      "double_elimination",
+      "double_elim",
+    ].includes(bracketType)
+  ) {
+    return roundLabel || "Vòng loại trực tiếp";
+  }
+  return roundLabel || "";
+}
+
+function buildStageName(match, roundCode = inferRoundCode(match)) {
+  const roundLabel = buildRuntimeRoundLabel(match, roundCode);
+  const phaseText = buildRuntimePhaseText(match);
+  return firstText(roundLabel, phaseText);
 }
 
 function buildTournamentLogoUrl(match) {
@@ -507,6 +604,9 @@ function buildCourtStationRuntimePayload({
 function buildMatchRuntimePayload(match) {
   const displayMode = resolveDisplayMode(match);
   const { code, displayCode } = buildMatchCodePayload(match);
+  const roundCode = inferRoundCode(match);
+  const roundLabel = buildRuntimeRoundLabel(match, roundCode);
+  const phaseText = buildRuntimePhaseText(match);
   const teamAName = teamDisplayName(match?.pairA, displayMode);
   const teamBName = teamDisplayName(match?.pairB, displayMode);
   const gameScores = buildGameScores(match);
@@ -532,9 +632,11 @@ function buildMatchRuntimePayload(match) {
     tournamentName: pick(match?.tournament?.name),
     courtName: buildResolvedCourtName(match),
     tournamentLogoUrl: tournamentLogoUrl || null,
-    stageName: buildStageName(match),
-    phaseText: pick(match?.phase),
-    roundLabel: buildRoundLabel(match),
+    stageName: buildStageName(match, roundCode),
+    phaseText,
+    roundLabel,
+    roundCode: roundCode || null,
+    roundName: firstText(match?.roundName, roundLabel) || null,
     seedA:
       Number.isFinite(Number(match?.pairA?.seed)) ? Number(match.pairA.seed) : null,
     seedB:
@@ -625,7 +727,7 @@ export async function buildLiveAppMatchRuntime(matchId) {
 
   const match = await Match.findById(normalizedMatchId)
     .select(
-      "_id code displayCode globalCode labelKey liveVersion status format phase pool group groupNo groupIndex rrRound round order matchNo index stageIndex rules gameScores currentGame serve isBreak tournament bracket pairA pairB court courtStation courtStationLabel courtClusterId courtClusterLabel"
+      "_id code displayCode globalCode labelKey liveVersion status format branch phase pool group groupNo groupIndex rrRound round roundCode roundName order matchNo index stageIndex isThirdPlace rules gameScores currentGame serve isBreak meta tournament bracket pairA pairB court courtStation courtStationLabel courtClusterId courtClusterLabel"
     )
     .populate({
       path: "tournament",
@@ -633,7 +735,7 @@ export async function buildLiveAppMatchRuntime(matchId) {
     })
     .populate({
       path: "bracket",
-      select: "name type",
+      select: "name type drawRounds meta config.roundElim",
     })
     .populate({
       path: "court",

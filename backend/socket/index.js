@@ -3508,6 +3508,7 @@ export function initSocket(
         dto.stageName = stageInfo.stageName; // dùng luôn stageName, không map gì thêm
       }
 
+      dto.stageName = dto.roundLabel || dto.phaseText || dto.stageName;
       emitTournamentMatchUpdate(io, dto, dto, {
         type: "score:set",
         matchId,

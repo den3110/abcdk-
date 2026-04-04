@@ -549,6 +549,136 @@ export const toDTO = (matchDoc) => {
     }
   }
   const roundName = m.roundName || undefined;
+  const readOverlayText = (...values) => {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (text) return text;
+    }
+    return "";
+  };
+  const overlayCodeToRoundLabel = (code) => {
+    const normalized = String(code || "").trim().toUpperCase();
+    if (!normalized) return "";
+    if (normalized === "QF") return "Tứ kết";
+    if (normalized === "SF") return "Bán kết";
+    if (normalized === "F" || normalized === "GF") return "Chung kết";
+    const matched = normalized.match(/^R(\d+)$/);
+    if (!matched) return normalized;
+    const size = Number(matched[1]);
+    if (size >= 16) return `Vòng ${size} đội`;
+    if (size === 8) return "Tứ kết";
+    if (size === 4) return "Bán kết";
+    if (size === 2) return "Chung kết";
+    return size > 0 ? `Vòng ${size}` : "";
+  };
+  const overlayParseRoundSize = (code) => {
+    const matched = String(code || "")
+      .trim()
+      .toUpperCase()
+      .match(/^R(\d+)$/);
+    return matched ? Number(matched[1]) : null;
+  };
+  const overlayInferMaxRounds = () => {
+    const direct = Number(bracket?.meta?.maxRounds);
+    if (Number.isFinite(direct) && direct > 0) return direct;
+
+    const expected = Number(bracket?.meta?.expectedFirstRoundMatches);
+    if (Number.isFinite(expected) && expected > 0) {
+      const drawSize = expected * 2;
+      const lg = Math.log2(drawSize);
+      if (Number.isFinite(lg) && lg > 0) return lg;
+    }
+
+    const roundElimDrawSize = Number(bracket?.config?.roundElim?.drawSize);
+    if (Number.isFinite(roundElimDrawSize) && roundElimDrawSize > 1) {
+      const lg = Math.log2(roundElimDrawSize);
+      if (Number.isFinite(lg) && lg > 0) return lg;
+    }
+    return null;
+  };
+  const overlayRoundElimOrdinalLabel = () => {
+    const bracketTypeValue = String(bracket?.type || format || "")
+      .trim()
+      .toLowerCase();
+    if (bracketTypeValue !== "roundelim") return "";
+
+    const roundNumber = Number(m?.round);
+    if (Number.isInteger(roundNumber) && roundNumber > 0) {
+      return `Vòng ${roundNumber}`;
+    }
+
+    const roundSizeValue = overlayParseRoundSize(roundCode);
+    const maxRoundsValue = overlayInferMaxRounds();
+    if (!roundSizeValue || !maxRoundsValue) return "";
+
+    const ordinal = maxRoundsValue - Math.log2(roundSizeValue) + 1;
+    return Number.isInteger(ordinal) && ordinal > 0 ? `Vòng ${ordinal}` : "";
+  };
+  const roundLabel = (() => {
+    const bracketTypeValue = String(bracket?.type || format || "")
+      .trim()
+      .toLowerCase();
+    if (!bracketTypeValue || bracketTypeValue === "group") return "";
+    if (bracketTypeValue === "roundelim") {
+      const ordinal = overlayRoundElimOrdinalLabel();
+      if (ordinal) return ordinal;
+    }
+    return readOverlayText(roundName, overlayCodeToRoundLabel(roundCode));
+  })();
+  const phaseText = (() => {
+    const bracketTypeValue = String(bracket?.type || format || "")
+      .trim()
+      .toLowerCase();
+    if (bracketTypeValue === "group") return "Vòng bảng";
+
+    if (bracketTypeValue === "roundelim") {
+      return (
+        readOverlayText(
+          overlayRoundElimOrdinalLabel(),
+          roundName,
+          overlayCodeToRoundLabel(roundCode)
+        ) || "Vòng loại"
+      );
+    }
+
+    const canonicalRoundLabel = (() => {
+      const byName = readOverlayText(roundName);
+      if (byName) return byName;
+      const normalized = String(roundCode || "").trim().toUpperCase();
+      if (normalized === "QF") return "Tứ kết";
+      if (normalized === "SF") return "Bán kết";
+      if (normalized === "F" || normalized === "GF") return "Chung kết";
+      const matched = normalized.match(/^R(\d+)$/);
+      if (!matched) return "";
+      const size = Number(matched[1]);
+      if (size >= 16) return `Vòng ${size} đội`;
+      if (size === 8) return "Tứ kết";
+      if (size === 4) return "Bán kết";
+      if (size === 2) return "Chung kết";
+      return size > 0 ? `Vòng ${size}` : "";
+    })();
+
+    if (
+      [
+        "po",
+        "playoff",
+        "play-offs",
+        "knockout",
+        "ko",
+        "single",
+        "singleelimination",
+        "single_elimination",
+        "double",
+        "doubleelimination",
+        "double_elimination",
+        "double_elim",
+      ].includes(bracketTypeValue)
+    ) {
+      return canonicalRoundLabel || "Vòng loại trực tiếp";
+    }
+    return canonicalRoundLabel || "";
+  })();
+  stageName = readOverlayText(roundLabel, phaseText, stageName);
 
   // ================= Teams =================
   const teams =
@@ -622,6 +752,8 @@ export const toDTO = (matchDoc) => {
     // 🆕 stage info cho FE
     stageType,
     stageName,
+    phaseText,
+    roundLabel,
 
     format,
     pool,
