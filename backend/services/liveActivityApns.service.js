@@ -148,14 +148,32 @@ const getBreakState = (match) => {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {
       active: false,
+      afterGame: null,
+      type: "",
+      side: "",
       note: "",
       expectedResumeAt: null,
     };
   }
 
+  const rawNote = String(raw.note || "").trim();
+  const rawType = String(raw.type || "").trim().toLowerCase();
+  const notePrefix = rawNote.split(":")[0]?.trim().toLowerCase() || "";
+  const type =
+    rawType === "timeout" || rawType === "medical"
+      ? rawType
+      : notePrefix === "timeout" || notePrefix === "medical"
+      ? notePrefix
+      : "";
+  const sideToken = rawNote.split(":")[1]?.trim().toUpperCase() || "";
+  const side = sideToken === "A" || sideToken === "B" ? sideToken : "";
+
   return {
     active: Boolean(raw.active),
-    note: String(raw.note || "").trim(),
+    afterGame: typeof raw.afterGame === "number" ? raw.afterGame : null,
+    type,
+    side,
+    note: rawNote,
     expectedResumeAt: toDateSeconds(raw.expectedResumeAt),
   };
 };
@@ -189,6 +207,55 @@ const phaseLabelForStatus = (status, isBreakActive) => {
       return "Sắp đấu";
   }
 };
+
+function buildBreakPresentation(breakState, gameIndex) {
+  if (!breakState?.active) {
+    return {
+      phaseLabel: "",
+      note: "",
+    };
+  }
+
+  const sideShort = breakState.side ? ` ${breakState.side}` : "";
+  const sideLong = breakState.side ? ` đội ${breakState.side}` : "";
+  const normalizedNote = String(breakState.note || "").trim().toLowerCase();
+  const normalizedType = String(breakState.type || "").trim().toLowerCase();
+  const systemNote =
+    normalizedNote &&
+    (normalizedNote === normalizedType ||
+      normalizedNote === `${normalizedType}:${String(breakState.side || "").toLowerCase()}`);
+  const customNote = systemNote ? "" : String(breakState.note || "").trim();
+
+  if (normalizedType === "timeout") {
+    return {
+      phaseLabel: `Timeout${sideShort}`,
+      note: customNote || `Timeout${sideLong}`.trim(),
+    };
+  }
+
+  if (normalizedType === "medical") {
+    return {
+      phaseLabel: `Y tế${sideShort}`,
+      note: customNote || `Nghỉ y tế${sideLong}`.trim(),
+    };
+  }
+
+  if (!customNote) {
+    const nextGame =
+      typeof breakState.afterGame === "number"
+        ? Math.max(1, breakState.afterGame + 2)
+        : Math.max(1, Number(gameIndex || 0) + 1);
+    return {
+      phaseLabel: `Chờ game ${nextGame}`,
+      note: `Chờ bắt đầu game ${nextGame}`,
+    };
+  }
+
+  return {
+    phaseLabel: "Tạm nghỉ",
+    note: customNote,
+  };
+}
 
 const isUserMatch = (match) =>
   Boolean(
@@ -258,6 +325,7 @@ function buildLiveActivityState(matchInput = {}) {
     Math.max(0, toInt(match?.currentGame, lastIndex))
   );
   const currentGame = gameScores[currentIndex] || {};
+  const breakPresentation = buildBreakPresentation(breakState, currentIndex);
   const derivedSets = deriveSetWins(
     gameScores,
     rules.pointsToWin,
@@ -278,9 +346,11 @@ function buildLiveActivityState(matchInput = {}) {
   return {
     matchId,
     status,
-    phaseLabel: phaseLabelForStatus(status, breakState.active),
+    phaseLabel: breakState.active
+      ? breakPresentation.phaseLabel
+      : phaseLabelForStatus(status, breakState.active),
     isBreakActive: breakState.active,
-    breakNote: breakState.note,
+    breakNote: breakPresentation.note,
     breakExpectedResumeAt: breakState.expectedResumeAt,
     matchCode:
       codePayload?.displayCode ||
