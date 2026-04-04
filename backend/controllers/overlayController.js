@@ -12,20 +12,10 @@ import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { getManualAssignmentItems } from "../services/courtManualAssignment.service.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 
-const OVERLAY_MATCH_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.OVERLAY_MATCH_CACHE_TTL_MS || 2000)
-);
 const NEXT_MATCH_BY_COURT_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.NEXT_MATCH_BY_COURT_CACHE_TTL_MS || 2000)
 );
-const overlayMatchCache = createShortTtlCache(OVERLAY_MATCH_CACHE_TTL_MS, {
-  id: CACHE_GROUP_IDS.overlayMatch,
-  label: "Overlay match payload",
-  category: "live",
-  scope: "public",
-});
 const nextMatchByCourtCache = createShortTtlCache(
   NEXT_MATCH_BY_COURT_CACHE_TTL_MS,
   {
@@ -116,13 +106,6 @@ function gameWinner(g, rules) {
 export async function getOverlayMatch(req, res) {
   try {
     const { id } = req.params;
-    const cached = overlayMatchCache.get(id);
-    if (cached) {
-      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-      res.setHeader("X-PKT-Cache", "HIT");
-      return res.json(cached);
-    }
-
     const normalizePublicAssetUrl = (value) =>
       toPublicUrl(req, value, { absolute: false });
 
@@ -930,9 +913,13 @@ export async function getOverlayMatch(req, res) {
       isBreak,
     };
 
-    overlayMatchCache.set(id, payload);
-    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-    res.setHeader("X-PKT-Cache", "MISS");
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("X-PKT-Cache", "BYPASS");
     res.json(payload);
   } catch (err) {
     console.error("GET /overlay/match error:", err);

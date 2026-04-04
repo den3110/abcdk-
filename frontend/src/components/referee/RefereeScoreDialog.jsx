@@ -1960,8 +1960,8 @@ export default function RefereeScoreDialog({
           </Box>
 
           <Accordion
-            expanded={toolsOpen}
-            onChange={(_, expanded) => setToolsOpen(expanded)}
+            expanded={false}
+            onChange={() => setToolsOpen(true)}
             sx={{
               bgcolor: ui.card,
               borderRadius: "18px !important",
@@ -2198,6 +2198,251 @@ export default function RefereeScoreDialog({
           </Stack>
         </Box>
       </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={toolsOpen}
+        onClose={() => setToolsOpen(false)}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: ui.paper,
+            color: ui.text,
+            border: "1px solid",
+            borderColor: ui.border,
+            boxShadow: "0 24px 80px rgba(0,0,0,0.42)",
+          },
+        }}
+      >
+        <DialogContent sx={{ p: 2.25 }}>
+          <Stack spacing={2}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              spacing={1.5}
+            >
+              <Box>
+                <Typography sx={{ fontSize: 22, fontWeight: 900, color: ui.text }}>
+                  Công cụ trọng tài
+                </Typography>
+                <Typography sx={{ fontSize: 13, color: ui.muted }}>
+                  Gán sân, cập nhật điểm set, takeover, sync và thao tác phụ.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                <Chip
+                  size="small"
+                  label={`${gameScores.length || 1} game`}
+                  sx={{
+                    fontWeight: 800,
+                    color: ui.muted,
+                    bgcolor: alpha("#ffffff", 0.05),
+                    border: "1px solid",
+                    borderColor: ui.softBorder,
+                  }}
+                />
+                <Chip
+                  size="small"
+                  label={`Điểm set ${rules.pointsToWin}`}
+                  sx={{
+                    fontWeight: 800,
+                    color: ui.muted,
+                    bgcolor: alpha("#ffffff", 0.05),
+                    border: "1px solid",
+                    borderColor: ui.softBorder,
+                  }}
+                />
+                <IconButton
+                  onClick={() => setToolsOpen(false)}
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    border: "1px solid",
+                    borderColor: ui.border,
+                    color: ui.text,
+                  }}
+                >
+                  <CloseIcon />
+                </IconButton>
+              </Stack>
+            </Stack>
+
+            <Stack spacing={2}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={2}
+                alignItems={{ xs: "stretch", md: "center" }}
+              >
+                <Stack spacing={0.8} flex={1}>
+                  <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
+                    Điểm set
+                  </Typography>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
+                    <TextField
+                      type="number"
+                      size="small"
+                      label="Points to win"
+                      value={pointsToWin}
+                      onChange={(event) => setPointsToWin(event.target.value)}
+                      sx={{
+                        maxWidth: 180,
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 3,
+                          bgcolor: alpha("#ffffff", 0.02),
+                        },
+                      }}
+                    />
+                    <Button
+                      variant="contained"
+                      onClick={handleUpdateSettings}
+                      disabled={busy === "settings" || !match?._id}
+                      sx={{
+                        minHeight: 42,
+                        borderRadius: 999,
+                        fontWeight: 800,
+                        alignSelf: { xs: "stretch", sm: "center" },
+                      }}
+                    >
+                      Lưu cấu hình
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Stack>
+
+              <Stack spacing={0.8}>
+                <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
+                  Điều khiển tay giao
+                </Typography>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  {["A-1", "A-2", "B-1", "B-2"].map((item) => {
+                    const [side, server] = item.split("-");
+                    return (
+                      <Button
+                        key={item}
+                        variant="outlined"
+                        onClick={() =>
+                          runLiveControlBusy(item, () =>
+                            api.setServe({
+                              side,
+                              server: Number(server),
+                              opening:
+                                Number(server) === 1 &&
+                                isDouble &&
+                                isPreStartOrOpening,
+                            }),
+                          )
+                        }
+                        disabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
+                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                      >
+                        {item}
+                      </Button>
+                    );
+                  })}
+                </Stack>
+              </Stack>
+
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={2}
+                alignItems={{ xs: "stretch", md: "center" }}
+              >
+                <Stack spacing={0.8} flex={1}>
+                  <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
+                    Đồng bộ quyền chấm
+                  </Typography>
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    <Button
+                      variant="outlined"
+                      startIcon={<SyncIcon />}
+                      onClick={() => sync?.syncNow?.()}
+                      disabled={!sync?.pendingCount || sync?.syncing}
+                      sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                    >
+                      Sync ngay
+                    </Button>
+                    {featureEnabled ? (
+                      <Button
+                        variant="outlined"
+                        startIcon={<CachedIcon />}
+                        onClick={() => sync?.claim?.()}
+                        disabled={sync?.claiming}
+                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                      >
+                        Claim
+                      </Button>
+                    ) : null}
+                    {featureEnabled ? (
+                      <Button
+                        variant="outlined"
+                        color="warning"
+                        onClick={() => sync?.takeover?.()}
+                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                      >
+                        Take over
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </Stack>
+
+                <Stack spacing={0.8} flex={1}>
+                  <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
+                    Kết thúc trận
+                  </Typography>
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    <Button
+                      variant="contained"
+                      color="success"
+                      onClick={() =>
+                        runProtectedBusy("finish-a", () => api.finish("A", "finish"))
+                      }
+                      disabled={!match?._id || Boolean(busy)}
+                      sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                    >
+                      Finish A
+                    </Button>
+                    <Button
+                      variant="contained"
+                      color="success"
+                      onClick={() =>
+                        runProtectedBusy("finish-b", () => api.finish("B", "finish"))
+                      }
+                      disabled={!match?._id || Boolean(busy)}
+                      sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                    >
+                      Finish B
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      onClick={() =>
+                        runProtectedBusy("forfeit-a", () => api.forfeit("A", "forfeit"))
+                      }
+                      disabled={!match?._id || Boolean(busy)}
+                      sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                    >
+                      Forfeit A
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      onClick={() =>
+                        runProtectedBusy("forfeit-b", () => api.forfeit("B", "forfeit"))
+                      }
+                      disabled={!match?._id || Boolean(busy)}
+                      sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
+                    >
+                      Forfeit B
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Stack>
+            </Stack>
+          </Stack>
+        </DialogContent>
       </Dialog>
 
       <Dialog
