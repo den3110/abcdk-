@@ -2,23 +2,13 @@ import mongoose from "mongoose";
 import Court from "../models/courtModel.js";
 import CourtStation from "../models/courtStationModel.js";
 import Match from "../models/matchModel.js";
-import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { getManualAssignmentItems } from "./courtManualAssignment.service.js";
 import { getCourtLivePresenceSummaryMap } from "./courtLivePresence.service.js";
 import { getCourtStationPresenceSummaryMap } from "./courtStationPresence.service.js";
 import { getLiveLeaseConfig } from "./liveSessionLease.service.js";
-import { CACHE_GROUP_IDS } from "./cacheGroups.js";
 import { resolveMatchCourtStationFields } from "./courtCluster.service.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
-const COURT_RUNTIME_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.LIVE_APP_COURT_RUNTIME_CACHE_TTL_MS || 1500)
-);
-const MATCH_RUNTIME_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.LIVE_APP_MATCH_RUNTIME_CACHE_TTL_MS || 2000)
-);
 const COURT_RUNTIME_WAIT_POLL_MS = Math.max(
   3000,
   Number(process.env.LIVE_APP_COURT_RUNTIME_WAIT_POLL_MS || 5000)
@@ -42,19 +32,6 @@ const STATUS_RANK = {
   scheduled: 2,
   live: 3,
 };
-
-const courtRuntimeCache = createShortTtlCache(COURT_RUNTIME_CACHE_TTL_MS, {
-  id: CACHE_GROUP_IDS.liveAppCourtRuntime,
-  label: "Live app court runtime",
-  category: "live-app",
-  scope: "private",
-});
-const matchRuntimeCache = createShortTtlCache(MATCH_RUNTIME_CACHE_TTL_MS, {
-  id: CACHE_GROUP_IDS.liveAppMatchRuntime,
-  label: "Live app match runtime",
-  category: "live-app",
-  scope: "private",
-});
 
 function toIdString(value) {
   if (!value) return "";
@@ -450,7 +427,7 @@ function buildCourtRuntimePayload({ court, presence, nextMatchId, leaseConfig })
         item?.state === "pending" && toIdString(item?.matchId) !== currentMatchId
     ).length,
     recommendedPollIntervalMs,
-    cacheTtlMs: COURT_RUNTIME_CACHE_TTL_MS,
+    cacheTtlMs: 0,
     presence: presence || null,
     presenceHints: {
       occupied: Boolean(presence?.occupied),
@@ -513,7 +490,7 @@ function buildCourtStationRuntimePayload({
     listEnabled: assignmentMode === "queue",
     remainingManualCount: queueCount,
     recommendedPollIntervalMs,
-    cacheTtlMs: COURT_RUNTIME_CACHE_TTL_MS,
+    cacheTtlMs: 0,
     presence: presence || null,
     presenceHints: {
       occupied: Boolean(presence?.occupied),
@@ -598,14 +575,6 @@ export async function buildLiveAppCourtRuntime(courtId) {
     return null;
   }
 
-  const cached = courtRuntimeCache.get(normalizedCourtId);
-  if (cached) {
-    return {
-      ...cached,
-      _cache: { hit: true, ttlMs: COURT_RUNTIME_CACHE_TTL_MS },
-    };
-  }
-
   const station = await CourtStation.findById(normalizedCourtId)
     .populate("clusterId", "name slug")
     .lean();
@@ -623,11 +592,7 @@ export async function buildLiveAppCourtRuntime(courtId) {
       currentMatchIdOverride: preferredMatchIds.currentMatchId,
       nextMatchIdOverride: preferredMatchIds.nextMatchId,
     });
-    courtRuntimeCache.set(normalizedCourtId, payload);
-    return {
-      ...payload,
-      _cache: { hit: false, ttlMs: COURT_RUNTIME_CACHE_TTL_MS },
-    };
+    return payload;
   }
 
   const court = await Court.findById(normalizedCourtId)
@@ -649,25 +614,13 @@ export async function buildLiveAppCourtRuntime(courtId) {
     nextMatchId,
     leaseConfig,
   });
-  courtRuntimeCache.set(normalizedCourtId, payload);
-  return {
-    ...payload,
-    _cache: { hit: false, ttlMs: COURT_RUNTIME_CACHE_TTL_MS },
-  };
+  return payload;
 }
 
 export async function buildLiveAppMatchRuntime(matchId) {
   const normalizedMatchId = toIdString(matchId);
   if (!normalizedMatchId || !mongoose.Types.ObjectId.isValid(normalizedMatchId)) {
     return null;
-  }
-
-  const cached = matchRuntimeCache.get(normalizedMatchId);
-  if (cached) {
-    return {
-      ...cached,
-      _cache: { hit: true, ttlMs: MATCH_RUNTIME_CACHE_TTL_MS },
-    };
   }
 
   const match = await Match.findById(normalizedMatchId)
@@ -730,10 +683,5 @@ export async function buildLiveAppMatchRuntime(matchId) {
 
   if (!match) return null;
 
-  const payload = buildMatchRuntimePayload(match);
-  matchRuntimeCache.set(normalizedMatchId, payload);
-  return {
-    ...payload,
-    _cache: { hit: false, ttlMs: MATCH_RUNTIME_CACHE_TTL_MS },
-  };
+  return buildMatchRuntimePayload(match);
 }

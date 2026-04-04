@@ -10,8 +10,6 @@ import { sleep } from "../utils/sleep.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { ensureTournamentCardImageUrl } from "../utils/tournamentImageVariant.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
-import { createShortTtlCache } from "../utils/shortTtlCache.js";
-import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
@@ -22,32 +20,6 @@ import {
 } from "../services/teamTournament.service.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
-const TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS || 2000)
-);
-const TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS || 2000)
-);
-const tournamentBracketMatchesCache = createShortTtlCache(
-  TOURNAMENT_BRACKET_MATCHES_CACHE_TTL_MS,
-  {
-    id: CACHE_GROUP_IDS.tournamentBracketMatches,
-    label: "Tournament bracket matches",
-    category: "tournament",
-    scope: "public",
-  }
-);
-const tournamentScheduleMatchesCache = createShortTtlCache(
-  TOURNAMENT_SCHEDULE_MATCHES_CACHE_TTL_MS,
-  {
-    id: CACHE_GROUP_IDS.tournamentScheduleMatches,
-    label: "Tournament schedule matches",
-    category: "tournament",
-    scope: "public",
-  }
-);
 const normalizeTournamentPublicUrls = async (req, tournament) => {
   if (!tournament || typeof tournament !== "object") return tournament;
 
@@ -67,11 +39,15 @@ const normalizeTournamentPublicUrls = async (req, tournament) => {
     overlay,
   };
 };
-
-const buildBracketMatchFastCacheKey = (tournamentId) =>
-  `bracket:${String(tournamentId || "").trim()}`;
-const buildScheduleMatchFastCacheKey = (tournamentId) =>
-  `schedule:${String(tournamentId || "").trim()}`;
+const setNoStoreHeaders = (res) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-PKT-Cache", "BYPASS");
+};
 const ROUND_ELIM_TYPES = new Set(["roundelim", "po", "playoff"]);
 const DEFAULT_MATCH_RULES = {
   bestOf: 1,
@@ -668,14 +644,7 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
 
 const listTournamentMatchesBracketView = async (req, res) => {
   const { id } = req.params;
-  const cacheKey = buildBracketMatchFastCacheKey(id);
-  const cached = tournamentBracketMatchesCache.get(cacheKey);
-  if (cached) {
-    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-    res.setHeader("X-PKT-Cache", "HIT");
-    return res.json(cached);
-  }
-
+  setNoStoreHeaders(res);
   await ensureRoundElimBracketMatches(id);
 
   const listRaw = await Match.find({ tournament: id })
@@ -777,22 +746,13 @@ const listTournamentMatchesBracketView = async (req, res) => {
     .lean();
 
   const payload = await enrichBracketMatchList(id, listRaw);
-  tournamentBracketMatchesCache.set(cacheKey, payload);
-  res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-  res.setHeader("X-PKT-Cache", "MISS");
+  setNoStoreHeaders(res);
   return res.json(payload);
 };
 
 const listTournamentMatchesScheduleView = async (req, res) => {
   const { id } = req.params;
-  const cacheKey = buildScheduleMatchFastCacheKey(id);
-  const cached = tournamentScheduleMatchesCache.get(cacheKey);
-  if (cached) {
-    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-    res.setHeader("X-PKT-Cache", "HIT");
-    return res.json(cached);
-  }
-
+  setNoStoreHeaders(res);
   const listRaw = await Match.find({ tournament: id })
     .select(
       [
@@ -868,9 +828,7 @@ const listTournamentMatchesScheduleView = async (req, res) => {
     list,
   };
 
-  tournamentScheduleMatchesCache.set(cacheKey, payload);
-  res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-  res.setHeader("X-PKT-Cache", "MISS");
+  setNoStoreHeaders(res);
   return res.json(payload);
 };
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)

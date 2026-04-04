@@ -2,8 +2,6 @@
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
-import { createShortTtlCache } from "../utils/shortTtlCache.js";
-import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
@@ -13,17 +11,15 @@ import {
   buildMatchSummary,
 } from "../services/courtCluster.service.js";
 
-const LIVE_MATCHES_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.LIVE_MATCHES_CACHE_TTL_MS || 3000)
-);
-
-const liveMatchesCache = createShortTtlCache(LIVE_MATCHES_CACHE_TTL_MS, {
-  id: CACHE_GROUP_IDS.liveMatches,
-  label: "Live matches list",
-  category: "live",
-  scope: "public",
-});
+const setNoStoreHeaders = (res) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-PKT-Cache", "BYPASS");
+};
 
 const DEFAULT_WINDOW_MS = 8 * 3600 * 1000;
 const DEFAULT_LIMIT = 12;
@@ -313,6 +309,7 @@ async function getStreamRecordingMatchIds() {
 
 export async function listLiveMatches(req, res) {
   try {
+    setNoStoreHeaders(res);
     const statuses = parseCsv(req.query.statuses, DEFAULT_STATUSES);
     const q = String(req.query.q || req.query.keyword || "").trim();
     const selectedTournamentIds = new Set(
@@ -331,24 +328,6 @@ export async function listLiveMatches(req, res) {
       min: 1,
       max: 365 * 24 * 3600 * 1000,
     });
-
-    const cacheKey = JSON.stringify({
-      statuses,
-      q,
-      tournamentIds: Array.from(selectedTournamentIds).sort(),
-      limit,
-      page,
-      excludeFinished,
-      includeAll,
-      windowMs,
-    });
-
-    const cached = liveMatchesCache.get(cacheKey);
-    if (cached) {
-      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-      res.setHeader("X-PKT-Cache", "HIT");
-      return res.json(cached);
-    }
 
     const recordingMatchIds = await getStreamRecordingMatchIds();
     const candidateClauses = [...STREAM_CANDIDATE_CLAUSES];
@@ -405,9 +384,7 @@ export async function listLiveMatches(req, res) {
         },
       };
 
-      liveMatchesCache.set(cacheKey, emptyPayload);
-      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-      res.setHeader("X-PKT-Cache", "MISS");
+      setNoStoreHeaders(res);
       return res.json(emptyPayload);
     }
 
@@ -481,9 +458,7 @@ export async function listLiveMatches(req, res) {
       },
     };
 
-    liveMatchesCache.set(cacheKey, payload);
-    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-    res.setHeader("X-PKT-Cache", "MISS");
+    setNoStoreHeaders(res);
     res.json(payload);
   } catch (e) {
     console.error("listLiveMatches error:", e);
@@ -514,8 +489,6 @@ export async function deleteLiveVideoForMatch(req, res) {
     if (!updated) {
       return res.status(404).json({ message: "Match kh?ng t?n t?i" });
     }
-
-    liveMatchesCache.clear();
 
     return res.json({
       message: "?? x?a th?ng tin video kh?i match",

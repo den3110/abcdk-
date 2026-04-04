@@ -2021,7 +2021,7 @@ export default function RefereeScoreDialog({
                 </Stack>
               </Stack>
             </AccordionSummary>
-            <AccordionDetails sx={{ pt: 0, pb: 2 }}>
+            <AccordionDetails sx={{ display: "none" }}>
               <Stack spacing={2}>
                 <Stack
                   direction={{ xs: "column", md: "row" }}

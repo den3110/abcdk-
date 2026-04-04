@@ -8,23 +8,16 @@ import CmsBlock from "../models/cmsBlockModel.js";
 import UserMatch from "../models/userMatchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
-import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { getManualAssignmentItems } from "../services/courtManualAssignment.service.js";
-import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
-
-const NEXT_MATCH_BY_COURT_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.NEXT_MATCH_BY_COURT_CACHE_TTL_MS || 2000)
-);
-const nextMatchByCourtCache = createShortTtlCache(
-  NEXT_MATCH_BY_COURT_CACHE_TTL_MS,
-  {
-    id: CACHE_GROUP_IDS.overlayNextCourt,
-    label: "Overlay next match by court",
-    category: "live",
-    scope: "public",
-  }
-);
+const setNoStoreHeaders = (res) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-PKT-Cache", "BYPASS");
+};
 // ===== Helpers =====
 const gamesToWin = (bestOf) => Math.floor((Number(bestOf) || 3) / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
@@ -967,20 +960,17 @@ function lexCmp(a, b) {
  * Trả { matchId: "..." } | { matchId: null }
  */
 export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
+  setNoStoreHeaders(res);
   const { courtId } = req.params;
   const { after } = req.query;
+  const sendNoStoreJson = (payload) => {
+    return res.json(payload);
+  };
 
   if (!courtId || !mongoose.Types.ObjectId.isValid(courtId)) {
     return res.status(400).json({ message: "Invalid courtId" });
   }
   const cid = new mongoose.Types.ObjectId(courtId);
-  const cacheKey = `next:${courtId}:${String(after || "").trim()}`;
-  const cached = nextMatchByCourtCache.get(cacheKey);
-  if (cached) {
-    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-    res.setHeader("X-PKT-Cache", "HIT");
-    return res.json(cached);
-  }
 
   const court = await Court.findById(cid)
     .select("currentMatch manualAssignment")
@@ -1015,11 +1005,7 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
         const availableSet = new Set(manualCandidates.map((match) => String(match._id)));
         const nextManualId = candidateIds.find((id) => availableSet.has(id));
         if (nextManualId) {
-          const payload = { matchId: nextManualId };
-          nextMatchByCourtCache.set(cacheKey, payload);
-          res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-          res.setHeader("X-PKT-Cache", "MISS");
-          return res.json(payload);
+          return sendNoStoreJson({ matchId: nextManualId });
         }
       }
     }
@@ -1037,11 +1023,7 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
     .lean();
 
   if (!candidates.length) {
-    const payload = { matchId: null };
-    nextMatchByCourtCache.set(cacheKey, payload);
-    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-    res.setHeader("X-PKT-Cache", "MISS");
-    return res.json(payload);
+    return sendNoStoreJson({ matchId: null });
   }
 
   candidates.sort(lexCmp);
@@ -1051,19 +1033,11 @@ export const getNextMatchByCourt = expressAsyncHandler(async (req, res) => {
     const idx = candidates.findIndex((m) => String(m._id) === String(after));
     if (idx >= 0) {
       const next = candidates[idx + 1];
-      const payload = { matchId: next ? String(next._id) : null };
-      nextMatchByCourtCache.set(cacheKey, payload);
-      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-      res.setHeader("X-PKT-Cache", "MISS");
-      return res.json(payload);
+      return sendNoStoreJson({ matchId: next ? String(next._id) : null });
     }
     // Nếu "after" không nằm trong tập (vì đã finished/khác sân), ta lấy phần tử đầu
   }
 
   // Mặc định: trả trận "đầu hàng" theo tiêu chí sort
-  const payload = { matchId: String(candidates[0]._id) };
-  nextMatchByCourtCache.set(cacheKey, payload);
-  res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-  res.setHeader("X-PKT-Cache", "MISS");
-  return res.json(payload);
+  return sendNoStoreJson({ matchId: String(candidates[0]._id) });
 });

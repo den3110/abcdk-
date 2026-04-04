@@ -26,23 +26,17 @@ import {
   toMatchLite,
 } from "../../services/courtManualAssignment.service.js";
 import { buildSchedulerStatePayload } from "../../services/broadcastState.js";
-import { CACHE_GROUP_IDS } from "../../services/cacheGroups.js";
-import { createShortTtlCache } from "../../utils/shortTtlCache.js";
 const { Types } = mongoose;
 
-const ADMIN_TOURNAMENT_COURTS_CACHE_TTL_MS = Math.max(
-  2000,
-  Number(process.env.ADMIN_TOURNAMENT_COURTS_CACHE_TTL_MS || 5000)
-);
-const adminTournamentCourtsCache = createShortTtlCache(
-  ADMIN_TOURNAMENT_COURTS_CACHE_TTL_MS,
-  {
-    id: CACHE_GROUP_IDS.adminTournamentCourts,
-    label: "Admin tournament courts",
-    category: "admin",
-    scope: "private",
-  }
-);
+const setNoStoreHeaders = (res) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-PKT-Cache", "BYPASS");
+};
 /**
  * Upsert danh sách sân cho 1 giải + bracket
  * Sau khi lưu: build queue (tạm reuse 'cluster' = bracketId) + fill ngay các sân idle
@@ -760,6 +754,7 @@ function makeCodes(match, bracket) {
 // ✅ Courts theo GIẢI, bỏ phụ thuộc bracket
 export async function listCourtsByTournament(req, res) {
   try {
+    setNoStoreHeaders(res);
     const { tid } = req.params;
     const { bracket } = req.query || {};
     const {
@@ -780,26 +775,6 @@ export async function listCourtsByTournament(req, res) {
     const ownerOrMgr = await canManageTournament(me?._id, tid);
     if (!isAdmin && !ownerOrMgr) {
       return res.status(403).json({ message: "Forbidden" });
-    }
-
-    const shouldBypassCache = String(heal || "") === "1";
-    const cacheKey = [
-      "admin-courts",
-      String(me?._id || me?.id || "anon"),
-      tid,
-      String(bracket || ""),
-      String(cluster || ""),
-      String(q || ""),
-      String(limit || ""),
-      String(page || ""),
-    ].join(":");
-    if (!shouldBypassCache) {
-      const cached = adminTournamentCourtsCache.get(cacheKey);
-      if (cached) {
-        res.setHeader("Cache-Control", "private, max-age=5, stale-while-revalidate=10");
-        res.setHeader("X-PKT-Cache", "HIT");
-        return res.json(cached);
-      }
     }
 
     // ----- Truy vấn COURTS theo GIẢI (không theo bracket) -----
@@ -974,11 +949,7 @@ export async function listCourtsByTournament(req, res) {
       );
     }
 
-    if (!shouldBypassCache) {
-      adminTournamentCourtsCache.set(cacheKey, docs);
-      res.setHeader("Cache-Control", "private, max-age=5, stale-while-revalidate=10");
-      res.setHeader("X-PKT-Cache", "MISS");
-    }
+    setNoStoreHeaders(res);
     return res.json(docs);
   } catch (err) {
     console.error("[listCourtsByTournament] error:", err);

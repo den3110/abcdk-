@@ -145,8 +145,92 @@ const referencePrefixFromSeed = (seed) => {
   return "";
 };
 const stripReferencePrefix = (value) => trim(value).replace(/^[WL]\s*-\s*/i, "");
+const extractReferenceCodeParts = (value) => {
+  const raw = trim(value).toUpperCase();
+  if (!raw) return null;
 
-export const getSeedDisplayName = (seed) => {
+  const prefixed = raw.match(/^([WL])\s*-\s*(.+)$/i);
+  const prefix = prefixed?.[1]?.toUpperCase() || "";
+  const base = prefixed?.[2] || raw;
+  const normalized = normalizeMatchCodeCandidate(base) || codeFromLabelKeyish(base);
+  if (!normalized) return null;
+
+  const parsed = normalized.match(/^V(\d+)(?:-B[A-Z0-9]+)?-T(\d+)$/i);
+  if (!parsed) return null;
+
+  return {
+    prefix,
+    round: Number(parsed[1]),
+    order: Number(parsed[2]),
+  };
+};
+const extractCurrentDisplayRound = (match = {}) => {
+  if (!match || typeof match !== "object") return null;
+
+  const tryValues = [
+    match?.displayCode,
+    match?.codeDisplay,
+    match?.codeResolved,
+    match?.codeGroup,
+    match?.globalCodeV,
+    match?.globalCode,
+    match?.matchCode,
+    match?.code,
+    match?.slotCode,
+    match?.bracketCode,
+    match?.name,
+    match?.label,
+    match?.displayName,
+    match?.bracketLabel,
+    match?.labelKeyDisplay,
+    match?.labelKey,
+    match?.meta?.code,
+    match?.meta?.label,
+  ];
+
+  for (const value of tryValues) {
+    const parts = extractReferenceCodeParts(value);
+    if (parts?.round) return parts.round;
+  }
+
+  const numericValues = [
+    match?.globalRound,
+    match?.vIndex,
+    match?.v,
+    match?.V,
+    match?.roundV,
+    match?.meta?.v,
+  ]
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  return numericValues.length ? Math.trunc(numericValues[0]) : null;
+};
+const resolveDependentDisplayRound = (match, fallbackRound) => {
+  const currentRound = extractCurrentDisplayRound(match);
+  if (currentRound != null) return Math.max(1, currentRound - 1);
+
+  const normalizedFallback = positiveInt(fallbackRound);
+  if (!normalizedFallback) return null;
+
+  const previousBracketType = trim(match?.prevBracket?.type).toLowerCase();
+  return previousBracketType === "group"
+    ? normalizedFallback + 1
+    : normalizedFallback + 2;
+};
+const toDisplayMatchOrder = (directValue, zeroBasedValue) => {
+  const direct = positiveInt(directValue);
+  if (direct) return direct;
+
+  const zeroBased = Number(zeroBasedValue);
+  if (Number.isFinite(zeroBased) && zeroBased >= 0) {
+    return Math.trunc(zeroBased) + 1;
+  }
+
+  return null;
+};
+
+export const getSeedDisplayName = (seed, ownerMatch = null) => {
   if (!seed) return "";
 
   const direct =
@@ -163,6 +247,8 @@ export const getSeedDisplayName = (seed) => {
   if (type === "bye") return "BYE";
 
   if (type === "grouprank") {
+    if (direct) return direct;
+
     const stage = positiveInt(ref?.stage ?? seed?.stage);
     const groupCode = trim(
       ref?.groupCode || ref?.group?.name || ref?.group?.code || seed?.groupCode
@@ -172,14 +258,34 @@ export const getSeedDisplayName = (seed) => {
   }
 
   const prefix = referencePrefixFromSeed(seed);
-  const stageIndex = positiveInt(ref?.stageIndex ?? seed?.stageIndex ?? ref?.stage);
-  const order = positiveInt(ref?.order ?? seed?.order);
-  if (prefix && stageIndex && order) return `${prefix}-V${stageIndex}-T${order}`;
+  if (prefix) {
+    const directParts = extractReferenceCodeParts(direct);
+    const fallbackRound =
+      directParts?.round ||
+      positiveInt(
+        ref?.round ??
+          seed?.round ??
+          ref?.stageIndex ??
+          seed?.stageIndex ??
+          ref?.stage ??
+          seed?.stage
+      );
+    const round = ownerMatch
+      ? resolveDependentDisplayRound(ownerMatch, fallbackRound)
+      : fallbackRound;
+    const order =
+      directParts?.order ||
+      toDisplayMatchOrder(ref?.tIndex ?? seed?.tIndex, ref?.order ?? seed?.order);
+
+    if (round && order) return `${prefix}-V${round}-T${order}`;
+  }
+
+  if (direct) return direct;
 
   return textValue(seed);
 };
 
-export const getPreviousMatchDisplayCode = (previous) => {
+export const getPreviousMatchDisplayCode = (previous, ownerMatch = null) => {
   if (!previous) return "";
 
   const directCandidates = [
@@ -192,20 +298,30 @@ export const getPreviousMatchDisplayCode = (previous) => {
     previous?.displayCode,
   ];
 
+  let directParts = null;
   for (const candidate of directCandidates) {
-    const normalized = normalizeMatchCodeCandidate(candidate);
-    if (normalized) return normalized;
+    directParts = extractReferenceCodeParts(candidate);
+    if (directParts) break;
   }
 
-  const vIndex = positiveInt(previous?.vIndex ?? previous?.globalRound);
-  const tIndex = positiveInt(previous?.tIndex);
-  if (vIndex && tIndex) return `V${vIndex}-T${tIndex}`;
-
-  const round = positiveInt(previous?.round ?? previous?.rrRound);
+  const fallbackRound =
+    directParts?.round ||
+    positiveInt(
+      previous?.vIndex ??
+        previous?.globalRound ??
+        previous?.round ??
+        previous?.rrRound ??
+        previous?.ref?.round
+    );
+  const round = ownerMatch
+    ? resolveDependentDisplayRound(ownerMatch, fallbackRound)
+    : fallbackRound;
   const order =
-    previous?.order != null && Number.isFinite(Number(previous.order))
-      ? Math.trunc(Number(previous.order)) + 1
-      : null;
+    directParts?.order ||
+    toDisplayMatchOrder(
+      previous?.tIndex ?? previous?.ref?.tIndex,
+      previous?.order ?? previous?.idx ?? previous?.ref?.order
+    );
   if (round && order) return `V${round}-T${order}`;
 
   return "";
@@ -224,10 +340,10 @@ export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
   const pairName = getPairDisplayName(pair, match);
   if (pairName) return pairName;
 
-  const seedName = getSeedDisplayName(seed);
+  const seedName = getSeedDisplayName(seed, match);
   if (seedName) return seedName;
 
-  const previousCode = getPreviousMatchDisplayCode(previous);
+  const previousCode = getPreviousMatchDisplayCode(previous, match);
   if (previousCode) {
     const prefix = referencePrefixFromSeed(seed) || "W";
     return `${prefix}-${stripReferencePrefix(previousCode)}`;

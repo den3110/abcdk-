@@ -1,21 +1,18 @@
 // controllers/courtController.js (ví dụ)
 import Court from "../models/courtModel.js";
 import CourtStation from "../models/courtStationModel.js";
-import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import { enrichCourtsWithManualAssignment } from "../services/courtManualAssignment.service.js";
-import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { getCourtStationCurrentMatch } from "../services/courtCluster.service.js";
 
-const COURT_DETAILS_CACHE_TTL_MS = Math.max(
-  1000,
-  Number(process.env.COURT_DETAILS_CACHE_TTL_MS || 2000)
-);
-const courtDetailsCache = createShortTtlCache(COURT_DETAILS_CACHE_TTL_MS, {
-  id: CACHE_GROUP_IDS.courtDetails,
-  label: "Court detail payload",
-  category: "live",
-  scope: "public",
-});
+const setNoStoreHeaders = (res) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-PKT-Cache", "BYPASS");
+};
 
 // giống cái normalize trong matchModel để tránh case isBreak = false
 const BREAK_DEFAULT = {
@@ -45,13 +42,8 @@ const normalizeBreak = (val) => {
 
 export const getCourtById = async (req, res) => {
   try {
+    setNoStoreHeaders(res);
     const { courtId } = req.params;
-    const cached = courtDetailsCache.get(courtId);
-    if (cached) {
-      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-      res.setHeader("X-PKT-Cache", "HIT");
-      return res.json(cached);
-    }
 
     const station = await CourtStation.findById(courtId)
       .populate("clusterId", "name slug")
@@ -77,9 +69,7 @@ export const getCourtById = async (req, res) => {
           : null,
         nextMatch: null,
       };
-      courtDetailsCache.set(courtId, payload);
-      res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-      res.setHeader("X-PKT-Cache", "MISS");
+      setNoStoreHeaders(res);
       return res.json(payload);
     }
 
@@ -134,9 +124,7 @@ export const getCourtById = async (req, res) => {
       payload.currentMatch.isBreak = normalizeBreak(payload.currentMatch.isBreak);
     }
 
-    courtDetailsCache.set(courtId, payload);
-    res.setHeader("Cache-Control", "public, max-age=2, stale-while-revalidate=5");
-    res.setHeader("X-PKT-Cache", "MISS");
+    setNoStoreHeaders(res);
     res.json(payload);
   } catch (error) {
     console.error("Error getting court:", error);

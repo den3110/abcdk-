@@ -9,6 +9,15 @@ import {
 
 const pendingByMatchId = new Map();
 const redis = process.env.REDIS_URL ? new IORedis(process.env.REDIS_URL) : null;
+const setNoStoreHeaders = (res) => {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("X-PKT-Cache", "BYPASS");
+};
 
 const RELEASE_LOCK_LUA =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
@@ -207,6 +216,7 @@ export const createLiveSessionForLiveApp = async (req, res) => {
 };
 
 export const getCourtRuntimeForLiveApp = async (req, res) => {
+  setNoStoreHeaders(res);
   const courtId = String(req.params?.courtId || "").trim();
   if (!courtId) {
     return res.status(400).json({ message: "courtId is required" });
@@ -217,15 +227,11 @@ export const getCourtRuntimeForLiveApp = async (req, res) => {
     return res.status(404).json({ message: "Court not found" });
   }
 
-  res.setHeader("Cache-Control", "private, max-age=1, stale-while-revalidate=2");
-  res.setHeader("X-PKT-Cache", runtime?._cache?.hit ? "HIT" : "MISS");
-  return res.json({
-    ...runtime,
-    _cache: undefined,
-  });
+  return res.json(runtime);
 };
 
 export const getMatchRuntimeForLiveApp = async (req, res) => {
+  setNoStoreHeaders(res);
   const matchId = String(req.params?.matchId || "").trim();
   if (!matchId) {
     return res.status(400).json({ message: "matchId is required" });
@@ -236,10 +242,5 @@ export const getMatchRuntimeForLiveApp = async (req, res) => {
     return res.status(404).json({ message: "Match not found" });
   }
 
-  res.setHeader("Cache-Control", "private, max-age=2, stale-while-revalidate=3");
-  res.setHeader("X-PKT-Cache", runtime?._cache?.hit ? "HIT" : "MISS");
-  return res.json({
-    ...runtime,
-    _cache: undefined,
-  });
+  return res.json(runtime);
 };
