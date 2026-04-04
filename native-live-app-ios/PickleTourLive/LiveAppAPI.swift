@@ -487,6 +487,13 @@ final class LiveAppAuthCoordinator: NSObject {
     }
 
     @MainActor
+    func cancelInteractiveAuthorizationFlow() {
+        pendingAuthorizationRequest = nil
+        currentAuthorizationFlow?.cancel()
+        currentAuthorizationFlow = nil
+    }
+
+    @MainActor
     func signIn(osAuthToken: String? = nil) async throws -> AuthSession {
         if let osAuthToken = osAuthToken?.trimmedNilIfBlank {
             return try await signInWithOsAuthToken(osAuthToken)

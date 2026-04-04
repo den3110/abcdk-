@@ -188,11 +188,16 @@ final class LiveAppStore: ObservableObject {
             bannerMessage = "Đăng nhập thành công."
             await refreshBootstrap()
         } catch {
+            if shouldIgnoreProgrammaticAuthCancellation(error) {
+                return
+            }
             errorMessage = error.localizedDescription
         }
     }
 
     func requestPickleTourHandoff() {
+        environment.authCoordinator.cancelInteractiveAuthorizationFlow()
+
         guard let handoffURL = buildPickleTourHandoffURL() else {
             errorMessage = "Không tạo được liên kết handoff với PickleTour."
             return
@@ -1262,14 +1267,11 @@ final class LiveAppStore: ObservableObject {
         lastHandledIncomingURL = urlKey
         lastHandledIncomingURLAt = now
 
-        if environment.authCoordinator.handleOpenURL(url) {
-            return
-        }
-
         guard url.scheme == "pickletour-live" else { return }
 
         switch url.host {
         case "auth-init":
+            environment.authCoordinator.cancelInteractiveAuthorizationFlow()
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             let token = components?
                 .queryItems?
@@ -1297,6 +1299,9 @@ final class LiveAppStore: ObservableObject {
                 await continueWithOsAuthToken(token)
             }
         case "auth":
+            if environment.authCoordinator.handleOpenURL(url) {
+                return
+            }
             break
         case "stream":
             let target = parseLaunchTarget(from: url)
@@ -2408,6 +2413,7 @@ final class LiveAppStore: ObservableObject {
         defer { isWorking = false }
 
         do {
+            environment.authCoordinator.cancelInteractiveAuthorizationFlow()
             let nextSession = try await environment.authCoordinator.signIn(osAuthToken: token)
             environment.sessionStore.replace(nextSession)
             bannerMessage = "Đã nhận phiên từ PickleTour."
@@ -2415,6 +2421,11 @@ final class LiveAppStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func shouldIgnoreProgrammaticAuthCancellation(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "org.openid.appauth.general" && nsError.code == -4
     }
 
     private func loadCourts(clusterId: String) async {

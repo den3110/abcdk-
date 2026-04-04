@@ -128,9 +128,11 @@ function issueLiveAccessToken(user) {
 /**
  * GET /api/oauth/authorize
  *
- * Main OAuth authorize endpoint opened by native-live-ios in a webview.
- * Validates the request, resolves user from os_auth_token,
- * auto-approves and redirects to redirect_uri with authorization code.
+ * Main OAuth authorize endpoint opened by native-live-ios via AppAuth/ASWebAuthenticationSession.
+ *
+ * WITH os_auth_token: validates, auto-approves, redirects to redirect_uri with code+state.
+ * WITHOUT os_auth_token: serves HTML that redirects to pickletourapp:// deep link
+ *   so the user can authenticate via the PickleTour app first.
  */
 export const authorizeRedirect = asyncHandler(async (req, res) => {
   const input = parseAuthorizeInput(req.query || {});
@@ -146,14 +148,26 @@ export const authorizeRedirect = asyncHandler(async (req, res) => {
   // Resolve user from os_auth_token
   const user = await resolveOAuthUser(req, input.osAuthToken);
   if (!user) {
-    return res.status(401).json({
-      ok: false,
-      reason: input.osAuthToken ? "os_auth_invalid" : "login_required",
-      message: input.osAuthToken
-        ? "Phiên xác thực PickleTour đã hết hạn. Hãy đăng nhập lại."
-        : "Bạn cần đăng nhập PickleTour trước khi cấp quyền cho app live.",
-      loginUrl: buildWebLoginUrl(req),
-    });
+    // No valid auth token — build a deep link to pickletour app for authentication
+    const continueUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+    const deepLink = `pickletourapp://live-auth?continueUrl=${encodeURIComponent(continueUrl)}&callbackUri=${encodeURIComponent(input.redirectUri || OAUTH_LIVE_REDIRECT_URI)}`;
+
+    // Serve HTML that auto-redirects to the pickletour app deep link
+    return res.status(200).send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PickleTour Live – Đăng nhập</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0a0e14;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center;padding:20px}
+.card{max-width:400px;background:#161b22;border-radius:20px;padding:32px 24px;border:1px solid #30363d}
+h1{font-size:20px;margin:0 0 12px}p{color:#8b949e;font-size:14px;line-height:1.6;margin:0 0 24px}
+a{display:block;background:#2ea043;color:#fff;text-decoration:none;padding:14px 24px;border-radius:999px;font-weight:700;font-size:15px;margin-bottom:12px}
+a:active{opacity:.85}.sub{color:#58a6ff;font-size:13px}</style>
+<script>setTimeout(function(){window.location.href="${deepLink.replace(/"/g, '\\"')}"},600)</script>
+</head><body><div class="card">
+<h1>Đăng nhập PickleTour Live</h1>
+<p>Bạn cần đăng nhập qua app PickleTour để tiếp tục.</p>
+<a href="${deepLink.replace(/"/g, '&quot;')}">Mở PickleTour</a>
+<span class="sub">Đang chuyển hướng...</span>
+</div></body></html>`);
   }
 
   // Check live access
