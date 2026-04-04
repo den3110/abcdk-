@@ -1,0 +1,83 @@
+{
+  "project_info": {
+    "project_number": "729938965315",
+    "firebase_url": "https://call-e7189-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "call-e7189",
+    "storage_bucket": "call-e7189.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:729938965315:android:3f97f00b35ace9f87af5f6",
+        "android_client_info": {
+          "package_name": "com.pkt.live"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "729938965315-b208vduquq7cukrkpnbbcptgl93e9i59.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-FSue6VM2jaD8wep6q-6mxyb1Cti30Rw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "729938965315-b208vduquq7cukrkpnbbcptgl93e9i59.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "729938965315-ts7gpljqrcqk6jl56go6c62qk1bre1im.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.pkt.pickletour"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:729938965315:android:29cb625180679fa87af5f6",
+        "android_client_info": {
+          "package_name": "com.pkt.pickletour"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "729938965315-b208vduquq7cukrkpnbbcptgl93e9i59.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-FSue6VM2jaD8wep6q-6mxyb1Cti30Rw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "729938965315-b208vduquq7cukrkpnbbcptgl93e9i59.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "729938965315-ts7gpljqrcqk6jl56go6c62qk1bre1im.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.pkt.pickletour"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

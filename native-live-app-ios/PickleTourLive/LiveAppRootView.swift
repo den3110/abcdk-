@@ -779,6 +779,7 @@ private struct LiveStreamScreen: View {
     @State private var showSignOutDialog = false
     @State private var storedBrightness: CGFloat?
     @State private var brightnessReduced = false
+    @State private var pinchZoomBase: CGFloat?
     @State private var now = Date()
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -901,12 +902,23 @@ private struct LiveStreamScreen: View {
         .onAppear {
             captureBrightnessIfNeeded()
             updateBrightnessIfNeeded()
+            updateIdleTimer(disabled: true)
         }
         .onChange(of: store.batterySaverEnabled) { _ in
             updateBrightnessIfNeeded()
         }
         .onDisappear {
+            updateIdleTimer(disabled: false)
             restoreBrightnessIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            updateIdleTimer(disabled: false)
+            restoreBrightnessIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            captureBrightnessIfNeeded()
+            updateBrightnessIfNeeded()
+            updateIdleTimer(disabled: true)
         }
         .onReceive(ticker) { date in
             now = date
@@ -1026,6 +1038,7 @@ private struct LiveStreamScreen: View {
                     }
                 }
                 .aspectRatio(16 / 9, contentMode: .fit)
+                .highPriorityGesture(previewPinchGesture)
             }
         }
     }
@@ -1305,7 +1318,7 @@ private struct LiveStreamScreen: View {
                             get: { Double(store.streamingService.stats.zoomFactor) },
                             set: { store.setZoom(CGFloat($0)) }
                         ),
-                        in: 1 ... 6
+                        in: 1 ... max(Double(store.streamingService.maxZoomFactor), 1)
                     )
                     .tint(LivePalette.accent)
                 }
@@ -1456,7 +1469,10 @@ private struct LiveStreamScreen: View {
                     DetailLine(label: "Low Power Mode", value: store.systemLowPowerModeEnabled ? "Đang bật" : "Đang tắt")
                     DetailLine(label: "Queue local", value: formatStorageBytes(store.recordingPendingQueueBytes))
                     DetailLine(label: "Runway recording", value: store.recordingEstimatedRunwayMinutes.map { "\($0) phút" } ?? "Chưa rõ")
-                    DetailLine(label: "Overlay / branding", value: "\(store.overlayDataReady ? "OK" : "Thiếu") / \(store.brandingReady ? "OK" : "Thiếu")")
+                    DetailLine(
+                        label: "Overlay / branding",
+                        value: "\(store.overlayDataReady ? "OK" : "Thiếu") / \(store.brandingLoading ? "Đang tải" : (store.brandingReady ? "OK" : "Thiếu"))"
+                    )
                 }
             }
         }
@@ -1497,6 +1513,16 @@ private struct LiveStreamScreen: View {
                         value: store.overlayConfig?.webLogoURL?.trimmedNilIfBlank == nil ? "Thiếu" : "Có",
                         subtitle: store.overlayConfig?.webLogoURL?.trimmedNilIfBlank ?? "Overlay config chưa có webLogoUrl",
                         accent: store.overlayConfig?.webLogoURL?.trimmedNilIfBlank == nil ? LivePalette.warning : LivePalette.success
+                    )
+                    MetricTile(
+                        title: "Branding runtime",
+                        value: store.brandingLoading ? "Đang tải" : (store.brandingReady ? "Sẵn sàng" : "Chưa xong"),
+                        subtitle: store.overlayHealth.brandingAssetCount > 0
+                            ? "Đã nạp \(store.overlayHealth.brandingLoadedCount)/\(store.overlayHealth.brandingAssetCount) asset"
+                            : "Không có asset branding cần tải",
+                        accent: store.brandingLoading
+                            ? LivePalette.warning
+                            : (store.brandingReady ? LivePalette.success : LivePalette.danger)
                     )
                 }
 
@@ -1742,6 +1768,7 @@ private struct LiveStreamScreen: View {
                     DetailLine(label: "Mode / quality", value: "\(store.liveMode.title) / \(store.selectedQuality.title)")
                     DetailLine(label: "Court / match", value: "\(store.currentCourtIdentifier ?? "-") / \(store.activeMatch?.id ?? "-")")
                     DetailLine(label: "Socket room", value: store.activeSocketMatchId?.trimmedNilIfBlank ?? "Chưa join")
+                    DetailLine(label: "Runtime registry", value: store.runtimeRegistrySummary)
                 }
 
                 DisclosureGroup(isExpanded: $diagnosticsExpanded) {
@@ -2022,9 +2049,6 @@ private struct LiveStreamScreen: View {
         if store.previewLeaseWarning, let leaseText = previewLeaseText {
             items.append("\(leaseText) sắp hết")
         }
-        if let lastIssue = store.overlayHealth.lastIssue?.trimmedNilIfBlank {
-            items.append("Overlay đang cần tự-heal: \(lastIssue).")
-        }
         if store.recordingStorageHardBlock {
             items.append("Bộ nhớ quá thấp cho recording")
         } else if store.recordingStorageRedWarning {
@@ -2042,7 +2066,7 @@ private struct LiveStreamScreen: View {
             items.append("Overlay chưa có snapshot mới")
         }
         if !store.brandingReady && store.activeMatch != nil {
-            items.append("Branding chưa đầy đủ")
+            items.append(store.brandingLoading ? "Branding đang tải" : "Branding chưa đầy đủ")
         }
         return items
     }
@@ -2124,7 +2148,7 @@ private struct LiveStreamScreen: View {
             return "Đang dự phòng"
         }
         if !store.brandingReady {
-            return "Thiếu branding"
+            return store.brandingLoading ? "Đang tải branding" : "Thiếu branding"
         }
         return "Ổn định"
     }
@@ -2198,7 +2222,9 @@ private struct LiveStreamScreen: View {
             return "Socket vẫn nối nhưng payload đang stale. App cần thêm payload mới để coi overlay là hoàn toàn ổn định."
         }
         if !store.brandingReady {
-            return "Overlay có dữ liệu trận nhưng logo hoặc sponsor chưa đầy đủ nên burn-in sẽ mỏng hơn bản Android."
+            return store.brandingLoading
+                ? "Overlay đã có dữ liệu trận nhưng branding assets vẫn đang tải. Burn-in sẽ đầy đủ hơn sau khi logo và sponsor nạp xong."
+                : "Overlay có dữ liệu trận nhưng logo hoặc sponsor chưa đầy đủ nên burn-in sẽ mỏng hơn bản Android."
         }
         return "Overlay đang ổn định và có đủ dữ liệu trận để burn-in lên preview hoặc RTMP."
     }
@@ -2230,7 +2256,11 @@ private struct LiveStreamScreen: View {
             reasons.append("Payload socket đã stale \(store.socketPayloadAgeSeconds ?? 0) giây.")
         }
         if !store.brandingReady {
-            reasons.append("Overlay config chưa có đủ logo giải, web logo hoặc sponsor.")
+            reasons.append(
+                store.brandingLoading
+                    ? "Branding assets đang tải \(store.overlayHealth.brandingLoadedCount)/\(store.overlayHealth.brandingAssetCount)."
+                    : "Overlay config chưa có đủ logo giải, web logo hoặc sponsor."
+            )
         }
         if store.batteryLowWarning {
             reasons.append("Thiết bị đang còn ít pin: \(store.batteryStatusSummary).")
@@ -2335,7 +2365,7 @@ private struct LiveStreamScreen: View {
                                     ) {
                                         store.retryActiveSession()
                                     }
-                            }
+                                }
                         }
                     }
 
@@ -2479,6 +2509,30 @@ private struct LiveStreamScreen: View {
         guard UIApplication.shared.applicationState == .active else { return }
         UIScreen.main.brightness = storedBrightness
         brightnessReduced = false
+        self.storedBrightness = nil
+    }
+
+    private var previewPinchGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { scale in
+                if pinchZoomBase == nil {
+                    pinchZoomBase = max(store.streamingService.stats.zoomFactor, 1)
+                }
+                let baseZoom = pinchZoomBase ?? max(store.streamingService.stats.zoomFactor, 1)
+                let nextZoom = min(
+                    max(baseZoom * scale, 1),
+                    max(store.streamingService.maxZoomFactor, 1)
+                )
+                store.setZoom(nextZoom)
+            }
+            .onEnded { _ in
+                pinchZoomBase = nil
+            }
+    }
+
+    private func updateIdleTimer(disabled: Bool) {
+        guard UIApplication.shared.applicationState == .active else { return }
+        UIApplication.shared.isIdleTimerDisabled = disabled
     }
 }
 

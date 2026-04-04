@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import CoreImage
 import HaishinKit
+import ImageIO
 import SwiftUI
 import UIKit
 import VideoToolbox
@@ -54,6 +55,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     @Published private(set) var recoveryState = StreamRecoveryState()
     @Published private(set) var overlayHealth = OverlayHealth()
     @Published private(set) var lastRecovery: RecoveryEvent?
+    @Published private(set) var maxZoomFactor: CGFloat = 6
 
     let clientSessionId = UUID().uuidString
 
@@ -112,6 +114,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var currentCamera: AVCaptureDevice?
     private var pendingPublishName: String?
     private var pendingStartContinuation: CheckedContinuation<Void, Error>?
+    private var locallyClosingRTMP = false
+    private var suppressRTMPFailureUntilMs: Int64 = 0
     private var currentDestination: RTMPDestination? {
         didSet {
             overlayHealth.destinationBound = currentDestination != nil
@@ -120,20 +124,55 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var statsTimer: Timer?
     private var publishTimeoutTask: Task<Void, Never>?
     private var recordingRotationTimer: Timer?
+    private var recordingStopTimeoutTask: Task<Void, Never>?
     private var pendingRecordingStopContinuation: CheckedContinuation<Void, Never>?
     private var activeRecordingSession: ActiveLocalRecordingSession?
     private var pendingRecordingBoundary: PendingRecordingBoundary?
+    private var notificationObservers: [NSObjectProtocol] = []
     private var overlayEffectRegistered = false
+    private var overlayStabilityMode: OverlayPerformanceMode = .normal
+    private var activeOverlayPerformanceMode: OverlayPerformanceMode = .normal
+    private var overlayMemoryWarningEvents: [Int64] = []
     private let recoveryBudgetWindowMs: Int64 = 180_000
     private let maxRecoveryBudget = 6
     private var recoveryEventWindow: [Int64] = []
+    private var lifecycleGeneration: Int64 = 0
 
     override init() {
         stream = RTMPStream(connection: connection)
         super.init()
 
+        overlayEffect.onBrandingStatusChange = { [weak self] status in
+            Task { @MainActor [weak self] in
+                self?.applyBrandingStatus(status)
+            }
+        }
+
         connection.addEventListener(.rtmpStatus, selector: #selector(handleRTMPStatus(_:)), observer: self)
         connection.addEventListener(.ioError, selector: #selector(handleRTMPError(_:)), observer: self)
+
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.didReceiveMemoryWarningNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleOverlayMemoryWarning()
+                }
+            }
+        )
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleApplicationDidEnterBackground()
+                }
+            }
+        )
 
         recorder.delegate = recorderProxy
         stream.addObserver(recorder)
@@ -145,6 +184,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
         statsTimer?.invalidate()
         recordingRotationTimer?.invalidate()
         publishTimeoutTask?.cancel()
+        recordingStopTimeoutTask?.cancel()
+        notificationObservers.forEach(NotificationCenter.default.removeObserver)
         resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "Streaming service disposed before publish completed."))
         resolvePendingRecordingStop()
         stream.attachCamera(nil)
@@ -153,10 +194,15 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func preparePreview(quality: LiveQualityPreset = .balanced1080) async throws {
+        let operationGeneration = lifecycleGeneration
         connectionState = .preparingPreview
         do {
             try configureAudioSession()
             try await requestCapturePermissions()
+            guard operationGeneration == lifecycleGeneration else {
+                appendDiagnostic("Preview setup ignored because lifecycle moved on.")
+                return
+            }
             applyQuality(quality)
             registerOverlayEffectIfNeeded()
 
@@ -167,6 +213,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
             }
 
             if let currentCamera, currentCamera.position == currentCameraPosition {
+                maxZoomFactor = max(1, min(currentCamera.activeFormat.videoMaxZoomFactor, 10))
                 syncTorchStateWithCurrentCamera()
                 refreshPreviewBindings()
                 startStatsTimer()
@@ -185,8 +232,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
             let camera = try resolveCamera(position: currentCameraPosition)
             currentCamera = camera
+            maxZoomFactor = max(1, min(camera.activeFormat.videoMaxZoomFactor, 10))
 
             try await attachCameraAndAwait(camera)
+            guard operationGeneration == lifecycleGeneration else {
+                appendDiagnostic("Preview attach completed late and was ignored.")
+                return
+            }
 
             syncTorchStateWithCurrentCamera()
             refreshPreviewBindings()
@@ -208,6 +260,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func startPublishing(to destination: RTMPDestination) async throws {
+        let operationGeneration = lifecycleGeneration
         if case .live = connectionState {
             appendDiagnostic("Publish request ignored because RTMP is already live.")
             return
@@ -227,7 +280,14 @@ final class LiveStreamingService: NSObject, ObservableObject {
             try await preparePreview(quality: stats.quality)
         }
 
+        guard operationGeneration == lifecycleGeneration else {
+            currentDestination = nil
+            appendDiagnostic("Publish request dropped because preview lifecycle changed.")
+            return
+        }
+
         try await withCheckedThrowingContinuation { continuation in
+            clearLocalRTMPCloseSuppression()
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "Superseded by a new publish attempt."))
             pendingStartContinuation = continuation
             pendingPublishName = destination.publishName
@@ -246,6 +306,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func stopPublishing() {
+        beginLocalRTMPCloseSuppression()
         cancelPublishTimeout()
         pendingPublishName = nil
         resolvePendingStart(with: nil)
@@ -259,7 +320,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func stopPreview() {
+        lifecycleGeneration &+= 1
+        beginLocalRTMPCloseSuppression()
         cancelPublishTimeout()
+        cancelRecordingStopTimeout()
         recordingRotationTimer?.invalidate()
         recordingRotationTimer = nil
         statsTimer?.invalidate()
@@ -269,19 +333,31 @@ final class LiveStreamingService: NSObject, ObservableObject {
         stream.attachCamera(nil)
         stream.attachAudio(nil)
         currentCamera = nil
+        maxZoomFactor = 6
         connectionState = .idle
+        activeRecordingSession = nil
+        pendingRecordingBoundary = nil
+        localRecordingState = .idle
         overlayHealth.destinationBound = false
+        overlayEffect.handleMemoryWarning()
+        resolvePendingRecordingStop()
         refreshPreviewBindings()
         appendDiagnostic("Preview released.")
     }
 
     func startRecording(recordingId: String, matchId: String, segmentDuration: TimeInterval = 6.0) async throws {
+        let operationGeneration = lifecycleGeneration
         guard let recordingId = recordingId.trimmedNilIfBlank, let matchId = matchId.trimmedNilIfBlank else {
             throw LiveAPIError.server(statusCode: 0, message: "Thiếu thông tin recording để bắt đầu ghi hình.")
         }
 
         if currentCamera == nil {
             try await preparePreview(quality: stats.quality)
+        }
+
+        guard operationGeneration == lifecycleGeneration else {
+            appendDiagnostic("Recording request ignored because preview lifecycle changed.")
+            return
         }
 
         if isRecordingLocally {
@@ -306,6 +382,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
         recordingRotationTimer?.invalidate()
         recordingRotationTimer = nil
 
+        if pendingRecordingStopContinuation != nil {
+            return
+        }
+
         guard activeRecordingSession != nil || pendingRecordingBoundary != nil else {
             localRecordingState = .idle
             return
@@ -313,6 +393,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
         await withCheckedContinuation { continuation in
             pendingRecordingStopContinuation = continuation
+            beginRecordingStopTimeout()
 
             if pendingRecordingBoundary != nil {
                 return
@@ -323,15 +404,35 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func toggleCamera() async throws {
+        let operationGeneration = lifecycleGeneration
+        let previousPosition = currentCameraPosition
+        let nextPosition: AVCaptureDevice.Position = previousPosition == .back ? .front : .back
+        let previousCamera = currentCamera
+        let previousMaxZoomFactor = maxZoomFactor
+
         resetTorchState()
-        currentCameraPosition = currentCameraPosition == .back ? .front : .back
-        let camera = try resolveCamera(position: currentCameraPosition)
-        currentCamera = camera
+        currentCameraPosition = nextPosition
 
-        try await attachCameraAndAwait(camera)
-        syncTorchStateWithCurrentCamera()
+        do {
+            let camera = try resolveCamera(position: nextPosition)
+            currentCamera = camera
+            maxZoomFactor = max(1, min(camera.activeFormat.videoMaxZoomFactor, 10))
 
-        appendDiagnostic("Switched to \(currentCameraPosition == .back ? "rear" : "front") camera.")
+            try await attachCameraAndAwait(camera)
+            guard operationGeneration == lifecycleGeneration else {
+                appendDiagnostic("Camera switch completed late and was ignored.")
+                return
+            }
+            syncTorchStateWithCurrentCamera()
+            appendDiagnostic("Switched to \(currentCameraPosition == .back ? "rear" : "front") camera.")
+        } catch {
+            currentCameraPosition = previousPosition
+            currentCamera = previousCamera
+            maxZoomFactor = previousMaxZoomFactor
+            syncTorchStateWithCurrentCamera()
+            appendDiagnostic("Camera switch failed: \(error.localizedDescription)")
+            throw error
+        }
     }
 
     func setTorchEnabled(_ enabled: Bool) throws {
@@ -412,10 +513,35 @@ final class LiveStreamingService: NSObject, ObservableObject {
         appendDiagnostic("Đã xoá diagnostics cũ.")
     }
 
-    func noteOverlayInputs(snapshotFresh: Bool, roomMismatch: Bool, brandingReady: Bool) {
+    func updateStabilityProfile(
+        safetyDegradeActive: Bool,
+        recentMemoryPressure: Bool,
+        thermalWarning: Bool,
+        thermalCritical: Bool
+    ) {
+        if thermalCritical {
+            overlayStabilityMode = .minimal
+        } else if recentMemoryPressure {
+            overlayStabilityMode = .minimal
+        } else if safetyDegradeActive || thermalWarning {
+            overlayStabilityMode = .constrained
+        } else {
+            overlayStabilityMode = .normal
+        }
+        refreshOverlayPerformanceMode()
+    }
+
+    func noteOverlayInputs(snapshotFresh: Bool, roomMismatch: Bool, brandingConfigured: Bool) {
         overlayHealth.snapshotFresh = snapshotFresh
         overlayHealth.roomMismatch = roomMismatch
-        overlayHealth.brandingReady = brandingReady
+        overlayHealth.brandingConfigured = brandingConfigured
+
+        if !brandingConfigured {
+            overlayHealth.brandingLoading = false
+            overlayHealth.brandingReady = true
+            overlayHealth.brandingLoadedCount = 0
+            overlayHealth.brandingAssetCount = 0
+        }
 
         if roomMismatch {
             markOverlayIssue("Overlay đang đứng sai room match.")
@@ -446,8 +572,16 @@ final class LiveStreamingService: NSObject, ObservableObject {
             return
         }
 
-        if !brandingReady {
-            overlayHealth.lastEvent = "Overlay running with partial branding"
+        if brandingConfigured && !overlayHealth.brandingReady {
+            if activeOverlayPerformanceMode == .disabled {
+                overlayHealth.lastEvent = "Overlay fail-soft mode disabled branding burn-in"
+            } else if activeOverlayPerformanceMode == .minimal {
+                overlayHealth.lastEvent = "Overlay fail-soft mode keeps scoreboard only"
+            } else {
+                overlayHealth.lastEvent = overlayHealth.brandingLoading
+                    ? "Overlay loading branding assets"
+                    : "Overlay running with partial branding"
+            }
             return
         }
 
@@ -467,6 +601,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func noteMemoryPressure(summary: String) {
+        refreshOverlayPerformanceMode()
         reportRecovery(
             stage: .degraded,
             severity: .warning,
@@ -477,6 +612,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     func noteThermalPressure(summary: String, critical: Bool) {
+        refreshOverlayPerformanceMode()
         reportRecovery(
             stage: critical ? .failSoftGuard : .degraded,
             severity: critical ? .critical : .warning,
@@ -492,6 +628,103 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private func refreshPreviewBindings() {
         for view in previewViews.allObjects {
             view.attachStream(stream)
+        }
+    }
+
+    private func handleOverlayMemoryWarning() {
+        overlayMemoryWarningEvents.append(Self.nowMs())
+        overlayEffect.handleMemoryWarning()
+        refreshOverlayPerformanceMode()
+        appendDiagnostic("Memory warning received. Dropped overlay image caches.")
+    }
+
+    private func handleApplicationDidEnterBackground() {
+        overlayEffect.handleMemoryWarning()
+        appendDiagnostic("App entered background. Released overlay caches.")
+    }
+
+    private func applyBrandingStatus(_ status: OverlayBrandingAssetStatus) {
+        overlayHealth.brandingConfigured = status.configuredCount > 0
+        overlayHealth.brandingLoading = status.isLoading
+        overlayHealth.brandingLoadedCount = status.loadedCount
+        overlayHealth.brandingAssetCount = status.configuredCount
+        overlayHealth.brandingReady = status.isReady
+
+        if status.isLoading {
+            overlayHealth.lastEvent = "Branding assets loading"
+        } else if status.isReady {
+            overlayHealth.lastEvent = status.configuredCount == 0
+                ? "Overlay has no branding assets configured"
+                : "Branding assets ready"
+        } else if let lastError = status.lastError?.trimmedNilIfBlank {
+            overlayHealth.lastEvent = lastError
+        } else if status.configuredCount > 0 {
+            overlayHealth.lastEvent = "Branding assets incomplete"
+        }
+    }
+
+    private func refreshOverlayPerformanceMode() {
+        let nowMs = Self.nowMs()
+        overlayMemoryWarningEvents = overlayMemoryWarningEvents.filter { nowMs - $0 <= 180_000 }
+
+        let warningEscalationMode: OverlayPerformanceMode
+        switch overlayMemoryWarningEvents.count {
+        case 3...:
+            warningEscalationMode = .disabled
+        case 2:
+            warningEscalationMode = .minimal
+        case 1:
+            warningEscalationMode = .constrained
+        default:
+            warningEscalationMode = .normal
+        }
+
+        let nextMode = overlayStabilityMode.rawValue >= warningEscalationMode.rawValue
+            ? overlayStabilityMode
+            : warningEscalationMode
+
+        guard nextMode != activeOverlayPerformanceMode else { return }
+
+        let previousMode = activeOverlayPerformanceMode
+        activeOverlayPerformanceMode = nextMode
+        overlayEffect.setPerformanceMode(nextMode)
+
+        if nextMode == .normal {
+            overlayHealth.lastEvent = "Overlay renderer restored to normal mode"
+            appendDiagnostic("Overlay renderer returned to normal mode.")
+            return
+        }
+
+        overlayHealth.lastEvent = "Overlay renderer entered \(nextMode.label) mode"
+        appendDiagnostic("Overlay renderer entered \(nextMode.label) mode.")
+
+        let severity: RecoverySeverity = nextMode == .disabled ? .critical : .warning
+        let stage: RecoveryStage = nextMode == .disabled ? .failSoftGuard : .degraded
+        let detail: String
+        switch nextMode {
+        case .constrained:
+            detail = "Overlay burn-in sẽ render nhẹ hơn để giảm peak RAM và tránh crash."
+        case .minimal:
+            detail = "Overlay đã hạ xuống chế độ tối thiểu, ưu tiên giữ stream và camera sống."
+        case .disabled:
+            detail = "Overlay burn-in đã tắt tạm thời để bảo vệ app khỏi crash do áp lực bộ nhớ."
+        case .normal:
+            detail = "Overlay đã trở lại mức đầy đủ."
+        }
+
+        if previousMode != nextMode {
+            reportRecovery(
+                stage: stage,
+                severity: severity,
+                summary: "Overlay đang tự hạ tải",
+                detail: detail,
+                activeMitigations: [
+                    "Giảm chi phí render overlay",
+                    "Ưu tiên giữ camera / encoder sống",
+                    "Cho phép quay lại normal mode khi máy ổn định"
+                ],
+                lastFatalReason: nextMode == .disabled ? "overlay_fail_soft_guard" : nil
+            )
         }
     }
 
@@ -529,6 +762,24 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private func clearRecoveryIfNeeded() {
         guard recoveryState.isActive else { return }
         recoveryState = StreamRecoveryState()
+    }
+
+    private func beginLocalRTMPCloseSuppression(windowMs: Int64 = 4_000) {
+        locallyClosingRTMP = true
+        suppressRTMPFailureUntilMs = max(suppressRTMPFailureUntilMs, Self.nowMs() + windowMs)
+    }
+
+    private func acknowledgeLocalRTMPCloseEvent() {
+        locallyClosingRTMP = false
+    }
+
+    private func clearLocalRTMPCloseSuppression() {
+        locallyClosingRTMP = false
+        suppressRTMPFailureUntilMs = 0
+    }
+
+    private func shouldIgnoreRTMPFailureAfterLocalClose() -> Bool {
+        locallyClosingRTMP || Self.nowMs() < suppressRTMPFailureUntilMs
     }
 
     private func markOverlayIssue(_ message: String) {
@@ -610,6 +861,37 @@ final class LiveStreamingService: NSObject, ObservableObject {
         publishTimeoutTask = nil
     }
 
+    private func beginRecordingStopTimeout(seconds: TimeInterval = 8) {
+        recordingStopTimeoutTask?.cancel()
+        let timeoutGeneration = lifecycleGeneration
+        recordingStopTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(seconds, 3) * 1_000_000_000))
+            await MainActor.run {
+                guard let self else { return }
+                guard timeoutGeneration == self.lifecycleGeneration else { return }
+                guard self.pendingRecordingStopContinuation != nil else { return }
+
+                self.pendingRecordingBoundary = nil
+                self.activeRecordingSession = nil
+                self.localRecordingState = .idle
+                self.appendDiagnostic("Recording stop timed out. Forced local cleanup to avoid a stuck pipeline.")
+                self.reportRecovery(
+                    stage: .pipelineRebuild,
+                    severity: .warning,
+                    summary: "Dừng recording quá lâu",
+                    detail: "App đã tự dọn local recording state để tránh treo pipeline khi đóng segment.",
+                    activeMitigations: ["Bỏ segment đang kẹt", "Giữ preview sống", "Cho phép operator thử lại"]
+                )
+                self.resolvePendingRecordingStop()
+            }
+        }
+    }
+
+    private func cancelRecordingStopTimeout() {
+        recordingStopTimeoutTask?.cancel()
+        recordingStopTimeoutTask = nil
+    }
+
     private func resetTorchState() {
         guard let camera = currentCamera, camera.hasTorch else {
             stats.torchEnabled = false
@@ -675,6 +957,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
             return
         }
 
+        cancelRecordingStopTimeout()
         recorder.fileName = "pickletour-live-\(session.recordingId)-\(String(format: "%04d", session.segmentIndex)).mp4"
         recorder.startRunning()
         localRecordingState = .recording(recordingId: session.recordingId, segmentIndex: session.segmentIndex)
@@ -718,6 +1001,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     private func handleRecorderFinishWriting(_ writer: AVAssetWriter) {
+        cancelRecordingStopTimeout()
         guard let boundary = pendingRecordingBoundary else {
             resolvePendingRecordingStop()
             return
@@ -765,6 +1049,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     private func handleRecorderError(_ error: IOStreamRecorder.Error) {
+        cancelRecordingStopTimeout()
         let message = error.localizedDescription
         appendDiagnostic("Recorder error: \(message)")
         localRecordingState = .failed(message)
@@ -785,6 +1070,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     private func resolvePendingRecordingStop() {
+        cancelRecordingStopTimeout()
         guard let continuation = pendingRecordingStopContinuation else { return }
         pendingRecordingStopContinuation = nil
         continuation.resume(returning: ())
@@ -794,6 +1080,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         statsTimer?.invalidate()
         statsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
+            self.refreshOverlayPerformanceMode()
             switch self.connectionState {
             case .live:
                 self.stats.currentBitrate = self.stats.quality.videoBitrate
@@ -823,6 +1110,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
         switch code {
         case RTMPConnection.Code.connectSuccess.rawValue:
+            clearLocalRTMPCloseSuppression()
             cancelPublishTimeout()
             appendDiagnostic("RTMP connected.")
             if let publishName = pendingPublishName {
@@ -835,6 +1123,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
             }
             clearRecoveryIfNeeded()
         case RTMPConnection.Code.connectClosed.rawValue:
+            if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
+                acknowledgeLocalRTMPCloseEvent()
+                cancelPublishTimeout()
+                appendDiagnostic("RTMP closed after local stop.")
+                return
+            }
+            clearLocalRTMPCloseSuppression()
             cancelPublishTimeout()
             appendDiagnostic("RTMP closed.")
             currentDestination = nil
@@ -849,6 +1144,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
             )
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP đã đóng trước khi publish."))
         case RTMPConnection.Code.connectRejected.rawValue:
+            if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
+                acknowledgeLocalRTMPCloseEvent()
+                cancelPublishTimeout()
+                appendDiagnostic("RTMP reject ignored because session was already closing.")
+                return
+            }
+            clearLocalRTMPCloseSuppression()
             cancelPublishTimeout()
             appendDiagnostic("RTMP rejected.")
             currentDestination = nil
@@ -864,6 +1166,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP bị từ chối."))
         default:
             if code.lowercased().contains("failed") {
+                if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
+                    acknowledgeLocalRTMPCloseEvent()
+                    cancelPublishTimeout()
+                    appendDiagnostic("RTMP failure ignored because session was already closing.")
+                    return
+                }
+                clearLocalRTMPCloseSuppression()
                 cancelPublishTimeout()
                 appendDiagnostic("RTMP failure: \(code)")
                 currentDestination = nil
@@ -878,6 +1187,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 )
                 resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: code))
             } else if code.lowercased().contains("reconnect") {
+                clearLocalRTMPCloseSuppression()
                 appendDiagnostic("RTMP reconnecting: \(code)")
                 connectionState = .reconnecting(code)
                 reportRecovery(
@@ -893,6 +1203,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     @objc
     private func handleRTMPError(_ notification: Notification) {
+        if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
+            acknowledgeLocalRTMPCloseEvent()
+            cancelPublishTimeout()
+            appendDiagnostic("RTMP I/O error ignored because session was already closing.")
+            return
+        }
+        clearLocalRTMPCloseSuppression()
         cancelPublishTimeout()
         appendDiagnostic("RTMP I/O error.")
         currentDestination = nil
@@ -1008,8 +1325,22 @@ private final class StreamRecorderDelegateProxy: NSObject, IOStreamRecorderDeleg
 private final class LiveScoreboardVideoEffect: VideoEffect {
     private let renderer = LiveScoreboardOverlayRenderer()
 
+    var onBrandingStatusChange: ((OverlayBrandingAssetStatus) -> Void)? {
+        didSet {
+            renderer.onBrandingStatusChange = onBrandingStatusChange
+        }
+    }
+
     func update(snapshot: LiveOverlaySnapshot?) {
         renderer.update(snapshot: snapshot)
+    }
+
+    func handleMemoryWarning() {
+        renderer.handleMemoryWarning()
+    }
+
+    func setPerformanceMode(_ mode: OverlayPerformanceMode) {
+        renderer.setPerformanceMode(mode)
     }
 
     override func execute(_ image: CIImage, info: CMSampleBuffer?) -> CIImage {
@@ -1027,18 +1358,165 @@ private final class LiveScoreboardVideoEffect: VideoEffect {
     }
 }
 
+private struct OverlayBrandingAssetStatus: Equatable {
+    var configuredCount: Int = 0
+    var loadedCount: Int = 0
+    var isLoading: Bool = false
+    var lastError: String?
+
+    var isReady: Bool {
+        configuredCount == 0 || loadedCount >= configuredCount
+    }
+}
+
+private enum OverlayPerformanceMode: Int {
+    case normal = 0
+    case constrained = 1
+    case minimal = 2
+    case disabled = 3
+
+    var label: String {
+        switch self {
+        case .normal:
+            return "normal"
+        case .constrained:
+            return "constrained"
+        case .minimal:
+            return "minimal"
+        case .disabled:
+            return "disabled"
+        }
+    }
+}
+
 private final class LiveScoreboardOverlayRenderer {
     private let lock = NSLock()
     private var snapshot: LiveOverlaySnapshot?
     private var cachedKey: String?
     private var cachedImage: CIImage?
+    private var assetKey: String?
+    private var tournamentLogoImage: UIImage?
+    private var webLogoImage: UIImage?
+    private var sponsorLogoImages: [UIImage] = []
+    private var assetLoadTask: Task<Void, Never>?
+    private var performanceMode: OverlayPerformanceMode = .normal
+
+    private static let maxRemoteImageDataBytes = 4 * 1024 * 1024
+    private static let downsampleMaxPixelSize: CGFloat = 320
+    private static let remoteImageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 12
+        cache.totalCostLimit = 8 * 1024 * 1024
+        return cache
+    }()
+    var onBrandingStatusChange: ((OverlayBrandingAssetStatus) -> Void)?
+
+    deinit {
+        assetLoadTask?.cancel()
+    }
+
+    func setPerformanceMode(_ mode: OverlayPerformanceMode) {
+        lock.lock()
+        let changed = performanceMode != mode
+        performanceMode = mode
+        cachedKey = nil
+        cachedImage = nil
+        if mode.rawValue >= OverlayPerformanceMode.minimal.rawValue {
+            tournamentLogoImage = nil
+            webLogoImage = nil
+            sponsorLogoImages = []
+            assetLoadTask?.cancel()
+            assetLoadTask = nil
+        }
+        lock.unlock()
+
+        if changed, let snapshot {
+            update(snapshot: snapshot)
+        }
+    }
 
     func update(snapshot: LiveOverlaySnapshot?) {
+        let nextAssetKey = Self.assetKey(snapshot: snapshot)
+        var shouldLoadAssets = false
+        var snapshotForAssets: LiveOverlaySnapshot?
+        let configuredAssetCount = Self.configuredAssetCount(for: snapshot)
+        var loadedAssetCount = 0
+        var loadingAssets = false
+        var performanceMode = OverlayPerformanceMode.normal
+
         lock.lock()
+        performanceMode = self.performanceMode
         self.snapshot = snapshot
         cachedKey = nil
         cachedImage = nil
+        if snapshot == nil {
+            assetKey = nil
+            tournamentLogoImage = nil
+            webLogoImage = nil
+            sponsorLogoImages = []
+            assetLoadTask?.cancel()
+            assetLoadTask = nil
+            lock.unlock()
+            notifyBrandingStatus(OverlayBrandingAssetStatus())
+            return
+        }
+
+        if assetKey != nextAssetKey {
+            assetKey = nextAssetKey
+            tournamentLogoImage = nil
+            webLogoImage = nil
+            sponsorLogoImages = []
+            assetLoadTask?.cancel()
+            assetLoadTask = nil
+            shouldLoadAssets = !nextAssetKey.isEmpty && performanceMode.rawValue < OverlayPerformanceMode.minimal.rawValue
+            if performanceMode.rawValue < OverlayPerformanceMode.minimal.rawValue {
+                snapshotForAssets = snapshot
+            }
+        } else {
+            loadedAssetCount = (tournamentLogoImage == nil ? 0 : 1)
+                + (webLogoImage == nil ? 0 : 1)
+                + sponsorLogoImages.count
+            loadingAssets = assetLoadTask != nil
+        }
         lock.unlock()
+
+        if !shouldLoadAssets {
+            notifyBrandingStatus(
+                OverlayBrandingAssetStatus(
+                    configuredCount: configuredAssetCount,
+                    loadedCount: loadedAssetCount,
+                    isLoading: loadingAssets,
+                    lastError: !loadingAssets && configuredAssetCount > 0 && loadedAssetCount < configuredAssetCount
+                        ? "Một phần branding assets chưa tải được"
+                        : nil
+                )
+            )
+            return
+        }
+
+        guard let snapshotForAssets else { return }
+
+        notifyBrandingStatus(
+            OverlayBrandingAssetStatus(
+                configuredCount: configuredAssetCount,
+                loadedCount: 0,
+                isLoading: true,
+                lastError: nil
+            )
+        )
+
+        let task = Task(priority: .utility) { [weak self] in
+            await self?.loadAssets(for: snapshotForAssets, assetKey: nextAssetKey)
+        }
+
+        lock.lock()
+        if assetKey == nextAssetKey {
+            assetLoadTask = task
+            lock.unlock()
+        } else {
+            lock.unlock()
+            task.cancel()
+        }
     }
 
     func overlayImage(for size: CGSize) -> CIImage? {
@@ -1046,18 +1524,46 @@ private final class LiveScoreboardOverlayRenderer {
 
         let snapshot: LiveOverlaySnapshot?
         let cacheKey: String
+        let renderSize: CGSize
+        let tournamentLogoImage: UIImage?
+        let webLogoImage: UIImage?
+        let sponsorLogoImages: [UIImage]
+        let performanceMode: OverlayPerformanceMode
 
         lock.lock()
         snapshot = self.snapshot
-        cacheKey = Self.cacheKey(snapshot: self.snapshot, size: size)
+        performanceMode = self.performanceMode
+        renderSize = Self.normalizedRenderSize(for: size, mode: performanceMode)
+        cacheKey = Self.cacheKey(snapshot: self.snapshot, size: renderSize, mode: performanceMode)
+        tournamentLogoImage = self.tournamentLogoImage
+        webLogoImage = self.webLogoImage
+        sponsorLogoImages = self.sponsorLogoImages
         if cacheKey == cachedKey, let cachedImage {
             lock.unlock()
             return cachedImage
         }
         lock.unlock()
 
+        guard performanceMode != .disabled else { return nil }
+        guard renderSize.width > 0, renderSize.height > 0 else { return nil }
         guard let snapshot else { return nil }
-        let rendered = Self.render(snapshot: snapshot, size: size)
+        guard var rendered = Self.render(
+            snapshot: snapshot,
+            size: renderSize,
+            tournamentLogoImage: tournamentLogoImage,
+            webLogoImage: webLogoImage,
+            sponsorLogoImages: sponsorLogoImages,
+            performanceMode: performanceMode
+        )
+        else {
+            return nil
+        }
+
+        if renderSize != size {
+            let scaleX = size.width / renderSize.width
+            let scaleY = size.height / renderSize.height
+            rendered = rendered.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+        }
 
         lock.lock()
         cachedKey = cacheKey
@@ -1066,7 +1572,27 @@ private final class LiveScoreboardOverlayRenderer {
         return rendered
     }
 
-    private static func cacheKey(snapshot: LiveOverlaySnapshot?, size: CGSize) -> String {
+    func handleMemoryWarning() {
+        lock.lock()
+        cachedKey = nil
+        cachedImage = nil
+        tournamentLogoImage = nil
+        webLogoImage = nil
+        sponsorLogoImages = []
+        assetLoadTask?.cancel()
+        assetLoadTask = nil
+        lock.unlock()
+        Self.remoteImageCache.removeAllObjects()
+    }
+
+    private static func cacheKey(snapshot: LiveOverlaySnapshot?, size: CGSize, mode: OverlayPerformanceMode) -> String {
+        let setKey = (snapshot?.sets ?? [])
+            .map { "\($0.index):\($0.a ?? 0)-\($0.b ?? 0)" }
+            .joined(separator: ";")
+        let sponsorKey = (snapshot?.sponsorLogoURLs ?? [])
+            .compactMap { $0.trimmedNilIfBlank }
+            .joined(separator: ",")
+
         [
             snapshot?.tournamentName,
             snapshot?.courtName,
@@ -1077,37 +1603,215 @@ private final class LiveScoreboardOverlayRenderer {
             snapshot?.serveSide,
             snapshot?.phaseText,
             snapshot?.roundLabel,
-            snapshot?.webLogoURL,
-            snapshot?.sponsorLogoURLs?.joined(separator: ","),
-            snapshot?.sets?.map { "\($0.index):\($0.a ?? 0)-\($0.b ?? 0)" }.joined(separator: ";"),
+            assetKey(snapshot: snapshot),
+            mode.label,
+            snapshot?.webLogoURL?.trimmedNilIfBlank,
+            sponsorKey.isEmpty ? nil : sponsorKey,
+            setKey.isEmpty ? nil : setKey,
             "\(Int(size.width))x\(Int(size.height))"
         ]
         .compactMap { $0 }
         .joined(separator: "|")
     }
 
-    private static func render(snapshot: LiveOverlaySnapshot, size: CGSize) -> CIImage? {
+    private static func assetKey(snapshot: LiveOverlaySnapshot?) -> String {
+        let sponsorKey = (snapshot?.sponsorLogoURLs ?? [])
+            .compactMap { $0.trimmedNilIfBlank }
+            .joined(separator: ",")
+
+        [
+            snapshot?.tournamentLogoURL?.trimmedNilIfBlank,
+            snapshot?.webLogoURL?.trimmedNilIfBlank,
+            sponsorKey.isEmpty ? nil : sponsorKey
+        ]
+        .compactMap { $0 }
+        .joined(separator: "|")
+    }
+
+    private func loadAssets(for snapshot: LiveOverlaySnapshot, assetKey: String) async {
+        let mode: OverlayPerformanceMode
+        lock.lock()
+        mode = performanceMode
+        lock.unlock()
+
+        guard mode.rawValue < OverlayPerformanceMode.minimal.rawValue else {
+            notifyBrandingStatus(
+                OverlayBrandingAssetStatus(
+                    configuredCount: Self.configuredAssetCount(for: snapshot),
+                    loadedCount: 0,
+                    isLoading: false,
+                    lastError: "Branding assets skipped in fail-soft mode"
+                )
+            )
+            return
+        }
+
+        async let tournamentLogoTask = Self.loadRemoteImage(from: snapshot.tournamentLogoURL)
+        async let webLogoTask = Self.loadRemoteImage(from: snapshot.webLogoURL)
+
+        let sponsorLimit = mode == .constrained ? 1 : 3
+        let sponsorURLs = Array((snapshot.sponsorLogoURLs ?? []).compactMap { $0.trimmedNilIfBlank }.prefix(sponsorLimit))
+        var sponsorImages: [UIImage] = []
+        for sponsorURL in sponsorURLs {
+            guard !Task.isCancelled else { return }
+            if let image = await Self.loadRemoteImage(from: sponsorURL) {
+                sponsorImages.append(image)
+            }
+        }
+
+        let tournamentLogoImage = await tournamentLogoTask
+        let webLogoImage = await webLogoTask
+        guard !Task.isCancelled else { return }
+        let configuredCount = Self.configuredAssetCount(for: snapshot)
+        let loadedCount = (tournamentLogoImage == nil ? 0 : 1)
+            + (webLogoImage == nil ? 0 : 1)
+            + sponsorImages.count
+        let lastError =
+            configuredCount > 0 && loadedCount < configuredCount
+            ? "Một phần branding assets chưa tải được"
+            : nil
+
+        lock.lock()
+        guard self.assetKey == assetKey else {
+            lock.unlock()
+            return
+        }
+        self.tournamentLogoImage = tournamentLogoImage
+        self.webLogoImage = webLogoImage
+        self.sponsorLogoImages = sponsorImages
+        self.cachedKey = nil
+        self.cachedImage = nil
+        self.assetLoadTask = nil
+        lock.unlock()
+
+        notifyBrandingStatus(
+            OverlayBrandingAssetStatus(
+                configuredCount: configuredCount,
+                loadedCount: loadedCount,
+                isLoading: false,
+                lastError: lastError
+            )
+        )
+    }
+
+    private static func configuredAssetCount(for snapshot: LiveOverlaySnapshot?) -> Int {
+        guard let snapshot else { return 0 }
+        let sponsorCount = Array((snapshot.sponsorLogoURLs ?? []).compactMap { $0.trimmedNilIfBlank }.prefix(3)).count
+        let baseCount = [
+            snapshot.tournamentLogoURL?.trimmedNilIfBlank,
+            snapshot.webLogoURL?.trimmedNilIfBlank
+        ]
+        .compactMap { $0 }
+        .count
+        return baseCount + sponsorCount
+    }
+
+    private func notifyBrandingStatus(_ status: OverlayBrandingAssetStatus) {
+        onBrandingStatusChange?(status)
+    }
+
+    private static func loadRemoteImage(from rawURL: String?) async -> UIImage? {
+        guard let urlString = rawURL?.trimmedNilIfBlank else { return nil }
+        let cacheKey = NSString(string: urlString)
+        if let cached = remoteImageCache.object(forKey: cacheKey) {
+            return cached
+        }
+
+        guard let url = URL(string: urlString) else { return nil }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse, (200 ..< 300).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            guard data.count <= maxRemoteImageDataBytes else { return nil }
+            guard let image = downsampledImage(data: data, maxPixelSize: downsampleMaxPixelSize) else { return nil }
+            remoteImageCache.setObject(image, forKey: cacheKey, cost: imageMemoryCost(image))
+            return image
+        } catch {
+            return nil
+        }
+    }
+
+    private static func downsampledImage(data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+
+        let thumbnailOptions: CFDictionary = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ] as CFDictionary
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, thumbnailOptions) else {
+            return nil
+        }
+
+        return UIImage(cgImage: cgImage)
+    }
+
+    private static func imageMemoryCost(_ image: UIImage) -> Int {
+        let pixelWidth = Int((image.size.width * image.scale).rounded(.up))
+        let pixelHeight = Int((image.size.height * image.scale).rounded(.up))
+        return max(pixelWidth * pixelHeight * 4, 1)
+    }
+
+    private static func normalizedRenderSize(for size: CGSize, mode: OverlayPerformanceMode) -> CGSize {
+        let maxDimension: CGFloat
+        switch mode {
+        case .normal:
+            maxDimension = 1440
+        case .constrained:
+            maxDimension = 1080
+        case .minimal:
+            maxDimension = 720
+        case .disabled:
+            maxDimension = 0
+        }
+
+        guard maxDimension > 0 else { return .zero }
+        let largestSide = max(size.width, size.height)
+        let scale = largestSide > maxDimension ? maxDimension / largestSide : 1
+        let width = max(CGFloat(320), (size.width * scale / 16).rounded(.up) * 16)
+        let height = max(CGFloat(180), (size.height * scale / 16).rounded(.up) * 16)
+        return CGSize(width: width, height: height)
+    }
+
+    private static func render(
+        snapshot: LiveOverlaySnapshot,
+        size: CGSize,
+        tournamentLogoImage: UIImage?,
+        webLogoImage: UIImage?,
+        sponsorLogoImages: [UIImage],
+        performanceMode: OverlayPerformanceMode
+    ) -> CIImage? {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
+        let shouldRenderLogos = performanceMode.rawValue < OverlayPerformanceMode.minimal.rawValue
+        let visibleSponsorImages = Array(sponsorLogoImages.prefix(performanceMode == .constrained ? 1 : 2))
 
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        let image = renderer.image { context in
-            let cg = context.cgContext
-            cg.setFillColor(UIColor.clear.cgColor)
-            cg.fill(CGRect(origin: .zero, size: size))
+        let image = autoreleasepool { () -> UIImage in
+            return renderer.image { context in
+                let cg = context.cgContext
+                cg.setFillColor(UIColor.clear.cgColor)
+                cg.fill(CGRect(origin: .zero, size: size))
 
-            let cardWidth = min(size.width * 0.42, 620)
-            let cardHeight = min(size.height * 0.26, 230)
-            let cardRect = CGRect(x: size.width * 0.04, y: size.height * 0.05, width: cardWidth, height: cardHeight)
+                let cardWidth = min(size.width * 0.42, 620)
+                let cardHeight = min(size.height * 0.26, 230)
+                let cardRect = CGRect(x: size.width * 0.04, y: size.height * 0.05, width: cardWidth, height: cardHeight)
 
-            let background = UIBezierPath(roundedRect: cardRect, cornerRadius: 28)
-            UIColor(red: 0.05, green: 0.09, blue: 0.14, alpha: 0.82).setFill()
-            background.fill()
+                let background = UIBezierPath(roundedRect: cardRect, cornerRadius: 28)
+                UIColor(red: 0.05, green: 0.09, blue: 0.14, alpha: 0.82).setFill()
+                background.fill()
 
-            UIColor.white.withAlphaComponent(0.10).setStroke()
-            background.lineWidth = 2
-            background.stroke()
+                UIColor.white.withAlphaComponent(0.10).setStroke()
+                background.lineWidth = 2
+                background.stroke()
 
             let contentRect = cardRect.insetBy(dx: 20, dy: 18)
             let smallTextAttributes: [NSAttributedString.Key: Any] = [
@@ -1131,15 +1835,32 @@ private final class LiveScoreboardOverlayRenderer {
                 .foregroundColor: UIColor(red: 0.42, green: 0.82, blue: 0.98, alpha: 1)
             ]
 
+            let tournamentLogoRect = CGRect(x: contentRect.minX, y: contentRect.minY, width: 42, height: 42)
+            let hasTournamentLogo = shouldRenderLogos && tournamentLogoImage != nil
+            if shouldRenderLogos, let tournamentLogoImage {
+                drawLogo(tournamentLogoImage, in: tournamentLogoRect, context: cg)
+            }
+
+            let titleX = hasTournamentLogo ? tournamentLogoRect.maxX + 12 : contentRect.minX
+            let titleWidth = contentRect.maxX - titleX - 52
+
             NSString(string: snapshot.tournamentName?.trimmedNilIfBlank ?? "PickleTour").draw(
-                in: CGRect(x: contentRect.minX, y: contentRect.minY, width: contentRect.width, height: 20),
+                in: CGRect(x: titleX, y: contentRect.minY, width: titleWidth, height: 20),
                 withAttributes: smallTextAttributes
             )
 
             NSString(string: snapshot.courtName?.trimmedNilIfBlank ?? "Court").draw(
-                in: CGRect(x: contentRect.minX, y: contentRect.minY + 22, width: contentRect.width, height: 30),
+                in: CGRect(x: titleX, y: contentRect.minY + 22, width: titleWidth, height: 30),
                 withAttributes: strongTextAttributes
             )
+
+            if shouldRenderLogos, let webLogoImage {
+                drawLogo(
+                    webLogoImage,
+                    in: CGRect(x: cardRect.maxX - 60, y: contentRect.minY, width: 40, height: 40),
+                    context: cg
+                )
+            }
 
             let scoreboardTop = contentRect.minY + 66
             let leftColumn = CGRect(x: contentRect.minX, y: scoreboardTop, width: contentRect.width * 0.5 - 8, height: 100)
@@ -1190,9 +1911,30 @@ private final class LiveScoreboardOverlayRenderer {
                 )
             }
 
+            if shouldRenderLogos, !visibleSponsorImages.isEmpty {
+                let sponsorRects = visibleSponsorImages.enumerated().map { index, _ in
+                    CGRect(
+                        x: cardRect.maxX - CGFloat((visibleSponsorImages.count - index)) * 42 - 18,
+                        y: cardRect.maxY - 80,
+                        width: 34,
+                        height: 34
+                    )
+                }
+
+                for (index, sponsorLogoImage) in visibleSponsorImages.enumerated() {
+                    drawLogo(sponsorLogoImage, in: sponsorRects[index], context: cg, inset: 4)
+                }
+            }
+
             let brandingBits = [
-                snapshot.webLogoURL?.trimmedNilIfBlank.map { _ in "WEB" },
-                snapshot.sponsorLogoURLs?.isEmpty == false ? "SPONSOR x\(snapshot.sponsorLogoURLs?.count ?? 0)" : nil
+                shouldRenderLogos
+                    ? (webLogoImage != nil ? "WEB" : snapshot.webLogoURL?.trimmedNilIfBlank.map { _ in "WEB..." })
+                    : nil,
+                shouldRenderLogos
+                    ? (!visibleSponsorImages.isEmpty
+                        ? "SPONSOR x\(visibleSponsorImages.count)"
+                        : (snapshot.sponsorLogoURLs?.isEmpty == false ? "SPONSOR..." : nil))
+                    : nil
             ]
             .compactMap { $0 }
             .joined(separator: " | ")
@@ -1224,6 +1966,42 @@ private final class LiveScoreboardOverlayRenderer {
         }
 
         return CIImage(image: image)
+    }
+
+    private static func drawLogo(
+        _ image: UIImage,
+        in rect: CGRect,
+        context: CGContext,
+        inset: CGFloat = 5
+    ) {
+        let containerPath = UIBezierPath(roundedRect: rect, cornerRadius: min(rect.width, rect.height) * 0.24)
+        UIColor.white.withAlphaComponent(0.10).setFill()
+        containerPath.fill()
+        UIColor.white.withAlphaComponent(0.16).setStroke()
+        containerPath.lineWidth = 1
+        containerPath.stroke()
+
+        context.saveGState()
+        containerPath.addClip()
+        let fittedRect = aspectFitRect(for: image.size, in: rect.insetBy(dx: inset, dy: inset))
+        image.draw(in: fittedRect)
+        context.restoreGState()
+    }
+
+    private static func aspectFitRect(for imageSize: CGSize, in bounds: CGRect) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0, bounds.width > 0, bounds.height > 0 else {
+            return bounds
+        }
+
+        let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let width = imageSize.width * scale
+        let height = imageSize.height * scale
+        return CGRect(
+            x: bounds.midX - width / 2,
+            y: bounds.midY - height / 2,
+            width: width,
+            height: height
+        )
     }
 }
 

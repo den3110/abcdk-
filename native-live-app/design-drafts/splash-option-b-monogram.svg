@@ -1,0 +1,25 @@
+<svg width="1440" height="3040" viewBox="0 0 1440 3040" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sbgB" x1="196" y1="148" x2="1254" y2="2898" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F3EFE6"/>
+      <stop offset="1" stop-color="#E5DDCD"/>
+    </linearGradient>
+    <linearGradient id="slashB" x1="446" y1="898" x2="1038" y2="1524" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28D0B0"/>
+      <stop offset="1" stop-color="#147D6E"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1440" height="3040" fill="url(#sbgB)"/>
+  <circle cx="1166" cy="588" r="98" fill="#FF7A45"/>
+  <circle cx="1166" cy="588" r="30" fill="#FFF5EF"/>
+
+  <path d="M424 1548L1018 826" stroke="url(#slashB)" stroke-width="92" stroke-linecap="round"/>
+
+  <path d="M392 850H696C825 850 904 922 904 1038C904 1162 814 1230 679 1230H540V1618H392V850Z" fill="#10161B"/>
+  <path d="M620 1020H710C761 1020 788 1044 788 1081C788 1124 756 1148 704 1148H620V1020Z" fill="#F3EFE6"/>
+  <path d="M842 850H1022V964H960V1618H812V964H750V850H842Z" fill="#10161B"/>
+
+  <text x="720" y="1842" text-anchor="middle" fill="#10161B" font-size="118" font-family="Arial, sans-serif" font-weight="700" letter-spacing="8">PICKLETOUR LIVE</text>
+  <text x="720" y="1970" text-anchor="middle" fill="#37534F" font-size="54" font-family="Arial, sans-serif" font-weight="600" letter-spacing="10">Clean • Sharp • Tournament-first</text>
+</svg>

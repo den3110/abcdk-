@@ -1,0 +1,17 @@
+.gradle/
+.gradle-user/
+.gradle-user-home/
+.kotlin/
+.android/
+.android-user/
+.cxx/
+local.properties
+captures/
+build/
+app/build/
+*/build/
+*.apk
+*.aab
+*.ap_
+output-metadata.json
+

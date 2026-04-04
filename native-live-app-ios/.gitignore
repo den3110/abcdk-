@@ -2,6 +2,14 @@ Pods/
 build/
 *.xcworkspace
 DerivedData/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+.swiftpm/
+.symlinks/
 fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots

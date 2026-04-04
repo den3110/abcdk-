@@ -1,3 +1,4 @@
+import Combine
 import CoreGraphics
 import Foundation
 
@@ -1001,7 +1002,11 @@ struct OverlayHealth: Codable, Equatable {
     var reattaching: Bool = false
     var snapshotFresh: Bool = false
     var roomMismatch: Bool = false
+    var brandingConfigured: Bool = false
+    var brandingLoading: Bool = false
     var brandingReady: Bool = false
+    var brandingLoadedCount: Int = 0
+    var brandingAssetCount: Int = 0
     var destinationBound: Bool = false
     var lastAttachedAtMs: Int64 = 0
     var lastIssue: String?
@@ -1009,7 +1014,60 @@ struct OverlayHealth: Codable, Equatable {
     var lastEvent: String?
 
     var healthy: Bool {
-        attached && snapshotFresh && !roomMismatch && lastIssue == nil
+        attached
+            && snapshotFresh
+            && !roomMismatch
+            && lastIssue == nil
+            && (!brandingConfigured || brandingReady)
+    }
+}
+
+struct LiveRuntimeSnapshot: Equatable {
+    var routeLabel: String = "login"
+    var courtId: String?
+    var courtName: String?
+    var matchId: String?
+    var matchCode: String?
+    var liveSessionId: String?
+    var streamStateSummary: String = "idle"
+    var recordingStateSummary: String = "idle"
+    var overlayAttached: Bool = false
+    var overlayRoomMismatch: Bool = false
+    var overlayIssue: String?
+    var waitingForCourt: Bool = false
+    var waitingForMatchLive: Bool = false
+    var waitingForNextMatch: Bool = false
+    var updatedAt: Date = .distantPast
+
+    var summaryLine: String {
+        [
+            "route=\(routeLabel)",
+            courtId?.trimmedNilIfBlank.map { "court=\($0)" },
+            matchId?.trimmedNilIfBlank.map { "match=\($0)" },
+            liveSessionId?.trimmedNilIfBlank.map { "session=\($0)" },
+            "stream=\(streamStateSummary)",
+            "recording=\(recordingStateSummary)",
+            overlayAttached ? "overlay=attached" : "overlay=detached",
+            overlayRoomMismatch ? "room=mismatch" : nil,
+            waitingForCourt ? "wait=court" : nil,
+            waitingForMatchLive ? "wait=match_live" : nil,
+            waitingForNextMatch ? "wait=next_match" : nil
+        ]
+        .compactMap { $0 }
+        .joined(separator: " | ")
+    }
+}
+
+@MainActor
+final class LiveStreamRuntimeRegistry: ObservableObject {
+    @Published private(set) var snapshot = LiveRuntimeSnapshot()
+
+    func update(_ snapshot: LiveRuntimeSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func clear() {
+        snapshot = LiveRuntimeSnapshot()
     }
 }
 

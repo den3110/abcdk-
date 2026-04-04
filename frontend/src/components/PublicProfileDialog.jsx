@@ -559,22 +559,22 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     ? matchQ.data
     : matchQ.data?.items || [];
   const matchTotal = matchQ.data?.total ?? 0;
-  const matchViewerZIndex = theme.zIndex.modal + 20;
 
   /* --- match detail modal --- */
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
-  const [matchViewerOpen, setMatchViewerOpen] = useState(false);
-  const [matchViewerRow, setMatchViewerRow] = useState(null);
+  const detailViewerKey = String(
+    detail?._id || detail?.id || detail?.code || detail?.dateTime || "match",
+  );
   const openDetail = (row) => {
-    setMatchViewerRow(row || null);
-    setMatchViewerOpen(true);
+    setDetail(row || null);
+    setDetailOpen(true);
   };
 
   useEffect(() => {
     if (open) return;
-    setMatchViewerOpen(false);
-    setMatchViewerRow(null);
+    setDetailOpen(false);
+    setDetail(null);
   }, [open]);
 
   /* --- ZOOM image state & dialog --- */
@@ -1488,6 +1488,19 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
+  function MatchViewerDialog({ open, onClose, row }) {
+    return (
+      <ResponsiveMatchViewer
+        open={open}
+        onClose={onClose}
+        matchId={row?._id || row?.id || null}
+        courtStationId={row?.courtStationId || row?.courtStation?._id || null}
+        initialMatch={row || null}
+        zIndex={theme.zIndex.modal + 20}
+      />
+    );
+  }
+
   /* --- Match section: mobile | desktop --- */
   function MatchSection({ isMobileView }) {
     if (matchLoading) return <MatchSkeleton isMobile={isMobileView} />;
@@ -1620,7 +1633,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             />
           </Stack>
 
-          <MatchDetailDialog
+          <MatchViewerDialog
+            key={detailViewerKey}
             open={detailOpen}
             onClose={() => setDetailOpen(false)}
             row={detail}
@@ -1754,7 +1768,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           />
         </Stack>
 
-        <MatchDetailDialog
+        <MatchViewerDialog
+          key={detailViewerKey}
           open={detailOpen}
           onClose={() => setDetailOpen(false)}
           row={detail}
@@ -2336,18 +2351,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           title={zoom.title}
           onClose={closeZoom}
         />
-        <ResponsiveMatchViewer
-          open={matchViewerOpen}
-          onClose={() => setMatchViewerOpen(false)}
-          matchId={matchViewerRow?._id || matchViewerRow?.id || null}
-          courtStationId={
-            matchViewerRow?.courtStationId ||
-            matchViewerRow?.courtStation?._id ||
-            null
-          }
-          initialMatch={matchViewerRow || null}
-          zIndex={matchViewerZIndex}
-        />
         {SnackRender}
       </>
     );
@@ -2435,18 +2438,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         src={zoom.src}
         title={zoom.title}
         onClose={closeZoom}
-      />
-      <ResponsiveMatchViewer
-        open={matchViewerOpen}
-        onClose={() => setMatchViewerOpen(false)}
-        matchId={matchViewerRow?._id || matchViewerRow?.id || null}
-        courtStationId={
-          matchViewerRow?.courtStationId ||
-          matchViewerRow?.courtStation?._id ||
-          null
-        }
-        initialMatch={matchViewerRow || null}
-        zIndex={matchViewerZIndex}
       />
       {SnackRender}
     </>

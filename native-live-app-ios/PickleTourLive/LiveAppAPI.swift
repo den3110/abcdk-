@@ -593,28 +593,6 @@ actor LiveRecordingUploadCoordinator {
         )
     }
 
-    func uploadSegment(recordingId: String, fileURL: URL) async throws -> MatchRecordingResponse {
-        let pending = PendingRecordingSegment(
-            recordingId: recordingId,
-            matchId: "",
-            segmentIndex: Int(Self.nowMs() % 1_000_000),
-            filePath: fileURL.path,
-            fileName: fileURL.lastPathComponent,
-            durationSeconds: fileURL.mediaDurationSeconds(),
-            sizeBytes: try fileURL.fileSizeBytes(),
-            isFinal: false,
-            uploadMode: nil,
-            segmentId: nil,
-            uploadId: nil,
-            objectKey: nil,
-            uploadedBytes: 0,
-            parts: [],
-            lastError: nil,
-            createdAtMs: Self.nowMs()
-        )
-        return try await uploadPendingSegment(pending)
-    }
-
     @discardableResult
     func enqueueSegment(_ segment: LocalRecordingSegment) async throws -> RecordingQueueSnapshot {
         let persistedURL = try persistSegmentFile(segment)
@@ -1073,11 +1051,13 @@ final class LiveAppEnvironment {
     let recordingCoordinator: LiveRecordingUploadCoordinator
     let networkMonitor: LiveNetworkMonitor
     let deviceMonitor: LiveDeviceMonitor
+    let runtimeRegistry: LiveStreamRuntimeRegistry
 
     private init() {
         sessionStore = LiveSessionStore(keychain: keychain)
         networkMonitor = LiveNetworkMonitor()
         deviceMonitor = LiveDeviceMonitor()
+        runtimeRegistry = LiveStreamRuntimeRegistry()
         apiClient = LiveAPIClient(sessionProvider: { [weak sessionStore] in
             sessionStore?.session?.accessToken
         })

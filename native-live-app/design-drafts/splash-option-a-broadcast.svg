@@ -1,0 +1,42 @@
+<svg width="1440" height="3040" viewBox="0 0 1440 3040" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sbgA" x1="252" y1="182" x2="1260" y2="2880" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D1418"/>
+      <stop offset="0.58" stop-color="#121E24"/>
+      <stop offset="1" stop-color="#193039"/>
+    </linearGradient>
+    <radialGradient id="pulseA" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(720 1040) rotate(90) scale(880 620)">
+      <stop stop-color="#27D4B1" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#27D4B1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mintLineA" x1="468" y1="1972" x2="972" y2="1972" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28D5B3"/>
+      <stop offset="1" stop-color="#FF7A45"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1440" height="3040" fill="url(#sbgA)"/>
+  <rect width="1440" height="3040" fill="url(#pulseA)"/>
+
+  <g transform="translate(308 640)">
+    <rect x="0" y="0" width="824" height="824" rx="214" fill="#10191F"/>
+    <rect x="28" y="28" width="768" height="768" rx="186" stroke="#22353E" stroke-width="18"/>
+    <circle cx="412" cy="420" r="250" fill="#23C7A7"/>
+    <circle cx="412" cy="420" r="184" fill="#122027"/>
+    <circle cx="330" cy="324" r="28" fill="#F5FBFA"/>
+    <circle cx="494" cy="324" r="28" fill="#F5FBFA"/>
+    <circle cx="412" cy="248" r="28" fill="#F5FBFA"/>
+    <circle cx="412" cy="590" r="28" fill="#F5FBFA"/>
+    <circle cx="330" cy="516" r="28" fill="#F5FBFA"/>
+    <circle cx="494" cy="516" r="28" fill="#F5FBFA"/>
+    <path d="M532 366C573 378 606 410 621 453" stroke="#F5FBFA" stroke-width="28" stroke-linecap="round"/>
+    <path d="M569 328C623 345 667 387 689 444" stroke="#F5FBFA" stroke-width="28" stroke-linecap="round"/>
+    <circle cx="688" cy="172" r="70" fill="#FF6B57"/>
+    <circle cx="688" cy="172" r="24" fill="#FFF4F1"/>
+  </g>
+
+  <text x="720" y="1788" text-anchor="middle" fill="#F4FBFA" font-size="118" font-family="Arial, sans-serif" font-weight="700" letter-spacing="10">PICKLETOUR</text>
+  <text x="720" y="1918" text-anchor="middle" fill="#8FB6B1" font-size="56" font-family="Arial, sans-serif" font-weight="600" letter-spacing="18">LIVE CONTROL</text>
+  <rect x="468" y="1958" width="504" height="28" rx="14" fill="url(#mintLineA)"/>
+  <text x="720" y="2118" text-anchor="middle" fill="#7FA39D" font-size="42" font-family="Arial, sans-serif" font-weight="400" letter-spacing="4">Scoreboard • Sponsors • Stream</text>
+</svg>

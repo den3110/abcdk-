@@ -1,0 +1,38 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgA" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F171C"/>
+      <stop offset="1" stop-color="#17262E"/>
+    </linearGradient>
+    <linearGradient id="mintA" x1="246" y1="226" x2="767" y2="800" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3BE2C0"/>
+      <stop offset="1" stop-color="#1FB79B"/>
+    </linearGradient>
+    <filter id="glowA" x="154" y="154" width="716" height="716" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+  </defs>
+
+  <rect x="104" y="104" width="816" height="816" rx="214" fill="url(#bgA)"/>
+  <rect x="132" y="132" width="760" height="760" rx="186" stroke="#20343D" stroke-width="18"/>
+
+  <g filter="url(#glowA)" opacity="0.28">
+    <circle cx="512" cy="512" r="270" fill="#2CD1AF"/>
+  </g>
+
+  <circle cx="512" cy="524" r="250" fill="url(#mintA)"/>
+  <circle cx="512" cy="524" r="184" fill="#122027"/>
+
+  <circle cx="430" cy="428" r="28" fill="#F5FBFA"/>
+  <circle cx="594" cy="428" r="28" fill="#F5FBFA"/>
+  <circle cx="512" cy="352" r="28" fill="#F5FBFA"/>
+  <circle cx="512" cy="694" r="28" fill="#F5FBFA"/>
+  <circle cx="430" cy="620" r="28" fill="#F5FBFA"/>
+  <circle cx="594" cy="620" r="28" fill="#F5FBFA"/>
+
+  <path d="M632 470C673 482 706 514 721 557" stroke="#F5FBFA" stroke-width="28" stroke-linecap="round"/>
+  <path d="M669 432C723 449 767 491 789 548" stroke="#F5FBFA" stroke-width="28" stroke-linecap="round"/>
+
+  <circle cx="788" cy="276" r="70" fill="#FF6B57"/>
+  <circle cx="788" cy="276" r="24" fill="#FFF4F1"/>
+</svg>

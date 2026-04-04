@@ -86,6 +86,7 @@ final class LiveAppStore: ObservableObject {
     private var runtimePollTask: Task<Void, Never>?
     private var goLiveCountdownTask: Task<Void, Never>?
     private var stopLiveCountdownTask: Task<Void, Never>?
+    private var backgroundExitTask: Task<Void, Never>?
     private var pendingLaunchTarget: LiveLaunchTarget?
     private var activeRecording: MatchRecording?
     private var recordingFinalizeRequested = false
@@ -104,6 +105,7 @@ final class LiveAppStore: ObservableObject {
         session = environment.sessionStore.session
         bind()
         configureSockets()
+        syncStreamingSafetyProfile()
         Task {
             await restoreRecordingQueue()
         }
@@ -112,16 +114,45 @@ final class LiveAppStore: ObservableObject {
             guard let self else { return }
             await self.environment.recordingCoordinator.setCallbacks(
                 onQueueSnapshotChange: { [weak self] snapshot in
-                    self?.applyRecordingQueueSnapshot(snapshot)
+                    guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                    self.applyRecordingQueueSnapshot(snapshot)
                 },
                 onRecordingUpdate: { [weak self] recording in
-                    self?.activeRecording = recording
+                    guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                    self.activeRecording = recording
                 },
                 onError: { [weak self] message in
-                    self?.errorMessage = message
+                    guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                    self.errorMessage = message
                 }
             )
         }
+    }
+
+    deinit {
+        stopBackgroundLoops()
+        environment.runtimeRegistry.clear()
+        streamingService.onRecordingSegmentReady = nil
+        streamingService.onRecordingFailure = nil
+
+        environment.matchSocket.onOverlaySnapshot = nil
+        environment.matchSocket.onConnectionChange = nil
+        environment.matchSocket.onStatusChange = nil
+        environment.matchSocket.onActiveMatchChange = nil
+        environment.matchSocket.onLog = nil
+        environment.matchSocket.onPayloadTimestamp = nil
+        environment.matchSocket.disconnect()
+
+        environment.courtRuntimeSocket.onClusterUpdate = nil
+        environment.courtRuntimeSocket.onStationUpdate = nil
+        environment.courtRuntimeSocket.onConnectionChange = nil
+        environment.courtRuntimeSocket.onLog = nil
+        environment.courtRuntimeSocket.disconnect()
+
+        environment.courtPresenceSocket.onSnapshot = nil
+        environment.courtPresenceSocket.onConnectionChange = nil
+        environment.courtPresenceSocket.onLog = nil
+        environment.courtPresenceSocket.disconnect()
     }
 
     func bootstrapIfPossible() async {
@@ -170,6 +201,7 @@ final class LiveAppStore: ObservableObject {
         environment.matchSocket.disconnect()
         environment.courtRuntimeSocket.disconnect()
         environment.courtPresenceSocket.disconnect()
+        environment.runtimeRegistry.clear()
         watchedClusterId = nil
         watchedCourtId = nil
         watchedTournamentId = nil
@@ -223,6 +255,17 @@ final class LiveAppStore: ObservableObject {
         leaseHeartbeatIntervalMs = 10_000
         freshEntryRequired = false
         safetyDegradeReason = nil
+        socketConnected = false
+        runtimeSocketConnected = false
+        presenceSocketConnected = false
+        activeSocketMatchId = nil
+        lastSocketPayloadAt = nil
+        streamState = .idle
+        isRefreshingOverlay = false
+        isResumingRecordingQueue = false
+        lastOverlayRefreshAttemptAt = nil
+        lastSocketSelfHealAt = nil
+        lastRecordingQueueResumeAt = nil
         LiveAppOrientationController.apply(.auto)
         bannerMessage = nil
         errorMessage = nil
@@ -262,7 +305,6 @@ final class LiveAppStore: ObservableObject {
             matchId: matchId?.trimmedNilIfBlank,
             pageId: pageId?.trimmedNilIfBlank
         )
-    }
     }
 
     func continueFromSetup() async {
@@ -503,6 +545,7 @@ final class LiveAppStore: ObservableObject {
             liveStartedAt = Date()
             bannerMessage = liveMode.includesRecording ? "Đã bắt đầu live và recording." : "Đã bắt đầu live."
         } catch {
+            streamingService.stopPublishing()
             if streamingService.isRecordingLocally {
                 await streamingService.stopRecording()
             }
@@ -597,7 +640,11 @@ final class LiveAppStore: ObservableObject {
         streamingService.stopPublishing()
         await streamingService.stopRecording()
         streamingService.stopPreview()
+        streamingService.overlaySnapshot = nil
+        activeMatch = nil
         liveSession = nil
+        overlayConfig = nil
+        overlaySnapshot = nil
         liveStartedAt = nil
         cancelWaitingStates()
         cancelGoLiveCountdown()
@@ -605,6 +652,18 @@ final class LiveAppStore: ObservableObject {
         queuedCourtMatchId = nil
         orientationMode = .auto
         safetyDegradeReason = nil
+        activeSocketMatchId = nil
+        lastSocketPayloadAt = nil
+        streamState = .idle
+        recoveryState = StreamRecoveryState()
+        overlayHealth = OverlayHealth()
+        lastRecovery = nil
+        operatorRecoveryDialog = nil
+        isRefreshingOverlay = false
+        isResumingRecordingQueue = false
+        lastOverlayRefreshAttemptAt = nil
+        lastSocketSelfHealAt = nil
+        lastRecordingQueueResumeAt = nil
         LiveAppOrientationController.apply(.auto)
         route = .adminHome
     }
@@ -645,11 +704,13 @@ final class LiveAppStore: ObservableObject {
         if safetyDegradeActive && quality != .stable720 {
             selectedQuality = .stable720
             streamingService.applyQuality(.stable720)
+            syncStreamingSafetyProfile()
             bannerMessage = "App đang ở safety mode, tạm khoá quality về 720p ổn định."
             return
         }
         selectedQuality = quality
         streamingService.applyQuality(quality)
+        syncStreamingSafetyProfile()
     }
 
     private func engageSafetyDegrade(reason: String) {
@@ -683,18 +744,24 @@ final class LiveAppStore: ObservableObject {
         if changed {
             bannerMessage = "App đã tự hạ tải để giữ phiên ổn định: \(reason)."
         }
+
+        syncStreamingSafetyProfile()
     }
 
     private func maybeReleaseSafetyDegrade() {
         guard safetyDegradeActive else { return }
-        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
-        let recentMemoryPressure = lastMemoryPressure.map { nowMs - $0.atMs < 180_000 } ?? false
         guard !thermalWarning, !recentMemoryPressure else { return }
         safetyDegradeReason = nil
+        syncStreamingSafetyProfile()
     }
 
     var safetyDegradeActive: Bool {
         safetyDegradeReason?.trimmedNilIfBlank != nil
+    }
+
+    var recentMemoryPressure: Bool {
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        return lastMemoryPressure.map { nowMs - $0.atMs < 180_000 } ?? false
     }
 
     var recordingSnapshot: MatchRecording? {
@@ -719,6 +786,10 @@ final class LiveAppStore: ObservableObject {
 
     var currentCourtIdentifier: String? {
         currentCourtId?.trimmedNilIfBlank
+    }
+
+    var runtimeRegistrySummary: String {
+        environment.runtimeRegistry.snapshot.summaryLine
     }
 
     var cameraPermissionGranted: Bool {
@@ -947,11 +1018,25 @@ final class LiveAppStore: ObservableObject {
         return nil
     }
 
-    var brandingReady: Bool {
+    var brandingConfigured: Bool {
         let hasTournamentLogo = overlaySnapshot?.tournamentLogoURL?.trimmedNilIfBlank != nil
         let hasWebLogo = overlayConfig?.webLogoURL?.trimmedNilIfBlank != nil
-        let hasSponsor = overlayConfig?.sponsors.isEmpty == false
+        let hasSponsor = overlayConfig?.sponsors.contains { $0.logoURL?.trimmedNilIfBlank != nil } == true
         return hasTournamentLogo || hasWebLogo || hasSponsor
+    }
+
+    var brandingReady: Bool {
+        if !brandingConfigured {
+            return true
+        }
+        if overlayHealth.brandingAssetCount > 0 {
+            return overlayHealth.brandingReady
+        }
+        return false
+    }
+
+    var brandingLoading: Bool {
+        brandingConfigured && overlayHealth.brandingLoading
     }
 
     var isWaitingForActivation: Bool {
@@ -1131,6 +1216,15 @@ final class LiveAppStore: ObservableObject {
     func clearDiagnostics() {
         streamingService.clearDiagnostics()
         bannerMessage = "Đã xoá diagnostics nội bộ."
+    }
+
+    private func syncStreamingSafetyProfile() {
+        streamingService.updateStabilityProfile(
+            safetyDegradeActive: safetyDegradeActive,
+            recentMemoryPressure: recentMemoryPressure,
+            thermalWarning: thermalWarning,
+            thermalCritical: thermalCritical
+        )
     }
 
     func handleIncomingURL(_ url: URL) {
@@ -1716,6 +1810,85 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    private func scheduleBackgroundExitIfNeeded() {
+        guard backgroundExitTask == nil else { return }
+        guard hasPrimarySessionIntent || streamingService.isRecordingLocally || liveStartedAt != nil else { return }
+
+        backgroundExitTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            await self?.performBackgroundExitIfNeeded()
+        }
+    }
+
+    private func performBackgroundExitIfNeeded() async {
+        backgroundExitTask = nil
+
+        guard !appIsActive else { return }
+        guard hasPrimarySessionIntent || streamingService.isRecordingLocally || liveStartedAt != nil else { return }
+
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        runtimePollTask?.cancel()
+        runtimePollTask = nil
+        goLiveCountdownTask?.cancel()
+        goLiveCountdownTask = nil
+        stopLiveCountdownTask?.cancel()
+        stopLiveCountdownTask = nil
+        goLiveCountdownSeconds = nil
+        stopLiveCountdownSeconds = nil
+        endingLive = false
+
+        let hadLivestream = matchesLiveSessionState
+        let liveMatchId = activeMatch?.id.trimmedNilIfBlank
+        let shouldStopRecording = streamingService.isRecordingLocally || activeRecording != nil
+
+        if hadLivestream, let liveMatchId {
+            _ = try? await environment.apiClient.notifyStreamEnded(
+                matchId: liveMatchId,
+                clientSessionId: streamingService.clientSessionId
+            )
+        }
+
+        streamingService.stopPublishing()
+        overlaySnapshot = nil
+        streamingService.overlaySnapshot = nil
+
+        if shouldStopRecording {
+            await streamingService.stopRecording()
+            recordingFinalizeRequested = activeRecording != nil
+        }
+
+        streamingService.stopPreview()
+        environment.matchSocket.disconnect()
+        environment.courtRuntimeSocket.disconnect()
+        environment.courtPresenceSocket.disconnect()
+
+        socketConnected = false
+        runtimeSocketConnected = false
+        presenceSocketConnected = false
+        activeSocketMatchId = nil
+        lastSocketPayloadAt = nil
+        streamState = .idle
+        liveSession = nil
+        liveStartedAt = nil
+        waitingForCourt = false
+        waitingForMatchLive = false
+        waitingForNextMatch = false
+        goLiveArmed = false
+        recordOnlyArmed = false
+        preflightIssues = []
+        freshEntryRequired = true
+
+        if activeRecording != nil {
+            recordingStateText = recordingPendingUploads > 0 ? "Đang tải segment cuối" : "Đang chốt recording"
+            await maybeFinalizeRecordingIfReady()
+        } else {
+            recordingStateText = liveMode.includesRecording ? "Đã dừng do app background" : "Chưa ghi hình"
+        }
+
+        bannerMessage = "App đã rời foreground quá lâu. Phiên live đã được dừng an toàn, hãy refresh context trước khi vào lại."
+    }
+
     private func rebuildPreviewPipeline() async {
         do {
             streamingService.stopPublishing()
@@ -1800,6 +1973,7 @@ final class LiveAppStore: ObservableObject {
             .sink { [weak self] thermalState in
                 self?.thermalState = thermalState
                 self?.maybeReleaseSafetyDegrade()
+                self?.syncStreamingSafetyProfile()
             }
             .store(in: &cancellables)
 
@@ -1819,6 +1993,7 @@ final class LiveAppStore: ObservableObject {
                         self.engageSafetyDegrade(reason: "Thiết bị đang nóng")
                     }
                 }
+                self.syncStreamingSafetyProfile()
             }
             .store(in: &cancellables)
 
@@ -1838,6 +2013,7 @@ final class LiveAppStore: ObservableObject {
                     self.streamingService.noteMemoryPressure(summary: event.summary)
                     self.engageSafetyDegrade(reason: event.summary)
                 }
+                self.syncStreamingSafetyProfile()
             }
             .store(in: &cancellables)
 
@@ -1855,6 +2031,8 @@ final class LiveAppStore: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.appIsActive = true
+                self.backgroundExitTask?.cancel()
+                self.backgroundExitTask = nil
                 self.refreshStorageMetrics()
                 self.environment.deviceMonitor.refresh()
                 Task { @MainActor in
@@ -1870,6 +2048,7 @@ final class LiveAppStore: ObservableObject {
                         self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
                     }
                     self.maybeReleaseSafetyDegrade()
+                    self.syncStreamingSafetyProfile()
                     await self.performHealthMaintenanceIfNeeded(force: true)
                 }
             }
@@ -1884,6 +2063,7 @@ final class LiveAppStore: ObservableObject {
                     self.freshEntryRequired = true
                     self.bannerMessage = "App vừa rời foreground. Auto-start sẽ bị giữ lại cho đến khi context được xác nhận lại."
                 }
+                self.scheduleBackgroundExitIfNeeded()
             }
             .store(in: &cancellables)
 
@@ -1976,6 +2156,40 @@ final class LiveAppStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        let runtimeRegistryPrimary = Publishers.CombineLatest4($route, $selectedCourt, $activeMatch, $liveSession)
+        let runtimeRegistrySecondary = Publishers.CombineLatest4($streamState, $recordingStateText, $overlayHealth, $courtPresence)
+        let runtimeRegistryTertiary = Publishers.CombineLatest4($waitingForCourt, $waitingForMatchLive, $waitingForNextMatch, $liveStartedAt)
+
+        Publishers.CombineLatest3(runtimeRegistryPrimary, runtimeRegistrySecondary, runtimeRegistryTertiary)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] primary, secondary, tertiary in
+                guard let self else { return }
+                let (route, selectedCourt, activeMatch, liveSession) = primary
+                let (streamState, recordingStateText, overlayHealth, courtPresence) = secondary
+                let (waitingForCourt, waitingForMatchLive, waitingForNextMatch, _) = tertiary
+
+                self.environment.runtimeRegistry.update(
+                    LiveRuntimeSnapshot(
+                        routeLabel: self.routeLabel(for: route),
+                        courtId: self.currentCourtId?.trimmedNilIfBlank,
+                        courtName: selectedCourt?.displayName ?? self.courtRuntime?.name?.trimmedNilIfBlank,
+                        matchId: activeMatch?.id.trimmedNilIfBlank,
+                        matchCode: activeMatch?.displayCode?.trimmedNilIfBlank ?? activeMatch?.code?.trimmedNilIfBlank,
+                        liveSessionId: liveSession?.facebook?.pageId?.trimmedNilIfBlank,
+                        streamStateSummary: self.streamStateSummary(streamState),
+                        recordingStateSummary: recordingStateText,
+                        overlayAttached: overlayHealth.attached,
+                        overlayRoomMismatch: overlayHealth.roomMismatch,
+                        overlayIssue: overlayHealth.lastIssue?.trimmedNilIfBlank,
+                        waitingForCourt: waitingForCourt || courtPresence?.occupied == false,
+                        waitingForMatchLive: waitingForMatchLive,
+                        waitingForNextMatch: waitingForNextMatch,
+                        updatedAt: Date()
+                    )
+                )
+            }
+            .store(in: &cancellables)
+
         streamingService.$localRecordingState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -1985,14 +2199,16 @@ final class LiveAppStore: ObservableObject {
 
         streamingService.onRecordingSegmentReady = { [weak self] segment in
             Task { @MainActor in
-                await self?.enqueueRecordingUpload(segment)
+                guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                await self.enqueueRecordingUpload(segment)
             }
         }
 
         streamingService.onRecordingFailure = { [weak self] message in
             Task { @MainActor in
-                self?.recordingStateText = "Ghi hình lỗi"
-                self?.errorMessage = message
+                guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                self.recordingStateText = "Ghi hình lỗi"
+                self.errorMessage = message
             }
         }
     }
@@ -2001,6 +2217,7 @@ final class LiveAppStore: ObservableObject {
         environment.matchSocket.onOverlaySnapshot = { [weak self] snapshot in
             Task { @MainActor in
                 guard let self else { return }
+                guard self.session?.accessToken.trimmedNilIfBlank != nil else { return }
                 let enrichedSnapshot = self.enrichOverlaySnapshot(snapshot, match: self.activeMatch) ?? snapshot
                 self.overlaySnapshot = enrichedSnapshot
                 self.streamingService.overlaySnapshot = enrichedSnapshot
@@ -2010,14 +2227,16 @@ final class LiveAppStore: ObservableObject {
 
         environment.matchSocket.onConnectionChange = { [weak self] connected in
             Task { @MainActor in
-                self?.socketConnected = connected
-                self?.updateOverlayHealthState()
+                guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                self.socketConnected = connected
+                self.updateOverlayHealthState()
             }
         }
 
         environment.matchSocket.onStatusChange = { [weak self] status in
             Task { @MainActor in
                 guard let self else { return }
+                guard self.session?.accessToken.trimmedNilIfBlank != nil else { return }
                 guard let normalizedStatus = status?.trimmedNilIfBlank else { return }
                 guard var activeMatch = self.activeMatch else { return }
                 activeMatch.status = normalizedStatus
@@ -2028,15 +2247,17 @@ final class LiveAppStore: ObservableObject {
 
         environment.matchSocket.onActiveMatchChange = { [weak self] matchId in
             Task { @MainActor in
-                self?.activeSocketMatchId = matchId
-                self?.updateOverlayHealthState()
+                guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                self.activeSocketMatchId = matchId
+                self.updateOverlayHealthState()
             }
         }
 
         environment.matchSocket.onPayloadTimestamp = { [weak self] date in
             Task { @MainActor in
-                self?.lastSocketPayloadAt = date
-                self?.updateOverlayHealthState()
+                guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                self.lastSocketPayloadAt = date
+                self.updateOverlayHealthState()
             }
         }
 
@@ -2055,6 +2276,7 @@ final class LiveAppStore: ObservableObject {
         environment.courtRuntimeSocket.onStationUpdate = { [weak self] payload in
             Task { @MainActor in
                 guard let self else { return }
+                guard self.session?.accessToken.trimmedNilIfBlank != nil else { return }
                 if let station = payload.station {
                     if station.id == self.selectedCourt?.id {
                         self.selectedCourt = station
@@ -2097,6 +2319,7 @@ final class LiveAppStore: ObservableObject {
         environment.courtPresenceSocket.onSnapshot = { [weak self] snapshot in
             Task { @MainActor in
                 guard let self else { return }
+                guard self.session?.accessToken.trimmedNilIfBlank != nil else { return }
 
                 self.courts = self.courts.map { court in
                     guard let presence = snapshot.courts.first(where: { $0.courtId == court.id })?.liveScreenPresence else {
@@ -2229,6 +2452,12 @@ final class LiveAppStore: ObservableObject {
         environment.matchSocket.unwatch()
         unwatchCurrentCourt()
         queuedCourtMatchId = nil
+        activeSocketMatchId = nil
+        lastSocketPayloadAt = nil
+        recoveryState = StreamRecoveryState()
+        overlayHealth = OverlayHealth()
+        lastRecovery = nil
+        operatorRecoveryDialog = nil
 
         streamingService.stopPublishing()
         await streamingService.stopRecording()
@@ -2553,8 +2782,42 @@ final class LiveAppStore: ObservableObject {
         streamingService.noteOverlayInputs(
             snapshotFresh: snapshotFresh,
             roomMismatch: socketRoomMismatch || socketRoomPending,
-            brandingReady: brandingReady
+            brandingConfigured: brandingConfigured
         )
+    }
+
+    private func routeLabel(for route: AppRoute) -> String {
+        switch route {
+        case .login:
+            return "login"
+        case .adminHome:
+            return "admin_home"
+        case .courtSetup:
+            return "court_setup"
+        case .liveStream:
+            return "live_stream"
+        }
+    }
+
+    private func streamStateSummary(_ state: StreamConnectionState) -> String {
+        switch state {
+        case .idle:
+            return "idle"
+        case .preparingPreview:
+            return "preparing_preview"
+        case .previewReady:
+            return "preview_ready"
+        case .connecting:
+            return "connecting"
+        case .live:
+            return "live"
+        case .reconnecting:
+            return "reconnecting"
+        case .stopped:
+            return "stopped"
+        case .failed:
+            return "failed"
+        }
     }
 
     private func refreshOperatorRecoveryDialog() {
@@ -2728,6 +2991,8 @@ final class LiveAppStore: ObservableObject {
         goLiveCountdownTask = nil
         stopLiveCountdownTask?.cancel()
         stopLiveCountdownTask = nil
+        backgroundExitTask?.cancel()
+        backgroundExitTask = nil
     }
 
     private func cancelRecordingUploads() {
