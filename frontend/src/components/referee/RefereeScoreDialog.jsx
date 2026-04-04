@@ -969,7 +969,7 @@ export default function RefereeScoreDialog({
   const toggleServeSide = useCallback(async () => {
     if (!match?._id) return;
     const nextSide = activeSide === "A" ? "B" : "A";
-    const opening = isDouble && isPreStartOrOpening;
+    const opening = isDouble && needsStartAction;
     const preferredSlot = opening
       ? preStartRightSlotForSide(nextSide, currentLayout)
       : 1;
@@ -992,8 +992,8 @@ export default function RefereeScoreDialog({
     eventType,
     findUidAtCurrentSlot,
     isDouble,
-    isPreStartOrOpening,
     match,
+    needsStartAction,
     runLiveControlBusy,
   ]);
 
@@ -1164,9 +1164,11 @@ export default function RefereeScoreDialog({
     wins.b,
   ]);
 
-  const midLabel = activeServerNum === 1 ? "Đổi tay" : "Đổi giao";
-  const midIcon = activeServerNum === 1 ? <SwapVertIcon /> : <SwapCallsIcon />;
-  const onMidPress = activeServerNum === 1 ? toggleServerNum : toggleServeSide;
+  const midUsesServeToggle =
+    !isDouble || isPreStartOrOpening || activeServerNum !== 1;
+  const midLabel = midUsesServeToggle ? "Đổi giao" : "Đổi tay";
+  const midIcon = midUsesServeToggle ? <SwapCallsIcon /> : <SwapVertIcon />;
+  const onMidPress = midUsesServeToggle ? toggleServeSide : toggleServerNum;
   const leftEnabled = canScoreByMatchState && activeSide === leftSide && !busy;
   const rightEnabled = canScoreByMatchState && activeSide === rightSide && !busy;
   return (
