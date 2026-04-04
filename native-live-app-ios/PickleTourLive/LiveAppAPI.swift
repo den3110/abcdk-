@@ -15,7 +15,7 @@ enum LiveAppConfig {
     }
 
     static var authorizationEndpoint: URL {
-        requiredURL(for: "PTLiveAuthorizationEndpoint", fallback: "https://pickletour.vn/oauth/authorize")
+        requiredURL(for: "PTLiveAuthorizationEndpoint", fallback: "https://pickletour.vn/api/api/oauth/authorize")
     }
 
     static var tokenEndpoint: URL {

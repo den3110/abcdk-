@@ -44,6 +44,12 @@ struct LiveAppRootView: View {
         }
     }
 
+    private var errorNoticeDetail: String? {
+        store.authDebugContinueURL?.trimmedNilIfBlank
+            ?? store.authDebugIncomingURL?.trimmedNilIfBlank
+            ?? store.authDebugHandoffURL?.trimmedNilIfBlank
+    }
+
     @ViewBuilder
     private var noticeStack: some View {
         VStack(spacing: 10) {
@@ -52,10 +58,13 @@ struct LiveAppRootView: View {
                     icon: "exclamationmark.triangle.fill",
                     title: "Lỗi",
                     message: errorMessage,
-                    detail: store.authDebugContinueURL?.trimmedNilIfBlank
-                        ?? store.authDebugIncomingURL?.trimmedNilIfBlank
-                        ?? store.authDebugHandoffURL?.trimmedNilIfBlank,
-                    tint: LivePalette.danger
+                    detail: errorNoticeDetail,
+                    tint: LivePalette.danger,
+                    onCopyDetail: {
+                        guard let errorNoticeDetail else { return }
+                        UIPasteboard.general.string = errorNoticeDetail
+                        store.bannerMessage = "Đã copy URL lỗi."
+                    }
                 ) {
                     store.errorMessage = nil
                 }
@@ -3011,6 +3020,7 @@ private struct NoticeStrip: View {
     let message: String
     var detail: String? = nil
     let tint: Color
+    var onCopyDetail: (() -> Void)? = nil
     let onDismiss: () -> Void
 
     var body: some View {
@@ -3035,8 +3045,18 @@ private struct NoticeStrip: View {
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.8))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineLimit(3)
-                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+
+                    if let onCopyDetail {
+                        Button(action: onCopyDetail) {
+                            Label("Copy URL", systemImage: "doc.on.doc")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
 

@@ -182,6 +182,7 @@ final class LiveAppStore: ObservableObject {
         defer { isWorking = false }
 
         do {
+            authDebugContinueURL = environment.authCoordinator.prepareAuthorizationRequestURL().absoluteString
             let nextSession = try await environment.authCoordinator.signIn()
             environment.sessionStore.replace(nextSession)
             bannerMessage = "Đăng nhập thành công."

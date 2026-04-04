@@ -46,7 +46,7 @@
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
 	<key>PTLiveAuthorizationEndpoint</key>
-	<string>https://pickletour.vn/oauth/authorize</string>
+	<string>https://pickletour.vn/api/api/oauth/authorize</string>
 	<key>PTLiveBaseURL</key>
 	<string>https://pickletour.vn/</string>
 	<key>PTLiveOAuthClientId</key>
