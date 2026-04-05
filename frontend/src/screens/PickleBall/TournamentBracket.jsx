@@ -2349,7 +2349,13 @@ function TournamentBracketLoadingSkeleton({ isMdUp }) {
           useFlexGap
           flexWrap="wrap"
         >
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ width: { xs: "100%", sm: "auto" }, minWidth: 0 }}
+          >
             {chipW(120)}
             {chipW(140)}
             {chipW(220)}
@@ -5056,7 +5062,13 @@ export default function TournamentBracket() {
           flexWrap="wrap"
         >
           {/* Trái: Số liệu nhanh */}
-          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ width: { xs: "100%", sm: "auto" }, minWidth: 0 }}
+          >
             <Chip
               icon={<GroupIcon sx={{ fontSize: 18 }} />}
               label={t("tournaments.bracket.metaTeams", {
@@ -5080,11 +5092,27 @@ export default function TournamentBracket() {
               })}
               size="small"
               variant="outlined"
+              sx={{
+                width: { xs: "100%", sm: "auto" },
+                maxWidth: "100%",
+                height: "auto",
+                alignItems: "flex-start",
+                justifyContent: "flex-start",
+                "& .MuiChip-label": {
+                  display: "block",
+                  whiteSpace: "normal",
+                  wordBreak: "break-word",
+                  py: 0.25,
+                },
+              }}
             />
           </Stack>
 
           {/* Phải: Chú thích ký hiệu & màu */}
-          <Stack spacing={0.75}>
+          <Stack
+            spacing={0.75}
+            sx={{ width: { xs: "100%", sm: "auto" }, minWidth: 0 }}
+          >
             {/* Chip chú thích: full-width + wrap label trên mobile */}
             <Stack
               direction="row"
@@ -5228,7 +5256,14 @@ export default function TournamentBracket() {
         onChange={onTabChange}
         variant="scrollable"
         scrollButtons="auto"
-        sx={{ mb: 2 }}
+        sx={{
+          mb: 2,
+          maxWidth: "100%",
+          minWidth: 0,
+          "& .MuiTabs-scroller": {
+            maxWidth: "100%",
+          },
+        }}
       >
         {tabLabels.map((node, i) => (
           <Tab
