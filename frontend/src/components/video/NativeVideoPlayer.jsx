@@ -77,6 +77,30 @@ function buildHlsErrorMessage(data) {
   }
 }
 
+function shouldUseNativeHls(video) {
+  if (!video?.canPlayType?.("application/vnd.apple.mpegurl")) {
+    return false;
+  }
+
+  if (typeof navigator === "undefined") {
+    return true;
+  }
+
+  const userAgent = String(navigator.userAgent || "");
+  const platform = String(navigator.platform || "");
+  const maxTouchPoints = Number(navigator.maxTouchPoints || 0);
+  const isIosLike =
+    /iPad|iPhone|iPod/i.test(userAgent) ||
+    (platform === "MacIntel" && maxTouchPoints > 1);
+  const isSafariLike =
+    /Safari/i.test(userAgent) &&
+    !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR|SamsungBrowser|Android/i.test(
+      userAgent,
+    );
+
+  return isIosLike || isSafariLike;
+}
+
 export default function NativeVideoPlayer({
   src,
   kind = "file",
@@ -431,6 +455,12 @@ export default function NativeVideoPlayer({
     const onError = () => {
       if (kind === "hls") {
         setHlsError("Không phát được luồng HLS này.");
+        onPlaybackErrorRef.current?.({
+          kind,
+          fatal: true,
+          reason: "hls_media_element_error",
+          src,
+        });
       }
       setFrozenFrameUrl("");
     };
@@ -468,7 +498,7 @@ export default function NativeVideoPlayer({
     };
 
     if (kind === "hls") {
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      if (shouldUseNativeHls(video)) {
         if (!alreadyLoadedActiveSrc) {
           video.src = src;
           slotSrcRef.current[currentSlot] = src;
