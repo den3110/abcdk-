@@ -1,5 +1,6 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import {
+  buildRecordingLiveHlsObjectKey,
   buildRecordingLiveManifestObjectKey,
   buildRecordingPublicObjectUrl,
   buildRecordingSegmentObjectKey,
@@ -8,7 +9,6 @@ import {
 import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStreamUrl,
-  buildRecordingLiveHlsUrl,
 } from "./liveRecordingV2Export.service.js";
 import {
   buildRecordingAiCommentaryPlaybackUrl,
@@ -432,19 +432,35 @@ export function buildRecordingServer2State(recording) {
       recordingId,
       matchId,
     });
+  const hlsManifestObjectKey =
+    asTrimmed(recording?.meta?.livePlayback?.hlsManifestObjectKey) ||
+    buildRecordingLiveHlsObjectKey({
+      recordingId,
+      matchId,
+    });
   let manifestUrl = "";
+  let hlsManifestUrl = "";
   let publicBaseUrl = "";
   const targetPublicBaseUrls = multiSourceEnabled
     ? buildRecordingTargetPublicBaseUrls(recording)
     : {};
   if (multiSourceEnabled && !sourceCleanupCompleted) {
     manifestUrl = asTrimmed(recording?.meta?.livePlayback?.manifestUrl);
+    hlsManifestUrl = asTrimmed(recording?.meta?.livePlayback?.hlsManifestUrl);
     publicBaseUrl = asTrimmed(recording?.meta?.livePlayback?.publicBaseUrl);
     try {
       if (!manifestUrl) {
         manifestUrl = asTrimmed(
           buildRecordingPublicObjectUrl({
             objectKey: manifestObjectKey,
+            storageTargetId: recording?.r2TargetId,
+          })
+        );
+      }
+      if (!hlsManifestUrl) {
+        hlsManifestUrl = asTrimmed(
+          buildRecordingPublicObjectUrl({
+            objectKey: hlsManifestObjectKey,
             storageTargetId: recording?.r2TargetId,
           })
         );
@@ -461,6 +477,7 @@ export function buildRecordingServer2State(recording) {
       }
     } catch {
       manifestUrl = manifestUrl || "";
+      hlsManifestUrl = hlsManifestUrl || "";
       publicBaseUrl = publicBaseUrl || "";
     }
   }
@@ -473,7 +490,7 @@ export function buildRecordingServer2State(recording) {
   const delayedReady =
     multiSourceEnabled &&
     !sourceCleanupCompleted &&
-    Boolean(manifestUrl) &&
+    Boolean(manifestUrl || hlsManifestUrl) &&
     uploadedSegments.length > 0 &&
     uploadedDurationSeconds >= delaySeconds;
   const finalReady =
@@ -507,6 +524,8 @@ export function buildRecordingServer2State(recording) {
     displayLabel: "Server 2",
     manifestObjectKey,
     manifestUrl: manifestUrl || null,
+    hlsManifestObjectKey,
+    hlsManifestUrl: hlsManifestUrl || null,
     publicBaseUrl: publicBaseUrl || null,
     targetPublicBaseUrls:
       Object.keys(targetPublicBaseUrls).length > 0 ? targetPublicBaseUrls : null,
@@ -527,7 +546,10 @@ export function buildRecordingServer2State(recording) {
 export function buildRecordingLivePlayback(recording) {
   const state = buildRecordingServer2State(recording);
   if (!state) return null;
-  if (!state.finalPlaybackUrl && (!state.manifestUrl || !state.publicBaseUrl)) {
+  if (
+    !state.finalPlaybackUrl &&
+    (!state.publicBaseUrl || (!state.manifestUrl && !state.hlsManifestUrl))
+  ) {
     return null;
   }
   return {
@@ -536,6 +558,8 @@ export function buildRecordingLivePlayback(recording) {
     providerLabel: state.providerLabel,
     manifestObjectKey: state.manifestObjectKey,
     manifestUrl: state.manifestUrl,
+    hlsManifestObjectKey: state.hlsManifestObjectKey,
+    hlsManifestUrl: state.hlsManifestUrl,
     publicBaseUrl: state.publicBaseUrl,
     targetPublicBaseUrls: state.targetPublicBaseUrls,
     finalPlaybackUrl: state.finalPlaybackUrl,
@@ -585,15 +609,17 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   }
 
   const shouldRenderServer2 = Boolean(
-    server2 && (server2.manifestUrl || server2.finalPlaybackUrl)
+    server2 &&
+      (server2.manifestUrl || server2.hlsManifestUrl || server2.finalPlaybackUrl)
   );
 
   if (shouldRenderServer2) {
     const hasSegmentManifest =
-      Boolean(server2.manifestUrl) && server2.uploadedSegmentCount > 0;
+      Boolean(server2.manifestUrl || server2.hlsManifestUrl) &&
+      server2.uploadedSegmentCount > 0;
     const hlsUrl =
-      recording?._id && !server2.sourceCleanupCompleted
-        ? buildRecordingLiveHlsUrl(recording._id)
+      !server2.sourceCleanupCompleted && server2.hlsManifestUrl
+        ? server2.hlsManifestUrl
         : "";
     const useFileMode =
       Boolean(server2.finalPlaybackUrl) &&
@@ -883,10 +909,20 @@ function hasLiveManifestCandidate(recording) {
   const manifestObjectKey = asTrimmed(
     recording?.meta?.livePlayback?.manifestObjectKey
   );
+  const hlsManifestUrl = asTrimmed(recording?.meta?.livePlayback?.hlsManifestUrl);
+  const hlsManifestObjectKey = asTrimmed(
+    recording?.meta?.livePlayback?.hlsManifestObjectKey
+  );
 
   return Boolean(
     uploadedSegmentCount > 0 &&
-      (manifestUrl || manifestObjectKey || asTrimmed(recording?.r2TargetId))
+      (
+        manifestUrl ||
+        manifestObjectKey ||
+        hlsManifestUrl ||
+        hlsManifestObjectKey ||
+        asTrimmed(recording?.r2TargetId)
+      )
   );
 }
 

@@ -266,6 +266,11 @@ export function buildRecordingLiveManifestObjectKey({ recordingId, matchId }) {
   return `${prefix}/${manifestName}`;
 }
 
+export function buildRecordingLiveHlsObjectKey({ recordingId, matchId }) {
+  const prefix = buildRecordingPrefix({ recordingId, matchId });
+  return `${prefix}/live.m3u8`;
+}
+
 export function buildRecordingPublicObjectUrl({
   objectKey,
   storageTargetId = null,
@@ -315,6 +320,8 @@ export async function createRecordingLiveManifestUploadUrl({
   objectKey,
   expiresInSeconds = 60 * 60 * 12,
   storageTargetId = null,
+  contentType = "application/json; charset=utf-8",
+  cacheControl = "public, max-age=2, stale-while-revalidate=4",
 }) {
   const target = requireRecordingStorageTarget(storageTargetId);
   const client = getRecordingS3Client(target.id);
@@ -322,8 +329,8 @@ export async function createRecordingLiveManifestUploadUrl({
   const command = new PutObjectCommand({
     Bucket: target.bucketName,
     Key: objectKey,
-    ContentType: "application/json; charset=utf-8",
-    CacheControl: "public, max-age=2, stale-while-revalidate=4",
+    ContentType: contentType,
+    CacheControl: cacheControl,
   });
 
   const uploadUrl = await getSignedUrl(client, command, {
@@ -336,7 +343,7 @@ export async function createRecordingLiveManifestUploadUrl({
     expiresInSeconds,
     method: "PUT",
     headers: {
-      "Content-Type": "application/json; charset=utf-8",
+      "Content-Type": contentType,
     },
     storageTargetId: target.id,
     bucketName: target.bucketName,

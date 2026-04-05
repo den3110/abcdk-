@@ -30,10 +30,12 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.Locale
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -92,10 +94,13 @@ private data class CachedSinglePutPresign(
 private data class CachedLiveManifestPresign(
     val manifestObjectKey: String,
     val manifestUrl: String,
+    val hlsManifestObjectKey: String,
+    val hlsManifestUrl: String,
     val publicBaseUrl: String,
     val targetPublicBaseUrls: Map<String, String>,
     val delaySeconds: Int,
     val upload: RecordingPresignedUpload,
+    val hlsUpload: RecordingPresignedUpload,
 )
 
 private data class RecordingQueueManifest(
@@ -668,10 +673,21 @@ class MatchRecordingCoordinator(
         val upload =
             response.upload
                 ?: throw IllegalStateException("Server kh?ng tr? upload URL cho manifest.")
+        val hlsUpload =
+            response.hlsUpload
+                ?: throw IllegalStateException("Server missing HLS manifest upload URL.")
         val manifestObjectKey = livePlayback.manifestObjectKey?.trim().orEmpty()
         val manifestUrl = livePlayback.manifestUrl?.trim().orEmpty()
+        val hlsManifestObjectKey = livePlayback.hlsManifestObjectKey?.trim().orEmpty()
+        val hlsManifestUrl = livePlayback.hlsManifestUrl?.trim().orEmpty()
         val publicBaseUrl = livePlayback.publicBaseUrl?.trim().orEmpty()
-        if (manifestObjectKey.isBlank() || manifestUrl.isBlank() || publicBaseUrl.isBlank()) {
+        if (
+            manifestObjectKey.isBlank() ||
+            manifestUrl.isBlank() ||
+            hlsManifestObjectKey.isBlank() ||
+            hlsManifestUrl.isBlank() ||
+            publicBaseUrl.isBlank()
+        ) {
             throw IllegalStateException("Live manifest CDN ch?a ???c c?u h?nh ??y ??.")
         }
         val targetPublicBaseUrls =
@@ -691,10 +707,13 @@ class MatchRecordingCoordinator(
             CachedLiveManifestPresign(
                 manifestObjectKey = manifestObjectKey,
                 manifestUrl = manifestUrl,
+                hlsManifestObjectKey = hlsManifestObjectKey,
+                hlsManifestUrl = hlsManifestUrl,
                 publicBaseUrl = publicBaseUrl.trimEnd('/'),
                 targetPublicBaseUrls = targetPublicBaseUrls,
                 delaySeconds = livePlayback.delaySeconds.coerceAtLeast(15),
                 upload = upload,
+                hlsUpload = hlsUpload,
             )
         presignCacheMutex.withLock {
             liveManifestPresignCache[recordingId] = cached
@@ -776,44 +795,62 @@ class MatchRecordingCoordinator(
         return segments.first().index
     }
 
+    private fun getUploadedLiveManifestSegments(
+        recording: MatchRecording,
+    ): List<com.pkt.live.data.model.MatchRecordingSegment> =
+        recording.segments
+            .filter { it.uploadStatus.equals("uploaded", ignoreCase = true) && it.objectKey.isNotBlank() }
+            .sortedBy { it.index }
+
+    private fun isLiveManifestFinished(recording: MatchRecording): Boolean {
+        val finalPlaybackUrl = recording.livePlayback?.finalPlaybackUrl?.takeIf { it.isNotBlank() }
+        return finalPlaybackUrl != null ||
+            recording.status.equals("ready", ignoreCase = true) ||
+            recording.status.equals("finished", ignoreCase = true) ||
+            recording.status.equals("finalized", ignoreCase = true)
+    }
+
+    private fun buildLiveManifestSourceSegments(
+        uploadedSegments: List<com.pkt.live.data.model.MatchRecordingSegment>,
+        delaySeconds: Int,
+        isFinished: Boolean,
+    ): List<com.pkt.live.data.model.MatchRecordingSegment> {
+        if (uploadedSegments.isEmpty()) return emptyList()
+        if (isFinished) return uploadedSegments
+
+        val totalDurationSeconds = uploadedSegments.sumOf { max(0.0, it.durationSeconds) }
+        val safeDurationSeconds = max(0.0, totalDurationSeconds - delaySeconds.toDouble())
+        var cumulativeDuration = 0.0
+        val safeSegments = mutableListOf<com.pkt.live.data.model.MatchRecordingSegment>()
+        for (segment in uploadedSegments) {
+            cumulativeDuration += max(0.0, segment.durationSeconds)
+            if (cumulativeDuration - safeDurationSeconds > 0.0001) {
+                break
+            }
+            safeSegments += segment
+        }
+
+        return if (safeSegments.size > LIVE_MANIFEST_MAX_SEGMENTS) {
+            safeSegments.takeLast(LIVE_MANIFEST_MAX_SEGMENTS)
+        } else {
+            safeSegments
+        }
+    }
+
     private fun buildLiveManifestPayload(
         recording: MatchRecording,
         cachedManifest: CachedLiveManifestPresign,
     ): Map<String, Any?> {
-        val uploadedSegments =
-            recording.segments
-                .filter { it.uploadStatus.equals("uploaded", ignoreCase = true) && it.objectKey.isNotBlank() }
-                .sortedBy { it.index }
+        val uploadedSegments = getUploadedLiveManifestSegments(recording)
         val totalDurationSeconds = uploadedSegments.sumOf { max(0.0, it.durationSeconds) }
         val finalPlaybackUrl = recording.livePlayback?.finalPlaybackUrl?.takeIf { it.isNotBlank() }
-        val isFinished = finalPlaybackUrl != null ||
-            recording.status.equals("ready", ignoreCase = true) ||
-            recording.status.equals("finished", ignoreCase = true) ||
-            recording.status.equals("finalized", ignoreCase = true)
-
-        val manifestSourceSegments: List<com.pkt.live.data.model.MatchRecordingSegment>
-        if (isFinished) {
-            manifestSourceSegments = uploadedSegments
-        } else {
-            // Live streaming: apply delay truncation + rolling window cap
-            val safeDurationSeconds =
-                max(0.0, totalDurationSeconds - cachedManifest.delaySeconds.toDouble())
-            var cumulativeDuration = 0.0
-            val safeSegments = mutableListOf<com.pkt.live.data.model.MatchRecordingSegment>()
-            for (segment in uploadedSegments) {
-                cumulativeDuration += max(0.0, segment.durationSeconds)
-                if (cumulativeDuration - safeDurationSeconds > 0.0001) {
-                    break
-                }
-                safeSegments += segment
-            }
-            manifestSourceSegments =
-                if (safeSegments.size > LIVE_MANIFEST_MAX_SEGMENTS) {
-                    safeSegments.takeLast(LIVE_MANIFEST_MAX_SEGMENTS)
-                } else {
-                    safeSegments
-                }
-        }
+        val isFinished = isLiveManifestFinished(recording)
+        val manifestSourceSegments =
+            buildLiveManifestSourceSegments(
+                uploadedSegments = uploadedSegments,
+                delaySeconds = cachedManifest.delaySeconds,
+                isFinished = isFinished,
+            )
 
         val manifestSegments =
             manifestSourceSegments.map { segment ->
@@ -857,6 +894,84 @@ class MatchRecordingCoordinator(
         )
     }
 
+    private fun buildLiveHlsManifestPayload(
+        recording: MatchRecording,
+        cachedManifest: CachedLiveManifestPresign,
+    ): String {
+        val uploadedSegments = getUploadedLiveManifestSegments(recording)
+        val isFinished = isLiveManifestFinished(recording)
+        val manifestSourceSegments =
+            buildLiveManifestSourceSegments(
+                uploadedSegments = uploadedSegments,
+                delaySeconds = cachedManifest.delaySeconds,
+                isFinished = isFinished,
+            )
+
+        if (manifestSourceSegments.isEmpty()) {
+            return buildString {
+                append("#EXTM3U\n")
+                append("#EXT-X-VERSION:3\n")
+                append("#EXT-X-TARGETDURATION:6\n")
+                append("#EXT-X-MEDIA-SEQUENCE:0\n")
+            }
+        }
+
+        val targetDurationSeconds =
+            getLiveManifestTargetDurationSeconds(manifestSourceSegments).coerceAtLeast(1)
+        val mediaSequence = manifestSourceSegments.firstOrNull()?.index ?: 0
+
+        return buildString {
+            append("#EXTM3U\n")
+            append("#EXT-X-VERSION:3\n")
+            append("#EXT-X-INDEPENDENT-SEGMENTS\n")
+            append(
+                if (isFinished) {
+                    "#EXT-X-PLAYLIST-TYPE:VOD\n"
+                } else {
+                    "#EXT-X-PLAYLIST-TYPE:EVENT\n"
+                }
+            )
+            if (!isFinished) {
+                append(
+                    "#EXT-X-START:TIME-OFFSET=-${cachedManifest.delaySeconds.coerceAtLeast(12)},PRECISE=NO\n",
+                )
+            }
+            append("#EXT-X-TARGETDURATION:$targetDurationSeconds\n")
+            append("#EXT-X-MEDIA-SEQUENCE:$mediaSequence\n")
+            append("\n")
+            manifestSourceSegments.forEach { segment ->
+                val durationSeconds =
+                    max(0.0, segment.durationSeconds).takeIf { it > 0.0 } ?: 6.0
+                append("#EXTINF:${String.format(Locale.US, "%.3f", durationSeconds)},\n")
+                append(buildSegmentPublicUrl(segment, recording, cachedManifest))
+                append("\n")
+            }
+            if (isFinished) {
+                append("\n#EXT-X-ENDLIST\n")
+            }
+        }
+    }
+
+    private suspend fun uploadLiveManifestBody(
+        upload: RecordingPresignedUpload,
+        body: RequestBody,
+        failureMessage: String,
+    ) {
+        val requestBuilder =
+            Request.Builder()
+                .url(upload.uploadUrl)
+                .put(body)
+        upload.headers?.forEach { (key, value) ->
+            requestBuilder.header(key, value)
+        }
+        val response = okHttpClient.newCall(requestBuilder.build()).execute()
+        response.use { resp ->
+            if (!resp.isSuccessful) {
+                throw IllegalStateException("$failureMessage (${resp.code})")
+            }
+        }
+    }
+
     private suspend fun publishLiveManifestIfPossible(recording: MatchRecording?) {
         if (recording == null) return
         val livePlayback = recording.livePlayback ?: return
@@ -866,23 +981,24 @@ class MatchRecordingCoordinator(
         repeat(2) { attempt ->
             try {
                 val cachedManifest = ensureLiveManifestPresign(recording.id)
+                val hlsPayload = buildLiveHlsManifestPayload(recording, cachedManifest)
+                uploadLiveManifestBody(
+                    upload = cachedManifest.hlsUpload,
+                    body =
+                        hlsPayload.toRequestBody(
+                            "application/vnd.apple.mpegurl".toMediaType(),
+                        ),
+                    failureMessage = "Upload live HLS manifest failed",
+                )
                 val payload = buildLiveManifestPayload(recording, cachedManifest)
-                val body =
-                    gson.toJson(payload)
-                        .toRequestBody("application/json; charset=utf-8".toMediaType())
-                val requestBuilder =
-                    Request.Builder()
-                        .url(cachedManifest.upload.uploadUrl)
-                        .put(body)
-                cachedManifest.upload.headers?.forEach { (key, value) ->
-                    requestBuilder.header(key, value)
-                }
-                val response = okHttpClient.newCall(requestBuilder.build()).execute()
-                response.use { resp ->
-                    if (!resp.isSuccessful) {
-                        throw IllegalStateException("Upload live manifest th?t b?i (${resp.code})")
-                    }
-                }
+                uploadLiveManifestBody(
+                    upload = cachedManifest.upload,
+                    body =
+                        gson
+                            .toJson(payload)
+                            .toRequestBody("application/json; charset=utf-8".toMediaType()),
+                    failureMessage = "Upload live manifest failed",
+                )
                 return
             } catch (error: Exception) {
                 lastError = error

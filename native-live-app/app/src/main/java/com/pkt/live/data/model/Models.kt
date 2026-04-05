@@ -469,6 +469,8 @@ data class RecordingLivePlayback(
     val providerLabel: String? = null,
     val manifestObjectKey: String? = null,
     val manifestUrl: String? = null,
+    val hlsManifestObjectKey: String? = null,
+    val hlsManifestUrl: String? = null,
     val publicBaseUrl: String? = null,
     val targetPublicBaseUrls: Map<String, String> = emptyMap(),
     val finalPlaybackUrl: String? = null,
@@ -522,6 +524,7 @@ data class RecordingLiveManifestPresignResponse(
     val recordingId: String? = null,
     val livePlayback: RecordingLivePlayback? = null,
     val upload: RecordingPresignedUpload? = null,
+    val hlsUpload: RecordingPresignedUpload? = null,
 )
 
 data class RecordingMultipartStartRequest(

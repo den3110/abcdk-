@@ -24,6 +24,7 @@ import {
 import {
   abortRecordingMultipartUpload,
   buildRecordingLiveManifestObjectKey,
+  buildRecordingLiveHlsObjectKey,
   buildRecordingPrefix,
   buildRecordingSegmentObjectKey,
   completeRecordingMultipartUpload,
@@ -75,6 +76,13 @@ function isValidObjectId(value) {
 function asTrimmed(value) {
   const normalized = String(value || "").trim();
   return normalized || "";
+}
+
+function buildPublicObjectUrlFromBase(baseUrl, objectKey) {
+  const normalizedBase = asTrimmed(baseUrl).replace(/\/+$/, "");
+  const normalizedObjectKey = asTrimmed(objectKey).replace(/^\/+/, "");
+  if (!normalizedBase || !normalizedObjectKey) return null;
+  return `${normalizedBase}/${normalizedObjectKey}`;
 }
 
 function normalizeMode(mode) {
@@ -661,18 +669,40 @@ function buildSerializedLivePlayback(recording) {
   if (!recording || !isLiveMultiSourceEnabled()) return null;
   const livePlayback = buildRecordingLivePlayback(recording);
   if (!livePlayback) return null;
+  const sourceCleanupCompleted =
+    asTrimmed(recording?.meta?.sourceCleanup?.status).toLowerCase() ===
+    "completed";
+  const manifestObjectKey =
+    livePlayback.manifestObjectKey ||
+    buildRecordingLiveManifestObjectKey({
+      recordingId: recording._id,
+      matchId: recording.match,
+    });
+  const hlsManifestObjectKey =
+    livePlayback.hlsManifestObjectKey ||
+    buildRecordingLiveHlsObjectKey({
+      recordingId: recording._id,
+      matchId: recording.match,
+    });
+  const publicBaseUrl =
+    livePlayback.publicBaseUrl ||
+    getRecordingPublicBaseUrl(recording.r2TargetId) ||
+    null;
   return {
     ...livePlayback,
-    manifestObjectKey:
-      livePlayback.manifestObjectKey ||
-      buildRecordingLiveManifestObjectKey({
-        recordingId: recording._id,
-        matchId: recording.match,
-      }),
-    publicBaseUrl:
-      livePlayback.publicBaseUrl ||
-      getRecordingPublicBaseUrl(recording.r2TargetId) ||
-      null,
+    manifestObjectKey,
+    manifestUrl:
+      livePlayback.manifestUrl ||
+      (!sourceCleanupCompleted
+        ? buildPublicObjectUrlFromBase(publicBaseUrl, manifestObjectKey)
+        : null),
+    hlsManifestObjectKey,
+    hlsManifestUrl:
+      livePlayback.hlsManifestUrl ||
+      (!sourceCleanupCompleted
+        ? buildPublicObjectUrlFromBase(publicBaseUrl, hlsManifestObjectKey)
+        : null),
+    publicBaseUrl,
     delaySeconds: livePlayback.delaySeconds || getLiveServer2DelaySeconds(),
   };
 }
@@ -1337,7 +1367,12 @@ export const presignLiveRecordingManifestV2 = asyncHandler(async (req, res) => {
       message: "Public CDN live playback is not configured for this recording",
     });
   }
-  if (!livePlayback?.publicBaseUrl || !livePlayback?.manifestUrl) {
+  if (
+    !livePlayback?.publicBaseUrl ||
+    !livePlayback?.manifestUrl ||
+    !livePlayback?.hlsManifestObjectKey ||
+    !livePlayback?.hlsManifestUrl
+  ) {
     return res.status(409).json({
       message: "LIVE_RECORDING_PUBLIC_CDN_BASE_URL is not configured",
     });
@@ -1346,6 +1381,12 @@ export const presignLiveRecordingManifestV2 = asyncHandler(async (req, res) => {
   const upload = await createRecordingLiveManifestUploadUrl({
     objectKey: livePlayback.manifestObjectKey,
     storageTargetId: activeStorageTarget.id,
+  });
+  const hlsUpload = await createRecordingLiveManifestUploadUrl({
+    objectKey: livePlayback.hlsManifestObjectKey,
+    storageTargetId: activeStorageTarget.id,
+    contentType: "application/vnd.apple.mpegurl",
+    cacheControl: "public, max-age=2, stale-while-revalidate=4",
   });
 
   if (!recording.meta || typeof recording.meta !== "object") {
@@ -1356,6 +1397,8 @@ export const presignLiveRecordingManifestV2 = asyncHandler(async (req, res) => {
     enabled: true,
     manifestObjectKey: livePlayback.manifestObjectKey,
     manifestUrl: livePlayback.manifestUrl,
+    hlsManifestObjectKey: livePlayback.hlsManifestObjectKey,
+    hlsManifestUrl: livePlayback.hlsManifestUrl,
     publicBaseUrl: livePlayback.publicBaseUrl,
     delaySeconds: livePlayback.delaySeconds,
     status: livePlayback.status,
@@ -1368,6 +1411,7 @@ export const presignLiveRecordingManifestV2 = asyncHandler(async (req, res) => {
     recordingId: String(recording._id),
     livePlayback: buildSerializedLivePlayback(recording),
     upload,
+    hlsUpload,
   });
 });
 

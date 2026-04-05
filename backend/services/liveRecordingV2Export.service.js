@@ -117,6 +117,18 @@ function buildSourceCleanupObjectKeys(recording) {
   if (recording?.r2ManifestKey) {
     objectKeys.add(recording.r2ManifestKey);
   }
+  const liveManifestObjectKey = asTrimmed(
+    recording?.meta?.livePlayback?.manifestObjectKey
+  );
+  if (liveManifestObjectKey) {
+    objectKeys.add(liveManifestObjectKey);
+  }
+  const liveHlsManifestObjectKey = asTrimmed(
+    recording?.meta?.livePlayback?.hlsManifestObjectKey
+  );
+  if (liveHlsManifestObjectKey) {
+    objectKeys.add(liveHlsManifestObjectKey);
+  }
 
   return [...objectKeys];
 }
@@ -146,6 +158,16 @@ function groupRecordingObjectKeysByTarget(
 
   if (includeManifest && recording?.r2ManifestKey) {
     pushObjectKey(recording?.r2TargetId, recording.r2ManifestKey);
+  }
+  if (includeManifest) {
+    pushObjectKey(
+      recording?.r2TargetId,
+      asTrimmed(recording?.meta?.livePlayback?.manifestObjectKey)
+    );
+    pushObjectKey(
+      recording?.r2TargetId,
+      asTrimmed(recording?.meta?.livePlayback?.hlsManifestObjectKey)
+    );
   }
 
   return grouped;
@@ -434,6 +456,8 @@ async function markRecordingReady(
     if (sourceCleanup?.status === "completed") {
       nextMeta.livePlayback.manifestObjectKey = null;
       nextMeta.livePlayback.manifestUrl = null;
+      nextMeta.livePlayback.hlsManifestObjectKey = null;
+      nextMeta.livePlayback.hlsManifestUrl = null;
     }
   }
   recording.meta = nextMeta;
