@@ -35,6 +35,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.RandomAccessFile
+import java.time.Instant
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.max
@@ -62,6 +63,7 @@ private data class PendingRecordingSegment(
     val qualityLabel: String,
     val localPath: String,
     val segmentIndex: Int,
+    val startedAt: String? = null,
     val durationSeconds: Double,
     val sizeBytes: Long,
     val isFinal: Boolean,
@@ -422,6 +424,10 @@ class MatchRecordingCoordinator(
     private suspend fun handleSegmentCompleted(segment: RecordingSegmentClosed) {
         val currentSession = activeSession
         val quality = currentSession?.quality
+        val startedAt =
+            segment.startedAtMs
+                .takeIf { it > 0L }
+                ?.let { Instant.ofEpochMilli(it).toString() }
         val uploadMode =
             if (segment.sizeBytes >= 0L && segment.sizeBytes < MIN_MULTIPART_OBJECT_SIZE_BYTES) {
                 "legacy_single_put"
@@ -438,6 +444,7 @@ class MatchRecordingCoordinator(
                 qualityLabel = quality?.label ?: "",
                 localPath = segment.path,
                 segmentIndex = segment.segmentIndex,
+                startedAt = startedAt,
                 durationSeconds = segment.durationSeconds,
                 sizeBytes = segment.sizeBytes,
                 isFinal = segment.isFinal,
@@ -1091,6 +1098,7 @@ class MatchRecordingCoordinator(
                 repository.startMultipartRecordingSegment(
                     recordingId = currentSegment.recordingId,
                     segmentIndex = currentSegment.segmentIndex,
+                    startedAt = currentSegment.startedAt,
                 ).getOrThrow()
 
             if (startResponse.alreadyUploaded) {
@@ -1255,6 +1263,7 @@ class MatchRecordingCoordinator(
                     etag = etag,
                     sizeBytes = segment.sizeBytes,
                     durationSeconds = segment.durationSeconds,
+                    startedAt = segment.startedAt,
                     isFinal = segment.isFinal,
                 ).getOrThrow()
             syncRecordingRuntimeState(completeResponse.recording)

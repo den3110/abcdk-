@@ -928,6 +928,7 @@ class LiveRepository(
     suspend fun startMultipartRecordingSegment(
         recordingId: String,
         segmentIndex: Int,
+        startedAt: String? = null,
     ): Result<RecordingMultipartStartResponse> {
         return try {
             val resp =
@@ -935,6 +936,7 @@ class LiveRepository(
                     RecordingMultipartStartRequest(
                         recordingId = recordingId,
                         segmentIndex = segmentIndex,
+                        startedAt = startedAt,
                     )
                 )
             if (resp.isSuccessful && resp.body() != null) {
@@ -1069,6 +1071,7 @@ class LiveRepository(
         etag: String?,
         sizeBytes: Long,
         durationSeconds: Double,
+        startedAt: String? = null,
         isFinal: Boolean,
     ): Result<MatchRecordingResponse> {
         return try {
@@ -1081,6 +1084,7 @@ class LiveRepository(
                         etag = etag,
                         sizeBytes = sizeBytes,
                         durationSeconds = durationSeconds,
+                        startedAt = startedAt,
                         isFinal = isFinal,
                     )
                 )

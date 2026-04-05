@@ -107,6 +107,13 @@ function toNumber(value) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function normalizeIsoTimestamp(value) {
+  const normalized = asTrimmed(value);
+  if (!normalized) return "";
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+}
+
 function estimateRecordingR2SourceBytes(recording) {
   return (recording?.segments || []).reduce((sum, segment) => {
     const segmentMeta = getSegmentMeta(segment);
@@ -1420,6 +1427,7 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(
     const recordingId = asTrimmed(req.body?.recordingId);
     const segmentIndex = Number(req.body?.segmentIndex);
     const contentType = asTrimmed(req.body?.contentType) || "video/mp4";
+    const requestedStartedAt = normalizeIsoTimestamp(req.body?.startedAt);
 
     if (!isValidObjectId(recordingId)) {
       return res.status(400).json({ message: "recordingId is required" });
@@ -1497,7 +1505,8 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(
       uploadId,
       partSizeBytes,
       contentType,
-      startedAt: segmentMeta.startedAt || new Date().toISOString(),
+      startedAt:
+        segmentMeta.startedAt || requestedStartedAt || new Date().toISOString(),
       abortedAt: null,
       completedParts: shouldRestartMultipartSession
         ? []
@@ -1822,6 +1831,7 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   const etag = asTrimmed(req.body?.etag) || null;
   const sizeBytes = Number(req.body?.sizeBytes) || 0;
   const durationSeconds = Number(req.body?.durationSeconds) || 0;
+  const startedAt = normalizeIsoTimestamp(req.body?.startedAt);
   const isFinal = Boolean(req.body?.isFinal);
 
   if (!isValidObjectId(recordingId)) {
@@ -1856,6 +1866,10 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     existing.durationSeconds = durationSeconds;
     existing.isFinal = isFinal;
     existing.uploadedAt = new Date();
+    existing.meta = {
+      ...getSegmentMeta(existing),
+      ...(startedAt ? { startedAt } : {}),
+    };
   } else {
     const activeStorageTarget =
       getRecordingStorageTarget(recording.r2TargetId) ||
@@ -1874,6 +1888,7 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
       durationSeconds,
       isFinal,
       uploadedAt: new Date(),
+      meta: startedAt ? { startedAt } : {},
     });
   }
 

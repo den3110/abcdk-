@@ -947,6 +947,7 @@ class RtmpStreamManager(
                     recordingSessionId = recordingSessionId,
                     path = path,
                     segmentIndex = index,
+                    startedAtMs = startedAt,
                     durationSeconds = ((now - startedAt).coerceAtLeast(0L) / 1000.0),
                     sizeBytes = file.takeIf { it.exists() }?.length() ?: 0L,
                     isFinal = isFinal,

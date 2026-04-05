@@ -530,6 +530,7 @@ data class RecordingLiveManifestPresignResponse(
 data class RecordingMultipartStartRequest(
     val recordingId: String,
     val segmentIndex: Int,
+    val startedAt: String? = null,
     val contentType: String = "video/mp4",
 )
 
@@ -623,6 +624,7 @@ data class RecordingSegmentCompleteRequest(
     val etag: String? = null,
     val sizeBytes: Long,
     val durationSeconds: Double,
+    val startedAt: String? = null,
     val isFinal: Boolean = false,
 )
 

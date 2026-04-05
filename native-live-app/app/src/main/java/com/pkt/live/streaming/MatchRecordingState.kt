@@ -18,6 +18,7 @@ data class RecordingSegmentClosed(
     val recordingSessionId: String,
     val path: String,
     val segmentIndex: Int,
+    val startedAtMs: Long,
     val durationSeconds: Double,
     val sizeBytes: Long,
     val isFinal: Boolean,

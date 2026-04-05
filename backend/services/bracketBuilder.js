@@ -22,6 +22,34 @@ function normalizeKoRoundKey(value) {
   return "";
 }
 
+function drawSizeFromKoRoundKey(roundKey) {
+  const normalized = normalizeKoRoundKey(roundKey);
+  if (!normalized) return 0;
+  if (normalized === "F") return 2;
+  if (normalized === "SF") return 4;
+  if (normalized === "QF") return 8;
+  if (normalized.startsWith("R")) return Math.max(2, ceilPow2(Number(normalized.slice(1)) || 0));
+  return 0;
+}
+
+function koRoundKeyFromDrawSize(drawSize) {
+  const size = Math.max(2, ceilPow2(drawSize || 2));
+  if (size === 2) return "F";
+  if (size === 4) return "SF";
+  if (size === 8) return "QF";
+  return `R${size}`;
+}
+
+function clampDoubleElimStartRoundKey(roundKey, configuredDrawSize) {
+  const maxSize = Math.max(4, ceilPow2(configuredDrawSize || 4));
+  const normalized = normalizeKoRoundKey(roundKey);
+  if (normalized) {
+    const roundSize = drawSizeFromKoRoundKey(normalized);
+    if (roundSize >= 4 && roundSize <= maxSize) return normalized;
+  }
+  return koRoundKeyFromDrawSize(maxSize);
+}
+
 // Tạo seed BYE hợp lệ cho validation
 const SEED_BYE = { type: "bye", ref: null, label: "BYE" };
 
@@ -414,13 +442,17 @@ export async function buildDoubleElimBracket({
   hasGrandFinalReset = false,
   session = null,
 }) {
-  const size = Math.max(4, ceilPow2(drawSize || 4));
+  const configuredSize = Math.max(4, ceilPow2(drawSize || 4));
+  const resolvedStartRoundKey = clampDoubleElimStartRoundKey(startRoundKey, configuredSize);
+  const size = Math.min(
+    configuredSize,
+    Math.max(4, drawSizeFromKoRoundKey(resolvedStartRoundKey) || configuredSize)
+  );
   const winnersRounds = Math.round(Math.log2(size));
   const firstPairs = size / 2;
   const baseRules = sanitizeRules(rules);
   const finalOnly = finalRules ? sanitizeRules(finalRules) : null;
   const roundMap = buildDoubleElimRoundMap(winnersRounds);
-  const resolvedStartRoundKey = normalizeKoRoundKey(startRoundKey) || roundTitleByPairs(firstPairs);
 
   const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
     const found = firstRoundSeeds.find((seed) => Number(seed.pair) === i + 1);
@@ -447,7 +479,7 @@ export async function buildDoubleElimBracket({
           },
           blueprint: {
             format: "double_elim",
-            drawSize: size,
+            drawSize: configuredSize,
             seeds: r1Seeds,
             rules: baseRules,
             semiRules: semiRules ? sanitizeRules(semiRules) : null,
