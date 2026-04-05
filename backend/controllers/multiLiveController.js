@@ -2,6 +2,15 @@
 import Match from "../models/matchModel.js";
 import { createLiveForMatchMulti } from "../services/liveRouter.service.js";
 
+const matchCourtNameOf = (match) =>
+  String(
+    match?.courtStationName ||
+      match?.courtStationLabel ||
+      match?.courtLabel ||
+      match?.court?.name ||
+      ""
+  ).trim();
+
 const OVERLAY_BASE =
   process.env.NODE_ENV === "development"
     ? "http://localhost:3000"
@@ -14,7 +23,8 @@ export const createLiveForMatch = async (req, res) => {
     if (!match) return res.status(404).json({ message: "Match not found" });
 
     const providers = req.body.providers || ["facebook"]; // ví dụ: ["facebook","youtube"]
-    const courtName = match?.court?.name ? ` · ${match.court.name}` : "";
+    const courtLabel = matchCourtNameOf(match);
+    const courtName = courtLabel ? ` · ${courtLabel}` : "";
     const title = `${match.tournament?.name || "PickleTour"} – ${
       match.roundLabel || ""
     }${courtName}`;

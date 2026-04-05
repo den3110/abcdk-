@@ -789,6 +789,8 @@ function buildCommentaryPayload({
       bracketName: safeText(match?.bracket?.name),
       bracketStage: safeText(match?.bracket?.stage),
       courtLabel:
+        safeText(match?.courtStationName) ||
+        safeText(match?.courtStationLabel) ||
         safeText(match?.courtLabel) ||
         safeText(match?.court?.label) ||
         safeText(match?.court?.name),

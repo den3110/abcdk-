@@ -45,6 +45,8 @@ function buildParticipantsLabel(doc) {
 }
 
 function buildCourtLabel(doc) {
+  if (doc?.courtStationName) return doc.courtStationName;
+  if (doc?.courtStationLabel) return doc.courtStationLabel;
   if (doc?.courtLabel) return doc.courtLabel;
   if (doc?.court?.name) return doc.court.name;
   if (doc?.court?.label) return doc.court.label;

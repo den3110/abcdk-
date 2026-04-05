@@ -28,7 +28,10 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useSelector } from "react-redux";
 import { UnifiedStreamPlayer } from "../../components/video";
 import { useDeleteLiveVideoMutation } from "../../slices/liveApiSlice";
-import { getPairDisplayName } from "../../utils/matchDisplay";
+import {
+  getMatchCourtDisplayText,
+  getPairDisplayName,
+} from "../../utils/matchDisplay";
 
 function timeAgo(date) {
   if (!date) return "";
@@ -225,6 +228,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
 
   const m = React.useMemo(() => item || {}, [item]);
   const fb = React.useMemo(() => m.facebookLive || {}, [m]);
+  const courtLabel = React.useMemo(() => getMatchCourtDisplayText(m) || "", [m]);
 
   // build 1 session từ facebookLive
   const canonicalSessions = React.useMemo(() => buildCanonicalSessions(m), [m]);
@@ -603,9 +607,9 @@ export default function LiveMatchCard({ item, onDeleted }) {
               }}
             >
               {m.status ? `Trạng thái: ${viStatus(m.status)}` : "-"}
-              {m.courtLabel && (
+              {courtLabel && (
                 <>
-                  {bullet}Sân: {m.courtLabel}
+                  {bullet}Sân: {courtLabel}
                 </>
               )}
               {typeof m.currentGame === "number" && m.currentGame > 0 && (
@@ -765,7 +769,7 @@ export default function LiveMatchCard({ item, onDeleted }) {
             />
             {m.labelKey && <Row label="labelKey" value={m.labelKey} />}
             <Row label="Trạng thái" value={viStatus(m.status)} />
-            <Row label="Sân" value={m.courtLabel || "-"} />
+            <Row label="Sân" value={courtLabel || "-"} />
             {m.startedAt && (
               <Row
                 label="Bắt đầu"

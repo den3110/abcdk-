@@ -1,224 +1,359 @@
-// services/autoFeedGroupRank.js
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 
-/** Normalize token nhóm: "a"->"A", "A"->"A", "1"->"1", "...1" -> "1" nếu có số ở cuối */
-function normGroupToken(x) {
-  if (x === 0) return "0";
-  if (!x) return "";
-  const s = String(x).trim().toUpperCase();
-  const m = s.match(/(\d+)\s*$/); // ưu tiên số thứ tự ở cuối
-  if (m) return m[1];
-  if (/^[A-Z]+$/.test(s)) return s;
-  return s;
+const GROUP_LIKE_TYPES = new Set(["group", "round_robin", "gsl"]);
+
+function normGroupToken(value) {
+  if (value === 0) return "0";
+  if (!value) return "";
+  const text = String(value).trim().toUpperCase();
+  const tailNumber = text.match(/(\d+)\s*$/);
+  if (tailNumber) return tailNumber[1];
+  if (/^[A-Z]+$/.test(text)) return text;
+  return text;
 }
 
-/**
- * Tính BXH tạm thời cho 1 bracket group-like.
- * Trả về Map với nhiều alias cho mỗi bảng:
- *  - theo chữ (A/B/C…)
- *  - theo số thứ tự 1/2/3… (thứ tự trong mảng groups)
- *  - thêm alias "B{n}","G{n}"
- * 👉 CHỈ đưa vào BXH những đội đã thi đấu (gp > 0).
- */
-async function computeGroupTables({ bracketId, groups, log }) {
-  // Lấy toàn bộ trận group-like trong bracket
-  const matches = await Match.find({
-    bracket: bracketId,
-    format: { $in: ["group", "round_robin", "gsl"] },
-  })
-    .select("_id pool.name pairA pairB winner gameScores")
-    .lean();
+function groupOrderOf(group, index) {
+  const explicit = Number(group?.order);
+  return Number.isFinite(explicit) && explicit > 0 ? explicit : index + 1;
+}
 
-  // Chuẩn hoá nhóm
-  const groupsNorm = (groups || []).map((g, idx) => {
-    const code = String(g.name || g.code || "").trim();
-    const order = Number.isFinite(g.order) ? g.order : idx + 1; // 1-based
+function buildGroupAliases(group, index) {
+  const code = String(group?.name || group?.code || "").trim();
+  const order = groupOrderOf(group, index);
+  const aliases = new Set([
+    code ? code.toUpperCase() : "",
+    String(order),
+    `B${order}`,
+    `G${order}`,
+    normGroupToken(code),
+    normGroupToken(order),
+  ]);
+  aliases.delete("");
+  return aliases;
+}
+
+function readSeedGroupToken(ref = {}) {
+  const groupField =
+    typeof ref.group === "string"
+      ? ref.group
+      : ref.group?.name || ref.group?.code || "";
+  const poolField =
+    typeof ref.pool === "string"
+      ? ref.pool
+      : ref.pool?.name || ref.pool?.code || "";
+
+  const candidates = [
+    ref.groupCode,
+    groupField,
+    poolField,
+    ref.groupName,
+    ref.code,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function groupSizeOf(bracket, group) {
+  const regCount = Array.isArray(group?.regIds) ? group.regIds.length : 0;
+  if (regCount > 0) return regCount;
+
+  const expectedSize = Number(group?.expectedSize || 0);
+  if (expectedSize > 0) return expectedSize;
+
+  if (String(bracket?.type || "").toLowerCase() === "gsl") {
+    const gslSize = Number(bracket?.config?.gsl?.groupSize || 0);
+    if (gslSize > 0) return gslSize;
+  }
+
+  const rrSize = Number(bracket?.config?.roundRobin?.groupSize || 0);
+  if (rrSize > 0) return rrSize;
+
+  return 0;
+}
+
+function expectedGroupMatches(bracket, group) {
+  const type = String(bracket?.type || "").toLowerCase();
+  const teamCount = groupSizeOf(bracket, group);
+  if (teamCount < 2) return 0;
+
+  if (type === "group" || type === "round_robin") {
+    const roundsPerPair =
+      Number(bracket?.config?.roundRobin?.roundsPerPair ?? 1) || 1;
+    return ((teamCount * (teamCount - 1)) / 2) * roundsPerPair;
+  }
+
+  return 0;
+}
+
+function resolveGroupMatches(groupMatchMap, aliases) {
+  const byId = new Map();
+  for (const alias of aliases) {
+    const hits = groupMatchMap.get(alias);
+    if (!Array.isArray(hits)) continue;
+    for (const match of hits) {
+      const id = String(match?._id || "");
+      if (!id || byId.has(id)) continue;
+      byId.set(id, match);
+    }
+  }
+  return [...byId.values()];
+}
+
+function computeGroupCompletion({ bracket, groups, matches, log }) {
+  const byGroup = new Map();
+
+  for (const match of matches) {
+    const rawKey = match?.pool?.name || match?.pool?.key || "";
+    const key = normGroupToken(rawKey);
+    if (!key) continue;
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key).push(match);
+  }
+
+  const completionMap = new Map();
+  let allGroupsComplete = groups.length > 0;
+
+  groups.forEach((group, index) => {
+    const aliases = buildGroupAliases(group, index);
+    const groupMatches = resolveGroupMatches(byGroup, aliases);
+    const finishedCount = groupMatches.filter(
+      (match) => String(match?.status || "").toLowerCase() === "finished"
+    ).length;
+    const anyUnfinished = groupMatches.some(
+      (match) => String(match?.status || "").toLowerCase() !== "finished"
+    );
+    const expected = expectedGroupMatches(bracket, group);
+    const size = groupSizeOf(bracket, group);
+    const type = String(bracket?.type || "").toLowerCase();
+
+    let done = false;
+    if (size < 2) {
+      done = true;
+    } else if (expected > 0) {
+      done =
+        groupMatches.length >= expected &&
+        finishedCount >= expected &&
+        !anyUnfinished;
+    } else if (type === "gsl") {
+      done = groupMatches.length > 0 && !anyUnfinished;
+    } else {
+      done = groupMatches.length > 0 && !anyUnfinished;
+    }
+
+    if (!done) allGroupsComplete = false;
+
+    for (const alias of aliases) {
+      completionMap.set(alias, done);
+    }
+
+    if (log) {
+      console.log(
+        `[feed] group ${group?.name || group?.code || index + 1}: done=${done} finished=${finishedCount}/${expected || groupMatches.length}`
+      );
+    }
+  });
+
+  return { completionMap, allGroupsComplete };
+}
+
+function computeGroupTables({ groups, matches, provisional, log }) {
+  const groupsNorm = (groups || []).map((group, index) => {
+    const code = String(group?.name || group?.code || "").trim();
+    const order = groupOrderOf(group, index);
     return {
       code,
       order,
-      regSet: new Set((g.regIds || []).map(String)),
-      stats: new Map(), // regId -> { wins, losses, pf, pa, gp }
+      aliases: buildGroupAliases(group, index),
+      regSet: new Set((group?.regIds || []).map(String)),
+      stats: new Map(),
     };
   });
 
-  // Init stats
-  for (const g of groupsNorm) {
-    for (const rid of g.regSet) {
-      g.stats.set(rid, { wins: 0, losses: 0, pf: 0, pa: 0, gp: 0 });
+  const groupByAlias = new Map();
+  for (const group of groupsNorm) {
+    for (const alias of group.aliases) {
+      if (!alias || groupByAlias.has(alias)) continue;
+      groupByAlias.set(alias, group);
     }
   }
 
-  // Cộng dồn thống kê
-  for (const m of matches) {
-    const gkey = String(m?.pool?.name || "").trim(); // pool.name = "A"/"B"/"1"/...
-    if (!gkey) continue;
-    const g = groupsNorm.find(
-      (it) =>
-        it.code.toUpperCase() === gkey.toUpperCase() ||
-        String(it.order) === gkey
-    );
-    if (!g) continue;
+  for (const group of groupsNorm) {
+    for (const regId of group.regSet) {
+      group.stats.set(regId, { wins: 0, losses: 0, pf: 0, pa: 0, gp: 0 });
+    }
+  }
 
-    const a = m.pairA ? String(m.pairA) : null;
-    const b = m.pairB ? String(m.pairB) : null;
-    if (!a || !b) continue;
-    if (!g.stats.has(a) || !g.stats.has(b)) continue;
+  for (const match of matches) {
+    const rawKey = match?.pool?.name || match?.pool?.key || "";
+    const group = groupByAlias.get(normGroupToken(rawKey));
+    if (!group) continue;
 
-    const sa = g.stats.get(a);
-    const sb = g.stats.get(b);
+    const pairA = match?.pairA ? String(match.pairA) : null;
+    const pairB = match?.pairB ? String(match.pairB) : null;
+    if (!pairA || !pairB) continue;
+    if (!group.stats.has(pairA) || !group.stats.has(pairB)) continue;
 
-    // đã thi đấu → +1 trận cho cả hai
-    sa.gp += 1;
-    sb.gp += 1;
+    const statsA = group.stats.get(pairA);
+    const statsB = group.stats.get(pairB);
 
-    // cộng điểm “for/against” nhờ gameScores (nếu có)
-    if (Array.isArray(m.gameScores) && m.gameScores.length) {
-      let sumA = 0,
-        sumB = 0;
-      for (const gs of m.gameScores) {
-        sumA += Number(gs?.a || 0);
-        sumB += Number(gs?.b || 0);
+    statsA.gp += 1;
+    statsB.gp += 1;
+
+    if (Array.isArray(match.gameScores) && match.gameScores.length) {
+      let sumA = 0;
+      let sumB = 0;
+      for (const gameScore of match.gameScores) {
+        sumA += Number(gameScore?.a || 0);
+        sumB += Number(gameScore?.b || 0);
       }
-      sa.pf += sumA;
-      sa.pa += sumB;
-      sb.pf += sumB;
-      sb.pa += sumA;
+      statsA.pf += sumA;
+      statsA.pa += sumB;
+      statsB.pf += sumB;
+      statsB.pa += sumA;
     }
 
-    if (m.winner === "A") {
-      sa.wins += 1;
-      sb.losses += 1;
-    } else if (m.winner === "B") {
-      sb.wins += 1;
-      sa.losses += 1;
+    if (match.winner === "A") {
+      statsA.wins += 1;
+      statsB.losses += 1;
+    } else if (match.winner === "B") {
+      statsB.wins += 1;
+      statsA.losses += 1;
     }
   }
 
-  // Xếp hạng từng bảng:
-  //  - CHỈ lấy các đội gp > 0 (đã thi đấu)
-  //  - sort: wins desc -> (pf-pa) desc -> pf desc
-  //  - build alias keys
-  const tableMap = new Map(); // key -> [regId hạng 1..n]
-  const wildcardMap = new Map(); // rank -> [regId tốt nhất giữa các bảng]
-  for (const g of groupsNorm) {
-    const arr = [...g.stats.entries()]
-      .map(([rid, s]) => ({
-        rid,
-        gp: s.gp,
-        wins: s.wins,
-        losses: s.losses,
-        diff: s.pf - s.pa,
-        pf: s.pf,
+  const tableMap = new Map();
+  const wildcardMap = new Map();
+
+  for (const group of groupsNorm) {
+    const rows = [...group.stats.entries()]
+      .map(([regId, stats]) => ({
+        regId,
+        gp: stats.gp,
+        wins: stats.wins,
+        losses: stats.losses,
+        diff: stats.pf - stats.pa,
+        pf: stats.pf,
       }))
-      .filter((r) => r.gp > 0); // 🔒 chỉ đội đã thi đấu
+      .filter((row) => (provisional ? row.gp > 0 : true));
 
-    arr.sort((x, y) => y.wins - x.wins || y.diff - x.diff || y.pf - x.pf);
-    const rankList = arr.map((r) => r.rid);
+    rows.sort(
+      (left, right) =>
+        right.wins - left.wins ||
+        right.diff - left.diff ||
+        right.pf - left.pf
+    );
 
-    const codeUp = g.code ? g.code.toUpperCase() : "";
-    const orderStr = String(g.order);
-
-    const keys = new Set([
-      codeUp,
-      orderStr,
-      `B${orderStr}`,
-      `G${orderStr}`,
-      normGroupToken(codeUp),
-      normGroupToken(orderStr),
-    ]);
-    for (const k of keys) {
-      if (!k) continue;
-      tableMap.set(k, rankList);
+    const rankList = rows.map((row) => row.regId);
+    const codeUp = group.code ? group.code.toUpperCase() : "";
+    const orderStr = String(group.order);
+    for (const alias of group.aliases) {
+      if (!alias) continue;
+      tableMap.set(alias, rankList);
     }
 
-    arr.forEach((entry, index) => {
+    rows.forEach((row, index) => {
       const rank = index + 1;
       if (!wildcardMap.has(rank)) wildcardMap.set(rank, []);
       wildcardMap.get(rank).push({
-        ...entry,
+        ...row,
         groupCode: codeUp || orderStr,
-        groupOrder: Number(g.order || 0) || Number(orderStr || 0) || 0,
+        groupOrder: Number(group.order || 0) || Number(orderStr || 0) || 0,
       });
     });
 
-    if (log)
+    if (log) {
       console.log(
         `[feed] table ${codeUp || orderStr}:`,
         rankList,
-        "(only teams with gp>0)"
+        provisional ? "(started teams only)" : "(final mode)"
       );
+    }
   }
 
   for (const [rank, entries] of wildcardMap.entries()) {
     entries.sort(
-      (x, y) =>
-        y.wins - x.wins ||
-        y.diff - x.diff ||
-        y.pf - x.pf ||
-        x.groupOrder - y.groupOrder ||
-        String(x.groupCode || "").localeCompare(String(y.groupCode || ""))
+      (left, right) =>
+        right.wins - left.wins ||
+        right.diff - left.diff ||
+        right.pf - left.pf ||
+        left.groupOrder - right.groupOrder ||
+        String(left.groupCode || "").localeCompare(String(right.groupCode || ""))
     );
     wildcardMap.set(
       rank,
-      entries.map((entry) => entry.rid)
+      entries.map((entry) => entry.regId)
     );
   }
 
   return { tableMap, wildcardMap };
 }
 
-/**
- * Auto-feed seeds type 'groupRank' từ bracket vòng bảng sang các trận ở stage sau.
- * - KHÔNG unset seedA/seedB để có thể cập nhật liên tục khi BXH thay đổi (lock sớm).
- * - Chỉ fill nếu đội ở vị trí rank đã THI ĐẤU (gp>0). Nếu chưa, giữ nguyên placeholder.
- */
 export async function autoFeedGroupRank({
   tournamentId,
   bracketId,
   stageIndex,
-  provisional = true,
+  provisional = false,
+  finalizeOnComplete = true,
   log = false,
 }) {
-  const br = await Bracket.findById(bracketId).lean();
-  if (!br) throw new Error("Group bracket not found");
-  if (!["group", "round_robin", "gsl"].includes(br.type)) {
+  const bracket = await Bracket.findById(bracketId).lean();
+  if (!bracket) throw new Error("Group bracket not found");
+
+  const type = String(bracket?.type || "").toLowerCase();
+  if (!GROUP_LIKE_TYPES.has(type)) {
     if (log) {
       console.log(
-        `[feed] bracket ${bracketId} type=${br.type} is not group-like, skip.`
+        `[feed] bracket ${bracketId} type=${bracket?.type} is not group-like, skip.`
       );
     }
     return { updated: 0, touchedMatches: 0, reason: "not-group" };
   }
 
-  const groups = Array.isArray(br.groups) ? br.groups : [];
+  const groups = Array.isArray(bracket?.groups) ? bracket.groups : [];
   if (!groups.length) {
     if (log) console.log("[feed] no groups in bracket");
     return { updated: 0, touchedMatches: 0, reason: "no-groups" };
   }
 
-  // 1) BXH tạm thời (đã lọc gp>0)
-  const { tableMap: tables, wildcardMap } = await computeGroupTables({
-    bracketId,
+  const sourceMatches = await Match.find({
+    bracket: bracketId,
+    format: { $in: [...GROUP_LIKE_TYPES] },
+  })
+    .select("_id status pool.name pool.key pairA pairB winner gameScores")
+    .lean();
+
+  const { completionMap, allGroupsComplete } = computeGroupCompletion({
+    bracket,
     groups,
+    matches: sourceMatches,
+    log,
+  });
+  const { tableMap, wildcardMap } = computeGroupTables({
+    groups,
+    matches: sourceMatches,
+    provisional,
     log,
   });
 
-  // 2) Tìm các trận có seed groupRank tham chiếu stageIndex này
-  const st = Number(stageIndex || br.stage || 1);
-
+  const stage = Number(stageIndex || bracket.stage || 1);
   const stageFilter = [
-    { "seedA.ref.stageIndex": st },
-    { "seedA.ref.stage": st },
-    { "seedA.ref.stageIndex": String(st) },
-    { "seedA.ref.stage": String(st) },
-    { "seedB.ref.stageIndex": st },
-    { "seedB.ref.stage": st },
-    { "seedB.ref.stageIndex": String(st) },
-    { "seedB.ref.stage": String(st) },
+    { "seedA.ref.stageIndex": stage },
+    { "seedA.ref.stage": stage },
+    { "seedA.ref.stageIndex": String(stage) },
+    { "seedA.ref.stage": String(stage) },
+    { "seedB.ref.stageIndex": stage },
+    { "seedB.ref.stage": stage },
+    { "seedB.ref.stageIndex": String(stage) },
+    { "seedB.ref.stage": String(stage) },
   ];
 
-  const matches = await Match.find({
+  const targetMatches = await Match.find({
     tournament: tournamentId,
     $or: [{ "seedA.type": "groupRank" }, { "seedB.type": "groupRank" }],
     $and: [{ $or: stageFilter }],
@@ -229,73 +364,101 @@ export async function autoFeedGroupRank({
   let targets = 0;
   let updated = 0;
 
-  // 3) Resolve từng side
-  for (const m of matches) {
+  for (const match of targetMatches) {
     for (const side of ["A", "B"]) {
-      const seed = m[`seed${side}`];
+      const seed = match[`seed${side}`];
       if (!seed || seed.type !== "groupRank") continue;
 
       const ref = seed.ref || {};
-      const rawToken =
-        ref.groupCode ??
-        ref.group ??
-        ref.pool ??
-        ref.groupName ??
-        ref.code ??
-        "";
+      const rawToken = readSeedGroupToken(ref);
       const token = normGroupToken(rawToken);
       const rank = Number(ref.rank || ref.place || 0);
-      const wildcardOrder = Number(ref.wildcardOrder || ref.pick || ref.index || 0);
+      const wildcardOrder = Number(
+        ref.wildcardOrder || ref.pick || ref.index || 0
+      );
       if (!rank) continue;
 
-      targets++;
+      targets += 1;
 
-      const list = token ? tables.get(token) : wildcardMap.get(rank);
-      const pickIndex = token ? rank - 1 : Math.max(0, (wildcardOrder || 1) - 1);
-      const regId = Array.isArray(list) ? list[pickIndex] : null;
+      const slotLabel = token
+        ? `${rawToken}#${rank}`
+        : `best rank #${rank} wildcard ${Math.max(1, wildcardOrder || 1)}`;
+      const field = side === "A" ? "pairA" : "pairB";
+      const currentValue = match[field] ? String(match[field]) : "";
 
-      if (!regId) {
-        if (log)
-          console.log(
-            `[feed] ${
-              m.labelKey || m._id
-            } ${side}: waiting ${
-              token ? `${rawToken}#${rank}` : `best rank #${rank} wildcard ${pickIndex + 1}`
-            } (no team with gp>0)`
-          );
-        continue; // chưa có đội đã thi đấu cho rank này ⇒ giữ placeholder
+      const canResolve = provisional
+        ? true
+        : token
+          ? completionMap.get(token) === true
+          : allGroupsComplete;
+
+      let nextRegId = null;
+      if (canResolve) {
+        const list = token ? tableMap.get(token) : wildcardMap.get(rank);
+        const pickIndex = token
+          ? rank - 1
+          : Math.max(0, (wildcardOrder || 1) - 1);
+        nextRegId = Array.isArray(list) ? list[pickIndex] || null : null;
       }
 
-      const field = side === "A" ? "pairA" : "pairB";
-      const cur = String(m[field] || "");
-      if (cur === String(regId)) {
-        if (log)
-          console.log(`[feed] ${m.labelKey || m._id} no change ${field}`);
+      if (!canResolve || !nextRegId) {
+        if (!currentValue) {
+          if (log) {
+            console.log(
+              `[feed] ${match.labelKey || match._id} ${side}: waiting ${slotLabel}`
+            );
+          }
+          continue;
+        }
+
+        const res = await Match.updateOne(
+          { _id: match._id },
+          { $set: { [field]: null } }
+        );
+        if (res.modifiedCount > 0) {
+          updated += 1;
+          if (log) {
+            console.log(
+              `[feed] ${match.labelKey || match._id} cleared ${field} for ${slotLabel} (finalize=${finalizeOnComplete}, provisional=${provisional})`
+            );
+          }
+        }
+        continue;
+      }
+
+      if (currentValue === String(nextRegId)) {
+        if (log) {
+          console.log(`[feed] ${match.labelKey || match._id} no change ${field}`);
+        }
         continue;
       }
 
       const res = await Match.updateOne(
-        { _id: m._id },
-        { $set: { [field]: regId } } // KHÔNG unset seed → tiếp tục sync khi BXH đổi
+        { _id: match._id },
+        { $set: { [field]: nextRegId } }
       );
       if (res.modifiedCount > 0) {
-        updated++;
-        if (log)
+        updated += 1;
+        if (log) {
           console.log(
-            `[feed] ${
-              m.labelKey || m._id
-            } set ${field} <- ${regId} (from ${
-              token ? `${rawToken}#${rank}` : `best rank #${rank} wildcard ${pickIndex + 1}`
-            })`
+            `[feed] ${match.labelKey || match._id} set ${field} <- ${nextRegId} (from ${slotLabel})`
           );
+        }
       }
     }
   }
 
-  if (log)
+  if (log) {
     console.log(
-      `[feed] groupRank targets: ${targets} updated: ${updated} (stage=${st})`
+      `[feed] groupRank targets: ${targets} updated: ${updated} (stage=${stage}, provisional=${provisional})`
     );
+  }
 
-  return { updated, touchedMatches: targets, stageIndex: st };
+  return {
+    updated,
+    touchedMatches: targets,
+    stageIndex: stage,
+    provisional,
+    allGroupsComplete,
+  };
 }

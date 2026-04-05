@@ -88,6 +88,25 @@ import {
 import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
 import { syncMatchLiveEvents } from "../services/matchLiveSync.service.js";
 import { getRefereeMatchControlLockRuntime } from "../services/systemSettingsRuntime.service.js";
+
+const resolveSocketMatchCourt = (match) => {
+  const courtId =
+    match?.courtStationId ||
+    match?.courtStation?._id ||
+    match?.courtStation ||
+    match?.court?._id ||
+    match?.courtId ||
+    null;
+  const courtNumber = match?.court?.number ?? match?.courtNo ?? undefined;
+  const courtName =
+    match?.courtStationName ||
+    match?.courtStationLabel ||
+    match?.courtLabel ||
+    match?.court?.name ||
+    match?.courtName ||
+    (courtNumber != null ? `Sân ${courtNumber}` : "");
+  return { courtId, courtNumber, courtName };
+};
 import {
   buildDrawLiveSnapshot,
   DRAW_CONTROL_HEARTBEAT_MS,
@@ -989,6 +1008,12 @@ const postprocessSnapshotLikeJoin = async (m) => {
   m.courtId = courtId || undefined;
   m.courtName = courtName || undefined;
   m.courtNo = courtNumber ?? undefined;
+  {
+    const resolvedCourt = resolveSocketMatchCourt(m);
+    m.courtId = resolvedCourt.courtId || undefined;
+    m.courtName = resolvedCourt.courtName || undefined;
+    m.courtNo = resolvedCourt.courtNumber ?? undefined;
+  }
 
   // bracketType fallback
   if (!m.bracketType) {
@@ -2019,6 +2044,12 @@ export function initSocket(
         m.courtId = courtId || undefined;
         m.courtName = courtName || undefined;
         m.courtNo = courtNumber ?? undefined;
+        {
+          const resolvedCourt = resolveSocketMatchCourt(m);
+          m.courtId = resolvedCourt.courtId || undefined;
+          m.courtName = resolvedCourt.courtName || undefined;
+          m.courtNo = resolvedCourt.courtNumber ?? undefined;
+        }
 
         // bracketType (userMatch không có bracket → chuỗi rỗng)
         if (!m.bracketType) {

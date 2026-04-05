@@ -191,6 +191,8 @@ function buildParticipantsLabel(match) {
 }
 
 function buildCourtLabel(match) {
+  if (match?.courtStationName) return match.courtStationName;
+  if (match?.courtStationLabel) return match.courtStationLabel;
   if (match?.courtLabel) return match.courtLabel;
   if (match?.court?.name) return match.court.name;
   if (match?.court?.label) return match.court.label;

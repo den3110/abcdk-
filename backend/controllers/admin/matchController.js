@@ -2005,8 +2005,12 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
     })
     .populate({ path: "referee", select: "name nickname" }) // <-- referee là ARRAY
     .populate({ path: "court", select: "name status order bracket cluster" })
+    .populate({
+      path: "courtStation",
+      select: "name code status order clusterId",
+    })
     .select(
-      "_id tournament bracket pairA pairB branch phase round order labelKey orderInGroup groupNo groupIndex groupIdx group groupCode pool poolKey poolLabel meta scheduledAt assignedAt startedAt finishedAt gameScores status court courtLabel courtCluster referee createdAt matchNo index"
+      "_id tournament bracket pairA pairB branch phase round order labelKey orderInGroup groupNo groupIndex groupIdx group groupCode pool poolKey poolLabel meta scheduledAt assignedAt startedAt finishedAt gameScores status court courtLabel courtCluster courtStation courtStationLabel courtClusterId courtClusterLabel referee createdAt matchNo index"
     )
     .sort({ round: 1, order: 1, createdAt: 1 })
     .lean();
@@ -2193,6 +2197,18 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
 
     const referees = Array.isArray(m.referee) ? m.referee.map(refToDTO) : [];
 
+    const resolvedCourtName =
+      m.courtStation?.name || m.courtStationLabel || m.court?.name || m.courtLabel || "";
+    const resolvedCourtCode = m.courtStation?.code || "";
+    const resolvedCourtStatus = m.courtStation?.status || m.court?.status || "";
+    const resolvedCourtOrder = Number.isFinite(m.courtStation?.order)
+      ? m.courtStation.order
+      : Number.isFinite(m.court?.order)
+        ? m.court.order
+        : null;
+    const resolvedCourtCluster =
+      m.courtClusterLabel || m.courtCluster || m.court?.cluster || "";
+
     return {
       _id: m._id,
       code,
@@ -2233,14 +2249,37 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
       // sân bãi
       court: {
         _id:
-          m.court?._id || (mongoose.isValidObjectId(m.court) ? m.court : null),
-        name: m.court?.name || m.courtLabel || "",
-        status: m.court?.status || "",
-        order: Number.isFinite(m.court?.order) ? m.court.order : null,
+          m.courtStation?._id ||
+          m.court?._id ||
+          (mongoose.isValidObjectId(m.courtStation)
+            ? m.courtStation
+            : mongoose.isValidObjectId(m.court)
+              ? m.court
+              : null),
+        name: resolvedCourtName || resolvedCourtCode || "",
+        code: resolvedCourtCode || "",
+        status: resolvedCourtStatus,
+        order: resolvedCourtOrder,
         bracket: m.court?.bracket || null,
-        cluster: m.court?.cluster || m.courtCluster || "",
+        cluster: resolvedCourtCluster,
       },
-      field: m.court?.name || m.courtLabel || "Chưa xác định", // giữ field cũ cho FE
+      courtStation: m.courtStation
+        ? {
+            _id: m.courtStation._id,
+            name: m.courtStation.name || "",
+            code: m.courtStation.code || "",
+            status: m.courtStation.status || "",
+            order: Number.isFinite(m.courtStation.order)
+              ? m.courtStation.order
+              : null,
+            clusterId: m.courtStation.clusterId || null,
+          }
+        : null,
+      courtStationName: resolvedCourtName || "",
+      courtStationLabel: m.courtStationLabel || resolvedCourtName || "",
+      courtStationCode: resolvedCourtCode || "",
+      courtClusterLabel: resolvedCourtCluster || "",
+      field: resolvedCourtName || resolvedCourtCode || "Chưa xác định", // giữ field cũ cho FE
 
       // trạng thái
       status: statusVN,

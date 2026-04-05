@@ -15,7 +15,10 @@ import {
   getTournamentNameDisplayMode,
   getTournamentTeamName,
 } from "../../utils/tournamentName";
-import { getPairDisplayName } from "../../utils/matchDisplay";
+import {
+  getMatchCourtStationName,
+  getPairDisplayName,
+} from "../../utils/matchDisplay";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
@@ -303,8 +306,10 @@ function normalizePayload(p) {
     },
   };
 
-  const courtId = p?.court?.id || p?.courtId || null;
-  const courtName = p?.court?.name || p?.courtName || "";
+  const courtId =
+    p?.courtStationId || p?.court?.id || p?.court?._id || p?.courtId || null;
+  const courtName =
+    getMatchCourtStationName(p) || p?.courtName || p?.court?.name || "";
 
   return {
     matchId: String(p?._id || p?.matchId || ""),

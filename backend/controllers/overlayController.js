@@ -23,6 +23,49 @@ const gamesToWin = (bestOf) => Math.floor((Number(bestOf) || 3) / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
   Number(x) >= Number(pts) && (byTwo ? x - y >= 2 : x - y >= 1);
 
+const resolveOverlayCourt = (match) => {
+  const courtId =
+    match?.courtStationId ||
+    match?.courtStation?._id ||
+    match?.courtStation ||
+    match?.court?._id ||
+    match?.courtId ||
+    null;
+  const courtNumber = match?.court?.number ?? match?.courtNo ?? undefined;
+  const courtName =
+    match?.courtStationName ||
+    match?.courtStationLabel ||
+    match?.courtLabel ||
+    match?.court?.name ||
+    match?.courtName ||
+    (courtNumber != null ? `Sân ${courtNumber}` : "");
+  return {
+    courtId,
+    courtNumber,
+    courtName,
+    courtExtra: {
+      code: match?.court?.code || undefined,
+      label:
+        match?.courtStationName ||
+        match?.courtStationLabel ||
+        match?.court?.label ||
+        match?.courtLabel ||
+        undefined,
+      zone: match?.court?.zone || match?.court?.area || undefined,
+      venue: match?.court?.venue || undefined,
+      building: match?.court?.building || undefined,
+      floor: match?.court?.floor || undefined,
+      cluster:
+        match?.courtClusterName ||
+        match?.courtClusterLabel ||
+        match?.court?.cluster ||
+        match?.courtCluster ||
+        undefined,
+      group: match?.court?.group || undefined,
+    },
+  };
+};
+
 // tính số set thắng mỗi bên
 function setWins(gameScores = [], rules) {
   let a = 0,
@@ -429,9 +472,9 @@ export async function getOverlayMatch(req, res) {
     /* ==========================
      * Court
      * ========================== */
-    const courtId = m?.court?._id || m?.courtId || null;
-    const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
-    const courtName =
+    let courtId = m?.court?._id || m?.courtId || null;
+    let courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
+    let courtName =
       m?.court?.name ??
       m?.courtName ??
       (courtNumber != null ? `Sân ${courtNumber}` : "");
@@ -446,6 +489,13 @@ export async function getOverlayMatch(req, res) {
       cluster: m?.court?.cluster || m?.courtCluster || undefined,
       group: m?.court?.group || undefined,
     };
+    {
+      const resolvedCourt = resolveOverlayCourt(m);
+      courtId = resolvedCourt.courtId;
+      courtNumber = resolvedCourt.courtNumber;
+      courtName = resolvedCourt.courtName;
+      Object.assign(courtExtra, resolvedCourt.courtExtra);
+    }
 
     /* ==========================
      * Streams + Video

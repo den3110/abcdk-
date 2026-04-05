@@ -934,7 +934,9 @@ export default function TournamentSchedule() {
     roles.has("superadmin")
   );
   const { id } = useParams();
-  const { data: verifyRes } = useVerifyManagerQuery(id ? id : skipToken);
+  const { data: verifyRes } = useVerifyManagerQuery(
+    userInfo?.token && id ? id : skipToken,
+  );
   const { data: verifyRefereeRes } = useVerifyRefereeQuery(
     userInfo?._id && id ? id : skipToken,
   );

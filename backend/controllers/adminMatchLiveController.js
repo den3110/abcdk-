@@ -24,6 +24,17 @@ import {
 import FacebookPageConnection from "../models/facebookPageConnectionModel.js";
 import UserMatch from "../models/userMatchModel.js";
 
+const matchCourtNameOf = (match, fallbackCourt = null) =>
+  String(
+    match?.courtStationName ||
+      match?.courtStationLabel ||
+      match?.courtLabel ||
+      match?.court?.name ||
+      fallbackCourt?.name ||
+      fallbackCourt?.label ||
+      ""
+  ).trim();
+
 /* ───────────────────────── Config helpers (dùng DB Config) ───────────────────────── */
 async function resolveOverlayBase() {
   const overlay = (await getCfgStr("LIVE_OVERLAY_BASE", "")).trim();
@@ -366,7 +377,7 @@ export const createFacebookLiveForMatchV1 = async (req, res) => {
     // 4) metadata title/desc
     const t = match.tournament;
     const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
-    const courtName = match?.court?.name || match?.courtLabel || "";
+    const courtName = matchCourtNameOf(match);
     const roundLabel =
       match?.roundLabel || match?.labelKey || match?.code || "Match";
     const title = `${t?.name || "PickleTour"} – ${roundLabel}${
@@ -781,7 +792,7 @@ export const createFacebookLiveForMatchV1 = async (req, res) => {
       stageIndex: match.stageIndex,
       round: match.round ?? null,
       courtId: match.court?._id || match.court || null,
-      courtName: match.court?.name || match.courtLabel || "",
+      courtName: matchCourtNameOf(match),
       tournamentId: match.tournament?._id || match.tournament || null,
       tournamentName: match.tournament?.name || null,
       scheduledAt: match.scheduledAt,
@@ -977,7 +988,7 @@ export const createFacebookLiveForCourt = async (req, res) => {
 
     const t = match?.tournament;
     const tName = t?.name || "PickleTour";
-    const courtName = match?.court?.name || court?.name || "";
+    const courtName = matchCourtNameOf(match, court);
     const overlayUrl = match
       ? `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`
       : ""; // không có match thì bỏ overlay
@@ -1953,7 +1964,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
     const pairBName = buildPairName(match.pairB, "VĐV B", "Đội B");
     const matchCode = displayCode;
     const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
-    const courtName = match?.court?.name || match?.courtLabel || "";
+    const courtName = matchCourtNameOf(match);
 
     let fbTitle = `${t?.name || "PickleTour"} - ${matchCode} - ${pairAName} vs ${pairBName}`;
     if (fbTitle.length > 250) fbTitle = fbTitle.slice(0, 247) + "...";

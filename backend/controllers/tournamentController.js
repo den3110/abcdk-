@@ -500,6 +500,30 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
     tournamentId
   );
   const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(listRaw);
+  const resolvePublicCourtMeta = (match) => {
+    const stationId =
+      match?.courtStationId || match?.courtStation?._id || match?.courtStation;
+    const stationName =
+      match?.courtStationName || match?.courtStationLabel || "";
+    const stationStatus = match?.courtStation?.status || "";
+    const stationOrder = Number.isFinite(match?.courtStation?.order)
+      ? match.courtStation.order
+      : null;
+    const stationCluster =
+      match?.courtClusterName || match?.courtClusterLabel || "";
+
+    return {
+      courtId: stationId || match?.court?._id || match?.court || null,
+      courtName: stationName || match?.court?.name || match?.courtLabel || "",
+      courtStatus: stationStatus || match?.court?.status || "",
+      courtOrder:
+        stationOrder ??
+        (Number.isFinite(match?.court?.order) ? match.court.order : null),
+      courtBracket: match?.court?.bracket || null,
+      courtCluster:
+        stationCluster || match?.court?.cluster || match?.courtCluster || "",
+    };
+  };
 
   const safeInt = (value) => {
     const next = Number(value);
@@ -616,6 +640,7 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
       match?.facebookLive?.video_permalink_url ||
       match?.facebookLive?.permalink_url ||
       "";
+    const publicCourtMeta = resolvePublicCourtMeta(match);
 
     const enrichedMatch = {
       ...match,
@@ -623,14 +648,7 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
         typeof match?.video === "string" && match.video.trim()
           ? match.video.trim()
           : fallbackVideo,
-      courtId: match?.court?._id || match?.court || null,
-      courtName: match?.court?.name || match?.courtLabel || "",
-      courtStatus: match?.court?.status || "",
-      courtOrder: Number.isFinite(match?.court?.order)
-        ? match.court.order
-        : null,
-      courtBracket: match?.court?.bracket || null,
-      courtCluster: match?.court?.cluster || match?.courtCluster || "",
+      ...publicCourtMeta,
       globalRound,
       globalCode: `V${globalRound}`,
       code,
@@ -685,8 +703,12 @@ const listTournamentMatchesBracketView = async (req, res) => {
         "finishedAt",
         "assignedAt",
         "court",
+        "courtStation",
         "courtLabel",
         "courtCluster",
+        "courtClusterId",
+        "courtClusterLabel",
+        "courtStationLabel",
         "queueOrder",
         "serve",
         "liveVersion",
@@ -742,6 +764,10 @@ const listTournamentMatchesBracketView = async (req, res) => {
       select:
         "name number code label zone area venue building floor cluster status bracket order",
     })
+    .populate({
+      path: "courtStation",
+      select: "name code status order clusterId",
+    })
     .sort({ round: 1, order: 1, createdAt: 1 })
     .lean();
 
@@ -785,8 +811,12 @@ const listTournamentMatchesScheduleView = async (req, res) => {
         "finishedAt",
         "assignedAt",
         "court",
+        "courtStation",
         "courtLabel",
         "courtCluster",
+        "courtClusterId",
+        "courtClusterLabel",
+        "courtStationLabel",
         "queueOrder",
         "serve",
         "liveVersion",
@@ -816,6 +846,10 @@ const listTournamentMatchesScheduleView = async (req, res) => {
     .populate({
       path: "court",
       select: "name cluster status order",
+    })
+    .populate({
+      path: "courtStation",
+      select: "name code status order clusterId",
     })
     .sort({ round: 1, order: 1, createdAt: 1 })
     .lean();
@@ -1633,6 +1667,10 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
           path: "court",
           select: "name cluster status bracket order",
         })
+        .populate({
+          path: "courtStation",
+          select: "name code status order clusterId",
+        })
         .sort(sortSpec)
         .skip(lim ? skip : 0)
         .limit(lim || 0)
@@ -1897,12 +1935,22 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       const globalCode = `V${globalRound}`;
 
       // phẳng court
-      const courtId = m.court?._id || m.court || null;
-      const courtName = m.court?.name || m.courtLabel || "";
-      const courtStatus = m.court?.status || "";
-      const courtOrder = Number.isFinite(m.court?.order) ? m.court.order : null;
+      const courtId = m.courtStationId || m.courtStation?._id || m.courtStation || m.court?._id || m.court || null;
+      const courtName =
+        m.courtStationName || m.courtStationLabel || m.court?.name || m.courtLabel || "";
+      const courtStatus = m.courtStation?.status || m.court?.status || "";
+      const courtOrder = Number.isFinite(m.courtStation?.order)
+        ? m.courtStation.order
+        : Number.isFinite(m.court?.order)
+        ? m.court.order
+        : null;
       const courtBracket = m.court?.bracket || null;
-      const courtCluster = m.court?.cluster || m.courtCluster || "";
+      const courtCluster =
+        m.courtClusterName ||
+        m.courtClusterLabel ||
+        m.court?.cluster ||
+        m.courtCluster ||
+        "";
 
       return {
         ...m,

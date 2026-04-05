@@ -164,7 +164,12 @@ export const getMyMatchSchedule = async (req, res) => {
             : null,
         gameScores: match.gameScores || [],
         court: match.court,
-        courtLabel: match.courtLabel || match.court?.name || "",
+        courtLabel:
+          match.courtStationName ||
+          match.courtStationLabel ||
+          match.courtLabel ||
+          match.court?.name ||
+          "",
         referee: match.referee,
         tournament: {
           _id: match.tournament._id,

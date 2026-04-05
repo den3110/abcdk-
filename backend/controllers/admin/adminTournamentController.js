@@ -2358,7 +2358,7 @@ async function rerunGroupRankFeedsForTournament(tournamentId) {
       tournamentId,
       bracketId: bracket._id,
       stageIndex: bracket.stage,
-      provisional: true,
+      provisional: false,
       log: false,
     });
     touched += 1;

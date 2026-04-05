@@ -133,8 +133,9 @@ const pairDisplayName = (pair, fallback) => {
 
 const matchCourtName = (match) =>
   String(
-    match?.courtLabel ||
+    match?.courtStationName ||
       match?.courtStationLabel ||
+      match?.courtLabel ||
       match?.courtClusterLabel ||
       match?.court?.label ||
       match?.court?.name ||

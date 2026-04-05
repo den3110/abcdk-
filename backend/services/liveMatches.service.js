@@ -226,6 +226,8 @@ export async function collectStreamCandidatesFromDB({
       startedAt: 1,
       court: 1,
       courtLabel: 1,
+      courtStationLabel: 1,
+      courtClusterLabel: 1,
 
       stageIndex: 1, // vẫn trả về để tương thích FE cũ nếu dùng
       labelKey: 1,
@@ -377,7 +379,7 @@ export async function collectStreamCandidatesFromDB({
         tournamentId: m.tournament,
         bracketId: m.bracket,
         courtId: m.court,
-        courtLabel: m.courtLabel || "",
+        courtLabel: m.courtStationLabel || m.courtLabel || "",
         scheduledAt: m.scheduledAt,
         startedAt: m.startedAt,
         updatedAt: m.updatedAt,

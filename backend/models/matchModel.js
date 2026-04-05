@@ -817,7 +817,7 @@ async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
       tournamentId: doc.tournament,
       bracketId: doc.bracket,
       stageIndex: st,
-      provisional: true,
+      provisional: false,
       log,
     });
   } catch (e) {
@@ -1092,7 +1092,7 @@ matchSchema.post("save", async function (doc, next) {
                 tournamentId: doc.tournament,
                 bracketId: doc.bracket,
                 stageIndex: br.stage,
-                provisional: true,
+                provisional: false,
                 finalizeOnComplete: true,
                 log: false,
               });
@@ -1261,7 +1261,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
                 tournamentId: fresh.tournament,
                 bracketId: fresh.bracket,
                 stageIndex: br.stage,
-                provisional: true,
+                provisional: false,
                 finalizeOnComplete: true,
                 log: false,
               });

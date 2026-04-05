@@ -1168,7 +1168,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [brackets, allMatchesFetched]);
 
   const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
-    tournamentId ? tournamentId : skipToken,
+    userInfo?.token && tournamentId ? tournamentId : skipToken,
   );
   const isManager = !!verifyRes?.isManager;
   const canEdit = isAdmin || isManager;

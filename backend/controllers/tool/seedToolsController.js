@@ -124,7 +124,7 @@ export const reapplySeedsForBracket = expressAsyncHandler(async (req, res) => {
         tournamentId: tid,
         bracketId: new mongoose.Types.ObjectId(bid),
         stageIndex: br.stage,
-        provisional: true,
+        provisional: false,
         finalizeOnComplete: true,
         log: false,
       });

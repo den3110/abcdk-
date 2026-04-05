@@ -1240,7 +1240,10 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
           $let: {
             vars: {
               label: {
-                $ifNull: ["$_court.name", { $ifNull: ["$courtLabel", ""] }],
+                $ifNull: [
+                  "$courtStationLabel",
+                  { $ifNull: ["$_court.name", { $ifNull: ["$courtLabel", ""] }] },
+                ],
               },
             },
             in: {

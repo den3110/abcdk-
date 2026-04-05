@@ -66,6 +66,15 @@ const normType = (t) => {
 // Màu sắc chủ đạo (Bạn có thể chỉnh theo brand)
 const BRAND_COLOR = "#1976d2";
 const ACCENT_COLOR = "#ff9800";
+const matchCourtLabel = (match) =>
+  String(
+    match?.field ||
+      match?.courtStationName ||
+      match?.courtStationLabel ||
+      match?.courtLabel ||
+      match?.court?.name ||
+      ""
+  ).trim();
 
 /* ---------- Styled Components (via SX) ---------- */
 const cardStyle = {
@@ -930,8 +939,7 @@ export default function TournamentCheckin() {
                           >
                             <LocationIcon fontSize="inherit" />
                             <Typography variant="caption">
-                              {m.field ||
-                                m?.court?.name ||
+                              {matchCourtLabel(m) ||
                                 t("tournaments.checkin.courtFallback")}
                             </Typography>
                           </Stack>
