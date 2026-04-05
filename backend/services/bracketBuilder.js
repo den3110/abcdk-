@@ -152,26 +152,35 @@ function isByeSeed(seed) {
   return String(seed?.label || "").trim().toUpperCase() === "BYE";
 }
 
-function buildDoubleElimRoundMap(winnersRounds) {
+function buildDoubleElimRoundMap(winnersRounds, startWinnersRoundIndex = 1) {
   const wb = {};
   const lb = {};
   let cursor = 1;
+  let lastLbRoundIndex = 0;
 
-  wb[1] = cursor++;
-  lb[1] = cursor++;
-
-  for (let roundIndex = 2; roundIndex < winnersRounds; roundIndex += 1) {
+  for (let roundIndex = 1; roundIndex <= startWinnersRoundIndex; roundIndex += 1) {
     wb[roundIndex] = cursor++;
-    lb[roundIndex * 2 - 2] = cursor++;
-    lb[roundIndex * 2 - 1] = cursor++;
+  }
+
+  lb[1] = cursor++;
+  lastLbRoundIndex = 1;
+
+  for (let roundIndex = startWinnersRoundIndex + 1; roundIndex < winnersRounds; roundIndex += 1) {
+    wb[roundIndex] = cursor++;
+    lastLbRoundIndex += 1;
+    lb[lastLbRoundIndex] = cursor++;
+    lastLbRoundIndex += 1;
+    lb[lastLbRoundIndex] = cursor++;
   }
 
   wb[winnersRounds] = cursor++;
-  lb[winnersRounds * 2 - 2] = cursor++;
+  lastLbRoundIndex += 1;
+  lb[lastLbRoundIndex] = cursor++;
 
   return {
     wb,
     lb,
+    lbFinalRoundIndex: lastLbRoundIndex,
     gf: cursor++,
   };
 }
@@ -444,15 +453,17 @@ export async function buildDoubleElimBracket({
 }) {
   const configuredSize = Math.max(4, ceilPow2(drawSize || 4));
   const resolvedStartRoundKey = clampDoubleElimStartRoundKey(startRoundKey, configuredSize);
-  const size = Math.min(
-    configuredSize,
-    Math.max(4, drawSizeFromKoRoundKey(resolvedStartRoundKey) || configuredSize)
-  );
+  const startDrawSize = Math.max(4, drawSizeFromKoRoundKey(resolvedStartRoundKey) || configuredSize);
+  const size = configuredSize;
   const winnersRounds = Math.round(Math.log2(size));
+  const startWinnersRoundIndex = Math.max(
+    1,
+    Math.round(Math.log2(size / startDrawSize)) + 1
+  );
   const firstPairs = size / 2;
   const baseRules = sanitizeRules(rules);
   const finalOnly = finalRules ? sanitizeRules(finalRules) : null;
-  const roundMap = buildDoubleElimRoundMap(winnersRounds);
+  const roundMap = buildDoubleElimRoundMap(winnersRounds, startWinnersRoundIndex);
 
   const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
     const found = firstRoundSeeds.find((seed) => Number(seed.pair) === i + 1);
@@ -491,7 +502,7 @@ export async function buildDoubleElimBracket({
           },
         },
         meta: {
-          drawSize: size,
+          drawSize: configuredSize,
           maxRounds: roundMap.gf,
           expectedFirstRoundMatches: firstPairs,
         },
@@ -560,17 +571,39 @@ export async function buildDoubleElimBracket({
   }
 
   createdLB[1] = await Match.insertMany(
-    Array.from({ length: Math.max(1, createdWB[1].length / 2) }, (_, idx) => {
-      const leftSeed = r1Seeds[idx * 2];
-      const rightSeed = r1Seeds[idx * 2 + 1];
-      const leftLoser =
-        isByeSeed(leftSeed?.A) || isByeSeed(leftSeed?.B)
-          ? SEED_BYE
-          : createMatchLoserSeed(roundMap.wb[1], idx * 2, `L-WB1-T${idx * 2 + 1}`);
-      const rightLoser =
-        isByeSeed(rightSeed?.A) || isByeSeed(rightSeed?.B)
-          ? SEED_BYE
-          : createMatchLoserSeed(roundMap.wb[1], idx * 2 + 1, `L-WB1-T${idx * 2 + 2}`);
+    Array.from({ length: Math.max(1, (createdWB[startWinnersRoundIndex] || []).length / 2) }, (_, idx) => {
+      if (startWinnersRoundIndex === 1) {
+        const leftSeed = r1Seeds[idx * 2];
+        const rightSeed = r1Seeds[idx * 2 + 1];
+        const leftLoser =
+          isByeSeed(leftSeed?.A) || isByeSeed(leftSeed?.B)
+            ? SEED_BYE
+            : createMatchLoserSeed(
+                roundMap.wb[startWinnersRoundIndex],
+                idx * 2,
+                `L-WB${startWinnersRoundIndex}-T${idx * 2 + 1}`
+              );
+        const rightLoser =
+          isByeSeed(rightSeed?.A) || isByeSeed(rightSeed?.B)
+            ? SEED_BYE
+            : createMatchLoserSeed(
+                roundMap.wb[startWinnersRoundIndex],
+                idx * 2 + 1,
+                `L-WB${startWinnersRoundIndex}-T${idx * 2 + 2}`
+              );
+        return {
+          tournament: tournamentId,
+          bracket: bracket._id,
+          format: "double_elim",
+          branch: "lb",
+          phase: "losers",
+          round: roundMap.lb[1],
+          order: idx,
+          seedA: leftLoser,
+          seedB: rightLoser,
+          rules: baseRules,
+        };
+      }
 
       return {
         tournament: tournamentId,
@@ -580,17 +613,30 @@ export async function buildDoubleElimBracket({
         phase: "losers",
         round: roundMap.lb[1],
         order: idx,
-        seedA: leftLoser,
-        seedB: rightLoser,
+        seedA: createMatchLoserSeed(
+          roundMap.wb[startWinnersRoundIndex],
+          idx * 2,
+          `L-WB${startWinnersRoundIndex}-T${idx * 2 + 1}`
+        ),
+        seedB: createMatchLoserSeed(
+          roundMap.wb[startWinnersRoundIndex],
+          idx * 2 + 1,
+          `L-WB${startWinnersRoundIndex}-T${idx * 2 + 2}`
+        ),
         rules: baseRules,
       };
     }),
     { session }
   );
 
-  for (let winnersRound = 2; winnersRound < winnersRounds; winnersRound += 1) {
-    const entryRoundIndex = winnersRound * 2 - 2;
-    const consolidateRoundIndex = winnersRound * 2 - 1;
+  let lastLbRoundIndex = 1;
+  for (
+    let winnersRound = startWinnersRoundIndex + 1;
+    winnersRound < winnersRounds;
+    winnersRound += 1
+  ) {
+    const entryRoundIndex = lastLbRoundIndex + 1;
+    const consolidateRoundIndex = lastLbRoundIndex + 2;
     const prevLbRound = createdLB[entryRoundIndex - 1] || [];
     const wbRound = createdWB[winnersRound] || [];
 
@@ -629,10 +675,12 @@ export async function buildDoubleElimBracket({
       })),
       { session }
     );
+
+    lastLbRoundIndex = consolidateRoundIndex;
   }
 
-  const finalLbRoundIndex = winnersRounds * 2 - 2;
-  const finalLbSourceRoundIndex = winnersRounds === 2 ? 1 : finalLbRoundIndex - 1;
+  const finalLbRoundIndex = roundMap.lbFinalRoundIndex;
+  const finalLbSourceRoundIndex = Math.max(1, finalLbRoundIndex - 1);
   createdLB[finalLbRoundIndex] = await Match.insertMany(
     [
       {
@@ -673,27 +721,21 @@ export async function buildDoubleElimBracket({
     { session }
   ).then((arr) => arr[0]);
 
-  if (createdLB[1]?.length) {
-    const nextRound = createdLB[2] || [];
-    for (let idx = 0; idx < createdLB[1].length; idx += 1) {
-      await setWinnerLink(createdLB[1][idx], nextRound[idx], "A");
-    }
-  }
+  for (let lbRoundIndex = 1; lbRoundIndex < finalLbRoundIndex; lbRoundIndex += 1) {
+    const currentRound = createdLB[lbRoundIndex] || [];
+    const nextRound = createdLB[lbRoundIndex + 1] || [];
+    const nextIsEntryRound = (lbRoundIndex + 1) % 2 === 0;
 
-  for (let winnersRound = 2; winnersRound < winnersRounds; winnersRound += 1) {
-    const entryRoundIndex = winnersRound * 2 - 2;
-    const consolidateRoundIndex = winnersRound * 2 - 1;
-    const entryRound = createdLB[entryRoundIndex] || [];
-    const consolidateRound = createdLB[consolidateRoundIndex] || [];
-
-    for (let idx = 0; idx < consolidateRound.length; idx += 1) {
-      await setWinnerLink(entryRound[idx * 2], consolidateRound[idx], "A");
-      await setWinnerLink(entryRound[idx * 2 + 1], consolidateRound[idx], "B");
+    if (nextIsEntryRound) {
+      for (let idx = 0; idx < nextRound.length; idx += 1) {
+        await setWinnerLink(currentRound[idx], nextRound[idx], "A");
+      }
+      continue;
     }
 
-    const nextEntryRound = createdLB[consolidateRoundIndex + 1] || [];
-    for (let idx = 0; idx < nextEntryRound.length; idx += 1) {
-      await setWinnerLink(consolidateRound[idx], nextEntryRound[idx], "A");
+    for (let idx = 0; idx < nextRound.length; idx += 1) {
+      await setWinnerLink(currentRound[idx * 2], nextRound[idx], "A");
+      await setWinnerLink(currentRound[idx * 2 + 1], nextRound[idx], "B");
     }
   }
 

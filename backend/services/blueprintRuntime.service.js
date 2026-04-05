@@ -85,7 +85,7 @@ const clampDoubleElimStartRoundKey = (roundKey, configuredDrawSize) => {
   }
   return koRoundKeyFromDrawSize(maxSize);
 };
-const getKoEffectiveDrawSize = ({ drawSize, format, doubleElim } = {}) => {
+const getDoubleElimStartDrawSize = ({ drawSize, format, doubleElim } = {}) => {
   const normalizedFormat = format === "double_elim" ? "double_elim" : "single_elim";
   const configuredDrawSize = getKoConfiguredDrawSize(drawSize, normalizedFormat);
   if (normalizedFormat !== "double_elim") return configuredDrawSize;
@@ -332,12 +332,7 @@ function normalizeKoPlan(ko) {
     format === "double_elim"
       ? clampDoubleElimStartRoundKey(requestedStartRoundKey, drawSize)
       : null;
-  const effectiveDrawSize = getKoEffectiveDrawSize({
-    drawSize,
-    format,
-    doubleElim: { startRoundKey },
-  });
-  const firstPairs = effectiveDrawSize / 2;
+  const firstPairs = drawSize / 2;
   const hasGrandFinalReset =
     ko?.doubleElim?.hasGrandFinalReset !== undefined
       ? !!ko.doubleElim.hasGrandFinalReset
