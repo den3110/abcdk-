@@ -1139,6 +1139,591 @@ CustomSeed.propTypes = {
   resolveSideLabel: PropTypes.func,
 };
 
+const DOUBLE_ELIM_GF_GAP = 40;
+const DOUBLE_ELIM_GF_RIGHT_PADDING = 120;
+const DOUBLE_ELIM_CONNECTOR_COLOR = "#707070";
+const DOUBLE_ELIM_CONNECTOR_STROKE_WIDTH = 0.9;
+const DOUBLE_ELIM_CUSTOM_CARD_WIDTH = SEED_CARD_W;
+const DOUBLE_ELIM_CUSTOM_CARD_HEIGHT = 112;
+const DOUBLE_ELIM_CUSTOM_CARD_GAP = 36;
+const DOUBLE_ELIM_CUSTOM_COLUMN_GAP = 84;
+const DOUBLE_ELIM_CUSTOM_HEADER_HEIGHT = 72;
+const DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y = 11;
+const DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT = 18;
+const DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT = 28;
+const DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP = 8;
+const DOUBLE_ELIM_CUSTOM_CARD_TEAM_A_CENTER_Y =
+  DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y +
+  DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT +
+  DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP +
+  DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT / 2;
+const DOUBLE_ELIM_CUSTOM_CARD_TEAM_B_CENTER_Y =
+  DOUBLE_ELIM_CUSTOM_CARD_TEAM_A_CENTER_Y +
+  DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT +
+  DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP;
+const DOUBLE_ELIM_GF_HEADER_HEIGHT = 54;
+
+function getSeedNodeMetrics(root, seedId) {
+  if (!root || !seedId) return null;
+  const node = root.querySelector(`[data-seed-id="${seedId}"]`);
+  if (!node) return null;
+  const rootRect = root.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+  return {
+    left: rect.left - rootRect.left,
+    right: rect.right - rootRect.left,
+    centerY: rect.top - rootRect.top + rect.height / 2,
+  };
+}
+
+function buildConnectorPath(startX, startY, endX, endY, bendX) {
+  return `M ${startX} ${startY} H ${bendX} V ${endY} H ${endX}`;
+}
+
+function buildSourceStraightConnectorPath(startX, startY, endX, endY, offset = 22) {
+  const bendX = Math.min(endX - 12, startX + offset);
+  return buildConnectorPath(startX, startY, endX, endY, bendX);
+}
+
+function buildDoubleElimLosersLayout(rounds = []) {
+  const columns = [];
+  let previous = null;
+
+  rounds.forEach((round, idx) => {
+    const roundNo = idx + 1;
+    const isEntryRound = roundNo % 2 === 0;
+    const topOffset =
+      !previous || isEntryRound
+        ? previous?.topOffset || 0
+        : previous.topOffset + (DOUBLE_ELIM_CUSTOM_CARD_HEIGHT + previous.rowGap) / 2;
+    const rowGap =
+      !previous || isEntryRound
+        ? previous?.rowGap || DOUBLE_ELIM_CUSTOM_CARD_GAP
+        : DOUBLE_ELIM_CUSTOM_CARD_HEIGHT + previous.rowGap * 2;
+
+    const x = idx * (DOUBLE_ELIM_CUSTOM_CARD_WIDTH + DOUBLE_ELIM_CUSTOM_COLUMN_GAP);
+    const seeds = (round?.seeds || []).map((seed, seedIdx) => {
+      const y =
+        DOUBLE_ELIM_CUSTOM_HEADER_HEIGHT +
+        topOffset +
+        seedIdx * (DOUBLE_ELIM_CUSTOM_CARD_HEIGHT + rowGap);
+      return {
+        seed,
+        x,
+        y,
+        left: x,
+        right: x + DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+        centerY: y + DOUBLE_ELIM_CUSTOM_CARD_HEIGHT / 2,
+        teamACenterY: y + DOUBLE_ELIM_CUSTOM_CARD_TEAM_A_CENTER_Y,
+        teamBCenterY: y + DOUBLE_ELIM_CUSTOM_CARD_TEAM_B_CENTER_Y,
+      };
+    });
+
+    columns.push({
+      title: round?.title || "",
+      x,
+      seeds,
+      topOffset,
+      rowGap,
+    });
+
+    previous = { topOffset, rowGap };
+  });
+
+  const paths = [];
+  columns.forEach((column, idx) => {
+    if (idx === 0) return;
+    const prevColumn = columns[idx - 1];
+    const roundNo = idx + 1;
+    const isEntryRound = roundNo % 2 === 0;
+
+    column.seeds.forEach((seedLayout, seedIdx) => {
+      if (isEntryRound) {
+        const source = prevColumn.seeds[seedIdx];
+        if (!source) return;
+        paths.push(
+          buildSourceStraightConnectorPath(
+            source.right,
+            source.centerY,
+            seedLayout.left,
+            seedLayout.teamACenterY,
+          ),
+        );
+        return;
+      }
+
+      const sourceA = prevColumn.seeds[seedIdx * 2];
+      const sourceB = prevColumn.seeds[seedIdx * 2 + 1];
+      const bendX = seedLayout.left - DOUBLE_ELIM_CUSTOM_COLUMN_GAP / 2;
+      if (sourceA) {
+        paths.push(
+          buildConnectorPath(
+            sourceA.right,
+            sourceA.centerY,
+            seedLayout.left,
+            seedLayout.teamACenterY,
+            bendX,
+          ),
+        );
+      }
+      if (sourceB) {
+        paths.push(
+          buildConnectorPath(
+            sourceB.right,
+            sourceB.centerY,
+            seedLayout.left,
+            seedLayout.teamBCenterY,
+            bendX,
+          ),
+        );
+      }
+    });
+  });
+
+  const width = columns.length
+    ? columns[columns.length - 1].x + DOUBLE_ELIM_CUSTOM_CARD_WIDTH
+    : 0;
+  const height = columns.reduce((maxHeight, column) => {
+    if (!column.seeds.length) return Math.max(maxHeight, DOUBLE_ELIM_CUSTOM_HEADER_HEIGHT);
+    const lastSeed = column.seeds[column.seeds.length - 1];
+    return Math.max(maxHeight, lastSeed.y + DOUBLE_ELIM_CUSTOM_CARD_HEIGHT);
+  }, DOUBLE_ELIM_CUSTOM_HEADER_HEIGHT);
+
+  return { columns, paths, width, height };
+}
+
+function StaticDoubleElimSeedCard({
+  seed,
+  onOpen,
+  championMatchId,
+  resolveSideLabel,
+  baseRoundStart = 1,
+}) {
+  const { t: tLang } = useLanguage();
+  const m = seed?.__match || null;
+  const teams = Array.isArray(seed?.teams) ? seed.teams : [];
+  const nameA =
+    resolveSideLabel?.(m, "A") ??
+    teams?.[0]?.name ??
+    tLang("tournaments.bracket.pendingTeam");
+  const nameB =
+    resolveSideLabel?.(m, "B") ??
+    teams?.[1]?.name ??
+    tLang("tournaments.bracket.pendingTeam");
+  const winA = m?.status === "finished" && m?.winner === "A";
+  const winB = m?.status === "finished" && m?.winner === "B";
+  const sA = m ? scoreForSide(m, "A") : "";
+  const sB = m ? scoreForSide(m, "B") : "";
+  const isChampion =
+    !!m &&
+    !!championMatchId &&
+    String(m._id) === String(championMatchId) &&
+    (winA || winB);
+
+  const displayOrder = Number.isFinite(Number(m?.order)) ? Number(m.order) + 1 : "?";
+  const matchCodeKO = (mm) => {
+    const r = Number(mm?.round ?? 1);
+    const disp = Number.isFinite(r) ? baseRoundStart + (r - 1) : r;
+    return `V${disp}-T${displayOrder}`;
+  };
+
+  const seedCode =
+    seed?.id ||
+    (m
+      ? [
+          m?.displayCode,
+          m?.code,
+          m?.matchCode,
+          m?.slotCode,
+          m?.globalCode,
+        ]
+          .map((value) => (value == null ? "" : String(value).trim()))
+          .find(Boolean) || matchCodeKO(m)
+      : "");
+
+  return (
+    <Box
+      data-seed-id={seedCode || undefined}
+      onClick={() => (m ? onOpen?.(m) : null)}
+      sx={{
+        width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+        height: DOUBLE_ELIM_CUSTOM_CARD_HEIGHT,
+        bgcolor: "#1f2336",
+        color: "#fff",
+        borderRadius: 1.5,
+        boxShadow: isChampion
+          ? "0 0 0 2px rgba(244,67,54,0.45), 0 8px 18px rgba(15,23,42,0.18)"
+          : "0 4px 10px rgba(15,23,42,0.16)",
+        px: 2,
+        py: 0,
+        boxSizing: "border-box",
+        display: "grid",
+        gridTemplateRows: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px ${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px ${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px`,
+        rowGap: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP}px`,
+        alignContent: "start",
+        pt: `${DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y}px`,
+        cursor: m ? "pointer" : "default",
+      }}
+    >
+      {seedCode ? (
+        <Typography
+          variant="caption"
+          sx={{
+            color: "rgba(255,255,255,0.72)",
+            fontWeight: 700,
+            textAlign: "center",
+            lineHeight: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px`,
+          }}
+        >
+          {seedCode}
+        </Typography>
+      ) : null}
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
+      >
+        <Typography variant="body2" sx={{ fontWeight: winA ? 800 : 700 }} noWrap>
+          {nameA}
+        </Typography>
+        <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
+          {sA}
+        </Typography>
+      </Stack>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
+      >
+        <Typography variant="body2" sx={{ fontWeight: winB ? 800 : 700 }} noWrap>
+          {nameB}
+        </Typography>
+        <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
+          {sB}
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
+StaticDoubleElimSeedCard.propTypes = {
+  seed: PropTypes.shape({
+    id: PropTypes.string,
+    __match: PropTypes.object,
+    teams: PropTypes.array,
+  }).isRequired,
+  onOpen: PropTypes.func,
+  championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  resolveSideLabel: PropTypes.func,
+  baseRoundStart: PropTypes.number,
+};
+
+function sameConnectorLayout(a, b) {
+  if (!a || !b) return false;
+  return (
+    Math.abs(a.left - b.left) < 1 &&
+    Math.abs(a.top - b.top) < 1 &&
+    Math.abs((a.canvasWidth || 0) - (b.canvasWidth || 0)) < 1 &&
+    Math.abs((a.canvasHeight || 0) - (b.canvasHeight || 0)) < 1 &&
+    a.winnersPath === b.winnersPath &&
+    a.losersPath === b.losersPath
+  );
+}
+
+function DoubleElimBracketLayout({
+  winnersRounds,
+  losersRounds,
+  grandFinalRounds,
+  onOpen,
+  championMatchId,
+  resolveSideLabel,
+  baseRoundStart,
+  zoom,
+}) {
+  const { t } = useLanguage();
+  const wrapperRef = useRef(null);
+  const [layout, setLayout] = useState(null);
+  const losersLayout = useMemo(
+    () => buildDoubleElimLosersLayout(losersRounds || []),
+    [losersRounds],
+  );
+
+  const winnersFinalSeedId =
+    winnersRounds?.[winnersRounds.length - 1]?.seeds?.[0]?.id || null;
+  const losersFinalSeedId =
+    losersRounds?.[losersRounds.length - 1]?.seeds?.[0]?.id || null;
+  const grandFinalSeed =
+    grandFinalRounds?.[grandFinalRounds.length - 1]?.seeds?.[0] || null;
+
+  useEffect(() => {
+    let frameId = 0;
+    const updateLayout = () => {
+      cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        const wrapperNode = wrapperRef.current;
+        if (!wrapperNode || !winnersFinalSeedId || !losersFinalSeedId || !grandFinalSeed) return;
+
+        const winnersNode = getSeedNodeMetrics(wrapperNode, winnersFinalSeedId);
+        const losersNode = getSeedNodeMetrics(wrapperNode, losersFinalSeedId);
+        if (!winnersNode || !losersNode) return;
+
+        const cardLeft = Math.max(winnersNode.right, losersNode.right) + DOUBLE_ELIM_GF_GAP;
+        const top = Math.max(
+          0,
+          (winnersNode.centerY + losersNode.centerY) / 2 - DOUBLE_ELIM_CUSTOM_CARD_HEIGHT / 2,
+        );
+        const bendX = cardLeft - DOUBLE_ELIM_GF_GAP / 2;
+        const upperTargetY = top + DOUBLE_ELIM_CUSTOM_CARD_TEAM_A_CENTER_Y;
+        const lowerTargetY = top + DOUBLE_ELIM_CUSTOM_CARD_TEAM_B_CENTER_Y;
+
+        const nextLayout = {
+          left: Math.max(0, cardLeft),
+          top,
+          winnersPath: buildConnectorPath(
+            winnersNode.right,
+            winnersNode.centerY,
+            cardLeft,
+            upperTargetY,
+            bendX,
+          ),
+          losersPath: buildConnectorPath(
+            losersNode.right,
+            losersNode.centerY,
+            cardLeft,
+            lowerTargetY,
+            bendX,
+          ),
+          canvasWidth: Math.max(wrapperNode.scrollWidth, cardLeft + DOUBLE_ELIM_CUSTOM_CARD_WIDTH + 24),
+          canvasHeight: Math.max(wrapperNode.scrollHeight, top + DOUBLE_ELIM_CUSTOM_CARD_HEIGHT + 24),
+        };
+
+        setLayout((prev) => (sameConnectorLayout(prev, nextLayout) ? prev : nextLayout));
+      });
+    };
+
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateLayout) : null;
+    if (resizeObserver && wrapperRef.current) resizeObserver.observe(wrapperRef.current);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", updateLayout);
+      if (resizeObserver) resizeObserver.disconnect();
+    };
+  }, [winnersFinalSeedId, losersFinalSeedId, grandFinalSeed, zoom]);
+
+  return (
+    <Box sx={{ overflow: "auto", pb: 1, borderRadius: 1 }}>
+      <Box
+        ref={wrapperRef}
+        sx={{
+          position: "relative",
+          width: "max-content",
+          minWidth: "100%",
+          pr: `${DOUBLE_ELIM_GF_RIGHT_PADDING}px`,
+          pb: 1,
+          transform: `scale(${zoom})`,
+          transformOrigin: "0 0",
+        }}
+      >
+        <Stack spacing={3}>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
+              {t("tournaments.bracket.winnersBracketTitle")}
+            </Typography>
+            <HighlightProvider>
+              <HeightSyncProvider
+                roundsKey={`de-public-wb:${winnersRounds.length}:${winnersRounds
+                  .map((round) => round.seeds.length)
+                  .join(",")}`}
+              >
+                <Bracket
+                  rounds={winnersRounds}
+                  renderSeedComponent={(props) => (
+                    <CustomSeed
+                      {...props}
+                      onOpen={onOpen}
+                      championMatchId={null}
+                      resolveSideLabel={resolveSideLabel}
+                      baseRoundStart={baseRoundStart}
+                    />
+                  )}
+                  mobileBreakpoint={0}
+                />
+              </HeightSyncProvider>
+            </HighlightProvider>
+          </Box>
+
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
+              {t("tournaments.bracket.losersBracketTitle")}
+            </Typography>
+            <Box
+              sx={{
+                position: "relative",
+                width: losersLayout.width,
+                minWidth: losersLayout.width,
+                height: losersLayout.height,
+              }}
+            >
+              <Box
+                component="svg"
+                viewBox={`0 0 ${losersLayout.width} ${losersLayout.height}`}
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  width: losersLayout.width,
+                  height: losersLayout.height,
+                  pointerEvents: "none",
+                  overflow: "visible",
+                }}
+              >
+                {losersLayout.paths.map((path, idx) => (
+                  <path
+                    key={`de-lb-path-${idx}`}
+                    d={path}
+                    fill="none"
+                    stroke={DOUBLE_ELIM_CONNECTOR_COLOR}
+                    strokeWidth={DOUBLE_ELIM_CONNECTOR_STROKE_WIDTH}
+                    strokeLinecap="square"
+                    strokeLinejoin="miter"
+                  />
+                ))}
+              </Box>
+
+              {losersLayout.columns.map((column) => (
+                <Typography
+                  key={`${column.title}-${column.x}`}
+                  variant="h5"
+                  color="text.secondary"
+                  sx={{
+                    position: "absolute",
+                    top: 0,
+                    left: column.x,
+                    width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+                    textAlign: "center",
+                    fontWeight: 400,
+                  }}
+                >
+                  {column.title}
+                </Typography>
+              ))}
+
+              {losersLayout.columns.flatMap((column) =>
+                column.seeds.map((seedLayout) => (
+                  <Box
+                    key={seedLayout.seed.id}
+                    sx={{
+                      position: "absolute",
+                      left: seedLayout.x,
+                      top: seedLayout.y,
+                    }}
+                  >
+                    <StaticDoubleElimSeedCard
+                      seed={seedLayout.seed}
+                      onOpen={onOpen}
+                      championMatchId={null}
+                      resolveSideLabel={resolveSideLabel}
+                      baseRoundStart={baseRoundStart}
+                    />
+                  </Box>
+                )),
+              )}
+            </Box>
+          </Box>
+        </Stack>
+
+        {layout ? (
+          <Box
+            component="svg"
+            viewBox={`0 0 ${layout.canvasWidth} ${layout.canvasHeight}`}
+            sx={{
+              position: "absolute",
+              inset: 0,
+              width: layout.canvasWidth,
+              height: layout.canvasHeight,
+              pointerEvents: "none",
+              overflow: "visible",
+            }}
+          >
+            <path
+              d={layout.winnersPath}
+              fill="none"
+              stroke={DOUBLE_ELIM_CONNECTOR_COLOR}
+              strokeWidth={DOUBLE_ELIM_CONNECTOR_STROKE_WIDTH}
+              strokeLinecap="square"
+              strokeLinejoin="miter"
+            />
+            <path
+              d={layout.losersPath}
+              fill="none"
+              stroke={DOUBLE_ELIM_CONNECTOR_COLOR}
+              strokeWidth={DOUBLE_ELIM_CONNECTOR_STROKE_WIDTH}
+              strokeLinecap="square"
+              strokeLinejoin="miter"
+            />
+          </Box>
+        ) : null}
+
+        <Box
+          sx={{
+            position: "absolute",
+            left: layout?.left || 0,
+            top: layout ? Math.max(0, layout.top - DOUBLE_ELIM_GF_HEADER_HEIGHT) : 0,
+            width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+            visibility: layout ? "visible" : "hidden",
+            zIndex: 1,
+          }}
+        >
+          <Stack spacing={0.75} alignItems="center">
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {t("tournaments.bracket.grandFinalTitle")}
+            </Typography>
+          </Stack>
+        </Box>
+
+        <Box
+          sx={{
+            position: "absolute",
+            left: layout?.left || 0,
+            top: layout?.top || 0,
+            width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+            visibility: layout ? "visible" : "hidden",
+            zIndex: 1,
+          }}
+        >
+          <Box sx={{ display: "flex", justifyContent: "center" }}>
+            {grandFinalSeed ? (
+              <StaticDoubleElimSeedCard
+                seed={grandFinalSeed}
+                onOpen={onOpen}
+                championMatchId={championMatchId}
+                resolveSideLabel={resolveSideLabel}
+                baseRoundStart={baseRoundStart}
+              />
+            ) : null}
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+DoubleElimBracketLayout.propTypes = {
+  winnersRounds: PropTypes.array.isRequired,
+  losersRounds: PropTypes.array.isRequired,
+  grandFinalRounds: PropTypes.array.isRequired,
+  onOpen: PropTypes.func,
+  championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  resolveSideLabel: PropTypes.func,
+  baseRoundStart: PropTypes.number,
+  zoom: PropTypes.number,
+};
+
 /* ===================== (PHẦN CÒN LẠI GIỮ NGUYÊN) ===================== */
 /* ……………………………………………………………………………………………………………………………
     Toàn bộ phần bên dưới của bạn (BXH, Group UI, RoundElim/KO builders,
@@ -5623,10 +6208,6 @@ export default function TournamentBracket() {
             const losersKey = `de-lb:${current._id}:${losersRounds.length}:${losersRounds
               .map((round) => round.seeds.length)
               .join(",")}`;
-            const grandFinalKey = `de-gf:${current._id}:${grandFinalRounds.length}:${grandFinalRounds
-              .map((round) => round.seeds.length)
-              .join(",")}`;
-
             return (
               <>
                 <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap">
@@ -5656,87 +6237,16 @@ export default function TournamentBracket() {
                     mobileFixed
                     mobileBottomGap={80}
                   />
-                  <Box sx={{ overflow: "auto", pb: 1, borderRadius: 1 }}>
-                    <Box
-                      className="ko-bracket"
-                      sx={{
-                        display: "inline-block",
-                        transform: `scale(${zoom})`,
-                        transformOrigin: "0 0",
-                      }}
-                    >
-                      <Stack spacing={3}>
-                        <Box>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
-                            {t("tournaments.bracket.winnersBracketTitle")}
-                          </Typography>
-                          <HighlightProvider>
-                            <HeightSyncProvider roundsKey={winnersKey}>
-                              <Bracket
-                                rounds={winnersRounds}
-                                renderSeedComponent={(props) => (
-                                  <CustomSeed
-                                    {...props}
-                                    onOpen={openMatchModal}
-                                    championMatchId={null}
-                                    resolveSideLabel={resolveSideLabel}
-                                    baseRoundStart={1}
-                                  />
-                                )}
-                                mobileBreakpoint={0}
-                              />
-                            </HeightSyncProvider>
-                          </HighlightProvider>
-                        </Box>
-
-                        <Box>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
-                            {t("tournaments.bracket.losersBracketTitle")}
-                          </Typography>
-                          <HighlightProvider>
-                            <HeightSyncProvider roundsKey={losersKey}>
-                              <Bracket
-                                rounds={losersRounds}
-                                renderSeedComponent={(props) => (
-                                  <CustomSeed
-                                    {...props}
-                                    onOpen={openMatchModal}
-                                    championMatchId={null}
-                                    resolveSideLabel={resolveSideLabel}
-                                    baseRoundStart={1}
-                                  />
-                                )}
-                                mobileBreakpoint={0}
-                              />
-                            </HeightSyncProvider>
-                          </HighlightProvider>
-                        </Box>
-
-                        <Box>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.25 }}>
-                            {t("tournaments.bracket.grandFinalTitle")}
-                          </Typography>
-                          <HighlightProvider>
-                            <HeightSyncProvider roundsKey={grandFinalKey}>
-                              <Bracket
-                                rounds={grandFinalRounds}
-                                renderSeedComponent={(props) => (
-                                  <CustomSeed
-                                    {...props}
-                                    onOpen={openMatchModal}
-                                    championMatchId={grandFinalMatchId}
-                                    resolveSideLabel={resolveSideLabel}
-                                    baseRoundStart={1}
-                                  />
-                                )}
-                                mobileBreakpoint={0}
-                              />
-                            </HeightSyncProvider>
-                          </HighlightProvider>
-                        </Box>
-                      </Stack>
-                    </Box>
-                  </Box>
+                  <DoubleElimBracketLayout
+                    winnersRounds={winnersRounds}
+                    losersRounds={losersRounds}
+                    grandFinalRounds={grandFinalRounds}
+                    onOpen={openMatchModal}
+                    championMatchId={grandFinalMatchId}
+                    resolveSideLabel={resolveSideLabel}
+                    baseRoundStart={1}
+                    zoom={zoom}
+                  />
                 </Box>
               </>
             );

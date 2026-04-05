@@ -41,6 +41,10 @@ import {
   Settings as SettingsIcon,
   ExpandLess as ExpandLessIcon,
   ExpandMore as ExpandMoreIcon,
+  CalendarMonth as CalendarMonthIcon,
+  PlaceOutlined as PlaceOutlinedIcon,
+  Leaderboard as LeaderboardIcon,
+  FiberManualRecord as FiberManualRecordIcon,
 } from "@mui/icons-material";
 
 import {
@@ -242,6 +246,92 @@ const ModernStatCard = ({
     </Paper>
   );
 };
+
+const OverviewMetaChip = ({ icon, label, tone = "default" }) => {
+  const theme = useTheme();
+  const toneMap = {
+    default: {
+      bg: alpha(theme.palette.common.white, 0.12),
+      color: theme.palette.common.white,
+      border: alpha(theme.palette.common.white, 0.16),
+    },
+    light: {
+      bg: alpha(theme.palette.primary.main, 0.08),
+      color: theme.palette.text.primary,
+      border: alpha(theme.palette.primary.main, 0.14),
+    },
+    live: {
+      bg: alpha(theme.palette.error.main, 0.14),
+      color: theme.palette.error.dark,
+      border: alpha(theme.palette.error.main, 0.24),
+    },
+  };
+  const currentTone = toneMap[tone] || toneMap.default;
+
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={0.75}
+      sx={{
+        px: 1.5,
+        py: 0.9,
+        borderRadius: 999,
+        bgcolor: currentTone.bg,
+        color: currentTone.color,
+        border: "1px solid",
+        borderColor: currentTone.border,
+        backdropFilter: tone === "default" ? "blur(10px)" : "none",
+      }}
+    >
+      {icon}
+      <Typography variant="caption" sx={{ fontWeight: 700, lineHeight: 1.1 }}>
+        {label}
+      </Typography>
+    </Stack>
+  );
+};
+
+const OverviewSectionHeader = ({
+  icon,
+  title,
+  subtitle,
+  action,
+  titleVariant = "h6",
+}) => (
+  <Stack
+    direction={{ xs: "column", sm: "row" }}
+    justifyContent="space-between"
+    alignItems={{ xs: "flex-start", sm: "center" }}
+    spacing={1.5}
+    sx={{ mb: 2.5 }}
+  >
+    <Stack direction="row" spacing={1.5} alignItems="flex-start">
+      <Avatar
+        sx={{
+          width: 44,
+          height: 44,
+          borderRadius: 3,
+          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
+          color: "primary.main",
+        }}
+      >
+        {icon}
+      </Avatar>
+      <Box>
+        <Typography variant={titleVariant} fontWeight={800}>
+          {title}
+        </Typography>
+        {subtitle ? (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+            {subtitle}
+          </Typography>
+        ) : null}
+      </Box>
+    </Stack>
+    {action || null}
+  </Stack>
+);
 
 const MatchListItem = ({ m, onOpen, t, locale }) => {
   const eventType = m?.tournament?.eventType || "double";
@@ -570,6 +660,23 @@ export default function TournamentOverviewPage() {
     );
   }, [brackets, allMatches, t]);
 
+  const totalBracketMatches = useMemo(
+    () => bracketProgress.reduce((sum, item) => sum + (item.total || 0), 0),
+    [bracketProgress],
+  );
+  const totalBracketFinished = useMemo(
+    () => bracketProgress.reduce((sum, item) => sum + (item.finished || 0), 0),
+    [bracketProgress],
+  );
+  const overallBracketPercent = useMemo(() => {
+    if (!totalBracketMatches) return 0;
+    return Math.round((totalBracketFinished * 100) / totalBracketMatches);
+  }, [totalBracketFinished, totalBracketMatches]);
+  const activeBracketCount = useMemo(
+    () => bracketProgress.filter((item) => item.total > item.finished).length,
+    [bracketProgress],
+  );
+
   // Filter Matches
   const now = Date.now();
   const upcoming = useMemo(
@@ -605,6 +712,28 @@ export default function TournamentOverviewPage() {
         ),
     [allMatches],
   );
+
+  const tournamentDateLabel = useMemo(() => {
+    const start = formatLocaleDate(tour?.startDate, locale, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const end = formatLocaleDate(tour?.endDate, locale, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    if (start && end && start !== end) return `${start} - ${end}`;
+    return start || end || null;
+  }, [tour?.startDate, tour?.endDate, locale]);
+
+  const heroSummaryText = useMemo(() => {
+    if (!tour) return "";
+    if (tour.description) return tour.description;
+    const location = tour.location ? `tại ${tour.location}` : "";
+    return `Theo dõi tiến độ thi đấu, đăng ký và lịch trận mới nhất ${location}.`.trim();
+  }, [tour]);
 
   // Socket (Giữ nguyên logic Socket, đảm bảo cập nhật realtime)
   const socket = useSocket();
@@ -820,6 +949,7 @@ export default function TournamentOverviewPage() {
       <Paper
         elevation={0}
         sx={{
+          display: "none",
           width: "100%",
           bgcolor: "background.paper",
           borderBottom: "1px solid",
@@ -917,6 +1047,235 @@ export default function TournamentOverviewPage() {
         </Container>
       </Paper>
 
+      <Container maxWidth="xl" sx={{ mb: 4 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            position: "relative",
+            overflow: "hidden",
+            borderRadius: { xs: 4, md: 6 },
+            border: "1px solid",
+            borderColor: alpha(theme.palette.primary.main, 0.12),
+            color: "#fff",
+            backgroundImage: tour?.cover
+              ? `linear-gradient(120deg, rgba(7,17,36,0.92), rgba(15,79,156,0.78)), url(${tour.cover})`
+              : `radial-gradient(circle at top left, ${alpha(
+                  theme.palette.primary.light,
+                  0.42,
+                )}, transparent 32%), linear-gradient(135deg, #071124 0%, #0a1f3f 48%, #133b72 100%)`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.05), transparent 35%, rgba(0,0,0,0.12))",
+              pointerEvents: "none",
+            }}
+          />
+          <Box
+            sx={{
+              position: "absolute",
+              right: -120,
+              top: -120,
+              width: 320,
+              height: 320,
+              borderRadius: "50%",
+              background: alpha(theme.palette.info.light, 0.18),
+              filter: "blur(14px)",
+              pointerEvents: "none",
+            }}
+          />
+          <Box sx={{ position: "relative", zIndex: 1, p: { xs: 3, md: 4.5 } }}>
+            <Grid container spacing={3} alignItems="stretch">
+              <Grid item size={{ xs: 12, lg: 8 }}>
+                <Stack spacing={2.5}>
+                  <Stack direction="row" alignItems="center" gap={1}>
+                    <EmojiEventsIcon fontSize="small" />
+                    <Typography
+                      variant="overline"
+                      sx={{ color: alpha("#fff", 0.92), fontWeight: 800, letterSpacing: 1.1 }}
+                    >
+                      {t("tournaments.overview.heroEyebrow")}
+                    </Typography>
+                  </Stack>
+                  {loadingTour ? (
+                    <Skeleton width={360} height={56} sx={{ bgcolor: alpha("#fff", 0.12) }} />
+                  ) : (
+                    <Typography
+                      variant="h3"
+                      fontWeight={900}
+                      sx={{
+                        fontSize: { xs: "2rem", md: "3rem" },
+                        lineHeight: 1.05,
+                        maxWidth: 860,
+                      }}
+                    >
+                      {tour?.name}
+                    </Typography>
+                  )}
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      maxWidth: 820,
+                      color: alpha("#fff", 0.82),
+                      fontSize: { xs: "0.95rem", md: "1.02rem" },
+                      lineHeight: 1.75,
+                    }}
+                  >
+                    {heroSummaryText}
+                  </Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    {tournamentDateLabel ? (
+                      <OverviewMetaChip
+                        icon={<CalendarMonthIcon sx={{ fontSize: 15 }} />}
+                        label={tournamentDateLabel}
+                      />
+                    ) : null}
+                    {(tour?.location || tour?.name) ? (
+                      <OverviewMetaChip
+                        icon={<PlaceOutlinedIcon sx={{ fontSize: 15 }} />}
+                        label={tour?.location || tour?.name}
+                      />
+                    ) : null}
+                    <OverviewMetaChip
+                      icon={<FiberManualRecordIcon sx={{ fontSize: 12 }} />}
+                      label={`${matchStatusCount.live} trận live`}
+                      tone={matchStatusCount.live > 0 ? "live" : "default"}
+                    />
+                    <OverviewMetaChip
+                      icon={<LeaderboardIcon sx={{ fontSize: 15 }} />}
+                      label={`${overallBracketPercent}% tiến độ bracket`}
+                    />
+                  </Stack>
+                  <Grid container spacing={1.5}>
+                    {[
+                      { label: "Bracket đang chạy", value: activeBracketCount },
+                      { label: "Trận sắp tới", value: upcoming.length },
+                      { label: "Kết quả mới", value: recent.slice(0, 24).length },
+                    ].map((item) => (
+                      <Grid item size={{ xs: 12, sm: 4 }} key={item.label}>
+                        <Box
+                          sx={{
+                            px: 2,
+                            py: 1.75,
+                            borderRadius: 3,
+                            bgcolor: alpha("#fff", 0.09),
+                            border: "1px solid",
+                            borderColor: alpha("#fff", 0.14),
+                            backdropFilter: "blur(10px)",
+                          }}
+                        >
+                          <Typography
+                            variant="caption"
+                            sx={{ color: alpha("#fff", 0.72), fontWeight: 700 }}
+                          >
+                            {item.label}
+                          </Typography>
+                          <Typography variant="h5" fontWeight={900} sx={{ mt: 0.35 }}>
+                            {item.value}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Stack>
+              </Grid>
+              <Grid item size={{ xs: 12, lg: 4 }}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    height: "100%",
+                    minHeight: 280,
+                    borderRadius: 4,
+                    p: 3,
+                    bgcolor: alpha("#081120", 0.44),
+                    border: "1px solid",
+                    borderColor: alpha("#fff", 0.12),
+                    backdropFilter: "blur(14px)",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Box>
+                    <Typography
+                      variant="overline"
+                      sx={{ color: alpha("#fff", 0.68), fontWeight: 800 }}
+                    >
+                      Điều hành giải
+                    </Typography>
+                    <Typography variant="h6" fontWeight={800} sx={{ mt: 0.5, mb: 1 }}>
+                      Bảng điều khiển nhanh
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: alpha("#fff", 0.74), lineHeight: 1.7 }}>
+                      Đi tới các khu vực vận hành chính để bốc thăm, cập nhật quản lý và theo dõi trọng tài.
+                    </Typography>
+                  </Box>
+                  <Stack spacing={1.25} sx={{ mt: 3 }}>
+                    <Button
+                      component={Link}
+                      to={`/tournament/${id}/draw`}
+                      variant="contained"
+                      disableElevation
+                      startIcon={<GroupsIcon />}
+                      sx={{
+                        py: 1.25,
+                        bgcolor: "#fff",
+                        color: "primary.dark",
+                        fontWeight: 800,
+                        "&:hover": { bgcolor: alpha("#fff", 0.92) },
+                      }}
+                    >
+                      {t("tournaments.overview.draw")}
+                    </Button>
+                    <Button
+                      component={Link}
+                      to={`/tournament/${id}/manage`}
+                      variant="outlined"
+                      startIcon={<SettingsIcon />}
+                      sx={{
+                        py: 1.15,
+                        color: "#fff",
+                        borderColor: alpha("#fff", 0.22),
+                        "&:hover": {
+                          borderColor: alpha("#fff", 0.38),
+                          bgcolor: alpha("#fff", 0.06),
+                        },
+                      }}
+                    >
+                      {t("tournaments.overview.settings")}
+                    </Button>
+                    {canOpenRefereeCenter ? (
+                      <Button
+                        component={Link}
+                        to={`/tournament/${id}/referee`}
+                        variant="outlined"
+                        startIcon={<SportsIcon />}
+                        sx={{
+                          py: 1.15,
+                          color: "#fff",
+                          borderColor: alpha("#fff", 0.22),
+                          "&:hover": {
+                            borderColor: alpha("#fff", 0.38),
+                            bgcolor: alpha("#fff", 0.06),
+                          },
+                        }}
+                      >
+                        Trọng tài
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Box>
+        </Paper>
+      </Container>
+
       {/* Main Content */}
       <Container maxWidth="xl">
         {anyError && (
@@ -934,6 +1293,11 @@ export default function TournamentOverviewPage() {
         </Box>
 
         {/* 1. KPI Grid (4 Cards) - Dùng size prop */}
+        <OverviewSectionHeader
+          icon={<SportsScoreIcon />}
+          title="Toàn cảnh giải đấu"
+          subtitle="Nắm nhanh số lượng người chơi, lịch trận và trạng thái vận hành của giải."
+        />
         <Grid container spacing={3} mb={4}>
           {[
             {
@@ -1057,7 +1421,7 @@ export default function TournamentOverviewPage() {
             <Paper
               elevation={0}
               sx={{
-                borderRadius: 4,
+                borderRadius: 5,
                 border: "1px solid",
                 borderColor: "divider",
                 overflow: "hidden",
@@ -1065,10 +1429,40 @@ export default function TournamentOverviewPage() {
                 display: "flex",
                 flexDirection: "column",
                 width: "100%",
+                background:
+                  "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,255,0.98))",
               }}
             >
+              <Box sx={{ px: { xs: 2, md: 3 }, pt: { xs: 2, md: 2.5 } }}>
+                <OverviewSectionHeader
+                  icon={<ScheduleIcon />}
+                  title={tabValue === 0 ? "Dòng trận sắp tới" : "Kết quả mới hoàn thành"}
+                  subtitle={
+                    tabValue === 0
+                      ? "Ưu tiên các trận sắp diễn ra và trận đang được xếp sân."
+                      : "Theo dõi các kết quả mới nhất để nắm nhịp độ giải đấu."
+                  }
+                  action={
+                    <Chip
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      label={`${displayList.length} mục`}
+                    />
+                  }
+                  titleVariant="h5"
+                />
+              </Box>
+
               <Box
-                sx={{ borderBottom: 1, borderColor: "divider", px: 2, pt: 1 }}
+                sx={{
+                  borderTop: 1,
+                  borderBottom: 1,
+                  borderColor: "divider",
+                  px: { xs: 1.5, md: 2.5 },
+                  py: 0.5,
+                  bgcolor: alpha(theme.palette.primary.main, 0.03),
+                }}
               >
                 <Tabs
                   value={tabValue}
@@ -1083,8 +1477,12 @@ export default function TournamentOverviewPage() {
                     "& .MuiTab-root": {
                       textTransform: "none",
                       fontSize: "0.95rem",
-                      fontWeight: 600,
+                      fontWeight: 700,
                       minHeight: 56,
+                    },
+                    "& .MuiTabs-indicator": {
+                      height: 3,
+                      borderRadius: 999,
                     },
                   }}
                 >
@@ -1107,8 +1505,8 @@ export default function TournamentOverviewPage() {
 
               <Box
                 sx={{
-                  p: { xs: 1.5, md: 2 },
-                  bgcolor: "background.default",
+                  p: { xs: 1.5, md: 2.5 },
+                  bgcolor: "transparent",
                   flex: 1,
                 }}
               >
@@ -1149,7 +1547,7 @@ export default function TournamentOverviewPage() {
                         sx={{
                           mt: 1,
                           py: 1.5,
-                          bgcolor: "background.paper",
+                          bgcolor: alpha(theme.palette.primary.main, 0.04),
                           border: "1px dashed",
                           borderColor: "divider",
                         }}
@@ -1176,20 +1574,66 @@ export default function TournamentOverviewPage() {
             <Paper
               elevation={0}
               sx={{
-                borderRadius: 4,
+                borderRadius: 5,
                 border: "1px solid",
                 borderColor: "divider",
                 p: 3,
                 height: "100%",
                 width: "100%",
+                background:
+                  "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
               }}
             >
-              <Stack direction="row" alignItems="center" spacing={1} mb={3}>
-                <DoneAllIcon color="primary" />
-                <Typography variant="h6" fontWeight={700}>
-                  {t("tournaments.overview.bracketProgress")}
-                </Typography>
-              </Stack>
+              <OverviewSectionHeader
+                icon={<DoneAllIcon />}
+                title={t("tournaments.overview.bracketProgress")}
+                subtitle="Theo dõi từng bracket đang chạy và mức độ hoàn thành của mỗi nhánh."
+                action={
+                  <Chip
+                    size="small"
+                    color={overallBracketPercent === 100 ? "success" : "primary"}
+                    label={`${overallBracketPercent}%`}
+                  />
+                }
+              />
+
+              <Box
+                sx={{
+                  mb: 2.5,
+                  p: 2,
+                  borderRadius: 3,
+                  bgcolor: alpha(theme.palette.primary.main, 0.05),
+                  border: "1px solid",
+                  borderColor: alpha(theme.palette.primary.main, 0.1),
+                }}
+              >
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                  <Typography variant="body2" fontWeight={700}>
+                    Tiến độ toàn bộ bracket
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {totalBracketFinished}/{totalBracketMatches}
+                  </Typography>
+                </Stack>
+                <LinearProgress
+                  variant="determinate"
+                  value={overallBracketPercent}
+                  sx={{
+                    height: 8,
+                    borderRadius: 999,
+                    bgcolor: alpha(theme.palette.primary.main, 0.14),
+                    "& .MuiLinearProgress-bar": { borderRadius: 999 },
+                  }}
+                />
+                <Stack direction="row" justifyContent="space-between" sx={{ mt: 1.25 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {activeBracketCount} bracket còn đang thi đấu
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {matchStatusCount.finished} trận đã chốt
+                  </Typography>
+                </Stack>
+              </Box>
               {loadingBr ? (
                 <Stack spacing={2}>
                   <Skeleton variant="rounded" height={60} width="100%" />
@@ -1211,11 +1655,12 @@ export default function TournamentOverviewPage() {
                         sx={{
                           p: 2,
                           borderRadius: 3,
-                          bgcolor: "background.default",
+                          bgcolor: alpha(theme.palette.common.white, 0.84),
                           border: "1px solid",
                           borderColor: "divider",
                           width: "100%",
                           boxSizing: "border-box",
+                          boxShadow: "0 10px 24px rgba(15,23,42,0.04)",
                         }}
                       >
                         <Stack
