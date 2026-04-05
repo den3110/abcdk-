@@ -193,6 +193,107 @@ function buildSegmentPublicCdnUrl(
   return baseUrl ? `${baseUrl}/${objectKey}` : "";
 }
 
+function isFinishedRecordingPlayback(recording) {
+  const status = asTrimmed(recording?.status).toLowerCase();
+  return (
+    status === "ready" ||
+    status === "finished" ||
+    status === "finalized" ||
+    Boolean(recording?.driveFileId) ||
+    Boolean(recording?.driveRawUrl)
+  );
+}
+
+function sumSegmentDurationSeconds(segments = []) {
+  return (Array.isArray(segments) ? segments : []).reduce(
+    (sum, segment) => sum + Math.max(0, Number(segment?.durationSeconds || 0)),
+    0
+  );
+}
+
+function getPlaylistTargetDurationSeconds(segments = []) {
+  const maxDuration = (Array.isArray(segments) ? segments : []).reduce(
+    (max, segment) => Math.max(max, Number(segment?.durationSeconds || 0)),
+    0
+  );
+  return Math.max(1, Math.ceil(maxDuration || 0));
+}
+
+function getPlaylistRefreshSeconds(segments = [], { isFinished = false } = {}) {
+  if (isFinished) return 0;
+  const recentDurations = (Array.isArray(segments) ? segments : [])
+    .slice(-6)
+    .map((segment) => Number(segment?.durationSeconds || 0))
+    .filter((duration) => Number.isFinite(duration) && duration > 0);
+  if (!recentDurations.length) {
+    return 4;
+  }
+  const averageDuration =
+    recentDurations.reduce((sum, duration) => sum + duration, 0) /
+    recentDurations.length;
+  return Math.max(2, Math.min(6, Math.round(averageDuration)));
+}
+
+function getRecommendedStartSegmentIndex(
+  segments = [],
+  { isFinished = false, delaySeconds = 0 } = {}
+) {
+  const segmentList = Array.isArray(segments) ? segments : [];
+  if (!segmentList.length) {
+    return null;
+  }
+
+  if (isFinished) {
+    return Number(segmentList[0]?.index ?? 0);
+  }
+
+  const desiredLagSeconds = Math.max(12, Number(delaySeconds || 0));
+  const targetOffset = Math.max(
+    0,
+    sumSegmentDurationSeconds(segmentList) - desiredLagSeconds
+  );
+
+  let elapsed = 0;
+  for (const segment of segmentList) {
+    const duration = Math.max(0, Number(segment?.durationSeconds || 0));
+    if (elapsed + duration > targetOffset) {
+      return Number(segment?.index ?? 0);
+    }
+    elapsed += duration;
+  }
+
+  return Number(segmentList[0]?.index ?? 0);
+}
+
+function parseOptionalSegmentIndex(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  const normalized = Math.floor(numeric);
+  return normalized >= 0 ? normalized : null;
+}
+
+function parseOptionalPositiveInteger(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  const normalized = Math.floor(numeric);
+  return normalized > 0 ? normalized : null;
+}
+
+function getPlaylistWindowSegmentCount(
+  targetDurationSeconds,
+  requestedLimit = null,
+) {
+  if (Number.isFinite(requestedLimit) && requestedLimit > 0) {
+    return Math.max(6, Math.min(36, Math.floor(requestedLimit)));
+  }
+  const targetDuration = Math.max(1, Number(targetDurationSeconds || 0));
+  return Math.max(8, Math.min(24, Math.ceil(90 / targetDuration)));
+}
+
 function assignSegmentStorageTarget(segment, storageTarget) {
   if (!segment) return;
   segment.storageTargetId = storageTarget?.id || null;
@@ -2313,8 +2414,6 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
       }
     }
 
-    // During live: serve whatever uploaded segments we have.
-    // After finalization: require no pending segments.
     const uploadedSegments = getUploadedRecordingSegments(recording);
     if (uploadedSegments.length === 0) {
        return res.status(409).json({
@@ -2324,6 +2423,44 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
         recording: serializeRecording(recording),
       });
     }
+
+    const isFinished = isFinishedRecordingPlayback(recording);
+    const delaySeconds = isFinished ? 0 : getLiveServer2DelaySeconds();
+    const refreshSeconds = getPlaylistRefreshSeconds(uploadedSegments, {
+      isFinished,
+    });
+    const targetDurationSeconds = getPlaylistTargetDurationSeconds(
+      uploadedSegments
+    );
+    const recommendedStartIndex = getRecommendedStartSegmentIndex(
+      uploadedSegments,
+      {
+        isFinished,
+        delaySeconds,
+      }
+    );
+    const afterIndex = parseOptionalSegmentIndex(req.query?.afterIndex);
+    const requestedLimit = parseOptionalPositiveInteger(req.query?.limit);
+    const windowSegmentCount = getPlaylistWindowSegmentCount(
+      targetDurationSeconds,
+      requestedLimit
+    );
+    const responseStartIndex =
+      afterIndex != null
+        ? afterIndex
+        : !isFinished && recommendedStartIndex != null
+          ? Math.max(0, recommendedStartIndex - 1)
+          : null;
+    const filteredSegments =
+      responseStartIndex == null
+        ? uploadedSegments
+        : uploadedSegments.filter(
+            (segment) => Number(segment?.index ?? -1) >= responseStartIndex
+          );
+    const responseSegments =
+      !isFinished && filteredSegments.length > windowSegmentCount
+        ? filteredSegments.slice(0, windowSegmentCount)
+        : filteredSegments;
 
     const multiSourceEnabled = isLiveMultiSourceEnabled();
     let fallbackPublicBaseUrl = "";
@@ -2346,7 +2483,7 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
       : {};
 
     const segments = await Promise.all(
-      uploadedSegments.map(async (segment) => {
+      responseSegments.map(async (segment) => {
         const cdnUrl = multiSourceEnabled
           ? buildSegmentPublicCdnUrl(segment, recording, {
               targetPublicBaseUrls,
@@ -2379,12 +2516,32 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader(
       "Cache-Control",
-      "private, max-age=30, stale-while-revalidate=30"
+      isFinished
+        ? "private, max-age=60, stale-while-revalidate=120"
+        : "no-cache, max-age=2, stale-while-revalidate=2"
     );
 
     return res.json({
       ok: true,
       ready: true,
+      isFinished,
+      delaySeconds,
+      refreshSeconds,
+      targetDurationSeconds,
+      windowSegmentCount,
+      recommendedStartIndex,
+      firstAvailableSegmentIndex:
+        uploadedSegments[0]?.index != null ? Number(uploadedSegments[0].index) : null,
+      lastAvailableSegmentIndex:
+        uploadedSegments[uploadedSegments.length - 1]?.index != null
+          ? Number(uploadedSegments[uploadedSegments.length - 1].index)
+          : null,
+      responseFromSegmentIndex:
+        segments[0]?.index != null ? Number(segments[0].index) : null,
+      responseToSegmentIndex:
+        segments[segments.length - 1]?.index != null
+          ? Number(segments[segments.length - 1].index)
+          : null,
       playbackUrl: buildRecordingPlaybackUrl(recording._id),
       temporaryPlaybackUrl: buildRecordingTemporaryPlaybackUrl(recording._id),
       temporaryPlaylistUrl: buildRecordingTemporaryPlaylistUrl(recording._id),

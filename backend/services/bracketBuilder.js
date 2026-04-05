@@ -13,6 +13,15 @@ function roundTitleByPairs(pairs) {
   return `R${pairs * 2}`;
 }
 
+function normalizeKoRoundKey(value) {
+  if (!value) return "";
+  const upper = String(value).trim().toUpperCase();
+  if (["F", "SF", "QF", "R16", "R32", "R64", "R128", "R256", "R512", "R1024"].includes(upper)) {
+    return upper;
+  }
+  return "";
+}
+
 // Tạo seed BYE hợp lệ cho validation
 const SEED_BYE = { type: "bye", ref: null, label: "BYE" };
 
@@ -397,6 +406,7 @@ export async function buildDoubleElimBracket({
   order = 1,
   stage = 1,
   drawSize,
+  startRoundKey = "",
   firstRoundSeeds = [],
   rules = undefined,
   semiRules = null,
@@ -410,6 +420,7 @@ export async function buildDoubleElimBracket({
   const baseRules = sanitizeRules(rules);
   const finalOnly = finalRules ? sanitizeRules(finalRules) : null;
   const roundMap = buildDoubleElimRoundMap(winnersRounds);
+  const resolvedStartRoundKey = normalizeKoRoundKey(startRoundKey) || roundTitleByPairs(firstPairs);
 
   const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
     const found = firstRoundSeeds.find((seed) => Number(seed.pair) === i + 1);
@@ -432,6 +443,7 @@ export async function buildDoubleElimBracket({
           rules: baseRules,
           doubleElim: {
             hasGrandFinalReset: !!hasGrandFinalReset,
+            startRoundKey: resolvedStartRoundKey,
           },
           blueprint: {
             format: "double_elim",
@@ -442,6 +454,7 @@ export async function buildDoubleElimBracket({
             finalRules: finalOnly,
             doubleElim: {
               hasGrandFinalReset: !!hasGrandFinalReset,
+              startRoundKey: resolvedStartRoundKey,
             },
           },
         },
@@ -451,7 +464,7 @@ export async function buildDoubleElimBracket({
           expectedFirstRoundMatches: firstPairs,
         },
         prefill: {
-          roundKey: roundTitleByPairs(firstPairs),
+          roundKey: resolvedStartRoundKey,
           seeds: r1Seeds,
         },
       },

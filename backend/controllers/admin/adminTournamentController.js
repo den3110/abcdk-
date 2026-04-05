@@ -1940,6 +1940,7 @@ function buildStageRuleBundle(stageKey, stagePlan, bracket) {
               doubleElim: {
                 hasGrandFinalReset:
                   stagePlan?.doubleElim?.hasGrandFinalReset ?? false,
+                startRoundKey: stagePlan?.doubleElim?.startRoundKey ?? undefined,
               },
             }
           : {}),
@@ -2288,6 +2289,10 @@ async function buildBlueprintStagesFromPlan({
       finalRules: normalizePlanRule(plan.ko.finalRules),
       ...(koFormat === "double_elim"
         ? {
+            startRoundKey:
+              plan?.ko?.doubleElim?.startRoundKey ??
+              plan?.ko?.startRoundKey ??
+              null,
             hasGrandFinalReset: toBool(
               plan?.ko?.doubleElim?.hasGrandFinalReset ??
                 plan?.ko?.hasGrandFinalReset,
@@ -2479,6 +2484,8 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
           k?.doubleElim?.hasGrandFinalReset ?? k?.hasGrandFinalReset,
           false
         ),
+        startRoundKey:
+          k?.doubleElim?.startRoundKey ?? k?.startRoundKey ?? undefined,
       };
     } else {
       delete k.doubleElim;

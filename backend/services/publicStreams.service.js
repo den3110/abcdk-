@@ -287,6 +287,21 @@ function sumUploadedDurationSeconds(recording) {
   );
 }
 
+function getServer2RefreshSeconds(recording, { isFinal = false } = {}) {
+  if (isFinal) return 0;
+  const recentDurations = normalizeUploadedSegments(recording)
+    .slice(-6)
+    .map((segment) => Number(segment?.durationSeconds || 0))
+    .filter((duration) => Number.isFinite(duration) && duration > 0);
+  if (!recentDurations.length) {
+    return 4;
+  }
+  const averageDuration =
+    recentDurations.reduce((sum, duration) => sum + duration, 0) /
+    recentDurations.length;
+  return Math.max(2, Math.min(6, Math.round(averageDuration)));
+}
+
 function buildRecordingTargetPublicBaseUrls(recording) {
   const targetIds = new Set();
   const recordTargetId = asTrimmed(recording?.r2TargetId);
@@ -602,7 +617,9 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         uploadedSegmentCount: server2.uploadedSegmentCount,
         showLiveBadge: !finishedLike,
         status: server2.status,
-        refreshSeconds: server2.status === "final" ? 0 : 4,
+        refreshSeconds: getServer2RefreshSeconds(recording, {
+          isFinal: server2.status === "final",
+        }),
         hlsUrl: hlsUrl || null,
       },
     });

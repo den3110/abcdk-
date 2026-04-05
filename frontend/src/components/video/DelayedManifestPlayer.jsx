@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveAspectRatio } from "./AspectMediaFrame";
 import NativeVideoPlayer from "./NativeVideoPlayer";
 
-const WARMUP_WINDOW_SEGMENTS = 6;
+const WARMUP_WINDOW_SEGMENTS = 8;
+const BLOB_PREFETCH_SEGMENTS = 3;
+const BACK_BUFFER_SEGMENTS = 6;
 
 function normalizeManifestItems(manifest, baseUrl = "") {
   const segments = Array.isArray(manifest?.segments) ? manifest.segments : [];
@@ -73,7 +75,9 @@ function mergeManifestItems(previousItems, incomingItems, currentKey) {
   });
 
   const currentIndex = previous.findIndex((item) => item?.key === currentKey);
-  const preservedTail = currentIndex > 0 ? previous.slice(currentIndex) : previous;
+  const preservedTail = currentIndex > 0
+    ? previous.slice(Math.max(0, currentIndex - BACK_BUFFER_SEGMENTS))
+    : previous;
   const merged = [];
   const seen = new Set();
 
@@ -94,6 +98,47 @@ function mergeManifestItems(previousItems, incomingItems, currentKey) {
   return merged;
 }
 
+function pickInitialPlaybackItem(
+  items = [],
+  { isLive = false, delaySeconds = 0 } = {},
+) {
+  const segmentItems = (Array.isArray(items) ? items : []).filter(
+    (item) => item?.kind === "segment",
+  );
+  if (!segmentItems.length) {
+    return items[0] || null;
+  }
+
+  if (!isLive) {
+    return segmentItems[0] || items[0] || null;
+  }
+
+  const desiredLagSeconds = Math.max(12, Number(delaySeconds || 0));
+  const totalDuration = segmentItems.reduce(
+    (sum, item) => sum + Math.max(0, Number(item?.durationSeconds || 0)),
+    0,
+  );
+  const targetOffset = Math.max(0, totalDuration - desiredLagSeconds);
+
+  let elapsed = 0;
+  for (const item of segmentItems) {
+    const duration = Math.max(0, Number(item?.durationSeconds || 0));
+    if (elapsed + duration > targetOffset) {
+      return item;
+    }
+    elapsed += duration;
+  }
+
+  return segmentItems[0] || items[0] || null;
+}
+
+function parseSegmentIndexFromKey(key) {
+  const matched = String(key || "").match(/^segment:(\d+)$/);
+  if (!matched) return null;
+  const parsed = Number(matched[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export default function DelayedManifestPlayer({
   source,
   autoplay = true,
@@ -111,7 +156,13 @@ export default function DelayedManifestPlayer({
   const currentKeyRef = useRef("");
   const waitingForNextRef = useRef(false);
   const warmupControllersRef = useRef(new Map());
+  const warmedKeysRef = useRef(new Set());
   const blobCacheRef = useRef(new Map()); // key → blobUrl
+  const playlistRefreshSecondsRef = useRef(
+    Number(source?.meta?.refreshSeconds) >= 0
+      ? Number(source?.meta?.refreshSeconds)
+      : 4,
+  );
 
   const currentItem = useMemo(() => {
     if (!items.length) return null;
@@ -133,15 +184,11 @@ export default function DelayedManifestPlayer({
   }, [currentItemIndex, items]);
 
   // Track blob readiness so stagedNextPlaybackUrl updates when blob is ready
-  const [blobReady, setBlobReady] = useState(0);
+  const [, setBlobReady] = useState(0);
 
-  const stagedNextPlaybackUrl = useMemo(() => {
-    if (!stagedNextItem?.key) return "";
-    // Prefer blob URL (preloaded in memory) for gapless switching
-    const blobUrl = blobCacheRef.current?.get(stagedNextItem.key);
-    if (blobUrl) return blobUrl;
-    return stagedNextItem.url || "";
-  }, [stagedNextItem, blobReady]);
+  const stagedNextPlaybackUrl = stagedNextItem?.key
+    ? blobCacheRef.current?.get(stagedNextItem.key) || stagedNextItem.url || ""
+    : "";
 
   // ── Total duration from all segments ──
   const totalDuration = useMemo(() => {
@@ -216,11 +263,14 @@ export default function DelayedManifestPlayer({
 
   // Clean up blob URLs on unmount
   useEffect(() => {
+    const blobCache = blobCacheRef.current;
+    const warmedKeys = warmedKeysRef.current;
     return () => {
-      for (const blobUrl of blobCacheRef.current.values()) {
+      for (const blobUrl of blobCache.values()) {
         try { URL.revokeObjectURL(blobUrl); } catch { /* noop */ }
       }
-      blobCacheRef.current.clear();
+      blobCache.clear();
+      warmedKeys.clear();
     };
   }, []);
 
@@ -245,6 +295,11 @@ export default function DelayedManifestPlayer({
         blobCacheRef.current.delete(key);
       }
     }
+    for (const key of warmedKeysRef.current) {
+      if (!warmupKeys.has(key)) {
+        warmedKeysRef.current.delete(key);
+      }
+    }
 
     // Prefetch upcoming segments
     warmupItems.forEach((item, idx) => {
@@ -254,8 +309,13 @@ export default function DelayedManifestPlayer({
       const controller = new AbortController();
       warmupControllersRef.current.set(item.key, controller);
 
-      if (idx === 0) {
-        // NEXT segment: full blob prefetch for gapless switching
+      if (idx < BLOB_PREFETCH_SEGMENTS) {
+        if (blobCacheRef.current.has(item.key)) {
+          warmupControllersRef.current.delete(item.key);
+          return;
+        }
+        // Keep a few upcoming segments as full blobs so playback behaves like
+        // a buffered queue instead of depending on a last-second fetch.
         fetch(item.url, { signal: controller.signal })
           .then((res) => {
             if (!res.ok) throw new Error("Prefetch failed");
@@ -272,11 +332,20 @@ export default function DelayedManifestPlayer({
             warmupControllersRef.current.delete(item.key);
           });
       } else {
+        if (warmedKeysRef.current.has(item.key)) {
+          warmupControllersRef.current.delete(item.key);
+          return;
+        }
         // Further segments: HTTP cache warmup only
         fetch(item.url, {
           cache: "force-cache",
           signal: controller.signal,
         })
+          .then(() => {
+            if (!controller.signal.aborted) {
+              warmedKeysRef.current.add(item.key);
+            }
+          })
           .catch(() => { /* Warmup failure is non-critical */ })
           .finally(() => {
             warmupControllersRef.current.delete(item.key);
@@ -316,18 +385,10 @@ export default function DelayedManifestPlayer({
         );
 
         if (!currentKeyRef.current) {
-          // For live manifests, start from near the tail (latest content)
-          // so viewers see the current score, not the beginning.
-          // For final/finished recordings, start from the beginning.
-          const isLive = mStatus !== "final";
-          const segmentItems = merged.filter((item) => item?.kind === "segment");
-          let startItem;
-          if (isLive && segmentItems.length > 2) {
-            // Start ~2 segments before the end to give buffer for prefetch
-            startItem = segmentItems[segmentItems.length - 2];
-          } else {
-            startItem = merged[0];
-          }
+          const startItem = pickInitialPlaybackItem(merged, {
+            isLive: mStatus !== "final",
+            delaySeconds: source?.delaySeconds,
+          });
           const nextKey = startItem?.key || merged[0]?.key || "";
           if (nextKey) {
             currentKeyRef.current = nextKey;
@@ -388,16 +449,32 @@ export default function DelayedManifestPlayer({
       Boolean(sourceManifestUrl) && !isBackendTempPlaylistSource;
 
     const buildPlaylistUrl = () => {
-      if (isBackendTempPlaylistSource && sourceManifestUrl) {
-        return sourceManifestUrl;
+      const baseUrl = isBackendTempPlaylistSource && sourceManifestUrl
+        ? sourceManifestUrl
+        : recordingId
+          ? `${(import.meta.env.VITE_API_URL || "").replace(/\/+$/, "")}/api/live/recordings/v2/${recordingId}/temp/playlist`
+          : "";
+      if (!baseUrl) return "";
+
+      const currentSegmentIndex = parseSegmentIndexFromKey(currentKeyRef.current);
+      if (!Number.isFinite(currentSegmentIndex) || currentSegmentIndex <= 0) {
+        return baseUrl;
       }
-      if (!recordingId) return "";
-      const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
-      return `${apiBase}/api/live/recordings/v2/${recordingId}/temp/playlist`;
+
+      const url = new URL(baseUrl, window.location.origin);
+      url.searchParams.set(
+        "afterIndex",
+        String(Math.max(0, currentSegmentIndex - BACK_BUFFER_SEGMENTS)),
+      );
+      return url.toString();
     };
 
     const applyPlaylistSegments = (playlistData) => {
       if (!playlistData?.segments?.length) return false;
+      const backendRefreshSeconds = Number(playlistData?.refreshSeconds);
+      if (Number.isFinite(backendRefreshSeconds) && backendRefreshSeconds >= 0) {
+        playlistRefreshSecondsRef.current = backendRefreshSeconds;
+      }
       const playable = playlistData.segments
         .map((segment) => ({
           key: `segment:${segment?.index ?? ""}`,
@@ -419,13 +496,18 @@ export default function DelayedManifestPlayer({
         );
 
         if (!currentKeyRef.current) {
-          // For live: start near tail; for finished: start from beginning
-          let startItem;
-          if (isLive && merged.length > 2) {
-            startItem = merged[merged.length - 2];
-          } else {
-            startItem = merged[0];
-          }
+          const preferredStartIndex = Number(playlistData?.recommendedStartIndex);
+          const preferredStartItem = Number.isFinite(preferredStartIndex)
+            ? merged.find(
+              (item) =>
+                item?.kind === "segment" &&
+                Number(item?.index) === preferredStartIndex,
+            )
+            : null;
+          const startItem = preferredStartItem || pickInitialPlaybackItem(merged, {
+            isLive,
+            delaySeconds: source?.delaySeconds,
+          });
           const nextKey = startItem?.key || merged[0]?.key || "";
           if (nextKey) {
             currentKeyRef.current = nextKey;
@@ -471,7 +553,7 @@ export default function DelayedManifestPlayer({
     };
 
     const tryFetchBackendPlaylist = async () => {
-      if (!recordingId) return false;
+      if (!recordingId && !isBackendTempPlaylistSource) return false;
       const playlistUrl = buildPlaylistUrl();
       if (!playlistUrl) return false;
 
@@ -525,15 +607,25 @@ export default function DelayedManifestPlayer({
         );
       } finally {
         if (!cancelled) {
-          const baseRefreshSeconds =
-            Number(source?.meta?.refreshSeconds || 4) > 0
-              ? Number(source?.meta?.refreshSeconds || 4)
+          const sourceRefreshSeconds = Number(source?.meta?.refreshSeconds);
+          const fallbackRefreshSeconds =
+            Number.isFinite(sourceRefreshSeconds) && sourceRefreshSeconds >= 0
+              ? sourceRefreshSeconds
               : 4;
-          // When waiting for next segment, poll faster to minimize playback gap
-          const effectiveMs = waitingForNextRef.current
-            ? 1500
-            : baseRefreshSeconds * 1000;
-          timerId = window.setTimeout(fetchManifest, effectiveMs);
+          const baseRefreshSeconds = Number.isFinite(
+            playlistRefreshSecondsRef.current,
+          )
+            ? playlistRefreshSecondsRef.current
+            : fallbackRefreshSeconds;
+
+          if (waitingForNextRef.current) {
+            timerId = window.setTimeout(fetchManifest, 1500);
+          } else if (baseRefreshSeconds > 0) {
+            timerId = window.setTimeout(
+              fetchManifest,
+              baseRefreshSeconds * 1000,
+            );
+          }
         }
       }
     };
@@ -547,6 +639,10 @@ export default function DelayedManifestPlayer({
     setManifestStatus("");
     currentKeyRef.current = "";
     waitingForNextRef.current = false;
+    playlistRefreshSecondsRef.current =
+      Number(source?.meta?.refreshSeconds) >= 0
+        ? Number(source?.meta?.refreshSeconds)
+        : 4;
     clearWarmupResources();
     fetchManifest();
 
@@ -562,8 +658,11 @@ export default function DelayedManifestPlayer({
     showLiveBadge,
     source?.embedUrl,
     source?.disabledReason,
+    source?.delaySeconds,
     source?.meta?.refreshSeconds,
+    source?.meta?.publicBaseUrl,
     source?.meta?.recordingId,
+    source?.meta?.segmentBaseUrl,
     source?.meta?.status,
   ]);
 

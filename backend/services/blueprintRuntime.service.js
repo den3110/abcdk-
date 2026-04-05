@@ -48,6 +48,32 @@ const ceilPow2 = (n) => {
   return 1 << Math.ceil(Math.log2(value));
 };
 
+const KO_ROUND_KEYS = ["F", "SF", "QF", "R16", "R32", "R64", "R128", "R256", "R512", "R1024"];
+
+const normalizeKoRoundKey = (value) => {
+  if (!value) return null;
+  const upper = String(value).trim().toUpperCase();
+  return KO_ROUND_KEYS.includes(upper) ? upper : null;
+};
+
+const drawSizeFromKoRoundKey = (roundKey) => {
+  const normalized = normalizeKoRoundKey(roundKey);
+  if (!normalized) return 0;
+  if (normalized === "F") return 2;
+  if (normalized === "SF") return 4;
+  if (normalized === "QF") return 8;
+  if (normalized.startsWith("R")) return Math.max(2, ceilPow2(Number(normalized.slice(1)) || 0));
+  return 0;
+};
+
+const koRoundKeyFromDrawSize = (drawSize) => {
+  const size = Math.max(2, ceilPow2(drawSize || 2));
+  if (size === 2) return "F";
+  if (size === 4) return "SF";
+  if (size === 8) return "QF";
+  return `R${size}`;
+};
+
 const maxPoRoundsFor = (n) => {
   const size = Math.max(0, Number(n) || 0);
   const losers1 = Math.floor(size / 2);
@@ -272,7 +298,14 @@ function normalizeKoPlan(ko) {
     rawFormat === "double_elim" || rawFormat === "double-elim" || rawFormat === "doubleelim"
       ? "double_elim"
       : "single_elim";
-  const drawSize = Math.max(format === "double_elim" ? 4 : 2, ceilPow2(ko.drawSize));
+  const requestedStartRoundKey =
+    format === "double_elim"
+      ? normalizeKoRoundKey(ko?.doubleElim?.startRoundKey ?? ko?.startRoundKey)
+      : null;
+  const drawSize = Math.max(
+    format === "double_elim" ? 4 : 2,
+    ceilPow2(drawSizeFromKoRoundKey(requestedStartRoundKey) || ko.drawSize)
+  );
   const firstPairs = drawSize / 2;
   const hasGrandFinalReset =
     ko?.doubleElim?.hasGrandFinalReset !== undefined
@@ -286,7 +319,12 @@ function normalizeKoPlan(ko) {
     seeds: sanitizeSeeds(ko.seeds, { firstPairs }),
     format,
     doubleElim:
-      format === "double_elim" ? { hasGrandFinalReset } : undefined,
+      format === "double_elim"
+        ? {
+            hasGrandFinalReset,
+            startRoundKey: koRoundKeyFromDrawSize(drawSize),
+          }
+        : undefined,
     rules: normalizePlanRule(ko.rules),
     semiRules: normalizePlanRule(ko.semiRules),
     finalRules: normalizePlanRule(ko.finalRules),
@@ -383,6 +421,11 @@ function deriveKoPlanFromBracket(bracket) {
             blueprint?.doubleElim?.hasGrandFinalReset ??
             bracket?.config?.doubleElim?.hasGrandFinalReset ??
             false,
+          startRoundKey:
+            blueprint?.doubleElim?.startRoundKey ??
+            bracket?.config?.doubleElim?.startRoundKey ??
+            bracket?.prefill?.roundKey ??
+            koRoundKeyFromDrawSize(drawSize),
         }
       : undefined;
 
