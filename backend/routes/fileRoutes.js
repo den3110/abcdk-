@@ -1,6 +1,7 @@
 // src/routes/filesRoutes.js
 import express from "express";
 import multer from "multer";
+import mongoose from "mongoose";
 import path from "path";
 import fs from "fs";
 import fsp from "fs/promises";
@@ -27,6 +28,16 @@ const safeBase = (name = "file") =>
   (path.parse(name).name || "file")
     .replace(/[^a-zA-Z0-9._-]+/g, "_")
     .slice(0, 80);
+
+async function removeFileAsset(doc) {
+  await doc.deleteOne();
+
+  try {
+    if (doc.path && fs.existsSync(doc.path)) fs.unlinkSync(doc.path);
+  } catch (e) {
+    console.warn("unlink failed", e?.message);
+  }
+}
 
 /* =========================
  * Legacy multi-upload (multer)
@@ -448,6 +459,48 @@ router.get("/", protect, authorize("admin"), async (req, res, next) => {
 });
 
 // ===== DELETE =====
+// POST /api/files/bulk-delete
+router.post(
+  "/bulk-delete",
+  protect,
+  authorize("admin"),
+  express.json(),
+  async (req, res, next) => {
+    try {
+      const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const uniqueIds = [...new Set(rawIds.map((id) => String(id || "").trim()).filter(Boolean))];
+      const validIds = uniqueIds.filter((id) => mongoose.isValidObjectId(id));
+
+      if (!validIds.length) {
+        return res
+          .status(400)
+          .json({ message: "Cần chọn ít nhất một file hợp lệ để xóa" });
+      }
+
+      const docs = await FileAsset.find({ _id: { $in: validIds } });
+      const deletedIds = [];
+
+      for (const doc of docs) {
+        // eslint-disable-next-line no-await-in-loop
+        await removeFileAsset(doc);
+        deletedIds.push(String(doc._id));
+      }
+
+      const deletedSet = new Set(deletedIds);
+      const missingIds = uniqueIds.filter((id) => !deletedSet.has(id));
+
+      res.json({
+        success: true,
+        deletedCount: deletedIds.length,
+        deletedIds,
+        missingIds,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // DELETE /api/files/:id
 router.delete("/:id", protect, authorize("admin"), async (req, res, next) => {
   try {
@@ -455,13 +508,7 @@ router.delete("/:id", protect, authorize("admin"), async (req, res, next) => {
     const doc = await FileAsset.findById(id);
     if (!doc) return res.status(404).json({ message: "Không tìm thấy file" });
 
-    await doc.deleteOne();
-
-    try {
-      if (doc.path && fs.existsSync(doc.path)) fs.unlinkSync(doc.path);
-    } catch (e) {
-      console.warn("unlink failed", e?.message);
-    }
+    await removeFileAsset(doc);
 
     res.json({ success: true });
   } catch (err) {
