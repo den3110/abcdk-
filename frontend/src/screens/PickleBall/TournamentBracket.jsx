@@ -569,21 +569,149 @@ function useResizeHeight(ref, onHeight) {
 
 /* ===================== LIVE helpers + Seed render ===================== */
 const RED = "#F44336";
+const LIVE_ORANGE = "#ff8a00";
+const LIVE_DOT_SIZE = 10;
+
+const clampUnit = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+
+function scoreEntryValueLocal(entry, key) {
+  return Number(entry?.[key] ?? entry?.[key.toUpperCase()] ?? 0);
+}
+
+function gameScoresOfLocal(match) {
+  return (Array.isArray(match?.gameScores)
+    ? match.gameScores
+    : Array.isArray(match?.scores)
+      ? match.scores
+      : []
+  ).map((item) => ({
+    a: scoreEntryValueLocal(item, "a"),
+    b: scoreEntryValueLocal(item, "b"),
+  }));
+}
+
+function currentGameIndexLocal(match) {
+  const value = Number(match?.currentGame);
+  if (Number.isInteger(value) && value >= 0) return value;
+  const scores = gameScoresOfLocal(match);
+  return scores.length ? scores.length - 1 : 0;
+}
+
+function resolveMatchRulesLocal(match) {
+  return {
+    bestOf: Math.max(1, Number(match?.rules?.bestOf ?? match?.bestOf ?? 1) || 1),
+    pointsToWin: Math.max(
+      1,
+      Number(match?.rules?.pointsToWin ?? match?.pointsToWin ?? 11) || 11,
+    ),
+    winByTwo: Boolean(match?.rules?.winByTwo ?? true),
+  };
+}
+
+function needWinsLocal(bestOf = 1) {
+  return Math.floor(Math.max(1, Number(bestOf || 1)) / 2) + 1;
+}
+
+function isGameWinLocal(a = 0, b = 0, pointsToWin = 11, winByTwo = true) {
+  const scoreA = Number(a || 0);
+  const scoreB = Number(b || 0);
+  const max = Math.max(scoreA, scoreB);
+  const min = Math.min(scoreA, scoreB);
+  if (max < Number(pointsToWin || 11)) return false;
+  return winByTwo ? max - min >= 2 : max - min >= 1;
+}
+
+function countCompletedGamesWonLocal(match) {
+  const { pointsToWin, winByTwo } = resolveMatchRulesLocal(match);
+  return gameScoresOfLocal(match).reduce(
+    (acc, game) => {
+      if (!isGameWinLocal(game?.a, game?.b, pointsToWin, winByTwo)) return acc;
+      if ((game?.a ?? 0) > (game?.b ?? 0)) acc.A += 1;
+      else if ((game?.b ?? 0) > (game?.a ?? 0)) acc.B += 1;
+      return acc;
+    },
+    { A: 0, B: 0 },
+  );
+}
+
+function currentGameScoreLocal(match) {
+  const scores = gameScoresOfLocal(match);
+  if (!scores.length) {
+    return {
+      a: Number(match?.scoreA ?? 0),
+      b: Number(match?.scoreB ?? 0),
+    };
+  }
+  const index = currentGameIndexLocal(match);
+  return scores[index] || scores[scores.length - 1] || { a: 0, b: 0 };
+}
+
+function sideGameProgressLocal(match, side) {
+  const { pointsToWin, winByTwo } = resolveMatchRulesLocal(match);
+  const current = currentGameScoreLocal(match);
+  const mine = Number(side === "A" ? current?.a : current?.b);
+  const opp = Number(side === "A" ? current?.b : current?.a);
+  const target = winByTwo
+    ? Math.max(pointsToWin, opp + 2)
+    : Math.max(pointsToWin, opp + 1);
+  if (target <= 0) return 0;
+  return clampUnit(mine / target);
+}
+
+function liveBranchProgressLocal(match) {
+  if (!match) return { leader: null, progress: 0, progressA: 0, progressB: 0 };
+
+  const rules = resolveMatchRulesLocal(match);
+  const wins = countCompletedGamesWonLocal(match);
+  const neededWins = needWinsLocal(rules.bestOf);
+  const progressA = clampUnit(
+    (wins.A + sideGameProgressLocal(match, "A")) / neededWins,
+  );
+  const progressB = clampUnit(
+    (wins.B + sideGameProgressLocal(match, "B")) / neededWins,
+  );
+  const current = currentGameScoreLocal(match);
+
+  let leader = null;
+  if (match?.winner === "A" || match?.winner === "B") {
+    leader = match.winner;
+  } else if (progressA > progressB + 0.001) {
+    leader = "A";
+  } else if (progressB > progressA + 0.001) {
+    leader = "B";
+  } else if ((current?.a ?? 0) > (current?.b ?? 0)) {
+    leader = "A";
+  } else if ((current?.b ?? 0) > (current?.a ?? 0)) {
+    leader = "B";
+  }
+
+  return {
+    leader,
+    progressA,
+    progressB,
+    progress:
+      leader === "A"
+        ? progressA
+        : leader === "B"
+          ? progressB
+          : Math.max(progressA, progressB),
+  };
+}
 
 function scoreForSide(m, side) {
   if (!m) return "";
-  const games = Array.isArray(m.gameScores) ? m.gameScores : [];
+  const games = gameScoresOfLocal(m);
   const n = games.length;
 
   // nhiều set → hiển thị số set thắng
   if (n >= 2) {
-    const gw = countGamesWonLocal(games);
+    const gw = countCompletedGamesWonLocal(m);
     return side === "A" ? gw.A : gw.B;
   }
 
   // đúng 1 set → hiển thị điểm của set đó
   if (n === 1) {
-    const g = games[0] || {};
+    const g = currentGameScoreLocal(m);
     return side === "A" ? (g.a ?? "") : (g.b ?? "");
   }
 
@@ -651,11 +779,85 @@ const CustomSeed = ({
   const sB = m ? scoreForSide(m, "B") : "";
 
   const wrapRef = useRef(null);
+  const seedRef = useRef(null);
+  const itemRef = useRef(null);
+  const teamARef = useRef(null);
+  const teamBRef = useRef(null);
   const sync = useContext(HeightSyncContext);
   useResizeHeight(wrapRef, (h) =>
     sync.report(roundNo, Math.max(h, SEED_MIN_H)),
   );
   const syncedMinH = Math.max(SEED_MIN_H, sync.get(roundNo));
+  const liveBranch = useMemo(() => liveBranchProgressLocal(m), [m]);
+  const [liveDotPosition, setLiveDotPosition] = useState(null);
+
+  useLayoutEffect(() => {
+    const isLive = String(m?.status || "").toLowerCase() === "live";
+    if (!isLive) {
+      setLiveDotPosition((prev) => (prev ? null : prev));
+      return;
+    }
+
+    const root = seedRef.current;
+    const item = itemRef.current;
+    const rowA = teamARef.current;
+    const rowB = teamBRef.current;
+    if (!root || !item || !rowA || !rowB) return;
+
+    const updateDotPosition = () => {
+      const rootRect = root.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      const rowARect = rowA.getBoundingClientRect();
+      const rowBRect = rowB.getBoundingClientRect();
+      if (!rootRect.width || !itemRect.width) return;
+
+      const aCenterY = rowARect.top - rootRect.top + rowARect.height / 2;
+      const bCenterY = rowBRect.top - rootRect.top + rowBRect.height / 2;
+      const junctionY = (aCenterY + bCenterY) / 2;
+      const branchStartY =
+        liveBranch.leader === "A"
+          ? aCenterY
+          : liveBranch.leader === "B"
+            ? bCenterY
+            : junctionY;
+
+      const cardRight = itemRect.right - rootRect.left;
+      const gutter = Math.max(rootRect.width - cardRight, 0);
+      const startX = cardRight + Math.max(3, Math.min(6, gutter * 0.3));
+      const endX = seed?.__lastCol
+        ? cardRight + Math.max(4, Math.min(8, gutter * 0.45))
+        : cardRight + Math.max(8, gutter - 4);
+      const progress = clampUnit(liveBranch.progress);
+      const nextPosition = {
+        left: startX + (endX - startX) * progress,
+        top: branchStartY + (junctionY - branchStartY) * progress,
+      };
+
+      setLiveDotPosition((prev) => {
+        if (
+          prev &&
+          Math.abs(prev.left - nextPosition.left) < 0.5 &&
+          Math.abs(prev.top - nextPosition.top) < 0.5
+        ) {
+          return prev;
+        }
+        return nextPosition;
+      });
+    };
+
+    updateDotPosition();
+    const resizeObserver = new ResizeObserver(updateDotPosition);
+    resizeObserver.observe(root);
+    resizeObserver.observe(item);
+    resizeObserver.observe(rowA);
+    resizeObserver.observe(rowB);
+    window.addEventListener("resize", updateDotPosition);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateDotPosition);
+    };
+  }, [m, liveBranch.leader, liveBranch.progress, seed?.__lastCol, syncedMinH]);
 
   const RightTick = (props) => (
     <span
@@ -781,8 +983,9 @@ const CustomSeed = ({
     : statusColors(m);
   const clickable = !!m;
   return (
-    <Seed mobileBreakpoint={breakpoint} style={{ fontSize: 13 }}>
+    <Seed mobileBreakpoint={breakpoint} ref={seedRef} style={{ fontSize: 13 }}>
       <SeedItem
+        ref={itemRef}
         onClick={() => clickable && onOpen?.(m)}
         style={{
           cursor: clickable ? "pointer" : "default",
@@ -808,22 +1011,6 @@ const CustomSeed = ({
                 top: -12,
                 fontSize: 20,
                 color: RED,
-              }}
-            />
-          )}
-
-          {m?.status === "live" && (
-            <span
-              title={tLang("tournaments.bracket.result.live")}
-              style={{
-                position: "absolute",
-                right: -22,
-                bottom: -12,
-                width: 10,
-                height: 10,
-                borderRadius: "50%",
-                background: RED,
-                animation: "pulse 1.2s infinite",
               }}
             />
           )}
@@ -861,6 +1048,7 @@ const CustomSeed = ({
 
           {/* Hàng đội A */}
           <SeedTeam
+            ref={teamARef}
             style={lineStyle(winA, isHoverA)}
             onMouseEnter={() => aId && setHovered(aId)}
             onMouseLeave={() => setHovered(null)}
@@ -871,6 +1059,7 @@ const CustomSeed = ({
 
           {/* Hàng đội B */}
           <SeedTeam
+            ref={teamBRef}
             style={lineStyle(winB, isHoverB)}
             onMouseEnter={() => bId && setHovered(bId)}
             onMouseLeave={() => setHovered(null)}
@@ -910,6 +1099,27 @@ const CustomSeed = ({
           </div>
         </div>
       </SeedItem>
+
+      {m?.status === "live" && liveDotPosition && (
+        <span
+          title={tLang("tournaments.bracket.result.live")}
+          style={{
+            position: "absolute",
+            left: liveDotPosition.left - LIVE_DOT_SIZE / 2,
+            top: liveDotPosition.top - LIVE_DOT_SIZE / 2,
+            width: LIVE_DOT_SIZE,
+            height: LIVE_DOT_SIZE,
+            borderRadius: "50%",
+            background: `radial-gradient(circle at 30% 30%, #ffd08a 0%, ${LIVE_ORANGE} 62%, #ff6a00 100%)`,
+            boxShadow:
+              "0 0 0 3px rgba(255,138,0,0.15), 0 0 18px rgba(255,138,0,0.45)",
+            animation: "pulse 1.2s infinite",
+            transition: "left .2s ease, top .2s ease, box-shadow .2s ease",
+            pointerEvents: "none",
+            zIndex: 4,
+          }}
+        />
+      )}
 
       <style>
         {`@keyframes pulse{0%{transform:scale(0.85);opacity:.75}50%{transform:scale(1);opacity:1}100%{transform:scale(0.85);opacity:.75}}`}
