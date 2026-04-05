@@ -352,6 +352,7 @@ export default function TournamentCourtClusterDialog({
   const [stationDrafts, setStationDrafts] = useState({});
   const [viewerMatch, setViewerMatch] = useState(null);
   const [sharedTournamentsOpen, setSharedTournamentsOpen] = useState(false);
+  const [queuePickerOpenByStation, setQueuePickerOpenByStation] = useState({});
   const openTraceRef = useRef("");
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -442,6 +443,40 @@ export default function TournamentCourtClusterDialog({
   const refetchRuntime = isPreviewingUnsavedCluster
     ? refetchPreviewRuntime
     : refetchTournamentRuntime;
+  const setQueuePickerOpen = useCallback((stationId, isOpen) => {
+    const normalizedStationId = sid(stationId);
+    if (!normalizedStationId) return;
+
+    setQueuePickerOpenByStation((current) => {
+      const alreadyOpen = Boolean(current[normalizedStationId]);
+      if (alreadyOpen === isOpen) return current;
+
+      if (isOpen) {
+        return {
+          ...current,
+          [normalizedStationId]: true,
+        };
+      }
+
+      const next = { ...current };
+      delete next[normalizedStationId];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const hasOpenQueuePicker =
+      Object.keys(queuePickerOpenByStation || {}).length > 0;
+    queuePickerOpenRef.current = hasOpenQueuePicker;
+
+    if (!open || hasOpenQueuePicker || !pendingRuntimeRefreshRef.current) {
+      return;
+    }
+
+    pendingRuntimeRefreshRef.current = false;
+    refetchRuntime?.();
+  }, [open, queuePickerOpenByStation, refetchRuntime]);
+
   const requestRuntimeRefresh = useCallback(() => {
     if (queuePickerOpenRef.current) {
       pendingRuntimeRefreshRef.current = true;
@@ -518,6 +553,7 @@ export default function TournamentCourtClusterDialog({
     if (!open) {
       setViewerMatch(null);
       openTraceRef.current = "";
+      setQueuePickerOpenByStation({});
       queuePickerOpenRef.current = false;
       pendingRuntimeRefreshRef.current = false;
     }
@@ -1474,23 +1510,21 @@ export default function TournamentCourtClusterDialog({
                                     </Stack>
 
                                     <Autocomplete
+                                      open={Boolean(
+                                        queuePickerOpenByStation[stationId],
+                                      )}
                                       componentsProps={{
                                         popper: { style: { zIndex: 1400 } },
                                       }}
                                       multiple
                                       disabled={clusterInteractionDisabled}
                                       disableCloseOnSelect
-                                      onOpen={() => {
-                                        queuePickerOpenRef.current = true;
-                                      }}
-                                      onClose={() => {
-                                        queuePickerOpenRef.current = false;
-                                        if (pendingRuntimeRefreshRef.current) {
-                                          pendingRuntimeRefreshRef.current =
-                                            false;
-                                          refetchRuntime?.();
-                                        }
-                                      }}
+                                      onOpen={() =>
+                                        setQueuePickerOpen(stationId, true)
+                                      }
+                                      onClose={() =>
+                                        setQueuePickerOpen(stationId, false)
+                                      }
                                       options={selectorOptions}
                                       value={selectedPickerMatches}
                                       onChange={(_, value) =>
