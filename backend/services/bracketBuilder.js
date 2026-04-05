@@ -185,10 +185,10 @@ function buildDoubleElimRoundMap(winnersRounds, startWinnersRoundIndex = 1) {
   };
 }
 
-function createMatchLoserSeed(round, order, label) {
+function createMatchLoserSeed(stageIndex, round, order, label) {
   return {
-    type: "matchLoser",
-    ref: { round, order },
+    type: "stageMatchLoser",
+    ref: { stageIndex, round, order },
     label: label || `L-V${round}-T${Number(order) + 1}`,
   };
 }
@@ -579,6 +579,7 @@ export async function buildDoubleElimBracket({
           isByeSeed(leftSeed?.A) || isByeSeed(leftSeed?.B)
             ? SEED_BYE
             : createMatchLoserSeed(
+                stage,
                 roundMap.wb[startWinnersRoundIndex],
                 idx * 2,
                 `L-WB${startWinnersRoundIndex}-T${idx * 2 + 1}`
@@ -587,6 +588,7 @@ export async function buildDoubleElimBracket({
           isByeSeed(rightSeed?.A) || isByeSeed(rightSeed?.B)
             ? SEED_BYE
             : createMatchLoserSeed(
+                stage,
                 roundMap.wb[startWinnersRoundIndex],
                 idx * 2 + 1,
                 `L-WB${startWinnersRoundIndex}-T${idx * 2 + 2}`
@@ -614,11 +616,13 @@ export async function buildDoubleElimBracket({
         round: roundMap.lb[1],
         order: idx,
         seedA: createMatchLoserSeed(
+          stage,
           roundMap.wb[startWinnersRoundIndex],
           idx * 2,
           `L-WB${startWinnersRoundIndex}-T${idx * 2 + 1}`
         ),
         seedB: createMatchLoserSeed(
+          stage,
           roundMap.wb[startWinnersRoundIndex],
           idx * 2 + 1,
           `L-WB${startWinnersRoundIndex}-T${idx * 2 + 2}`
@@ -651,6 +655,7 @@ export async function buildDoubleElimBracket({
         order: idx,
         previousA: prevLbRound[idx]?._id || null,
         seedB: createMatchLoserSeed(
+          stage,
           roundMap.wb[winnersRound],
           idx,
           `L-WB${winnersRound}-T${idx + 1}`
@@ -693,6 +698,7 @@ export async function buildDoubleElimBracket({
         order: 0,
         previousA: createdLB[finalLbSourceRoundIndex]?.[0]?._id || null,
         seedB: createMatchLoserSeed(
+          stage,
           roundMap.wb[winnersRounds],
           0,
           `L-WB${winnersRounds}-T1`
