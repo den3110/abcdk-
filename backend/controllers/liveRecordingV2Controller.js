@@ -2347,13 +2347,20 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
 
     const segments = await Promise.all(
       uploadedSegments.map(async (segment) => {
-        // Always use signed R2 download URLs — CDN paths are unreliable
-        // during live (path mismatches, target changes, re-live scenarios).
-        const download = await createRecordingObjectDownloadUrl({
-          objectKey: segment.objectKey,
-          expiresInSeconds: 60 * 60 * 12,
-          storageTargetId: getSegmentStorageTargetId(segment, recording),
-        });
+        const cdnUrl = multiSourceEnabled
+          ? buildSegmentPublicCdnUrl(segment, recording, {
+              targetPublicBaseUrls,
+              fallbackPublicBaseUrl,
+            })
+          : "";
+
+        const download = !cdnUrl
+          ? await createRecordingObjectDownloadUrl({
+              objectKey: segment.objectKey,
+              expiresInSeconds: 60 * 60 * 12,
+              storageTargetId: getSegmentStorageTargetId(segment, recording),
+            })
+          : null;
 
         return {
           index: segment.index,
@@ -2363,8 +2370,8 @@ export const getLiveRecordingTemporaryPlaylistV2 = asyncHandler(
           durationSeconds: segment.durationSeconds || 0,
           sizeBytes: segment.sizeBytes || 0,
           isFinal: Boolean(segment.isFinal),
-          url: download.downloadUrl,
-          expiresInSeconds: download.expiresInSeconds,
+          url: cdnUrl || download?.downloadUrl || "",
+          expiresInSeconds: download?.expiresInSeconds || null,
         };
       })
     );
