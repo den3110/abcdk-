@@ -1444,6 +1444,10 @@ export default function TournamentManagePage() {
     () => setManageCourtClustersOpen(false),
     [],
   );
+  const handleCourtClustersUpdated = useCallback(() => {
+    refetchMatches?.();
+    refetchTour?.();
+  }, [refetchMatches, refetchTour]);
 
   const [courtDlg, setCourtDlg] = useState({ open: false, match: null });
   const [refDlg, setRefDlg] = useState({ open: false, match: null });
@@ -3155,10 +3159,7 @@ export default function TournamentManagePage() {
         onClose={closeManageCourts}
         tournament={tour}
         canOverride={isAdmin}
-        onUpdated={() => {
-          refetchMatches?.();
-          refetchTour?.();
-        }}
+        onUpdated={handleCourtClustersUpdated}
       />
 
       <ManageRefereesDialog

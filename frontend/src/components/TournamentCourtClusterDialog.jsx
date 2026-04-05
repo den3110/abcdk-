@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Autocomplete,
@@ -329,7 +329,7 @@ StatCard.propTypes = {
   tone: PropTypes.oneOf(["default", "success", "warning", "info"]),
 };
 
-export default function TournamentCourtClusterDialog({
+function TournamentCourtClusterDialog({
   open,
   tournament,
   canOverride = false,
@@ -2181,3 +2181,5 @@ TournamentCourtClusterDialog.propTypes = {
   onClose: PropTypes.func,
   onUpdated: PropTypes.func,
 };
+
+export default memo(TournamentCourtClusterDialog);
