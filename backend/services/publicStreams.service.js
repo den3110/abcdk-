@@ -60,6 +60,40 @@ function buildFacebookPluginEmbedUrl(url) {
   return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(normalized)}&show_text=false&width=1280`;
 }
 
+const PRIVATE_FACEBOOK_LIVE_KEYS = [
+  "pageAccessToken",
+  "pageToken",
+  "accessToken",
+  "access_token",
+];
+
+export function sanitizePublicFacebookLive(facebookLive) {
+  if (
+    !facebookLive ||
+    typeof facebookLive !== "object" ||
+    Array.isArray(facebookLive)
+  ) {
+    return facebookLive;
+  }
+
+  const sanitized = { ...facebookLive };
+  for (const key of PRIVATE_FACEBOOK_LIVE_KEYS) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
+
+export function sanitizePublicMatchPayload(match = {}) {
+  if (!match || typeof match !== "object" || Array.isArray(match)) {
+    return match;
+  }
+
+  return {
+    ...match,
+    facebookLive: sanitizePublicFacebookLive(match?.facebookLive),
+  };
+}
+
 function buildFacebookStreamSource(match = {}) {
   const fb = match?.facebookLive || {};
   const metaFb = match?.meta?.facebook || {};
@@ -566,16 +600,17 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       (server2.status === "final" ||
         server2.sourceCleanupCompleted ||
         !hasSegmentManifest);
-    // Server 2 currently exposes browser-recorded MP4 chunks before the final
-    // merged file is ready. Rendering those chunks through HLS has been
-    // unstable on the public web viewer, so keep the web path on the delayed
-    // manifest player until we have a final playback file.
+    const useHlsMode = !useFileMode && Boolean(hlsUrl);
     const playbackKind = useFileMode
       ? "file"
-      : "delayed_manifest";
+      : useHlsMode
+        ? "hls"
+        : "delayed_manifest";
     const playbackUrl = useFileMode
       ? server2.finalPlaybackUrl
-      : server2.manifestUrl;
+      : useHlsMode
+        ? hlsUrl
+        : server2.manifestUrl;
 
     pushUniqueStream(streams, {
       key: server2.key,
@@ -621,6 +656,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
           isFinal: server2.status === "final",
         }),
         hlsUrl: hlsUrl || null,
+        delayedManifestUrl: server2.manifestUrl || null,
       },
     });
   }
@@ -790,16 +826,19 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
 export function attachPublicStreamsToMatch(match = {}, recording = null) {
   const { streams, defaultStreamKey, hasMultipleStreams } =
     buildPublicStreamsForMatch(match, recording);
-  const existingStreams = Array.isArray(match?.streams) ? match.streams : [];
+  const sanitizedMatch = sanitizePublicMatchPayload(match);
+  const existingStreams = Array.isArray(sanitizedMatch?.streams)
+    ? sanitizedMatch.streams
+    : [];
   const effectiveStreams = streams.length > 0 ? streams : existingStreams;
 
   return {
-    ...match,
+    ...sanitizedMatch,
     streams: effectiveStreams,
     defaultStreamKey:
       streams.length > 0
         ? defaultStreamKey
-        : match?.defaultStreamKey || effectiveStreams[0]?.key || null,
+        : sanitizedMatch?.defaultStreamKey || effectiveStreams[0]?.key || null,
     hasMultipleStreams:
       streams.length > 0 ? hasMultipleStreams : effectiveStreams.length > 1,
   };

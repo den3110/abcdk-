@@ -726,6 +726,56 @@ class MatchRecordingCoordinator(
         return buildPublicObjectUrl(baseUrl, segment.objectKey)
     }
 
+    private fun getLiveManifestRefreshSeconds(
+        segments: List<com.pkt.live.data.model.MatchRecordingSegment>,
+        isFinished: Boolean,
+    ): Int {
+        if (isFinished) return 0
+        val recentDurations =
+            segments
+                .takeLast(6)
+                .map { max(0.0, it.durationSeconds) }
+                .filter { it > 0.0 }
+        if (recentDurations.isEmpty()) {
+            return 4
+        }
+        val averageDuration = recentDurations.sum() / recentDurations.size.toDouble()
+        return averageDuration.roundToInt().coerceIn(2, 6)
+    }
+
+    private fun getLiveManifestTargetDurationSeconds(
+        segments: List<com.pkt.live.data.model.MatchRecordingSegment>,
+    ): Int {
+        val maxDuration = segments.maxOfOrNull { max(0.0, it.durationSeconds) } ?: 0.0
+        val wholeSeconds = maxDuration.toInt()
+        return when {
+            maxDuration <= 0.0 -> 1
+            maxDuration > wholeSeconds.toDouble() -> wholeSeconds + 1
+            else -> wholeSeconds.coerceAtLeast(1)
+        }
+    }
+
+    private fun getLiveManifestRecommendedStartIndex(
+        segments: List<com.pkt.live.data.model.MatchRecordingSegment>,
+        isFinished: Boolean,
+    ): Int? {
+        if (segments.isEmpty()) return null
+        if (isFinished) return segments.first().index
+
+        val desiredBufferedSeconds = 12.0
+        val totalDurationSeconds = segments.sumOf { max(0.0, it.durationSeconds) }
+        val targetOffset = max(0.0, totalDurationSeconds - desiredBufferedSeconds)
+        var elapsed = 0.0
+        segments.forEach { segment ->
+            val duration = max(0.0, segment.durationSeconds)
+            if (elapsed + duration > targetOffset) {
+                return segment.index
+            }
+            elapsed += duration
+        }
+        return segments.first().index
+    }
+
     private fun buildLiveManifestPayload(
         recording: MatchRecording,
         cachedManifest: CachedLiveManifestPresign,
@@ -741,41 +791,45 @@ class MatchRecordingCoordinator(
             recording.status.equals("finished", ignoreCase = true) ||
             recording.status.equals("finalized", ignoreCase = true)
 
-        val manifestSegments: List<Map<String, Any?>>
+        val manifestSourceSegments: List<com.pkt.live.data.model.MatchRecordingSegment>
         if (isFinished) {
-            // Finished recording: include ALL segments, no delay or rolling window
-            manifestSegments = uploadedSegments.map { segment ->
-                mapOf(
-                    "index" to segment.index,
-                    "durationSeconds" to segment.durationSeconds,
-                    "url" to buildSegmentPublicUrl(segment, recording, cachedManifest),
-                )
-            }
+            manifestSourceSegments = uploadedSegments
         } else {
             // Live streaming: apply delay truncation + rolling window cap
             val safeDurationSeconds =
                 max(0.0, totalDurationSeconds - cachedManifest.delaySeconds.toDouble())
             var cumulativeDuration = 0.0
-            val safeSegments = mutableListOf<Map<String, Any?>>()
+            val safeSegments = mutableListOf<com.pkt.live.data.model.MatchRecordingSegment>()
             for (segment in uploadedSegments) {
                 cumulativeDuration += max(0.0, segment.durationSeconds)
                 if (cumulativeDuration - safeDurationSeconds > 0.0001) {
                     break
                 }
-                safeSegments +=
-                    mapOf(
-                        "index" to segment.index,
-                        "durationSeconds" to segment.durationSeconds,
-                        "url" to buildSegmentPublicUrl(segment, recording, cachedManifest),
-                    )
+                safeSegments += segment
             }
-            manifestSegments =
+            manifestSourceSegments =
                 if (safeSegments.size > LIVE_MANIFEST_MAX_SEGMENTS) {
                     safeSegments.takeLast(LIVE_MANIFEST_MAX_SEGMENTS)
                 } else {
                     safeSegments
                 }
         }
+
+        val manifestSegments =
+            manifestSourceSegments.map { segment ->
+                mapOf(
+                    "index" to segment.index,
+                    "durationSeconds" to segment.durationSeconds,
+                    "url" to buildSegmentPublicUrl(segment, recording, cachedManifest),
+                )
+            }
+        val refreshSeconds = getLiveManifestRefreshSeconds(uploadedSegments, isFinished)
+        val targetDurationSeconds = getLiveManifestTargetDurationSeconds(manifestSourceSegments)
+        val recommendedStartIndex =
+            getLiveManifestRecommendedStartIndex(
+                segments = manifestSourceSegments,
+                isFinished = isFinished,
+            )
 
         val status =
             when {
@@ -791,6 +845,11 @@ class MatchRecordingCoordinator(
             "matchId" to recording.matchId,
             "recordingId" to recording.id,
             "delaySeconds" to cachedManifest.delaySeconds,
+            "refreshSeconds" to refreshSeconds,
+            "targetDurationSeconds" to targetDurationSeconds,
+            "windowSegmentCount" to manifestSegments.size,
+            "recommendedStartIndex" to recommendedStartIndex,
+            "usesSafeLiveWindow" to !isFinished,
             "status" to status,
             "updatedAt" to System.currentTimeMillis(),
             "finalPlaybackUrl" to finalPlaybackUrl,

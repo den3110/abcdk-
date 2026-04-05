@@ -97,6 +97,7 @@ export default function NativeVideoPlayer({
   totalDuration: totalDurationProp,
   totalTimeOffset = 0,
   onSeekGlobal = null,
+  onPlaybackError = null,
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
@@ -106,6 +107,7 @@ export default function NativeVideoPlayer({
   const isSeekingRef = useRef(false);
   const onEndedRef = useRef(onEnded);
   const onAdvanceToStagedSourceRef = useRef(onAdvanceToStagedSource);
+  const onPlaybackErrorRef = useRef(onPlaybackError);
   const previousSrcRef = useRef("");
   const previousStagedNextSrcRef = useRef("");
   const stagedNextReadyRef = useRef(false);
@@ -131,7 +133,7 @@ export default function NativeVideoPlayer({
     Boolean(previewOnlyUntilPlay && !autoplay),
   );
   const [frozenFrameUrl, setFrozenFrameUrl] = useState("");
-  const [stagedNextReady, setStagedNextReady] = useState(false);
+  const [, setStagedNextReady] = useState(false);
   const queueMode = Boolean(
     queueModeEnabled &&
       kind === "file" &&
@@ -208,6 +210,10 @@ export default function NativeVideoPlayer({
   useEffect(() => {
     onAdvanceToStagedSourceRef.current = onAdvanceToStagedSource;
   }, [onAdvanceToStagedSource]);
+
+  useEffect(() => {
+    onPlaybackErrorRef.current = onPlaybackError;
+  }, [onPlaybackError]);
 
   useEffect(() => {
     activeSlotRef.current = activeSlot;
@@ -475,6 +481,12 @@ export default function NativeVideoPlayer({
             if (cancelled) return;
             if (!HlsCtor?.isSupported()) {
               setHlsError("Trình duyệt không hỗ trợ HLS.");
+              onPlaybackErrorRef.current?.({
+                kind,
+                fatal: true,
+                reason: "hls_not_supported",
+                src,
+              });
               return;
             }
 
@@ -507,6 +519,15 @@ export default function NativeVideoPlayer({
                 if (!cancelled) {
                   setHlsError(message);
                 }
+                onPlaybackErrorRef.current?.({
+                  kind,
+                  fatal: true,
+                  reason: "hls_fatal_error",
+                  src,
+                  detail: data?.details,
+                  type: data?.type,
+                  responseCode: data?.response?.code,
+                });
               }
             });
           } catch (error) {
@@ -514,6 +535,12 @@ export default function NativeVideoPlayer({
             if (!cancelled) {
               setHlsError("Không tải được thư viện phát HLS.");
             }
+            onPlaybackErrorRef.current?.({
+              kind,
+              fatal: true,
+              reason: "hls_loader_error",
+              src,
+            });
           }
         })();
       }
@@ -706,7 +733,7 @@ export default function NativeVideoPlayer({
         if (globalTarget >= totalTimeOffset && globalTarget < batchEnd) {
           video.currentTime = globalTarget - totalTimeOffset;
         } else {
-          const newOffset = onSeekGlobal(globalTarget);
+          onSeekGlobal(globalTarget);
           // After batch switch, the new component will mount at t=0
           // The seek within the new batch is approximate (can't seek within a blob)
         }

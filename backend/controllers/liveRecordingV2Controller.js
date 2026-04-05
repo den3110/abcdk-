@@ -2685,11 +2685,21 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
   const lines = [
     "#EXTM3U",
     "#EXT-X-VERSION:3",
+    "#EXT-X-INDEPENDENT-SEGMENTS",
+    isFinished ? "#EXT-X-PLAYLIST-TYPE:VOD" : "#EXT-X-PLAYLIST-TYPE:EVENT",
     `#EXT-X-TARGETDURATION:${targetDuration || 6}`,
     `#EXT-X-MEDIA-SEQUENCE:${mediaSequence}`,
     "",
     ...segmentLines,
   ];
+
+  if (!isFinished) {
+    lines.splice(
+      4,
+      0,
+      `#EXT-X-START:TIME-OFFSET=-${Math.max(12, delaySeconds)},PRECISE=NO`
+    );
+  }
 
   // For finished recordings, signal end-of-stream
   if (isFinished) {

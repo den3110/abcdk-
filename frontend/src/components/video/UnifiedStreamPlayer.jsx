@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
 import { Box } from "@mui/material";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AspectMediaFrame, { resolveAspectRatio } from "./AspectMediaFrame";
 import DelayedManifestPlayer from "./DelayedManifestPlayer";
 import NativeVideoPlayer from "./NativeVideoPlayer";
@@ -21,31 +22,88 @@ export default function UnifiedStreamPlayer({
   previewOnlyUntilPlay = false,
   useNativeControls = false,
 }) {
-  if (!source) {
+  const resolvedSource = source || null;
+  const kind = String(resolvedSource?.kind || "")
+    .trim()
+    .toLowerCase();
+  const delayedManifestUrl =
+    typeof resolvedSource?.meta?.delayedManifestUrl === "string"
+      ? resolvedSource.meta.delayedManifestUrl.trim()
+      : "";
+  const [preferDelayedManifestFallback, setPreferDelayedManifestFallback] =
+    useState(false);
+
+  useEffect(() => {
+    setPreferDelayedManifestFallback(false);
+  }, [resolvedSource?.key, resolvedSource?.embedUrl, delayedManifestUrl, kind]);
+
+  const fallbackSource = useMemo(() => {
+    if (kind !== "hls" || !preferDelayedManifestFallback || !delayedManifestUrl) {
+      return null;
+    }
+    return {
+      ...resolvedSource,
+      kind: "delayed_manifest",
+      embedUrl: delayedManifestUrl,
+      url: delayedManifestUrl,
+      playUrl: delayedManifestUrl,
+      meta: {
+        ...(resolvedSource?.meta || {}),
+        hlsUrl:
+          typeof resolvedSource?.embedUrl === "string"
+            ? resolvedSource.embedUrl.trim()
+            : "",
+      },
+    };
+  }, [delayedManifestUrl, kind, preferDelayedManifestFallback, resolvedSource]);
+
+  const handlePlaybackError = useCallback(() => {
+    if (kind === "hls" && delayedManifestUrl) {
+      setPreferDelayedManifestFallback(true);
+    }
+  }, [delayedManifestUrl, kind]);
+  const ratio = resolveAspectRatio(resolvedSource?.aspect);
+  const key =
+    remountKey ||
+    resolvedSource?.key ||
+    resolvedSource?.embedUrl ||
+    resolvedSource?.openUrl ||
+    kind;
+
+  if (!resolvedSource) {
     return null;
   }
 
-  const kind = String(source.kind || "")
-    .trim()
-    .toLowerCase();
-  const ratio = resolveAspectRatio(source?.aspect);
-  const key =
-    remountKey || source?.key || source?.embedUrl || source?.openUrl || kind;
+  if (fallbackSource) {
+    return (
+      <DelayedManifestPlayer
+        key={`${key}:delayed-fallback`}
+        source={fallbackSource}
+        autoplay={autoplay}
+        previewOnlyUntilPlay={previewOnlyUntilPlay}
+        useNativeControls={useNativeControls}
+        showLiveBadge={fallbackSource?.meta?.showLiveBadge !== false}
+      />
+    );
+  }
 
   if (kind === "file" || kind === "hls") {
     return (
       <NativeVideoPlayer
         key={key}
-        src={source.embedUrl}
+        src={resolvedSource.embedUrl}
         kind={kind}
-        fallbackUrl={source.openUrl || source.url || source.embedUrl}
+        fallbackUrl={
+          resolvedSource.openUrl || resolvedSource.url || resolvedSource.embedUrl
+        }
         initialRatio={ratio}
-        title={source.label || (kind === "hls" ? "Live stream" : "Video")}
-        subtitle={source.providerLabel || ""}
+        title={resolvedSource.label || (kind === "hls" ? "Live stream" : "Video")}
+        subtitle={resolvedSource.providerLabel || ""}
         autoplay={autoplay}
         onEnded={onEnded}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
+        onPlaybackError={handlePlaybackError}
       />
     );
   }
@@ -54,16 +112,16 @@ export default function UnifiedStreamPlayer({
     return (
       <DelayedManifestPlayer
         key={key}
-        source={source}
+        source={resolvedSource}
         autoplay={autoplay}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
-        showLiveBadge={source?.meta?.showLiveBadge !== false}
+        showLiveBadge={resolvedSource?.meta?.showLiveBadge !== false}
       />
     );
   }
 
-  if (kind === "iframe_html" && source.embedHtml) {
+  if (kind === "iframe_html" && resolvedSource.embedHtml) {
     return (
       <AspectMediaFrame ratio={ratio} key={key}>
         <Box
@@ -76,20 +134,20 @@ export default function UnifiedStreamPlayer({
               border: 0,
             },
           }}
-          dangerouslySetInnerHTML={{ __html: source.embedHtml }}
+          dangerouslySetInnerHTML={{ __html: resolvedSource.embedHtml }}
         />
       </AspectMediaFrame>
     );
   }
 
-  if (IFRAME_KINDS.has(kind) && source.embedUrl) {
+  if (IFRAME_KINDS.has(kind) && resolvedSource.embedUrl) {
     return (
       <AspectMediaFrame ratio={ratio} key={key}>
         <iframe
-          src={source.embedUrl}
-          title={source.label || source.providerLabel || "Video"}
+          src={resolvedSource.embedUrl}
+          title={resolvedSource.label || resolvedSource.providerLabel || "Video"}
           allow={
-            source.allow ||
+            resolvedSource.allow ||
             "autoplay; encrypted-media; picture-in-picture; fullscreen"
           }
           allowFullScreen

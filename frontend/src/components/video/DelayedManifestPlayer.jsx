@@ -375,6 +375,16 @@ export default function DelayedManifestPlayer({
       const playable = normalizeManifestItems(manifest, cdnBase);
       const mStatus =
         typeof manifest?.status === "string" ? manifest.status.trim() : "";
+      const manifestUsesSafeLiveWindow =
+        manifest?.usesSafeLiveWindow === true ||
+        (Boolean(source?.embedUrl) &&
+          !/\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
+            String(source?.embedUrl || ""),
+          ));
+      const manifestRefreshSeconds = Number(manifest?.refreshSeconds);
+      if (Number.isFinite(manifestRefreshSeconds) && manifestRefreshSeconds >= 0) {
+        playlistRefreshSecondsRef.current = manifestRefreshSeconds;
+      }
       setManifestStatus(mStatus);
 
       setItems((previousItems) => {
@@ -385,9 +395,18 @@ export default function DelayedManifestPlayer({
         );
 
         if (!currentKeyRef.current) {
-          const startItem = pickInitialPlaybackItem(merged, {
+          const preferredStartIndex = Number(manifest?.recommendedStartIndex);
+          const preferredStartItem = Number.isFinite(preferredStartIndex)
+            ? merged.find(
+              (item) =>
+                item?.kind === "segment" &&
+                Number(item?.index) === preferredStartIndex,
+            )
+            : null;
+          const startItem = preferredStartItem || pickInitialPlaybackItem(merged, {
             isLive: mStatus !== "final",
-            delaySeconds: source?.delaySeconds,
+            delaySeconds:
+              manifestUsesSafeLiveWindow ? 12 : source?.delaySeconds,
           });
           const nextKey = startItem?.key || merged[0]?.key || "";
           if (nextKey) {
@@ -580,19 +599,19 @@ export default function DelayedManifestPlayer({
         let applied = false;
         let lastError = null;
 
-        if (recordingId || isBackendTempPlaylistSource) {
-          try {
-            applied = await tryFetchBackendPlaylist();
-          } catch (playlistError) {
-            lastError = playlistError;
-          }
-        }
-
-        if (!applied && shouldPreferCdnManifest) {
+        if (shouldPreferCdnManifest) {
           try {
             applied = await tryFetchCdnManifest();
           } catch (manifestError) {
             lastError = manifestError;
+          }
+        }
+
+        if (!applied && (recordingId || isBackendTempPlaylistSource)) {
+          try {
+            applied = await tryFetchBackendPlaylist();
+          } catch (playlistError) {
+            lastError = playlistError;
           }
         }
 

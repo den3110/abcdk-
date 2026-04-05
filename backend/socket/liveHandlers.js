@@ -19,6 +19,7 @@ import { emitTournamentMatchUpdate } from "./tournamentRealtime.js";
 import {
   attachPublicStreamsToMatch,
   getLatestRecordingsByMatchIds,
+  sanitizePublicFacebookLive,
 } from "../services/publicStreams.service.js";
 import { resolveMatchCourtStationFields } from "../services/courtCluster.service.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
@@ -825,34 +826,35 @@ const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);
 
 const normalizeRealtimeFacebookLive = (facebookLive) => {
-  if (!facebookLive || typeof facebookLive !== "object") return null;
+  const sanitized = sanitizePublicFacebookLive(facebookLive);
+  if (!sanitized || typeof sanitized !== "object") return null;
   return {
-    ...facebookLive,
+    ...sanitized,
     permalink_url:
-      facebookLive.permalink_url ||
-      facebookLive.permalinkUrl ||
-      facebookLive.liveUrl ||
-      facebookLive.watch_url ||
-      facebookLive.watchUrl ||
+      sanitized.permalink_url ||
+      sanitized.permalinkUrl ||
+      sanitized.liveUrl ||
+      sanitized.watch_url ||
+      sanitized.watchUrl ||
       "",
     video_permalink_url:
-      facebookLive.video_permalink_url ||
-      facebookLive.videoPermalinkUrl ||
+      sanitized.video_permalink_url ||
+      sanitized.videoPermalinkUrl ||
       "",
     watch_url:
-      facebookLive.watch_url ||
-      facebookLive.watchUrl ||
-      facebookLive.permalink_url ||
-      facebookLive.permalinkUrl ||
-      facebookLive.liveUrl ||
+      sanitized.watch_url ||
+      sanitized.watchUrl ||
+      sanitized.permalink_url ||
+      sanitized.permalinkUrl ||
+      sanitized.liveUrl ||
       "",
     raw_permalink_url:
-      facebookLive.raw_permalink_url ||
-      facebookLive.rawPermalinkUrl ||
+      sanitized.raw_permalink_url ||
+      sanitized.rawPermalinkUrl ||
       "",
     embed_url:
-      facebookLive.embed_url ||
-      facebookLive.embedUrl ||
+      sanitized.embed_url ||
+      sanitized.embedUrl ||
       "",
   };
 };
