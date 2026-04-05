@@ -823,13 +823,11 @@ const CustomSeed = ({
 
       const cardRight = itemRect.right - rootRect.left;
       const gutter = Math.max(rootRect.width - cardRight, 0);
-      const startX = cardRight + Math.max(3, Math.min(6, gutter * 0.3));
-      const endX = seed?.__lastCol
-        ? cardRight + Math.max(4, Math.min(8, gutter * 0.45))
-        : cardRight + Math.max(8, gutter - 4);
+      // Giữ chấm nằm đúng giữa vùng connector để không bị lệch ra ngoài đường.
+      const connectorCenterX = cardRight + gutter * 0.5;
       const progress = clampUnit(liveBranch.progress);
       const nextPosition = {
-        left: startX + (endX - startX) * progress,
+        left: connectorCenterX,
         top: branchStartY + (junctionY - branchStartY) * progress,
       };
 
