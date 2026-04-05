@@ -1875,6 +1875,10 @@ export default function TournamentManagePage() {
     subscribeEvent: "tournament:subscribe",
     unsubscribeEvent: "tournament:unsubscribe",
     payloadKey: "tournamentId",
+    onResync: () => {
+      scheduleBracketsRefetch();
+      scheduleMatchesRefetch();
+    },
   });
 
   const scheduleMatchesRefetch = useCallback(() => {

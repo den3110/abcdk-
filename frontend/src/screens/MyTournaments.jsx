@@ -1065,6 +1065,9 @@ export default function MyTournamentsPage() {
     subscribeEvent: "tournament:subscribe",
     unsubscribeEvent: "tournament:unsubscribe",
     payloadKey: "tournamentId",
+    onResync: () => {
+      refetch?.();
+    },
   });
 
   useEffect(() => {

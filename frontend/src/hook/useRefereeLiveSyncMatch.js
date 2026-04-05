@@ -950,6 +950,11 @@ export function useRefereeLiveSyncMatch(
       netOnlineRef.current = online;
       setDerivedState((prev) => ({ ...prev, online }));
       if (!prevOnline && online) {
+        if (socket?.connected) {
+          socket.emit?.("match:snapshot:request", { matchId });
+        } else {
+          socket?.connect?.();
+        }
         refreshOwnership();
       }
     };
@@ -960,7 +965,7 @@ export function useRefereeLiveSyncMatch(
       window.removeEventListener("online", syncOnlineState);
       window.removeEventListener("offline", syncOnlineState);
     };
-  }, [enabled, matchId, refreshOwnership, setDerivedState]);
+  }, [enabled, matchId, refreshOwnership, setDerivedState, socket]);
 
   useEffect(() => {
     if (!enabled || !matchId || typeof document === "undefined") return;
@@ -969,6 +974,11 @@ export function useRefereeLiveSyncMatch(
       const wasBackground = appStateRef.current !== "visible";
       appStateRef.current = nextState;
       if (nextState === "visible" && wasBackground) {
+        if (socket?.connected) {
+          socket.emit?.("match:snapshot:request", { matchId });
+        } else {
+          socket?.connect?.();
+        }
         refreshOwnership();
       }
       if (nextState !== "visible") {
@@ -979,7 +989,7 @@ export function useRefereeLiveSyncMatch(
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [enabled, matchId, refreshOwnership, release]);
+  }, [enabled, matchId, refreshOwnership, release, socket]);
 
   useEffect(() => {
     if (!enabled || !matchId || !socket) return;
@@ -1095,7 +1105,14 @@ export function useRefereeLiveSyncMatch(
       }
     };
 
+    const onConnect = () => {
+      socket.emit("match:join", { matchId });
+      requestSnapshot();
+      refreshOwnership();
+    };
+
     socket.emit("match:join", { matchId });
+    socket.on("connect", onConnect);
     socket.on("match:snapshot", onSnapshot);
     socket.on("match:update", onUpdate);
     socket.on("score:updated", onScore);
@@ -1104,6 +1121,7 @@ export function useRefereeLiveSyncMatch(
     socket.on("system-settings:update", onSystemSettingsUpdate);
     return () => {
       socket.emit("match:leave", { matchId });
+      socket.off("connect", onConnect);
       socket.off("match:snapshot", onSnapshot);
       socket.off("match:update", onUpdate);
       socket.off("score:updated", onScore);

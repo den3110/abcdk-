@@ -182,10 +182,13 @@ export default function AssignCourtStationDialog({
     },
   );
 
-  useSocketRoomSet(socket, selectedClusterId ? [selectedClusterId] : [], {
+  useSocketRoomSet(socket, open && selectedClusterId ? [selectedClusterId] : [], {
     subscribeEvent: "court-cluster:watch",
     unsubscribeEvent: "court-cluster:unwatch",
     payloadKey: "clusterId",
+    onResync: () => {
+      refetch?.();
+    },
   });
 
   useEffect(() => {

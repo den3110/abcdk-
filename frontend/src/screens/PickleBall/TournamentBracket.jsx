@@ -2298,18 +2298,21 @@ export default function TournamentBracket() {
     data: tour,
     isLoading: l1,
     error: e1,
+    refetch: refetchTour,
   } = useGetTournamentQuery(tourId);
   const displayMode = getTournamentNameDisplayMode(tour);
   const {
     data: bracketsData,
     isLoading: l2,
     error: e2,
+    refetch: refetchBrackets,
   } = useListTournamentBracketsQuery(tourId);
   const brackets = bracketsData ?? EMPTY_LIST;
   const {
     data: allMatchesFetchedData,
     isLoading: l3,
     error: e3,
+    refetch: refetchMatches,
   } = useListTournamentMatchesQuery({ tournamentId: tourId, view: "bracket" });
   const allMatchesFetched = allMatchesFetchedData ?? EMPTY_LIST;
 
@@ -2389,6 +2392,11 @@ export default function TournamentBracket() {
     subscribeEvent: "draw:subscribe",
     unsubscribeEvent: "draw:unsubscribe",
     payloadKey: "bracketId",
+    onResync: () => {
+      refetchTour?.();
+      refetchBrackets?.();
+      refetchMatches?.();
+    },
   });
 
   // useEffect(() => {

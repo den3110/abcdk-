@@ -459,6 +459,8 @@ function ResponsiveMatchViewerBody({
     matchId,
     {
       skip: !matchId || !open,
+      refetchOnFocus: true,
+      refetchOnReconnect: true,
     },
   );
   const activeCourtStationId = useMemo(
@@ -491,6 +493,8 @@ function ResponsiveMatchViewerBody({
     refetch: refetchBase,
   } = useGetMatchPublicQuery(effectiveMatchId, {
     skip: !effectiveMatchId || !open,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
   });
   const { loading: isLoadingLive, data: live } = useLiveMatch(
     open ? effectiveMatchId : null,

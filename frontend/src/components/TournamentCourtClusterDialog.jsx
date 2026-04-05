@@ -485,10 +485,11 @@ function TournamentCourtClusterDialog({
     refetchRuntime?.();
   }, [refetchRuntime]);
 
-  useSocketRoomSet(socket, selectedAllowedId ? [selectedAllowedId] : [], {
+  useSocketRoomSet(socket, open && selectedAllowedId ? [selectedAllowedId] : [], {
     subscribeEvent: "court-cluster:watch",
     unsubscribeEvent: "court-cluster:unwatch",
     payloadKey: "clusterId",
+    onResync: requestRuntimeRefresh,
   });
 
   const stationIdsToWatch = useMemo(() => {
@@ -496,7 +497,7 @@ function TournamentCourtClusterDialog({
     return runtime.stations.map((s) => sid(s?._id)).filter(Boolean);
   }, [runtime?.stations]);
 
-  useSocketRoomSet(socket, stationIdsToWatch, {
+  useSocketRoomSet(socket, open ? stationIdsToWatch : [], {
     subscribeEvent: "court-station:watch",
     unsubscribeEvent: "court-station:unwatch",
     payloadKey: "stationId",

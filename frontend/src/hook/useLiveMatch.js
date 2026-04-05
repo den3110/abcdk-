@@ -48,6 +48,7 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
 
     const requestSnapshot = () =>
       socket.emit?.("match:snapshot:request", { matchId });
+    const joinMatchRoom = () => socket.emit?.("match:join", { matchId });
 
     const isForThisMatch = (payload) => {
       const got = getMatchPayloadId(payload);
@@ -78,6 +79,24 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
       });
     };
 
+    const reconnectOrRefresh = ({ rejoin = false } = {}) => {
+      if (!mountedRef.current) return;
+      if (!socket.connected) {
+        if (!token && !socket.auth?.token && !socket.active) return;
+        try {
+          socket.connect?.();
+        } catch (error) {
+          console.error("[useLiveMatch] reconnect error:", error);
+        }
+        return;
+      }
+      if (rejoin) {
+        joinMatchRoom();
+        return;
+      }
+      requestSnapshot();
+    };
+
     const onSnapshot = (payload) =>
       applyIncoming(payload, { allowLightweight: true });
     const onUpdate = (payload) => applyIncoming(payload);
@@ -97,7 +116,18 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
       });
     };
 
-    socket.emit("match:join", { matchId });
+    const onConnect = () => reconnectOrRefresh({ rejoin: true });
+    const onVisibilityChange = () => {
+      if (typeof document === "undefined") return;
+      if (document.visibilityState === "visible") {
+        reconnectOrRefresh();
+      }
+    };
+    const onOnline = () => reconnectOrRefresh();
+    const onPageShow = () => reconnectOrRefresh();
+
+    joinMatchRoom();
+    socket.on("connect", onConnect);
     socket.on("match:snapshot", onSnapshot);
     socket.on("match:update", onUpdate);
     socket.on("score:updated", onScoreUpdated);
@@ -114,10 +144,18 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
     socket.on("video:set", onPatched);
     socket.on("stream:updated", onPatched);
     socket.on("match:teamsUpdated", onPatched);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", onOnline);
+      window.addEventListener("pageshow", onPageShow);
+    }
 
     return () => {
       mountedRef.current = false;
       socket.emit("match:leave", { matchId });
+      socket.off("connect", onConnect);
       socket.off("match:snapshot", onSnapshot);
       socket.off("match:update", onUpdate);
       socket.off("score:updated", onScoreUpdated);
@@ -134,8 +172,15 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
       socket.off("video:set", onPatched);
       socket.off("stream:updated", onPatched);
       socket.off("match:teamsUpdated", onPatched);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", onOnline);
+        window.removeEventListener("pageshow", onPageShow);
+      }
     };
-  }, [enabled, socket, matchId]);
+  }, [enabled, socket, matchId, token]);
 
   const api = useMemo(
     () => ({

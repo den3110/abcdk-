@@ -224,7 +224,8 @@ export default function TournamentRefereePage() {
   const { data: verifyRes, isLoading: verifying } = useVerifyRefereeQuery(
     id || skipToken,
   );
-  const { data: brackets = [] } = useListTournamentBracketsQuery(id || skipToken);
+  const { data: brackets = [], refetch: refetchBrackets } =
+    useListTournamentBracketsQuery(id || skipToken);
   const {
     data: matchesResp,
     isLoading,
@@ -292,6 +293,11 @@ export default function TournamentRefereePage() {
     subscribeEvent: "tournament:subscribe",
     unsubscribeEvent: "tournament:unsubscribe",
     payloadKey: "tournamentId",
+    onResync: () => {
+      refetchTournament?.();
+      refetchBrackets?.();
+      queueRefetch();
+    },
   });
   useSocketRoomSet(socket, watchedStationIds, {
     subscribeEvent: "court-station:watch",

@@ -375,9 +375,9 @@ export default function DelayedManifestPlayer({
         ? source.meta.recordingId.trim()
         : "";
     const isFinishedSource =
+      !showLiveBadge ||
       String(source?.meta?.status || "").toLowerCase() === "final" ||
-      String(source?.meta?.status || "").toLowerCase() === "finished" ||
-      String(source?.meta?.status || "").toLowerCase() === "ready";
+      String(source?.meta?.status || "").toLowerCase() === "finished";
     const sourceManifestUrl =
       typeof source?.embedUrl === "string" ? source.embedUrl.trim() : "";
     const isBackendTempPlaylistSource =
@@ -388,6 +388,9 @@ export default function DelayedManifestPlayer({
       Boolean(sourceManifestUrl) && !isBackendTempPlaylistSource;
 
     const buildPlaylistUrl = () => {
+      if (isBackendTempPlaylistSource && sourceManifestUrl) {
+        return sourceManifestUrl;
+      }
       if (!recordingId) return "";
       const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
       return `${apiBase}/api/live/recordings/v2/${recordingId}/temp/playlist`;
@@ -495,15 +498,7 @@ export default function DelayedManifestPlayer({
         let applied = false;
         let lastError = null;
 
-        if (shouldPreferCdnManifest) {
-          try {
-            applied = await tryFetchCdnManifest();
-          } catch (manifestError) {
-            lastError = manifestError;
-          }
-        }
-
-        if (!applied && recordingId) {
+        if (recordingId || isBackendTempPlaylistSource) {
           try {
             applied = await tryFetchBackendPlaylist();
           } catch (playlistError) {
@@ -511,7 +506,7 @@ export default function DelayedManifestPlayer({
           }
         }
 
-        if (!applied && !shouldPreferCdnManifest && sourceManifestUrl) {
+        if (!applied && shouldPreferCdnManifest) {
           try {
             applied = await tryFetchCdnManifest();
           } catch (manifestError) {
@@ -564,6 +559,7 @@ export default function DelayedManifestPlayer({
     };
   }, [
     clearWarmupResources,
+    showLiveBadge,
     source?.embedUrl,
     source?.disabledReason,
     source?.meta?.refreshSeconds,

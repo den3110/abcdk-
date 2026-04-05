@@ -122,6 +122,39 @@ export function SocketProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const reconnectIfNeeded = () => {
+      if (!token && !allowAnonymousConnect) return;
+      if (socket.connected) return;
+      try {
+        socket.connect();
+      } catch (error) {
+        console.error("[SocketProvider] reconnect error:", error);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        reconnectIfNeeded();
+      }
+    };
+
+    const onOnline = () => reconnectIfNeeded();
+    const onPageShow = () => reconnectIfNeeded();
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [token, allowAnonymousConnect]);
+
   return (
     <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>
   );

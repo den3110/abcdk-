@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 // src/pages/TournamentDashboard.jsx
-import { useState, useEffect, useMemo, memo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -339,27 +339,47 @@ export default function TournamentDashboard() {
     [counts, dateRange, debouncedKeyword, filtered, statusMeta, tab, translate],
   );
 
+  const setActiveTab = useCallback(
+    (nextTab) => {
+      if (!TABS.includes(String(nextTab || ""))) return;
+
+      setTab(nextTab);
+      setParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          p.set("status", nextTab);
+          skipNextParamsSync.current = true;
+          return p;
+        },
+        { replace: true },
+      );
+    },
+    [setParams],
+  );
+
+  const handleStatBoxKeyDown = useCallback(
+    (event, nextTab) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setActiveTab(nextTab);
+      }
+    },
+    [setActiveTab],
+  );
+
   const chatBotActionHandlers = useMemo(
     () => ({
       tab: (nextValue) => {
         const nextTab = TABS.includes(String(nextValue || ""))
           ? String(nextValue)
           : "upcoming";
-        setTab(nextTab);
-        setParams(
-          (prev) => {
-            const nextParams = new URLSearchParams(prev);
-            nextParams.set("status", nextTab);
-            return nextParams;
-          },
-          { replace: true },
-        );
+        setActiveTab(nextTab);
       },
       search: (nextValue) => {
         setKeyword(String(nextValue || ""));
       },
     }),
-    [setParams],
+    [setActiveTab],
   );
 
   const chatBotCapabilityKeys = useMemo(
@@ -381,15 +401,7 @@ export default function TournamentDashboard() {
   });
 
   const handleChangeTab = (_, v) => {
-    setTab(v);
-    setParams(
-      (prev) => {
-        const p = new URLSearchParams(prev);
-        p.set("status", v);
-        return p;
-      },
-      { replace: true },
-    );
+    setActiveTab(v);
   };
 
   const formatDate = (d) =>
@@ -808,7 +820,24 @@ export default function TournamentDashboard() {
               sx={{
                 borderColor: "success.main",
                 bgcolor: alpha(theme.palette.success.main, 0.05),
+                cursor: "pointer",
+                transition: "transform 0.16s ease, box-shadow 0.16s ease",
+                boxShadow:
+                  tab === "ongoing" ? theme.shadows[3] : theme.shadows[1],
+                "&:hover": {
+                  transform: "translateY(-2px)",
+                  boxShadow: theme.shadows[3],
+                },
+                "&:focus-visible": {
+                  outline: `2px solid ${theme.palette.success.main}`,
+                  outlineOffset: 2,
+                },
               }}
+              role="button"
+              tabIndex={0}
+              aria-pressed={tab === "ongoing"}
+              onClick={() => setActiveTab("ongoing")}
+              onKeyDown={(event) => handleStatBoxKeyDown(event, "ongoing")}
             >
               <Typography
                 variant="caption"
@@ -826,7 +855,24 @@ export default function TournamentDashboard() {
               sx={{
                 borderColor: "info.main",
                 bgcolor: alpha(theme.palette.info.main, 0.05),
+                cursor: "pointer",
+                transition: "transform 0.16s ease, box-shadow 0.16s ease",
+                boxShadow:
+                  tab === "upcoming" ? theme.shadows[3] : theme.shadows[1],
+                "&:hover": {
+                  transform: "translateY(-2px)",
+                  boxShadow: theme.shadows[3],
+                },
+                "&:focus-visible": {
+                  outline: `2px solid ${theme.palette.info.main}`,
+                  outlineOffset: 2,
+                },
               }}
+              role="button"
+              tabIndex={0}
+              aria-pressed={tab === "upcoming"}
+              onClick={() => setActiveTab("upcoming")}
+              onKeyDown={(event) => handleStatBoxKeyDown(event, "upcoming")}
             >
               <Typography variant="caption" fontWeight={700} color="info.main">
                 {translate("tournaments.dashboard.upcomingCount")}

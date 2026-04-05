@@ -551,21 +551,16 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       (server2.status === "final" ||
         server2.sourceCleanupCompleted ||
         !hasSegmentManifest);
-    const useHlsMode =
-      !useFileMode &&
-      Boolean(hlsUrl) &&
-      server2.status !== "final" &&
-      !server2.sourceCleanupCompleted;
+    // Server 2 currently exposes browser-recorded MP4 chunks before the final
+    // merged file is ready. Rendering those chunks through HLS has been
+    // unstable on the public web viewer, so keep the web path on the delayed
+    // manifest player until we have a final playback file.
     const playbackKind = useFileMode
       ? "file"
-      : useHlsMode
-        ? "hls"
-        : "delayed_manifest";
+      : "delayed_manifest";
     const playbackUrl = useFileMode
       ? server2.finalPlaybackUrl
-      : useHlsMode
-        ? hlsUrl
-        : server2.manifestUrl;
+      : server2.manifestUrl;
 
     pushUniqueStream(streams, {
       key: server2.key,

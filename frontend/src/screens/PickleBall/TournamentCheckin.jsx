@@ -285,6 +285,12 @@ export default function TournamentCheckin() {
     subscribeEvent: "tournament:subscribe",
     unsubscribeEvent: "tournament:unsubscribe",
     payloadKey: "tournamentId",
+    onResync: () => {
+      refetchTour?.();
+      refetchRegs?.();
+      refetchMatches?.();
+      if (submittedQ) refetchSearch?.();
+    },
   });
 
   useEffect(() => {
