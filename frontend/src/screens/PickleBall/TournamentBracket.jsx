@@ -1141,7 +1141,7 @@ CustomSeed.propTypes = {
 };
 
 const DOUBLE_ELIM_GF_GAP = 40;
-const DOUBLE_ELIM_GF_RIGHT_PADDING = 120;
+const DOUBLE_ELIM_GF_RIGHT_PADDING = 24;
 const DOUBLE_ELIM_CONNECTOR_COLOR = "#707070";
 const DOUBLE_ELIM_CONNECTOR_STROKE_WIDTH = 0.9;
 const DOUBLE_ELIM_CUSTOM_CARD_WIDTH = SEED_CARD_W;
@@ -1693,6 +1693,12 @@ function DoubleElimBracketLayout({
         const upperTargetY = top + DOUBLE_ELIM_CUSTOM_CARD_TEAM_A_CENTER_Y;
         const lowerTargetY = top + DOUBLE_ELIM_CUSTOM_CARD_TEAM_B_CENTER_Y;
 
+        const contentRight = Math.max(
+          winnersNode.right,
+          losersNode.right,
+          cardLeft + DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+        );
+
         const nextLayout = {
           left: Math.max(0, cardLeft),
           top,
@@ -1710,7 +1716,7 @@ function DoubleElimBracketLayout({
             lowerTargetY,
             bendX,
           ),
-          canvasWidth: Math.max(wrapperNode.scrollWidth, cardLeft + DOUBLE_ELIM_CUSTOM_CARD_WIDTH + 24),
+          canvasWidth: contentRight + DOUBLE_ELIM_GF_RIGHT_PADDING,
           canvasHeight: Math.max(wrapperNode.scrollHeight, top + DOUBLE_ELIM_CUSTOM_CARD_HEIGHT + 24),
         };
 
@@ -1737,9 +1743,9 @@ function DoubleElimBracketLayout({
         ref={wrapperRef}
         sx={{
           position: "relative",
-          width: "max-content",
+          width: layout ? `${layout.canvasWidth}px` : "max-content",
           minWidth: "100%",
-          pr: `${DOUBLE_ELIM_GF_RIGHT_PADDING}px`,
+          pr: 0,
           pb: 1,
           transform: `scale(${zoom})`,
           transformOrigin: "0 0",
@@ -1814,7 +1820,7 @@ function DoubleElimBracketLayout({
               {losersLayout.columns.map((column) => (
                 <Typography
                   key={`${column.title}-${column.x}`}
-                  variant="h5"
+                  variant="subtitle1"
                   color="text.secondary"
                   sx={{
                     position: "absolute",
@@ -1822,7 +1828,12 @@ function DoubleElimBracketLayout({
                     left: column.x,
                     width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
                     textAlign: "center",
-                    fontWeight: 400,
+                    fontWeight: 500,
+                    fontSize: "1rem",
+                    lineHeight: 1.2,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
                   }}
                 >
                   {column.title}
@@ -3692,13 +3703,19 @@ export default function TournamentBracket() {
   const openMatch = (m) => {
     if (!m || isByeMatchObj(m)) return; // chặn mở nếu BYE
     setActiveMatchId(m._id);
-    setActiveMatchPreview(m);
+    setActiveMatchPreview({
+      ...m,
+      displayCode: getDisplayCodeForMatch(m) || m?.displayCode || "",
+    });
     setOpen(true);
   };
   const openMatchModal = (m) => {
     if (!m) return;
     setActiveMatchId(m._id);
-    setActiveMatchPreview(m);
+    setActiveMatchPreview({
+      ...m,
+      displayCode: getDisplayCodeForMatch(m) || m?.displayCode || "",
+    });
     setOpen(true);
   };
   const closeMatch = () => setOpen(false);

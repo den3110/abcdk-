@@ -346,6 +346,16 @@ const resolveGroupIndex = (m, brackets) => {
 
 const makeMatchCode = (m, brackets) => {
   if (!m) return "";
+
+  const explicitDisplayCode = [
+    m?.displayCode,
+    m?.meta?.displayCode,
+    m?.labelKey,
+  ]
+    .map(extractDisplayCodeText)
+    .find(Boolean);
+  if (explicitDisplayCode) return explicitDisplayCode;
+
   const br = getBracketForMatch(m, brackets);
   const currentBracketId = br?._id || m?.bracket?._id || m?.bracket || null;
 
