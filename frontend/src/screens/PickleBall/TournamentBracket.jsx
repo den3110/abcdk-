@@ -1403,6 +1403,7 @@ function DoubleElimSeedShell({
           rowGap: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP}px`,
           flex: 1,
           minHeight: 0,
+          justifyItems: "stretch",
         }}
       >
         <Stack
@@ -1412,8 +1413,15 @@ function DoubleElimSeedShell({
           sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
         >
           <Typography
+            component="span"
             variant="body2"
-            sx={{ fontWeight: winA ? 800 : 700, minWidth: 0, flex: 1 }}
+            sx={{
+              fontWeight: winA ? 800 : 700,
+              minWidth: 0,
+              flex: 1,
+              display: "block",
+              textAlign: "left",
+            }}
             noWrap
           >
             {nameA}
@@ -1430,8 +1438,15 @@ function DoubleElimSeedShell({
           sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
         >
           <Typography
+            component="span"
             variant="body2"
-            sx={{ fontWeight: winB ? 800 : 700, minWidth: 0, flex: 1 }}
+            sx={{
+              fontWeight: winB ? 800 : 700,
+              minWidth: 0,
+              flex: 1,
+              display: "block",
+              textAlign: "left",
+            }}
             noWrap
           >
             {nameB}
