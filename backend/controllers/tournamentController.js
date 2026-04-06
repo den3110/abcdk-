@@ -18,6 +18,7 @@ import {
   buildTeamRoster,
   buildTeamStandings,
 } from "../services/teamTournament.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const normalizeTournamentPublicUrls = async (req, tournament) => {
@@ -1907,9 +1908,19 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       return ord + 1;
     };
 
+    const normalizedList = listRaw.map((rawMatch) =>
+      normalizeMatchDisplayShape(rawMatch),
+    );
+    const matchesByBracketId = new Map();
+    for (const match of normalizedList) {
+      const bracketId = String(match?.bracket?._id || match?.bracket || "");
+      if (!bracketId) continue;
+      if (!matchesByBracketId.has(bracketId)) matchesByBracketId.set(bracketId, []);
+      matchesByBracketId.get(bracketId).push(match);
+    }
+
     // ---- flatten + FINAL CODE ----
-    const list = listRaw.map((rawMatch) => {
-      const m = normalizeMatchDisplayShape(rawMatch);
+    const list = normalizedList.map((m) => {
       const br = m.bracket || {};
       const bid = String(br?._id || "");
       const groupStage = isGroupish(br?.type);
@@ -1922,14 +1933,20 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         : 1;
       const globalRound = base + localRound; // KO ngay sau group => 2
 
-      let displayCode;
-      if (groupStage) {
-        const bNo = getGroupNo(m, br);
-        const T = getGroupT(m);
-        displayCode = `V1-${bNo ? `B${bNo}` : "B?"}-T${T}`;
-      } else {
-        const T = getNonGroupT(m);
-        displayCode = `V${globalRound}-T${T}`;
+      const codePayload = buildMatchCodePayload(m, {
+        baseByBracketId,
+        matchesByBracketId,
+      });
+      let displayCode = String(codePayload?.displayCode || "").trim();
+      if (!displayCode) {
+        if (groupStage) {
+          const bNo = getGroupNo(m, br);
+          const T = getGroupT(m);
+          displayCode = `V1-${bNo ? `B${bNo}` : "B?"}-T${T}`;
+        } else {
+          const T = getNonGroupT(m);
+          displayCode = `V${globalRound}-T${T}`;
+        }
       }
 
       const globalCode = `V${globalRound}`;

@@ -1,5 +1,11 @@
 const NORMALIZED_MATCH_CODE_RE = /^V\d+(?:-B\d+)?-T\d+$/i;
 const GROUPISH_TYPES = new Set(["group", "round_robin", "gsl"]);
+const DOUBLE_ELIM_TYPES = new Set([
+  "double_elim",
+  "double-elim",
+  "doubleelim",
+  "double_elimination",
+]);
 
 function toPositiveInt(value) {
   const number = Number(value);
@@ -20,6 +26,10 @@ function typeKey(value) {
 
 export function isGroupishBracketType(value) {
   return GROUPISH_TYPES.has(typeKey(value));
+}
+
+function isDoubleElimBracketType(value) {
+  return DOUBLE_ELIM_TYPES.has(typeKey(value));
 }
 
 function letterToIndex(value) {
@@ -163,6 +173,154 @@ function isGroupLike(match) {
   );
 }
 
+function normalizeDoubleElimBranch(match) {
+  const branch = String(match?.branch || "").trim().toLowerCase();
+  const phase = String(match?.phase || "").trim().toLowerCase();
+  if (branch === "gf" || phase === "grand_final") return "gf";
+  if (branch === "lb" || phase === "losers") return "lb";
+  return "wb";
+}
+
+function readDoubleElimConfiguredScale(bracket) {
+  const directCandidates = [
+    bracket?.meta?.drawSize,
+    bracket?.config?.blueprint?.drawSize,
+    bracket?.config?.doubleElim?.drawSize,
+    bracket?.config?.roundElim?.drawSize,
+    bracket?.drawSize,
+  ];
+
+  for (const candidate of directCandidates) {
+    const positive = toPositiveInt(candidate);
+    if (positive) return positive;
+  }
+
+  const prefillSeeds = Array.isArray(bracket?.prefill?.seeds)
+    ? bracket.prefill.seeds.length * 2
+    : 0;
+  if (prefillSeeds > 0) return prefillSeeds;
+
+  const expectedFirstRoundMatches = toPositiveInt(
+    bracket?.meta?.expectedFirstRoundMatches,
+  );
+  if (expectedFirstRoundMatches) return expectedFirstRoundMatches * 2;
+
+  return 0;
+}
+
+function resolveDoubleElimDisplayCode(match, options = {}) {
+  const bracketId = extractBracketId(match);
+  if (!bracketId) return "";
+
+  const matchesByBracketId =
+    options?.matchesByBracketId instanceof Map ? options.matchesByBracketId : null;
+  const matchesOfBracket = Array.isArray(options?.matchesOfBracket)
+    ? options.matchesOfBracket
+    : matchesByBracketId?.get(bracketId) || [];
+  if (!matchesOfBracket.length) return "";
+
+  const activeMatches = matchesOfBracket
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(a?.round || 1) - Number(b?.round || 1) ||
+        Number(a?.order || 0) - Number(b?.order || 0),
+    );
+
+  const winnersMatches = activeMatches.filter(
+    (item) => normalizeDoubleElimBranch(item) === "wb",
+  );
+  const losersMatches = activeMatches.filter(
+    (item) => normalizeDoubleElimBranch(item) === "lb",
+  );
+  const grandFinalMatches = activeMatches.filter(
+    (item) => normalizeDoubleElimBranch(item) === "gf",
+  );
+
+  const uniqueWinnerRounds = Array.from(
+    new Set(
+      winnersMatches
+        .map((item) => Number(item?.round || 1))
+        .filter(Number.isFinite),
+    ),
+  ).sort((a, b) => a - b);
+  const uniqueLoserRounds = Array.from(
+    new Set(
+      losersMatches
+        .map((item) => Number(item?.round || 1))
+        .filter(Number.isFinite),
+    ),
+  ).sort((a, b) => a - b);
+  const uniqueGrandFinalRounds = Array.from(
+    new Set(
+      grandFinalMatches
+        .map((item) => Number(item?.round || 1))
+        .filter(Number.isFinite),
+    ),
+  ).sort((a, b) => a - b);
+
+  const winnerRoundMap = new Map(
+    uniqueWinnerRounds.map((roundNo, index) => [roundNo, index + 1]),
+  );
+  const loserRoundMap = new Map(
+    uniqueLoserRounds.map((roundNo, index) => [roundNo, index + 1]),
+  );
+  const grandFinalRoundMap = new Map(
+    uniqueGrandFinalRounds.map((roundNo, index) => [roundNo, index + 1]),
+  );
+
+  const firstWinnerPairs = uniqueWinnerRounds.length
+    ? winnersMatches.filter(
+        (item) => Number(item?.round || 1) === uniqueWinnerRounds[0],
+      ).length
+    : 0;
+  const firstLoserPairs = uniqueLoserRounds.length
+    ? losersMatches.filter(
+        (item) => Number(item?.round || 1) === uniqueLoserRounds[0],
+      ).length
+    : 0;
+
+  const configuredScale = readDoubleElimConfiguredScale(
+    match?.bracket || matchesOfBracket[0]?.bracket || {},
+  );
+  const scaleForDoubleElim =
+    configuredScale ||
+    firstWinnerPairs * 2 ||
+    Math.max(4, firstLoserPairs * 4) ||
+    4;
+  const startDrawSize = Math.max(4, firstLoserPairs * 4 || 4);
+  const startWinnersRoundIndex = Math.max(
+    1,
+    Math.round(Math.log2(Math.max(1, scaleForDoubleElim / startDrawSize))) + 1,
+  );
+
+  const baseByBracketId =
+    options?.baseByBracketId instanceof Map ? options.baseByBracketId : null;
+  const baseRoundStart = baseByBracketId
+    ? (Number(baseByBracketId.get(bracketId)) || 0) + 1
+    : 1;
+  const losersBaseRound = baseRoundStart + startWinnersRoundIndex - 1;
+  const grandFinalBaseRound =
+    losersBaseRound + Math.max(1, uniqueLoserRounds.length);
+
+  const branch = normalizeDoubleElimBranch(match);
+  const order = Number(match?.order || 0) + 1;
+  const roundNo = Number(match?.round || 1);
+
+  if (branch === "lb") {
+    const localRound = loserRoundMap.get(roundNo) || 1;
+    return `V${losersBaseRound + localRound - 1}-NT-T${order}`;
+  }
+
+  if (branch === "gf") {
+    const localRound = grandFinalRoundMap.get(roundNo) || 1;
+    return `V${grandFinalBaseRound + localRound - 1}-T${order}`;
+  }
+
+  const localRound = winnerRoundMap.get(roundNo) || 1;
+  return `V${baseRoundStart + localRound - 1}-T${order}`;
+}
+
 function resolveGlobalRound(match, groupLike, options = {}) {
   if (groupLike) return 1;
 
@@ -228,6 +386,10 @@ export function buildMatchDisplayMeta(match, options = {}) {
     computedDisplayCode = poolIndex
       ? `V1-B${poolIndex}-T${matchOrder}`
       : `V1-T${matchOrder}`;
+  } else if (isDoubleElimBracketType(match?.bracket?.type || match?.format)) {
+    computedDisplayCode =
+      resolveDoubleElimDisplayCode(match, options) ||
+      (globalRound ? `V${globalRound}-T${matchOrder}` : "");
   } else if (globalRound) {
     computedDisplayCode = `V${globalRound}-T${matchOrder}`;
   }

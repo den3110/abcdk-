@@ -23,6 +23,7 @@ import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.ser
 import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 // controllers/matchController.js
 
 function isFacebookVideoUrl(url) {
@@ -1603,7 +1604,31 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     const bType =
       typeMap.get(String(m?.bracket?._id || "")) || m?.bracket?.type;
     m.labelKeyDisplay = displayLabelKey(m.labelKey, bType);
-    m.codeDisplay = computeCodeDisplay(m, offsetMap, typeMap);
+    let matchesByBracketId = null;
+    if (String(bType || "").trim().toLowerCase() === "double_elim" && m?.bracket?._id) {
+      const bracketId = String(m.bracket._id);
+      const bracketMatches = await Match.find({ bracket: bracketId })
+        .select("_id bracket round order branch phase format labelKey displayCode code meta matchNo index stageIndex")
+        .lean();
+
+      matchesByBracketId = new Map([
+        [
+          bracketId,
+          bracketMatches.map((item) => ({
+            ...item,
+            bracket: m.bracket,
+          })),
+        ],
+      ]);
+    }
+
+    const codePayload = buildMatchCodePayload(m, {
+      baseByBracketId: offsetMap,
+      matchesByBracketId,
+    });
+    m.codeDisplay =
+      String(codePayload?.displayCode || "").trim() ||
+      computeCodeDisplay(m, offsetMap, typeMap);
   } catch (e) {
     // fallback an toàn nếu có lỗi
     const bType = m?.bracket?.type;

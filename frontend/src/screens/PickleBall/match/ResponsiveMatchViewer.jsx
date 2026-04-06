@@ -547,7 +547,26 @@ function ResponsiveMatchViewerBody({
       skip: !open || !tournamentId,
     });
 
-  const code = mm ? makeMatchCode(mm, brackets) : "";
+  const code = useMemo(() => {
+    const previewCode = extractDisplayCodeText(
+      initialMatch?.displayCode ||
+        initialMatch?.meta?.displayCode ||
+        initialMatch?.labelKey ||
+        initialMatch?.code ||
+        initialMatch?.globalCode ||
+        "",
+    );
+
+    const isSameLockedMatch =
+      String(initialMatch?._id || initialMatch?.id || "") &&
+      String(initialMatch?._id || initialMatch?.id || "") ===
+        String(mm?._id || mm?.id || effectiveMatchId || "");
+
+    if (isSameLockedMatch && previewCode) return previewCode;
+
+    const mergedCode = mm ? makeMatchCode(mm, brackets) : "";
+    return mergedCode || previewCode || "";
+  }, [brackets, effectiveMatchId, initialMatch, mm]);
   const status = mm?.status || "scheduled";
 
   useEffect(() => {
