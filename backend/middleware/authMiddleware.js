@@ -6,6 +6,7 @@ import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import mongoose from "mongoose";
+import { extractBearerToken } from "../utils/authToken.js";
 
 const isValidId = (v) => !!v && mongoose.isValidObjectId(String(v));
 
@@ -16,8 +17,8 @@ const isValidId = (v) => !!v && mongoose.isValidObjectId(String(v));
  * -------------------------------------------------------- */
 function extractToken(req) {
   // 1) Ưu tiên Header (trong trường hợp test bằng Postman/curl có set Header thủ công)
-  const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  const headerToken = extractBearerToken(req.headers?.authorization);
+  if (headerToken) return headerToken;
 
   // 2) Fallback Cookie
   if (req.cookies?.jwt) return req.cookies.jwt;
@@ -67,8 +68,9 @@ export const protect = asyncHandler(async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded?.userId || decoded?.id || decoded?._id;
     // Gắn user (đã có .role) vào req
-    req.user = await User.findById(decoded.userId).select("-password");
+    req.user = await User.findById(userId).select("-password");
 
     if (!req.user) {
       res.status(401);
@@ -84,15 +86,7 @@ export const protect = asyncHandler(async (req, res, next) => {
 });
 
 export const protectJwt = asyncHandler(async (req, res, next) => {
-  let token;
-
-  // 1. Extract Bearer token from Authorization header
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer ")
-  ) {
-    token = req.headers.authorization.split(" ")[1];
-  }
+  const token = extractBearerToken(req.headers?.authorization);
 
   if (!token) {
     res.status(401);
@@ -102,8 +96,9 @@ export const protectJwt = asyncHandler(async (req, res, next) => {
   try {
     // 2. Verify & decode
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded?.userId || decoded?.id || decoded?._id;
     // 3. Lookup user in DB (exclude password)
-    const user = await User.findById(decoded.userId).select("-password");
+    const user = await User.findById(userId).select("-password");
     if (!user) {
       res.status(401);
       throw new Error("Not authorized — user not found");
@@ -212,11 +207,9 @@ export const canScore = asyncHandler(async (req, res, next) => {
 
 export async function optionalAuth(req, res, next) {
   try {
-    let token = null;
+    let token = extractBearerToken(req.headers?.authorization);
 
-    if (req.headers.authorization?.startsWith("Bearer ")) {
-      token = req.headers.authorization.split(" ")[1];
-    } else if (req.cookies?.jwt) {
+    if (!token && req.cookies?.jwt) {
       token = req.cookies.jwt;
     }
 
@@ -459,16 +452,7 @@ export const isManagerOrTournamentReferee = asyncHandler(
 );
 
 export const attachJwtIfPresent = asyncHandler(async (req, res, next) => {
-  let token = null;
-
-  // 1️⃣ Ưu tiên lấy từ Authorization header
-  const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) {
-    const parts = auth.split(" ");
-    if (parts.length === 2 && parts[1]) {
-      token = parts[1];
-    }
-  }
+  let token = extractBearerToken(req.headers?.authorization);
   // 2️⃣ Nếu chưa có thì lấy từ cookies
   //    Đổi tên accessToken / jwt cho khớp với cookie của bạn
   if (!token && req.cookies) {

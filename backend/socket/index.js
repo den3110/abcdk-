@@ -5,6 +5,7 @@ import { createClient } from "redis";
 import IORedis from "ioredis";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import { extractBearerToken } from "../utils/authToken.js";
 import {
   startMatch,
   addPoint,
@@ -1471,14 +1472,11 @@ export function initSocket(
   }
   io.use((socket, next) => {
     try {
-      const rawAuth = socket.handshake.auth?.token || "";
-      const rawHeader = socket.handshake.headers?.authorization || "";
-      const headerToken = rawHeader.startsWith("Bearer ")
-        ? rawHeader.slice(7)
-        : null;
-      const token = rawAuth.startsWith("Bearer ")
-        ? rawAuth.slice(7)
-        : rawAuth || headerToken;
+      const rawAuth = String(socket.handshake.auth?.token || "").trim();
+      const headerToken = extractBearerToken(
+        socket.handshake.headers?.authorization,
+      );
+      const token = extractBearerToken(rawAuth) || rawAuth || headerToken;
       if (!token) {
         socket.user = null;
         socket.data.userId = null;

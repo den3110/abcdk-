@@ -2,6 +2,7 @@
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";           // ⚠️ path này đúng với cấu trúc backend hiện tại
 import { createLoaders } from "./loaders/index.js";
+import { extractBearerToken } from "../utils/authToken.js";
 
 export async function buildContext({ req }) {
   const loaders = createLoaders();
@@ -11,19 +12,17 @@ export async function buildContext({ req }) {
 
   // 2) Nếu chưa có user thì thử đọc Authorization: Bearer <token>
   if (!user) {
-    const authHeader = req.headers.authorization || "";
-    if (authHeader.startsWith("Bearer ")) {
-      const token = authHeader.substring(7).trim();
-      if (token) {
-        try {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET);
-          if (decoded?.id) {
-            user = await User.findById(decoded.id).select("-password");
-          }
-        } catch (err) {
-          console.warn("[GraphQL] Invalid JWT in Authorization header:", err.message);
-          // ❗ KHÔNG throw – cứ để user = null, query me sẽ trả null chứ không crash
+    const token = extractBearerToken(req.headers?.authorization);
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded?.userId || decoded?.id || decoded?._id;
+        if (userId) {
+          user = await User.findById(userId).select("-password");
         }
+      } catch (err) {
+        console.warn("[GraphQL] Invalid JWT in Authorization header:", err.message);
+        // ❗ KHÔNG throw – cứ để user = null, query me sẽ trả null chứ không crash
       }
     }
   }
