@@ -372,7 +372,7 @@ async function prepareRecordingOutputUpload(recording, outputPath) {
     throw new Error("Google Drive recording output is disabled");
   }
   if (!driveStatus.connected) {
-    throw new Error(driveStatus.message || "My Drive OAuth chua ket noi");
+    throw new Error(driveStatus.message || "My Drive OAuth chưa kết nối");
   }
   if (!driveStatus.configured || !driveStatus.ready) {
     throw new Error(

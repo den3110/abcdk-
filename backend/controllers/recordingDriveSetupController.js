@@ -36,7 +36,7 @@ async function makeRecordingDriveOAuth(req) {
 
   if (!id || !secret || !redirect) {
     throw new Error(
-      "Thi?u GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET / GOOGLE_REDIRECT_DRIVE_URI trong System Config cho recording drive",
+      "Thiếu GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET / GOOGLE_REDIRECT_DRIVE_URI trong System Config cho Recording Drive",
     );
   }
 
@@ -78,7 +78,7 @@ export async function recordingDriveOAuthCallback(req, res) {
       return res
         .status(400)
         .send(
-          "Google kh?ng tr? refresh_token. H?y Remove access r?i k?t n?i l?i.",
+          "Google không trả về refresh_token. Hãy Remove access rồi kết nối lại.",
         );
     }
 
@@ -129,51 +129,66 @@ export async function recordingDriveOAuthCallback(req, res) {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).catch(() => null);
 
-    const html = `
-<!doctype html><meta charset="utf-8" />
-<body style="font-family:system-ui;padding:24px">
-  <h3>K?t n?i Google Drive recording th?nh c?ng</h3>
-  <p>Popup s? t? ??ng ??ng trong gi?y l?t.</p>
-  <button
-    id="close-btn"
-    type="button"
-    style="display:none;margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#1976d2;color:#fff;cursor:pointer"
-  >
-    Dong cua so
-  </button>
+    const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kết nối Google Drive</title>
+  <style>
+    body { font-family: "Inter", system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f8fafc; color: #0f172a; text-align: center; padding: 24px; box-sizing: border-box; }
+    h3 { font-size: 24px; font-weight: 700; margin-bottom: 8px; color: #1e293b; }
+    p { font-size: 16px; color: #64748b; margin-bottom: 24px; }
+    .btn { display: none; padding: 10px 20px; font-size: 14px; font-weight: 600; color: #fff; background-color: #3b82f6; border: none; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.4); }
+    .btn:hover { background-color: #2563eb; }
+    .loader { border: 3px solid #e2e8f0; border-top: 3px solid #3b82f6; border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; margin-bottom: 20px; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="loader" id="loader"></div>
+  <h3>Kết nối Google Drive thành công</h3>
+  <p>Cửa sổ này sẽ tự động đóng trong giây lát...</p>
+  <button id="close-btn" class="btn" type="button">Đóng cửa sổ</button>
   <script>
     (function () {
       function closeSelf() {
-        try { window.open("", "_self"); } catch (_) {}
-        try { window.close(); } catch (_) {}
+        try {
+          if (window.opener && typeof window.opener.postMessage === "function") {
+            window.opener.postMessage({ type: "recording-drive-auth-done", ok: true }, "*");
+          }
+        } catch (e) {}
+        
+        try { window.opener = null; } catch (e) {}
+        try { window.open("", "_self"); } catch (e) {}
+        try { window.close(); } catch (e) {}
       }
-
-      try {
-        if (window.opener) {
-          window.opener.postMessage({ type: "recording-drive-auth-done", ok: true }, "*");
-        }
-      } catch (_) {}
 
       var attempts = 0;
       var timer = setInterval(function () {
-        attempts += 1;
-        closeSelf();
-        if (window.closed || attempts >= 8) {
+        attempts++;
+        if (attempts === 1) closeSelf(); 
+        
+        if (window.closed || attempts > 10) {
           clearInterval(timer);
+        } else {
+          closeSelf();
         }
-      }, 300);
+      }, 500);
 
       setTimeout(function () {
         var btn = document.getElementById("close-btn");
-        if (btn) {
-          btn.style.display = "inline-block";
-          btn.addEventListener("click", closeSelf);
-        }
-      }, 1800);
+        var loader = document.getElementById("loader");
+        if (btn) btn.style.display = "inline-block";
+        if (loader) loader.style.display = "none";
+        if (btn) btn.addEventListener("click", closeSelf);
+      }, 2000);
     })();
   </script>
-</body>`;
-    return res.send(html);
+</body>
+</html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.status(200).send(html);
   } catch (e) {
     return res
       .status(500)
@@ -186,17 +201,17 @@ export async function recordingDrivePickerSession(req, res) {
     const runtimeConfig = await getRecordingDriveRuntimeConfig();
     if (runtimeConfig.mode !== "oauthUser") {
       return res.status(400).json({
-        message: "Recording Drive ?ang ? mode service account.",
+        message: "Recording Drive đang ở chế độ service account.",
       });
     }
     if (!runtimeConfig.refreshToken) {
       return res.status(400).json({
-        message: "My Drive OAuth ch?a k?t n?i.",
+        message: "My Drive OAuth chưa kết nối.",
       });
     }
     if (runtimeConfig.useModernPickerFlow === false) {
       return res.status(400).json({
-        message: "?ang d?ng flow OAuth c?. B?t flow m?i ?? d?ng Google Picker.",
+        message: "Đang dùng flow OAuth cũ. Bật flow mới để dùng Google Picker.",
       });
     }
 
@@ -215,7 +230,7 @@ export async function recordingDrivePickerSession(req, res) {
     );
 
     if (!accessToken) {
-      throw new Error("Kh?ng l?y ???c access token cho Google Picker.");
+      throw new Error("Không lấy được access token cho Google Picker.");
     }
 
     const pickerApiKey = asTrimmed(
@@ -226,7 +241,7 @@ export async function recordingDrivePickerSession(req, res) {
     );
     if (!pickerApiKey) {
       throw new Error(
-        "Thi?u GOOGLE_DRIVE_PICKER_API_KEY trong System Config ho?c ENV."
+        "Thiếu GOOGLE_DRIVE_PICKER_API_KEY trong System Config hoặc ENV."
       );
     }
 
@@ -239,7 +254,7 @@ export async function recordingDrivePickerSession(req, res) {
     );
     if (!pickerAppId) {
       throw new Error(
-        "Thi?u GOOGLE_DRIVE_PICKER_APP_ID trong System Config ho?c ENV."
+        "Thiếu GOOGLE_DRIVE_PICKER_APP_ID trong System Config hoặc ENV."
       );
     }
 
@@ -291,7 +306,7 @@ export async function disconnectRecordingDriveOAuth(req, res) {
 
     return res.json({
       ok: 1,
-      message: "?? ng?t k?t n?i Google Drive recording",
+      message: "Đã ngắt kết nối Google Drive recording",
     });
   } catch (e) {
     return res.status(500).json({

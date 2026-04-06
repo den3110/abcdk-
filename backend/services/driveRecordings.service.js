@@ -210,14 +210,14 @@ async function buildDriveClient(
   if (runtimeConfig.mode === "oauthUser") {
     if (!runtimeConfig.clientId || !runtimeConfig.clientSecret) {
       throw new Error(
-        "Thi?u GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET trong System Config"
+        "Thiếu GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET trong System Config"
       );
     }
     if (!runtimeConfig.refreshToken) {
       throw new Error("My Drive OAuth chưa kết nối");
     }
     if (!runtimeConfig.redirectUris?.length) {
-      throw new Error("Thi?u GOOGLE_REDIRECT_DRIVE_URI trong System Config");
+      throw new Error("Thiếu GOOGLE_REDIRECT_DRIVE_URI trong System Config");
     }
     if (requireFolderId && !runtimeConfig.folderId) {
       throw new Error("Google Drive recording folder is not configured");
@@ -239,7 +239,7 @@ async function buildDriveClient(
     throw new Error("Google Drive recording folder is not configured");
   }
   if (requireSharedDriveId && !runtimeConfig.sharedDriveId) {
-    throw new Error("Mode service account yeu cau Shared Drive");
+    throw new Error("Mode service account yêu cầu Shared Drive");
   }
 
   const auth = new google.auth.JWT({
@@ -273,7 +273,7 @@ function normalizeDriveError(error, runtimeConfig) {
     );
   }
   if (/File not found/i.test(message)) {
-    return new Error("Folder ??ch kh?ng truy c?p ???c ho?c kh?ng t?n t?i.");
+    return new Error("Folder đích không truy cập được hoặc không tồn tại.");
   }
   if (
     reason === "appNotAuthorizedToFile" ||
@@ -281,14 +281,14 @@ function normalizeDriveError(error, runtimeConfig) {
   ) {
     return new Error(
       runtimeConfig?.useModernPickerFlow === false
-        ? "Folder hi?n t?i kh?ng truy c?p ???c b?ng flow OAuth c?. H?y k?t n?i l?i ho?c chuy?n sang flow m?i."
-        : "Folder hi?n t?i ch?a ???c c?p quy?n cho app Recording Drive. H?y ch?n l?i ??ng folder b?ng Google Picker."
+        ? "Folder hiện tại không truy cập được bằng flow OAuth cũ. Hãy kết nối lại hoặc chuyển sang flow mới."
+        : "Folder hiện tại chưa được cấp quyền cho app Recording Drive. Hãy chọn lại đúng folder bằng Google Picker."
     );
   }
   if (/invalid_grant/i.test(message)) {
     if (runtimeConfig?.refreshTokenMalformed) {
       return new Error(
-        "Refresh token Recording Drive l?u sai ??nh d?ng. H?y k?t n?i l?i."
+        "Refresh token Recording Drive lưu sai định dạng. Hãy kết nối lại."
       );
     }
     return new Error("My Drive OAuth hết hạn hoặc đã bị revoke. Hãy kết nối lại.");
@@ -308,7 +308,7 @@ async function validateDriveFolder(drive, runtimeConfig, usingSharedDrive) {
   if (!folderId) {
     return {
       ok: false,
-      message: "Folder ??ch ch?a ???c c?u h?nh",
+      message: "Folder đích chưa được cấu hình",
       folder: null,
     };
   }
@@ -356,7 +356,7 @@ export async function getRecordingDriveStatus() {
       ...base,
       configured: false,
       ready: false,
-      message: "Drive output ?ang t?t",
+      message: "Drive output đang tắt",
     };
   }
 
@@ -387,8 +387,8 @@ export async function getRecordingDriveStatus() {
         accountEmail: runtimeConfig.connectedEmail || "",
         message:
           runtimeConfig.useModernPickerFlow === false
-            ? "My Drive OAuth ?? k?t n?i. H?y nh?p Folder ID r?i l?u."
-            : "My Drive OAuth ?? k?t n?i. H?y ch?n ??ng folder b?ng Google Picker.",
+            ? "My Drive OAuth đã kết nối. Hãy nhập Folder ID rồi lưu."
+            : "My Drive OAuth đã kết nối. Hãy chọn đúng folder bằng Google Picker.",
       };
     }
 
@@ -446,8 +446,8 @@ export async function getRecordingDriveStatus() {
       ready: false,
       accountEmail: runtimeConfig.serviceAccountEmail || "",
       message: runtimeConfig.sharedDriveId
-        ? "Service account ch?a ?? c?u h?nh"
-        : "Mode service account yeu cau Shared Drive",
+        ? "Service account chưa đủ cấu hình"
+        : "Mode service account yêu cầu Shared Drive",
     };
   }
 
@@ -463,7 +463,7 @@ export async function getRecordingDriveStatus() {
       folderAccessible: folderCheck.ok,
       folderName: folderCheck.folder?.name || "",
       message: folderCheck.ok
-        ? "Service account + Shared Drive ?? s?n s?ng"
+        ? "Service account + Shared Drive đã sẵn sàng"
         : folderCheck.message,
     };
   } catch (error) {
