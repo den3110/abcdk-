@@ -329,7 +329,19 @@ function normalizePayload(p) {
     },
     teams,
     rules,
-    serve: p?.serve || { side: "A", server: 1 },
+    serve:
+      p?.serve ||
+      {
+        side: "A",
+        server:
+          (p?.tournament?.eventType || p?.eventType || "").toLowerCase() ===
+          "single"
+            ? 1
+            : 2,
+        opening:
+          (p?.tournament?.eventType || p?.eventType || "").toLowerCase() !==
+          "single",
+      },
     currentGame: Number.isInteger(p?.currentGame) ? p.currentGame : 0,
     gameScores:
       Array.isArray(p?.gameScores) && p.gameScores.length

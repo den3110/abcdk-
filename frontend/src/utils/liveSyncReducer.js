@@ -16,6 +16,15 @@ function validServer(server) {
   return server === 1 || server === 2 ? server : 1;
 }
 
+const OPENING_DOUBLES_SERVER = 2;
+
+function isDoublesSnapshot(snapshot) {
+  return (
+    String(snapshot?.tournament?.eventType || snapshot?.eventType || "").toLowerCase() !==
+    "single"
+  );
+}
+
 function onLostRallyNextServe(prev) {
   if (prev?.opening) {
     return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
@@ -37,7 +46,7 @@ function applyServeState(snapshot, serve) {
     side: validSide(serve?.side),
     server,
     serverId: serve?.serverId || null,
-    opening: server === 1 && Boolean(serve?.opening),
+    opening: Boolean(serve?.opening),
   };
   if (!snapshot.slots || typeof snapshot.slots !== "object") {
     snapshot.slots = {};
@@ -87,6 +96,7 @@ export function applyLiveSyncEventLocally(snapshot, input) {
   }
 
   if (type === "start") {
+    const opening = isDoublesSnapshot(next);
     next.status = "live";
     if (!next.startedAt) next.startedAt = new Date().toISOString();
     if (!Array.isArray(next.gameScores) || !next.gameScores.length) {
@@ -95,9 +105,9 @@ export function applyLiveSyncEventLocally(snapshot, input) {
     }
     next.serve = {
       side: validSide(next.serve?.side),
-      server: 1,
+      server: opening ? OPENING_DOUBLES_SERVER : 1,
       serverId: next.serve?.serverId || null,
-      opening: true,
+      opening,
     };
     ensureLiveLog(next);
     next.liveLog.push({ type: "start", at: new Date().toISOString() });

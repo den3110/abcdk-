@@ -8,7 +8,7 @@ function createMatch(overrides = {}) {
     rules: { bestOf: 3, pointsToWin: 11, winByTwo: true },
     gameScores: [],
     currentGame: 0,
-    serve: { side: "A", server: 1, opening: true },
+    serve: { side: "A", server: 2, opening: true },
     liveLog: [],
     liveVersion: 0,
     meta: {},
@@ -30,7 +30,7 @@ test("start initializes live status and first game", () => {
   assert.deepEqual(match.gameScores, [{ a: 0, b: 0 }]);
   assert.deepEqual(match.serve, {
     side: "A",
-    server: 1,
+    server: 2,
     serverId: null,
     opening: true,
   });
@@ -41,7 +41,7 @@ test("point updates score and flips serve on receiver point", () => {
   const match = createMatch({
     status: "live",
     gameScores: [{ a: 0, b: 0 }],
-    serve: { side: "A", server: 1, opening: true },
+    serve: { side: "A", server: 2, opening: true },
   });
 
   const result = applyLiveSyncEvent(match, {
@@ -73,7 +73,7 @@ test("undo reopens a finished match and restores previous serve", () => {
         payload: {
           team: "A",
           step: 1,
-          prevServe: { side: "A", server: 1, opening: true },
+          prevServe: { side: "A", server: 2, opening: true },
         },
       },
     ],
@@ -92,7 +92,7 @@ test("undo reopens a finished match and restores previous serve", () => {
   assert.deepEqual(match.gameScores, [{ a: 10, b: 9 }]);
   assert.deepEqual(match.serve, {
     side: "A",
-    server: 1,
+    server: 2,
     serverId: null,
     opening: true,
   });

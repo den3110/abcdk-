@@ -46,7 +46,7 @@ import {
   Clear as ClearIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
-import { depLabel, seedLabel, nameWithNick } from "../TournamentBracket";
+import { seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
 import { UnifiedStreamPlayer } from "../../../components/video";
 import { useAdminPatchMatchMutation } from "../../../slices/matchesApiSlice";
@@ -185,45 +185,94 @@ const hasResolvedPair = (pair) =>
       pair?.displayName),
   );
 
-/* ====================== current V helpers (label fix) ====================== */
-function extractCurrentV(m) {
-  const tryStrings = [
-    m?.code,
-    m?.name,
-    m?.label,
-    m?.displayCode,
-    m?.displayName,
-    m?.matchCode,
-    m?.slotCode,
-    m?.bracketCode,
-    m?.bracketLabel,
-    m?.meta?.code,
-    m?.meta?.label,
-  ];
-  for (const s of tryStrings) {
-    if (typeof s === "string") {
-      const k = s.match(/\bV(\d+)-T(\d+)\b/i);
-      if (k) return parseInt(k[1], 10);
-    }
-  }
-  const nums = [m?.v, m?.V, m?.roundV, m?.meta?.v]
-    .map((x) => Number(x))
-    .filter((n) => Number.isFinite(n));
-  return nums.length ? nums[0] : null;
+function extractDisplayCodeText(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(
+    /\b(?:V\d+(?:-B[^-\s]+)?(?:-NT)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
+  );
+  return match ? match[0].toUpperCase() : "";
 }
-function smartDepLabel(m, prevDep) {
-  const raw = depLabel(prevDep);
-  const currV = extractCurrentV(m);
-  return String(raw).replace(/\b([WL])-V(\d+)-T(\d+)\b/gi, (_s, wl, v, t) => {
-    const pv = parseInt(v, 10);
-    const newV =
-      currV != null
-        ? Math.max(1, currV - 1)
-        : m?.prevBracket?.type !== "group"
-          ? pv + 2
-          : pv + 1;
-    return `${wl}-V${newV}-T${t}`;
-  });
+
+const ceilPow2Local = (n) =>
+  Math.pow(2, Math.ceil(Math.log2(Math.max(1, Number(n) || 1))));
+
+function readBracketScaleLocal(bracket) {
+  const teamsFromRoundKey = (key) => {
+    if (!key) return 0;
+    const upper = String(key).toUpperCase();
+    if (upper === "F") return 2;
+    if (upper === "SF") return 4;
+    if (upper === "QF") return 8;
+    if (/^R\d+$/i.test(upper)) return parseInt(upper.slice(1), 10);
+    return 0;
+  };
+
+  const candidates = [
+    teamsFromRoundKey(bracket?.ko?.startKey),
+    teamsFromRoundKey(bracket?.prefill?.roundKey),
+    Array.isArray(bracket?.prefill?.pairs)
+      ? bracket.prefill.pairs.length * 2
+      : 0,
+    Array.isArray(bracket?.prefill?.seeds)
+      ? bracket.prefill.seeds.length * 2
+      : 0,
+    bracket?.drawScale,
+    bracket?.targetScale,
+    bracket?.maxSlots,
+    bracket?.capacity,
+    bracket?.size,
+    bracket?.scale,
+    bracket?.meta?.drawSize,
+    bracket?.meta?.scale,
+  ]
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value >= 2);
+
+  if (!candidates.length) return 0;
+  return ceilPow2Local(Math.max(...candidates));
+}
+
+function roundsCountForBracketLocal(bracket, matchesOfThis = []) {
+  const type = String(bracket?.type || "").toLowerCase();
+  if (type === "group") return 1;
+
+  if (type === "roundelim") {
+    let maxRounds =
+      Number(bracket?.meta?.maxRounds) ||
+      Number(bracket?.config?.roundElim?.maxRounds) ||
+      0;
+    if (!maxRounds) {
+      const maxRoundFromMatches =
+        Math.max(
+          0,
+          ...(matchesOfThis || []).map((match) => Number(match?.round || 1)),
+        ) || 1;
+      maxRounds = Math.max(1, maxRoundFromMatches);
+    }
+    return maxRounds;
+  }
+
+  const roundsFromMatches = (() => {
+    const rounds = (matchesOfThis || []).map((match) =>
+      Number(match?.round || 1),
+    );
+    if (!rounds.length) return 0;
+    return Math.max(1, Math.max(...rounds) - Math.min(...rounds) + 1);
+  })();
+
+  if (roundsFromMatches) return roundsFromMatches;
+
+  const firstPairs =
+    (Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length) ||
+    (Array.isArray(bracket?.prefill?.pairs) && bracket.prefill.pairs.length) ||
+    0;
+  if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
+
+  const scale = readBracketScaleLocal(bracket);
+  if (scale) return Math.ceil(Math.log2(scale));
+
+  return 1;
 }
 
 /* ====================== Group completion helpers (KO gating) ====================== */
@@ -1141,20 +1190,46 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     m?.tournament?.id ||
     null;
 
-  const needsGroupSeedResolution = useMemo(
-    () =>
-      (!m?.pairA && m?.seedA?.type === "groupRank") ||
-      (!m?.pairB && m?.seedB?.type === "groupRank"),
-    [m?.pairA, m?.pairB, m?.seedA?.type, m?.seedB?.type],
-  );
+  const isSingle =
+    String(tour?.eventType || m?.tournament?.eventType || "").toLowerCase() ===
+    "single";
+
+  const needsSeedContextResolution = useMemo(() => {
+    const unresolvedSideNeedsContext = (pair, previous, seed) =>
+      !hasResolvedPair(pair) &&
+      Boolean(
+        previous ||
+          [
+            "groupRank",
+            "stageMatchWinner",
+            "stageMatchLoser",
+            "matchWinner",
+            "matchLoser",
+          ].includes(String(seed?.type || "")),
+      );
+
+    return (
+      unresolvedSideNeedsContext(m?.pairA, m?.previousA, m?.seedA) ||
+      unresolvedSideNeedsContext(m?.pairB, m?.previousB, m?.seedB)
+    );
+  }, [
+    m?.pairA,
+    m?.pairB,
+    m?.previousA,
+    m?.previousB,
+    m?.seedA?.type,
+    m?.seedB?.type,
+  ]);
 
   const { data: brackets = [], isFetching: fetchingBrackets } =
     useListTournamentBracketsQuery(
-      tournamentId && needsGroupSeedResolution ? tournamentId : skipToken,
+      tournamentId && needsSeedContextResolution ? tournamentId : skipToken,
     );
   const { data: allMatchesFetched = [], isFetching: fetchingMatches } =
     useListTournamentMatchesQuery(
-      tournamentId && needsGroupSeedResolution ? { tournamentId } : skipToken,
+      tournamentId && needsSeedContextResolution
+        ? { tournamentId, view: "bracket" }
+        : skipToken,
     );
 
   const byBracket = useMemo(() => {
@@ -1166,6 +1241,86 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     });
     return m;
   }, [brackets, allMatchesFetched]);
+
+  const bracketsById = useMemo(() => {
+    const map = new Map();
+    (brackets || []).forEach((bracket) => {
+      const bracketId = String(bracket?._id || "");
+      if (bracketId) map.set(bracketId, bracket);
+    });
+    return map;
+  }, [brackets]);
+
+  const matchIndex = useMemo(() => {
+    const map = new Map();
+    (allMatchesFetched || []).forEach((match) => {
+      const matchId = String(match?._id || "");
+      if (matchId) map.set(matchId, match);
+    });
+    return map;
+  }, [allMatchesFetched]);
+
+  const matchRefIndex = useMemo(() => {
+    const byId = new Map();
+    const byBracketRoundOrder = new Map();
+    const byStageRoundOrder = new Map();
+
+    for (const match of allMatchesFetched || []) {
+      const matchId = String(match?._id || "");
+      const bracketId = String(match?.bracket?._id || match?.bracket || "");
+      const stageNum = Number(
+        match?.bracket?.stage ?? bracketsById.get(bracketId)?.stage,
+      );
+      const roundNum = Number(match?.round);
+      const orderNum = Number(match?.order);
+
+      if (matchId) byId.set(matchId, match);
+
+      if (
+        bracketId &&
+        Number.isFinite(roundNum) &&
+        Number.isFinite(orderNum)
+      ) {
+        byBracketRoundOrder.set(`${bracketId}:${roundNum}:${orderNum}`, match);
+      }
+
+      if (Number.isFinite(stageNum) && Number.isFinite(roundNum) && Number.isFinite(orderNum)) {
+        byStageRoundOrder.set(`${stageNum}:${roundNum}:${orderNum}`, match);
+      }
+    }
+
+    return { byId, byBracketRoundOrder, byStageRoundOrder };
+  }, [allMatchesFetched, bracketsById]);
+
+  const baseRoundStartByBracketId = useMemo(() => {
+    const map = new Map();
+    let accumulatedRounds = 0;
+
+    for (const bracket of brackets || []) {
+      const bracketId = String(bracket?._id || "");
+      if (!bracketId) continue;
+      map.set(bracketId, accumulatedRounds + 1);
+      accumulatedRounds += roundsCountForBracketLocal(
+        bracket,
+        byBracket?.[bracket._id] || [],
+      );
+    }
+
+    return map;
+  }, [brackets, byBracket]);
+
+  const firstBracketIdByStage = useMemo(() => {
+    const map = new Map();
+
+    for (const bracket of brackets || []) {
+      const bracketId = String(bracket?._id || "");
+      const stageNum = Number(bracket?.stage);
+      if (!bracketId || !Number.isFinite(stageNum) || map.has(stageNum)) continue;
+      map.set(stageNum, bracketId);
+    }
+
+    return map;
+  }, [brackets]);
 
   const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
     userInfo?.token && tournamentId ? tournamentId : skipToken,
@@ -1187,7 +1342,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const loading = Boolean(isLoading || liveLoading);
   const globalLoading = Boolean(
     loading ||
-    (needsGroupSeedResolution && (fetchingBrackets || fetchingMatches)),
+    (needsSeedContextResolution && (fetchingBrackets || fetchingMatches)),
   );
 
   const {
@@ -1269,6 +1424,214 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       return done !== true;
     },
     [groupDoneByStage, mm?.bracket?.stage, mm?.stage],
+  );
+
+  const findSourceMatchFromSeed = useCallback(
+    (ownerMatch, seed) => {
+      if (!seed) return null;
+
+      const matchId = String(seed?.ref?.matchId || "");
+      if (matchId && matchRefIndex.byId.has(matchId)) {
+        return matchRefIndex.byId.get(matchId);
+      }
+
+      const roundNum = Number(seed?.ref?.round);
+      const orderNum = Number(seed?.ref?.order);
+      if (!Number.isFinite(roundNum) || !Number.isFinite(orderNum)) return null;
+
+      const stageNum = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+      if (Number.isFinite(stageNum)) {
+        const byStage = matchRefIndex.byStageRoundOrder.get(
+          `${stageNum}:${roundNum}:${orderNum}`,
+        );
+        if (byStage) return byStage;
+      }
+
+      const bracketId = String(ownerMatch?.bracket?._id || ownerMatch?.bracket || "");
+      if (bracketId) {
+        return (
+          matchRefIndex.byBracketRoundOrder.get(
+            `${bracketId}:${roundNum}:${orderNum}`,
+          ) || null
+        );
+      }
+
+      return null;
+    },
+    [matchRefIndex],
+  );
+
+  const getDisplayCodeForMatch = useCallback(
+    (sourceMatch) => {
+      if (!sourceMatch) return "";
+
+      const candidates = [
+        sourceMatch?.displayCode,
+        sourceMatch?.code,
+        sourceMatch?.matchCode,
+        sourceMatch?.slotCode,
+        sourceMatch?.bracketCode,
+        sourceMatch?.labelKey,
+        sourceMatch?.meta?.code,
+        sourceMatch?.meta?.label,
+      ];
+      for (const candidate of candidates) {
+        const hit = extractDisplayCodeText(candidate);
+        if (hit) return hit;
+      }
+
+      const bracketId = String(
+        sourceMatch?.bracket?._id || sourceMatch?.bracket || "",
+      );
+      const baseRoundStart = baseRoundStartByBracketId.get(bracketId);
+      const roundNum = Number(sourceMatch?.round);
+      const orderNum = Number(sourceMatch?.order);
+      const branch = String(
+        sourceMatch?.branch || sourceMatch?.phase || "",
+      ).toLowerCase();
+      const isLosersBranch = branch === "lb" || branch === "losers";
+
+      if (
+        Number.isFinite(baseRoundStart) &&
+        Number.isFinite(roundNum) &&
+        Number.isFinite(orderNum)
+      ) {
+        const prefix = `V${baseRoundStart + roundNum - 1}`;
+        return isLosersBranch
+          ? `${prefix}-NT-T${orderNum + 1}`
+          : `${prefix}-T${orderNum + 1}`;
+      }
+
+      return "";
+    },
+    [baseRoundStartByBracketId],
+  );
+
+  const resolveSeedReferenceLabel = useCallback(
+    (seed, ownerMatch = null) => {
+      if (!seed || !seed.type) return seedLabel(seed);
+
+      const type = String(seed?.type || "");
+      const isWinnerSeed =
+        type === "stageMatchWinner" || type === "matchWinner";
+      const isLoserSeed =
+        type === "stageMatchLoser" || type === "matchLoser";
+
+      if (!isWinnerSeed && !isLoserSeed) return seedLabel(seed);
+
+      const prefix = isLoserSeed ? "L" : "W";
+      const sourceMatch = findSourceMatchFromSeed(ownerMatch, seed);
+      const sourceCode = getDisplayCodeForMatch(sourceMatch);
+      if (sourceCode) return `${prefix}-${sourceCode}`;
+
+      const stageNum = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+      const roundNum = Number(seed?.ref?.round);
+      const orderNum = Number(seed?.ref?.order);
+      const bracketId = firstBracketIdByStage.get(stageNum);
+      const baseRoundStart = bracketId
+        ? baseRoundStartByBracketId.get(bracketId)
+        : null;
+
+      if (
+        Number.isFinite(baseRoundStart) &&
+        Number.isFinite(roundNum) &&
+        Number.isFinite(orderNum)
+      ) {
+        return `${prefix}-V${baseRoundStart + roundNum - 1}-T${orderNum + 1}`;
+      }
+
+      const rawCode = extractDisplayCodeText(seed?.label);
+      if (rawCode) return `${prefix}-${rawCode}`;
+
+      return seedLabel({ ...seed, label: "" });
+    },
+    [
+      findSourceMatchFromSeed,
+      getDisplayCodeForMatch,
+      firstBracketIdByStage,
+      baseRoundStartByBracketId,
+    ],
+  );
+
+  const resolvePendingSideLabel = useCallback(
+    (match, side) => {
+      if (!match) return "Chưa có đội";
+
+      const seed = side === "A" ? match?.seedA : match?.seedB;
+      const pair = side === "A" ? match?.pairA : match?.pairB;
+
+      if (hasResolvedPair(pair)) {
+        return pairLabel(pair, isSingle, displayMode);
+      }
+
+      if (seed && isSeedBlockedByUnfinishedGroup(seed)) {
+        return resolveSeedReferenceLabel(seed, match);
+      }
+
+      const prev = side === "A" ? match?.previousA : match?.previousB;
+      if (prev) {
+        const prevId =
+          typeof prev === "object" && prev?._id ? String(prev._id) : String(prev);
+        const sourceMatch =
+          matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
+        const sourceCode = getDisplayCodeForMatch(sourceMatch);
+
+        if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
+          const winnerPair =
+            sourceMatch.winner === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+          if (hasResolvedPair(winnerPair)) {
+            return `${pairLabel(winnerPair, isSingle, displayMode)}${
+              sourceCode ? ` (W-${sourceCode})` : ""
+            }`;
+          }
+        }
+
+        if (sourceCode) return `W-${sourceCode}`;
+        return resolveSeedReferenceLabel(seed, match);
+      }
+
+      if (seed && seed.type) {
+        const sourceMatch = findSourceMatchFromSeed(match, seed);
+        const sourceRefLabel = resolveSeedReferenceLabel(seed, match);
+        const isWinnerSeed =
+          seed?.type === "stageMatchWinner" || seed?.type === "matchWinner";
+        const isLoserSeed =
+          seed?.type === "stageMatchLoser" || seed?.type === "matchLoser";
+
+        if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
+          const sourcePair = isLoserSeed
+            ? sourceMatch.winner === "A"
+              ? sourceMatch.pairB
+              : sourceMatch.pairA
+            : sourceMatch.winner === "A"
+              ? sourceMatch.pairA
+              : sourceMatch.pairB;
+
+          if (hasResolvedPair(sourcePair)) {
+            return `${pairLabel(sourcePair, isSingle, displayMode)}${
+              sourceRefLabel ? ` (${sourceRefLabel})` : ""
+            }`;
+          }
+        }
+
+        if ((isWinnerSeed || isLoserSeed) && sourceRefLabel) {
+          return sourceRefLabel;
+        }
+
+        return seedLabel(seed);
+      }
+
+      return "Chưa có đội";
+    },
+    [
+      displayMode,
+      findSourceMatchFromSeed,
+      getDisplayCodeForMatch,
+      isSeedBlockedByUnfinishedGroup,
+      isSingle,
+      matchIndex,
+      resolveSeedReferenceLabel,
+    ],
   );
 
   const showSpinner = waiting;
@@ -1417,8 +1780,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       ? `Kết thúc: ${formatClock(finishedAt)}`
       : null;
 
-  const isSingle =
-    String(mm?.tournament?.eventType || "").toLowerCase() === "single";
   const blockA =
     !hasResolvedPair(mm?.pairA) && isSeedBlockedByUnfinishedGroup(mm?.seedA);
   const blockB =
@@ -2045,9 +2406,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               </Typography>
             ) : (
               <Typography variant="h6">
-                {mm?.previousA
-                  ? smartDepLabel(mm, mm.previousA)
-                  : seedLabel(mm?.seedA)}
+                {resolvePendingSideLabel(mm, "A")}
               </Typography>
             )}
           </Box>
@@ -2097,9 +2456,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               </Typography>
             ) : (
               <Typography variant="h6">
-                {mm?.previousB
-                  ? smartDepLabel(mm, mm.previousB)
-                  : seedLabel(mm?.seedB)}
+                {resolvePendingSideLabel(mm, "B")}
               </Typography>
             )}
           </Box>

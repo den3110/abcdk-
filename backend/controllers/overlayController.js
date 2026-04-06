@@ -451,7 +451,15 @@ export async function getOverlayMatch(req, res) {
     const serve =
       m?.serve && (m.serve.side || m.serve.server || m.serve.playerIndex)
         ? m.serve
-        : { side: "A", server: 1 };
+        : {
+            side: "A",
+            server:
+              String(m?.tournament?.eventType || "").toLowerCase() === "single"
+                ? 1
+                : 2,
+            opening:
+              String(m?.tournament?.eventType || "").toLowerCase() !== "single",
+          };
 
     const serveUser =
       m?.serve?.serverId && typeof m.serve.serverId === "object"

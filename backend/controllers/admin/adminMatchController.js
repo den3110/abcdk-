@@ -58,11 +58,16 @@ const toDTO = (m) => ({
 });
 
 const ACTIVE_COURT_MATCH_STATUSES = ["scheduled", "queued", "assigned", "live"];
+const OPENING_DOUBLES_SERVER = 2;
 
 function buildResetOpeningServe(match) {
   const opening =
     String(match?.tournament?.eventType || "").toLowerCase() !== "single";
-  return { side: "A", server: 1, opening };
+  return {
+    side: "A",
+    server: opening ? OPENING_DOUBLES_SERVER : 1,
+    opening,
+  };
 }
 
 /** GET /api/admin/matches/:id */

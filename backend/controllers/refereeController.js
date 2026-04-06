@@ -21,6 +21,7 @@ import { broadcastState } from "../services/broadcastState.js";
 import UserMatch from "../models/userMatchModel.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { dispatchMatchLiveActivityUpdate } from "../services/liveActivityApns.service.js";
+const OPENING_DOUBLES_SERVER = 2;
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
   const { pointsToWin = 11, winByTwo = true } = rules || {};
@@ -45,13 +46,14 @@ function winsCount(gameScores = [], rules) {
 function resetOpeningServeState(matchDoc) {
   const opening =
     String(matchDoc?.tournament?.eventType || "").toLowerCase() !== "single";
-  matchDoc.serve = matchDoc.serve || { side: "A", server: 1, opening };
+  const server = opening ? OPENING_DOUBLES_SERVER : 1;
+  matchDoc.serve = matchDoc.serve || { side: "A", server, opening };
   matchDoc.serve.side = matchDoc.serve.side || "A";
-  matchDoc.serve.server = 1;
+  matchDoc.serve.server = server;
   matchDoc.serve.opening = opening;
   return {
     side: matchDoc.serve.side,
-    server: 1,
+    server,
     opening,
   };
 }
@@ -752,7 +754,7 @@ export const patchScore = asyncHandler(async (req, res) => {
               freshDoc.gameScores.push({ a: 0, b: 0 });
               freshDoc.currentGame = freshDoc.gameScores.length - 1;
 
-              // reset giao bóng đầu ván theo local rule 0-0-1
+              // reset giao bóng đầu ván theo pickleball 0-0-2
               const nextServe = resetOpeningServeState(freshDoc);
 
               freshDoc.liveLog = freshDoc.liveLog || [];
@@ -1012,7 +1014,7 @@ export const patchScore = asyncHandler(async (req, res) => {
           if (!matchDone) {
             freshDoc.gameScores.push({ a: 0, b: 0 });
             freshDoc.currentGame = freshDoc.gameScores.length - 1;
-            // reset giao bóng đầu ván theo local rule 0-0-1
+            // reset giao bóng đầu ván theo pickleball 0-0-2
             const nextServe = resetOpeningServeState(freshDoc);
             // log (tuỳ dùng)
             freshDoc.liveLog = freshDoc.liveLog || [];
@@ -1185,7 +1187,7 @@ export const patchScore = asyncHandler(async (req, res) => {
     match.gameScores.push({ a: 0, b: 0 });
     match.currentGame = match.gameScores.length - 1;
 
-    // reset giao bóng đầu ván theo local rule 0-0-1
+    // reset giao bóng đầu ván theo pickleball 0-0-2
     const nextServe = resetOpeningServeState(match);
 
     match.liveLog = match.liveLog || [];

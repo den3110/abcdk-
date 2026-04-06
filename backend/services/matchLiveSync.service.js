@@ -25,6 +25,15 @@ function isFinitePos(value) {
   return Number.isFinite(value) && value > 0;
 }
 
+const OPENING_DOUBLES_SERVER = 2;
+
+function isDoublesMatch(match) {
+  return (
+    String(match?.tournament?.eventType || match?.eventType || "").toLowerCase() !==
+    "single"
+  );
+}
+
 function buildNormalizedRules(match) {
   return {
     bestOf: toNum(match?.rules?.bestOf, 3),
@@ -193,7 +202,7 @@ function validateServeForMatch(match, inputServe = {}) {
   const side = sideInput === "B" ? "B" : "A";
   const server = Number(inputServe?.server) === 1 ? 1 : 2;
   const rawServerId = String(inputServe?.serverId || "").trim();
-  const opening = server === 1 && Boolean(inputServe?.opening);
+  const opening = Boolean(inputServe?.opening);
   const validIds = new Set(getTeamPlayerIds(match, side));
 
   if (rawServerId && !validIds.has(rawServerId)) {
@@ -222,7 +231,7 @@ function applyServeState(match, serve, options = {}) {
     side: validSide(serve?.side),
     server,
     serverId: serve?.serverId || null,
-    opening: server === 1 && Boolean(serve?.opening),
+    opening: Boolean(serve?.opening),
   };
 
   if (match.serve.serverId) {
@@ -284,6 +293,7 @@ function applyStartEvent(match, event, actorId) {
     return { ok: false, code: "match_closed", message: "Match already finished" };
   }
 
+  const opening = isDoublesMatch(match);
   match.status = "live";
   if (!match.startedAt) match.startedAt = new Date();
   if (!match.gameScores?.length) {
@@ -292,9 +302,9 @@ function applyStartEvent(match, event, actorId) {
   }
   match.serve = {
     side: validSide(match.serve?.side),
-    server: 1,
+    server: opening ? OPENING_DOUBLES_SERVER : 1,
     serverId: match.serve?.serverId || null,
-    opening: true,
+    opening,
   };
 
   match.liveBy = actorId || match.liveBy || null;

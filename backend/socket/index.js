@@ -78,6 +78,12 @@ import {
   buildPublicLiveCourtDetail,
   getCourtStationCurrentMatch,
 } from "../services/courtCluster.service.js";
+
+const OPENING_DOUBLES_SERVER = 2;
+const getOpeningServeServer = (match) =>
+  String(match?.tournament?.eventType || match?.eventType || "").toLowerCase() === "single"
+    ? 1
+    : OPENING_DOUBLES_SERVER;
 import { registerCourtStationRuntimePublishers } from "../services/courtStationRuntimeEvents.service.js";
 import {
   claimMatchLiveOwner,
@@ -963,7 +969,13 @@ const postprocessSnapshotLikeJoin = async (m) => {
 
   // serve fallback/normalize
   if (!m?.serve || (!m.serve.side && !m.serve.server && !m.serve.playerIndex)) {
-    m.serve = { side: "A", server: 1, playerIndex: 1 };
+    const openingServer = getOpeningServeServer(m);
+    m.serve = {
+      side: "A",
+      server: openingServer,
+      playerIndex: openingServer,
+      opening: openingServer === OPENING_DOUBLES_SERVER,
+    };
   } else {
     m.serve.side = (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
     m.serve.server = Number(m.serve.server ?? m.serve.playerIndex ?? 1) || 1;
@@ -1994,7 +2006,13 @@ export function initSocket(
           !m?.serve ||
           (!m.serve.side && !m.serve.server && !m.serve.playerIndex)
         ) {
-          m.serve = { side: "A", server: 1, playerIndex: 1 };
+          const openingServer = getOpeningServeServer(m);
+          m.serve = {
+            side: "A",
+            server: openingServer,
+            playerIndex: openingServer,
+            opening: openingServer === OPENING_DOUBLES_SERVER,
+          };
         } else {
           m.serve.side =
             (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
@@ -2819,10 +2837,9 @@ export function initSocket(
                 ? 1
                 : 2;
             const wantOpening =
-              wantServer === 1 &&
-              (opening !== undefined
+              opening !== undefined
                 ? Boolean(opening)
-                : Boolean(m.serve?.opening));
+                : Boolean(m.serve?.opening);
 
             // validate serverId thuộc team tương ứng
             let validServerId = null;
@@ -2849,7 +2866,12 @@ export function initSocket(
               validServerId = okOnSide ? sid : null;
             }
 
-            const prevServe = m.serve || { side: "A", server: 1, opening: true };
+            const prevServe =
+              m.serve || {
+                side: "A",
+                server: getOpeningServeServer(m),
+                opening: getOpeningServeServer(m) === OPENING_DOUBLES_SERVER,
+              };
 
             // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
             m.serve = {
@@ -2933,10 +2955,9 @@ export function initSocket(
               ? 1
               : 2;
           const wantOpening =
-            wantServer === 1 &&
-            (opening !== undefined
+            opening !== undefined
               ? Boolean(opening)
-              : Boolean(m.serve?.opening));
+              : Boolean(m.serve?.opening);
 
           // validate serverId
           // Với Match giải đấu, toId chỉ lấy _id thật
@@ -2964,7 +2985,12 @@ export function initSocket(
             validServerId = okOnSide ? sid : null;
           }
 
-          const prevServe = m.serve || { side: "A", server: 1, opening: true };
+          const prevServe =
+            m.serve || {
+              side: "A",
+              server: getOpeningServeServer(m),
+              opening: getOpeningServeServer(m) === OPENING_DOUBLES_SERVER,
+            };
 
           // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
           m.serve = {

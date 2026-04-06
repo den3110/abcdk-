@@ -53,6 +53,8 @@ import {
   normalizeMatchDisplay,
 } from "../../utils/matchDisplay";
 
+const OPENING_DOUBLES_SERVER = 2;
+
 const textOf = (value) => (value && String(value).trim()) || "";
 
 const playerLabel = (player, source) => getPlayerDisplayName(player, source) || "";
@@ -655,9 +657,9 @@ export default function RefereeScoreDialog({
   const needsStartAction =
     Boolean(match?._id) &&
     ((match?.status !== "live" && match?.status !== "finished") || waitingNextGameStart);
-  const activeServerNum = needsStartAction && isDouble ? 1 : rawServerNum;
-  const isOpeningServe =
-    isDouble && Boolean(match?.serve?.opening) && activeServerNum === 1;
+  const activeServerNum =
+    needsStartAction && isDouble ? OPENING_DOUBLES_SERVER : rawServerNum;
+  const isOpeningServe = isDouble && Boolean(match?.serve?.opening);
   const isPreStartOrOpening =
     needsStartAction ||
     (Number(currentScore.a) === 0 && Number(currentScore.b) === 0 && isOpeningServe);
@@ -749,9 +751,7 @@ export default function RefereeScoreDialog({
         ? "Nghỉ y tế đang diễn ra"
         : "Timeout đang diễn ra";
     }
-    if (needsStartAction) {
-      return isDouble ? "0-0-1" : "0-0";
-    }
+    if (needsStartAction) return isDouble ? `0-0-${OPENING_DOUBLES_SERVER}` : "0-0";
     return serveNotation;
   }, [breakState?.active, breakState?.type, isDouble, needsStartAction, serveNotation]);
 
@@ -862,7 +862,7 @@ export default function RefereeScoreDialog({
         null;
       nextServe = {
         side: activeSide,
-        server: 1,
+        server: isDouble ? OPENING_DOUBLES_SERVER : 1,
         serverId,
         opening: isDouble,
       };
@@ -902,7 +902,7 @@ export default function RefereeScoreDialog({
           null;
         nextServe = {
           side,
-          server: 1,
+          server: isDouble ? OPENING_DOUBLES_SERVER : 1,
           serverId,
           opening: isDouble,
         };
@@ -932,7 +932,11 @@ export default function RefereeScoreDialog({
   const toggleServerNum = useCallback(async () => {
     if (!match?._id) return;
     const preStartOpening = isDouble && isPreStartOrOpening;
-    const nextServer = preStartOpening ? 1 : activeServerNum === 1 ? 2 : 1;
+    const nextServer = preStartOpening
+      ? OPENING_DOUBLES_SERVER
+      : activeServerNum === 1
+        ? 2
+        : 1;
     const nextSlot = preStartOpening
       ? preStartRightSlotForSide(activeSide, currentLayout)
       : nextServer;
@@ -980,7 +984,7 @@ export default function RefereeScoreDialog({
     await runLiveControlBusy("toggle-serve-side", () =>
       api.setServe({
         side: nextSide,
-        server: 1,
+        server: opening ? OPENING_DOUBLES_SERVER : 1,
         serverId: serverId || null,
         opening,
       }),
@@ -1015,7 +1019,7 @@ export default function RefereeScoreDialog({
         layout: nextLayout,
         serve: {
           side: nextSide,
-          server: 1,
+          server: isDouble ? OPENING_DOUBLES_SERVER : 1,
           serverId,
           opening: isDouble,
         },
@@ -2083,7 +2087,7 @@ export default function RefereeScoreDialog({
                                 side,
                                 server: Number(server),
                                 opening:
-                                  Number(server) === 1 &&
+                                  Number(server) === OPENING_DOUBLES_SERVER &&
                                   isDouble &&
                                   isPreStartOrOpening,
                               }),
@@ -2331,7 +2335,7 @@ export default function RefereeScoreDialog({
                               side,
                               server: Number(server),
                               opening:
-                                Number(server) === 1 &&
+                                Number(server) === OPENING_DOUBLES_SERVER &&
                                 isDouble &&
                                 isPreStartOrOpening,
                             }),

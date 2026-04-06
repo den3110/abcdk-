@@ -786,7 +786,17 @@ export const toDTO = (matchDoc) => {
     liveVersion: m.liveVersion ?? m.version ?? 0,
     version: m.liveVersion ?? m.version ?? 0,
 
-    serve: m.serve || { side: "A", server: 1, opening: true },
+    serve:
+      m.serve ||
+      (() => {
+        const opening =
+          String(m?.tournament?.eventType || m?.eventType || "").toLowerCase() !== "single";
+        return {
+          side: "A",
+          server: opening ? 2 : 1,
+          opening,
+        };
+      })(),
 
     tournament,
     bracket,
@@ -928,7 +938,7 @@ export async function toRealtimePublicMatchDTO(matchDoc) {
   );
 }
 
-// ✅ helper local rule: opening serve 0-0-1 chỉ có 1 lượt giao
+// ✅ opening serve pickleball 0-0-2 vẫn chỉ có 1 lượt giao
 function onLostRallyNextServe(prev) {
   if (prev?.opening) {
     return { side: prev.side === "A" ? "B" : "A", server: 1, opening: false };
@@ -1180,8 +1190,17 @@ export async function setServe(matchId, side, server, serverId, by, io, opening 
   }
 
   // --- lưu serve + serverId + receiverId ---
-  const prevServe = m.serve || { side: "A", server: 1, opening: true };
-  const wantOpening = srvNum === 1 && Boolean(opening ?? m?.serve?.opening);
+  const prevServe =
+    m.serve || {
+      side: "A",
+      server:
+        String(m?.tournament?.eventType || m?.eventType || "").toLowerCase() === "single"
+          ? 1
+          : 2,
+      opening:
+        String(m?.tournament?.eventType || m?.eventType || "").toLowerCase() !== "single",
+    };
+  const wantOpening = Boolean(opening ?? m?.serve?.opening);
 
   m.set("serve.side", sideU, { strict: false });
   m.set("serve.server", srvNum, { strict: false });
