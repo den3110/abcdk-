@@ -148,41 +148,63 @@ export async function recordingDriveOAuthCallback(req, res) {
 <body>
   <div class="loader" id="loader"></div>
   <h3>Kết nối Google Drive thành công</h3>
-  <p>Cửa sổ này sẽ tự động đóng trong giây lát...</p>
+  <p id="status-text">Cửa sổ này sẽ tự động đóng trong giây lát...</p>
   <button id="close-btn" class="btn" type="button">Đóng cửa sổ</button>
   <script>
     (function () {
-      function closeSelf() {
+      // Primary: use localStorage (works even when window.opener is destroyed by Brave/Chrome after OAuth redirects)
+      function signalViaStorage() {
+        try {
+          localStorage.setItem("recording-drive-auth-done", JSON.stringify({ ok: true, t: Date.now() }));
+        } catch (e) {}
+      }
+
+      // Secondary: try postMessage (works in browsers that preserve window.opener)
+      function signalViaPostMessage() {
         try {
           if (window.opener && typeof window.opener.postMessage === "function") {
             window.opener.postMessage({ type: "recording-drive-auth-done", ok: true }, "*");
           }
         } catch (e) {}
-        
-        try { window.opener = null; } catch (e) {}
-        try { window.open("", "_self"); } catch (e) {}
-        try { window.close(); } catch (e) {}
       }
 
+      function notifyParent() {
+        signalViaStorage();
+        signalViaPostMessage();
+      }
+
+      // Signal immediately
+      notifyParent();
+
+      // The parent window will close us. But also try self-close as backup.
       var attempts = 0;
       var timer = setInterval(function () {
         attempts++;
-        if (attempts === 1) closeSelf(); 
-        
-        if (window.closed || attempts > 10) {
+        notifyParent();
+        // Try self-close
+        try { window.close(); } catch (e) {}
+        if (window.closed || attempts > 30) {
           clearInterval(timer);
-        } else {
-          closeSelf();
         }
-      }, 500);
+      }, 600);
 
+      // After 3s show manual close button
       setTimeout(function () {
+        if (window.closed) return;
         var btn = document.getElementById("close-btn");
         var loader = document.getElementById("loader");
+        var statusText = document.getElementById("status-text");
         if (btn) btn.style.display = "inline-block";
         if (loader) loader.style.display = "none";
-        if (btn) btn.addEventListener("click", closeSelf);
-      }, 2000);
+        if (statusText) statusText.textContent = "Kết nối thành công! Nếu cửa sổ không tự đóng, hãy bấm nút bên dưới hoặc đóng tab này.";
+        if (btn) {
+          btn.addEventListener("click", function () {
+            notifyParent();
+            try { window.close(); } catch (e) {}
+            setTimeout(function () { window.location.href = "about:blank"; }, 500);
+          });
+        }
+      }, 3000);
     })();
   </script>
 </body>

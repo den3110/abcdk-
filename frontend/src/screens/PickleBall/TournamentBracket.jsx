@@ -1164,17 +1164,40 @@ const DOUBLE_ELIM_CUSTOM_CARD_TEAM_B_CENTER_Y =
   DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP;
 const DOUBLE_ELIM_GF_HEADER_HEIGHT = 54;
 
-function getSeedNodeMetrics(root, seedId, zoom = 1) {
+function getNodeOffsetWithinRoot(root, node) {
+  let left = 0;
+  let top = 0;
+  let current = node;
+
+  while (current && current !== root) {
+    left += current.offsetLeft || 0;
+    top += current.offsetTop || 0;
+    current = current.offsetParent;
+  }
+
+  if (current === root) {
+    return { left, top };
+  }
+
+  const rootRect = root.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+  return {
+    left: rect.left - rootRect.left,
+    top: rect.top - rootRect.top,
+  };
+}
+
+function getSeedNodeMetrics(root, seedId) {
   if (!root || !seedId) return null;
   const node = root.querySelector(`[data-seed-id="${seedId}"]`);
   if (!node) return null;
-  const rootRect = root.getBoundingClientRect();
-  const rect = node.getBoundingClientRect();
-  const safeZoom = Math.max(Number(zoom) || 1, 0.0001);
+  const { left, top } = getNodeOffsetWithinRoot(root, node);
+  const width = node.offsetWidth || node.getBoundingClientRect().width || 0;
+  const height = node.offsetHeight || node.getBoundingClientRect().height || 0;
   return {
-    left: (rect.left - rootRect.left) / safeZoom,
-    right: (rect.right - rootRect.left) / safeZoom,
-    centerY: (rect.top - rootRect.top + rect.height / 2) / safeZoom,
+    left,
+    right: left + width,
+    centerY: top + height / 2,
   };
 }
 
@@ -1680,10 +1703,9 @@ function DoubleElimBracketLayout({
       frameId = window.requestAnimationFrame(() => {
         const wrapperNode = wrapperRef.current;
         if (!wrapperNode || !winnersFinalSeedId || !losersFinalSeedId || !grandFinalSeed) return;
-        const safeZoom = Math.max(Number(zoom) || 1, 0.0001);
 
-        const winnersNode = getSeedNodeMetrics(wrapperNode, winnersFinalSeedId, safeZoom);
-        const losersNode = getSeedNodeMetrics(wrapperNode, losersFinalSeedId, safeZoom);
+        const winnersNode = getSeedNodeMetrics(wrapperNode, winnersFinalSeedId);
+        const losersNode = getSeedNodeMetrics(wrapperNode, losersFinalSeedId);
         if (!winnersNode || !losersNode) return;
 
         const cardLeft = Math.max(winnersNode.right, losersNode.right) + DOUBLE_ELIM_GF_GAP;
@@ -1720,7 +1742,7 @@ function DoubleElimBracketLayout({
           ),
           canvasWidth: contentRight + DOUBLE_ELIM_GF_RIGHT_PADDING,
           canvasHeight: Math.max(
-            wrapperNode.scrollHeight / safeZoom,
+            wrapperNode.scrollHeight,
             top + DOUBLE_ELIM_CUSTOM_CARD_HEIGHT + 24,
           ),
         };
