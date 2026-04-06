@@ -709,8 +709,10 @@ export function buildExportPipelineInfo(recording, context = {}) {
   let detail = "";
   if (stage === "delayed_until_window") {
     detail = scheduledExportAtMs
-      ? `Du kien export luc ${formatMonitorDateTime(scheduledExportAtMs)}`
-      : "Dang doi toi khung gio export dem.";
+      ? `Mo queue luc ${formatMonitorDateTime(
+          scheduledExportAtMs
+        )}. Worker se xu ly tuan tu theo thu tu cho.`
+      : "Dang doi toi khung gio export dem. Worker se xu ly tuan tu tung video.";
   } else if (stage === "waiting_facebook_vod") {
     detail = scheduledExportAtMs
       ? `Thu lai luc ${formatMonitorDateTime(scheduledExportAtMs)}`

@@ -8,11 +8,12 @@ import MobileBottomNav from "./components/MenuMobile";
 import ChatBotDrawer from "./components/ChatBotDrawer";
 import GlobalCommandPalette from "./components/GlobalCommandPalette";
 import { useEffect, useRef } from "react";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { initGA, logPageView } from "./utils/analytics";
 import { useThemeMode } from "./context/ThemeContext";
 import { useGetProfileQuery } from "./slices/usersApiSlice";
 import AppFooter from "./components/AppFooter";
+import { logout, setCredentials } from "./slices/authSlice";
 import {
   addSentryNavigationBreadcrumb,
   clearSentryUserContext,
@@ -83,6 +84,68 @@ function SentryRuntimeSync() {
   return null;
 }
 
+function isReactNativeWebViewRuntime() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.ReactNativeWebView?.postMessage === "function"
+  );
+}
+
+function NativeWebViewAuthBridge() {
+  const dispatch = useDispatch();
+  const userInfo = useSelector((s) => s.auth?.userInfo || null);
+  const lastPostedRef = useRef("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleNativeAuthSync = (event) => {
+      const nextUserInfo =
+        event?.detail && typeof event.detail === "object"
+          ? event.detail.userInfo || null
+          : null;
+
+      const currentSerialized = JSON.stringify(userInfo || null);
+      const nextSerialized = JSON.stringify(nextUserInfo || null);
+      if (currentSerialized === nextSerialized) return;
+
+      if (nextUserInfo && typeof nextUserInfo === "object") {
+        dispatch(setCredentials(nextUserInfo));
+        return;
+      }
+
+      dispatch(logout());
+    };
+
+    window.addEventListener("pickletour:native-auth-sync", handleNativeAuthSync);
+    return () =>
+      window.removeEventListener(
+        "pickletour:native-auth-sync",
+        handleNativeAuthSync,
+      );
+  }, [dispatch, userInfo]);
+
+  useEffect(() => {
+    if (!isReactNativeWebViewRuntime()) return;
+
+    const serialized = JSON.stringify(userInfo || null);
+    if (lastPostedRef.current === serialized) return;
+    lastPostedRef.current = serialized;
+
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        source: "pickletour-web",
+        type: "auth-state",
+        payload: {
+          userInfo: userInfo || null,
+        },
+      }),
+    );
+  }, [userInfo]);
+
+  return null;
+}
+
 const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
@@ -139,6 +202,7 @@ const App = () => {
     <>
       <AuthSessionSync />
       <SentryRuntimeSync />
+      <NativeWebViewAuthBridge />
       {!isAuthPage && <Header />}
       <ToastContainer theme={isDark ? "dark" : "light"} />
 

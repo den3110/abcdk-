@@ -38,6 +38,14 @@ function emitOwnershipReset(io, matchIds = []) {
 function sanitizeSettingsPatch(patch = {}) {
   const next = { ...patch };
 
+  if (next.appShell && typeof next.appShell === "object") {
+    const mode = String(next.appShell.mode || "native")
+      .trim()
+      .toLowerCase();
+    next.appShell.mode = mode === "webview" ? "webview" : "native";
+    next.appShell.webViewUrl = String(next.appShell.webViewUrl || "").trim();
+  }
+
   if (next.referee && typeof next.referee === "object") {
     if (
       Object.prototype.hasOwnProperty.call(
@@ -236,6 +244,22 @@ export const getRegistrationSettings = async (req, res, next) => {
         typeof registration.requireOptionalProfileFields === "boolean"
           ? registration.requireOptionalProfileFields
           : DEFAULT_SYSTEM_SETTINGS.registration.requireOptionalProfileFields,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getMobileAppShellSettings = async (req, res, next) => {
+  try {
+    const settings = await getSystemSettingsRuntime({ ensureDocument: true });
+    const appShell = settings.appShell || DEFAULT_SYSTEM_SETTINGS.appShell;
+    const webViewUrl = String(appShell.webViewUrl || "").trim();
+    const hasWebViewUrl = /^https?:\/\//i.test(webViewUrl);
+
+    res.json({
+      mode: appShell.mode === "webview" && hasWebViewUrl ? "webview" : "native",
+      webViewUrl: hasWebViewUrl ? webViewUrl : "",
     });
   } catch (err) {
     next(err);

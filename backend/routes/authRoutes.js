@@ -1,6 +1,7 @@
 import express from "express";
 import { authorize, protect, protectJwt } from "../middleware/authMiddleware.js";
 import {
+  getMobileAppShellSettings,
   getOtaAllowed,
   getRegistrationSettings,
 } from "../controllers/systemSettings.controller.js";
@@ -48,6 +49,7 @@ router.post("/logout", protectJwt, authorize("admin"), (req, res) => {
 });
 
 router.get("/system/registration", getRegistrationSettings);
+router.get("/system/app-shell", getMobileAppShellSettings);
 router.get("/system/ota/allowed", getOtaAllowed);
 
 export default router;

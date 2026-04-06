@@ -19,7 +19,7 @@ import {
   renameRecordingDriveFile,
   streamRecordingDriveFile,
   moveRecordingDriveFile,
-  trashRecordingDriveFile,
+  deleteRecordingDriveFile,
 } from "../services/driveRecordings.service.js";
 import {
   abortRecordingMultipartUpload,
@@ -1000,6 +1000,7 @@ function setRecordingDriveAssetMeta(recording, target, file = null) {
           ? file.parents.map((value) => asTrimmed(value)).filter(Boolean)
           : [],
         trashed: Boolean(file?.trashed),
+        deleted: Boolean(file?.deleted),
         size: file?.size != null ? String(file.size) : null,
         modifiedTime: file?.modifiedTime || null,
         syncedAt: new Date(),
@@ -1015,8 +1016,10 @@ function clearRecordingDriveAsset(recording, target, reason = "", file = null) {
   const message =
     asTrimmed(reason) ||
     (normalizedTarget === "ai"
-      ? "AI commentary Drive file was moved to trash by admin."
-      : "Drive file was moved to trash by admin.");
+      ? "AI commentary Drive file was permanently deleted by admin."
+      : "Drive file was permanently deleted by admin.");
+  const deletedFileMeta =
+    file && typeof file === "object" ? file : { deleted: true };
 
   if (normalizedTarget === "ai") {
     recording.aiCommentary = {
@@ -1028,7 +1031,7 @@ function clearRecordingDriveAsset(recording, target, reason = "", file = null) {
       dubbedPlaybackUrl: null,
       error: message,
     };
-    setRecordingDriveAssetMeta(recording, "ai", file || { trashed: true });
+    setRecordingDriveAssetMeta(recording, "ai", deletedFileMeta);
     recording.markModified("aiCommentary");
     return;
   }
@@ -1044,11 +1047,11 @@ function clearRecordingDriveAsset(recording, target, reason = "", file = null) {
   nextMeta.exportPipeline = {
     ...currentPipeline,
     stage: "failed",
-    label: "Video Drive ?? b? ??a v?o th?ng r?c",
+    label: "Video Drive đã bị xóa vĩnh viễn",
     updatedAt: new Date(),
     failedAt: new Date(),
     error: message,
-    adminAction: "drive_source_trashed",
+    adminAction: "drive_source_deleted",
   };
 
   recording.meta = nextMeta;
@@ -1059,7 +1062,7 @@ function clearRecordingDriveAsset(recording, target, reason = "", file = null) {
   recording.readyAt = null;
   recording.status = "failed";
   recording.error = message;
-  setRecordingDriveAssetMeta(recording, "source", file || { trashed: true });
+  setRecordingDriveAssetMeta(recording, "source", deletedFileMeta);
 }
 
 function serializeRecording(recording) {
@@ -2087,7 +2090,7 @@ export const getLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
     return res.status(404).json({
-      message: `${asset.label} ch?a c? Drive fileId`,
+      message: `${asset.label} chưa có Drive fileId`,
       target,
       recording: serializeRecording(recording),
     });
@@ -2135,7 +2138,7 @@ export const renameLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => 
 
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
-    return res.status(404).json({ message: `${asset.label} ch?a c? Drive fileId` });
+    return res.status(404).json({ message: `${asset.label} chưa có Drive fileId` });
   }
 
   try {
@@ -2179,7 +2182,7 @@ export const moveLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
 
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
-    return res.status(404).json({ message: `${asset.label} ch?a c? Drive fileId` });
+    return res.status(404).json({ message: `${asset.label} chưa có Drive fileId` });
   }
 
   try {
@@ -2223,21 +2226,21 @@ export const trashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
 
   const asset = getRecordingDriveAssetInfo(recording, target);
   if (!asset.fileId) {
-    return res.status(404).json({ message: `${asset.label} ch?a c? Drive fileId` });
+    return res.status(404).json({ message: `${asset.label} chưa có Drive fileId` });
   }
 
   try {
-    const result = await trashRecordingDriveFile(asset.fileId);
+    const result = await deleteRecordingDriveFile(asset.fileId);
     clearRecordingDriveAsset(
       recording,
       target,
       target === "ai"
-        ? "AI commentary Drive file was moved to trash by admin."
-        : "Drive file was moved to trash by admin.",
+        ? "AI commentary Drive file was permanently deleted by admin."
+        : "Drive file was permanently deleted by admin.",
       result.file
     );
     await recording.save();
-    await publishRecordingMonitor(recording, `recording_drive_asset_trashed_${target}`);
+    await publishRecordingMonitor(recording, `recording_drive_asset_deleted_${target}`);
 
     return res.json({
       ok: true,
@@ -2248,7 +2251,7 @@ export const trashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     return res.status(502).json({
-      message: error?.message || "Failed to trash Drive asset",
+      message: error?.message || "Failed to permanently delete Drive asset",
       target,
       recording: serializeRecording(recording),
     });

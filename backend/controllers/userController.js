@@ -1942,6 +1942,19 @@ const logoutUser = (req, res) => {
   res.status(200).json({ message: "Logged out successfully" });
 };
 
+const syncWebViewSession = asyncHandler(async (req, res) => {
+  if (!req.user?._id) {
+    res.status(401);
+    throw new Error("Không xác thực được người dùng");
+  }
+
+  generateToken(res, req.user);
+  res.status(200).json({
+    ok: true,
+    userId: req.user._id,
+  });
+});
+
 // @desc    Get user profile
 // @route   GET /api/users/profile
 // @access  Private
@@ -2854,6 +2867,7 @@ export {
   authUser,
   registerUser,
   logoutUser,
+  syncWebViewSession,
   getUserProfile,
   updateUserProfile,
 };

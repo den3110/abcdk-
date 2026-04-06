@@ -30,6 +30,7 @@ import {
   IconButton,
   useMediaQuery,
   useTheme,
+  alpha,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -1148,8 +1149,8 @@ const DOUBLE_ELIM_CUSTOM_CARD_HEIGHT = 112;
 const DOUBLE_ELIM_CUSTOM_CARD_GAP = 36;
 const DOUBLE_ELIM_CUSTOM_COLUMN_GAP = 84;
 const DOUBLE_ELIM_CUSTOM_HEADER_HEIGHT = 72;
-const DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y = 11;
-const DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT = 18;
+const DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y = 0;
+const DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT = 28;
 const DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT = 28;
 const DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP = 8;
 const DOUBLE_ELIM_CUSTOM_CARD_TEAM_A_CENTER_Y =
@@ -1292,6 +1293,158 @@ function buildDoubleElimLosersLayout(rounds = []) {
   return { columns, paths, width, height };
 }
 
+function DoubleElimSeedShell({
+  seedId,
+  match,
+  visibleSeedCode,
+  nameA,
+  nameB,
+  scoreA,
+  scoreB,
+  winA,
+  winB,
+  isChampion,
+  onClick,
+}) {
+  const timeLabel = match ? timeShort(kickoffTime(match)) : "";
+  const showVideo = match ? hasVideo(match) : false;
+  const color = match
+    ? statusColors(match)
+    : { bg: "#9e9e9e", fg: "#fff", key: "planned" };
+
+  return (
+    <Box
+      data-seed-id={seedId || visibleSeedCode || undefined}
+      onClick={() => (match ? onClick?.(match) : null)}
+      sx={{
+        width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+        height: DOUBLE_ELIM_CUSTOM_CARD_HEIGHT,
+        bgcolor: "#1f2336",
+        color: "#fff",
+        borderRadius: 1.5,
+        overflow: "hidden",
+        boxShadow: isChampion
+          ? "0 0 0 2px rgba(244,67,54,0.45), 0 8px 18px rgba(15,23,42,0.18)"
+          : "0 4px 10px rgba(15,23,42,0.16)",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        cursor: match ? "pointer" : "default",
+      }}
+    >
+      <Box
+        sx={{
+          height: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px`,
+          px: 1.25,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 1,
+          bgcolor: color.bg,
+          color: color.fg,
+          flex: "0 0 auto",
+        }}
+      >
+        <Typography
+          variant="caption"
+          title={visibleSeedCode}
+          sx={{
+            fontWeight: 800,
+            color: "inherit",
+            lineHeight: 1,
+            letterSpacing: 0.2,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {visibleSeedCode}
+        </Typography>
+
+        <Stack
+          direction="row"
+          spacing={0.75}
+          alignItems="center"
+          sx={{
+            minWidth: 0,
+            color: "inherit",
+            "& .MuiSvgIcon-root": { fontSize: 14 },
+          }}
+        >
+          {timeLabel ? (
+            <Stack
+              direction="row"
+              spacing={0.35}
+              alignItems="center"
+              sx={{ minWidth: 0, color: "inherit" }}
+            >
+              <AccessTimeIcon sx={{ fontSize: 14 }} />
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: 700,
+                  color: "inherit",
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {timeLabel}
+              </Typography>
+            </Stack>
+          ) : null}
+          {showVideo ? <VideoIcon sx={{ fontSize: 14 }} /> : null}
+        </Stack>
+      </Box>
+
+      <Box
+        sx={{
+          px: 2,
+          pt: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP}px`,
+          display: "grid",
+          gridTemplateRows: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px ${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px`,
+          rowGap: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP}px`,
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+          sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
+        >
+          <Typography
+            variant="body2"
+            sx={{ fontWeight: winA ? 800 : 700, minWidth: 0, flex: 1 }}
+            noWrap
+          >
+            {nameA}
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
+            {scoreA}
+          </Typography>
+        </Stack>
+
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+          sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
+        >
+          <Typography
+            variant="body2"
+            sx={{ fontWeight: winB ? 800 : 700, minWidth: 0, flex: 1 }}
+            noWrap
+          >
+            {nameB}
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
+            {scoreB}
+          </Typography>
+        </Stack>
+      </Box>
+    </Box>
+  );
+}
+
 function StaticDoubleElimSeedCard({
   seed,
   onOpen,
@@ -1343,69 +1496,19 @@ function StaticDoubleElimSeedCard({
     : "";
 
   return (
-    <Box
-      data-seed-id={seed?.id || visibleSeedCode || undefined}
-      onClick={() => (m ? onOpen?.(m) : null)}
-      sx={{
-        width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
-        height: DOUBLE_ELIM_CUSTOM_CARD_HEIGHT,
-        bgcolor: "#1f2336",
-        color: "#fff",
-        borderRadius: 1.5,
-        boxShadow: isChampion
-          ? "0 0 0 2px rgba(244,67,54,0.45), 0 8px 18px rgba(15,23,42,0.18)"
-          : "0 4px 10px rgba(15,23,42,0.16)",
-        px: 2,
-        py: 0,
-        boxSizing: "border-box",
-        display: "grid",
-        gridTemplateRows: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px ${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px ${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px`,
-        rowGap: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP}px`,
-        alignContent: "start",
-        pt: `${DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y}px`,
-        cursor: m ? "pointer" : "default",
-      }}
-    >
-      {visibleSeedCode ? (
-        <Typography
-          variant="caption"
-          sx={{
-            color: "rgba(255,255,255,0.72)",
-            fontWeight: 700,
-            textAlign: "center",
-            lineHeight: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px`,
-          }}
-        >
-          {visibleSeedCode}
-        </Typography>
-      ) : null}
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
-      >
-        <Typography variant="body2" sx={{ fontWeight: winA ? 800 : 700 }} noWrap>
-          {nameA}
-        </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
-          {sA}
-        </Typography>
-      </Stack>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
-      >
-        <Typography variant="body2" sx={{ fontWeight: winB ? 800 : 700 }} noWrap>
-          {nameB}
-        </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
-          {sB}
-        </Typography>
-      </Stack>
-    </Box>
+    <DoubleElimSeedShell
+      seedId={seed?.id}
+      match={m}
+      visibleSeedCode={visibleSeedCode}
+      nameA={nameA}
+      nameB={nameB}
+      scoreA={sA}
+      scoreB={sB}
+      winA={winA}
+      winB={winB}
+      isChampion={isChampion}
+      onClick={onOpen}
+    />
   );
 }
 
@@ -1476,8 +1579,6 @@ function BlueprintDoubleElimSeed({
   return (
     <Seed mobileBreakpoint={breakpoint}>
       <SeedItem
-        data-seed-id={seed?.id || visibleSeedCode || undefined}
-        onClick={() => (m ? onOpen?.(m) : null)}
         style={{
           padding: 0,
           background: "transparent",
@@ -1486,66 +1587,19 @@ function BlueprintDoubleElimSeed({
           cursor: m ? "pointer" : "default",
         }}
       >
-        <Box
-          sx={{
-            width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
-            height: DOUBLE_ELIM_CUSTOM_CARD_HEIGHT,
-            bgcolor: "#1f2336",
-            color: "#fff",
-            borderRadius: 1.5,
-            boxShadow: isChampion
-              ? "0 0 0 2px rgba(244,67,54,0.45), 0 8px 18px rgba(15,23,42,0.18)"
-              : "0 4px 10px rgba(15,23,42,0.16)",
-            px: 2,
-            py: 0,
-            boxSizing: "border-box",
-            display: "grid",
-            gridTemplateRows: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px ${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px ${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px`,
-            rowGap: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP}px`,
-            alignContent: "start",
-            pt: `${DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y}px`,
-          }}
-        >
-          {visibleSeedCode ? (
-            <Typography
-              variant="caption"
-              sx={{
-                color: "rgba(255,255,255,0.72)",
-                fontWeight: 700,
-                textAlign: "center",
-                lineHeight: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px`,
-              }}
-            >
-              {visibleSeedCode}
-            </Typography>
-          ) : null}
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-            sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
-          >
-            <Typography variant="body2" sx={{ fontWeight: winA ? 800 : 700 }} noWrap>
-              {nameA}
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
-              {sA}
-            </Typography>
-          </Stack>
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-            sx={{ height: `${DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT}px` }}
-          >
-            <Typography variant="body2" sx={{ fontWeight: winB ? 800 : 700 }} noWrap>
-              {nameB}
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 700, ml: 1 }}>
-              {sB}
-            </Typography>
-          </Stack>
-        </Box>
+        <DoubleElimSeedShell
+          seedId={seed?.id}
+          match={m}
+          visibleSeedCode={visibleSeedCode}
+          nameA={nameA}
+          nameB={nameB}
+          scoreA={sA}
+          scoreB={sB}
+          winA={winA}
+          winB={winB}
+          isChampion={isChampion}
+          onClick={onOpen}
+        />
       </SeedItem>
     </Seed>
   );
@@ -2842,6 +2896,7 @@ function buildDoubleElimRounds(
   {
     pendingTeamLabel = "Chưa có đội",
     expectedFirstRoundPairs = 0,
+    extendForward = true,
     labelBuilder = (_localRound, seedsCount) => koRoundTitle(seedsCount),
   } = {},
 ) {
@@ -2872,7 +2927,7 @@ function buildDoubleElimRounds(
 
   const rounds = buildRoundsWithPlaceholders(localizedMatches, resolveSideLabel, {
     minRounds: Math.max(1, uniqueRounds.length),
-    extendForward: true,
+    extendForward,
     expectedFirstRoundPairs,
     pendingTeamLabel,
   });
@@ -3200,15 +3255,38 @@ function TournamentBracketLoadingSkeleton({ isMdUp }) {
       <Paper
         variant="outlined"
         sx={{
-          p: { xs: 1.25, sm: 1.5 },
-          mb: 1.5,
-          borderRadius: 2,
-          bgcolor: "background.default",
+          p: { xs: 1.5, sm: 1.75, md: 2 },
+          mb: 2,
+          borderRadius: 4,
+          borderColor:
+            theme.palette.mode === "dark"
+              ? alpha(theme.palette.common.white, 0.12)
+              : alpha(theme.palette.common.black, 0.08),
+          bgcolor:
+            theme.palette.mode === "dark"
+              ? alpha("#121417", 0.92)
+              : alpha(theme.palette.background.paper, 0.92),
+          backdropFilter: "blur(12px)",
+          boxShadow:
+            theme.palette.mode === "dark"
+              ? "0 18px 42px rgba(0,0,0,0.22)"
+              : "0 18px 42px rgba(15,23,42,0.08)",
+          "& .MuiChip-root": {
+            borderRadius: 999,
+            borderColor:
+              theme.palette.mode === "dark"
+                ? alpha(theme.palette.common.white, 0.16)
+                : alpha(theme.palette.common.black, 0.12),
+            bgcolor:
+              theme.palette.mode === "dark"
+                ? alpha(theme.palette.common.white, 0.03)
+                : alpha(theme.palette.common.black, 0.02),
+          },
         }}
       >
         <Stack
           direction={{ xs: "column", sm: "row" }}
-          spacing={1}
+          spacing={1.5}
           alignItems={{ xs: "flex-start", sm: "center" }}
           justifyContent="space-between"
           useFlexGap
@@ -5927,7 +6005,17 @@ export default function TournamentBracket() {
         })}
         path={`/tournament/${tourId}/bracket`}
       />
-      <Typography variant="h5" sx={{ mb: 2, mt: 2 }} fontWeight="bold">
+      <Typography
+        variant="h4"
+        sx={{
+          mt: { xs: 1.5, md: 2 },
+          mb: 2,
+          fontWeight: 800,
+          letterSpacing: "-0.02em",
+          fontSize: { xs: "2rem", md: "2.35rem" },
+          color: "text.primary",
+        }}
+      >
         {t("tournaments.bracket.pageTitle", { name: tour?.name })}
       </Typography>
 
@@ -6145,11 +6233,21 @@ export default function TournamentBracket() {
         variant="scrollable"
         scrollButtons="auto"
         sx={{
-          mb: 2,
+          mb: 2.25,
           maxWidth: "100%",
           minWidth: 0,
+          "& .MuiTabs-indicator": {
+            height: 3,
+            borderRadius: 999,
+          },
           "& .MuiTabs-scroller": {
             maxWidth: "100%",
+          },
+          "& .MuiTab-root": {
+            textTransform: "none",
+            fontWeight: 700,
+            minHeight: 46,
+            px: 1.5,
           },
         }}
       >
@@ -6522,6 +6620,7 @@ export default function TournamentBracket() {
             const losersRoundCount = Math.max(1, uniqueLosersRounds.length || 1);
             const losersRounds = buildDoubleElimRounds(losersMatches, resolveSideLabel, {
               pendingTeamLabel,
+              extendForward: false,
               labelBuilder: (localRound) =>
                 getLosersRoundPreviewTitle(
                   losersBaseRound,

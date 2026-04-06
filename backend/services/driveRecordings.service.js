@@ -696,7 +696,7 @@ export async function moveRecordingDriveFile({ fileId, folderId = "" }) {
   }
 }
 
-export async function trashRecordingDriveFile(fileId) {
+export async function deleteRecordingDriveFile(fileId) {
   const normalizedFileId = asTrimmed(fileId);
   if (!normalizedFileId) {
     throw new Error("Drive file id is required");
@@ -706,18 +706,16 @@ export async function trashRecordingDriveFile(fileId) {
     await getRecordingDriveAdminClient();
 
   try {
-    const response = await drive.files.update({
+    await drive.files.delete({
       fileId: normalizedFileId,
       supportsAllDrives: usingSharedDrive,
-      requestBody: {
-        trashed: true,
-      },
-      fields:
-        "id,name,mimeType,driveId,parents,trashed,size,modifiedTime,webViewLink,webContentLink",
     });
 
     return {
-      file: normalizeDriveFileMetadata(response?.data || {}),
+      file: {
+        id: normalizedFileId,
+        deleted: true,
+      },
       driveAuthMode,
     };
   } catch (error) {

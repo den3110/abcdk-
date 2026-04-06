@@ -41,6 +41,15 @@ const SystemSettingsSchema = new mongoose.Schema(
       guideUrl: { type: String, default: "", trim: true },
     },
 
+    appShell: {
+      mode: {
+        type: String,
+        enum: ["native", "webview"],
+        default: "native",
+      },
+      webViewUrl: { type: String, default: "", trim: true },
+    },
+
     // 👇 NEW: OTA force update policy
     ota: {
       enabled: { type: Boolean, default: true },

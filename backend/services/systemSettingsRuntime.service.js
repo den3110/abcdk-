@@ -23,6 +23,10 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   links: {
     guideUrl: "",
   },
+  appShell: {
+    mode: "native",
+    webViewUrl: "",
+  },
   ota: {
     enabled: true,
     forceUpdateEnabled: false,
@@ -98,6 +102,10 @@ export function normalizeSystemSettings(doc = {}) {
     links: {
       ...DEFAULT_SYSTEM_SETTINGS.links,
       ...(source.links || {}),
+    },
+    appShell: {
+      ...DEFAULT_SYSTEM_SETTINGS.appShell,
+      ...(source.appShell || {}),
     },
     ota: {
       ...DEFAULT_SYSTEM_SETTINGS.ota,
