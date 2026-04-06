@@ -3820,12 +3820,13 @@ export default function TournamentBracket() {
       return new Map();
     }
 
+    const localizedScaleForCurrent = readBracketScale(current);
     return buildDoubleElimDisplayCodeMap(
       currentMatches,
       baseRoundStartForCurrent,
-      scaleForCurrent,
+      localizedScaleForCurrent,
     );
-  }, [current?.type, currentMatches, baseRoundStartForCurrent, scaleForCurrent]);
+  }, [current, current?.type, currentMatches, baseRoundStartForCurrent]);
   const getDoubleElimDisplayCodeForMatch = useCallback(
     (sourceMatch) => {
       const matchId = String(sourceMatch?._id || "");
