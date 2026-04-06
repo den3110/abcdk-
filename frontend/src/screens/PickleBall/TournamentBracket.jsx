@@ -3212,6 +3212,7 @@ const groupKeyOf = (g, gi) =>
   String(g?.name || g?.code || g?._id || String(gi + 1));
 
 function TournamentBracketLoadingSkeleton({ isMdUp }) {
+  const theme = useTheme();
   const chipW = (w) => (
     <Skeleton
       variant="rounded"
