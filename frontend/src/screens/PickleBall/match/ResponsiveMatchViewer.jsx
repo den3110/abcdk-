@@ -132,6 +132,15 @@ const extractIndexFromToken = (token) => {
   return null;
 };
 
+const extractDisplayCodeText = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(
+    /\b(?:V\d+(?:-B[^-\s]+)?(?:-NT)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
+  );
+  return match ? match[0].toUpperCase() : "";
+};
+
 const isPlainObject = (value) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
