@@ -2318,7 +2318,6 @@ export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
     replaceTerminalJob: true,
     replacePendingJob: true,
     currentPipeline,
-    ignoreWindow: true,
   });
 
   return res.json({

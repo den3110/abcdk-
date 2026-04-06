@@ -786,13 +786,15 @@ export function buildExportPipelineInfo(recording, context = {}) {
 }
 
 export function shouldMarkExportAsStale(recording, exportPipeline = {}) {
-  if (recording?.status !== "exporting") return false;
+  if (!["exporting", "pending_export_window"].includes(recording?.status))
+    return false;
   if (!["stale_no_job", "worker_offline"].includes(exportPipeline.stage))
     return false;
 
-  const updatedAtMs = recording?.updatedAt
-    ? new Date(recording.updatedAt).getTime()
-    : 0;
+  const updatedAtMs = Math.max(
+    recording?.updatedAt ? new Date(recording.updatedAt).getTime() : 0,
+    exportPipeline?.updatedAt ? new Date(exportPipeline.updatedAt).getTime() : 0
+  );
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return false;
 
   return Date.now() - updatedAtMs >= getExportStaleThresholdMs();
@@ -809,12 +811,13 @@ export async function reconcileStaleLiveRecordingExports({
     providedQueueSnapshot ||
     (await getLiveRecordingExportQueueSnapshot().catch(() => null));
 
-  const exportingRecordings = await LiveRecordingV2.find({
-    status: "exporting",
+  const candidateRecordings = await LiveRecordingV2.find({
+    status: { $in: ["exporting", "pending_export_window"] },
   });
-  const updatedRecordingIds = [];
+  const autoRequeuedRecordingIds = [];
+  const failedRecordingIds = [];
 
-  for (const recording of exportingRecordings) {
+  for (const recording of candidateRecordings) {
     const exportPipeline = buildExportPipelineInfo(recording, {
       workerHealth,
       queueSnapshot,
@@ -830,11 +833,15 @@ export async function reconcileStaleLiveRecordingExports({
         await queueLiveRecordingExport(recording, {
           publishReason: "recording_export_auto_requeued",
           replaceTerminalJob: true,
-          replacePendingJob: true,
+          currentPipeline:
+            recording?.meta?.exportPipeline &&
+            typeof recording.meta.exportPipeline === "object" &&
+            !Array.isArray(recording.meta.exportPipeline)
+              ? { ...recording.meta.exportPipeline }
+              : null,
           forceReason: "stale_reconciliation",
-          ignoreWindow: true,
         });
-        updatedRecordingIds.push(String(recording._id));
+        autoRequeuedRecordingIds.push(String(recording._id));
         console.log(
           `[live-recording-monitor] auto-requeued stale export for recording ${String(recording._id)}`
         );
@@ -879,20 +886,29 @@ export async function reconcileStaleLiveRecordingExports({
     recording.status = "failed";
     recording.error = errorMessage;
     await recording.save();
-    updatedRecordingIds.push(String(recording._id));
+    failedRecordingIds.push(String(recording._id));
   }
 
-  if (updatedRecordingIds.length) {
+  if (failedRecordingIds.length) {
     await publishLiveRecordingMonitorUpdate({
       reason: "recording_export_reconciled_failed",
-      recordingIds: updatedRecordingIds,
+      recordingIds: failedRecordingIds,
     }).catch(() => {});
   }
 
+  const refreshedQueueSnapshot = autoRequeuedRecordingIds.length
+    ? await getLiveRecordingExportQueueSnapshot().catch(() => queueSnapshot)
+    : queueSnapshot;
+
   return {
-    updatedRecordingIds,
+    updatedRecordingIds: [
+      ...autoRequeuedRecordingIds,
+      ...failedRecordingIds,
+    ],
+    autoRequeuedRecordingIds,
+    failedRecordingIds,
     workerHealth,
-    queueSnapshot,
+    queueSnapshot: refreshedQueueSnapshot,
   };
 }
 
@@ -966,6 +982,7 @@ async function runLiveRecordingAutoExportSweep() {
   if (liveRecordingAutoExportSweepRunning) return;
   liveRecordingAutoExportSweepRunning = true;
   try {
+    await reconcileStaleLiveRecordingExports();
     await autoExportInactiveLiveRecordings();
   } catch (error) {
     console.warn(
