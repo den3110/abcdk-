@@ -1297,6 +1297,7 @@ function StaticDoubleElimSeedCard({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  resolveMatchCode,
   baseRoundStart = 1,
 }) {
   const { t: tLang } = useLanguage();
@@ -1327,23 +1328,23 @@ function StaticDoubleElimSeedCard({
     return `V${disp}-T${displayOrder}`;
   };
 
-  const seedCode =
-    seed?.id ||
-    (m
-      ? [
-          m?.displayCode,
-          m?.code,
-          m?.matchCode,
-          m?.slotCode,
-          m?.globalCode,
-        ]
-          .map((value) => (value == null ? "" : String(value).trim()))
-          .find(Boolean) || matchCodeKO(m)
-      : "");
+  const visibleSeedCode = m
+    ? resolveMatchCode?.(m) ||
+      [
+        m?.displayCode,
+        m?.code,
+        m?.matchCode,
+        m?.slotCode,
+        m?.globalCode,
+      ]
+        .map((value) => (value == null ? "" : String(value).trim()))
+        .find((value) => value && !/^[a-f0-9]{24}$/i.test(value)) ||
+      matchCodeKO(m)
+    : "";
 
   return (
     <Box
-      data-seed-id={seedCode || undefined}
+      data-seed-id={seed?.id || visibleSeedCode || undefined}
       onClick={() => (m ? onOpen?.(m) : null)}
       sx={{
         width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
@@ -1365,7 +1366,7 @@ function StaticDoubleElimSeedCard({
         cursor: m ? "pointer" : "default",
       }}
     >
-      {seedCode ? (
+      {visibleSeedCode ? (
         <Typography
           variant="caption"
           sx={{
@@ -1375,7 +1376,7 @@ function StaticDoubleElimSeedCard({
             lineHeight: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px`,
           }}
         >
-          {seedCode}
+          {visibleSeedCode}
         </Typography>
       ) : null}
       <Stack
@@ -1417,6 +1418,7 @@ StaticDoubleElimSeedCard.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  resolveMatchCode: PropTypes.func,
   baseRoundStart: PropTypes.number,
 };
 
@@ -1426,6 +1428,7 @@ function BlueprintDoubleElimSeed({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  resolveMatchCode,
   baseRoundStart = 1,
 }) {
   const { t: tLang } = useLanguage();
@@ -1456,24 +1459,24 @@ function BlueprintDoubleElimSeed({
     return `V${disp}-T${displayOrder}`;
   };
 
-  const seedCode =
-    seed?.id ||
-    (m
-      ? [
-          m?.displayCode,
-          m?.code,
-          m?.matchCode,
-          m?.slotCode,
-          m?.globalCode,
-        ]
-          .map((value) => (value == null ? "" : String(value).trim()))
-          .find(Boolean) || matchCodeKO(m)
-      : "");
+  const visibleSeedCode = m
+    ? resolveMatchCode?.(m) ||
+      [
+        m?.displayCode,
+        m?.code,
+        m?.matchCode,
+        m?.slotCode,
+        m?.globalCode,
+      ]
+        .map((value) => (value == null ? "" : String(value).trim()))
+        .find((value) => value && !/^[a-f0-9]{24}$/i.test(value)) ||
+      matchCodeKO(m)
+    : "";
 
   return (
     <Seed mobileBreakpoint={breakpoint}>
       <SeedItem
-        data-seed-id={seedCode || undefined}
+        data-seed-id={seed?.id || visibleSeedCode || undefined}
         onClick={() => (m ? onOpen?.(m) : null)}
         style={{
           padding: 0,
@@ -1503,7 +1506,7 @@ function BlueprintDoubleElimSeed({
             pt: `${DOUBLE_ELIM_CUSTOM_CARD_PADDING_Y}px`,
           }}
         >
-          {seedCode ? (
+          {visibleSeedCode ? (
             <Typography
               variant="caption"
               sx={{
@@ -1513,7 +1516,7 @@ function BlueprintDoubleElimSeed({
                 lineHeight: `${DOUBLE_ELIM_CUSTOM_CARD_HEADER_HEIGHT}px`,
               }}
             >
-              {seedCode}
+              {visibleSeedCode}
             </Typography>
           ) : null}
           <Stack
@@ -1558,6 +1561,7 @@ BlueprintDoubleElimSeed.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  resolveMatchCode: PropTypes.func,
   baseRoundStart: PropTypes.number,
 };
 
@@ -1580,6 +1584,7 @@ function DoubleElimBracketLayout({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  resolveMatchCode,
   baseRoundStart,
   zoom,
 }) {
@@ -1690,6 +1695,7 @@ function DoubleElimBracketLayout({
                       onOpen={onOpen}
                       championMatchId={null}
                       resolveSideLabel={resolveSideLabel}
+                      resolveMatchCode={resolveMatchCode}
                       baseRoundStart={baseRoundStart}
                     />
                   )}
@@ -1769,6 +1775,7 @@ function DoubleElimBracketLayout({
                       onOpen={onOpen}
                       championMatchId={null}
                       resolveSideLabel={resolveSideLabel}
+                      resolveMatchCode={resolveMatchCode}
                       baseRoundStart={baseRoundStart}
                     />
                   </Box>
@@ -1844,6 +1851,7 @@ function DoubleElimBracketLayout({
                 onOpen={onOpen}
                 championMatchId={championMatchId}
                 resolveSideLabel={resolveSideLabel}
+                resolveMatchCode={resolveMatchCode}
                 baseRoundStart={baseRoundStart}
               />
             ) : null}
@@ -1861,6 +1869,7 @@ DoubleElimBracketLayout.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  resolveMatchCode: PropTypes.func,
   baseRoundStart: PropTypes.number,
   zoom: PropTypes.number,
 };
@@ -2874,6 +2883,119 @@ function buildDoubleElimRounds(
   }));
 }
 
+function buildDoubleElimDisplayCodeMap(matches, baseRoundStart = 1, configuredScale = 0) {
+  const activeMatches = (matches || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(a?.round || 1) - Number(b?.round || 1) ||
+        Number(a?.order || 0) - Number(b?.order || 0),
+    );
+
+  const winnersMatches = activeMatches.filter(
+    (match) => normalizeDoubleElimBranch(match) === "wb",
+  );
+  const losersMatches = activeMatches.filter(
+    (match) => normalizeDoubleElimBranch(match) === "lb",
+  );
+  const grandFinalMatches = activeMatches.filter(
+    (match) => normalizeDoubleElimBranch(match) === "gf",
+  );
+
+  const uniqueWinnerRounds = Array.from(
+    new Set(
+      winnersMatches
+        .map((match) => Number(match?.round || 1))
+        .filter(Number.isFinite),
+    ),
+  ).sort((a, b) => a - b);
+  const uniqueLoserRounds = Array.from(
+    new Set(
+      losersMatches
+        .map((match) => Number(match?.round || 1))
+        .filter(Number.isFinite),
+    ),
+  ).sort((a, b) => a - b);
+  const uniqueGrandFinalRounds = Array.from(
+    new Set(
+      grandFinalMatches
+        .map((match) => Number(match?.round || 1))
+        .filter(Number.isFinite),
+    ),
+  ).sort((a, b) => a - b);
+
+  const winnerRoundMap = new Map(
+    uniqueWinnerRounds.map((roundNo, index) => [roundNo, index + 1]),
+  );
+  const loserRoundMap = new Map(
+    uniqueLoserRounds.map((roundNo, index) => [roundNo, index + 1]),
+  );
+  const grandFinalRoundMap = new Map(
+    uniqueGrandFinalRounds.map((roundNo, index) => [roundNo, index + 1]),
+  );
+
+  const firstWinnerPairs = uniqueWinnerRounds.length
+    ? winnersMatches.filter(
+        (match) => Number(match?.round || 1) === uniqueWinnerRounds[0],
+      ).length
+    : 0;
+  const firstLoserPairs = uniqueLoserRounds.length
+    ? losersMatches.filter(
+        (match) => Number(match?.round || 1) === uniqueLoserRounds[0],
+      ).length
+    : 0;
+  const scaleForDoubleElim =
+    configuredScale || firstWinnerPairs * 2 || Math.max(4, firstLoserPairs * 4) || 4;
+  const startDrawSize = Math.max(4, firstLoserPairs * 4 || 4);
+  const startWinnersRoundIndex = Math.max(
+    1,
+    Math.round(Math.log2(scaleForDoubleElim / startDrawSize)) + 1,
+  );
+  const losersBaseRound = baseRoundStart + startWinnersRoundIndex - 1;
+  const grandFinalBaseRound = losersBaseRound + Math.max(1, uniqueLoserRounds.length);
+  const codeByMatchId = new Map();
+
+  for (const match of winnersMatches) {
+    const id = String(match?._id || "");
+    const localRound = winnerRoundMap.get(Number(match?.round || 1)) || 1;
+    if (!id) continue;
+    codeByMatchId.set(
+      id,
+      winnerRoundMatchCodePreview(
+        baseRoundStart,
+        localRound,
+        Number(match?.order || 0) + 1,
+      ),
+    );
+  }
+
+  for (const match of losersMatches) {
+    const id = String(match?._id || "");
+    const localRound = loserRoundMap.get(Number(match?.round || 1)) || 1;
+    if (!id) continue;
+    codeByMatchId.set(
+      id,
+      loserRoundMatchCodePreview(
+        losersBaseRound,
+        localRound,
+        Number(match?.order || 0) + 1,
+      ),
+    );
+  }
+
+  for (const match of grandFinalMatches) {
+    const id = String(match?._id || "");
+    const localRound = grandFinalRoundMap.get(Number(match?.round || 1)) || 1;
+    if (!id) continue;
+    codeByMatchId.set(
+      id,
+      `V${grandFinalBaseRound + localRound - 1}-T${Number(match?.order || 0) + 1}`,
+    );
+  }
+
+  return codeByMatchId;
+}
+
 const winnerRoundMatchCodePreview = (baseRound, roundIndex, order = 1) =>
   `V${baseRound + roundIndex - 1}-T${order}`;
 
@@ -3693,6 +3815,25 @@ export default function TournamentBracket() {
 
     return out;
   }, [brackets]);
+  const doubleElimDisplayCodeByMatchId = useMemo(() => {
+    if (String(current?.type || "").toLowerCase() !== "double_elim") {
+      return new Map();
+    }
+
+    return buildDoubleElimDisplayCodeMap(
+      currentMatches,
+      baseRoundStartForCurrent,
+      scaleForCurrent,
+    );
+  }, [current?.type, currentMatches, baseRoundStartForCurrent, scaleForCurrent]);
+  const getDoubleElimDisplayCodeForMatch = useCallback(
+    (sourceMatch) => {
+      const matchId = String(sourceMatch?._id || "");
+      if (!matchId) return "";
+      return doubleElimDisplayCodeByMatchId.get(matchId) || "";
+    },
+    [doubleElimDisplayCodeByMatchId],
+  );
   const groupDoneByStage = useMemo(() => {
     const stageMap = new Map();
 
@@ -3808,6 +3949,9 @@ export default function TournamentBracket() {
     (sourceMatch) => {
       if (!sourceMatch) return "";
 
+      const localizedDoubleElimCode = getDoubleElimDisplayCodeForMatch(sourceMatch);
+      if (localizedDoubleElimCode) return localizedDoubleElimCode;
+
       const tryStrings = [
         sourceMatch?.displayCode,
         sourceMatch?.code,
@@ -3840,7 +3984,7 @@ export default function TournamentBracket() {
 
       return "";
     },
-    [baseRoundStartByBracketId],
+    [baseRoundStartByBracketId, getDoubleElimDisplayCodeForMatch],
   );
   const resolveSeedReferenceLabel = useCallback(
     (seed, ownerMatch = null) => {
@@ -6436,6 +6580,7 @@ export default function TournamentBracket() {
                     onOpen={openMatchModal}
                     championMatchId={grandFinalMatchId}
                     resolveSideLabel={resolveSideLabel}
+                    resolveMatchCode={getDisplayCodeForMatch}
                     baseRoundStart={baseRoundStartForCurrent}
                     zoom={zoom}
                   />
