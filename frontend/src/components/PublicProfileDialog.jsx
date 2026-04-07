@@ -424,7 +424,7 @@ function MatchSkeleton({ isMobile }) {
 }
 
 /* ---------------- Component ---------------- */
-export default function PublicProfileDialog({ open, onClose, userId }) {
+function PublicProfileDialog({ open, onClose, userId }) {
   /* --- responsive --- */
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -2427,3 +2427,14 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     </>
   );
 }
+
+const samePublicProfileDialogProps = (prevProps, nextProps) =>
+  prevProps.open === nextProps.open &&
+  String(prevProps.userId || "") === String(nextProps.userId || "");
+
+const MemoizedPublicProfileDialog = React.memo(
+  PublicProfileDialog,
+  samePublicProfileDialogProps,
+);
+
+export default MemoizedPublicProfileDialog;
