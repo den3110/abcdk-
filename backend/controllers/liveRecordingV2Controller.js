@@ -210,10 +210,11 @@ function buildSegmentPublicCdnUrl(
 
 function isFinishedRecordingPlayback(recording) {
   const status = asTrimmed(recording?.status).toLowerCase();
+  
+  if (!status) return false;
+
   return (
-    status === "ready" ||
-    status === "finished" ||
-    status === "finalized" ||
+    !["recording", "uploading"].includes(status) ||
     Boolean(recording?.driveFileId) ||
     Boolean(recording?.driveRawUrl)
   );
@@ -2664,12 +2665,7 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
   }
 
   // Check if the recording is finished
-  const isFinished =
-    recording.status === "ready" ||
-    recording.status === "finished" ||
-    recording.status === "finalized" ||
-    Boolean(recording.driveFileId) ||
-    Boolean(recording.driveRawUrl);
+  const isFinished = isFinishedRecordingPlayback(recording);
 
   // Build segment list with delay truncation for live streams
   let playableSegments;
@@ -2754,14 +2750,9 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
     ...segmentLines,
   ];
 
-  if (!isFinished) {
-    lines.splice(
-      4,
-      0,
-      `#EXT-X-START:TIME-OFFSET=-${Math.max(12, delaySeconds)},PRECISE=NO`
-    );
-  }
-
+  // The EXT-X-START was removed here because physical truncation of playableSegments
+  // already delays the live edge. Adding an additional negative time-offset causes
+  // players to seek outside the available window, causing buffering loops.
   // For finished recordings, signal end-of-stream
   if (isFinished) {
     lines.push("");
