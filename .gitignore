@@ -14,6 +14,7 @@ dist
 dist-ssr
 *.local
 tmp-codex-export
+ffmpeg-go-worker
 
 # Editor directories and files
 .vscode/*

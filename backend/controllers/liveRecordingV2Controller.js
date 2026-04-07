@@ -1,5 +1,6 @@
 import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
+import pLimit from "p-limit";
 import Match from "../models/matchModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import {
@@ -1064,6 +1065,50 @@ function clearRecordingDriveAsset(recording, target, reason = "", file = null) {
   recording.status = "failed";
   recording.error = message;
   setRecordingDriveAssetMeta(recording, "source", deletedFileMeta);
+}
+
+async function trashRecordingDriveAssetByAdmin(recording, target = "source") {
+  const normalizedTarget = normalizeDriveAssetTarget(target);
+  const asset = getRecordingDriveAssetInfo(recording, normalizedTarget);
+
+  if (!asset.fileId) {
+    const error = new Error(`${asset.label} chưa có Drive fileId`);
+    error.statusCode = 404;
+    error.code = "DRIVE_FILE_ID_MISSING";
+    throw error;
+  }
+
+  try {
+    const result = await deleteRecordingDriveFile(asset.fileId);
+    clearRecordingDriveAsset(
+      recording,
+      normalizedTarget,
+      normalizedTarget === "ai"
+        ? "AI commentary Drive file was permanently deleted by admin."
+        : "Drive file was permanently deleted by admin.",
+      result.file
+    );
+    await recording.save();
+    await publishRecordingMonitor(
+      recording,
+      `recording_drive_asset_deleted_${normalizedTarget}`
+    );
+
+    return {
+      target: normalizedTarget,
+      file: result.file,
+      driveAuthMode: result.driveAuthMode,
+      recording: serializeRecording(recording),
+    };
+  } catch (error) {
+    if (!error?.statusCode) {
+      error.statusCode = 502;
+    }
+    if (!error?.code) {
+      error.code = "DRIVE_ASSET_DELETE_FAILED";
+    }
+    throw error;
+  }
 }
 
 function serializeRecording(recording) {
@@ -2231,24 +2276,11 @@ export const trashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
   }
 
   try {
-    const result = await deleteRecordingDriveFile(asset.fileId);
-    clearRecordingDriveAsset(
-      recording,
-      target,
-      target === "ai"
-        ? "AI commentary Drive file was permanently deleted by admin."
-        : "Drive file was permanently deleted by admin.",
-      result.file
-    );
-    await recording.save();
-    await publishRecordingMonitor(recording, `recording_drive_asset_deleted_${target}`);
-
+    const result = await trashRecordingDriveAssetByAdmin(recording, target);
     return res.json({
       ok: true,
       target,
-      file: result.file,
-      driveAuthMode: result.driveAuthMode,
-      recording: serializeRecording(recording),
+      ...result,
     });
   } catch (error) {
     return res.status(502).json({
@@ -2257,6 +2289,86 @@ export const trashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
       recording: serializeRecording(recording),
     });
   }
+});
+
+export const bulkTrashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
+  const target = normalizeDriveAssetTarget(req.body?.target);
+  const rawRecordingIds = Array.isArray(req.body?.recordingIds)
+    ? req.body.recordingIds
+    : Array.isArray(req.body?.ids)
+    ? req.body.ids
+    : [];
+  const recordingIds = [
+    ...new Set(rawRecordingIds.map((value) => asTrimmed(value)).filter(Boolean)),
+  ];
+  const invalidRecordingIds = recordingIds.filter((value) => !isValidObjectId(value));
+  const validRecordingIds = recordingIds.filter((value) => isValidObjectId(value));
+
+  if (!validRecordingIds.length) {
+    return res.status(400).json({
+      message: "Cần ít nhất một recording hợp lệ để xóa",
+      target,
+      invalidRecordingIds,
+    });
+  }
+
+  const recordings = await LiveRecordingV2.find({ _id: { $in: validRecordingIds } });
+  const recordingsById = new Map(recordings.map((recording) => [String(recording._id), recording]));
+  const limit = pLimit(4);
+
+  const results = await Promise.all(
+    validRecordingIds.map((recordingId) => {
+      const recording = recordingsById.get(recordingId);
+      if (!recording) {
+        return {
+          ok: false,
+          recordingId,
+          target,
+          code: "RECORDING_NOT_FOUND",
+          message: "Recording not found",
+        };
+      }
+
+      return limit(async () => {
+        try {
+          const result = await trashRecordingDriveAssetByAdmin(recording, target);
+          return {
+            ok: true,
+            recordingId,
+            target,
+            file: result.file,
+            driveAuthMode: result.driveAuthMode,
+            recording: result.recording,
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            recordingId,
+            target,
+            code: error?.code || "DRIVE_ASSET_DELETE_FAILED",
+            statusCode: Number(error?.statusCode || 502),
+            message: error?.message || "Failed to permanently delete Drive asset",
+            recording: serializeRecording(recording),
+          };
+        }
+      });
+    })
+  );
+
+  const deletedCount = results.filter((item) => item?.ok).length;
+  const failedCount = results.length - deletedCount;
+
+  return res.json({
+    ok: true,
+    target,
+    total: recordingIds.length,
+    processedCount: results.length,
+    invalidRecordingIds,
+    invalidCount: invalidRecordingIds.length,
+    deletedCount,
+    failedCount,
+    results,
+  });
 });
 
 export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {

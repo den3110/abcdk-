@@ -3,6 +3,7 @@ import { authorize } from "../middleware/authMiddleware.js";
 import { protect } from "../middleware/authMiddleware.js";
 import {
   abortMultipartLiveRecordingSegmentV2,
+  bulkTrashLiveRecordingDriveAssetV2,
   completeLiveRecordingSegmentV2,
   completeMultipartLiveRecordingSegmentV2,
   finalizeLiveRecordingV2,
@@ -114,6 +115,12 @@ router.post(
   protect,
   authorize("admin"),
   moveLiveRecordingDriveAssetV2
+);
+router.post(
+  "/admin/drive-asset/trash/bulk",
+  protect,
+  authorize("admin"),
+  bulkTrashLiveRecordingDriveAssetV2
 );
 router.post(
   "/admin/:id/drive-asset/trash",
