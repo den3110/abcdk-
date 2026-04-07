@@ -43,9 +43,6 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import SecurityIcon from "@mui/icons-material/Security";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
-import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
-import WhatshotIcon from "@mui/icons-material/Whatshot";
-import SportsScoreIcon from "@mui/icons-material/SportsScore";
 // Thêm (hoặc gộp) các imports icon ở đầu file:
 import TrophyIcon from "@mui/icons-material/EmojiEvents";
 import StreakIcon from "@mui/icons-material/Whatshot";
@@ -76,7 +73,6 @@ const VIDEO_PLACE = (
 
 /* ---------- small utils ---------- */
 const tz = { timeZone: "Asia/Bangkok" };
-const sameId = (a, b) => String(a ?? "") === String(b ?? "");
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("vi-VN", tz) : TEXT_PLACE;
 const fmtDT = (iso) =>
@@ -477,7 +473,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         document.execCommand("copy");
         document.body.removeChild(ta);
       }
-    } catch {}
+    } catch {
+      // Ignore clipboard errors here; copy feedback is handled elsewhere.
+    }
   }
 
   function CopyIconBtn({ text, label = "Nội dung" }) {
@@ -1488,19 +1486,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
-  function MatchViewerDialog({ open, onClose, row }) {
-    return (
-      <ResponsiveMatchViewer
-        open={open}
-        onClose={onClose}
-        matchId={row?._id || row?.id || null}
-        courtStationId={row?.courtStationId || row?.courtStation?._id || null}
-        initialMatch={row || null}
-        zIndex={theme.zIndex.modal + 20}
-      />
-    );
-  }
-
   /* --- Match section: mobile | desktop --- */
   function MatchSection({ isMobileView }) {
     if (matchLoading) return <MatchSkeleton isMobile={isMobileView} />;
@@ -1633,11 +1618,16 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             />
           </Stack>
 
-          <MatchViewerDialog
+          <ResponsiveMatchViewer
             key={detailViewerKey}
             open={detailOpen}
             onClose={() => setDetailOpen(false)}
-            row={detail}
+            matchId={detail?._id || detail?.id || null}
+            courtStationId={
+              detail?.courtStationId || detail?.courtStation?._id || null
+            }
+            initialMatch={detail || null}
+            zIndex={theme.zIndex.modal + 20}
           />
         </Stack>
       );
@@ -1768,11 +1758,16 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           />
         </Stack>
 
-        <MatchViewerDialog
+        <ResponsiveMatchViewer
           key={detailViewerKey}
           open={detailOpen}
           onClose={() => setDetailOpen(false)}
-          row={detail}
+          matchId={detail?._id || detail?.id || null}
+          courtStationId={
+            detail?.courtStationId || detail?.courtStation?._id || null
+          }
+          initialMatch={detail || null}
+          zIndex={theme.zIndex.modal + 20}
         />
       </Stack>
     );

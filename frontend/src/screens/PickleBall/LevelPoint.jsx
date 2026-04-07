@@ -144,8 +144,11 @@ const InputCard = React.memo(function InputCard({
 export default function LevelPointPage({ userId: userIdProp }) {
   const { t } = useLanguage();
   const theme = useTheme();
-  const authedId = useSelector((s) => s?.auth?.userInfo?._id);
+  const me = useSelector((s) => s?.auth?.userInfo);
+  const authedId = me?._id;
   const userId = userIdProp || authedId;
+  const isOwner = userId === authedId;
+  const isGold = isOwner && (me?.isScoreVerified === true);
 
   // Giữ string để nhập mượt, không tự blur
   const [singleInput, setSingleInput] = useState("");
@@ -332,7 +335,8 @@ export default function LevelPointPage({ userId: userIdProp }) {
                   variant="contained"
                   size="large"
                   onClick={handleSubmit}
-                  disabled={saving || !userId}
+                  disabled={saving || !userId || isGold}
+                  title={isGold ? t("levelPoint.goldScoreDisabled", "Đã có điểm vàng, không thể cập nhật") : ""}
                 >
                   {saving ? t("levelPoint.saving") : t("levelPoint.save")}
                 </Button>

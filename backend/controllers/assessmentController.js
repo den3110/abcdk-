@@ -5,6 +5,7 @@ import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import { normalizeDupr, rawFromDupr, sanitizeMeta } from "../utils/level.js";
 import Registration from "../models/registrationModel.js";
+import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
 
 /**
  * POST /api/assessments/:userId
@@ -82,7 +83,7 @@ export async function createAssessment(req, res) {
       if (participated) {
         return res.status(403).json({
           message:
-            "Bạn đã có điểm trình trên hệ thống, vui lòng liên hệ Admin để hỗ trợ thêm.",
+            "Tài khoản của bạn đã có điểm vàng (đã thi đấu), không thể tự cập nhật điểm. Vui lòng liên hệ Admin.",
         });
       }
     } catch (e) {
@@ -125,7 +126,7 @@ export async function createAssessment(req, res) {
       if (hasStaffAssessment) {
         return res.status(403).json({
           message:
-            "Người chơi này đã được mod/admin chấm điểm trước đó, bạn không thể chấm thêm nữa.",
+            "Tài khoản đã có điểm vàng (được BQT chấm), không thể tự cập nhật điểm nữa.",
         });
       }
     }
@@ -225,6 +226,24 @@ export async function getLatestAssessment(req, res) {
   const a = await Assessment.findOne({ user: userId })
     .sort({ scoredAt: -1 })
     .lean();
+    
+  if (a) {
+    try {
+      const sys = await getSystemSettingsRuntime();
+      const hideSelf = sys?.privacy?.hideUserRatingsSelf === true;
+      const isOwner = String(req.user?._id) === String(userId);
+
+      if (hideSelf && isOwner) {
+        a.singleLevel = "***";
+        a.doubleLevel = "***";
+        a.singleScore = "***";
+        a.doubleScore = "***";
+      }
+    } catch (e) {
+      console.error("[getLatestAssessment] Error masking self ratings:", e);
+    }
+  }
+  
   return res.json(a || null);
 }
 
@@ -236,6 +255,26 @@ export async function getAssessmentHistory(req, res) {
     .sort({ scoredAt: -1 })
     .limit(limit)
     .lean();
+
+  if (list && list.length > 0) {
+    try {
+      const sys = await getSystemSettingsRuntime();
+      const hideSelf = sys?.privacy?.hideUserRatingsSelf === true;
+      const isOwner = String(req.user?._id) === String(userId);
+
+      if (hideSelf && isOwner) {
+        list.forEach(a => {
+          a.singleLevel = "***";
+          a.doubleLevel = "***";
+          a.singleScore = "***";
+          a.doubleScore = "***";
+        });
+      }
+    } catch (e) {
+      console.error("[getAssessmentHistory] Error masking self ratings:", e);
+    }
+  }
+
   return res.json(list);
 }
 
