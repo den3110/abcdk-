@@ -129,14 +129,14 @@ const app = express();
 app.use(
   helmet({
     crossOriginResourcePolicy: false, // tắt mặc định same-origin
-  })
+  }),
 );
 
 app.use(
   cors({
     origin: WHITELIST, // ✅ KHÔNG dùng '*'
     credentials: true, // ✅ Phải bật
-  })
+  }),
 );
 
 app.use(express.json({ limit: "50mb" }));
@@ -168,7 +168,7 @@ app.use(
       console.error("❌ Proxy error:", err);
       res.status(500).json({ error: "Go service unavailable" });
     },
-  })
+  }),
 );
 app.use("/api/live/recordings", liveRecordingRoutes);
 app.use("/api/live/recordings/v2", liveRecordingV2Routes);
@@ -203,7 +203,7 @@ app.use(
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoặc same-site
       res.setHeader("Access-Control-Allow-Origin", "*"); // optional
     },
-  })
+  }),
 );
 app.use("/api/users", userRoutes);
 app.use("/api/tournaments", tournamentRoute);
@@ -282,7 +282,7 @@ app.get("/api/geo", async (req, res) => {
     const isLocal =
       !clientIp ||
       /^(127\.|::1|::ffff:127\.|localhost|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(
-        clientIp
+        clientIp,
       );
     // Use the client IP for production, omit for local (auto-detect server public IP)
     const lookupUrl = isLocal
@@ -324,7 +324,7 @@ app.get("/dl/file/:id", async (req, res) => {
     res.setHeader("Content-Type", doc.mime || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(downloadName)}"`
+      `attachment; filename="${encodeURIComponent(downloadName)}"`,
     );
 
     // Chuyển nội bộ cho Nginx đọc file từ đĩa (KHÔNG qua Node)
@@ -353,22 +353,26 @@ const startServer = async () => {
     // 🔹 mount GraphQL trước fallback routes (*)
     await setupGraphQL(app);
 
-    if (process.env.NODE_ENV === "production") {
-      const __dirname = path.resolve();
-      app.use(prerenderMiddleware);
-      // Fix: serve from sibling frontend directory
-      app.use(express.static(path.join(__dirname, "../frontend/dist")));
+    // if (process.env.NODE_ENV === "production") {
+    //   const __dirname = path.resolve();
+    //   app.use(prerenderMiddleware);
+    //   // Fix: serve from sibling frontend directory
+    //   app.use(express.static(path.join(__dirname, "../frontend/dist")));
 
-      app.get("*", (req, res) =>
-        res.sendFile(
-          path.resolve(__dirname, "../frontend", "dist", "index.html")
-        )
-      );
-    } else {
-      app.get("/", (req, res) => {
-        res.send("API is running....");
-      });
-    }
+    //   app.get("*", (req, res) =>
+    //     res.sendFile(
+    //       path.resolve(__dirname, "../frontend", "dist", "index.html")
+    //     )
+    //   );
+    // } else {
+    //   // app.get("/", (req, res) => {
+    //   //   res.send("API is running....");
+    //   // });
+    // }
+    // Test endpoint để kiểm tra server có chạy không (đặt sau GraphQL để không bị chặn)
+    app.get("/", (req, res) => {
+      res.send("API is running....");
+    });
 
     app.use(notFound);
     app.use(errorHandler);
