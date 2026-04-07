@@ -85,7 +85,9 @@ const safe = (v, fallback = TEXT_PLACE) =>
   v === null || v === undefined || v === "" ? fallback : v;
 const num = (v, digits = 3) => {
   if (v === null) return "***";
-  return Number.isFinite(v) ? v.toFixed(digits) : TEXT_PLACE;
+  if (v === undefined || v === "") return TEXT_PLACE;
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(digits) : TEXT_PLACE;
 };
 
 const getSPC = (base) => {
@@ -93,6 +95,7 @@ const getSPC = (base) => {
   if (!s || typeof s !== "object") return null;
 
   const toNum = (v) => {
+    if (v === null) return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   };

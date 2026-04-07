@@ -2071,7 +2071,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
     reputation,
   };
 
-  res.json(userObj);
+  const finalObj = await sanitizeRatingsObj(req.user, req.user._id, userObj);
+
+  res.json(finalObj);
 });
 
 // @desc    Update user profile

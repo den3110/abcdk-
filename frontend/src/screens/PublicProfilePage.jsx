@@ -464,26 +464,32 @@ export default function PublicProfilePage() {
 
   // ✅ latestSingle / latestDouble giống bản cũ (ưu tiên history, fallback levelPoint)
   const latestSingle = useMemo(() => {
+    if (summaryScore && "single" in summaryScore && summaryScore.single === null) return null;
     const fromSummary = Number(summaryScore?.single);
     if (Number.isFinite(fromSummary)) return fromSummary;
     if (ratingRaw.length) {
+      if (ratingRaw[0]?.single === null) return null;
       const v = Number(ratingRaw[0]?.single);
       if (Number.isFinite(v)) return v;
     }
     const fallback =
       base?.levelPoint?.single ?? base?.levelPoint?.score ?? undefined;
+    if (fallback === null) return null;
     const v2 = Number(fallback);
     return Number.isFinite(v2) ? v2 : NaN;
   }, [ratingRaw, summaryScore?.single, base]);
 
   const latestDouble = useMemo(() => {
+    if (summaryScore && "double" in summaryScore && summaryScore.double === null) return null;
     const fromSummary = Number(summaryScore?.double);
     if (Number.isFinite(fromSummary)) return fromSummary;
     if (ratingRaw.length) {
+      if (ratingRaw[0]?.double === null) return null;
       const v = Number(ratingRaw[0]?.double);
       if (Number.isFinite(v)) return v;
     }
     const fallback = base?.levelPoint?.double ?? undefined;
+    if (fallback === null) return null;
     const v2 = Number(fallback);
     return Number.isFinite(v2) ? v2 : NaN;
   }, [ratingRaw, summaryScore?.double, base]);

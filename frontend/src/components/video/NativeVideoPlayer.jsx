@@ -297,7 +297,7 @@ export default function NativeVideoPlayer({
   }, [getActiveVideoElement, getInactiveVideoElement, isMuted, volume]);
 
   const advanceToStagedSource = useCallback(async () => {
-    if (!queueMode || switchingToStagedRef.current || !stagedNextReadyRef.current) {
+    if (!queueMode || switchingToStagedRef.current) {
       return false;
     }
 
@@ -417,7 +417,9 @@ export default function NativeVideoPlayer({
       }
     };
     const syncTime = () => {
-      if (queueMode && stagedNextReadyRef.current && Number.isFinite(video.duration)) {
+      // Allow advancing even if stagedNextReadyRef.current is false, because on iOS Safari
+      // the background video may not fire canplay until we explicitly call .play() on it.
+      if (queueMode && stagedNextSrc && Number.isFinite(video.duration)) {
         const remaining = Math.max(0, (video.duration || 0) - (video.currentTime || 0));
         if (remaining <= 0.2) {
           void advanceToStagedSource();

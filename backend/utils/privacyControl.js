@@ -66,6 +66,14 @@ export async function sanitizeRatingsObj(reqUser, targetUserId, obj) {
     if ('ratingDouble' in copy) copy.ratingDouble = HIDDEN;
     if ('score' in copy) copy.score = HIDDEN;
     if ('regScore' in copy) copy.regScore = HIDDEN;
+    if ('levelPoint' in copy && copy.levelPoint) {
+        let lp = { ...copy.levelPoint };
+        if ('single' in lp) lp.single = HIDDEN;
+        if ('double' in lp) lp.double = HIDDEN;
+        if ('mix' in lp) lp.mix = HIDDEN;
+        if ('score' in lp) lp.score = HIDDEN;
+        copy.levelPoint = lp;
+    }
     if ('localRatings' in copy) {
         copy.localRatings.singles = HIDDEN;
         copy.localRatings.doubles = HIDDEN;
