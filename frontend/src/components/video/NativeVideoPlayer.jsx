@@ -883,7 +883,7 @@ export default function NativeVideoPlayer({
               }
               crossOrigin={holdLastFrameOnSourceChange ? "anonymous" : undefined}
               controls={Boolean(
-                useNativeControls && !showPreviewOverlay && (!queueMode || activeSlot === 0),
+                useNativeControls && !showPreviewOverlay && !queueMode,
               )}
               style={{
                 position: "absolute",
@@ -1045,7 +1045,9 @@ export default function NativeVideoPlayer({
               </Box>
             ) : null}
 
-            {!useNativeControls ? (
+            {/* In queueMode, native browser controls don't work properly with
+               the dual-slot architecture, so always use custom controls. */}
+            {!useNativeControls || queueMode ? (
               <Box
                 sx={{
                   position: "absolute",

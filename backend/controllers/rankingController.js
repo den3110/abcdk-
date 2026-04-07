@@ -1843,7 +1843,13 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docs = first.docs || [];
+  const docsRaw = first.docs || [];
+
+  // ✅ Apply privacy sanitization (same as V1)
+  const isHidden = await isRatingHiddenGlobal();
+  const docs = isHidden
+    ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
+    : docsRaw;
 
   return res.json({
     docs,
