@@ -2260,9 +2260,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         {status === "live"
           ? streams.length
             ? "Trận đang live — bạn có thể mở liên kết hoặc xem trong nền."
-            : "Trận đang live — chưa có link."
+            : "Trận đang live — Trận đấu đang được ghi hình và sẽ hiển thị video sau."
           : status === "finished"
-            ? "Trận đã diễn ra."
+            ? streams.length
+              ? "Trận đã diễn ra."
+              : "Trận đã diễn ra. Video bản ghi sẽ được hiển thị sau khi xử lý xong."
             : "Trận chưa diễn ra."}
       </Alert>
 
