@@ -10,6 +10,7 @@ import registrationRoutes from "./routes/registrationRoutes.js";
 import rankingRoutes from "./routes/rankingRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import azureAdminRoutes from "./routes/azureAdminRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import refereeRoutes from "./routes/refereeRoutes.js";
 import assessmentRoutes from "./routes/assessmentRoutes.js";
@@ -213,6 +214,7 @@ app.use("/api/v1/rankings", rankingRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/azure", azureAdminRoutes);
 app.use("/api/setting", adminRoutes);
 
 app.use("/api/auth", authRoutes);

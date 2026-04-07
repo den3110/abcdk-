@@ -1,5 +1,32 @@
-// models/systemSettings.model.js
 import mongoose from "mongoose";
+
+const azureAccountSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    label: { type: String, default: "Tài khoản Azure" },
+    isActive: { type: Boolean, default: true },
+
+    capabilities: {
+      useForVmWorker: { type: Boolean, default: false },
+      useForTts: { type: Boolean, default: false },
+    },
+
+    clientId: { type: String, default: "", trim: true },
+    clientSecret: { type: String, default: "", trim: true },
+    tenantId: { type: String, default: "", trim: true },
+    subscriptionId: { type: String, default: "", trim: true },
+
+    resourceGroup: { type: String, default: "", trim: true },
+    vmName: { type: String, default: "", trim: true },
+    sshUser: { type: String, default: "azureuser", trim: true },
+    sshPrivateKey: { type: String, default: "", trim: true },
+
+    ttsRegion: { type: String, default: "", trim: true },
+    ttsApiKey: { type: String, default: "", trim: true },
+    ttsVoiceName: { type: String, default: "vi-VN-HoaiMyNeural", trim: true },
+  },
+  { _id: false }
+);
 
 const SystemSettingsSchema = new mongoose.Schema(
   {
@@ -91,7 +118,12 @@ const SystemSettingsSchema = new mongoose.Schema(
         },
         defaultVoicePreset: {
           type: String,
-          enum: ["vi_male_pro", "vi_female_pro", "en_male_pro", "en_female_pro"],
+          enum: [
+            "vi_male_pro",
+            "vi_female_pro",
+            "en_male_pro",
+            "en_female_pro",
+          ],
           default: "vi_male_pro",
         },
         scriptBaseUrl: { type: String, default: "", trim: true },
@@ -118,6 +150,11 @@ const SystemSettingsSchema = new mongoose.Schema(
       hideUserRatingsSelf: { type: Boolean, default: false },
     },
 
+    azure: {
+      enabled: { type: Boolean, default: false },
+      accounts: { type: [azureAccountSchema], default: [] },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },
@@ -125,7 +162,7 @@ const SystemSettingsSchema = new mongoose.Schema(
     _id: false,
     minimize: false,
     timestamps: false,
-  }
+  },
 );
 
 export default mongoose.model("SystemSettings", SystemSettingsSchema);

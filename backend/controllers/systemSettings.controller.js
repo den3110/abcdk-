@@ -147,6 +147,36 @@ function sanitizeSettingsPatch(patch = {}) {
     next.liveRecording.aiCommentary = ai;
   }
 
+  if (next.azure && typeof next.azure === "object") {
+    next.azure.enabled = next.azure.enabled === true;
+    if (Array.isArray(next.azure.accounts)) {
+      next.azure.accounts = next.azure.accounts
+        .filter((acc) => acc && typeof acc === "object" && String(acc.id || "").trim())
+        .map((acc) => ({
+          id: String(acc.id || "").trim(),
+          label: String(acc.label || "").trim(),
+          isActive: acc.isActive !== false,
+          capabilities: {
+            useForVmWorker: acc.capabilities?.useForVmWorker === true,
+            useForTts: acc.capabilities?.useForTts === true,
+          },
+          clientId: String(acc.clientId || "").trim(),
+          clientSecret: String(acc.clientSecret || "").trim(),
+          tenantId: String(acc.tenantId || "").trim(),
+          subscriptionId: String(acc.subscriptionId || "").trim(),
+          resourceGroup: String(acc.resourceGroup || "").trim(),
+          vmName: String(acc.vmName || "").trim(),
+          sshUser: String(acc.sshUser || "azureuser").trim(),
+          sshPrivateKey: String(acc.sshPrivateKey || "").trim(),
+          ttsRegion: String(acc.ttsRegion || "").trim(),
+          ttsApiKey: String(acc.ttsApiKey || "").trim(),
+          ttsVoiceName: String(acc.ttsVoiceName || "vi-VN-HoaiMyNeural").trim(),
+        }));
+    } else {
+      delete next.azure.accounts;
+    }
+  }
+
   return next;
 }
 

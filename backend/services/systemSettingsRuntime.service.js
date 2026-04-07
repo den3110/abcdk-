@@ -68,6 +68,10 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     hideUserRatings: false,
     hideUserRatingsSelf: false,
   },
+  azure: {
+    enabled: false,
+    accounts: [],
+  },
 };
 
 let runtimeCache = { doc: null, ts: 0 };
@@ -134,6 +138,13 @@ export function normalizeSystemSettings(doc = {}) {
     privacy: {
       ...DEFAULT_SYSTEM_SETTINGS.privacy,
       ...(source.privacy || {}),
+    },
+    azure: {
+      ...DEFAULT_SYSTEM_SETTINGS.azure,
+      ...(source.azure || {}),
+      accounts: Array.isArray(source.azure?.accounts) 
+        ? source.azure.accounts 
+        : DEFAULT_SYSTEM_SETTINGS.azure.accounts,
     },
   };
 }
