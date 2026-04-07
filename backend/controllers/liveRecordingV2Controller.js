@@ -2743,7 +2743,7 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
     "#EXTM3U",
     "#EXT-X-VERSION:3",
     "#EXT-X-INDEPENDENT-SEGMENTS",
-    isFinished ? "#EXT-X-PLAYLIST-TYPE:VOD" : "#EXT-X-PLAYLIST-TYPE:EVENT",
+    isFinished ? "#EXT-X-PLAYLIST-TYPE:VOD" : "",
     `#EXT-X-TARGETDURATION:${targetDuration || 6}`,
     `#EXT-X-MEDIA-SEQUENCE:${mediaSequence}`,
     "",
@@ -2759,7 +2759,7 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
     lines.push("#EXT-X-ENDLIST");
   }
 
-  const playlist = lines.join("\n") + "\n";
+  const playlist = lines.filter(Boolean).join("\n") + "\n";
 
   res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
   res.setHeader("Access-Control-Allow-Origin", "*");
