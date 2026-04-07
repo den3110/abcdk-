@@ -413,18 +413,18 @@ export default function RegisterScreen() {
               zIndex: 1,
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "49% 51%" },
-              gridTemplateRows: { xs: "minmax(180px, 28vh) minmax(0, 1fr)", md: "1fr" },
+              gridTemplateRows: "1fr",
               mt: { xs: 0, md: "-50px" },
-              height: { xs: "auto", md: "calc(100% + 50px)" },
+              height: { xs: "100%", md: "calc(100% + 50px)" },
               minHeight: 0,
             }}
           >
             {/* ---- Left showcase panel ---- */}
             <Box
               sx={{
+                display: { xs: "none", md: "grid" },
                 position: "relative",
                 overflow: "hidden",
-                display: "grid",
                 gridTemplateRows: "auto minmax(0, 1fr) auto",
                 minHeight: 0,
                 height: "100%",
