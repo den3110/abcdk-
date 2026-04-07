@@ -64,6 +64,10 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   referee: {
     matchControlLockEnabled: true,
   },
+  privacy: {
+    hideUserRatings: false,
+    hideUserRatingsSelf: false,
+  },
 };
 
 let runtimeCache = { doc: null, ts: 0 };
@@ -126,6 +130,10 @@ export function normalizeSystemSettings(doc = {}) {
     referee: {
       ...DEFAULT_SYSTEM_SETTINGS.referee,
       ...(source.referee || {}),
+    },
+    privacy: {
+      ...DEFAULT_SYSTEM_SETTINGS.privacy,
+      ...(source.privacy || {}),
     },
   };
 }

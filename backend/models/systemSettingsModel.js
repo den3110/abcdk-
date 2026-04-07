@@ -113,6 +113,11 @@ const SystemSettingsSchema = new mongoose.Schema(
       matchControlLockEnabled: { type: Boolean, default: true },
     },
 
+    privacy: {
+      hideUserRatings: { type: Boolean, default: false },
+      hideUserRatingsSelf: { type: Boolean, default: false },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },

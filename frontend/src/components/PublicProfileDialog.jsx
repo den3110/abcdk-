@@ -83,8 +83,10 @@ const fmtDT = (iso) =>
   iso ? new Date(iso).toLocaleString("vi-VN", tz) : TEXT_PLACE;
 const safe = (v, fallback = TEXT_PLACE) =>
   v === null || v === undefined || v === "" ? fallback : v;
-const num = (v, digits = 3) =>
-  Number.isFinite(v) ? v.toFixed(digits) : TEXT_PLACE;
+const num = (v, digits = 3) => {
+  if (v === null) return "***";
+  return Number.isFinite(v) ? v.toFixed(digits) : TEXT_PLACE;
+};
 
 const getSPC = (base) => {
   const s = base?.spc;
@@ -1206,7 +1208,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           const up = (p?.delta ?? 0) > 0;
           const down = (p?.delta ?? 0) < 0;
           const hasScore =
-            Number.isFinite(p?.preScore) || Number.isFinite(p?.postScore);
+            Number.isFinite(p?.preScore) || Number.isFinite(p?.postScore) || p?.preScore === null || p?.postScore === null;
           const nick = preferNick(p);
 
           return (

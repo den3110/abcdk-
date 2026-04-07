@@ -1,5 +1,6 @@
 import asyncHandler from "express-async-handler";
 import User from "../models/userModel.js";
+import { shouldHideUserRatings, sanitizeRatingsObj } from "../utils/privacyControl.js";
 import generateToken from "../utils/generateToken.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Ranking from "../models/rankingModel.js";
@@ -2475,10 +2476,14 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     bio: user.bio || "",
     avatar: user.avatar || "",
     cccdStatus: user.cccdStatus || "unverified",
-    summary: await buildPublicProfileSummary(user).catch((error) => {
-      console.warn("[getPublicProfile] summary error:", error?.message || error);
-      return buildFallbackPublicProfileSummary(user);
-    }),
+    summary: await sanitizeRatingsObj(
+      req.user,
+      req.params.id,
+      await buildPublicProfileSummary(user).catch((error) => {
+        console.warn("[getPublicProfile] summary error:", error?.message || error);
+        return buildFallbackPublicProfileSummary(user);
+      })
+    ),
   });
 });
 
@@ -2814,10 +2819,19 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
     .select("single double scoredAt")
     .lean();
 
+  let s =
+    last?.single ?? user?.levelPoint?.single ?? user?.levelPoint?.score ?? 0;
+  let d = last?.double ?? user?.levelPoint?.double ?? 0;
+
+  const hide = await shouldHideUserRatings(req.user, user._id);
+  if (hide) {
+    s = null;
+    d = null;
+  }
+
   const score = {
-    single:
-      last?.single ?? user?.levelPoint?.single ?? user?.levelPoint?.score ?? 0,
-    double: last?.double ?? user?.levelPoint?.double ?? 0,
+    single: s,
+    double: d,
     scoredAt: last?.scoredAt ?? null,
   };
 

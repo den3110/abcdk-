@@ -7,6 +7,7 @@ import Tournament from "../models/tournamentModel.js";
 import Bracket from "../models/bracketModel.js";
 import User from "../models/userModel.js";
 import mongoose from "mongoose";
+import { shouldHideUserRatings } from "../utils/privacyControl.js";
 
 const MAX_PROFILE_PAGE_SIZE = 1000;
 
@@ -120,6 +121,8 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     .populate("user", "name nickname email avatar")
     .lean();
 
+  const isHiddenInfo = await shouldHideUserRatings(req.user, req.params.id);
+
   // ===== 6) Transform
   const history = rows.map((r) => {
     const isDelta = isDeltaNote(r.note);
@@ -142,8 +145,8 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     return {
       _id: r._id,
       scoredAt: r.scoredAt,
-      single: r.single,
-      double: r.double,
+      single: isHiddenInfo ? null : r.single,
+      double: isHiddenInfo ? null : r.double,
       note: noteForClient,
       scorer: scorerForClient,
       user: r.user
@@ -171,15 +174,15 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
 /* -------- helpers -------- */
 
 /* -------- helpers -------- */
-function buildHistMap(rows) {
+function buildHistMap(rows, isHiddenInfo = false) {
   // map[userId] = [{t, single, double}, ...] (đã sort asc theo t)
   const map = {};
   for (const r of rows) {
     const k = String(r.user);
     (map[k] ||= []).push({
       t: new Date(r.scoredAt).getTime(),
-      single: r.single,
-      double: r.double,
+      single: isHiddenInfo ? null : r.single,
+      double: isHiddenInfo ? null : r.double,
     });
   }
   return map;
@@ -230,6 +233,8 @@ function buildScoreText(gameScores = []) {
 
 export const getMatchHistory = asyncHandler(async (req, res) => {
   const userId = String(req.params.id);
+
+  const isHiddenInfo = await shouldHideUserRatings(req.user, userId);
 
   // >>> Phân trang (GIỮ NGUYÊN)
   const { page, limit, skip } = resolvePaging(req.query, 10);
@@ -297,7 +302,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     .select("user single double scoredAt")
     .lean();
 
-  const histMap = buildHistMap(histRows);
+  const histMap = buildHistMap(histRows, isHiddenInfo);
 
   // ★ NEW: nạp Users để lấy nickname/avatar (ưu tiên nickname)
   const users = await User.find({ _id: { $in: [...allUserIds] } })
@@ -306,6 +311,10 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   const userById = new Map(users.map((u) => [String(u._id), u]));
 
   function attachNick(p, base) {
+    if (isHiddenInfo && String(base?._id) !== String(req.user?._id)) {
+      if ('preScore' in base) base.preScore = null;
+      if ('postScore' in base) base.postScore = null;
+    }
     const u = userById.get(String(p?.user));
     const nickname =
       u?.nickname ||

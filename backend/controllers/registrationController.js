@@ -21,6 +21,8 @@ import {
   findTeamFaction,
   isTeamTournament,
 } from "../services/teamTournament.service.js";
+import { sanitizeRatingsObj } from "../utils/privacyControl.js";
+
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
 export const createRegistration = asyncHandler(async (req, res) => {
@@ -415,11 +417,16 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   };
 
   // 6) build output
-  const out = regs.map((r) => ({
-    ...r,
-    player1: enrichPlayer(r.player1),
-    player2: enrichPlayer(r.player2),
-  }));
+  const out = [];
+  for (const r of regs) {
+    const p1 = enrichPlayer(r.player1);
+    const p2 = enrichPlayer(r.player2);
+    out.push({
+      ...r,
+      player1: await sanitizeRatingsObj(req.user, p1?.user, p1),
+      player2: await sanitizeRatingsObj(req.user, p2?.user, p2),
+    });
+  }
 
   res.json(out);
 });

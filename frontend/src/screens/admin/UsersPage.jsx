@@ -1164,6 +1164,32 @@ export default function UsersPage() {
                 : t("admin.users.systemPushOff")
             }
           />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={sysSettings?.privacy?.hideUserRatings === true}
+                onChange={(e) =>
+                  handle(
+                    updateSystemSettingsMut({
+                      privacy: {
+                        ...sysSettings?.privacy,
+                        hideUserRatings: e.target.checked,
+                      },
+                    }).unwrap(),
+                    e.target.checked
+                      ? "Đã bật ẩn điểm trình"
+                      : "Đã tắt ẩn điểm trình",
+                    () => {},
+                  )
+                }
+              />
+            }
+            label={
+              sysSettings?.privacy?.hideUserRatings === true
+                ? "Ẩn điểm trình: Bật"
+                : "Ẩn điểm trình: Tắt"
+            }
+          />
         </Stack>
       </Paper>
 

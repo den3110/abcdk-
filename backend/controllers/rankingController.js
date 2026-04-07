@@ -9,6 +9,7 @@ import Assessment from "../models/assessmentModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Bracket from "../models/bracketModel.js";
 import { decodeCursor, encodeCursor } from "../utils/cursor.js";
+import { isRatingHiddenGlobal, sanitizeRatingsObj } from "../utils/privacyControl.js";
 import RankingSearchQuota from "../models/rankingSearchQuotaModel.js";
 import {
   normalize_for_search,
@@ -237,7 +238,8 @@ export const adminUpdateRanking = asyncHandler(async (req, res) => {
 });
 
 export async function getLeaderboard(req, res) {
-  const list = await Ranking.aggregate([
+  const isHidden = await isRatingHiddenGlobal();
+  const listRaw = await Ranking.aggregate([
     { $match: { isHiddenFromRankings: { $ne: true } } },
     {
       $lookup: {
@@ -291,6 +293,7 @@ export async function getLeaderboard(req, res) {
       },
     },
   ]);
+  const list = isHidden ? await Promise.all(listRaw.map(l => sanitizeRatingsObj(null, l.user, l))) : listRaw;
   res.json(list);
 }
 
@@ -1210,7 +1213,12 @@ export const getRankings = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docs = first.docs || [];
+  const docsRaw = first.docs || [];
+
+  const isHidden = await isRatingHiddenGlobal();
+  const docs = isHidden
+    ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
+    : docsRaw;
 
   return res.json({
     docs,
@@ -2303,7 +2311,12 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docs = first.docs || [];
+  const docsRaw = first.docs || [];
+
+  const isHidden = await isRatingHiddenGlobal();
+  const docs = isHidden
+    ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
+    : docsRaw;
 
   return res.json({
     docs,

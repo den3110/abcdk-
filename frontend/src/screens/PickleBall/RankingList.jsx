@@ -301,7 +301,10 @@ const HEX = {
 };
 const MIN_RATING = 1.6;
 const MAX_RATING = 8.0;
-const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
+const fmt3 = (x) => {
+  if (x === null) return "***";
+  return Number.isFinite(x) ? Number(x).toFixed(3) : "0.000";
+};
 
 const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;

@@ -415,6 +415,9 @@ export const getNearbyPlayers = asyncHandler(async (req, res) => {
 
   enriched.sort((a, b) => b.score - a.score || a.distance - b.distance);
 
+  let isHiddenInfo = false;
+  if(typeof shouldHideUserRatings === "function") isHiddenInfo = await shouldHideUserRatings(req.user, null);
+  if (isHiddenInfo) { enriched.forEach(p => { p.ratingSingles = null; p.ratingDoubles = null; p.rating = null; p._ratingsHidden = true; }); }
   res.json({
     center: { lat: centerLat, lng: centerLng },
     radiusKm,
@@ -686,6 +689,9 @@ export const getRadarExplore = asyncHandler(async (req, res) => {
   // ✅ chốt hạ: item nào location null/invalid thì loại
   const safeItems = items.filter((it) => isValidPoint(it?.location));
 
+  let isHiddenInfoItems = false;
+  if(typeof shouldHideUserRatings === "function") isHiddenInfoItems = await shouldHideUserRatings(req.user, null);
+  if (isHiddenInfoItems) { safeItems.forEach(p => { if(p.type === "user") { p.rating = null; p._ratingsHidden = true; } }); }
   res.json({
     center: { lat: centerLat, lng: centerLng },
     radiusKm,

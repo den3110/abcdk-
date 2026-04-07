@@ -61,10 +61,14 @@ import { getGenderLabel } from "../i18n/uiOptions";
 /* ---------- CONSTANTS & UTILS ---------- */
 const AVA_PLACE = "";
 // Keep decimals like the legacy screen (default 3 digits).
-const num = (v, digits = 3) =>
-  Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
-const numFloat = (v, digits = 3) =>
-  Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
+const num = (v, digits = 3) => {
+  if (v === null) return "***";
+  return Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
+};
+const numFloat = (v, digits = 3) => {
+  if (v === null) return "***";
+  return Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
+};
 
 const calcAge = (iso) => {
   if (!iso) return "—";
@@ -309,7 +313,7 @@ const PlayerRow = ({ p, highlight }) => {
         >
           {name}
         </Typography>
-        {p?.postScore !== undefined && p?.postScore !== null && (
+        {(p?.postScore !== undefined || p?.preScore !== undefined) && (
           <Stack
             direction="row"
             alignItems="center"

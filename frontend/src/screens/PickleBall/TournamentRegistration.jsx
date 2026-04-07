@@ -129,6 +129,7 @@ const totalChipStyle = (total, cap, delta, t) => {
 };
 
 const fmt3 = (v) => {
+  if (v === null) return "***";
   const n = Number(v);
   if (!isFinite(n)) return "—";
   const r = Math.round(n * 1000) / 1000;
@@ -158,8 +159,10 @@ const getUserId = (pl) => {
   return null;
 };
 
-const totalScoreOf = (r, isSingles) =>
-  (r?.player1?.score || 0) + (isSingles ? 0 : r?.player2?.score || 0);
+const totalScoreOf = (r, isSingles) => {
+  if (r?.player1?.score === null || (!isSingles && r?.player2?.score === null)) return null;
+  return (Number(r?.player1?.score) || 0) + (isSingles ? 0 : Number(r?.player2?.score) || 0);
+};
 
 const getScoreCap = (tour, isSingles) => {
   if (!tour) return 0;

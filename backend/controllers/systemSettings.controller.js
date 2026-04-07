@@ -20,6 +20,9 @@ function buildSystemSettingsSocketPayload(settings) {
       matchControlLockEnabled:
         settings?.referee?.matchControlLockEnabled !== false,
     },
+    privacy: {
+      hideUserRatings: settings?.privacy?.hideUserRatings === true,
+    },
   };
 }
 
@@ -59,6 +62,15 @@ function sanitizeSettingsPatch(patch = {}) {
 
     if (!Object.keys(next.referee).length) {
       delete next.referee;
+    }
+  }
+
+  if (next.privacy && typeof next.privacy === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.privacy, "hideUserRatings")) {
+      next.privacy.hideUserRatings = next.privacy.hideUserRatings === true;
+    }
+    if (!Object.keys(next.privacy).length) {
+      delete next.privacy;
     }
   }
 
