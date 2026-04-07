@@ -1407,7 +1407,8 @@ export default function MyTournamentsPage() {
             {tournaments.map((t) => (
               <Grid
                 key={t._id}
-                size={{ xs: 12, sm: 12, md: 6, lg: 4 }} // MUI v7 Grid v2 API
+                size={{ xs: 12, sm: 12, md: 6, lg: 4 }}
+                sx={{ display: "flex" }}
               >
                 <TournamentCard
                   t={t}

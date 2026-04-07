@@ -117,7 +117,8 @@ const StatusBadge = styled(Box)(({ theme, status }) => {
 const StatBox = styled(Box)(({ theme }) => ({
   padding: theme.spacing(2),
   borderRadius: 16,
-  minWidth: 140,
+  minWidth: 160,
+  flex: 1,
   backgroundColor: theme.palette.background.paper,
   border: `1px solid ${theme.palette.divider}`,
   display: "flex",
@@ -468,6 +469,7 @@ export default function TournamentDashboard() {
       fontSize: "0.8125rem",
       py: 1,
       minHeight: 40,
+      whiteSpace: "nowrap",
     };
 
     const registerBigSx = {
@@ -498,7 +500,7 @@ export default function TournamentDashboard() {
             </Button>
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/schedule`}
@@ -512,7 +514,7 @@ export default function TournamentDashboard() {
             </Button>
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/bracket`}
@@ -568,7 +570,7 @@ export default function TournamentDashboard() {
     if (t.status === "ongoing") {
       return (
         <Grid container spacing={1}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/schedule`}
@@ -582,7 +584,7 @@ export default function TournamentDashboard() {
             </Button>
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/bracket`}
@@ -1026,7 +1028,7 @@ export default function TournamentDashboard() {
             ) : (
               <Grid container spacing={3}>
                 {filtered.map((t) => (
-                  <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
+                  <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id} sx={{ display: "flex" }}>
                     <TournamentCard t={t} />
                   </Grid>
                 ))}

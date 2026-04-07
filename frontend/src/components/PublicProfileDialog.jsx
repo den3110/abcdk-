@@ -920,6 +920,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const RatingTable = () => {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+    const me = useSelector((s) => s.auth?.userInfo);
+    const isAdmin = !!(me?.isAdmin || me?.role === "admin");
+    const [deleteHistory, { isLoading: deleting }] =
+      useDeleteRatingHistoryMutation();
+    const [deletingId, setDeletingId] = React.useState(null);
 
     if (rateLoading) return <RatingSkeleton isMobile={isMobile} />;
     if (rateError)
@@ -930,13 +935,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             "Lỗi tải lịch sử điểm trình"}
         </Alert>
       );
-
-    const me = useSelector((s) => s.auth?.userInfo);
-    const isAdmin = !!(me?.isAdmin || me?.role === "admin");
-
-    const [deleteHistory, { isLoading: deleting }] =
-      useDeleteRatingHistoryMutation();
-    const [deletingId, setDeletingId] = React.useState(null);
 
     async function handleDeleteRow(h) {
       if (!isAdmin) return;
@@ -990,8 +988,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     // ... (NGUYÊN VẸN từ đoạn trong code gốc của bạn) ...
     // ——— BẮT ĐẦU GIỮ NGUYÊN ĐOẠN GỐC ———
 
-    const [ratingPage, setRatingPage] = [undefined, undefined]; // placeholder để tránh shadow (chúng ta dùng state bên ngoài)
-    // nhưng vì ta đã có ratingPage ở scope ngoài, không cần khai lại.
+
 
     // Mobile view
     if (isMobile) {
@@ -1084,11 +1081,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             : EmptyState}
           <Stack direction="row" justifyContent="center" mt={0.5}>
             <Pagination
-              page={
-                window.__dummy || 1 /* placeholder, thực tế dùng state ngoài */
-              }
-              onChange={() => {}}
-              count={Math.max(1, Math.ceil(ratingTotal / 10))}
+              page={ratingPage}
+              onChange={(_, p) => setRatingPage(p)}
+              count={Math.max(1, Math.ceil(ratingTotal / ratingPerPage))}
               shape="rounded"
               size="small"
             />
@@ -1184,9 +1179,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         </TableContainer>
         <Stack direction="row" justifyContent="center">
           <Pagination
-            page={window.__dummy || 1 /* placeholder */}
-            onChange={() => {}}
-            count={Math.max(1, Math.ceil(ratingTotal / 10))}
+            page={ratingPage}
+            onChange={(_, p) => setRatingPage(p)}
+            count={Math.max(1, Math.ceil(ratingTotal / ratingPerPage))}
             shape="rounded"
             size="small"
           />
@@ -2343,19 +2338,14 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               height: "calc(94vh - 120px)",
             }}
           >
-            {tab === 0 && <InfoSection />}
+            {tab === 0 && InfoSection()}
             {tab === 1 && <RatingTable />}
-            {tab === 2 && <MatchSection isMobileView />}
-            {tab === 3 && <AchievementsSection />}
+            {tab === 2 && MatchSection({ isMobileView: true })}
+            {tab === 3 && AchievementsSection()}
           </Box>
         </Drawer>
 
-        <ImageZoomDialog
-          open={zoom.open}
-          src={zoom.src}
-          title={zoom.title}
-          onClose={closeZoom}
-        />
+        {ImageZoomDialog({ open: zoom.open, src: zoom.src, title: zoom.title, onClose: closeZoom })}
         {SnackRender}
       </>
     );
@@ -2422,12 +2412,10 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Tabs>
 
           <Box sx={{ minHeight: 420 }}>
-            {tab === 0 && <InfoSection />}
+            {tab === 0 && InfoSection()}
             {tab === 1 && <RatingTable />}
-            {tab === 2 && (
-              <MatchSection isMobileView={Boolean(isCompactMatchLayout)} />
-            )}
-            {tab === 3 && <AchievementsSection />}
+            {tab === 2 && MatchSection({ isMobileView: Boolean(isCompactMatchLayout) })}
+            {tab === 3 && AchievementsSection()}
           </Box>
         </DialogContent>
 
@@ -2438,12 +2426,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         </DialogActions>
       </Dialog>
 
-      <ImageZoomDialog
-        open={zoom.open}
-        src={zoom.src}
-        title={zoom.title}
-        onClose={closeZoom}
-      />
+      {ImageZoomDialog({ open: zoom.open, src: zoom.src, title: zoom.title, onClose: closeZoom })}
       {SnackRender}
     </>
   );
