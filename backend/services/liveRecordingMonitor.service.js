@@ -829,23 +829,40 @@ export async function reconcileStaleLiveRecordingExports({
       continue;
     }
 
-    // If worker is alive, try to re-queue the export instead of failing it
-    if (workerHealth?.alive) {
+    const nextMetaTemp =
+      recording.meta &&
+      typeof recording.meta === "object" &&
+      !Array.isArray(recording.meta)
+        ? { ...recording.meta }
+        : {};
+    const pipelineTemp =
+      nextMetaTemp.exportPipeline &&
+      typeof nextMetaTemp.exportPipeline === "object" &&
+      !Array.isArray(nextMetaTemp.exportPipeline)
+        ? { ...nextMetaTemp.exportPipeline }
+        : {};
+
+    const autoRequeueCount = Number(pipelineTemp.autoRequeueCount) || 0;
+    const maxAutoRequeues = 3;
+
+    // Always try to re-queue the export instead of failing it, up to maxAutoRequeues times
+    if (autoRequeueCount < maxAutoRequeues) {
       try {
         await queueLiveRecordingExport(recording, {
           publishReason: "recording_export_auto_requeued",
           replaceTerminalJob: true,
-          currentPipeline:
-            recording?.meta?.exportPipeline &&
-            typeof recording.meta.exportPipeline === "object" &&
-            !Array.isArray(recording.meta.exportPipeline)
-              ? { ...recording.meta.exportPipeline }
-              : null,
+          replacePendingJob: true,
+          ignoreWindow: true,
+          currentPipeline: {
+            ...pipelineTemp,
+            autoRequeueCount: autoRequeueCount + 1,
+            lastAutoRequeuedAt: new Date()
+          },
           forceReason: "stale_reconciliation",
         });
         autoRequeuedRecordingIds.push(String(recording._id));
         console.log(
-          `[live-recording-monitor] auto-requeued stale export for recording ${String(recording._id)}`
+          `[live-recording-monitor] auto-requeued stale export for recording ${String(recording._id)} (attempt ${autoRequeueCount + 1}/${maxAutoRequeues})`
         );
         continue;
       } catch (requeueError) {
@@ -855,6 +872,10 @@ export async function reconcileStaleLiveRecordingExports({
         );
         // Fall through to mark as failed
       }
+    } else {
+      console.warn(
+        `[live-recording-monitor] exhausted auto-requeues (${maxAutoRequeues}) for recording ${String(recording._id)}, marking as failed.`
+      );
     }
 
     const nextMeta =
