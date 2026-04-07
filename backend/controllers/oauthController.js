@@ -152,6 +152,15 @@ export const authorizeRedirect = asyncHandler(async (req, res) => {
     const continueUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
     const deepLink = `pickletourapp://live-auth?continueUrl=${encodeURIComponent(continueUrl)}&callbackUri=${encodeURIComponent(input.redirectUri || OAUTH_LIVE_REDIRECT_URI)}`;
 
+    // Build the web fallback URL (fixing the prefix so frontend redirects back correctly)
+    const webLoginUrlRelative = buildWebLoginUrl(req);
+    // Because buildWebLoginUrl generates /login?returnTo=/oauth/authorize... we need to ensure 
+    // the return target points to the correct proxy API route:
+    const returnToFixed = encodeURIComponent(
+      `/api/api/oauth/authorize?client_id=${input.clientId || ""}&redirect_uri=${encodeURIComponent(input.redirectUri || "")}&response_type=${input.responseType || "code"}&scope=${encodeURIComponent(input.scope || "openid profile")}${input.state ? "&state=" + input.state : ""}${input.codeChallenge ? "&code_challenge=" + input.codeChallenge : ""}${input.codeChallengeMethod ? "&code_challenge_method=" + input.codeChallengeMethod : ""}`
+    );
+    const webLoginUrl = `https://pickletour.vn/login?returnTo=${returnToFixed}`;
+
     // Serve HTML that auto-redirects to the pickletour app deep link
     return res.status(200).send(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -160,13 +169,17 @@ export const authorizeRedirect = asyncHandler(async (req, res) => {
 .card{max-width:400px;background:#161b22;border-radius:20px;padding:32px 24px;border:1px solid #30363d}
 h1{font-size:20px;margin:0 0 12px}p{color:#8b949e;font-size:14px;line-height:1.6;margin:0 0 24px}
 a{display:block;background:#2ea043;color:#fff;text-decoration:none;padding:14px 24px;border-radius:999px;font-weight:700;font-size:15px;margin-bottom:12px}
-a:active{opacity:.85}.sub{color:#58a6ff;font-size:13px}</style>
+a:active{opacity:.85}
+.btn-outline{background:transparent;border:1px solid #30363d;color:#c9d1d9}
+.btn-outline:active{background:#21262d}
+.sub{color:#58a6ff;font-size:13px;display:block;margin-bottom:16px}</style>
 <script>setTimeout(function(){window.location.href="${deepLink.replace(/"/g, '\\"')}"},600)</script>
 </head><body><div class="card">
 <h1>Đăng nhập PickleTour Live</h1>
-<p>Bạn cần đăng nhập qua app PickleTour để tiếp tục.</p>
-<a href="${deepLink.replace(/"/g, '&quot;')}">Mở PickleTour</a>
-<span class="sub">Đang chuyển hướng...</span>
+<p>Bạn cần đăng nhập PickleTour để tiếp tục. Ứng dụng sẽ tự động mở nếu đã cài đặt.</p>
+<a href="${deepLink.replace(/"/g, '&quot;')}">Mở ứng dụng PickleTour</a>
+<span class="sub">Đang tự động chuyển hướng...</span>
+<a href="${webLoginUrl}" class="btn-outline">Đăng nhập trên Web</a>
 </div></body></html>`);
   }
 

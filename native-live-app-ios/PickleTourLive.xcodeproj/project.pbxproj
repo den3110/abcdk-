@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -142,7 +142,6 @@
 				1988DDE2B942ED3C59B0CFEA /* Pods-PickleTourLive.debug.xcconfig */,
 				F25C79DA6A87439C199DF9BD /* Pods-PickleTourLive.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -373,7 +372,7 @@
 				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = W3TSSGANBM;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PickleTourLive/Info.plist;
@@ -400,7 +399,7 @@
 				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = W3TSSGANBM;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PickleTourLive/Info.plist;
