@@ -22,6 +22,7 @@ function buildSystemSettingsSocketPayload(settings) {
     },
     privacy: {
       hideUserRatings: settings?.privacy?.hideUserRatings === true,
+      hideUserRatingsSelf: settings?.privacy?.hideUserRatingsSelf === true,
     },
   };
 }
@@ -68,6 +69,9 @@ function sanitizeSettingsPatch(patch = {}) {
   if (next.privacy && typeof next.privacy === "object") {
     if (Object.prototype.hasOwnProperty.call(next.privacy, "hideUserRatings")) {
       next.privacy.hideUserRatings = next.privacy.hideUserRatings === true;
+    }
+    if (Object.prototype.hasOwnProperty.call(next.privacy, "hideUserRatingsSelf")) {
+      next.privacy.hideUserRatingsSelf = next.privacy.hideUserRatingsSelf === true;
     }
     if (!Object.keys(next.privacy).length) {
       delete next.privacy;
