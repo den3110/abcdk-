@@ -50,6 +50,50 @@ function sanitizeSettingsPatch(patch = {}) {
     next.appShell.webViewUrl = String(next.appShell.webViewUrl || "").trim();
   }
 
+  if (next.ota && typeof next.ota === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.ota, "enabled")) {
+      next.ota.enabled = next.ota.enabled !== false;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.ota, "forceUpdateEnabled")) {
+      next.ota.forceUpdateEnabled = next.ota.forceUpdateEnabled === true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.ota, "minAppVersion")) {
+      next.ota.minAppVersion = String(next.ota.minAppVersion || "").trim();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.ota, "iosMinBundleVersion")) {
+      next.ota.iosMinBundleVersion = String(
+        next.ota.iosMinBundleVersion || ""
+      ).trim();
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(next.ota, "androidMinBundleVersion")
+    ) {
+      next.ota.androidMinBundleVersion = String(
+        next.ota.androidMinBundleVersion || ""
+      ).trim();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.ota, "message")) {
+      next.ota.message = String(next.ota.message || "").trim();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.ota, "iosStoreUrl")) {
+      next.ota.iosStoreUrl = String(next.ota.iosStoreUrl || "").trim();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.ota, "androidStoreUrl")) {
+      next.ota.androidStoreUrl = String(next.ota.androidStoreUrl || "").trim();
+    }
+
+    if (!Object.keys(next.ota).length) {
+      delete next.ota;
+    }
+  }
+
   if (next.referee && typeof next.referee === "object") {
     if (
       Object.prototype.hasOwnProperty.call(
@@ -316,6 +360,10 @@ export const getOtaAllowed = async (req, res, next) => {
   try {
     const settings = await getSystemSettingsRuntime({ ensureDocument: true });
     const ota = settings.ota || DEFAULT_SYSTEM_SETTINGS.ota;
+
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
 
     return res.json({
       allowed: typeof ota.enabled === "boolean" ? ota.enabled : true,
