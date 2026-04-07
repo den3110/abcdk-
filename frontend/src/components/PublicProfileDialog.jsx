@@ -1319,6 +1319,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   }
 
   /* ---------- match detail modal ---------- */
+  // eslint-disable-next-line no-unused-vars
   function MatchDetailDialog({ open, onClose, row }) {
     const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
     const scoreLines = toScoreLines(row);
