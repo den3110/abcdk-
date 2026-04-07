@@ -7,7 +7,7 @@ import UIKit
 
 enum LiveAppConfig {
     static var baseURL: URL {
-        requiredURL(for: "PTLiveBaseURL", fallback: "https://pickletour.vn/")
+        requiredURL(for: "PTLiveBaseURL", fallback: "https://pickletour.vn/api/")
     }
 
     static var socketURL: URL {
