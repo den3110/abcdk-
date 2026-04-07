@@ -2717,7 +2717,15 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
   // Build segment URLs using per-target CDN public base URLs when available,
   // otherwise fall back to signed download URLs.
   const segmentLines = await Promise.all(
-    playableSegments.map(async (segment) => {
+    playableSegments.map(async (segment, i) => {
+      let prefix = "";
+      if (
+        i > 0 &&
+        segment.index !== playableSegments[i - 1].index + 1
+      ) {
+        prefix = "#EXT-X-DISCONTINUITY\n";
+      }
+
       const cdnUrl = multiSourceEnabled
         ? buildSegmentPublicCdnUrl(segment, recording, {
             targetPublicBaseUrls,
@@ -2726,7 +2734,7 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
         : "";
       const dur = Number(segment.durationSeconds || 6).toFixed(3);
       if (cdnUrl) {
-        return `#EXTINF:${dur},\n${cdnUrl}`;
+        return `${prefix}#EXTINF:${dur},\n${cdnUrl}`;
       }
 
       const download = await createRecordingObjectDownloadUrl({
@@ -2734,7 +2742,7 @@ export const serveLiveHlsPlaylistV2 = asyncHandler(async (req, res) => {
         expiresInSeconds: 60 * 60 * 2,
         storageTargetId: getSegmentStorageTargetId(segment, recording),
       });
-      return `#EXTINF:${dur},\n${download.downloadUrl}`;
+      return `${prefix}#EXTINF:${dur},\n${download.downloadUrl}`;
     })
   );
 
