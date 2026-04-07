@@ -146,6 +146,67 @@ export default function DelayedManifestPlayer({
   useNativeControls = false,
   showLiveBadge = true,
 }) {
+  // ── HLS mode: use the backend's .m3u8 endpoint for seamless playback ──
+  // When a recordingId is available, HLS.js handles buffering & segment
+  // stitching internally, eliminating visible loading gaps between segments.
+  const hlsRecordingId = useMemo(() => {
+    const id =
+      typeof source?.meta?.recordingId === "string"
+        ? source.meta.recordingId.trim()
+        : "";
+    return id || "";
+  }, [source?.meta?.recordingId]);
+
+  const hlsUrl = useMemo(() => {
+    if (!hlsRecordingId) return "";
+    const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+    return `${apiBase}/api/live/recordings/v2/${hlsRecordingId}/live.m3u8`;
+  }, [hlsRecordingId]);
+
+  const isFinishedSource = useMemo(() => {
+    if (!showLiveBadge) return true;
+    const status = String(source?.meta?.status || "").toLowerCase();
+    return status === "final" || status === "finished";
+  }, [showLiveBadge, source?.meta?.status]);
+
+  if (hlsUrl) {
+    return (
+      <NativeVideoPlayer
+        src={hlsUrl}
+        kind="hls"
+        fallbackUrl={source?.openUrl || source?.url || hlsUrl}
+        initialRatio={resolveAspectRatio(source?.aspect)}
+        title={source?.label || "Server 2"}
+        subtitle={source?.providerLabel || "PickleTour Video"}
+        autoplay={autoplay}
+        previewOnlyUntilPlay={previewOnlyUntilPlay}
+        useNativeControls={useNativeControls}
+        liveMode={showLiveBadge && !isFinishedSource}
+      />
+    );
+  }
+
+  // No recordingId → fall back to segment-by-segment queue mode
+  return (
+    <SegmentQueuePlayer
+      source={source}
+      autoplay={autoplay}
+      previewOnlyUntilPlay={previewOnlyUntilPlay}
+      useNativeControls={useNativeControls}
+      showLiveBadge={showLiveBadge}
+    />
+  );
+}
+
+// ── Legacy segment-by-segment queue player ──
+// Only used when no recordingId is available (e.g. external CDN manifest).
+function SegmentQueuePlayer({
+  source,
+  autoplay = true,
+  previewOnlyUntilPlay = false,
+  useNativeControls = false,
+  showLiveBadge = true,
+}) {
   const [items, setItems] = useState([]);
   const [currentKey, setCurrentKey] = useState("");
   const [currentPlaybackUrl, setCurrentPlaybackUrl] = useState("");
