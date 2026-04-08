@@ -2388,6 +2388,44 @@ export async function buildLiveRecordingMonitorStorageSummary(options = {}) {
   });
 }
 
+export async function buildLiveRecordingMonitorExportQueueSnapshot() {
+  const [currentDriveSettings, workerHealth, queueSnapshot, recordings] =
+    await Promise.all([
+      getRecordingDriveSettings().catch(() => ({
+        mode: "serviceAccount",
+      })),
+      getLiveRecordingWorkerHealth().catch(() => null),
+      getLiveRecordingExportQueueSnapshot().catch(() => null),
+      applyLiveRecordingMonitorRecordingPopulate(
+        LiveRecordingV2.find({
+          status: { $in: ["pending_export_window", "exporting", "failed"] },
+        })
+          .select(LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT)
+          .sort({ updatedAt: -1, createdAt: -1 })
+      ).lean(),
+    ]);
+
+  return {
+    rows: sortRows(
+      recordings.map((recording) =>
+        buildRow(
+          recording,
+          {
+            workerHealth,
+            queueSnapshot,
+            currentDriveMode: currentDriveSettings.mode,
+          },
+          {
+            includeDetailedSegments: false,
+          }
+        )
+      )
+    ),
+    queueSnapshot,
+    generatedAt: new Date(),
+  };
+}
+
 export async function buildLiveRecordingMonitorRowsPage(options = {}) {
   const fastPage = await buildFastLiveRecordingMonitorRowsPage(options);
   if (fastPage) {

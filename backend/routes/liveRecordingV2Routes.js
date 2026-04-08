@@ -13,6 +13,7 @@ import {
   getLiveRecordingMonitorV2,
   getLiveRecordingMonitorMetaV2,
   getLiveRecordingMonitorOverviewV2,
+  getLiveRecordingMonitorExportQueueV2,
   getLiveRecordingMonitorRowV2,
   getLiveRecordingMonitorRowsV2,
   getLiveRecordingMonitorStorageV2,
@@ -116,6 +117,12 @@ router.get(
   protect,
   authorize("admin"),
   getLiveRecordingMonitorStorageV2
+);
+router.get(
+  "/admin/monitor/export-queue",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorExportQueueV2
 );
 router.get(
   "/admin/monitor/rows",

@@ -92,6 +92,66 @@ export async function getLiveRecordingExportJob(recordingId) {
   return liveRecordingExportQueue.getJob(buildExportJobId(recordingId));
 }
 
+export async function removeLiveRecordingExportJobs(recordingId) {
+  const normalizedRecordingId = toRecordingKey(recordingId);
+  if (!normalizedRecordingId) {
+    return {
+      removedJobIds: [],
+      skippedActiveJobIds: [],
+      errors: [],
+    };
+  }
+
+  const [standardJob, waitingJobs, delayedJobs] = await Promise.all([
+    getLiveRecordingExportJob(normalizedRecordingId).catch(() => null),
+    liveRecordingExportQueue.getWaiting(0, 1000).catch(() => []),
+    liveRecordingExportQueue.getDelayed(0, 1000).catch(() => []),
+  ]);
+
+  const jobs = [standardJob, ...waitingJobs, ...delayedJobs].filter(Boolean);
+  const seenJobIds = new Set();
+  const matchedJobs = jobs.filter((job) => {
+    const jobId = String(job?.id || "").trim();
+    const jobRecordingId = toRecordingKey(job?.data?.recordingId);
+    const matchesRecording =
+      jobRecordingId === normalizedRecordingId ||
+      jobId.startsWith(buildExportJobId(normalizedRecordingId));
+    if (!matchesRecording || !jobId || seenJobIds.has(jobId)) {
+      return false;
+    }
+    seenJobIds.add(jobId);
+    return true;
+  });
+
+  const removedJobIds = [];
+  const skippedActiveJobIds = [];
+  const errors = [];
+
+  for (const job of matchedJobs) {
+    const jobId = String(job?.id || "").trim();
+    if (!jobId) continue;
+
+    const state = await job.getState().catch(() => null);
+    if (state === "active") {
+      skippedActiveJobIds.push(jobId);
+      continue;
+    }
+
+    try {
+      await job.remove();
+      removedJobIds.push(jobId);
+    } catch (error) {
+      errors.push(error?.message || String(error));
+    }
+  }
+
+  return {
+    removedJobIds,
+    skippedActiveJobIds,
+    errors,
+  };
+}
+
 export async function enqueueLiveRecordingExport(
   recordingId,
   {
