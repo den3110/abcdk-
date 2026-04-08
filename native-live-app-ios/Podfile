@@ -8,6 +8,8 @@ target "PickleTourLive" do
   pod "AppAuth", "~> 1.7"
   pod "Socket.IO-Client-Swift", "~> 16.1"
   pod "HaishinKit", "~> 1.6"
+  pod "FirebaseCore"
+  pod "FirebaseCrashlytics"
 end
 
 post_install do |installer|

@@ -20,6 +20,7 @@
 		00100000000000000000000B /* PickleTourLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000D /* PickleTourLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		00100000000000000000000C /* MatchLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000C /* MatchLiveActivityAttributes.swift */; };
 		00100000000000000000000D /* PickleTourLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000E /* PickleTourLiveActivityBundle.swift */; };
+		00100000000000000000000E /* FirebaseBootstrapper.m in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000011 /* FirebaseBootstrapper.m */; };
 		8DF893355118019665FA940E /* Pods_PickleTourLive.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89A6BCA0D87D3AE6B5484D16 /* Pods_PickleTourLive.framework */; };
 /* End PBXBuildFile section */
 
@@ -64,6 +65,9 @@
 		00200000000000000000000D /* PickleTourLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PickleTourLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		00200000000000000000000E /* PickleTourLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickleTourLiveActivityBundle.swift; sourceTree = "<group>"; };
 		00200000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		002000000000000000000010 /* FirebaseBootstrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FirebaseBootstrapper.h; sourceTree = "<group>"; };
+		002000000000000000000011 /* FirebaseBootstrapper.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FirebaseBootstrapper.m; sourceTree = "<group>"; };
+		002000000000000000000012 /* PickleTourLive-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PickleTourLive-Bridging-Header.h"; sourceTree = "<group>"; };
 		1988DDE2B942ED3C59B0CFEA /* Pods-PickleTourLive.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PickleTourLive.debug.xcconfig"; path = "Target Support Files/Pods-PickleTourLive/Pods-PickleTourLive.debug.xcconfig"; sourceTree = "<group>"; };
 		89A6BCA0D87D3AE6B5484D16 /* Pods_PickleTourLive.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_PickleTourLive.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F25C79DA6A87439C199DF9BD /* Pods-PickleTourLive.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PickleTourLive.release.xcconfig"; path = "Target Support Files/Pods-PickleTourLive/Pods-PickleTourLive.release.xcconfig"; sourceTree = "<group>"; };
@@ -103,6 +107,9 @@
 			isa = PBXGroup;
 			children = (
 				002000000000000000000001 /* PickleTourLiveApp.swift */,
+				002000000000000000000010 /* FirebaseBootstrapper.h */,
+				002000000000000000000011 /* FirebaseBootstrapper.m */,
+				002000000000000000000012 /* PickleTourLive-Bridging-Header.h */,
 				002000000000000000000002 /* LiveModels.swift */,
 				002000000000000000000003 /* LiveAppAPI.swift */,
 				002000000000000000000004 /* LiveSockets.swift */,
@@ -166,6 +173,8 @@
 				007000000000000000000001 /* Resources */,
 				00D000000000000000000001 /* Embed App Extensions */,
 				61B6243D23AA39DC5891D32A /* [CP] Embed Pods Frameworks */,
+				7A8E00000000000000000001 /* Copy Firebase Config */,
+				7A8E00000000000000000002 /* Firebase Crashlytics */,
 			);
 			buildRules = (
 			);
@@ -252,6 +261,51 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		7A8E00000000000000000001 /* Copy Firebase Config */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/PickleTourLive/GoogleService-Info.plist",
+			);
+			name = "Copy Firebase Config";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PROJECT_DIR}/scripts/copy-firebase-config.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		7A8E00000000000000000002 /* Firebase Crashlytics */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}",
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			name = "Firebase Crashlytics";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PROJECT_DIR}/scripts/run-crashlytics.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
 		61B6243D23AA39DC5891D32A /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -299,6 +353,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				001000000000000000000001 /* PickleTourLiveApp.swift in Sources */,
+				00100000000000000000000E /* FirebaseBootstrapper.m in Sources */,
 				001000000000000000000002 /* LiveModels.swift in Sources */,
 				001000000000000000000003 /* LiveAppAPI.swift in Sources */,
 				001000000000000000000004 /* LiveSockets.swift in Sources */,
@@ -372,6 +427,7 @@
 				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = W3TSSGANBM;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -382,9 +438,14 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.pkt.pickletour.live;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = "PickleTourLive/PickleTourLive-Bridging-Header.h";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -399,6 +460,7 @@
 				CODE_SIGN_ENTITLEMENTS = PickleTourLive/PickleTourLive.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = W3TSSGANBM;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -409,9 +471,14 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.pkt.pickletour.live;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				SWIFT_OBJC_BRIDGING_HEADER = "PickleTourLive/PickleTourLive-Bridging-Header.h";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

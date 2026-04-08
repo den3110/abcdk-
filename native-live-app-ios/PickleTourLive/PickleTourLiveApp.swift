@@ -58,6 +58,14 @@ final class LiveAppDelegate: NSObject, UIApplicationDelegate {
     static var orientationMask: UIInterfaceOrientationMask = .allButUpsideDown
 
     func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        configureFirebaseIfPossible()
+        return true
+    }
+
+    func application(
         _ app: UIApplication,
         open url: URL,
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
@@ -76,6 +84,10 @@ final class LiveAppDelegate: NSObject, UIApplicationDelegate {
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         Self.orientationMask
+    }
+
+    private func configureFirebaseIfPossible() {
+        FirebaseBootstrapper.configureIfPossible()
     }
 }
 
