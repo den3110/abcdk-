@@ -17,6 +17,12 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings["IPHONEOS_DEPLOYMENT_TARGET"] = "15.1"
       config.build_settings["SWIFT_VERSION"] = "5.0"
+
+      if target.name == "HaishinKit" && config.name == "Release"
+        # Work around a Swift optimizer crash when archiving HaishinKit on Xcode 17.
+        config.build_settings["SWIFT_OPTIMIZATION_LEVEL"] = "-Onone"
+        config.build_settings["SWIFT_COMPILATION_MODE"] = "singlefile"
+      end
     end
   end
 end
