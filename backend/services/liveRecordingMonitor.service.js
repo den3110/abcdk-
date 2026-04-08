@@ -108,6 +108,13 @@ const LIVE_RECORDING_MONITOR_DETAIL_RECORDING_SELECT = [
   "segments.meta.completedAt",
 ].join(" ");
 
+const LIVE_RECORDING_MONITOR_STORAGE_RECORDING_SELECT = [
+  "segments.uploadStatus",
+  "segments.sizeBytes",
+  "segments.meta.completedParts.sizeBytes",
+  "meta.sourceCleanup.status",
+].join(" ");
+
 const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
   {
     path: "match",
@@ -476,7 +483,7 @@ function estimateRecordingR2SourceBytes(recording) {
   }, 0);
 }
 
-async function buildR2StorageSummary(recordings = []) {
+async function buildR2StorageSummary(recordings = [], options = {}) {
   const totalBytes = getConfiguredRecordingR2StorageTotalBytes();
   const configuredTargets = getRecordingStorageTargets();
   const estimatedUsedBytes = recordings.reduce(
@@ -493,7 +500,9 @@ async function buildR2StorageSummary(recordings = []) {
   let scanError = null;
 
   try {
-    actualUsage = await getRecordingStorageUsageSummary();
+    actualUsage = await getRecordingStorageUsageSummary({
+      forceRefresh: Boolean(options.forceRefresh),
+    });
     usedBytes = Number(actualUsage?.usedBytes) || 0;
     recordingsWithSourceOnR2 =
       Number(actualUsage?.recordingsWithSourceOnR2) || 0;
@@ -1400,6 +1409,85 @@ function resolveFastMonitorStatusList(section = "all", status = "ALL") {
   return [];
 }
 
+function buildEmptyMonitorSummary() {
+  return {
+    total: 0,
+    active: 0,
+    recording: 0,
+    uploading: 0,
+    pendingExportWindow: 0,
+    exporting: 0,
+    ready: 0,
+    failed: 0,
+    commentaryReady: 0,
+    commentaryMissing: 0,
+    needsAction: 0,
+    totalDurationSeconds: 0,
+    totalSizeBytes: 0,
+    totalSegments: 0,
+    uploadedSegments: 0,
+    pendingSegments: 0,
+  };
+}
+
+function buildMonitorSectionMongoMatch(section = "all") {
+  if (section === "export") {
+    return {
+      status: {
+        $in: ["pending_export_window", "exporting", "ready", "failed"],
+      },
+    };
+  }
+
+  if (section === "commentary") {
+    return {
+      $or: [
+        { status: "ready" },
+        { "aiCommentary.status": { $in: ["queued", "running", "failed", "completed"] } },
+        {
+          "aiCommentary.dubbedDriveFileId": {
+            $exists: true,
+            $nin: [null, ""],
+          },
+        },
+        {
+          "aiCommentary.dubbedDriveRawUrl": {
+            $exists: true,
+            $nin: [null, ""],
+          },
+        },
+        {
+          "aiCommentary.dubbedPlaybackUrl": {
+            $exists: true,
+            $nin: [null, ""],
+          },
+        },
+      ],
+    };
+  }
+
+  return {};
+}
+
+function buildNonEmptyStringAggregateExpression(fieldPath) {
+  return {
+    $gt: [
+      {
+        $strLenCP: {
+          $trim: {
+            input: {
+              $toString: {
+                $ifNull: [fieldPath, ""],
+              },
+            },
+          },
+        },
+      },
+      0,
+    ],
+  };
+}
+
 function canUseFastMonitorRowsPath({
   section = "all",
   status = "ALL",
@@ -1616,6 +1704,260 @@ async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
   };
 }
 
+async function buildFastLiveRecordingMonitorSummary(options = {}) {
+  const section = normalizeMonitorSection(options.section);
+  const pipeline = [];
+  const sectionMatch = buildMonitorSectionMongoMatch(section);
+  if (Object.keys(sectionMatch).length > 0) {
+    pipeline.push({ $match: sectionMatch });
+  }
+
+  pipeline.push(
+    {
+      $project: {
+        status: 1,
+        durationSeconds: { $ifNull: ["$durationSeconds", 0] },
+        sizeBytes: { $ifNull: ["$sizeBytes", 0] },
+        totalSegments: {
+          $size: {
+            $ifNull: ["$segments", []],
+          },
+        },
+        uploadedSegments: {
+          $size: {
+            $filter: {
+              input: { $ifNull: ["$segments", []] },
+              as: "segment",
+              cond: { $eq: ["$$segment.uploadStatus", "uploaded"] },
+            },
+          },
+        },
+        commentaryReady: {
+          $or: [
+            buildNonEmptyStringAggregateExpression("$aiCommentary.dubbedDriveFileId"),
+            buildNonEmptyStringAggregateExpression("$aiCommentary.dubbedDriveRawUrl"),
+            buildNonEmptyStringAggregateExpression("$aiCommentary.dubbedPlaybackUrl"),
+          ],
+        },
+        commentaryStatus: {
+          $toLower: {
+            $toString: {
+              $ifNull: ["$aiCommentary.status", "idle"],
+            },
+          },
+        },
+        hasDriveLinks: {
+          $or: [
+            buildNonEmptyStringAggregateExpression("$driveFileId"),
+            buildNonEmptyStringAggregateExpression("$driveRawUrl"),
+            buildNonEmptyStringAggregateExpression("$drivePreviewUrl"),
+          ],
+        },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        active: {
+          $sum: {
+            $cond: [
+              {
+                $in: [
+                  "$status",
+                  [
+                    "recording",
+                    "uploading",
+                    "pending_export_window",
+                    "exporting",
+                  ],
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+        recording: {
+          $sum: { $cond: [{ $eq: ["$status", "recording"] }, 1, 0] },
+        },
+        uploading: {
+          $sum: { $cond: [{ $eq: ["$status", "uploading"] }, 1, 0] },
+        },
+        pendingExportWindow: {
+          $sum: {
+            $cond: [{ $eq: ["$status", "pending_export_window"] }, 1, 0],
+          },
+        },
+        exporting: {
+          $sum: { $cond: [{ $eq: ["$status", "exporting"] }, 1, 0] },
+        },
+        ready: {
+          $sum: { $cond: [{ $eq: ["$status", "ready"] }, 1, 0] },
+        },
+        failed: {
+          $sum: { $cond: [{ $eq: ["$status", "failed"] }, 1, 0] },
+        },
+        commentaryReady: {
+          $sum: { $cond: ["$commentaryReady", 1, 0] },
+        },
+        commentaryMissing: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$status", "ready"] },
+                  { $not: ["$commentaryReady"] },
+                  {
+                    $not: [
+                      {
+                        $in: ["$commentaryStatus", ["queued", "running"]],
+                      },
+                    ],
+                  },
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+        needsAction: {
+          $sum: {
+            $cond: [
+              {
+                $or: [
+                  { $ne: ["$status", "ready"] },
+                  { $not: ["$hasDriveLinks"] },
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+        totalDurationSeconds: { $sum: "$durationSeconds" },
+        totalSizeBytes: { $sum: "$sizeBytes" },
+        totalSegments: { $sum: "$totalSegments" },
+        uploadedSegments: { $sum: "$uploadedSegments" },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        total: 1,
+        active: 1,
+        recording: 1,
+        uploading: 1,
+        pendingExportWindow: 1,
+        exporting: 1,
+        ready: 1,
+        failed: 1,
+        commentaryReady: 1,
+        commentaryMissing: 1,
+        needsAction: 1,
+        totalDurationSeconds: 1,
+        totalSizeBytes: 1,
+        totalSegments: 1,
+        uploadedSegments: 1,
+        pendingSegments: {
+          $max: [0, { $subtract: ["$totalSegments", "$uploadedSegments"] }],
+        },
+      },
+    }
+  );
+
+  const [summary] = await LiveRecordingV2.aggregate(pipeline);
+  return {
+    ...buildEmptyMonitorSummary(),
+    ...(summary || {}),
+    pendingSegments: Math.max(
+      0,
+      Number(summary?.pendingSegments) ||
+        Number(summary?.totalSegments || 0) - Number(summary?.uploadedSegments || 0)
+    ),
+  };
+}
+
+async function buildFastLiveRecordingMonitorTournamentFacets(options = {}) {
+  const section = normalizeMonitorSection(options.section);
+  const pipeline = [];
+  const sectionMatch = buildMonitorSectionMongoMatch(section);
+  if (Object.keys(sectionMatch).length > 0) {
+    pipeline.push({ $match: sectionMatch });
+  }
+
+  pipeline.push(
+    {
+      $lookup: {
+        from: Match.collection.name,
+        localField: "match",
+        foreignField: "_id",
+        as: "matchDoc",
+      },
+    },
+    {
+      $unwind: "$matchDoc",
+    },
+    {
+      $lookup: {
+        from: Tournament.collection.name,
+        localField: "matchDoc.tournament",
+        foreignField: "_id",
+        as: "tournamentDoc",
+      },
+    },
+    {
+      $unwind: "$tournamentDoc",
+    },
+    {
+      $project: {
+        name: {
+          $trim: {
+            input: {
+              $toString: {
+                $ifNull: ["$tournamentDoc.name", ""],
+              },
+            },
+          },
+        },
+        status: {
+          $toString: {
+            $ifNull: ["$tournamentDoc.status", ""],
+          },
+        },
+      },
+    },
+    {
+      $match: {
+        name: { $ne: "" },
+      },
+    },
+    {
+      $group: {
+        _id: "$name",
+        status: { $first: "$status" },
+        count: { $sum: 1 },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        name: "$_id",
+        status: 1,
+        count: 1,
+      },
+    },
+    {
+      $sort: {
+        name: 1,
+      },
+    }
+  );
+
+  return LiveRecordingV2.aggregate(pipeline);
+}
+
 function buildSectionSummary(rows = [], baseSummary = null) {
   if (baseSummary && rows.length === Number(baseSummary.total || 0)) {
     return { ...baseSummary };
@@ -1662,24 +2004,7 @@ function buildSectionSummary(rows = [], baseSummary = null) {
       );
       return acc;
     },
-    {
-      total: 0,
-      active: 0,
-      recording: 0,
-      uploading: 0,
-      pendingExportWindow: 0,
-      exporting: 0,
-      ready: 0,
-      failed: 0,
-      commentaryReady: 0,
-      commentaryMissing: 0,
-      needsAction: 0,
-      totalDurationSeconds: 0,
-      totalSizeBytes: 0,
-      totalSegments: 0,
-      uploadedSegments: 0,
-      pendingSegments: 0,
-    }
+    buildEmptyMonitorSummary()
   );
 }
 
@@ -1781,23 +2106,7 @@ async function buildLiveRecordingMonitorSnapshotUncached({
       );
       return acc;
     },
-    {
-      total: 0,
-      active: 0,
-      recording: 0,
-      uploading: 0,
-      pendingExportWindow: 0,
-      exporting: 0,
-      ready: 0,
-      failed: 0,
-      commentaryReady: 0,
-      commentaryMissing: 0,
-      totalDurationSeconds: 0,
-      totalSizeBytes: 0,
-      totalSegments: 0,
-      uploadedSegments: 0,
-      pendingSegments: 0,
-    }
+    buildEmptyMonitorSummary()
   );
 
   summary.r2Storage = await buildR2StorageSummary(recordings);
@@ -1935,16 +2244,70 @@ export async function buildLiveRecordingMonitorPage(options = {}) {
 }
 
 export async function buildLiveRecordingMonitorOverview(options = {}) {
-  const snapshot = await buildLiveRecordingMonitorSnapshot({
-    forceRefresh: Boolean(options.forceRefresh),
-  });
-
   const section = normalizeMonitorSection(options.section);
   const status = normalizeMonitorStatus(options.status);
   const commentary = normalizeMonitorCommentaryFilter(options.commentary);
   const view = normalizeMonitorView(options.view);
   const q = String(options.q || "").trim();
   const tournament = String(options.tournament || "").trim();
+  const forceRefresh = Boolean(options.forceRefresh);
+
+  if (
+    section === "all" &&
+    canUseFastMonitorRowsPath({
+      section,
+      status,
+      commentary,
+      view,
+      q,
+    })
+  ) {
+    const [summary, tournaments, countPage, storageSummary, meta] =
+      await Promise.all([
+        buildFastLiveRecordingMonitorSummary({ section }),
+        buildFastLiveRecordingMonitorTournamentFacets({ section }),
+        buildFastLiveRecordingMonitorRowsPage({
+          section,
+          status,
+          commentary,
+          view,
+          q,
+          tournament,
+          page: 1,
+          limit: 1,
+        }),
+        buildLiveRecordingMonitorStorageSummary({ forceRefresh }),
+        buildLiveRecordingMonitorMetaPayload({
+          includeWorkerHealth: true,
+          includeExportQueue: true,
+        }),
+      ]);
+
+    return {
+      summary: {
+        ...summary,
+        r2Storage: storageSummary,
+      },
+      count: Number(countPage?.count || 0),
+      meta: {
+        ...meta,
+        section,
+        filters: {
+          status,
+          commentary,
+          view,
+          q,
+          tournament,
+        },
+        tournaments,
+        generatedAt: new Date(),
+      },
+    };
+  }
+
+  const snapshot = await buildLiveRecordingMonitorSnapshot({
+    forceRefresh,
+  });
 
   const sectionRows = buildSectionRows(snapshot?.rows || [], section);
   const filteredRows = filterSectionRows(sectionRows, {
@@ -1976,6 +2339,53 @@ export async function buildLiveRecordingMonitorOverview(options = {}) {
       generatedAt: new Date(),
     },
   };
+}
+
+export async function buildLiveRecordingMonitorSummary(options = {}) {
+  const section = normalizeMonitorSection(options.section);
+  return buildFastLiveRecordingMonitorSummary({ section });
+}
+
+export async function buildLiveRecordingMonitorMetaPayload({
+  includeWorkerHealth = false,
+  includeExportQueue = false,
+} = {}) {
+  const [eventsMeta, driveSettings, workerHealth, exportQueue] =
+    await Promise.all([
+    Promise.resolve(getLiveRecordingMonitorMeta()),
+    getRecordingDriveSettings().catch(() => ({
+      mode: "serviceAccount",
+    })),
+    includeWorkerHealth
+      ? getLiveRecordingWorkerHealth().catch(() => null)
+      : Promise.resolve(null),
+    includeExportQueue
+      ? getLiveRecordingExportQueueSnapshot().catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    ...(eventsMeta || {}),
+    driveSettings,
+    ...(includeWorkerHealth ? { workerHealth } : {}),
+    ...(includeExportQueue ? { exportQueue } : {}),
+    generatedAt: new Date(),
+  };
+}
+
+export async function buildLiveRecordingMonitorTournaments(options = {}) {
+  const section = normalizeMonitorSection(options.section);
+  return buildFastLiveRecordingMonitorTournamentFacets({ section });
+}
+
+export async function buildLiveRecordingMonitorStorageSummary(options = {}) {
+  const recordings = await LiveRecordingV2.find({})
+    .select(LIVE_RECORDING_MONITOR_STORAGE_RECORDING_SELECT)
+    .lean();
+
+  return buildR2StorageSummary(recordings, {
+    forceRefresh: Boolean(options.forceRefresh),
+  });
 }
 
 export async function buildLiveRecordingMonitorRowsPage(options = {}) {

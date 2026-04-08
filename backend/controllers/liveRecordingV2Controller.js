@@ -44,9 +44,13 @@ import {
   deleteRecordingObjects,
 } from "../services/liveRecordingV2Storage.service.js";
 import {
+  buildLiveRecordingMonitorMetaPayload,
   buildLiveRecordingMonitorOverview,
   buildLiveRecordingMonitorPage,
   buildLiveRecordingMonitorRowsPage,
+  buildLiveRecordingMonitorStorageSummary,
+  buildLiveRecordingMonitorSummary,
+  buildLiveRecordingMonitorTournaments,
   getLiveRecordingMonitorRow,
   reconcileStaleLiveRecordingExports,
 } from "../services/liveRecordingMonitor.service.js";
@@ -2052,6 +2056,54 @@ export const getLiveRecordingMonitorOverviewV2 = asyncHandler(async (req, res) =
       String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
   });
   return res.json(overview);
+});
+
+export const getLiveRecordingMonitorSummaryV2 = asyncHandler(async (req, res) => {
+  const summary = await buildLiveRecordingMonitorSummary({
+    section: req.query?.section,
+  });
+  return res.json({
+    summary,
+    meta: {
+      section: String(req.query?.section || "all").trim().toLowerCase() || "all",
+      generatedAt: new Date(),
+    },
+  });
+});
+
+export const getLiveRecordingMonitorMetaV2 = asyncHandler(async (_req, res) => {
+  const meta = await buildLiveRecordingMonitorMetaPayload();
+  return res.json({
+    meta,
+  });
+});
+
+export const getLiveRecordingMonitorTournamentsV2 = asyncHandler(
+  async (req, res) => {
+    const tournaments = await buildLiveRecordingMonitorTournaments({
+      section: req.query?.section,
+    });
+    return res.json({
+      tournaments,
+      meta: {
+        section: String(req.query?.section || "all").trim().toLowerCase() || "all",
+        generatedAt: new Date(),
+      },
+    });
+  }
+);
+
+export const getLiveRecordingMonitorStorageV2 = asyncHandler(async (req, res) => {
+  const storage = await buildLiveRecordingMonitorStorageSummary({
+    forceRefresh:
+      String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
+  });
+  return res.json({
+    storage,
+    meta: {
+      generatedAt: new Date(),
+    },
+  });
 });
 
 export const getLiveRecordingMonitorRowsV2 = asyncHandler(async (req, res) => {
