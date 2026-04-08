@@ -11,7 +11,9 @@ import {
   getLiveRecordingDriveAssetV2,
   forceUploadingRecordingToExportV2,
   getLiveRecordingMonitorV2,
+  getLiveRecordingMonitorOverviewV2,
   getLiveRecordingMonitorRowV2,
+  getLiveRecordingMonitorRowsV2,
   getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
   moveLiveRecordingDriveAssetV2,
@@ -80,6 +82,18 @@ router.get(
   protect,
   authorize("admin"),
   getLiveRecordingMonitorV2
+);
+router.get(
+  "/admin/monitor/overview",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorOverviewV2
+);
+router.get(
+  "/admin/monitor/rows",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorRowsV2
 );
 router.get(
   "/admin/worker-health",

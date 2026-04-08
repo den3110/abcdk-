@@ -1,5 +1,7 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
+import Match from "../models/matchModel.js";
 import SystemSettings from "../models/systemSettingsModel.js";
+import Tournament from "../models/tournamentModel.js";
 import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStatusUrl,
@@ -1168,6 +1170,16 @@ const LIVE_RECORDING_MONITOR_STATUS_FILTERS = new Set([
   "failed",
   "needs_action",
 ]);
+const FAST_MONITOR_ROW_SECTIONS = new Set(["all", "export"]);
+const FAST_MONITOR_ROW_STATUSES = new Set([
+  "ALL",
+  "recording",
+  "uploading",
+  "pending_export_window",
+  "exporting",
+  "ready",
+  "failed",
+]);
 
 function parsePositiveInt(
   value,
@@ -1354,6 +1366,254 @@ function buildSectionRows(rows = [], section = "all") {
   }
 
   return rows;
+}
+
+function getSectionStatusSet(section = "all") {
+  if (section === "export") {
+    return new Set([
+      "pending_export_window",
+      "exporting",
+      "ready",
+      "failed",
+    ]);
+  }
+  return null;
+}
+
+function resolveFastMonitorStatusList(section = "all", status = "ALL") {
+  if (!FAST_MONITOR_ROW_SECTIONS.has(section)) {
+    return null;
+  }
+  if (!FAST_MONITOR_ROW_STATUSES.has(status) || status === "needs_action") {
+    return null;
+  }
+
+  const sectionStatuses = getSectionStatusSet(section);
+  if (status === "ALL") {
+    return sectionStatuses ? [...sectionStatuses] : [];
+  }
+
+  if (!sectionStatuses || sectionStatuses.has(status)) {
+    return [status];
+  }
+
+  return [];
+}
+
+function canUseFastMonitorRowsPath({
+  section = "all",
+  status = "ALL",
+  commentary = "all",
+  view = "all",
+  q = "",
+} = {}) {
+  return (
+    FAST_MONITOR_ROW_SECTIONS.has(section) &&
+    FAST_MONITOR_ROW_STATUSES.has(status) &&
+    status !== "needs_action" &&
+    commentary === "all" &&
+    view === "all" &&
+    !String(q || "").trim()
+  );
+}
+
+async function resolveTournamentMatchIdsByName(tournamentName = "") {
+  const normalizedTournamentName = String(tournamentName || "").trim();
+  if (!normalizedTournamentName) {
+    return null;
+  }
+
+  const tournaments = await Tournament.find({ name: normalizedTournamentName })
+    .select("_id")
+    .lean();
+  if (!tournaments.length) {
+    return [];
+  }
+
+  const tournamentIds = tournaments.map((item) => item._id);
+  const matches = await Match.find({ tournament: { $in: tournamentIds } })
+    .select("_id")
+    .lean();
+
+  return matches.map((item) => item._id);
+}
+
+function buildFastMonitorStatusPriorityExpression() {
+  return {
+    $switch: {
+      branches: [
+        { case: { $eq: ["$status", "recording"] }, then: 0 },
+        { case: { $eq: ["$status", "uploading"] }, then: 1 },
+        { case: { $eq: ["$status", "pending_export_window"] }, then: 2 },
+        { case: { $eq: ["$status", "exporting"] }, then: 3 },
+        { case: { $eq: ["$status", "failed"] }, then: 4 },
+        { case: { $eq: ["$status", "ready"] }, then: 5 },
+      ],
+      default: 99,
+    },
+  };
+}
+
+async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
+  const section = normalizeMonitorSection(options.section);
+  const status = normalizeMonitorStatus(options.status);
+  const commentary = normalizeMonitorCommentaryFilter(options.commentary);
+  const view = normalizeMonitorView(options.view);
+  const q = String(options.q || "").trim();
+  const tournament = String(options.tournament || "").trim();
+  const page = parsePositiveInt(options.page, 1, { min: 1, max: 100000 });
+  const limit = parsePositiveInt(options.limit, 40, { min: 1, max: 500 });
+
+  if (
+    !canUseFastMonitorRowsPath({
+      section,
+      status,
+      commentary,
+      view,
+      q,
+    })
+  ) {
+    return null;
+  }
+
+  const statuses = resolveFastMonitorStatusList(section, status);
+  if (statuses == null) {
+    return null;
+  }
+
+  const baseQuery = {};
+  if (statuses.length) {
+    baseQuery.status =
+      statuses.length === 1 ? statuses[0] : { $in: statuses };
+  }
+
+  const matchIds = await resolveTournamentMatchIdsByName(tournament);
+  if (Array.isArray(matchIds)) {
+    if (!matchIds.length) {
+      return {
+        rows: [],
+        count: 0,
+        page: 1,
+        pages: 1,
+        limit,
+        hasMore: false,
+        meta: {
+          section,
+          filters: {
+            status,
+            commentary,
+            view,
+            q,
+            tournament,
+          },
+          rowSource: "fast_db",
+          generatedAt: new Date(),
+        },
+      };
+    }
+    baseQuery.match = { $in: matchIds };
+  }
+
+  const [currentDriveSettings, workerHealth, queueSnapshot, total] =
+    await Promise.all([
+      getRecordingDriveSettings().catch(() => ({
+        mode: "serviceAccount",
+      })),
+      getLiveRecordingWorkerHealth().catch(() => null),
+      getLiveRecordingExportQueueSnapshot().catch(() => null),
+      LiveRecordingV2.countDocuments(baseQuery),
+    ]);
+
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(Math.max(1, page), pages);
+  const idDocs = await LiveRecordingV2.aggregate([
+    { $match: baseQuery },
+    {
+      $addFields: {
+        __monitorStatusPriority: buildFastMonitorStatusPriorityExpression(),
+      },
+    },
+    {
+      $sort: {
+        __monitorStatusPriority: 1,
+        updatedAt: -1,
+        createdAt: -1,
+        _id: 1,
+      },
+    },
+    { $skip: Math.max(0, (safePage - 1) * limit) },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
+
+  const pagedIds = idDocs.map((item) => String(item?._id || "")).filter(Boolean);
+  if (!pagedIds.length) {
+    return {
+      rows: [],
+      count: total,
+      page: safePage,
+      pages,
+      limit,
+      hasMore: safePage < pages,
+      meta: {
+        section,
+        filters: {
+          status,
+          commentary,
+          view,
+          q,
+          tournament,
+        },
+        rowSource: "fast_db",
+        generatedAt: new Date(),
+      },
+    };
+  }
+
+  const recordings = await applyLiveRecordingMonitorRecordingPopulate(
+    LiveRecordingV2.find({ _id: { $in: pagedIds } })
+      .select(LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT)
+  ).lean();
+  const recordingsById = new Map(
+    recordings.map((recording) => [String(recording._id), recording])
+  );
+  const rows = pagedIds
+    .map((recordingId) => recordingsById.get(recordingId))
+    .filter(Boolean)
+    .map((recording) =>
+      buildRow(
+        recording,
+        {
+          workerHealth,
+          queueSnapshot,
+          currentDriveMode: currentDriveSettings.mode,
+        },
+        {
+          includeDetailedSegments: false,
+        }
+      )
+    );
+
+  return {
+    rows,
+    count: total,
+    page: safePage,
+    pages,
+    limit,
+    hasMore: safePage < pages,
+    meta: {
+      section,
+      filters: {
+        status,
+        commentary,
+        view,
+        q,
+        tournament,
+      },
+      rowSource: "fast_db",
+      generatedAt: new Date(),
+    },
+  };
 }
 
 function buildSectionSummary(rows = [], baseSummary = null) {
@@ -1670,6 +1930,71 @@ export async function buildLiveRecordingMonitorPage(options = {}) {
       },
       tournaments: buildTournamentFacets(sectionRows),
       generatedAt: new Date(),
+    },
+  };
+}
+
+export async function buildLiveRecordingMonitorOverview(options = {}) {
+  const snapshot = await buildLiveRecordingMonitorSnapshot({
+    forceRefresh: Boolean(options.forceRefresh),
+  });
+
+  const section = normalizeMonitorSection(options.section);
+  const status = normalizeMonitorStatus(options.status);
+  const commentary = normalizeMonitorCommentaryFilter(options.commentary);
+  const view = normalizeMonitorView(options.view);
+  const q = String(options.q || "").trim();
+  const tournament = String(options.tournament || "").trim();
+
+  const sectionRows = buildSectionRows(snapshot?.rows || [], section);
+  const filteredRows = filterSectionRows(sectionRows, {
+    status,
+    q,
+    tournament,
+    commentary,
+    view,
+  });
+  const summary =
+    section === "all"
+      ? { ...(snapshot?.summary || {}) }
+      : buildSectionSummary(filteredRows);
+
+  return {
+    summary,
+    count: filteredRows.length,
+    meta: {
+      ...(snapshot?.meta || {}),
+      section,
+      filters: {
+        status,
+        commentary,
+        view,
+        q,
+        tournament,
+      },
+      tournaments: buildTournamentFacets(sectionRows),
+      generatedAt: new Date(),
+    },
+  };
+}
+
+export async function buildLiveRecordingMonitorRowsPage(options = {}) {
+  const fastPage = await buildFastLiveRecordingMonitorRowsPage(options);
+  if (fastPage) {
+    return fastPage;
+  }
+
+  const pageData = await buildLiveRecordingMonitorPage(options);
+  return {
+    rows: pageData.rows || [],
+    count: Number(pageData.count || 0),
+    page: Number(pageData.page || 1),
+    pages: Number(pageData.pages || 1),
+    limit: Number(pageData.limit || 0),
+    hasMore: Boolean(pageData.hasMore),
+    meta: {
+      ...(pageData.meta || {}),
+      rowSource: "snapshot_fallback",
     },
   };
 }

@@ -44,7 +44,9 @@ import {
   deleteRecordingObjects,
 } from "../services/liveRecordingV2Storage.service.js";
 import {
+  buildLiveRecordingMonitorOverview,
   buildLiveRecordingMonitorPage,
+  buildLiveRecordingMonitorRowsPage,
   getLiveRecordingMonitorRow,
   reconcileStaleLiveRecordingExports,
 } from "../services/liveRecordingMonitor.service.js";
@@ -2036,6 +2038,36 @@ export const getLiveRecordingMonitorV2 = asyncHandler(async (req, res) => {
       String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
   });
   return res.json(snapshot);
+});
+
+export const getLiveRecordingMonitorOverviewV2 = asyncHandler(async (req, res) => {
+  const overview = await buildLiveRecordingMonitorOverview({
+    section: req.query?.section,
+    status: req.query?.status,
+    commentary: req.query?.commentary,
+    view: req.query?.view,
+    q: req.query?.q,
+    tournament: req.query?.tournament,
+    forceRefresh:
+      String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
+  });
+  return res.json(overview);
+});
+
+export const getLiveRecordingMonitorRowsV2 = asyncHandler(async (req, res) => {
+  const pageData = await buildLiveRecordingMonitorRowsPage({
+    section: req.query?.section,
+    status: req.query?.status,
+    commentary: req.query?.commentary,
+    view: req.query?.view,
+    q: req.query?.q,
+    tournament: req.query?.tournament,
+    page: req.query?.page,
+    limit: req.query?.limit,
+    forceRefresh:
+      String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
+  });
+  return res.json(pageData);
 });
 
 export const getLiveRecordingMonitorRowV2 = asyncHandler(async (req, res) => {
