@@ -2447,6 +2447,75 @@ export async function buildLiveRecordingMonitorRowsPage(options = {}) {
   };
 }
 
+export async function getLiveRecordingMonitorRowsByIds(
+  recordingIds = [],
+  { includeDetailedSegments = false } = {}
+) {
+  const normalizedRecordingIds = Array.from(
+    new Set(
+      (Array.isArray(recordingIds) ? recordingIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!normalizedRecordingIds.length) {
+    return {
+      rows: [],
+      missingRecordingIds: [],
+    };
+  }
+
+  const [currentDriveSettings, workerHealth, queueSnapshot, recordings] =
+    await Promise.all([
+      getRecordingDriveSettings().catch(() => ({
+        mode: "serviceAccount",
+      })),
+      getLiveRecordingWorkerHealth().catch(() => null),
+      getLiveRecordingExportQueueSnapshot().catch(() => null),
+      applyLiveRecordingMonitorRecordingPopulate(
+        LiveRecordingV2.find({ _id: { $in: normalizedRecordingIds } }).select(
+          includeDetailedSegments
+            ? LIVE_RECORDING_MONITOR_DETAIL_RECORDING_SELECT
+            : LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT
+        )
+      ).lean(),
+    ]);
+
+  const recordingsById = new Map(
+    recordings.map((recording) => [String(recording?._id || ""), recording])
+  );
+  const rows = [];
+  const missingRecordingIds = [];
+
+  for (const recordingId of normalizedRecordingIds) {
+    const recording = recordingsById.get(recordingId);
+    if (!recording) {
+      missingRecordingIds.push(recordingId);
+      continue;
+    }
+
+    rows.push(
+      buildRow(
+        recording,
+        {
+          workerHealth,
+          queueSnapshot,
+          currentDriveMode: currentDriveSettings.mode,
+        },
+        {
+          includeDetailedSegments,
+        }
+      )
+    );
+  }
+
+  return {
+    rows,
+    missingRecordingIds,
+  };
+}
+
 export async function getLiveRecordingMonitorRow(recordingId) {
   const normalizedRecordingId = String(recordingId || "").trim();
   if (!normalizedRecordingId) return null;

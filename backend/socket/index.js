@@ -66,10 +66,12 @@ import { registerCourtLivePresencePublisher } from "../services/courtLivePresenc
 import { registerCourtStationPresencePublishers } from "../services/courtStationPresenceEvents.service.js";
 import { ensureCourtStationPresenceSweeperStarted } from "../services/courtStationPresence.service.js";
 import {
+  getLiveRecordingMonitorMeta,
   getLiveRecordingMonitorEventsChannel,
   registerLiveRecordingMonitorPublisher,
   setLiveRecordingMonitorMeta,
 } from "../services/liveRecordingMonitorEvents.service.js";
+import { getLiveRecordingMonitorRowsByIds } from "../services/liveRecordingMonitor.service.js";
 import {
   emitTournamentInvalidate,
   emitTournamentMatchUpdate,
@@ -703,11 +705,43 @@ async function emitLiveRecordingMonitorUpdate(io, payload = {}, options = {}) {
     typeof options === "string" ? { socketId: options } : options;
   try {
     const normalized = normalizeLiveRecordingMonitorPayload(payload);
+    let rows = [];
+    let missingRecordingIds = [];
+
+    if (normalized.recordingIds.length) {
+      try {
+        const rowSnapshot = await getLiveRecordingMonitorRowsByIds(
+          normalized.recordingIds,
+          {
+            includeDetailedSegments: false,
+          }
+        );
+        rows = Array.isArray(rowSnapshot?.rows) ? rowSnapshot.rows : [];
+        missingRecordingIds = Array.isArray(rowSnapshot?.missingRecordingIds)
+          ? rowSnapshot.missingRecordingIds
+          : [];
+      } catch (rowError) {
+        console.warn(
+          "[socket] recordings-v2:update enrich rows error:",
+          rowError?.message || rowError
+        );
+      }
+    }
+
+    const enrichedPayload = {
+      ...normalized,
+      meta: getLiveRecordingMonitorMeta(),
+      rows,
+      missingRecordingIds,
+    };
     if (socketId) {
-      io.to(socketId).emit("recordings-v2:update", normalized);
+      io.to(socketId).emit("recordings-v2:update", enrichedPayload);
       return;
     }
-    io.to(LIVE_RECORDING_MONITOR_ROOM).emit("recordings-v2:update", normalized);
+    io.to(LIVE_RECORDING_MONITOR_ROOM).emit(
+      "recordings-v2:update",
+      enrichedPayload
+    );
   } catch (error) {
     console.error(
       "[socket] recordings-v2:update error:",
