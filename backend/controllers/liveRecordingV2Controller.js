@@ -2329,45 +2329,73 @@ export const trashLiveRecordingR2AssetsV2 = asyncHandler(async (req, res) => {
   }
 
   let totalDeleted = 0;
+  const deletedObjectKeys = [];
   const errors = [];
   for (const targetId of targetIds) {
-      try {
-          const listRes = await listRecordingObjects({
-              storageTargetId: targetId,
-              prefix,
-              limit: 2000, 
-          });
-          
-          if (listRes && listRes.objects && listRes.objects.length > 0) {
-              const keys = listRes.objects.map(obj => obj.key);
-              await deleteRecordingObjects(keys, { storageTargetId: targetId });
-              totalDeleted += keys.length;
-          }
-      } catch (err) {
-         errors.push(err.message);
+    try {
+      const listRes = await listRecordingObjects({
+        storageTargetId: targetId,
+        prefix,
+        limit: 2000,
+      });
+
+      if (listRes && listRes.objects && listRes.objects.length > 0) {
+        const keys = listRes.objects.map((obj) => obj.key);
+        const deleteResult = await deleteRecordingObjects(keys, {
+          storageTargetId: targetId,
+        });
+        totalDeleted += Number(deleteResult?.deletedObjectCount || 0);
+        if (Array.isArray(deleteResult?.deletedKeys)) {
+          deletedObjectKeys.push(...deleteResult.deletedKeys);
+        }
       }
+    } catch (err) {
+      errors.push(err?.message || String(err));
+    }
   }
-  
+
   if (totalDeleted > 0 || errors.length === 0) {
-      recording.segments = [];
-      recording.r2SourceBytes = 0;
-      const nextMeta = getRecordingMeta(recording);
-      nextMeta.sourceCleanup = {
-         status: "completed",
-         startedAt: new Date(),
-         completedAt: new Date(),
-         deletedBytes: recording.sizeBytes || 0,
-      };
-      recording.meta = nextMeta;
-      await recording.save();
-      await publishRecordingMonitor(recording, "recording_r2_cleaned_by_admin");
+    const cleanedAt = new Date();
+    recording.segments = [];
+    recording.r2ManifestKey = null;
+    recording.r2SourceBytes = 0;
+
+    const nextMeta = getRecordingMeta(recording);
+    const livePlayback =
+      nextMeta.livePlayback &&
+      typeof nextMeta.livePlayback === "object" &&
+      !Array.isArray(nextMeta.livePlayback)
+        ? { ...nextMeta.livePlayback }
+        : null;
+
+    if (livePlayback) {
+      livePlayback.manifestObjectKey = null;
+      livePlayback.manifestUrl = null;
+      livePlayback.hlsManifestObjectKey = null;
+      livePlayback.hlsManifestUrl = null;
+      nextMeta.livePlayback = livePlayback;
+    }
+
+    nextMeta.sourceCleanup = {
+      status: "completed",
+      startedAt: cleanedAt,
+      completedAt: cleanedAt,
+      deletedAt: cleanedAt,
+      deletedBytes: recording.sizeBytes || 0,
+      deletedObjectCount: totalDeleted,
+      objectKeys: [...new Set(deletedObjectKeys)],
+      via: "admin_r2_clean",
+    };
+    recording.meta = nextMeta;
+    await recording.save();
+    await publishRecordingMonitor(recording, "recording_r2_cleaned_by_admin");
   }
 
   if (errors.length > 0 && totalDeleted === 0) {
-      return res.status(502).json({
-          message: "Failed to delete R2 objects: " + errors.join(", "),
-          recording: serializeRecording(recording),
-      });
+    return res.status(502).json({
+      message: "Failed to delete R2 objects: " + errors.join(", "),
+      recording: serializeRecording(recording),
+    });
   }
 
   return res.json({
