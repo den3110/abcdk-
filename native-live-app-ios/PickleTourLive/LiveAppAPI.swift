@@ -413,6 +413,9 @@ final class LiveAPIClient {
 
         do {
             return try JSONDecoder.liveApp.decode(Response.self, from: data)
+        } catch let decodingError as DecodingError {
+            print("DECODE ERROR: \(decodingError)")
+            throw LiveAPIError.server(statusCode: httpResponse.statusCode, message: "Decode Error: \(decodingError)")
         } catch {
             throw LiveAPIError.invalidResponse
         }
@@ -684,7 +687,12 @@ final class LiveAppAuthCoordinator: NSObject {
         }
 
         if (200..<300).contains(httpResponse.statusCode) {
-            return try JSONDecoder.liveApp.decode(type, from: data)
+            do {
+                return try JSONDecoder.liveApp.decode(type, from: data)
+            } catch let decodingError as DecodingError {
+                print("DECODE ERROR: \(decodingError)")
+                throw LiveAPIError.server(statusCode: httpResponse.statusCode, message: "Decode \(type) Error: \(decodingError)")
+            }
         }
 
         if let apiError = try? JSONDecoder.liveApp.decode(OAuthErrorResponse.self, from: data) {
