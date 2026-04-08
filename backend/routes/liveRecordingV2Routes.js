@@ -11,7 +11,14 @@ import {
   getLiveRecordingDriveAssetV2,
   forceUploadingRecordingToExportV2,
   getLiveRecordingMonitorV2,
+  getLiveRecordingMonitorMetaV2,
+  getLiveRecordingMonitorOverviewV2,
+  getLiveRecordingMonitorExportQueueV2,
   getLiveRecordingMonitorRowV2,
+  getLiveRecordingMonitorRowsV2,
+  getLiveRecordingMonitorStorageV2,
+  getLiveRecordingMonitorSummaryV2,
+  getLiveRecordingMonitorTournamentsV2,
   getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
   moveLiveRecordingDriveAssetV2,
@@ -80,6 +87,48 @@ router.get(
   protect,
   authorize("admin"),
   getLiveRecordingMonitorV2
+);
+router.get(
+  "/admin/monitor/overview",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorOverviewV2
+);
+router.get(
+  "/admin/monitor/summary",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorSummaryV2
+);
+router.get(
+  "/admin/monitor/meta",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorMetaV2
+);
+router.get(
+  "/admin/monitor/tournaments",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorTournamentsV2
+);
+router.get(
+  "/admin/monitor/storage",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorStorageV2
+);
+router.get(
+  "/admin/monitor/export-queue",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorExportQueueV2
+);
+router.get(
+  "/admin/monitor/rows",
+  protect,
+  authorize("admin"),
+  getLiveRecordingMonitorRowsV2
 );
 router.get(
   "/admin/worker-health",

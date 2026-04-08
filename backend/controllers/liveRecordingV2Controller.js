@@ -44,7 +44,14 @@ import {
   deleteRecordingObjects,
 } from "../services/liveRecordingV2Storage.service.js";
 import {
+  buildLiveRecordingMonitorExportQueueSnapshot,
+  buildLiveRecordingMonitorMetaPayload,
+  buildLiveRecordingMonitorOverview,
   buildLiveRecordingMonitorPage,
+  buildLiveRecordingMonitorRowsPage,
+  buildLiveRecordingMonitorStorageSummary,
+  buildLiveRecordingMonitorSummary,
+  buildLiveRecordingMonitorTournaments,
   getLiveRecordingMonitorRow,
   reconcileStaleLiveRecordingExports,
 } from "../services/liveRecordingMonitor.service.js";
@@ -71,6 +78,7 @@ import {
   enqueueLiveRecordingAiCommentaryJob,
   getLiveRecordingAiCommentaryMonitor,
 } from "../services/liveRecordingAiCommentaryQueue.service.js";
+import { removeLiveRecordingExportJobs } from "../services/liveRecordingV2Queue.service.js";
 
 function isValidObjectId(value) {
   return mongoose.isValidObjectId(String(value || ""));
@@ -1330,6 +1338,13 @@ export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Recording not found" });
   }
 
+  if (["recording", "uploading", "exporting"].includes(String(recording.status || ""))) {
+    return res.status(409).json({
+      message: "Không thể xóa R2 khi recording vẫn đang hoạt động",
+      recording: serializeRecording(recording),
+    });
+  }
+
   const [entry] = await presignRecordingSegmentEntries({
     recording,
     segmentIndexes: [segmentIndex],
@@ -2038,6 +2053,91 @@ export const getLiveRecordingMonitorV2 = asyncHandler(async (req, res) => {
   return res.json(snapshot);
 });
 
+export const getLiveRecordingMonitorOverviewV2 = asyncHandler(async (req, res) => {
+  const overview = await buildLiveRecordingMonitorOverview({
+    section: req.query?.section,
+    status: req.query?.status,
+    commentary: req.query?.commentary,
+    view: req.query?.view,
+    q: req.query?.q,
+    tournament: req.query?.tournament,
+    forceRefresh:
+      String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
+  });
+  return res.json(overview);
+});
+
+export const getLiveRecordingMonitorSummaryV2 = asyncHandler(async (req, res) => {
+  const summary = await buildLiveRecordingMonitorSummary({
+    section: req.query?.section,
+  });
+  return res.json({
+    summary,
+    meta: {
+      section: String(req.query?.section || "all").trim().toLowerCase() || "all",
+      generatedAt: new Date(),
+    },
+  });
+});
+
+export const getLiveRecordingMonitorMetaV2 = asyncHandler(async (_req, res) => {
+  const meta = await buildLiveRecordingMonitorMetaPayload();
+  return res.json({
+    meta,
+  });
+});
+
+export const getLiveRecordingMonitorTournamentsV2 = asyncHandler(
+  async (req, res) => {
+    const tournaments = await buildLiveRecordingMonitorTournaments({
+      section: req.query?.section,
+    });
+    return res.json({
+      tournaments,
+      meta: {
+        section: String(req.query?.section || "all").trim().toLowerCase() || "all",
+        generatedAt: new Date(),
+      },
+    });
+  }
+);
+
+export const getLiveRecordingMonitorStorageV2 = asyncHandler(async (req, res) => {
+  const storage = await buildLiveRecordingMonitorStorageSummary({
+    forceRefresh:
+      String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
+  });
+  return res.json({
+    storage,
+    meta: {
+      generatedAt: new Date(),
+    },
+  });
+});
+
+export const getLiveRecordingMonitorExportQueueV2 = asyncHandler(
+  async (_req, res) => {
+    const snapshot = await buildLiveRecordingMonitorExportQueueSnapshot();
+    return res.json(snapshot);
+  }
+);
+
+export const getLiveRecordingMonitorRowsV2 = asyncHandler(async (req, res) => {
+  const pageData = await buildLiveRecordingMonitorRowsPage({
+    section: req.query?.section,
+    status: req.query?.status,
+    commentary: req.query?.commentary,
+    view: req.query?.view,
+    q: req.query?.q,
+    tournament: req.query?.tournament,
+    page: req.query?.page,
+    limit: req.query?.limit,
+    forceRefresh:
+      String(req.query?.forceRefresh || "").trim().toLowerCase() === "true",
+  });
+  return res.json(pageData);
+});
+
 export const getLiveRecordingMonitorRowV2 = asyncHandler(async (req, res) => {
   const recordingId = asTrimmed(req.params?.id || req.query?.recordingId);
   if (!isValidObjectId(recordingId)) {
@@ -2329,7 +2429,6 @@ export const trashLiveRecordingR2AssetsV2 = asyncHandler(async (req, res) => {
   }
 
   let totalDeleted = 0;
-  const deletedObjectKeys = [];
   const errors = [];
   for (const targetId of targetIds) {
     try {
@@ -2345,50 +2444,10 @@ export const trashLiveRecordingR2AssetsV2 = asyncHandler(async (req, res) => {
           storageTargetId: targetId,
         });
         totalDeleted += Number(deleteResult?.deletedObjectCount || 0);
-        if (Array.isArray(deleteResult?.deletedKeys)) {
-          deletedObjectKeys.push(...deleteResult.deletedKeys);
-        }
       }
     } catch (err) {
       errors.push(err?.message || String(err));
     }
-  }
-
-  if (totalDeleted > 0 || errors.length === 0) {
-    const cleanedAt = new Date();
-    recording.segments = [];
-    recording.r2ManifestKey = null;
-    recording.r2SourceBytes = 0;
-
-    const nextMeta = getRecordingMeta(recording);
-    const livePlayback =
-      nextMeta.livePlayback &&
-      typeof nextMeta.livePlayback === "object" &&
-      !Array.isArray(nextMeta.livePlayback)
-        ? { ...nextMeta.livePlayback }
-        : null;
-
-    if (livePlayback) {
-      livePlayback.manifestObjectKey = null;
-      livePlayback.manifestUrl = null;
-      livePlayback.hlsManifestObjectKey = null;
-      livePlayback.hlsManifestUrl = null;
-      nextMeta.livePlayback = livePlayback;
-    }
-
-    nextMeta.sourceCleanup = {
-      status: "completed",
-      startedAt: cleanedAt,
-      completedAt: cleanedAt,
-      deletedAt: cleanedAt,
-      deletedBytes: recording.sizeBytes || 0,
-      deletedObjectCount: totalDeleted,
-      objectKeys: [...new Set(deletedObjectKeys)],
-      via: "admin_r2_clean",
-    };
-    recording.meta = nextMeta;
-    await recording.save();
-    await publishRecordingMonitor(recording, "recording_r2_cleaned_by_admin");
   }
 
   if (errors.length > 0 && totalDeleted === 0) {
@@ -2398,11 +2457,47 @@ export const trashLiveRecordingR2AssetsV2 = asyncHandler(async (req, res) => {
     });
   }
 
+  if (errors.length > 0) {
+    return res.status(502).json({
+      message: "Xóa R2 chưa hoàn tất: " + errors.join(", "),
+      deletedObjects: totalDeleted,
+      recording: serializeRecording(recording),
+    });
+  }
+
+  const queueCleanup = await removeLiveRecordingExportJobs(recordingId).catch(
+    (error) => ({
+      removedJobIds: [],
+      skippedActiveJobIds: [],
+      errors: [error?.message || String(error)],
+    })
+  );
+
+  if (queueCleanup.skippedActiveJobIds.length) {
+    return res.status(409).json({
+      message: "Recording đang có job export hoạt động, chưa thể xóa",
+      activeJobIds: queueCleanup.skippedActiveJobIds,
+      recording: serializeRecording(recording),
+    });
+  }
+
+  if (queueCleanup.errors.length) {
+    return res.status(502).json({
+      message: "Đã xóa R2 nhưng không thể dọn job queue: " + queueCleanup.errors.join(", "),
+      deletedObjects: totalDeleted,
+      recording: serializeRecording(recording),
+    });
+  }
+
+  await recording.deleteOne();
+  await publishRecordingMonitor(recording, "recording_deleted_by_admin_after_r2_clean");
+
   return res.json({
     ok: true,
-    message: `Đã dọn dẹp ${totalDeleted} file trên R2`,
+    message: `Đã xóa ${totalDeleted} file trên R2 và xóa luôn bản ghi khỏi DB`,
     deletedObjects: totalDeleted,
-    recording: serializeRecording(recording),
+    deletedRecordId: recordingId,
+    removedQueueJobs: queueCleanup.removedJobIds,
   });
 });
 
