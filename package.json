@@ -22,6 +22,8 @@
     "create-admin": "node scripts/createAdmin.js",
     "cccd:worker": "node backend/worker/index.js",
     "recording:worker": "node backend/worker/liveRecordingExport.worker.js",
+    "observer:server": "cross-env TZ=Asia/Bangkok node backend/observerServer.js",
+    "observer:backup-snapshot": "node backend/scripts/sendObserverBackupSnapshot.js",
     "seo-news:backfill-images": "node backend/scripts/backfillSeoNewsImages.js",
     "recording:r2-cleanup": "node backend/scripts/cleanupExportedRecordingR2.js",
     "recording:r2-clear-all": "node backend/scripts/clearRecordingR2Storage.js",

@@ -105,10 +105,15 @@ import openaiRoutes from "./routes/openaiRoutes.js";
 import healthRoutes from "./routes/healthRoutes.js";
 import commandPaletteRoutes from "./routes/commandPaletteRoutes.js";
 import voiceRoutes from "./routes/voiceRoutes.js";
+import observerRoutes from "./routes/observerRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
 import { loadLiveRecordingStorageTargetsConfig } from "./services/liveRecordingStorageTargetsConfig.service.js";
+import {
+  shutdownObserverSink,
+  startObserverRuntimePublisher,
+} from "./services/observerSink.service.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -268,6 +273,7 @@ app.use("/api/expo-updates", expoUpdatesRoutes);
 app.use("/api/openai", openaiRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/command-palette", commandPaletteRoutes);
+app.use("/api/observer", observerRoutes);
 
 // ===== Geo proxy for language detection (avoids browser CORS issues) =====
 const geoCache = new Map();
@@ -420,14 +426,53 @@ const startServer = async () => {
         initNewsCron();
         await startAgenda(); // ✅ Await agenda start
         registerAutoHealJobs({ Tournament, Match });
+        startObserverRuntimePublisher();
       } catch (error) {
         console.error(`❌ Error starting server: ${error.message}`);
       }
     });
   } catch (err) {
     console.error("❌ Failed to start server", err);
+    await shutdownObserverSink().catch(() => {});
     process.exit(1);
   }
 };
+
+let shutdownInFlight = false;
+
+async function handleProcessShutdown(signal) {
+  if (shutdownInFlight) return;
+  shutdownInFlight = true;
+
+  console.log(`[observer] received ${signal}, draining observer sink...`);
+  await shutdownObserverSink().catch(() => {});
+
+  if (!server.listening) {
+    process.exit(0);
+    return;
+  }
+
+  server.close((error) => {
+    if (error) {
+      console.error("[observer] server close error:", error);
+      process.exit(1);
+      return;
+    }
+
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    process.exit(1);
+  }, 5000).unref();
+}
+
+process.once("SIGINT", () => {
+  void handleProcessShutdown("SIGINT");
+});
+
+process.once("SIGTERM", () => {
+  void handleProcessShutdown("SIGTERM");
+});
 
 startServer();
