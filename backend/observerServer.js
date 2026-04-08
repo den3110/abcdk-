@@ -2,12 +2,16 @@ import dotenv from "dotenv";
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
+import path from "path";
+import { fileURLToPath } from "url";
 
 import connectDB from "./config/db.js";
 import observerRoutes from "./routes/observerRoutes.js";
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app = express();
 const port = Number(process.env.OBSERVER_PORT || process.env.PORT || 8787);
 const host = String(process.env.OBSERVER_BIND_HOST || "127.0.0.1").trim() || "127.0.0.1";
@@ -15,6 +19,16 @@ const host = String(process.env.OBSERVER_BIND_HOST || "127.0.0.1").trim() || "12
 app.disable("x-powered-by");
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+
+app.get("/", (_req, res) => {
+  res.redirect("/dashboard");
+});
+
+app.get("/dashboard", (_req, res) => {
+  res.sendFile(
+    path.join(__dirname, "public", "observer-dashboard", "index.html")
+  );
+});
 
 app.get("/healthz", (_req, res) => {
   res.json({

@@ -265,6 +265,7 @@ export const getObserverSummary = asyncHandler(async (req, res) => {
           totals: latestRuntime.totals || {},
           process: latestRuntime.process || {},
           hotPaths: latestRuntime.hotPaths || {},
+          endpoints: latestRuntime.endpoints || [],
           recordingExport: latestRuntime.recordingExport || {},
         }
       : null,

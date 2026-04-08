@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PickleTour Observer</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4efe3;
+        --bg-accent: #efe2c3;
+        --panel: rgba(255, 251, 243, 0.92);
+        --border: rgba(47, 60, 49, 0.16);
+        --ink: #1c2a22;
+        --muted: #5f6f62;
+        --accent: #295f4e;
+        --accent-soft: rgba(41, 95, 78, 0.12);
+        --warn: #a85f21;
+        --warn-soft: rgba(168, 95, 33, 0.14);
+        --danger: #a52834;
+        --danger-soft: rgba(165, 40, 52, 0.12);
+        --shadow: 0 18px 48px rgba(36, 48, 38, 0.08);
+        --radius: 20px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Aptos", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(240, 208, 123, 0.24), transparent 28%),
+          radial-gradient(circle at top right, rgba(41, 95, 78, 0.18), transparent 26%),
+          linear-gradient(180deg, var(--bg-accent), var(--bg));
+      }
+
+      .shell {
+        width: min(1400px, calc(100vw - 32px));
+        margin: 24px auto 32px;
+      }
+
+      .hero,
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .hero {
+        padding: 24px;
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 5vw, 54px);
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+      }
+
+      .hero-copy {
+        max-width: 680px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .status-pill {
+        padding: 10px 14px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+        background: var(--accent-soft);
+        color: var(--accent);
+        white-space: nowrap;
+      }
+
+      .status-pill.error {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .field input,
+      .field select,
+      .field button {
+        height: 46px;
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        font: inherit;
+      }
+
+      .field input,
+      .field select {
+        background: #fffdf8;
+        padding: 0 14px;
+        color: var(--ink);
+      }
+
+      .field button {
+        background: var(--accent);
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .field button.secondary {
+        background: #fffdf8;
+        color: var(--ink);
+      }
+
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .meta-chip {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.75);
+        border: 1px solid var(--border);
+      }
+
+      .grid {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 16px;
+      }
+
+      .column {
+        display: grid;
+        gap: 16px;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        padding: 18px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--border);
+      }
+
+      .card-title {
+        margin: 0 0 10px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .card-value {
+        margin: 0;
+        font-size: clamp(24px, 4vw, 42px);
+        font-weight: 800;
+        letter-spacing: -0.05em;
+      }
+
+      .card-note {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .panel {
+        padding: 18px;
+      }
+
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 18px;
+        letter-spacing: -0.02em;
+      }
+
+      .panel-subtitle {
+        margin: 4px 0 0;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 10px 0;
+        text-align: left;
+        border-bottom: 1px solid rgba(47, 60, 49, 0.1);
+        font-size: 13px;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      td strong {
+        display: block;
+      }
+
+      .mono {
+        font-family: "Consolas", "SFMono-Regular", monospace;
+      }
+
+      .tone-danger {
+        color: var(--danger);
+      }
+
+      .tone-warn {
+        color: var(--warn);
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .empty {
+        color: var(--muted);
+        font-size: 14px;
+        padding: 8px 0;
+      }
+
+      @media (max-width: 1100px) {
+        .controls,
+        .stats,
+        .split,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <div class="hero-top">
+          <div>
+            <p class="eyebrow">Observer VPS</p>
+            <h1>Realtime Internal Data Box</h1>
+            <p class="hero-copy">
+              This page reads from the observer collector only. Keep the collector behind
+              SSH tunneling, Tailscale, WireGuard, or another private access layer.
+            </p>
+          </div>
+          <div id="statusPill" class="status-pill">Idle</div>
+        </div>
+
+        <div class="controls">
+          <div class="field">
+            <label for="readKey">Read Key</label>
+            <input id="readKey" type="password" placeholder="x-pkt-observer-key" />
+          </div>
+          <div class="field">
+            <label for="source">Source</label>
+            <input id="source" type="text" placeholder="Optional source filter" />
+          </div>
+          <div class="field">
+            <label for="minutes">Window</label>
+            <select id="minutes">
+              <option value="15">Last 15 minutes</option>
+              <option value="60" selected>Last 60 minutes</option>
+              <option value="180">Last 3 hours</option>
+              <option value="720">Last 12 hours</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="refreshMs">Refresh</label>
+            <select id="refreshMs">
+              <option value="0">Manual only</option>
+              <option value="10000" selected>10 seconds</option>
+              <option value="15000">15 seconds</option>
+              <option value="30000">30 seconds</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="refreshButton" type="button">Refresh now</button>
+          </div>
+        </div>
+
+        <div class="meta-row">
+          <div class="meta-chip">Collector: <span id="collectorHost" class="mono">/healthz</span></div>
+          <div class="meta-chip">Last update: <span id="lastUpdate">never</span></div>
+          <div class="meta-chip">Runtime source: <span id="runtimeSource">n/a</span></div>
+          <div class="meta-chip">Backups listed: <span id="backupCount">0</span></div>
+        </div>
+      </section>
+
+      <div class="grid">
+        <div class="column">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Traffic Snapshot</h2>
+                <p class="panel-subtitle">Recent request counts, latency, and worker status.</p>
+              </div>
+            </div>
+            <div class="stats">
+              <div class="card">
+                <p class="card-title">Events</p>
+                <p class="card-value" id="metricEvents">0</p>
+                <p class="card-note" id="metricWindow">Last 60 minutes</p>
+              </div>
+              <div class="card">
+                <p class="card-title">Req/Min</p>
+                <p class="card-value" id="metricReqPerMin">0</p>
+                <p class="card-note">From latest runtime snapshot</p>
+              </div>
+              <div class="card">
+                <p class="card-title">P95</p>
+                <p class="card-value" id="metricP95">0 ms</p>
+                <p class="card-note">Latest runtime snapshot</p>
+              </div>
+              <div class="card">
+                <p class="card-title">4xx</p>
+                <p class="card-value tone-warn" id="metric4xx">0</p>
+                <p class="card-note">Recent window</p>
+              </div>
+              <div class="card">
+                <p class="card-title">5xx</p>
+                <p class="card-value tone-danger" id="metric5xx">0</p>
+                <p class="card-note" id="metricErrors">0 error events</p>
+              </div>
+              <div class="card">
+                <p class="card-title">Worker / Queue</p>
+                <p class="card-value" id="metricQueue">0 / 0</p>
+                <p class="card-note" id="metricWorker">Export worker unknown</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Top Endpoints</h2>
+                <p class="panel-subtitle">Highest request volume from the latest runtime sample.</p>
+              </div>
+            </div>
+            <div id="endpointsTable"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Latest Error Events</h2>
+                <p class="panel-subtitle">Most recent stored error-level observer events.</p>
+              </div>
+            </div>
+            <div id="eventsTable"></div>
+          </section>
+        </div>
+
+        <div class="column">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Process + Hot Paths</h2>
+                <p class="panel-subtitle">Server memory and the busiest live endpoints.</p>
+              </div>
+            </div>
+            <div class="split">
+              <div class="card">
+                <p class="card-title">Process</p>
+                <div id="processStack" class="stack"></div>
+              </div>
+              <div class="card">
+                <p class="card-title">Hot Paths</p>
+                <div id="hotPathsStack" class="stack"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Recent Backups</h2>
+                <p class="panel-subtitle">Metadata pushed from backup jobs or scripts.</p>
+              </div>
+            </div>
+            <div id="backupsTable"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Event Buckets</h2>
+                <p class="panel-subtitle">Top observer event groups in the selected window.</p>
+              </div>
+            </div>
+            <div id="bucketsTable"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const els = {
+        readKey: document.getElementById("readKey"),
+        source: document.getElementById("source"),
+        minutes: document.getElementById("minutes"),
+        refreshMs: document.getElementById("refreshMs"),
+        refreshButton: document.getElementById("refreshButton"),
+        statusPill: document.getElementById("statusPill"),
+        collectorHost: document.getElementById("collectorHost"),
+        lastUpdate: document.getElementById("lastUpdate"),
+        runtimeSource: document.getElementById("runtimeSource"),
+        backupCount: document.getElementById("backupCount"),
+        metricEvents: document.getElementById("metricEvents"),
+        metricWindow: document.getElementById("metricWindow"),
+        metricReqPerMin: document.getElementById("metricReqPerMin"),
+        metricP95: document.getElementById("metricP95"),
+        metric4xx: document.getElementById("metric4xx"),
+        metric5xx: document.getElementById("metric5xx"),
+        metricErrors: document.getElementById("metricErrors"),
+        metricQueue: document.getElementById("metricQueue"),
+        metricWorker: document.getElementById("metricWorker"),
+        endpointsTable: document.getElementById("endpointsTable"),
+        eventsTable: document.getElementById("eventsTable"),
+        processStack: document.getElementById("processStack"),
+        hotPathsStack: document.getElementById("hotPathsStack"),
+        backupsTable: document.getElementById("backupsTable"),
+        bucketsTable: document.getElementById("bucketsTable"),
+      };
+
+      const storage = window.sessionStorage;
+      const state = {
+        timer: null,
+      };
+
+      function loadControls() {
+        els.readKey.value = storage.getItem("observer.readKey") || "";
+        els.source.value = storage.getItem("observer.source") || "";
+        els.minutes.value = storage.getItem("observer.minutes") || "60";
+        els.refreshMs.value = storage.getItem("observer.refreshMs") || "10000";
+      }
+
+      function persistControls() {
+        storage.setItem("observer.readKey", els.readKey.value.trim());
+        storage.setItem("observer.source", els.source.value.trim());
+        storage.setItem("observer.minutes", els.minutes.value);
+        storage.setItem("observer.refreshMs", els.refreshMs.value);
+      }
+
+      function setStatus(message, isError = false) {
+        els.statusPill.textContent = message;
+        els.statusPill.classList.toggle("error", Boolean(isError));
+      }
+
+      function formatNumber(value, digits = 0) {
+        const numeric = Number(value || 0);
+        return Number.isFinite(numeric)
+          ? numeric.toLocaleString(undefined, {
+              minimumFractionDigits: digits,
+              maximumFractionDigits: digits,
+            })
+          : "0";
+      }
+
+      function formatDate(value) {
+        if (!value) return "n/a";
+        const date = new Date(value);
+        return Number.isFinite(date.getTime()) ? date.toLocaleString() : "n/a";
+      }
+
+      function encodeQuery(params) {
+        const qs = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && String(value).trim() !== "") {
+            qs.set(key, value);
+          }
+        });
+        return qs.toString();
+      }
+
+      async function apiFetch(path, params = {}) {
+        const readKey = els.readKey.value.trim();
+        if (!readKey) {
+          throw new Error("Read key is required");
+        }
+
+        const query = encodeQuery({
+          ...params,
+          source: els.source.value.trim(),
+        });
+        const response = await fetch(`${path}${query ? `?${query}` : ""}`, {
+          headers: {
+            "x-pkt-observer-key": readKey,
+          },
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `Request failed with status ${response.status}`);
+        }
+
+        return response.json();
+      }
+
+      function renderEmpty(message) {
+        return `<div class="empty">${message}</div>`;
+      }
+
+      function renderTable(columns, rows) {
+        if (!rows.length) return renderEmpty("No data yet.");
+        return `
+          <table>
+            <thead>
+              <tr>${columns.map((column) => `<th>${column}</th>`).join("")}</tr>
+            </thead>
+            <tbody>
+              ${rows.join("")}
+            </tbody>
+          </table>
+        `;
+      }
+
+      function renderKeyValueStack(target, items) {
+        if (!items.length) {
+          target.innerHTML = renderEmpty("No data yet.");
+          return;
+        }
+
+        target.innerHTML = items
+          .map(
+            (item) => `
+              <div>
+                <strong>${item.label}</strong>
+                <div class="card-note mono">${item.value}</div>
+              </div>
+            `
+          )
+          .join("");
+      }
+
+      async function refreshHealth() {
+        const response = await fetch("/healthz");
+        if (!response.ok) return;
+        const data = await response.json();
+        els.collectorHost.textContent = `${data.host}:${data.port}`;
+      }
+
+      function renderSummary(summary, events) {
+        const runtime = summary.runtime || {};
+        const totals = runtime.totals || {};
+        const process = runtime.process || {};
+        const recordingExport = runtime.recordingExport || {};
+        const queue = recordingExport.queue || {};
+        const worker = recordingExport.worker || {};
+        const buckets = Array.isArray(summary.events?.buckets) ? summary.events.buckets : [];
+        const endpoints = Array.isArray(runtime.endpoints) ? runtime.endpoints : [];
+        const hotPaths = runtime.hotPaths || {};
+        const backups = Array.isArray(summary.backups) ? summary.backups : [];
+        const errorItems = Array.isArray(events.items) ? events.items : [];
+
+        els.runtimeSource.textContent = runtime.source || summary.source || "all sources";
+        els.backupCount.textContent = String(backups.length);
+        els.metricEvents.textContent = formatNumber(summary.events?.totalRecentEvents);
+        els.metricWindow.textContent = `Last ${summary.windowMinutes || els.minutes.value} minutes`;
+        els.metricReqPerMin.textContent = formatNumber(totals.reqPerMin, 2);
+        els.metricP95.textContent = `${formatNumber(totals.p95Ms)} ms`;
+        els.metric4xx.textContent = formatNumber(totals.errors4xx);
+        els.metric5xx.textContent = formatNumber(totals.errors5xx);
+        els.metricErrors.textContent = `${formatNumber(summary.events?.errorRecentEvents)} error events`;
+        els.metricQueue.textContent = `${formatNumber(queue.waitingCount)} / ${formatNumber(queue.activeCount)}`;
+        els.metricWorker.textContent = worker.alive
+          ? `Export worker ${worker.status || "alive"}`
+          : "Export worker offline";
+
+        renderKeyValueStack(els.processStack, [
+          { label: "PID", value: process.pid || "n/a" },
+          { label: "Uptime", value: `${formatNumber(process.uptimeSeconds)} s` },
+          { label: "RSS", value: `${formatNumber(process.rssMb, 1)} MB` },
+          { label: "Heap Used", value: `${formatNumber(process.heapUsedMb, 1)} MB` },
+        ]);
+
+        renderKeyValueStack(
+          els.hotPathsStack,
+          Object.entries(hotPaths)
+            .slice(0, 6)
+            .map(([key, value]) => ({
+              label: key,
+              value: `${formatNumber(value.reqPerMin, 2)} rpm | p95 ${formatNumber(value.p95Ms)} ms`,
+            }))
+        );
+
+        els.endpointsTable.innerHTML = renderTable(
+          ["Endpoint", "Volume", "Latency"],
+          endpoints.slice(0, 12).map(
+            (item) => `
+              <tr>
+                <td>
+                  <strong class="mono">${item.method || "GET"} ${item.path || "/"}</strong>
+                  <span class="card-note mono">${item.key || ""}</span>
+                </td>
+                <td>${formatNumber(item.count)} hits<br /><span class="card-note">${formatNumber(item.reqPerMin, 2)} rpm</span></td>
+                <td>avg ${formatNumber(item.avgMs)} ms<br /><span class="card-note">p95 ${formatNumber(item.p95Ms)} ms</span></td>
+              </tr>
+            `
+          )
+        );
+
+        els.eventsTable.innerHTML = renderTable(
+          ["When", "Request", "Status"],
+          errorItems.slice(0, 16).map(
+            (item) => `
+              <tr>
+                <td>${formatDate(item.occurredAt)}</td>
+                <td>
+                  <strong class="mono">${item.method || ""} ${item.path || item.url || ""}</strong>
+                  <span class="card-note mono">${item.requestId || item.source || ""}</span>
+                </td>
+                <td>
+                  <span class="tone-danger">${item.statusCode || item.level || "error"}</span><br />
+                  <span class="card-note">${formatNumber(item.durationMs)} ms</span>
+                </td>
+              </tr>
+            `
+          )
+        );
+
+        els.backupsTable.innerHTML = renderTable(
+          ["Scope", "Status", "Captured"],
+          backups.slice(0, 10).map(
+            (item) => `
+              <tr>
+                <td>
+                  <strong>${item.scope || "generic"}</strong>
+                  <span class="card-note mono">${item.backupType || ""}</span>
+                </td>
+                <td>
+                  <span class="${item.status === "ok" ? "" : "tone-danger"}">${item.status || "unknown"}</span><br />
+                  <span class="card-note">${formatNumber(item.sizeBytes)} bytes</span>
+                </td>
+                <td>${formatDate(item.capturedAt)}</td>
+              </tr>
+            `
+          )
+        );
+
+        els.bucketsTable.innerHTML = renderTable(
+          ["Bucket", "Level", "Count"],
+          buckets.slice(0, 16).map(
+            (item) => `
+              <tr>
+                <td>
+                  <strong>${item.category || "generic"}</strong>
+                  <span class="card-note mono">${item.type || ""}</span>
+                </td>
+                <td class="${item.level === "error" ? "tone-danger" : item.level === "warn" ? "tone-warn" : ""}">
+                  ${item.level || "info"}
+                </td>
+                <td>${formatNumber(item.count)}</td>
+              </tr>
+            `
+          )
+        );
+      }
+
+      async function refreshAll() {
+        persistControls();
+        setStatus("Refreshing...");
+
+        try {
+          const [summary, events] = await Promise.all([
+            apiFetch("/api/observer/read/summary", {
+              minutes: els.minutes.value,
+            }),
+            apiFetch("/api/observer/read/events", {
+              level: "error",
+              limit: 25,
+            }),
+          ]);
+
+          renderSummary(summary, events);
+          els.lastUpdate.textContent = new Date().toLocaleTimeString();
+          setStatus("Live");
+        } catch (error) {
+          setStatus("Request failed", true);
+          els.eventsTable.innerHTML = renderEmpty(error.message || "Failed to load data.");
+        }
+      }
+
+      function restartTimer() {
+        if (state.timer) {
+          clearInterval(state.timer);
+          state.timer = null;
+        }
+
+        const intervalMs = Number(els.refreshMs.value || 0);
+        if (intervalMs > 0) {
+          state.timer = setInterval(() => {
+            void refreshAll();
+          }, intervalMs);
+        }
+      }
+
+      [els.readKey, els.source, els.minutes, els.refreshMs].forEach((element) => {
+        element.addEventListener("change", () => {
+          restartTimer();
+          void refreshAll();
+        });
+      });
+
+      els.refreshButton.addEventListener("click", () => {
+        void refreshAll();
+      });
+
+      loadControls();
+      restartTimer();
+      void refreshHealth();
+      void refreshAll();
+    </script>
+  </body>
+</html>

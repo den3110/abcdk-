@@ -8,6 +8,7 @@
     "start": "cross-env TZ=Asia/Bangkok node backend/server.js",
     "backend-go:start": "cd backend-go && go run ./cmd/api",
     "backend-go:api": "cd backend-go && go run ./cmd/api",
+    "backend-go:observer": "cd backend-go && go run ./cmd/observer",
     "backend-go:relay-rtmp": "cd backend-go && go run ./cmd/relay-rtmp",
     "backend-go:scheduler": "cd backend-go && go run ./cmd/scheduler",
     "backend-go:worker-recording-export": "cd backend-go && go run ./cmd/worker-recording-export",

@@ -5,11 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
-WorkingDirectory=/var/www/pickletour
+User=observer
+Group=observer
+WorkingDirectory=/var/lib/pickletour-observer
 EnvironmentFile=/etc/pickletour/observer.env
-ExecStart=/usr/bin/env node backend/observerServer.js
+ExecStart=/usr/local/bin/pickletour-observer
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

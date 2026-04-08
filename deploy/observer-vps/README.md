@@ -3,14 +3,19 @@
 This VPS is intended to handle five internal-only roles:
 
 1. Backup metadata receiver
-2. Realtime request/runtime observability
+2. Realtime request and runtime observability
 3. Read-only admin data API
 4. Webhook and event inbox
 5. Bastion or jump-host access
 
-The codebase now includes a dedicated collector process at `backend/observerServer.js`.
-It only mounts `/healthz` and `/api/observer/*`, so the VPS does not need to run
-the full production API, socket layer, cron jobs, or media workers.
+Preferred deployment now is the dedicated Go collector:
+
+- source: `backend-go/cmd/observer`
+- container image build: `backend-go/Dockerfile.observer`
+- compose example: `deploy/observer-vps/docker-compose.observer.yml`
+
+The main Node API remains the producer. It forwards request events and runtime
+snapshots to the observer collector. The VPS only needs the Go observer image and Mongo.
 
 ## Source Server Configuration
 
@@ -29,36 +34,62 @@ OBSERVER_RUNTIME_PUSH_INTERVAL_MS=15000
 If the observer box is on another host, replace `OBSERVER_BASE_URL` with the private
 IP, Tailscale IP, or internal load-balancer URL of that VPS.
 
+## Build And Push The Image
+
+Build from the repo root:
+
+```bash
+docker build -f backend-go/Dockerfile.observer -t ghcr.io/your-org/pickletour-observer:latest .
+docker push ghcr.io/your-org/pickletour-observer:latest
+```
+
 ## Collector Configuration
 
 Recommended `observer.env` on the VPS:
 
 ```env
 NODE_ENV=production
-TZ=Asia/Saigon
-PORT=8787
 OBSERVER_PORT=8787
-OBSERVER_BIND_HOST=127.0.0.1
+OBSERVER_BIND_HOST=0.0.0.0
 OBSERVER_API_KEY=replace-with-a-long-random-secret
 OBSERVER_READ_API_KEY=replace-with-a-different-read-only-secret
 MONGO_URI=mongodb://127.0.0.1:27017/pickletour_observer
 MONGO_URI_PROD=mongodb://127.0.0.1:27017/pickletour_observer
+MONGO_DB_NAME=pickletour_observer
+OBSERVER_EVENT_TTL_DAYS=7
+OBSERVER_RUNTIME_TTL_DAYS=14
+OBSERVER_BACKUP_TTL_DAYS=60
 ```
 
-`OBSERVER_BIND_HOST=127.0.0.1` keeps the collector private by default. Expose it
-through SSH tunneling, Tailscale, WireGuard, or an authenticated reverse proxy only.
+Keep the published port private by default. Prefer one of these:
 
-## Start The Collector
+- bind Docker port to `127.0.0.1`
+- expose only on Tailscale or WireGuard
+- allow only the main server IP through the VPS firewall
 
-Install dependencies and start the minimal observer server:
+## Run On The VPS
+
+Copy these two files to the VPS:
+
+- `deploy/observer-vps/docker-compose.observer.yml`
+- `deploy/observer-vps/observer.env.example` as `observer.env`
+
+Then start:
 
 ```bash
-npm ci
-npm run observer:server
+docker compose -f docker-compose.observer.yml up -d
+docker compose -f docker-compose.observer.yml ps
+curl http://127.0.0.1:8787/healthz
 ```
 
-Systemd unit example is included in
-`deploy/observer-vps/pickletour-observer.service`.
+If you want a non-Docker fallback, a bare-metal systemd unit for the Go binary is
+included in `deploy/observer-vps/pickletour-observer.service`.
+
+Dashboard URL after tunnel or private access:
+
+```text
+GET /dashboard
+```
 
 ## Read-Only Endpoints
 

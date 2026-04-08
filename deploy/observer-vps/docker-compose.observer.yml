@@ -1,0 +1,23 @@
+services:
+  observer-mongo:
+    image: mongo:7
+    container_name: pickletour-observer-mongo
+    restart: unless-stopped
+    volumes:
+      - observer-mongo-data:/data/db
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  observer:
+    image: ${OBSERVER_IMAGE:-ghcr.io/your-org/pickletour-observer:latest}
+    container_name: pickletour-observer
+    restart: unless-stopped
+    depends_on:
+      - observer-mongo
+    env_file:
+      - ./observer.env
+    ports:
+      - "127.0.0.1:8787:8787"
+
+volumes:
+  observer-mongo-data:
