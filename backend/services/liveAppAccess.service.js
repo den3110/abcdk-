@@ -12,7 +12,7 @@ function mapTournament(doc) {
     _id: String(doc._id),
     name: normalizeText(doc.name, "Giải đấu"),
     title: normalizeText(doc.name, "Giải đấu"),
-    sportType: doc.sportType ?? null,
+    sportType: doc.sportType != null ? String(doc.sportType) : null,
     status: normalizeText(doc.status),
     logoUrl:
       normalizeText(doc.overlay?.logoUrl) ||
