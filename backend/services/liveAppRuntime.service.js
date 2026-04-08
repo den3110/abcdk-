@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Court from "../models/courtModel.js";
 import CourtStation from "../models/courtStationModel.js";
 import Match from "../models/matchModel.js";
+import UserMatch from "../models/userMatchModel.js";
 import { getManualAssignmentItems } from "./courtManualAssignment.service.js";
 import { getCourtLivePresenceSummaryMap } from "./courtLivePresence.service.js";
 import { getCourtStationPresenceSummaryMap } from "./courtStationPresence.service.js";
@@ -333,7 +334,7 @@ function buildTournamentLogoUrl(match) {
 }
 
 function buildResolvedCourtName(match) {
-  const resolved = resolveMatchCourtStationFields(match);
+    const resolved = resolveMatchCourtStationFields(match);
   return (
     resolved.courtStationName ||
     pick(match?.court?.name) ||
@@ -357,6 +358,100 @@ function sortKey(match) {
     match?.createdAt ? new Date(match.createdAt).getTime() : Number.POSITIVE_INFINITY,
     toIdString(match?._id),
   ];
+}
+
+function userMatchParticipantDisplayName(participant) {
+  return firstText(
+    participant?.displayName,
+    participant?.user?.nickname,
+    participant?.user?.nickName,
+    participant?.user?.fullName,
+    participant?.user?.name
+  );
+}
+
+function buildUserMatchTeamName(match, side) {
+  const items = Array.isArray(match?.participants)
+    ? match.participants
+        .filter((participant) => participant?.side === side)
+        .sort((left, right) => Number(left?.order || 0) - Number(right?.order || 0))
+    : [];
+
+  if (!items.length) {
+    return side === "A" ? "Đội A" : "Đội B";
+  }
+
+  return (
+    items
+      .map(userMatchParticipantDisplayName)
+      .filter(Boolean)
+      .join(" / ") || (side === "A" ? "Đội A" : "Đội B")
+  );
+}
+
+function buildUserMatchDisplayCode(match) {
+  return (
+    firstText(match?.labelKey, match?.code) ||
+    `V${Math.max(1, Number(match?.round) || 1)}-T${Math.max(1, Number(match?.order || 0) + 1)}`
+  );
+}
+
+function buildUserMatchRuntimePayload(match) {
+  const displayCode = buildUserMatchDisplayCode(match);
+  const gameScores = buildGameScores(match);
+  const currentScore = buildCurrentScore(gameScores);
+  const breakPayload = normalizeBreakPayload(match?.isBreak);
+  const courtName =
+    firstText(match?.courtLabel, match?.court?.name, match?.court?.label) ||
+    firstText(match?.location?.name, match?.location?.address, "Trận đấu tự do");
+  const title = firstText(match?.customLeague?.name, match?.title, "Trận đấu tự do");
+  const roundNumber = Math.max(1, Number(match?.round) || 1);
+
+  return {
+    _id: String(match._id),
+    code: displayCode,
+    displayCode,
+    displayNameMode: "fullName",
+    liveVersion: Number(match?.liveVersion || 0),
+    teamAName: buildUserMatchTeamName(match, "A"),
+    teamBName: buildUserMatchTeamName(match, "B"),
+    scoreA: currentScore.scoreA,
+    scoreB: currentScore.scoreB,
+    serveSide: pick(match?.serve?.side).toUpperCase() || "A",
+    serveCount: Number(match?.serve?.server || 1),
+    status: firstText(match?.status, "scheduled"),
+    tournamentName: title,
+    courtName,
+    tournamentLogoUrl: "",
+    stageName: "Trận đấu đơn lẻ",
+    phaseText: firstText(match?.customLeague?.season, title),
+    roundLabel: `Vòng ${roundNumber}`,
+    seedA: null,
+    seedB: null,
+    breakNote: breakPayload.note || null,
+    gameScores,
+    video: firstText(
+      match?.video,
+      match?.facebookLive?.watch_url,
+      match?.facebookLive?.permalink_url
+    ),
+    courtStationId: null,
+    courtStationName: null,
+    courtClusterId: null,
+    courtClusterName: firstText(match?.courtCluster),
+    tournament: null,
+    court: match?.court?._id
+      ? {
+          _id: String(match.court._id),
+          name: firstText(match.court?.name),
+          label: firstText(match.court?.label),
+          number:
+            Number.isFinite(Number(match.court?.number)) && Number(match.court.number) > 0
+              ? Number(match.court.number)
+              : null,
+        }
+      : null,
+  };
 }
 
 function lexCmp(a, b) {
@@ -719,13 +814,16 @@ export async function buildLiveAppCourtRuntime(courtId) {
   return payload;
 }
 
-export async function buildLiveAppMatchRuntime(matchId) {
+export async function buildLiveAppMatchRuntime(matchId, options = {}) {
   const normalizedMatchId = toIdString(matchId);
   if (!normalizedMatchId || !mongoose.Types.ObjectId.isValid(normalizedMatchId)) {
     return null;
   }
 
-  const match = await Match.findById(normalizedMatchId)
+  const preferUserMatch = options?.userMatch === true;
+
+  const loadMatch = async () =>
+    Match.findById(normalizedMatchId)
     .select(
       "_id code displayCode globalCode labelKey liveVersion status format branch phase pool group groupNo groupIndex rrRound round roundCode roundName order matchNo index stageIndex isThirdPlace rules gameScores currentGame serve isBreak meta tournament bracket pairA pairB court courtStation courtStationLabel courtClusterId courtClusterLabel"
     )
@@ -783,7 +881,25 @@ export async function buildLiveAppMatchRuntime(matchId) {
     })
     .lean();
 
-  if (!match) return null;
+  const loadUserMatch = async () =>
+    UserMatch.findById(normalizedMatchId)
+      .select(
+        "_id title note status round order code labelKey liveVersion gameScores currentGame serve isBreak video court courtLabel courtCluster location customLeague participants facebookLive"
+      )
+      .populate("court", "name label number")
+      .populate("participants.user", "name fullName nickname nickName")
+      .lean();
 
-  return buildMatchRuntimePayload(match);
+  if (preferUserMatch) {
+    const userMatch = await loadUserMatch();
+    if (userMatch) return buildUserMatchRuntimePayload(userMatch);
+  }
+
+  const match = await loadMatch();
+  if (match) return buildMatchRuntimePayload(match);
+
+  const userMatch = await loadUserMatch();
+  if (!userMatch) return null;
+
+  return buildUserMatchRuntimePayload(userMatch);
 }

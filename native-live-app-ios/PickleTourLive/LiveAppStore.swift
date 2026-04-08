@@ -13,6 +13,7 @@ final class LiveAppStore: ObservableObject {
     @Published var isWorking = false
     @Published var errorMessage: String?
     @Published var bannerMessage: String?
+    @Published private(set) var startupResolved = false
 
     @Published private(set) var session: AuthSession?
     @Published private(set) var user: UserMe?
@@ -109,6 +110,7 @@ final class LiveAppStore: ObservableObject {
 
     init() {
         session = environment.sessionStore.session
+        startupResolved = session?.accessToken.trimmedNilIfBlank == nil
         bind()
         configureSockets()
         syncStreamingSafetyProfile()
@@ -169,6 +171,10 @@ final class LiveAppStore: ObservableObject {
     }
 
     func bootstrapIfPossible() async {
+        defer {
+            startupResolved = true
+        }
+
         guard session?.accessToken.trimmedNilIfBlank != nil else {
             route = .login
             return
@@ -186,10 +192,74 @@ final class LiveAppStore: ObservableObject {
             let nextSession = try await environment.authCoordinator.signIn()
             environment.sessionStore.replace(nextSession)
             bannerMessage = "Đăng nhập thành công."
-            await refreshBootstrap()
+            if let target = currentLaunchTarget, target.isUserMatchLaunch {
+                await applyLaunchTarget(target)
+            } else {
+                await refreshBootstrap()
+            }
         } catch {
             if shouldIgnoreProgrammaticAuthCancellation(error) {
                 return
+            }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func signInWithPassword(loginId: String, password: String) async {
+        let normalizedId = loginId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard normalizedId.isEmpty == false, normalizedPassword.isEmpty == false else {
+            errorMessage = "Thiếu thông tin."
+            return
+        }
+
+        errorMessage = nil
+        isWorking = true
+        var storedProvisionalSession = false
+        defer { isWorking = false }
+
+        do {
+            let response = try await environment.apiClient.loginWithPassword(
+                buildPasswordLoginRequest(loginId: normalizedId, password: normalizedPassword)
+            )
+            guard let accessToken = response.token?.trimmedNilIfBlank else {
+                throw LiveAPIError.missingToken
+            }
+
+            let provisionalSession = AuthSession(
+                accessToken: accessToken,
+                refreshToken: nil,
+                idToken: nil,
+                userId: response.user?.id,
+                displayName: response.user?.displayName
+            )
+
+            environment.sessionStore.replace(provisionalSession)
+            storedProvisionalSession = true
+
+            if let target = currentLaunchTarget, target.isUserMatchLaunch {
+                await applyLaunchTarget(target)
+                bannerMessage = "Đăng nhập thành công."
+                return
+            }
+
+            let bootstrap = try await environment.apiClient.getBootstrap()
+            try await applyBootstrap(bootstrap)
+
+            let validatedSession = AuthSession(
+                accessToken: accessToken,
+                refreshToken: nil,
+                idToken: nil,
+                userId: bootstrap.user?.id ?? provisionalSession.userId,
+                displayName: bootstrap.user?.displayName ?? provisionalSession.displayName
+            )
+
+            environment.sessionStore.replace(validatedSession)
+            bannerMessage = "Đăng nhập thành công."
+        } catch {
+            if storedProvisionalSession {
+                clearAuthenticatedStateAfterLoginFailure()
             }
             errorMessage = error.localizedDescription
         }
@@ -206,7 +276,9 @@ final class LiveAppStore: ObservableObject {
         errorMessage = nil
 
         guard UIApplication.shared.canOpenURL(handoffURL) else {
-            errorMessage = "Không mở được app PickleTour. Hãy kiểm tra app đã cài và thử lại."
+            Task {
+                await signInWithWeb()
+            }
             return
         }
 
@@ -214,7 +286,7 @@ final class LiveAppStore: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 if !opened {
-                    self.errorMessage = "Không chuyển được sang PickleTour. Hãy thử lại."
+                    await self.signInWithWeb()
                 }
             }
         }
@@ -303,13 +375,9 @@ final class LiveAppStore: ObservableObject {
         await loadCourts(clusterId: cluster.id)
     }
 
-    func showManualSetup() {
-        route = .courtSetup
-    }
-
     func goBackToAdminHome() {
         errorMessage = nil
-        route = .adminHome
+        route = bootstrap == nil ? .login : .adminHome
     }
 
     func openCourt(_ court: AdminCourtData) async {
@@ -317,19 +385,40 @@ final class LiveAppStore: ObservableObject {
         launchTarget = LiveLaunchTarget(
             courtId: court.id,
             matchId: court.currentMatchId?.trimmedNilIfBlank,
-            pageId: launchTarget.pageId
+            pageId: launchTarget.pageId,
+            launchMode: .tournamentCourt
         )
         route = .courtSetup
         await refreshCourtRuntime(courtId: court.id)
         await startRuntimePolling(for: court.id)
     }
 
-    func updateLaunchTarget(courtId: String?, matchId: String?, pageId: String?) {
+    func updateLaunchTarget(
+        courtId: String?,
+        matchId: String?,
+        pageId: String?,
+        launchMode: LiveLaunchMode? = nil
+    ) {
         launchTarget = LiveLaunchTarget(
             courtId: courtId?.trimmedNilIfBlank,
             matchId: matchId?.trimmedNilIfBlank,
-            pageId: pageId?.trimmedNilIfBlank
+            pageId: pageId?.trimmedNilIfBlank,
+            launchMode: launchMode ?? launchTarget.launchMode
         )
+    }
+
+    func continueSavedSessionFromLogin() async {
+        errorMessage = nil
+        guard session?.accessToken.trimmedNilIfBlank != nil else {
+            requestPickleTourHandoff()
+            return
+        }
+
+        if let target = currentLaunchTarget, target.isUserMatchLaunch {
+            await applyLaunchTarget(target)
+        } else {
+            await refreshBootstrap()
+        }
     }
 
     func continueFromSetup() async {
@@ -339,6 +428,9 @@ final class LiveAppStore: ObservableObject {
         defer { isWorking = false }
 
         do {
+            if launchTarget.isUserMatchLaunch {
+                liveMode = .streamOnly
+            }
             let resolvedTarget = try await resolveLaunchTarget(launchTarget)
             launchTarget = resolvedTarget
             try await prepareLiveScreen(using: resolvedTarget)
@@ -355,42 +447,7 @@ final class LiveAppStore: ObservableObject {
 
         do {
             let bootstrap = try await environment.apiClient.getBootstrap()
-            guard bootstrap.canUseLiveApp else {
-                throw LiveAPIError.server(
-                    statusCode: 403,
-                    message: bootstrap.message ?? bootstrap.reason ?? "Tài khoản chưa có quyền dùng PickleTour Live."
-                )
-            }
-
-            self.bootstrap = bootstrap
-            user = bootstrap.user
-            clusters = bootstrap.manageableCourtClusters.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
-
-            let launchInFlight =
-                pendingLaunchTarget != nil ||
-                launchTarget.courtId?.trimmedNilIfBlank != nil ||
-                launchTarget.matchId?.trimmedNilIfBlank != nil ||
-                route == .courtSetup ||
-                route == .liveStream
-
-            if !launchInFlight || route == .login {
-                route = .adminHome
-            }
-
-            if let tournamentId = bootstrap.manageableTournaments.first?.id.trimmedNilIfBlank {
-                watchTournament(tournamentId)
-            }
-
-            if let selectedCluster, clusters.contains(where: { $0.id == selectedCluster.id }) {
-                await loadCourts(clusterId: selectedCluster.id)
-            } else if let firstCluster = clusters.first {
-                await selectCluster(firstCluster)
-            }
-
-            if let pendingLaunchTarget {
-                self.pendingLaunchTarget = nil
-                await applyLaunchTarget(pendingLaunchTarget)
-            }
+            try await applyBootstrap(bootstrap)
         } catch {
             errorMessage = error.localizedDescription
             if case LiveAPIError.unauthorized = error {
@@ -550,7 +607,8 @@ final class LiveAppStore: ObservableObject {
             let liveSession = try await environment.apiClient.createLiveSession(
                 matchId: activeMatch.id,
                 pageId: launchTarget.pageId,
-                force: false
+                force: false,
+                userMatch: launchTarget.isUserMatchLaunch
             )
             self.liveSession = liveSession
 
@@ -564,7 +622,8 @@ final class LiveAppStore: ObservableObject {
             try await streamingService.startPublishing(to: destination)
             _ = try await environment.apiClient.notifyStreamStarted(
                 matchId: activeMatch.id,
-                clientSessionId: streamingService.clientSessionId
+                clientSessionId: streamingService.clientSessionId,
+                userMatch: launchTarget.isUserMatchLaunch
             )
             startHeartbeats()
             liveStartedAt = Date()
@@ -606,7 +665,8 @@ final class LiveAppStore: ObservableObject {
         if shouldNotifyLiveEnd, let liveMatchId {
             _ = try? await environment.apiClient.notifyStreamEnded(
                 matchId: liveMatchId,
-                clientSessionId: streamingService.clientSessionId
+                clientSessionId: streamingService.clientSessionId,
+                userMatch: launchTarget.isUserMatchLaunch
             )
         }
 
@@ -690,7 +750,7 @@ final class LiveAppStore: ObservableObject {
         lastSocketSelfHealAt = nil
         lastRecordingQueueResumeAt = nil
         LiveAppOrientationController.apply(.auto)
-        route = .adminHome
+        route = bootstrap == nil ? .login : .adminHome
     }
 
     func toggleCamera() async {
@@ -1305,8 +1365,17 @@ final class LiveAppStore: ObservableObject {
             break
         case "stream":
             let target = parseLaunchTarget(from: url)
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let accessToken = components?
+                .queryItems?
+                .first(where: { $0.name == "accessToken" })?
+                .value?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             Task {
-                if session?.accessToken.trimmedNilIfBlank == nil {
+                if target.isUserMatchLaunch, let accessToken, !accessToken.isEmpty {
+                    applyDirectUserMatchSession(accessToken)
+                    await applyLaunchTarget(target)
+                } else if session?.accessToken.trimmedNilIfBlank == nil {
                     pendingLaunchTarget = target
                     route = .login
                     requestPickleTourHandoff()
@@ -1885,7 +1954,8 @@ final class LiveAppStore: ObservableObject {
         if hadLivestream, let liveMatchId {
             _ = try? await environment.apiClient.notifyStreamEnded(
                 matchId: liveMatchId,
-                clientSessionId: streamingService.clientSessionId
+                clientSessionId: streamingService.clientSessionId,
+                userMatch: launchTarget.isUserMatchLaunch
             )
         }
 
@@ -1926,7 +1996,6 @@ final class LiveAppStore: ObservableObject {
             recordingStateText = liveMode.includesRecording ? "Đã dừng do app background" : "Chưa ghi hình"
         }
 
-        bannerMessage = "App đã rời foreground quá lâu. Phiên live đã được dừng an toàn, hãy refresh context trước khi vào lại."
     }
 
     private func rebuildPreviewPipeline() async {
@@ -2101,7 +2170,6 @@ final class LiveAppStore: ObservableObject {
                 self.appIsActive = false
                 if self.hasPrimarySessionIntent {
                     self.freshEntryRequired = true
-                    self.bannerMessage = "App vừa rời foreground. Auto-start sẽ bị giữ lại cho đến khi context được xác nhận lại."
                 }
                 self.scheduleBackgroundExitIfNeeded()
             }
@@ -2417,7 +2485,11 @@ final class LiveAppStore: ObservableObject {
             let nextSession = try await environment.authCoordinator.signIn(osAuthToken: token)
             environment.sessionStore.replace(nextSession)
             bannerMessage = "Đã nhận phiên từ PickleTour."
-            await refreshBootstrap()
+            if let target = currentLaunchTarget, target.isUserMatchLaunch {
+                await applyLaunchTarget(target)
+            } else {
+                await refreshBootstrap()
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2426,6 +2498,121 @@ final class LiveAppStore: ObservableObject {
     private func shouldIgnoreProgrammaticAuthCancellation(_ error: Error) -> Bool {
         let nsError = error as NSError
         return nsError.domain == "org.openid.appauth.general" && nsError.code == -4
+    }
+
+    private func buildPasswordLoginRequest(loginId: String, password: String) -> LivePasswordLoginRequest {
+        let normalizedId = loginId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let loweredEmail = normalizedId.contains("@") ? normalizedId.lowercased() : nil
+        let normalizedPhone = normalizePhoneForPasswordLogin(normalizedId)
+
+        return LivePasswordLoginRequest(
+            email: loweredEmail,
+            phone: loweredEmail == nil ? normalizedPhone : nil,
+            nickname: loweredEmail == nil && normalizedPhone == nil ? normalizedId : nil,
+            password: normalizedPassword
+        )
+    }
+
+    private func normalizePhoneForPasswordLogin(_ raw: String) -> String? {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.isEmpty == false else { return nil }
+        if value.hasPrefix("+84") {
+            value = "0" + value.dropFirst(3)
+        }
+        value = String(value.filter { $0.isNumber })
+        return value.range(of: #"^0\d{8,10}$"#, options: .regularExpression) == nil ? nil : value
+    }
+
+    private func applyBootstrap(_ bootstrap: LiveAppBootstrapResponse) async throws {
+        guard bootstrap.canUseLiveApp else {
+            throw LiveAPIError.server(
+                statusCode: 403,
+                message: bootstrap.message ?? bootstrap.reason ?? "Tài khoản chưa có quyền dùng PickleTour Live."
+            )
+        }
+
+        self.bootstrap = bootstrap
+        user = bootstrap.user
+        clusters = bootstrap.manageableCourtClusters.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
+
+        let launchInFlight =
+            pendingLaunchTarget != nil ||
+            launchTarget.courtId?.trimmedNilIfBlank != nil ||
+            launchTarget.matchId?.trimmedNilIfBlank != nil ||
+            route == .courtSetup ||
+            route == .liveStream
+
+        if !launchInFlight || route == .login {
+            route = .adminHome
+        }
+
+        if let tournamentId = bootstrap.manageableTournaments.first?.id.trimmedNilIfBlank {
+            watchTournament(tournamentId)
+        }
+
+        if let selectedCluster, clusters.contains(where: { $0.id == selectedCluster.id }) {
+            await loadCourts(clusterId: selectedCluster.id)
+        } else if let firstCluster = clusters.first {
+            await selectCluster(firstCluster)
+        }
+
+        if let pendingLaunchTarget {
+            self.pendingLaunchTarget = nil
+            await applyLaunchTarget(pendingLaunchTarget)
+        }
+    }
+
+    private var currentLaunchTarget: LiveLaunchTarget? {
+        if let pendingLaunchTarget {
+            return pendingLaunchTarget
+        }
+
+        if launchTarget.courtId?.trimmedNilIfBlank != nil || launchTarget.matchId?.trimmedNilIfBlank != nil {
+            return launchTarget
+        }
+
+        return nil
+    }
+
+    private func applyDirectUserMatchSession(_ accessToken: String) {
+        let normalizedToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedToken.isEmpty == false else { return }
+
+        environment.sessionStore.replace(
+            AuthSession(
+                accessToken: normalizedToken,
+                refreshToken: nil,
+                idToken: nil,
+                userId: nil,
+                displayName: session?.displayName
+            )
+        )
+
+        user = nil
+        bootstrap = nil
+        clusters = []
+        selectedCluster = nil
+        courts = []
+        selectedCourt = nil
+    }
+
+    private func clearAuthenticatedStateAfterLoginFailure() {
+        environment.sessionStore.replace(nil)
+        session = nil
+        user = nil
+        bootstrap = nil
+        clusters = []
+        selectedCluster = nil
+        courts = []
+        selectedCourt = nil
+        courtRuntime = nil
+        courtPresence = nil
+        activeMatch = nil
+        liveSession = nil
+        overlayConfig = nil
+        overlaySnapshot = nil
+        route = .login
     }
 
     private func loadCourts(clusterId: String) async {
@@ -2511,7 +2698,10 @@ final class LiveAppStore: ObservableObject {
 
         let matchId = target.matchId?.trimmedNilIfBlank
         if let matchId {
-            let match = try await environment.apiClient.getMatchRuntime(matchId: matchId)
+            let match = try await environment.apiClient.getMatchRuntime(
+                matchId: matchId,
+                userMatch: target.isUserMatchLaunch
+            )
             activeMatch = match
             overlaySnapshot = enrichOverlaySnapshot(LiveOverlaySnapshot(match: match), match: match)
             streamingService.overlaySnapshot = overlaySnapshot
@@ -2586,7 +2776,8 @@ final class LiveAppStore: ObservableObject {
                 {
                     _ = try? await self.environment.apiClient.notifyStreamHeartbeat(
                         matchId: matchId,
-                        clientSessionId: self.streamingService.clientSessionId
+                        clientSessionId: self.streamingService.clientSessionId,
+                        userMatch: self.launchTarget.isUserMatchLaunch
                     )
                 }
 
@@ -2909,12 +3100,22 @@ final class LiveAppStore: ObservableObject {
         return LiveLaunchTarget(
             courtId: items.first(where: { $0.name == "courtId" })?.value?.trimmedNilIfBlank,
             matchId: items.first(where: { $0.name == "matchId" })?.value?.trimmedNilIfBlank,
-            pageId: items.first(where: { $0.name == "pageId" })?.value?.trimmedNilIfBlank
+            pageId: items.first(where: { $0.name == "pageId" })?.value?.trimmedNilIfBlank,
+            launchMode: LiveLaunchMode(rawValue: items.first(where: { $0.name == "launchMode" })?.value ?? "") ?? .tournamentCourt
         )
     }
 
     private func applyLaunchTarget(_ target: LiveLaunchTarget) async {
         launchTarget = target
+
+        if target.isUserMatchLaunch {
+            selectedCourt = nil
+            courtRuntime = nil
+            courtPresence = nil
+            liveMode = .streamOnly
+            await continueFromSetup()
+            return
+        }
 
         if let courtId = target.courtId?.trimmedNilIfBlank, let located = await findCourt(by: courtId) {
             selectedCluster = located.cluster
@@ -2979,6 +3180,9 @@ final class LiveAppStore: ObservableObject {
         }
         if let pageId = target.pageId?.trimmedNilIfBlank {
             queryItems.append(URLQueryItem(name: "pageId", value: pageId))
+        }
+        if target.launchMode != .tournamentCourt {
+            queryItems.append(URLQueryItem(name: "launchMode", value: target.launchMode.rawValue))
         }
 
         components.queryItems = queryItems.isEmpty ? nil : queryItems

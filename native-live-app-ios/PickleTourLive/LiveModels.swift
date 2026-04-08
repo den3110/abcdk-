@@ -34,6 +34,18 @@ struct UserMe: Codable, Identifiable, Equatable {
     }
 }
 
+struct LivePasswordLoginRequest: Codable {
+    var email: String?
+    var phone: String?
+    var nickname: String?
+    var password: String
+}
+
+struct LivePasswordLoginResponse: Codable {
+    var token: String?
+    var user: UserMe?
+}
+
 struct TournamentData: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -734,6 +746,11 @@ enum AppRoute: Equatable {
     case liveStream
 }
 
+enum LiveLaunchMode: String, Codable, Equatable {
+    case tournamentCourt = "tournament_court"
+    case userMatch = "user_match"
+}
+
 enum LiveStreamMode: String, Codable, CaseIterable, Identifiable {
     case streamOnly = "stream_only"
     case streamAndRecord = "stream_and_record"
@@ -845,6 +862,11 @@ struct LiveLaunchTarget: Equatable {
     var courtId: String?
     var matchId: String?
     var pageId: String?
+    var launchMode: LiveLaunchMode = .tournamentCourt
+
+    var isUserMatchLaunch: Bool {
+        launchMode == .userMatch
+    }
 }
 
 enum DeviceOrientationMode: String, CaseIterable, Identifiable, Codable {

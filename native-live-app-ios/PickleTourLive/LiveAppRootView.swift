@@ -32,22 +32,20 @@ struct LiveAppRootView: View {
 
     @ViewBuilder
     private var currentScreen: some View {
-        switch store.route {
-        case .login:
-            LoginScreen()
-        case .adminHome:
-            AdminHomeScreen()
-        case .courtSetup:
-            CourtSetupScreen()
-        case .liveStream:
-            LiveStreamScreen()
+        if !store.startupResolved {
+            StartupScreen()
+        } else {
+            switch store.route {
+            case .login:
+                LoginScreen()
+            case .adminHome:
+                AdminHomeScreen()
+            case .courtSetup:
+                CourtSetupScreen()
+            case .liveStream:
+                LiveStreamScreen()
+            }
         }
-    }
-
-    private var errorNoticeDetail: String? {
-        store.authDebugContinueURL?.trimmedNilIfBlank
-            ?? store.authDebugIncomingURL?.trimmedNilIfBlank
-            ?? store.authDebugHandoffURL?.trimmedNilIfBlank
     }
 
     @ViewBuilder
@@ -58,26 +56,9 @@ struct LiveAppRootView: View {
                     icon: "exclamationmark.triangle.fill",
                     title: "Lỗi",
                     message: errorMessage,
-                    detail: errorNoticeDetail,
-                    tint: LivePalette.danger,
-                    onCopyDetail: {
-                        guard let errorNoticeDetail else { return }
-                        UIPasteboard.general.string = errorNoticeDetail
-                        store.bannerMessage = "Đã copy URL lỗi."
-                    }
+                    tint: LivePalette.danger
                 ) {
                     store.errorMessage = nil
-                }
-            }
-
-            if let bannerMessage = store.bannerMessage?.trimmedNilIfBlank {
-                NoticeStrip(
-                    icon: "waveform.badge.checkmark",
-                    title: "Thông báo",
-                    message: bannerMessage,
-                    tint: LivePalette.warning
-                ) {
-                    store.bannerMessage = nil
                 }
             }
         }
@@ -86,12 +67,32 @@ struct LiveAppRootView: View {
     }
 }
 
+private struct StartupScreen: View {
+    var body: some View {
+        GeometryReader { proxy in
+            VStack {
+                Spacer(minLength: 0)
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.2)
+                Spacer(minLength: 0)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
+}
+
 private struct LoginScreen: View {
     @EnvironmentObject private var store: LiveAppStore
-    @State private var diagnosticsTapCount = 0
-    @State private var diagnosticsVisible = false
+    @State private var showPasswordLogin = false
+    @State private var loginId = ""
+    @State private var password = ""
+    @State private var showPassword = false
 
     private var targetSummary: String? {
+        if store.launchTarget.isUserMatchLaunch, let matchId = store.launchTarget.matchId?.trimmedNilIfBlank {
+            return "Chuẩn bị mở live cho trận \(matchId)."
+        }
         if let courtId = store.launchTarget.courtId?.trimmedNilIfBlank, let matchId = store.launchTarget.matchId?.trimmedNilIfBlank {
             return "Chuẩn bị mở court \(courtId) với match \(matchId)."
         }
@@ -110,241 +111,177 @@ private struct LoginScreen: View {
         return "App build \(version) (\(build))"
     }
 
-    private var streamURLString: String? {
-        guard store.launchTarget.courtId?.trimmedNilIfBlank != nil || store.launchTarget.matchId?.trimmedNilIfBlank != nil else {
-            return nil
-        }
-
-        var components = URLComponents()
-        components.scheme = "pickletour-live"
-        components.host = "stream"
-        components.queryItems = [
-            URLQueryItem(name: "courtId", value: store.launchTarget.courtId?.trimmedNilIfBlank),
-            URLQueryItem(name: "matchId", value: store.launchTarget.matchId?.trimmedNilIfBlank),
-            URLQueryItem(name: "pageId", value: store.launchTarget.pageId?.trimmedNilIfBlank)
-        ]
-        .compactMap { item in
-            guard let value = item.value else { return nil }
-            return URLQueryItem(name: item.name, value: value)
-        }
-
-        return components.url?.absoluteString
+    private var existingSessionTitle: String {
+        "Tiếp tục với \(store.session?.displayName?.trimmedNilIfBlank ?? "PickleTour")"
     }
 
-    private var shouldShowAuthDebugCard: Bool {
-        store.errorMessage?.trimmedNilIfBlank != nil ||
-            store.authDebugHandoffURL?.trimmedNilIfBlank != nil ||
-            store.authDebugContinueURL?.trimmedNilIfBlank != nil ||
-            store.authDebugIncomingURL?.trimmedNilIfBlank != nil
+    private var passwordToggleTitle: String {
+        showPasswordLogin ? "Quay lại" : "Đăng nhập bằng mật khẩu"
     }
 
-    private var authDebugDump: String {
-        [
-            store.errorMessage?.trimmedNilIfBlank.map { "Error: \($0)" },
-            "Authorize: \(LiveAppConfig.authorizationEndpoint.absoluteString)",
-            "Approve: \(LiveAppConfig.oauthApproveEndpoint.absoluteString)",
-            "Token: \(LiveAppConfig.tokenEndpoint.absoluteString)",
-            "Callback: pickletour-live://auth-init",
-            store.authDebugContinueURL?.trimmedNilIfBlank.map { "Continue URL: \($0)" },
-            store.authDebugHandoffURL?.trimmedNilIfBlank.map { "Handoff URL: \($0)" },
-            store.authDebugTargetURL?.trimmedNilIfBlank.map { "Target URL: \($0)" },
-            store.authDebugIncomingURL?.trimmedNilIfBlank.map { "Incoming URL: \($0)" }
-        ]
-        .compactMap { $0 }
-        .joined(separator: "\n")
+    private var passwordActionTitle: String {
+        showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 18) {
-                Spacer(minLength: 40)
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 18) {
+                    Spacer(minLength: 0)
 
-                LiveCard {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Đăng nhập PickleTour Live")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .onTapGesture {
-                                guard !diagnosticsVisible else { return }
-                                diagnosticsTapCount += 1
-                                if diagnosticsTapCount >= 7 {
-                                    diagnosticsTapCount = 0
-                                    diagnosticsVisible = true
+                    LiveCard {
+                        VStack(spacing: 18) {
+                            VStack(spacing: 10) {
+                                Text("Đăng nhập PickleTour Live")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .multilineTextAlignment(.center)
+
+                                Text("Đăng nhập bằng tài khoản PickleTour để tiếp tục.")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(LivePalette.textSecondary)
+                                    .multilineTextAlignment(.center)
+
+                                if let targetSummary {
+                                    Text(targetSummary)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(LivePalette.textSecondary)
+                                        .multilineTextAlignment(.center)
                                 }
                             }
 
-                        Text("Đăng nhập bằng tài khoản PickleTour để tiếp tục.")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(LivePalette.textSecondary)
-
-                        if store.isWorking {
-                            HStack {
-                                Spacer()
+                            if store.isWorking {
                                 ProgressView()
                                     .tint(.white)
-                                Spacer()
+                                    .padding(.vertical, 2)
                             }
-                            .padding(.vertical, 4)
-                        }
 
-                        if let targetSummary {
-                            Text(targetSummary)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(LivePalette.textSecondary)
-                        }
-
-                        if let session = store.session {
-                            Button {
-                                Task {
-                                    await store.refreshBootstrap()
+                            VStack(spacing: 12) {
+                                if store.session != nil {
+                                    Button {
+                                        Task {
+                                            await store.continueSavedSessionFromLogin()
+                                        }
+                                    } label: {
+                                        Text(existingSessionTitle)
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 13)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                    .fill(LivePalette.accent)
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(store.isWorking)
                                 }
-                            } label: {
-                                Text("Tiếp tục với \(session.displayName?.trimmedNilIfBlank ?? "PickleTour")")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 13)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                            .fill(LivePalette.accent)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(store.isWorking)
-                        }
 
-                        Button {
-                            store.requestPickleTourHandoff()
-                        } label: {
-                            Text("Tiếp tục với PickleTour")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 13)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .fill(LivePalette.accentSoft)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(store.isWorking)
+                                if showPasswordLogin {
+                                    VStack(spacing: 12) {
+                                        LiveTextField(
+                                            title: "Email / SĐT / Nickname",
+                                            placeholder: "Nhập email, số điện thoại hoặc nickname",
+                                            text: $loginId,
+                                            textContentType: .username
+                                        )
 
-                        Button("Đăng nhập bằng web") {
-                            Task {
-                                await store.signInWithWeb()
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(LivePalette.accent)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                                        LiveTextField(
+                                            title: "Mật khẩu",
+                                            placeholder: "Nhập mật khẩu",
+                                            text: $password,
+                                            isSecure: !showPassword,
+                                            textContentType: .password
+                                        )
 
-                        if let session = store.session {
-                            Text(session.userId?.trimmedNilIfBlank ?? "Đã có access token")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(LivePalette.textSecondary)
-                        }
-                    }
-                }
-                .frame(maxWidth: 460)
+                                        HStack(spacing: 10) {
+                                            Button(passwordActionTitle) {
+                                                showPassword.toggle()
+                                            }
+                                            .buttonStyle(.plain)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(LivePalette.accent)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .disabled(store.isWorking)
 
-                if shouldShowAuthDebugCard {
-                    LiveCard {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Auth URL debug")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-
-                            if let errorMessage = store.errorMessage?.trimmedNilIfBlank {
-                                DetailLine(label: "Lỗi", value: errorMessage)
-                            }
-
-                            DetailLine(label: "Authorize", value: LiveAppConfig.authorizationEndpoint.absoluteString)
-                            DetailLine(label: "Approve", value: LiveAppConfig.oauthApproveEndpoint.absoluteString)
-                            DetailLine(label: "Token", value: LiveAppConfig.tokenEndpoint.absoluteString)
-                            DetailLine(label: "Callback", value: "pickletour-live://auth-init")
-
-                            if let continueURL = store.authDebugContinueURL?.trimmedNilIfBlank {
-                                DetailLine(label: "Continue URL", value: continueURL)
-                            }
-
-                            if let handoffURL = store.authDebugHandoffURL?.trimmedNilIfBlank {
-                                DetailLine(label: "Handoff URL", value: handoffURL)
-                            }
-
-                            if let targetURL = store.authDebugTargetURL?.trimmedNilIfBlank {
-                                DetailLine(label: "Target URL", value: targetURL)
-                            }
-
-                            if let incomingURL = store.authDebugIncomingURL?.trimmedNilIfBlank {
-                                DetailLine(label: "Incoming URL", value: incomingURL)
-                            }
-
-                            SecondaryActionButton(
-                                title: "Copy auth debug",
-                                systemImage: "doc.on.doc"
-                            ) {
-                                UIPasteboard.general.string = authDebugDump
-                                store.bannerMessage = "Đã copy auth debug."
-                            }
-                        }
-                    }
-                    .frame(maxWidth: 460)
-                }
-
-                if diagnosticsVisible {
-                    LiveCard {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Diagnostics nội bộ")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-
-                            DetailLine(label: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "Chưa có")
-                            DetailLine(label: "Redirect URI", value: "pickletour-live://auth-init")
-                            DetailLine(label: "Launch target", value: targetSummary ?? "Chưa có")
-                            DetailLine(label: "User ID", value: store.session?.userId?.trimmedNilIfBlank ?? "Chưa có phiên")
-
-                            if let streamURLString {
-                                DetailLine(label: "Deep link", value: streamURLString)
-                            }
-
-                            HStack(spacing: 10) {
-                                if let streamURLString {
-                                    SecondaryActionButton(
-                                        title: "Copy stream URL",
-                                        systemImage: "doc.on.doc"
-                                    ) {
-                                        UIPasteboard.general.string = streamURLString
-                                        store.bannerMessage = "Đã copy deep link stream."
+                                            Button {
+                                                Task {
+                                                    await store.signInWithPassword(loginId: loginId, password: password)
+                                                }
+                                            } label: {
+                                                Group {
+                                                    if store.isWorking {
+                                                        ProgressView()
+                                                            .tint(.white)
+                                                    } else {
+                                                        Text("Đăng nhập")
+                                                            .font(.system(size: 14, weight: .semibold))
+                                                    }
+                                                }
+                                                .foregroundStyle(.white)
+                                                .frame(minWidth: 120)
+                                                .padding(.horizontal, 18)
+                                                .padding(.vertical, 13)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                        .fill(LivePalette.accent)
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                            .disabled(store.isWorking)
+                                        }
                                     }
                                 }
 
-                                SecondaryActionButton(
-                                    title: "Xoá notice",
-                                    systemImage: "trash"
-                                ) {
-                                    store.bannerMessage = nil
-                                    store.errorMessage = nil
+                                Button {
+                                    store.requestPickleTourHandoff()
+                                } label: {
+                                    Text("Tiếp tục với PickleTour")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 13)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .fill(LivePalette.accentSoft)
+                                        )
                                 }
+                                .buttonStyle(.plain)
+                                .disabled(store.isWorking)
+
+                                Button(passwordToggleTitle) {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showPasswordLogin.toggle()
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(LivePalette.accent)
+                                .disabled(store.isWorking)
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            if let session = store.session {
+                                Text(session.userId?.trimmedNilIfBlank ?? "Đã có access token")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(LivePalette.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
                     .frame(maxWidth: 460)
-                } else if diagnosticsTapCount > 0 {
-                    Text("Nhấn thêm \(7 - diagnosticsTapCount) lần vào tiêu đề để mở diagnostics.")
+
+                    Text(buildVersionText)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(LivePalette.textSecondary)
+
+                    Spacer(minLength: 0)
                 }
-
-                Text(buildVersionText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(LivePalette.textSecondary)
-
-                Spacer(minLength: 24)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: proxy.size.height)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 32)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 32)
         }
     }
 }
@@ -492,13 +429,6 @@ private struct AdminHomeScreen: View {
                     }
                 }
 
-                Button("Thiết lập thủ công") {
-                    store.showManualSetup()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(LivePalette.accent)
-                .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(.horizontal, 16)
             .padding(.top, 20)
@@ -521,214 +451,109 @@ private struct CourtSetupScreen: View {
     @EnvironmentObject private var store: LiveAppStore
 
     @State private var courtId = ""
-    @State private var matchId = ""
-    @State private var pageId = ""
 
-    private var setupPreviewMatch: MatchData? {
-        let targetMatchId =
-            matchId.trimmedNilIfBlank
-            ?? store.launchTarget.matchId?.trimmedNilIfBlank
-            ?? store.courtRuntime?.currentMatchId?.trimmedNilIfBlank
-            ?? store.courtRuntime?.nextMatchId?.trimmedNilIfBlank
-        guard let targetMatchId, store.activeMatch?.id == targetMatchId else {
-            return nil
-        }
-        return store.activeMatch
+    private var selectedCourtName: String? {
+        store.selectedCourt?.displayName.trimmedNilIfBlank
+            ?? store.courtRuntime?.name?.trimmedNilIfBlank
     }
 
-    private var launchSummary: String {
-        if matchId.trimmedNilIfBlank != nil {
-            return "Ưu tiên vào theo match. App sẽ nạp runtime, overlay và socket ngay trước khi mở màn live."
-        }
-        if courtId.trimmedNilIfBlank != nil {
-            return "Đang ở chế độ theo sân. App sẽ giữ preview, giữ lease và chờ match xuất hiện hoặc chuyển sang LIVE."
-        }
-        return "Nhập courtId hoặc matchId để khoá target trước khi operator vào live."
+    private var canContinueByCourt: Bool {
+        courtId.trimmedNilIfBlank != nil
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                MobileScreenBar(
-                    title: store.selectedCourt == nil ? "Thiết lập live" : "Chọn trận",
-                    subtitle: store.selectedCourt?.displayName ?? "Có thể dùng courtId hoặc matchId",
-                    leadingIcon: "chevron.left",
-                    leadingAction: {
-                        store.goBackToAdminHome()
-                    }
-                )
+        GeometryReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Spacer(minLength: max(24, proxy.size.height * 0.12))
 
-                if let selectedCourt = store.selectedCourt {
-                    Text(selectedCourt.displayName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(LivePalette.textSecondary)
-                }
-
-                if let setupPreviewMatch {
-                    MobileMatchCard(match: setupPreviewMatch)
-                } else {
                     LiveCard {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(store.courtRuntime?.name?.trimmedNilIfBlank ?? store.selectedCourt?.displayName ?? "Sân hiện tại")
-                                .font(.system(size: 15, weight: .semibold))
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Live theo sân")
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(.white)
-                            Text(
-                                store.courtRuntime?.currentMatchId?.trimmedNilIfBlank == nil
-                                    ? "Sân đang không có trận hiện tại. Bạn vẫn có thể vào chế độ live theo sân và chờ match xuất hiện."
-                                    : "App đang nạp thông tin trận. Bạn vẫn có thể vào live theo sân nếu cần."
-                            )
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(LivePalette.textSecondary)
 
-                            HStack(spacing: 8) {
-                                TinyBadge(
-                                    title: courtId.trimmedNilIfBlank == nil ? "Chưa có courtId" : "Court đã khoá",
-                                    tint: courtId.trimmedNilIfBlank == nil ? LivePalette.warning : LivePalette.success
-                                )
-                                TinyBadge(
-                                    title: matchId.trimmedNilIfBlank == nil ? "Chờ theo sân" : "Có matchId",
-                                    tint: matchId.trimmedNilIfBlank == nil ? LivePalette.cardMuted : LivePalette.accent
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Button {
-                    pushTargetToStore()
-                    Task {
-                        await store.continueFromSetup()
-                    }
-                } label: {
-                    Text((matchId.trimmedNilIfBlank ?? setupPreviewMatch?.id) == nil ? "LIVE THEO SÂN" : "LIVE")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(LivePalette.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(!canContinue)
-                .opacity(canContinue ? 1 : 0.55)
-
-                Button("Quay lại") {
-                    store.goBackToAdminHome()
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(LivePalette.accent)
-                .frame(maxWidth: .infinity, alignment: .center)
-
-                LiveCard {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Thiết lập thủ công")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(.white)
-
-                        Text(launchSummary)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(LivePalette.textSecondary)
-
-                        LiveTextField(
-                            title: "courtId / courtStationId",
-                            placeholder: "Nhập courtId",
-                            text: $courtId
-                        )
-
-                        LiveTextField(
-                            title: "matchId",
-                            placeholder: "Nhập matchId hoặc để trống",
-                            text: $matchId
-                        )
-
-                        LiveTextField(
-                            title: "pageId",
-                            placeholder: "Page ID Facebook tuỳ chọn",
-                            text: $pageId
-                        )
-
-                        HStack(spacing: 10) {
-                            Button("Điền sân") {
-                                courtId = store.selectedCourt?.id ?? courtId
-                                pushTargetToStore()
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(LivePalette.accent)
-
-                            Button("Dùng match runtime") {
-                                matchId = store.courtRuntime?.currentMatchId?.trimmedNilIfBlank
-                                    ?? store.courtRuntime?.nextMatchId?.trimmedNilIfBlank
-                                    ?? matchId
-                                pushTargetToStore()
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(LivePalette.accent)
-
-                            Spacer()
-
-                            Button("Theo sân") {
-                                matchId = ""
-                                pushTargetToStore()
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(LivePalette.textSecondary)
-                        }
-                    }
-                }
-
-                if let runtime = store.courtRuntime {
-                    LiveCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(runtime.name?.trimmedNilIfBlank ?? runtime.courtId)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                            Text("Current match: \(runtime.currentMatchId?.trimmedNilIfBlank ?? "Chưa có")")
+                            Text("Nhập courtStationId/courtId để lấy trận hiện tại và tự join socket overlay.")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(LivePalette.textSecondary)
-                            Text("Next match: \(runtime.nextMatchId?.trimmedNilIfBlank ?? "Chưa có")")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(LivePalette.textSecondary)
+
+                            if let selectedCourtName {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Sân đã chọn")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(LivePalette.textMuted)
+                                        .textCase(.uppercase)
+                                    Text(selectedCourtName)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+
+                            if let selectedCourtName {
+                                LiveDisplayField(
+                                    title: "Sân",
+                                    value: selectedCourtName
+                                )
+                            } else {
+                                LiveTextField(
+                                    title: "courtStationId / courtId",
+                                    placeholder: "Nhập courtId",
+                                    text: $courtId
+                                )
+                            }
+
+                            Button {
+                                pushCourtTargetToStore()
+                                Task {
+                                    await store.continueFromSetup()
+                                }
+                            } label: {
+                                Text("LIVE theo sân")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(LivePalette.accent)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!canContinueByCourt)
+                            .opacity(canContinueByCourt ? 1 : 0.55)
+
+                            Button("Quay lại") {
+                                store.goBackToAdminHome()
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(LivePalette.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
                         }
                     }
+
+                    Spacer(minLength: max(24, proxy.size.height * 0.18))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 20)
-            .padding(.bottom, 32)
+            .frame(minHeight: proxy.size.height)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
         }
         .onAppear(perform: syncFromStore)
         .onChange(of: store.launchTarget.courtId ?? "") { _ in
-            syncFromStore()
-        }
-        .onChange(of: store.launchTarget.matchId ?? "") { _ in
-            syncFromStore()
-        }
-        .onChange(of: store.launchTarget.pageId ?? "") { _ in
             syncFromStore()
         }
     }
 
     private func syncFromStore() {
         courtId = store.launchTarget.courtId?.trimmedNilIfBlank ?? store.selectedCourt?.id ?? courtId
-        matchId = store.launchTarget.matchId?.trimmedNilIfBlank ?? matchId
-        pageId = store.launchTarget.pageId?.trimmedNilIfBlank ?? pageId
     }
 
-    private var canContinue: Bool {
-        courtId.trimmedNilIfBlank != nil || matchId.trimmedNilIfBlank != nil
-    }
-
-    private func pushTargetToStore() {
+    private func pushCourtTargetToStore() {
         store.updateLaunchTarget(
             courtId: courtId.trimmedNilIfBlank,
-            matchId: matchId.trimmedNilIfBlank,
-            pageId: pageId.trimmedNilIfBlank
+            matchId: nil,
+            pageId: store.launchTarget.pageId?.trimmedNilIfBlank
         )
     }
 }
@@ -885,15 +710,23 @@ private struct LiveStreamScreen: View {
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(LiveStreamMode.allCases) { mode in
+                            if store.launchTarget.isUserMatchLaunch {
                                 CompactChoiceChip(
-                                    title: mode.title,
-                                    selected: store.liveMode == mode
-                                ) {
-                                    guard !store.hasPrimarySessionIntent else { return }
-                                    store.liveMode = mode
+                                    title: LiveStreamMode.streamOnly.title,
+                                    selected: true
+                                ) {}
+                                .opacity(1)
+                            } else {
+                                ForEach(LiveStreamMode.allCases) { mode in
+                                    CompactChoiceChip(
+                                        title: mode.title,
+                                        selected: store.liveMode == mode
+                                    ) {
+                                        guard !store.hasPrimarySessionIntent else { return }
+                                        store.liveMode = mode
+                                    }
+                                    .opacity(store.hasPrimarySessionIntent && store.liveMode != mode ? 0.45 : 1)
                                 }
-                                .opacity(store.hasPrimarySessionIntent && store.liveMode != mode ? 0.45 : 1)
                             }
                         }
                     }
@@ -1362,15 +1195,24 @@ private struct LiveStreamScreen: View {
                 )
 
                 VStack(spacing: 12) {
-                    ForEach(LiveStreamMode.allCases) { mode in
+                    if store.launchTarget.isUserMatchLaunch {
                         SelectableModeCard(
-                            title: mode.title,
-                            summary: mode.summary,
-                            selected: store.liveMode == mode,
-                            disabled: store.hasPrimarySessionIntent
-                        ) {
-                            guard !store.hasPrimarySessionIntent else { return }
-                            store.liveMode = mode
+                            title: LiveStreamMode.streamOnly.title,
+                            summary: "User match chỉ bật live RTMP, không dùng recording nền.",
+                            selected: true,
+                            disabled: true
+                        ) {}
+                    } else {
+                        ForEach(LiveStreamMode.allCases) { mode in
+                            SelectableModeCard(
+                                title: mode.title,
+                                summary: mode.summary,
+                                selected: store.liveMode == mode,
+                                disabled: store.hasPrimarySessionIntent
+                            ) {
+                                guard !store.hasPrimarySessionIntent else { return }
+                                store.liveMode = mode
+                            }
                         }
                     }
                 }
@@ -3719,6 +3561,22 @@ private struct LiveTextField: View {
     let title: String
     let placeholder: String
     @Binding var text: String
+    var isSecure: Bool = false
+    var textContentType: UITextContentType? = nil
+    var keyboardType: UIKeyboardType = .default
+
+    @ViewBuilder
+    private var inputField: some View {
+        if isSecure {
+            SecureField(placeholder, text: $text)
+                .textContentType(textContentType)
+                .keyboardType(keyboardType)
+        } else {
+            TextField(placeholder, text: $text)
+                .textContentType(textContentType)
+                .keyboardType(keyboardType)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -3726,7 +3584,7 @@ private struct LiveTextField: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.white)
 
-            TextField(placeholder, text: $text)
+            inputField
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
                 .padding(.horizontal, 14)
@@ -3740,6 +3598,34 @@ private struct LiveTextField: View {
                         )
                 )
                 .foregroundStyle(.white)
+        }
+    }
+}
+
+private struct LiveDisplayField: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+
+            Text(value)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(LivePalette.cardMuted)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(LivePalette.cardStroke, lineWidth: 1)
+                        )
+                )
         }
     }
 }

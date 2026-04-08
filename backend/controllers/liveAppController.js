@@ -1,6 +1,7 @@
 import { createFacebookLiveForMatch } from "./adminMatchLiveController.js";
 import IORedis from "ioredis";
 import Match from "../models/matchModel.js";
+import UserMatch from "../models/userMatchModel.js";
 import { randomUUID } from "crypto";
 import {
   buildLiveAppCourtRuntime,
@@ -104,13 +105,29 @@ export const createLiveSessionForLiveApp = async (req, res) => {
   let statusCode = 200;
   let payload = null;
   const runner = (async () => {
-    const m = await Match.findById(matchId)
+    const requestedUserMatch =
+      String(req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"] || "")
+        .trim()
+        .toLowerCase() === "user";
+
+    const MatchModel = requestedUserMatch ? UserMatch : Match;
+    let sourceDoc = await MatchModel.findById(matchId)
       .select("facebookLive meta")
       .lean()
       .catch(() => null);
 
-    const fbLive = m?.facebookLive || null;
-    const metaFb = m?.meta?.facebook || null;
+    if (!sourceDoc && !requestedUserMatch) {
+      sourceDoc = await UserMatch.findById(matchId)
+        .select("facebookLive meta")
+        .lean()
+        .catch(() => null);
+      if (sourceDoc) {
+        req.headers["x-pkt-match-kind"] = "user";
+      }
+    }
+
+    const fbLive = sourceDoc?.facebookLive || null;
+    const metaFb = sourceDoc?.meta?.facebook || null;
 
     const fbStatus = String(fbLive?.status || "CREATED").toUpperCase();
     const createdAtMs = fbLive?.createdAt ? new Date(fbLive.createdAt).getTime() : 0;
@@ -237,7 +254,13 @@ export const getMatchRuntimeForLiveApp = async (req, res) => {
     return res.status(400).json({ message: "matchId is required" });
   }
 
-  const runtime = await buildLiveAppMatchRuntime(matchId);
+  const prefersUserMatch =
+    String(req.get("x-pkt-match-kind") || req.query?.matchKind || "")
+      .trim()
+      .toLowerCase() === "user";
+  const runtime = await buildLiveAppMatchRuntime(matchId, {
+    userMatch: prefersUserMatch,
+  });
   if (!runtime) {
     return res.status(404).json({ message: "Match not found" });
   }

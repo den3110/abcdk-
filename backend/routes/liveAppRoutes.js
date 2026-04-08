@@ -21,7 +21,7 @@ import {
 
 const router = express.Router();
 
-router.post("/matches/:matchId/live/create", createLiveSessionForLiveApp);
+router.post("/matches/:matchId/live/create", protect, createLiveSessionForLiveApp);
 router.get("/bootstrap", protect, getLiveAppBootstrap);
 router.get("/clusters", protect, listLiveAppCourtClusters);
 router.get("/clusters/:clusterId/courts", protect, listLiveAppCourtStations);

@@ -195,6 +195,10 @@ final class LiveAPIClient {
         try await request(path: "api/live-app/bootstrap")
     }
 
+    func loginWithPassword(_ body: LivePasswordLoginRequest) async throws -> LivePasswordLoginResponse {
+        try await request(path: "api/users/auth", method: "POST", body: body, requiresAuth: false)
+    }
+
     func listClusters() async throws -> [CourtClusterData] {
         let response: CourtClusterListResponse = try await request(path: "api/live-app/clusters")
         return response.items
@@ -225,6 +229,13 @@ final class LiveAPIClient {
         try await request(path: "api/live-app/matches/\(matchId)/runtime")
     }
 
+    func getMatchRuntime(matchId: String, userMatch: Bool) async throws -> MatchData {
+        try await request(
+            path: "api/live-app/matches/\(matchId)/runtime",
+            extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
+        )
+    }
+
     func createLiveSession(matchId: String, pageId: String?, force: Bool = false) async throws -> LiveSession {
         let query = force ? [URLQueryItem(name: "force", value: "1")] : []
         return try await request(
@@ -232,6 +243,22 @@ final class LiveAPIClient {
             method: "POST",
             query: query,
             body: CreateLiveRequest(pageId: pageId?.trimmedNilIfBlank)
+        )
+    }
+
+    func createLiveSession(
+        matchId: String,
+        pageId: String?,
+        force: Bool = false,
+        userMatch: Bool
+    ) async throws -> LiveSession {
+        let query = force ? [URLQueryItem(name: "force", value: "1")] : []
+        return try await request(
+            path: "api/live-app/matches/\(matchId)/live/create",
+            method: "POST",
+            query: query,
+            body: CreateLiveRequest(pageId: pageId?.trimmedNilIfBlank),
+            extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
         )
     }
 
@@ -243,6 +270,19 @@ final class LiveAPIClient {
         )
     }
 
+    func notifyStreamStarted(
+        matchId: String,
+        clientSessionId: String,
+        userMatch: Bool
+    ) async throws -> StreamNotifyResponse {
+        try await request(
+            path: "api/matches/\(matchId)/live/start",
+            method: "POST",
+            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
+            extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
+        )
+    }
+
     func notifyStreamHeartbeat(matchId: String, clientSessionId: String) async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/heartbeat",
@@ -251,11 +291,37 @@ final class LiveAPIClient {
         )
     }
 
+    func notifyStreamHeartbeat(
+        matchId: String,
+        clientSessionId: String,
+        userMatch: Bool
+    ) async throws -> StreamNotifyResponse {
+        try await request(
+            path: "api/matches/\(matchId)/live/heartbeat",
+            method: "POST",
+            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
+            extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
+        )
+    }
+
     func notifyStreamEnded(matchId: String, clientSessionId: String) async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/end",
             method: "POST",
             body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId)
+        )
+    }
+
+    func notifyStreamEnded(
+        matchId: String,
+        clientSessionId: String,
+        userMatch: Bool
+    ) async throws -> StreamNotifyResponse {
+        try await request(
+            path: "api/matches/\(matchId)/live/end",
+            method: "POST",
+            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
+            extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
         )
     }
 
@@ -371,9 +437,17 @@ final class LiveAPIClient {
         path: String,
         method: String = "GET",
         query: [URLQueryItem] = [],
-        requiresAuth: Bool = true
+        requiresAuth: Bool = true,
+        extraHeaders: [String: String] = [:]
     ) async throws -> Response {
-        let request = try buildRequest(path: path, method: method, query: query, bodyData: nil, requiresAuth: requiresAuth)
+        let request = try buildRequest(
+            path: path,
+            method: method,
+            query: query,
+            bodyData: nil,
+            requiresAuth: requiresAuth,
+            extraHeaders: extraHeaders
+        )
         let (data, response) = try await urlSession.data(for: request)
         return try decodeResponse(data: data, response: response)
     }
@@ -383,14 +457,16 @@ final class LiveAPIClient {
         method: String = "GET",
         query: [URLQueryItem] = [],
         body: Body,
-        requiresAuth: Bool = true
+        requiresAuth: Bool = true,
+        extraHeaders: [String: String] = [:]
     ) async throws -> Response {
         let request = try buildRequest(
             path: path,
             method: method,
             query: query,
             bodyData: try JSONEncoder.liveApp.encode(body),
-            requiresAuth: requiresAuth
+            requiresAuth: requiresAuth,
+            extraHeaders: extraHeaders
         )
         let (data, response) = try await urlSession.data(for: request)
         return try decodeResponse(data: data, response: response)
@@ -426,7 +502,8 @@ final class LiveAPIClient {
         method: String,
         query: [URLQueryItem],
         bodyData: Data?,
-        requiresAuth: Bool
+        requiresAuth: Bool,
+        extraHeaders: [String: String]
     ) throws -> URLRequest {
         guard var components = URLComponents(url: LiveAppConfig.baseURL, resolvingAgainstBaseURL: false) else {
             throw LiveAPIError.invalidURL
@@ -458,6 +535,10 @@ final class LiveAPIClient {
         if let bodyData {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = bodyData
+        }
+
+        for (header, value) in extraHeaders where !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(value, forHTTPHeaderField: header)
         }
 
         return request
