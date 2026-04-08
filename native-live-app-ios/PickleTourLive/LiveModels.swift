@@ -459,6 +459,12 @@ struct StreamNotifyResponse: Codable, Equatable {
     var ok: Bool
     var matchId: String?
     var active: Bool?
+    var leaseStatus: String?
+    var leaseId: String?
+    var clientSessionId: String?
+    var expiresAt: String?
+    var heartbeatIntervalMs: Int?
+    var leaseTimeoutMs: Int?
 }
 
 struct CreateLiveRequest: Codable {

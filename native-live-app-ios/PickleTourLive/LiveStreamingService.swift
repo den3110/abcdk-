@@ -150,6 +150,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
         connection.addEventListener(.rtmpStatus, selector: #selector(handleRTMPStatus(_:)), observer: self)
         connection.addEventListener(.ioError, selector: #selector(handleRTMPError(_:)), observer: self)
+        stream.addEventListener(.rtmpStatus, selector: #selector(handleRTMPStatus(_:)), observer: self)
 
         notificationObservers.append(
             NotificationCenter.default.addObserver(
@@ -845,7 +846,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(max(seconds, 5) * 1_000_000_000))
             await MainActor.run {
                 guard let self else { return }
-                guard case .connecting = self.connectionState else { return }
+                guard self.pendingStartContinuation != nil else { return }
+                switch self.connectionState {
+                case .connecting, .reconnecting:
+                    break
+                case .idle, .preparingPreview, .previewReady, .live, .stopped, .failed:
+                    return
+                }
                 self.pendingPublishName = nil
                 self.currentDestination = nil
                 self.stream.close()
@@ -1120,18 +1127,26 @@ final class LiveStreamingService: NSObject, ObservableObject {
         switch code {
         case RTMPConnection.Code.connectSuccess.rawValue:
             clearLocalRTMPCloseSuppression()
-            cancelPublishTimeout()
             appendDiagnostic("RTMP connected.")
             if let publishName = pendingPublishName {
                 stream.publish(publishName)
                 pendingPublishName = nil
-                connectionState = .live
-                resolvePendingStart(with: nil)
+                appendDiagnostic("RTMP publish requested.")
+                connectionState = .connecting
             } else {
+                cancelPublishTimeout()
                 connectionState = currentCamera == nil ? .stopped : .previewReady
+                clearRecoveryIfNeeded()
             }
+        case RTMPStream.Code.publishStart.rawValue:
+            clearLocalRTMPCloseSuppression()
+            cancelPublishTimeout()
+            appendDiagnostic("RTMP publish started.")
+            connectionState = .live
+            resolvePendingStart(with: nil)
             clearRecoveryIfNeeded()
-        case RTMPConnection.Code.connectClosed.rawValue:
+        case RTMPConnection.Code.connectClosed.rawValue,
+            RTMPStream.Code.connectClosed.rawValue:
             if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
                 acknowledgeLocalRTMPCloseEvent()
                 cancelPublishTimeout()
@@ -1152,7 +1167,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 lastFatalReason: "RTMP closed"
             )
             resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP đã đóng trước khi publish."))
-        case RTMPConnection.Code.connectRejected.rawValue:
+        case RTMPConnection.Code.connectRejected.rawValue,
+            RTMPStream.Code.connectRejected.rawValue,
+            RTMPStream.Code.publishBadName.rawValue:
             if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
                 acknowledgeLocalRTMPCloseEvent()
                 cancelPublishTimeout()
@@ -1161,18 +1178,18 @@ final class LiveStreamingService: NSObject, ObservableObject {
             }
             clearLocalRTMPCloseSuppression()
             cancelPublishTimeout()
-            appendDiagnostic("RTMP rejected.")
+            appendDiagnostic("RTMP rejected: \(code)")
             currentDestination = nil
-            connectionState = .failed("RTMP bị từ chối.")
+            connectionState = .failed(code)
             reportRecovery(
                 stage: .pipelineRebuild,
                 severity: .critical,
                 summary: "RTMP bị từ chối",
-                detail: "Server RTMP từ chối phiên publish hiện tại.",
+                detail: code,
                 activeMitigations: ["Đóng session cũ", "Xin live session mới"],
-                lastFatalReason: "RTMP rejected"
+                lastFatalReason: code
             )
-            resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: "RTMP bị từ chối."))
+            resolvePendingStart(with: LiveAPIError.server(statusCode: 0, message: code))
         default:
             if code.lowercased().contains("failed") {
                 if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {

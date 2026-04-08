@@ -107,6 +107,11 @@ final class LiveAppStore: ObservableObject {
     private var lastRecordingQueueResumeAt: Date?
     private var lastHandledIncomingURL: String?
     private var lastHandledIncomingURLAt: Date?
+    private var lastHandledTerminalMatchId: String?
+    private var streamLeaseId: String?
+    private var streamHeartbeatIntervalMs = 15_000
+    private var lastStreamLeaseRecoveryAt: Date?
+    private var isRecoveringStreamLease = false
 
     init() {
         session = environment.sessionStore.session
@@ -350,6 +355,7 @@ final class LiveAppStore: ObservableObject {
         orientationMode = .auto
         leaseId = nil
         leaseHeartbeatIntervalMs = 10_000
+        resetStreamLeaseState()
         freshEntryRequired = false
         safetyDegradeReason = nil
         socketConnected = false
@@ -620,11 +626,12 @@ final class LiveAppStore: ObservableObject {
             }
 
             try await streamingService.startPublishing(to: destination)
-            _ = try await environment.apiClient.notifyStreamStarted(
+            let response = try await environment.apiClient.notifyStreamStarted(
                 matchId: activeMatch.id,
                 clientSessionId: streamingService.clientSessionId,
                 userMatch: launchTarget.isUserMatchLaunch
             )
+            _ = await handleStreamLeaseResponse(response, matchId: activeMatch.id)
             startHeartbeats()
             liveStartedAt = Date()
             bannerMessage = liveMode.includesRecording ? "Đã bắt đầu live và recording." : "Đã bắt đầu live."
@@ -659,7 +666,7 @@ final class LiveAppStore: ObservableObject {
         defer { isWorking = false }
 
         let liveMatchId = activeMatch?.id.trimmedNilIfBlank
-        let shouldNotifyLiveEnd = matchesLiveSessionState
+        let shouldNotifyLiveEnd = hasActiveLivestreamSession
         let shouldStopRecording = liveMode.includesRecording || streamingService.isRecordingLocally || activeRecording != nil
 
         if shouldNotifyLiveEnd, let liveMatchId {
@@ -671,6 +678,7 @@ final class LiveAppStore: ObservableObject {
         }
 
         streamingService.stopPublishing()
+        resetStreamLeaseState()
 
         if shouldStopRecording {
             await streamingService.stopRecording()
@@ -707,7 +715,7 @@ final class LiveAppStore: ObservableObject {
     }
 
     func leaveLiveScreen() async {
-        if matchesLiveSessionState || streamingService.isRecordingLocally {
+        if hasActiveLivestreamSession || streamingService.isRecordingLocally {
             await stopLive()
         } else if let courtId = currentCourtId {
             stopBackgroundLoops()
@@ -1947,11 +1955,11 @@ final class LiveAppStore: ObservableObject {
         stopLiveCountdownSeconds = nil
         endingLive = false
 
-        let hadLivestream = matchesLiveSessionState
+        let hadActiveLivestream = hasActiveLivestreamSession
         let liveMatchId = activeMatch?.id.trimmedNilIfBlank
         let shouldStopRecording = streamingService.isRecordingLocally || activeRecording != nil
 
-        if hadLivestream, let liveMatchId {
+        if hadActiveLivestream, let liveMatchId {
             _ = try? await environment.apiClient.notifyStreamEnded(
                 matchId: liveMatchId,
                 clientSessionId: streamingService.clientSessionId,
@@ -1960,6 +1968,7 @@ final class LiveAppStore: ObservableObject {
         }
 
         streamingService.stopPublishing()
+        resetStreamLeaseState()
         overlaySnapshot = nil
         streamingService.overlaySnapshot = nil
 
@@ -2349,6 +2358,16 @@ final class LiveAppStore: ObservableObject {
                 guard var activeMatch = self.activeMatch else { return }
                 activeMatch.status = normalizedStatus
                 self.activeMatch = activeMatch
+                if normalizedStatus.lowercased() == "live" {
+                    self.lastHandledTerminalMatchId = nil
+                } else if
+                    let activeMatchId = activeMatch.id.trimmedNilIfBlank,
+                    self.isTerminalMatchStatus(normalizedStatus)
+                {
+                    Task { @MainActor [weak self] in
+                        await self?.handleTerminalMatchStatus(status: normalizedStatus, matchId: activeMatchId)
+                    }
+                }
                 self.maybeAutoStartArmedSession()
             }
         }
@@ -2692,6 +2711,8 @@ final class LiveAppStore: ObservableObject {
         overlayHealth = OverlayHealth()
         lastRecovery = nil
         operatorRecoveryDialog = nil
+        lastHandledTerminalMatchId = nil
+        resetStreamLeaseState()
 
         streamingService.stopPublishing()
         await streamingService.stopRecording()
@@ -2770,15 +2791,21 @@ final class LiveAppStore: ObservableObject {
         heartbeatTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                if
-                    let matchId = self.activeMatch?.id.trimmedNilIfBlank,
-                    self.streamState == .live
-                {
-                    _ = try? await self.environment.apiClient.notifyStreamHeartbeat(
-                        matchId: matchId,
-                        clientSessionId: self.streamingService.clientSessionId,
-                        userMatch: self.launchTarget.isUserMatchLaunch
+                if let matchId = self.activeMatch?.id.trimmedNilIfBlank, self.shouldMaintainStreamLease {
+                    let response = try? await (
+                        self.streamLeaseId?.trimmedNilIfBlank == nil
+                        ? self.environment.apiClient.notifyStreamStarted(
+                            matchId: matchId,
+                            clientSessionId: self.streamingService.clientSessionId,
+                            userMatch: self.launchTarget.isUserMatchLaunch
+                        )
+                        : self.environment.apiClient.notifyStreamHeartbeat(
+                            matchId: matchId,
+                            clientSessionId: self.streamingService.clientSessionId,
+                            userMatch: self.launchTarget.isUserMatchLaunch
+                        )
                     )
+                    _ = await self.handleStreamLeaseResponse(response, matchId: matchId)
                 }
 
                 if let courtId = self.currentCourtId {
@@ -2793,7 +2820,9 @@ final class LiveAppStore: ObservableObject {
 
                 await self.performHealthMaintenanceIfNeeded()
 
-                let intervalMs = max(self.leaseHeartbeatIntervalMs, 5_000)
+                let streamIntervalMs = self.shouldMaintainStreamLease ? max(self.streamHeartbeatIntervalMs, 5_000) : Int.max
+                let presenceIntervalMs = self.currentCourtId?.trimmedNilIfBlank == nil ? Int.max : max(self.leaseHeartbeatIntervalMs, 5_000)
+                let intervalMs = min(min(streamIntervalMs, presenceIntervalMs), 10_000)
                 try? await Task.sleep(nanoseconds: UInt64(intervalMs) * 1_000_000)
             }
         }
@@ -2855,6 +2884,7 @@ final class LiveAppStore: ObservableObject {
         do {
             let match = try await environment.apiClient.getMatchRuntime(matchId: matchId)
             activeMatch = match
+            lastHandledTerminalMatchId = nil
             launchTarget.matchId = match.id
             queuedCourtMatchId = nil
             waitingForCourt = false
@@ -3245,6 +3275,146 @@ final class LiveAppStore: ObservableObject {
     private func cancelRecordingUploads() {
         isResumingRecordingQueue = false
         lastRecordingQueueResumeAt = nil
+    }
+
+    private var shouldMaintainStreamLease: Bool {
+        guard liveMode.includesLivestream else { return false }
+        guard activeMatch?.id.trimmedNilIfBlank != nil else { return false }
+        switch streamState {
+        case .live, .connecting, .reconnecting:
+            return true
+        case .idle, .preparingPreview, .previewReady, .stopped, .failed:
+            return false
+        }
+    }
+
+    private var hasActiveLivestreamSession: Bool {
+        liveSession != nil || streamLeaseId?.trimmedNilIfBlank != nil || matchesLiveSessionState
+    }
+
+    private func isTerminalMatchStatus(_ status: String) -> Bool {
+        switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "ended", "finished", "completed", "done", "closed", "final", "cancelled", "canceled":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func resetStreamLeaseState() {
+        streamLeaseId = nil
+        streamHeartbeatIntervalMs = 15_000
+        lastStreamLeaseRecoveryAt = nil
+        isRecoveringStreamLease = false
+    }
+
+    private func handleTerminalMatchStatus(status: String, matchId: String) async {
+        guard lastHandledTerminalMatchId != matchId else { return }
+
+        let hasActiveSession =
+            hasActiveLivestreamSession
+            || streamingService.isRecordingLocally
+            || activeRecording != nil
+            || liveStartedAt != nil
+            || goLiveArmed
+            || recordOnlyArmed
+
+        guard hasActiveSession else { return }
+
+        lastHandledTerminalMatchId = matchId
+
+        if currentCourtId?.trimmedNilIfBlank != nil {
+            waitingForCourt = true
+            waitingForMatchLive = false
+            waitingForNextMatch = true
+        } else {
+            errorMessage = "Trận đã kết thúc. App đang đóng phiên hiện tại của trận này."
+        }
+
+        if hasActiveLivestreamSession || streamingService.isRecordingLocally || activeRecording != nil || liveStartedAt != nil {
+            await stopLive()
+            if currentCourtId?.trimmedNilIfBlank != nil, queuedCourtMatchId?.trimmedNilIfBlank == nil {
+                waitingForCourt = true
+                waitingForMatchLive = false
+                waitingForNextMatch = true
+                overlaySnapshot = nil
+                streamingService.overlaySnapshot = nil
+                bannerMessage = "Trận đã kết thúc. App đang chờ trận kế tiếp trên sân."
+            }
+            return
+        }
+
+        goLiveArmed = false
+        recordOnlyArmed = false
+    }
+
+    private func applyStreamLeaseResponse(_ response: StreamNotifyResponse?) -> Bool {
+        guard let response else { return false }
+
+        streamLeaseId = response.leaseId?.trimmedNilIfBlank ?? streamLeaseId
+        streamHeartbeatIntervalMs = max(response.heartbeatIntervalMs ?? streamHeartbeatIntervalMs, 5_000)
+
+        let leaseStatus = response.leaseStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let leaseIsActive = response.ok && (leaseStatus == nil || leaseStatus == "active")
+        return !leaseIsActive && ["expired", "not_found", "ended", "conflict"].contains(leaseStatus ?? "")
+    }
+
+    private func handleStreamLeaseResponse(_ response: StreamNotifyResponse?, matchId: String) async -> Bool {
+        guard let response else { return false }
+        let shouldRecover = applyStreamLeaseResponse(response)
+        if shouldRecover {
+            await recoverExpiredStreamLease(for: matchId, reason: response.leaseStatus?.trimmedNilIfBlank ?? "inactive")
+            return true
+        }
+        return false
+    }
+
+    private func recoverExpiredStreamLease(for matchId: String, reason: String) async {
+        guard liveMode.includesLivestream else { return }
+        guard activeMatch?.id == matchId else { return }
+        guard !freshEntryRequired else { return }
+        guard !isRecoveringStreamLease else { return }
+
+        if let lastStreamLeaseRecoveryAt, Date().timeIntervalSince(lastStreamLeaseRecoveryAt) < 10 {
+            return
+        }
+
+        isRecoveringStreamLease = true
+        lastStreamLeaseRecoveryAt = Date()
+        defer { isRecoveringStreamLease = false }
+
+        streamLeaseId = nil
+        streamHeartbeatIntervalMs = 15_000
+
+        do {
+            let refreshedSession = try await environment.apiClient.createLiveSession(
+                matchId: matchId,
+                pageId: launchTarget.pageId,
+                force: true,
+                userMatch: launchTarget.isUserMatchLaunch
+            )
+            liveSession = refreshedSession
+
+            guard
+                let rawURL = refreshedSession.facebook?.resolvedRTMPURL,
+                let destination = RTMPDestination.parse(from: rawURL)
+            else {
+                throw LiveAPIError.server(statusCode: 0, message: "Không nhận được RTMP URL hợp lệ khi xin lại live session.")
+            }
+
+            streamingService.stopPublishing()
+            try await streamingService.startPublishing(to: destination)
+
+            let response = try await environment.apiClient.notifyStreamStarted(
+                matchId: matchId,
+                clientSessionId: streamingService.clientSessionId,
+                userMatch: launchTarget.isUserMatchLaunch
+            )
+            _ = applyStreamLeaseResponse(response)
+            liveStartedAt = liveStartedAt ?? Date()
+        } catch {
+            errorMessage = "Không tự khôi phục được live lease (\(reason)): \(error.localizedDescription)"
+        }
     }
 }
 
