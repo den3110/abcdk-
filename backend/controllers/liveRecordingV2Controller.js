@@ -40,6 +40,8 @@ import {
   getRecordingStorageTargets,
   getRecordingMultipartPartSizeBytes,
   isRecordingR2Configured,
+  listRecordingObjects,
+  deleteRecordingObjects,
 } from "../services/liveRecordingV2Storage.service.js";
 import {
   buildLiveRecordingMonitorPage,
@@ -2289,6 +2291,91 @@ export const trashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
       recording: serializeRecording(recording),
     });
   }
+});
+
+export const trashLiveRecordingR2AssetsV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.body?.recordingId);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const prefix = buildRecordingPrefix({
+    recordingId: recording._id,
+    matchId: recording.match,
+  });
+
+  const targetIds = new Set();
+  const recordingTargetId = asTrimmed(recording?.r2TargetId);
+  if (recordingTargetId) targetIds.add(recordingTargetId);
+  for (const segment of recording?.segments || []) {
+    const storageTargetId = asTrimmed(segment?.storageTargetId);
+    if (storageTargetId) targetIds.add(storageTargetId);
+  }
+  
+  // Try fallback to active configured default target if no targets are found
+  if (targetIds.size === 0) {
+     try {
+       const targets = getRecordingStorageTargets();
+       if (targets && targets.length > 0) {
+           targetIds.add(targets[0].id);
+       }
+     } catch (_) {}
+  }
+
+  let totalDeleted = 0;
+  const errors = [];
+  for (const targetId of targetIds) {
+      try {
+          const listRes = await listRecordingObjects({
+              storageTargetId: targetId,
+              prefix,
+              limit: 2000, 
+          });
+          
+          if (listRes && listRes.objects && listRes.objects.length > 0) {
+              const keys = listRes.objects.map(obj => obj.key);
+              await deleteRecordingObjects(keys, { storageTargetId: targetId });
+              totalDeleted += keys.length;
+          }
+      } catch (err) {
+         errors.push(err.message);
+      }
+  }
+  
+  if (totalDeleted > 0 || errors.length === 0) {
+      recording.segments = [];
+      recording.r2SourceBytes = 0;
+      const nextMeta = getRecordingMeta(recording);
+      nextMeta.sourceCleanup = {
+         status: "completed",
+         startedAt: new Date(),
+         completedAt: new Date(),
+         deletedBytes: recording.sizeBytes || 0,
+      };
+      recording.meta = nextMeta;
+      await recording.save();
+      await publishRecordingMonitor(recording, "recording_r2_cleaned_by_admin");
+  }
+
+  if (errors.length > 0 && totalDeleted === 0) {
+      return res.status(502).json({
+          message: "Failed to delete R2 objects: " + errors.join(", "),
+          recording: serializeRecording(recording),
+      });
+  }
+
+  return res.json({
+    ok: true,
+    message: `Đã dọn dẹp ${totalDeleted} file trên R2`,
+    deletedObjects: totalDeleted,
+    recording: serializeRecording(recording),
+  });
 });
 
 export const bulkTrashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {

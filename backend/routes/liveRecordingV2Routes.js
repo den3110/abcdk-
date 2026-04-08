@@ -35,6 +35,7 @@ import {
   streamLiveRecordingAiCommentaryRawV2,
   streamLiveRecordingRawV2,
   trashLiveRecordingDriveAssetV2,
+  trashLiveRecordingR2AssetsV2,
 } from "../controllers/liveRecordingV2Controller.js";
 
 const router = express.Router();
@@ -127,6 +128,12 @@ router.post(
   protect,
   authorize("admin"),
   trashLiveRecordingDriveAssetV2
+);
+router.post(
+  "/admin/:id/r2-clean",
+  protect,
+  authorize("admin"),
+  trashLiveRecordingR2AssetsV2
 );
 router.post(
   "/admin/:id/commentary",
