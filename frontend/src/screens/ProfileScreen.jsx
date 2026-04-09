@@ -1771,23 +1771,6 @@ export default function ProfileScreen() {
                       </Stack>
                     </Paper>
                   </Stack>
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    fullWidth
-                    startIcon={<LogoutIcon />}
-                    onClick={requestLogout}
-                    sx={{
-                      display: { xs: "flex", lg: "none" },
-                      mt: 3,
-                      borderRadius: 3,
-                      borderWidth: 2,
-                      py: 1.25,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {t("profile.hero.logout")}
-                  </Button>
                 </Grid>
 
                 <Grid size={{ xs: 12, lg: 8 }}>
@@ -2526,6 +2509,24 @@ export default function ProfileScreen() {
                   </Stack>
                 </Grid>
               </Grid>
+
+              <Button
+                variant="outlined"
+                color="error"
+                fullWidth
+                startIcon={<LogoutIcon />}
+                onClick={requestLogout}
+                sx={{
+                  display: { xs: "flex", lg: "none" },
+                  mt: 3,
+                  borderRadius: 3,
+                  borderWidth: 2,
+                  py: 1.25,
+                  fontWeight: 700,
+                }}
+              >
+                {t("profile.hero.logout")}
+              </Button>
             </Box>
           </Container>
 

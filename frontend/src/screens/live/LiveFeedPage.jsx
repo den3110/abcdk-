@@ -3839,24 +3839,59 @@ export default function LiveFeedPage() {
               alignItems="center"
               justifyContent="center"
               spacing={2}
-              sx={{ minHeight: "100dvh", px: 3, textAlign: "center" }}
+              sx={{ minHeight: "100dvh", px: { xs: 2.5, sm: 3 }, textAlign: "center" }}
             >
-              <Typography variant="h4" sx={{ fontWeight: 900 }}>
+              <Stack
+                spacing={2.25}
+                alignItems="center"
+                sx={{
+                  width: "min(100%, 680px)",
+                  px: { xs: 3, sm: 4.5 },
+                  py: { xs: 4, sm: 5 },
+                  borderRadius: { xs: 4, sm: 5 },
+                  border: "1px solid var(--live-border)",
+                  bgcolor: "var(--live-surface)",
+                  boxShadow: "0 24px 80px rgba(15, 23, 42, 0.12)",
+                  backdropFilter: "blur(24px)",
+                }}
+              >
+              <Typography
+                variant="h4"
+                sx={{
+                  fontWeight: 900,
+                  color: "var(--live-text)",
+                  letterSpacing: "-0.04em",
+                }}
+              >
                 Chưa có trận để hiển thị
               </Typography>
               <Typography
                 variant="body1"
-                sx={{ color: "rgba(255,255,255,0.72)", maxWidth: 560 }}
+                sx={{
+                  color: "var(--live-text-secondary)",
+                  maxWidth: 560,
+                  lineHeight: 1.7,
+                }}
               >
                 Khi có trận đang live hoặc video xem lại công khai, feed sẽ tự xuất
                 hiện tại đây.
               </Typography>
-              <Stack direction="row" spacing={1.25}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
                 <Button
                   data-feed-interactive="true"
                   variant="contained"
                   onClick={handleResetFeed}
-                  sx={{ borderRadius: 999, textTransform: "none", fontWeight: 800 }}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 800,
+                    px: 2.6,
+                    bgcolor: "var(--live-hot)",
+                    color: "var(--live-hot-contrast)",
+                    "&:hover": {
+                      bgcolor: "var(--live-hot-hover)",
+                    },
+                  }}
                 >
                   Làm mới
                 </Button>
@@ -3869,12 +3904,19 @@ export default function LiveFeedPage() {
                     borderRadius: 999,
                     textTransform: "none",
                     fontWeight: 800,
-                    color: "#fff",
-                    borderColor: "rgba(255,255,255,0.24)",
+                    px: 2.6,
+                    color: "var(--live-text)",
+                    borderColor: "var(--live-border)",
+                    bgcolor: "var(--live-surface)",
+                    "&:hover": {
+                      borderColor: "var(--live-border-strong)",
+                      bgcolor: "var(--live-surface-strong)",
+                    },
                   }}
                 >
                   Xem theo cụm sân
                 </Button>
+              </Stack>
               </Stack>
             </Stack>
           ) : (
