@@ -378,6 +378,11 @@ export default function NativeVideoPlayer({
   ]);
 
   const justAdvancedRef = useRef(false);
+  const advanceToStagedSourceRef = useRef(advanceToStagedSource);
+  
+  useEffect(() => {
+    advanceToStagedSourceRef.current = advanceToStagedSource;
+  }, [advanceToStagedSource]);
 
   useEffect(() => {
     const video = queueMode
@@ -442,7 +447,7 @@ export default function NativeVideoPlayer({
       if (queueMode && stagedNextSrc && Number.isFinite(video.duration)) {
         const remaining = Math.max(0, (video.duration || 0) - (video.currentTime || 0));
         if (remaining <= 0.2) {
-          void advanceToStagedSource();
+          void advanceToStagedSourceRef.current();
           return;
         }
       }
@@ -467,7 +472,7 @@ export default function NativeVideoPlayer({
     };
     const onEndedInternal = async () => {
       if (queueMode) {
-        const advanced = await advanceToStagedSource();
+        const advanced = await advanceToStagedSourceRef.current();
         if (advanced) return;
         // Advance failed — hold the last frame frozen while waiting
         // for the next segment. This prevents showing a black screen.
@@ -641,7 +646,6 @@ export default function NativeVideoPlayer({
     };
   }, [
     autoplay,
-    advanceToStagedSource,
     captureFrameSnapshot,
     getVideoElementForSlot,
     holdLastFrameOnSourceChange,

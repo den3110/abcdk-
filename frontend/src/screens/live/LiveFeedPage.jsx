@@ -1,6 +1,5 @@
-import {
+﻿import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -56,6 +55,7 @@ import {
 import {
   useGetLiveFeedProbeQuery,
   useGetLiveFeedQuery,
+  useGetLiveFeedSearchQuery,
 } from "../../slices/liveApiSlice";
 
 const FEED_LIMIT = 8;
@@ -67,33 +67,35 @@ const DESKTOP_SIDEBAR_WIDTH = 356;
 const GLOBAL_MUTE_STORAGE_KEY = "pickletour-live-global-muted-v1";
 const LIVE_FEED_SYNC_CHANNEL = "pickletour:live-feed";
 const LIVE_FEED_MUTE_TOPIC = "global-muted";
+const SEARCH_DEBOUNCE_MS = 320;
+const SEARCH_RESULTS_LIMIT = 8;
 
 const MODE_OPTIONS = [
-  { value: "all", label: "Tất cả" },
+  { value: "all", label: "Táº¥t cáº£" },
   { value: "live", label: "Live" },
   { value: "replay", label: "Replay" },
 ];
 
 const SOURCE_OPTIONS = [
-  { value: "all", label: "Mọi nguồn" },
-  { value: "complete", label: "Video đầy đủ" },
+  { value: "all", label: "Má»i nguá»“n" },
+  { value: "complete", label: "Video Ä‘áº§y Ä‘á»§" },
   { value: "native", label: "Native/HLS" },
   { value: "facebook", label: "Facebook" },
   { value: "youtube", label: "YouTube" },
   { value: "tiktok", label: "TikTok" },
-  { value: "iframe", label: "Iframe khác" },
+  { value: "iframe", label: "Iframe khÃ¡c" },
 ];
 
 const REPLAY_OPTIONS = [
-  { value: "all", label: "Mọi trạng thái replay" },
-  { value: "complete", label: "Đầy đủ" },
-  { value: "temporary", label: "Đang phát bản tạm" },
-  { value: "processing", label: "Đang xử lý" },
+  { value: "all", label: "Má»i tráº¡ng thÃ¡i replay" },
+  { value: "complete", label: "Äáº§y Ä‘á»§" },
+  { value: "temporary", label: "Äang phÃ¡t báº£n táº¡m" },
+  { value: "processing", label: "Äang xá»­ lÃ½" },
 ];
 
 const SORT_OPTIONS = [
   { value: "smart", label: "Smart" },
-  { value: "recent", label: "Mới cập nhật" },
+  { value: "recent", label: "Má»›i cáº­p nháº­t" },
 ];
 
 const SIDEBAR_FIELD_SX = {
@@ -141,12 +143,12 @@ const LIVE_SIDEBAR_FIELD_SX = {
 
 const SMART_FILTER_PRESETS = [
   { key: "live_now", label: "Live" },
-  { key: "ready_replay", label: "Replay đầy đủ" },
-  { key: "native_ready", label: "Native mượt" },
-  { key: "temporary_fb", label: "Facebook tạm" },
-  { key: "processing", label: "Đang xử lý" },
-  { key: "finals", label: "Chung kết" },
-  { key: "groups", label: "Vòng bảng" },
+  { key: "ready_replay", label: "Replay Ä‘áº§y Ä‘á»§" },
+  { key: "native_ready", label: "Native mÆ°á»£t" },
+  { key: "temporary_fb", label: "Facebook táº¡m" },
+  { key: "processing", label: "Äang xá»­ lÃ½" },
+  { key: "finals", label: "Chung káº¿t" },
+  { key: "groups", label: "VÃ²ng báº£ng" },
 ];
 
 function sid(value) {
@@ -155,6 +157,20 @@ function sid(value) {
 
 function asTrimmed(value) {
   return String(value || "").trim();
+}
+
+function useDebouncedValue(value, delay = SEARCH_DEBOUNCE_MS) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [delay, value]);
+
+  return debouncedValue;
 }
 
 function isNativeKind(kind, key = "") {
@@ -171,13 +187,13 @@ function relativeTime(value) {
 
   const diffMs = Math.max(0, Date.now() - date.getTime());
   const sec = Math.floor(diffMs / 1000);
-  if (sec < 60) return `${sec} giây trước`;
+  if (sec < 60) return `${sec} giÃ¢y trÆ°á»›c`;
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} phút trước`;
+  if (min < 60) return `${min} phÃºt trÆ°á»›c`;
   const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour} giờ trước`;
+  if (hour < 24) return `${hour} giá» trÆ°á»›c`;
   const day = Math.floor(hour / 24);
-  return `${day} ngày trước`;
+  return `${day} ngÃ y trÆ°á»›c`;
 }
 
 function statusLabel(status) {
@@ -185,13 +201,13 @@ function statusLabel(status) {
     case "live":
       return "Live";
     case "assigned":
-      return "Đã gán sân";
+      return "ÄÃ£ gÃ¡n sÃ¢n";
     case "queued":
-      return "Chờ vào sân";
+      return "Chá» vÃ o sÃ¢n";
     case "finished":
-      return "Xem lại";
+      return "Xem láº¡i";
     default:
-      return status || "Đang chờ";
+      return status || "Äang chá»";
   }
 }
 
@@ -200,9 +216,9 @@ function normalizeLiveBadgeLabel(label) {
   if (
     [
       "live",
-      "đang live",
-      "đang nóng",
-      "live nóng",
+      "Ä‘ang live",
+      "Ä‘ang nÃ³ng",
+      "live nÃ³ng",
       "dang live",
       "dang nong",
       "live nong",
@@ -290,8 +306,8 @@ function buildInitials(value) {
 }
 
 function getFeedTitle(item) {
-  const teamA = asTrimmed(item?.teamAName || item?.pairA?.name || "Đội A");
-  const teamB = asTrimmed(item?.teamBName || item?.pairB?.name || "Đội B");
+  const teamA = asTrimmed(item?.teamAName || item?.pairA?.name || "Äá»™i A");
+  const teamB = asTrimmed(item?.teamBName || item?.pairB?.name || "Äá»™i B");
   return `${teamA} vs ${teamB}`;
 }
 
@@ -330,7 +346,7 @@ function buildFeedTags(item, scoreTuple) {
 
 function buildFeedCodeChipLabel(item) {
   const code = asTrimmed(item?.displayCode || item?.code || item?.globalCode);
-  return code ? `Mã ${code}` : "";
+  return code ? `MÃ£ ${code}` : "";
 }
 
 function buildFeedStageChipLabel(item) {
@@ -345,20 +361,20 @@ function buildFeedStageChipLabel(item) {
     return "Tranh 3-4";
   }
   if (phase === "grand_final" || branch === "gf") {
-    return "Chung kết tổng";
+    return "Chung káº¿t tá»•ng";
   }
   if (
     phase === "group" ||
     item?.pool?.name ||
     ["group", "round_robin", "gsl"].includes(bracketType)
   ) {
-    return "Vòng bảng";
+    return "VÃ²ng báº£ng";
   }
   if (phase === "losers" || branch === "lb") {
-    return "Nhánh thua";
+    return "NhÃ¡nh thua";
   }
   if (phase === "winners" || branch === "wb") {
-    return "Nhánh thắng";
+    return "NhÃ¡nh tháº¯ng";
   }
 
   return "";
@@ -582,7 +598,7 @@ function FeedActionButton({
   );
 }
 
-function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) {
+function DraggableChipRail({ items, onSelect, ariaLabel = "Bá»™ lá»c ngang" }) {
   const railRef = useRef(null);
   const dragStateRef = useRef({
     active: false,
@@ -757,7 +773,7 @@ function CustomTournamentPicker({
   value,
   options,
   onChange,
-  placeholder = "Tất cả giải đấu",
+  placeholder = "Táº¥t cáº£ giáº£i Ä‘áº¥u",
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -817,7 +833,7 @@ function CustomTournamentPicker({
                 variant="caption"
                 sx={{ color: "var(--live-text-muted)", fontWeight: 700 }}
               >
-                Đang lọc theo
+                Äang lá»c theo
               </Typography>
               <Typography
                 variant="body1"
@@ -862,7 +878,7 @@ function CustomTournamentPicker({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 fullWidth
-                placeholder="Tìm giải đấu..."
+                placeholder="TÃ¬m giáº£i Ä‘áº¥u..."
                 size="small"
                 sx={LIVE_SIDEBAR_FIELD_SX}
                 InputProps={{
@@ -904,7 +920,7 @@ function CustomTournamentPicker({
                   fontWeight: 700,
                 }}
               >
-                Tất cả giải đấu
+                Táº¥t cáº£ giáº£i Ä‘áº¥u
               </Box>
 
               {filteredOptions.length ? (
@@ -977,10 +993,211 @@ function CustomTournamentPicker({
                     color: "var(--live-text-muted)",
                   }}
                 >
-                  Không có giải đấu khớp từ khóa.
+                  KhÃ´ng cÃ³ giáº£i Ä‘áº¥u khá»›p tá»« khÃ³a.
                 </Typography>
               )}
             </Stack>
+          </Box>
+        ) : null}
+      </Box>
+    </ClickAwayListener>
+  );
+}
+
+function LiveMatchSearchField({
+  label = "TÃ¬m tráº­n, giáº£i, sÃ¢n",
+  placeholder = "VÃ­ dá»¥: Court 1, bÃ¡n káº¿t, giáº£i má»Ÿ rá»™ng...",
+  value,
+  onChange,
+  results = [],
+  isSearching = false,
+  onSelect,
+  selectedId = "",
+}) {
+  const [open, setOpen] = useState(false);
+  const keyword = asTrimmed(value);
+  const hasKeyword = Boolean(keyword);
+
+  return (
+    <ClickAwayListener onClickAway={() => setOpen(false)}>
+      <Box sx={{ position: "relative" }}>
+        <TextField
+          label={label}
+          placeholder={placeholder}
+          value={value}
+          onFocus={() => setOpen(true)}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+          }}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon />
+              </InputAdornment>
+            ),
+          }}
+        />
+
+        {open && hasKeyword ? (
+          <Box
+            sx={{
+              mt: 1,
+              borderRadius: 3,
+              border: "1px solid var(--live-border)",
+              bgcolor: "var(--live-shell-bg-strong)",
+              boxShadow: "0 24px 60px rgba(0,0,0,0.22)",
+              backdropFilter: "blur(18px)",
+              overflow: "hidden",
+            }}
+          >
+            <Box
+              sx={{
+                px: 1.5,
+                py: 1.15,
+                borderBottom: "1px solid var(--live-border)",
+                bgcolor: "var(--live-surface)",
+              }}
+            >
+              <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
+                Chá»n tráº­n Ä‘á»ƒ phÃ¡t
+              </Typography>
+            </Box>
+
+            {keyword.length < 2 ? (
+              <Typography
+                variant="body2"
+                sx={{ px: 1.5, py: 1.6, color: "var(--live-text-muted)" }}
+              >
+                GÃµ Ã­t nháº¥t 2 kÃ½ tá»± Ä‘á»ƒ tÃ¬m tráº­n phÃ¹ há»£p.
+              </Typography>
+            ) : isSearching ? (
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                sx={{ px: 1.5, py: 1.6, color: "var(--live-text-secondary)" }}
+              >
+                <CircularProgress size={16} />
+                <Typography variant="body2">Äang tÃ¬m tráº­n...</Typography>
+              </Stack>
+            ) : results.length ? (
+              <Stack sx={{ maxHeight: 360, overflowY: "auto", p: 1 }}>
+                {results.map((item) => {
+                  const itemId = sid(item);
+                  const isSelected = itemId && itemId === selectedId;
+                  const title = getFeedTitle(item);
+                  const subtitle = getFeedSubtitle(item);
+                  const tags = [
+                    normalizeLiveBadgeLabel(
+                      asTrimmed(item?.smartBadge) || statusLabel(item?.status),
+                    ),
+                    asTrimmed(item?.displayCode),
+                    asTrimmed(item?.stageLabel),
+                  ].filter(Boolean);
+
+                  return (
+                    <Box
+                      key={itemId || `${title}-${subtitle}`}
+                      component="button"
+                      type="button"
+                      onClick={() => {
+                        onSelect?.(item);
+                        setOpen(false);
+                      }}
+                      sx={{
+                        width: "100%",
+                        appearance: "none",
+                        border: "1px solid",
+                        borderColor: isSelected
+                          ? "var(--live-accent-border-strong)"
+                          : "transparent",
+                        bgcolor: isSelected
+                          ? "var(--live-accent-soft)"
+                          : "transparent",
+                        color: "var(--live-text)",
+                        borderRadius: 2.5,
+                        px: 1.4,
+                        py: 1.2,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        font: "inherit",
+                        "&:hover": {
+                          borderColor: "var(--live-border-strong)",
+                          bgcolor: "var(--live-surface-strong)",
+                        },
+                        "& + &": {
+                          mt: 0.7,
+                        },
+                      }}
+                    >
+                      <Stack spacing={0.8}>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          justifyContent="space-between"
+                          alignItems="flex-start"
+                        >
+                          <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 800,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                              }}
+                            >
+                              {title}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: "var(--live-text-secondary)" }}
+                            >
+                              {subtitle}
+                            </Typography>
+                          </Stack>
+                          {isSelected ? (
+                            <CheckCircleRoundedIcon
+                              sx={{ fontSize: 18, color: "var(--live-accent)" }}
+                            />
+                          ) : null}
+                        </Stack>
+
+                        {tags.length ? (
+                          <Stack direction="row" spacing={0.7} useFlexGap flexWrap>
+                            {tags.map((tag) => (
+                              <Chip
+                                key={`${itemId || title}-${tag}`}
+                                size="small"
+                                label={tag}
+                                sx={{
+                                  height: 24,
+                                  color: "var(--live-text)",
+                                  bgcolor: "var(--live-chip-bg)",
+                                  border: "1px solid var(--live-border)",
+                                }}
+                              />
+                            ))}
+                          </Stack>
+                        ) : null}
+                      </Stack>
+                    </Box>
+                  );
+                })}
+              </Stack>
+            ) : (
+              <Typography
+                variant="body2"
+                sx={{ px: 1.5, py: 1.6, color: "var(--live-text-muted)" }}
+              >
+                KhÃ´ng tÃ¬m tháº¥y tráº­n phÃ¹ há»£p. HÃ£y thá»­ mÃ£ tráº­n, sÃ¢n hoáº·c tÃªn giáº£i.
+              </Typography>
+            )}
           </Box>
         ) : null}
       </Box>
@@ -1133,12 +1350,12 @@ function FeedActionRail({
     >
       <FeedActionButton
         icon={<InfoOutlinedIcon />}
-        label="Chi tiết"
+        label="Chi tiáº¿t"
         onClick={() => onOpenDetail(item)}
       />
       <FeedActionButton
         icon={<OpenInNewRoundedIcon />}
-        label="Mở link"
+        label="Má»Ÿ link"
         href={item?.primaryOpenUrl || undefined}
         component="a"
         disabled={!item?.primaryOpenUrl}
@@ -1146,7 +1363,7 @@ function FeedActionRail({
       {hasNativeMute && typeof onMutedChange === "function" ? (
         <FeedActionButton
           icon={muted ? <VolumeOffRoundedIcon /> : <VolumeUpRoundedIcon />}
-          label={muted ? "Bật tiếng" : "Tắt tiếng"}
+          label={muted ? "Báº­t tiáº¿ng" : "Táº¯t tiáº¿ng"}
           onClick={() => onMutedChange(!muted)}
         />
       ) : null}
@@ -1270,7 +1487,7 @@ function FeedCard({
               textShadow: "0 2px 8px rgba(0,0,0,0.48)",
             }}
           >
-            Video đang được xử lý
+            Video Ä‘ang Ä‘Æ°á»£c xá»­ lÃ½
           </Typography>
           <Typography
             variant="body2"
@@ -1280,7 +1497,7 @@ function FeedCard({
               textShadow: "0 1px 4px rgba(0,0,0,0.48)",
             }}
           >
-            Video đầy đủ sẽ hiển thị sau khi hệ thống ghép xong bản replay.
+            Video Ä‘áº§y Ä‘á»§ sáº½ hiá»ƒn thá»‹ sau khi há»‡ thá»‘ng ghÃ©p xong báº£n replay.
           </Typography>
         </Stack>
       ) : null}
@@ -1347,7 +1564,7 @@ function FeedCard({
           {showTemporaryReplayHint ? (
             <Chip
               size="small"
-              label="Đang phát bản tạm"
+              label="Äang phÃ¡t báº£n táº¡m"
               sx={{
                 color: "#25f4ee",
                 bgcolor: "rgba(7,12,18,0.56)",
@@ -1452,8 +1669,8 @@ function DesktopFeedSidebar({
   loadedCount,
   totalCount,
 }) {
-  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
-  const currentSubtitle = currentItem ? getFeedSubtitle(currentItem) : "Feed sẽ tự cập nhật";
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "ChÆ°a cÃ³ tráº­n";
+  const currentSubtitle = currentItem ? getFeedSubtitle(currentItem) : "Feed sáº½ tá»± cáº­p nháº­t";
   const currentBadge = normalizeLiveBadgeLabel(
     asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status),
   );
@@ -1480,7 +1697,7 @@ function DesktopFeedSidebar({
         <Stack spacing={1}>
           <Chip
             icon={<AutoAwesomeRoundedIcon sx={{ color: "#25f4ee !important" }} />}
-            label={`Smart Feed • ${summary?.total || 0} trận`}
+            label={`Smart Feed â€¢ ${summary?.total || 0} tráº­n`}
             sx={{
               alignSelf: "flex-start",
               color: "#fff",
@@ -1497,8 +1714,8 @@ function DesktopFeedSidebar({
             variant="body2"
             sx={{ color: "rgba(255,255,255,0.7)", lineHeight: 1.55 }}
           >
-            Feed ưu tiên trận live, video native mượt, replay đầy đủ và các
-            trận sắp vào sân để desktop không còn cảm giác xếp bài ngẫu nhiên.
+            Feed Æ°u tiÃªn tráº­n live, video native mÆ°á»£t, replay Ä‘áº§y Ä‘á»§ vÃ  cÃ¡c
+            tráº­n sáº¯p vÃ o sÃ¢n Ä‘á»ƒ desktop khÃ´ng cÃ²n cáº£m giÃ¡c xáº¿p bÃ i ngáº«u nhiÃªn.
           </Typography>
         </Stack>
 
@@ -1525,7 +1742,7 @@ function DesktopFeedSidebar({
               },
             }}
           >
-            Làm mới
+            LÃ m má»›i
           </Button>
           <Button
             component={RouterLink}
@@ -1543,7 +1760,7 @@ function DesktopFeedSidebar({
               },
             }}
           >
-            Cụm sân
+            Cá»¥m sÃ¢n
           </Button>
         </Stack>
 
@@ -1564,13 +1781,13 @@ function DesktopFeedSidebar({
               },
             }}
           >
-            Có trận mới, nhấn để làm mới feed
+            CÃ³ tráº­n má»›i, nháº¥n Ä‘á»ƒ lÃ m má»›i feed
           </Button>
         ) : null}
 
         <TextField
-          label="Tìm trận, giải, sân"
-          placeholder="Ví dụ: Court 1, bán kết, giải mở rộng..."
+          label="TÃ¬m tráº­n, giáº£i, sÃ¢n"
+          placeholder="VÃ­ dá»¥: Court 1, bÃ¡n káº¿t, giáº£i má»Ÿ rá»™ng..."
           value={searchInput}
           onChange={(event) => onSearchChange(event.target.value)}
           fullWidth
@@ -1606,22 +1823,22 @@ function DesktopFeedSidebar({
         </Stack>
 
         <CustomTournamentPicker
-          label="Giải đấu"
+          label="Giáº£i Ä‘áº¥u"
           value={tournamentId}
           options={tournamentOptions}
           onChange={onTournamentChange}
-          placeholder="Tất cả giải đấu"
+          placeholder="Táº¥t cáº£ giáº£i Ä‘áº¥u"
         />
 
         <TextField
           select
-          label="Giải đấu"
+          label="Giáº£i Ä‘áº¥u"
           value={tournamentId}
           onChange={(event) => onTournamentChange(event.target.value)}
           fullWidth
           sx={SIDEBAR_FIELD_SX}
         >
-          <MenuItem value="">Tất cả giải đấu</MenuItem>
+          <MenuItem value="">Táº¥t cáº£ giáº£i Ä‘áº¥u</MenuItem>
           {tournaments.map((item) => (
             <MenuItem key={sid(item) || item.name} value={sid(item) || ""}>
               {formatCountLabel(item.name, Number(item?.count || 0))}
@@ -1631,11 +1848,11 @@ function DesktopFeedSidebar({
 
         <TextField
           select
-          label="Nguồn ưu tiên"
+          label="Nguá»“n Æ°u tiÃªn"
           value={sourceFilter}
           onChange={(event) => onSourceFilterChange(event.target.value)}
           fullWidth
-          sx={SIDEBAR_FIELD_SX}
+          sx={{ ...SIDEBAR_FIELD_SX, display: "none" }}
         >
           {SOURCE_OPTIONS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -1646,11 +1863,11 @@ function DesktopFeedSidebar({
 
         <TextField
           select
-          label="Trạng thái replay"
+          label="Tráº¡ng thÃ¡i replay"
           value={replayFilter}
           onChange={(event) => onReplayFilterChange(event.target.value)}
           fullWidth
-          sx={SIDEBAR_FIELD_SX}
+          sx={{ ...SIDEBAR_FIELD_SX, display: "none" }}
         >
           {REPLAY_OPTIONS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -1661,7 +1878,7 @@ function DesktopFeedSidebar({
 
         <TextField
           select
-          label="Sắp xếp"
+          label="Sáº¯p xáº¿p"
           value={sortMode}
           onChange={(event) => onSortModeChange(event.target.value)}
           fullWidth
@@ -1687,14 +1904,14 @@ function DesktopFeedSidebar({
             bgcolor: "rgba(255,255,255,0.06)",
           }}
         >
-          Xóa bộ lọc
+          XÃ³a bá»™ lá»c
         </Button>
 
         <Divider sx={{ borderColor: "rgba(255,255,255,0.08)" }} />
 
         <Stack spacing={1.1}>
           <Typography variant="overline" sx={{ color: "#25f4ee", fontWeight: 800 }}>
-            Toàn cảnh feed
+            ToÃ n cáº£nh feed
           </Typography>
           <Stack direction="row" spacing={1}>
             <Box
@@ -1723,7 +1940,7 @@ function DesktopFeedSidebar({
               }}
             >
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
-                Replay đầy đủ
+                Replay Ä‘áº§y Ä‘á»§
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 {summary?.completeReplay || 0}
@@ -1741,7 +1958,7 @@ function DesktopFeedSidebar({
               }}
             >
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
-                Nguồn native
+                Nguá»“n native
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 {summary?.nativeReady || 0}
@@ -1757,7 +1974,7 @@ function DesktopFeedSidebar({
               }}
             >
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
-                Đang xử lý
+                Äang xá»­ lÃ½
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 {summary?.processingReplay || 0}
@@ -1771,7 +1988,7 @@ function DesktopFeedSidebar({
         <Stack spacing={1.2}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="overline" sx={{ color: "#25f4ee", fontWeight: 800 }}>
-              Đang xem
+              Äang xem
             </Typography>
             <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
               {progressLabel}
@@ -1829,7 +2046,7 @@ function DesktopFeedSidebar({
                 {currentItem?.smartScore ? (
                   <Chip
                     size="small"
-                    label={`${currentItem.smartScore} điểm`}
+                    label={`${currentItem.smartScore} Ä‘iá»ƒm`}
                     sx={{
                       color: "#25f4ee",
                       bgcolor: "rgba(37,244,238,0.08)",
@@ -1840,8 +2057,8 @@ function DesktopFeedSidebar({
               </Stack>
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.56)" }}>
                 {currentItem?.updatedAt
-                  ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
-                  : "Feed đang chờ dữ liệu mới"}
+                  ? `Cáº­p nháº­t ${relativeTime(currentItem.updatedAt)}`
+                  : "Feed Ä‘ang chá» dá»¯ liá»‡u má»›i"}
               </Typography>
               <LinearProgress
                 variant="determinate"
@@ -1858,7 +2075,7 @@ function DesktopFeedSidebar({
                 }}
               />
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.56)" }}>
-                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong feed hiện tại.
+                ÄÃ£ táº£i {loadedCount}/{totalCount || loadedCount || 0} tháº» trong feed hiá»‡n táº¡i.
               </Typography>
             </Stack>
           </Box>
@@ -1899,10 +2116,10 @@ function LiveDesktopSidebar({
   quickFilters,
   onApplyQuickFilter,
 }) {
-  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "ChÆ°a cÃ³ tráº­n";
   const currentSubtitle = currentItem
     ? getFeedSubtitle(currentItem)
-    : "Feed sẽ tự cập nhật";
+    : "Feed sáº½ tá»± cáº­p nháº­t";
   const currentBadge = normalizeLiveBadgeLabel(
     asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status),
   );
@@ -1966,7 +2183,7 @@ function LiveDesktopSidebar({
                 sx={{ color: "var(--live-accent) !important" }}
               />
             }
-            label={`PickleTour Feed • ${summary?.total || 0} trận`}
+            label={`PickleTour Feed â€¢ ${summary?.total || 0} tráº­n`}
             sx={{
               display: "none",
               alignSelf: "flex-start",
@@ -1981,8 +2198,8 @@ function LiveDesktopSidebar({
             variant="body2"
             sx={{ color: "var(--live-text-secondary)", lineHeight: 1.55 }}
           >
-            Feed ưu tiên trận live, video native mượt, replay đầy đủ và
-            các trận sắp vào sân để desktop nhìn có trật tự hơn.
+            Feed Æ°u tiÃªn tráº­n live, video native mÆ°á»£t, replay Ä‘áº§y Ä‘á»§ vÃ 
+            cÃ¡c tráº­n sáº¯p vÃ o sÃ¢n Ä‘á»ƒ desktop nhÃ¬n cÃ³ tráº­t tá»± hÆ¡n.
           </Typography>
         </Stack>
 
@@ -2009,7 +2226,7 @@ function LiveDesktopSidebar({
               },
             }}
           >
-            Làm mới
+            LÃ m má»›i
           </Button>
           <Button
             component={RouterLink}
@@ -2027,7 +2244,7 @@ function LiveDesktopSidebar({
               },
             }}
           >
-            Cụm sân
+            Cá»¥m sÃ¢n
           </Button>
         </Stack>
 
@@ -2048,13 +2265,13 @@ function LiveDesktopSidebar({
               },
             }}
           >
-            Có trận mới, nhấn để làm mới feed
+            CÃ³ tráº­n má»›i, nháº¥n Ä‘á»ƒ lÃ m má»›i feed
           </Button>
         ) : null}
 
         <TextField
-          label="Tìm trận, giải, sân"
-          placeholder="Ví dụ: Court 1, bán kết, giải mở rộng..."
+          label="TÃ¬m tráº­n, giáº£i, sÃ¢n"
+          placeholder="VÃ­ dá»¥: Court 1, bÃ¡n káº¿t, giáº£i má»Ÿ rá»™ng..."
           value={searchInput}
           onChange={(event) => onSearchChange(event.target.value)}
           fullWidth
@@ -2073,10 +2290,10 @@ function LiveDesktopSidebar({
             variant="caption"
             sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
           >
-            Lọc thông minh
+            Lá»c thÃ´ng minh
           </Typography>
           <DraggableChipRail
-            ariaLabel="Bộ lọc thông minh"
+            ariaLabel="Bá»™ lá»c thÃ´ng minh"
             items={quickFilters}
             onSelect={(item) => onApplyQuickFilter(item.key)}
           />
@@ -2087,10 +2304,10 @@ function LiveDesktopSidebar({
             variant="caption"
             sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
           >
-            Chế độ feed
+            Cháº¿ Ä‘á»™ feed
           </Typography>
           <DraggableChipRail
-            ariaLabel="Chế độ feed"
+            ariaLabel="Cháº¿ Ä‘á»™ feed"
             items={modeItems}
             onSelect={(item) => onModeChange(item.value)}
           />
@@ -2098,13 +2315,13 @@ function LiveDesktopSidebar({
 
         <TextField
           select
-          label="Giải đấu"
+          label="Giáº£i Ä‘áº¥u"
           value={tournamentId}
           onChange={(event) => onTournamentChange(event.target.value)}
           fullWidth
           sx={LIVE_SIDEBAR_FIELD_SX}
         >
-          <MenuItem value="">Tất cả giải đấu</MenuItem>
+          <MenuItem value="">Táº¥t cáº£ giáº£i Ä‘áº¥u</MenuItem>
           {tournaments.map((item) => (
             <MenuItem key={sid(item) || item.name} value={sid(item) || ""}>
               {formatCountLabel(item.name, Number(item?.count || 0))}
@@ -2114,11 +2331,11 @@ function LiveDesktopSidebar({
 
         <TextField
           select
-          label="Nguồn ưu tiên"
+          label="Nguá»“n Æ°u tiÃªn"
           value={sourceFilter}
           onChange={(event) => onSourceFilterChange(event.target.value)}
           fullWidth
-          sx={LIVE_SIDEBAR_FIELD_SX}
+          sx={{ ...LIVE_SIDEBAR_FIELD_SX, display: "none" }}
         >
           {SOURCE_OPTIONS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -2129,11 +2346,11 @@ function LiveDesktopSidebar({
 
         <TextField
           select
-          label="Trạng thái replay"
+          label="Tráº¡ng thÃ¡i replay"
           value={replayFilter}
           onChange={(event) => onReplayFilterChange(event.target.value)}
           fullWidth
-          sx={LIVE_SIDEBAR_FIELD_SX}
+          sx={{ ...LIVE_SIDEBAR_FIELD_SX, display: "none" }}
         >
           {REPLAY_OPTIONS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -2144,7 +2361,7 @@ function LiveDesktopSidebar({
 
         <TextField
           select
-          label="Sắp xếp"
+          label="Sáº¯p xáº¿p"
           value={sortMode}
           onChange={(event) => onSortModeChange(event.target.value)}
           fullWidth
@@ -2170,7 +2387,7 @@ function LiveDesktopSidebar({
             bgcolor: "var(--live-surface)",
           }}
         >
-          Xóa bộ lọc
+          XÃ³a bá»™ lá»c
         </Button>
 
         <Divider sx={{ borderColor: "var(--live-border)" }} />
@@ -2180,12 +2397,12 @@ function LiveDesktopSidebar({
             variant="overline"
             sx={{ color: "var(--live-accent)", fontWeight: 800 }}
           >
-            Toàn cảnh feed
+            ToÃ n cáº£nh feed
           </Typography>
           <Stack direction="row" spacing={1}>
             {[
               { label: "Live", value: summary?.live || 0 },
-              { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
+              { label: "Replay Ä‘áº§y Ä‘á»§", value: summary?.completeReplay || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2211,8 +2428,8 @@ function LiveDesktopSidebar({
           </Stack>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "Nguồn native", value: summary?.nativeReady || 0 },
-              { label: "Đang xử lý", value: summary?.processingReplay || 0 },
+              { label: "Nguá»“n native", value: summary?.nativeReady || 0 },
+              { label: "Äang xá»­ lÃ½", value: summary?.processingReplay || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2246,7 +2463,7 @@ function LiveDesktopSidebar({
               variant="overline"
               sx={{ color: "var(--live-accent)", fontWeight: 800 }}
             >
-              Đang xem
+              Äang xem
             </Typography>
             <Typography
               variant="caption"
@@ -2310,7 +2527,7 @@ function LiveDesktopSidebar({
                 {currentItem?.smartScore ? (
                   <Chip
                     size="small"
-                    label={`${currentItem.smartScore} điểm`}
+                    label={`${currentItem.smartScore} Ä‘iá»ƒm`}
                     sx={{
                       color: "var(--live-accent)",
                       bgcolor: "var(--live-accent-soft)",
@@ -2324,8 +2541,8 @@ function LiveDesktopSidebar({
                 sx={{ color: "var(--live-text-muted)" }}
               >
                 {currentItem?.updatedAt
-                  ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
-                  : "Feed đang chờ dữ liệu mới"}
+                  ? `Cáº­p nháº­t ${relativeTime(currentItem.updatedAt)}`
+                  : "Feed Ä‘ang chá» dá»¯ liá»‡u má»›i"}
               </Typography>
               <LinearProgress
                 variant="determinate"
@@ -2345,8 +2562,8 @@ function LiveDesktopSidebar({
                 variant="caption"
                 sx={{ color: "var(--live-text-muted)" }}
               >
-                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong
-                feed hiện tại.
+                ÄÃ£ táº£i {loadedCount}/{totalCount || loadedCount || 0} tháº» trong
+                feed hiá»‡n táº¡i.
               </Typography>
             </Stack>
           </Box>
@@ -2359,6 +2576,9 @@ function LiveDesktopSidebar({
 function InteractiveLiveSidebar({
   searchInput,
   onSearchChange,
+  searchResults,
+  isSearchResultsFetching,
+  onSearchSelect,
   mode,
   onModeChange,
   tournamentId,
@@ -2387,10 +2607,10 @@ function InteractiveLiveSidebar({
   quickFilters,
   onApplyQuickFilter,
 }) {
-  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "ChÆ°a cÃ³ tráº­n";
   const currentSubtitle = currentItem
     ? getFeedSubtitle(currentItem)
-    : "Feed sẽ tự cập nhật";
+    : "Feed sáº½ tá»± cáº­p nháº­t";
   const currentBadge = normalizeLiveBadgeLabel(
     asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status),
   );
@@ -2452,8 +2672,8 @@ function InteractiveLiveSidebar({
             variant="body2"
             sx={{ color: "var(--live-text-secondary)", lineHeight: 1.55 }}
           >
-            Feed ưu tiên trận live, video native mượt, replay đầy đủ và
-            các trận sắp vào sân để desktop nhìn có trật tự hơn.
+            Feed Æ°u tiÃªn tráº­n live, video native mÆ°á»£t, replay Ä‘áº§y Ä‘á»§ vÃ 
+            cÃ¡c tráº­n sáº¯p vÃ o sÃ¢n Ä‘á»ƒ desktop nhÃ¬n cÃ³ tráº­t tá»± hÆ¡n.
           </Typography>
         </Stack>
 
@@ -2480,7 +2700,7 @@ function InteractiveLiveSidebar({
               },
             }}
           >
-            Làm mới
+            LÃ m má»›i
           </Button>
           <Button
             component={RouterLink}
@@ -2498,7 +2718,7 @@ function InteractiveLiveSidebar({
               },
             }}
           >
-            Cụm sân
+            Cá»¥m sÃ¢n
           </Button>
         </Stack>
 
@@ -2519,24 +2739,17 @@ function InteractiveLiveSidebar({
               },
             }}
           >
-            Có trận mới, nhấn để làm mới feed
+            CÃ³ tráº­n má»›i, nháº¥n Ä‘á»ƒ lÃ m má»›i feed
           </Button>
         ) : null}
 
-        <TextField
-          label="Tìm trận, giải, sân"
-          placeholder="Ví dụ: Court 1, bán kết, giải mở rộng..."
+        <LiveMatchSearchField
           value={searchInput}
-          onChange={(event) => onSearchChange(event.target.value)}
-          fullWidth
-          sx={LIVE_SIDEBAR_FIELD_SX}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchRoundedIcon />
-              </InputAdornment>
-            ),
-          }}
+          onChange={onSearchChange}
+          results={searchResults}
+          isSearching={isSearchResultsFetching}
+          onSelect={onSearchSelect}
+          selectedId={sid(currentItem)}
         />
 
         <Stack spacing={0.75}>
@@ -2544,10 +2757,10 @@ function InteractiveLiveSidebar({
             variant="caption"
             sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
           >
-            Lọc thông minh
+            Lá»c thÃ´ng minh
           </Typography>
           <DraggableChipRail
-            ariaLabel="Bộ lọc thông minh"
+            ariaLabel="Bá»™ lá»c thÃ´ng minh"
             items={quickFilters}
             onSelect={(item) => onApplyQuickFilter(item.key)}
           />
@@ -2558,30 +2771,30 @@ function InteractiveLiveSidebar({
             variant="caption"
             sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
           >
-            Chế độ feed
+            Cháº¿ Ä‘á»™ feed
           </Typography>
           <DraggableChipRail
-            ariaLabel="Chế độ feed"
+            ariaLabel="Cháº¿ Ä‘á»™ feed"
             items={modeItems}
             onSelect={(item) => onModeChange(item.value)}
           />
         </Stack>
 
         <CustomTournamentPicker
-          label="Giải đấu"
+          label="Giáº£i Ä‘áº¥u"
           value={tournamentId}
           options={tournamentOptions}
           onChange={onTournamentChange}
-          placeholder="Tất cả giải đấu"
+          placeholder="Táº¥t cáº£ giáº£i Ä‘áº¥u"
         />
 
         <TextField
           select
-          label="Nguồn ưu tiên"
+          label="Nguá»“n Æ°u tiÃªn"
           value={sourceFilter}
           onChange={(event) => onSourceFilterChange(event.target.value)}
           fullWidth
-          sx={LIVE_SIDEBAR_FIELD_SX}
+          sx={{ ...LIVE_SIDEBAR_FIELD_SX, display: "none" }}
         >
           {SOURCE_OPTIONS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -2592,11 +2805,11 @@ function InteractiveLiveSidebar({
 
         <TextField
           select
-          label="Trạng thái replay"
+          label="Tráº¡ng thÃ¡i replay"
           value={replayFilter}
           onChange={(event) => onReplayFilterChange(event.target.value)}
           fullWidth
-          sx={LIVE_SIDEBAR_FIELD_SX}
+          sx={{ ...LIVE_SIDEBAR_FIELD_SX, display: "none" }}
         >
           {REPLAY_OPTIONS.map((option) => (
             <MenuItem key={option.value} value={option.value}>
@@ -2607,7 +2820,7 @@ function InteractiveLiveSidebar({
 
         <TextField
           select
-          label="Sắp xếp"
+          label="Sáº¯p xáº¿p"
           value={sortMode}
           onChange={(event) => onSortModeChange(event.target.value)}
           fullWidth
@@ -2633,7 +2846,7 @@ function InteractiveLiveSidebar({
             bgcolor: "var(--live-surface)",
           }}
         >
-          Xóa bộ lọc
+          XÃ³a bá»™ lá»c
         </Button>
 
         <Divider sx={{ borderColor: "var(--live-border)" }} />
@@ -2643,12 +2856,12 @@ function InteractiveLiveSidebar({
             variant="overline"
             sx={{ color: "var(--live-accent)", fontWeight: 800 }}
           >
-            Toàn cảnh feed
+            ToÃ n cáº£nh feed
           </Typography>
           <Stack direction="row" spacing={1}>
             {[
               { label: "Live", value: summary?.live || 0 },
-              { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
+              { label: "Replay Ä‘áº§y Ä‘á»§", value: summary?.completeReplay || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2671,8 +2884,8 @@ function InteractiveLiveSidebar({
           </Stack>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "Nguồn native", value: summary?.nativeReady || 0 },
-              { label: "Đang xử lý", value: summary?.processingReplay || 0 },
+              { label: "Nguá»“n native", value: summary?.nativeReady || 0 },
+              { label: "Äang xá»­ lÃ½", value: summary?.processingReplay || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2703,7 +2916,7 @@ function InteractiveLiveSidebar({
               variant="overline"
               sx={{ color: "var(--live-accent)", fontWeight: 800 }}
             >
-              Đang xem
+              Äang xem
             </Typography>
             <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
               {progressLabel}
@@ -2764,7 +2977,7 @@ function InteractiveLiveSidebar({
                 {currentItem?.smartScore ? (
                   <Chip
                     size="small"
-                    label={`${currentItem.smartScore} điểm`}
+                    label={`${currentItem.smartScore} Ä‘iá»ƒm`}
                     sx={{
                       color: "var(--live-accent)",
                       bgcolor: "var(--live-accent-soft)",
@@ -2775,8 +2988,8 @@ function InteractiveLiveSidebar({
               </Stack>
               <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
                 {currentItem?.updatedAt
-                  ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
-                  : "Feed đang chờ dữ liệu mới"}
+                  ? `Cáº­p nháº­t ${relativeTime(currentItem.updatedAt)}`
+                  : "Feed Ä‘ang chá» dá»¯ liá»‡u má»›i"}
               </Typography>
               <LinearProgress
                 variant="determinate"
@@ -2793,8 +3006,8 @@ function InteractiveLiveSidebar({
                 }}
               />
               <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
-                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong
-                feed hiện tại.
+                ÄÃ£ táº£i {loadedCount}/{totalCount || loadedCount || 0} tháº» trong
+                feed hiá»‡n táº¡i.
               </Typography>
             </Stack>
           </Box>
@@ -2813,6 +3026,8 @@ export default function LiveFeedPage() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [feedVisible, setFeedVisible] = useState(false);
   const [searchInput, setSearchInput] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [pendingSearchSelectionId, setPendingSearchSelectionId] = useState("");
   const [mode, setMode] = useState("all");
   const [tournamentId, setTournamentId] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -2847,33 +3062,53 @@ export default function LiveFeedPage() {
   const ptrActiveRef = useRef(false);
   const activeIndexRef = useRef(0);
   const didMountFilterRef = useRef(false);
-  const deferredSearch = useDeferredValue(asTrimmed(searchInput));
+  const debouncedSearchInput = useDebouncedValue(asTrimmed(searchInput));
 
   const feedArgs = useMemo(
     () => ({
       page,
       limit: FEED_LIMIT,
       mode,
-      q: deferredSearch,
+      q: appliedSearch,
       tournamentId,
       source: sourceFilter,
       replayState: replayFilter,
       sort: sortMode,
     }),
-    [deferredSearch, mode, page, replayFilter, sortMode, sourceFilter, tournamentId],
+    [appliedSearch, mode, page, replayFilter, sortMode, sourceFilter, tournamentId],
   );
   const probeArgs = useMemo(
     () => ({
       page: 1,
       limit: FEED_LIMIT,
       mode,
-      q: deferredSearch,
+      q: appliedSearch,
       tournamentId,
       source: sourceFilter,
       replayState: replayFilter,
       sort: sortMode,
     }),
-    [deferredSearch, mode, replayFilter, sortMode, sourceFilter, tournamentId],
+    [appliedSearch, mode, replayFilter, sortMode, sourceFilter, tournamentId],
+  );
+  const searchArgs = useMemo(
+    () => ({
+      page: 1,
+      limit: SEARCH_RESULTS_LIMIT,
+      mode,
+      q: debouncedSearchInput,
+      tournamentId,
+      source: sourceFilter,
+      replayState: replayFilter,
+      sort: sortMode,
+    }),
+    [
+      debouncedSearchInput,
+      mode,
+      replayFilter,
+      sortMode,
+      sourceFilter,
+      tournamentId,
+    ],
   );
 
   const {
@@ -2893,10 +3128,22 @@ export default function LiveFeedPage() {
       refetchOnReconnect: true,
     },
   );
+  const {
+    data: searchData,
+    isFetching: isSearchResultsFetching,
+  } = useGetLiveFeedSearchQuery(searchArgs, {
+    skip: debouncedSearchInput.length < 2,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
 
   const items = useMemo(
     () => (Array.isArray(feedData?.items) ? feedData.items : []),
     [feedData?.items],
+  );
+  const searchResults = useMemo(
+    () => (Array.isArray(searchData?.items) ? searchData.items : []),
+    [searchData?.items],
   );
   const feedMeta = feedData?.meta || {};
   const summary = feedMeta?.summary || {};
@@ -2913,7 +3160,7 @@ export default function LiveFeedPage() {
   const replayStateCounts = facets?.replayStates || {};
   const totalCount = Math.max(0, Number(feedData?.count || summary?.total || 0));
   const hasActiveFilters = Boolean(
-    deferredSearch ||
+    appliedSearch ||
       mode !== "all" ||
       tournamentId ||
       sourceFilter !== "all" ||
@@ -3021,8 +3268,8 @@ export default function LiveFeedPage() {
           (preset.key === "processing" &&
             mode === "replay" &&
             replayFilter === "processing") ||
-          (preset.key === "finals" && deferredSearch === "chung kết") ||
-          (preset.key === "groups" && deferredSearch === "vòng bảng");
+          (preset.key === "finals" && appliedSearch === "chung kết") ||
+          (preset.key === "groups" && appliedSearch === "vòng bảng");
 
         return {
           ...preset,
@@ -3031,7 +3278,7 @@ export default function LiveFeedPage() {
         };
       }),
     [
-      deferredSearch,
+      appliedSearch,
       mode,
       replayFilter,
       replayStateCounts?.temporary,
@@ -3163,6 +3410,33 @@ export default function LiveFeedPage() {
     refetchProbe();
   }, [page, refetchFeed, refetchProbe, resetViewport]);
 
+  const handleSelectSearchResult = useCallback(
+    (item) => {
+      const targetId = sid(item);
+      const nextQuery =
+        debouncedSearchInput ||
+        asTrimmed(searchInput) ||
+        asTrimmed(item?.displayCode) ||
+        getFeedTitle(item);
+      if (!targetId || !nextQuery) return;
+
+      const existingIndex = items.findIndex((entry) => sid(entry) === targetId);
+      if (existingIndex >= 0 && appliedSearch === nextQuery && page === 1) {
+        snapToIndex(existingIndex);
+        return;
+      }
+
+      setHasPendingNewItems(false);
+      setPendingSearchSelectionId(targetId);
+      setAppliedSearch(nextQuery);
+      resetViewport();
+      if (page !== 1) {
+        setPage(1);
+      }
+    },
+    [appliedSearch, debouncedSearchInput, items, page, resetViewport, searchInput, snapToIndex],
+  );
+
   const handleCloseFeed = useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       navigate(-1);
@@ -3193,6 +3467,13 @@ export default function LiveFeedPage() {
   }, [handleResetFeed, ptrLoading]);
 
   useEffect(() => {
+    if (asTrimmed(searchInput)) return;
+    if (!appliedSearch && !pendingSearchSelectionId) return;
+    setAppliedSearch("");
+    setPendingSearchSelectionId("");
+  }, [appliedSearch, pendingSearchSelectionId, searchInput]);
+
+  useEffect(() => {
     if (!didMountFilterRef.current) {
       didMountFilterRef.current = true;
       return;
@@ -3204,7 +3485,7 @@ export default function LiveFeedPage() {
       setPage(1);
     }
   }, [
-    deferredSearch,
+    appliedSearch,
     mode,
     page,
     replayFilter,
@@ -3213,6 +3494,14 @@ export default function LiveFeedPage() {
     sourceFilter,
     tournamentId,
   ]);
+
+  useEffect(() => {
+    if (!pendingSearchSelectionId || !items.length) return;
+    const targetIndex = items.findIndex((item) => sid(item) === pendingSearchSelectionId);
+    if (targetIndex < 0) return;
+    snapToIndex(targetIndex, { animate: false });
+    setPendingSearchSelectionId("");
+  }, [items, pendingSearchSelectionId, snapToIndex]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -3515,9 +3804,11 @@ export default function LiveFeedPage() {
   }, []);
 
   const handleApplyQuickFilter = useCallback((presetKey) => {
+    setPendingSearchSelectionId("");
     switch (presetKey) {
       case "live_now":
         setSearchInput("");
+        setAppliedSearch("");
         setMode("live");
         setSourceFilter("all");
         setReplayFilter("all");
@@ -3525,23 +3816,30 @@ export default function LiveFeedPage() {
         return;
       case "ready_replay":
         setSearchInput("");
+        setAppliedSearch("");
         setMode("replay");
         setSourceFilter("complete");
         setReplayFilter("complete");
         setSortMode("recent");
         return;
       case "native_ready":
+        setSearchInput("");
+        setAppliedSearch("");
         setSourceFilter("native");
         setReplayFilter("all");
         setSortMode("smart");
         return;
       case "temporary_fb":
+        setSearchInput("");
+        setAppliedSearch("");
         setMode("replay");
         setSourceFilter("facebook");
         setReplayFilter("temporary");
         setSortMode("recent");
         return;
       case "processing":
+        setSearchInput("");
+        setAppliedSearch("");
         setMode("replay");
         setReplayFilter("processing");
         setSourceFilter("all");
@@ -3549,9 +3847,11 @@ export default function LiveFeedPage() {
         return;
       case "finals":
         setSearchInput("chung kết");
+        setAppliedSearch("chung kết");
         return;
       case "groups":
         setSearchInput("vòng bảng");
+        setAppliedSearch("vòng bảng");
         return;
       default:
     }
@@ -3563,27 +3863,27 @@ export default function LiveFeedPage() {
       entityTitle: "Live Feed PickleTour",
       sectionTitle: currentItem?.tournament?.name || "Feed live",
       pageSummary:
-        "Feed dọc toàn màn hình có xếp hạng smart, hỗ trợ lọc theo giải, nguồn phát và tìm kiếm trận đang live hoặc replay.",
+        "Feed dá»c toÃ n mÃ n hÃ¬nh cÃ³ xáº¿p háº¡ng smart, há»— trá»£ lá»c theo giáº£i, nguá»“n phÃ¡t vÃ  tÃ¬m kiáº¿m tráº­n Ä‘ang live hoáº·c replay.",
       activeLabels: [
         currentItem?.displayCode || "",
         currentItem?.courtLabel || "",
-        mode !== "all" ? `Chế độ ${mode}` : "",
-        hasPendingNewItems ? "Có trận mới" : "",
+        mode !== "all" ? `Cháº¿ Ä‘á»™ ${mode}` : "",
+        hasPendingNewItems ? "CÃ³ tráº­n má»›i" : "",
       ],
       visibleActions: [
-        "Chi tiết",
-        "Mở link",
-        "Xem theo cụm sân",
-        hasActiveFilters ? "Xóa bộ lọc" : "",
+        "Chi tiáº¿t",
+        "Má»Ÿ link",
+        "Xem theo cá»¥m sÃ¢n",
+        hasActiveFilters ? "XÃ³a bá»™ lá»c" : "",
       ].filter(Boolean),
       highlights: items
         .slice(Math.max(0, activeIndex), Math.max(0, activeIndex) + 3)
         .map((item) => item?.displayCode || item?.teamAName || "")
         .filter(Boolean),
       metrics: [
-        `Đã tải: ${items.length}/${totalCount || items.length}`,
+        `ÄÃ£ táº£i: ${items.length}/${totalCount || items.length}`,
         `Live: ${summary?.live || liveCount}`,
-        `Replay đầy đủ: ${summary?.completeReplay || 0}`,
+        `Replay Ä‘áº§y Ä‘á»§: ${summary?.completeReplay || 0}`,
         `Trang: ${Math.min(page, pages)}/${pages}`,
       ],
     }),
@@ -3609,7 +3909,7 @@ export default function LiveFeedPage() {
     <>
       <SEOHead
         title="PickleTour Live Feed"
-        description="Feed live dọc toàn màn hình cho các trận đang phát và các trận xem lại có stream công khai."
+        description="Feed live dá»c toÃ n mÃ n hÃ¬nh cho cÃ¡c tráº­n Ä‘ang phÃ¡t vÃ  cÃ¡c tráº­n xem láº¡i cÃ³ stream cÃ´ng khai."
         path="/live"
       />
 
@@ -3637,6 +3937,9 @@ export default function LiveFeedPage() {
         <InteractiveLiveSidebar
           searchInput={searchInput}
           onSearchChange={setSearchInput}
+          searchResults={searchResults}
+          isSearchResultsFetching={isSearchResultsFetching}
+          onSearchSelect={handleSelectSearchResult}
           mode={mode}
           onModeChange={setMode}
           tournamentId={tournamentId}
@@ -3655,6 +3958,8 @@ export default function LiveFeedPage() {
           hasActiveFilters={hasActiveFilters}
           onClearFilters={() => {
             setSearchInput("");
+            setAppliedSearch("");
+            setPendingSearchSelectionId("");
             setMode("all");
             setTournamentId("");
             setSourceFilter("all");
@@ -3718,7 +4023,7 @@ export default function LiveFeedPage() {
             >
               <Stack spacing={1} sx={{ pointerEvents: "auto" }}>
                 <Chip
-                  label={`PickleTour Feed${liveCount ? ` • ${liveCount} LIVE` : ""}`}
+                  label={`PickleTour Feed${liveCount ? ` â€¢ ${liveCount} LIVE` : ""}`}
                   sx={{
                     alignSelf: "flex-start",
                     color: "#fff",
@@ -3745,7 +4050,7 @@ export default function LiveFeedPage() {
                       },
                     }}
                   >
-                    Có trận mới
+                    CÃ³ tráº­n má»›i
                   </Button>
                 ) : null}
               </Stack>
@@ -3769,7 +4074,7 @@ export default function LiveFeedPage() {
                     },
                   }}
                 >
-                  Cụm sân
+                  Cá»¥m sÃ¢n
                 </Button>
                 <IconButton
                   data-feed-interactive="true"
@@ -3823,14 +4128,14 @@ export default function LiveFeedPage() {
                 <>
                   <CheckCircleRoundedIcon sx={{ color: "#4ade80" }} />
                   <Typography variant="caption" sx={{ color: "#4ade80", fontWeight: 800 }}>
-                    Đã làm mới
+                    ÄÃ£ lÃ m má»›i
                   </Typography>
                 </>
               ) : ptrLoading ? (
                 <>
                   <CircularProgress size={22} sx={{ color: "#fff" }} />
                   <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.82)", fontWeight: 800 }}>
-                    Đang làm mới...
+                    Äang lÃ m má»›i...
                   </Typography>
                 </>
               ) : (
@@ -3849,7 +4154,7 @@ export default function LiveFeedPage() {
                       fontWeight: 800,
                     }}
                   >
-                    {ptrReady ? "Thả để làm mới" : "Kéo xuống để làm mới"}
+                    {ptrReady ? "Tháº£ Ä‘á»ƒ lÃ m má»›i" : "KÃ©o xuá»‘ng Ä‘á»ƒ lÃ m má»›i"}
                   </Typography>
                 </>
               )}
@@ -3885,7 +4190,7 @@ export default function LiveFeedPage() {
                   letterSpacing: "-0.04em",
                 }}
               >
-                Chưa có trận để hiển thị
+                ChÆ°a cÃ³ tráº­n Ä‘á»ƒ hiá»ƒn thá»‹
               </Typography>
               <Typography
                 variant="body1"
@@ -3895,8 +4200,8 @@ export default function LiveFeedPage() {
                   lineHeight: 1.7,
                 }}
               >
-                Khi có trận đang live hoặc video xem lại công khai, feed sẽ tự xuất
-                hiện tại đây.
+                Khi cÃ³ tráº­n Ä‘ang live hoáº·c video xem láº¡i cÃ´ng khai, feed sáº½ tá»± xuáº¥t
+                hiá»‡n táº¡i Ä‘Ã¢y.
               </Typography>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
                 <Button
@@ -3915,7 +4220,7 @@ export default function LiveFeedPage() {
                     },
                   }}
                 >
-                  Làm mới
+                  LÃ m má»›i
                 </Button>
                 <Button
                   data-feed-interactive="true"
@@ -3936,7 +4241,7 @@ export default function LiveFeedPage() {
                     },
                   }}
                 >
-                  Xem theo cụm sân
+                  Xem theo cá»¥m sÃ¢n
                 </Button>
               </Stack>
               </Stack>
@@ -4069,7 +4374,7 @@ export default function LiveFeedPage() {
                   <IconButton
                     data-feed-interactive="true"
                     onClick={handleCloseFeed}
-                    aria-label="Đóng live feed"
+                    aria-label="ÄÃ³ng live feed"
                     sx={{
                       position: "absolute",
                       top: { xs: 16, sm: 18 },

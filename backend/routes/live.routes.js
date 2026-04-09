@@ -4,7 +4,10 @@ import {
   deleteLiveVideoForMatch,
   listLiveMatches,
 } from "../controllers/liveMatchesController.js";
-import { getPublicLiveFeed } from "../controllers/liveFeedController.js";
+import {
+  getPublicLiveFeed,
+  searchPublicLiveFeed,
+} from "../controllers/liveFeedController.js";
 import {
   getPublicLiveClusterById,
   getPublicLiveCourtById,
@@ -21,6 +24,7 @@ const router = Router();
 //   - statuses (CSV: "scheduled,queued,assigned,live")
 //   - concurrency (number, default 4)
 router.get("/matches", listLiveMatches);
+router.get("/feed/search", searchPublicLiveFeed);
 router.get("/feed", getPublicLiveFeed);
 router.get("/clusters", listPublicLiveClusters);
 router.get("/clusters/:clusterId", getPublicLiveClusterById);

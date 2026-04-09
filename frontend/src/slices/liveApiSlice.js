@@ -2,6 +2,7 @@ import { apiSlice } from "./apiSlice";
 
 const LIMIT = 12;
 const FEED_LIMIT = 8;
+const SEARCH_LIMIT = 8;
 
 function dedupeById(items = []) {
   const seen = new Set();
@@ -189,6 +190,36 @@ export const liveApiSlice = apiSlice.injectEndpoints({
       transformResponse: (resp, meta, arg) =>
         transformFeedResponse(resp, Number(arg?.limit || FEED_LIMIT)),
     }),
+    getLiveFeedSearch: builder.query({
+      query: ({
+        q = "",
+        tournamentId = "",
+        mode = "all",
+        source = "all",
+        replayState = "all",
+        sort = "smart",
+        limit = SEARCH_LIMIT,
+      } = {}) => {
+        const params = new URLSearchParams();
+
+        if (q) params.set("q", String(q).trim());
+        if (tournamentId) params.set("tournamentId", String(tournamentId));
+        if (mode) params.set("mode", String(mode));
+        if (source) params.set("source", String(source));
+        if (replayState) params.set("replayState", String(replayState));
+        if (sort) params.set("sort", String(sort));
+        if (limit) params.set("limit", String(limit));
+
+        return `/api/live/feed/search?${params.toString()}`;
+      },
+      keepUnusedDataFor: 10,
+      transformResponse: (resp, meta, arg) => ({
+        items: Array.isArray(resp?.items) ? resp.items : [],
+        count: Number(resp?.count || 0),
+        limit: Math.max(1, Number(resp?.limit || arg?.limit || SEARCH_LIMIT)),
+        meta: resp?.meta || {},
+      }),
+    }),
     deleteLiveVideo: builder.mutation({
       query: (matchId) => ({
         url: `/api/live/matches/${matchId}/video`,
@@ -208,6 +239,7 @@ export const {
   useGetLiveCourtQuery,
   useGetLiveFeedProbeQuery,
   useGetLiveFeedQuery,
+  useGetLiveFeedSearchQuery,
   useGetLiveMatchesQuery,
   useDeleteLiveVideoMutation,
 } = liveApiSlice;

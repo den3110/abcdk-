@@ -13,6 +13,7 @@ import {
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
+const DEFAULT_SEARCH_LIMIT = 8;
 
 const LIVE_FEED_MODE_STATUSES = Object.freeze({
   all: ["live", "assigned", "queued", "finished"],
@@ -1177,6 +1178,87 @@ export async function listLiveFeed({
         tournamentId: normalizedTournamentId || null,
       },
       ...feedMeta,
+    },
+  };
+}
+
+export function buildLiveFeedSearchItem(item = {}) {
+  return {
+    _id: item?._id || null,
+    status: item?.status || "",
+    smartBadge: item?.smartBadge || "",
+    displayCode: item?.displayCode || "",
+    stageLabel: item?.stageLabel || "",
+    courtLabel: item?.courtLabel || "",
+    updatedAt: item?.updatedAt || null,
+    teamAName: item?.teamAName || "",
+    teamBName: item?.teamBName || "",
+    pairA: item?.pairA || null,
+    pairB: item?.pairB || null,
+    tournament: item?.tournament
+      ? {
+          _id: item.tournament?._id || null,
+          name: item.tournament?.name || "",
+          image: item.tournament?.image || "",
+        }
+      : null,
+  };
+}
+
+export async function searchLiveFeed({
+  q = "",
+  tournamentId = "",
+  mode = "all",
+  source = "all",
+  replayState = "all",
+  sort = "smart",
+  limit = DEFAULT_SEARCH_LIMIT,
+} = {}) {
+  const keyword = asTrimmed(q);
+  const safeLimit = parsePositiveInt(limit, DEFAULT_SEARCH_LIMIT, {
+    min: 1,
+    max: 20,
+  });
+
+  if (!keyword) {
+    return {
+      count: 0,
+      items: [],
+      limit: safeLimit,
+      meta: {
+        at: new Date().toISOString(),
+        filter: {
+          q: "",
+          tournamentId: asTrimmed(tournamentId) || null,
+          mode: normalizeLiveFeedMode(mode),
+          source: normalizeLiveFeedSourceFilter(source),
+          replayState: normalizeLiveFeedReplayStateFilter(replayState),
+          sort: normalizeLiveFeedSort(sort),
+        },
+      },
+    };
+  }
+
+  const payload = await listLiveFeed({
+    q: keyword,
+    tournamentId,
+    mode,
+    source,
+    replayState,
+    sort,
+    page: 1,
+    limit: safeLimit,
+  });
+
+  return {
+    count: Number(payload?.count || 0),
+    items: (Array.isArray(payload?.items) ? payload.items : []).map(buildLiveFeedSearchItem),
+    limit: safeLimit,
+    meta: {
+      at: new Date().toISOString(),
+      filter: payload?.meta?.filter || {
+        q: keyword,
+      },
     },
   };
 }

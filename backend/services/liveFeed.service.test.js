@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { attachPublicStreamsToMatch } from "./publicStreams.service.js";
 import {
+  buildLiveFeedSearchItem,
   buildFeedPosterUrl,
   buildFeedStageLabel,
   buildLiveFeedItem,
@@ -69,6 +70,44 @@ test("buildLiveFeedItem labels live matches as Live", () => {
   });
 
   assert.equal(feedItem.smartBadge, "Live");
+});
+
+test("buildLiveFeedSearchItem returns lightweight search payload", () => {
+  const item = buildLiveFeedSearchItem({
+    _id: "match-search-1",
+    status: "live",
+    smartBadge: "Live",
+    displayCode: "M1-A1",
+    stageLabel: "Chung kết",
+    courtLabel: "Court 1",
+    updatedAt: "2026-04-09T10:00:00.000Z",
+    teamAName: "A / B",
+    teamBName: "C / D",
+    tournament: {
+      _id: "tour-1",
+      name: "Giải A",
+      image: "https://example.com/tour.png",
+    },
+  });
+
+  assert.deepEqual(item, {
+    _id: "match-search-1",
+    status: "live",
+    smartBadge: "Live",
+    displayCode: "M1-A1",
+    stageLabel: "Chung kết",
+    courtLabel: "Court 1",
+    updatedAt: "2026-04-09T10:00:00.000Z",
+    teamAName: "A / B",
+    teamBName: "C / D",
+    pairA: null,
+    pairB: null,
+    tournament: {
+      _id: "tour-1",
+      name: "Giải A",
+      image: "https://example.com/tour.png",
+    },
+  });
 });
 
 test("pickFeedPreferredStream prefers native-ready streams before iframe streams", () => {
