@@ -1,4 +1,6 @@
-import ActivityKit
+import sys
+
+new_content = r'''import ActivityKit
 import SwiftUI
 import WidgetKit
 
@@ -223,3 +225,9 @@ private struct DynamicIslandTeamColumn: View {
         .padding(isLeading ? .leading : .trailing, 4)
     }
 }
+'''
+
+with open('native-live-app-ios/PickleTourLiveActivity/PickleTourLiveActivityBundle.swift', 'w', encoding='utf-8') as f:
+    f.write(new_content)
+
+print('Success: Replaced PickleTourLiveActivityBundle.swift')
