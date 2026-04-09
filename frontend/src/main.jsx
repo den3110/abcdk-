@@ -122,8 +122,10 @@ const router = sentryCreateBrowserRouter(
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/status" element={<StatusPage />} />
         <Route path="/cookies" element={<CookiesPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
-        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy-and-policy" element={<PrivacyPage />} />
+        <Route path="/terms-of-service" element={<TermsPage />} />
+        <Route path="/privacy" element={<Navigate to="/privacy-and-policy" replace />} />
+        <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
         <Route path="/news" element={<SeoNewsListScreen />} />
         <Route path="/news/:slug" element={<SeoNewsDetailScreen />} />
         <Route

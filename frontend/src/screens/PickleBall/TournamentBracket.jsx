@@ -5768,8 +5768,11 @@ export default function TournamentBracket() {
                               {row.timeShort || "—"}
                             </Typography>
                             <Typography
+                              component="span"
                               sx={{
-                                display: "block",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 0.4,
                                 mt: 0.25,
                                 color: dk
                                   ? "rgba(255,255,255,0.45)"
@@ -5779,7 +5782,20 @@ export default function TournamentBracket() {
                                 fontFamily: "monospace",
                               }}
                             >
-                              {row.code}
+                              <Box component="span">{row.code}</Box>
+                              {row.video ? (
+                                <Tooltip
+                                  title={t("tournaments.bracket.videoTooltip")}
+                                  arrow
+                                >
+                                  <VideoIcon
+                                    sx={{
+                                      fontSize: 14,
+                                      color: "error.main",
+                                    }}
+                                  />
+                                </Tooltip>
+                              ) : null}
                             </Typography>
                           </TableCell>
 

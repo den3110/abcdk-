@@ -27,8 +27,8 @@ export default function AppFooter() {
 
   const legalLinks = [
     { label: t("footer.links.cookies"), to: "/cookies" },
-    { label: t("footer.links.privacy"), to: "/privacy" },
-    { label: t("footer.links.terms"), to: "/terms" },
+    { label: t("footer.links.privacy"), to: "/privacy-and-policy" },
+    { label: t("footer.links.terms"), to: "/terms-of-service" },
   ];
 
   const scrollToTop = () => {

@@ -695,19 +695,19 @@ export default {
     privacy: {
       title: "Chính sách Quyền riêng tư",
       description:
-        "Mô tả cách PickleTour thu thập, sử dụng, lưu trữ và bảo vệ dữ liệu cá nhân khi bạn đăng ký tài khoản, tham gia giải đấu hoặc sử dụng các tính năng của nền tảng.",
+        "Mô tả cách PickleTour thu thập, sử dụng, lưu trữ và bảo vệ dữ liệu cá nhân, bao gồm dữ liệu tích hợp Google Drive cho tính năng xuất bản ghi.",
       eyebrow: "Privacy",
-      updatedAt: "15/03/2026",
+      updatedAt: "09/04/2026",
       highlights: [
         {
           label: "Dữ liệu",
-          value: "Tài khoản, hồ sơ, hoạt động và hỗ trợ",
+          value: "Tài khoản, hồ sơ, tích hợp Google Drive và hỗ trợ",
         },
         {
           label: "Mục đích",
-          value: "Vận hành nền tảng, xác minh và cải thiện dịch vụ",
+          value: "Vận hành nền tảng, xuất bản ghi, phát lại và bảo mật",
         },
-        { label: "Cập nhật", value: "15/03/2026" },
+        { label: "Cập nhật", value: "09/04/2026" },
       ],
       sections: [
         {
@@ -718,6 +718,7 @@ export default {
             "Thông tin hồ sơ như ảnh đại diện, ngày sinh, địa phương, biệt danh, lịch sử tham gia giải đấu và câu lạc bộ.",
             "Thông tin xác minh như số CCCD và ảnh giấy tờ nếu bạn chủ động gửi hồ sơ KYC.",
             "Dữ liệu kỹ thuật như địa chỉ IP, thiết bị, trình duyệt, nhật ký lỗi và hành vi điều hướng cơ bản để đảm bảo bảo mật và hiệu năng.",
+            "Khi bạn kết nối Google Drive cho tính năng recording export, PickleTour có thể nhận email của tài khoản Google đã kết nối, mã thư mục bạn chọn qua Google Picker, mã tệp bản ghi do ứng dụng tạo ra và refresh token OAuth nếu Google cấp để duy trì việc tải bản ghi lên Drive.",
           ],
         },
         {
@@ -728,6 +729,8 @@ export default {
             "Tổ chức, hiển thị và đồng bộ thông tin giải đấu, bảng xếp hạng, lịch thi đấu và khu vực câu lạc bộ.",
             "Xử lý yêu cầu hỗ trợ, kiểm tra rủi ro bảo mật, chống gian lận và xác minh danh tính nếu cần.",
             "Phân tích hiệu năng sản phẩm để cải thiện tốc độ, bố cục và trải nghiệm người dùng.",
+            "Tạo, tải lên, đổi tên, di chuyển hoặc kiểm tra tệp bản ghi trong thư mục Google Drive mà bạn chủ động chọn cho tính năng recording export.",
+            "Cung cấp liên kết phát lại, bản xem trước hoặc tải về cho bản ghi khi tính năng export được bật.",
           ],
         },
         {
@@ -736,6 +739,24 @@ export default {
           paragraphs: [
             "PickleTour không bán dữ liệu cá nhân của bạn. Chúng tôi chỉ chia sẻ dữ liệu khi cần để vận hành dịch vụ, tuân thủ pháp luật hoặc bảo vệ hệ thống trước rủi ro lạm dụng.",
             "Việc chia sẻ có thể diễn ra với nhà cung cấp hạ tầng, công cụ phân tích, đơn vị xử lý sự cố hoặc cơ quan có thẩm quyền khi có yêu cầu hợp lệ.",
+            "Khi bạn chủ động dùng tích hợp Google Drive hoặc Facebook, dữ liệu tối thiểu cần thiết sẽ được gửi tới nhà cung cấp tương ứng để hoàn tất chức năng mà bạn yêu cầu.",
+          ],
+        },
+        {
+          id: "privacy-google-drive",
+          title: "Dữ liệu Google Drive và Google Account",
+          paragraphs: [
+            "PickleTour sử dụng scope Google Drive drive.file cho luồng production để chỉ làm việc với các tệp hoặc thư mục mà bạn chủ động chọn bằng Google Picker hoặc các tệp do PickleTour tạo ra thay mặt bạn cho tính năng recording export.",
+            "PickleTour không dùng quyền này để duyệt hoặc đọc toàn bộ Google Drive của bạn ngoài phạm vi các tệp và thư mục liên quan đến tính năng export mà bạn đã cho phép.",
+            "Refresh token OAuth, nếu được Google cấp, được lưu như cấu hình bí mật trên backend để duy trì tải bản ghi lên thư mục bạn đã chọn. Token này không được bán, không dùng cho quảng cáo và không chia sẻ cho bên thứ ba ngoài các nhà cung cấp hạ tầng cần thiết để vận hành dịch vụ.",
+          ],
+        },
+        {
+          id: "privacy-recording-sharing",
+          title: "Liên kết bản ghi và khả năng chia sẻ công khai",
+          paragraphs: [
+            "Khi tính năng export bản ghi lên Google Drive được bật, PickleTour có thể tạo liên kết xem trước hoặc tải về để phục vụ phát lại sau trận đấu.",
+            "Tùy cấu hình hiện hành của hệ thống, tệp bản ghi có thể được cấp quyền truy cập công khai bằng liên kết. Bạn nên chỉ dùng tính năng này khi có quyền chia sẻ nội dung bản ghi của giải đấu, sân đấu hoặc sự kiện liên quan.",
           ],
         },
         {
@@ -763,6 +784,7 @@ export default {
           paragraphs: [
             "Chúng tôi áp dụng các biện pháp kỹ thuật và vận hành phù hợp để giảm nguy cơ truy cập trái phép, rò rỉ hoặc sử dụng dữ liệu ngoài mục đích đã công bố.",
             "Dữ liệu sẽ được lưu giữ trong thời gian cần thiết để phục vụ vận hành, giải quyết tranh chấp, tuân thủ nghĩa vụ pháp lý hoặc đáp ứng các yêu cầu bảo mật nội bộ.",
+            "Chúng tôi giới hạn quyền truy cập nội bộ đối với token tích hợp, nhật ký kỹ thuật và dữ liệu quản trị ở mức cần thiết để vận hành, khắc phục sự cố và bảo vệ hệ thống.",
           ],
         },
         {
@@ -773,6 +795,7 @@ export default {
             "Yêu cầu hỗ trợ giải thích cách dữ liệu được sử dụng.",
             "Yêu cầu xử lý hoặc xóa dữ liệu trong phạm vi PickleTour có thể thực hiện mà không ảnh hưởng nghĩa vụ pháp lý hoặc tính toàn vẹn hệ thống.",
             "Rút lại một số lựa chọn liên quan đến cookie hoặc dữ liệu tùy chọn bất cứ lúc nào.",
+            "Thu hồi quyền truy cập Google Drive của PickleTour trong phần quyền ứng dụng của Google Account và yêu cầu chúng tôi xóa dữ liệu tích hợp liên quan nếu cần.",
           ],
         },
         {
@@ -780,6 +803,7 @@ export default {
           title: "Liên hệ về quyền riêng tư",
           paragraphs: [
             "Nếu bạn có câu hỏi về quyền riêng tư, xử lý dữ liệu cá nhân hoặc yêu cầu hỗ trợ liên quan đến tài khoản, hãy liên hệ PickleTour qua email support@pickletour.vn.",
+            "Nếu yêu cầu liên quan đến dữ liệu Google Drive hoặc dữ liệu người dùng Google, bạn có thể gửi email với tiêu đề 'Google Drive Data Request' để chúng tôi ưu tiên xử lý đúng luồng.",
             "Chúng tôi sẽ tiếp nhận yêu cầu và phản hồi trong khung thời gian phù hợp tùy theo mức độ phức tạp của vấn đề.",
           ],
         },
@@ -788,19 +812,19 @@ export default {
     terms: {
       title: "Điều khoản sử dụng",
       description:
-        "Quy định các nguyên tắc sử dụng PickleTour, trách nhiệm của người dùng, giới hạn dịch vụ và cách nền tảng xử lý các tình huống liên quan đến tài khoản, nội dung và vận hành.",
+        "Quy định các nguyên tắc sử dụng PickleTour, bao gồm tài khoản, tích hợp bên thứ ba như Google Drive, trách nhiệm với bản ghi thi đấu và giới hạn dịch vụ.",
       eyebrow: "Terms",
-      updatedAt: "15/03/2026",
+      updatedAt: "09/04/2026",
       highlights: [
         {
           label: "Áp dụng",
-          value: "Toàn bộ người dùng, câu lạc bộ và khu vực quản trị",
+          value: "Website, tài khoản, khu vực quản trị và tích hợp bên thứ ba",
         },
         {
           label: "Nội dung",
-          value: "Tài khoản, hành vi sử dụng và trách nhiệm nền tảng",
+          value: "Sử dụng nền tảng, recording export, phát lại và trách nhiệm",
         },
-        { label: "Cập nhật", value: "15/03/2026" },
+        { label: "Cập nhật", value: "09/04/2026" },
       ],
       sections: [
         {
@@ -808,7 +832,7 @@ export default {
           title: "Chấp nhận điều khoản",
           paragraphs: [
             "Khi truy cập hoặc sử dụng PickleTour, bạn đồng ý với các điều khoản sử dụng hiện hành trên nền tảng này. Nếu bạn không đồng ý, bạn nên ngừng sử dụng dịch vụ.",
-            "Các điều khoản này áp dụng cho website, tài khoản người dùng, dữ liệu hiển thị công khai, khu vực quản trị và các tính năng liên quan đến giải đấu hoặc cộng đồng.",
+            "Các điều khoản này áp dụng cho website, tài khoản người dùng, dữ liệu hiển thị công khai, khu vực quản trị, recording export và các tích hợp bên thứ ba liên quan đến giải đấu hoặc cộng đồng.",
           ],
         },
         {
@@ -821,12 +845,22 @@ export default {
           ],
         },
         {
+          id: "terms-third-party",
+          title: "Tích hợp bên thứ ba",
+          items: [
+            "Bạn chỉ được kết nối Google, Facebook hoặc nền tảng bên thứ ba khác khi bạn có quyền hợp pháp với tài khoản, Page, thư mục hoặc dữ liệu đó.",
+            "Bạn chịu trách nhiệm duy trì cấu hình hợp lệ và quyền sử dụng hợp lệ đối với các dịch vụ bên thứ ba mà mình kết nối với PickleTour.",
+            "Các nền tảng bên thứ ba có điều khoản và chính sách riêng. Khi dùng tính năng tích hợp, bạn đồng ý tuân thủ thêm các quy định áp dụng của các nền tảng đó.",
+          ],
+        },
+        {
           id: "terms-acceptable-use",
           title: "Hành vi sử dụng được phép và không được phép",
           items: [
             "Không can thiệp trái phép vào dữ liệu giải đấu, bảng xếp hạng, điểm số hoặc thông tin người dùng khác.",
             "Không đăng tải nội dung vi phạm pháp luật, xúc phạm, lừa đảo hoặc gây hiểu nhầm về sự kiện, giải đấu hay câu lạc bộ.",
             "Không tìm cách phá hoại hiệu năng, quét lỗ hổng hoặc truy cập trái phép vào khu vực quản trị và các API nội bộ.",
+            "Không lạm dụng hoặc tìm cách mở rộng trái phép phạm vi quyền Google API, Facebook API hoặc các tích hợp khác ngoài mục đích tính năng mà PickleTour công bố.",
           ],
         },
         {
@@ -838,11 +872,21 @@ export default {
           ],
         },
         {
+          id: "terms-recording-export",
+          title: "Bản ghi thi đấu và Google Drive export",
+          paragraphs: [
+            "Khi bạn bật xuất bản ghi lên Google Drive, bạn xác nhận mình có quyền lưu trữ, xử lý và chia sẻ bản ghi đó trong phạm vi giải đấu, sân đấu hoặc sự kiện liên quan.",
+            "Bạn hiểu rằng hệ thống có thể tạo liên kết xem trước hoặc tải về cho bản ghi và trong một số cấu hình có thể cấp quyền truy cập công khai bằng liên kết để phục vụ phát lại cho người xem hoặc ban tổ chức.",
+            "Bạn tự chịu trách nhiệm với nội dung video, âm thanh, dữ liệu cá nhân xuất hiện trong bản ghi và các quyền cần thiết từ vận động viên, trọng tài, ban tổ chức hoặc bên liên quan.",
+          ],
+        },
+        {
           id: "terms-availability",
           title: "Tính sẵn sàng của dịch vụ",
           paragraphs: [
             "Chúng tôi nỗ lực duy trì dịch vụ ổn định, nhưng không cam kết PickleTour sẽ luôn hoạt động liên tục trong mọi thời điểm, đặc biệt khi có bảo trì, sự cố hạ tầng hoặc yếu tố ngoài tầm kiểm soát.",
             "PickleTour có thể thay đổi, nâng cấp hoặc tạm dừng một phần chức năng để đảm bảo an toàn hệ thống và trải nghiệm chung.",
+            "Một số tính năng phụ thuộc vào Google Drive, Facebook hoặc nhà cung cấp hạ tầng khác nên có thể bị ảnh hưởng khi các dịch vụ đó gián đoạn hoặc thay đổi chính sách.",
           ],
         },
         {
@@ -850,7 +894,7 @@ export default {
           title: "Giới hạn trách nhiệm",
           paragraphs: [
             "Trong phạm vi pháp luật cho phép, PickleTour không chịu trách nhiệm cho các thiệt hại gián tiếp phát sinh từ việc sử dụng hoặc không thể sử dụng nền tảng, bao gồm mất dữ liệu, gián đoạn hoạt động hoặc quyết định dựa trên thông tin do bên thứ ba cung cấp.",
-            "Người dùng và đơn vị tổ chức giải đấu vẫn chịu trách nhiệm cuối cùng với thông tin, quy chế, quyết định tổ chức và các nghĩa vụ pháp lý phát sinh từ hoạt động của mình.",
+            "Người dùng và đơn vị tổ chức giải đấu vẫn chịu trách nhiệm cuối cùng với thông tin, quy chế, quyết định tổ chức, cấu hình chia sẻ bản ghi và các nghĩa vụ pháp lý phát sinh từ hoạt động của mình.",
           ],
         },
         {

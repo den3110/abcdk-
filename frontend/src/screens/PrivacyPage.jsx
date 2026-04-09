@@ -9,7 +9,7 @@ export default function PrivacyPage() {
     <LegalPageLayout
       title={content.title}
       description={content.description}
-      path="/privacy"
+      path="/privacy-and-policy"
       eyebrow={content.eyebrow}
       updatedAt={content.updatedAt}
       highlights={content.highlights}

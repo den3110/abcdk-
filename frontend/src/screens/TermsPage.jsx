@@ -9,7 +9,7 @@ export default function TermsPage() {
     <LegalPageLayout
       title={content.title}
       description={content.description}
-      path="/terms"
+      path="/terms-of-service"
       eyebrow={content.eyebrow}
       updatedAt={content.updatedAt}
       highlights={content.highlights}

@@ -692,19 +692,19 @@ export default {
     privacy: {
       title: "Privacy Policy",
       description:
-        "Describes how PickleTour collects, uses, stores, and protects personal data when you create an account, join tournaments, or use platform features.",
+        "Describes how PickleTour collects, uses, stores, and protects personal data, including Google Drive integration data used for recording export.",
       eyebrow: "Privacy",
-      updatedAt: "15/03/2026",
+      updatedAt: "09/04/2026",
       highlights: [
         {
           label: "Data",
-          value: "Account, profile, activity, and support information",
+          value: "Account, profile, Google Drive integration, and support information",
         },
         {
           label: "Purpose",
-          value: "Run the platform, verify users, and improve the service",
+          value: "Run the platform, export recordings, playback, and security",
         },
-        { label: "Updated", value: "15/03/2026" },
+        { label: "Updated", value: "09/04/2026" },
       ],
       sections: [
         {
@@ -715,6 +715,7 @@ export default {
             "Profile data such as avatar, date of birth, location, nickname, tournament history, and club participation.",
             "Verification data such as citizen ID number and document images if you voluntarily submit KYC records.",
             "Technical data such as IP address, device, browser, error logs, and basic navigation behavior to maintain security and performance.",
+            "When you connect Google Drive for recording export, PickleTour may receive the connected Google account email, the folder ID you choose through Google Picker, the recording file IDs created by the app, and an OAuth refresh token if Google issues one to keep uploads working.",
           ],
         },
         {
@@ -725,6 +726,8 @@ export default {
             "Organize, display, and synchronize tournaments, rankings, schedules, and club areas.",
             "Handle support requests, assess security risks, prevent abuse, and verify identity when needed.",
             "Analyze product performance to improve speed, layout, and the overall user experience.",
+            "Create, upload, rename, move, or inspect recording files in the Google Drive folder that you intentionally choose for recording export.",
+            "Provide replay, preview, or download links for exported recordings when that feature is enabled.",
           ],
         },
         {
@@ -733,6 +736,24 @@ export default {
           paragraphs: [
             "PickleTour does not sell your personal data. We only share data when it is necessary to operate the service, comply with law, or protect the platform from abuse.",
             "Sharing may happen with infrastructure providers, analytics tools, incident response vendors, or competent authorities when a lawful request applies.",
+            "When you intentionally use Google Drive or Facebook integrations, the minimum data required to complete that feature is sent to the relevant provider.",
+          ],
+        },
+        {
+          id: "privacy-google-drive",
+          title: "Google Drive and Google Account data",
+          paragraphs: [
+            "PickleTour uses the Google Drive scope drive.file in the production flow so it only works with files or folders that you intentionally select through Google Picker or files that PickleTour creates on your behalf for recording export.",
+            "PickleTour does not use this permission to browse or read your entire Google Drive beyond the files and folders related to the export feature that you authorized.",
+            "If Google issues an OAuth refresh token, it is stored as a backend secret to keep uploading recordings to the folder you selected. This token is not sold, not used for advertising, and not shared with third parties beyond infrastructure providers required to operate the service.",
+          ],
+        },
+        {
+          id: "privacy-recording-sharing",
+          title: "Recording links and public sharing",
+          paragraphs: [
+            "When Google Drive recording export is enabled, PickleTour may generate preview or download links so recordings can be replayed after a match.",
+            "Depending on the current system configuration, an exported recording file may be granted public link access. You should only use this feature when you have the right to share the recording content for the relevant tournament, court, or event.",
           ],
         },
         {
@@ -760,6 +781,7 @@ export default {
           paragraphs: [
             "We apply appropriate technical and operational safeguards to reduce the risk of unauthorized access, leakage, or use outside the purposes we have disclosed.",
             "Data is retained only for as long as needed to operate the service, resolve disputes, comply with legal duties, or satisfy internal security requirements.",
+            "Internal access to integration tokens, technical logs, and admin data is limited to what is necessary to operate, troubleshoot, and protect the system.",
           ],
         },
         {
@@ -770,6 +792,7 @@ export default {
             "Request support to understand how your data is used.",
             "Request processing or deletion of data where PickleTour can do so without compromising legal duties or system integrity.",
             "Withdraw certain choices related to cookies or optional data at any time.",
+            "Revoke PickleTour's Google Drive access from your Google Account app permissions and ask us to remove related integration data when needed.",
           ],
         },
         {
@@ -777,6 +800,7 @@ export default {
           title: "Privacy contact",
           paragraphs: [
             "If you have questions about privacy, personal data processing, or account-related support, contact PickleTour at support@pickletour.vn.",
+            "For requests related to Google Drive data or Google user data, you can email us with the subject line 'Google Drive Data Request' so we can route the request correctly.",
             "We will review the request and respond within a reasonable timeframe based on the complexity of the issue.",
           ],
         },
@@ -785,19 +809,19 @@ export default {
     terms: {
       title: "Terms of Use",
       description:
-        "Defines the rules for using PickleTour, user responsibilities, service limitations, and how the platform handles account, content, and operational matters.",
+        "Defines the rules for using PickleTour, including accounts, third-party integrations such as Google Drive, recording export responsibilities, and service limitations.",
       eyebrow: "Terms",
-      updatedAt: "15/03/2026",
+      updatedAt: "09/04/2026",
       highlights: [
         {
           label: "Applies to",
-          value: "All users, clubs, and admin areas",
+          value: "Website, user accounts, admin areas, and third-party integrations",
         },
         {
           label: "Covers",
-          value: "Accounts, platform behavior, and responsibilities",
+          value: "Platform usage, recording export, playback, and responsibilities",
         },
-        { label: "Updated", value: "15/03/2026" },
+        { label: "Updated", value: "09/04/2026" },
       ],
       sections: [
         {
@@ -805,7 +829,7 @@ export default {
           title: "Acceptance of terms",
           paragraphs: [
             "By accessing or using PickleTour, you agree to the current terms of use on this platform. If you do not agree, you should stop using the service.",
-            "These terms apply to the website, user accounts, publicly displayed data, admin areas, and features related to tournaments or community spaces.",
+            "These terms apply to the website, user accounts, publicly displayed data, admin areas, recording export, and third-party integrations related to tournaments or community spaces.",
           ],
         },
         {
@@ -818,12 +842,22 @@ export default {
           ],
         },
         {
+          id: "terms-third-party",
+          title: "Third-party integrations",
+          items: [
+            "You may only connect Google, Facebook, or any other third-party platform when you have lawful authority over that account, Page, folder, or dataset.",
+            "You are responsible for maintaining valid configuration and lawful usage rights for the third-party services you connect to PickleTour.",
+            "Third-party platforms have their own terms and policies. By using integrated features, you also agree to comply with the applicable requirements of those platforms.",
+          ],
+        },
+        {
           id: "terms-acceptable-use",
           title: "Permitted and prohibited behavior",
           items: [
             "Do not interfere unlawfully with tournament data, rankings, scores, or other users' information.",
             "Do not upload content that is illegal, abusive, fraudulent, or misleading about events, tournaments, or clubs.",
             "Do not attempt to degrade performance, scan for vulnerabilities, or gain unauthorized access to admin areas or internal APIs.",
+            "Do not misuse or try to expand the scope of Google APIs, Facebook APIs, or other integrations beyond the feature purpose that PickleTour discloses.",
           ],
         },
         {
@@ -835,11 +869,21 @@ export default {
           ],
         },
         {
+          id: "terms-recording-export",
+          title: "Match recordings and Google Drive export",
+          paragraphs: [
+            "When you enable recording export to Google Drive, you confirm that you have the right to store, process, and share that recording within the relevant tournament, court, or event context.",
+            "You understand that the system may generate preview or download links for the recording and, in some configurations, may grant public link access so the recording can be replayed by viewers or organizers.",
+            "You remain responsible for the video, audio, personal data appearing in the recording, and any permissions required from players, referees, organizers, or other relevant parties.",
+          ],
+        },
+        {
           id: "terms-availability",
           title: "Service availability",
           paragraphs: [
             "We work to keep the service stable, but PickleTour does not guarantee uninterrupted availability at all times, especially during maintenance, infrastructure incidents, or other factors outside our control.",
             "PickleTour may change, upgrade, or pause parts of the service to preserve system safety and the overall experience.",
+            "Some features depend on Google Drive, Facebook, or other infrastructure providers and may be affected when those services experience outages or policy changes.",
           ],
         },
         {
@@ -847,7 +891,7 @@ export default {
           title: "Limitation of liability",
           paragraphs: [
             "To the extent permitted by law, PickleTour is not liable for indirect damages arising from the use of, or inability to use, the platform, including data loss, operational interruption, or decisions based on third-party information.",
-            "Users and tournament organizers remain ultimately responsible for their own information, rules, decisions, and legal obligations related to their activities.",
+            "Users and tournament organizers remain ultimately responsible for their own information, rules, decisions, recording-sharing configuration, and legal obligations related to their activities.",
           ],
         },
         {
