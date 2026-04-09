@@ -2607,10 +2607,10 @@ function InteractiveLiveSidebar({
   quickFilters,
   onApplyQuickFilter,
 }) {
-  const currentTitle = currentItem ? getFeedTitle(currentItem) : "ChÆ°a cÃ³ tráº­n";
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
   const currentSubtitle = currentItem
     ? getFeedSubtitle(currentItem)
-    : "Feed sáº½ tá»± cáº­p nháº­t";
+    : "Feed sẽ tự cập nhật";
   const currentBadge = normalizeLiveBadgeLabel(
     asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status),
   );
@@ -2648,13 +2648,29 @@ function InteractiveLiveSidebar({
         zIndex: 10,
         height: "100dvh",
         overflowY: "auto",
-        borderRight: "1px solid var(--live-border)",
-        background: "var(--live-sidebar-bg)",
-        backdropFilter: "blur(18px)",
+        borderRight: "1px solid rgba(255,255,255,0.06)",
+        background: "rgba(10, 14, 20, 0.75)",
+        backdropFilter: "blur(24px)",
+        "&::-webkit-scrollbar": {
+          display: "none",
+        },
+        msOverflowStyle: "none",
+        scrollbarWidth: "none",
       }}
     >
-      <Stack spacing={2.2} sx={{ p: 2.25 }}>
-        <Stack spacing={1.2}>
+      <Box
+        sx={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "30vh",
+          background: "radial-gradient(ellipse at top, rgba(37,244,238,0.08), transparent 80%)",
+          pointerEvents: "none",
+        }}
+      />
+      <Stack spacing={2.5} sx={{ p: 2.5, position: "relative", zIndex: 1 }}>
+        <Stack spacing={1.5}>
           <Box
             sx={{
               display: "flex",
@@ -2670,296 +2686,333 @@ function InteractiveLiveSidebar({
           </Box>
           <Typography
             variant="body2"
-            sx={{ color: "var(--live-text-secondary)", lineHeight: 1.55 }}
+            sx={{ color: "rgba(255,255,255,0.6)", lineHeight: 1.6 }}
           >
-            Feed Æ°u tiÃªn tráº­n live, video native mÆ°á»£t, replay Ä‘áº§y Ä‘á»§ vÃ 
-            cÃ¡c tráº­n sáº¯p vÃ o sÃ¢n Ä‘á»ƒ desktop nhÃ¬n cÃ³ tráº­t tá»± hÆ¡n.
+            Trải nghiệm xem trận đấu thông minh: ưu tiên phát Live, nguồn video mượt mà & replay đầy đủ tương tác cao.
           </Typography>
         </Stack>
-
-        <Stack direction="row" spacing={1}>
-          <Button
-            variant="contained"
-            onClick={onRefresh}
-            startIcon={
-              isFetching ? (
-                <CircularProgress size={16} color="inherit" />
-              ) : (
-                <RefreshRoundedIcon />
-              )
-            }
-            sx={{
-              flex: 1,
-              borderRadius: 999,
-              textTransform: "none",
-              fontWeight: 800,
-              bgcolor: "var(--live-hot)",
-              color: "var(--live-hot-contrast)",
-              "&:hover": {
-                bgcolor: "var(--live-hot-hover)",
-              },
-            }}
-          >
-            LÃ m má»›i
-          </Button>
-          <Button
-            component={RouterLink}
-            to="/live/clusters"
-            startIcon={<GridViewRoundedIcon />}
-            sx={{
-              borderRadius: 999,
-              textTransform: "none",
-              fontWeight: 800,
-              color: "var(--live-text)",
-              bgcolor: "var(--live-surface)",
-              border: "1px solid var(--live-border)",
-              "&:hover": {
-                bgcolor: "var(--live-surface-strong)",
-              },
-            }}
-          >
-            Cá»¥m sÃ¢n
-          </Button>
-        </Stack>
-
-        {hasPendingNewItems ? (
-          <Button
-            variant="outlined"
-            onClick={onShowNewItems}
-            sx={{
-              borderRadius: 999,
-              textTransform: "none",
-              fontWeight: 800,
-              color: "var(--live-accent)",
-              borderColor: "var(--live-accent-border)",
-              bgcolor: "var(--live-accent-soft)",
-              "&:hover": {
-                borderColor: "var(--live-accent-border-strong)",
-                bgcolor: "var(--live-accent-soft-strong)",
-              },
-            }}
-          >
-            CÃ³ tráº­n má»›i, nháº¥n Ä‘á»ƒ lÃ m má»›i feed
-          </Button>
-        ) : null}
-
-        <LiveMatchSearchField
-          value={searchInput}
-          onChange={onSearchChange}
-          results={searchResults}
-          isSearching={isSearchResultsFetching}
-          onSelect={onSearchSelect}
-          selectedId={sid(currentItem)}
-        />
-
-        <Stack spacing={0.75}>
-          <Typography
-            variant="caption"
-            sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
-          >
-            Lá»c thÃ´ng minh
-          </Typography>
-          <DraggableChipRail
-            ariaLabel="Bá»™ lá»c thÃ´ng minh"
-            items={quickFilters}
-            onSelect={(item) => onApplyQuickFilter(item.key)}
-          />
-        </Stack>
-
-        <Stack spacing={0.75}>
-          <Typography
-            variant="caption"
-            sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
-          >
-            Cháº¿ Ä‘á»™ feed
-          </Typography>
-          <DraggableChipRail
-            ariaLabel="Cháº¿ Ä‘á»™ feed"
-            items={modeItems}
-            onSelect={(item) => onModeChange(item.value)}
-          />
-        </Stack>
-
-        <CustomTournamentPicker
-          label="Giáº£i Ä‘áº¥u"
-          value={tournamentId}
-          options={tournamentOptions}
-          onChange={onTournamentChange}
-          placeholder="Táº¥t cáº£ giáº£i Ä‘áº¥u"
-        />
-
-        <TextField
-          select
-          label="Nguá»“n Æ°u tiÃªn"
-          value={sourceFilter}
-          onChange={(event) => onSourceFilterChange(event.target.value)}
-          fullWidth
-          sx={{ ...LIVE_SIDEBAR_FIELD_SX, display: "none" }}
-        >
-          {SOURCE_OPTIONS.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {formatCountLabel(option.label, getCount(sources, option.value))}
-            </MenuItem>
-          ))}
-        </TextField>
-
-        <TextField
-          select
-          label="Tráº¡ng thÃ¡i replay"
-          value={replayFilter}
-          onChange={(event) => onReplayFilterChange(event.target.value)}
-          fullWidth
-          sx={{ ...LIVE_SIDEBAR_FIELD_SX, display: "none" }}
-        >
-          {REPLAY_OPTIONS.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {formatCountLabel(option.label, getCount(replayStates, option.value))}
-            </MenuItem>
-          ))}
-        </TextField>
-
-        <TextField
-          select
-          label="Sáº¯p xáº¿p"
-          value={sortMode}
-          onChange={(event) => onSortModeChange(event.target.value)}
-          fullWidth
-          sx={LIVE_SIDEBAR_FIELD_SX}
-        >
-          {SORT_OPTIONS.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {option.label}
-            </MenuItem>
-          ))}
-        </TextField>
-
-        <Button
-          onClick={onClearFilters}
-          disabled={!hasActiveFilters}
-          sx={{
-            alignSelf: "flex-start",
-            borderRadius: 999,
-            textTransform: "none",
-            fontWeight: 800,
-            color: "var(--live-text)",
-            border: "1px solid var(--live-border)",
-            bgcolor: "var(--live-surface)",
-          }}
-        >
-          XÃ³a bá»™ lá»c
-        </Button>
-
-        <Divider sx={{ borderColor: "var(--live-border)" }} />
-
-        <Stack spacing={1.1}>
-          <Typography
-            variant="overline"
-            sx={{ color: "var(--live-accent)", fontWeight: 800 }}
-          >
-            ToÃ n cáº£nh feed
-          </Typography>
-          <Stack direction="row" spacing={1}>
-            {[
-              { label: "Live", value: summary?.live || 0 },
-              { label: "Replay Ä‘áº§y Ä‘á»§", value: summary?.completeReplay || 0 },
-            ].map((item) => (
-              <Box
-                key={item.label}
-                sx={{
-                  flex: 1,
-                  p: 1.4,
-                  borderRadius: 3,
-                  bgcolor: "var(--live-surface)",
-                  border: "1px solid var(--live-border)",
-                }}
-              >
-                <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
-                  {item.label}
-                </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                  {item.value}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-          <Stack direction="row" spacing={1}>
-            {[
-              { label: "Nguá»“n native", value: summary?.nativeReady || 0 },
-              { label: "Äang xá»­ lÃ½", value: summary?.processingReplay || 0 },
-            ].map((item) => (
-              <Box
-                key={item.label}
-                sx={{
-                  flex: 1,
-                  p: 1.4,
-                  borderRadius: 3,
-                  bgcolor: "var(--live-surface)",
-                  border: "1px solid var(--live-border)",
-                }}
-              >
-                <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
-                  {item.label}
-                </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                  {item.value}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-        </Stack>
-
-        <Divider sx={{ borderColor: "var(--live-border)" }} />
 
         <Stack spacing={1.2}>
+          <Stack direction="row" spacing={1.2}>
+            <Button
+              variant="contained"
+              onClick={onRefresh}
+              startIcon={
+                isFetching ? (
+                  <CircularProgress size={16} color="inherit" />
+                ) : (
+                  <RefreshRoundedIcon />
+                )
+              }
+              sx={{
+                flex: 1,
+                borderRadius: 2.5,
+                textTransform: "none",
+                fontWeight: 800,
+                py: 1,
+                bgcolor: "var(--live-accent)",
+                color: "#0a0e14",
+                boxShadow: "0 4px 14px rgba(37,244,238,0.25)",
+                transition: "transform 140ms ease, box-shadow 140ms ease",
+                "&:hover": {
+                  bgcolor: "#3cfcf6",
+                  boxShadow: "0 6px 20px rgba(37,244,238,0.4)",
+                  transform: "translateY(-1px)",
+                },
+              }}
+            >
+              Làm mới
+            </Button>
+            <Button
+              component={RouterLink}
+              to="/live/clusters"
+              startIcon={<GridViewRoundedIcon />}
+              sx={{
+                borderRadius: 2.5,
+                textTransform: "none",
+                fontWeight: 800,
+                color: "#fff",
+                px: 2.5,
+                py: 1,
+                bgcolor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                transition: "all 140ms ease",
+                "&:hover": {
+                  bgcolor: "rgba(255,255,255,0.12)",
+                  borderColor: "rgba(255,255,255,0.2)",
+                  transform: "translateY(-1px)",
+                },
+              }}
+            >
+              Cụm sân
+            </Button>
+          </Stack>
+
+          {hasPendingNewItems ? (
+            <Button
+              variant="outlined"
+              onClick={onShowNewItems}
+              sx={{
+                borderRadius: 2.5,
+                textTransform: "none",
+                fontWeight: 800,
+                py: 1,
+                color: "var(--live-hot)",
+                borderColor: "rgba(255,107,87,0.3)",
+                bgcolor: "rgba(255,107,87,0.08)",
+                animation: "pulse-hot 2s infinite ease-in-out",
+                "@keyframes pulse-hot": {
+                  "0%": { boxShadow: "0 0 0 0 rgba(255,107,87,0.3)" },
+                  "70%": { boxShadow: "0 0 0 6px rgba(255,107,87,0)" },
+                  "100%": { boxShadow: "0 0 0 0 rgba(255,107,87,0)" },
+                },
+                "&:hover": {
+                  borderColor: "rgba(255,107,87,0.6)",
+                  bgcolor: "rgba(255,107,87,0.16)",
+                },
+              }}
+            >
+              Có trận mới, nhấn để làm mới feed
+            </Button>
+          ) : null}
+        </Stack>
+
+        <Box
+          sx={{
+            p: 2,
+            borderRadius: 4,
+            bgcolor: "rgba(255,255,255,0.02)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2.5,
+            boxShadow: "inset 0 2px 10px rgba(255,255,255,0.01)",
+          }}
+        >
+          <LiveMatchSearchField
+            value={searchInput}
+            onChange={onSearchChange}
+            results={searchResults}
+            isSearching={isSearchResultsFetching}
+            onSelect={onSearchSelect}
+            selectedId={sid(currentItem)}
+          />
+
+          <Stack spacing={1}>
+            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Lọc nhanh
+            </Typography>
+            <DraggableChipRail
+              ariaLabel="Bộ lọc thông minh"
+              items={quickFilters}
+              onSelect={(item) => onApplyQuickFilter(item.key)}
+            />
+          </Stack>
+
+          <Stack spacing={1}>
+            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Hiển thị thêm bước
+            </Typography>
+            <DraggableChipRail
+              ariaLabel="Chế độ feed"
+              items={modeItems}
+              onSelect={(item) => onModeChange(item.value)}
+            />
+          </Stack>
+
+          <CustomTournamentPicker
+            label="Giải đấu"
+            value={tournamentId}
+            options={tournamentOptions}
+            onChange={onTournamentChange}
+            placeholder="Tất cả giải đấu"
+          />
+
+          <Stack direction="row" spacing={1.5}>
+            <TextField
+              select
+              label="Sắp xếp"
+              value={sortMode}
+              onChange={(event) => onSortModeChange(event.target.value)}
+              sx={{ flex: 1, ...LIVE_SIDEBAR_FIELD_SX }}
+            >
+              {SORT_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <Button
+              onClick={onClearFilters}
+              disabled={!hasActiveFilters}
+              sx={{
+                flexShrink: 0,
+                minWidth: 48,
+                px: 2,
+                borderRadius: 2.5,
+                textTransform: "none",
+                fontWeight: 800,
+                color: "rgba(255,255,255,0.7)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                bgcolor: "transparent",
+                transition: "all 140ms",
+                "&:hover": {
+                  color: "#fff",
+                  bgcolor: "rgba(255,255,255,0.06)",
+                  borderColor: "rgba(255,255,255,0.2)",
+                  transform: "translateY(-1px)",
+                },
+                "&.Mui-disabled": {
+                  borderColor: "transparent",
+                }
+              }}
+            >
+              Xóa
+            </Button>
+          </Stack>
+        </Box>
+
+        <Divider sx={{ borderColor: "rgba(255,255,255,0.06)", my: 1 }} />
+
+        <Stack spacing={1.5}>
+          <Typography
+            variant="caption"
+            sx={{ color: "var(--live-accent)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}
+          >
+             • Toàn cảnh Feed
+          </Typography>
+          <Stack direction="row" spacing={1.5}>
+            {[
+              { label: "Live", value: summary?.live || 0, highlight: true },
+              { label: "Replay Native", value: summary?.nativeReady || 0, highlight: false },
+            ].map((item) => (
+              <Box
+                key={item.label}
+                sx={{
+                  flex: 1,
+                  p: 1.5,
+                  borderRadius: 3,
+                  bgcolor: item.highlight ? "rgba(255,107,87,0.08)" : "rgba(255,255,255,0.03)",
+                  border: "1px solid",
+                  borderColor: item.highlight ? "rgba(255,107,87,0.2)" : "rgba(255,255,255,0.06)",
+                  transition: "transform 140ms ease",
+                  "&:hover": {
+                    transform: "translateY(-2px)",
+                    borderColor: item.highlight ? "rgba(255,107,87,0.4)" : "rgba(255,255,255,0.12)",
+                  }
+                }}
+              >
+                <Typography variant="caption" sx={{ color: item.highlight ? "var(--live-hot)" : "rgba(255,255,255,0.6)", fontWeight: 700 }}>
+                  {item.label}
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 900, color: item.highlight ? "#fff" : "rgba(255,255,255,0.9)", mt: 0.25 }}>
+                  {item.value}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+          <Stack direction="row" spacing={1.5}>
+            {[
+              { label: "Hoàn tất Replay", value: summary?.completeReplay || 0 },
+              { label: "Video đang xử lý", value: summary?.processingReplay || 0 },
+            ].map((item) => (
+              <Box
+                key={item.label}
+                sx={{
+                  flex: 1,
+                  p: 1.5,
+                  borderRadius: 3,
+                  bgcolor: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  transition: "transform 140ms ease",
+                  "&:hover": {
+                    transform: "translateY(-2px)",
+                    borderColor: "rgba(255,255,255,0.12)",
+                  }
+                }}
+              >
+                <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)", fontWeight: 700 }}>
+                  {item.label}
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 900, color: "rgba(255,255,255,0.9)", mt: 0.25 }}>
+                  {item.value}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Stack>
+
+        <Divider sx={{ borderColor: "rgba(255,255,255,0.06)", my: 1 }} />
+
+        <Stack spacing={1.5}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography
-              variant="overline"
-              sx={{ color: "var(--live-accent)", fontWeight: 800 }}
+              variant="caption"
+              sx={{ color: "var(--live-accent)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}
             >
-              Äang xem
+               • Đang Chiếu
             </Typography>
-            <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
+            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 800 }}>
               {progressLabel}
             </Typography>
           </Stack>
           <Box
             sx={{
-              p: 1.6,
+              p: 2,
               borderRadius: 4,
-              bgcolor: "var(--live-surface)",
-              border: "1px solid var(--live-border)",
+              bgcolor: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(37,244,238,0.2)",
+              position: "relative",
+              overflow: "hidden",
             }}
           >
-            <Stack spacing={1.1}>
+            <Box
+              sx={{
+                position: "absolute",
+                top: -20,
+                right: -20,
+                width: 100,
+                height: 100,
+                background: "radial-gradient(circle, rgba(37,244,238,0.15) 0%, transparent 70%)",
+                pointerEvents: "none",
+              }}
+            />
+            
+            <Stack spacing={1.2} sx={{ position: "relative", zIndex: 1 }}>
               <Chip
                 size="small"
                 label={currentBadge}
                 sx={{
                   alignSelf: "flex-start",
-                  color: "var(--live-text)",
-                  bgcolor: "var(--live-hot-soft)",
-                  border: "1px solid var(--live-hot-border)",
+                  color: "#fff",
+                  bgcolor: "rgba(255,107,87,0.2)",
+                  border: "1px solid rgba(255,107,87,0.4)",
                   fontWeight: 800,
+                  boxShadow: "0 0 10px rgba(255,107,87,0.2)"
                 }}
               />
-              <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.3 }}>
-                {currentTitle}
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{ color: "var(--live-text-secondary)" }}
-              >
-                {currentSubtitle}
-              </Typography>
-              <Stack direction="row" spacing={1} useFlexGap flexWrap>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.3, color: "#fff" }}>
+                  {currentTitle}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ color: "rgba(255,255,255,0.6)", mt: 0.5 }}
+                >
+                  {currentSubtitle}
+                </Typography>
+              </Box>
+
+              <Stack direction="row" spacing={0.75} useFlexGap flexWrap>
                 {currentItem?.courtLabel ? (
                   <Chip
                     size="small"
                     label={currentItem.courtLabel}
                     sx={{
-                      color: "var(--live-text)",
-                      bgcolor: "var(--live-chip-bg)",
-                      border: "1px solid var(--live-border)",
+                      color: "rgba(255,255,255,0.8)",
+                      bgcolor: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.1)",
                     }}
                   />
                 ) : null}
@@ -2968,47 +3021,48 @@ function InteractiveLiveSidebar({
                     size="small"
                     label={currentItem.displayCode}
                     sx={{
-                      color: "var(--live-text)",
-                      bgcolor: "var(--live-chip-bg)",
-                      border: "1px solid var(--live-border)",
+                      color: "rgba(255,255,255,0.8)",
+                      bgcolor: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.1)",
                     }}
                   />
                 ) : null}
                 {currentItem?.smartScore ? (
                   <Chip
                     size="small"
-                    label={`${currentItem.smartScore} Ä‘iá»ƒm`}
+                    label={`${currentItem.smartScore} điểm`}
                     sx={{
                       color: "var(--live-accent)",
-                      bgcolor: "var(--live-accent-soft)",
-                      border: "1px solid var(--live-accent-border)",
+                      bgcolor: "rgba(37,244,238,0.1)",
+                      border: "1px solid rgba(37,244,238,0.2)",
                     }}
                   />
                 ) : null}
               </Stack>
-              <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
-                {currentItem?.updatedAt
-                  ? `Cáº­p nháº­t ${relativeTime(currentItem.updatedAt)}`
-                  : "Feed Ä‘ang chá» dá»¯ liá»‡u má»›i"}
-              </Typography>
-              <LinearProgress
-                variant="determinate"
-                value={progressValue}
-                sx={{
-                  height: 6,
-                  borderRadius: 999,
-                  bgcolor: "var(--live-chip-bg)",
-                  "& .MuiLinearProgress-bar": {
+              
+              <Box sx={{ mt: 1 }}>
+                <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.4)", fontSize: 10, textTransform: "uppercase" }}>
+                    Tiến độ Feed
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)", fontSize: 10 }}>
+                    {loadedCount} / {totalCount || loadedCount || 0}
+                  </Typography>
+                </Stack>
+                <LinearProgress
+                  variant="determinate"
+                  value={progressValue}
+                  sx={{
+                    height: 4,
                     borderRadius: 999,
-                    background:
-                      "linear-gradient(90deg, var(--live-hot), var(--live-accent))",
-                  },
-                }}
-              />
-              <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
-                ÄÃ£ táº£i {loadedCount}/{totalCount || loadedCount || 0} tháº» trong
-                feed hiá»‡n táº¡i.
-              </Typography>
+                    bgcolor: "rgba(255,255,255,0.08)",
+                    "& .MuiLinearProgress-bar": {
+                      borderRadius: 999,
+                      background: "linear-gradient(90deg, var(--live-hot), var(--live-accent))",
+                    },
+                  }}
+                />
+              </Box>
             </Stack>
           </Box>
         </Stack>
