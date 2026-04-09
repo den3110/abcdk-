@@ -1123,7 +1123,7 @@ enum RecoverySeverity: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct RecoveryEvent: Codable, Equatable, Hashable, Identifiable {
+struct RecoveryEvent: Codable, Equatable, Hashable, Identifiable, Sendable {
     var reason: String
     var atMs: Int64
 
@@ -1132,7 +1132,7 @@ struct RecoveryEvent: Codable, Equatable, Hashable, Identifiable {
     }
 }
 
-struct StreamRecoveryState: Codable, Equatable {
+struct StreamRecoveryState: Codable, Equatable, Sendable {
     var stage: RecoveryStage = .idle
     var severity: RecoverySeverity = .info
     var summary: String = ""
@@ -1149,7 +1149,7 @@ struct StreamRecoveryState: Codable, Equatable {
     }
 }
 
-struct OverlayHealth: Codable, Equatable {
+struct OverlayHealth: Codable, Equatable, Sendable {
     var attached: Bool = false
     var reattaching: Bool = false
     var snapshotFresh: Bool = false
@@ -1222,7 +1222,7 @@ final class LiveStreamRuntimeRegistry: ObservableObject {
     }
 }
 
-struct ThermalEvent: Codable, Equatable, Hashable, Identifiable {
+struct ThermalEvent: Codable, Equatable, Hashable, Identifiable, Sendable {
     var thermalStateRawValue: Int
     var atMs: Int64
     var tempC: Double?
@@ -1232,7 +1232,7 @@ struct ThermalEvent: Codable, Equatable, Hashable, Identifiable {
     }
 }
 
-struct MemoryPressureEvent: Codable, Equatable, Hashable, Identifiable {
+struct MemoryPressureEvent: Codable, Equatable, Hashable, Identifiable, Sendable {
     var level: Int
     var summary: String
     var atMs: Int64
@@ -1240,6 +1240,210 @@ struct MemoryPressureEvent: Codable, Equatable, Hashable, Identifiable {
     var id: String {
         "\(atMs)-\(level)"
     }
+}
+
+struct ObserverIngestResponse: Codable, Equatable {
+    var ok: Bool
+    var source: String?
+    var deviceId: String?
+    var id: String?
+}
+
+struct LiveDeviceHeartbeatRequest: Codable, Equatable {
+    var source: String
+    var deviceId: String
+    var capturedAt: String
+    var heartbeatIntervalMs: Int
+    var status: LiveDeviceTelemetryStatus
+}
+
+struct LiveDeviceEventRequest: Codable, Equatable {
+    var source: String
+    var deviceId: String
+    var capturedAt: String
+    var event: LiveDeviceTelemetryEvent
+    var status: LiveDeviceTelemetryStatus?
+}
+
+struct LiveDeviceTelemetryEvent: Codable, Equatable {
+    var type: String
+    var level: String
+    var reasonCode: String
+    var reasonText: String
+    var stage: String?
+    var severity: String?
+    var occurredAt: String
+    var courtId: String?
+    var courtName: String?
+    var matchId: String?
+    var matchCode: String?
+    var operatorUserId: String?
+    var operatorName: String?
+    var payload: LiveDeviceTelemetryEventPayload?
+}
+
+struct LiveDeviceTelemetryEventPayload: Codable, Equatable {
+    var summary: String?
+    var detail: String?
+    var overlayIssue: String?
+    var thermalState: String?
+    var memoryPressure: String?
+    var diagnostics: [String]
+}
+
+struct LiveDeviceTelemetryStatus: Codable, Equatable {
+    var platform: String
+    var clientSessionId: String
+    var deviceId: String
+    var screenState: String
+    var routeLabel: String
+    var app: LiveDeviceTelemetryAppInfo
+    var device: LiveDeviceTelemetryDeviceInfo
+    var operatorInfo: LiveDeviceTelemetryOperatorInfo
+    var route: LiveDeviceTelemetryRouteInfo
+    var court: LiveDeviceTelemetryCourtInfo
+    var match: LiveDeviceTelemetryMatchInfo
+    var stream: LiveDeviceTelemetryStreamInfo
+    var recording: LiveDeviceTelemetryRecordingInfo
+    var overlay: LiveDeviceTelemetryOverlayInfo
+    var presence: CourtLiveScreenPresence?
+    var network: LiveDeviceTelemetryNetworkInfo
+    var battery: LiveDeviceTelemetryBatteryInfo
+    var thermal: LiveDeviceTelemetryThermalInfo
+    var recovery: StreamRecoveryState
+    var warnings: [String]
+    var diagnostics: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case platform
+        case clientSessionId
+        case deviceId
+        case screenState
+        case routeLabel
+        case app
+        case device
+        case operatorInfo = "operator"
+        case route
+        case court
+        case match
+        case stream
+        case recording
+        case overlay
+        case presence
+        case network
+        case battery
+        case thermal
+        case recovery
+        case warnings
+        case diagnostics
+    }
+}
+
+struct LiveDeviceTelemetryAppInfo: Codable, Equatable {
+    var bundleId: String?
+    var appVersion: String?
+    var buildNumber: String?
+    var liveMode: String
+    var quality: String
+}
+
+struct LiveDeviceTelemetryDeviceInfo: Codable, Equatable {
+    var name: String
+    var model: String
+    var systemName: String
+    var systemVersion: String
+}
+
+struct LiveDeviceTelemetryOperatorInfo: Codable, Equatable {
+    var userId: String?
+    var displayName: String?
+    var role: String?
+}
+
+struct LiveDeviceTelemetryRouteInfo: Codable, Equatable {
+    var label: String
+    var waitingForCourt: Bool
+    var waitingForMatchLive: Bool
+    var waitingForNextMatch: Bool
+    var freshEntryRequired: Bool
+    var appIsActive: Bool
+}
+
+struct LiveDeviceTelemetryCourtInfo: Codable, Equatable {
+    var id: String?
+    var name: String?
+    var clusterId: String?
+    var clusterName: String?
+}
+
+struct LiveDeviceTelemetryMatchInfo: Codable, Equatable {
+    var id: String?
+    var code: String?
+    var status: String?
+    var tournamentName: String?
+}
+
+struct LiveDeviceTelemetryStreamInfo: Codable, Equatable {
+    var state: String
+    var bitrate: Int
+    var quality: String
+    var socketConnected: Bool
+    var runtimeSocketConnected: Bool
+    var presenceSocketConnected: Bool
+    var activeSocketMatchId: String?
+    var socketPayloadStale: Bool
+    var liveStartedAt: String?
+}
+
+struct LiveDeviceTelemetryRecordingInfo: Codable, Equatable {
+    var stateText: String
+    var pendingUploads: Int
+    var pendingQueueBytes: Int64
+    var pendingFinalizations: Int
+    var segmentCount: Int
+    var uploadMode: String?
+    var playbackURL: String?
+    var storageFreeBytes: Int64
+    var storageTotalBytes: Int64
+}
+
+struct LiveDeviceTelemetryOverlayInfo: Codable, Equatable {
+    var attached: Bool
+    var healthy: Bool
+    var reattaching: Bool
+    var snapshotFresh: Bool
+    var roomMismatch: Bool
+    var brandingConfigured: Bool
+    var brandingLoading: Bool
+    var brandingReady: Bool
+    var brandingLoadedCount: Int
+    var brandingAssetCount: Int
+    var destinationBound: Bool
+    var issue: String?
+    var issueAtMs: Int64
+    var lastEvent: String?
+}
+
+struct LiveDeviceTelemetryNetworkInfo: Codable, Equatable {
+    var connected: Bool
+    var wifi: Bool
+    var lowPowerModeEnabled: Bool
+}
+
+struct LiveDeviceTelemetryBatteryInfo: Codable, Equatable {
+    var levelPercent: Int?
+    var state: String
+    var lowWarning: Bool
+}
+
+struct LiveDeviceTelemetryThermalInfo: Codable, Equatable {
+    var state: String
+    var stateRawValue: Int
+    var warning: Bool
+    var critical: Bool
+    var lastEventAtMs: Int64?
+    var lastEventSummary: String?
+    var memoryPressureSummary: String?
 }
 
 struct OperatorRecoveryDialogState: Equatable {

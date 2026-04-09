@@ -10,6 +10,10 @@ enum LiveAppConfig {
         requiredURL(for: "PTLiveBaseURL", fallback: "https://pickletour.vn/api/")
     }
 
+    static var observerBaseURL: URL? {
+        optionalURL(for: "PTLiveObserverBaseURL")
+    }
+
     static var socketURL: URL {
         requiredURL(for: "PTLiveSocketURL", fallback: "https://pickletour.vn")
     }
@@ -46,6 +50,15 @@ enum LiveAppConfig {
             return fallback
         }
         return raw
+    }
+
+    private static func optionalURL(for key: String) -> URL? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(string: trimmed)
     }
 
     private static func requiredURL(for key: String, fallback: String) -> URL {
@@ -433,6 +446,22 @@ final class LiveAPIClient {
         try await request(path: "api/live/recordings/v2/by-match/\(matchId)")
     }
 
+    func sendObserverDeviceHeartbeat(_ body: LiveDeviceHeartbeatRequest) async throws -> ObserverIngestResponse {
+        try await observerRequest(
+            path: "api/observer/ingest/live-devices/heartbeat",
+            method: "POST",
+            body: body
+        )
+    }
+
+    func sendObserverDeviceEvent(_ body: LiveDeviceEventRequest) async throws -> ObserverIngestResponse {
+        try await observerRequest(
+            path: "api/observer/ingest/live-devices/event",
+            method: "POST",
+            body: body
+        )
+    }
+
     private func request<Response: Decodable>(
         path: String,
         method: String = "GET",
@@ -441,6 +470,7 @@ final class LiveAPIClient {
         extraHeaders: [String: String] = [:]
     ) async throws -> Response {
         let request = try buildRequest(
+            baseURL: LiveAppConfig.baseURL,
             path: path,
             method: method,
             query: query,
@@ -461,11 +491,35 @@ final class LiveAPIClient {
         extraHeaders: [String: String] = [:]
     ) async throws -> Response {
         let request = try buildRequest(
+            baseURL: LiveAppConfig.baseURL,
             path: path,
             method: method,
             query: query,
             bodyData: try JSONEncoder.liveApp.encode(body),
             requiresAuth: requiresAuth,
+            extraHeaders: extraHeaders
+        )
+        let (data, response) = try await urlSession.data(for: request)
+        return try decodeResponse(data: data, response: response)
+    }
+
+    private func observerRequest<Response: Decodable, Body: Encodable>(
+        path: String,
+        method: String = "POST",
+        body: Body,
+        extraHeaders: [String: String] = [:]
+    ) async throws -> Response {
+        guard let observerBaseURL = LiveAppConfig.observerBaseURL else {
+            throw LiveAPIError.invalidURL
+        }
+
+        let request = try buildRequest(
+            baseURL: observerBaseURL,
+            path: path,
+            method: method,
+            query: [],
+            bodyData: try JSONEncoder.liveApp.encode(body),
+            requiresAuth: true,
             extraHeaders: extraHeaders
         )
         let (data, response) = try await urlSession.data(for: request)
@@ -498,6 +552,7 @@ final class LiveAPIClient {
     }
 
     private func buildRequest(
+        baseURL: URL,
         path: String,
         method: String,
         query: [URLQueryItem],
@@ -505,7 +560,7 @@ final class LiveAPIClient {
         requiresAuth: Bool,
         extraHeaders: [String: String]
     ) throws -> URLRequest {
-        guard var components = URLComponents(url: LiveAppConfig.baseURL, resolvingAgainstBaseURL: false) else {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw LiveAPIError.invalidURL
         }
 

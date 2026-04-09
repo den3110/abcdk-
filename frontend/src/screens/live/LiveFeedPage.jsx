@@ -1441,8 +1441,30 @@ function FeedCard({
       />
 
       {shouldRenderPlayer && source ? (
-        <Box sx={{ position: "absolute", inset: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
-          <UnifiedStreamPlayer
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <Box
+            sx={{
+              width: "100%",
+              height: "100%",
+              maxHeight: "100dvh",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              "& > *": {
+                maxHeight: "100%",
+                maxWidth: "100%",
+              },
+            }}
+          >
+            <UnifiedStreamPlayer
             source={source}
             autoplay={isActive}
             useNativeControls={useNativeControls}

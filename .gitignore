@@ -34,6 +34,10 @@ backend-go/bin/
 backend-go/tmp/
 backend-go/.air/
 backend-go/coverage.out
+observer-vps/.env
+observer-vps/bin/
+observer-vps/observer
+observer-vps/*.exe
 .go-cache/
 .go-mod-cache/
 

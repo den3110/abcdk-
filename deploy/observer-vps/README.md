@@ -10,8 +10,8 @@ This VPS is intended to handle five internal-only roles:
 
 Preferred deployment now is the dedicated Go collector:
 
-- source: `backend-go/cmd/observer`
-- container image build: `backend-go/Dockerfile.observer`
+- source: `observer-vps/cmd/observer`
+- container image build: `observer-vps/Dockerfile`
 - compose example: `deploy/observer-vps/docker-compose.observer.yml`
 
 The main Node API remains the producer. It forwards request events and runtime
@@ -39,7 +39,7 @@ IP, Tailscale IP, or internal load-balancer URL of that VPS.
 Build from the repo root:
 
 ```bash
-docker build -f backend-go/Dockerfile.observer -t ghcr.io/your-org/pickletour-observer:latest .
+docker build -f observer-vps/Dockerfile -t ghcr.io/your-org/pickletour-observer:latest .
 docker push ghcr.io/your-org/pickletour-observer:latest
 ```
 
@@ -53,12 +53,15 @@ OBSERVER_PORT=8787
 OBSERVER_BIND_HOST=0.0.0.0
 OBSERVER_API_KEY=replace-with-a-long-random-secret
 OBSERVER_READ_API_KEY=replace-with-a-different-read-only-secret
+JWT_SECRET=use-the-same-jwt-secret-as-main-backend-if-apps-send-direct-telemetry
 MONGO_URI=mongodb://127.0.0.1:27017/pickletour_observer
 MONGO_URI_PROD=mongodb://127.0.0.1:27017/pickletour_observer
 MONGO_DB_NAME=pickletour_observer
 OBSERVER_EVENT_TTL_DAYS=7
 OBSERVER_RUNTIME_TTL_DAYS=14
 OBSERVER_BACKUP_TTL_DAYS=60
+OBSERVER_LIVE_DEVICE_TTL_DAYS=3
+OBSERVER_LIVE_DEVICE_STALE_MS=30000
 ```
 
 Keep the published port private by default. Prefer one of these:
@@ -93,13 +96,14 @@ GET /dashboard
 
 ## Read-Only Endpoints
 
-All read endpoints require the read key in `x-pkt-observer-key` or `Authorization: Bearer ...`.
+All read endpoints require the read key in `x-pkt-observer-key`.
 
 ```text
 GET /api/observer/read/summary
 GET /api/observer/read/events
 GET /api/observer/read/runtime
 GET /api/observer/read/backups
+GET /api/observer/read/live-devices
 ```
 
 Example:
@@ -117,14 +121,24 @@ Anything that should be accepted inbound and stored cheaply can post to:
 POST /api/observer/ingest/events
 POST /api/observer/ingest/runtime
 POST /api/observer/ingest/backups
+POST /api/observer/ingest/live-devices/heartbeat
+POST /api/observer/ingest/live-devices/event
 ```
 
 This is suitable for:
 
 - production request forwarding from `httpLogger`
 - periodic runtime snapshots from the main API
+- direct live-device telemetry from the iOS live app
 - third-party webhook audit copies
 - backup completion metadata
+
+Direct app telemetry auth options:
+
+- main backend uses `OBSERVER_API_KEY`
+- live app can post directly with `Authorization: Bearer <app-jwt>`
+- to allow that, set `JWT_SECRET` on the observer VPS to the same value as the main backend
+- set `PTLiveObserverBaseURL` in the iOS live app to the private observer URL, for example `http://10.0.0.5:8787/`
 
 ## Backup Metadata Push
 
