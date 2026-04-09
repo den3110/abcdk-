@@ -15,6 +15,9 @@ import {
   VolumeUpRounded as VolumeUpRoundedIcon,
 } from "@mui/icons-material";
 import UnifiedStreamPlayer from "./UnifiedStreamPlayer";
+import VidstackVideoPlayer, {
+  supportsVidstackSource,
+} from "./VidstackVideoPlayer";
 
 function asTrimmed(value) {
   return String(value || "").trim();
@@ -178,6 +181,7 @@ export default function FeedStylePlayerDialog({
   const useNativeControls = Boolean(
     item?.useNativeControls || resolvedSource?.meta?.useNativeControls,
   );
+  const usesVidstack = supportsVidstackSource(resolvedSource);
   const hasNativeMute = Boolean(
     resolvedSource &&
       isNativeKind(resolvedSource.kind, resolvedSource.key || activeStreamKey),
@@ -187,9 +191,11 @@ export default function FeedStylePlayerDialog({
     hasNativeMute
       ? "contain"
       : "cover";
-  const bottomOffset = useNativeControls
-    ? { xs: 82, sm: 90 }
-    : { xs: 18, sm: 22 };
+  const bottomOffset = usesVidstack
+    ? { xs: 104, sm: 118 }
+    : useNativeControls
+      ? { xs: 82, sm: 90 }
+      : { xs: 18, sm: 22 };
   const statusMeta = statusTone(item?.status);
   const title = asTrimmed(item?.title) || "PickleTour Live";
   const subtitle =
@@ -251,22 +257,36 @@ export default function FeedStylePlayerDialog({
           sx={{
             position: "absolute",
             inset: 0,
-            background:
-              "linear-gradient(180deg, rgba(4,8,14,0.16) 0%, rgba(4,8,14,0.08) 24%, rgba(4,8,14,0.18) 48%, rgba(0,0,0,0.54) 76%, rgba(0,0,0,0.9) 100%)",
+            background: usesVidstack
+              ? "linear-gradient(180deg, rgba(4,8,14,0.12) 0%, rgba(4,8,14,0.04) 24%, rgba(4,8,14,0.1) 48%, rgba(0,0,0,0.42) 76%, rgba(0,0,0,0.78) 100%)"
+              : "linear-gradient(180deg, rgba(4,8,14,0.16) 0%, rgba(4,8,14,0.08) 24%, rgba(4,8,14,0.18) 48%, rgba(0,0,0,0.54) 76%, rgba(0,0,0,0.9) 100%)",
           }}
         />
 
         <Box sx={{ position: "absolute", inset: 0 }}>
-          <UnifiedStreamPlayer
-            source={resolvedSource}
-            autoplay
-            useNativeControls={useNativeControls}
-            muted={muted}
-            onMutedChange={onMutedChange}
-            chromeMode="minimal"
-            fillContainer
-            objectFit={playerObjectFit}
-          />
+          {usesVidstack ? (
+            <VidstackVideoPlayer
+              source={resolvedSource}
+              title={title}
+              status={item?.status}
+              poster={posterUrl}
+              autoplay
+              muted={muted}
+              onMutedChange={onMutedChange}
+              objectFit={playerObjectFit}
+            />
+          ) : (
+            <UnifiedStreamPlayer
+              source={resolvedSource}
+              autoplay
+              useNativeControls={useNativeControls}
+              muted={muted}
+              onMutedChange={onMutedChange}
+              chromeMode="minimal"
+              fillContainer
+              objectFit={playerObjectFit}
+            />
+          )}
         </Box>
 
         <Box
@@ -274,7 +294,8 @@ export default function FeedStylePlayerDialog({
             position: "absolute",
             inset: 0,
             zIndex: 2,
-            pointerEvents: useNativeControls ? "none" : "auto",
+            pointerEvents:
+              usesVidstack || useNativeControls ? "none" : "auto",
           }}
         />
 
@@ -541,7 +562,7 @@ export default function FeedStylePlayerDialog({
                 href={openHref || undefined}
                 disabled={!openHref}
               />
-              {hasNativeMute ? (
+              {hasNativeMute && !usesVidstack ? (
                 <RailButton
                   icon={
                     muted ? <VolumeOffRoundedIcon /> : <VolumeUpRoundedIcon />

@@ -39,6 +39,37 @@ function emitOwnershipReset(io, matchIds = []) {
   }
 }
 
+function parseEnvFlag(value, fallback = false) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return fallback;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function buildSystemSettingsUiFlags() {
+  return {
+    hideRecordingDriveAdvancedControls: parseEnvFlag(
+      process.env.ADMIN_HIDE_RECORDING_DRIVE_ADVANCED_CONTROLS,
+      false
+    ),
+  };
+}
+
+function attachSystemSettingsUiFlags(settings) {
+  return {
+    ...settings,
+    uiFlags: {
+      ...(settings?.uiFlags && typeof settings.uiFlags === "object"
+        ? settings.uiFlags
+        : {}),
+      ...buildSystemSettingsUiFlags(),
+    },
+  };
+}
+
 function sanitizeSettingsPatch(patch = {}) {
   const next = { ...patch };
 
@@ -245,7 +276,7 @@ const pick = (obj, shape) => {
 export const getSystemSettings = async (req, res, next) => {
   try {
     const doc = await ensureSystemSettingsDocument();
-    res.json(normalizeSystemSettings(doc));
+    res.json(attachSystemSettingsUiFlags(normalizeSystemSettings(doc)));
   } catch (err) {
     next(err);
   }
@@ -303,7 +334,7 @@ export const updateSystemSettings = async (req, res, next) => {
       }
     }
 
-    return res.json(normalizedUpdated);
+    return res.json(attachSystemSettingsUiFlags(normalizedUpdated));
   } catch (err) {
     next(err);
   }

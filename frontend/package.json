@@ -25,6 +25,7 @@
     "@mui/x-date-pickers-pro": "8.11.3",
     "@reduxjs/toolkit": "^1.9.5",
     "@sentry/react": "^10.19.0",
+    "@vidstack/react": "^0.6.15",
     "bootstrap": "^5.2.3",
     "crypto-js": "^4.2.0",
     "dayjs": "^1.11.18",
@@ -57,7 +58,8 @@
     "react-window": "^2.2.2",
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.1",
-    "styled-components": "^6.1.19"
+    "styled-components": "^6.1.19",
+    "vidstack": "^0.6.15"
   },
   "devDependencies": {
     "@sentry/vite-plugin": "^4.1.1",
