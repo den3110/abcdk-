@@ -2648,7 +2648,7 @@ function InteractiveLiveSidebar({
         zIndex: 10,
         height: "100dvh",
         overflowY: "auto",
-        borderRight: "1px solid rgba(255,255,255,0.06)",
+        borderRight: "1px solid var(--live-border)",
         background: "var(--live-sidebar-bg)",
         backdropFilter: "blur(18px)",
         "&::-webkit-scrollbar": {
@@ -2659,7 +2659,6 @@ function InteractiveLiveSidebar({
       }}
     >
       <Stack spacing={2.5} sx={{ p: 2.5 }}>
-        {/* Header Block */}
         <Stack spacing={1.5}>
           <Box
             sx={{
@@ -2676,13 +2675,12 @@ function InteractiveLiveSidebar({
           </Box>
           <Typography
             variant="body2"
-            sx={{ color: "rgba(255,255,255,0.55)", lineHeight: 1.6 }}
+            sx={{ color: "var(--live-text-secondary)", lineHeight: 1.6 }}
           >
             Nền tảng live chuyên nghiệp. Ưu tiên phát trực tiếp, video gốc mượt mà và nội dung đầy đủ tương tác cao.
           </Typography>
         </Stack>
 
-        {/* Action Block */}
         <Stack spacing={1.2}>
           <Stack direction="row" spacing={1.2}>
             <Button
@@ -2704,7 +2702,7 @@ function InteractiveLiveSidebar({
                 bgcolor: "var(--live-surface-strong)",
                 color: "var(--live-text)",
                 boxShadow: "none",
-                border: "1px solid rgba(255,255,255,0.12)",
+                border: "1px solid var(--live-border-strong)",
                 "&:hover": {
                   bgcolor: "var(--live-surface)",
                   boxShadow: "none",
@@ -2726,9 +2724,9 @@ function InteractiveLiveSidebar({
                 px: 2,
                 py: 0.8,
                 bgcolor: "transparent",
-                border: "1px solid rgba(255,255,255,0.12)",
+                border: "1px solid var(--live-border-strong)",
                 "&:hover": {
-                  bgcolor: "rgba(255,255,255,0.04)",
+                  bgcolor: "var(--live-surface)",
                 },
               }}
             >
@@ -2746,11 +2744,11 @@ function InteractiveLiveSidebar({
                 fontWeight: 600,
                 py: 0.8,
                 color: "var(--live-hot)",
-                borderColor: "rgba(255,107,87,0.3)",
-                bgcolor: "transparent",
+                borderColor: "var(--live-hot-border)",
+                bgcolor: "var(--live-hot-soft)",
                 "&:hover": {
-                  borderColor: "var(--live-hot)",
-                  bgcolor: "rgba(255,107,87,0.06)",
+                  borderColor: "var(--live-hot-border-strong)",
+                  bgcolor: "var(--live-hot-soft-strong)",
                 },
               }}
             >
@@ -2759,7 +2757,6 @@ function InteractiveLiveSidebar({
           ) : null}
         </Stack>
 
-        {/* Cụm chức năng Lọc */}
         <Box
           sx={{
             display: "flex",
@@ -2777,8 +2774,8 @@ function InteractiveLiveSidebar({
           />
 
           <Stack spacing={1}>
-            <Typography variant="overline" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 700, lineHeight: 1 }}>
-              Lọc nhanh
+            <Typography variant="overline" sx={{ color: "var(--live-text-muted)", fontWeight: 700, lineHeight: 1 }}>
+              Lọc thông minh
             </Typography>
             <DraggableChipRail
               ariaLabel="Bộ lọc thông minh"
@@ -2788,8 +2785,8 @@ function InteractiveLiveSidebar({
           </Stack>
 
           <Stack spacing={1}>
-            <Typography variant="overline" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 700, lineHeight: 1 }}>
-              Trạng thái Feed
+            <Typography variant="overline" sx={{ color: "var(--live-text-muted)", fontWeight: 700, lineHeight: 1 }}>
+              Chế độ Feed
             </Typography>
             <DraggableChipRail
               ariaLabel="Chế độ feed"
@@ -2810,7 +2807,7 @@ function InteractiveLiveSidebar({
             <Box sx={{ flex: 1 }}>
               <TextField
                 select
-                label="Thứ tự hiển thị"
+                label="Sắp xếp"
                 value={sortMode}
                 onChange={(event) => onSortModeChange(event.target.value)}
                 fullWidth
@@ -2833,36 +2830,35 @@ function InteractiveLiveSidebar({
                 borderRadius: 1.5,
                 textTransform: "none",
                 fontWeight: 600,
-                color: "rgba(255,255,255,0.6)",
-                border: "1px solid transparent",
+                color: "var(--live-text)",
+                border: "1px solid var(--live-border)",
+                bgcolor: "var(--live-surface)",
                 "&:hover": {
-                  color: "#fff",
-                  bgcolor: "rgba(255,255,255,0.06)",
+                  bgcolor: "var(--live-surface-strong)",
                 },
                 "&.Mui-disabled": {
-                  opacity: 0.3,
+                  opacity: 0.4,
                 }
               }}
             >
-              Xóa
+              Xóa lọc
             </Button>
           </Stack>
         </Box>
 
-        <Divider sx={{ borderColor: "rgba(255,255,255,0.06)" }} />
+        <Divider sx={{ borderColor: "var(--live-border)" }} />
 
-        {/* Cụm Thống kê */}
         <Stack spacing={1.5}>
           <Typography
             variant="overline"
-            sx={{ color: "rgba(255,255,255,0.7)", fontWeight: 700, lineHeight: 1 }}
+            sx={{ color: "var(--live-text-muted)", fontWeight: 700, lineHeight: 1 }}
           >
              Thống kê Feed
           </Typography>
           <Stack direction="row" spacing={1}>
             {[
               { label: "Đang Live", value: summary?.live || 0 },
-              { label: "Nguồn Phụ", value: summary?.nativeReady || 0 },
+              { label: "Nguồn Native", value: summary?.nativeReady || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2870,11 +2866,11 @@ function InteractiveLiveSidebar({
                   flex: 1,
                   p: 1.5,
                   borderRadius: 1.5,
-                  bgcolor: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
+                  bgcolor: "var(--live-surface)",
+                  border: "1px solid var(--live-border)",
                 }}
               >
-                <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>
+                <Typography variant="caption" sx={{ color: "var(--live-text-muted)", fontWeight: 600 }}>
                   {item.label}
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 700, color: "var(--live-text)", mt: 0.2 }}>
@@ -2885,7 +2881,7 @@ function InteractiveLiveSidebar({
           </Stack>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "Replay Native", value: summary?.completeReplay || 0 },
+              { label: "Replay Đầy đủ", value: summary?.completeReplay || 0 },
               { label: "Đang Xử Lý", value: summary?.processingReplay || 0 },
             ].map((item) => (
               <Box
@@ -2894,11 +2890,11 @@ function InteractiveLiveSidebar({
                   flex: 1,
                   p: 1.5,
                   borderRadius: 1.5,
-                  bgcolor: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
+                  bgcolor: "var(--live-surface)",
+                  border: "1px solid var(--live-border)",
                 }}
               >
-                <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>
+                <Typography variant="caption" sx={{ color: "var(--live-text-muted)", fontWeight: 600 }}>
                   {item.label}
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 700, color: "var(--live-text)", mt: 0.2 }}>
@@ -2909,16 +2905,17 @@ function InteractiveLiveSidebar({
           </Stack>
         </Stack>
 
-        {/* Thẻ theo dõi */}
+        <Divider sx={{ borderColor: "var(--live-border)" }} />
+
         <Stack spacing={1.5}>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography
               variant="overline"
-              sx={{ color: "rgba(255,255,255,0.7)", fontWeight: 700, lineHeight: 1 }}
+              sx={{ color: "var(--live-hot)", fontWeight: 700, lineHeight: 1 }}
             >
-               Tập trung hiện tại
+               Tâm điểm hiện tại
             </Typography>
-            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>
+            <Typography variant="caption" sx={{ color: "var(--live-text-muted)", fontWeight: 600 }}>
               {progressLabel}
             </Typography>
           </Box>
@@ -2927,7 +2924,7 @@ function InteractiveLiveSidebar({
               p: 2,
               borderRadius: 2,
               bgcolor: "var(--live-surface)",
-              border: "1px solid rgba(255,255,255,0.06)",
+              border: "1px solid var(--live-border-strong)",
             }}
           >
             <Stack spacing={1.2}>
@@ -2937,8 +2934,8 @@ function InteractiveLiveSidebar({
                 sx={{
                   alignSelf: "flex-start",
                   color: "var(--live-text)",
-                  bgcolor: "rgba(255,255,255,0.08)",
-                  border: "1px solid rgba(255,255,255,0.12)",
+                  bgcolor: "var(--live-hot-soft)",
+                  border: "1px solid var(--live-hot-border)",
                   fontWeight: 600,
                 }}
               />
@@ -2948,7 +2945,7 @@ function InteractiveLiveSidebar({
                 </Typography>
                 <Typography
                   variant="body2"
-                  sx={{ color: "rgba(255,255,255,0.5)", mt: 0.25 }}
+                  sx={{ color: "var(--live-text-secondary)", mt: 0.25 }}
                 >
                   {currentSubtitle}
                 </Typography>
@@ -2960,9 +2957,9 @@ function InteractiveLiveSidebar({
                     size="small"
                     label={currentItem.courtLabel}
                     sx={{
-                      color: "rgba(255,255,255,0.7)",
-                      bgcolor: "rgba(255,255,255,0.03)",
-                      border: "1px solid rgba(255,255,255,0.06)",
+                      color: "var(--live-text)",
+                      bgcolor: "var(--live-chip-bg)",
+                      border: "1px solid var(--live-border)",
                     }}
                   />
                 ) : null}
@@ -2971,9 +2968,9 @@ function InteractiveLiveSidebar({
                     size="small"
                     label={currentItem.displayCode}
                     sx={{
-                      color: "rgba(255,255,255,0.7)",
-                      bgcolor: "rgba(255,255,255,0.03)",
-                      border: "1px solid rgba(255,255,255,0.06)",
+                      color: "var(--live-text)",
+                      bgcolor: "var(--live-chip-bg)",
+                      border: "1px solid var(--live-border)",
                     }}
                   />
                 ) : null}
@@ -2983,8 +2980,8 @@ function InteractiveLiveSidebar({
                     label={`${currentItem.smartScore} điểm`}
                     sx={{
                       color: "var(--live-accent)",
-                      bgcolor: "rgba(37,244,238,0.08)",
-                      border: "1px solid rgba(37,244,238,0.15)",
+                      bgcolor: "var(--live-accent-soft)",
+                      border: "1px solid var(--live-accent-border)",
                     }}
                   />
                 ) : null}
@@ -2997,10 +2994,10 @@ function InteractiveLiveSidebar({
                   sx={{
                     height: 4,
                     borderRadius: 2,
-                    bgcolor: "rgba(255,255,255,0.06)",
+                    bgcolor: "var(--live-chip-bg)",
                     "& .MuiLinearProgress-bar": {
                       borderRadius: 2,
-                      background: "rgba(255,255,255,0.4)",
+                      background: "linear-gradient(90deg, var(--live-hot), var(--live-accent))",
                     },
                   }}
                 />
