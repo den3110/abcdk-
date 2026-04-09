@@ -19,6 +19,12 @@ import {
   clearSentryUserContext,
   setSentryUserContext,
 } from "./utils/sentry";
+import {
+  closeCrossTabChannel,
+  createCrossTabChannel,
+  publishCrossTabMessage,
+  subscribeCrossTabChannel,
+} from "./utils/crossTabChannel";
 
 import Clarity from "@microsoft/clarity";
 
@@ -33,11 +39,31 @@ function shouldEnableClarity() {
   return !isLocalhost && !import.meta.env.DEV;
 }
 
+const AUTH_SYNC_CHANNEL = "pickletour:auth";
+const AUTH_SYNC_TOPIC = "user-info";
+
+function readStoredAuthUserInfo() {
+  if (typeof window === "undefined") return null;
+
+  const raw = window.localStorage.getItem("userInfo");
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 function AuthSessionSync() {
+  const dispatch = useDispatch();
   const userInfo = useSelector((s) => s.auth?.userInfo || null);
   const isLoggedIn = Boolean(
     userInfo?._id || userInfo?.token || userInfo?.email,
   );
+  const serializedUserInfo = JSON.stringify(userInfo || null);
+  const currentSerializedRef = useRef(serializedUserInfo);
+  const syncChannelRef = useRef(null);
 
   // Keep userInfo (role/permissions) fresh without forcing re-login.
   useGetProfileQuery(undefined, {
@@ -45,6 +71,70 @@ function AuthSessionSync() {
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
+
+  useEffect(() => {
+    currentSerializedRef.current = serializedUserInfo;
+  }, [serializedUserInfo]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const applySerializedUserInfo = (serialized) => {
+      const normalized = serialized || "null";
+      if (normalized === currentSerializedRef.current) return;
+
+      if (normalized === "null") {
+        dispatch(logout());
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(normalized);
+        if (!parsed || typeof parsed !== "object") {
+          dispatch(logout());
+          return;
+        }
+        dispatch(setCredentials(parsed));
+      } catch {
+        dispatch(logout());
+      }
+    };
+
+    const handleStorage = (event) => {
+      if (event.key !== "userInfo" && event.key !== null) return;
+
+      if (event.key === null) {
+        applySerializedUserInfo(JSON.stringify(readStoredAuthUserInfo()));
+        return;
+      }
+
+      applySerializedUserInfo(event.newValue || "null");
+    };
+
+    const channel = createCrossTabChannel(AUTH_SYNC_CHANNEL);
+    syncChannelRef.current = channel;
+    const unsubscribe = subscribeCrossTabChannel(channel, (message) => {
+      if (message?.topic !== AUTH_SYNC_TOPIC) return;
+      applySerializedUserInfo(String(message?.serialized ?? "null"));
+    });
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      unsubscribe();
+      closeCrossTabChannel(channel);
+      if (syncChannelRef.current === channel) {
+        syncChannelRef.current = null;
+      }
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    publishCrossTabMessage(syncChannelRef.current, {
+      topic: AUTH_SYNC_TOPIC,
+      serialized: serializedUserInfo,
+    });
+  }, [serializedUserInfo]);
 
   return null;
 }

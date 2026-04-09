@@ -18,11 +18,19 @@ import {
   SUPPORTED_LANGUAGES,
   translateMessage,
 } from "../i18n";
+import {
+  closeCrossTabChannel,
+  createCrossTabChannel,
+  publishCrossTabMessage,
+  subscribeCrossTabChannel,
+} from "../utils/crossTabChannel";
 
 const STORAGE_KEY = "app-language";
 const STORAGE_SOURCE_KEY = "app-language-source";
 const USER_LANGUAGE_SOURCE = "user";
 const AUTO_LANGUAGE_SOURCE = "auto";
+const LANGUAGE_SYNC_CHANNEL = "pickletour:ui-preferences";
+const LANGUAGE_SYNC_TOPIC = "app-language";
 const API_BASE_URL = String(import.meta.env.VITE_API_URL || "")
   .trim()
   .replace(/\/+$/, "");
@@ -131,6 +139,7 @@ function clearStoredLanguagePreference() {
 export const useLanguage = () => useContext(LanguageContext);
 
 export const LanguageContextProvider = ({ children }) => {
+  const syncChannelRef = useRef(null);
   const [languageState, setLanguageState] = useState(
     readStoredLanguagePreference,
   );
@@ -160,6 +169,85 @@ export const LanguageContextProvider = ({ children }) => {
     }
     clearStoredLanguagePreference();
   }, [languageState.language, languageState.source]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const channel = createCrossTabChannel(LANGUAGE_SYNC_CHANNEL);
+    syncChannelRef.current = channel;
+
+    const unsubscribe = subscribeCrossTabChannel(channel, (message) => {
+      if (message?.topic !== LANGUAGE_SYNC_TOPIC) return;
+
+      const nextState = {
+        language: normalizeLanguage(message?.language),
+        source:
+          message?.source === USER_LANGUAGE_SOURCE
+            ? USER_LANGUAGE_SOURCE
+            : AUTO_LANGUAGE_SOURCE,
+      };
+
+      setLanguageState((current) => {
+        if (
+          current.language === nextState.language &&
+          current.source === nextState.source
+        ) {
+          return current;
+        }
+        return nextState;
+      });
+      setGeoResolving(false);
+    });
+
+    return () => {
+      unsubscribe();
+      closeCrossTabChannel(channel);
+      if (syncChannelRef.current === channel) {
+        syncChannelRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    publishCrossTabMessage(syncChannelRef.current, {
+      topic: LANGUAGE_SYNC_TOPIC,
+      language: languageState.language,
+      source: languageState.source,
+    });
+  }, [languageState.language, languageState.source]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleStorage = (event) => {
+      if (
+        event.key !== null &&
+        event.key !== STORAGE_KEY &&
+        event.key !== STORAGE_SOURCE_KEY
+      ) {
+        return;
+      }
+
+      const nextState = readStoredLanguagePreference();
+      setLanguageState((current) => {
+        if (
+          current.language === nextState.language &&
+          current.source === nextState.source
+        ) {
+          return current;
+        }
+        return nextState;
+      });
+      setGeoResolving(
+        nextState.source !== USER_LANGUAGE_SOURCE &&
+          typeof window !== "undefined" &&
+          !isBot(),
+      );
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   // Async geo refine — only for auto-detected users (incognito / first visit)
   useEffect(() => {

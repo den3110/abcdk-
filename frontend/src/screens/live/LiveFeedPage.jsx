@@ -12,6 +12,7 @@ import {
   Box,
   Button,
   Chip,
+  ClickAwayListener,
   CircularProgress,
   Divider,
   InputAdornment,
@@ -47,6 +48,12 @@ import ResponsiveMatchViewer from "../PickleBall/match/ResponsiveMatchViewer";
 import { UnifiedStreamPlayer } from "../../components/video";
 import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import {
+  closeCrossTabChannel,
+  createCrossTabChannel,
+  publishCrossTabMessage,
+  subscribeCrossTabChannel,
+} from "../../utils/crossTabChannel";
+import {
   useGetLiveFeedProbeQuery,
   useGetLiveFeedQuery,
 } from "../../slices/liveApiSlice";
@@ -58,6 +65,8 @@ const PLAYER_WINDOW = 1;
 const RENDER_WINDOW = 2;
 const DESKTOP_SIDEBAR_WIDTH = 356;
 const GLOBAL_MUTE_STORAGE_KEY = "pickletour-live-global-muted-v1";
+const LIVE_FEED_SYNC_CHANNEL = "pickletour:live-feed";
+const LIVE_FEED_MUTE_TOPIC = "global-muted";
 
 const MODE_OPTIONS = [
   { value: "all", label: "Tất cả" },
@@ -559,60 +568,89 @@ function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) 
   const railRef = useRef(null);
   const dragStateRef = useRef({
     active: false,
-    pointerId: null,
     startX: 0,
     startScrollLeft: 0,
     moved: false,
   });
 
-  const stopDragging = useCallback((pointerId = null) => {
+  const stopDragging = useCallback(() => {
     const rail = railRef.current;
-    if (rail && pointerId !== null && rail.hasPointerCapture?.(pointerId)) {
-      rail.releasePointerCapture(pointerId);
-    }
     dragStateRef.current.active = false;
-    dragStateRef.current.pointerId = null;
     if (rail) {
       rail.style.cursor = "grab";
     }
-    window.setTimeout(() => {
+    window.requestAnimationFrame(() => {
       dragStateRef.current.moved = false;
-    }, 0);
+    });
   }, []);
 
-  const handlePointerDown = useCallback((event) => {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+  const beginDragging = useCallback((clientX) => {
     const rail = railRef.current;
     if (!rail) return;
 
     dragStateRef.current.active = true;
-    dragStateRef.current.pointerId = event.pointerId;
-    dragStateRef.current.startX = event.clientX;
+    dragStateRef.current.startX = clientX;
     dragStateRef.current.startScrollLeft = rail.scrollLeft;
     dragStateRef.current.moved = false;
-
-    rail.setPointerCapture?.(event.pointerId);
     rail.style.cursor = "grabbing";
   }, []);
 
-  const handlePointerMove = useCallback((event) => {
+  const moveDragging = useCallback((clientX) => {
     if (!dragStateRef.current.active) return;
     const rail = railRef.current;
     if (!rail) return;
 
-    const deltaX = event.clientX - dragStateRef.current.startX;
+    const deltaX = clientX - dragStateRef.current.startX;
     if (Math.abs(deltaX) > 6) {
       dragStateRef.current.moved = true;
     }
     rail.scrollLeft = dragStateRef.current.startScrollLeft - deltaX;
   }, []);
 
-  const handlePointerUp = useCallback(
+  const handleMouseDown = useCallback(
     (event) => {
-      stopDragging(event.pointerId);
+      if (event.button !== 0) return;
+      beginDragging(event.clientX);
     },
-    [stopDragging],
+    [beginDragging],
   );
+
+  const handleTouchStart = useCallback(
+    (event) => {
+      const touch = event.touches?.[0];
+      if (!touch) return;
+      beginDragging(touch.clientX);
+    },
+    [beginDragging],
+  );
+
+  useEffect(() => {
+    const handleMouseMove = (event) => {
+      moveDragging(event.clientX);
+    };
+    const handleTouchMove = (event) => {
+      const touch = event.touches?.[0];
+      if (!touch) return;
+      moveDragging(touch.clientX);
+    };
+    const handlePointerUp = () => {
+      stopDragging();
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handlePointerUp);
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handlePointerUp);
+    window.addEventListener("touchcancel", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handlePointerUp);
+      window.removeEventListener("touchcancel", handlePointerUp);
+    };
+  }, [moveDragging, stopDragging]);
 
   const handleWheel = useCallback((event) => {
     const rail = railRef.current;
@@ -626,15 +664,8 @@ function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) 
       ref={railRef}
       role="listbox"
       aria-label={ariaLabel}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      onPointerLeave={(event) => {
-        if (dragStateRef.current.active) {
-          handlePointerUp(event);
-        }
-      }}
+      onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
       onWheel={handleWheel}
       sx={{
         display: "flex",
@@ -652,10 +683,10 @@ function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) 
       }}
     >
       {items.map((item) => (
-        <Chip
+        <Box
           key={item.key}
-          clickable
-          label={item.label}
+          component="button"
+          type="button"
           onClick={(event) => {
             if (dragStateRef.current.moved) {
               event.preventDefault();
@@ -665,7 +696,15 @@ function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) 
             onSelect?.(item);
           }}
           sx={{
+            appearance: "none",
             flexShrink: 0,
+            px: 1.65,
+            py: 0.95,
+            borderRadius: 999,
+            fontSize: 14,
+            lineHeight: 1,
+            fontFamily: "inherit",
+            cursor: "pointer",
             color: item.selected ? "var(--live-chip-selected-text)" : "var(--live-text)",
             bgcolor: item.selected
               ? "var(--live-chip-selected-bg)"
@@ -681,10 +720,253 @@ function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) 
                 ? "var(--live-chip-selected-bg)"
                 : "var(--live-surface-strong)",
             },
+            transition:
+              "background-color 150ms ease, border-color 150ms ease, transform 120ms ease",
+            "&:active": {
+              transform: "scale(0.98)",
+            },
           }}
-        />
+        >
+          {item.label}
+        </Box>
       ))}
     </Box>
+  );
+}
+
+function CustomTournamentPicker({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder = "Tất cả giải đấu",
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const selected = useMemo(
+    () => options.find((item) => String(item.value) === String(value)) || null,
+    [options, value],
+  );
+  const filteredOptions = useMemo(() => {
+    const keyword = asTrimmed(search).toLowerCase();
+    if (!keyword) return options;
+    return options.filter((item) =>
+      asTrimmed(item.label).toLowerCase().includes(keyword),
+    );
+  }, [options, search]);
+
+  return (
+    <ClickAwayListener onClickAway={() => setOpen(false)}>
+      <Box sx={{ position: "relative" }}>
+        <Typography
+          variant="caption"
+          sx={{
+            display: "block",
+            mb: 0.75,
+            color: "var(--live-text-muted)",
+            fontWeight: 800,
+          }}
+        >
+          {label}
+        </Typography>
+
+        <Box
+          component="button"
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          sx={{
+            width: "100%",
+            appearance: "none",
+            border: "1px solid var(--live-border)",
+            bgcolor: "var(--live-surface)",
+            color: "var(--live-text)",
+            borderRadius: 3,
+            minHeight: 68,
+            px: 2.2,
+            py: 1.5,
+            textAlign: "left",
+            cursor: "pointer",
+            transition: "border-color 150ms ease, background-color 150ms ease",
+            "&:hover": {
+              borderColor: "var(--live-border-strong)",
+              bgcolor: "var(--live-surface-strong)",
+            },
+          }}
+        >
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Stack spacing={0.35} sx={{ minWidth: 0 }}>
+              <Typography
+                variant="caption"
+                sx={{ color: "var(--live-text-muted)", fontWeight: 700 }}
+              >
+                Đang lọc theo
+              </Typography>
+              <Typography
+                variant="body1"
+                sx={{
+                  fontWeight: 800,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {selected?.label || placeholder}
+              </Typography>
+            </Stack>
+            <KeyboardArrowDownRoundedIcon
+              sx={{
+                color: "var(--live-icon-muted)",
+                transform: open ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 160ms ease",
+              }}
+            />
+          </Stack>
+        </Box>
+
+        {open ? (
+          <Box
+            sx={{
+              position: "absolute",
+              top: "calc(100% + 10px)",
+              left: 0,
+              right: 0,
+              zIndex: 30,
+              borderRadius: 3,
+              border: "1px solid var(--live-border)",
+              bgcolor: "var(--live-shell-bg-strong)",
+              boxShadow: "0 24px 60px rgba(0,0,0,0.35)",
+              backdropFilter: "blur(18px)",
+              overflow: "hidden",
+            }}
+          >
+            <Box sx={{ p: 1.35, borderBottom: "1px solid var(--live-border)" }}>
+              <TextField
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                fullWidth
+                placeholder="Tìm giải đấu..."
+                size="small"
+                sx={LIVE_SIDEBAR_FIELD_SX}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchRoundedIcon />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
+
+            <Stack sx={{ maxHeight: 280, overflowY: "auto", p: 1 }}>
+              <Box
+                component="button"
+                type="button"
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                  setSearch("");
+                }}
+                sx={{
+                  width: "100%",
+                  appearance: "none",
+                  border: "1px solid",
+                  borderColor:
+                    value === "" ? "var(--live-accent-border-strong)" : "transparent",
+                  bgcolor:
+                    value === ""
+                      ? "var(--live-accent-soft-strong)"
+                      : "transparent",
+                  color: "var(--live-text)",
+                  borderRadius: 2.5,
+                  px: 1.4,
+                  py: 1.2,
+                  textAlign: "left",
+                  cursor: "pointer",
+                  font: "inherit",
+                  fontWeight: 700,
+                }}
+              >
+                Tất cả giải đấu
+              </Box>
+
+              {filteredOptions.length ? (
+                filteredOptions.map((item) => {
+                  const selectedItem = String(item.value) === String(value);
+                  return (
+                    <Box
+                      key={item.value}
+                      component="button"
+                      type="button"
+                      onClick={() => {
+                        onChange(item.value);
+                        setOpen(false);
+                        setSearch("");
+                      }}
+                      sx={{
+                        width: "100%",
+                        appearance: "none",
+                        border: "1px solid",
+                        borderColor: selectedItem
+                          ? "var(--live-accent-border-strong)"
+                          : "transparent",
+                        bgcolor: selectedItem
+                          ? "var(--live-accent-soft)"
+                          : "transparent",
+                        color: "var(--live-text)",
+                        borderRadius: 2.5,
+                        px: 1.4,
+                        py: 1.2,
+                        mt: 0.75,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        font: "inherit",
+                        "&:hover": {
+                          bgcolor: "var(--live-surface-strong)",
+                        },
+                      }}
+                    >
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        justifyContent="space-between"
+                        alignItems="center"
+                      >
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontWeight: selectedItem ? 800 : 700,
+                          }}
+                        >
+                          {item.label}
+                        </Typography>
+                        {selectedItem ? (
+                          <CheckCircleRoundedIcon
+                            sx={{ fontSize: 18, color: "var(--live-accent)" }}
+                          />
+                        ) : null}
+                      </Stack>
+                    </Box>
+                  );
+                })
+              ) : (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    px: 1.25,
+                    py: 1.5,
+                    color: "var(--live-text-muted)",
+                  }}
+                >
+                  Không có giải đấu khớp từ khóa.
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+        ) : null}
+      </Box>
+    </ClickAwayListener>
   );
 }
 
@@ -1303,6 +1585,14 @@ function DesktopFeedSidebar({
           })}
         </Stack>
 
+        <CustomTournamentPicker
+          label="Giải đấu"
+          value={tournamentId}
+          options={tournamentOptions}
+          onChange={onTournamentChange}
+          placeholder="Tất cả giải đấu"
+        />
+
         <TextField
           select
           label="Giải đấu"
@@ -1612,6 +1902,14 @@ function LiveDesktopSidebar({
       })),
     [mode, statuses, summary],
   );
+  const tournamentOptions = useMemo(
+    () =>
+      tournaments.map((item) => ({
+        value: sid(item) || "",
+        label: formatCountLabel(item.name, Number(item?.count || 0)),
+      })),
+    [tournaments],
+  );
 
   return (
     <Box
@@ -1649,6 +1947,7 @@ function LiveDesktopSidebar({
             }
             label={`PickleTour Feed • ${summary?.total || 0} trận`}
             sx={{
+              display: "none",
               alignSelf: "flex-start",
               color: "var(--live-text)",
               bgcolor: "var(--live-surface)",
@@ -1738,7 +2037,7 @@ function LiveDesktopSidebar({
           value={searchInput}
           onChange={(event) => onSearchChange(event.target.value)}
           fullWidth
-          sx={LIVE_SIDEBAR_FIELD_SX}
+          sx={{ display: "none" }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -2036,10 +2335,458 @@ function LiveDesktopSidebar({
   );
 }
 
+function InteractiveLiveSidebar({
+  searchInput,
+  onSearchChange,
+  mode,
+  onModeChange,
+  tournamentId,
+  onTournamentChange,
+  sourceFilter,
+  onSourceFilterChange,
+  replayFilter,
+  onReplayFilterChange,
+  sortMode,
+  onSortModeChange,
+  tournaments,
+  summary,
+  statuses,
+  sources,
+  replayStates,
+  hasActiveFilters,
+  onClearFilters,
+  onRefresh,
+  isFetching,
+  hasPendingNewItems,
+  onShowNewItems,
+  currentItem,
+  activeIndex,
+  loadedCount,
+  totalCount,
+  quickFilters,
+  onApplyQuickFilter,
+}) {
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
+  const currentSubtitle = currentItem
+    ? getFeedSubtitle(currentItem)
+    : "Feed sẽ tự cập nhật";
+  const currentBadge =
+    asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status);
+  const progressValue =
+    totalCount > 0 ? Math.min(100, ((activeIndex + 1) / totalCount) * 100) : 0;
+  const progressLabel =
+    totalCount > 0 ? `${Math.min(activeIndex + 1, totalCount)}/${totalCount}` : "0/0";
+  const modeItems = useMemo(
+    () =>
+      MODE_OPTIONS.map((option) => ({
+        key: option.value,
+        value: option.value,
+        label: formatCountLabel(
+          option.label,
+          getModeCount(summary, statuses, option.value),
+        ),
+        selected: option.value === mode,
+      })),
+    [mode, statuses, summary],
+  );
+  const tournamentOptions = useMemo(
+    () =>
+      tournaments.map((item) => ({
+        value: sid(item) || "",
+        label: formatCountLabel(item.name, Number(item?.count || 0)),
+      })),
+    [tournaments],
+  );
+
+  return (
+    <Box
+      sx={{
+        display: { xs: "none", md: "block" },
+        position: "relative",
+        zIndex: 10,
+        height: "100dvh",
+        overflowY: "auto",
+        borderRight: "1px solid var(--live-border)",
+        background: "var(--live-sidebar-bg)",
+        backdropFilter: "blur(18px)",
+      }}
+    >
+      <Stack spacing={2.2} sx={{ p: 2.25 }}>
+        <Stack spacing={1.2}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              minHeight: 50,
+              "& a": {
+                display: "inline-flex",
+                alignItems: "center",
+              },
+            }}
+          >
+            <LogoAnimationMorph isMobile={false} showBackButton={false} />
+          </Box>
+          <Typography
+            variant="body2"
+            sx={{ color: "var(--live-text-secondary)", lineHeight: 1.55 }}
+          >
+            Feed ưu tiên trận đang nóng, video native mượt, replay đầy đủ và
+            các trận sắp vào sân để desktop nhìn có trật tự hơn.
+          </Typography>
+        </Stack>
+
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            onClick={onRefresh}
+            startIcon={
+              isFetching ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <RefreshRoundedIcon />
+              )
+            }
+            sx={{
+              flex: 1,
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              bgcolor: "var(--live-hot)",
+              color: "var(--live-hot-contrast)",
+              "&:hover": {
+                bgcolor: "var(--live-hot-hover)",
+              },
+            }}
+          >
+            Làm mới
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/live/clusters"
+            startIcon={<GridViewRoundedIcon />}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              color: "var(--live-text)",
+              bgcolor: "var(--live-surface)",
+              border: "1px solid var(--live-border)",
+              "&:hover": {
+                bgcolor: "var(--live-surface-strong)",
+              },
+            }}
+          >
+            Cụm sân
+          </Button>
+        </Stack>
+
+        {hasPendingNewItems ? (
+          <Button
+            variant="outlined"
+            onClick={onShowNewItems}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              color: "var(--live-accent)",
+              borderColor: "var(--live-accent-border)",
+              bgcolor: "var(--live-accent-soft)",
+              "&:hover": {
+                borderColor: "var(--live-accent-border-strong)",
+                bgcolor: "var(--live-accent-soft-strong)",
+              },
+            }}
+          >
+            Có trận mới, nhấn để làm mới feed
+          </Button>
+        ) : null}
+
+        <TextField
+          label="Tìm trận, giải, sân"
+          placeholder="Ví dụ: Court 1, bán kết, giải mở rộng..."
+          value={searchInput}
+          onChange={(event) => onSearchChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon />
+              </InputAdornment>
+            ),
+          }}
+        />
+
+        <Stack spacing={0.75}>
+          <Typography
+            variant="caption"
+            sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
+          >
+            Lọc thông minh
+          </Typography>
+          <DraggableChipRail
+            ariaLabel="Bộ lọc thông minh"
+            items={quickFilters}
+            onSelect={(item) => onApplyQuickFilter(item.key)}
+          />
+        </Stack>
+
+        <Stack spacing={0.75}>
+          <Typography
+            variant="caption"
+            sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
+          >
+            Chế độ feed
+          </Typography>
+          <DraggableChipRail
+            ariaLabel="Chế độ feed"
+            items={modeItems}
+            onSelect={(item) => onModeChange(item.value)}
+          />
+        </Stack>
+
+        <CustomTournamentPicker
+          label="Giải đấu"
+          value={tournamentId}
+          options={tournamentOptions}
+          onChange={onTournamentChange}
+          placeholder="Tất cả giải đấu"
+        />
+
+        <TextField
+          select
+          label="Nguồn ưu tiên"
+          value={sourceFilter}
+          onChange={(event) => onSourceFilterChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+        >
+          {SOURCE_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {formatCountLabel(option.label, getCount(sources, option.value))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Trạng thái replay"
+          value={replayFilter}
+          onChange={(event) => onReplayFilterChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+        >
+          {REPLAY_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {formatCountLabel(option.label, getCount(replayStates, option.value))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Sắp xếp"
+          value={sortMode}
+          onChange={(event) => onSortModeChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+        >
+          {SORT_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <Button
+          onClick={onClearFilters}
+          disabled={!hasActiveFilters}
+          sx={{
+            alignSelf: "flex-start",
+            borderRadius: 999,
+            textTransform: "none",
+            fontWeight: 800,
+            color: "var(--live-text)",
+            border: "1px solid var(--live-border)",
+            bgcolor: "var(--live-surface)",
+          }}
+        >
+          Xóa bộ lọc
+        </Button>
+
+        <Divider sx={{ borderColor: "var(--live-border)" }} />
+
+        <Stack spacing={1.1}>
+          <Typography
+            variant="overline"
+            sx={{ color: "var(--live-accent)", fontWeight: 800 }}
+          >
+            Toàn cảnh feed
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            {[
+              { label: "Đang live", value: summary?.live || 0 },
+              { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
+            ].map((item) => (
+              <Box
+                key={item.label}
+                sx={{
+                  flex: 1,
+                  p: 1.4,
+                  borderRadius: 3,
+                  bgcolor: "var(--live-surface)",
+                  border: "1px solid var(--live-border)",
+                }}
+              >
+                <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
+                  {item.label}
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  {item.value}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            {[
+              { label: "Nguồn native", value: summary?.nativeReady || 0 },
+              { label: "Đang xử lý", value: summary?.processingReplay || 0 },
+            ].map((item) => (
+              <Box
+                key={item.label}
+                sx={{
+                  flex: 1,
+                  p: 1.4,
+                  borderRadius: 3,
+                  bgcolor: "var(--live-surface)",
+                  border: "1px solid var(--live-border)",
+                }}
+              >
+                <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
+                  {item.label}
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  {item.value}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Stack>
+
+        <Divider sx={{ borderColor: "var(--live-border)" }} />
+
+        <Stack spacing={1.2}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography
+              variant="overline"
+              sx={{ color: "var(--live-accent)", fontWeight: 800 }}
+            >
+              Đang xem
+            </Typography>
+            <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
+              {progressLabel}
+            </Typography>
+          </Stack>
+          <Box
+            sx={{
+              p: 1.6,
+              borderRadius: 4,
+              bgcolor: "var(--live-surface)",
+              border: "1px solid var(--live-border)",
+            }}
+          >
+            <Stack spacing={1.1}>
+              <Chip
+                size="small"
+                label={currentBadge}
+                sx={{
+                  alignSelf: "flex-start",
+                  color: "var(--live-text)",
+                  bgcolor: "var(--live-hot-soft)",
+                  border: "1px solid var(--live-hot-border)",
+                  fontWeight: 800,
+                }}
+              />
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.3 }}>
+                {currentTitle}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ color: "var(--live-text-secondary)" }}
+              >
+                {currentSubtitle}
+              </Typography>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap>
+                {currentItem?.courtLabel ? (
+                  <Chip
+                    size="small"
+                    label={currentItem.courtLabel}
+                    sx={{
+                      color: "var(--live-text)",
+                      bgcolor: "var(--live-chip-bg)",
+                      border: "1px solid var(--live-border)",
+                    }}
+                  />
+                ) : null}
+                {currentItem?.displayCode ? (
+                  <Chip
+                    size="small"
+                    label={currentItem.displayCode}
+                    sx={{
+                      color: "var(--live-text)",
+                      bgcolor: "var(--live-chip-bg)",
+                      border: "1px solid var(--live-border)",
+                    }}
+                  />
+                ) : null}
+                {currentItem?.smartScore ? (
+                  <Chip
+                    size="small"
+                    label={`${currentItem.smartScore} điểm`}
+                    sx={{
+                      color: "var(--live-accent)",
+                      bgcolor: "var(--live-accent-soft)",
+                      border: "1px solid var(--live-accent-border)",
+                    }}
+                  />
+                ) : null}
+              </Stack>
+              <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
+                {currentItem?.updatedAt
+                  ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
+                  : "Feed đang chờ dữ liệu mới"}
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={progressValue}
+                sx={{
+                  height: 6,
+                  borderRadius: 999,
+                  bgcolor: "var(--live-chip-bg)",
+                  "& .MuiLinearProgress-bar": {
+                    borderRadius: 999,
+                    background:
+                      "linear-gradient(90deg, var(--live-hot), var(--live-accent))",
+                  },
+                }}
+              />
+              <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
+                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong
+                feed hiện tại.
+              </Typography>
+            </Stack>
+          </Box>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}
+
 export default function LiveFeedPage() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === "dark";
+  const syncChannelRef = useRef(null);
   const [page, setPage] = useState(1);
   const [activeIndex, setActiveIndex] = useState(0);
   const [feedVisible, setFeedVisible] = useState(false);
@@ -2290,6 +3037,47 @@ export default function LiveFeedPage() {
       globalMuted ? "true" : "false",
     );
   }, [globalMuted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const channel = createCrossTabChannel(LIVE_FEED_SYNC_CHANNEL);
+    syncChannelRef.current = channel;
+
+    const unsubscribe = subscribeCrossTabChannel(channel, (message) => {
+      if (message?.topic !== LIVE_FEED_MUTE_TOPIC) return;
+      const nextValue = Boolean(message?.muted);
+      setGlobalMuted((current) => (current === nextValue ? current : nextValue));
+    });
+
+    return () => {
+      unsubscribe();
+      closeCrossTabChannel(channel);
+      if (syncChannelRef.current === channel) {
+        syncChannelRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    publishCrossTabMessage(syncChannelRef.current, {
+      topic: LIVE_FEED_MUTE_TOPIC,
+      muted: globalMuted,
+    });
+  }, [globalMuted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleStorage = (event) => {
+      if (event.key !== GLOBAL_MUTE_STORAGE_KEY && event.key !== null) return;
+      const nextValue = event.newValue === "true";
+      setGlobalMuted((current) => (current === nextValue ? current : nextValue));
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   const getSlideHeight = useCallback(
     () => containerRef.current?.clientHeight ?? window.innerHeight,
@@ -2824,7 +3612,7 @@ export default function LiveFeedPage() {
             pointerEvents: "none",
           }}
         />
-        <LiveDesktopSidebar
+        <InteractiveLiveSidebar
           searchInput={searchInput}
           onSearchChange={setSearchInput}
           mode={mode}
