@@ -651,8 +651,7 @@ function getLiveFeedSmartBadge(item = {}) {
   const replayState = asTrimmed(item?.replayState).toLowerCase();
   const primarySourceType = getFeedPrimarySourceType(item);
 
-  if (status === "live" && primarySourceType === "native") return "Đang nóng";
-  if (status === "live") return "Đang live";
+  if (status === "live") return "Live";
   if (
     ["assigned", "queued", "scheduled"].includes(status) &&
     getUpcomingBoost(item?.scheduledAt || item?.startedAt) >= 40

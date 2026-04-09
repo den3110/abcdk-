@@ -70,7 +70,7 @@ const LIVE_FEED_MUTE_TOPIC = "global-muted";
 
 const MODE_OPTIONS = [
   { value: "all", label: "Tất cả" },
-  { value: "live", label: "Đang live" },
+  { value: "live", label: "Live" },
   { value: "replay", label: "Replay" },
 ];
 
@@ -140,7 +140,7 @@ const LIVE_SIDEBAR_FIELD_SX = {
 };
 
 const SMART_FILTER_PRESETS = [
-  { key: "live_now", label: "Live nóng" },
+  { key: "live_now", label: "Live" },
   { key: "ready_replay", label: "Replay đầy đủ" },
   { key: "native_ready", label: "Native mượt" },
   { key: "temporary_fb", label: "Facebook tạm" },
@@ -183,7 +183,7 @@ function relativeTime(value) {
 function statusLabel(status) {
   switch (asTrimmed(status).toLowerCase()) {
     case "live":
-      return "Đang live";
+      return "Live";
     case "assigned":
       return "Đã gán sân";
     case "queued":
@@ -193,6 +193,24 @@ function statusLabel(status) {
     default:
       return status || "Đang chờ";
   }
+}
+
+function normalizeLiveBadgeLabel(label) {
+  const normalized = asTrimmed(label).toLowerCase();
+  if (
+    [
+      "live",
+      "đang live",
+      "đang nóng",
+      "live nóng",
+      "dang live",
+      "dang nong",
+      "live nong",
+    ].includes(normalized)
+  ) {
+    return "Live";
+  }
+  return asTrimmed(label);
 }
 
 function statusTone(status) {
@@ -1436,7 +1454,9 @@ function DesktopFeedSidebar({
 }) {
   const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
   const currentSubtitle = currentItem ? getFeedSubtitle(currentItem) : "Feed sẽ tự cập nhật";
-  const currentBadge = asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status);
+  const currentBadge = normalizeLiveBadgeLabel(
+    asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status),
+  );
   const progressValue =
     totalCount > 0 ? Math.min(100, ((activeIndex + 1) / totalCount) * 100) : 0;
   const progressLabel =
@@ -1477,7 +1497,7 @@ function DesktopFeedSidebar({
             variant="body2"
             sx={{ color: "rgba(255,255,255,0.7)", lineHeight: 1.55 }}
           >
-            Feed ưu tiên trận đang nóng, video native mượt, replay đầy đủ và các
+            Feed ưu tiên trận live, video native mượt, replay đầy đủ và các
             trận sắp vào sân để desktop không còn cảm giác xếp bài ngẫu nhiên.
           </Typography>
         </Stack>
@@ -1687,7 +1707,7 @@ function DesktopFeedSidebar({
               }}
             >
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
-                Đang live
+                Live
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 {summary?.live || 0}
@@ -1883,8 +1903,9 @@ function LiveDesktopSidebar({
   const currentSubtitle = currentItem
     ? getFeedSubtitle(currentItem)
     : "Feed sẽ tự cập nhật";
-  const currentBadge =
-    asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status);
+  const currentBadge = normalizeLiveBadgeLabel(
+    asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status),
+  );
   const progressValue =
     totalCount > 0 ? Math.min(100, ((activeIndex + 1) / totalCount) * 100) : 0;
   const progressLabel =
@@ -1960,7 +1981,7 @@ function LiveDesktopSidebar({
             variant="body2"
             sx={{ color: "var(--live-text-secondary)", lineHeight: 1.55 }}
           >
-            Feed ưu tiên trận đang nóng, video native mượt, replay đầy đủ và
+            Feed ưu tiên trận live, video native mượt, replay đầy đủ và
             các trận sắp vào sân để desktop nhìn có trật tự hơn.
           </Typography>
         </Stack>
@@ -2163,7 +2184,7 @@ function LiveDesktopSidebar({
           </Typography>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "Đang live", value: summary?.live || 0 },
+              { label: "Live", value: summary?.live || 0 },
               { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
             ].map((item) => (
               <Box
@@ -2370,8 +2391,9 @@ function InteractiveLiveSidebar({
   const currentSubtitle = currentItem
     ? getFeedSubtitle(currentItem)
     : "Feed sẽ tự cập nhật";
-  const currentBadge =
-    asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status);
+  const currentBadge = normalizeLiveBadgeLabel(
+    asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status),
+  );
   const progressValue =
     totalCount > 0 ? Math.min(100, ((activeIndex + 1) / totalCount) * 100) : 0;
   const progressLabel =
@@ -2430,7 +2452,7 @@ function InteractiveLiveSidebar({
             variant="body2"
             sx={{ color: "var(--live-text-secondary)", lineHeight: 1.55 }}
           >
-            Feed ưu tiên trận đang nóng, video native mượt, replay đầy đủ và
+            Feed ưu tiên trận live, video native mượt, replay đầy đủ và
             các trận sắp vào sân để desktop nhìn có trật tự hơn.
           </Typography>
         </Stack>
@@ -2625,7 +2647,7 @@ function InteractiveLiveSidebar({
           </Typography>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "Đang live", value: summary?.live || 0 },
+              { label: "Live", value: summary?.live || 0 },
               { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
             ].map((item) => (
               <Box
@@ -3560,7 +3582,7 @@ export default function LiveFeedPage() {
         .filter(Boolean),
       metrics: [
         `Đã tải: ${items.length}/${totalCount || items.length}`,
-        `Đang live: ${summary?.live || liveCount}`,
+        `Live: ${summary?.live || liveCount}`,
         `Replay đầy đủ: ${summary?.completeReplay || 0}`,
         `Trang: ${Math.min(page, pages)}/${pages}`,
       ],

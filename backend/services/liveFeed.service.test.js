@@ -53,6 +53,24 @@ test("compareLiveFeedItems keeps live items ahead of replay items", () => {
   assert.equal(items[1]._id, "finished-1");
 });
 
+test("buildLiveFeedItem labels live matches as Live", () => {
+  const feedItem = buildLiveFeedItem({
+    _id: "live-2",
+    status: "live",
+    streams: [
+      {
+        key: "server2",
+        kind: "hls",
+        ready: true,
+        playUrl: "https://example.com/live.m3u8",
+      },
+    ],
+    defaultStreamKey: "server2",
+  });
+
+  assert.equal(feedItem.smartBadge, "Live");
+});
+
 test("pickFeedPreferredStream prefers native-ready streams before iframe streams", () => {
   const preferred = pickFeedPreferredStream([
     {
