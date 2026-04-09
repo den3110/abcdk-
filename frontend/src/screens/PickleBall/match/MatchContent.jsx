@@ -48,7 +48,7 @@ import {
 import { toast } from "react-toastify";
 import { seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
-import { UnifiedStreamPlayer } from "../../../components/video";
+import { FeedStylePlayerDialog } from "../../../components/video";
 import { useAdminPatchMatchMutation } from "../../../slices/matchesApiSlice";
 import { useLocation, useParams } from "react-router-dom";
 import { skipToken } from "@reduxjs/toolkit/query";
@@ -1850,7 +1850,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     if (emb >= 0) return emb;
     return 0;
   });
-  const [showPlayer, setShowPlayer] = useState(false);
+  const [playerDialogOpen, setPlayerDialogOpen] = useState(false);
+  const [playerDialogMuted, setPlayerDialogMuted] = useState(true);
   const prevStreamsLenRef = useRef(0);
   const lastActiveStreamIdentityRef = useRef("");
   const activeStream =
@@ -1870,7 +1871,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       return 0;
     };
     setActiveIdx(pick());
-    setShowPlayer(false);
+    setPlayerDialogOpen(false);
+    setPlayerDialogMuted(true);
     prevStreamsLenRef.current = arr.length;
     lastActiveStreamIdentityRef.current = "";
   }, [lockedId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1919,6 +1921,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     lastActiveStreamIdentityRef.current = getStreamIdentity(activeStream);
   }, [activeStream]);
 
+  useEffect(() => {
+    setPlayerDialogMuted(true);
+  }, [lockedId, activeStream?.key]);
+
   // Overlay URL
   const overlayUrl =
     lockedId && typeof window !== "undefined" && window?.location?.origin
@@ -1948,6 +1954,106 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     !hasResolvedPair(mm?.pairA) && isSeedBlockedByUnfinishedGroup(mm?.seedA);
   const blockB =
     !hasResolvedPair(mm?.pairB) && isSeedBlockedByUnfinishedGroup(mm?.seedB);
+  const currentGameScore = Array.isArray(shownGameScores)
+    ? shownGameScores[shownGameScores.length - 1] || null
+    : null;
+  const activeStreamOpenUrl =
+    activeStream?.openUrl ||
+    (activeStream?.kind === "delayed_manifest" ? "" : activeStream?.url) ||
+    "";
+  const playerDialogItem = useMemo(() => {
+    const displayCode =
+      String(
+        mm?.displayCode ||
+          mm?.codeDisplay ||
+          mm?.code ||
+          mm?.labelKeyDisplay ||
+          "",
+      ).trim();
+    const stageLabel = (() => {
+      const phase = String(mm?.phase || "").trim().toLowerCase();
+      const branch = String(mm?.branch || "").trim().toLowerCase();
+      const bracketType = String(mm?.bracket?.type || "").trim().toLowerCase();
+      if (mm?.meta?.thirdPlace === true || branch === "consol") {
+        return "Tranh 3-4";
+      }
+      if (phase === "grand_final" || branch === "gf") {
+        return "Chung kết tổng";
+      }
+      if (
+        mm?.pool?.name ||
+        phase === "group" ||
+        ["group", "round_robin", "gsl", "rr"].includes(bracketType)
+      ) {
+        return "Vòng bảng";
+      }
+      if (phase === "losers" || branch === "lb") {
+        return "Nhánh thua";
+      }
+      if (phase === "winners" || branch === "wb") {
+        return "Nhánh thắng";
+      }
+      return "";
+    })();
+
+    const tags = [
+      displayCode ? `#${displayCode}` : "",
+      mm?.courtLabel ? `#${String(mm.courtLabel).trim()}` : "",
+      Number(mm?.currentGame) > 0 ? `#Game ${Number(mm.currentGame)}` : "",
+      currentGameScore &&
+      Number.isFinite(Number(currentGameScore?.a)) &&
+      Number.isFinite(Number(currentGameScore?.b))
+        ? `#${Number(currentGameScore.a)}-${Number(currentGameScore.b)}`
+        : "",
+      status === "live" ? "#Đang live" : status === "finished" ? "#Xem lại" : "",
+    ].filter(Boolean);
+
+    const preferredObjectFit =
+      activeStream?.meta?.isCompleteVideo ||
+      ["file", "hls", "delayed_manifest"].includes(
+        String(activeStream?.kind || "").trim().toLowerCase(),
+      )
+        ? "contain"
+        : "cover";
+
+    return {
+      _id: lockedId,
+      tournament: mm?.tournament || null,
+      status,
+      updatedAt:
+        mm?.updatedAt ||
+        mm?.finishedAt ||
+        mm?.startedAt ||
+        mm?.scheduledAt ||
+        null,
+      posterUrl: mm?.tournament?.image || "",
+      title: `${resolvePendingSideLabel(mm, "A")} vs ${resolvePendingSideLabel(mm, "B")}`,
+      subtitle:
+        String(
+          mm?.courtLabel ||
+            mm?.courtStationLabel ||
+            displayCode ||
+            mm?.tournament?.name ||
+            "PickleTour Live",
+        ).trim(),
+      tags,
+      codeChipLabel: displayCode ? `Mã ${displayCode}` : "",
+      stageChipLabel: stageLabel,
+      primaryOpenUrl: activeStreamOpenUrl,
+      useNativeControls: Boolean(activeStream?.meta?.useNativeControls),
+      preferredObjectFit,
+    };
+  }, [
+    activeStream?.kind,
+    activeStream?.meta?.isCompleteVideo,
+    activeStream?.meta?.useNativeControls,
+    activeStreamOpenUrl,
+    currentGameScore,
+    lockedId,
+    mm,
+    resolvePendingSideLabel,
+    status,
+  ]);
 
   // ====== Edit scores ======
   const [editScores, setEditScores] = useState(() => [
@@ -2259,7 +2365,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       <Alert icon={<PlayIcon />} severity="info">
         {status === "live"
           ? streams.length
-            ? "Trận đang live — bạn có thể mở liên kết hoặc xem trong nền."
+            ? "Trận đang live — bạn có thể mở liên kết hoặc xem toàn màn hình."
             : "Trận đang live — Trận đấu đang được ghi hình và sẽ hiển thị video sau."
           : status === "finished"
             ? streams.length
@@ -2348,8 +2454,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               <Button
                 size="small"
                 disableElevation
-                variant={showPlayer ? "contained" : "outlined"}
-                onClick={() => setShowPlayer((v) => !v)}
+                variant="contained"
+                onClick={() => setPlayerDialogOpen(true)}
                 startIcon={<PlayIcon />}
                 sx={{
                   borderRadius: 2,
@@ -2357,21 +2463,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   fontWeight: 600,
                   fontSize: "0.8rem",
                   px: 2,
-                  ...(showPlayer
-                    ? {
-                        background: "linear-gradient(135deg, #1976d2, #42a5f5)",
-                        boxShadow: "0 2px 8px rgba(25,118,210,0.3)",
-                        "&:hover": {
-                          background:
-                            "linear-gradient(135deg, #1565c0, #1e88e5)",
-                        },
-                      }
-                    : {
-                        borderColor: "primary.main",
-                      }),
+                  background: "linear-gradient(135deg, #1976d2, #42a5f5)",
+                  boxShadow: "0 2px 8px rgba(25,118,210,0.3)",
+                  "&:hover": {
+                    background: "linear-gradient(135deg, #1565c0, #1e88e5)",
+                  },
                 }}
               >
-                {showPlayer ? "Thu gọn" : "Xem video trong nền"}
+                Xem toàn màn hình
               </Button>
             )}
             <Button
@@ -2408,11 +2507,28 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Button>
           </Stack>
 
-          {showPlayer && activeStream.canEmbed && (
-            <UnifiedStreamPlayer source={activeStream} />
-          )}
         </Stack>
       )}
+
+      <FeedStylePlayerDialog
+        open={playerDialogOpen && Boolean(activeStream?.canEmbed)}
+        onClose={() => setPlayerDialogOpen(false)}
+        item={playerDialogItem}
+        source={activeStream}
+        streams={streams}
+        activeStreamKey={String(activeStream?.key || activeStream?.url || "")}
+        onSelectStream={(streamKey) => {
+          const nextIdx = streams.findIndex((stream) => {
+            const candidateKey = String(stream?.key || stream?.url || "").trim();
+            return candidateKey === String(streamKey || "").trim();
+          });
+          if (nextIdx >= 0) {
+            setActiveIdx(nextIdx);
+          }
+        }}
+        muted={playerDialogMuted}
+        onMutedChange={setPlayerDialogMuted}
+      />
 
       {/* Overlay */}
       {overlayUrl && canSeeOverlay && (
