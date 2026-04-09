@@ -1,4 +1,4 @@
-﻿import {
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -233,9 +233,9 @@ function statusTone(status) {
   switch (asTrimmed(status).toLowerCase()) {
     case "live":
       return {
-        color: "#ff6b57",
-        background: "rgba(255,107,87,0.18)",
-        border: "rgba(255,107,87,0.38)",
+        color: "#ffffff",
+        background: "#e91e63",
+        border: "transparent",
       };
     case "finished":
       return {
@@ -1441,7 +1441,7 @@ function FeedCard({
       />
 
       {shouldRenderPlayer && source ? (
-        <Box sx={{ position: "absolute", inset: 0 }}>
+        <Box sx={{ position: "absolute", inset: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <UnifiedStreamPlayer
             source={source}
             autoplay={isActive}
@@ -1518,7 +1518,7 @@ function FeedCard({
           flexWrap="wrap"
           sx={{
             position: "absolute",
-            top: { xs: 16, sm: 18 },
+            top: { xs: 70, sm: 76 },
             left: { xs: 16, sm: 18 },
             right: { xs: 16, sm: 18 },
           }}

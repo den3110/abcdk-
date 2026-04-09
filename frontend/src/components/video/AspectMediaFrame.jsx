@@ -62,7 +62,7 @@ export default function AspectMediaFrame({
         sx,
       ]}
     >
-      <Box sx={{ position: "absolute", inset: 0 }}>{children}</Box>
+      <Box sx={{ position: "absolute", inset: 0, display: "flex", justifyContent: "center", alignItems: "center" }}>{children}</Box>
     </Box>
   );
 }
