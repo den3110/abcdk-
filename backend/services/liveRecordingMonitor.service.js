@@ -28,7 +28,19 @@ import {
 import { autoScheduleFacebookVodFallbackRecordings } from "./liveRecordingFacebookVodFallback.service.js";
 import { buildRecordingSourceSummary } from "./liveRecordingFacebookVodShared.service.js";
 import { buildAiCommentarySummary } from "./liveRecordingAiCommentary.service.js";
+import {
+  getLatestRecordingActivityDate,
+  getLatestSegmentActivityDate,
+  isPlaceholderSegment,
+  summarizeSegments,
+} from "./liveRecordingMonitor.helpers.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+
+export {
+  getLatestRecordingActivityDate,
+  getLatestSegmentActivityDate,
+  summarizeSegments,
+} from "./liveRecordingMonitor.helpers.js";
 
 const DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES = 15;
 const AUTO_EXPORT_SWEEP_INTERVAL_MS = Math.max(
@@ -305,28 +317,6 @@ async function getAutoExportNoSegmentMinutes() {
   return DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES;
 }
 
-function toActivityMs(value) {
-  if (!value) return 0;
-  const ts = new Date(value).getTime();
-  return Number.isFinite(ts) ? ts : 0;
-}
-
-function getLatestSegmentActivityDate(recording) {
-  let latestMs = 0;
-
-  for (const segment of recording?.segments || []) {
-    const meta = sanitizeSegmentMeta(segment?.meta);
-    latestMs = Math.max(
-      latestMs,
-      toActivityMs(segment?.uploadedAt),
-      toActivityMs(meta.lastPartUploadedAt),
-      toActivityMs(meta.completedAt)
-    );
-  }
-
-  return latestMs > 0 ? new Date(latestMs) : null;
-}
-
 function sanitizeSegmentMeta(meta) {
   return meta && typeof meta === "object" ? { ...meta } : {};
 }
@@ -337,109 +327,6 @@ function applyLiveRecordingMonitorRecordingPopulate(query) {
 
 function hasCompletedSourceCleanup(recording) {
   return recording?.meta?.sourceCleanup?.status === "completed";
-}
-
-function summarizeSegments(
-  segments = [],
-  recording = null,
-  { includeDetailedSegments = true } = {}
-) {
-  const sortedSegments = [...segments].sort((a, b) => a.index - b.index);
-  const uploadedSegments = sortedSegments.filter(
-    (segment) => segment.uploadStatus === "uploaded"
-  );
-  const uploadingSegments = sortedSegments.filter((segment) =>
-    ["presigned", "uploading_parts"].includes(segment.uploadStatus)
-  );
-  const failedSegments = sortedSegments.filter(
-    (segment) => segment.uploadStatus === "failed"
-  );
-  const abortedSegments = sortedSegments.filter(
-    (segment) => segment.uploadStatus === "aborted"
-  );
-  const latestSegment = sortedSegments[sortedSegments.length - 1] || null;
-  const activeUploadSegment =
-    uploadingSegments.sort((a, b) => b.index - a.index)[0] || null;
-
-  const buildSegmentProgress = (segment) => {
-    if (!segment) return null;
-    const meta = sanitizeSegmentMeta(segment.meta);
-    const completedParts = Array.isArray(meta.completedParts)
-      ? meta.completedParts
-      : [];
-    const rawCompletedBytes = completedParts.reduce(
-      (sum, part) => sum + toNumber(part?.sizeBytes),
-      0
-    );
-    const totalSizeBytes =
-      toNumber(meta.totalSizeBytes) ||
-      toNumber(meta.segmentSizeBytes) ||
-      toNumber(segment.sizeBytes);
-    const completedBytes =
-      rawCompletedBytes > 0
-        ? rawCompletedBytes
-        : segment.uploadStatus === "uploaded"
-        ? totalSizeBytes
-        : 0;
-    const partSizeBytes = toNumber(meta.partSizeBytes);
-    const percent =
-      totalSizeBytes > 0
-        ? Math.max(
-            0,
-            Math.min(100, Math.round((completedBytes / totalSizeBytes) * 100))
-          )
-        : segment.uploadStatus === "uploaded"
-        ? 100
-        : 0;
-    const totalParts =
-      partSizeBytes > 0 && totalSizeBytes > 0
-        ? Math.max(1, Math.ceil(totalSizeBytes / partSizeBytes))
-        : 0;
-    return {
-      index: segment.index,
-      objectKey: segment.objectKey || "",
-      storageTargetId:
-        String(
-          segment?.storageTargetId || recording?.r2TargetId || ""
-        ).trim() || null,
-      bucketName:
-        String(segment?.bucketName || recording?.r2BucketName || "").trim() ||
-        null,
-      etag: segment.etag || "",
-      uploadStatus: segment.uploadStatus,
-      isFinal: Boolean(segment.isFinal),
-      sizeBytes: toNumber(segment.sizeBytes),
-      durationSeconds: toNumber(segment.durationSeconds),
-      uploadedAt: segment.uploadedAt || null,
-      completedPartCount: completedParts.length,
-      completedBytes,
-      totalSizeBytes,
-      percent,
-      partSizeBytes,
-      totalParts,
-      lastPartUploadedAt: meta.lastPartUploadedAt || null,
-      startedAt: meta.startedAt || null,
-    };
-  };
-
-  const detailedSegments = includeDetailedSegments
-    ? sortedSegments.map(buildSegmentProgress).filter(Boolean)
-    : [];
-  return {
-    totalSegments: sortedSegments.length,
-    uploadedSegments: uploadedSegments.length,
-    uploadingSegments: uploadingSegments.length,
-    failedSegments: failedSegments.length,
-    abortedSegments: abortedSegments.length,
-    totalUploadedBytes: uploadedSegments.reduce(
-      (sum, segment) => sum + toNumber(segment.sizeBytes),
-      0
-    ),
-    finalSegmentUploaded: uploadedSegments.some((segment) => segment.isFinal),
-    segments: detailedSegments,
-    latestSegment: buildSegmentProgress(latestSegment),
-    activeUploadSegment: buildSegmentProgress(activeUploadSegment),
-  };
 }
 
 function buildStatusMeta(status) {
@@ -963,18 +850,83 @@ export async function autoExportInactiveLiveRecordings() {
 
   const queuedRecordingIds = [];
   const skippedRecordingIds = [];
+  const failedRecordingIds = [];
+
+  const buildInactiveRecordingError = (recording) => {
+    const allSegments = Array.isArray(recording?.segments) ? recording.segments : [];
+    if (!allSegments.length) {
+      return "Recording session timed out before the first segment was created.";
+    }
+
+    const materializedSegmentCount = allSegments.filter(
+      (segment) => !isPlaceholderSegment(segment)
+    ).length;
+    if (!materializedSegmentCount) {
+      return "Recording session timed out before the first segment upload started.";
+    }
+
+    return "Recording session timed out before any segment finished uploading.";
+  };
 
   for (const recording of candidates) {
-    const latestSegmentActivityAt = getLatestSegmentActivityDate(recording);
     const uploadedSegments = getUploadedRecordingSegments(recording);
+    const latestSegmentActivityAt = getLatestSegmentActivityDate(recording, {
+      includeStartedAt: true,
+    });
+    const latestRecordingActivityAt = getLatestRecordingActivityDate(recording, {
+      includeStartedAt: true,
+      includeLifecycleTimestamps: true,
+    });
+    const latestActivityAt = uploadedSegments.length
+      ? latestSegmentActivityAt
+      : latestRecordingActivityAt;
 
-    if (!uploadedSegments.length || !latestSegmentActivityAt) {
+    if (!latestActivityAt) {
       skippedRecordingIds.push(String(recording._id));
       continue;
     }
 
-    const idleMs = nowMs - latestSegmentActivityAt.getTime();
+    const idleMs = nowMs - latestActivityAt.getTime();
     if (!Number.isFinite(idleMs) || idleMs < timeoutMs) {
+      continue;
+    }
+
+    if (!uploadedSegments.length) {
+      try {
+        const nextMeta =
+          recording.meta &&
+          typeof recording.meta === "object" &&
+          !Array.isArray(recording.meta)
+            ? { ...recording.meta }
+            : {};
+        const previousMonitorState =
+          nextMeta.monitorState &&
+          typeof nextMeta.monitorState === "object" &&
+          !Array.isArray(nextMeta.monitorState)
+            ? { ...nextMeta.monitorState }
+            : {};
+
+        nextMeta.monitorState = {
+          ...previousMonitorState,
+          inactiveReason: "recording_timeout_without_uploaded_segments",
+          inactiveDetectedAt: new Date(),
+          latestActivityAt,
+          timeoutMinutes,
+        };
+
+        recording.meta = nextMeta;
+        recording.status = "failed";
+        recording.error = buildInactiveRecordingError(recording);
+        await recording.save();
+        failedRecordingIds.push(String(recording._id));
+      } catch (error) {
+        console.warn(
+          `[live-recording-monitor] inactive recording failover failed for recording ${String(
+            recording._id
+          )}:`,
+          error?.message || error
+        );
+      }
       continue;
     }
 
@@ -983,7 +935,7 @@ export async function autoExportInactiveLiveRecordings() {
         publishReason: "recording_export_auto_queued_no_segment",
         forceFromUploading: recording.status === "uploading",
         forceReason: "segment_timeout",
-        latestSegmentActivityAt,
+        latestSegmentActivityAt: latestActivityAt,
         segmentTimeoutMinutes: timeoutMinutes,
       });
       queuedRecordingIds.push(String(recording._id));
@@ -995,6 +947,13 @@ export async function autoExportInactiveLiveRecordings() {
         error?.message || error
       );
     }
+  }
+
+  if (failedRecordingIds.length) {
+    await publishLiveRecordingMonitorUpdate({
+      reason: "recording_marked_failed_no_uploaded_segments_timeout",
+      recordingIds: failedRecordingIds,
+    }).catch(() => {});
   }
 
   const facebookVodSweep = await autoScheduleFacebookVodFallbackRecordings().catch(
@@ -1013,6 +972,7 @@ export async function autoExportInactiveLiveRecordings() {
     timeoutMinutes,
     queuedRecordingIds,
     skippedRecordingIds,
+    failedRecordingIds,
     facebookVodQueuedMatchIds: facebookVodSweep.queuedMatchIds || [],
     facebookVodSkipped: facebookVodSweep.skipped || [],
   };
@@ -1726,7 +1686,11 @@ async function buildFastLiveRecordingMonitorSummary(options = {}) {
         sizeBytes: { $ifNull: ["$sizeBytes", 0] },
         totalSegments: {
           $size: {
-            $ifNull: ["$segments", []],
+            $filter: {
+              input: { $ifNull: ["$segments", []] },
+              as: "segment",
+              cond: { $ne: ["$$segment.uploadStatus", "presigned"] },
+            },
           },
         },
         uploadedSegments: {

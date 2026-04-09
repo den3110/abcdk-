@@ -632,7 +632,7 @@ async function presignRecordingSegmentEntries({
 }
 
 function shouldPreserveExportState(recording) {
-  return ["pending_export_window", "exporting", "ready", "failed"].includes(
+  return ["pending_export_window", "exporting", "ready"].includes(
     String(recording?.status || "")
   );
 }

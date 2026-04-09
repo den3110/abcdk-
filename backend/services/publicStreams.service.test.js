@@ -5,6 +5,14 @@ import {
   attachPublicStreamsToMatch,
   sanitizePublicFacebookLive,
 } from "./publicStreams.service.js";
+import {
+  buildRecordingPlaybackUrl,
+  buildRecordingRawStreamUrl,
+} from "./liveRecordingV2Export.service.js";
+import {
+  buildRecordingAiCommentaryPlaybackUrl,
+  buildRecordingAiCommentaryRawUrl,
+} from "./liveRecordingAiCommentaryPlayback.service.js";
 
 test("sanitizePublicFacebookLive removes Facebook access token aliases", () => {
   const sanitized = sanitizePublicFacebookLive({
@@ -68,6 +76,45 @@ test("finished matches prefer full drive video and do not expose server2 replay 
   assert.equal(Boolean(fullVideo), true);
   assert.equal(fullVideo?.kind, "file");
   assert.equal(fullVideo?.meta?.isCompleteVideo, true);
+  assert.equal(
+    fullVideo?.playUrl,
+    buildRecordingRawStreamUrl("661111111111111111111111"),
+  );
+  assert.equal(
+    fullVideo?.openUrl,
+    buildRecordingPlaybackUrl("661111111111111111111111"),
+  );
   assert.equal(payload.streams.some((stream) => stream.key === "server2"), false);
   assert.equal(payload.defaultStreamKey, "full_video");
+});
+
+test("ai commentary replay prefers internal routes over raw Drive links", () => {
+  const payload = attachPublicStreamsToMatch(
+    {
+      _id: "match-3",
+      status: "finished",
+    },
+    {
+      _id: "662222222222222222222222",
+      match: "match-3",
+      status: "ready",
+      aiCommentary: {
+        dubbedDriveRawUrl:
+          "https://drive.google.com/uc?export=download&id=ai-drive-file",
+      },
+    },
+  );
+
+  const aiCommentary = payload.streams.find(
+    (stream) => stream.key === "ai_commentary",
+  );
+  assert.equal(Boolean(aiCommentary), true);
+  assert.equal(
+    aiCommentary?.playUrl,
+    buildRecordingAiCommentaryPlaybackUrl("662222222222222222222222"),
+  );
+  assert.equal(
+    aiCommentary?.meta?.rawUrl,
+    buildRecordingAiCommentaryRawUrl("662222222222222222222222"),
+  );
 });

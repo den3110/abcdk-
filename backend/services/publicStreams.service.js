@@ -386,6 +386,8 @@ function buildCompletedReplayStream(match = {}, recording = null) {
   const recordingId = asTrimmed(recording?._id);
   const hasDriveReady = Boolean(recording?.driveFileId || recording?.driveRawUrl);
   if (recordingId && hasDriveReady) {
+    const internalRawUrl = buildRecordingRawStreamUrl(recordingId);
+    const internalPlaybackUrl = buildRecordingPlaybackUrl(recordingId);
     return {
       key: "full_video",
       displayLabel: "Video đầy đủ",
@@ -393,19 +395,16 @@ function buildCompletedReplayStream(match = {}, recording = null) {
       kind: "file",
       priority: 0,
       status: "ready",
-      playUrl:
-        asTrimmed(recording?.driveRawUrl) || buildRecordingRawStreamUrl(recordingId),
-      openUrl: buildRecordingPlaybackUrl(recordingId),
+      playUrl: internalRawUrl,
+      openUrl: internalPlaybackUrl,
       delaySeconds: 0,
       ready: true,
       meta: {
         recordingId,
         useNativeControls: true,
         isCompleteVideo: true,
-        playbackUrl: buildRecordingPlaybackUrl(recordingId),
-        rawUrl:
-          asTrimmed(recording?.driveRawUrl) ||
-          buildRecordingRawStreamUrl(recordingId),
+        playbackUrl: internalPlaybackUrl,
+        rawUrl: internalRawUrl,
       },
     };
   }
@@ -438,17 +437,19 @@ function buildCompletedReplayStream(match = {}, recording = null) {
 
 function buildRecordingAiCommentaryState(recording) {
   const ai = recording?.aiCommentary || {};
+  const hasDriveReady = Boolean(
+    asTrimmed(ai?.dubbedDriveFileId) || asTrimmed(ai?.dubbedDriveRawUrl)
+  );
   const finalPlaybackUrl =
     asTrimmed(ai?.dubbedPlaybackUrl) ||
     (recording?._id &&
-    (asTrimmed(ai?.dubbedDriveFileId) || asTrimmed(ai?.dubbedDriveRawUrl))
+    hasDriveReady
       ? buildRecordingAiCommentaryPlaybackUrl(recording._id)
       : "");
   const rawUrl =
-    asTrimmed(ai?.dubbedDriveRawUrl) ||
-    (recording?._id && asTrimmed(ai?.dubbedDriveFileId)
+    (recording?._id && hasDriveReady
       ? buildRecordingAiCommentaryRawUrl(recording._id)
-      : "");
+      : "") || asTrimmed(ai?.dubbedDriveRawUrl);
   const previewUrl = asTrimmed(ai?.dubbedDrivePreviewUrl);
   const ready = Boolean(
     asTrimmed(ai?.dubbedDriveFileId) || rawUrl || finalPlaybackUrl || previewUrl
