@@ -101,6 +101,9 @@ export const liveApiSlice = apiSlice.injectEndpoints({
         q = "",
         tournamentId = "",
         mode = "all",
+        source = "all",
+        replayState = "all",
+        sort = "smart",
       } = {}) => {
         const params = new URLSearchParams();
 
@@ -109,6 +112,9 @@ export const liveApiSlice = apiSlice.injectEndpoints({
         if (q) params.set("q", String(q).trim());
         if (tournamentId) params.set("tournamentId", String(tournamentId));
         if (mode) params.set("mode", String(mode));
+        if (source) params.set("source", String(source));
+        if (replayState) params.set("replayState", String(replayState));
+        if (sort) params.set("sort", String(sort));
 
         return `/api/live/feed?${params.toString()}`;
       },
@@ -117,8 +123,11 @@ export const liveApiSlice = apiSlice.injectEndpoints({
         const mode = String(queryArgs?.mode || "all");
         const q = String(queryArgs?.q || "").trim();
         const tournamentId = String(queryArgs?.tournamentId || "").trim();
+        const source = String(queryArgs?.source || "all");
+        const replayState = String(queryArgs?.replayState || "all");
+        const sort = String(queryArgs?.sort || "smart");
         const limit = Math.max(1, Number(queryArgs?.limit || FEED_LIMIT));
-        return `${endpointName}:${mode}:${tournamentId}:${q}:${limit}`;
+        return `${endpointName}:${mode}:${tournamentId}:${q}:${source}:${replayState}:${sort}:${limit}`;
       },
       transformResponse: (resp, meta, arg) =>
         transformFeedResponse(resp, Number(arg?.limit || FEED_LIMIT)),
@@ -145,7 +154,10 @@ export const liveApiSlice = apiSlice.injectEndpoints({
           currentArg?.limit !== previousArg?.limit ||
           currentArg?.mode !== previousArg?.mode ||
           currentArg?.q !== previousArg?.q ||
-          currentArg?.tournamentId !== previousArg?.tournamentId
+          currentArg?.tournamentId !== previousArg?.tournamentId ||
+          currentArg?.source !== previousArg?.source ||
+          currentArg?.replayState !== previousArg?.replayState ||
+          currentArg?.sort !== previousArg?.sort
         );
       },
     }),
@@ -156,6 +168,9 @@ export const liveApiSlice = apiSlice.injectEndpoints({
         q = "",
         tournamentId = "",
         mode = "all",
+        source = "all",
+        replayState = "all",
+        sort = "smart",
       } = {}) => {
         const params = new URLSearchParams();
 
@@ -164,6 +179,9 @@ export const liveApiSlice = apiSlice.injectEndpoints({
         if (q) params.set("q", String(q).trim());
         if (tournamentId) params.set("tournamentId", String(tournamentId));
         if (mode) params.set("mode", String(mode));
+        if (source) params.set("source", String(source));
+        if (replayState) params.set("replayState", String(replayState));
+        if (sort) params.set("sort", String(sort));
 
         return `/api/live/feed?${params.toString()}`;
       },

@@ -382,6 +382,60 @@ function pickFinalServer2Url(recording) {
   return "";
 }
 
+function buildCompletedReplayStream(match = {}, recording = null) {
+  const recordingId = asTrimmed(recording?._id);
+  const hasDriveReady = Boolean(recording?.driveFileId || recording?.driveRawUrl);
+  if (recordingId && hasDriveReady) {
+    return {
+      key: "full_video",
+      displayLabel: "Video đầy đủ",
+      providerLabel: "PickleTour Drive",
+      kind: "file",
+      priority: 0,
+      status: "ready",
+      playUrl:
+        asTrimmed(recording?.driveRawUrl) || buildRecordingRawStreamUrl(recordingId),
+      openUrl: buildRecordingPlaybackUrl(recordingId),
+      delaySeconds: 0,
+      ready: true,
+      meta: {
+        recordingId,
+        useNativeControls: true,
+        isCompleteVideo: true,
+        playbackUrl: buildRecordingPlaybackUrl(recordingId),
+        rawUrl:
+          asTrimmed(recording?.driveRawUrl) ||
+          buildRecordingRawStreamUrl(recordingId),
+      },
+    };
+  }
+
+  const legacyPlaybackUrl = selectLegacyPlaybackUrl(match);
+  if (!legacyPlaybackUrl) return null;
+
+  const kind = detectLegacyKind(legacyPlaybackUrl);
+  if (kind !== "file") return null;
+
+  return {
+    key: "full_video",
+    displayLabel: "Video đầy đủ",
+    providerLabel: "Replay",
+    kind: "file",
+    priority: 0,
+    status: "ready",
+    playUrl: legacyPlaybackUrl,
+    openUrl: legacyPlaybackUrl,
+    delaySeconds: 0,
+    ready: true,
+    meta: {
+      useNativeControls: true,
+      isCompleteVideo: true,
+      playbackUrl: legacyPlaybackUrl,
+      rawUrl: legacyPlaybackUrl,
+    },
+  };
+}
+
 function buildRecordingAiCommentaryState(recording) {
   const ai = recording?.aiCommentary || {};
   const finalPlaybackUrl =
@@ -578,11 +632,21 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     isFinishedLikeStatus(match?.status) ||
     isFinishedLikeStatus(match?.facebookLive?.status);
   const server2 = buildRecordingServer2State(recording);
+  const completedReplayStream = finishedLike
+    ? buildCompletedReplayStream(match, recording)
+    : null;
+
+  if (completedReplayStream) {
+    pushUniqueStream(streams, completedReplayStream);
+  }
+
   const facebookStream = buildFacebookStreamSource(match);
   const facebookOpenUrl = facebookStream.openUrl;
   const facebookPlayUrl =
     facebookStream.embedSourceUrl || facebookOpenUrl || "";
-  if ((facebookOpenUrl || facebookPlayUrl) && !(finishedLike && server2?.ready)) {
+  const shouldUseFacebookFallback =
+    Boolean(facebookOpenUrl || facebookPlayUrl) && (!finishedLike || !completedReplayStream);
+  if (shouldUseFacebookFallback) {
     pushUniqueStream(streams, {
       key: "server1",
       displayLabel: "Server 1",
@@ -610,6 +674,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
 
   const shouldRenderServer2 = Boolean(
     server2 &&
+      !finishedLike &&
       (server2.manifestUrl || server2.hlsManifestUrl || server2.finalPlaybackUrl)
   );
 
@@ -759,18 +824,24 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
           ready: true,
         });
       } else {
-        const hasServer2 = streams.some((stream) => stream.key === "server2");
+        const hasPrimaryReplay = streams.some(
+          (stream) => stream.key === "server2" || stream.key === "full_video",
+        );
         pushUniqueStream(streams, {
-          key: hasServer2 ? "legacy_video" : "server2",
-          displayLabel: hasServer2 ? "Video" : "Server 2",
-          providerLabel: hasServer2 ? "Video" : "PickleTour",
+          key: hasPrimaryReplay ? "legacy_video" : "full_video",
+          displayLabel: hasPrimaryReplay ? "Video" : "Video đầy đủ",
+          providerLabel: hasPrimaryReplay ? "Video" : "Replay",
           kind: kind || "iframe",
-          priority: hasServer2 ? 3 : 2,
+          priority: hasPrimaryReplay ? 3 : 0,
           status: "ready",
           playUrl: normalizedLegacyUrl,
           openUrl: normalizedLegacyUrl,
           delaySeconds: 0,
           ready: true,
+          meta: {
+            useNativeControls: kind === "file",
+            isCompleteVideo: kind === "file",
+          },
         });
       }
     }
@@ -826,7 +897,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
 
   const status = asTrimmed(match?.status).toLowerCase();
   const facebookStatus = asTrimmed(match?.facebookLive?.status).toLowerCase();
-  const shouldPreferServer2 =
+  const shouldPreferReplayVideo =
     isFinishedLikeStatus(status) || isFinishedLikeStatus(facebookStatus);
   let defaultStreamKey = streams[0]?.key || null;
   if (status === "live") {
@@ -835,9 +906,9 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       streams.find((stream) => stream.key === "server2")?.key ||
       defaultStreamKey;
   }
-  if (shouldPreferServer2) {
+  if (shouldPreferReplayVideo) {
     defaultStreamKey =
-      streams.find((stream) => stream.key === "server2" && stream.ready)?.key ||
+      streams.find((stream) => stream.key === "full_video" && stream.ready)?.key ||
       streams.find((stream) => stream.key === "server1")?.key ||
       defaultStreamKey;
   }

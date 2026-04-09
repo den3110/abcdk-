@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link as RouterLink } from "react-router-dom";
 import {
   Avatar,
@@ -6,13 +13,20 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Divider,
+  InputAdornment,
   IconButton,
+  LinearProgress,
+  MenuItem,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import {
   AccessTimeRounded as AccessTimeRoundedIcon,
+  AutoAwesomeRounded as AutoAwesomeRoundedIcon,
   ArrowDownwardRounded as ArrowDownwardRoundedIcon,
+  SearchRounded as SearchRoundedIcon,
   CheckCircleRounded as CheckCircleRoundedIcon,
   GridViewRounded as GridViewRoundedIcon,
   InfoOutlined as InfoOutlinedIcon,
@@ -38,6 +52,55 @@ const PTR_THRESHOLD = 80;
 const PTR_MAX = 120;
 const PLAYER_WINDOW = 1;
 const RENDER_WINDOW = 2;
+const DESKTOP_SIDEBAR_WIDTH = 356;
+
+const MODE_OPTIONS = [
+  { value: "all", label: "Tất cả" },
+  { value: "live", label: "Đang live" },
+  { value: "replay", label: "Replay" },
+];
+
+const SOURCE_OPTIONS = [
+  { value: "all", label: "Mọi nguồn" },
+  { value: "complete", label: "Video đầy đủ" },
+  { value: "native", label: "Native/HLS" },
+  { value: "facebook", label: "Facebook" },
+  { value: "youtube", label: "YouTube" },
+  { value: "tiktok", label: "TikTok" },
+  { value: "iframe", label: "Iframe khác" },
+];
+
+const REPLAY_OPTIONS = [
+  { value: "all", label: "Mọi trạng thái replay" },
+  { value: "complete", label: "Đầy đủ" },
+  { value: "temporary", label: "Đang phát bản tạm" },
+  { value: "processing", label: "Đang xử lý" },
+];
+
+const SORT_OPTIONS = [
+  { value: "smart", label: "Smart" },
+  { value: "recent", label: "Mới cập nhật" },
+];
+
+const SIDEBAR_FIELD_SX = {
+  "& .MuiInputLabel-root": {
+    color: "rgba(255,255,255,0.66)",
+  },
+  "& .MuiOutlinedInput-root": {
+    color: "#fff",
+    borderRadius: 3,
+    bgcolor: "rgba(8,13,20,0.72)",
+    "& fieldset": {
+      borderColor: "rgba(255,255,255,0.12)",
+    },
+    "&:hover fieldset": {
+      borderColor: "rgba(255,255,255,0.2)",
+    },
+    "&.Mui-focused fieldset": {
+      borderColor: "rgba(37,244,238,0.56)",
+    },
+  },
+};
 
 function sid(value) {
   return String(value?._id || value?.id || value || "").trim();
@@ -198,6 +261,66 @@ function buildFeedTags(item, scoreTuple) {
   pushTag(statusLabel(item?.status));
 
   return tags.slice(0, 4);
+}
+
+function buildFeedCodeChipLabel(item) {
+  const code = asTrimmed(item?.displayCode || item?.code || item?.globalCode);
+  return code ? `Mã ${code}` : "";
+}
+
+function buildFeedStageChipLabel(item) {
+  const direct = asTrimmed(item?.stageLabel);
+  if (direct) return direct;
+
+  const phase = asTrimmed(item?.phase).toLowerCase();
+  const branch = asTrimmed(item?.branch).toLowerCase();
+  const bracketType = asTrimmed(item?.bracket?.type).toLowerCase();
+
+  if (item?.meta?.thirdPlace === true || branch === "consol") {
+    return "Tranh 3-4";
+  }
+  if (phase === "grand_final" || branch === "gf") {
+    return "Chung kết tổng";
+  }
+  if (
+    phase === "group" ||
+    item?.pool?.name ||
+    ["group", "round_robin", "gsl"].includes(bracketType)
+  ) {
+    return "Vòng bảng";
+  }
+  if (phase === "losers" || branch === "lb") {
+    return "Nhánh thua";
+  }
+  if (phase === "winners" || branch === "wb") {
+    return "Nhánh thắng";
+  }
+
+  return "";
+}
+
+function getCount(map, key) {
+  return Math.max(0, Number(map?.[key] || 0));
+}
+
+function formatCountLabel(label, count) {
+  return count > 0 ? `${label} (${count})` : label;
+}
+
+function getModeCount(summary, statuses, mode) {
+  switch (asTrimmed(mode).toLowerCase()) {
+    case "live":
+      return Math.max(
+        0,
+        getCount(statuses, "live") +
+          getCount(statuses, "assigned") +
+          getCount(statuses, "queued"),
+      );
+    case "replay":
+      return Math.max(0, getCount(statuses, "finished"));
+    default:
+      return Math.max(0, Number(summary?.total || 0));
+  }
 }
 
 function toUnifiedSource(stream) {
@@ -572,6 +695,26 @@ function FeedCard({
   const scoreTuple = useMemo(() => extractScoreTuple(item?.score), [item?.score]);
   const hasNativeMute = Boolean(source && isNativeKind(source.kind, source.key));
   const statusMeta = statusTone(item?.status);
+  const replayState = asTrimmed(item?.replayState).toLowerCase();
+  const useNativeControls = Boolean(
+    item?.useNativeControls || source?.meta?.useNativeControls,
+  );
+  const playerObjectFit = asTrimmed(item?.preferredObjectFit).toLowerCase() === "contain"
+    ? "contain"
+    : hasNativeMute
+      ? "contain"
+      : "cover";
+  const showProcessingState =
+    asTrimmed(item?.status).toLowerCase() === "finished" &&
+    replayState === "processing";
+  const showTemporaryReplayHint =
+    asTrimmed(item?.status).toLowerCase() === "finished" &&
+    replayState === "temporary";
+  const bottomOffset = useNativeControls
+    ? { xs: 82, sm: 90 }
+    : { xs: 18, sm: 22 };
+  const codeChipLabel = buildFeedCodeChipLabel(item);
+  const stageChipLabel = buildFeedStageChipLabel(item);
 
   return (
     <Box
@@ -614,11 +757,12 @@ function FeedCard({
           <UnifiedStreamPlayer
             source={source}
             autoplay={isActive}
+            useNativeControls={useNativeControls}
             muted={muted}
             onMutedChange={onMutedChange}
             chromeMode="minimal"
             fillContainer
-            objectFit="cover"
+            objectFit={playerObjectFit}
           />
         </Box>
       ) : null}
@@ -628,8 +772,47 @@ function FeedCard({
           position: "absolute",
           inset: 0,
           zIndex: 2,
+          pointerEvents: useNativeControls ? "none" : "auto",
         }}
       />
+
+      {showProcessingState ? (
+        <Stack
+          spacing={1}
+          alignItems="center"
+          justifyContent="center"
+          sx={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 2,
+            px: 3,
+            textAlign: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <CircularProgress size={34} sx={{ color: "rgba(255,255,255,0.86)" }} />
+          <Typography
+            variant="h6"
+            sx={{
+              color: "#fff",
+              fontWeight: 800,
+              textShadow: "0 2px 8px rgba(0,0,0,0.48)",
+            }}
+          >
+            Video đang được xử lý
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "rgba(255,255,255,0.72)",
+              maxWidth: 360,
+              textShadow: "0 1px 4px rgba(0,0,0,0.48)",
+            }}
+          >
+            Video đầy đủ sẽ hiển thị sau khi hệ thống ghép xong bản replay.
+          </Typography>
+        </Stack>
+      ) : null}
 
       <Box
         sx={{
@@ -643,6 +826,8 @@ function FeedCard({
           direction="row"
           spacing={1}
           alignItems="flex-start"
+          useFlexGap
+          flexWrap="wrap"
           sx={{
             position: "absolute",
             top: { xs: 16, sm: 18 },
@@ -662,6 +847,45 @@ function FeedCard({
               backdropFilter: "blur(10px)",
             }}
           />
+          {codeChipLabel ? (
+            <Chip
+              size="small"
+              label={codeChipLabel}
+              sx={{
+                color: "#fff",
+                bgcolor: "rgba(7,12,18,0.56)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                backdropFilter: "blur(10px)",
+                fontWeight: 800,
+              }}
+            />
+          ) : null}
+          {stageChipLabel ? (
+            <Chip
+              size="small"
+              label={stageChipLabel}
+              sx={{
+                color: "#25f4ee",
+                bgcolor: "rgba(7,12,18,0.56)",
+                border: "1px solid rgba(37,244,238,0.24)",
+                backdropFilter: "blur(10px)",
+                fontWeight: 800,
+              }}
+            />
+          ) : null}
+          {showTemporaryReplayHint ? (
+            <Chip
+              size="small"
+              label="Đang phát bản tạm"
+              sx={{
+                color: "#25f4ee",
+                bgcolor: "rgba(7,12,18,0.56)",
+                border: "1px solid rgba(37,244,238,0.24)",
+                backdropFilter: "blur(10px)",
+                fontWeight: 800,
+              }}
+            />
+          ) : null}
         </Stack>
 
         <Stack
@@ -673,7 +897,7 @@ function FeedCard({
             position: "absolute",
             left: { xs: 16, sm: 18 },
             right: { xs: 10, sm: 16 },
-            bottom: { xs: 18, sm: 22 },
+            bottom: bottomOffset,
           }}
         >
           <Stack
@@ -699,16 +923,20 @@ function FeedCard({
       </Box>
 
       <Box
-        sx={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: 3,
-          zIndex: 4,
-          bgcolor: "rgba(255,255,255,0.18)",
-          overflow: "hidden",
-        }}
+        sx={
+          useNativeControls
+            ? { display: "none" }
+            : {
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 3,
+                zIndex: 4,
+                bgcolor: "rgba(255,255,255,0.18)",
+                overflow: "hidden",
+              }
+        }
       >
         <Box
           sx={{
@@ -724,10 +952,451 @@ function FeedCard({
   );
 }
 
+function DesktopFeedSidebar({
+  searchInput,
+  onSearchChange,
+  mode,
+  onModeChange,
+  tournamentId,
+  onTournamentChange,
+  sourceFilter,
+  onSourceFilterChange,
+  replayFilter,
+  onReplayFilterChange,
+  sortMode,
+  onSortModeChange,
+  tournaments,
+  summary,
+  statuses,
+  sources,
+  replayStates,
+  hasActiveFilters,
+  onClearFilters,
+  onRefresh,
+  isFetching,
+  hasPendingNewItems,
+  onShowNewItems,
+  currentItem,
+  activeIndex,
+  loadedCount,
+  totalCount,
+}) {
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
+  const currentSubtitle = currentItem ? getFeedSubtitle(currentItem) : "Feed sẽ tự cập nhật";
+  const currentBadge = asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status);
+  const progressValue =
+    totalCount > 0 ? Math.min(100, ((activeIndex + 1) / totalCount) * 100) : 0;
+  const progressLabel =
+    totalCount > 0 ? `${Math.min(activeIndex + 1, totalCount)}/${totalCount}` : "0/0";
+
+  return (
+    <Box
+      sx={{
+        display: { xs: "none", md: "block" },
+        position: "relative",
+        zIndex: 10,
+        height: "100dvh",
+        overflowY: "auto",
+        borderRight: "1px solid rgba(255,255,255,0.08)",
+        background:
+          "linear-gradient(180deg, rgba(4,8,12,0.96) 0%, rgba(7,12,18,0.9) 36%, rgba(4,8,12,0.98) 100%)",
+        backdropFilter: "blur(18px)",
+      }}
+    >
+      <Stack spacing={2.2} sx={{ p: 2.25 }}>
+        <Stack spacing={1}>
+          <Chip
+            icon={<AutoAwesomeRoundedIcon sx={{ color: "#25f4ee !important" }} />}
+            label={`Smart Feed • ${summary?.total || 0} trận`}
+            sx={{
+              alignSelf: "flex-start",
+              color: "#fff",
+              bgcolor: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(37,244,238,0.18)",
+              backdropFilter: "blur(14px)",
+              fontWeight: 800,
+            }}
+          />
+          <Typography variant="h5" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
+            PickleTour Live
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{ color: "rgba(255,255,255,0.7)", lineHeight: 1.55 }}
+          >
+            Feed ưu tiên trận đang nóng, video native mượt, replay đầy đủ và các
+            trận sắp vào sân để desktop không còn cảm giác xếp bài ngẫu nhiên.
+          </Typography>
+        </Stack>
+
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            onClick={onRefresh}
+            startIcon={
+              isFetching ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <RefreshRoundedIcon />
+              )
+            }
+            sx={{
+              flex: 1,
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              bgcolor: "#ff6b57",
+              color: "#0b1017",
+              "&:hover": {
+                bgcolor: "#ff7d6d",
+              },
+            }}
+          >
+            Làm mới
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/live/clusters"
+            startIcon={<GridViewRoundedIcon />}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              color: "#fff",
+              bgcolor: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              "&:hover": {
+                bgcolor: "rgba(255,255,255,0.12)",
+              },
+            }}
+          >
+            Cụm sân
+          </Button>
+        </Stack>
+
+        {hasPendingNewItems ? (
+          <Button
+            variant="outlined"
+            onClick={onShowNewItems}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              color: "#25f4ee",
+              borderColor: "rgba(37,244,238,0.3)",
+              bgcolor: "rgba(37,244,238,0.08)",
+              "&:hover": {
+                borderColor: "rgba(37,244,238,0.5)",
+                bgcolor: "rgba(37,244,238,0.12)",
+              },
+            }}
+          >
+            Có trận mới, nhấn để làm mới feed
+          </Button>
+        ) : null}
+
+        <TextField
+          label="Tìm trận, giải, sân"
+          placeholder="Ví dụ: Court 1, bán kết, giải mở rộng..."
+          value={searchInput}
+          onChange={(event) => onSearchChange(event.target.value)}
+          fullWidth
+          sx={SIDEBAR_FIELD_SX}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon sx={{ color: "rgba(255,255,255,0.6)" }} />
+              </InputAdornment>
+            ),
+          }}
+        />
+
+        <Stack direction="row" spacing={1} useFlexGap flexWrap>
+          {MODE_OPTIONS.map((option) => {
+            const selected = option.value === mode;
+            const optionCount = getModeCount(summary, statuses, option.value);
+            return (
+              <Chip
+                key={option.value}
+                clickable
+                label={formatCountLabel(option.label, optionCount)}
+                onClick={() => onModeChange(option.value)}
+                sx={{
+                  color: selected ? "#0b1017" : "#fff",
+                  bgcolor: selected ? "#25f4ee" : "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  fontWeight: 800,
+                }}
+              />
+            );
+          })}
+        </Stack>
+
+        <TextField
+          select
+          label="Giải đấu"
+          value={tournamentId}
+          onChange={(event) => onTournamentChange(event.target.value)}
+          fullWidth
+          sx={SIDEBAR_FIELD_SX}
+        >
+          <MenuItem value="">Tất cả giải đấu</MenuItem>
+          {tournaments.map((item) => (
+            <MenuItem key={sid(item) || item.name} value={sid(item) || ""}>
+              {formatCountLabel(item.name, Number(item?.count || 0))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Nguồn ưu tiên"
+          value={sourceFilter}
+          onChange={(event) => onSourceFilterChange(event.target.value)}
+          fullWidth
+          sx={SIDEBAR_FIELD_SX}
+        >
+          {SOURCE_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {formatCountLabel(option.label, getCount(sources, option.value))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Trạng thái replay"
+          value={replayFilter}
+          onChange={(event) => onReplayFilterChange(event.target.value)}
+          fullWidth
+          sx={SIDEBAR_FIELD_SX}
+        >
+          {REPLAY_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {formatCountLabel(option.label, getCount(replayStates, option.value))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Sắp xếp"
+          value={sortMode}
+          onChange={(event) => onSortModeChange(event.target.value)}
+          fullWidth
+          sx={SIDEBAR_FIELD_SX}
+        >
+          {SORT_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <Button
+          onClick={onClearFilters}
+          disabled={!hasActiveFilters}
+          sx={{
+            alignSelf: "flex-start",
+            borderRadius: 999,
+            textTransform: "none",
+            fontWeight: 800,
+            color: "#fff",
+            border: "1px solid rgba(255,255,255,0.12)",
+            bgcolor: "rgba(255,255,255,0.06)",
+          }}
+        >
+          Xóa bộ lọc
+        </Button>
+
+        <Divider sx={{ borderColor: "rgba(255,255,255,0.08)" }} />
+
+        <Stack spacing={1.1}>
+          <Typography variant="overline" sx={{ color: "#25f4ee", fontWeight: 800 }}>
+            Toàn cảnh feed
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            <Box
+              sx={{
+                flex: 1,
+                p: 1.4,
+                borderRadius: 3,
+                bgcolor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
+                Đang live
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                {summary?.live || 0}
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                flex: 1,
+                p: 1.4,
+                borderRadius: 3,
+                bgcolor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
+                Replay đầy đủ
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                {summary?.completeReplay || 0}
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            <Box
+              sx={{
+                flex: 1,
+                p: 1.4,
+                borderRadius: 3,
+                bgcolor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
+                Nguồn native
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                {summary?.nativeReady || 0}
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                flex: 1,
+                p: 1.4,
+                borderRadius: 3,
+                bgcolor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
+                Đang xử lý
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                {summary?.processingReplay || 0}
+              </Typography>
+            </Box>
+          </Stack>
+        </Stack>
+
+        <Divider sx={{ borderColor: "rgba(255,255,255,0.08)" }} />
+
+        <Stack spacing={1.2}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="overline" sx={{ color: "#25f4ee", fontWeight: 800 }}>
+              Đang xem
+            </Typography>
+            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
+              {progressLabel}
+            </Typography>
+          </Stack>
+          <Box
+            sx={{
+              p: 1.6,
+              borderRadius: 4,
+              bgcolor: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            <Stack spacing={1.1}>
+              <Chip
+                size="small"
+                label={currentBadge}
+                sx={{
+                  alignSelf: "flex-start",
+                  color: "#fff",
+                  bgcolor: "rgba(255,107,87,0.18)",
+                  border: "1px solid rgba(255,107,87,0.28)",
+                  fontWeight: 800,
+                }}
+              />
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.3 }}>
+                {currentTitle}
+              </Typography>
+              <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.68)" }}>
+                {currentSubtitle}
+              </Typography>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap>
+                {currentItem?.courtLabel ? (
+                  <Chip
+                    size="small"
+                    label={currentItem.courtLabel}
+                    sx={{
+                      color: "#fff",
+                      bgcolor: "rgba(255,255,255,0.08)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  />
+                ) : null}
+                {currentItem?.displayCode ? (
+                  <Chip
+                    size="small"
+                    label={currentItem.displayCode}
+                    sx={{
+                      color: "#fff",
+                      bgcolor: "rgba(255,255,255,0.08)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  />
+                ) : null}
+                {currentItem?.smartScore ? (
+                  <Chip
+                    size="small"
+                    label={`${currentItem.smartScore} điểm`}
+                    sx={{
+                      color: "#25f4ee",
+                      bgcolor: "rgba(37,244,238,0.08)",
+                      border: "1px solid rgba(37,244,238,0.18)",
+                    }}
+                  />
+                ) : null}
+              </Stack>
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.56)" }}>
+                {currentItem?.updatedAt
+                  ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
+                  : "Feed đang chờ dữ liệu mới"}
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={progressValue}
+                sx={{
+                  height: 6,
+                  borderRadius: 999,
+                  bgcolor: "rgba(255,255,255,0.08)",
+                  "& .MuiLinearProgress-bar": {
+                    borderRadius: 999,
+                    background:
+                      "linear-gradient(90deg, rgba(255,107,87,0.96), rgba(37,244,238,0.96))",
+                  },
+                }}
+              />
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.56)" }}>
+                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong feed hiện tại.
+              </Typography>
+            </Stack>
+          </Box>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}
+
 export default function LiveFeedPage() {
   const [page, setPage] = useState(1);
   const [activeIndex, setActiveIndex] = useState(0);
   const [feedVisible, setFeedVisible] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [mode, setMode] = useState("all");
+  const [tournamentId, setTournamentId] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [replayFilter, setReplayFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("smart");
   const [renderedIndices, setRenderedIndices] = useState(
     () => new Set([0, 1, 2]),
   );
@@ -750,22 +1419,34 @@ export default function LiveFeedPage() {
   const isAnimatingRef = useRef(false);
   const ptrActiveRef = useRef(false);
   const activeIndexRef = useRef(0);
+  const didMountFilterRef = useRef(false);
+  const deferredSearch = useDeferredValue(asTrimmed(searchInput));
 
   const feedArgs = useMemo(
     () => ({
       page,
       limit: FEED_LIMIT,
-      mode: "all",
+      mode,
+      q: deferredSearch,
+      tournamentId,
+      source: sourceFilter,
+      replayState: replayFilter,
+      sort: sortMode,
     }),
-    [page],
+    [deferredSearch, mode, page, replayFilter, sortMode, sourceFilter, tournamentId],
   );
   const probeArgs = useMemo(
     () => ({
       page: 1,
       limit: FEED_LIMIT,
-      mode: "all",
+      mode,
+      q: deferredSearch,
+      tournamentId,
+      source: sourceFilter,
+      replayState: replayFilter,
+      sort: sortMode,
     }),
-    [],
+    [deferredSearch, mode, replayFilter, sortMode, sourceFilter, tournamentId],
   );
 
   const {
@@ -789,6 +1470,28 @@ export default function LiveFeedPage() {
   const items = useMemo(
     () => (Array.isArray(feedData?.items) ? feedData.items : []),
     [feedData?.items],
+  );
+  const feedMeta = feedData?.meta || {};
+  const summary = feedMeta?.summary || {};
+  const facets = feedMeta?.facets || {};
+  const tournaments = useMemo(
+    () =>
+      (Array.isArray(facets?.tournaments) ? facets.tournaments : []).filter((item) =>
+        Boolean(sid(item)),
+      ),
+    [facets?.tournaments],
+  );
+  const statusCounts = facets?.statuses || {};
+  const sourceCounts = facets?.sources || {};
+  const replayStateCounts = facets?.replayStates || {};
+  const totalCount = Math.max(0, Number(feedData?.count || summary?.total || 0));
+  const hasActiveFilters = Boolean(
+    deferredSearch ||
+      mode !== "all" ||
+      tournamentId ||
+      sourceFilter !== "all" ||
+      replayFilter !== "all" ||
+      sortMode !== "smart",
   );
   const liveCount = useMemo(
     () =>
@@ -823,6 +1526,13 @@ export default function LiveFeedPage() {
     inner.style.transform = `translate3d(0, ${offsetY}px, 0)`;
   }, []);
 
+  const resetViewport = useCallback(() => {
+    setActiveIndex(0);
+    activeIndexRef.current = 0;
+    setRenderedIndices(new Set([0, 1, 2]));
+    setTranslate(0, false);
+  }, [setTranslate]);
+
   const snapToIndex = useCallback(
     (nextIndex, { animate = true } = {}) => {
       if (!items.length) return;
@@ -853,7 +1563,7 @@ export default function LiveFeedPage() {
 
   const handleResetFeed = useCallback(() => {
     setHasPendingNewItems(false);
-    snapToIndex(0);
+    resetViewport();
 
     if (page !== 1) {
       setPage(1);
@@ -862,7 +1572,7 @@ export default function LiveFeedPage() {
     }
 
     refetchProbe();
-  }, [page, refetchFeed, refetchProbe, snapToIndex]);
+  }, [page, refetchFeed, refetchProbe, resetViewport]);
 
   const triggerRefresh = useCallback(() => {
     if (ptrLoading) return;
@@ -884,6 +1594,28 @@ export default function LiveFeedPage() {
       }, 1600);
     }, 900);
   }, [handleResetFeed, ptrLoading]);
+
+  useEffect(() => {
+    if (!didMountFilterRef.current) {
+      didMountFilterRef.current = true;
+      return;
+    }
+
+    setHasPendingNewItems(false);
+    resetViewport();
+    if (page !== 1) {
+      setPage(1);
+    }
+  }, [
+    deferredSearch,
+    mode,
+    page,
+    replayFilter,
+    resetViewport,
+    sortMode,
+    sourceFilter,
+    tournamentId,
+  ]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -1196,24 +1928,44 @@ export default function LiveFeedPage() {
       entityTitle: "Live Feed PickleTour",
       sectionTitle: currentItem?.tournament?.name || "Feed live",
       pageSummary:
-        "Feed dọc toàn màn hình cho các trận đang live và các trận xem lại có stream công khai.",
+        "Feed dọc toàn màn hình có xếp hạng smart, hỗ trợ lọc theo giải, nguồn phát và tìm kiếm trận đang live hoặc replay.",
       activeLabels: [
         currentItem?.displayCode || "",
         currentItem?.courtLabel || "",
+        mode !== "all" ? `Chế độ ${mode}` : "",
         hasPendingNewItems ? "Có trận mới" : "",
       ],
-      visibleActions: ["Chi tiết", "Mở link", "Xem theo cụm sân"],
+      visibleActions: [
+        "Chi tiết",
+        "Mở link",
+        "Xem theo cụm sân",
+        hasActiveFilters ? "Xóa bộ lọc" : "",
+      ].filter(Boolean),
       highlights: items
         .slice(Math.max(0, activeIndex), Math.max(0, activeIndex) + 3)
         .map((item) => item?.displayCode || item?.teamAName || "")
         .filter(Boolean),
       metrics: [
-        `Đã tải: ${items.length}`,
-        `Đang live: ${liveCount}`,
+        `Đã tải: ${items.length}/${totalCount || items.length}`,
+        `Đang live: ${summary?.live || liveCount}`,
+        `Replay đầy đủ: ${summary?.completeReplay || 0}`,
         `Trang: ${Math.min(page, pages)}/${pages}`,
       ],
     }),
-    [activeIndex, currentItem, hasPendingNewItems, items, liveCount, page, pages],
+    [
+      activeIndex,
+      currentItem,
+      hasActiveFilters,
+      hasPendingNewItems,
+      items,
+      liveCount,
+      mode,
+      page,
+      pages,
+      summary?.completeReplay,
+      summary?.live,
+      totalCount,
+    ],
   );
 
   useRegisterChatBotPageSnapshot(chatBotSnapshot);
@@ -1233,7 +1985,8 @@ export default function LiveFeedPage() {
           bgcolor: "#03060a",
           color: "#fff",
           overflow: "hidden",
-          userSelect: "none",
+          display: { md: "grid" },
+          gridTemplateColumns: { md: `${DESKTOP_SIDEBAR_WIDTH}px minmax(0, 1fr)` },
         }}
       >
         <Box
@@ -1245,359 +1998,411 @@ export default function LiveFeedPage() {
             pointerEvents: "none",
           }}
         />
-
-        {isLoading && !items.length ? (
-          <Box
-            sx={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 40,
-              pointerEvents: "none",
-              opacity: feedVisible ? 0 : 1,
-              transition: "opacity 320ms ease",
-            }}
-          >
-            <FeedSkeletonCard item={items[0] || null} />
-          </Box>
-        ) : null}
+        <DesktopFeedSidebar
+          searchInput={searchInput}
+          onSearchChange={setSearchInput}
+          mode={mode}
+          onModeChange={setMode}
+          tournamentId={tournamentId}
+          onTournamentChange={setTournamentId}
+          sourceFilter={sourceFilter}
+          onSourceFilterChange={setSourceFilter}
+          replayFilter={replayFilter}
+          onReplayFilterChange={setReplayFilter}
+          sortMode={sortMode}
+          onSortModeChange={setSortMode}
+          tournaments={tournaments}
+          summary={summary}
+          statuses={statusCounts}
+          sources={sourceCounts}
+          replayStates={replayStateCounts}
+          hasActiveFilters={hasActiveFilters}
+          onClearFilters={() => {
+            setSearchInput("");
+            setMode("all");
+            setTournamentId("");
+            setSourceFilter("all");
+            setReplayFilter("all");
+            setSortMode("smart");
+          }}
+          onRefresh={handleResetFeed}
+          isFetching={isFetching}
+          hasPendingNewItems={hasPendingNewItems}
+          onShowNewItems={handleResetFeed}
+          currentItem={currentItem}
+          activeIndex={activeIndex}
+          loadedCount={items.length}
+          totalCount={totalCount}
+        />
 
         <Box
           sx={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 25,
-            px: { xs: 1.4, sm: 2 },
-            pt: { xs: 1.4, sm: 2 },
-            pointerEvents: "none",
+            position: "relative",
+            minWidth: 0,
+            height: "100dvh",
+            overflow: "hidden",
+            userSelect: "none",
           }}
         >
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="flex-start"
-            spacing={1}
+          {isLoading && !items.length ? (
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 40,
+                pointerEvents: "none",
+                opacity: feedVisible ? 0 : 1,
+                transition: "opacity 320ms ease",
+              }}
+            >
+              <FeedSkeletonCard item={items[0] || null} />
+            </Box>
+          ) : null}
+
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 25,
+              px: { xs: 1.4, sm: 2 },
+              pt: { xs: 1.4, sm: 2 },
+              pointerEvents: "none",
+              display: { xs: "block", md: "none" },
+            }}
           >
-            <Stack spacing={1} sx={{ pointerEvents: "auto" }}>
-              <Chip
-                label={`PickleTour Live Feed${liveCount ? ` | ${liveCount} LIVE` : ""}`}
-                sx={{
-                  alignSelf: "flex-start",
-                  color: "#fff",
-                  bgcolor: "rgba(6,10,16,0.62)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  backdropFilter: "blur(14px)",
-                  fontWeight: 800,
-                }}
-              />
-              {hasPendingNewItems ? (
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="flex-start"
+              spacing={1}
+            >
+              <Stack spacing={1} sx={{ pointerEvents: "auto" }}>
+                <Chip
+                  label={`PickleTour Live Feed${liveCount ? ` | ${liveCount} LIVE` : ""}`}
+                  sx={{
+                    alignSelf: "flex-start",
+                    color: "#fff",
+                    bgcolor: "rgba(6,10,16,0.62)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    backdropFilter: "blur(14px)",
+                    fontWeight: 800,
+                  }}
+                />
+                {hasPendingNewItems ? (
+                  <Button
+                    data-feed-interactive="true"
+                    variant="contained"
+                    onClick={handleResetFeed}
+                    sx={{
+                      alignSelf: "flex-start",
+                      borderRadius: 999,
+                      textTransform: "none",
+                      fontWeight: 800,
+                      bgcolor: "#ff6b57",
+                      color: "#0b1017",
+                      "&:hover": {
+                        bgcolor: "#ff7d6d",
+                      },
+                    }}
+                  >
+                    Có trận mới
+                  </Button>
+                ) : null}
+              </Stack>
+
+              <Stack direction="row" spacing={1} sx={{ pointerEvents: "auto" }}>
+                <Button
+                  data-feed-interactive="true"
+                  component={RouterLink}
+                  to="/live/clusters"
+                  startIcon={<GridViewRoundedIcon />}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 700,
+                    color: "#fff",
+                    bgcolor: "rgba(6,10,16,0.62)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    backdropFilter: "blur(14px)",
+                    "&:hover": {
+                      bgcolor: "rgba(18,24,35,0.76)",
+                    },
+                  }}
+                >
+                  Cụm sân
+                </Button>
+                <IconButton
+                  data-feed-interactive="true"
+                  onClick={handleResetFeed}
+                  sx={{
+                    width: 44,
+                    height: 44,
+                    color: "#fff",
+                    bgcolor: "rgba(6,10,16,0.62)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    backdropFilter: "blur(14px)",
+                  }}
+                >
+                  {isFetching ? (
+                    <CircularProgress size={18} color="inherit" />
+                  ) : (
+                    <RefreshRoundedIcon />
+                  )}
+                </IconButton>
+              </Stack>
+            </Stack>
+          </Box>
+
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 30,
+              display: { xs: "flex", md: "none" },
+              justifyContent: "center",
+              pointerEvents: "none",
+              height:
+                showPtrIndicator && !isLoading
+                  ? ptrLoading || ptrSuccess
+                    ? 72
+                    : ptrPull
+                  : 0,
+              transition: ptrActiveRef.current ? "none" : "height 240ms ease",
+              overflow: "hidden",
+            }}
+          >
+            <Stack
+              spacing={0.75}
+              alignItems="center"
+              justifyContent="flex-end"
+              sx={{ pt: 1.5, pb: 1.2 }}
+            >
+              {ptrSuccess ? (
+                <>
+                  <CheckCircleRoundedIcon sx={{ color: "#4ade80" }} />
+                  <Typography variant="caption" sx={{ color: "#4ade80", fontWeight: 800 }}>
+                    Đã làm mới
+                  </Typography>
+                </>
+              ) : ptrLoading ? (
+                <>
+                  <CircularProgress size={22} sx={{ color: "#fff" }} />
+                  <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.82)", fontWeight: 800 }}>
+                    Đang làm mới...
+                  </Typography>
+                </>
+              ) : (
+                <>
+                  <ArrowDownwardRoundedIcon
+                    sx={{
+                      color: ptrReady ? "#4ade80" : "#fff",
+                      transform: ptrReady ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 180ms ease",
+                    }}
+                  />
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: ptrReady ? "#4ade80" : "rgba(255,255,255,0.82)",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {ptrReady ? "Thả để làm mới" : "Kéo xuống để làm mới"}
+                  </Typography>
+                </>
+              )}
+            </Stack>
+          </Box>
+
+          {!isLoading && !items.length ? (
+            <Stack
+              alignItems="center"
+              justifyContent="center"
+              spacing={2}
+              sx={{ minHeight: "100dvh", px: 3, textAlign: "center" }}
+            >
+              <Typography variant="h4" sx={{ fontWeight: 900 }}>
+                Chưa có trận để hiển thị
+              </Typography>
+              <Typography
+                variant="body1"
+                sx={{ color: "rgba(255,255,255,0.72)", maxWidth: 560 }}
+              >
+                Khi có trận đang live hoặc video xem lại công khai, feed sẽ tự xuất
+                hiện tại đây.
+              </Typography>
+              <Stack direction="row" spacing={1.25}>
                 <Button
                   data-feed-interactive="true"
                   variant="contained"
                   onClick={handleResetFeed}
+                  sx={{ borderRadius: 999, textTransform: "none", fontWeight: 800 }}
+                >
+                  Làm mới
+                </Button>
+                <Button
+                  data-feed-interactive="true"
+                  component={RouterLink}
+                  to="/live/clusters"
+                  variant="outlined"
                   sx={{
-                    alignSelf: "flex-start",
                     borderRadius: 999,
                     textTransform: "none",
                     fontWeight: 800,
-                    bgcolor: "#ff6b57",
-                    color: "#0b1017",
-                    "&:hover": {
-                      bgcolor: "#ff7d6d",
-                    },
+                    color: "#fff",
+                    borderColor: "rgba(255,255,255,0.24)",
                   }}
                 >
-                  Có trận mới
+                  Xem theo cụm sân
                 </Button>
-              ) : null}
+              </Stack>
             </Stack>
-
-            <Stack direction="row" spacing={1} sx={{ pointerEvents: "auto" }}>
-              <Button
-                data-feed-interactive="true"
-                component={RouterLink}
-                to="/live/clusters"
-                startIcon={<GridViewRoundedIcon />}
-                sx={{
-                  borderRadius: 999,
-                  textTransform: "none",
-                  fontWeight: 700,
-                  color: "#fff",
-                  bgcolor: "rgba(6,10,16,0.62)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  backdropFilter: "blur(14px)",
-                  "&:hover": {
-                    bgcolor: "rgba(18,24,35,0.76)",
-                  },
-                }}
-              >
-                Cụm sân
-              </Button>
-              <IconButton
-                data-feed-interactive="true"
-                onClick={handleResetFeed}
-                sx={{
-                  width: 44,
-                  height: 44,
-                  color: "#fff",
-                  bgcolor: "rgba(6,10,16,0.62)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  backdropFilter: "blur(14px)",
-                }}
-              >
-                {isFetching ? (
-                  <CircularProgress size={18} color="inherit" />
-                ) : (
-                  <RefreshRoundedIcon />
-                )}
-              </IconButton>
-            </Stack>
-          </Stack>
-        </Box>
-
-        <Box
-          sx={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 30,
-            display: { xs: "flex", md: "none" },
-            justifyContent: "center",
-            pointerEvents: "none",
-            height: showPtrIndicator ? (ptrLoading || ptrSuccess ? 72 : ptrPull) : 0,
-            transition: ptrActiveRef.current ? "none" : "height 240ms ease",
-            overflow: "hidden",
-          }}
-        >
-          <Stack
-            spacing={0.75}
-            alignItems="center"
-            justifyContent="flex-end"
-            sx={{ pt: 1.5, pb: 1.2 }}
-          >
-            {ptrSuccess ? (
-              <>
-                <CheckCircleRoundedIcon sx={{ color: "#4ade80" }} />
-                <Typography variant="caption" sx={{ color: "#4ade80", fontWeight: 800 }}>
-                  Đã làm mới
-                </Typography>
-              </>
-            ) : ptrLoading ? (
-              <>
-                <CircularProgress size={22} sx={{ color: "#fff" }} />
-                <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.82)", fontWeight: 800 }}>
-                  Đang làm mới...
-                </Typography>
-              </>
-            ) : (
-              <>
-                <ArrowDownwardRoundedIcon
-                  sx={{
-                    color: ptrReady ? "#4ade80" : "#fff",
-                    transform: ptrReady ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 180ms ease",
-                  }}
-                />
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: ptrReady ? "#4ade80" : "rgba(255,255,255,0.82)",
-                    fontWeight: 800,
-                  }}
-                >
-                  {ptrReady ? "Thả để làm mới" : "Kéo xuống để làm mới"}
-                </Typography>
-              </>
-            )}
-          </Stack>
-        </Box>
-
-        {!isLoading && !items.length ? (
-          <Stack
-            alignItems="center"
-            justifyContent="center"
-            spacing={2}
-            sx={{ minHeight: "100dvh", px: 3, textAlign: "center" }}
-          >
-            <Typography variant="h4" sx={{ fontWeight: 900 }}>
-              Chưa có trận để hiển thị
-            </Typography>
-            <Typography
-              variant="body1"
-              sx={{ color: "rgba(255,255,255,0.72)", maxWidth: 560 }}
-            >
-              Khi có trận đang live hoặc video xem lại công khai, feed sẽ tự xuất
-              hiện tại đây.
-            </Typography>
-            <Stack direction="row" spacing={1.25}>
-              <Button
-                data-feed-interactive="true"
-                variant="contained"
-                onClick={handleResetFeed}
-                sx={{ borderRadius: 999, textTransform: "none", fontWeight: 800 }}
-              >
-                Làm mới
-              </Button>
-              <Button
-                data-feed-interactive="true"
-                component={RouterLink}
-                to="/live/clusters"
-                variant="outlined"
-                sx={{
-                  borderRadius: 999,
-                  textTransform: "none",
-                  fontWeight: 800,
-                  color: "#fff",
-                  borderColor: "rgba(255,255,255,0.24)",
-                }}
-              >
-                Xem theo cụm sân
-              </Button>
-            </Stack>
-          </Stack>
-        ) : (
-          <Box
-            ref={containerRef}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={settleGesture}
-            onTouchCancel={settleGesture}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={settleGesture}
-            onMouseLeave={settleGesture}
-            onWheel={handleWheel}
-            sx={{
-              position: "relative",
-              height: "100%",
-              overflow: "hidden",
-              touchAction: "none",
-              cursor: { md: isDraggingUi ? "grabbing" : "grab" },
-            }}
-          >
-            <Stack
-              data-feed-inner="true"
+          ) : (
+            <Box
+              ref={containerRef}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={settleGesture}
+              onTouchCancel={settleGesture}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={settleGesture}
+              onMouseLeave={settleGesture}
+              onWheel={handleWheel}
               sx={{
-                transform: "translate3d(0, 0, 0)",
-                willChange: "transform",
-                marginTop:
-                  showPtrIndicator && !ptrLoading && !ptrSuccess
-                    ? `${ptrPull}px`
-                    : 0,
-                transition: ptrActiveRef.current
-                  ? "none"
-                  : "margin-top 240ms ease, opacity 320ms ease",
-                opacity: feedVisible ? 1 : 0,
+                position: "relative",
+                height: "100%",
+                overflow: "hidden",
+                touchAction: "none",
+                cursor: { md: isDraggingUi ? "grabbing" : "grab" },
               }}
             >
-              {items.map((item, index) => {
-                const matchId = sid(item) || `feed-item-${index}`;
-                const muted = mutedById[matchId] ?? true;
-                const shouldRenderCard = renderedIndices.has(index);
-                const shouldRenderPlayer =
-                  shouldRenderCard &&
-                  Math.abs(index - activeIndex) <= PLAYER_WINDOW;
-
-                return (
-                  <Box key={matchId} sx={{ width: "100%", height: "100dvh" }}>
-                    {shouldRenderCard ? (
-                      <FeedCard
-                        item={item}
-                        isActive={index === activeIndex}
-                        shouldRenderPlayer={shouldRenderPlayer}
-                        muted={muted}
-                        onMutedChange={(nextMuted) =>
-                          handleMutedChange(matchId, nextMuted)
-                        }
-                        onOpenDetail={setViewerMatch}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          width: "100%",
-                          height: "100%",
-                          background: buildGradientSeed(item),
-                          opacity: 0.18,
-                        }}
-                      />
-                    )}
-                  </Box>
-                );
-              })}
-            </Stack>
-
-            {items.length > 1 ? (
               <Stack
-                spacing={1}
+                data-feed-inner="true"
                 sx={{
-                  display: { xs: "none", md: "flex" },
-                  position: "absolute",
-                  top: "50%",
-                  right: 20,
-                  zIndex: 26,
-                  transform: "translateY(-50%)",
+                  transform: "translate3d(0, 0, 0)",
+                  willChange: "transform",
+                  marginTop:
+                    showPtrIndicator && !ptrLoading && !ptrSuccess
+                      ? `${ptrPull}px`
+                      : 0,
+                  transition: ptrActiveRef.current
+                    ? "none"
+                    : "margin-top 240ms ease, opacity 320ms ease",
+                  opacity: feedVisible ? 1 : 0,
                 }}
               >
-                <IconButton
-                  data-feed-interactive="true"
-                  onClick={() => snapToIndex(activeIndex - 1)}
-                  disabled={activeIndex <= 0}
-                  sx={{
-                    width: 44,
-                    height: 44,
-                    color: "#fff",
-                    bgcolor: "rgba(255,255,255,0.16)",
-                    border: "1px solid rgba(255,255,255,0.16)",
-                    backdropFilter: "blur(12px)",
-                    "&.Mui-disabled": {
-                      color: "rgba(255,255,255,0.34)",
-                    },
-                  }}
-                >
-                  <KeyboardArrowUpRoundedIcon />
-                </IconButton>
-                <IconButton
-                  data-feed-interactive="true"
-                  onClick={() => snapToIndex(activeIndex + 1)}
-                  disabled={activeIndex >= items.length - 1}
-                  sx={{
-                    width: 44,
-                    height: 44,
-                    color: "#fff",
-                    bgcolor: "rgba(255,255,255,0.16)",
-                    border: "1px solid rgba(255,255,255,0.16)",
-                    backdropFilter: "blur(12px)",
-                    "&.Mui-disabled": {
-                      color: "rgba(255,255,255,0.34)",
-                    },
-                  }}
-                >
-                  <KeyboardArrowDownRoundedIcon />
-                </IconButton>
-              </Stack>
-            ) : null}
+                {items.map((item, index) => {
+                  const matchId = sid(item) || `feed-item-${index}`;
+                  const muted = mutedById[matchId] ?? true;
+                  const shouldRenderCard = renderedIndices.has(index);
+                  const shouldRenderPlayer =
+                    shouldRenderCard &&
+                    Math.abs(index - activeIndex) <= PLAYER_WINDOW;
 
-            {items.length ? (
-              <Chip
-                label={`${Math.min(activeIndex + 1, items.length)} / ${items.length}`}
-                sx={{
-                  display: { xs: "none", md: "inline-flex" },
-                  position: "absolute",
-                  top: 74,
-                  right: 20,
-                  zIndex: 26,
-                  color: "rgba(255,255,255,0.82)",
-                  bgcolor: "rgba(6,10,16,0.62)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  backdropFilter: "blur(12px)",
-                  fontWeight: 800,
-                }}
-              />
-            ) : null}
-          </Box>
-        )}
+                  return (
+                    <Box key={matchId} sx={{ width: "100%", height: "100dvh" }}>
+                      {shouldRenderCard ? (
+                        <FeedCard
+                          item={item}
+                          isActive={index === activeIndex}
+                          shouldRenderPlayer={shouldRenderPlayer}
+                          muted={muted}
+                          onMutedChange={(nextMuted) =>
+                            handleMutedChange(matchId, nextMuted)
+                          }
+                          onOpenDetail={setViewerMatch}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            width: "100%",
+                            height: "100%",
+                            background: buildGradientSeed(item),
+                            opacity: 0.18,
+                          }}
+                        />
+                      )}
+                    </Box>
+                  );
+                })}
+              </Stack>
+
+              {items.length > 1 ? (
+                <Stack
+                  spacing={1}
+                  sx={{
+                    display: { xs: "none", md: "flex" },
+                    position: "absolute",
+                    top: "50%",
+                    right: 20,
+                    zIndex: 26,
+                    transform: "translateY(-50%)",
+                  }}
+                >
+                  <IconButton
+                    data-feed-interactive="true"
+                    onClick={() => snapToIndex(activeIndex - 1)}
+                    disabled={activeIndex <= 0}
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      color: "#fff",
+                      bgcolor: "rgba(255,255,255,0.16)",
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      backdropFilter: "blur(12px)",
+                      "&.Mui-disabled": {
+                        color: "rgba(255,255,255,0.34)",
+                      },
+                    }}
+                  >
+                    <KeyboardArrowUpRoundedIcon />
+                  </IconButton>
+                  <IconButton
+                    data-feed-interactive="true"
+                    onClick={() => snapToIndex(activeIndex + 1)}
+                    disabled={activeIndex >= items.length - 1}
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      color: "#fff",
+                      bgcolor: "rgba(255,255,255,0.16)",
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      backdropFilter: "blur(12px)",
+                      "&.Mui-disabled": {
+                        color: "rgba(255,255,255,0.34)",
+                      },
+                    }}
+                  >
+                    <KeyboardArrowDownRoundedIcon />
+                  </IconButton>
+                </Stack>
+              ) : null}
+
+              {items.length ? (
+                <Chip
+                  label={`${Math.min(activeIndex + 1, items.length)} / ${items.length}`}
+                  sx={{
+                    display: { xs: "none", md: "inline-flex" },
+                    position: "absolute",
+                    top: 74,
+                    right: 20,
+                    zIndex: 26,
+                    color: "rgba(255,255,255,0.82)",
+                    bgcolor: "rgba(6,10,16,0.62)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    backdropFilter: "blur(12px)",
+                    fontWeight: 800,
+                  }}
+                />
+              ) : null}
+            </Box>
+          )}
+        </Box>
       </Box>
 
       <ResponsiveMatchViewer

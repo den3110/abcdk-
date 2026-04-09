@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import { attachPublicStreamsToMatch } from "./publicStreams.service.js";
 import {
   buildFeedPosterUrl,
+  buildFeedStageLabel,
   buildLiveFeedItem,
   compareLiveFeedItems,
   getLiveFeedModeStatuses,
+  getLiveFeedSmartScore,
   pickFeedPreferredStream,
 } from "./liveFeed.service.js";
 
@@ -76,6 +78,28 @@ test("pickFeedPreferredStream prefers native-ready streams before iframe streams
   assert.equal(preferred?.key, "server2");
 });
 
+test("pickFeedPreferredStream prefers completed replay video over temporary streams", () => {
+  const preferred = pickFeedPreferredStream([
+    {
+      key: "server1",
+      kind: "facebook",
+      ready: true,
+      priority: 1,
+    },
+    {
+      key: "full_video",
+      kind: "file",
+      ready: true,
+      priority: 0,
+      meta: {
+        isCompleteVideo: true,
+      },
+    },
+  ]);
+
+  assert.equal(preferred?.key, "full_video");
+});
+
 test("buildFeedPosterUrl applies youtube then facebook then tournament fallback order", () => {
   assert.equal(
     buildFeedPosterUrl({
@@ -141,4 +165,149 @@ test("buildLiveFeedItem keeps Facebook payload sanitized", () => {
     feedItem.posterUrl,
     "https://graph.facebook.com/fb-video-1/picture?type=large",
   );
+});
+
+test("buildLiveFeedItem marks completed replay with controls and contain fit", () => {
+  const feedItem = buildLiveFeedItem({
+    _id: "match-3",
+    status: "finished",
+    streams: [
+      {
+        key: "full_video",
+        kind: "file",
+        ready: true,
+        playUrl: "https://example.com/full.mp4",
+        openUrl: "https://example.com/full",
+        meta: {
+          isCompleteVideo: true,
+          useNativeControls: true,
+        },
+      },
+      {
+        key: "server1",
+        kind: "facebook",
+        ready: true,
+        openUrl: "https://facebook.com/example",
+      },
+    ],
+    defaultStreamKey: "full_video",
+  });
+
+  assert.equal(feedItem.feedPreferredStreamKey, "full_video");
+  assert.equal(feedItem.replayState, "complete");
+  assert.equal(feedItem.useNativeControls, true);
+  assert.equal(feedItem.preferredObjectFit, "contain");
+});
+
+test("buildLiveFeedItem marks replay as processing when no completed or fallback video exists", () => {
+  const feedItem = buildLiveFeedItem({
+    _id: "match-4",
+    status: "finished",
+    streams: [],
+    defaultStreamKey: null,
+  });
+
+  assert.equal(feedItem.replayState, "processing");
+  assert.equal(feedItem.useNativeControls, false);
+});
+
+test("buildFeedStageLabel resolves grand final and third-place labels", () => {
+  assert.equal(
+    buildFeedStageLabel({
+      phase: "grand_final",
+      round: 1,
+      bracket: {
+        type: "double_elim",
+      },
+    }),
+    "Chung kết tổng",
+  );
+
+  assert.equal(
+    buildFeedStageLabel({
+      meta: {
+        thirdPlace: true,
+      },
+      round: 3,
+      bracket: {
+        type: "knockout",
+      },
+    }),
+    "Tranh 3-4",
+  );
+});
+
+test("buildLiveFeedItem exposes stage chips for code and branch stage", () => {
+  const feedItem = buildLiveFeedItem({
+    _id: "match-stage-1",
+    displayCode: "V5-NT-T1",
+    status: "finished",
+    phase: "losers",
+    branch: "lb",
+    round: 4,
+    bracket: {
+      type: "double_elim",
+      meta: {
+        drawSize: 8,
+      },
+    },
+    streams: [
+      {
+        key: "server1",
+        kind: "facebook",
+        ready: true,
+        openUrl: "https://facebook.com/example",
+      },
+    ],
+    defaultStreamKey: "server1",
+  });
+
+  assert.equal(feedItem.stageLabel, "Chung kết nhánh thua");
+  assert.equal(feedItem.displayCode, "V5-NT-T1");
+});
+
+test("smart ranking boosts fresh native live matches ahead of stale iframe live matches", () => {
+  const now = Date.now();
+  const hotLive = buildLiveFeedItem({
+    _id: "match-hot",
+    status: "live",
+    currentGame: 3,
+    score: {
+      scoreA: 10,
+      scoreB: 9,
+    },
+    updatedAt: new Date(now - 2 * 60 * 1000).toISOString(),
+    startedAt: new Date(now - 18 * 60 * 1000).toISOString(),
+    streams: [
+      {
+        key: "server2",
+        kind: "hls",
+        ready: true,
+        playUrl: "https://example.com/live.m3u8",
+      },
+    ],
+    defaultStreamKey: "server2",
+  });
+  const flatLive = buildLiveFeedItem({
+    _id: "match-flat",
+    status: "live",
+    currentGame: 1,
+    updatedAt: new Date(now - 55 * 60 * 1000).toISOString(),
+    startedAt: new Date(now - 75 * 60 * 1000).toISOString(),
+    streams: [
+      {
+        key: "server1",
+        kind: "facebook",
+        ready: true,
+        openUrl: "https://facebook.com/example",
+      },
+    ],
+    defaultStreamKey: "server1",
+  });
+
+  assert.ok(getLiveFeedSmartScore(hotLive) > getLiveFeedSmartScore(flatLive));
+
+  const items = [flatLive, hotLive];
+  items.sort(compareLiveFeedItems);
+  assert.equal(items[0]._id, "match-hot");
 });

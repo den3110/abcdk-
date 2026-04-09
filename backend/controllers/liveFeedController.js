@@ -18,6 +18,9 @@ export async function getPublicLiveFeed(req, res) {
       q: req.query.q || req.query.keyword || "",
       tournamentId: req.query.tournamentId || "",
       mode: req.query.mode || "all",
+      source: req.query.source || "all",
+      replayState: req.query.replayState || "all",
+      sort: req.query.sort || "smart",
       page: req.query.page || 1,
       limit: req.query.limit || 8,
     });

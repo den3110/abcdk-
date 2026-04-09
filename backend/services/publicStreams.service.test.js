@@ -43,3 +43,31 @@ test("attachPublicStreamsToMatch keeps public Facebook fields but strips access 
   assert.equal(payload.facebookLive?.watch_url, "https://fb.watch/example");
   assert.equal(Array.isArray(payload.streams), true);
 });
+
+test("finished matches prefer full drive video and do not expose server2 replay streams", () => {
+  const payload = attachPublicStreamsToMatch(
+    {
+      _id: "match-2",
+      status: "finished",
+      facebookLive: {
+        id: "fb-live-2",
+        pageId: "page-2",
+        videoId: "video-2",
+        permalink_url: "https://facebook.com/page/videos/video-2/",
+      },
+    },
+    {
+      _id: "661111111111111111111111",
+      match: "match-2",
+      status: "ready",
+      driveFileId: "drive-file-2",
+    },
+  );
+
+  const fullVideo = payload.streams.find((stream) => stream.key === "full_video");
+  assert.equal(Boolean(fullVideo), true);
+  assert.equal(fullVideo?.kind, "file");
+  assert.equal(fullVideo?.meta?.isCompleteVideo, true);
+  assert.equal(payload.streams.some((stream) => stream.key === "server2"), false);
+  assert.equal(payload.defaultStreamKey, "full_video");
+});
