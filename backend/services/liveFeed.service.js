@@ -258,14 +258,12 @@ function getIframeRank(stream) {
 }
 
 function getFeedStreamTypeRank(stream) {
-  const key = asTrimmed(stream?.key).toLowerCase();
   const kind = asTrimmed(stream?.kind).toLowerCase();
 
   if (isCompletedReplayStream(stream)) return 0;
-  if (key === "server2") return 1;
-  if (kind === "file") return 2;
-  if (kind === "hls") return 3;
-  if (kind === "delayed_manifest") return 4;
+  if (kind === "file") return 1;
+  if (kind === "hls") return 2;
+  if (kind === "delayed_manifest") return 3;
   return 10 + getIframeRank(stream);
 }
 
@@ -310,7 +308,7 @@ function getFeedPrimarySourceTypeFromStream(stream) {
   const provider = asTrimmed(stream?.providerLabel).toLowerCase();
 
   if (isCompletedReplayStream(stream)) return "complete";
-  if (key === "server2" || isNativeStreamKind(kind)) return "native";
+  if (isNativeStreamKind(kind)) return "native";
   if (kind === "facebook" || key === "server1" || provider.includes("facebook")) {
     return "facebook";
   }
@@ -862,6 +860,7 @@ export function buildFeedPosterUrl(match = {}) {
 
 export function buildLiveFeedItem(match = {}) {
   const streams = Array.isArray(match?.streams) ? match.streams : [];
+  const replayStateHint = asTrimmed(match?.publicReplayStateHint).toLowerCase();
   const preferredStream =
     pickFeedPreferredStream(streams, match?.defaultStreamKey) ||
     findStreamByKey(streams, match?.defaultStreamKey) ||
@@ -879,15 +878,18 @@ export function buildLiveFeedItem(match = {}) {
   const temporaryReplayReady = streams.some(
     (stream) =>
       !isCompletedReplayStream(stream) &&
-      isReadyStream(stream) &&
-      asTrimmed(stream?.key).toLowerCase() !== "server2",
+      isReadyStream(stream),
   );
   const normalizedStatus = asTrimmed(match?.status).toLowerCase();
   let replayState = "none";
   if (normalizedStatus === "finished") {
-    if (completedReplayReady) replayState = "complete";
-    else if (temporaryReplayReady) replayState = "temporary";
-    else replayState = "processing";
+    if (replayStateHint === "complete" || completedReplayReady) {
+      replayState = "complete";
+    } else if (replayStateHint === "temporary" || temporaryReplayReady) {
+      replayState = "temporary";
+    } else if (replayStateHint === "processing") {
+      replayState = "processing";
+    }
   }
   const useNativeControls = Boolean(
     primaryStream?.meta?.useNativeControls || isCompletedReplayStream(primaryStream),
@@ -908,6 +910,7 @@ export function buildLiveFeedItem(match = {}) {
       Boolean(primaryStream) &&
       isReadyStream(primaryStream) &&
       isNativeStreamKind(primaryStream?.kind),
+    publicReplayStateHint: replayStateHint || "none",
     replayState,
     useNativeControls,
     preferredObjectFit,
@@ -1140,7 +1143,10 @@ export async function listLiveFeed({
 
       return buildLiveFeedItem(attached);
     })
-    .filter((item) => Array.isArray(item?.streams) && item.streams.length > 0);
+    .filter((item) => {
+      const streams = Array.isArray(item?.streams) ? item.streams : [];
+      return streams.length > 0 || item?.replayState === "processing";
+    });
 
   if (normalizedQuery) {
     items = items.filter((item) =>

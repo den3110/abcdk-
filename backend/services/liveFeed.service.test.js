@@ -60,13 +60,13 @@ test("buildLiveFeedItem labels live matches as Live", () => {
     status: "live",
     streams: [
       {
-        key: "server2",
-        kind: "hls",
+        key: "server1",
+        kind: "facebook",
         ready: true,
-        playUrl: "https://example.com/live.m3u8",
+        openUrl: "https://facebook.com/live-2",
       },
     ],
-    defaultStreamKey: "server2",
+    defaultStreamKey: "server1",
   });
 
   assert.equal(feedItem.smartBadge, "Live");
@@ -110,7 +110,7 @@ test("buildLiveFeedSearchItem returns lightweight search payload", () => {
   });
 });
 
-test("pickFeedPreferredStream prefers native-ready streams before iframe streams", () => {
+test("pickFeedPreferredStream prefers direct file streams before Facebook iframe streams", () => {
   const preferred = pickFeedPreferredStream([
     {
       key: "server1",
@@ -119,8 +119,8 @@ test("pickFeedPreferredStream prefers native-ready streams before iframe streams
       priority: 1,
     },
     {
-      key: "server2",
-      kind: "delayed_manifest",
+      key: "legacy_video",
+      kind: "file",
       ready: true,
       priority: 2,
     },
@@ -132,7 +132,7 @@ test("pickFeedPreferredStream prefers native-ready streams before iframe streams
     },
   ]);
 
-  assert.equal(preferred?.key, "server2");
+  assert.equal(preferred?.key, "legacy_video");
 });
 
 test("pickFeedPreferredStream prefers completed replay video over temporary streams", () => {
@@ -256,12 +256,13 @@ test("buildLiveFeedItem marks completed replay with controls and contain fit", (
   assert.equal(feedItem.preferredObjectFit, "contain");
 });
 
-test("buildLiveFeedItem marks replay as processing when no completed or fallback video exists", () => {
+test("buildLiveFeedItem marks replay as processing when backend flags replay as pending", () => {
   const feedItem = buildLiveFeedItem({
     _id: "match-4",
     status: "finished",
     streams: [],
     defaultStreamKey: null,
+    publicReplayStateHint: "processing",
   });
 
   assert.equal(feedItem.replayState, "processing");
@@ -323,7 +324,7 @@ test("buildLiveFeedItem exposes stage chips for code and branch stage", () => {
   assert.equal(feedItem.displayCode, "V5-NT-T1");
 });
 
-test("smart ranking boosts fresh native live matches ahead of stale iframe live matches", () => {
+test("smart ranking boosts fresh live matches ahead of stale live matches", () => {
   const now = Date.now();
   const hotLive = buildLiveFeedItem({
     _id: "match-hot",
@@ -337,13 +338,13 @@ test("smart ranking boosts fresh native live matches ahead of stale iframe live 
     startedAt: new Date(now - 18 * 60 * 1000).toISOString(),
     streams: [
       {
-        key: "server2",
-        kind: "hls",
+        key: "server1",
+        kind: "facebook",
         ready: true,
-        playUrl: "https://example.com/live.m3u8",
+        openUrl: "https://facebook.com/hot-live",
       },
     ],
-    defaultStreamKey: "server2",
+    defaultStreamKey: "server1",
   });
   const flatLive = buildLiveFeedItem({
     _id: "match-flat",

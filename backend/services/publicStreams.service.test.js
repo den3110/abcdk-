@@ -9,10 +9,6 @@ import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStreamUrl,
 } from "./liveRecordingV2Export.service.js";
-import {
-  buildRecordingAiCommentaryPlaybackUrl,
-  buildRecordingAiCommentaryRawUrl,
-} from "./liveRecordingAiCommentaryPlayback.service.js";
 
 test("sanitizePublicFacebookLive removes Facebook access token aliases", () => {
   const sanitized = sanitizePublicFacebookLive({
@@ -86,9 +82,89 @@ test("finished matches prefer full drive video and do not expose server2 replay 
   );
   assert.equal(payload.streams.some((stream) => stream.key === "server2"), false);
   assert.equal(payload.defaultStreamKey, "full_video");
+  assert.equal(payload.publicReplayStateHint, "complete");
 });
 
-test("ai commentary replay prefers internal routes over raw Drive links", () => {
+test("live matches only expose Facebook stream even when recording segments exist", () => {
+  const payload = attachPublicStreamsToMatch(
+    {
+      _id: "match-live-3",
+      status: "live",
+      facebookLive: {
+        id: "fb-live-3",
+        pageId: "page-3",
+        permalink_url: "https://facebook.com/page/videos/live-3/",
+      },
+    },
+    {
+      _id: "663333333333333333333333",
+      match: "match-live-3",
+      status: "recording",
+      r2TargetId: "target-1",
+      segments: [
+        {
+          index: 0,
+          uploadStatus: "uploaded",
+          durationSeconds: 6,
+        },
+      ],
+    },
+  );
+
+  assert.deepEqual(
+    payload.streams.map((stream) => stream.key),
+    ["server1"],
+  );
+  assert.equal(payload.defaultStreamKey, "server1");
+  assert.equal(payload.publicReplayStateHint, "none");
+});
+
+test("finished matches fall back to Facebook when full Drive video is not ready", () => {
+  const payload = attachPublicStreamsToMatch(
+    {
+      _id: "match-finished-fb-fallback",
+      status: "finished",
+      facebookLive: {
+        id: "fb-live-4",
+        pageId: "page-4",
+        videoId: "video-4",
+        permalink_url: "https://facebook.com/page/videos/video-4/",
+      },
+    },
+    {
+      _id: "664444444444444444444444",
+      match: "match-finished-fb-fallback",
+      status: "exporting",
+    },
+  );
+
+  assert.deepEqual(
+    payload.streams.map((stream) => stream.key),
+    ["server1"],
+  );
+  assert.equal(payload.defaultStreamKey, "server1");
+  assert.equal(payload.publicReplayStateHint, "temporary");
+});
+
+test("finished record-only matches stay in processing until Drive video is ready", () => {
+  const payload = attachPublicStreamsToMatch(
+    {
+      _id: "match-record-only-1",
+      status: "finished",
+    },
+    {
+      _id: "665555555555555555555555",
+      match: "match-record-only-1",
+      status: "pending_export_window",
+    },
+  );
+
+  assert.deepEqual(payload.streams, []);
+  assert.equal(payload.defaultStreamKey, null);
+  assert.equal(payload.publicReplayStateHint, "processing");
+});
+
+test("ai commentary is not exposed before full replay Drive video is ready", () => {
   const payload = attachPublicStreamsToMatch(
     {
       _id: "match-3",
@@ -105,16 +181,7 @@ test("ai commentary replay prefers internal routes over raw Drive links", () => 
     },
   );
 
-  const aiCommentary = payload.streams.find(
-    (stream) => stream.key === "ai_commentary",
-  );
-  assert.equal(Boolean(aiCommentary), true);
-  assert.equal(
-    aiCommentary?.playUrl,
-    buildRecordingAiCommentaryPlaybackUrl("662222222222222222222222"),
-  );
-  assert.equal(
-    aiCommentary?.meta?.rawUrl,
-    buildRecordingAiCommentaryRawUrl("662222222222222222222222"),
-  );
+  assert.deepEqual(payload.streams, []);
+  assert.equal(payload.defaultStreamKey, null);
+  assert.equal(payload.publicReplayStateHint, "processing");
 });
