@@ -367,7 +367,7 @@ function summarizeSegments(
     const completedParts = Array.isArray(meta.completedParts)
       ? meta.completedParts
       : [];
-    const completedBytes = completedParts.reduce(
+    const rawCompletedBytes = completedParts.reduce(
       (sum, part) => sum + toNumber(part?.sizeBytes),
       0
     );
@@ -375,6 +375,12 @@ function summarizeSegments(
       toNumber(meta.totalSizeBytes) ||
       toNumber(meta.segmentSizeBytes) ||
       toNumber(segment.sizeBytes);
+    const completedBytes =
+      rawCompletedBytes > 0
+        ? rawCompletedBytes
+        : segment.uploadStatus === "uploaded"
+        ? totalSizeBytes
+        : 0;
     const partSizeBytes = toNumber(meta.partSizeBytes);
     const percent =
       totalSizeBytes > 0
