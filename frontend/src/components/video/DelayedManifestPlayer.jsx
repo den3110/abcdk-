@@ -145,6 +145,11 @@ export default function DelayedManifestPlayer({
   previewOnlyUntilPlay = false,
   useNativeControls = false,
   showLiveBadge = true,
+  muted,
+  onMutedChange,
+  chromeMode = "default",
+  fillContainer = false,
+  objectFit = "contain",
 }) {
   const [items, setItems] = useState([]);
   const [currentKey, setCurrentKey] = useState("");
@@ -459,7 +464,11 @@ export default function DelayedManifestPlayer({
       String(source?.meta?.status || "").toLowerCase() === "final" ||
       String(source?.meta?.status || "").toLowerCase() === "finished";
     const sourceManifestUrl =
-      typeof source?.embedUrl === "string" ? source.embedUrl.trim() : "";
+      typeof source?.embedUrl === "string" && source.embedUrl.trim()
+        ? source.embedUrl.trim()
+        : typeof source?.playUrl === "string"
+          ? source.playUrl.trim()
+          : "";
     const isBackendTempPlaylistSource =
       /\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
         sourceManifestUrl,
@@ -676,6 +685,7 @@ export default function DelayedManifestPlayer({
     clearWarmupResources,
     showLiveBadge,
     source?.embedUrl,
+    source?.playUrl,
     source?.disabledReason,
     source?.delaySeconds,
     source?.meta?.refreshSeconds,
@@ -745,6 +755,11 @@ export default function DelayedManifestPlayer({
         totalDuration={totalDuration > 0 ? totalDuration : undefined}
         totalTimeOffset={timeOffset}
         onSeekGlobal={handleSeekGlobal}
+        muted={muted}
+        onMutedChange={onMutedChange}
+        chromeMode={chromeMode}
+        fillContainer={fillContainer}
+        objectFit={objectFit}
       />
       {error && manifestStatus === "final" ? (
         <Alert severity="info" sx={{ mt: 1 }}>

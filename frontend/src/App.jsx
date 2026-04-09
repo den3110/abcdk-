@@ -158,6 +158,7 @@ const App = () => {
     "/reset-password",
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
+  const isImmersiveLiveFeedPage = location.pathname === "/live";
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -203,14 +204,12 @@ const App = () => {
       <AuthSessionSync />
       <SentryRuntimeSync />
       <NativeWebViewAuthBridge />
-      {!isAuthPage && <Header />}
+      {!isAuthPage && !isImmersiveLiveFeedPage && <Header />}
       <ToastContainer theme={isDark ? "dark" : "light"} />
 
-      {isAuthPage ? (
-        /* Auth pages: Full screen, no container constraints */
+      {isAuthPage || isImmersiveLiveFeedPage ? (
         <Outlet />
       ) : (
-        /* Normal pages: keep desktop shell, trim mobile gutters */
         <Container className="app-shell">
           <Box
             component="main"
@@ -234,7 +233,7 @@ const App = () => {
         </Container>
       )}
 
-      {!isAuthPage && <ChatBotDrawer />}
+      {!isAuthPage && !isImmersiveLiveFeedPage && <ChatBotDrawer />}
       <GlobalCommandPalette />
     </>
   );

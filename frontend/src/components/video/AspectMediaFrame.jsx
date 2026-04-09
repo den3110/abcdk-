@@ -39,6 +39,7 @@ export default function AspectMediaFrame({
   sx,
   borderRadius = 1,
   bgcolor = "black",
+  fillContainer = false,
 }) {
   const resolvedRatio = resolveAspectRatio(ratio);
   const paddingTop = resolvedRatio > 0 ? (1 / resolvedRatio) * 100 : 56.25;
@@ -49,9 +50,11 @@ export default function AspectMediaFrame({
         {
           position: "relative",
           width: "100%",
-          ...(supportsAspectRatio
-            ? { aspectRatio: `${resolvedRatio}` }
-            : { pt: `${paddingTop}%` }),
+          ...(fillContainer
+            ? { height: "100%" }
+            : supportsAspectRatio
+              ? { aspectRatio: `${resolvedRatio}` }
+              : { pt: `${paddingTop}%` }),
           bgcolor,
           borderRadius,
           overflow: "hidden",

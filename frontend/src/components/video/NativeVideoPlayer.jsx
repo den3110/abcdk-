@@ -122,6 +122,11 @@ export default function NativeVideoPlayer({
   totalTimeOffset = 0,
   onSeekGlobal = null,
   onPlaybackError = null,
+  muted,
+  onMutedChange = null,
+  chromeMode = "default",
+  fillContainer = false,
+  objectFit = "contain",
 }) {
   const frameRef = useRef(null);
   const videoRef = useRef(null);
@@ -132,6 +137,7 @@ export default function NativeVideoPlayer({
   const onEndedRef = useRef(onEnded);
   const onAdvanceToStagedSourceRef = useRef(onAdvanceToStagedSource);
   const onPlaybackErrorRef = useRef(onPlaybackError);
+  const onMutedChangeRef = useRef(onMutedChange);
   const previousSrcRef = useRef("");
   const previousStagedNextSrcRef = useRef("");
   const stagedNextReadyRef = useRef(false);
@@ -158,6 +164,11 @@ export default function NativeVideoPlayer({
   );
   const [frozenFrameUrl, setFrozenFrameUrl] = useState("");
   const [, setStagedNextReady] = useState(false);
+  const controlledMuted = typeof muted === "boolean";
+  const effectiveMuted = controlledMuted ? muted : isMuted;
+  const minimalChrome = chromeMode === "minimal";
+  const effectiveObjectFit =
+    objectFit || (fillContainer ? "cover" : "contain");
   const queueMode = Boolean(
     queueModeEnabled &&
       kind === "file" &&
@@ -224,6 +235,11 @@ export default function NativeVideoPlayer({
   }, [autoplay, previewOnlyUntilPlay, src]);
 
   useEffect(() => {
+    if (!controlledMuted) return;
+    setIsMuted(Boolean(muted));
+  }, [controlledMuted, muted]);
+
+  useEffect(() => {
     isSeekingRef.current = isSeeking;
   }, [isSeeking]);
 
@@ -238,6 +254,10 @@ export default function NativeVideoPlayer({
   useEffect(() => {
     onPlaybackErrorRef.current = onPlaybackError;
   }, [onPlaybackError]);
+
+  useEffect(() => {
+    onMutedChangeRef.current = onMutedChange;
+  }, [onMutedChange]);
 
   useEffect(() => {
     activeSlotRef.current = activeSlot;
@@ -287,14 +307,14 @@ export default function NativeVideoPlayer({
     const activeVideo = getActiveVideoElement();
     const inactiveVideo = getInactiveVideoElement();
     if (activeVideo) {
-      activeVideo.muted = isMuted;
+      activeVideo.muted = effectiveMuted;
       activeVideo.volume = volume;
     }
     if (inactiveVideo) {
-      inactiveVideo.muted = isMuted;
+      inactiveVideo.muted = effectiveMuted;
       inactiveVideo.volume = volume;
     }
-  }, [getActiveVideoElement, getInactiveVideoElement, isMuted, volume]);
+  }, [effectiveMuted, getActiveVideoElement, getInactiveVideoElement, volume]);
 
   const advanceToStagedSource = useCallback(async () => {
     if (!queueMode || switchingToStagedRef.current) {
@@ -316,7 +336,7 @@ export default function NativeVideoPlayer({
     try {
       nextVideo.currentTime = 0;
       nextVideo.playbackRate = playbackRate;
-      nextVideo.muted = currentVideo?.muted ?? isMuted;
+      nextVideo.muted = currentVideo?.muted ?? effectiveMuted;
       nextVideo.volume = currentVideo?.volume ?? volume;
 
       if (autoplay) {
@@ -349,7 +369,7 @@ export default function NativeVideoPlayer({
   }, [
     autoplay,
     getVideoElementForSlot,
-    isMuted,
+    effectiveMuted,
     playbackRate,
     queueMode,
     stagedNextSrc,
@@ -435,7 +455,9 @@ export default function NativeVideoPlayer({
     };
     const syncVolume = () => {
       setVolume(video.volume ?? 1);
-      setIsMuted(Boolean(video.muted || (video.volume ?? 1) === 0));
+      const nextMuted = Boolean(video.muted || (video.volume ?? 1) === 0);
+      setIsMuted(nextMuted);
+      onMutedChangeRef.current?.(nextMuted);
     };
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
@@ -823,6 +845,7 @@ export default function NativeVideoPlayer({
     }
     setIsMuted(video.muted);
     setVolume(video.volume ?? 1);
+    onMutedChangeRef.current?.(video.muted);
     revealChrome();
   };
 
@@ -860,10 +883,13 @@ export default function NativeVideoPlayer({
         sx={{
           overflow: "hidden",
           bgcolor: "#05070b",
-          borderColor: "rgba(255,255,255,0.12)",
+          borderColor: minimalChrome ? "transparent" : "rgba(255,255,255,0.12)",
+          borderRadius: minimalChrome ? 0 : undefined,
+          boxShadow: minimalChrome ? "none" : undefined,
+          height: fillContainer ? "100%" : "auto",
         }}
       >
-        <AspectMediaFrame ratio={ratio}>
+        <AspectMediaFrame ratio={ratio} fillContainer={fillContainer} borderRadius={minimalChrome ? 0 : 1}>
           <Box
             ref={frameRef}
             sx={{ position: "relative", width: "100%", height: "100%" }}
@@ -890,7 +916,7 @@ export default function NativeVideoPlayer({
                 inset: 0,
                 width: "100%",
                 height: "100%",
-                objectFit: "contain",
+                objectFit: effectiveObjectFit,
                 backgroundColor: "#000",
                 // Queue mode: both slots fully opaque and stacked.
                 // Active slot on top (z-index 2), inactive below (z-index 1).
@@ -916,7 +942,7 @@ export default function NativeVideoPlayer({
                   inset: 0,
                   width: "100%",
                   height: "100%",
-                  objectFit: "contain",
+                  objectFit: effectiveObjectFit,
                   backgroundColor: "#000",
                   zIndex: activeSlot === 1 ? 2 : 1,
                   opacity: 1,
@@ -935,7 +961,7 @@ export default function NativeVideoPlayer({
                   inset: 0,
                   width: "100%",
                   height: "100%",
-                  objectFit: "contain",
+                  objectFit: effectiveObjectFit,
                   backgroundColor: "#000",
                   zIndex: 0.5,
                   pointerEvents: "none",
@@ -1047,7 +1073,7 @@ export default function NativeVideoPlayer({
 
             {/* In queueMode, native browser controls don't work properly with
                the dual-slot architecture, so always use custom controls. */}
-            {!useNativeControls || queueMode ? (
+            {!minimalChrome && (!useNativeControls || queueMode) ? (
               <Box
                 sx={{
                   position: "absolute",
@@ -1226,7 +1252,7 @@ export default function NativeVideoPlayer({
                       sx={{ color: "#fff", p: 0.5 }}
                       onClick={toggleMute}
                     >
-                      {isMuted || volume === 0 ? (
+                      {effectiveMuted || volume === 0 ? (
                         <VolumeOffIcon fontSize="small" />
                       ) : (
                         <VolumeUpIcon fontSize="small" />

@@ -67,6 +67,7 @@ import { ThemeContextProvider } from "./context/ThemeContext.jsx";
 import { LanguageContextProvider } from "./context/LanguageContext.jsx";
 import { CommandPaletteProvider } from "./context/CommandPaletteContext.jsx";
 import { ChatBotPageContextProvider } from "./context/ChatBotPageContext.jsx";
+import LiveFeedPage from "./screens/live/LiveFeedPage.jsx";
 import LiveCourtClustersPage from "./screens/live/LiveCourtClustersPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
@@ -161,7 +162,8 @@ const router = sentryCreateBrowserRouter(
         </Route>
         <Route path="/clubs" element={<ClubsListPage />} />
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
-        <Route path="/live" element={<LiveCourtClustersPage />} />
+        <Route path="/live" element={<LiveFeedPage />} />
+        <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />

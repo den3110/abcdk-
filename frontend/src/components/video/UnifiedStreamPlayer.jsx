@@ -21,11 +21,24 @@ export default function UnifiedStreamPlayer({
   onEnded,
   previewOnlyUntilPlay = false,
   useNativeControls = false,
+  muted,
+  onMutedChange,
+  chromeMode = "default",
+  fillContainer = false,
+  objectFit = "contain",
 }) {
   const resolvedSource = source || null;
   const kind = String(resolvedSource?.kind || "")
     .trim()
     .toLowerCase();
+  const resolvedPlayUrl =
+    typeof resolvedSource?.playUrl === "string"
+      ? resolvedSource.playUrl.trim()
+      : "";
+  const resolvedEmbedUrl =
+    typeof resolvedSource?.embedUrl === "string"
+      ? resolvedSource.embedUrl.trim()
+      : "";
   const delayedManifestUrl =
     typeof resolvedSource?.meta?.delayedManifestUrl === "string"
       ? resolvedSource.meta.delayedManifestUrl.trim()
@@ -35,7 +48,13 @@ export default function UnifiedStreamPlayer({
 
   useEffect(() => {
     setPreferDelayedManifestFallback(false);
-  }, [resolvedSource?.key, resolvedSource?.embedUrl, delayedManifestUrl, kind]);
+  }, [
+    resolvedSource?.key,
+    resolvedSource?.embedUrl,
+    resolvedSource?.playUrl,
+    delayedManifestUrl,
+    kind,
+  ]);
 
   const fallbackSource = useMemo(() => {
     if (kind !== "hls" || !preferDelayedManifestFallback || !delayedManifestUrl) {
@@ -66,7 +85,8 @@ export default function UnifiedStreamPlayer({
   const key =
     remountKey ||
     resolvedSource?.key ||
-    resolvedSource?.embedUrl ||
+    resolvedEmbedUrl ||
+    resolvedPlayUrl ||
     resolvedSource?.openUrl ||
     kind;
 
@@ -83,6 +103,11 @@ export default function UnifiedStreamPlayer({
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
         showLiveBadge={fallbackSource?.meta?.showLiveBadge !== false}
+        muted={muted}
+        onMutedChange={onMutedChange}
+        chromeMode={chromeMode}
+        fillContainer={fillContainer}
+        objectFit={objectFit}
       />
     );
   }
@@ -91,19 +116,31 @@ export default function UnifiedStreamPlayer({
     return (
       <NativeVideoPlayer
         key={key}
-        src={resolvedSource.embedUrl}
+        src={resolvedEmbedUrl || resolvedPlayUrl || resolvedSource?.url}
         kind={kind}
         fallbackUrl={
-          resolvedSource.openUrl || resolvedSource.url || resolvedSource.embedUrl
+          resolvedSource.openUrl ||
+          resolvedSource.url ||
+          resolvedEmbedUrl ||
+          resolvedPlayUrl
         }
         initialRatio={ratio}
-        title={resolvedSource.label || (kind === "hls" ? "Live stream" : "Video")}
+        title={
+          resolvedSource.label ||
+          resolvedSource.displayLabel ||
+          (kind === "hls" ? "Live stream" : "Video")
+        }
         subtitle={resolvedSource.providerLabel || ""}
         autoplay={autoplay}
         onEnded={onEnded}
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
         onPlaybackError={handlePlaybackError}
+        muted={muted}
+        onMutedChange={onMutedChange}
+        chromeMode={chromeMode}
+        fillContainer={fillContainer}
+        objectFit={objectFit}
       />
     );
   }
@@ -117,13 +154,18 @@ export default function UnifiedStreamPlayer({
         previewOnlyUntilPlay={previewOnlyUntilPlay}
         useNativeControls={useNativeControls}
         showLiveBadge={resolvedSource?.meta?.showLiveBadge !== false}
+        muted={muted}
+        onMutedChange={onMutedChange}
+        chromeMode={chromeMode}
+        fillContainer={fillContainer}
+        objectFit={objectFit}
       />
     );
   }
 
   if (kind === "iframe_html" && resolvedSource.embedHtml) {
     return (
-      <AspectMediaFrame ratio={ratio} key={key}>
+      <AspectMediaFrame ratio={ratio} key={key} fillContainer={fillContainer}>
         <Box
           sx={{
             width: "100%",
@@ -142,10 +184,15 @@ export default function UnifiedStreamPlayer({
 
   if (IFRAME_KINDS.has(kind) && resolvedSource.embedUrl) {
     return (
-      <AspectMediaFrame ratio={ratio} key={key}>
+      <AspectMediaFrame ratio={ratio} key={key} fillContainer={fillContainer}>
         <iframe
           src={resolvedSource.embedUrl}
-          title={resolvedSource.label || resolvedSource.providerLabel || "Video"}
+          title={
+            resolvedSource.label ||
+            resolvedSource.displayLabel ||
+            resolvedSource.providerLabel ||
+            "Video"
+          }
           allow={
             resolvedSource.allow ||
             "autoplay; encrypted-media; picture-in-picture; fullscreen"

@@ -248,9 +248,9 @@ export default function LiveCourtClustersPage() {
     () => ({
       pageType: "live_clusters",
       entityTitle: "Live PickleTour",
-      sectionTitle: selectedClusterName || "Cụm sân trực tiếp",
+      sectionTitle: selectedClusterName || "Xem theo cụm sân",
       pageSummary:
-        "Trang live tổng với cụm sân đang phát, trận trực tiếp và kho trận đã phát gần đây.",
+        "Trang xem theo cụm sân, tập trung vào sân vật lý đang phát và kho trận đã phát gần đây.",
       activeLabels: [
         selectedClusterName || "",
         keyword ? `Tìm: ${keyword}` : "",
@@ -288,6 +288,7 @@ export default function LiveCourtClustersPage() {
       <SEOHead
         title="PickleTour Live Theo Cụm Sân"
         description="Xem live PickleTour theo cụm sân vật lý và xem lại các trận đã live theo từng giải."
+        path="/live/clusters"
       />
 
       <Box sx={{ maxWidth: 1440, mx: "auto", px: { xs: 2, md: 4 }, py: 4 }}>

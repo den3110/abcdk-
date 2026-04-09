@@ -177,7 +177,7 @@ export default function LiveSetupDialog({
           ? buildCourtLiveUrl(tid, bid ?? null, item)
           : buildCourtLiveUrl(tid, item);
       }
-      if (item?.entityType === "station") return "/live";
+      if (item?.entityType === "station") return "/live/clusters";
       return `/streaming/${item?._id}`;
     },
     [buildCourtLiveUrl],
