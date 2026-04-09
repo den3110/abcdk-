@@ -4,6 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MediaCommunitySkin, MediaOutlet, MediaPlayer } from "@vidstack/react";
 import "vidstack/styles/base.css";
 import "vidstack/styles/community-skin/video.css";
+import "vidstack/styles/ui/buffering.css";
+import "vidstack/styles/ui/buttons.css";
+import "vidstack/styles/ui/captions.css";
+import "vidstack/styles/ui/live.css";
+import "vidstack/styles/ui/menus.css";
+import "vidstack/styles/ui/sliders.css";
+import "vidstack/styles/ui/tooltips.css";
 
 function asTrimmed(value) {
   return String(value || "").trim();

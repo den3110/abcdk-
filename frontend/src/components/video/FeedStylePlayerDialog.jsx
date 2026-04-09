@@ -215,12 +215,15 @@ export default function FeedStylePlayerDialog({
   const stageChipLabel = asTrimmed(item?.stageChipLabel);
   const posterUrl = asTrimmed(item?.posterUrl || item?.tournament?.image);
 
+  if (!open || !resolvedSource) {
+    return null;
+  }
+
   return (
     <Dialog
-      open={Boolean(open && resolvedSource)}
+      open
       onClose={onClose}
       fullScreen
-      keepMounted
       PaperProps={{
         sx: {
           bgcolor: "#03060a",
