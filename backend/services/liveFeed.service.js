@@ -357,7 +357,7 @@ function detectKeywordStageLabel(value) {
     normalized.includes("lb final") ||
     normalized.includes("chung ket nhanh thua")
   ) {
-    return "Chung k?t nh�nh thua";
+    return "Chung kết nhánh thua";
   }
   if (
     normalized.includes("winners final") ||
@@ -365,10 +365,10 @@ function detectKeywordStageLabel(value) {
     normalized.includes("wb final") ||
     normalized.includes("chung ket nhanh thang")
   ) {
-    return "Chung k?t nh�nh th?ng";
+    return "Chung kết nhánh thắng";
   }
   if (normalized === "qf" || normalized.includes("quarter")) return "Tứ kết";
-  if (normalized === "sf" || normalized.includes("semi")) return "B�n k?t";
+  if (normalized === "sf" || normalized.includes("semi")) return "Bán kết";
   if (
     normalized === "f" ||
     normalized === "final" ||
@@ -451,7 +451,7 @@ function roundSizeToStageLabel(size) {
   if (normalized >= 32) return `Vòng ${normalized} đội`;
   if (normalized === 16) return "Vòng 16 đội";
   if (normalized === 8) return "Tứ kết";
-  if (normalized === 4) return "B�n k?t";
+  if (normalized === 4) return "Bán kết";
   if (normalized === 2) return "Chung kết";
   return `Vòng ${normalized}`;
 }
@@ -470,7 +470,7 @@ function inferKnockoutStageLabel(match = {}) {
     if (label) return label;
   }
 
-  return roundNumber ? `V�ng ${roundNumber}` : "";
+  return roundNumber ? `Vòng ${roundNumber}` : "";
 }
 
 function decorateBranchStageLabel(baseLabel, match = {}) {
@@ -494,17 +494,17 @@ function decorateBranchStageLabel(baseLabel, match = {}) {
   }
 
   if (phase === "losers" || branch === "lb") {
-    if (baseLabel === "Chung k?t") return "Chung k?t nh�nh thua";
-    if (baseLabel === "B�n k?t") return "B�n k?t nh�nh thua";
-    if (baseLabel === "T? k?t") return "T? k?t nh�nh thua";
-    return baseLabel || "Nh�nh thua";
+    if (baseLabel === "Chung kết") return "Chung kết nhánh thua";
+    if (baseLabel === "Bán kết") return "Bán kết nhánh thua";
+    if (baseLabel === "Tứ kết") return "Tứ kết nhánh thua";
+    return baseLabel || "Nhánh thua";
   }
 
   if (phase === "winners" || branch === "wb") {
-    if (baseLabel === "Chung k?t") return "Chung k?t nh�nh th?ng";
-    if (baseLabel === "B�n k?t") return "B�n k?t nh�nh th?ng";
-    if (baseLabel === "T? k?t") return "T? k?t nh�nh th?ng";
-    return baseLabel || "Nh�nh th?ng";
+    if (baseLabel === "Chung kết") return "Chung kết nhánh thắng";
+    if (baseLabel === "Bán kết") return "Bán kết nhánh thắng";
+    if (baseLabel === "Tứ kết") return "Tứ kết nhánh thắng";
+    return baseLabel || "Nhánh thắng";
   }
 
   return baseLabel;
@@ -657,10 +657,10 @@ function getLiveFeedSmartBadge(item = {}) {
     ["assigned", "queued", "scheduled"].includes(status) &&
     getUpcomingBoost(item?.scheduledAt || item?.startedAt) >= 40
   ) {
-    return "S?p v�o s�n";
+    return "Sắp vào sân";
   }
   if (status === "finished" && replayState === "complete") return "Replay đầy đủ";
-  if (status === "finished" && replayState === "temporary") return "?ang ph�t b?n t?m";
+  if (status === "finished" && replayState === "temporary") return "Đang phát bản tạm";
   if (status === "finished" && replayState === "processing") return "Đang xử lý";
   if (primarySourceType === "facebook") return "Facebook Live";
   if (primarySourceType === "youtube") return "YouTube";

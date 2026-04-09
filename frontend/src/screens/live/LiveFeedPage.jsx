@@ -77,7 +77,7 @@ const MODE_OPTIONS = [
 ];
 
 const SOURCE_OPTIONS = [
-  { value: "all", label: "M�?i nguồn" },
+  { value: "all", label: "Mọi nguồn" },
   { value: "complete", label: "Video đầy đủ" },
   { value: "native", label: "Native/HLS" },
   { value: "facebook", label: "Facebook" },
@@ -87,10 +87,10 @@ const SOURCE_OPTIONS = [
 ];
 
 const REPLAY_OPTIONS = [
-  { value: "all", label: "M�?i trạng thái replay" },
-  { value: "complete", label: "�?ầy đủ" },
-  { value: "temporary", label: "�?ang phát bản tạm" },
-  { value: "processing", label: "�?ang xử lý" },
+  { value: "all", label: "Mọi trạng thái replay" },
+  { value: "complete", label: "Đầy đủ" },
+  { value: "temporary", label: "Đang phát bản tạm" },
+  { value: "processing", label: "Đang xử lý" },
 ];
 
 const SORT_OPTIONS = [
@@ -146,7 +146,7 @@ const SMART_FILTER_PRESETS = [
   { key: "ready_replay", label: "Replay đầy đủ" },
   { key: "native_ready", label: "Native mượt" },
   { key: "temporary_fb", label: "Facebook tạm" },
-  { key: "processing", label: "�?ang xử lý" },
+  { key: "processing", label: "Đang xử lý" },
   { key: "finals", label: "Chung kết" },
   { key: "groups", label: "Vòng bảng" },
 ];
@@ -191,7 +191,7 @@ function relativeTime(value) {
   const min = Math.floor(sec / 60);
   if (min < 60) return `${min} phút trước`;
   const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour} gi�? trước`;
+  if (hour < 24) return `${hour} giờ trước`;
   const day = Math.floor(hour / 24);
   return `${day} ngày trước`;
 }
@@ -201,13 +201,13 @@ function statusLabel(status) {
     case "live":
       return "Live";
     case "assigned":
-      return "�?ã gán sân";
+      return "Đã gán sân";
     case "queued":
-      return "Ch�? vào sân";
+      return "Chờ vào sân";
     case "finished":
       return "Xem lại";
     default:
-      return status || "�?ang ch�?";
+      return status || "Đang chờ";
   }
 }
 
@@ -306,8 +306,8 @@ function buildInitials(value) {
 }
 
 function getFeedTitle(item) {
-  const teamA = asTrimmed(item?.teamAName || item?.pairA?.name || "Đ�"i A");
-  const teamB = asTrimmed(item?.teamBName || item?.pairB?.name || "Đ�"i B");
+  const teamA = asTrimmed(item?.teamAName || item?.pairA?.name || "Đội A");
+  const teamB = asTrimmed(item?.teamBName || item?.pairB?.name || "Đội B");
   return `${teamA} vs ${teamB}`;
 }
 
@@ -598,7 +598,7 @@ function FeedActionButton({
   );
 }
 
-function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ l�?c ngang" }) {
+function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) {
   const railRef = useRef(null);
   const dragStateRef = useRef({
     active: false,
@@ -833,7 +833,7 @@ function CustomTournamentPicker({
                 variant="caption"
                 sx={{ color: "var(--live-text-muted)", fontWeight: 700 }}
               >
-                �?ang l�?c theo
+                Đang lọc theo
               </Typography>
               <Typography
                 variant="body1"
@@ -1062,7 +1062,7 @@ function LiveMatchSearchField({
               }}
             >
               <Typography variant="caption" sx={{ color: "var(--live-text-muted)" }}>
-                Ch�?n trận để phát
+                Chọn trận để phát
               </Typography>
             </Box>
 
@@ -1081,7 +1081,7 @@ function LiveMatchSearchField({
                 sx={{ px: 1.5, py: 1.6, color: "var(--live-text-secondary)" }}
               >
                 <CircularProgress size={16} />
-                <Typography variant="body2">�?ang tìm trận...</Typography>
+                <Typography variant="body2">Đang tìm trận...</Typography>
               </Stack>
             ) : results.length ? (
               <Stack sx={{ maxHeight: 360, overflowY: "auto", p: 1 }}>
@@ -1564,7 +1564,7 @@ function FeedCard({
           {showTemporaryReplayHint ? (
             <Chip
               size="small"
-              label="�?ang phát bản tạm"
+              label="Đang phát bản tạm"
               sx={{
                 color: "#25f4ee",
                 bgcolor: "rgba(7,12,18,0.56)",
@@ -1904,7 +1904,7 @@ function DesktopFeedSidebar({
             bgcolor: "rgba(255,255,255,0.06)",
           }}
         >
-          Xóa bộ l�?c
+          Xóa bộ lọc
         </Button>
 
         <Divider sx={{ borderColor: "rgba(255,255,255,0.08)" }} />
@@ -1974,7 +1974,7 @@ function DesktopFeedSidebar({
               }}
             >
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
-                �?ang xử lý
+                Đang xử lý
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>
                 {summary?.processingReplay || 0}
@@ -1988,7 +1988,7 @@ function DesktopFeedSidebar({
         <Stack spacing={1.2}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="overline" sx={{ color: "#25f4ee", fontWeight: 800 }}>
-              �?ang xem
+              Đang xem
             </Typography>
             <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
               {progressLabel}
@@ -2058,7 +2058,7 @@ function DesktopFeedSidebar({
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.56)" }}>
                 {currentItem?.updatedAt
                   ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
-                  : "Feed đang ch�? dữ liệu mới"}
+                  : "Feed đang chờ dữ liệu mới"}
               </Typography>
               <LinearProgress
                 variant="determinate"
@@ -2075,7 +2075,7 @@ function DesktopFeedSidebar({
                 }}
               />
               <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.56)" }}>
-                �?ã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong feed hiện tại.
+                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong feed hiện tại.
               </Typography>
             </Stack>
           </Box>
@@ -2290,10 +2290,10 @@ function LiveDesktopSidebar({
             variant="caption"
             sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
           >
-            L�?c thông minh
+            Lọc thông minh
           </Typography>
           <DraggableChipRail
-            ariaLabel="Bộ l�?c thông minh"
+            ariaLabel="Bộ lọc thông minh"
             items={quickFilters}
             onSelect={(item) => onApplyQuickFilter(item.key)}
           />
@@ -2387,7 +2387,7 @@ function LiveDesktopSidebar({
             bgcolor: "var(--live-surface)",
           }}
         >
-          Xóa bộ l�?c
+          Xóa bộ lọc
         </Button>
 
         <Divider sx={{ borderColor: "var(--live-border)" }} />
@@ -2402,7 +2402,7 @@ function LiveDesktopSidebar({
           <Stack direction="row" spacing={1}>
             {[
               { label: "Live", value: summary?.live || 0 },
-              { label: "Replay �ầy �ủ", value: summary?.completeReplay || 0 },
+              { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2428,7 +2428,7 @@ function LiveDesktopSidebar({
           </Stack>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "Ngu�n native", value: summary?.nativeReady || 0 },
+              { label: "Nguồn native", value: summary?.nativeReady || 0 },
               { label: "Đang xử lý", value: summary?.processingReplay || 0 },
             ].map((item) => (
               <Box
@@ -2463,7 +2463,7 @@ function LiveDesktopSidebar({
               variant="overline"
               sx={{ color: "var(--live-accent)", fontWeight: 800 }}
             >
-              �?ang xem
+              Đang xem
             </Typography>
             <Typography
               variant="caption"
@@ -2542,7 +2542,7 @@ function LiveDesktopSidebar({
               >
                 {currentItem?.updatedAt
                   ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
-                  : "Feed đang ch�? dữ liệu mới"}
+                  : "Feed đang chờ dữ liệu mới"}
               </Typography>
               <LinearProgress
                 variant="determinate"
@@ -2562,7 +2562,7 @@ function LiveDesktopSidebar({
                 variant="caption"
                 sx={{ color: "var(--live-text-muted)" }}
               >
-                �?ã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong
+                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong
                 feed hiện tại.
               </Typography>
             </Stack>
@@ -2607,7 +2607,7 @@ function InteractiveLiveSidebar({
   quickFilters,
   onApplyQuickFilter,
 }) {
-  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Ch�a c� tr�n";
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
   const currentSubtitle = currentItem
     ? getFeedSubtitle(currentItem)
     : "Feed sẽ tự cập nhật";
@@ -2677,7 +2677,7 @@ function InteractiveLiveSidebar({
             variant="body2"
             sx={{ color: "var(--live-text-secondary)", lineHeight: 1.6 }}
           >
-            N?n t?ng live chuy�n nghi?p. ?u ti�n ph�t tr?c ti?p, video g?c m??t m� v� n?i dung ??y ?? t??ng t�c cao.
+            Nền tảng live chuyên nghiệp. Ưu tiên phát trực tiếp, video gốc mượt mà và nội dung đầy đủ tương tác cao.
           </Typography>
         </Stack>
 
@@ -2730,7 +2730,7 @@ function InteractiveLiveSidebar({
                 },
               }}
             >
-              C?m s�n
+              Cụm sân
             </Button>
           </Stack>
 
@@ -2857,8 +2857,8 @@ function InteractiveLiveSidebar({
           </Typography>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "ang Live", value: summary?.live || 0 },
-              { label: "Ngu�n Native", value: summary?.nativeReady || 0 },
+              { label: "Đang live", value: summary?.live || 0 },
+              { label: "Nguồn native", value: summary?.nativeReady || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2881,8 +2881,8 @@ function InteractiveLiveSidebar({
           </Stack>
           <Stack direction="row" spacing={1}>
             {[
-              { label: "Replay �y �", value: summary?.completeReplay || 0 },
-              { label: "ang X� L�", value: summary?.processingReplay || 0 },
+              { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
+              { label: "Đang xử lý", value: summary?.processingReplay || 0 },
             ].map((item) => (
               <Box
                 key={item.label}
@@ -2913,7 +2913,7 @@ function InteractiveLiveSidebar({
               variant="overline"
               sx={{ color: "var(--live-hot)", fontWeight: 700, lineHeight: 1 }}
             >
-               T�m ?i?m hi?n t?i
+               Tâm điểm hiện tại
             </Typography>
             <Typography variant="caption" sx={{ color: "var(--live-text-muted)", fontWeight: 600 }}>
               {progressLabel}
@@ -3856,27 +3856,27 @@ export default function LiveFeedPage() {
       entityTitle: "Live Feed PickleTour",
       sectionTitle: currentItem?.tournament?.name || "Feed live",
       pageSummary:
-        "Feed d�?c toàn màn hình có xếp hạng smart, hỗ trợ l�?c theo giải, nguồn phát và tìm kiếm trận đang live hoặc replay.",
+        "Feed dọc toàn màn hình có xếp hạng smart, hỗ trợ lọc theo giải, nguồn phát và tìm kiếm trận đang live hoặc replay.",
       activeLabels: [
         currentItem?.displayCode || "",
         currentItem?.courtLabel || "",
-        mode !== "all" ? `Chế ��" ${mode}` : "",
-        hasPendingNewItems ? "Có trận m�:i" : "",
+        mode !== "all" ? `Chế độ ${mode}` : "",
+        hasPendingNewItems ? "Có trận mới" : "",
       ],
       visibleActions: [
         "Chi tiết",
         "Mở link",
         "Xem theo cụm sân",
-        hasActiveFilters ? "Xóa b�" lọc" : "",
+        hasActiveFilters ? "Xóa bộ lọc" : "",
       ].filter(Boolean),
       highlights: items
         .slice(Math.max(0, activeIndex), Math.max(0, activeIndex) + 3)
         .map((item) => item?.displayCode || item?.teamAName || "")
         .filter(Boolean),
       metrics: [
-        `�?ã tải: ${items.length}/${totalCount || items.length}`,
+        `Đã tải: ${items.length}/${totalCount || items.length}`,
         `Live: ${summary?.live || liveCount}`,
-        `Replay �ầy �ủ: ${summary?.completeReplay || 0}`,
+        `Replay đầy đủ: ${summary?.completeReplay || 0}`,
         `Trang: ${Math.min(page, pages)}/${pages}`,
       ],
     }),
@@ -3902,7 +3902,7 @@ export default function LiveFeedPage() {
     <>
       <SEOHead
         title="PickleTour Live Feed"
-        description="Feed live d�?c toàn màn hình cho các trận đang phát và các trận xem lại có stream công khai."
+        description="Feed live dọc toàn màn hình cho các trận đang phát và các trận xem lại có stream công khai."
         path="/live"
       />
 
@@ -4121,14 +4121,14 @@ export default function LiveFeedPage() {
                 <>
                   <CheckCircleRoundedIcon sx={{ color: "#4ade80" }} />
                   <Typography variant="caption" sx={{ color: "#4ade80", fontWeight: 800 }}>
-                    �?ã làm mới
+                    Đã làm mới
                   </Typography>
                 </>
               ) : ptrLoading ? (
                 <>
                   <CircularProgress size={22} sx={{ color: "#fff" }} />
                   <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.82)", fontWeight: 800 }}>
-                    �?ang làm mới...
+                    Đang làm mới...
                   </Typography>
                 </>
               ) : (
@@ -4147,7 +4147,7 @@ export default function LiveFeedPage() {
                       fontWeight: 800,
                     }}
                   >
-                    {ptrReady ? "Thả �Ồ làm m�:i" : "Kéo xu�ng �Ồ làm m�:i"}
+                    {ptrReady ? "Thả để làm mới" : "Kéo xuống để làm mới"}
                   </Typography>
                 </>
               )}
@@ -4367,7 +4367,7 @@ export default function LiveFeedPage() {
                   <IconButton
                     data-feed-interactive="true"
                     onClick={handleCloseFeed}
-                    aria-label="�?óng live feed"
+                    aria-label="Đóng live feed"
                     sx={{
                       position: "absolute",
                       top: { xs: 16, sm: 18 },
