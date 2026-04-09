@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link as RouterLink } from "react-router-dom";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 import {
   Avatar,
   Box,
@@ -21,6 +21,8 @@ import {
   Stack,
   TextField,
   Typography,
+  alpha,
+  useTheme,
 } from "@mui/material";
 import {
   AccessTimeRounded as AccessTimeRoundedIcon,
@@ -28,6 +30,7 @@ import {
   ArrowDownwardRounded as ArrowDownwardRoundedIcon,
   SearchRounded as SearchRoundedIcon,
   CheckCircleRounded as CheckCircleRoundedIcon,
+  CloseRounded as CloseRoundedIcon,
   GridViewRounded as GridViewRoundedIcon,
   InfoOutlined as InfoOutlinedIcon,
   KeyboardArrowDownRounded as KeyboardArrowDownRoundedIcon,
@@ -39,6 +42,7 @@ import {
 } from "@mui/icons-material";
 
 import SEOHead from "../../components/SEOHead";
+import LogoAnimationMorph from "../../components/LogoAnimationMorph.jsx";
 import ResponsiveMatchViewer from "../PickleBall/match/ResponsiveMatchViewer";
 import { UnifiedStreamPlayer } from "../../components/video";
 import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
@@ -53,6 +57,7 @@ const PTR_MAX = 120;
 const PLAYER_WINDOW = 1;
 const RENDER_WINDOW = 2;
 const DESKTOP_SIDEBAR_WIDTH = 356;
+const GLOBAL_MUTE_STORAGE_KEY = "pickletour-live-global-muted-v1";
 
 const MODE_OPTIONS = [
   { value: "all", label: "Tất cả" },
@@ -101,6 +106,39 @@ const SIDEBAR_FIELD_SX = {
     },
   },
 };
+
+const LIVE_SIDEBAR_FIELD_SX = {
+  "& .MuiInputLabel-root": {
+    color: "var(--live-text-secondary)",
+  },
+  "& .MuiOutlinedInput-root": {
+    color: "var(--live-text)",
+    borderRadius: 3,
+    bgcolor: "var(--live-surface)",
+    "& fieldset": {
+      borderColor: "var(--live-border)",
+    },
+    "&:hover fieldset": {
+      borderColor: "var(--live-border-strong)",
+    },
+    "&.Mui-focused fieldset": {
+      borderColor: "var(--live-accent)",
+    },
+  },
+  "& .MuiInputAdornment-root, & .MuiSvgIcon-root, & .MuiSelect-icon": {
+    color: "var(--live-icon-muted)",
+  },
+};
+
+const SMART_FILTER_PRESETS = [
+  { key: "live_now", label: "Live nóng" },
+  { key: "ready_replay", label: "Replay đầy đủ" },
+  { key: "native_ready", label: "Native mượt" },
+  { key: "temporary_fb", label: "Facebook tạm" },
+  { key: "processing", label: "Đang xử lý" },
+  { key: "finals", label: "Chung kết" },
+  { key: "groups", label: "Vòng bảng" },
+];
 
 function sid(value) {
   return String(value?._id || value?.id || value || "").trim();
@@ -517,6 +555,139 @@ function FeedActionButton({
   );
 }
 
+function DraggableChipRail({ items, onSelect, ariaLabel = "Bộ lọc ngang" }) {
+  const railRef = useRef(null);
+  const dragStateRef = useRef({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startScrollLeft: 0,
+    moved: false,
+  });
+
+  const stopDragging = useCallback((pointerId = null) => {
+    const rail = railRef.current;
+    if (rail && pointerId !== null && rail.hasPointerCapture?.(pointerId)) {
+      rail.releasePointerCapture(pointerId);
+    }
+    dragStateRef.current.active = false;
+    dragStateRef.current.pointerId = null;
+    if (rail) {
+      rail.style.cursor = "grab";
+    }
+    window.setTimeout(() => {
+      dragStateRef.current.moved = false;
+    }, 0);
+  }, []);
+
+  const handlePointerDown = useCallback((event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const rail = railRef.current;
+    if (!rail) return;
+
+    dragStateRef.current.active = true;
+    dragStateRef.current.pointerId = event.pointerId;
+    dragStateRef.current.startX = event.clientX;
+    dragStateRef.current.startScrollLeft = rail.scrollLeft;
+    dragStateRef.current.moved = false;
+
+    rail.setPointerCapture?.(event.pointerId);
+    rail.style.cursor = "grabbing";
+  }, []);
+
+  const handlePointerMove = useCallback((event) => {
+    if (!dragStateRef.current.active) return;
+    const rail = railRef.current;
+    if (!rail) return;
+
+    const deltaX = event.clientX - dragStateRef.current.startX;
+    if (Math.abs(deltaX) > 6) {
+      dragStateRef.current.moved = true;
+    }
+    rail.scrollLeft = dragStateRef.current.startScrollLeft - deltaX;
+  }, []);
+
+  const handlePointerUp = useCallback(
+    (event) => {
+      stopDragging(event.pointerId);
+    },
+    [stopDragging],
+  );
+
+  const handleWheel = useCallback((event) => {
+    const rail = railRef.current;
+    if (!rail || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    rail.scrollLeft += event.deltaY;
+  }, []);
+
+  return (
+    <Box
+      ref={railRef}
+      role="listbox"
+      aria-label={ariaLabel}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={(event) => {
+        if (dragStateRef.current.active) {
+          handlePointerUp(event);
+        }
+      }}
+      onWheel={handleWheel}
+      sx={{
+        display: "flex",
+        gap: 1,
+        overflowX: "auto",
+        overflowY: "hidden",
+        py: 0.25,
+        pr: 0.5,
+        cursor: "grab",
+        scrollbarWidth: "none",
+        WebkitOverflowScrolling: "touch",
+        "&::-webkit-scrollbar": {
+          display: "none",
+        },
+      }}
+    >
+      {items.map((item) => (
+        <Chip
+          key={item.key}
+          clickable
+          label={item.label}
+          onClick={(event) => {
+            if (dragStateRef.current.moved) {
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+            onSelect?.(item);
+          }}
+          sx={{
+            flexShrink: 0,
+            color: item.selected ? "var(--live-chip-selected-text)" : "var(--live-text)",
+            bgcolor: item.selected
+              ? "var(--live-chip-selected-bg)"
+              : "var(--live-chip-bg)",
+            border: "1px solid",
+            borderColor: item.selected
+              ? "var(--live-chip-selected-border)"
+              : "var(--live-border)",
+            fontWeight: item.selected ? 800 : 700,
+            backdropFilter: "blur(12px)",
+            "&:hover": {
+              bgcolor: item.selected
+                ? "var(--live-chip-selected-bg)"
+                : "var(--live-surface-strong)",
+            },
+          }}
+        />
+      ))}
+    </Box>
+  );
+}
+
 function FeedInfoOverlay({ item, scoreTuple }) {
   const tournamentName = asTrimmed(item?.tournament?.name) || "PickleTour Live";
   const subtitle = getFeedSubtitle(item);
@@ -672,7 +843,7 @@ function FeedActionRail({
         component="a"
         disabled={!item?.primaryOpenUrl}
       />
-      {hasNativeMute ? (
+      {hasNativeMute && typeof onMutedChange === "function" ? (
         <FeedActionButton
           icon={muted ? <VolumeOffRoundedIcon /> : <VolumeUpRoundedIcon />}
           label={muted ? "Bật tiếng" : "Tắt tiếng"}
@@ -1387,7 +1558,488 @@ function DesktopFeedSidebar({
   );
 }
 
+function LiveDesktopSidebar({
+  searchInput,
+  onSearchChange,
+  mode,
+  onModeChange,
+  tournamentId,
+  onTournamentChange,
+  sourceFilter,
+  onSourceFilterChange,
+  replayFilter,
+  onReplayFilterChange,
+  sortMode,
+  onSortModeChange,
+  tournaments,
+  summary,
+  statuses,
+  sources,
+  replayStates,
+  hasActiveFilters,
+  onClearFilters,
+  onRefresh,
+  isFetching,
+  hasPendingNewItems,
+  onShowNewItems,
+  currentItem,
+  activeIndex,
+  loadedCount,
+  totalCount,
+  quickFilters,
+  onApplyQuickFilter,
+}) {
+  const currentTitle = currentItem ? getFeedTitle(currentItem) : "Chưa có trận";
+  const currentSubtitle = currentItem
+    ? getFeedSubtitle(currentItem)
+    : "Feed sẽ tự cập nhật";
+  const currentBadge =
+    asTrimmed(currentItem?.smartBadge) || statusLabel(currentItem?.status);
+  const progressValue =
+    totalCount > 0 ? Math.min(100, ((activeIndex + 1) / totalCount) * 100) : 0;
+  const progressLabel =
+    totalCount > 0 ? `${Math.min(activeIndex + 1, totalCount)}/${totalCount}` : "0/0";
+  const modeItems = useMemo(
+    () =>
+      MODE_OPTIONS.map((option) => ({
+        key: option.value,
+        value: option.value,
+        label: formatCountLabel(
+          option.label,
+          getModeCount(summary, statuses, option.value),
+        ),
+        selected: option.value === mode,
+      })),
+    [mode, statuses, summary],
+  );
+
+  return (
+    <Box
+      sx={{
+        display: { xs: "none", md: "block" },
+        position: "relative",
+        zIndex: 10,
+        height: "100dvh",
+        overflowY: "auto",
+        borderRight: "1px solid var(--live-border)",
+        background: "var(--live-sidebar-bg)",
+        backdropFilter: "blur(18px)",
+      }}
+    >
+      <Stack spacing={2.2} sx={{ p: 2.25 }}>
+        <Stack spacing={1.2}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              minHeight: 50,
+              "& a": {
+                display: "inline-flex",
+                alignItems: "center",
+              },
+            }}
+          >
+            <LogoAnimationMorph isMobile={false} showBackButton={false} />
+          </Box>
+          <Chip
+            icon={
+              <AutoAwesomeRoundedIcon
+                sx={{ color: "var(--live-accent) !important" }}
+              />
+            }
+            label={`PickleTour Feed • ${summary?.total || 0} trận`}
+            sx={{
+              alignSelf: "flex-start",
+              color: "var(--live-text)",
+              bgcolor: "var(--live-surface)",
+              border: "1px solid var(--live-border)",
+              backdropFilter: "blur(14px)",
+              fontWeight: 800,
+            }}
+          />
+          <Typography
+            variant="body2"
+            sx={{ color: "var(--live-text-secondary)", lineHeight: 1.55 }}
+          >
+            Feed ưu tiên trận đang nóng, video native mượt, replay đầy đủ và
+            các trận sắp vào sân để desktop nhìn có trật tự hơn.
+          </Typography>
+        </Stack>
+
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            onClick={onRefresh}
+            startIcon={
+              isFetching ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <RefreshRoundedIcon />
+              )
+            }
+            sx={{
+              flex: 1,
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              bgcolor: "var(--live-hot)",
+              color: "var(--live-hot-contrast)",
+              "&:hover": {
+                bgcolor: "var(--live-hot-hover)",
+              },
+            }}
+          >
+            Làm mới
+          </Button>
+          <Button
+            component={RouterLink}
+            to="/live/clusters"
+            startIcon={<GridViewRoundedIcon />}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              color: "var(--live-text)",
+              bgcolor: "var(--live-surface)",
+              border: "1px solid var(--live-border)",
+              "&:hover": {
+                bgcolor: "var(--live-surface-strong)",
+              },
+            }}
+          >
+            Cụm sân
+          </Button>
+        </Stack>
+
+        {hasPendingNewItems ? (
+          <Button
+            variant="outlined"
+            onClick={onShowNewItems}
+            sx={{
+              borderRadius: 999,
+              textTransform: "none",
+              fontWeight: 800,
+              color: "var(--live-accent)",
+              borderColor: "var(--live-accent-border)",
+              bgcolor: "var(--live-accent-soft)",
+              "&:hover": {
+                borderColor: "var(--live-accent-border-strong)",
+                bgcolor: "var(--live-accent-soft-strong)",
+              },
+            }}
+          >
+            Có trận mới, nhấn để làm mới feed
+          </Button>
+        ) : null}
+
+        <TextField
+          label="Tìm trận, giải, sân"
+          placeholder="Ví dụ: Court 1, bán kết, giải mở rộng..."
+          value={searchInput}
+          onChange={(event) => onSearchChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon />
+              </InputAdornment>
+            ),
+          }}
+        />
+
+        <Stack spacing={0.75}>
+          <Typography
+            variant="caption"
+            sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
+          >
+            Lọc thông minh
+          </Typography>
+          <DraggableChipRail
+            ariaLabel="Bộ lọc thông minh"
+            items={quickFilters}
+            onSelect={(item) => onApplyQuickFilter(item.key)}
+          />
+        </Stack>
+
+        <Stack spacing={0.75}>
+          <Typography
+            variant="caption"
+            sx={{ color: "var(--live-text-muted)", fontWeight: 800 }}
+          >
+            Chế độ feed
+          </Typography>
+          <DraggableChipRail
+            ariaLabel="Chế độ feed"
+            items={modeItems}
+            onSelect={(item) => onModeChange(item.value)}
+          />
+        </Stack>
+
+        <TextField
+          select
+          label="Giải đấu"
+          value={tournamentId}
+          onChange={(event) => onTournamentChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+        >
+          <MenuItem value="">Tất cả giải đấu</MenuItem>
+          {tournaments.map((item) => (
+            <MenuItem key={sid(item) || item.name} value={sid(item) || ""}>
+              {formatCountLabel(item.name, Number(item?.count || 0))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Nguồn ưu tiên"
+          value={sourceFilter}
+          onChange={(event) => onSourceFilterChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+        >
+          {SOURCE_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {formatCountLabel(option.label, getCount(sources, option.value))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Trạng thái replay"
+          value={replayFilter}
+          onChange={(event) => onReplayFilterChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+        >
+          {REPLAY_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {formatCountLabel(option.label, getCount(replayStates, option.value))}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <TextField
+          select
+          label="Sắp xếp"
+          value={sortMode}
+          onChange={(event) => onSortModeChange(event.target.value)}
+          fullWidth
+          sx={LIVE_SIDEBAR_FIELD_SX}
+        >
+          {SORT_OPTIONS.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              {option.label}
+            </MenuItem>
+          ))}
+        </TextField>
+
+        <Button
+          onClick={onClearFilters}
+          disabled={!hasActiveFilters}
+          sx={{
+            alignSelf: "flex-start",
+            borderRadius: 999,
+            textTransform: "none",
+            fontWeight: 800,
+            color: "var(--live-text)",
+            border: "1px solid var(--live-border)",
+            bgcolor: "var(--live-surface)",
+          }}
+        >
+          Xóa bộ lọc
+        </Button>
+
+        <Divider sx={{ borderColor: "var(--live-border)" }} />
+
+        <Stack spacing={1.1}>
+          <Typography
+            variant="overline"
+            sx={{ color: "var(--live-accent)", fontWeight: 800 }}
+          >
+            Toàn cảnh feed
+          </Typography>
+          <Stack direction="row" spacing={1}>
+            {[
+              { label: "Đang live", value: summary?.live || 0 },
+              { label: "Replay đầy đủ", value: summary?.completeReplay || 0 },
+            ].map((item) => (
+              <Box
+                key={item.label}
+                sx={{
+                  flex: 1,
+                  p: 1.4,
+                  borderRadius: 3,
+                  bgcolor: "var(--live-surface)",
+                  border: "1px solid var(--live-border)",
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{ color: "var(--live-text-muted)" }}
+                >
+                  {item.label}
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  {item.value}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            {[
+              { label: "Nguồn native", value: summary?.nativeReady || 0 },
+              { label: "Đang xử lý", value: summary?.processingReplay || 0 },
+            ].map((item) => (
+              <Box
+                key={item.label}
+                sx={{
+                  flex: 1,
+                  p: 1.4,
+                  borderRadius: 3,
+                  bgcolor: "var(--live-surface)",
+                  border: "1px solid var(--live-border)",
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{ color: "var(--live-text-muted)" }}
+                >
+                  {item.label}
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  {item.value}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Stack>
+
+        <Divider sx={{ borderColor: "var(--live-border)" }} />
+
+        <Stack spacing={1.2}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography
+              variant="overline"
+              sx={{ color: "var(--live-accent)", fontWeight: 800 }}
+            >
+              Đang xem
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ color: "var(--live-text-muted)" }}
+            >
+              {progressLabel}
+            </Typography>
+          </Stack>
+          <Box
+            sx={{
+              p: 1.6,
+              borderRadius: 4,
+              bgcolor: "var(--live-surface)",
+              border: "1px solid var(--live-border)",
+            }}
+          >
+            <Stack spacing={1.1}>
+              <Chip
+                size="small"
+                label={currentBadge}
+                sx={{
+                  alignSelf: "flex-start",
+                  color: "var(--live-text)",
+                  bgcolor: "var(--live-hot-soft)",
+                  border: "1px solid var(--live-hot-border)",
+                  fontWeight: 800,
+                }}
+              />
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.3 }}>
+                {currentTitle}
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ color: "var(--live-text-secondary)" }}
+              >
+                {currentSubtitle}
+              </Typography>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap>
+                {currentItem?.courtLabel ? (
+                  <Chip
+                    size="small"
+                    label={currentItem.courtLabel}
+                    sx={{
+                      color: "var(--live-text)",
+                      bgcolor: "var(--live-chip-bg)",
+                      border: "1px solid var(--live-border)",
+                    }}
+                  />
+                ) : null}
+                {currentItem?.displayCode ? (
+                  <Chip
+                    size="small"
+                    label={currentItem.displayCode}
+                    sx={{
+                      color: "var(--live-text)",
+                      bgcolor: "var(--live-chip-bg)",
+                      border: "1px solid var(--live-border)",
+                    }}
+                  />
+                ) : null}
+                {currentItem?.smartScore ? (
+                  <Chip
+                    size="small"
+                    label={`${currentItem.smartScore} điểm`}
+                    sx={{
+                      color: "var(--live-accent)",
+                      bgcolor: "var(--live-accent-soft)",
+                      border: "1px solid var(--live-accent-border)",
+                    }}
+                  />
+                ) : null}
+              </Stack>
+              <Typography
+                variant="caption"
+                sx={{ color: "var(--live-text-muted)" }}
+              >
+                {currentItem?.updatedAt
+                  ? `Cập nhật ${relativeTime(currentItem.updatedAt)}`
+                  : "Feed đang chờ dữ liệu mới"}
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={progressValue}
+                sx={{
+                  height: 6,
+                  borderRadius: 999,
+                  bgcolor: "var(--live-chip-bg)",
+                  "& .MuiLinearProgress-bar": {
+                    borderRadius: 999,
+                    background:
+                      "linear-gradient(90deg, var(--live-hot), var(--live-accent))",
+                  },
+                }}
+              />
+              <Typography
+                variant="caption"
+                sx={{ color: "var(--live-text-muted)" }}
+              >
+                Đã tải {loadedCount}/{totalCount || loadedCount || 0} thẻ trong
+                feed hiện tại.
+              </Typography>
+            </Stack>
+          </Box>
+        </Stack>
+      </Stack>
+    </Box>
+  );
+}
+
 export default function LiveFeedPage() {
+  const navigate = useNavigate();
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
   const [page, setPage] = useState(1);
   const [activeIndex, setActiveIndex] = useState(0);
   const [feedVisible, setFeedVisible] = useState(false);
@@ -1402,7 +2054,13 @@ export default function LiveFeedPage() {
   );
   const [hasPendingNewItems, setHasPendingNewItems] = useState(false);
   const [viewerMatch, setViewerMatch] = useState(null);
-  const [mutedById, setMutedById] = useState({});
+  const [globalMuted, setGlobalMuted] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const stored = window.localStorage.getItem(GLOBAL_MUTE_STORAGE_KEY);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+    return false;
+  });
   const [ptrPull, setPtrPull] = useState(0);
   const [ptrLoading, setPtrLoading] = useState(false);
   const [ptrSuccess, setPtrSuccess] = useState(false);
@@ -1503,6 +2161,119 @@ export default function LiveFeedPage() {
   const pages = Math.max(1, Number(feedData?.pages || 1));
   const showPtrIndicator = ptrPull > 0 || ptrLoading || ptrSuccess;
   const ptrReady = ptrPull >= PTR_THRESHOLD;
+  const liveThemeVars = useMemo(() => {
+    const shellBg = isDarkMode ? "#03060a" : "#eef3fb";
+    const shellBgStrong = isDarkMode ? "#07111a" : "#f8fbff";
+    const surface = isDarkMode
+      ? alpha(theme.palette.background.paper, 0.56)
+      : alpha("#ffffff", 0.84);
+    const surfaceStrong = isDarkMode
+      ? alpha(theme.palette.background.paper, 0.78)
+      : alpha("#ffffff", 0.96);
+    const border = alpha(theme.palette.text.primary, isDarkMode ? 0.16 : 0.1);
+    const borderStrong = alpha(
+      theme.palette.text.primary,
+      isDarkMode ? 0.26 : 0.18,
+    );
+    const accent = isDarkMode ? "#25f4ee" : theme.palette.info.main;
+    const accentSoft = alpha(accent, isDarkMode ? 0.12 : 0.09);
+    const accentSoftStrong = alpha(accent, isDarkMode ? 0.18 : 0.14);
+    const hot = isDarkMode ? "#ff6b57" : theme.palette.error.main;
+    return {
+      "--live-shell-bg": shellBg,
+      "--live-shell-bg-strong": shellBgStrong,
+      "--live-sidebar-bg": isDarkMode
+        ? "linear-gradient(180deg, rgba(4,8,12,0.96) 0%, rgba(7,12,18,0.9) 36%, rgba(4,8,12,0.98) 100%)"
+        : "linear-gradient(180deg, rgba(248,251,255,0.96) 0%, rgba(240,246,255,0.94) 36%, rgba(234,242,255,0.98) 100%)",
+      "--live-surface": surface,
+      "--live-surface-strong": surfaceStrong,
+      "--live-chip-bg": isDarkMode
+        ? alpha(theme.palette.common.white, 0.08)
+        : alpha(theme.palette.common.black, 0.05),
+      "--live-border": border,
+      "--live-border-strong": borderStrong,
+      "--live-text": theme.palette.text.primary,
+      "--live-text-secondary": alpha(
+        theme.palette.text.primary,
+        isDarkMode ? 0.74 : 0.78,
+      ),
+      "--live-text-muted": alpha(
+        theme.palette.text.primary,
+        isDarkMode ? 0.58 : 0.64,
+      ),
+      "--live-icon-muted": alpha(
+        theme.palette.text.primary,
+        isDarkMode ? 0.56 : 0.6,
+      ),
+      "--live-accent": accent,
+      "--live-accent-soft": accentSoft,
+      "--live-accent-soft-strong": accentSoftStrong,
+      "--live-accent-border": alpha(accent, isDarkMode ? 0.34 : 0.22),
+      "--live-accent-border-strong": alpha(accent, isDarkMode ? 0.5 : 0.34),
+      "--live-hot": hot,
+      "--live-hot-hover": isDarkMode
+        ? "#ff7d6d"
+        : alpha(theme.palette.error.dark, 0.96),
+      "--live-hot-soft": alpha(hot, isDarkMode ? 0.18 : 0.12),
+      "--live-hot-border": alpha(hot, isDarkMode ? 0.3 : 0.2),
+      "--live-hot-contrast": "#f8fbff",
+      "--live-chip-selected-bg": accent,
+      "--live-chip-selected-border": alpha(accent, 0.72),
+      "--live-chip-selected-text": isDarkMode ? "#07111a" : "#ffffff",
+    };
+  }, [isDarkMode, theme]);
+  const quickFilters = useMemo(
+    () =>
+      SMART_FILTER_PRESETS.map((preset) => {
+        const count =
+          preset.key === "live_now"
+            ? Number(summary?.live || 0)
+            : preset.key === "ready_replay"
+              ? Number(summary?.completeReplay || 0)
+              : preset.key === "native_ready"
+                ? Number(summary?.nativeReady || 0)
+                : preset.key === "temporary_fb"
+                  ? Number(replayStateCounts?.temporary || 0)
+                  : preset.key === "processing"
+                    ? Number(summary?.processingReplay || 0)
+                    : 0;
+
+        const selected =
+          (preset.key === "live_now" && mode === "live" && sortMode === "smart") ||
+          (preset.key === "ready_replay" &&
+            mode === "replay" &&
+            sourceFilter === "complete" &&
+            replayFilter === "complete") ||
+          (preset.key === "native_ready" && sourceFilter === "native") ||
+          (preset.key === "temporary_fb" &&
+            mode === "replay" &&
+            sourceFilter === "facebook" &&
+            replayFilter === "temporary") ||
+          (preset.key === "processing" &&
+            mode === "replay" &&
+            replayFilter === "processing") ||
+          (preset.key === "finals" && deferredSearch === "chung kết") ||
+          (preset.key === "groups" && deferredSearch === "vòng bảng");
+
+        return {
+          ...preset,
+          label: count > 0 ? `${preset.label} (${count})` : preset.label,
+          selected,
+        };
+      }),
+    [
+      deferredSearch,
+      mode,
+      replayFilter,
+      replayStateCounts?.temporary,
+      sortMode,
+      sourceFilter,
+      summary?.completeReplay,
+      summary?.live,
+      summary?.nativeReady,
+      summary?.processingReplay,
+    ],
+  );
 
   const clearGestureState = useCallback(() => {
     dragStartYRef.current = null;
@@ -1511,6 +2282,14 @@ export default function LiveFeedPage() {
     isDraggingRef.current = false;
     ptrActiveRef.current = false;
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      GLOBAL_MUTE_STORAGE_KEY,
+      globalMuted ? "true" : "false",
+    );
+  }, [globalMuted]);
 
   const getSlideHeight = useCallback(
     () => containerRef.current?.clientHeight ?? window.innerHeight,
@@ -1573,6 +2352,14 @@ export default function LiveFeedPage() {
 
     refetchProbe();
   }, [page, refetchFeed, refetchProbe, resetViewport]);
+
+  const handleCloseFeed = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/");
+  }, [navigate]);
 
   const triggerRefresh = useCallback(() => {
     if (ptrLoading) return;
@@ -1913,13 +2700,51 @@ export default function LiveFeedPage() {
     [],
   );
 
-  const handleMutedChange = useCallback((matchId, nextMuted) => {
-    const normalizedId = sid(matchId);
-    if (!normalizedId) return;
-    setMutedById((current) => ({
-      ...current,
-      [normalizedId]: nextMuted,
-    }));
+  const handleGlobalMutedChange = useCallback((nextMuted) => {
+    setGlobalMuted(Boolean(nextMuted));
+  }, []);
+
+  const handleApplyQuickFilter = useCallback((presetKey) => {
+    switch (presetKey) {
+      case "live_now":
+        setSearchInput("");
+        setMode("live");
+        setSourceFilter("all");
+        setReplayFilter("all");
+        setSortMode("smart");
+        return;
+      case "ready_replay":
+        setSearchInput("");
+        setMode("replay");
+        setSourceFilter("complete");
+        setReplayFilter("complete");
+        setSortMode("recent");
+        return;
+      case "native_ready":
+        setSourceFilter("native");
+        setReplayFilter("all");
+        setSortMode("smart");
+        return;
+      case "temporary_fb":
+        setMode("replay");
+        setSourceFilter("facebook");
+        setReplayFilter("temporary");
+        setSortMode("recent");
+        return;
+      case "processing":
+        setMode("replay");
+        setReplayFilter("processing");
+        setSourceFilter("all");
+        setSortMode("recent");
+        return;
+      case "finals":
+        setSearchInput("chung kết");
+        return;
+      case "groups":
+        setSearchInput("vòng bảng");
+        return;
+      default:
+    }
   }, []);
 
   const chatBotSnapshot = useMemo(
@@ -1980,10 +2805,11 @@ export default function LiveFeedPage() {
 
       <Box
         sx={{
+          ...liveThemeVars,
           position: "relative",
           height: "100dvh",
-          bgcolor: "#03060a",
-          color: "#fff",
+          bgcolor: "var(--live-shell-bg)",
+          color: "var(--live-text)",
           overflow: "hidden",
           display: { md: "grid" },
           gridTemplateColumns: { md: `${DESKTOP_SIDEBAR_WIDTH}px minmax(0, 1fr)` },
@@ -1994,11 +2820,11 @@ export default function LiveFeedPage() {
             position: "absolute",
             inset: 0,
             background:
-              "radial-gradient(circle at top left, rgba(255,107,87,0.14), transparent 28%), radial-gradient(circle at top right, rgba(141,240,203,0.12), transparent 30%)",
+              "radial-gradient(circle at top left, var(--live-hot-soft), transparent 28%), radial-gradient(circle at top right, var(--live-accent-soft), transparent 30%)",
             pointerEvents: "none",
           }}
         />
-        <DesktopFeedSidebar
+        <LiveDesktopSidebar
           searchInput={searchInput}
           onSearchChange={setSearchInput}
           mode={mode}
@@ -2033,6 +2859,8 @@ export default function LiveFeedPage() {
           activeIndex={activeIndex}
           loadedCount={items.length}
           totalCount={totalCount}
+          quickFilters={quickFilters}
+          onApplyQuickFilter={handleApplyQuickFilter}
         />
 
         <Box
@@ -2080,12 +2908,12 @@ export default function LiveFeedPage() {
             >
               <Stack spacing={1} sx={{ pointerEvents: "auto" }}>
                 <Chip
-                  label={`PickleTour Live Feed${liveCount ? ` | ${liveCount} LIVE` : ""}`}
+                  label={`PickleTour Feed${liveCount ? ` • ${liveCount} LIVE` : ""}`}
                   sx={{
                     alignSelf: "flex-start",
                     color: "#fff",
-                    bgcolor: "rgba(6,10,16,0.62)",
-                    border: "1px solid rgba(255,255,255,0.12)",
+                    bgcolor: "rgba(6,10,16,0.68)",
+                    border: "1px solid rgba(255,255,255,0.14)",
                     backdropFilter: "blur(14px)",
                     fontWeight: 800,
                   }}
@@ -2100,10 +2928,10 @@ export default function LiveFeedPage() {
                       borderRadius: 999,
                       textTransform: "none",
                       fontWeight: 800,
-                      bgcolor: "#ff6b57",
-                      color: "#0b1017",
+                      bgcolor: "var(--live-hot)",
+                      color: "var(--live-hot-contrast)",
                       "&:hover": {
-                        bgcolor: "#ff7d6d",
+                        bgcolor: "var(--live-hot-hover)",
                       },
                     }}
                   >
@@ -2298,7 +3126,8 @@ export default function LiveFeedPage() {
               >
                 {items.map((item, index) => {
                   const matchId = sid(item) || `feed-item-${index}`;
-                  const muted = mutedById[matchId] ?? true;
+                  const isActiveCard = index === activeIndex;
+                  const muted = isActiveCard ? globalMuted : true;
                   const shouldRenderCard = renderedIndices.has(index);
                   const shouldRenderPlayer =
                     shouldRenderCard &&
@@ -2309,11 +3138,11 @@ export default function LiveFeedPage() {
                       {shouldRenderCard ? (
                         <FeedCard
                           item={item}
-                          isActive={index === activeIndex}
+                          isActive={isActiveCard}
                           shouldRenderPlayer={shouldRenderPlayer}
                           muted={muted}
-                          onMutedChange={(nextMuted) =>
-                            handleMutedChange(matchId, nextMuted)
+                          onMutedChange={
+                            isActiveCard ? handleGlobalMutedChange : undefined
                           }
                           onOpenDetail={setViewerMatch}
                         />
@@ -2384,21 +3213,45 @@ export default function LiveFeedPage() {
               ) : null}
 
               {items.length ? (
-                <Chip
-                  label={`${Math.min(activeIndex + 1, items.length)} / ${items.length}`}
-                  sx={{
-                    display: { xs: "none", md: "inline-flex" },
-                    position: "absolute",
-                    top: 74,
-                    right: 20,
-                    zIndex: 26,
-                    color: "rgba(255,255,255,0.82)",
-                    bgcolor: "rgba(6,10,16,0.62)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    backdropFilter: "blur(12px)",
-                    fontWeight: 800,
-                  }}
-                />
+                <>
+                  <IconButton
+                    data-feed-interactive="true"
+                    onClick={handleCloseFeed}
+                    aria-label="Đóng live feed"
+                    sx={{
+                      position: "absolute",
+                      top: { xs: 16, sm: 18 },
+                      right: { xs: 16, sm: 20 },
+                      zIndex: 27,
+                      width: 46,
+                      height: 46,
+                      color: "#fff",
+                      bgcolor: "rgba(6,10,16,0.72)",
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      backdropFilter: "blur(14px)",
+                      "&:hover": {
+                        bgcolor: "rgba(18,24,35,0.86)",
+                      },
+                    }}
+                  >
+                    <CloseRoundedIcon />
+                  </IconButton>
+                  <Chip
+                    label={`${Math.min(activeIndex + 1, items.length)} / ${items.length}`}
+                    sx={{
+                      display: { xs: "none", md: "inline-flex" },
+                      position: "absolute",
+                      top: 74,
+                      right: 20,
+                      zIndex: 26,
+                      color: "rgba(255,255,255,0.82)",
+                      bgcolor: "rgba(6,10,16,0.62)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      backdropFilter: "blur(12px)",
+                      fontWeight: 800,
+                    }}
+                  />
+                </>
               ) : null}
             </Box>
           )}
