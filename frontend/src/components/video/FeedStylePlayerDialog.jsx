@@ -191,6 +191,12 @@ export default function FeedStylePlayerDialog({
     hasNativeMute
       ? "contain"
       : "cover";
+  const closeButtonRight = usesVidstack
+    ? { xs: 72, sm: 84 }
+    : { xs: 14, sm: 18 };
+  const topOverlayRight = usesVidstack
+    ? { xs: 128, sm: 140 }
+    : { xs: 72, sm: 84 };
   const bottomOffset = usesVidstack
     ? { xs: 104, sm: 118 }
     : useNativeControls
@@ -307,8 +313,10 @@ export default function FeedStylePlayerDialog({
           sx={{
             position: "absolute",
             top: { xs: 14, sm: 18 },
-            right: { xs: 14, sm: 18 },
+            right: closeButtonRight,
             zIndex: 5,
+            width: 46,
+            height: 46,
             color: "#fff",
             bgcolor: "rgba(7,12,18,0.56)",
             border: "1px solid rgba(255,255,255,0.14)",
@@ -336,7 +344,7 @@ export default function FeedStylePlayerDialog({
               position: "absolute",
               top: { xs: 16, sm: 18 },
               left: { xs: 16, sm: 18 },
-              right: { xs: 72, sm: 84 },
+              right: topOverlayRight,
             }}
           >
             <Stack
