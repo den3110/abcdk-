@@ -289,45 +289,30 @@ private struct LoginScreen: View {
 private struct AdminHomeScreen: View {
     @EnvironmentObject private var store: LiveAppStore
     @State private var showSignOutDialog = false
+    @State private var occupiedCourtAlert: OccupiedCourtAlert?
 
-    private let gridColumns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
-
-    private var occupiedCourtCount: Int {
-        store.courts.filter { $0.activePresence?.occupied == true }.count
-    }
-
-    private var liveCourtCount: Int {
-        store.courts.filter { court in
-            let state = court.activePresence?.screenState?.trimmedNilIfBlank?.lowercased()
-            return state == "live" || state == "connecting" || state == "reconnecting"
-        }.count
-    }
-
-    private var idleCourtCount: Int {
-        max(store.courts.count - occupiedCourtCount, 0)
+    private var isClusterStep: Bool {
+        store.selectedCluster == nil
     }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 MobileScreenBar(
-                    title: store.selectedCluster == nil ? "Chọn cụm sân" : "Chọn sân",
-                    subtitle: store.user?.displayName ?? "PickleTour Live",
+                    title: isClusterStep ? "Chọn cụm sân" : "Chọn sân",
+                    subtitle: isClusterStep
+                        ? (store.user?.displayName ?? "PickleTour Live")
+                        : (store.selectedCluster?.displayName ?? "PickleTour Live"),
+                    leadingIcon: isClusterStep ? nil : "chevron.left",
+                    leadingAction: isClusterStep ? nil : {
+                        store.clearClusterSelection()
+                    },
                     trailingTitle: "Đăng xuất",
                     trailingTint: LivePalette.accent,
                     trailingAction: {
-                    showSignOutDialog = true
+                        showSignOutDialog = true
                     }
                 )
-
-                if let roleSummary = store.bootstrap?.roleSummary?.trimmedNilIfBlank {
-                    Text(roleSummary)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(LivePalette.textSecondary)
-                }
 
                 if store.clusters.isEmpty {
                     LiveCard {
@@ -337,90 +322,70 @@ private struct AdminHomeScreen: View {
                         )
                     }
                 } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Cụm sân")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(LivePalette.textSecondary)
+                    LiveCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(alignment: .firstTextBaseline) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(isClusterStep ? "Danh sách cụm sân" : "Danh sách sân")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                    Text(
+                                        isClusterStep
+                                            ? "Chọn một cụm sân để nạp danh sách court cho operator."
+                                            : (store.selectedCluster?.displayName ?? "Chọn một sân để vào live.")
+                                    )
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(LivePalette.textSecondary)
+                                }
+                                Spacer()
+                                Button("Làm mới") {
+                                    Task {
+                                        await store.refreshBootstrap()
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(LivePalette.accent)
+                            }
 
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
-                                ForEach(store.clusters) { cluster in
-                                    ClusterChipCard(
-                                        cluster: cluster,
-                                        selected: store.selectedCluster?.id == cluster.id
-                                    ) {
-                                        Task {
-                                            await store.selectCluster(cluster)
+                            if isClusterStep {
+                                VStack(spacing: 10) {
+                                    ForEach(store.clusters) { cluster in
+                                        MobileSelectionRow(
+                                            title: cluster.displayName,
+                                            subtitle: buildClusterSubtitle(cluster),
+                                            detail: buildClusterAssignedTournamentDetail(cluster),
+                                            chipTitle: buildClusterChipTitle(cluster),
+                                            chipTint: (cluster.liveCount ?? 0) > 0 ? LivePalette.warning : LivePalette.cardMuted
+                                        ) {
+                                            Task {
+                                                await store.selectCluster(cluster)
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            .padding(.vertical, 2)
-                        }
-                    }
-                }
-
-                if let selectedCluster = store.selectedCluster {
-                    Text(selectedCluster.displayName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(LivePalette.textSecondary)
-                }
-
-                LiveCard {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(store.selectedCluster == nil ? "Danh sách cụm sân" : "Danh sách sân")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                Text(
-                                    store.selectedCluster?.displayName
-                                        ?? "Chọn một cụm sân để nạp danh sách court cho operator."
+                            } else if store.courts.isEmpty {
+                                EmptyStateCard(
+                                    title: "Chưa có sân",
+                                    message: "Sau khi chọn cluster, app sẽ hiện toàn bộ court mà operator được phép mở live."
                                 )
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(LivePalette.textSecondary)
-                            }
-                            Spacer()
-                            Button("Làm mới") {
-                                Task {
-                                    await store.refreshBootstrap()
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(LivePalette.accent)
-                        }
-
-                        if store.selectedCluster == nil {
-                            VStack(spacing: 10) {
-                                ForEach(store.clusters) { cluster in
-                                    MobileSelectionRow(
-                                        title: cluster.displayName,
-                                        subtitle: cluster.venueName?.trimmedNilIfBlank ?? "Không có venue",
-                                        detail: "\(cluster.stationsCount ?? 0) sân • \(cluster.liveCount ?? 0) sân đang live",
-                                        chipTitle: buildClusterChipTitle(cluster),
-                                        chipTint: (cluster.liveCount ?? 0) > 0 ? LivePalette.warning : LivePalette.cardMuted
-                                    ) {
-                                        Task {
-                                            await store.selectCluster(cluster)
-                                        }
-                                    }
-                                }
-                            }
-                        } else if store.courts.isEmpty {
-                            EmptyStateCard(
-                                title: "Chưa có sân",
-                                message: "Sau khi chọn cluster, app sẽ hiện toàn bộ court mà operator được phép mở live."
-                            )
-                        } else {
-                            VStack(spacing: 10) {
-                                ForEach(store.courts) { court in
-                                    CourtRowCard(
-                                        court: court,
-                                        selected: store.selectedCourt?.id == court.id
-                                    ) {
-                                        Task {
-                                            await store.openCourt(court)
+                            } else {
+                                VStack(spacing: 10) {
+                                    ForEach(store.courts) { court in
+                                        CourtRowCard(
+                                            court: court,
+                                            selected: store.selectedCourt?.id == court.id
+                                        ) {
+                                            if let message = court.occupiedMessage {
+                                                occupiedCourtAlert = OccupiedCourtAlert(
+                                                    title: "Sân đang được giữ",
+                                                    message: message
+                                                )
+                                                return
+                                            }
+                                            Task {
+                                                await store.openCourt(court)
+                                            }
                                         }
                                     }
                                 }
@@ -428,7 +393,6 @@ private struct AdminHomeScreen: View {
                         }
                     }
                 }
-
             }
             .padding(.horizontal, 16)
             .padding(.top, 20)
@@ -444,21 +408,56 @@ private struct AdminHomeScreen: View {
             }
             Button("Huỷ", role: .cancel) {}
         }
+        .alert(item: $occupiedCourtAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("Đóng"))
+            )
+        }
     }
 }
 
 private struct CourtSetupScreen: View {
     @EnvironmentObject private var store: LiveAppStore
 
-    @State private var courtId = ""
-
     private var selectedCourtName: String? {
         store.selectedCourt?.displayName.trimmedNilIfBlank
             ?? store.courtRuntime?.name?.trimmedNilIfBlank
     }
 
+    private var selectedCourtId: String? {
+        store.launchTarget.courtId?.trimmedNilIfBlank
+            ?? store.selectedCourt?.id.trimmedNilIfBlank
+            ?? store.courtRuntime?.courtId.trimmedNilIfBlank
+    }
+
+    private var selectedPresence: CourtLiveScreenPresence? {
+        store.selectedCourt?.activePresence ?? store.courtPresence
+    }
+
+    private var selectedCourtBlocked: Bool {
+        selectedPresence?.isEffectivelyOccupied() ?? false
+    }
+
+    private var selectedCourtBlockedMessage: String? {
+        guard selectedCourtBlocked else { return nil }
+        let courtName = selectedCourtName ?? "Sân này"
+        return selectedPresence?.occupiedMessage(for: courtName)
+    }
+
+    private var currentMatchId: String? {
+        store.activeMatch?.id.trimmedNilIfBlank
+            ?? store.courtRuntime?.currentMatchId?.trimmedNilIfBlank
+            ?? store.courtRuntime?.nextMatchId?.trimmedNilIfBlank
+    }
+
     private var canContinueByCourt: Bool {
-        courtId.trimmedNilIfBlank != nil
+        selectedCourtId != nil && !selectedCourtBlocked
+    }
+
+    private var liveButtonTitle: String {
+        store.isWorking ? "Đang mở…" : "LIVE"
     }
 
     var body: some View {
@@ -469,13 +468,21 @@ private struct CourtSetupScreen: View {
 
                     LiveCard {
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("Live theo sân")
+                            Text("Chọn trận")
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(.white)
 
-                            Text("Nhập courtStationId/courtId để lấy trận hiện tại và tự join socket overlay.")
+                            Text("App sẽ lấy trận hiện tại của sân này. Nếu sân chưa có trận, bạn vẫn có thể vào chế độ live theo sân và chờ match xuất hiện.")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(LivePalette.textSecondary)
+
+                            if let selectedCourtBlockedMessage {
+                                InlineInfoCard(
+                                    title: "Sân đang được giữ bởi thiết bị khác",
+                                    message: selectedCourtBlockedMessage,
+                                    tint: LivePalette.warning
+                                )
+                            }
 
                             if let selectedCourtName {
                                 VStack(alignment: .leading, spacing: 4) {
@@ -494,11 +501,26 @@ private struct CourtSetupScreen: View {
                                     title: "Sân",
                                     value: selectedCourtName
                                 )
+                            } else if let selectedCourtId {
+                                LiveDisplayField(
+                                    title: "Sân",
+                                    value: selectedCourtId
+                                )
+                            }
+
+                            if let activeMatch = store.activeMatch {
+                                MobileMatchCard(match: activeMatch)
+                            } else if currentMatchId != nil {
+                                InlineInfoCard(
+                                    title: "Đang tải thông tin trận",
+                                    message: "Runtime của sân đã có matchId. App đang tiếp tục hydrate thông tin trận trước khi vào live.",
+                                    tint: LivePalette.cardMuted
+                                )
                             } else {
-                                LiveTextField(
-                                    title: "courtStationId / courtId",
-                                    placeholder: "Nhập courtId",
-                                    text: $courtId
+                                InlineInfoCard(
+                                    title: "Sân đang không có trận hiện tại",
+                                    message: "Bạn vẫn có thể bấm LIVE để vào chế độ live theo sân và chờ match xuất hiện.",
+                                    tint: LivePalette.warning
                                 )
                             }
 
@@ -508,7 +530,7 @@ private struct CourtSetupScreen: View {
                                     await store.continueFromSetup()
                                 }
                             } label: {
-                                Text("LIVE theo sân")
+                                Text(liveButtonTitle)
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity)
@@ -539,39 +561,45 @@ private struct CourtSetupScreen: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 24)
         }
-        .onAppear(perform: syncFromStore)
-        .onChange(of: store.launchTarget.courtId ?? "") { _ in
-            syncFromStore()
-        }
-    }
-
-    private func syncFromStore() {
-        courtId = store.launchTarget.courtId?.trimmedNilIfBlank ?? store.selectedCourt?.id ?? courtId
     }
 
     private func pushCourtTargetToStore() {
         store.updateLaunchTarget(
-            courtId: courtId.trimmedNilIfBlank,
+            courtId: selectedCourtId,
             matchId: nil,
             pageId: store.launchTarget.pageId?.trimmedNilIfBlank
         )
     }
 }
 
+private enum LivePrimaryButtonVisualState {
+    case goLive
+    case auto
+    case stop
+    case waiting
+    case busy
+    case cancel
+}
+
 private struct LiveStreamScreen: View {
     @EnvironmentObject private var store: LiveAppStore
     @Environment(\.openURL) private var openURL
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     @State private var diagnosticsExpanded = false
     @State private var sessionExpanded = true
     @State private var recordingExpanded = true
     @State private var showWarningsSheet = false
     @State private var showSignalsSheet = false
+    @State private var showSettingsSheet = false
+    @State private var showQualitySheet = false
+    @State private var showRecordingSheet = false
     @State private var showSignOutDialog = false
     @State private var storedBrightness: CGFloat?
     @State private var brightnessReduced = false
     @State private var pinchZoomBase: CGFloat?
     @State private var now = Date()
+    @State private var topBarHeight: CGFloat = 0
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -580,6 +608,8 @@ private struct LiveStreamScreen: View {
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
+
+    private let leaveActionTitle = "Thoát"
 
     var body: some View {
         ZStack {
@@ -608,134 +638,85 @@ private struct LiveStreamScreen: View {
                     .ignoresSafeArea()
             }
 
+            if let capturePlaceholder {
+                LiveCapturePlaceholder(
+                    systemImage: capturePlaceholder.systemImage,
+                    title: capturePlaceholder.title,
+                    message: capturePlaceholder.message
+                )
+                .padding(.horizontal, 28)
+            }
+
             VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            CompactStatusPill(
-                                title: compactPreviewTitle,
-                                systemImage: compactPreviewIcon,
-                                tint: previewPrimaryStatus.tint
-                            )
-
-                            if let liveStartedAt = store.liveStartedAt {
-                                CompactTimerPill(startedAt: liveStartedAt)
+                VStack(spacing: isLandscapeLayout ? 0 : 8) {
+                    if isLandscapeLayout {
+                        HStack(alignment: .center, spacing: 12) {
+                            topStatusLeftCluster
+                            Spacer(minLength: 12)
+                            topStatusRightCluster
+                        }
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack {
+                                topStatusLeftCluster
+                                Spacer(minLength: 0)
                             }
-
-                            if store.liveMode.includesRecording {
-                                CompactStatusPill(
-                                    title: recordingBadgeTitle,
-                                    systemImage: "record.circle.fill",
-                                    tint: recordingTint
-                                )
-                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
-                        if let matchHeadline = matchHeadline {
-                            Text(matchHeadline)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-
-                        Text(courtHeadline)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(LivePalette.textSecondary)
-                    }
-
-                    Spacer(minLength: 0)
-
-                    VStack(alignment: .trailing, spacing: 8) {
-                        HStack(spacing: 8) {
-                            CompactStatusPill(
-                                title: networkLabel,
-                                systemImage: networkIcon,
-                                tint: store.networkConnected ? LivePalette.cardMuted : LivePalette.danger
-                            )
-
-                            CompactStatusPill(
-                                title: qualityShortTitle,
-                                systemImage: "slider.horizontal.3",
-                                tint: LivePalette.cardMuted
-                            )
-                        }
-
-                        HStack(spacing: 8) {
-                            if let matchCode = store.activeMatch?.displayCode?.trimmedNilIfBlank ?? store.activeMatch?.id.trimmedNilIfBlank {
-                                CompactTextPill(title: matchCode, tint: LivePalette.cardMuted)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack {
+                                Spacer(minLength: 0)
+                                topStatusRightCluster
                             }
-
-                            Button {
-                                showSignalsSheet = true
-                            } label: {
-                                CompactStatusPill(
-                                    title: overlaySignalStatusLabel,
-                                    systemImage: "antenna.radiowaves.left.and.right",
-                                    tint: overlaySignalTint
-                                )
-                            }
-                            .buttonStyle(.plain)
-
-                            if !warningItems.isEmpty {
-                                Button {
-                                    showWarningsSheet = true
-                                } label: {
-                                    CompactStatusPill(
-                                        title: "\(warningItems.count)",
-                                        systemImage: "exclamationmark.triangle.fill",
-                                        tint: warningTint
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
                 }
                 .padding(.top, 8)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear {
+                                topBarHeight = proxy.size.height
+                            }
+                            .onChange(of: proxy.size.height) { newValue in
+                                topBarHeight = newValue
+                            }
+                    }
+                )
 
                 Spacer(minLength: 0)
 
-                if let floatingBanner {
-                    FloatingConsoleCard(
-                        title: floatingBanner.title,
-                        message: floatingBanner.message,
-                        tint: floatingBanner.tint
-                    )
-                    .padding(.bottom, 14)
+                if waitingNextMatchVisible {
+                    WaitingNextMatchOverlayCard(previewReady: store.previewReady)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 20)
                 }
 
                 VStack(spacing: 12) {
-                    Text(controlMetaLine)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(LivePalette.textSecondary)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            if store.launchTarget.isUserMatchLaunch {
-                                CompactChoiceChip(
-                                    title: LiveStreamMode.streamOnly.title,
-                                    selected: true
-                                ) {}
-                                .opacity(1)
-                            } else {
-                                ForEach(LiveStreamMode.allCases) { mode in
-                                    CompactChoiceChip(
-                                        title: mode.title,
-                                        selected: store.liveMode == mode
-                                    ) {
-                                        guard !store.hasPrimarySessionIntent else { return }
-                                        store.liveMode = mode
-                                    }
-                                    .opacity(store.hasPrimarySessionIntent && store.liveMode != mode ? 0.45 : 1)
-                                }
-                            }
+                    HStack(spacing: 8) {
+                        Text(qualityShortTitle)
+                        if store.liveMode != .streamOnly {
+                            Text("•")
+                            Text(store.liveMode.title)
+                        }
+                        Text("•")
+                        Text(String(format: "%.1fx", Double(store.streamingService.stats.zoomFactor)))
+                        if let streamBitrateLabel {
+                            Text("•")
+                            Text(streamBitrateLabel)
                         }
                     }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LivePalette.textSecondary)
 
-                    HStack(alignment: .top, spacing: 10) {
+                    HStack(alignment: .top, spacing: 12) {
                         RoundConsoleButton(
                             title: "Flash",
                             systemImage: store.streamingService.stats.torchEnabled ? "flashlight.on.fill" : "flashlight.off.fill",
-                            active: store.streamingService.stats.torchEnabled
+                            active: store.streamingService.stats.torchEnabled,
+                            disabled: !store.cameraOperational
                         ) {
                             store.toggleTorch()
                         }
@@ -743,14 +724,14 @@ private struct LiveStreamScreen: View {
                         RoundConsoleButton(
                             title: "Mic",
                             systemImage: store.streamingService.stats.micEnabled ? "mic.fill" : "mic.slash.fill",
-                            active: store.streamingService.stats.micEnabled
+                            active: store.streamingService.stats.micEnabled,
+                            disabled: !store.microphoneOperational
                         ) {
                             store.toggleMicrophone()
                         }
 
                         PrimaryRoundLiveButton(
-                            title: mainActionLabel,
-                            subtitle: mainActionSubtitle,
+                            state: mainButtonVisualState,
                             tint: mainActionTint,
                             disabled: mainActionDisabled,
                             action: triggerMainAction
@@ -759,7 +740,8 @@ private struct LiveStreamScreen: View {
                         RoundConsoleButton(
                             title: "Flip",
                             systemImage: "camera.rotate.fill",
-                            active: false
+                            active: false,
+                            disabled: !store.cameraOperational
                         ) {
                             Task {
                                 await store.toggleCamera()
@@ -771,67 +753,91 @@ private struct LiveStreamScreen: View {
                             systemImage: "sparkles.tv.fill",
                             active: false
                         ) {
-                            cycleQuality()
+                            openQualityPicker()
                         }
                     }
+                    .frame(maxWidth: .infinity)
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            CompactActionPill(
-                                title: store.batterySaverEnabled ? "Pin: ON" : "Pin",
-                                systemImage: "battery.50"
-                            ) {
-                                store.toggleBatterySaver()
-                            }
-
-                            CompactActionPill(
-                                title: store.orientationMode.title,
-                                systemImage: store.orientationMode.systemImage
-                            ) {
-                                store.cycleOrientationMode()
-                            }
-
-                            CompactActionPill(
-                                title: "Overlay",
-                                systemImage: "arrow.clockwise"
-                            ) {
-                                Task {
-                                    await store.refreshOverlay()
-                                }
-                            }
-
-                            if store.previewLeaseWarning {
+                    GeometryReader { pillProxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
                                 CompactActionPill(
-                                    title: previewLeaseText ?? "Gia hạn",
-                                    systemImage: "clock.badge.checkmark"
+                                    title: "Battery",
+                                    systemImage: "battery.50",
+                                    active: store.batterySaverEnabled
+                                ) {
+                                    store.toggleBatterySaver()
+                                }
+
+                                CompactActionPill(
+                                    title: store.orientationMode.title,
+                                    systemImage: store.orientationMode.systemImage,
+                                    active: store.orientationMode != .auto
+                                ) {
+                                    store.cycleOrientationMode()
+                                }
+
+                                if store.previewLeaseWarning {
+                                    CompactActionPill(
+                                        title: previewLeaseText ?? "Gia hạn",
+                                        systemImage: "clock.badge.checkmark",
+                                        active: true
+                                    ) {
+                                        Task {
+                                            await store.extendPreviewLease()
+                                        }
+                                    }
+                                }
+
+                                CompactActionPill(
+                                    title: "Cài đặt",
+                                    systemImage: "gearshape",
+                                    active: false
+                                ) {
+                                    showSettingsSheet = true
+                                }
+
+                                CompactActionPill(
+                                    title: "Request",
+                                    systemImage: "receipt.long",
+                                    active: store.recordingPendingUploads > 0 || store.streamingService.isRecordingLocally
+                                ) {
+                                    showRecordingSheet = true
+                                }
+
+                                CompactActionPill(
+                                    title: leaveActionTitle,
+                                    systemImage: "xmark",
+                                    active: false
                                 ) {
                                     Task {
-                                        await store.extendPreviewLease()
+                                        await store.leaveLiveScreen()
                                     }
                                 }
                             }
-
-                            CompactActionPill(
-                                title: "Thoát",
-                                systemImage: "xmark"
-                            ) {
-                                Task {
-                                    await store.leaveLiveScreen()
-                                }
-                            }
-
-                            CompactActionPill(
-                                title: "Đăng xuất",
-                                systemImage: "rectangle.portrait.and.arrow.right"
-                            ) {
-                                showSignOutDialog = true
-                            }
+                            .frame(minWidth: pillProxy.size.width, alignment: .center)
+                            .padding(.horizontal, 2)
                         }
                     }
+                    .frame(height: 30)
                 }
                 .padding(.bottom, 12)
             }
             .padding(.horizontal, 16)
+
+            if matchSwapLoadingVisible {
+                MatchSwapLoadingPill(title: matchSwapLoadingTitle)
+                    .padding(.top, topBarHeight + 16)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+
+            if startupOverlayVisible {
+                LiveStartupOverlay(
+                    title: startupOverlayTitle,
+                    subtitle: startupOverlaySubtitle
+                )
+            }
 
             if let seconds = store.goLiveCountdownSeconds {
                 CountdownOverlay(
@@ -876,6 +882,15 @@ private struct LiveStreamScreen: View {
         }
         .sheet(isPresented: $showSignalsSheet) {
             signalCenterSheet
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            settingsSheet
+        }
+        .sheet(isPresented: $showQualitySheet) {
+            qualityPickerSheet
+        }
+        .sheet(isPresented: $showRecordingSheet) {
+            recordingRequestSheet
         }
         .confirmationDialog(
             "Đăng xuất khỏi PickleTour Live?",
@@ -953,26 +968,28 @@ private struct LiveStreamScreen: View {
         return "MODE"
     }
 
-    private var matchHeadline: String? {
-        store.activeMatch?.displayCode?.trimmedNilIfBlank
-            ?? store.activeMatch?.tournamentDisplayName
-    }
-
-    private var courtHeadline: String {
-        store.activeMatch?.courtDisplayName
-            ?? store.selectedCourt?.displayName
-            ?? store.courtRuntime?.name
-            ?? "Đang giữ preview"
-    }
-
-    private var networkLabel: String {
-        guard store.networkConnected else { return "Offline" }
+    private var networkStatusTitle: String {
+        guard store.networkConnected else { return "OFFLINE" }
         return store.networkIsWiFi ? "Wi-Fi" : "4G/5G"
     }
 
-    private var networkIcon: String {
-        guard store.networkConnected else { return "wifi.slash" }
-        return store.networkIsWiFi ? "wifi" : "antenna.radiowaves.left.and.right"
+    private var networkStatusTint: Color {
+        store.networkConnected ? Color.white.opacity(0.75) : LivePalette.danger
+    }
+
+    private var socketIndicatorTint: Color {
+        if store.waitingForCourt {
+            return Color.white.opacity(0.35)
+        }
+        if store.socketRoomMismatch || store.socketPayloadStale {
+            return LivePalette.warning
+        }
+        return store.socketConnected ? LivePalette.accent : LivePalette.danger
+    }
+
+    private var streamBitrateLabel: String? {
+        guard store.streamingService.stats.currentBitrate > 0 else { return nil }
+        return "\(max(1, Int(store.streamingService.stats.currentBitrate / 1000))) kbps"
     }
 
     private var qualityShortTitle: String {
@@ -986,53 +1003,15 @@ private struct LiveStreamScreen: View {
         }
     }
 
-    private var controlMetaLine: String {
-        let zoom = String(format: "%.1fx", Double(store.streamingService.stats.zoomFactor))
-        return "\(qualityShortTitle) • \(formattedBitrate(store.streamingService.stats.currentBitrate)) • \(zoom)"
-    }
-
-    private var floatingBanner: (title: String, message: String, tint: Color)? {
-        if let waitingLabel = waitingStateLabel {
-            return (waitingLabel, waitingStateMessage, LivePalette.warning)
+    private var capturePlaceholder: (systemImage: String, title: String, message: String)? {
+        guard let message = store.livePreviewPlaceholderMessage else { return nil }
+        if !store.cameraDeviceAvailable {
+            let detail = store.microphoneDeviceAvailable
+                ? message
+                : "\(message) Micro cũng không sẵn sàng trên thiết bị này."
+            return ("video.slash.fill", "Không có camera preview", detail)
         }
-
-        switch store.streamState {
-        case .preparingPreview:
-            return ("Đang chuẩn bị preview", "Camera và encoder đang khởi tạo.", LivePalette.cardMuted)
-        case let .failed(message):
-            return ("Phiên gặp lỗi", message, LivePalette.danger)
-        default:
-            if !store.previewReady {
-                return ("Đang mở camera", "Preview chưa sẵn sàng. App vẫn đang dựng pipeline.", LivePalette.cardMuted)
-            }
-            return nil
-        }
-    }
-
-    private var mainActionLabel: String {
-        if store.stopLiveCountdownSeconds != nil {
-            return "HUY"
-        }
-        if stopAction != nil {
-            return "STOP"
-        }
-        if store.goLiveCountdownSeconds != nil {
-            return "HUY"
-        }
-        return store.liveMode == .recordOnly ? "REC" : "GO"
-    }
-
-    private var mainActionSubtitle: String {
-        if store.stopLiveCountdownSeconds != nil {
-            return "dung"
-        }
-        if stopAction != nil {
-            return "live"
-        }
-        if store.goLiveCountdownSeconds != nil {
-            return "dem"
-        }
-        return store.liveMode == .recordOnly ? "record" : "live"
+        return ("video.slash.fill", "Camera chưa sẵn sàng", message)
     }
 
     private var mainActionTint: Color {
@@ -1048,8 +1027,178 @@ private struct LiveStreamScreen: View {
         return LivePalette.accent
     }
 
+    private var mainButtonVisualState: LivePrimaryButtonVisualState {
+        if store.stopLiveCountdownSeconds != nil || store.goLiveCountdownSeconds != nil {
+            return .cancel
+        }
+        if stopAction != nil {
+            return .stop
+        }
+        if store.isWorking {
+            return .busy
+        }
+        switch store.streamState {
+        case .connecting, .reconnecting:
+            return .busy
+        default:
+            break
+        }
+        if store.waitingForNextMatch || store.waitingForCourt || store.waitingForMatchLive {
+            return store.liveMode == .recordOnly ? .auto : .waiting
+        }
+        return store.liveMode == .recordOnly ? .auto : .goLive
+    }
+
     private var mainActionDisabled: Bool {
-        store.isWorking || (primaryStartAction == nil && stopAction == nil)
+        store.isWorking || (primaryStartAction == nil && stopAction == nil) || (stopAction == nil && !store.cameraOperational)
+    }
+
+    private var isLandscapeLayout: Bool {
+        verticalSizeClass == .compact
+    }
+
+    private var topStatusLeftCluster: some View {
+        HStack(alignment: .center, spacing: 10) {
+            CompactStatusPill(
+                title: compactPreviewTitle,
+                systemImage: compactPreviewIcon,
+                tint: previewPrimaryStatus.tint
+            )
+
+            if let liveStartedAt = store.liveStartedAt {
+                CompactTimerPill(startedAt: liveStartedAt)
+            }
+
+            if store.liveMode.includesRecording {
+                CompactStatusPill(
+                    title: recordingBadgeTitle,
+                    systemImage: "record.circle.fill",
+                    tint: recordingTint
+                )
+            }
+
+            if store.liveStartedAt == nil, let waitingLabel = waitingStateLabel {
+                CompactTextPill(
+                    title: waitingLabel,
+                    tint: LivePalette.warning.opacity(0.22)
+                )
+            }
+        }
+    }
+
+    private var topStatusRightCluster: some View {
+        HStack(alignment: .center, spacing: 6) {
+            TopLiveIconButton(
+                systemImage: warningItems.isEmpty ? "info.circle.fill" : "exclamationmark.triangle.fill",
+                tint: warningItems.isEmpty ? LivePalette.textSecondary : warningTint,
+                badge: warningItems.isEmpty ? nil : "\(warningItems.count)"
+            ) {
+                showWarningsSheet = true
+            }
+
+            TopLiveIconButton(
+                systemImage: "network",
+                tint: overlaySignalTint,
+                badge: signalIssueCount == 0 ? nil : "\(signalIssueCount)"
+            ) {
+                showSignalsSheet = true
+            }
+
+            TopLiveIconButton(
+                systemImage: "memorychip.fill",
+                tint: Color.white.opacity(0.84)
+            ) {
+                showSettingsSheet = true
+            }
+
+            LiveConnectionDot(tint: socketIndicatorTint)
+
+            Text(networkStatusTitle)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(networkStatusTint)
+
+            if let streamBitrateLabel {
+                Text(streamBitrateLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.8))
+            }
+        }
+    }
+
+    private var waitingNextMatchVisible: Bool {
+        store.waitingForNextMatch && store.errorMessage == nil
+    }
+
+    private var matchSwapLoadingVisible: Bool {
+        guard !waitingNextMatchVisible else { return false }
+        guard store.previewReady else { return false }
+        guard store.errorMessage == nil else { return false }
+        if store.waitingForCourt || store.waitingForMatchLive {
+            return false
+        }
+        switch store.streamState {
+        case .live, .connecting, .reconnecting:
+            return false
+        default:
+            break
+        }
+        return store.isWorking
+    }
+
+    private var matchSwapLoadingTitle: String {
+        if store.activeMatch == nil {
+            return "Đang nạp trận mới"
+        }
+        if store.brandingLoading || !store.overlayDataReady {
+            return "Đang đồng bộ overlay mới"
+        }
+        return "Đang chuyển sang trận mới"
+    }
+
+    private var startupOverlayVisible: Bool {
+        guard !matchSwapLoadingVisible else { return false }
+        guard !waitingNextMatchVisible else { return false }
+        guard capturePlaceholder == nil else { return false }
+        guard store.errorMessage == nil else { return false }
+        switch store.streamState {
+        case .live, .connecting, .reconnecting:
+            return false
+        default:
+            break
+        }
+        return store.isWorking || !store.previewReady
+    }
+
+    private var startupOverlayTitle: String {
+        if store.waitingForCourt {
+            return "Đang chờ trận trên sân..."
+        }
+        if store.waitingForMatchLive {
+            return "Đang chờ trận chuyển LIVE..."
+        }
+        if store.brandingLoading {
+            return "Đang tải branding..."
+        }
+        if !store.overlayDataReady, store.activeMatch != nil {
+            return "Đang nạp overlay..."
+        }
+        return "Đang dựng preview..."
+    }
+
+    private var startupOverlaySubtitle: String {
+        if store.waitingForCourt {
+            return "App đang giữ preview và chờ runtime sân đẩy match mới."
+        }
+        if store.waitingForMatchLive {
+            return "App đã armed, sẽ tự vào phiên khi match chuyển sang LIVE."
+        }
+        if store.brandingLoading {
+            return "Logo giải và assets overlay đang được đồng bộ."
+        }
+        if !store.overlayDataReady, store.activeMatch != nil {
+            return "Scoreboard đang lấy snapshot mới nhất trước khi burn-in."
+        }
+        return "Camera và pipeline đang khởi tạo để vào màn live."
     }
 
     private func triggerMainAction() {
@@ -1060,12 +1209,13 @@ private struct LiveStreamScreen: View {
         primaryStartAction?.action()
     }
 
-    private func cycleQuality() {
-        let allCases = LiveQualityPreset.allCases
-        guard let currentIndex = allCases.firstIndex(of: store.selectedQuality) else { return }
-        let nextIndex = allCases.index(after: currentIndex)
-        let next = nextIndex == allCases.endIndex ? allCases[allCases.startIndex] : allCases[nextIndex]
-        store.applyQuality(next)
+    private func openQualityPicker() {
+        switch store.streamState {
+        case .connecting, .reconnecting:
+            store.errorMessage = "Đang kết nối, chưa đổi chất lượng được."
+        default:
+            showQualitySheet = true
+        }
     }
 
     private var previewSection: some View {
@@ -2444,6 +2594,102 @@ private struct LiveStreamScreen: View {
         return reasons
     }
 
+    private var settingsSheet: some View {
+        ZStack {
+            LiveBackdrop()
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    ModalSheetHeader(
+                        title: "Cài đặt",
+                        subtitle: "Các thông tin chính của phiên live hiện tại."
+                    ) {
+                        showSettingsSheet = false
+                    }
+
+                    sessionSection
+                    healthSection
+
+                    SecondaryActionButton(
+                        title: "Đăng xuất",
+                        systemImage: "rectangle.portrait.and.arrow.right"
+                    ) {
+                        showSignOutDialog = true
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+        }
+    }
+
+    private var qualityPickerSheet: some View {
+        ZStack {
+            LiveBackdrop()
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    ModalSheetHeader(
+                        title: "Quality",
+                        subtitle: "Chọn preset stream giống flow Android. Preset mới sẽ được áp dụng cho preview và phiên live tiếp theo."
+                    ) {
+                        showQualitySheet = false
+                    }
+
+                    LiveCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SectionHeader(
+                                title: "Preset khả dụng",
+                                subtitle: store.selectedQuality.title
+                            )
+
+                            VStack(spacing: 10) {
+                                ForEach(LiveQualityPreset.allCases) { quality in
+                                    SelectableModeCard(
+                                        title: quality.title,
+                                        summary: qualityDetail(quality),
+                                        selected: store.selectedQuality == quality,
+                                        disabled: false
+                                    ) {
+                                        store.applyQuality(quality)
+                                        showQualitySheet = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+        }
+    }
+
+    private var recordingRequestSheet: some View {
+        ZStack {
+            LiveBackdrop()
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    ModalSheetHeader(
+                        title: "Request",
+                        subtitle: "Chi tiết recording request, queue segment và playback của phiên hiện tại."
+                    ) {
+                        showRecordingSheet = false
+                    }
+
+                    recordingSection
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 24)
+            }
+        }
+    }
+
     private var warningCenterSheet: some View {
         ZStack {
             LiveBackdrop()
@@ -2451,13 +2697,12 @@ private struct LiveStreamScreen: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Warning center")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text("Tổng hợp cảnh báo operator, recovery và các nút cứu nhanh khi đang giữ preview hoặc đang live.")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(LivePalette.textSecondary)
+                    ModalSheetHeader(
+                        title: "Warning center",
+                        subtitle: "Tổng hợp cảnh báo operator, recovery và các nút cứu nhanh khi đang giữ preview hoặc đang live."
+                    ) {
+                        showWarningsSheet = false
+                    }
 
                     if warningItems.isEmpty {
                         InlineInfoCard(
@@ -2557,13 +2802,12 @@ private struct LiveStreamScreen: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Signal center")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text("Soi overlay, room socket, mạng và context sân để quyết định có cần dừng phiên hay chỉ refresh nhẹ.")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(LivePalette.textSecondary)
+                    ModalSheetHeader(
+                        title: "Signal center",
+                        subtitle: "Soi overlay, room socket, mạng và context sân để quyết định có cần dừng phiên hay chỉ refresh nhẹ."
+                    ) {
+                        showSignalsSheet = false
+                    }
 
                     LiveCard {
                         VStack(alignment: .leading, spacing: 14) {
@@ -2705,13 +2949,14 @@ private struct PreflightSheet: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Kiểm tra trước khi vào phiên")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Text(hasBlocker ? "Có blocker cần xử lý trước khi cho phép bắt đầu." : "App phát hiện warning trước khi vào live. Bạn có thể xem và tiếp tục nếu chấp nhận rủi ro.")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(LivePalette.textSecondary)
+                    ModalSheetHeader(
+                        title: "Kiểm tra trước khi vào phiên",
+                        subtitle: hasBlocker
+                            ? "Có blocker cần xử lý trước khi cho phép bắt đầu."
+                            : "App phát hiện warning trước khi vào live. Bạn có thể xem và tiếp tục nếu chấp nhận rủi ro."
+                    ) {
+                        onDismiss()
+                    }
 
                     VStack(spacing: 12) {
                         ForEach(issues) { issue in
@@ -3295,9 +3540,9 @@ private struct CompactStatusPill: View {
         .font(.system(size: 11, weight: .bold))
         .foregroundStyle(.white)
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
         .background(
-            Capsule(style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(tint)
         )
     }
@@ -3324,11 +3569,53 @@ private struct CompactTimerPill: View {
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
         .background(
-            Capsule(style: .continuous)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(LivePalette.cardMuted)
         )
+    }
+}
+
+private struct TopLiveIconButton: View {
+    let systemImage: String
+    let tint: Color
+    var badge: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 34, height: 34)
+
+                if let badge, !badge.isEmpty {
+                    Text(badge)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(LivePalette.warning)
+                        )
+                        .offset(x: 6, y: -4)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct LiveConnectionDot: View {
+    let tint: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(tint)
+            .frame(width: 8, height: 8)
     }
 }
 
@@ -3381,10 +3668,123 @@ private struct CompactChoiceChip: View {
     }
 }
 
+private struct LiveCapturePlaceholder: View {
+    let systemImage: String
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: systemImage)
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.9))
+                .frame(width: 88, height: 88)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.08))
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        )
+                )
+
+            Text(title)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+        }
+    }
+}
+
+private struct MatchSwapLoadingPill: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .tint(LivePalette.warning)
+                .scaleEffect(0.7)
+
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.62))
+        )
+    }
+}
+
+private struct LiveStartupOverlay: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.72)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ProgressView()
+                    .tint(LivePalette.accent)
+                    .scaleEffect(1.15)
+
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(LivePalette.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+            }
+            .padding(.horizontal, 28)
+        }
+    }
+}
+
+private struct WaitingNextMatchOverlayCard: View {
+    let previewReady: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "hourglass.tophalf.filled")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(LivePalette.warning)
+
+                Text("Đang chờ trận kế tiếp")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Text(
+                previewReady
+                    ? "Camera vẫn đang giữ preview. App đã dọn live và overlay của trận cũ, sẽ tự nạp overlay mới khi sân có trận tiếp theo."
+                    : "App đang dựng lại preview để chờ trận kế tiếp. Khi có trận mới, overlay sẽ được nạp lại theo đúng trận đó."
+            )
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.white.opacity(0.78))
+            .lineSpacing(2)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.black.opacity(0.68))
+        )
+    }
+}
+
 private struct RoundConsoleButton: View {
     let title: String
     let systemImage: String
     let active: Bool
+    var disabled: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -3392,54 +3792,82 @@ private struct RoundConsoleButton: View {
             VStack(spacing: 6) {
                 Image(systemName: systemImage)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
+                    .foregroundStyle(disabled ? LivePalette.textMuted : (active ? LivePalette.accent : Color.white))
+                    .frame(width: 44, height: 44)
                     .background(
                         Circle()
-                            .fill(active ? LivePalette.accentSoft : Color.black.opacity(0.55))
+                            .fill(disabled ? Color.white.opacity(0.06) : (active ? LivePalette.accentSoft : Color.white.opacity(0.1)))
                             .overlay(
                                 Circle()
-                                    .stroke(LivePalette.cardStroke, lineWidth: 1)
+                                    .stroke(disabled ? Color.white.opacity(0.08) : LivePalette.cardStroke, lineWidth: 1)
                             )
                     )
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(disabled ? LivePalette.textMuted : Color.white.opacity(0.68))
             }
-            .frame(maxWidth: .infinity)
+            .frame(width: 54)
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.55 : 1)
     }
 }
 
 private struct PrimaryRoundLiveButton: View {
-    let title: String
-    let subtitle: String
+    let state: LivePrimaryButtonVisualState
     let tint: Color
     let disabled: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack {
-                VStack(spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 17, weight: .black))
-                    Text(subtitle.uppercased())
-                        .font(.system(size: 9, weight: .bold))
-                        .tracking(0.8)
+            Group {
+                switch state {
+                case .stop:
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(.white)
+                case .busy:
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(1.1)
+                case .waiting:
+                    VStack(spacing: 2) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 18, weight: .bold))
+                        Text("CHỜ")
+                            .font(.system(size: 9, weight: .black))
+                    }
+                    .foregroundStyle(.white)
+                case .auto:
+                    Text("AUTO")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(.white)
+                case .cancel:
+                    VStack(spacing: 2) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .black))
+                        Text("HỦY")
+                            .font(.system(size: 9, weight: .black))
+                    }
+                    .foregroundStyle(.white)
+                case .goLive:
+                    Text("GO LIVE")
+                        .font(.system(size: 11, weight: .black))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
                 }
-                .foregroundStyle(.white)
-                .frame(width: 86, height: 86)
-                .background(
-                    Circle()
-                        .fill(disabled ? Color.gray.opacity(0.55) : tint)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                        )
-                )
             }
+            .frame(width: 72, height: 72)
+            .background(
+                Circle()
+                    .fill(disabled ? Color.white.opacity(0.16) : tint)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                    )
+            )
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -3449,30 +3877,61 @@ private struct PrimaryRoundLiveButton: View {
 private struct CompactActionPill: View {
     let title: String
     let systemImage: String
+    let active: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                 Text(title)
                     .lineLimit(1)
             }
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.black.opacity(0.56))
-                    .overlay(
-                        Capsule(style: .continuous)
-                            .stroke(LivePalette.cardStroke, lineWidth: 1)
-                    )
-            )
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(active ? LivePalette.accent : LivePalette.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct ModalSheetHeader: View {
+    let title: String
+    let subtitle: String
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(title)
+                    .font(.system(size: 28, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 12)
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Circle()
+                                .fill(Color.white.opacity(0.1))
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(subtitle)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(LivePalette.textSecondary)
+        }
     }
 }
 
@@ -3529,19 +3988,16 @@ private struct CourtRowCard: View {
                     Text(court.clusterName?.trimmedNilIfBlank ?? "Không có cluster")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(LivePalette.textSecondary)
-                    if let currentMatchId = court.currentMatchId?.trimmedNilIfBlank {
-                        Text(currentMatchId)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white)
-                    }
                 }
 
                 Spacer()
 
-                TinyBadge(
-                    title: presenceStateLabel(court.activePresence),
-                    tint: presenceTint(court.activePresence)
-                )
+                if let chipTitle = court.occupiedChipTitle {
+                    TinyBadge(
+                        title: chipTitle,
+                        tint: presenceTint(court.activePresence)
+                    )
+                }
             }
             .padding(14)
             .background(
@@ -3555,6 +4011,12 @@ private struct CourtRowCard: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+private struct OccupiedCourtAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
 }
 
 private struct LiveTextField: View {
@@ -4193,10 +4655,81 @@ private func presenceDescription(_ presence: CourtLiveScreenPresence?) -> String
 }
 
 private func buildClusterChipTitle(_ cluster: CourtClusterData) -> String {
-    if let liveCount = cluster.liveCount, liveCount > 0 {
-        return "\(liveCount) đang live"
+    let assignedCount = cluster.assignedTournamentCount ?? cluster.assignedTournaments.count
+    let stationsCount = cluster.stationsCount ?? 0
+    let liveCount = cluster.liveCount ?? 0
+    if assignedCount > 0 {
+        return "\(assignedCount) giải"
     }
-    return "\(cluster.stationsCount ?? 0) sân"
+    if liveCount > 0 {
+        return "\(liveCount) live"
+    }
+    if stationsCount > 0 {
+        return "\(stationsCount) sân"
+    }
+    return "Cụm sân"
+}
+
+private func buildClusterSubtitle(_ cluster: CourtClusterData) -> String {
+    cluster.venueName?.trimmedNilIfBlank
+        ?? cluster.description?.trimmedNilIfBlank
+        ?? "Không có venue"
+}
+
+private func buildClusterAssignedTournamentDetail(_ cluster: CourtClusterData) -> String {
+    let tournaments = cluster.assignedTournaments.filter { $0.name?.trimmedNilIfBlank != nil }
+    guard !tournaments.isEmpty else {
+        return "Giải đang gán: chưa có giải nào."
+    }
+
+    let preview = tournaments.prefix(3).map { tournament -> String in
+        let meta = [
+            tournamentStatusLabel(tournament.status),
+            tournamentEventTypeLabel(tournament.eventType)
+        ]
+        .compactMap(\.self)
+        .joined(separator: " • ")
+
+        let title = tournament.name?.trimmedNilIfBlank ?? "Giải đấu"
+        if meta.isEmpty {
+            return "• \(title)"
+        }
+        return "• \(title) (\(meta))"
+    }
+    .joined(separator: "\n")
+
+    let suffix = tournaments.count > 3 ? "\n+\(tournaments.count - 3) giải khác" : ""
+    return "Giải đang gán:\n\(preview)\(suffix)"
+}
+
+private func tournamentStatusLabel(_ raw: String?) -> String? {
+    switch raw?.trimmedNilIfBlank?.lowercased() {
+    case "live", "ongoing", "running", "active":
+        return "đang diễn ra"
+    case "finished", "completed", "closed":
+        return "đã kết thúc"
+    case "published", "open":
+        return "đang mở"
+    case "draft":
+        return "nháp"
+    default:
+        return nil
+    }
+}
+
+private func tournamentEventTypeLabel(_ raw: String?) -> String? {
+    switch raw?.trimmedNilIfBlank?.lowercased() {
+    case "single", "singles":
+        return "đơn"
+    case "double", "doubles":
+        return "đôi"
+    case "team":
+        return "đồng đội"
+    case "round_robin":
+        return "vòng tròn"
+    default:
+        return raw?.trimmedNilIfBlank
+    }
 }
 
 private func matchStatusTint(_ status: String?) -> Color {

@@ -116,6 +116,7 @@ final class LiveAppStore: ObservableObject {
     init() {
         session = environment.sessionStore.session
         startupResolved = session?.accessToken.trimmedNilIfBlank == nil
+        streamingService.updateOrientationMode(orientationMode)
         bind()
         configureSockets()
         syncStreamingSafetyProfile()
@@ -353,6 +354,7 @@ final class LiveAppStore: ObservableObject {
         goLiveArmed = false
         batterySaverEnabled = false
         orientationMode = .auto
+        streamingService.updateOrientationMode(orientationMode)
         leaseId = nil
         leaseHeartbeatIntervalMs = 10_000
         resetStreamLeaseState()
@@ -379,6 +381,24 @@ final class LiveAppStore: ObservableObject {
         selectedCluster = cluster
         errorMessage = nil
         await loadCourts(clusterId: cluster.id)
+    }
+
+    func clearClusterSelection() {
+        errorMessage = nil
+        selectedCluster = nil
+        courts = []
+        selectedCourt = nil
+        courtRuntime = nil
+        courtPresence = nil
+        activeMatch = nil
+        runtimePollTask?.cancel()
+        runtimePollTask = nil
+        unwatchCurrentCourt()
+        if let watchedClusterId {
+            environment.courtRuntimeSocket.unwatchCluster(watchedClusterId)
+            self.watchedClusterId = nil
+        }
+        route = bootstrap == nil ? .login : .adminHome
     }
 
     func goBackToAdminHome() {
@@ -520,8 +540,10 @@ final class LiveAppStore: ObservableObject {
             return
         }
 
-        if !cameraPermissionGranted || !microphonePermissionGranted {
-            errorMessage = "Thiếu quyền camera hoặc micro để bắt đầu phiên."
+        if !cameraOperational {
+            errorMessage = cameraDeviceAvailable
+                ? "Thiếu quyền camera để bắt đầu phiên."
+                : "Thiết bị này không có camera để bắt đầu phiên live."
             return
         }
 
@@ -576,12 +598,15 @@ final class LiveAppStore: ObservableObject {
             try await streamingService.preparePreview(quality: selectedQuality)
 
             if liveMode.includesRecording {
+                let recordingSessionId = UUID().uuidString
                 let recordingResponse = try await environment.apiClient.startRecording(
                     StartMatchRecordingRequest(
                         matchId: activeMatch.id,
                         courtId: currentCourtId,
                         tournamentId: activeMatch.tournament?.id,
                         streamSessionId: streamingService.clientSessionId,
+                        quality: selectedQuality.recordingAPIValue,
+                        recordingSessionId: recordingSessionId,
                         mode: liveMode.rawValue
                     )
                 )
@@ -744,6 +769,7 @@ final class LiveAppStore: ObservableObject {
         cancelStopLiveCountdown()
         queuedCourtMatchId = nil
         orientationMode = .auto
+        streamingService.updateOrientationMode(orientationMode)
         safetyDegradeReason = nil
         activeSocketMatchId = nil
         lastSocketPayloadAt = nil
@@ -782,6 +808,13 @@ final class LiveAppStore: ObservableObject {
     }
 
     func toggleMicrophone() {
+        guard microphoneOperational else {
+            streamingService.setMicrophoneEnabled(false)
+            errorMessage = microphoneDeviceAvailable
+                ? "Chưa có quyền micro trên thiết bị này."
+                : "Thiết bị này không có micro để bật."
+            return
+        }
         streamingService.setMicrophoneEnabled(!streamingService.stats.micEnabled)
     }
 
@@ -889,6 +922,14 @@ final class LiveAppStore: ObservableObject {
         LiveStreamingService.cameraPermissionGranted
     }
 
+    var cameraDeviceAvailable: Bool {
+        LiveStreamingService.cameraDeviceAvailable
+    }
+
+    var cameraOperational: Bool {
+        cameraPermissionGranted && cameraDeviceAvailable
+    }
+
     var batteryPercent: Int? {
         guard batteryLevel >= 0 else { return nil }
         return min(100, max(0, Int((batteryLevel * 100).rounded())))
@@ -947,6 +988,24 @@ final class LiveAppStore: ObservableObject {
 
     var microphonePermissionGranted: Bool {
         LiveStreamingService.microphonePermissionGranted
+    }
+
+    var microphoneDeviceAvailable: Bool {
+        LiveStreamingService.microphoneDeviceAvailable
+    }
+
+    var microphoneOperational: Bool {
+        microphonePermissionGranted && microphoneDeviceAvailable
+    }
+
+    var livePreviewPlaceholderMessage: String? {
+        if !cameraDeviceAvailable {
+            return "Thiết bị này không có camera. App vẫn mở màn live để test flow, nhưng preview sẽ chỉ hiện placeholder."
+        }
+        if !cameraPermissionGranted {
+            return "PickleTour Live chưa có quyền camera, nên chưa thể dựng preview."
+        }
+        return nil
     }
 
     var previewReady: Bool {
@@ -1253,6 +1312,7 @@ final class LiveAppStore: ObservableObject {
     func cycleOrientationMode() {
         orientationMode = orientationMode.next()
         LiveAppOrientationController.apply(orientationMode)
+        streamingService.updateOrientationMode(orientationMode)
     }
 
     func retryPreviewPipeline() {
@@ -1425,13 +1485,28 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
-        if !cameraPermissionGranted || !microphonePermissionGranted {
+        if !cameraOperational {
             issues.append(
                 LivePreflightIssue(
-                    id: "capture_permissions",
+                    id: "camera_required",
                     severity: .blocker,
-                    title: "Thiếu quyền camera hoặc micro",
-                    detail: "Cần cấp đủ quyền camera và micro cho PickleTour Live trước khi preview hoặc vào phiên."
+                    title: cameraDeviceAvailable ? "Thiếu quyền camera" : "Thiết bị không có camera",
+                    detail: cameraDeviceAvailable
+                        ? "Cần cấp quyền camera cho PickleTour Live trước khi preview hoặc vào phiên."
+                        : "Thiết bị này không có camera nên không thể bắt đầu phiên live thật."
+                )
+            )
+        }
+
+        if !microphoneOperational {
+            issues.append(
+                LivePreflightIssue(
+                    id: "microphone_optional",
+                    severity: .warning,
+                    title: microphoneDeviceAvailable ? "Thiếu quyền micro" : "Thiết bị không có micro",
+                    detail: microphoneDeviceAvailable
+                        ? "App vẫn có thể vào phiên với video, nhưng sẽ không thu tiếng cho đến khi được cấp quyền micro."
+                        : "App vẫn có thể vào phiên với video, nhưng thiết bị này không thu được tiếng."
                 )
             )
         }
@@ -1929,7 +2004,10 @@ final class LiveAppStore: ObservableObject {
 
     private func scheduleBackgroundExitIfNeeded() {
         guard backgroundExitTask == nil else { return }
-        guard hasPrimarySessionIntent || streamingService.isRecordingLocally || liveStartedAt != nil else { return }
+        let hasCourtPresenceIntent =
+            currentCourtId?.trimmedNilIfBlank != nil
+            || courtPresence?.isEffectivelyOccupied() == true
+        guard hasPrimarySessionIntent || streamingService.isRecordingLocally || liveStartedAt != nil || hasCourtPresenceIntent else { return }
 
         backgroundExitTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 8_000_000_000)
@@ -1941,7 +2019,10 @@ final class LiveAppStore: ObservableObject {
         backgroundExitTask = nil
 
         guard !appIsActive else { return }
-        guard hasPrimarySessionIntent || streamingService.isRecordingLocally || liveStartedAt != nil else { return }
+        let hasCourtPresenceIntent =
+            currentCourtId?.trimmedNilIfBlank != nil
+            || courtPresence?.isEffectivelyOccupied() == true
+        guard hasPrimarySessionIntent || streamingService.isRecordingLocally || liveStartedAt != nil || hasCourtPresenceIntent else { return }
 
         heartbeatTask?.cancel()
         heartbeatTask = nil
@@ -1976,6 +2057,14 @@ final class LiveAppStore: ObservableObject {
             await streamingService.stopRecording()
             recordingFinalizeRequested = activeRecording != nil
         }
+
+        if let courtId = currentCourtId?.trimmedNilIfBlank {
+            _ = try? await environment.apiClient.endCourtPresence(
+                courtId: courtId,
+                clientSessionId: streamingService.clientSessionId
+            )
+        }
+        courtPresence = nil
 
         streamingService.stopPreview()
         environment.matchSocket.disconnect()
@@ -2155,15 +2244,18 @@ final class LiveAppStore: ObservableObject {
                 self.environment.deviceMonitor.refresh()
                 Task { @MainActor in
                     LiveAppOrientationController.apply(self.orientationMode)
+                    self.streamingService.updateOrientationMode(self.orientationMode)
                     if let courtId = self.currentCourtId?.trimmedNilIfBlank {
                         await self.refreshCourtRuntime(courtId: courtId)
-                        let presence = try? await self.environment.apiClient.heartbeatCourtPresence(
-                            courtId: courtId,
-                            clientSessionId: self.streamingService.clientSessionId,
-                            screenState: self.currentPresenceScreenState(),
-                            matchId: self.activeMatch?.id
-                        )
-                        self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
+                        if !self.freshEntryRequired {
+                            let presence = try? await self.environment.apiClient.heartbeatCourtPresence(
+                                courtId: courtId,
+                                clientSessionId: self.streamingService.clientSessionId,
+                                screenState: self.currentPresenceScreenState(),
+                                matchId: self.activeMatch?.id
+                            )
+                            self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
+                        }
                     }
                     self.maybeReleaseSafetyDegrade()
                     self.syncStreamingSafetyProfile()
@@ -2683,6 +2775,16 @@ final class LiveAppStore: ObservableObject {
 
         if let courtId = target.courtId?.trimmedNilIfBlank {
             let runtime = try await environment.apiClient.getCourtRuntime(courtId: courtId)
+            if let presence = runtime.presence, presence.isEffectivelyOccupied() {
+                let courtName =
+                    selectedCourt?.displayName
+                    ?? runtime.name?.trimmedNilIfBlank
+                    ?? "Sân này"
+                throw LiveAPIError.server(
+                    statusCode: 409,
+                    message: presence.occupiedMessage(for: courtName)
+                )
+            }
             let nextMatchId = try await environment.apiClient.getNextMatchByCourt(courtId: courtId)
             courtRuntime = runtime
             courtPresence = runtime.presence
@@ -2779,7 +2881,11 @@ final class LiveAppStore: ObservableObject {
             environment.matchSocket.watch(matchId: matchId)
         }
         environment.courtRuntimeSocket.connectIfNeeded()
-        try await streamingService.preparePreview(quality: selectedQuality)
+        if livePreviewPlaceholderMessage == nil {
+            try await streamingService.preparePreview(quality: selectedQuality)
+        } else {
+            streamState = .idle
+        }
         if matchId != nil {
             await refreshOverlay()
         }

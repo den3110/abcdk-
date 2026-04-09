@@ -90,6 +90,15 @@ final class LiveStreamingService: NSObject, ObservableObject {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
 
+    static var cameraDeviceAvailable: Bool {
+        AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil
+            || AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) != nil
+    }
+
+    static var microphoneDeviceAvailable: Bool {
+        AVCaptureDevice.default(for: .audio) != nil
+    }
+
     private let connection = RTMPConnection()
     private let stream: RTMPStream
     private let overlayEffect = LiveScoreboardVideoEffect()
@@ -112,6 +121,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var previewViews = NSHashTable<MTHKView>.weakObjects()
     private var currentCameraPosition: AVCaptureDevice.Position = .back
     private var currentCamera: AVCaptureDevice?
+    private var orientationMode: DeviceOrientationMode = .auto
+    private var currentVideoOrientation: AVCaptureVideoOrientation = .portrait
+    private let microphoneTrack: UInt8 = 0
     private var pendingPublishName: String?
     private var pendingStartContinuation: CheckedContinuation<Void, Error>?
     private var locallyClosingRTMP = false
@@ -151,6 +163,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         connection.addEventListener(.rtmpStatus, selector: #selector(handleRTMPStatus(_:)), observer: self)
         connection.addEventListener(.ioError, selector: #selector(handleRTMPError(_:)), observer: self)
         stream.addEventListener(.rtmpStatus, selector: #selector(handleRTMPStatus(_:)), observer: self)
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
 
         notificationObservers.append(
             NotificationCenter.default.addObserver(
@@ -174,10 +187,22 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 }
             }
         )
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: UIDevice.orientationDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.syncVideoOrientation()
+                }
+            }
+        )
 
         recorder.delegate = recorderProxy
         stream.addObserver(recorder)
         registerOverlayEffectIfNeeded()
+        syncVideoOrientation(force: true)
         appendDiagnostic("Live streaming service ready.")
     }
 
@@ -214,13 +239,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 return
             }
             applyQuality(quality)
+            syncVideoOrientation(force: true)
             registerOverlayEffectIfNeeded()
 
-            if stats.micEnabled, let microphone = AVCaptureDevice.default(for: .audio) {
-                stream.attachAudio(microphone)
-            } else {
-                stream.attachAudio(nil)
-            }
+            attachMicrophoneIfNeeded()
 
             if let currentCamera, currentCamera.position == currentCameraPosition {
                 maxZoomFactor = max(1, min(currentCamera.activeFormat.videoMaxZoomFactor, 10))
@@ -455,11 +477,34 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     func setMicrophoneEnabled(_ enabled: Bool) {
         stats.micEnabled = enabled
-        if enabled, let microphone = AVCaptureDevice.default(for: .audio) {
-            stream.attachAudio(microphone)
-        } else {
-            stream.attachAudio(nil)
+        applyMicrophoneMuteState()
+    }
+
+    private func applyMicrophoneMuteState() {
+        var mixerSettings = stream.audioMixerSettings
+        mixerSettings.isMuted = !stats.micEnabled
+
+        var trackSettings = mixerSettings.tracks[microphoneTrack] ?? .default
+        trackSettings.isMuted = !stats.micEnabled
+        mixerSettings.tracks[microphoneTrack] = trackSettings
+
+        stream.audioMixerSettings = mixerSettings
+        appendDiagnostic(stats.micEnabled ? "Microphone unmuted." : "Microphone muted.")
+    }
+
+    private func attachMicrophoneIfNeeded() {
+        guard Self.microphonePermissionGranted else {
+            stats.micEnabled = false
+            applyMicrophoneMuteState()
+            return
         }
+        guard let microphone = AVCaptureDevice.default(for: .audio) else {
+            stats.micEnabled = false
+            applyMicrophoneMuteState()
+            return
+        }
+        stream.attachAudio(microphone, track: microphoneTrack)
+        applyMicrophoneMuteState()
     }
 
     func setZoomFactor(_ zoomFactor: CGFloat) throws {
@@ -510,6 +555,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     func attachPreviewView(_ view: MTHKView) {
         previewViews.add(view)
         view.videoGravity = .resizeAspectFill
+        view.videoOrientation = currentVideoOrientation
         view.attachStream(stream)
     }
 
@@ -521,6 +567,11 @@ final class LiveStreamingService: NSObject, ObservableObject {
     func clearDiagnostics() {
         diagnostics.removeAll()
         appendDiagnostic("Đã xoá diagnostics cũ.")
+    }
+
+    func updateOrientationMode(_ mode: DeviceOrientationMode) {
+        orientationMode = mode
+        syncVideoOrientation(force: true)
     }
 
     func updateStabilityProfile(
@@ -636,9 +687,57 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     private func refreshPreviewBindings() {
+        syncVideoOrientation()
         for view in previewViews.allObjects {
+            view.videoOrientation = currentVideoOrientation
             view.attachStream(stream)
         }
+    }
+
+    private func syncVideoOrientation(force: Bool = false) {
+        guard let nextOrientation = resolvedVideoOrientation() else { return }
+        guard force || currentVideoOrientation != nextOrientation else { return }
+
+        currentVideoOrientation = nextOrientation
+        stream.videoOrientation = nextOrientation
+
+        for view in previewViews.allObjects {
+            view.videoOrientation = nextOrientation
+        }
+    }
+
+    private func resolvedVideoOrientation() -> AVCaptureVideoOrientation? {
+        switch orientationMode {
+        case .portrait:
+            return .portrait
+        case .landscape:
+            return currentInterfaceVideoOrientation(allowPortraitFallback: false) ?? .landscapeRight
+        case .auto:
+            return currentInterfaceVideoOrientation(allowPortraitFallback: true)
+                ?? DeviceUtil.videoOrientation(by: UIDevice.current.orientation)
+                ?? currentVideoOrientation
+        }
+    }
+
+    private func currentInterfaceVideoOrientation(allowPortraitFallback: Bool) -> AVCaptureVideoOrientation? {
+        let interfaceOrientation = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?
+            .interfaceOrientation
+
+        guard let interfaceOrientation else {
+            return allowPortraitFallback ? .portrait : nil
+        }
+
+        guard let videoOrientation = DeviceUtil.videoOrientation(by: interfaceOrientation) else {
+            return allowPortraitFallback ? .portrait : nil
+        }
+
+        if !allowPortraitFallback, videoOrientation == .portrait {
+            return nil
+        }
+
+        return videoOrientation
     }
 
     private func handleOverlayMemoryWarning() {
@@ -820,9 +919,15 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     private func requestCapturePermissions() async throws {
         let cameraAllowed = await AVCaptureDevice.requestAccessIfNeeded(for: .video)
+        guard cameraAllowed else {
+            throw LiveAPIError.server(statusCode: 0, message: "Ứng dụng chưa có quyền camera.")
+        }
+
         let micAllowed = await AVCaptureDevice.requestAccessIfNeeded(for: .audio)
-        guard cameraAllowed, micAllowed else {
-            throw LiveAPIError.server(statusCode: 0, message: "Ứng dụng chưa có quyền camera hoặc micro.")
+        if !micAllowed {
+            stats.micEnabled = false
+            applyMicrophoneMuteState()
+            appendDiagnostic("Microphone permission missing. Continuing preview without audio.")
         }
     }
 

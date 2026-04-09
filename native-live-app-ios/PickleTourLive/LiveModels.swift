@@ -212,6 +212,20 @@ struct AdminCourtData: Codable, Identifiable, Hashable {
     var activePresence: CourtLiveScreenPresence? {
         liveScreenPresence ?? presence
     }
+
+    var isEffectivelyOccupied: Bool {
+        activePresence?.isEffectivelyOccupied() ?? false
+    }
+
+    var occupiedChipTitle: String? {
+        guard isEffectivelyOccupied else { return nil }
+        return activePresence?.operatorChipTitle ?? "Đang bận"
+    }
+
+    var occupiedMessage: String? {
+        guard isEffectivelyOccupied else { return nil }
+        return activePresence?.occupiedMessage(for: displayName)
+    }
 }
 
 struct AdminCourtListResponse: Codable {
@@ -488,11 +502,84 @@ struct CourtPresenceResponse: Codable, Equatable {
     var heartbeatIntervalMs: Int?
 }
 
+extension CourtLiveScreenPresence {
+    private var normalizedScreenState: String {
+        screenState?.trimmedNilIfBlank?.lowercased() ?? ""
+    }
+
+    private var previewLikeScreenState: Bool {
+        switch normalizedScreenState {
+        case "preview", "preview_unknown", "waiting_for_court", "waiting_for_next_match", "idle":
+            return true
+        default:
+            return false
+        }
+    }
+
+    func isEffectivelyOccupied(at now: Date = Date()) -> Bool {
+        guard occupied == true else { return false }
+
+        if let expiresAt = liveAppParseDate(expiresAt), expiresAt <= now {
+            return false
+        }
+
+        if previewLikeScreenState,
+           let previewReleaseAt = liveAppParseDate(previewReleaseAt),
+           previewReleaseAt <= now {
+            return false
+        }
+
+        return true
+    }
+
+    var operatorChipTitle: String {
+        switch normalizedScreenState {
+        case "live":
+            return "Đang live"
+        case "preview", "preview_unknown":
+            return "Đang preview"
+        case "waiting_for_court", "waiting_for_next_match", "idle":
+            return "Đang giữ"
+        default:
+            return "Đang bận"
+        }
+    }
+
+    func occupiedMessage(for courtName: String) -> String {
+        guard occupied == true else {
+            return "\(courtName) đang được giữ trên một thiết bị khác."
+        }
+
+        let stateText: String
+        switch normalizedScreenState {
+        case "live":
+            stateText = "Thiết bị khác đang LIVE trên sân này."
+        case "connecting", "reconnecting", "starting_countdown":
+            stateText = "Thiết bị khác đang chuẩn bị phát hoặc đang kết nối stream."
+        default:
+            stateText = "Thiết bị khác đang ở màn live/preview của sân này."
+        }
+
+        let releaseText = formattedPreviewReleaseAt.map {
+            " Nếu máy kia chỉ ở preview quá lâu, sân dự kiến sẽ tự động được trả lúc \($0)."
+        } ?? ""
+
+        return "\(courtName) đang được giữ. \(stateText)\(releaseText)"
+    }
+
+    var formattedPreviewReleaseAt: String? {
+        guard let date = liveAppParseDate(previewReleaseAt) else { return nil }
+        return liveAppTimeFormatter.string(from: date)
+    }
+}
+
 struct StartMatchRecordingRequest: Codable {
     var matchId: String
     var courtId: String?
     var tournamentId: String?
     var streamSessionId: String?
+    var quality: String?
+    var recordingSessionId: String?
     var mode: String?
 }
 
@@ -504,27 +591,53 @@ struct MatchRecordingSegment: Codable, Equatable, Hashable {
     var durationSeconds: Double?
 }
 
-struct MatchRecording: Codable, Equatable {
+struct MatchRecording: Decodable, Equatable {
     var id: String?
     var matchId: String?
+    var courtId: String?
+    var quality: String?
     var status: String?
+    var recordingSessionId: String?
     var uploadMode: String?
+    var playbackURL: String?
     var playback: RecordingLivePlayback?
     var segments: [MatchRecordingSegment]?
 
     enum CodingKeys: String, CodingKey {
-        case id = "_id"
+        case id
+        case legacyId = "_id"
         case matchId
+        case courtId
+        case quality
         case status
+        case recordingSessionId
         case uploadMode
+        case playbackURL = "playbackUrl"
         case playback
         case segments
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? container.decodeIfPresent(String.self, forKey: .legacyId)
+        matchId = try container.decodeIfPresent(String.self, forKey: .matchId)
+        courtId = try container.decodeIfPresent(String.self, forKey: .courtId)
+        quality = try container.decodeIfPresent(String.self, forKey: .quality)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        recordingSessionId = try container.decodeIfPresent(String.self, forKey: .recordingSessionId)
+        uploadMode = try container.decodeIfPresent(String.self, forKey: .uploadMode)
+        playbackURL = try container.decodeIfPresent(String.self, forKey: .playbackURL)
+        playback = try container.decodeIfPresent(RecordingLivePlayback.self, forKey: .playback)
+        segments = try container.decodeIfPresent([MatchRecordingSegment].self, forKey: .segments)
     }
 }
 
 extension MatchRecording {
     var playbackURLString: String? {
-        playback?.mp4URL?.trimmedNilIfBlank ?? playback?.manifestURL?.trimmedNilIfBlank
+        playbackURL?.trimmedNilIfBlank
+            ?? playback?.mp4URL?.trimmedNilIfBlank
+            ?? playback?.manifestURL?.trimmedNilIfBlank
     }
 
     var segmentCount: Int {
@@ -542,7 +655,7 @@ struct RecordingLivePlayback: Codable, Equatable {
     }
 }
 
-struct MatchRecordingResponse: Codable, Equatable {
+struct MatchRecordingResponse: Decodable, Equatable {
     var ok: Bool
     var recording: MatchRecording?
 }
@@ -841,6 +954,17 @@ enum LiveQualityPreset: String, CaseIterable, Identifiable, Codable {
             return 4_200_000
         case .aggressive1080:
             return 5_800_000
+        }
+    }
+
+    var recordingAPIValue: String {
+        switch self {
+        case .stable720:
+            return "720p 24fps"
+        case .balanced1080:
+            return "1080p 30fps"
+        case .aggressive1080:
+            return "1080p 30fps high"
         }
     }
 }
@@ -1254,4 +1378,34 @@ extension ISO8601DateFormatter {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter
     }()
+
+    static let liveAppFallback: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
+}
+
+private let liveAppTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "vi_VN")
+    formatter.timeZone = .current
+    formatter.dateFormat = "HH:mm"
+    return formatter
+}()
+
+private func liveAppParseDate(_ raw: String?) -> Date? {
+    guard let raw = raw?.trimmedNilIfBlank else { return nil }
+    if let parsed = ISO8601DateFormatter.liveApp.date(from: raw) {
+        return parsed
+    }
+    if let parsed = ISO8601DateFormatter.liveAppFallback.date(from: raw) {
+        return parsed
+    }
+    if let epoch = Double(raw) {
+        let seconds = epoch > 10_000_000_000 ? epoch / 1000 : epoch
+        return Date(timeIntervalSince1970: seconds)
+    }
+    return nil
 }
