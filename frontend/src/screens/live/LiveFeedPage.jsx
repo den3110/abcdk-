@@ -159,6 +159,74 @@ function asTrimmed(value) {
   return String(value || "").trim();
 }
 
+function toEpochMs(...values) {
+  for (const value of values) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time) && time > 0) return time;
+  }
+  return 0;
+}
+
+function getTournamentTimelineSortKey(tournament = {}, nowMs = Date.now()) {
+  const normalizedStatus = asTrimmed(tournament?.status).toLowerCase();
+  const startMs = toEpochMs(tournament?.startDate, tournament?.startAt);
+  const endMs = toEpochMs(
+    tournament?.endDate,
+    tournament?.endAt,
+    tournament?.startDate,
+    tournament?.startAt,
+  );
+  const hasStart = startMs > 0;
+  const hasEnd = endMs > 0;
+  const inferredOngoing = hasStart && hasEnd && startMs <= nowMs && endMs >= nowMs;
+  const inferredUpcoming = hasStart && startMs > nowMs;
+  const isOngoing = normalizedStatus === "ongoing" || inferredOngoing;
+  const isUpcoming = normalizedStatus === "upcoming" || (!isOngoing && inferredUpcoming);
+
+  if (isOngoing) {
+    return {
+      bucket: 0,
+      primary: hasEnd ? Math.max(0, endMs - nowMs) : Number.MAX_SAFE_INTEGER,
+      secondary: hasStart ? -startMs : 0,
+    };
+  }
+
+  if (isUpcoming) {
+    return {
+      bucket: 1,
+      primary: hasStart ? Math.max(0, startMs - nowMs) : Number.MAX_SAFE_INTEGER,
+      secondary: hasStart ? startMs : Number.MAX_SAFE_INTEGER,
+    };
+  }
+
+  const finishedMs = endMs || startMs;
+  return {
+    bucket: normalizedStatus === "finished" ? 2 : 3,
+    primary: finishedMs ? -finishedMs : Number.MAX_SAFE_INTEGER,
+    secondary: finishedMs ? -finishedMs : Number.MAX_SAFE_INTEGER,
+  };
+}
+
+function compareTournamentsByTimeline(left = {}, right = {}, nowMs = Date.now()) {
+  const leftKey = getTournamentTimelineSortKey(left, nowMs);
+  const rightKey = getTournamentTimelineSortKey(right, nowMs);
+
+  const bucketDiff = leftKey.bucket - rightKey.bucket;
+  if (bucketDiff !== 0) return bucketDiff;
+
+  const primaryDiff = leftKey.primary - rightKey.primary;
+  if (primaryDiff !== 0) return primaryDiff;
+
+  const secondaryDiff = leftKey.secondary - rightKey.secondary;
+  if (secondaryDiff !== 0) return secondaryDiff;
+
+  const countDiff = Number(right?.count || 0) - Number(left?.count || 0);
+  if (countDiff !== 0) return countDiff;
+
+  return asTrimmed(left?.name).localeCompare(asTrimmed(right?.name), "vi");
+}
+
 function useDebouncedValue(value, delay = SEARCH_DEBOUNCE_MS) {
   const [debouncedValue, setDebouncedValue] = useState(value);
 
@@ -3143,9 +3211,9 @@ export default function LiveFeedPage() {
   const facets = feedMeta?.facets || {};
   const tournaments = useMemo(
     () =>
-      (Array.isArray(facets?.tournaments) ? facets.tournaments : []).filter((item) =>
-        Boolean(sid(item)),
-      ),
+      (Array.isArray(facets?.tournaments) ? facets.tournaments : [])
+        .filter((item) => Boolean(sid(item)))
+        .sort((left, right) => compareTournamentsByTimeline(left, right)),
     [facets?.tournaments],
   );
   const statusCounts = facets?.statuses || {};

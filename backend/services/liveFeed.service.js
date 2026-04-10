@@ -90,7 +90,7 @@ const MATCH_LIST_SELECT = [
 const MATCH_LIST_POPULATE = [
   {
     path: "tournament",
-    select: "name image status eventType nameDisplayMode endDate",
+    select: "name image status eventType nameDisplayMode startDate startAt endDate endAt",
   },
   {
     path: "bracket",
@@ -205,6 +205,15 @@ function firstText(...values) {
     if (text) return text;
   }
   return "";
+}
+
+function toEpochMs(...values) {
+  for (const value of values) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time) && time > 0) return time;
+  }
+  return 0;
 }
 
 export function normalizeLiveFeedMode(mode) {
@@ -938,6 +947,65 @@ function matchesReplayStateFilter(item = {}, replayStateFilter = "all") {
   return asTrimmed(item?.replayState).toLowerCase() === normalizedFilter;
 }
 
+function getTournamentFacetSortKey(tournament = {}, nowMs = Date.now()) {
+  const normalizedStatus = asTrimmed(tournament?.status).toLowerCase();
+  const startMs = toEpochMs(tournament?.startDate, tournament?.startAt);
+  const endMs = toEpochMs(
+    tournament?.endDate,
+    tournament?.endAt,
+    tournament?.startDate,
+    tournament?.startAt,
+  );
+  const hasStart = startMs > 0;
+  const hasEnd = endMs > 0;
+  const inferredOngoing = hasStart && hasEnd && startMs <= nowMs && endMs >= nowMs;
+  const inferredUpcoming = hasStart && startMs > nowMs;
+  const isOngoing = normalizedStatus === "ongoing" || inferredOngoing;
+  const isUpcoming = normalizedStatus === "upcoming" || (!isOngoing && inferredUpcoming);
+
+  if (isOngoing) {
+    return {
+      bucket: 0,
+      primary: hasEnd ? Math.max(0, endMs - nowMs) : Number.MAX_SAFE_INTEGER,
+      secondary: hasStart ? -startMs : 0,
+    };
+  }
+
+  if (isUpcoming) {
+    return {
+      bucket: 1,
+      primary: hasStart ? Math.max(0, startMs - nowMs) : Number.MAX_SAFE_INTEGER,
+      secondary: hasStart ? startMs : Number.MAX_SAFE_INTEGER,
+    };
+  }
+
+  const finishedMs = endMs || startMs;
+  return {
+    bucket: normalizedStatus === "finished" ? 2 : 3,
+    primary: finishedMs ? -finishedMs : Number.MAX_SAFE_INTEGER,
+    secondary: finishedMs ? -finishedMs : Number.MAX_SAFE_INTEGER,
+  };
+}
+
+export function compareLiveFeedTournamentFacets(left = {}, right = {}, nowMs = Date.now()) {
+  const leftKey = getTournamentFacetSortKey(left, nowMs);
+  const rightKey = getTournamentFacetSortKey(right, nowMs);
+
+  const bucketDiff = leftKey.bucket - rightKey.bucket;
+  if (bucketDiff !== 0) return bucketDiff;
+
+  const primaryDiff = leftKey.primary - rightKey.primary;
+  if (primaryDiff !== 0) return primaryDiff;
+
+  const secondaryDiff = leftKey.secondary - rightKey.secondary;
+  if (secondaryDiff !== 0) return secondaryDiff;
+
+  const countDiff = Number(right?.count || 0) - Number(left?.count || 0);
+  if (countDiff !== 0) return countDiff;
+
+  return asTrimmed(left?.name).localeCompare(asTrimmed(right?.name), "vi");
+}
+
 function buildFeedMeta(items = []) {
   const safeItems = Array.isArray(items) ? items : [];
   const statuses = {
@@ -989,15 +1057,38 @@ function buildFeedMeta(items = []) {
         _id: tournamentId || null,
         name: tournamentName || "Giải đấu",
         image: asTrimmed(item?.tournament?.image) || "",
-        endDate: item?.tournament?.endDate || null,
+        status: asTrimmed(item?.tournament?.status).toLowerCase() || "",
+        startDate: item?.tournament?.startDate || item?.tournament?.startAt || null,
+        endDate:
+          item?.tournament?.endDate ||
+          item?.tournament?.endAt ||
+          item?.tournament?.startDate ||
+          item?.tournament?.startAt ||
+          null,
         count: 0,
       };
       previous.count += 1;
       if (!previous.image && item?.tournament?.image) {
         previous.image = asTrimmed(item.tournament.image);
       }
-      if (!previous.endDate && item?.tournament?.endDate) {
-        previous.endDate = item.tournament.endDate;
+      if (!previous.status && item?.tournament?.status) {
+        previous.status = asTrimmed(item.tournament.status).toLowerCase();
+      }
+      if (!previous.startDate && (item?.tournament?.startDate || item?.tournament?.startAt)) {
+        previous.startDate = item.tournament.startDate || item.tournament.startAt;
+      }
+      if (
+        !previous.endDate &&
+        (item?.tournament?.endDate ||
+          item?.tournament?.endAt ||
+          item?.tournament?.startDate ||
+          item?.tournament?.startAt)
+      ) {
+        previous.endDate =
+          item.tournament.endDate ||
+          item.tournament.endAt ||
+          item.tournament.startDate ||
+          item.tournament.startAt;
       }
       tournamentMap.set(key, previous);
     }
@@ -1018,15 +1109,9 @@ function buildFeedMeta(items = []) {
       statuses,
       sources,
       replayStates,
-      tournaments: [...tournamentMap.values()].sort((left, right) => {
-        const leftEnd = new Date(left.endDate || 0).getTime();
-        const rightEnd = new Date(right.endDate || 0).getTime();
-        const endDiff = rightEnd - leftEnd;
-        if (endDiff !== 0) return endDiff;
-        const countDiff = right.count - left.count;
-        if (countDiff !== 0) return countDiff;
-        return asTrimmed(left?.name).localeCompare(asTrimmed(right?.name));
-      }),
+      tournaments: [...tournamentMap.values()].sort((left, right) =>
+        compareLiveFeedTournamentFacets(left, right),
+      ),
     },
   };
 }

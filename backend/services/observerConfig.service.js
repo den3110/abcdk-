@@ -42,6 +42,19 @@ export function getObserverReadApiKey() {
   return asTrimmed(process.env.OBSERVER_READ_API_KEY) || getObserverApiKey();
 }
 
+export function getObserverReadProxyConfig() {
+  const sinkCfg = getObserverSinkConfig();
+  const readApiKey = getObserverReadApiKey();
+
+  return {
+    enabled: Boolean(sinkCfg.baseUrl && readApiKey),
+    baseUrl: sinkCfg.baseUrl,
+    readApiKey,
+    timeoutMs: sinkCfg.timeoutMs,
+    sourceName: sinkCfg.sourceName,
+  };
+}
+
 export function getObserverSinkConfig() {
   const baseUrl = normalizeBaseUrl(process.env.OBSERVER_BASE_URL);
   const apiKey = getObserverApiKey();

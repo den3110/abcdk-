@@ -45,7 +45,7 @@ docker push ghcr.io/your-org/pickletour-observer:latest
 
 ## Collector Configuration
 
-Recommended `observer.env` on the VPS:
+Recommended `.env` on the VPS:
 
 ```env
 NODE_ENV=production
@@ -54,8 +54,8 @@ OBSERVER_BIND_HOST=0.0.0.0
 OBSERVER_API_KEY=replace-with-a-long-random-secret
 OBSERVER_READ_API_KEY=replace-with-a-different-read-only-secret
 JWT_SECRET=use-the-same-jwt-secret-as-main-backend-if-apps-send-direct-telemetry
-MONGO_URI=mongodb://127.0.0.1:27017/pickletour_observer
-MONGO_URI_PROD=mongodb://127.0.0.1:27017/pickletour_observer
+MONGO_URI=mongodb://observer-mongo:27017/pickletour_observer
+MONGO_URI_PROD=mongodb://observer-mongo:27017/pickletour_observer
 MONGO_DB_NAME=pickletour_observer
 OBSERVER_EVENT_TTL_DAYS=7
 OBSERVER_RUNTIME_TTL_DAYS=14
@@ -63,6 +63,10 @@ OBSERVER_BACKUP_TTL_DAYS=60
 OBSERVER_LIVE_DEVICE_TTL_DAYS=3
 OBSERVER_LIVE_DEVICE_STALE_MS=30000
 ```
+
+Nếu chạy bằng `docker compose` trong repo này, phải dùng hostname `observer-mongo`
+như trên. Chỉ dùng `127.0.0.1` khi bạn không chạy Mongo trong container riêng và
+observer process chạy trực tiếp trên host VPS.
 
 Keep the published port private by default. Prefer one of these:
 
@@ -75,7 +79,7 @@ Keep the published port private by default. Prefer one of these:
 Copy these two files to the VPS:
 
 - `deploy/observer-vps/docker-compose.observer.yml`
-- `deploy/observer-vps/observer.env.example` as `observer.env`
+- `deploy/observer-vps/.env.example` as `.env`
 
 Then start:
 

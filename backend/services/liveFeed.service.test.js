@@ -7,6 +7,7 @@ import {
   buildFeedPosterUrl,
   buildFeedStageLabel,
   buildLiveFeedItem,
+  compareLiveFeedTournamentFacets,
   compareLiveFeedItems,
   getLiveFeedModeStatuses,
   getLiveFeedSmartScore,
@@ -368,4 +369,47 @@ test("smart ranking boosts fresh live matches ahead of stale live matches", () =
   const items = [flatLive, hotLive];
   items.sort(compareLiveFeedItems);
   assert.equal(items[0]._id, "match-hot");
+});
+
+test("compareLiveFeedTournamentFacets sorts by schedule proximity, then recent end time", () => {
+  const now = Date.parse("2026-04-10T12:00:00.000Z");
+  const items = [
+    {
+      _id: "finished-old",
+      name: "Giải cũ",
+      status: "finished",
+      endDate: "2026-03-12T18:00:00.000Z",
+      count: 3,
+    },
+    {
+      _id: "finished-recent",
+      name: "Giải mới",
+      status: "finished",
+      endDate: "2026-04-08T18:00:00.000Z",
+      count: 1,
+    },
+    {
+      _id: "upcoming-soon",
+      name: "Giải sắp diễn ra",
+      status: "upcoming",
+      startDate: "2026-04-11T08:00:00.000Z",
+      endDate: "2026-04-13T18:00:00.000Z",
+      count: 2,
+    },
+    {
+      _id: "ongoing",
+      name: "Giải đang diễn ra",
+      status: "ongoing",
+      startDate: "2026-04-10T07:00:00.000Z",
+      endDate: "2026-04-10T13:00:00.000Z",
+      count: 4,
+    },
+  ];
+
+  items.sort((left, right) => compareLiveFeedTournamentFacets(left, right, now));
+
+  assert.deepEqual(
+    items.map((item) => item._id),
+    ["ongoing", "upcoming-soon", "finished-recent", "finished-old"],
+  );
 });
