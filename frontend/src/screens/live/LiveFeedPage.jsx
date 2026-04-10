@@ -3379,6 +3379,19 @@ export default function LiveFeedPage() {
       activeIndexRef.current = clamped;
       setIsDraggingUi(false);
 
+      // Expand renderedIndices so cards around the new active index mount
+      setRenderedIndices((previous) => {
+        const next = new Set(previous);
+        for (
+          let index = Math.max(0, clamped - RENDER_WINDOW);
+          index <= Math.min(items.length - 1, clamped + RENDER_WINDOW + 1);
+          index += 1
+        ) {
+          next.add(index);
+        }
+        return next;
+      });
+
       if (animate) {
         animationTimerRef.current = window.setTimeout(() => {
           isAnimatingRef.current = false;
