@@ -104,13 +104,46 @@ export function formatAzureBillingError(error) {
   return "Azure billing API error";
 }
 
-function getUsageDetailPretaxCost(detail) {
-  if (typeof detail?.pretaxCost === "number" && Number.isFinite(detail.pretaxCost)) {
-    return detail.pretaxCost;
+export function getUsageDetailPretaxCost(detail) {
+  const candidates = [
+    detail?.costInBillingCurrency,
+    detail?.paygCostInBillingCurrency,
+    detail?.pretaxCost,
+    detail?.costInPricingCurrency,
+    detail?.costInUSD,
+    detail?.paygCostInUSD,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
   }
 
-  const numeric = Number(detail?.pretaxCost);
-  return Number.isFinite(numeric) ? numeric : 0;
+  return 0;
+}
+
+function getUsageDetailCurrency(detail) {
+  const candidates = [
+    detail?.billingCurrency,
+    detail?.billingCurrencyCode,
+    detail?.pricingCurrencyCode,
+    detail?.currency,
+  ];
+
+  for (const value of candidates) {
+    const normalized = String(value || "").trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return "";
 }
 
 // -------------------------------------------------------------
@@ -223,8 +256,9 @@ export async function getAzureBillingRecords() {
       )) {
         totalAmount += getUsageDetailPretaxCost(detail);
 
-        if (String(detail?.billingCurrency || "").trim()) {
-          currency = detail.billingCurrency;
+        const detailCurrency = getUsageDetailCurrency(detail);
+        if (detailCurrency) {
+          currency = detailCurrency;
         }
 
         count += 1;

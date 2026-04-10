@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildAzureConsumptionScope,
   formatAzureBillingError,
+  getUsageDetailPretaxCost,
 } from "./azureVmWorker.service.js";
 
 test("buildAzureConsumptionScope removes leading slash and prefixes subscriptions", () => {
@@ -37,4 +38,14 @@ test("formatAzureBillingError includes Azure code and HTTP status when present",
 
 test("formatAzureBillingError falls back to a generic message", () => {
   assert.equal(formatAzureBillingError({}), "Azure billing API error");
+});
+
+test("getUsageDetailPretaxCost prefers billed modern cost fields", () => {
+  assert.equal(
+    getUsageDetailPretaxCost({
+      costInBillingCurrency: 1.29,
+      pretaxCost: 0,
+    }),
+    1.29,
+  );
 });
