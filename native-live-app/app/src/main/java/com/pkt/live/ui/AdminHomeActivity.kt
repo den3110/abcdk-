@@ -59,6 +59,7 @@ import com.pkt.live.data.model.AdminCourtData
 import com.pkt.live.data.model.CourtClusterData
 import com.pkt.live.data.model.CourtLiveScreenPresence
 import com.pkt.live.data.model.MatchData
+import com.pkt.live.data.observer.LiveObserverConfig
 import com.pkt.live.data.repository.LiveRepository
 import com.pkt.live.ui.theme.LiveColors
 import com.pkt.live.ui.theme.PickletourLiveTheme
@@ -108,6 +109,7 @@ class AdminHomeActivity : AppCompatActivity() {
                         repository.disconnectSocketSession()
                         tokenStore.clear()
                         authInterceptor.token = null
+                        LiveObserverConfig.clearObserverBaseUrlOverride()
                         tokenState.value = ""
                         loginLauncher.launch(Intent(this, LoginActivity::class.java))
                     },

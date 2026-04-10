@@ -6,12 +6,18 @@ import Security
 import UIKit
 
 enum LiveAppConfig {
+    private static var observerBaseURLOverride: URL?
+    private static var observerBaseURLOverrideActive = false
+
     static var baseURL: URL {
         requiredURL(for: "PTLiveBaseURL", fallback: "https://pickletour.vn/api/")
     }
 
     static var observerBaseURL: URL? {
-        optionalURL(for: "PTLiveObserverBaseURL")
+        if observerBaseURLOverrideActive {
+            return observerBaseURLOverride
+        }
+        return optionalURL(for: "PTLiveObserverBaseURL")
     }
 
     static var socketURL: URL {
@@ -50,6 +56,21 @@ enum LiveAppConfig {
             return fallback
         }
         return raw
+    }
+
+    static func setObserverBaseURLOverride(_ raw: String?) {
+        observerBaseURLOverrideActive = true
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else {
+            observerBaseURLOverride = nil
+            return
+        }
+        observerBaseURLOverride = URL(string: trimmed)
+    }
+
+    static func clearObserverBaseURLOverride() {
+        observerBaseURLOverrideActive = false
+        observerBaseURLOverride = nil
     }
 
     private static func optionalURL(for key: String) -> URL? {

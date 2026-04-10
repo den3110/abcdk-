@@ -7,6 +7,7 @@ import com.pkt.live.data.api.AuthInterceptor
 import com.pkt.live.data.api.RetryInterceptor
 import com.pkt.live.data.api.PickleTourApi
 import com.pkt.live.data.auth.TokenStore
+import com.pkt.live.data.observer.ObserverTelemetryClient
 import com.pkt.live.data.recording.MatchRecordingCoordinator
 import com.pkt.live.data.repository.LiveRepository
 import com.pkt.live.data.socket.CourtPresenceSocketManager
@@ -73,6 +74,14 @@ val appModule = module {
     // API interface
     single<PickleTourApi> {
         get<Retrofit>().create(PickleTourApi::class.java)
+    }
+
+    single {
+        ObserverTelemetryClient(
+            okHttpClient = get(),
+            gson = get(),
+            authInterceptor = get(),
+        )
     }
 
     // Socket manager
@@ -147,10 +156,12 @@ val appModule = module {
             repository = get(),
             streamManager = get(),
             authInterceptor = get(),
+            tokenStore = get(),
             overlayRenderer = get(),
             networkMonitor = get(),
             appContext = androidContext(),
             recordingCoordinator = get(),
+            observerTelemetryClient = get(),
         )
     }
 }

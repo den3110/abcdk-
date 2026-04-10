@@ -256,6 +256,89 @@ async function runFfmpeg(args) {
   });
 }
 
+function parseFfmpegDurationSeconds(raw = "") {
+  const match = String(raw || "").match(
+    /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i
+  );
+  if (!match) return 0;
+
+  const hours = Number(match[1]) || 0;
+  const minutes = Number(match[2]) || 0;
+  const seconds = Number(match[3]) || 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+async function probeVideoDurationSeconds(inputPath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegStatic, ["-hide_banner", "-i", inputPath], {
+      stdio: ["ignore", "ignore", "pipe"],
+      windowsHide: true,
+    });
+    let stderr = "";
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", () => {
+      const durationSeconds = parseFfmpegDurationSeconds(stderr);
+      if (durationSeconds > 0) {
+        resolve(durationSeconds);
+        return;
+      }
+      reject(new Error("Cannot probe merged video duration"));
+    });
+  });
+}
+
+export function shouldRejectRecordingExportDuration({
+  expectedDurationSeconds,
+  actualDurationSeconds,
+}) {
+  const expected = Math.max(0, Number(expectedDurationSeconds) || 0);
+  const actual = Math.max(0, Number(actualDurationSeconds) || 0);
+  if (expected < 120 || actual <= 0) {
+    return false;
+  }
+
+  const minRatio = Number(
+    process.env.LIVE_RECORDING_EXPORT_MIN_DURATION_RATIO || 0.9
+  );
+  const maxDeltaSeconds = Number(
+    process.env.LIVE_RECORDING_EXPORT_MAX_DURATION_DELTA_SECONDS || 45
+  );
+  const safeRatio =
+    Number.isFinite(minRatio) && minRatio > 0 && minRatio < 1 ? minRatio : 0.9;
+  const safeMaxDelta =
+    Number.isFinite(maxDeltaSeconds) && maxDeltaSeconds > 0
+      ? maxDeltaSeconds
+      : 45;
+
+  const ratio = actual / expected;
+  const delta = expected - actual;
+  return ratio < safeRatio && delta > safeMaxDelta;
+}
+
+function assertRecordingExportDuration({
+  expectedDurationSeconds,
+  actualDurationSeconds,
+}) {
+  if (
+    !shouldRejectRecordingExportDuration({
+      expectedDurationSeconds,
+      actualDurationSeconds,
+    })
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `Merged video duration mismatch: expected ${Number(
+      expectedDurationSeconds || 0
+    ).toFixed(3)}s but got ${Number(actualDurationSeconds || 0).toFixed(3)}s`
+  );
+}
+
 async function concatSegmentsWithCopy({ concatPath, outputPath }) {
   await runFfmpeg([
     "-y",
@@ -401,7 +484,7 @@ async function prepareRecordingOutputUpload(recording, outputPath) {
 
 async function applyRecordingDriveOutput(
   recording,
-  { driveInfo, sizeBytes, durationSeconds }
+  { driveInfo, sizeBytes, durationSeconds, sourceDurationSeconds = 0 }
 ) {
   recording.status = "exporting";
   recording.sizeBytes = Number(sizeBytes) || 0;
@@ -411,6 +494,22 @@ async function applyRecordingDriveOutput(
   recording.drivePreviewUrl = driveInfo.previewUrl;
   recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
   recording.error = null;
+  const nextMeta = asMutableMeta(recording.meta);
+  const exportOutput =
+    nextMeta.exportOutput &&
+    typeof nextMeta.exportOutput === "object" &&
+    !Array.isArray(nextMeta.exportOutput)
+      ? { ...nextMeta.exportOutput }
+      : {};
+  nextMeta.exportOutput = {
+    ...exportOutput,
+    sourceDurationSeconds: Number(sourceDurationSeconds) || 0,
+    outputDurationSeconds: Number(durationSeconds) || 0,
+    sizeBytes: Number(sizeBytes) || 0,
+    driveFileId: driveInfo.fileId || null,
+    checkedAt: new Date(),
+  };
+  recording.meta = nextMeta;
   await Match.findByIdAndUpdate(recording.match, {
     $set: {
       video: recording.playbackUrl,
@@ -684,13 +783,19 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
       (sum, segment) => sum + (Number(segment.durationSeconds) || 0),
       0
     );
+    const outputDurationSeconds = await probeVideoDurationSeconds(outputPath);
+    assertRecordingExportDuration({
+      expectedDurationSeconds: totalDurationSeconds,
+      actualDurationSeconds: outputDurationSeconds,
+    });
     const { driveInfo, driveStatus, outputStat } =
       await prepareRecordingOutputUpload(recording, outputPath);
 
     await applyRecordingDriveOutput(recording, {
       driveInfo,
       sizeBytes: outputStat.size,
-      durationSeconds: totalDurationSeconds,
+      durationSeconds: outputDurationSeconds || totalDurationSeconds,
+      sourceDurationSeconds: totalDurationSeconds,
     });
 
     if (shouldDeleteRecordingSourceAfterExport()) {
@@ -841,12 +946,21 @@ async function exportFacebookVodRecording(recording, match) {
       recording,
       outputPath
     );
+    const expectedDurationSeconds =
+      Number(downloadInfo.durationSeconds) || recording.durationSeconds || 0;
+    const outputDurationSeconds = await probeVideoDurationSeconds(outputPath);
+    if (expectedDurationSeconds > 0) {
+      assertRecordingExportDuration({
+        expectedDurationSeconds,
+        actualDurationSeconds: outputDurationSeconds,
+      });
+    }
 
     await applyRecordingDriveOutput(recording, {
       driveInfo,
       sizeBytes: outputStat.size,
-      durationSeconds:
-        Number(downloadInfo.durationSeconds) || recording.durationSeconds || 0,
+      durationSeconds: outputDurationSeconds || expectedDurationSeconds,
+      sourceDurationSeconds: expectedDurationSeconds,
     });
 
     const readyMeta = asMutableMeta(recording.meta);

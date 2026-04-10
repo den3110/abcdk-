@@ -921,9 +921,6 @@ export default function NativeVideoPlayer({
                 width: "100%",
                 height: "100%",
                 objectFit: effectiveObjectFit,
-                objectPosition: "center",
-                margin: "0 auto",
-                display: "block",
                 backgroundColor: "#000",
                 // Queue mode: both slots fully opaque and stacked.
                 // Active slot on top (z-index 2), inactive below (z-index 1).

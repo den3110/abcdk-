@@ -68,6 +68,7 @@ android {
 
         buildConfigField("String", "BASE_URL", "\"https://pickletour.vn/api/\"")
         buildConfigField("String", "SOCKET_URL", "\"https://pickletour.vn\"")
+        buildConfigField("String", "LIVE_OBSERVER_URL", "\"\"")
 
         buildConfigField("String", "OAUTH_AUTHORIZATION_ENDPOINT", "\"https://pickletour.vn/oauth/authorize\"")
         buildConfigField("String", "OAUTH_TOKEN_ENDPOINT", "\"https://pickletour.vn/api/api/oauth/token\"")

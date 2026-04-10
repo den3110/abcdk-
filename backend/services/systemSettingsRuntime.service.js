@@ -22,6 +22,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   },
   links: {
     guideUrl: "",
+    liveObserverUrl: "",
   },
   appShell: {
     mode: "native",

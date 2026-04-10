@@ -52,6 +52,7 @@ import com.pkt.live.data.auth.AuthSession
 import com.pkt.live.data.auth.TokenStore
 import com.pkt.live.data.model.LiveAppBootstrapResponse
 import com.pkt.live.data.model.LoginRequest
+import com.pkt.live.data.observer.LiveObserverConfig
 import com.pkt.live.data.repository.LiveRepository
 import com.pkt.live.ui.theme.PickletourLiveTheme
 import kotlinx.coroutines.launch
@@ -455,6 +456,7 @@ class LoginActivity : AppCompatActivity() {
         clearPendingAuthorizationRequest()
         tokenStore.clear()
         authInterceptor.token = null
+        LiveObserverConfig.clearObserverBaseUrlOverride()
         repository.disconnectSocketSession()
     }
 

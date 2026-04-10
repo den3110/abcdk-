@@ -324,6 +324,7 @@ final class LiveAppStore: ObservableObject {
         }
 
         environment.sessionStore.replace(nil)
+        LiveAppConfig.clearObserverBaseURLOverride()
         session = nil
         user = nil
         bootstrap = nil
@@ -2678,6 +2679,8 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        LiveAppConfig.setObserverBaseURLOverride(bootstrap.observerBaseUrl)
+        startLiveDeviceTelemetryLoop()
         self.bootstrap = bootstrap
         user = bootstrap.user
         clusters = bootstrap.manageableCourtClusters.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
@@ -2707,6 +2710,8 @@ final class LiveAppStore: ObservableObject {
             self.pendingLaunchTarget = nil
             await applyLaunchTarget(pendingLaunchTarget)
         }
+
+        await sendLiveDeviceHeartbeat(force: true)
     }
 
     private var currentLaunchTarget: LiveLaunchTarget? {
@@ -2735,6 +2740,7 @@ final class LiveAppStore: ObservableObject {
             )
         )
 
+        LiveAppConfig.clearObserverBaseURLOverride()
         user = nil
         bootstrap = nil
         clusters = []
@@ -2745,6 +2751,7 @@ final class LiveAppStore: ObservableObject {
 
     private func clearAuthenticatedStateAfterLoginFailure() {
         environment.sessionStore.replace(nil)
+        LiveAppConfig.clearObserverBaseURLOverride()
         session = nil
         user = nil
         bootstrap = nil

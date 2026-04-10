@@ -2,8 +2,13 @@ package com.pkt.live.ui
 
 import android.Manifest
 import android.app.ActivityManager
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.BatteryManager
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
@@ -12,6 +17,8 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonPrimitive
 import com.pkt.live.data.api.AuthInterceptor
+import com.pkt.live.data.auth.TokenStore
+import com.pkt.live.data.observer.ObserverTelemetryClient
 import com.pkt.live.data.recording.MatchRecordingCoordinator
 import com.pkt.live.data.model.*
 import com.pkt.live.data.repository.LiveRepository
@@ -40,6 +47,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
@@ -53,10 +62,12 @@ class LiveStreamViewModel(
     private val repository: LiveRepository,
     val streamManager: RtmpStreamManager,
     private val authInterceptor: AuthInterceptor,
+    private val tokenStore: TokenStore,
     val overlayRenderer: OverlayBitmapRenderer,
     private val networkMonitor: NetworkMonitor,
     private val appContext: Context,
     private val recordingCoordinator: MatchRecordingCoordinator,
+    private val observerTelemetryClient: ObserverTelemetryClient,
 ) : ViewModel() {
 
     companion object {
@@ -96,6 +107,13 @@ class LiveStreamViewModel(
     private var stopLiveCountdownJob: Job? = null
     private var endingLiveDismissJob: Job? = null
     private var backgroundExitJob: Job? = null
+    private var liveDeviceTelemetryJob: Job? = null
+    private val liveDeviceTelemetryClientSessionId = UUID.randomUUID().toString()
+    private val liveDeviceId = resolveLiveDeviceId()
+    private var lastTelemetryOverlayEventKey: String? = null
+    private var lastTelemetryRecoveryEventKey: String? = null
+    private var lastTelemetryThermalEventKey: String? = null
+    private var lastTelemetryMemoryPressureEventKey: String? = null
 
     private val vmExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         if (throwable is CancellationException) return@CoroutineExceptionHandler
@@ -253,6 +271,10 @@ class LiveStreamViewModel(
         _overlayConfig.value = null
         streamManager.clearRtmpDiagnostics()
         handledTerminalStatusMatchId = null
+        lastTelemetryOverlayEventKey = null
+        lastTelemetryRecoveryEventKey = null
+        lastTelemetryThermalEventKey = null
+        lastTelemetryMemoryPressureEventKey = null
         _waitingForMatchLive.value = false
         _waitingForNextMatch.value = false
         waitMatchLiveJob?.cancel()
@@ -2033,6 +2055,40 @@ class LiveStreamViewModel(
                 }
             }
         }
+
+        startLiveDeviceTelemetryLoop()
+
+        launchGuarded(name = "observeObserverOverlayTelemetry") {
+            overlayHealth.collect { state ->
+                sendOverlayTelemetryEventIfNeeded(state)
+            }
+        }
+
+        launchGuarded(name = "observeObserverRecoveryTelemetry") {
+            combine(lastRecovery, recoveryState) { event, recovery ->
+                event to recovery
+            }.collect { (event, recovery) ->
+                if (event != null) {
+                    sendRecoveryTelemetryEventIfNeeded(event, recovery)
+                }
+            }
+        }
+
+        launchGuarded(name = "observeObserverThermalTelemetry") {
+            lastThermalEvent.collect { event ->
+                if (event != null) {
+                    sendThermalTelemetryEvent(event)
+                }
+            }
+        }
+
+        launchGuarded(name = "observeObserverMemoryTelemetry") {
+            lastMemoryPressure.collect { event ->
+                if (event != null) {
+                    sendMemoryPressureTelemetryEvent(event)
+                }
+            }
+        }
     }
 
     /**
@@ -2255,6 +2311,548 @@ class LiveStreamViewModel(
     }
 
 
+    private fun routeLabelForTelemetry(): String =
+        when {
+            _waitingForNextMatch.value -> "waiting_for_next_match"
+            _waitingForCourt.value -> "waiting_for_court"
+            _waitingForMatchLive.value -> "waiting_for_match_live"
+            _matchTransitioning.value -> "switching_match"
+            hasActiveLivestreamState() -> "live_stream"
+            streamManager.state.value.isPreviewActive -> "preview"
+            else -> "idle"
+        }
+
+    private val observerTelemetryEnabled: Boolean
+        get() = observerTelemetryClient.isEnabled
+
+    private val liveDeviceTelemetrySourceName: String
+        get() = "pickletour-live-app-android"
+
+    private val liveDeviceTelemetryIntervalMs: Int
+        get() = 10_000
+
+    private val shouldPublishLiveDeviceTelemetry: Boolean
+        get() =
+            observerTelemetryEnabled &&
+                !authInterceptor.token.isNullOrBlank() &&
+                networkMonitor.isConnected.value
+
+    private fun startLiveDeviceTelemetryLoop() {
+        if (liveDeviceTelemetryJob?.isActive == true) return
+        liveDeviceTelemetryJob =
+            launchGuarded(name = "liveDeviceTelemetryLoop") {
+                while (isActive) {
+                    sendLiveDeviceHeartbeat()
+                    delay(maxOf(liveDeviceTelemetryIntervalMs.toLong(), 3_000L))
+                }
+            }
+    }
+
+    private suspend fun sendLiveDeviceHeartbeat(force: Boolean = false) {
+        if (!force && !shouldPublishLiveDeviceTelemetry) return
+        val status = buildLiveDeviceTelemetryStatus()
+        observerTelemetryClient.sendDeviceHeartbeat(
+            LiveDeviceHeartbeatRequest(
+                source = liveDeviceTelemetrySourceName,
+                deviceId = liveDeviceId,
+                capturedAt = currentIsoTimestampUtc(),
+                heartbeatIntervalMs = liveDeviceTelemetryIntervalMs,
+                status = status,
+            )
+        )
+    }
+
+    private suspend fun sendLiveDeviceEvent(
+        type: String,
+        level: String,
+        reasonCode: String,
+        reasonText: String,
+        stage: String? = null,
+        severity: String? = null,
+        payload: LiveDeviceTelemetryEventPayload? = null,
+    ) {
+        if (!shouldPublishLiveDeviceTelemetry) return
+        val status = buildLiveDeviceTelemetryStatus()
+        observerTelemetryClient.sendDeviceEvent(
+            LiveDeviceEventRequest(
+                source = liveDeviceTelemetrySourceName,
+                deviceId = liveDeviceId,
+                capturedAt = currentIsoTimestampUtc(),
+                event =
+                    LiveDeviceTelemetryEvent(
+                        type = type,
+                        level = level,
+                        reasonCode = reasonCode,
+                        reasonText = reasonText,
+                        stage = stage?.trim()?.takeIf { it.isNotBlank() },
+                        severity = severity?.trim()?.takeIf { it.isNotBlank() },
+                        occurredAt = currentIsoTimestampUtc(),
+                        courtId = status.court.id,
+                        courtName = status.court.name,
+                        matchId = status.match.id,
+                        matchCode = status.match.code,
+                        operatorUserId = status.operatorInfo.userId,
+                        operatorName = status.operatorInfo.displayName,
+                        payload = payload,
+                    ),
+                status = status,
+            )
+        )
+    }
+
+    private fun buildLiveDeviceTelemetryStatus(): LiveDeviceTelemetryStatus {
+        val savedSession = tokenStore.getSessionOrNull()
+        val activeMatch = matchInfo.value
+        val socketPayloadStale = isSocketPayloadStale()
+        val socketRoomMismatch = isSocketRoomMismatch()
+        val overlay = overlayHealth.value
+        val overlayIssue = overlay.lastIssue?.trim()?.takeIf { it.isNotBlank() }
+        val thermalRawValue = currentThermalStatusRawValue()
+        val thermalStateLabel = thermalStateLabel(thermalRawValue, batteryTempC.value)
+        val thermalWarning = isThermalWarning(thermalRawValue, batteryTempC.value)
+        val thermalCritical = isThermalCritical(thermalRawValue, batteryTempC.value)
+        val storageStatus = recordingStorageStatus.value
+        val batteryLevelPercent = currentBatteryLevelPercent()
+        val batteryLowWarning = (batteryLevelPercent ?: 100) in 0..20 && !isCharging.value
+        val diagnostics = buildTelemetryDiagnostics()
+
+        return LiveDeviceTelemetryStatus(
+            platform = "android",
+            clientSessionId = liveDeviceTelemetryClientSessionId,
+            deviceId = liveDeviceId,
+            screenState = currentCourtPresenceScreenState(),
+            routeLabel = routeLabelForTelemetry(),
+            app =
+                LiveDeviceTelemetryAppInfo(
+                    bundleId = appContext.packageName,
+                    appVersion = com.pkt.live.BuildConfig.VERSION_NAME,
+                    buildNumber = com.pkt.live.BuildConfig.VERSION_CODE.toString(),
+                    liveMode =
+                        primaryMode()?.name?.lowercase(Locale.ROOT) ?: "unselected",
+                    quality = _quality.value.label,
+                ),
+            device =
+                LiveDeviceTelemetryDeviceInfo(
+                    name = listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" ").trim(),
+                    model = Build.MODEL,
+                    systemName = "Android",
+                    systemVersion = Build.VERSION.RELEASE ?: Build.VERSION.SDK_INT.toString(),
+                ),
+            operatorInfo =
+                LiveDeviceTelemetryOperatorInfo(
+                    userId = savedSession?.userId?.trim()?.takeIf { it.isNotBlank() },
+                    displayName = savedSession?.displayName?.trim()?.takeIf { it.isNotBlank() },
+                    role = "operator",
+                ),
+            route =
+                LiveDeviceTelemetryRouteInfo(
+                    label = routeLabelForTelemetry(),
+                    waitingForCourt = _waitingForCourt.value,
+                    waitingForMatchLive = _waitingForMatchLive.value,
+                    waitingForNextMatch = _waitingForNextMatch.value,
+                    freshEntryRequired = freshEntryRequired,
+                    appIsActive = liveScreenForeground,
+                ),
+            court =
+                LiveDeviceTelemetryCourtInfo(
+                    id = courtId.trim().takeIf { it.isNotBlank() },
+                    name =
+                        activeMatch?.courtName?.trim()?.takeIf { it.isNotBlank() }
+                            ?: listOf(
+                                activeMatch?.court?.label?.trim(),
+                                activeMatch?.court?.name?.trim(),
+                            ).firstOrNull { !it.isNullOrBlank() },
+                    clusterId = activeMatch?.courtClusterId?.trim()?.takeIf { it.isNotBlank() },
+                    clusterName = activeMatch?.courtClusterName?.trim()?.takeIf { it.isNotBlank() },
+                ),
+            match =
+                LiveDeviceTelemetryMatchInfo(
+                    id = activeMatch?.id?.trim()?.takeIf { it.isNotBlank() },
+                    code =
+                        activeMatch?.displayCode?.trim()?.takeIf { it.isNotBlank() }
+                            ?: activeMatch?.code?.trim()?.takeIf { it.isNotBlank() },
+                    status = activeMatch?.status?.trim()?.takeIf { it.isNotBlank() },
+                    tournamentName =
+                        activeMatch?.tournamentName?.trim()?.takeIf { it.isNotBlank() }
+                            ?: activeMatch?.tournament?.name?.trim()?.takeIf { it.isNotBlank() },
+                ),
+            stream =
+                LiveDeviceTelemetryStreamInfo(
+                    state = streamStateSummary(streamManager.state.value),
+                    bitrate = streamStats.value.currentBitrate.toInt(),
+                    quality = _quality.value.label,
+                    socketConnected = socketConnected.value,
+                    runtimeSocketConnected = repository.courtRuntimeSocketConnected.value,
+                    presenceSocketConnected = repository.courtPresenceSocketConnected.value,
+                    activeSocketMatchId = socketActiveMatchId.value?.trim()?.takeIf { it.isNotBlank() },
+                    socketPayloadStale = socketPayloadStale,
+                    liveStartedAt = toIsoTimestamp(_liveStartTime.value),
+                    rtmpMessage = rtmpLastMessage.value?.trim()?.takeIf { it.isNotBlank() },
+                ),
+            recording =
+                LiveDeviceTelemetryRecordingInfo(
+                    stateText = recordingUiState.value.status,
+                    pendingUploads = recordingUiState.value.pendingUploads,
+                    pendingQueueBytes = storageStatus.pendingQueueBytes,
+                    pendingFinalizations = 0,
+                    segmentCount = recordingEngineState.value.segmentIndex,
+                    uploadMode = primaryMode()?.name?.lowercase(Locale.ROOT),
+                    playbackUrl = recordingUiState.value.playbackUrl?.trim()?.takeIf { it.isNotBlank() },
+                    storageFreeBytes = storageStatus.availableBytes,
+                    storageTotalBytes = currentStorageTotalBytes(),
+                    warning = storageStatus.warning,
+                    redWarning = storageStatus.redWarning,
+                    hardBlock = storageStatus.hardBlock,
+                ),
+            overlay =
+                LiveDeviceTelemetryOverlayInfo(
+                    attached = overlay.attached,
+                    healthy =
+                        overlay.attached &&
+                            !overlay.reattaching &&
+                            overlayIssue.isNullOrBlank() &&
+                            !socketPayloadStale &&
+                            !socketRoomMismatch,
+                    reattaching = overlay.reattaching,
+                    snapshotFresh = !socketPayloadStale,
+                    roomMismatch = socketRoomMismatch,
+                    issue = overlayIssue,
+                    issueAtMs = overlay.lastIssueAtMs,
+                    lastEvent = overlay.lastEvent?.trim()?.takeIf { it.isNotBlank() },
+                ),
+            presence = _courtPresence.value,
+            network =
+                LiveDeviceTelemetryNetworkInfo(
+                    connected = networkMonitor.isConnected.value,
+                    wifi = networkMonitor.isWifi.value,
+                    lowPowerModeEnabled = streamManager.powerSaveMode.value,
+                ),
+            battery =
+                LiveDeviceTelemetryBatteryInfo(
+                    levelPercent = batteryLevelPercent,
+                    state = if (isCharging.value) "charging" else "battery",
+                    lowWarning = batteryLowWarning,
+                ),
+            thermal =
+                LiveDeviceTelemetryThermalInfo(
+                    state = thermalStateLabel,
+                    stateRawValue = thermalRawValue,
+                    warning = thermalWarning,
+                    critical = thermalCritical,
+                    lastEventAtMs = lastThermalEvent.value?.atMs,
+                    lastEventSummary = latestThermalEventSummary(),
+                    memoryPressureSummary = latestMemoryPressureSummary(),
+                    tempC = batteryTempC.value,
+                ),
+            recovery = recoveryState.value,
+            warnings = buildTelemetryWarnings(),
+            diagnostics = diagnostics,
+        )
+    }
+
+    private fun buildTelemetryWarnings(): List<String> {
+        val warnings = mutableSetOf<String>()
+        computePreflightIssues(primaryMode() ?: StreamMode.STREAM_ONLY)
+            .mapTo(warnings) { it.title }
+
+        val batteryLevel = currentBatteryLevelPercent()
+        if ((batteryLevel ?: 100) in 0..20 && !isCharging.value) {
+            warnings.add("Pin yếu")
+        }
+        if (isThermalCritical(currentThermalStatusRawValue(), batteryTempC.value)) {
+            warnings.add("Thiết bị quá nóng")
+        } else if (isThermalWarning(currentThermalStatusRawValue(), batteryTempC.value)) {
+            warnings.add("Thiết bị đang nóng")
+        }
+        if (isSocketPayloadStale()) {
+            warnings.add("Socket overlay đang stale")
+        }
+        if (isSocketRoomMismatch()) {
+            warnings.add("Socket đang ở sai room match")
+        }
+        if (recordingStorageStatus.value.hardBlock) {
+            warnings.add("Bộ nhớ ghi hình không đủ")
+        } else if (recordingStorageStatus.value.redWarning || recordingStorageStatus.value.warning) {
+            warnings.add("Bộ nhớ ghi hình đang thấp")
+        }
+        overlayHealth.value.lastIssue?.trim()?.takeIf { it.isNotBlank() }?.let(warnings::add)
+        _lastSocketError.value?.trim()?.takeIf { it.isNotBlank() }?.let(warnings::add)
+        return warnings.toList().sorted()
+    }
+
+    private fun buildTelemetryDiagnostics(): List<String> =
+        listOfNotNull(
+            rtmpLastMessage.value?.trim()?.takeIf { it.isNotBlank() }?.let { "rtmp:$it" },
+            overlayHealth.value.lastEvent?.trim()?.takeIf { it.isNotBlank() }?.let { "overlay:$it" },
+            overlayHealth.value.lastIssue?.trim()?.takeIf { it.isNotBlank() }?.let { "overlay_issue:$it" },
+            _lastSocketError.value?.trim()?.takeIf { it.isNotBlank() }?.let { "socket:$it" },
+            recordingUiState.value.errorMessage?.trim()?.takeIf { it.isNotBlank() }?.let { "recording:$it" },
+            recordingStorageStatus.value.message?.trim()?.takeIf { it.isNotBlank() }?.let { "storage:$it" },
+        ).take(10)
+
+    private suspend fun sendOverlayTelemetryEventIfNeeded(state: OverlayHealth) {
+        val reasonCode = overlayReasonCode(state)
+        val issueText =
+            state.lastIssue?.trim()?.takeIf { it.isNotBlank() }
+                ?: state.lastEvent?.trim()?.takeIf { it.isNotBlank() }
+        val key =
+            listOf(
+                reasonCode,
+                issueText.orEmpty(),
+                state.lastIssueAtMs.toString(),
+                if (state.attached) "1" else "0",
+                if (isSocketPayloadStale()) "1" else "0",
+                if (isSocketRoomMismatch()) "1" else "0",
+                if (state.reattaching) "1" else "0",
+            ).joinToString("|")
+
+        val previousKey = lastTelemetryOverlayEventKey
+        if (previousKey == key) return
+        lastTelemetryOverlayEventKey = key
+
+        if (previousKey == null && reasonCode == "healthy") return
+
+        val reasonText: String
+        val eventType: String
+        val level: String
+
+        if (reasonCode == "healthy") {
+            reasonText = "Overlay đã hồi phục và quay lại trạng thái ổn định."
+            eventType = "overlay_restored"
+            level = "info"
+        } else {
+            reasonText = issueText ?: "Overlay đang có dấu hiệu bất thường."
+            eventType = "overlay_issue"
+            level = if (reasonCode == "overlay_detached") "error" else "warn"
+        }
+
+        sendLiveDeviceEvent(
+            type = eventType,
+            level = level,
+            reasonCode = reasonCode,
+            reasonText = reasonText,
+            stage = recoveryState.value.stage.name.lowercase(Locale.ROOT),
+            severity = recoveryState.value.severity.name.lowercase(Locale.ROOT),
+            payload =
+                LiveDeviceTelemetryEventPayload(
+                    summary = state.lastEvent?.trim()?.takeIf { it.isNotBlank() } ?: reasonText,
+                    detail = issueText,
+                    overlayIssue = state.lastIssue?.trim()?.takeIf { it.isNotBlank() },
+                    thermalState = thermalStateLabel(currentThermalStatusRawValue(), batteryTempC.value),
+                    memoryPressure = latestMemoryPressureSummary(),
+                    diagnostics = buildTelemetryDiagnostics().take(8),
+                ),
+        )
+    }
+
+    private suspend fun sendRecoveryTelemetryEventIfNeeded(
+        event: RecoveryEvent,
+        recovery: StreamRecoveryState,
+    ) {
+        val key =
+            listOf(
+                event.reason,
+                event.atMs.toString(),
+                recovery.stage.name,
+                recovery.severity.name,
+                recovery.attempt.toString(),
+            ).joinToString("|")
+        if (lastTelemetryRecoveryEventKey == key) return
+        lastTelemetryRecoveryEventKey = key
+
+        sendLiveDeviceEvent(
+            type = "recovery_event",
+            level = recoveryLogLevel(recovery.severity),
+            reasonCode = "stream_recovery",
+            reasonText = event.reason,
+            stage = recovery.stage.name.lowercase(Locale.ROOT),
+            severity = recovery.severity.name.lowercase(Locale.ROOT),
+            payload =
+                LiveDeviceTelemetryEventPayload(
+                    summary = recovery.summary.ifBlank { event.reason },
+                    detail = recovery.detail?.trim()?.takeIf { it.isNotBlank() },
+                    overlayIssue = overlayHealth.value.lastIssue?.trim()?.takeIf { it.isNotBlank() },
+                    thermalState = thermalStateLabel(currentThermalStatusRawValue(), batteryTempC.value),
+                    memoryPressure = latestMemoryPressureSummary(),
+                    diagnostics = buildTelemetryDiagnostics().take(8),
+                ),
+        )
+    }
+
+    private suspend fun sendThermalTelemetryEvent(event: ThermalEvent) {
+        val key = "${event.atMs}|${event.tempC}"
+        if (lastTelemetryThermalEventKey == key) return
+        lastTelemetryThermalEventKey = key
+
+        val thermalRawValue = currentThermalStatusRawValue()
+        val critical = isThermalCritical(thermalRawValue, event.tempC)
+        val reasonCode = if (critical) "thermal_critical" else "thermal_warning"
+        val reasonText = "Thiết bị ghi nhận sự kiện nhiệt: ${thermalStateLabel(thermalRawValue, event.tempC)}."
+
+        sendLiveDeviceEvent(
+            type = "thermal_event",
+            level = if (critical) "error" else "warn",
+            reasonCode = reasonCode,
+            reasonText = reasonText,
+            stage = recoveryState.value.stage.name.lowercase(Locale.ROOT),
+            severity = recoveryState.value.severity.name.lowercase(Locale.ROOT),
+            payload =
+                LiveDeviceTelemetryEventPayload(
+                    summary = reasonText,
+                    detail = latestThermalEventSummary(),
+                    overlayIssue = overlayHealth.value.lastIssue?.trim()?.takeIf { it.isNotBlank() },
+                    thermalState = thermalStateLabel(thermalRawValue, event.tempC),
+                    memoryPressure = latestMemoryPressureSummary(),
+                    diagnostics = buildTelemetryDiagnostics().take(8),
+                ),
+        )
+    }
+
+    private suspend fun sendMemoryPressureTelemetryEvent(event: MemoryPressureEvent) {
+        val key = "${event.level}|${event.atMs}"
+        if (lastTelemetryMemoryPressureEventKey == key) return
+        lastTelemetryMemoryPressureEventKey = key
+
+        sendLiveDeviceEvent(
+            type = "memory_pressure_event",
+            level = if (event.level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) "error" else "warn",
+            reasonCode = "memory_pressure",
+            reasonText = memoryPressureSummary(event.level),
+            stage = recoveryState.value.stage.name.lowercase(Locale.ROOT),
+            severity = recoveryState.value.severity.name.lowercase(Locale.ROOT),
+            payload =
+                LiveDeviceTelemetryEventPayload(
+                    summary = memoryPressureSummary(event.level),
+                    detail = latestMemoryPressureSummary(),
+                    overlayIssue = overlayHealth.value.lastIssue?.trim()?.takeIf { it.isNotBlank() },
+                    thermalState = thermalStateLabel(currentThermalStatusRawValue(), batteryTempC.value),
+                    memoryPressure = latestMemoryPressureSummary(),
+                    diagnostics = buildTelemetryDiagnostics().take(8),
+                ),
+        )
+    }
+
+    private fun overlayReasonCode(state: OverlayHealth): String {
+        val issue = state.lastIssue?.trim()?.lowercase(Locale.ROOT).orEmpty()
+        return when {
+            !state.attached -> "overlay_detached"
+            state.reattaching -> "overlay_reattaching"
+            isSocketRoomMismatch() -> "socket_room_mismatch"
+            isSocketPayloadStale() -> "overlay_snapshot_stale"
+            issue.contains("memory") -> "memory_pressure"
+            issue.contains("thermal") || issue.contains("heat") -> "thermal_pressure"
+            issue.contains("room") -> "socket_room_mismatch"
+            issue.contains("snapshot") -> "overlay_snapshot_stale"
+            issue.contains("fail-soft") || issue.contains("failsoft") -> "overlay_fail_soft"
+            issue.isNotBlank() -> "overlay_issue"
+            else -> "healthy"
+        }
+    }
+
+    private fun recoveryLogLevel(severity: RecoverySeverity): String =
+        when (severity) {
+            RecoverySeverity.INFO -> "info"
+            RecoverySeverity.WARNING -> "warn"
+            RecoverySeverity.CRITICAL -> "error"
+        }
+
+    private fun streamStateSummary(state: StreamState): String =
+        when (state) {
+            is StreamState.Idle -> "idle"
+            is StreamState.Previewing -> "preview"
+            is StreamState.Connecting -> "connecting"
+            is StreamState.Live -> "live"
+            is StreamState.Reconnecting -> "reconnecting"
+            is StreamState.Error -> "error"
+            is StreamState.Stopped -> "stopped"
+        }
+
+    private fun resolveLiveDeviceId(): String {
+        val androidId =
+            runCatching {
+                Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID)
+            }.getOrNull()?.trim().orEmpty()
+        if (androidId.isNotBlank()) {
+            return androidId
+        }
+        return "android-${UUID.randomUUID()}"
+    }
+
+    private fun currentBatteryLevelPercent(): Int? {
+        val batteryManager =
+            appContext.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager ?: return null
+        val value = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        return value.takeIf { it in 0..100 }
+    }
+
+    private fun currentStorageTotalBytes(): Long =
+        runCatching {
+            android.os.StatFs(appContext.filesDir.absolutePath).totalBytes
+        }.getOrDefault(0L)
+
+    private fun currentThermalStatusRawValue(): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return 0
+        val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return powerManager?.currentThermalStatus ?: 0
+    }
+
+    private fun thermalStateLabel(status: Int, tempC: Float?): String =
+        when {
+            status >= thermalStatusSevere() || (tempC ?: 0f) >= 46f -> "critical"
+            status >= thermalStatusModerate() || (tempC ?: 0f) >= 43f -> "warning"
+            status > 0 || (tempC ?: 0f) >= 40f -> "warm"
+            else -> "normal"
+        }
+
+    private fun isThermalWarning(status: Int, tempC: Float?): Boolean =
+        status >= thermalStatusModerate() || (tempC ?: 0f) >= 43f
+
+    private fun isThermalCritical(status: Int, tempC: Float?): Boolean =
+        status >= thermalStatusSevere() || (tempC ?: 0f) >= 46f
+
+    private fun thermalStatusModerate(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) PowerManager.THERMAL_STATUS_MODERATE else 2
+
+    private fun thermalStatusSevere(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) PowerManager.THERMAL_STATUS_SEVERE else 4
+
+    private fun latestThermalEventSummary(): String? =
+        lastThermalEvent.value?.let { event ->
+            "Nhiệt độ pin ${String.format(Locale.US, "%.1f", event.tempC)}°C"
+        }
+
+    private fun latestMemoryPressureSummary(): String? =
+        lastMemoryPressure.value?.let { memoryPressureSummary(it.level) }
+
+    private fun memoryPressureSummary(level: Int): String =
+        when {
+            level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> "Bộ nhớ rất thấp, hệ thống đang chuẩn bị thu hồi mạnh."
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> "Bộ nhớ chạy nền đang rất căng, dễ rơi vào fail-soft."
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> "Bộ nhớ chạy nền thấp."
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> "Bộ nhớ bắt đầu chịu áp lực."
+            else -> "Có tín hiệu áp lực bộ nhớ."
+        }
+
+    private fun isSocketPayloadStale(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val lastPayloadAtMs = socketLastPayloadAtMs.value
+        if (lastPayloadAtMs <= 0L) return false
+        return socketConnected.value && nowMs - lastPayloadAtMs >= 20_000L
+    }
+
+    private fun isSocketRoomMismatch(): Boolean {
+        val currentMatchId = matchId.trim()
+        val activeSocketMatch = socketActiveMatchId.value?.trim().orEmpty()
+        return socketConnected.value &&
+            currentMatchId.isNotBlank() &&
+            activeSocketMatch.isNotBlank() &&
+            activeSocketMatch != currentMatchId
+    }
+
+    private fun toIsoTimestamp(timestampMs: Long?): String? =
+        timestampMs?.takeIf { it > 0L }?.let { Instant.ofEpochMilli(it).toString() }
+
+    private fun currentIsoTimestampUtc(): String = Instant.now().toString()
+
     private fun computePreflightIssues(
         mode: StreamMode = primaryMode() ?: StreamMode.STREAM_ONLY,
     ): List<PreflightIssue> {
@@ -2403,6 +3001,8 @@ class LiveStreamViewModel(
         goLiveCountdownJob = null
         stopLiveCountdownJob?.cancel()
         stopLiveCountdownJob = null
+        liveDeviceTelemetryJob?.cancel()
+        liveDeviceTelemetryJob = null
         recordingCoordinator.setRecoveryBusy(false)
         recordingCoordinator.setLiveCriticalPathBusy(false)
         endingLiveDismissJob?.cancel()

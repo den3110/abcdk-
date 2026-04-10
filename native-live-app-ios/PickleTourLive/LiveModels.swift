@@ -239,6 +239,7 @@ struct LiveAppBootstrapResponse: Codable {
     var roleSummary: String?
     var reason: String?
     var message: String?
+    var observerBaseUrl: String?
     var user: UserMe?
     var manageableTournaments: [TournamentData]
     var manageableCourtClusters: [CourtClusterData]

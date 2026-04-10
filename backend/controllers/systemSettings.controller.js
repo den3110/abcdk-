@@ -81,6 +81,19 @@ function sanitizeSettingsPatch(patch = {}) {
     next.appShell.webViewUrl = String(next.appShell.webViewUrl || "").trim();
   }
 
+  if (next.links && typeof next.links === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.links, "guideUrl")) {
+      next.links.guideUrl = String(next.links.guideUrl || "").trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(next.links, "liveObserverUrl")) {
+      next.links.liveObserverUrl = String(next.links.liveObserverUrl || "").trim();
+    }
+
+    if (!Object.keys(next.links).length) {
+      delete next.links;
+    }
+  }
+
   if (next.ota && typeof next.ota === "object") {
     if (Object.prototype.hasOwnProperty.call(next.ota, "enabled")) {
       next.ota.enabled = next.ota.enabled !== false;

@@ -198,7 +198,7 @@ export default function UnifiedStreamPlayer({
             "autoplay; encrypted-media; picture-in-picture; fullscreen"
           }
           allowFullScreen
-          style={{ width: "100%", height: "100%", border: 0, display: "block", margin: "0 auto" }}
+          style={{ width: "100%", height: "100%", border: 0 }}
         />
       </AspectMediaFrame>
     );

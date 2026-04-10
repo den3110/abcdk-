@@ -138,7 +138,8 @@ Direct app telemetry auth options:
 - main backend uses `OBSERVER_API_KEY`
 - live app can post directly with `Authorization: Bearer <app-jwt>`
 - to allow that, set `JWT_SECRET` on the observer VPS to the same value as the main backend
-- set `PTLiveObserverBaseURL` in the iOS live app to the private observer URL, for example `http://10.0.0.5:8787/`
+- set `System Settings -> links.liveObserverUrl` to the private observer URL so the live app receives it from bootstrap
+- keep `PTLiveObserverBaseURL` only as a local/dev fallback if needed
 
 ## Backup Metadata Push
 
