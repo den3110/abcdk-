@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.pkt.live.data.model.MatchData
+import com.pkt.live.data.observer.ObserverTelemetryConnectionState
 import com.pkt.live.streaming.Quality
 import com.pkt.live.streaming.StreamState
 import com.pkt.live.ui.LiveStreamViewModel
@@ -73,6 +74,7 @@ fun StreamControls(
     val recordingUiState by viewModel.recordingUiState.collectAsState()
     val recordingEngineState by viewModel.recordingEngineState.collectAsState()
     val recordingStorageStatus by viewModel.recordingStorageStatus.collectAsState()
+    val observerConnectionState by viewModel.observerConnectionState.collectAsState()
     var showQualityPicker by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     val preflightDialog by viewModel.preflightDialog.collectAsState()
@@ -376,6 +378,7 @@ fun StreamControls(
             waitingForNextMatch = waitingForNextMatch,
             recordingUiState = recordingUiState,
             recordingStorageStatus = recordingStorageStatus,
+            observerConnectionState = observerConnectionState,
             onSetFallbackColorArgb = { viewModel.setFallbackColorArgb(it) },
             onDismiss = { showSettings = false },
         )
@@ -414,6 +417,7 @@ private fun PreflightDialog(
     onDismiss: () -> Unit,
     onProceed: () -> Unit,
 ) {
+
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -826,6 +830,7 @@ fun LiveSettingsDialog(
     waitingForNextMatch: Boolean,
     recordingUiState: com.pkt.live.data.model.RecordingUiState,
     recordingStorageStatus: com.pkt.live.data.model.RecordingStorageStatus,
+    observerConnectionState: ObserverTelemetryConnectionState,
     onSetFallbackColorArgb: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -892,6 +897,11 @@ fun LiveSettingsDialog(
             waitingForCourt && !recordingUiState.isRecording -> "Đang chờ sân có trận"
             else -> recordingUiState.status
         }
+
+    val observerStatus = rememberObserverStatusPresentation(observerConnectionState)
+    val observerLastSuccessLabel = observerConnectionState.lastSuccessAtMs?.let(::formatRelativeTimeShort) ?: "Chưa có"
+    val observerLastFailureLabel = observerConnectionState.lastFailureAtMs?.let(::formatRelativeTimeShort) ?: "Chưa có"
+    val observerCooldownLabel = observerConnectionState.suspendedUntilEpochMs?.let(::formatRemainingDuration) ?: "Không"
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1062,6 +1072,69 @@ fun LiveSettingsDialog(
                 }
 
                 Divider(color = Color.White.copy(alpha = 0.08f))
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = "Observer VPS",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Trạng thái: ${observerStatus.label}",
+                        color = observerStatus.color,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Endpoint: ${observerConnectionState.baseUrl ?: "Chưa nhận URL từ hệ thống"}",
+                        color = Color.White,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "Sự kiện chờ gửi: ${observerConnectionState.pendingEventCount}",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        text = "Heartbeat thành công gần nhất: $observerLastSuccessLabel",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        text = "Lỗi gần nhất: $observerLastFailureLabel",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 11.sp
+                    )
+                    if (observerConnectionState.consecutiveFailureCount > 0) {
+                        Text(
+                            text = "Số lỗi liên tiếp: ${observerConnectionState.consecutiveFailureCount}",
+                            color = LiveColors.Warning,
+                            fontSize = 11.sp
+                        )
+                    }
+                    if (observerCooldownLabel != "Không") {
+                        Text(
+                            text = "Tạm ngắt gửi telemetry thêm: $observerCooldownLabel",
+                            color = LiveColors.Warning,
+                            fontSize = 11.sp
+                        )
+                    }
+                    observerConnectionState.lastErrorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+                        Text(
+                            text = message,
+                            color = LiveColors.Warning,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Text(
+                        text = "Observer chỉ dùng để quan sát. Nếu VPS lỗi, live chính vẫn tiếp tục chạy.",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
 
                 Text(
                     "Màu nền camera (Fallback)",
@@ -1280,6 +1353,61 @@ private fun formatBytes(bytes: Long): String {
         bytes >= mb -> String.format("%.1f MB", bytes / mb)
         bytes >= kb -> String.format("%.1f KB", bytes / kb)
         else -> "$bytes B"
+    }
+}
+
+private data class ObserverStatusPresentation(
+    val label: String,
+    val color: Color,
+)
+
+@Composable
+private fun rememberObserverStatusPresentation(
+    state: ObserverTelemetryConnectionState,
+): ObserverStatusPresentation {
+    val nowMs = System.currentTimeMillis()
+    return remember(
+        state.enabled,
+        state.lastSuccessAtMs,
+        state.lastFailureAtMs,
+        state.suspendedUntilEpochMs,
+        nowMs / 5_000L,
+    ) {
+        when {
+            !state.enabled -> ObserverStatusPresentation("Chưa cấu hình", LiveColors.TextSecondary)
+            state.suspendedUntilEpochMs != null && state.suspendedUntilEpochMs > nowMs ->
+                ObserverStatusPresentation("Tạm ngắt", LiveColors.Warning)
+            state.lastSuccessAtMs != null &&
+                (state.lastFailureAtMs == null || state.lastSuccessAtMs >= state.lastFailureAtMs) &&
+                nowMs - state.lastSuccessAtMs <= 45_000L ->
+                ObserverStatusPresentation("Đã kết nối", LiveColors.AccentGreen)
+            state.lastFailureAtMs != null &&
+                (state.lastSuccessAtMs == null || state.lastFailureAtMs > state.lastSuccessAtMs) ->
+                ObserverStatusPresentation("Đang lỗi", LiveColors.LiveRed)
+            state.lastSuccessAtMs != null -> ObserverStatusPresentation("Đã gửi trước đó", LiveColors.Warning)
+            else -> ObserverStatusPresentation("Đang chờ heartbeat", LiveColors.TextSecondary)
+        }
+    }
+}
+
+private fun formatRelativeTimeShort(timestampMs: Long): String {
+    val deltaSeconds = ((System.currentTimeMillis() - timestampMs).coerceAtLeast(0L) / 1000L).toInt()
+    return when {
+        deltaSeconds <= 2 -> "Vừa xong"
+        deltaSeconds < 60 -> "$deltaSeconds giây trước"
+        deltaSeconds < 3_600 -> "${deltaSeconds / 60} phút trước"
+        deltaSeconds < 86_400 -> "${deltaSeconds / 3_600} giờ trước"
+        else -> "${deltaSeconds / 86_400} ngày trước"
+    }
+}
+
+private fun formatRemainingDuration(untilEpochMs: Long): String {
+    val deltaSeconds = ((untilEpochMs - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L).toInt()
+    return when {
+        deltaSeconds <= 0 -> "Xong"
+        deltaSeconds < 60 -> "${deltaSeconds}s"
+        deltaSeconds < 3_600 -> "${deltaSeconds / 60} phút"
+        else -> "${deltaSeconds / 3_600} giờ"
     }
 }
 

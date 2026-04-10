@@ -82,6 +82,10 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var authDebugContinueURL: String?
     @Published private(set) var authDebugTargetURL: String?
     @Published private(set) var authDebugIncomingURL: String?
+    @Published private(set) var observerLastSuccessAt: Date?
+    @Published private(set) var observerLastFailureAt: Date?
+    @Published private(set) var observerLastErrorMessage: String?
+    @Published private(set) var observerPendingEventCount = 0
 
     let streamingService = LiveStreamingService()
 
@@ -117,6 +121,8 @@ final class LiveAppStore: ObservableObject {
     private var lastTelemetryRecoveryEventKey: String?
     private var lastTelemetryThermalEventKey: String?
     private var lastTelemetryMemoryPressureEventKey: String?
+    private var pendingObserverDeviceEvents: [LiveDeviceEventRequest] = []
+    private var observerEventFlushTask: Task<Void, Never>?
 
     init() {
         session = environment.sessionStore.session
@@ -156,6 +162,8 @@ final class LiveAppStore: ObservableObject {
         runtimePollTask = nil
         liveDeviceTelemetryTask?.cancel()
         liveDeviceTelemetryTask = nil
+        observerEventFlushTask?.cancel()
+        observerEventFlushTask = nil
         goLiveCountdownTask?.cancel()
         goLiveCountdownTask = nil
         stopLiveCountdownTask?.cancel()
@@ -325,6 +333,7 @@ final class LiveAppStore: ObservableObject {
 
         environment.sessionStore.replace(nil)
         LiveAppConfig.clearObserverBaseURLOverride()
+        resetObserverTelemetryState()
         session = nil
         user = nil
         bootstrap = nil
@@ -2147,6 +2156,9 @@ final class LiveAppStore: ObservableObject {
                     self.lastTelemetryRecoveryEventKey = nil
                     self.lastTelemetryThermalEventKey = nil
                     self.lastTelemetryMemoryPressureEventKey = nil
+                    self.pendingObserverDeviceEvents.removeAll()
+                    self.observerEventFlushTask?.cancel()
+                    self.observerEventFlushTask = nil
                     return
                 }
                 Task { [weak self] in
@@ -2681,6 +2693,7 @@ final class LiveAppStore: ObservableObject {
 
         LiveAppConfig.setObserverBaseURLOverride(bootstrap.observerBaseUrl)
         startLiveDeviceTelemetryLoop()
+        syncObserverTelemetryState()
         self.bootstrap = bootstrap
         user = bootstrap.user
         clusters = bootstrap.manageableCourtClusters.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
@@ -2741,6 +2754,7 @@ final class LiveAppStore: ObservableObject {
         )
 
         LiveAppConfig.clearObserverBaseURLOverride()
+        resetObserverTelemetryState()
         user = nil
         bootstrap = nil
         clusters = []
@@ -2752,6 +2766,7 @@ final class LiveAppStore: ObservableObject {
     private func clearAuthenticatedStateAfterLoginFailure() {
         environment.sessionStore.replace(nil)
         LiveAppConfig.clearObserverBaseURLOverride()
+        resetObserverTelemetryState()
         session = nil
         user = nil
         bootstrap = nil
@@ -3219,12 +3234,44 @@ final class LiveAppStore: ObservableObject {
         LiveAppConfig.observerBaseURL != nil
     }
 
+    var observerTelemetryBaseURLString: String? {
+        bootstrap?.observerBaseUrl?.trimmedNilIfBlank ?? LiveAppConfig.observerBaseURL?.absoluteString
+    }
+
+    var observerTelemetryStatusLabel: String {
+        let now = Date()
+        guard observerTelemetryEnabled else { return "Chưa cấu hình" }
+        if let lastSuccess = observerLastSuccessAt,
+           observerLastFailureAt == nil || lastSuccess >= (observerLastFailureAt ?? .distantPast),
+           now.timeIntervalSince(lastSuccess) <= 45
+        {
+            return "Đã kết nối"
+        }
+        if let lastFailure = observerLastFailureAt,
+           observerLastSuccessAt == nil || lastFailure > (observerLastSuccessAt ?? .distantPast)
+        {
+            return "Đang lỗi"
+        }
+        if observerLastSuccessAt != nil {
+            return "Đã gửi trước đó"
+        }
+        return "Đang chờ heartbeat"
+    }
+
     private var liveDeviceTelemetrySourceName: String {
         "pickletour-live-app"
     }
 
     private var liveDeviceTelemetryIntervalMs: Int {
         10_000
+    }
+
+    private var observerEventBatchWindowMs: Int {
+        1_500
+    }
+
+    private var observerEventBatchMaxSize: Int {
+        8
     }
 
     private var shouldPublishLiveDeviceTelemetry: Bool {
@@ -3235,8 +3282,13 @@ final class LiveAppStore: ObservableObject {
 
     private func startLiveDeviceTelemetryLoop() {
         liveDeviceTelemetryTask?.cancel()
+        syncObserverTelemetryState()
         guard observerTelemetryEnabled else {
             liveDeviceTelemetryTask = nil
+            pendingObserverDeviceEvents.removeAll()
+            observerEventFlushTask?.cancel()
+            observerEventFlushTask = nil
+            syncObserverTelemetryState()
             return
         }
 
@@ -3253,6 +3305,32 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    private func syncObserverTelemetryState() {
+        observerPendingEventCount = pendingObserverDeviceEvents.count
+        if observerTelemetryEnabled == false, observerTelemetryBaseURLString == nil {
+            observerLastErrorMessage = nil
+        }
+    }
+
+    private func noteObserverSendSuccess() {
+        observerLastSuccessAt = Date()
+        observerLastErrorMessage = nil
+        syncObserverTelemetryState()
+    }
+
+    private func noteObserverSendFailure(_ error: Error) {
+        observerLastFailureAt = Date()
+        observerLastErrorMessage = error.localizedDescription
+        syncObserverTelemetryState()
+    }
+
+    private func resetObserverTelemetryState() {
+        observerLastSuccessAt = nil
+        observerLastFailureAt = nil
+        observerLastErrorMessage = nil
+        observerPendingEventCount = 0
+    }
+
     private func sendLiveDeviceHeartbeat(force: Bool = false) async {
         guard force || shouldPublishLiveDeviceTelemetry else { return }
         let status = buildLiveDeviceTelemetryStatus()
@@ -3266,7 +3344,10 @@ final class LiveAppStore: ObservableObject {
 
         do {
             _ = try await environment.apiClient.sendObserverDeviceHeartbeat(body)
+            noteObserverSendSuccess()
+            await flushPendingObserverDeviceEvents(force: true)
         } catch {
+            noteObserverSendFailure(error)
             #if DEBUG
             print("[observer] heartbeat failed: \(error.localizedDescription)")
             #endif
@@ -3309,11 +3390,91 @@ final class LiveAppStore: ObservableObject {
             status: status
         )
 
+        if isImmediateObserverDeviceEvent(body) {
+            await flushPendingObserverDeviceEvents(force: true)
+            do {
+                _ = try await environment.apiClient.sendObserverDeviceEvent(body)
+                noteObserverSendSuccess()
+            } catch {
+                noteObserverSendFailure(error)
+                #if DEBUG
+                print("[observer] event failed: \(error.localizedDescription)")
+                #endif
+            }
+            return
+        }
+
+        pendingObserverDeviceEvents.append(body)
+        syncObserverTelemetryState()
+        if pendingObserverDeviceEvents.count >= observerEventBatchMaxSize {
+            await flushPendingObserverDeviceEvents(force: true)
+            return
+        }
+
+        schedulePendingObserverEventFlush()
+    }
+
+    private func isImmediateObserverDeviceEvent(_ request: LiveDeviceEventRequest) -> Bool {
+        let level = request.event.level.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let reasonCode = request.event.reasonCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if level == "error" {
+            return true
+        }
+        return [
+            "overlay_detached",
+            "socket_room_mismatch",
+            "stream_recovery",
+            "thermal_critical",
+            "recording_error",
+            "app_crash_recovered",
+            "app_crash_suspected"
+        ].contains(reasonCode)
+    }
+
+    private func schedulePendingObserverEventFlush() {
+        guard observerEventFlushTask == nil else { return }
+        observerEventFlushTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64(max(self.observerEventBatchWindowMs, 500)) * 1_000_000)
+            } catch {
+                return
+            }
+            await self.flushPendingObserverDeviceEvents(force: true)
+        }
+    }
+
+    private func flushPendingObserverDeviceEvents(force: Bool) async {
+        guard !pendingObserverDeviceEvents.isEmpty else {
+            observerEventFlushTask?.cancel()
+            observerEventFlushTask = nil
+            syncObserverTelemetryState()
+            return
+        }
+        guard force || pendingObserverDeviceEvents.count >= observerEventBatchMaxSize else {
+            return
+        }
+
+        observerEventFlushTask?.cancel()
+        observerEventFlushTask = nil
+
+        let batch = pendingObserverDeviceEvents
+        pendingObserverDeviceEvents.removeAll()
+        syncObserverTelemetryState()
+
+        let request = LiveDeviceEventsBatchRequest(
+            source: liveDeviceTelemetrySourceName,
+            capturedAt: Date().iso8601UTCString,
+            events: batch
+        )
+
         do {
-            _ = try await environment.apiClient.sendObserverDeviceEvent(body)
+            _ = try await environment.apiClient.sendObserverDeviceEventsBatch(request)
+            noteObserverSendSuccess()
         } catch {
+            noteObserverSendFailure(error)
             #if DEBUG
-            print("[observer] event failed: \(error.localizedDescription)")
+            print("[observer] batch events failed: \(error.localizedDescription)")
             #endif
         }
     }
@@ -4211,7 +4372,7 @@ actor LiveMatchActivityCoordinator {
         }
 
         if waitingForCourt {
-            return liveMode == .recordOnly ? "Chờ ghi hình" : "Chờ lên sân"
+            return liveMode == .recordOnly ? "Chỉ ghi hình" : "Chỉ lên sân"
         }
 
         if waitingForMatchLive {
@@ -4254,7 +4415,7 @@ actor LiveMatchActivityCoordinator {
         case "finished":
             return "Trận đã kết thúc"
         case "assigned":
-            return "Đã gán sân"
+            return "Đã gắn sân"
         case "scheduled":
             return "Chờ bắt đầu"
         default:
@@ -4338,7 +4499,7 @@ actor LiveMatchActivityCoordinator {
         case "finished":
             return "Trận đã kết thúc"
         case "assigned":
-            return "Đã gán sân"
+            return "Đã gắn sân"
         case "scheduled":
             return "Chờ bắt đầu"
         default:

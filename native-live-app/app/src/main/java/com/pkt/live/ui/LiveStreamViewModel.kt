@@ -19,6 +19,7 @@ import com.google.gson.JsonPrimitive
 import com.pkt.live.data.api.AuthInterceptor
 import com.pkt.live.data.auth.TokenStore
 import com.pkt.live.data.observer.ObserverTelemetryClient
+import com.pkt.live.data.observer.ObserverTelemetryConnectionState
 import com.pkt.live.data.recording.MatchRecordingCoordinator
 import com.pkt.live.data.model.*
 import com.pkt.live.data.repository.LiveRepository
@@ -2325,6 +2326,9 @@ class LiveStreamViewModel(
     private val observerTelemetryEnabled: Boolean
         get() = observerTelemetryClient.isEnabled
 
+    val observerConnectionState: StateFlow<ObserverTelemetryConnectionState>
+        get() = observerTelemetryClient.connectionState
+
     private val liveDeviceTelemetrySourceName: String
         get() = "pickletour-live-app-android"
 
@@ -2338,6 +2342,7 @@ class LiveStreamViewModel(
                 networkMonitor.isConnected.value
 
     private fun startLiveDeviceTelemetryLoop() {
+        observerTelemetryClient.refreshConnectionState()
         if (liveDeviceTelemetryJob?.isActive == true) return
         liveDeviceTelemetryJob =
             launchGuarded(name = "liveDeviceTelemetryLoop") {
@@ -2433,8 +2438,11 @@ class LiveStreamViewModel(
                 ),
             device =
                 LiveDeviceTelemetryDeviceInfo(
-                    name = listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" ").trim(),
+                    name = resolveDeviceDisplayName(),
                     model = Build.MODEL,
+                    manufacturer = Build.MANUFACTURER,
+                    brand = Build.BRAND,
+                    product = Build.PRODUCT,
                     systemName = "Android",
                     systemVersion = Build.VERSION.RELEASE ?: Build.VERSION.SDK_INT.toString(),
                 ),
@@ -2776,6 +2784,43 @@ class LiveStreamViewModel(
             return androidId
         }
         return "android-${UUID.randomUUID()}"
+    }
+
+    private fun resolveDeviceDisplayName(): String {
+        val settingName =
+            listOf(
+                runCatching {
+                    Settings.Global.getString(appContext.contentResolver, "device_name")
+                }.getOrNull(),
+                runCatching {
+                    Settings.Secure.getString(appContext.contentResolver, "bluetooth_name")
+                }.getOrNull(),
+            )
+                .map { it?.trim().orEmpty() }
+                .firstOrNull { it.isNotBlank() && !isRawDeviceModelName(it) }
+        if (!settingName.isNullOrBlank()) {
+            return settingName
+        }
+
+        val manufacturer = Build.MANUFACTURER.trim()
+        val brand = Build.BRAND.trim()
+        val model = Build.MODEL.trim()
+        val labelBrand =
+            listOf(manufacturer, brand)
+                .firstOrNull { it.isNotBlank() && !model.contains(it, ignoreCase = true) }
+                ?.replaceFirstChar { char ->
+                    if (char.isLowerCase()) char.titlecase(Locale.ROOT) else char.toString()
+                }
+        return listOf(labelBrand, model)
+            .filter { !it.isNullOrBlank() }
+            .joinToString(" ")
+            .ifBlank { model.ifBlank { "Android device" } }
+    }
+
+    private fun isRawDeviceModelName(value: String): Boolean {
+        val normalized = value.trim()
+        if (normalized.equals(Build.MODEL.trim(), ignoreCase = true)) return true
+        return normalized.matches(Regex("(?i)^(SM|SC|SHV|GT|SCH|SGH|LM|XT|CPH|VOG|LYA|MHA)[-_ ]?[A-Z0-9].*"))
     }
 
     private fun currentBatteryLevelPercent(): Int? {

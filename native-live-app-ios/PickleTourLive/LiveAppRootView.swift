@@ -1780,6 +1780,38 @@ private struct LiveStreamScreen: View {
         }
     }
 
+    private var observerSection: some View {
+        LiveCard {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(
+                    title: "Observer VPS",
+                    subtitle: "Theo dõi việc app có đang gửi telemetry sang VPS hay không."
+                )
+
+                HStack(spacing: 10) {
+                    TinyBadge(title: store.observerTelemetryStatusLabel, tint: observerStatusTint)
+                    TinyBadge(
+                        title: "\(store.observerPendingEventCount) chờ gửi",
+                        tint: store.observerPendingEventCount == 0 ? LivePalette.cardMuted : LivePalette.warning
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    DetailLine(label: "Endpoint", value: store.observerTelemetryBaseURLString ?? "Chưa cấu hình")
+                    DetailLine(label: "Heartbeat thành công gần nhất", value: relativeTimestamp(store.observerLastSuccessAt))
+                    DetailLine(label: "Lỗi gần nhất", value: relativeTimestamp(store.observerLastFailureAt))
+                    if let error = store.observerLastErrorMessage?.trimmedNilIfBlank {
+                        DetailLine(label: "Chi tiết lỗi", value: error)
+                    }
+                    DetailLine(
+                        label: "Ghi chú",
+                        value: "Observer chỉ phục vụ giám sát. Nếu VPS lỗi, luồng live chính vẫn tiếp tục chạy."
+                    )
+                }
+            }
+        }
+    }
+
     private var brandingSection: some View {
         LiveCard {
             VStack(alignment: .leading, spacing: 16) {
@@ -2226,7 +2258,7 @@ private struct LiveStreamScreen: View {
         if store.goLiveCountdownSeconds != nil {
             return (
                 title: "Huỷ đếm bắt đầu",
-                subtitle: "Dừng countdown 3 giây trước khi app vào phiên",
+                subtitle: "Dựng countdown 3 giây trước khi app vào phiên",
                 tint: LivePalette.warning,
                 action: {
                     store.cancelGoLiveCountdown()
@@ -2494,7 +2526,7 @@ private struct LiveStreamScreen: View {
             return "Socket đã nối nhưng app vẫn chưa join vào room của match hiện tại. App sẽ đợi room khớp trước khi tự vào phiên."
         }
         if store.socketRoomMismatch {
-            return "Socket đã nối nhưng vẫn chưa đứng đúng room của match hiện tại. Overlay có thể đang chờ room mới hoặc vừa đổi trận."
+            return "Socket đã nối nhưng vẫn chưa đúng room của match hiện tại. Overlay có thể đang chờ room mới hoặc vừa đổi trận."
         }
         if store.recordingStorageHardBlock {
             return "Bộ nhớ hiện tại không đủ để bắt đầu recording an toàn. App sẽ chặn phiên có ghi hình để tránh mất record."
@@ -2594,6 +2626,19 @@ private struct LiveStreamScreen: View {
         return reasons
     }
 
+    private var observerStatusTint: Color {
+        switch store.observerTelemetryStatusLabel {
+        case "Đã kết nối":
+            return LivePalette.success
+        case "Đang lỗi":
+            return LivePalette.danger
+        case "Đã gửi trước đó":
+            return LivePalette.warning
+        default:
+            return LivePalette.cardMuted
+        }
+    }
+
     private var settingsSheet: some View {
         ZStack {
             LiveBackdrop()
@@ -2610,6 +2655,7 @@ private struct LiveStreamScreen: View {
 
                     sessionSection
                     healthSection
+                    observerSection
 
                     SecondaryActionButton(
                         title: "Đăng xuất",

@@ -121,6 +121,7 @@ func (s *service) serve(ctx context.Context) error {
 		api.POST("/ingest/backups", s.requireIngestKey(), s.ingestBackups)
 		api.POST("/ingest/live-devices/heartbeat", s.requireDeviceIngestAuth(), s.ingestLiveDeviceHeartbeat)
 		api.POST("/ingest/live-devices/event", s.requireDeviceIngestAuth(), s.ingestLiveDeviceEvent)
+		api.POST("/ingest/live-devices/events", s.requireDeviceIngestAuth(), s.ingestLiveDeviceEvents)
 		api.GET("/read/summary", s.requireReadKey(), s.getSummary)
 		api.GET("/read/events", s.requireReadKey(), s.listEvents)
 		api.GET("/read/runtime", s.requireReadKey(), s.listRuntime)
@@ -164,6 +165,7 @@ func (s *service) ensureIndexes(ctx context.Context) error {
 				{Keys: bson.D{{Key: "expireAt", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)},
 				{Keys: bson.D{{Key: "source", Value: 1}, {Key: "type", Value: 1}, {Key: "occurredAt", Value: -1}}},
 				{Keys: bson.D{{Key: "category", Value: 1}, {Key: "level", Value: 1}, {Key: "occurredAt", Value: -1}}},
+				{Keys: bson.D{{Key: "source", Value: 1}, {Key: "category", Value: 1}, {Key: "payload.deviceId", Value: 1}, {Key: "occurredAt", Value: -1}}},
 			},
 		},
 		{
@@ -444,10 +446,10 @@ func (s *service) getSummary(c *gin.Context) {
 			"errorRecentEvents": errorRecentEvents,
 			"buckets":           buckets,
 		},
-		"runtime":   runtimeData,
-		"backups":   backups,
+		"runtime":     runtimeData,
+		"backups":     backups,
 		"liveDevices": liveDeviceSummary,
-		"updatedAt": time.Now().UTC(),
+		"updatedAt":   time.Now().UTC(),
 	})
 }
 
@@ -464,6 +466,9 @@ func (s *service) listEvents(c *gin.Context) {
 	}
 	if level := normalizeLevel(c.Query("level"), ""); level != "" {
 		filter["level"] = level
+	}
+	if deviceID := strings.TrimSpace(c.Query("deviceId")); deviceID != "" {
+		filter["payload.deviceId"] = deviceID
 	}
 	s.queryCollection(c, s.events, filter, clampInt(parseInt(c.DefaultQuery("limit", "100"), 100), 1, 500), func(row bson.M) gin.H {
 		return gin.H{

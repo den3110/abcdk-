@@ -5,6 +5,9 @@ import { getSystemSettingsRuntime } from "./systemSettingsRuntime.service.js";
 
 const AZURE_BILLING_MAX_USAGE_DETAILS = 500;
 const AZURE_BILLING_METRIC = "actualcost";
+const OBSERVER_AZURE_STATUS_CACHE_TTL_MS = 15_000;
+
+let observerAzureStatusCache = { key: "", value: null, ts: 0 };
 
 function requireAzureAccountField(account, field, label) {
   if (String(account?.[field] || "").trim()) {
@@ -37,6 +40,71 @@ function getAzureSubscriptionId(account) {
   }
 
   return subscriptionId;
+}
+
+function normalizePowerState(powerState) {
+  const normalized = String(powerState || "").trim().toLowerCase();
+  if (!normalized) return "unknown";
+  if (normalized.includes("deallocated")) return "deallocated";
+  if (normalized.includes("stopped")) return "stopped";
+  if (normalized.includes("stopping") || normalized.includes("deallocating")) return "stopping";
+  if (normalized.includes("starting")) return "starting";
+  if (normalized.includes("running")) return "running";
+  return normalized;
+}
+
+function isStoppedPowerState(normalizedPowerState) {
+  return ["deallocated", "stopped"].includes(normalizedPowerState);
+}
+
+function isTransitioningPowerState(normalizedPowerState) {
+  return ["starting", "stopping"].includes(normalizedPowerState);
+}
+
+function hostnameFromUrl(value) {
+  try {
+    return new URL(String(value || "").trim()).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function selectObserverAzureAccount(accounts, observerBaseUrl = "") {
+  const activeVmAccounts = (accounts || []).filter(
+    (acc) => acc?.isActive && acc?.capabilities?.useForVmWorker,
+  );
+  if (!activeVmAccounts.length) return null;
+
+  const configuredAccountId = String(
+    process.env.OBSERVER_AZURE_ACCOUNT_ID ||
+      process.env.AZURE_OBSERVER_ACCOUNT_ID ||
+      "",
+  ).trim();
+  if (configuredAccountId) {
+    const matched = activeVmAccounts.find((acc) => acc.id === configuredAccountId);
+    if (matched) return matched;
+  }
+
+  const observerHost = hostnameFromUrl(observerBaseUrl);
+  if (observerHost) {
+    const hostMatched = activeVmAccounts.find((acc) => {
+      const vmName = String(acc.vmName || "").trim().toLowerCase();
+      const label = String(acc.label || "").trim().toLowerCase();
+      return (
+        (vmName && observerHost.includes(vmName)) ||
+        (label && observerHost.includes(label.replace(/\s+/g, "-")))
+      );
+    });
+    if (hostMatched) return hostMatched;
+  }
+
+  const observerNamed = activeVmAccounts.find((acc) => {
+    const key = `${acc.label || ""} ${acc.vmName || ""}`.toLowerCase();
+    return key.includes("observer");
+  });
+  if (observerNamed) return observerNamed;
+
+  return activeVmAccounts.length === 1 ? activeVmAccounts[0] : null;
 }
 
 export function buildAzureConsumptionScope(subscriptionId) {
@@ -191,6 +259,83 @@ export async function getAzureVmStatuses() {
   }
 
   return statuses;
+}
+
+export async function getObserverAzureVmStatus(observerBaseUrl = "", options = {}) {
+  const { forceRefresh = false } = options || {};
+  const settings = await getSystemSettingsRuntime();
+  const accounts = settings.azure?.accounts || [];
+  const account = selectObserverAzureAccount(accounts, observerBaseUrl);
+
+  if (!account) {
+    return {
+      configured: false,
+      accountId: null,
+      label: "",
+      resourceGroup: "",
+      vmName: "",
+      powerState: "unknown",
+      normalizedPowerState: "unknown",
+      isRunning: false,
+      isStopped: false,
+      isTransitioning: false,
+      checkedAt: new Date().toISOString(),
+      message: "Chưa xác định được tài khoản Azure của Observer VPS.",
+    };
+  }
+
+  const cacheKey = `${account.id}|${account.resourceGroup}|${account.vmName}`;
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    observerAzureStatusCache.value &&
+    observerAzureStatusCache.key === cacheKey &&
+    now - observerAzureStatusCache.ts <= OBSERVER_AZURE_STATUS_CACHE_TTL_MS
+  ) {
+    return observerAzureStatusCache.value;
+  }
+
+  let powerState = "unknown";
+  let error = "";
+
+  try {
+    const cred = getAzureCredential(account);
+    const subscriptionId = getAzureSubscriptionId(account);
+    const client = new ComputeManagementClient(cred, subscriptionId);
+    const vmResponse = await client.virtualMachines.instanceView(
+      account.resourceGroup,
+      account.vmName,
+    );
+    const pState = vmResponse.statuses?.find((status) =>
+      status.code?.startsWith("PowerState/"),
+    );
+    powerState = pState?.displayStatus || "unknown";
+  } catch (err) {
+    error = err?.message || "Không thể kiểm tra trạng thái Azure VM.";
+    console.error(
+      `[observer-azure] Không thể lấy trạng thái VM ${account.label || account.vmName}:`,
+      error,
+    );
+  }
+
+  const normalizedPowerState = normalizePowerState(powerState);
+  const result = {
+    configured: true,
+    accountId: account.id,
+    label: account.label,
+    resourceGroup: account.resourceGroup,
+    vmName: account.vmName,
+    powerState,
+    normalizedPowerState,
+    isRunning: normalizedPowerState === "running",
+    isStopped: isStoppedPowerState(normalizedPowerState),
+    isTransitioning: isTransitioningPowerState(normalizedPowerState),
+    checkedAt: new Date().toISOString(),
+    error,
+  };
+
+  observerAzureStatusCache = { key: cacheKey, value: result, ts: now };
+  return result;
 }
 
 // -------------------------------------------------------------

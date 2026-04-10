@@ -26,6 +26,12 @@ data class LiveDeviceEventRequest(
     val status: LiveDeviceTelemetryStatus? = null,
 )
 
+data class LiveDeviceEventsBatchRequest(
+    val source: String,
+    val capturedAt: String,
+    val events: List<LiveDeviceEventRequest> = emptyList(),
+)
+
 data class LiveDeviceTelemetryEvent(
     val type: String,
     val level: String,
@@ -87,6 +93,9 @@ data class LiveDeviceTelemetryAppInfo(
 data class LiveDeviceTelemetryDeviceInfo(
     val name: String,
     val model: String,
+    val manufacturer: String? = null,
+    val brand: String? = null,
+    val product: String? = null,
     val systemName: String,
     val systemVersion: String,
 )

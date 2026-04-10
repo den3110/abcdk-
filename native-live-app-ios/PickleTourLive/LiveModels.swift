@@ -1266,6 +1266,12 @@ struct LiveDeviceEventRequest: Codable, Equatable {
     var status: LiveDeviceTelemetryStatus?
 }
 
+struct LiveDeviceEventsBatchRequest: Codable, Equatable {
+    var source: String
+    var capturedAt: String
+    var events: [LiveDeviceEventRequest]
+}
+
 struct LiveDeviceTelemetryEvent: Codable, Equatable {
     var type: String
     var level: String

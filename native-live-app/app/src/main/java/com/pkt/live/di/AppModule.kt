@@ -77,8 +77,21 @@ val appModule = module {
     }
 
     single {
+        val observerOkHttpClient =
+            get<OkHttpClient>()
+                .newBuilder()
+                .apply {
+                    interceptors().clear()
+                    networkInterceptors().clear()
+                }
+                .connectTimeout(4, TimeUnit.SECONDS)
+                .readTimeout(4, TimeUnit.SECONDS)
+                .writeTimeout(4, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(false)
+                .build()
         ObserverTelemetryClient(
-            okHttpClient = get(),
+            appContext = androidContext(),
+            okHttpClient = observerOkHttpClient,
             gson = get(),
             authInterceptor = get(),
         )

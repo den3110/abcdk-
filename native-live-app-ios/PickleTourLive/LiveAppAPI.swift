@@ -483,6 +483,14 @@ final class LiveAPIClient {
         )
     }
 
+    func sendObserverDeviceEventsBatch(_ body: LiveDeviceEventsBatchRequest) async throws -> ObserverIngestResponse {
+        try await observerRequest(
+            path: "api/observer/ingest/live-devices/events",
+            method: "POST",
+            body: body
+        )
+    }
+
     private func request<Response: Decodable>(
         path: String,
         method: String = "GET",
