@@ -392,7 +392,12 @@ async function reencodeConcatToMp4({ concatPath, outputPath }) {
   ]);
 }
 
-async function mergeSegmentsToOutput({ inputPaths, outputPath, workDir }) {
+async function mergeSegmentsToOutput({
+  inputPaths,
+  outputPath,
+  workDir,
+  expectedDurationSeconds = 0,
+}) {
   const concatPath = path.join(workDir, "concat.txt");
   const concatBody = inputPaths
     .map((segmentPath) => `file '${segmentPath.replace(/'/g, "'\\''")}'`)
@@ -411,6 +416,20 @@ async function mergeSegmentsToOutput({ inputPaths, outputPath, workDir }) {
         inputPath: concatCopyPath,
         outputPath,
       });
+      const remuxedDurationSeconds = await probeVideoDurationSeconds(
+        outputPath
+      ).catch(() => 0);
+      if (
+        shouldRejectRecordingExportDuration({
+          expectedDurationSeconds,
+          actualDurationSeconds: remuxedDurationSeconds,
+        })
+      ) {
+        await reencodeConcatToMp4({
+          concatPath,
+          outputPath,
+        });
+      }
     } catch (remuxError) {
       await reencodeConcatToMp4({
         concatPath,
@@ -777,6 +796,10 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
       inputPaths: segmentPaths,
       outputPath,
       workDir,
+      expectedDurationSeconds: uploadedSegments.reduce(
+        (sum, segment) => sum + (Number(segment.durationSeconds) || 0),
+        0
+      ),
     });
 
     const totalDurationSeconds = uploadedSegments.reduce(

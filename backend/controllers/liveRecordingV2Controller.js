@@ -1738,6 +1738,11 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
         .status(400)
         .json({ message: "parts are required for multipart completion" });
     }
+    if (sizeBytes <= 0) {
+      return res.status(422).json({
+        message: "Recording segment must be non-empty before completion",
+      });
+    }
 
     const recording = await LiveRecordingV2.findById(recordingId);
     if (!recording) {
@@ -1908,6 +1913,11 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   }
   if (!objectKey) {
     return res.status(400).json({ message: "objectKey is required" });
+  }
+  if (sizeBytes <= 0) {
+    return res.status(422).json({
+      message: "Recording segment must be non-empty before completion",
+    });
   }
 
   const recording = await LiveRecordingV2.findById(recordingId);

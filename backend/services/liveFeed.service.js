@@ -90,7 +90,7 @@ const MATCH_LIST_SELECT = [
 const MATCH_LIST_POPULATE = [
   {
     path: "tournament",
-    select: "name image status eventType nameDisplayMode",
+    select: "name image status eventType nameDisplayMode endDate",
   },
   {
     path: "bracket",
@@ -989,11 +989,15 @@ function buildFeedMeta(items = []) {
         _id: tournamentId || null,
         name: tournamentName || "Giải đấu",
         image: asTrimmed(item?.tournament?.image) || "",
+        endDate: item?.tournament?.endDate || null,
         count: 0,
       };
       previous.count += 1;
       if (!previous.image && item?.tournament?.image) {
         previous.image = asTrimmed(item.tournament.image);
+      }
+      if (!previous.endDate && item?.tournament?.endDate) {
+        previous.endDate = item.tournament.endDate;
       }
       tournamentMap.set(key, previous);
     }
@@ -1015,6 +1019,10 @@ function buildFeedMeta(items = []) {
       sources,
       replayStates,
       tournaments: [...tournamentMap.values()].sort((left, right) => {
+        const leftEnd = new Date(left.endDate || 0).getTime();
+        const rightEnd = new Date(right.endDate || 0).getTime();
+        const endDiff = rightEnd - leftEnd;
+        if (endDiff !== 0) return endDiff;
         const countDiff = right.count - left.count;
         if (countDiff !== 0) return countDiff;
         return asTrimmed(left?.name).localeCompare(asTrimmed(right?.name));
@@ -1079,9 +1087,6 @@ export async function listLiveFeed({
     $and: [
       { $or: candidateClauses },
       { status: { $in: statuses } },
-      mongoose.Types.ObjectId.isValid(normalizedTournamentId)
-        ? { tournament: normalizedTournamentId }
-        : {},
     ].filter((clause) => Object.keys(clause).length > 0),
   };
 
@@ -1162,7 +1167,21 @@ export async function listLiveFeed({
 
   items.sort(getLiveFeedComparator(normalizedSort));
 
+  // Build tournament facets from ALL items BEFORE tournament filter
+  // so the dropdown always shows every available tournament.
+  const allTournamentsFacet = buildFeedMeta(items).facets.tournaments;
+
+  // Now filter by tournament for the actual results
+  if (mongoose.Types.ObjectId.isValid(normalizedTournamentId)) {
+    items = items.filter(
+      (item) => toIdString(item?.tournament?._id) === normalizedTournamentId,
+    );
+  }
+
   const feedMeta = buildFeedMeta(items);
+
+  // Override tournaments facet with the full unfiltered list
+  feedMeta.facets.tournaments = allTournamentsFacet;
 
   const paginated = paginate(items, safePage, safeLimit);
 

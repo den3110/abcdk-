@@ -1131,8 +1131,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
         pendingRecordingBoundary = nil
         let outputURL = writer.outputURL
         let duration = max(0, boundary.segmentFinishedAt.timeIntervalSince(boundary.segmentStartedAt))
+        let fileExists = FileManager.default.fileExists(atPath: outputURL.path)
+        let fileSize = (try? outputURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
 
-        if FileManager.default.fileExists(atPath: outputURL.path) {
+        if fileExists && fileSize > 0 {
             onRecordingSegmentReady?(
                 LocalRecordingSegment(
                     recordingId: boundary.recordingId,
@@ -1144,6 +1146,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 )
             )
             appendDiagnostic("Recording segment #\(boundary.segmentIndex + 1) ready at \(outputURL.lastPathComponent).")
+        } else if fileExists {
+            appendDiagnostic("Dropped empty recording segment #\(boundary.segmentIndex + 1).")
+            try? FileManager.default.removeItem(at: outputURL)
         } else {
             let message = "Recorder closed a segment but no output file was found."
             appendDiagnostic(message)

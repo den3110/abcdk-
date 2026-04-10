@@ -424,12 +424,46 @@ class MatchRecordingCoordinator(
     private suspend fun handleSegmentCompleted(segment: RecordingSegmentClosed) {
         val currentSession = activeSession
         val quality = currentSession?.quality
+        val segmentFile = File(segment.path)
+        val actualSizeBytes =
+            segmentFile.takeIf { it.exists() }?.length()?.coerceAtLeast(0L)
+                ?: segment.sizeBytes.coerceAtLeast(0L)
+        if (actualSizeBytes <= 0L) {
+            Log.w(
+                TAG,
+                "Dropping empty recording segment recordingId=${segment.recordingId} segmentIndex=${segment.segmentIndex} isFinal=${segment.isFinal}",
+            )
+            runCatching { if (segmentFile.exists()) segmentFile.delete() }
+            if (segment.isFinal) {
+                manifestMutex.withLock {
+                    manifest =
+                        manifest.copy(
+                            pendingFinalizations =
+                                (manifest.pendingFinalizations + PendingFinalizeRecording(segment.recordingId, segment.matchId))
+                                    .distinctBy { it.recordingId },
+                        )
+                    persistManifestLocked()
+                }
+            }
+            if (segment.isFinal && activeSession?.recordingId == segment.recordingId) {
+                activeSession = null
+                updateUiState(
+                    status = "uploading",
+                    isRecording = false,
+                    pendingUploads = manifest.pendingSegments.size,
+                )
+            } else {
+                updateUiState(pendingUploads = manifest.pendingSegments.size)
+            }
+            ensureUploadLoop()
+            return
+        }
         val startedAt =
             segment.startedAtMs
                 .takeIf { it > 0L }
                 ?.let { Instant.ofEpochMilli(it).toString() }
         val uploadMode =
-            if (segment.sizeBytes >= 0L && segment.sizeBytes < MIN_MULTIPART_OBJECT_SIZE_BYTES) {
+            if (actualSizeBytes > 0L && actualSizeBytes < MIN_MULTIPART_OBJECT_SIZE_BYTES) {
                 "legacy_single_put"
             } else {
                 "multipart"
@@ -446,7 +480,7 @@ class MatchRecordingCoordinator(
                 segmentIndex = segment.segmentIndex,
                 startedAt = startedAt,
                 durationSeconds = segment.durationSeconds,
-                sizeBytes = segment.sizeBytes,
+                sizeBytes = actualSizeBytes,
                 isFinal = segment.isFinal,
                 uploadMode = uploadMode,
             )
@@ -1315,18 +1349,58 @@ class MatchRecordingCoordinator(
             )
             return true
         }
-        if (segment.uploadMode.equals("legacy_single_put", ignoreCase = true)) {
+        val actualSizeBytes = file.length().coerceAtLeast(0L)
+        if (actualSizeBytes <= 0L) {
+            Log.w(
+                TAG,
+                "Discarding empty pending recording segment recordingId=${segment.recordingId} segmentIndex=${segment.segmentIndex} isFinal=${segment.isFinal}",
+            )
+            runCatching { file.delete() }
+            manifestMutex.withLock {
+                manifest =
+                    manifest.copy(
+                        pendingSegments = manifest.pendingSegments.filterNot {
+                            it.recordingId == segment.recordingId && it.segmentIndex == segment.segmentIndex
+                        },
+                        pendingFinalizations =
+                            if (segment.isFinal) {
+                                (manifest.pendingFinalizations + PendingFinalizeRecording(segment.recordingId, segment.matchId))
+                                    .distinctBy { it.recordingId }
+                            } else {
+                                manifest.pendingFinalizations
+                            },
+                    )
+                persistManifestLocked()
+            }
+            updateUiState(
+                pendingUploads = manifest.pendingSegments.size,
+                status = if (manifest.pendingSegments.isNotEmpty()) "uploading" else _recordingUiState.value.status,
+            )
+            refreshStorageStatus(activeSession?.quality)
+            return true
+        }
+
+        val pendingSegment =
+            if (segment.sizeBytes != actualSizeBytes) {
+                val updated = segment.copy(sizeBytes = actualSizeBytes)
+                replacePendingSegment(updated)
+                updated
+            } else {
+                segment
+            }
+
+        if (pendingSegment.uploadMode.equals("legacy_single_put", ignoreCase = true)) {
             return try {
-                uploadPendingSegmentSinglePut(segment, file)
+                uploadPendingSegmentSinglePut(pendingSegment, file)
             } catch (error: Exception) {
                 Log.e(TAG, "uploadPendingSegmentSinglePut failed", error)
-                clearSinglePutPresignCache(segment.recordingId)
+                clearSinglePutPresignCache(pendingSegment.recordingId)
                 manifestMutex.withLock {
-                    val delayMs = computeRetryDelayMs(segment.retryCount + 1)
+                    val delayMs = computeRetryDelayMs(pendingSegment.retryCount + 1)
                     manifest = manifest.copy(
                         pendingSegments =
                             manifest.pendingSegments.map {
-                                if (it.recordingId == segment.recordingId && it.segmentIndex == segment.segmentIndex) {
+                                if (it.recordingId == pendingSegment.recordingId && it.segmentIndex == pendingSegment.segmentIndex) {
                                     it.copy(
                                         retryCount = it.retryCount + 1,
                                         nextRetryAtMs = System.currentTimeMillis() + delayMs,
@@ -1344,27 +1418,27 @@ class MatchRecordingCoordinator(
         }
 
         return try {
-            uploadPendingSegmentMultipart(segment, file)
+            uploadPendingSegmentMultipart(pendingSegment, file)
         } catch (error: Exception) {
             Log.e(TAG, "uploadPendingSegment failed", error)
-            val delayMs = computeRetryDelayMs(segment.retryCount + 1)
+            val delayMs = computeRetryDelayMs(pendingSegment.retryCount + 1)
             val nextRetryAtMs = System.currentTimeMillis() + delayMs
             if (shouldResetMultipartSessionAfterFailure(error)) {
                 runCatching {
-                    if (!segment.uploadId.isNullOrBlank()) {
+                    if (!pendingSegment.uploadId.isNullOrBlank()) {
                         repository.abortMultipartRecordingSegment(
-                            recordingId = segment.recordingId,
-                            segmentIndex = segment.segmentIndex,
+                            recordingId = pendingSegment.recordingId,
+                            segmentIndex = pendingSegment.segmentIndex,
                         )
                     }
                 }
-                resetPendingSegmentForMultipartRetry(segment, nextRetryAtMs)
+                resetPendingSegmentForMultipartRetry(pendingSegment, nextRetryAtMs)
             } else {
                 manifestMutex.withLock {
                     manifest = manifest.copy(
                         pendingSegments =
                             manifest.pendingSegments.map {
-                                if (it.recordingId == segment.recordingId && it.segmentIndex == segment.segmentIndex) {
+                                if (it.recordingId == pendingSegment.recordingId && it.segmentIndex == pendingSegment.segmentIndex) {
                                     it.copy(
                                         retryCount = it.retryCount + 1,
                                         nextRetryAtMs = nextRetryAtMs,
