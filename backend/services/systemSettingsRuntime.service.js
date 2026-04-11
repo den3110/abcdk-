@@ -41,6 +41,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   recordingDrive: {
     enabled: true,
     mode: "serviceAccount",
+    showAdvancedControls: false,
     useModernPickerFlow: true,
     folderId: "",
     sharedDriveId: "",

@@ -138,6 +138,58 @@ function sanitizeSettingsPatch(patch = {}) {
     }
   }
 
+  if (next.recordingDrive && typeof next.recordingDrive === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.recordingDrive, "enabled")) {
+      next.recordingDrive.enabled = next.recordingDrive.enabled !== false;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.recordingDrive, "mode")) {
+      const mode = String(next.recordingDrive.mode || "serviceAccount")
+        .trim()
+        .toLowerCase();
+      next.recordingDrive.mode =
+        mode === "oauthuser" ? "oauthUser" : "serviceAccount";
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        next.recordingDrive,
+        "showAdvancedControls"
+      )
+    ) {
+      next.recordingDrive.showAdvancedControls =
+        next.recordingDrive.showAdvancedControls === true;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        next.recordingDrive,
+        "useModernPickerFlow"
+      )
+    ) {
+      next.recordingDrive.useModernPickerFlow =
+        next.recordingDrive.useModernPickerFlow !== false;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.recordingDrive, "folderId")) {
+      next.recordingDrive.folderId = String(
+        next.recordingDrive.folderId || ""
+      ).trim();
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(next.recordingDrive, "sharedDriveId")
+    ) {
+      next.recordingDrive.sharedDriveId = String(
+        next.recordingDrive.sharedDriveId || ""
+      ).trim();
+    }
+
+    if (!Object.keys(next.recordingDrive).length) {
+      delete next.recordingDrive;
+    }
+  }
+
   if (next.referee && typeof next.referee === "object") {
     if (
       Object.prototype.hasOwnProperty.call(

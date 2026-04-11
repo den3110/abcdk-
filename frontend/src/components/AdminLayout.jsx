@@ -64,6 +64,7 @@ function isSuperAdminUser(user) {
 export default function AdminLayout({ children }) {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
+  const isPhone = useMediaQuery(theme.breakpoints.down("sm"));
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useLanguage();
@@ -218,8 +219,14 @@ export default function AdminLayout({ children }) {
       ) : (
         <>
           <AppBar position="fixed" color="inherit" elevation={1}>
-            <Toolbar variant="dense" sx={{ gap: 1, px: 1 }}>
-              <Typography variant="h6" sx={{ flexShrink: 0 }}>
+            <Toolbar
+              variant="dense"
+              sx={{ gap: isPhone ? 0.75 : 1, px: isPhone ? 0.75 : 1, minHeight: 56 }}
+            >
+              <Typography
+                variant={isPhone ? "subtitle1" : "h6"}
+                sx={{ flexShrink: 0, fontWeight: 700 }}
+              >
                 {t("admin.layout.title")}
               </Typography>
 
@@ -232,9 +239,20 @@ export default function AdminLayout({ children }) {
                   }}
                   variant="scrollable"
                   scrollButtons="auto"
+                  allowScrollButtonsMobile
                   aria-label={t("admin.layout.navAria")}
                   sx={{
-                    "& .MuiTab-root": { minWidth: 120, textTransform: "none" },
+                    minHeight: 52,
+                    "& .MuiTabs-scroller": { overflowY: "hidden" },
+                    "& .MuiTabs-flexContainer": { gap: 0.25 },
+                    "& .MuiTab-root": {
+                      minWidth: isPhone ? 96 : 120,
+                      minHeight: 52,
+                      px: isPhone ? 1 : 1.5,
+                      py: isPhone ? 0.5 : 0.75,
+                      textTransform: "none",
+                      fontSize: isPhone ? "0.72rem" : "0.8125rem",
+                    },
                   }}
                 >
                   {navItems.map((item) => (
@@ -243,6 +261,7 @@ export default function AdminLayout({ children }) {
                       icon={item.icon}
                       iconPosition="start"
                       label={item.label}
+                      wrapped={isPhone}
                     />
                   ))}
                 </Tabs>
@@ -267,9 +286,10 @@ export default function AdminLayout({ children }) {
           <Box
             component="main"
             sx={{
-              p: 2,
-              mt: 10,
+              p: { xs: 1.5, sm: 2 },
+              mt: { xs: 9.5, sm: 10 },
               minHeight: "calc(100dvh - 80px)",
+              minWidth: 0,
               display: "flex",
               flexDirection: "column",
             }}
