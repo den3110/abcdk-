@@ -18,6 +18,7 @@ import {
 } from "@mui/material";
 import {
   ApiRounded as ApiIcon,
+  AutoAwesomeRounded as SparkleIcon,
   ArrowOutwardRounded as ArrowIcon,
   BoltRounded as BoltIcon,
   CheckRounded as CheckIcon,
@@ -27,6 +28,7 @@ import {
   GroupsRounded as GroupsIcon,
   LightModeRounded as LightModeIcon,
   LockRounded as LockIcon,
+  KeyboardArrowDownRounded as ChevronDownIcon,
   PublicRounded as PublicIcon,
   SearchRounded as SearchIcon,
   SensorsRounded as SensorsIcon,
@@ -209,6 +211,105 @@ const ACCESS_FILTERS = [
   { value: "all", label: "All endpoints" },
   { value: "public", label: "Public only" },
   { value: "bearer", label: "Auth required" },
+];
+
+const DOCS_PRIMARY_NAV = [
+  { label: "Get started", kind: "hero" },
+  { label: "Identity", sectionId: "auth" },
+  { label: "Profiles", sectionId: "profiles" },
+  { label: "Competition", sectionId: "tournaments" },
+  { label: "Community", sectionId: "clubs" },
+  { label: "Streaming", sectionId: "live" },
+];
+
+const DOCS_SECONDARY_NAV = [
+  { label: "APIs & SDKs", kind: "reference" },
+  { label: "Help", href: "mailto:support@pickletour.vn" },
+];
+
+const DOCS_LANDING_COLUMNS = [
+  {
+    title: "Identity",
+    links: [
+      { label: "Create accounts", sectionId: "auth" },
+      { label: "Sign in from web", sectionId: "auth" },
+      { label: "Recover passwords", sectionId: "auth" },
+    ],
+  },
+  {
+    title: "Competition",
+    links: [
+      { label: "Browse tournaments", sectionId: "tournaments" },
+      { label: "Register players", sectionId: "tournaments" },
+      { label: "Check-in flows", sectionId: "tournaments" },
+    ],
+  },
+  {
+    title: "Developers",
+    links: [
+      { label: "Configure base URL", kind: "reference" },
+      { label: "Test overlay detail", sectionId: "live" },
+      { label: "Browse full reference", kind: "reference" },
+    ],
+  },
+];
+
+const LANDING_PLAYGROUND_CASES = [
+  {
+    id: "session",
+    label: "Create a web session",
+    detail:
+      "Authenticate with email or phone plus password and return the signed-in user payload.",
+    status: "POST /api/users/auth/web",
+    request: `curl -X POST {{BASE_URL}}/api/users/auth/web \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "identifier": "player@example.com",
+    "password": "secret123"
+  }'`,
+    response: `{
+  "_id": "65f3c0c1...",
+  "name": "Player Demo",
+  "role": "user",
+  "token": "jwt-token"
+}`,
+  },
+  {
+    id: "tournaments",
+    label: "List tournaments",
+    detail:
+      "Fetch tournaments for cards, search, command palette and home surfaces.",
+    status: "GET /api/tournaments",
+    request: `curl "{{BASE_URL}}/api/tournaments?limit=12&sort=-updatedAt"`,
+    response: `[
+  {
+    "_id": "tour-id",
+    "name": "Open Spring Cup",
+    "startDate": "2026-05-12T00:00:00.000Z",
+    "status": "open"
+  }
+]`,
+  },
+  {
+    id: "overlay",
+    label: "Get overlay match detail",
+    detail:
+      "Load the match detail payload used by the public overlay and live presentation surfaces.",
+    status: "GET /api/overlay/match/:id",
+    request: `curl "{{BASE_URL}}/api/overlay/match/681d00f9f0d17f18f88a1001"`,
+    response: `{
+  "success": true,
+  "match": {
+    "_id": "681d00f9f0d17f18f88a1001",
+    "status": "live",
+    "court": { "name": "Court 1" },
+    "players": [
+      { "name": "Player A" },
+      { "name": "Player B" }
+    ]
+  }
+}`,
+  },
 ];
 
 const USE_CASE_ENTRY_POINTS = [
@@ -1615,6 +1716,10 @@ function buildTesterUrl(baseUrl, pathTemplate, values = {}) {
   return `${normalizedBase}${resolvedPath}`;
 }
 
+function resolveDocsBaseUrl(code, runtimeBaseUrl) {
+  return String(code || "").replaceAll("{{BASE_URL}}", runtimeBaseUrl);
+}
+
 function CodePanel({
   label,
   code,
@@ -1720,6 +1825,10 @@ function EndpointTester({
   const [statusText, setStatusText] = useState("");
   const [responseText, setResponseText] = useState("");
   const [requestError, setRequestError] = useState("");
+
+  useEffect(() => {
+    setBaseUrl(runtimeBaseUrl);
+  }, [runtimeBaseUrl]);
 
   const requestUrl = buildTesterUrl(baseUrl, tester.pathTemplate, params);
   const missingRequiredParam = (tester.pathParams || []).some(
@@ -1894,6 +2003,10 @@ function EndpointCard({
   runtimeBaseUrl,
 }) {
   const isPublic = endpoint.auth === "Public";
+  const resolvedRequestCode = resolveDocsBaseUrl(
+    endpoint.request,
+    runtimeBaseUrl,
+  );
 
   return (
     <Box
@@ -2033,7 +2146,7 @@ function EndpointCard({
         >
           <CodePanel
             label="Request"
-            code={endpoint.request}
+            code={resolvedRequestCode}
             docsColors={docsColors}
             copyId={`${endpoint.method}-${endpoint.path}-request`}
             copied={copiedKey === `${endpoint.method}-${endpoint.path}-request`}
@@ -2238,14 +2351,15 @@ export default function ApiDocsPage() {
   const STRIPE_TEXT_LIGHT = docsColors.text;
   const STRIPE_SUBTLE_LIGHT = docsColors.subtle;
   const DOCS_ACCENT_TEXT = docsColors.accentText;
-  const DOCS_BRAND_SURFACE = docsColors.brandSurface;
-  const DOCS_BRAND_CONTRAST = docsColors.brandContrast;
   const DOCS_CODE_TEXT = docsColors.codeText;
   const sectionIds = DOC_SECTIONS.map((section) => section.id);
   const [activeSection, setActiveSection] = useState(sectionIds[0]);
   const [searchTerm, setSearchTerm] = useState("");
   const [accessFilter, setAccessFilter] = useState("all");
   const [copiedKey, setCopiedKey] = useState("");
+  const [activePlaygroundCaseId, setActivePlaygroundCaseId] = useState(
+    LANDING_PLAYGROUND_CASES[0].id,
+  );
   const endpointCount = DOC_SECTIONS.reduce(
     (total, section) => total + section.endpoints.length,
     0,
@@ -2276,11 +2390,44 @@ export default function ApiDocsPage() {
     () => filteredSections.map((section) => section.id),
     [filteredSections],
   );
-  const runtimeBaseUrl =
+  const fallbackRuntimeBaseUrl =
     String(import.meta.env.VITE_API_URL || "").trim().replace(/\/+$/, "") ||
     (typeof window !== "undefined"
       ? window.location.origin.replace(/\/+$/, "")
       : "https://pickletour.vn");
+  const [runtimeBaseUrl, setRuntimeBaseUrl] = useState(fallbackRuntimeBaseUrl);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadDocsBaseUrl = async () => {
+      try {
+        const response = await fetch("/api/public/guide-link", {
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        const configuredBaseUrl = String(payload?.docsApiBaseUrl || "")
+          .trim()
+          .replace(/\/+$/, "");
+
+        if (cancelled || !configuredBaseUrl) return;
+        setRuntimeBaseUrl(configuredBaseUrl);
+      } catch {
+        // Keep fallback when the public settings endpoint is unavailable.
+      }
+    };
+
+    loadDocsBaseUrl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -2340,6 +2487,19 @@ export default function ApiDocsPage() {
     setActiveSection(visibleSectionIds[0]);
   }, [activeSection, visibleSectionIds]);
 
+  const landingPlaygroundCases = useMemo(
+    () =>
+      LANDING_PLAYGROUND_CASES.map((item) => ({
+        ...item,
+        request: resolveDocsBaseUrl(item.request, runtimeBaseUrl),
+      })),
+    [runtimeBaseUrl],
+  );
+
+  const activePlaygroundCase =
+    landingPlaygroundCases.find((item) => item.id === activePlaygroundCaseId) ||
+    landingPlaygroundCases[0];
+
   const jumpToSection = (id) => {
     if (typeof window === "undefined") return;
     const node = document.getElementById(id);
@@ -2348,6 +2508,49 @@ export default function ApiDocsPage() {
     node.scrollIntoView({ behavior: "smooth", block: "start" });
     window.history.replaceState(null, "", `#${id}`);
     setActiveSection(id);
+  };
+
+  const jumpToReference = () => {
+    if (typeof window === "undefined") return;
+    const node = document.getElementById("docs-reference");
+    if (!node) return;
+
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.history.replaceState(null, "", "#docs-reference");
+  };
+
+  const handlePrimaryNavClick = (item) => {
+    if (item.kind === "hero") {
+      if (typeof window === "undefined") return;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    if (item.sectionId) {
+      jumpToSection(item.sectionId);
+    }
+  };
+
+  const handleSecondaryNavClick = (item) => {
+    if (item.kind === "reference") {
+      jumpToReference();
+      return;
+    }
+
+    if (item.href && typeof window !== "undefined") {
+      window.location.href = item.href;
+    }
+  };
+
+  const handleLandingLinkClick = (item) => {
+    if (item.kind === "reference") {
+      jumpToReference();
+      return;
+    }
+
+    if (item.sectionId) {
+      jumpToSection(item.sectionId);
+    }
   };
 
   const copyCode = async (key, text) => {
@@ -2393,144 +2596,317 @@ export default function ApiDocsPage() {
             zIndex: 40,
             bgcolor: DOCS_HEADER_BG,
             borderBottom: `1px solid ${DOCS_BORDER}`,
+            backdropFilter: "blur(14px)",
           }}
         >
           <Container
             maxWidth={false}
             sx={{ maxWidth: 1440, px: { xs: 2, md: 4, xl: 6 } }}
           >
-            <Stack
-              direction="row"
-              justifyContent="space-between"
-              alignItems="center"
-              spacing={2}
-              sx={{ minHeight: 72 }}
-            >
-              <Stack direction="row" spacing={{ xs: 2, lg: 3 }} alignItems="center">
+            <Stack spacing={0}>
+              <Box
+                sx={{
+                  minHeight: 82,
+                  display: "grid",
+                  alignItems: "center",
+                  gap: 2,
+                  gridTemplateColumns: {
+                    xs: "minmax(0,1fr) auto",
+                    lg: "auto minmax(420px, 520px) auto",
+                  },
+                }}
+              >
                 <ButtonBase
                   component={RouterLink}
                   to="/"
                   sx={{
                     display: "flex",
                     alignItems: "center",
+                    justifyContent: "flex-start",
                     gap: 1.2,
                     borderRadius: 2,
+                    py: 1,
                   }}
                 >
-                  <Box
+                  <Typography
                     sx={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 2,
-                      display: "grid",
-                      placeItems: "center",
-                      bgcolor: DOCS_BRAND_SURFACE,
-                      color: DOCS_BRAND_CONTRAST,
                       fontFamily: FONT_STACK_SANS,
-                      fontWeight: 700,
-                      fontSize: "0.95rem",
+                      fontWeight: 800,
+                      fontSize: { xs: "1.65rem", md: "2rem" },
+                      lineHeight: 1,
+                      letterSpacing: "-0.04em",
+                      color: isDark ? "#f2f5ff" : "#0a2540",
                     }}
                   >
-                    P
-                  </Box>
-                  <Stack spacing={0}>
-                    <Typography
+                    stripe
+                    <Box
+                      component="span"
                       sx={{
-                        ...STRIPE_TYPE.overline,
-                        lineHeight: "0.9rem",
-                        color: STRIPE_SUBTLE_LIGHT,
+                        color: isDark ? "#9cc0ff" : "#635bff",
+                        ml: 0.5,
                       }}
                     >
-                      PickleTour
-                    </Typography>
-                    <Typography
-                      sx={{
-                        ...STRIPE_TYPE.label,
-                        color: STRIPE_TEXT_LIGHT,
-                      }}
-                    >
-                      Docs
-                    </Typography>
-                  </Stack>
+                      DOCS
+                    </Box>
+                  </Typography>
                 </ButtonBase>
 
                 <Stack
                   direction="row"
-                  spacing={0.5}
+                  spacing={1}
+                  alignItems="center"
+                  justifyContent="center"
                   sx={{ display: { xs: "none", lg: "flex" } }}
                 >
-                  {DOC_SECTIONS.map((section) => (
+                  <TextField
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Search"
+                    InputProps={{
+                      startAdornment: (
+                        <SearchIcon
+                          sx={{
+                            mr: 1,
+                            color: STRIPE_SUBTLE_LIGHT,
+                            alignSelf: "center",
+                          }}
+                        />
+                      ),
+                      endAdornment: (
+                        <Box
+                          component="span"
+                          sx={{
+                            minWidth: 24,
+                            height: 24,
+                            px: 0.75,
+                            display: "grid",
+                            placeItems: "center",
+                            borderRadius: 1,
+                            border: `1px solid ${DOCS_BORDER}`,
+                            color: STRIPE_SUBTLE_LIGHT,
+                            ...STRIPE_TYPE.bodySmall,
+                          }}
+                        >
+                          /
+                        </Box>
+                      ),
+                    }}
+                    sx={{
+                      width: 1,
+                      minWidth: 0,
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 2.5,
+                        bgcolor: DOCS_SURFACE,
+                        color: STRIPE_TEXT_LIGHT,
+                        fontFamily: FONT_STACK_SANS,
+                        "& fieldset": {
+                          borderColor: DOCS_BORDER_STRONG,
+                        },
+                        "&:hover fieldset": {
+                          borderColor: DOCS_BORDER_STRONG,
+                        },
+                        "&.Mui-focused fieldset": {
+                          borderColor: DOCS_ACCENT_TEXT,
+                        },
+                      },
+                      "& .MuiOutlinedInput-input": {
+                        py: 1.1,
+                        ...STRIPE_TYPE.body,
+                      },
+                    }}
+                  />
+                  <Button
+                    onClick={jumpToReference}
+                    startIcon={<SparkleIcon sx={{ fontSize: 18 }} />}
+                    sx={{
+                      minWidth: 0,
+                      px: 1.6,
+                      py: 1.05,
+                      borderRadius: 2.5,
+                      textTransform: "none",
+                      border: `1px solid ${DOCS_BORDER_STRONG}`,
+                      bgcolor: DOCS_SURFACE,
+                      color: STRIPE_TEXT_LIGHT,
+                      ...STRIPE_TYPE.label,
+                    }}
+                  >
+                    Ask AI
+                  </Button>
+                </Stack>
+
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Button
+                    component={RouterLink}
+                    to="/register"
+                    sx={{
+                      display: { xs: "none", md: "inline-flex" },
+                      textTransform: "none",
+                      color: "#635bff",
+                      ...STRIPE_TYPE.label,
+                    }}
+                  >
+                    Create account
+                  </Button>
+                  <Button
+                    component={RouterLink}
+                    to="/login"
+                    variant="outlined"
+                    sx={{
+                      borderRadius: 2.5,
+                      textTransform: "none",
+                      borderColor: DOCS_BORDER_STRONG,
+                      color: STRIPE_TEXT_LIGHT,
+                      bgcolor: DOCS_SURFACE,
+                      px: 1.7,
+                      ...STRIPE_TYPE.label,
+                    }}
+                  >
+                    Sign in
+                  </Button>
+                  <IconButton
+                    aria-label={
+                      isDark
+                        ? "Switch to light theme"
+                        : "Switch to dark theme"
+                    }
+                    onClick={toggleTheme}
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      border: `1px solid ${DOCS_BORDER_STRONG}`,
+                      color: STRIPE_TEXT_LIGHT,
+                      bgcolor: DOCS_SURFACE,
+                    }}
+                  >
+                    {isDark ? (
+                      <LightModeIcon fontSize="small" />
+                    ) : (
+                      <DarkModeIcon fontSize="small" />
+                    )}
+                  </IconButton>
+                </Stack>
+              </Box>
+
+              <Box
+                sx={{
+                  minHeight: 58,
+                  display: "grid",
+                  alignItems: "center",
+                  gap: 2,
+                  borderTop: `1px solid ${DOCS_BORDER}`,
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    lg: "minmax(0,1fr) auto",
+                  },
+                }}
+              >
+                <Stack
+                  direction="row"
+                  spacing={{ xs: 1.5, lg: 2.6 }}
+                  flexWrap="wrap"
+                  useFlexGap
+                >
+                  {DOCS_PRIMARY_NAV.map((item) => (
                     <ButtonBase
-                      key={section.id}
-                      onClick={() => jumpToSection(section.id)}
+                      key={item.label}
+                      onClick={() => handlePrimaryNavClick(item)}
                       sx={{
-                        px: 1.25,
-                        py: 0.8,
-                        borderRadius: 2,
+                        justifyContent: "flex-start",
                         color:
-                          activeSection === section.id
+                          item.sectionId && activeSection === item.sectionId
                             ? STRIPE_TEXT_LIGHT
                             : STRIPE_SUBTLE_LIGHT,
-                        bgcolor:
-                          activeSection === section.id
-                            ? DOCS_ACTIVE_BG
-                            : "transparent",
                         ...STRIPE_TYPE.label,
-                        fontWeight: activeSection === section.id ? 600 : 400,
                       }}
                     >
-                      {section.eyebrow}
+                      {item.label}
                     </ButtonBase>
                   ))}
                 </Stack>
-              </Stack>
 
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Button
-                  component={RouterLink}
-                  to="/"
-                  variant="outlined"
-                  sx={{
-                    borderRadius: 999,
-                    textTransform: "none",
-                    borderColor: DOCS_BORDER_STRONG,
-                    color: STRIPE_TEXT_LIGHT,
-                    ...STRIPE_TYPE.label,
-                  }}
+                <Stack
+                  direction="row"
+                  spacing={2.2}
+                  alignItems="center"
+                  sx={{ display: { xs: "none", lg: "flex" } }}
                 >
-                  Back to app
-                </Button>
-                <IconButton
-                  aria-label={
-                    isDark
-                      ? "Switch to light theme"
-                      : "Switch to dark theme"
-                  }
-                  onClick={toggleTheme}
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    border: `1px solid ${DOCS_BORDER_STRONG}`,
-                    color: STRIPE_TEXT_LIGHT,
-                  }}
-                >
-                  {isDark ? (
-                    <LightModeIcon fontSize="small" />
-                  ) : (
-                    <DarkModeIcon fontSize="small" />
-                  )}
-                </IconButton>
-              </Stack>
+                  {DOCS_SECONDARY_NAV.map((item) => (
+                    <ButtonBase
+                      key={item.label}
+                      onClick={() => handleSecondaryNavClick(item)}
+                      sx={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 0.25,
+                        color: STRIPE_TEXT_LIGHT,
+                        ...STRIPE_TYPE.label,
+                      }}
+                    >
+                      {item.label}
+                      <ChevronDownIcon sx={{ fontSize: 18, color: STRIPE_SUBTLE_LIGHT }} />
+                    </ButtonBase>
+                  ))}
+                </Stack>
+              </Box>
             </Stack>
           </Container>
         </Box>
 
         <Box
           sx={{
+            position: "relative",
+            overflow: "hidden",
             borderBottom: `1px solid ${DOCS_BORDER}`,
             bgcolor: DOCS_SECTION_BG,
           }}
         >
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+            }}
+          >
+            <Box
+              sx={{
+                position: "absolute",
+                left: { xs: -60, md: -80 },
+                top: 0,
+                width: { xs: "52%", md: "36%" },
+                height: { xs: 320, md: 420 },
+                opacity: isDark ? 0.2 : 0.75,
+                backgroundImage:
+                  "radial-gradient(circle, rgba(255,92,92,0.8) 1.25px, transparent 1.25px)",
+                backgroundSize: "18px 18px",
+              }}
+            />
+            <Box
+              sx={{
+                position: "absolute",
+                left: { xs: "18%", md: "26%" },
+                top: 0,
+                width: { xs: "56%", md: "46%" },
+                height: { xs: 340, md: 430 },
+                opacity: isDark ? 0.18 : 0.55,
+                backgroundImage:
+                  "radial-gradient(circle, rgba(108,160,255,0.82) 1.25px, transparent 1.25px)",
+                backgroundSize: "18px 18px",
+              }}
+            />
+            <Box
+              sx={{
+                position: "absolute",
+                right: { xs: -80, md: -60 },
+                top: 0,
+                width: { xs: "42%", md: "30%" },
+                height: { xs: 280, md: 340 },
+                opacity: isDark ? 0.22 : 0.7,
+                backgroundImage:
+                  "radial-gradient(circle, rgba(177,111,255,0.78) 1.25px, transparent 1.25px)",
+                backgroundSize: "18px 18px",
+              }}
+            />
+          </Box>
           <Container
             maxWidth={false}
             sx={{ maxWidth: 1440, px: { xs: 2, md: 4, xl: 6 } }}
@@ -2542,7 +2918,476 @@ export default function ApiDocsPage() {
                 position: "relative",
               }}
             >
-              <Stack spacing={3.2}>
+              <Stack spacing={{ xs: 4.5, md: 5.5 }}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gap: { xs: 3.5, lg: 5 },
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      lg: "minmax(0, 1.2fr) minmax(300px, 0.8fr)",
+                    },
+                    alignItems: "center",
+                  }}
+                >
+                  <Stack spacing={2.2} sx={{ maxWidth: 760 }}>
+                    <Typography
+                      variant="h1"
+                      sx={{
+                        ...STRIPE_TYPE.display,
+                        fontSize: { xs: "2.6rem", md: "4rem" },
+                        lineHeight: { xs: "2.9rem", md: "4.15rem" },
+                        letterSpacing: "-0.055em",
+                        color: STRIPE_TEXT_LIGHT,
+                      }}
+                    >
+                      Documentation
+                    </Typography>
+                    <Typography
+                      sx={{
+                        ...STRIPE_TYPE.bodyLarge,
+                        fontSize: { xs: "1.25rem", md: "1.45rem" },
+                        lineHeight: { xs: "1.9rem", md: "2.1rem" },
+                        color: STRIPE_SUBTLE_LIGHT,
+                        maxWidth: 720,
+                      }}
+                    >
+                      Explore guides, reference endpoints and testable examples to
+                      integrate PickleTour user flows.
+                    </Typography>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.4}>
+                      <Button
+                        onClick={() => jumpToSection("auth")}
+                        endIcon={<ArrowIcon />}
+                        sx={{
+                          alignSelf: "flex-start",
+                          px: 2.1,
+                          py: 1.15,
+                          borderRadius: 2.5,
+                          textTransform: "none",
+                          bgcolor: "#635bff",
+                          color: "#ffffff",
+                          boxShadow: "none",
+                          ...STRIPE_TYPE.cardTitle,
+                          fontSize: "1.05rem",
+                          "&:hover": {
+                            bgcolor: "#574de8",
+                            boxShadow: "none",
+                          },
+                        }}
+                      >
+                        Get started with PickleTour
+                      </Button>
+                      <Button
+                        onClick={jumpToReference}
+                        sx={{
+                          alignSelf: "flex-start",
+                          px: 1.2,
+                          py: 1.15,
+                          textTransform: "none",
+                          color: STRIPE_TEXT_LIGHT,
+                          ...STRIPE_TYPE.cardTitle,
+                          fontSize: "1.05rem",
+                        }}
+                      >
+                        Explore API reference
+                      </Button>
+                    </Stack>
+                  </Stack>
+
+                  <Box
+                    sx={{
+                      position: "relative",
+                      minHeight: { lg: 320 },
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        ml: { lg: "auto" },
+                        width: { xs: "100%", lg: 382 },
+                        borderRadius: 4,
+                        border: `1px solid ${DOCS_BORDER_STRONG}`,
+                        bgcolor: DOCS_SURFACE,
+                        boxShadow: DOCS_SHADOW,
+                        p: 2.2,
+                      }}
+                    >
+                      <Stack spacing={1.8}>
+                        <Typography
+                          sx={{
+                            ...STRIPE_TYPE.overline,
+                            color: STRIPE_SUBTLE_LIGHT,
+                          }}
+                        >
+                          Recently viewed
+                        </Typography>
+
+                        <Stack spacing={0.35}>
+                          {USE_CASE_ENTRY_POINTS.slice(0, 2).map((item) => (
+                            <ButtonBase
+                              key={item.id}
+                              onClick={() => jumpToSection(item.id)}
+                              sx={{
+                                justifyContent: "flex-start",
+                                color: "#635bff",
+                                ...STRIPE_TYPE.cardTitle,
+                                fontSize: "1rem",
+                              }}
+                            >
+                              {item.title}
+                            </ButtonBase>
+                          ))}
+                        </Stack>
+
+                        <Box
+                          sx={{
+                            borderTop: `1px solid ${DOCS_BORDER}`,
+                            pt: 1.6,
+                          }}
+                        >
+                          <Stack spacing={1.2}>
+                            <Stack
+                              direction="row"
+                              justifyContent="space-between"
+                              alignItems="center"
+                            >
+                              <Typography
+                                sx={{
+                                  ...STRIPE_TYPE.overline,
+                                  color: STRIPE_SUBTLE_LIGHT,
+                                }}
+                              >
+                                API base
+                              </Typography>
+                              <Chip
+                                label={
+                                  runtimeBaseUrl.includes("localhost")
+                                    ? "Local"
+                                    : "Configured"
+                                }
+                                size="small"
+                                sx={{
+                                  borderRadius: 999,
+                                  bgcolor: DOCS_ACTIVE_BG,
+                                  color: DOCS_ACCENT_TEXT,
+                                  fontWeight: 600,
+                                }}
+                              />
+                            </Stack>
+                            <Stack
+                              direction="row"
+                              justifyContent="space-between"
+                              spacing={1}
+                            >
+                              <Typography sx={{ ...STRIPE_TYPE.body }}>
+                                Public base URL
+                              </Typography>
+                              <Typography
+                                component="code"
+                                sx={{
+                                  ...STRIPE_TYPE.mono,
+                                  color: DOCS_CODE_TEXT,
+                                  textAlign: "right",
+                                  maxWidth: 180,
+                                  wordBreak: "break-all",
+                                }}
+                              >
+                                {runtimeBaseUrl}
+                              </Typography>
+                            </Stack>
+                            <Stack
+                              direction="row"
+                              justifyContent="space-between"
+                              spacing={1}
+                            >
+                              <Typography sx={{ ...STRIPE_TYPE.body }}>
+                                Reference endpoints
+                              </Typography>
+                              <Typography sx={{ ...STRIPE_TYPE.body }}>
+                                {endpointCount}
+                              </Typography>
+                            </Stack>
+                          </Stack>
+                        </Box>
+                      </Stack>
+                    </Box>
+
+                    <Box
+                      sx={{
+                        display: { xs: "none", lg: "block" },
+                        position: "absolute",
+                        right: -8,
+                        bottom: -22,
+                        width: 254,
+                        transform: "rotate(-5deg)",
+                        borderRadius: 3,
+                        border: `1px solid ${DOCS_BORDER_STRONG}`,
+                        bgcolor: DOCS_SURFACE,
+                        boxShadow: DOCS_SHADOW,
+                        p: 1.6,
+                      }}
+                    >
+                      <Stack spacing={1}>
+                        <Box
+                          sx={{
+                            height: 22,
+                            borderRadius: 1.5,
+                            bgcolor: alpha("#0a2540", 0.18),
+                          }}
+                        />
+                        <Typography
+                          sx={{
+                            ...STRIPE_TYPE.label,
+                            color: "#635bff",
+                          }}
+                        >
+                          {activePlaygroundCase.label}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            ...STRIPE_TYPE.mono,
+                            color: STRIPE_TEXT_LIGHT,
+                          }}
+                        >
+                          {activePlaygroundCase.status}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            ...STRIPE_TYPE.bodySmall,
+                            color: STRIPE_SUBTLE_LIGHT,
+                          }}
+                        >
+                          Test directly from the docs landing, then continue into
+                          the full endpoint reference below.
+                        </Typography>
+                      </Stack>
+                    </Box>
+                  </Box>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: "grid",
+                    gap: { xs: 3, md: 5 },
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      md: "repeat(3, minmax(0, 1fr))",
+                    },
+                  }}
+                >
+                  {DOCS_LANDING_COLUMNS.map((column) => (
+                    <Stack key={column.title} spacing={1.3}>
+                      <Typography
+                        sx={{
+                          ...STRIPE_TYPE.sectionTitle,
+                          fontSize: "1.15rem",
+                          lineHeight: "1.6rem",
+                          color: STRIPE_TEXT_LIGHT,
+                        }}
+                      >
+                        {column.title}
+                      </Typography>
+                      <Stack spacing={0.9}>
+                        {column.links.map((item) => (
+                          <ButtonBase
+                            key={`${column.title}-${item.label}`}
+                            onClick={() => handleLandingLinkClick(item)}
+                            sx={{
+                              justifyContent: "flex-start",
+                              color: "#4f61e8",
+                              ...STRIPE_TYPE.bodyLarge,
+                            }}
+                          >
+                            {item.label}
+                          </ButtonBase>
+                        ))}
+                      </Stack>
+                    </Stack>
+                  ))}
+                </Box>
+
+                <Box
+                  sx={{
+                    pt: { xs: 1, md: 2 },
+                  }}
+                >
+                  <Stack spacing={2.2}>
+                    <Stack spacing={0.45}>
+                      <Typography
+                        sx={{
+                          ...STRIPE_TYPE.sectionTitle,
+                          fontSize: "1.15rem",
+                          lineHeight: "1.6rem",
+                          color: STRIPE_TEXT_LIGHT,
+                        }}
+                      >
+                        Try it out
+                      </Typography>
+                      <Typography
+                        sx={{
+                          ...STRIPE_TYPE.body,
+                          color: STRIPE_SUBTLE_LIGHT,
+                        }}
+                      >
+                        Start with a common request, then continue into the full
+                        API reference with search and filters.
+                      </Typography>
+                    </Stack>
+
+                    <Box
+                      sx={{
+                        display: "grid",
+                        gap: 2,
+                        gridTemplateColumns: {
+                          xs: "1fr",
+                          lg: "320px minmax(0, 1fr)",
+                        },
+                        alignItems: "start",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          borderRadius: 4,
+                          border: `1px solid ${DOCS_BORDER}`,
+                          bgcolor: DOCS_SURFACE,
+                          boxShadow: DOCS_SHADOW,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {landingPlaygroundCases.map((item, index) => (
+                          <ButtonBase
+                            key={item.id}
+                            onClick={() => setActivePlaygroundCaseId(item.id)}
+                            sx={{
+                              width: "100%",
+                              justifyContent: "flex-start",
+                              textAlign: "left",
+                              px: 2,
+                              py: 1.65,
+                              bgcolor:
+                                activePlaygroundCase.id === item.id
+                                  ? DOCS_SURFACE
+                                  : DOCS_SURFACE_MUTED,
+                              borderBottom:
+                                index === landingPlaygroundCases.length - 1
+                                  ? "none"
+                                  : `1px solid ${DOCS_BORDER}`,
+                            }}
+                          >
+                            <Stack spacing={0.45} sx={{ width: "100%" }}>
+                              <Typography
+                                sx={{
+                                  ...STRIPE_TYPE.cardTitle,
+                                  fontSize: "1rem",
+                                  lineHeight: "1.45rem",
+                                  color:
+                                    activePlaygroundCase.id === item.id
+                                      ? "#4f61e8"
+                                      : STRIPE_TEXT_LIGHT,
+                                }}
+                              >
+                                {item.label}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  ...STRIPE_TYPE.bodySmall,
+                                  color: STRIPE_SUBTLE_LIGHT,
+                                }}
+                              >
+                                {item.status}
+                              </Typography>
+                            </Stack>
+                          </ButtonBase>
+                        ))}
+                      </Box>
+
+                      <Box
+                        sx={{
+                          borderRadius: 4,
+                          border: `1px solid ${DOCS_BORDER}`,
+                          bgcolor: DOCS_SURFACE,
+                          boxShadow: DOCS_SHADOW,
+                          p: { xs: 2, md: 2.4 },
+                        }}
+                      >
+                        <Stack spacing={2}>
+                          <Stack
+                            direction={{ xs: "column", md: "row" }}
+                            spacing={1}
+                            justifyContent="space-between"
+                            alignItems={{ xs: "flex-start", md: "center" }}
+                          >
+                            <Stack spacing={0.45}>
+                              <Typography
+                                sx={{
+                                  ...STRIPE_TYPE.cardTitle,
+                                  color: STRIPE_TEXT_LIGHT,
+                                }}
+                              >
+                                {activePlaygroundCase.label}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  ...STRIPE_TYPE.body,
+                                  color: STRIPE_SUBTLE_LIGHT,
+                                  maxWidth: 680,
+                                }}
+                              >
+                                {activePlaygroundCase.detail}
+                              </Typography>
+                            </Stack>
+                            <Chip
+                              label={activePlaygroundCase.status}
+                              sx={{
+                                borderRadius: 999,
+                                bgcolor: DOCS_ACTIVE_BG,
+                                color: DOCS_ACCENT_TEXT,
+                                fontWeight: 600,
+                              }}
+                            />
+                          </Stack>
+
+                          <Box
+                            sx={{
+                              display: "grid",
+                              gap: 1.4,
+                              gridTemplateColumns: {
+                                xs: "1fr",
+                                xl: "minmax(0, 1.05fr) minmax(0, 0.95fr)",
+                              },
+                            }}
+                          >
+                            <CodePanel
+                              label="Request"
+                              code={activePlaygroundCase.request}
+                              docsColors={docsColors}
+                              copyId={`landing-${activePlaygroundCase.id}-request`}
+                              copied={
+                                copiedKey ===
+                                `landing-${activePlaygroundCase.id}-request`
+                              }
+                              onCopy={copyCode}
+                            />
+                            <CodePanel
+                              label="Representative response"
+                              code={activePlaygroundCase.response}
+                              docsColors={docsColors}
+                              copyId={`landing-${activePlaygroundCase.id}-response`}
+                              copied={
+                                copiedKey ===
+                                `landing-${activePlaygroundCase.id}-response`
+                              }
+                              onCopy={copyCode}
+                            />
+                          </Box>
+                        </Stack>
+                      </Box>
+                    </Box>
+                  </Stack>
+                </Box>
+              </Stack>
+
+              <Stack spacing={3.2} sx={{ display: "none" }}>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip
                     icon={<ApiIcon />}
@@ -2927,18 +3772,180 @@ export default function ApiDocsPage() {
           maxWidth={false}
           sx={{ maxWidth: 1440, px: { xs: 2, md: 4, xl: 6 } }}
         >
-          <Box
+          <Stack spacing={3.2} sx={{ py: { xs: 3.5, md: 4.5 } }}>
+            <Box
+              id="docs-reference"
+              sx={{
+                scrollMarginTop: { xs: 110, md: 170 },
+                display: "grid",
+                gap: 2.2,
+              }}
+            >
+              <Stack spacing={0.7}>
+                <Typography
+                  sx={{
+                    ...STRIPE_TYPE.overline,
+                    color: STRIPE_SUBTLE_LIGHT,
+                  }}
+                >
+                  API reference
+                </Typography>
+                <Typography
+                  sx={{
+                    ...STRIPE_TYPE.sectionTitle,
+                    fontSize: { xs: "2rem", md: "2.45rem" },
+                    lineHeight: { xs: "2.5rem", md: "3rem" },
+                    color: STRIPE_TEXT_LIGHT,
+                  }}
+                >
+                  Browse endpoints by collection
+                </Typography>
+                <Typography
+                  sx={{
+                    ...STRIPE_TYPE.bodyLarge,
+                    color: STRIPE_SUBTLE_LIGHT,
+                    maxWidth: 840,
+                  }}
+                >
+                  Search the user API surface, filter by access level, then jump
+                  into the full endpoint cards below.
+                </Typography>
+              </Stack>
+
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip
+                  icon={<ApiIcon />}
+                  label="User API docs"
+                  sx={{
+                    borderRadius: 999,
+                    bgcolor: DOCS_ACTIVE_BG,
+                    color: DOCS_ACCENT_TEXT,
+                    fontFamily: FONT_STACK_SANS,
+                    fontWeight: 600,
+                  }}
+                />
+                <Chip
+                  icon={<BoltIcon />}
+                  label={
+                    filteredEndpointCount === endpointCount
+                      ? `${endpointCount} reference endpoints`
+                      : `${filteredEndpointCount}/${endpointCount} endpoints shown`
+                  }
+                  sx={{
+                    borderRadius: 999,
+                    bgcolor: DOCS_SURFACE,
+                    borderColor: DOCS_BORDER_STRONG,
+                    color: STRIPE_SUBTLE_LIGHT,
+                    fontFamily: FONT_STACK_SANS,
+                    fontWeight: 600,
+                  }}
+                  variant="outlined"
+                />
+                <Chip
+                  icon={<StreamIcon />}
+                  label="REST + JSON"
+                  sx={{
+                    borderRadius: 999,
+                    bgcolor: DOCS_SURFACE,
+                    borderColor: DOCS_BORDER_STRONG,
+                    color: STRIPE_SUBTLE_LIGHT,
+                    fontFamily: FONT_STACK_SANS,
+                    fontWeight: 600,
+                  }}
+                  variant="outlined"
+                />
+              </Stack>
+
+              <Box
+                sx={{
+                  display: "grid",
+                  gap: 1.2,
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    xl: "minmax(0, 1fr) auto",
+                  },
+                  alignItems: "center",
+                }}
+              >
+                <TextField
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search by endpoint path, method, or feature"
+                  fullWidth
+                  InputProps={{
+                    startAdornment: (
+                      <SearchIcon
+                        sx={{
+                          mr: 1,
+                          color: STRIPE_SUBTLE_LIGHT,
+                          alignSelf: "center",
+                        }}
+                      />
+                    ),
+                  }}
+                  sx={{
+                    maxWidth: { xl: 720 },
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 999,
+                      backgroundColor: DOCS_SURFACE,
+                      fontFamily: FONT_STACK_SANS,
+                      color: STRIPE_TEXT_LIGHT,
+                      "& fieldset": {
+                        borderColor: DOCS_BORDER_STRONG,
+                      },
+                      "&:hover fieldset": {
+                        borderColor: DOCS_BORDER_STRONG,
+                      },
+                      "&.Mui-focused fieldset": {
+                        borderColor: DOCS_ACCENT_TEXT,
+                      },
+                    },
+                    "& .MuiOutlinedInput-input": {
+                      ...STRIPE_TYPE.body,
+                    },
+                  }}
+                />
+
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  {ACCESS_FILTERS.map((filter) => (
+                    <Chip
+                      key={filter.value}
+                      label={filter.label}
+                      clickable
+                      onClick={() => setAccessFilter(filter.value)}
+                      variant={
+                        accessFilter === filter.value ? "filled" : "outlined"
+                      }
+                      sx={{
+                        borderRadius: 999,
+                        ...STRIPE_TYPE.label,
+                        bgcolor:
+                          accessFilter === filter.value
+                            ? DOCS_ACTIVE_BG
+                            : DOCS_SURFACE,
+                        borderColor: DOCS_BORDER_STRONG,
+                        color:
+                          accessFilter === filter.value
+                            ? DOCS_ACCENT_TEXT
+                            : STRIPE_TEXT_LIGHT,
+                      }}
+                    />
+                  ))}
+                </Stack>
+              </Box>
+            </Box>
+
+            <Box
             sx={{
               display: "grid",
               gap: { xs: 3, lg: 4 },
               gridTemplateColumns: { xs: "1fr", lg: "280px minmax(0, 1fr)" },
-              py: { xs: 3, md: 4.5 },
             }}
           >
             <Box
               sx={{
                 position: { lg: "sticky" },
-                top: { lg: 120 },
+                top: { lg: 156 },
                 alignSelf: "start",
               }}
             >
@@ -3153,7 +4160,7 @@ export default function ApiDocsPage() {
                     key={section.id}
                     id={section.id}
                     sx={{
-                      scrollMarginTop: { xs: 96, md: 132 },
+                      scrollMarginTop: { xs: 112, md: 176 },
                       pt: sectionIndex === 0 ? 0 : { xs: 3.5, md: 4.5 },
                       borderTop:
                         sectionIndex === 0 ? "none" : `1px solid ${DOCS_BORDER}`,
@@ -3241,7 +4248,8 @@ export default function ApiDocsPage() {
                 );
               })}
             </Stack>
-          </Box>
+            </Box>
+          </Stack>
         </Container>
       </Box>
     </>

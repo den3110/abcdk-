@@ -67,6 +67,7 @@ const SystemSettingsSchema = new mongoose.Schema(
     links: {
       guideUrl: { type: String, default: "", trim: true },
       liveObserverUrl: { type: String, default: "", trim: true },
+      docsApiBaseUrl: { type: String, default: "", trim: true },
     },
 
     appShell: {

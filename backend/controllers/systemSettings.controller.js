@@ -88,6 +88,11 @@ function sanitizeSettingsPatch(patch = {}) {
     if (Object.prototype.hasOwnProperty.call(next.links, "liveObserverUrl")) {
       next.links.liveObserverUrl = String(next.links.liveObserverUrl || "").trim();
     }
+    if (Object.prototype.hasOwnProperty.call(next.links, "docsApiBaseUrl")) {
+      next.links.docsApiBaseUrl = String(
+        next.links.docsApiBaseUrl || ""
+      ).trim();
+    }
 
     if (!Object.keys(next.links).length) {
       delete next.links;
@@ -410,6 +415,7 @@ export const getGuideLink = async (req, res, next) => {
     const settings = await getSystemSettingsRuntime({ ensureDocument: true });
     res.json({
       guideUrl: settings.links?.guideUrl || "",
+      docsApiBaseUrl: settings.links?.docsApiBaseUrl || "",
     });
   } catch (err) {
     next(err);
