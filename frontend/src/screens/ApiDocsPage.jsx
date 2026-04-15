@@ -2638,7 +2638,7 @@ export default function ApiDocsPage() {
                       color: isDark ? "#f2f5ff" : "#0a2540",
                     }}
                   >
-                    stripe
+                    Pickle
                     <Box
                       component="span"
                       sx={{
@@ -2646,7 +2646,7 @@ export default function ApiDocsPage() {
                         ml: 0.5,
                       }}
                     >
-                      DOCS
+                      Tour
                     </Box>
                   </Typography>
                 </ButtonBase>
@@ -2720,6 +2720,8 @@ export default function ApiDocsPage() {
                     startIcon={<SparkleIcon sx={{ fontSize: 18 }} />}
                     sx={{
                       minWidth: 0,
+                      flexShrink: 0,
+                      whiteSpace: "nowrap",
                       px: 1.6,
                       py: 1.05,
                       borderRadius: 2.5,
