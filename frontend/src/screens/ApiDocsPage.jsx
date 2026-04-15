@@ -22,8 +22,10 @@ import {
   BoltRounded as BoltIcon,
   CheckRounded as CheckIcon,
   ContentCopyRounded as CopyIcon,
+  DarkModeRounded as DarkModeIcon,
   EventRounded as EventIcon,
   GroupsRounded as GroupsIcon,
+  LightModeRounded as LightModeIcon,
   LockRounded as LockIcon,
   PublicRounded as PublicIcon,
   SearchRounded as SearchIcon,
@@ -31,6 +33,7 @@ import {
   SportsTennisRounded as SportsIcon,
   StreamRounded as StreamIcon,
 } from "@mui/icons-material";
+import { useThemeMode } from "../context/ThemeContext.jsx";
 
 const FONT_STACK_SANS =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"';
@@ -38,15 +41,45 @@ const FONT_STACK_MONO =
   '"Source Code Pro", Menlo, Monaco, monospace';
 const STRIPE_TEXT_LIGHT = "#1a2c44";
 const STRIPE_SUBTLE_LIGHT = "#50617a";
-const DOCS_PAGE_BG = "#ffffff";
-const DOCS_SECTION_BG = "#f6f9fc";
-const DOCS_SURFACE = "#ffffff";
-const DOCS_SURFACE_MUTED = "#fbfdff";
-const DOCS_BORDER = alpha(STRIPE_TEXT_LIGHT, 0.08);
-const DOCS_BORDER_STRONG = alpha(STRIPE_TEXT_LIGHT, 0.12);
-const DOCS_ACTIVE_BG = "#edf4ff";
-const DOCS_HEADER_BG = "rgba(255,255,255,0.94)";
-const DOCS_SHADOW = "0 1px 2px rgba(26,44,68,0.04), 0 12px 24px rgba(26,44,68,0.03)";
+const DOCS_LIGHT = {
+  pageBg: "#ffffff",
+  sectionBg: "#f6f9fc",
+  surface: "#ffffff",
+  surfaceMuted: "#fbfdff",
+  border: alpha(STRIPE_TEXT_LIGHT, 0.08),
+  borderStrong: alpha(STRIPE_TEXT_LIGHT, 0.12),
+  activeBg: "#edf4ff",
+  headerBg: "rgba(255,255,255,0.94)",
+  shadow: "0 1px 2px rgba(26,44,68,0.04), 0 12px 24px rgba(26,44,68,0.03)",
+  text: STRIPE_TEXT_LIGHT,
+  subtle: STRIPE_SUBTLE_LIGHT,
+  accentText: "#0d47bf",
+  accentStrong: "#1f67ff",
+  brandSurface: "#0a2540",
+  buttonHover: "#082038",
+  brandContrast: "#ffffff",
+  codeText: "#16314f",
+};
+
+const DOCS_DARK = {
+  pageBg: "#0a0f1a",
+  sectionBg: "#0d1422",
+  surface: "#111b2e",
+  surfaceMuted: "#0d1627",
+  border: alpha("#dce7ff", 0.12),
+  borderStrong: alpha("#dce7ff", 0.2),
+  activeBg: "rgba(76, 127, 255, 0.16)",
+  headerBg: "rgba(10,15,26,0.92)",
+  shadow: "0 1px 2px rgba(0,0,0,0.32), 0 18px 36px rgba(0,0,0,0.24)",
+  text: "#e7eefb",
+  subtle: "#9fb0c9",
+  accentText: "#9cc0ff",
+  accentStrong: "#bfd2ff",
+  brandSurface: "#e7eefb",
+  buttonHover: "#d7e2f6",
+  brandContrast: "#0a2540",
+  codeText: "#dce7ff",
+};
 const STRIPE_TYPE = {
   overline: {
     fontFamily: FONT_STACK_SANS,
@@ -1022,6 +1055,7 @@ function CodePanel({
   label,
   code,
   language = "bash",
+  docsColors,
   copyId,
   copied,
   onCopy,
@@ -1031,9 +1065,9 @@ function CodePanel({
       sx={{
         minWidth: 0,
         borderRadius: 3,
-        border: `1px solid ${DOCS_BORDER}`,
-        background: DOCS_SURFACE,
-        boxShadow: DOCS_SHADOW,
+        border: `1px solid ${docsColors.border}`,
+        background: docsColors.surface,
+        boxShadow: docsColors.shadow,
         overflow: "hidden",
       }}
     >
@@ -1044,7 +1078,7 @@ function CodePanel({
         sx={{
           px: 2,
           py: 1.25,
-          borderBottom: `1px solid ${DOCS_BORDER}`,
+          borderBottom: `1px solid ${docsColors.border}`,
         }}
       >
         <Typography
@@ -1074,7 +1108,7 @@ function CodePanel({
                 onClick={() => onCopy(copyId, code)}
                 sx={{
                   color: copied ? "success.main" : "text.secondary",
-                  border: `1px solid ${DOCS_BORDER_STRONG}`,
+                  border: `1px solid ${docsColors.borderStrong}`,
                   borderRadius: 2,
                 }}
               >
@@ -1095,7 +1129,7 @@ function CodePanel({
           p: 2,
           overflowX: "auto",
           ...STRIPE_TYPE.mono,
-          color: STRIPE_TEXT_LIGHT,
+          color: docsColors.codeText,
         }}
       >
         <Box component="code">{code}</Box>
@@ -1104,16 +1138,16 @@ function CodePanel({
   );
 }
 
-function EndpointCard({ endpoint, copiedKey, onCopyCode }) {
+function EndpointCard({ endpoint, docsColors, copiedKey, onCopyCode }) {
   const isPublic = endpoint.auth === "Public";
 
   return (
     <Box
       sx={{
         borderRadius: 5,
-        border: `1px solid ${DOCS_BORDER}`,
-        background: DOCS_SURFACE,
-        boxShadow: DOCS_SHADOW,
+        border: `1px solid ${docsColors.border}`,
+        background: docsColors.surface,
+        boxShadow: docsColors.shadow,
         p: { xs: 2.2, md: 3 },
       }}
     >
@@ -1133,7 +1167,7 @@ function EndpointCard({ endpoint, copiedKey, onCopyCode }) {
                 fontWeight: 600,
                 letterSpacing: "0.06em",
                 borderRadius: 999,
-                ...getMethodPalette(endpoint.method, "light"),
+                ...getMethodPalette(endpoint.method, docsColors === DOCS_DARK ? "dark" : "light"),
               }}
             />
             <Chip
@@ -1143,7 +1177,7 @@ function EndpointCard({ endpoint, copiedKey, onCopyCode }) {
               variant="outlined"
               sx={{
                 borderRadius: 999,
-                borderColor: DOCS_BORDER_STRONG,
+                borderColor: docsColors.borderStrong,
                 color: "text.secondary",
               }}
             />
@@ -1154,8 +1188,8 @@ function EndpointCard({ endpoint, copiedKey, onCopyCode }) {
               px: 1.4,
               py: 0.85,
               borderRadius: 2.5,
-              bgcolor: DOCS_SECTION_BG,
-              color: STRIPE_TEXT_LIGHT,
+              bgcolor: docsColors.sectionBg,
+              color: docsColors.text,
               fontSize: "0.8rem",
               fontFamily: FONT_STACK_MONO,
               overflowX: "auto",
@@ -1246,6 +1280,7 @@ function EndpointCard({ endpoint, copiedKey, onCopyCode }) {
           <CodePanel
             label="Request"
             code={endpoint.request}
+            docsColors={docsColors}
             copyId={`${endpoint.method}-${endpoint.path}-request`}
             copied={copiedKey === `${endpoint.method}-${endpoint.path}-request`}
             onCopy={onCopyCode}
@@ -1254,6 +1289,7 @@ function EndpointCard({ endpoint, copiedKey, onCopyCode }) {
             label="Representative response"
             code={endpoint.response}
             language={endpoint.responseLang || "json"}
+            docsColors={docsColors}
             copyId={`${endpoint.method}-${endpoint.path}-response`}
             copied={copiedKey === `${endpoint.method}-${endpoint.path}-response`}
             onCopy={onCopyCode}
@@ -1296,10 +1332,31 @@ const endpointPropType = PropTypes.shape({
   notes: PropTypes.arrayOf(PropTypes.string),
 });
 
+const docsColorsPropType = PropTypes.shape({
+  pageBg: PropTypes.string.isRequired,
+  sectionBg: PropTypes.string.isRequired,
+  surface: PropTypes.string.isRequired,
+  surfaceMuted: PropTypes.string.isRequired,
+  border: PropTypes.string.isRequired,
+  borderStrong: PropTypes.string.isRequired,
+  activeBg: PropTypes.string.isRequired,
+  headerBg: PropTypes.string.isRequired,
+  shadow: PropTypes.string.isRequired,
+  text: PropTypes.string.isRequired,
+  subtle: PropTypes.string.isRequired,
+  accentText: PropTypes.string.isRequired,
+  accentStrong: PropTypes.string.isRequired,
+  brandSurface: PropTypes.string.isRequired,
+  buttonHover: PropTypes.string.isRequired,
+  brandContrast: PropTypes.string.isRequired,
+  codeText: PropTypes.string.isRequired,
+});
+
 CodePanel.propTypes = {
   label: PropTypes.string.isRequired,
   code: PropTypes.string.isRequired,
   language: PropTypes.string,
+  docsColors: docsColorsPropType.isRequired,
   copyId: PropTypes.string,
   copied: PropTypes.bool,
   onCopy: PropTypes.func,
@@ -1307,11 +1364,31 @@ CodePanel.propTypes = {
 
 EndpointCard.propTypes = {
   endpoint: endpointPropType.isRequired,
+  docsColors: docsColorsPropType.isRequired,
   copiedKey: PropTypes.string,
   onCopyCode: PropTypes.func,
 };
 
 export default function ApiDocsPage() {
+  const { isDark, toggleTheme } = useThemeMode();
+  const docsColors = isDark ? DOCS_DARK : DOCS_LIGHT;
+  const DOCS_PAGE_BG = docsColors.pageBg;
+  const DOCS_SECTION_BG = docsColors.sectionBg;
+  const DOCS_SURFACE = docsColors.surface;
+  const DOCS_SURFACE_MUTED = docsColors.surfaceMuted;
+  const DOCS_BORDER = docsColors.border;
+  const DOCS_BORDER_STRONG = docsColors.borderStrong;
+  const DOCS_ACTIVE_BG = docsColors.activeBg;
+  const DOCS_HEADER_BG = docsColors.headerBg;
+  const DOCS_SHADOW = docsColors.shadow;
+  const STRIPE_TEXT_LIGHT = docsColors.text;
+  const STRIPE_SUBTLE_LIGHT = docsColors.subtle;
+  const DOCS_ACCENT_TEXT = docsColors.accentText;
+  const DOCS_ACCENT_STRONG = docsColors.accentStrong;
+  const DOCS_BRAND_SURFACE = docsColors.brandSurface;
+  const DOCS_BUTTON_HOVER = docsColors.buttonHover;
+  const DOCS_BRAND_CONTRAST = docsColors.brandContrast;
+  const DOCS_CODE_TEXT = docsColors.codeText;
   const sectionIds = DOC_SECTIONS.map((section) => section.id);
   const [activeSection, setActiveSection] = useState(sectionIds[0]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -1496,8 +1573,8 @@ export default function ApiDocsPage() {
                       borderRadius: 2,
                       display: "grid",
                       placeItems: "center",
-                      bgcolor: "#0a2540",
-                      color: "#ffffff",
+                      bgcolor: DOCS_BRAND_SURFACE,
+                      color: DOCS_BRAND_CONTRAST,
                       fontFamily: FONT_STACK_SANS,
                       fontWeight: 700,
                       fontSize: "0.95rem",
@@ -1557,20 +1634,38 @@ export default function ApiDocsPage() {
                 </Stack>
               </Stack>
 
-              <Button
-                component={RouterLink}
-                to="/"
-                variant="outlined"
-                sx={{
-                  borderRadius: 999,
-                  textTransform: "none",
-                  borderColor: DOCS_BORDER_STRONG,
-                  color: STRIPE_TEXT_LIGHT,
-                  ...STRIPE_TYPE.label,
-                }}
-              >
-                Back to app
-              </Button>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Button
+                  component={RouterLink}
+                  to="/"
+                  variant="outlined"
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: "none",
+                    borderColor: DOCS_BORDER_STRONG,
+                    color: STRIPE_TEXT_LIGHT,
+                    ...STRIPE_TYPE.label,
+                  }}
+                >
+                  Back to app
+                </Button>
+                <IconButton
+                  aria-label={isDark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}
+                  onClick={toggleTheme}
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    border: `1px solid ${DOCS_BORDER_STRONG}`,
+                    color: STRIPE_TEXT_LIGHT,
+                  }}
+                >
+                  {isDark ? (
+                    <LightModeIcon fontSize="small" />
+                  ) : (
+                    <DarkModeIcon fontSize="small" />
+                  )}
+                </IconButton>
+              </Stack>
             </Stack>
           </Container>
         </Box>
@@ -1600,7 +1695,7 @@ export default function ApiDocsPage() {
                     sx={{
                       borderRadius: 999,
                       bgcolor: DOCS_ACTIVE_BG,
-                      color: "#0d47bf",
+                      color: DOCS_ACCENT_TEXT,
                       fontFamily: FONT_STACK_SANS,
                       fontWeight: 600,
                     }}
@@ -1687,10 +1782,10 @@ export default function ApiDocsPage() {
                           borderRadius: 999,
                           textTransform: "none",
                           ...STRIPE_TYPE.label,
-                          backgroundColor: "#0a2540",
-                          color: "#fff",
+                          backgroundColor: DOCS_BRAND_SURFACE,
+                          color: DOCS_BRAND_CONTRAST,
                           "&:hover": {
-                            backgroundColor: "#082038",
+                            backgroundColor: DOCS_BUTTON_HOVER,
                           },
                         }}
                       >
@@ -1743,7 +1838,7 @@ export default function ApiDocsPage() {
                               borderColor: DOCS_BORDER_STRONG,
                             },
                             "&.Mui-focused fieldset": {
-                              borderColor: "#0d47bf",
+                              borderColor: DOCS_ACCENT_TEXT,
                             },
                           },
                           "& .MuiOutlinedInput-input": {
@@ -1772,7 +1867,7 @@ export default function ApiDocsPage() {
                               borderColor: DOCS_BORDER_STRONG,
                               color:
                                 accessFilter === filter.value
-                                  ? "#0d47bf"
+                                  ? DOCS_ACCENT_TEXT
                                   : STRIPE_TEXT_LIGHT,
                             }}
                           />
@@ -1851,7 +1946,7 @@ export default function ApiDocsPage() {
                                     display: "grid",
                                     placeItems: "center",
                                     bgcolor: DOCS_ACTIVE_BG,
-                                    color: "#1f67ff",
+                                    color: DOCS_ACCENT_STRONG,
                                   }}
                                 >
                                   <Icon fontSize="small" />
@@ -1927,6 +2022,7 @@ export default function ApiDocsPage() {
                         code={`curl "${runtimeBaseUrl}/api/tournaments?limit=12&sort=-updatedAt" \\
   -H "Accept: application/json" \\
   -H "X-Request-Id: docs-demo-001"`}
+                        docsColors={docsColors}
                         copyId="quickstart"
                         copied={copiedKey === "quickstart"}
                         onCopy={copyCode}
@@ -1961,7 +2057,7 @@ export default function ApiDocsPage() {
                                 component="code"
                                 sx={{
                                   ...STRIPE_TYPE.mono,
-                                  color: "#16314f",
+                                  color: DOCS_CODE_TEXT,
                                 }}
                               >
                                 {header.value}
@@ -2284,6 +2380,7 @@ export default function ApiDocsPage() {
                           <EndpointCard
                             key={`${endpoint.method}-${endpoint.path}`}
                             endpoint={endpoint}
+                            docsColors={docsColors}
                             copiedKey={copiedKey}
                             onCopyCode={copyCode}
                           />
@@ -2300,3 +2397,4 @@ export default function ApiDocsPage() {
     </>
   );
 }
+
