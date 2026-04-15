@@ -2,6 +2,7 @@ import "@fontsource/source-code-pro/400.css";
 import PropTypes from "prop-types";
 import { useEffect, useMemo, useState } from "react";
 import { Helmet } from "react-helmet-async";
+import { Link as RouterLink } from "react-router-dom";
 import {
   alpha,
   Box,
@@ -14,7 +15,6 @@ import {
   TextField,
   Tooltip,
   Typography,
-  useTheme,
 } from "@mui/material";
 import {
   ApiRounded as ApiIcon,
@@ -38,6 +38,15 @@ const FONT_STACK_MONO =
   '"Source Code Pro", Menlo, Monaco, monospace';
 const STRIPE_TEXT_LIGHT = "#1a2c44";
 const STRIPE_SUBTLE_LIGHT = "#50617a";
+const DOCS_PAGE_BG = "#ffffff";
+const DOCS_SECTION_BG = "#f6f9fc";
+const DOCS_SURFACE = "#ffffff";
+const DOCS_SURFACE_MUTED = "#fbfdff";
+const DOCS_BORDER = alpha(STRIPE_TEXT_LIGHT, 0.08);
+const DOCS_BORDER_STRONG = alpha(STRIPE_TEXT_LIGHT, 0.12);
+const DOCS_ACTIVE_BG = "#edf4ff";
+const DOCS_HEADER_BG = "rgba(255,255,255,0.94)";
+const DOCS_SHADOW = "0 1px 2px rgba(26,44,68,0.04), 0 12px 24px rgba(26,44,68,0.03)";
 const STRIPE_TYPE = {
   overline: {
     fontFamily: FONT_STACK_SANS,
@@ -1013,27 +1022,18 @@ function CodePanel({
   label,
   code,
   language = "bash",
-  theme,
   copyId,
   copied,
   onCopy,
 }) {
-  const dark = theme.palette.mode === "dark";
-
   return (
     <Box
       sx={{
         minWidth: 0,
         borderRadius: 3,
-        border: `1px solid ${alpha(theme.palette.common.black, dark ? 0 : 0.06)}`,
-        background:
-          theme.palette.mode === "dark"
-            ? "linear-gradient(180deg, rgba(14,19,32,0.95), rgba(10,14,25,0.98))"
-            : "linear-gradient(180deg, #ffffff, #f8fafc)",
-        boxShadow:
-          theme.palette.mode === "dark"
-            ? "0 20px 42px rgba(0,0,0,0.28)"
-            : "0 20px 42px rgba(15, 23, 42, 0.06)",
+        border: `1px solid ${DOCS_BORDER}`,
+        background: DOCS_SURFACE,
+        boxShadow: DOCS_SHADOW,
         overflow: "hidden",
       }}
     >
@@ -1044,7 +1044,7 @@ function CodePanel({
         sx={{
           px: 2,
           py: 1.25,
-          borderBottom: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.06)}`,
+          borderBottom: `1px solid ${DOCS_BORDER}`,
         }}
       >
         <Typography
@@ -1074,7 +1074,7 @@ function CodePanel({
                 onClick={() => onCopy(copyId, code)}
                 sx={{
                   color: copied ? "success.main" : "text.secondary",
-                  border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.12 : 0.08)}`,
+                  border: `1px solid ${DOCS_BORDER_STRONG}`,
                   borderRadius: 2,
                 }}
               >
@@ -1095,8 +1095,7 @@ function CodePanel({
           p: 2,
           overflowX: "auto",
           ...STRIPE_TYPE.mono,
-          color:
-            theme.palette.mode === "dark" ? "#dce7ff" : STRIPE_TEXT_LIGHT,
+          color: STRIPE_TEXT_LIGHT,
         }}
       >
         <Box component="code">{code}</Box>
@@ -1105,23 +1104,16 @@ function CodePanel({
   );
 }
 
-function EndpointCard({ endpoint, theme, copiedKey, onCopyCode }) {
-  const dark = theme.palette.mode === "dark";
+function EndpointCard({ endpoint, copiedKey, onCopyCode }) {
   const isPublic = endpoint.auth === "Public";
 
   return (
     <Box
       sx={{
         borderRadius: 5,
-        border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.08)}`,
-        background:
-          theme.palette.mode === "dark"
-            ? "linear-gradient(180deg, rgba(18,24,39,0.92), rgba(10,14,25,0.98))"
-            : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96))",
-        boxShadow:
-          theme.palette.mode === "dark"
-            ? "0 26px 60px rgba(0,0,0,0.28)"
-            : "0 26px 60px rgba(15, 23, 42, 0.07)",
+        border: `1px solid ${DOCS_BORDER}`,
+        background: DOCS_SURFACE,
+        boxShadow: DOCS_SHADOW,
         p: { xs: 2.2, md: 3 },
       }}
     >
@@ -1141,7 +1133,7 @@ function EndpointCard({ endpoint, theme, copiedKey, onCopyCode }) {
                 fontWeight: 600,
                 letterSpacing: "0.06em",
                 borderRadius: 999,
-                ...getMethodPalette(endpoint.method, theme.palette.mode),
+                ...getMethodPalette(endpoint.method, "light"),
               }}
             />
             <Chip
@@ -1151,7 +1143,7 @@ function EndpointCard({ endpoint, theme, copiedKey, onCopyCode }) {
               variant="outlined"
               sx={{
                 borderRadius: 999,
-                borderColor: alpha(theme.palette.text.primary, dark ? 0.16 : 0.12),
+                borderColor: DOCS_BORDER_STRONG,
                 color: "text.secondary",
               }}
             />
@@ -1162,8 +1154,8 @@ function EndpointCard({ endpoint, theme, copiedKey, onCopyCode }) {
               px: 1.4,
               py: 0.85,
               borderRadius: 2.5,
-              bgcolor: alpha(theme.palette.text.primary, dark ? 0.08 : 0.04),
-              color: dark ? "#e8f0ff" : STRIPE_TEXT_LIGHT,
+              bgcolor: DOCS_SECTION_BG,
+              color: STRIPE_TEXT_LIGHT,
               fontSize: "0.8rem",
               fontFamily: FONT_STACK_MONO,
               overflowX: "auto",
@@ -1254,7 +1246,6 @@ function EndpointCard({ endpoint, theme, copiedKey, onCopyCode }) {
           <CodePanel
             label="Request"
             code={endpoint.request}
-            theme={theme}
             copyId={`${endpoint.method}-${endpoint.path}-request`}
             copied={copiedKey === `${endpoint.method}-${endpoint.path}-request`}
             onCopy={onCopyCode}
@@ -1263,7 +1254,6 @@ function EndpointCard({ endpoint, theme, copiedKey, onCopyCode }) {
             label="Representative response"
             code={endpoint.response}
             language={endpoint.responseLang || "json"}
-            theme={theme}
             copyId={`${endpoint.method}-${endpoint.path}-response`}
             copied={copiedKey === `${endpoint.method}-${endpoint.path}-response`}
             onCopy={onCopyCode}
@@ -1292,18 +1282,6 @@ function EndpointCard({ endpoint, theme, copiedKey, onCopyCode }) {
   );
 }
 
-const themePropType = PropTypes.shape({
-  palette: PropTypes.shape({
-    mode: PropTypes.oneOf(["light", "dark"]).isRequired,
-    common: PropTypes.shape({
-      black: PropTypes.string.isRequired,
-    }).isRequired,
-    text: PropTypes.shape({
-      primary: PropTypes.string.isRequired,
-    }).isRequired,
-  }).isRequired,
-});
-
 const endpointPropType = PropTypes.shape({
   method: PropTypes.string.isRequired,
   path: PropTypes.string.isRequired,
@@ -1322,7 +1300,6 @@ CodePanel.propTypes = {
   label: PropTypes.string.isRequired,
   code: PropTypes.string.isRequired,
   language: PropTypes.string,
-  theme: themePropType.isRequired,
   copyId: PropTypes.string,
   copied: PropTypes.bool,
   onCopy: PropTypes.func,
@@ -1330,14 +1307,11 @@ CodePanel.propTypes = {
 
 EndpointCard.propTypes = {
   endpoint: endpointPropType.isRequired,
-  theme: themePropType.isRequired,
   copiedKey: PropTypes.string,
   onCopyCode: PropTypes.func,
 };
 
 export default function ApiDocsPage() {
-  const theme = useTheme();
-  const dark = theme.palette.mode === "dark";
   const sectionIds = DOC_SECTIONS.map((section) => section.id);
   const [activeSection, setActiveSection] = useState(sectionIds[0]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -1474,43 +1448,139 @@ export default function ApiDocsPage() {
 
       <Box
         sx={{
-          minHeight: "100%",
+          minHeight: "100vh",
           fontFamily: FONT_STACK_SANS,
           WebkitFontSmoothing: "antialiased",
           MozOsxFontSmoothing: "grayscale",
-          background:
-            theme.palette.mode === "dark"
-              ? "linear-gradient(180deg, #07101f 0%, #091221 38%, #050912 100%)"
-              : "linear-gradient(180deg, #f4f7fb 0%, #f8fafc 28%, #ffffff 100%)",
-          color: theme.palette.mode === "dark" ? "text.primary" : STRIPE_TEXT_LIGHT,
+          background: DOCS_PAGE_BG,
+          color: STRIPE_TEXT_LIGHT,
         }}
       >
         <Box
+          component="header"
           sx={{
-            position: "relative",
-            overflow: "hidden",
-            borderBottom: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.06)}`,
+            position: "sticky",
+            top: 0,
+            zIndex: 40,
+            bgcolor: DOCS_HEADER_BG,
+            backdropFilter: "blur(12px)",
+            borderBottom: `1px solid ${DOCS_BORDER}`,
           }}
         >
-          <Box
-            sx={{
-              position: "absolute",
-              inset: 0,
-              pointerEvents: "none",
-              background: dark
-                ? `
-                  radial-gradient(circle at 12% 18%, rgba(31,103,255,0.2), transparent 32%),
-                  radial-gradient(circle at 88% 12%, rgba(15,118,110,0.18), transparent 30%),
-                  radial-gradient(circle at 78% 62%, rgba(36,85,209,0.18), transparent 34%)
-                `
-                : `
-                  radial-gradient(circle at 12% 18%, rgba(31,103,255,0.12), transparent 30%),
-                  radial-gradient(circle at 88% 12%, rgba(15,118,110,0.12), transparent 28%),
-                  radial-gradient(circle at 78% 62%, rgba(36,85,209,0.1), transparent 32%)
-                `,
-            }}
-          />
+          <Container
+            maxWidth={false}
+            sx={{ maxWidth: 1440, px: { xs: 2, md: 4, xl: 6 } }}
+          >
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+              spacing={2}
+              sx={{ minHeight: 72 }}
+            >
+              <Stack direction="row" spacing={{ xs: 2, lg: 3 }} alignItems="center">
+                <ButtonBase
+                  component={RouterLink}
+                  to="/"
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.2,
+                    borderRadius: 2,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 2,
+                      display: "grid",
+                      placeItems: "center",
+                      bgcolor: "#0a2540",
+                      color: "#ffffff",
+                      fontFamily: FONT_STACK_SANS,
+                      fontWeight: 700,
+                      fontSize: "0.95rem",
+                    }}
+                  >
+                    P
+                  </Box>
+                  <Stack spacing={0}>
+                    <Typography
+                      sx={{
+                        ...STRIPE_TYPE.overline,
+                        lineHeight: "0.9rem",
+                        color: STRIPE_SUBTLE_LIGHT,
+                      }}
+                    >
+                      PickleTour
+                    </Typography>
+                    <Typography
+                      sx={{
+                        ...STRIPE_TYPE.label,
+                        color: STRIPE_TEXT_LIGHT,
+                      }}
+                    >
+                      Docs
+                    </Typography>
+                  </Stack>
+                </ButtonBase>
 
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  sx={{ display: { xs: "none", lg: "flex" } }}
+                >
+                  {DOC_SECTIONS.map((section) => (
+                    <ButtonBase
+                      key={section.id}
+                      onClick={() => jumpToSection(section.id)}
+                      sx={{
+                        px: 1.25,
+                        py: 0.8,
+                        borderRadius: 2,
+                        color:
+                          activeSection === section.id
+                            ? STRIPE_TEXT_LIGHT
+                            : STRIPE_SUBTLE_LIGHT,
+                        bgcolor:
+                          activeSection === section.id
+                            ? DOCS_ACTIVE_BG
+                            : "transparent",
+                        ...STRIPE_TYPE.label,
+                        fontWeight: activeSection === section.id ? 600 : 400,
+                      }}
+                    >
+                      {section.eyebrow}
+                    </ButtonBase>
+                  ))}
+                </Stack>
+              </Stack>
+
+              <Button
+                component={RouterLink}
+                to="/"
+                variant="outlined"
+                sx={{
+                  borderRadius: 999,
+                  textTransform: "none",
+                  borderColor: DOCS_BORDER_STRONG,
+                  color: STRIPE_TEXT_LIGHT,
+                  ...STRIPE_TYPE.label,
+                }}
+              >
+                Back to app
+              </Button>
+            </Stack>
+          </Container>
+        </Box>
+
+        <Box
+          sx={{
+            borderBottom: `1px solid ${DOCS_BORDER}`,
+            bgcolor: DOCS_SECTION_BG,
+          }}
+        >
           <Container
             maxWidth={false}
             sx={{ maxWidth: 1440, px: { xs: 2, md: 4, xl: 6 } }}
@@ -1529,8 +1599,8 @@ export default function ApiDocsPage() {
                     label="User API docs"
                     sx={{
                       borderRadius: 999,
-                      bgcolor: alpha("#1f67ff", dark ? 0.18 : 0.1),
-                      color: dark ? "#b8cfff" : "#0d47bf",
+                      bgcolor: DOCS_ACTIVE_BG,
+                      color: "#0d47bf",
                       fontFamily: FONT_STACK_SANS,
                       fontWeight: 600,
                     }}
@@ -1544,6 +1614,9 @@ export default function ApiDocsPage() {
                     }
                     sx={{
                       borderRadius: 999,
+                      bgcolor: DOCS_SURFACE,
+                      borderColor: DOCS_BORDER_STRONG,
+                      color: STRIPE_SUBTLE_LIGHT,
                       fontFamily: FONT_STACK_SANS,
                       fontWeight: 600,
                     }}
@@ -1554,6 +1627,9 @@ export default function ApiDocsPage() {
                     label="REST + JSON"
                     sx={{
                       borderRadius: 999,
+                      bgcolor: DOCS_SURFACE,
+                      borderColor: DOCS_BORDER_STRONG,
+                      color: STRIPE_SUBTLE_LIGHT,
                       fontFamily: FONT_STACK_SANS,
                       fontWeight: 600,
                     }}
@@ -1578,7 +1654,7 @@ export default function ApiDocsPage() {
                       sx={{
                         ...STRIPE_TYPE.display,
                         maxWidth: 920,
-                        color: dark ? "text.primary" : STRIPE_TEXT_LIGHT,
+                        color: STRIPE_TEXT_LIGHT,
                       }}
                     >
                       Ship user flows on top of the same APIs the PickleTour clients already use.
@@ -1587,7 +1663,7 @@ export default function ApiDocsPage() {
                     <Typography
                       sx={{
                         ...STRIPE_TYPE.bodyLarge,
-                        color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                        color: STRIPE_SUBTLE_LIGHT,
                         maxWidth: 820,
                       }}
                     >
@@ -1611,10 +1687,10 @@ export default function ApiDocsPage() {
                           borderRadius: 999,
                           textTransform: "none",
                           ...STRIPE_TYPE.label,
-                          backgroundColor: "#0f172a",
+                          backgroundColor: "#0a2540",
                           color: "#fff",
                           "&:hover": {
-                            backgroundColor: "#0b1220",
+                            backgroundColor: "#082038",
                           },
                         }}
                       >
@@ -1657,13 +1733,18 @@ export default function ApiDocsPage() {
                           maxWidth: 760,
                           "& .MuiOutlinedInput-root": {
                             borderRadius: 999,
-                            backgroundColor: alpha(
-                              theme.palette.background.paper,
-                              dark ? 0.28 : 0.86,
-                            ),
-                            backdropFilter: "blur(12px)",
+                            backgroundColor: DOCS_SURFACE,
                             fontFamily: FONT_STACK_SANS,
-                            color: dark ? "text.primary" : STRIPE_TEXT_LIGHT,
+                            color: STRIPE_TEXT_LIGHT,
+                            "& fieldset": {
+                              borderColor: DOCS_BORDER_STRONG,
+                            },
+                            "&:hover fieldset": {
+                              borderColor: DOCS_BORDER_STRONG,
+                            },
+                            "&.Mui-focused fieldset": {
+                              borderColor: "#0d47bf",
+                            },
                           },
                           "& .MuiOutlinedInput-input": {
                             ...STRIPE_TYPE.body,
@@ -1686,14 +1767,13 @@ export default function ApiDocsPage() {
                               ...STRIPE_TYPE.label,
                               bgcolor:
                                 accessFilter === filter.value
-                                  ? alpha("#1f67ff", dark ? 0.24 : 0.14)
-                                  : "transparent",
+                                  ? DOCS_ACTIVE_BG
+                                  : DOCS_SURFACE,
+                              borderColor: DOCS_BORDER_STRONG,
                               color:
                                 accessFilter === filter.value
-                                  ? dark
-                                    ? "#bfd2ff"
-                                    : "#0d47bf"
-                                  : "text.primary",
+                                  ? "#0d47bf"
+                                  : STRIPE_TEXT_LIGHT,
                             }}
                           />
                         ))}
@@ -1748,15 +1828,9 @@ export default function ApiDocsPage() {
                             sx={{
                               textAlign: "left",
                               borderRadius: 4,
-                              border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.1 : 0.08)}`,
-                              background:
-                                theme.palette.mode === "dark"
-                                  ? "linear-gradient(180deg, rgba(17,24,39,0.9), rgba(10,14,25,0.96))"
-                                  : "linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.94))",
-                              boxShadow:
-                                theme.palette.mode === "dark"
-                                  ? "0 20px 44px rgba(0,0,0,0.22)"
-                                  : "0 20px 44px rgba(15, 23, 42, 0.06)",
+                              border: `1px solid ${DOCS_BORDER}`,
+                              background: DOCS_SURFACE,
+                              boxShadow: DOCS_SHADOW,
                               px: 2,
                               py: 1.8,
                               justifyContent: "flex-start",
@@ -1776,8 +1850,8 @@ export default function ApiDocsPage() {
                                     borderRadius: 3,
                                     display: "grid",
                                     placeItems: "center",
-                                    bgcolor: alpha("#1f67ff", dark ? 0.18 : 0.1),
-                                    color: dark ? "#bfd2ff" : "#1f67ff",
+                                    bgcolor: DOCS_ACTIVE_BG,
+                                    color: "#1f67ff",
                                   }}
                                 >
                                   <Icon fontSize="small" />
@@ -1797,7 +1871,7 @@ export default function ApiDocsPage() {
                               <Typography
                                 sx={{
                                   ...STRIPE_TYPE.body,
-                                  color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                                  color: STRIPE_SUBTLE_LIGHT,
                                 }}
                               >
                                 {item.detail}
@@ -1812,15 +1886,9 @@ export default function ApiDocsPage() {
                   <Box
                     sx={{
                       borderRadius: 5,
-                      border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.12 : 0.08)}`,
-                      background:
-                        theme.palette.mode === "dark"
-                          ? "linear-gradient(180deg, rgba(16,22,36,0.95), rgba(9,13,24,0.98))"
-                          : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(246,249,252,0.98))",
-                      boxShadow:
-                        theme.palette.mode === "dark"
-                          ? "0 26px 60px rgba(0,0,0,0.26)"
-                          : "0 26px 60px rgba(15, 23, 42, 0.08)",
+                      border: `1px solid ${DOCS_BORDER_STRONG}`,
+                      background: DOCS_SURFACE,
+                      boxShadow: DOCS_SHADOW,
                       p: { xs: 2.2, md: 2.6 },
                     }}
                   >
@@ -1846,7 +1914,7 @@ export default function ApiDocsPage() {
                         <Typography
                           sx={{
                             ...STRIPE_TYPE.body,
-                            color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                            color: STRIPE_SUBTLE_LIGHT,
                           }}
                         >
                           Current frontend clients use a shared base query with
@@ -1859,7 +1927,6 @@ export default function ApiDocsPage() {
                         code={`curl "${runtimeBaseUrl}/api/tournaments?limit=12&sort=-updatedAt" \\
   -H "Accept: application/json" \\
   -H "X-Request-Id: docs-demo-001"`}
-                        theme={theme}
                         copyId="quickstart"
                         copied={copiedKey === "quickstart"}
                         onCopy={copyCode}
@@ -1871,7 +1938,8 @@ export default function ApiDocsPage() {
                             key={header.name}
                             sx={{
                               borderRadius: 3,
-                              border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.06)}`,
+                              border: `1px solid ${DOCS_BORDER}`,
+                              bgcolor: DOCS_SURFACE_MUTED,
                               px: 1.6,
                               py: 1.4,
                             }}
@@ -1884,7 +1952,7 @@ export default function ApiDocsPage() {
                               <Typography
                                 sx={{
                                   ...STRIPE_TYPE.label,
-                                  color: dark ? "text.primary" : STRIPE_TEXT_LIGHT,
+                                  color: STRIPE_TEXT_LIGHT,
                                 }}
                               >
                                 {header.name}
@@ -1893,7 +1961,7 @@ export default function ApiDocsPage() {
                                 component="code"
                                 sx={{
                                   ...STRIPE_TYPE.mono,
-                                  color: dark ? "#dce7ff" : "#16314f",
+                                  color: "#16314f",
                                 }}
                               >
                                 {header.value}
@@ -1941,11 +2009,8 @@ export default function ApiDocsPage() {
                 <Box
                   sx={{
                     borderRadius: 4,
-                    border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.08)}`,
-                    background:
-                      theme.palette.mode === "dark"
-                        ? "linear-gradient(180deg, rgba(17,24,39,0.92), rgba(10,14,25,0.98))"
-                        : "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.98))",
+                    border: `1px solid ${DOCS_BORDER}`,
+                    background: DOCS_SURFACE_MUTED,
                     p: 2,
                   }}
                 >
@@ -1972,7 +2037,7 @@ export default function ApiDocsPage() {
                     <Typography
                       sx={{
                         ...STRIPE_TYPE.body,
-                        color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                        color: STRIPE_SUBTLE_LIGHT,
                       }}
                     >
                       {filteredEndpointCount} visible endpoints across the current
@@ -1995,10 +2060,10 @@ export default function ApiDocsPage() {
                           textAlign: "left",
                           justifyContent: "flex-start",
                           borderRadius: 3.5,
-                          border: `1px solid ${alpha(theme.palette.text.primary, active ? 0.14 : dark ? 0.08 : 0.07)}`,
+                          border: `1px solid ${active ? DOCS_BORDER_STRONG : DOCS_BORDER}`,
                           background: active
-                            ? alpha(section.accent, dark ? 0.18 : 0.08)
-                            : "transparent",
+                            ? DOCS_ACTIVE_BG
+                            : DOCS_SURFACE,
                           px: 1.4,
                           py: 1.3,
                         }}
@@ -2017,8 +2082,8 @@ export default function ApiDocsPage() {
                               display: "grid",
                               placeItems: "center",
                               bgcolor: active
-                                ? alpha(section.accent, dark ? 0.2 : 0.12)
-                                : alpha(theme.palette.text.primary, dark ? 0.08 : 0.04),
+                                ? alpha(section.accent, 0.12)
+                                : DOCS_SECTION_BG,
                               color: active ? section.accent : "text.secondary",
                               flexShrink: 0,
                             }}
@@ -2039,7 +2104,7 @@ export default function ApiDocsPage() {
                               variant="body2"
                               sx={{
                                 ...STRIPE_TYPE.bodySmall,
-                                color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                                color: STRIPE_SUBTLE_LIGHT,
                                 whiteSpace: "nowrap",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
@@ -2057,11 +2122,8 @@ export default function ApiDocsPage() {
                 <Box
                   sx={{
                     borderRadius: 4,
-                    border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.08)}`,
-                    background:
-                      theme.palette.mode === "dark"
-                        ? "linear-gradient(180deg, rgba(17,24,39,0.92), rgba(10,14,25,0.98))"
-                        : "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.98))",
+                    border: `1px solid ${DOCS_BORDER}`,
+                    background: DOCS_SURFACE_MUTED,
                     p: 2,
                   }}
                 >
@@ -2079,7 +2141,7 @@ export default function ApiDocsPage() {
                     <Typography
                       sx={{
                         ...STRIPE_TYPE.body,
-                        color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                        color: STRIPE_SUBTLE_LIGHT,
                       }}
                     >
                       Need a new endpoint group or an OpenAPI export for these
@@ -2093,6 +2155,8 @@ export default function ApiDocsPage() {
                         alignSelf: "flex-start",
                         borderRadius: 999,
                         textTransform: "none",
+                        borderColor: DOCS_BORDER_STRONG,
+                        color: STRIPE_TEXT_LIGHT,
                         ...STRIPE_TYPE.label,
                       }}
                     >
@@ -2108,11 +2172,8 @@ export default function ApiDocsPage() {
                 <Box
                   sx={{
                     borderRadius: 5,
-                    border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.06)}`,
-                    background:
-                      theme.palette.mode === "dark"
-                        ? "linear-gradient(180deg, rgba(12,18,32,0.86), rgba(7,10,18,0.95))"
-                        : "linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.88))",
+                    border: `1px solid ${DOCS_BORDER}`,
+                    background: DOCS_SURFACE,
                     p: { xs: 2.2, md: 3 },
                   }}
                 >
@@ -2128,7 +2189,7 @@ export default function ApiDocsPage() {
                     <Typography
                       sx={{
                         ...STRIPE_TYPE.body,
-                        color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                        color: STRIPE_SUBTLE_LIGHT,
                       }}
                     >
                       Try a broader keyword or switch the access filter back to
@@ -2148,11 +2209,8 @@ export default function ApiDocsPage() {
                     sx={{
                       scrollMarginTop: { xs: 96, md: 132 },
                       borderRadius: 5,
-                      border: `1px solid ${alpha(theme.palette.text.primary, dark ? 0.08 : 0.06)}`,
-                      background:
-                        theme.palette.mode === "dark"
-                          ? "linear-gradient(180deg, rgba(12,18,32,0.86), rgba(7,10,18,0.95))"
-                          : "linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.88))",
+                      border: `1px solid ${DOCS_BORDER}`,
+                      background: DOCS_SURFACE,
                       p: { xs: 2, md: 2.6 },
                     }}
                   >
@@ -2166,7 +2224,7 @@ export default function ApiDocsPage() {
                               borderRadius: 3,
                               display: "grid",
                               placeItems: "center",
-                              bgcolor: alpha(section.accent, dark ? 0.2 : 0.1),
+                              bgcolor: alpha(section.accent, 0.1),
                               color: section.accent,
                             }}
                           >
@@ -2196,7 +2254,7 @@ export default function ApiDocsPage() {
                         <Typography
                           sx={{
                             ...STRIPE_TYPE.body,
-                            color: dark ? "text.secondary" : STRIPE_SUBTLE_LIGHT,
+                            color: STRIPE_SUBTLE_LIGHT,
                           }}
                         >
                           {section.summary}
@@ -2207,8 +2265,8 @@ export default function ApiDocsPage() {
                             borderRadius: 3,
                             px: 1.4,
                             py: 1.2,
-                            bgcolor: alpha(section.accent, dark ? 0.12 : 0.06),
-                            color: dark ? "#dce7ff" : STRIPE_TEXT_LIGHT,
+                            bgcolor: DOCS_SECTION_BG,
+                            color: STRIPE_TEXT_LIGHT,
                           }}
                         >
                           <Typography
@@ -2226,7 +2284,6 @@ export default function ApiDocsPage() {
                           <EndpointCard
                             key={`${endpoint.method}-${endpoint.path}`}
                             endpoint={endpoint}
-                            theme={theme}
                             copiedKey={copiedKey}
                             onCopyCode={copyCode}
                           />

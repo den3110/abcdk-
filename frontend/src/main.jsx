@@ -122,8 +122,6 @@ const router = sentryCreateBrowserRouter(
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/status" element={<StatusPage />} />
-        <Route path="/docs" element={<Navigate to="/docs/api" replace />} />
-        <Route path="/docs/api" element={<ApiDocsPage />} />
         <Route path="/cookies" element={<CookiesPage />} />
         <Route path="/privacy-and-policy" element={<PrivacyPage />} />
         <Route path="/terms-of-service" element={<TermsPage />} />
@@ -171,6 +169,8 @@ const router = sentryCreateBrowserRouter(
         <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>
+      <Route path="/docs" element={<Navigate to="/docs/api" replace />} />
+      <Route path="/docs/api" element={<ApiDocsPage />} />
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />
       <Route path="/studio/live" element={<LiveStudioPage />} />
