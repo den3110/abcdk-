@@ -1031,11 +1031,322 @@ END:VCALENDAR`,
         response: `{
   "matchId": "match-id",
   "status": "LIVE",
+  "winner": "",
   "tournament": {
     "id": "tour-id",
     "name": "Open Spring Cup",
-    "eventType": "double"
+    "image": "https://cdn.example.com/tournaments/open-spring-cup.jpg",
+    "nameDisplayMode": "nickname",
+    "displayNameMode": "nickname",
+    "eventType": "double",
+    "overlay": {
+      "theme": "dark",
+      "accentA": "#25C2A0",
+      "accentB": "#4F46E5"
+    },
+    "webLogoUrl": "/uploads/overlay/web-logo.png",
+    "webLogoAlt": "PickleTour",
+    "sponsors": [
+      {
+        "id": "sponsor-id",
+        "name": "Demo Sponsor",
+        "slug": "demo-sponsor",
+        "logoUrl": "/uploads/sponsors/demo.png",
+        "websiteUrl": "https://example.com",
+        "refLink": "https://example.com/ref",
+        "tier": "gold",
+        "featured": true,
+        "weight": 100
+      }
+    ]
   },
+  "bracket": {
+    "id": "bracket-id",
+    "type": "knockout",
+    "name": "Main Draw",
+    "order": 1,
+    "stage": "main",
+    "overlay": {
+      "theme": "dark"
+    },
+    "drawRounds": 4,
+    "drawStatus": "ready",
+    "noRankDelta": false,
+    "groups": [
+      {
+        "id": "group-a",
+        "name": "Group A",
+        "expectedSize": 4,
+        "size": 4
+      }
+    ]
+  },
+  "bracketType": "knockout",
+  "format": "knockout",
+  "branch": "main",
+  "phase": null,
+  "pool": {
+    "id": null,
+    "name": ""
+  },
+  "roundCode": "SF",
+  "roundName": "Semi Final",
+  "round": 3,
+  "roundSize": 4,
+  "stageType": "playoff",
+  "stageName": "Bán kết",
+  "seeds": {
+    "A": 1,
+    "B": 4
+  },
+  "code": "M-203",
+  "labelKey": "sf-1",
+  "stageIndex": 5,
+  "teams": {
+    "A": {
+      "name": "pickle.alpha & pickle.beta",
+      "displayName": "pickle.alpha & pickle.beta",
+      "displayNameMode": "nickname",
+      "players": [
+        {
+          "id": "user-a",
+          "nickname": "pickle.alpha",
+          "fullName": "Player Alpha",
+          "name": "Player Alpha",
+          "displayName": "pickle.alpha",
+          "displayNameMode": "nickname",
+          "shortName": "Alpha"
+        },
+        {
+          "id": "user-b",
+          "nickname": "pickle.beta",
+          "fullName": "Player Beta",
+          "name": "Player Beta",
+          "displayName": "pickle.beta",
+          "displayNameMode": "nickname",
+          "shortName": "Beta"
+        }
+      ],
+      "seed": 1,
+      "label": "Team A",
+      "teamName": "Alpha / Beta"
+    },
+    "B": {
+      "name": "pickle.gamma & pickle.delta",
+      "displayName": "pickle.gamma & pickle.delta",
+      "displayNameMode": "nickname",
+      "players": [
+        {
+          "id": "user-c",
+          "nickname": "pickle.gamma",
+          "fullName": "Player Gamma",
+          "name": "Player Gamma",
+          "displayName": "pickle.gamma",
+          "displayNameMode": "nickname",
+          "shortName": "Gamma"
+        },
+        {
+          "id": "user-d",
+          "nickname": "pickle.delta",
+          "fullName": "Player Delta",
+          "name": "Player Delta",
+          "displayName": "pickle.delta",
+          "displayNameMode": "nickname",
+          "shortName": "Delta"
+        }
+      ],
+      "seed": 4,
+      "label": "Team B",
+      "teamName": "Gamma / Delta"
+    }
+  },
+  "pairA": {
+    "id": "reg-a",
+    "seed": 1,
+    "label": "Team A",
+    "teamName": "Alpha / Beta",
+    "displayName": "pickle.alpha & pickle.beta",
+    "displayNameMode": "nickname"
+  },
+  "pairB": {
+    "id": "reg-b",
+    "seed": 4,
+    "label": "Team B",
+    "teamName": "Gamma / Delta",
+    "displayName": "pickle.gamma & pickle.delta",
+    "displayNameMode": "nickname"
+  },
+  "rules": {
+    "bestOf": 3,
+    "pointsToWin": 11,
+    "winByTwo": true,
+    "cap": {
+      "mode": "none",
+      "points": null
+    }
+  },
+  "currentGame": 1,
+  "serve": {
+    "side": "A",
+    "server": 1,
+    "serverId": {
+      "id": "user-a",
+      "name": "Player Alpha",
+      "nickname": "pickle.alpha"
+    }
+  },
+  "gameScores": [
+    {
+      "a": 11,
+      "b": 7
+    },
+    {
+      "a": 6,
+      "b": 4
+    }
+  ],
+  "sets": {
+    "A": 1,
+    "B": 0
+  },
+  "needSetsToWin": 2,
+  "court": {
+    "id": "court-id",
+    "name": "Court 1",
+    "number": 1,
+    "code": "C1",
+    "label": "Center Court",
+    "zone": "A",
+    "venue": "Main Hall",
+    "building": "Arena 1",
+    "floor": "2",
+    "cluster": "Championship",
+    "group": "TV"
+  },
+  "courtId": "court-id",
+  "courtName": "Court 1",
+  "courtNo": 1,
+  "queueOrder": 2,
+  "referees": [
+    {
+      "id": "referee-id",
+      "name": "Referee Demo",
+      "nickname": "ref.demo"
+    }
+  ],
+  "referee": {
+    "id": "referee-id",
+    "name": "Referee Demo",
+    "nickname": "ref.demo"
+  },
+  "liveBy": {
+    "id": "staff-id",
+    "name": "Live Operator",
+    "nickname": "live.ops"
+  },
+  "previousA": {
+    "id": "prev-match-a",
+    "round": 2,
+    "order": 3,
+    "code": "QF-1"
+  },
+  "previousB": {
+    "id": "prev-match-b",
+    "round": 2,
+    "order": 4,
+    "code": "QF-2"
+  },
+  "nextMatch": {
+    "id": "final-match-id",
+    "round": 4,
+    "order": 1,
+    "code": "F-1",
+    "slot": "A"
+  },
+  "scheduledAt": "2026-05-12T08:00:00.000Z",
+  "assignedAt": "2026-05-12T08:20:00.000Z",
+  "startedAt": "2026-05-12T08:32:10.000Z",
+  "finishedAt": null,
+  "updatedAt": "2026-05-12T08:39:02.000Z",
+  "createdAt": "2026-05-10T03:15:00.000Z",
+  "video": "https://stream.example.com/live.m3u8",
+  "streams": [
+    {
+      "provider": "manual",
+      "url": "https://stream.example.com/live.m3u8"
+    }
+  ],
+  "liveVersion": 14,
+  "liveLogTail": [
+    {
+      "type": "point",
+      "team": "A",
+      "at": "2026-05-12T08:38:41.000Z"
+    }
+  ],
+  "participants": [
+    "user-a",
+    "user-b",
+    "user-c",
+    "user-d"
+  ],
+  "overlay": {
+    "theme": "dark",
+    "accentA": "#25C2A0",
+    "accentB": "#4F46E5",
+    "corner": "tl",
+    "rounded": 18,
+    "shadow": true,
+    "showSets": true,
+    "fontFamily": "",
+    "nameScale": 1,
+    "scoreScale": 1,
+    "customCss": "",
+    "size": "md",
+    "scaleScore": 1,
+    "enabled": true,
+    "showClock": true,
+    "webLogoUrl": "/uploads/overlay/web-logo.png",
+    "webLogoAlt": "PickleTour",
+    "sponsorLogos": [
+      "/uploads/sponsors/demo.png"
+    ]
+  },
+  "meta": {
+    "broadcast": "main-stream"
+  },
+  "note": "Warmup completed",
+  "rating": {
+    "delta": 0,
+    "applied": false,
+    "appliedAt": null
+  },
+  "isBreak": {
+    "active": false,
+    "afterGame": null,
+    "note": "",
+    "startedAt": null,
+    "expectedResumeAt": null
+  }
+}`,
+        notes: [
+          "This is the public snapshot endpoint currently used by /overlay/score and live studio overlay fetches.",
+          "The backend accepts both regular match ids and user-match ids on this route.",
+          "For user-match payloads, tournament.id can be null and tournament-level fields are reduced compared with normal tournament matches.",
+          "serve.serverId may be a populated object or a raw id string, depending on what the backend resolved for that match.",
+          "The controller returns no-store headers, so clients should treat the payload as live state rather than cacheable reference data.",
+        ],
+        cases: [
+          {
+            title: "Finished tournament match",
+            summary:
+              "Normal tournament match after completion, with winner, final score, rating flag and finished timestamps.",
+            response: `{
+  "matchId": "finished-match-id",
+  "status": "FINISHED",
+  "winner": "A",
+  "stageType": "playoff",
+  "stageName": "Chung kết",
   "teams": {
     "A": {
       "displayName": "pickle.alpha & pickle.beta"
@@ -1044,39 +1355,193 @@ END:VCALENDAR`,
       "displayName": "pickle.gamma & pickle.delta"
     }
   },
-  "rules": {
-    "bestOf": 3,
-    "pointsToWin": 11,
-    "winByTwo": true
-  },
-  "currentGame": 1,
   "gameScores": [
-    { "a": 11, "b": 7 },
-    { "a": 6, "b": 4 }
+    {
+      "a": 11,
+      "b": 8
+    },
+    {
+      "a": 9,
+      "b": 11
+    },
+    {
+      "a": 11,
+      "b": 6
+    }
+  ],
+  "sets": {
+    "A": 2,
+    "B": 1
+  },
+  "needSetsToWin": 2,
+  "scheduledAt": "2026-05-12T09:00:00.000Z",
+  "startedAt": "2026-05-12T09:08:14.000Z",
+  "finishedAt": "2026-05-12T09:41:53.000Z",
+  "updatedAt": "2026-05-12T09:41:53.000Z",
+  "rating": {
+    "delta": 8.5,
+    "applied": true,
+    "appliedAt": "2026-05-12T09:42:03.000Z"
+  },
+  "isBreak": {
+    "active": false,
+    "afterGame": null,
+    "note": "",
+    "startedAt": null,
+    "expectedResumeAt": null
+  }
+}`,
+          },
+          {
+            title: "Break active between games",
+            summary:
+              "Live match with an active timeout or break after a finished game.",
+            response: `{
+  "matchId": "break-match-id",
+  "status": "LIVE",
+  "currentGame": 2,
+  "gameScores": [
+    {
+      "a": 11,
+      "b": 7
+    },
+    {
+      "a": 0,
+      "b": 0
+    }
   ],
   "sets": {
     "A": 1,
     "B": 0
   },
-  "court": {
-    "id": "court-id",
-    "name": "Court 1",
-    "number": 1
-  },
   "serve": {
-    "side": "A",
-    "server": 1
+    "side": "B",
+    "server": 2,
+    "serverId": "user-d"
+  },
+  "isBreak": {
+    "active": true,
+    "afterGame": 1,
+    "note": "Medical timeout",
+    "startedAt": "2026-05-12T10:04:00.000Z",
+    "expectedResumeAt": "2026-05-12T10:07:00.000Z"
   },
   "overlay": {
     "theme": "dark",
+    "showClock": true,
     "showSets": true,
-    "webLogoUrl": "https://cdn.example.com/logo.png"
+    "enabled": true
   }
 }`,
-        notes: [
-          "This is the public snapshot endpoint currently used by /overlay/score and live studio overlay fetches.",
-          "The backend accepts both regular match ids and user-match ids on this route.",
+          },
+          {
+            title: "Invalid match id",
+            summary:
+              "Validation branch when the supplied id is not a Mongo object id.",
+            label: "400 response",
+            response: `{
+  "message": "Invalid match id"
+}`,
+          },
+          {
+            title: "Match not found",
+            summary:
+              "Valid object id format, but no Match or UserMatch exists for that id.",
+            label: "404 response",
+            response: `{
+  "message": "Match not found"
+}`,
+          },
+          {
+            title: "User match payload",
+            summary:
+              "User-created match branch, where tournament metadata is reduced and stageType becomes user_match.",
+            response: `{
+  "matchId": "user-match-id",
+  "status": "LIVE",
+  "winner": "",
+  "tournament": {
+    "id": null,
+    "name": "Friendly Saturday Match",
+    "image": "",
+    "nameDisplayMode": "nickname",
+    "displayNameMode": "nickname",
+    "eventType": "double"
+  },
+  "bracket": null,
+  "stageType": "user_match",
+  "stageName": "Trận đấu PickleTour",
+  "teams": {
+    "A": {
+      "displayName": "friendly.a & friendly.b"
+    },
+    "B": {
+      "displayName": "friendly.c & friendly.d"
+    }
+  },
+  "court": {
+    "id": "court-id",
+    "name": "Court 5",
+    "number": 5
+  },
+  "participants": null,
+  "overlay": {
+    "theme": "dark",
+    "size": "md",
+    "enabled": true
+  }
+}`,
+          },
+          {
+            title: "Queued match before court assignment",
+            summary:
+              "Pre-live state where the match exists, but court and stream fields can still be null or absent.",
+            response: `{
+  "matchId": "queued-match-id",
+  "status": "QUEUED",
+  "winner": "",
+  "roundCode": "R16",
+  "round": 2,
+  "queueOrder": 6,
+  "court": null,
+  "courtId": null,
+  "courtName": null,
+  "video": null,
+  "streams": [],
+  "scheduledAt": null,
+  "assignedAt": null,
+  "startedAt": null,
+  "finishedAt": null,
+  "serve": {
+    "side": "A",
+    "server": 2,
+    "serverId": null
+  },
+  "isBreak": {
+    "active": false,
+    "afterGame": null,
+    "note": "",
+    "startedAt": null,
+    "expectedResumeAt": null
+  }
+}`,
+          },
         ],
+        tester: {
+          title: "Run the overlay snapshot endpoint",
+          summary:
+            "Enter a real match id or user-match id to fetch the live overlay payload directly from this docs page.",
+          method: "GET",
+          pathTemplate: "/api/overlay/match/:id",
+          pathParams: [
+            {
+              name: "id",
+              label: "Match ID",
+              placeholder: "663ca5f1c7b5e4a2ab123456",
+              defaultValue: "",
+            },
+          ],
+        },
       },
     ],
   },
@@ -1118,6 +1583,11 @@ function endpointMatchesSearch(endpoint, searchTerm) {
     ...(endpoint.query || []),
     ...(endpoint.body || []),
     ...(endpoint.notes || []),
+    ...((endpoint.cases || []).flatMap((item) => [
+      item.title,
+      item.summary,
+      item.response,
+    ])),
   ]
     .map(normalizeText)
     .join(" ");
@@ -1134,6 +1604,15 @@ function sectionMatchesSearch(section, searchTerm) {
     .join(" ");
 
   return haystack.includes(query);
+}
+
+function buildTesterUrl(baseUrl, pathTemplate, values = {}) {
+  const normalizedBase = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const resolvedPath = Object.entries(values).reduce((path, [key, value]) => {
+    return path.replace(`:${key}`, encodeURIComponent(String(value || "").trim()));
+  }, pathTemplate);
+
+  return `${normalizedBase}${resolvedPath}`;
 }
 
 function CodePanel({
@@ -1223,7 +1702,197 @@ function CodePanel({
   );
 }
 
-function EndpointCard({ endpoint, docsColors, copiedKey, onCopyCode }) {
+function EndpointTester({
+  tester,
+  docsColors,
+  runtimeBaseUrl,
+  copiedKey,
+  onCopyCode,
+}) {
+  const initialParams = (tester.pathParams || []).reduce((acc, item) => {
+    acc[item.name] = item.defaultValue || "";
+    return acc;
+  }, {});
+
+  const [baseUrl, setBaseUrl] = useState(runtimeBaseUrl);
+  const [params, setParams] = useState(initialParams);
+  const [isRunning, setIsRunning] = useState(false);
+  const [statusText, setStatusText] = useState("");
+  const [responseText, setResponseText] = useState("");
+  const [requestError, setRequestError] = useState("");
+
+  const requestUrl = buildTesterUrl(baseUrl, tester.pathTemplate, params);
+  const missingRequiredParam = (tester.pathParams || []).some(
+    (item) => item.required !== false && !String(params[item.name] || "").trim(),
+  );
+
+  const handleParamChange = (name, value) => {
+    setParams((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const runRequest = async () => {
+    if (missingRequiredParam) return;
+
+    setIsRunning(true);
+    setRequestError("");
+    setStatusText("");
+    setResponseText("");
+
+    try {
+      const response = await fetch(requestUrl, {
+        method: tester.method || "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      const rawText = await response.text();
+      let prettyText = rawText;
+
+      try {
+        prettyText = JSON.stringify(JSON.parse(rawText), null, 2);
+      } catch {
+        prettyText = rawText;
+      }
+
+      setStatusText(`${response.status} ${response.statusText}`.trim());
+      setResponseText(prettyText || "<empty response>");
+    } catch (error) {
+      setRequestError(error?.message || "Request failed");
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <Stack
+      spacing={1.25}
+      sx={{
+        borderRadius: 3,
+        border: `1px solid ${docsColors.border}`,
+        background: docsColors.surfaceMuted,
+        p: 1.4,
+      }}
+    >
+      <Stack spacing={0.35}>
+        <Typography
+          sx={{
+            ...STRIPE_TYPE.overline,
+            color: "text.secondary",
+          }}
+        >
+          Test environment
+        </Typography>
+        <Typography
+          sx={{
+            ...STRIPE_TYPE.label,
+            color: docsColors.text,
+          }}
+        >
+          {tester.title || "Run a live request"}
+        </Typography>
+        <Typography
+          sx={{
+            ...STRIPE_TYPE.bodySmall,
+            color: "text.secondary",
+          }}
+        >
+          {tester.summary ||
+            "Browser test console for this public GET endpoint. It depends on the configured base URL and browser CORS access."}
+        </Typography>
+      </Stack>
+
+      <Stack spacing={1}>
+        <TextField
+          label="Base URL"
+          size="small"
+          value={baseUrl}
+          onChange={(event) => setBaseUrl(event.target.value)}
+          fullWidth
+          sx={{
+            "& .MuiOutlinedInput-root": {
+              backgroundColor: docsColors.surface,
+            },
+          }}
+        />
+
+        {(tester.pathParams || []).map((item) => (
+          <TextField
+            key={item.name}
+            label={item.label}
+            size="small"
+            value={params[item.name] || ""}
+            onChange={(event) => handleParamChange(item.name, event.target.value)}
+            placeholder={item.placeholder}
+            fullWidth
+            sx={{
+              "& .MuiOutlinedInput-root": {
+                backgroundColor: docsColors.surface,
+              },
+            }}
+          />
+        ))}
+      </Stack>
+
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+        <Button
+          variant="contained"
+          disableElevation
+          onClick={runRequest}
+          disabled={isRunning || missingRequiredParam}
+          sx={{
+            alignSelf: "flex-start",
+            borderRadius: 999,
+            textTransform: "none",
+            ...STRIPE_TYPE.label,
+          }}
+        >
+          {isRunning ? "Running request..." : "Run request"}
+        </Button>
+        <Typography
+          sx={{
+            ...STRIPE_TYPE.bodySmall,
+            color: "text.secondary",
+            alignSelf: "center",
+          }}
+        >
+          {statusText || requestError || "Ready"}
+        </Typography>
+      </Stack>
+
+      <CodePanel
+        label="Resolved request"
+        code={`${tester.method || "GET"} ${requestUrl}`}
+        docsColors={docsColors}
+        copyId={`${tester.pathTemplate}-resolved-request`}
+        copied={copiedKey === `${tester.pathTemplate}-resolved-request`}
+        onCopy={onCopyCode}
+      />
+
+      {responseText ? (
+        <CodePanel
+          label="Live response"
+          code={responseText}
+          docsColors={docsColors}
+          copyId={`${tester.pathTemplate}-live-response`}
+          copied={copiedKey === `${tester.pathTemplate}-live-response`}
+          onCopy={onCopyCode}
+        />
+      ) : null}
+    </Stack>
+  );
+}
+
+function EndpointCard({
+  endpoint,
+  docsColors,
+  copiedKey,
+  onCopyCode,
+  runtimeBaseUrl,
+}) {
   const isPublic = endpoint.auth === "Public";
 
   return (
@@ -1381,6 +2050,71 @@ function EndpointCard({ endpoint, docsColors, copiedKey, onCopyCode }) {
           />
         </Box>
 
+        {endpoint.cases?.length ? (
+          <Stack spacing={1.25}>
+            <Typography
+              sx={{
+                ...STRIPE_TYPE.overline,
+                color: "text.secondary",
+              }}
+            >
+              Additional cases
+            </Typography>
+            {endpoint.cases.map((item) => (
+              <Stack
+                key={item.title}
+                spacing={1}
+                sx={{
+                  borderRadius: 3,
+                  border: `1px solid ${docsColors.border}`,
+                  background: docsColors.surfaceMuted,
+                  p: 1.4,
+                }}
+              >
+                <Stack spacing={0.35}>
+                  <Typography
+                    sx={{
+                      ...STRIPE_TYPE.label,
+                      color: docsColors.text,
+                    }}
+                  >
+                    {item.title}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      ...STRIPE_TYPE.bodySmall,
+                      color: "text.secondary",
+                    }}
+                  >
+                    {item.summary}
+                  </Typography>
+                </Stack>
+                <CodePanel
+                  label={item.label || "Case response"}
+                  code={item.response}
+                  language={item.language || "json"}
+                  docsColors={docsColors}
+                  copyId={`${endpoint.method}-${endpoint.path}-${item.title}`}
+                  copied={
+                    copiedKey === `${endpoint.method}-${endpoint.path}-${item.title}`
+                  }
+                  onCopy={onCopyCode}
+                />
+              </Stack>
+            ))}
+          </Stack>
+        ) : null}
+
+        {endpoint.tester ? (
+          <EndpointTester
+            tester={endpoint.tester}
+            docsColors={docsColors}
+            runtimeBaseUrl={runtimeBaseUrl}
+            copiedKey={copiedKey}
+            onCopyCode={onCopyCode}
+          />
+        ) : null}
+
         {endpoint.notes?.length ? (
           <Stack spacing={0.6}>
             {endpoint.notes.map((note) => (
@@ -1403,6 +2137,22 @@ function EndpointCard({ endpoint, docsColors, copiedKey, onCopyCode }) {
   );
 }
 
+const testerPropType = PropTypes.shape({
+  title: PropTypes.string,
+  summary: PropTypes.string,
+  method: PropTypes.string,
+  pathTemplate: PropTypes.string.isRequired,
+  pathParams: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      label: PropTypes.string.isRequired,
+      placeholder: PropTypes.string,
+      defaultValue: PropTypes.string,
+      required: PropTypes.bool,
+    }),
+  ),
+});
+
 const endpointPropType = PropTypes.shape({
   method: PropTypes.string.isRequired,
   path: PropTypes.string.isRequired,
@@ -1415,6 +2165,16 @@ const endpointPropType = PropTypes.shape({
   response: PropTypes.string.isRequired,
   responseLang: PropTypes.string,
   notes: PropTypes.arrayOf(PropTypes.string),
+  cases: PropTypes.arrayOf(
+    PropTypes.shape({
+      title: PropTypes.string.isRequired,
+      summary: PropTypes.string,
+      label: PropTypes.string,
+      language: PropTypes.string,
+      response: PropTypes.string.isRequired,
+    }),
+  ),
+  tester: testerPropType,
 });
 
 const docsColorsPropType = PropTypes.shape({
@@ -1447,11 +2207,20 @@ CodePanel.propTypes = {
   onCopy: PropTypes.func,
 };
 
+EndpointTester.propTypes = {
+  tester: testerPropType.isRequired,
+  docsColors: docsColorsPropType.isRequired,
+  runtimeBaseUrl: PropTypes.string.isRequired,
+  copiedKey: PropTypes.string,
+  onCopyCode: PropTypes.func,
+};
+
 EndpointCard.propTypes = {
   endpoint: endpointPropType.isRequired,
   docsColors: docsColorsPropType.isRequired,
   copiedKey: PropTypes.string,
   onCopyCode: PropTypes.func,
+  runtimeBaseUrl: PropTypes.string.isRequired,
 };
 
 export default function ApiDocsPage() {
@@ -2463,6 +3232,7 @@ export default function ApiDocsPage() {
                             docsColors={docsColors}
                             copiedKey={copiedKey}
                             onCopyCode={copyCode}
+                            runtimeBaseUrl={runtimeBaseUrl}
                           />
                         ))}
                       </Stack>
