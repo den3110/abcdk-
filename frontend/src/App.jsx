@@ -249,6 +249,7 @@ const App = () => {
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
   const isImmersiveLiveFeedPage = location.pathname === "/live";
+  const isDocsPage = location.pathname.startsWith("/docs");
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -299,6 +300,25 @@ const App = () => {
 
       {isAuthPage || isImmersiveLiveFeedPage ? (
         <Outlet />
+      ) : isDocsPage ? (
+        <>
+          <Box
+            component="main"
+            sx={{
+              minHeight: {
+                xs: "calc(100dvh - 56px)",
+                md: "calc(100vh - 88px)",
+              },
+              pb: { xs: 10, md: 0 },
+            }}
+          >
+            <Outlet />
+          </Box>
+          <Container className="app-shell">
+            <AppFooter />
+          </Container>
+          <MobileBottomNav />
+        </>
       ) : (
         <Container className="app-shell">
           <Box

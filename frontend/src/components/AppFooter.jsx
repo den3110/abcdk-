@@ -21,6 +21,7 @@ export default function AppFooter() {
   const quickLinks = [
     { label: t("footer.links.news"), to: "/news" },
     { label: t("footer.links.clubs"), to: "/clubs" },
+    { label: "Docs", to: "/docs/api" },
     { label: t("footer.links.contact"), to: "/contact" },
     { label: t("footer.links.status"), to: "/status" },
   ];

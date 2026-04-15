@@ -15,6 +15,7 @@ dist-ssr
 *.local
 tmp-codex-export
 ffmpeg-go-worker
+stripe_use_cases.html
 
 # Editor directories and files
 .vscode/*

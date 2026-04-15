@@ -17,6 +17,7 @@
     "@emotion/styled": "^11.14.1",
     "@fontsource-variable/google-sans-code": "^5.2.3",
     "@fontsource-variable/montserrat": "^5.2.8",
+    "@fontsource/source-code-pro": "^5.2.7",
     "@g-loot/react-tournament-brackets": "^1.0.31-rc",
     "@microsoft/clarity": "^1.0.2",
     "@mui/icons-material": "^7.2.0",
