@@ -5,6 +5,17 @@ import { apiSlice } from "./apiSlice";
 
 export const overlayApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    getPublicGuideLink: builder.query({
+      query: () => ({
+        url: "/api/public/guide-link",
+        method: "GET",
+      }),
+      extraOptions: {
+        skip404Redirect: true,
+        skip503Redirect: true,
+        skipSentryCapture: true,
+      },
+    }),
     // GET /api/public/overlay/config?limit=&featured=&tier=
     getOverlayConfig: builder.query({
       query: (params) => ({
@@ -25,5 +36,8 @@ export const overlayApiSlice = apiSlice.injectEndpoints({
   overrideExisting: false,
 });
 
-export const { useGetOverlayConfigQuery, useLazyGetOverlayConfigQuery } =
-  overlayApiSlice;
+export const {
+  useGetPublicGuideLinkQuery,
+  useGetOverlayConfigQuery,
+  useLazyGetOverlayConfigQuery,
+} = overlayApiSlice;

@@ -37,6 +37,7 @@ import {
 } from "@mui/icons-material";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { useThemeMode } from "../context/ThemeContext.jsx";
+import { useGetPublicGuideLinkQuery } from "../slices/overlayApiSlice";
 
 const FONT_STACK_SANS =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"';
@@ -3697,39 +3698,14 @@ export default function ApiDocsPage() {
     (typeof window !== "undefined"
       ? window.location.origin.replace(/\/+$/, "")
       : "https://pickletour.vn");
-  const [runtimeBaseUrl, setRuntimeBaseUrl] = useState(fallbackRuntimeBaseUrl);
+  const { data: guideLinkData } = useGetPublicGuideLinkQuery();
+  const runtimeBaseUrl = useMemo(() => {
+    const configuredBaseUrl = String(guideLinkData?.docsApiBaseUrl || "")
+      .trim()
+      .replace(/\/+$/, "");
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadDocsBaseUrl = async () => {
-      try {
-        const response = await fetch("/api/public/guide-link", {
-          headers: {
-            Accept: "application/json",
-          },
-        });
-
-        if (!response.ok) return;
-
-        const payload = await response.json();
-        const configuredBaseUrl = String(payload?.docsApiBaseUrl || "")
-          .trim()
-          .replace(/\/+$/, "");
-
-        if (cancelled || !configuredBaseUrl) return;
-        setRuntimeBaseUrl(configuredBaseUrl);
-      } catch {
-        // Keep fallback when the public settings endpoint is unavailable.
-      }
-    };
-
-    loadDocsBaseUrl();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return configuredBaseUrl || fallbackRuntimeBaseUrl;
+  }, [fallbackRuntimeBaseUrl, guideLinkData?.docsApiBaseUrl]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
