@@ -35,6 +35,7 @@ import {
   SportsTennisRounded as SportsIcon,
   StreamRounded as StreamIcon,
 } from "@mui/icons-material";
+import { useLanguage } from "../context/LanguageContext.jsx";
 import { useThemeMode } from "../context/ThemeContext.jsx";
 
 const FONT_STACK_SANS =
@@ -310,6 +311,30 @@ const LANDING_PLAYGROUND_CASES = [
   }
 }`,
   },
+  {
+    id: "court-current",
+    label: "Get current court match",
+    detail:
+      "Load the public court station payload together with the rich currentMatch snapshot used by live and overlay-style surfaces.",
+    status: "GET /api/live/courts/:courtStationId",
+    request: `curl "{{BASE_URL}}/api/live/courts/663ca5f1c7b5e4a2ab123456"`,
+    response: `{
+  "cluster": {
+    "_id": "cluster-id",
+    "name": "Championship cluster"
+  },
+  "station": {
+    "_id": "court-id",
+    "name": "Court 1",
+    "status": "live"
+  },
+  "currentMatch": {
+    "_id": "match-id",
+    "status": "live",
+    "displayCode": "M-203"
+  }
+}`,
+  },
 ];
 
 const USE_CASE_ENTRY_POINTS = [
@@ -338,6 +363,625 @@ const USE_CASE_ENTRY_POINTS = [
     recommended: "Live feed, clusters and courts",
   },
 ];
+
+const DOCS_UI_TEXT = {
+  en: {
+    metaTitle: "PickleTour User API Docs",
+    metaDescription:
+      "User-facing API documentation for PickleTour auth, profiles, tournaments, clubs and live features.",
+    searchPlaceholder: "Search",
+    referenceSearchPlaceholder: "Search by endpoint path, method, or feature",
+    askAi: "Ask AI",
+    createAccount: "Create account",
+    signIn: "Sign in",
+    switchToLightTheme: "Switch to light theme",
+    switchToDarkTheme: "Switch to dark theme",
+    primaryNav: DOCS_PRIMARY_NAV,
+    secondaryNav: DOCS_SECONDARY_NAV,
+    landingColumns: DOCS_LANDING_COLUMNS,
+    playgroundCases: LANDING_PLAYGROUND_CASES,
+    useCaseEntryPoints: USE_CASE_ENTRY_POINTS,
+    clientHeaders: CLIENT_HEADERS,
+    accessFilters: ACCESS_FILTERS,
+    heroTitle: "Documentation",
+    heroSummary:
+      "Explore guides, reference endpoints and testable examples to integrate PickleTour user flows.",
+    heroPrimaryCta: "Get started with PickleTour",
+    heroSecondaryCta: "Explore API reference",
+    recentlyViewed: "Recently viewed",
+    apiBase: "API base",
+    local: "Local",
+    configured: "Configured",
+    publicBaseUrl: "Public base URL",
+    referenceEndpoints: "Reference endpoints",
+    floatingCardSummary:
+      "Test directly from the docs landing, then continue into the full endpoint reference below.",
+    tryItOutTitle: "Try it out",
+    tryItOutSummary:
+      "Start with a common request, then continue into the full API reference with search and filters.",
+    integrationBasics: "Integration basics",
+    baseUrlAndContract: "Base URL and request contract",
+    integrationSummary:
+      "Current frontend clients use a shared base query with credentialed requests, trace headers and timezone context.",
+    quickstart: "Quickstart",
+    apiReferenceOverline: "API reference",
+    browseEndpointsTitle: "Browse endpoints by collection",
+    browseEndpointsSummary:
+      "Search the user API surface, filter by access level, then jump into the full endpoint cards below.",
+    userApiDocs: "User API docs",
+    restJson: "REST + JSON",
+    collections: "Collections",
+    support: "Support",
+    supportSummary:
+      "Need a new endpoint group or an OpenAPI export for these user flows?",
+    noMatchingEndpoints: "No matching endpoints",
+    noMatchingEndpointsSummary:
+      "Try a broader keyword or switch the access filter back to `All endpoints`.",
+    query: "Query",
+    body: "Body",
+    request: "Request",
+    representativeResponse: "Representative response",
+    additionalCases: "Additional cases",
+    caseResponse: "Case response",
+    testEnvironment: "Test environment",
+    runLiveRequest: "Run a live request",
+    testerDefaultSummary:
+      "Browser test console for this public GET endpoint. It depends on the configured base URL and browser CORS access.",
+    baseUrl: "Base URL",
+    runRequest: "Run request",
+    runningRequest: "Running request...",
+    ready: "Ready",
+    resolvedRequest: "Resolved request",
+    liveResponse: "Live response",
+    emptyResponse: "<empty response>",
+    requestFailed: "Request failed",
+    copyCode: "Copy code",
+    copied: "Copied",
+    authLabels: {
+      Public: "Public",
+      Bearer: "Bearer",
+    },
+    referenceEndpointsChip: (visible, total) =>
+      visible === total
+        ? `${total} reference endpoints`
+        : `${visible}/${total} endpoints shown`,
+    visibleEndpointsSummary: (count) =>
+      `${count} visible endpoints across the current filtered collections.`,
+    endpointsCountLabel: (count) => `${count} endpoints`,
+  },
+  vi: {
+    metaTitle: "Tài liệu User API PickleTour",
+    metaDescription:
+      "Tài liệu API cho người dùng của PickleTour gồm xác thực, hồ sơ, giải đấu, câu lạc bộ và live.",
+    searchPlaceholder: "Tìm kiếm",
+    referenceSearchPlaceholder: "Tìm theo path endpoint, method hoặc tính năng",
+    askAi: "Hỏi AI",
+    createAccount: "Tạo tài khoản",
+    signIn: "Đăng nhập",
+    switchToLightTheme: "Chuyển sang giao diện sáng",
+    switchToDarkTheme: "Chuyển sang giao diện tối",
+    primaryNav: [
+      { label: "Bắt đầu", kind: "hero" },
+      { label: "Danh tính", sectionId: "auth" },
+      { label: "Hồ sơ", sectionId: "profiles" },
+      { label: "Giải đấu", sectionId: "tournaments" },
+      { label: "Cộng đồng", sectionId: "clubs" },
+      { label: "Phát trực tiếp", sectionId: "live" },
+    ],
+    secondaryNav: [
+      { label: "API & SDK", kind: "reference" },
+      { label: "Hỗ trợ", href: "mailto:support@pickletour.vn" },
+    ],
+    landingColumns: [
+      {
+        title: "Danh tính",
+        links: [
+          { label: "Tạo tài khoản", sectionId: "auth" },
+          { label: "Đăng nhập web", sectionId: "auth" },
+          { label: "Khôi phục mật khẩu", sectionId: "auth" },
+        ],
+      },
+      {
+        title: "Giải đấu",
+        links: [
+          { label: "Xem giải đấu", sectionId: "tournaments" },
+          { label: "Đăng ký người chơi", sectionId: "tournaments" },
+          { label: "Luồng check-in", sectionId: "tournaments" },
+        ],
+      },
+      {
+        title: "Nhà phát triển",
+        links: [
+          { label: "Cấu hình Base URL", kind: "reference" },
+          { label: "Test chi tiết overlay", sectionId: "live" },
+          { label: "Xem API reference", kind: "reference" },
+        ],
+      },
+    ],
+    playgroundCases: [
+      {
+        id: "session",
+        label: "Tạo phiên web",
+        detail:
+          "Xác thực bằng email hoặc số điện thoại cùng mật khẩu và trả về payload người dùng đã đăng nhập.",
+        status: "POST /api/users/auth/web",
+        request: `curl -X POST {{BASE_URL}}/api/users/auth/web \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "identifier": "player@example.com",
+    "password": "secret123"
+  }'`,
+        response: `{
+  "_id": "65f3c0c1...",
+  "name": "Player Demo",
+  "role": "user",
+  "token": "jwt-token"
+}`,
+      },
+      {
+        id: "tournaments",
+        label: "Liệt kê giải đấu",
+        detail:
+          "Lấy danh sách giải đấu để render card, tìm kiếm, command palette và các bề mặt trang chủ.",
+        status: "GET /api/tournaments",
+        request: `curl "{{BASE_URL}}/api/tournaments?limit=12&sort=-updatedAt"`,
+        response: `[
+  {
+    "_id": "tour-id",
+    "name": "Open Spring Cup",
+    "startDate": "2026-05-12T00:00:00.000Z",
+    "status": "open"
+  }
+]`,
+      },
+      {
+        id: "overlay",
+        label: "Lấy chi tiết trận overlay",
+        detail:
+          "Tải payload chi tiết trận dùng cho overlay public và các bề mặt trình chiếu live.",
+        status: "GET /api/overlay/match/:id",
+        request: `curl "{{BASE_URL}}/api/overlay/match/681d00f9f0d17f18f88a1001"`,
+        response: `{
+  "success": true,
+  "match": {
+    "_id": "681d00f9f0d17f18f88a1001",
+    "status": "live",
+    "court": { "name": "Court 1" },
+    "players": [
+      { "name": "Player A" },
+      { "name": "Player B" }
+    ]
+  }
+}`,
+      },
+      {
+        id: "court-current",
+        label: "Lấy trận hiện tại của sân",
+        detail:
+          "Tải chi tiết court station public kèm currentMatch để render giao diện sân live và các bề mặt giống overlay.",
+        status: "GET /api/live/courts/:courtStationId",
+        request: `curl "{{BASE_URL}}/api/live/courts/663ca5f1c7b5e4a2ab123456"`,
+        response: `{
+  "cluster": {
+    "_id": "cluster-id",
+    "name": "Championship cluster"
+  },
+  "station": {
+    "_id": "court-id",
+    "name": "Court 1",
+    "status": "live"
+  },
+  "currentMatch": {
+    "_id": "match-id",
+    "status": "live",
+    "displayCode": "M-203"
+  }
+}`,
+      },
+    ],
+    useCaseEntryPoints: [
+      {
+        id: "auth",
+        title: "Onboard và đăng nhập",
+        summary: "Đăng ký người dùng, tạo phiên và khôi phục tài khoản.",
+        recommended: "Xác thực, phiên và khôi phục",
+      },
+      {
+        id: "profiles",
+        title: "Hồ sơ và xếp hạng",
+        summary: "Tải hồ sơ public, lịch sử và dữ liệu bảng xếp hạng.",
+        recommended: "Hồ sơ, rating và ranking",
+      },
+      {
+        id: "clubs",
+        title: "Tính năng cộng đồng",
+        summary: "Tạo câu lạc bộ, quản lý thành viên và RSVP sự kiện.",
+        recommended: "CLB, sự kiện và thông báo",
+      },
+      {
+        id: "live",
+        title: "Bề mặt xem live",
+        summary: "Tìm feed item, cluster và các trận có thể phát trực tiếp.",
+        recommended: "Feed live, cluster và sân",
+      },
+    ],
+    clientHeaders: [
+      {
+        name: "Authorization",
+        value: "Bearer <token>",
+        detail:
+          "Được gửi tự động khi client hiện tại đang có auth token.",
+      },
+      {
+        name: "X-Request-Id",
+        value: "uuid",
+        detail:
+          "Hữu ích để lần vết request qua log và hệ thống giám sát.",
+      },
+      {
+        name: "X-Timezone",
+        value: "Asia/Saigon",
+        detail:
+          "Web client cũng gửi thêm biến thể GMT và minute offset.",
+      },
+      {
+        name: "X-Device-Id",
+        value: "web-visitor-id",
+        detail:
+          "Được gửi kèm với X-Device-Name bởi các client hiện tại.",
+      },
+    ],
+    accessFilters: [
+      { value: "all", label: "Tất cả endpoint" },
+      { value: "public", label: "Chỉ public" },
+      { value: "bearer", label: "Cần xác thực" },
+    ],
+    heroTitle: "Tài liệu API",
+    heroSummary:
+      "Khám phá hướng dẫn, endpoint tham chiếu và ví dụ có thể test để tích hợp các user flow của PickleTour.",
+    heroPrimaryCta: "Bắt đầu với PickleTour",
+    heroSecondaryCta: "Xem API reference",
+    recentlyViewed: "Đã xem gần đây",
+    apiBase: "API base",
+    local: "Local",
+    configured: "Đã cấu hình",
+    publicBaseUrl: "Public base URL",
+    referenceEndpoints: "Số endpoint tham chiếu",
+    floatingCardSummary:
+      "Thử trực tiếp từ landing của docs rồi chuyển xuống phần API reference đầy đủ bên dưới.",
+    tryItOutTitle: "Thử nhanh",
+    tryItOutSummary:
+      "Bắt đầu với một request phổ biến rồi chuyển sang API reference đầy đủ với tìm kiếm và bộ lọc.",
+    integrationBasics: "Cơ bản khi tích hợp",
+    baseUrlAndContract: "Base URL và hợp đồng request",
+    integrationSummary:
+      "Frontend hiện tại dùng chung base query với credentialed requests, trace headers và ngữ cảnh múi giờ.",
+    quickstart: "Khởi động nhanh",
+    apiReferenceOverline: "API reference",
+    browseEndpointsTitle: "Duyệt endpoint theo nhóm",
+    browseEndpointsSummary:
+      "Tìm trên bề mặt User API, lọc theo mức truy cập rồi mở từng endpoint card chi tiết bên dưới.",
+    userApiDocs: "Tài liệu User API",
+    restJson: "REST + JSON",
+    collections: "Nhóm",
+    support: "Hỗ trợ",
+    supportSummary:
+      "Cần thêm nhóm endpoint mới hoặc file OpenAPI export cho các user flow này?",
+    noMatchingEndpoints: "Không có endpoint phù hợp",
+    noMatchingEndpointsSummary:
+      "Hãy thử từ khóa rộng hơn hoặc chuyển bộ lọc truy cập về `Tất cả endpoint`.",
+    query: "Query",
+    body: "Body",
+    request: "Request",
+    representativeResponse: "Response mẫu",
+    additionalCases: "Các case bổ sung",
+    caseResponse: "Response của case",
+    testEnvironment: "Môi trường test",
+    runLiveRequest: "Chạy request thật",
+    testerDefaultSummary:
+      "Bảng test trực tiếp trong trình duyệt cho endpoint GET public này. Kết quả phụ thuộc vào base URL đã cấu hình và quyền CORS của trình duyệt.",
+    baseUrl: "Base URL",
+    runRequest: "Chạy request",
+    runningRequest: "Đang chạy request...",
+    ready: "Sẵn sàng",
+    resolvedRequest: "Request đã resolve",
+    liveResponse: "Response thật",
+    emptyResponse: "<response rỗng>",
+    requestFailed: "Request thất bại",
+    copyCode: "Sao chép mã",
+    copied: "Đã sao chép",
+    authLabels: {
+      Public: "Công khai",
+      Bearer: "Bearer",
+    },
+    referenceEndpointsChip: (visible, total) =>
+      visible === total
+        ? `${total} endpoint tham chiếu`
+        : `Hiển thị ${visible}/${total} endpoint`,
+    visibleEndpointsSummary: (count) =>
+      `${count} endpoint đang hiển thị trong các nhóm đã lọc.`,
+    endpointsCountLabel: (count) => `${count} endpoint`,
+  },
+};
+
+const DOC_SECTION_TRANSLATIONS = {
+  vi: {
+    auth: {
+      eyebrow: "Danh tính",
+      title: "API xác thực và phiên đăng nhập",
+      summary:
+        "Tạo tài khoản, đăng nhập từ web, xoay vòng phiên và khôi phục mật khẩu.",
+      note:
+        "Luồng web hiện tại dùng /api/users/auth/web và đăng ký không yêu cầu OTP.",
+      endpoints: {
+        "POST /api/users": {
+          title: "Đăng ký người dùng",
+          summary:
+            "Tạo tài khoản người chơi mới với thông tin hồ sơ cơ bản, liên hệ và avatar tùy chọn.",
+        },
+        "POST /api/users/auth/web": {
+          title: "Tạo phiên web",
+          summary:
+            "Xác thực bằng email hoặc số điện thoại cùng mật khẩu và trả về payload người dùng đã đăng nhập.",
+          notes: [
+            "Client mobile hiện vẫn dùng route /api/users/auth riêng.",
+            "Web client hiện tại gửi request với credentials được bật.",
+          ],
+        },
+        "POST /api/users/logout": {
+          title: "Kết thúc phiên hiện tại",
+          summary:
+            "Đăng xuất người dùng hiện tại và xóa web session ở backend.",
+        },
+        "POST /api/users/forgot-password": {
+          title: "Bắt đầu khôi phục mật khẩu",
+          summary:
+            "Khởi tạo luồng đặt lại mật khẩu bằng cách gửi email tài khoản.",
+        },
+        "POST /api/users/reset-password": {
+          title: "Xác nhận đặt lại mật khẩu",
+          summary:
+            "Hoàn tất luồng reset với reset token và mật khẩu mới.",
+        },
+      },
+    },
+    profiles: {
+      eyebrow: "Hồ sơ",
+      title: "API hồ sơ và xếp hạng",
+      summary:
+        "Lấy hồ sơ người dùng, lịch sử trận đấu và dữ liệu xếp hạng dùng trên ứng dụng public.",
+      note:
+        "Các response bên dưới là ví dụ đại diện. Một số endpoint danh sách được client normalize từ array hoặc wrapper payload.",
+      endpoints: {
+        "GET /api/users/profile": {
+          title: "Lấy hồ sơ hiện tại",
+          summary:
+            "Trả về hồ sơ của người dùng đã đăng nhập dùng cho trang tài khoản và refresh session.",
+        },
+        "PUT /api/users/profile": {
+          title: "Cập nhật hồ sơ hiện tại",
+          summary:
+            "Lưu các trường hồ sơ có thể chỉnh sửa như nickname, avatar hoặc tỉnh thành.",
+        },
+        "GET /api/users/:id/public": {
+          title: "Lấy hồ sơ người chơi public",
+          summary:
+            "Tải profile card cho trang public, bảng xếp hạng và giao diện xem thành viên/câu lạc bộ.",
+        },
+        "GET /api/users/:id/ratings": {
+          title: "Lấy lịch sử rating",
+          summary:
+            "Lấy lịch sử rating để render biểu đồ và timeline hồ sơ người chơi.",
+        },
+        "GET /api/users/:id/matches": {
+          title: "Lấy lịch sử trận đấu",
+          summary:
+            "Trả về lịch sử trận có phân trang cho hồ sơ người chơi.",
+        },
+        "GET /api/rankings/rankings/v2": {
+          title: "Liệt kê bảng xếp hạng public",
+          summary:
+            "Endpoint danh sách ranking chính đang được dùng ở màn public rankings.",
+        },
+        "GET /api/rankings/podium30d": {
+          title: "Lấy podium 30 ngày",
+          summary:
+            "Trả về các leaderboard highlight cho trải nghiệm landing rankings public.",
+        },
+      },
+    },
+    tournaments: {
+      eyebrow: "Giải đấu",
+      title: "API giải đấu",
+      summary:
+        "Duyệt giải đấu, xem bracket, đăng ký nội dung thi đấu và hỗ trợ luồng check-in.",
+      note:
+        "Client hiện tại dùng các endpoint này cho danh sách giải public, trang chi tiết, đăng ký và UX check-in.",
+      endpoints: {
+        "GET /api/tournaments": {
+          title: "Liệt kê giải đấu",
+          summary:
+            "Lấy danh sách giải để render card, tìm kiếm, command palette và các bề mặt trang chủ.",
+        },
+        "GET /api/tournaments/:id": {
+          title: "Lấy chi tiết giải đấu",
+          summary:
+            "Tải một giải đấu với thông tin tổng quan cho trang chi tiết public.",
+        },
+        "POST /api/tournaments/:id/registrations": {
+          title: "Tạo đăng ký giải đấu",
+          summary:
+            "Gửi đăng ký người chơi hoặc roster tùy theo loại nội dung thi đấu và cấu hình giải.",
+          notes: [
+            "Payload thay đổi theo event type và cấu hình của giải đấu.",
+          ],
+        },
+        "GET /api/tournaments/:id/brackets": {
+          title: "Liệt kê bracket",
+          summary:
+            "Trả về danh sách bracket cho trang chi tiết giải hoặc màn hình xem draw.",
+        },
+        "GET /api/tournaments/:id/matches": {
+          title: "Liệt kê trận trong giải",
+          summary:
+            "Phục vụ lịch thi đấu, bracket view và tra cứu trận cho một giải.",
+        },
+        "GET /api/tournaments/checkin/search": {
+          title: "Tìm đăng ký để check-in",
+          summary:
+            "Tìm theo số điện thoại hoặc nickname để chuẩn bị cho luồng check-in phía người dùng.",
+        },
+        "POST /api/tournaments/checkin": {
+          title: "Xác nhận check-in người dùng",
+          summary:
+            "Hoàn tất check-in cho người dùng hiện tại sau khi đã tra cứu đăng ký.",
+        },
+      },
+    },
+    clubs: {
+      eyebrow: "Cộng đồng",
+      title: "API câu lạc bộ",
+      summary:
+        "Hỗ trợ khám phá câu lạc bộ, luồng thành viên, thông báo và tham gia sự kiện.",
+      note:
+        "Route chi tiết câu lạc bộ ở backend hiện tại chấp nhận cả object id lẫn slug.",
+      endpoints: {
+        "GET /api/clubs": {
+          title: "Liệt kê câu lạc bộ",
+          summary:
+            "Khám phá các câu lạc bộ public hoặc lọc về các câu lạc bộ mà người dùng hiện tại đã tham gia.",
+        },
+        "GET /api/clubs/:id": {
+          title: "Lấy trang chi tiết câu lạc bộ",
+          summary:
+            "Tải một câu lạc bộ public, hoặc câu lạc bộ ẩn nếu người dùng có quyền thành viên/admin.",
+        },
+        "POST /api/clubs": {
+          title: "Tạo câu lạc bộ",
+          summary:
+            "Tạo câu lạc bộ mới với branding, visibility và cấu hình thành viên.",
+        },
+        "POST /api/clubs/:id/join": {
+          title: "Gửi yêu cầu tham gia câu lạc bộ",
+          summary:
+            "Tham gia ngay nếu câu lạc bộ mở, hoặc tạo yêu cầu chờ duyệt nếu cần phê duyệt.",
+        },
+        "GET /api/clubs/:id/events": {
+          title: "Liệt kê sự kiện của câu lạc bộ",
+          summary:
+            "Trả về sự kiện CLB cho lịch, upcoming sessions và event cards.",
+        },
+        "POST /api/clubs/:id/events/:eventId/rsvp": {
+          title: "RSVP cho sự kiện CLB",
+          summary:
+            "Đánh dấu người dùng hiện tại là tham gia, không tham gia hoặc xóa trạng thái RSVP.",
+          notes: ['Giá trị chấp nhận: "going", "not_going", "none".'],
+        },
+        "GET /api/clubs/:id/events/:eventId/ics": {
+          title: "Tải file mời ICS",
+          summary:
+            "Tạo file lịch cho sự kiện CLB để người dùng thêm vào lịch trên thiết bị.",
+        },
+        "GET /api/clubs/:id/announcements": {
+          title: "Liệt kê thông báo của câu lạc bộ",
+          summary:
+            "Lấy bài thông báo cho feed trang chủ CLB và giao diện moderation của admin.",
+        },
+      },
+    },
+    live: {
+      eyebrow: "Phát trực tiếp",
+      title: "API live và feed",
+      summary:
+        "Phục vụ kệ trận live, feed stream public, chi tiết sân và các trang cluster.",
+      note:
+        "Các endpoint feed/live hiện đã hỗ trợ phân trang, lọc và tìm kiếm trong frontend public.",
+      endpoints: {
+        "GET /api/live/matches": {
+          title: "Liệt kê trận có thể live",
+          summary:
+            "Truy vấn các trận scheduled, queued, assigned hoặc live cho dashboard và trang sân live.",
+        },
+        "GET /api/live/feed": {
+          title: "Liệt kê feed live public",
+          summary:
+            "Endpoint feed chính cho trải nghiệm xem live public với cách sắp xếp thông minh.",
+        },
+        "GET /api/live/feed/search": {
+          title: "Tìm trong feed",
+          summary:
+            "Endpoint tìm kiếm độ trễ thấp cho autocomplete và lọc nhanh feed live.",
+        },
+        "GET /api/live/clusters": {
+          title: "Liệt kê live cluster",
+          summary:
+            "Trả về các cluster public gom nhóm nhiều sân hoặc stream.",
+        },
+        "GET /api/live/clusters/:clusterId": {
+          title: "Lấy một live cluster",
+          summary:
+            "Tải trang cluster với danh sách sân, stream và metadata liên quan.",
+        },
+        "GET /api/live/courts/:courtStationId": {
+          title: "Lấy sân live và trận hiện tại",
+          summary:
+            "Trả về chi tiết cụm sân, court station runtime và payload currentMatch chi tiết cho bề mặt live/overlay.",
+          notes: [
+            "Response có cả station.currentMatch dạng summary và currentMatch dạng chi tiết ở top-level.",
+            "Nếu sân chưa có trận đang diễn ra thì currentMatch sẽ là null.",
+          ],
+          tester: {
+            title: "Chạy thử endpoint sân hiện tại",
+            summary:
+              "Nhập court station id thật để lấy chi tiết sân và trận hiện tại trực tiếp từ trang docs.",
+            pathParams: {
+              courtStationId: {
+                label: "ID sân",
+                placeholder: "663ca5f1c7b5e4a2ab123456",
+              },
+            },
+          },
+          cases: [
+            {
+              title: "Sân tồn tại nhưng chưa có trận hiện tại",
+              summary:
+                "currentMatch sẽ là null, còn cluster và station vẫn được trả về để frontend tiếp tục render trạng thái sân.",
+              label: "Response khi chưa có currentMatch",
+            },
+            {
+              title: "courtStationId không hợp lệ",
+              summary:
+                "Backend trả lỗi 400 khi id không phải ObjectId hợp lệ.",
+              label: "Response 400",
+            },
+            {
+              title: "Không tìm thấy sân",
+              summary:
+                "Backend trả lỗi 404 khi court station không tồn tại.",
+              label: "Response 404",
+            },
+          ],
+        },
+        "GET /api/overlay/match/:id": {
+          title: "Lấy chi tiết trận cho overlay",
+          summary:
+            "Trả về snapshot public của trận dùng cho score overlay, live studio và các bề mặt bảng điểm.",
+          tester: {
+            title: "Chạy thử endpoint overlay snapshot",
+            summary:
+              "Nhập match id thật hoặc user-match id để lấy payload overlay trực tiếp từ trang docs.",
+            pathParams: {
+              id: {
+                label: "Match ID",
+                placeholder: "663ca5f1c7b5e4a2ab123456",
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
 
 const DOC_SECTIONS = [
   {
@@ -1110,16 +1754,147 @@ END:VCALENDAR`,
         auth: "Public",
         title: "Get one live court",
         summary:
-          "Return a single public court station with active stream and next-match context.",
+          "Return the public cluster, station runtime payload and the detailed currentMatch payload for a single court station.",
         request: `curl {{BASE_URL}}/api/live/courts/court-id`,
         response: `{
-  "_id": "court-id",
-  "name": "Court 1",
-  "stream": {
+  "cluster": {
+    "_id": "cluster-id",
+    "name": "Championship cluster",
+    "slug": "championship-cluster",
+    "venueName": "PickleTour Arena",
+    "color": "#2455d1"
+  },
+  "station": {
+    "_id": "court-id",
+    "name": "Court 1",
+    "code": "C1",
     "status": "live",
+    "isActive": true,
+    "currentMatch": {
+      "_id": "match-id",
+      "status": "live",
+      "code": "M-203",
+      "displayCode": "M-203",
+      "teamAName": "pickle.alpha & pickle.beta",
+      "teamBName": "pickle.gamma & pickle.delta",
+      "courtStationId": "court-id",
+      "courtStationName": "Court 1",
+      "score": {
+        "a": 11,
+        "b": 8
+      }
+    },
+    "currentTournament": {
+      "_id": "tour-id",
+      "name": "Open Spring Cup",
+      "image": "https://cdn.example.com/tournaments/open-spring-cup.jpg",
+      "status": "live"
+    }
+  },
+  "currentMatch": {
+    "_id": "match-id",
+    "status": "live",
+    "displayCode": "M-203",
+    "roundLabel": "Semi Final",
+    "stageType": "playoff",
+    "currentGame": 1,
+    "gameScores": [
+      { "a": 11, "b": 8 },
+      { "a": 6, "b": 4 }
+    ],
+    "teams": {
+      "A": {
+        "name": "pickle.alpha & pickle.beta",
+        "players": [
+          { "id": "user-a", "displayName": "pickle.alpha" },
+          { "id": "user-b", "displayName": "pickle.beta" }
+        ]
+      },
+      "B": {
+        "name": "pickle.gamma & pickle.delta",
+        "players": [
+          { "id": "user-c", "displayName": "pickle.gamma" },
+          { "id": "user-d", "displayName": "pickle.delta" }
+        ]
+      }
+    },
+    "tournament": {
+      "_id": "tour-id",
+      "name": "Open Spring Cup",
+      "eventType": "double",
+      "nameDisplayMode": "nickname"
+    },
+    "courtStationId": "court-id",
+    "courtStationName": "Court 1",
+    "courtClusterId": "cluster-id",
+    "courtClusterName": "Championship cluster",
+    "serve": {
+      "side": "A",
+      "server": 2,
+      "opening": true
+    },
     "video": "https://stream.example.com/live.m3u8"
   }
 }`,
+        notes: [
+          "Use this endpoint when the public UI needs the current court state and the detailed match snapshot in one request.",
+          "Top-level currentMatch is richer than station.currentMatch and is the better source for overlay-style UIs.",
+        ],
+        cases: [
+          {
+            title: "Court exists but has no current match",
+            summary:
+              "The court and cluster still resolve, but currentMatch is null until a live or assigned match is linked.",
+            label: "Response without currentMatch",
+            response: `{
+  "cluster": {
+    "_id": "cluster-id",
+    "name": "Championship cluster"
+  },
+  "station": {
+    "_id": "court-id",
+    "name": "Court 3",
+    "status": "idle",
+    "currentMatch": null,
+    "currentTournament": null
+  },
+  "currentMatch": null
+}`,
+          },
+          {
+            title: "Invalid courtStationId",
+            summary:
+              "The backend returns a 400 error when the path param is not a valid ObjectId.",
+            label: "400 response",
+            response: `{
+  "message": "Invalid courtStationId"
+}`,
+          },
+          {
+            title: "Court station not found",
+            summary:
+              "The backend returns a 404 error when the station does not exist.",
+            label: "404 response",
+            response: `{
+  "message": "Court station not found"
+}`,
+          },
+        ],
+        tester: {
+          title: "Run the public court snapshot endpoint",
+          summary:
+            "Enter a real court station id to fetch the cluster, station and currentMatch payload directly from this docs page.",
+          method: "GET",
+          pathTemplate: "/api/live/courts/:courtStationId",
+          pathParams: [
+            {
+              name: "courtStationId",
+              label: "Court station ID",
+              placeholder: "663ca5f1c7b5e4a2ab123456",
+              defaultValue: "",
+            },
+          ],
+        },
       },
       {
         method: "GET",
@@ -1720,11 +2495,85 @@ function resolveDocsBaseUrl(code, runtimeBaseUrl) {
   return String(code || "").replaceAll("{{BASE_URL}}", runtimeBaseUrl);
 }
 
+function mergeTesterTranslation(tester, testerTranslation = {}) {
+  if (!tester) return tester;
+
+  const { pathParams: pathParamTranslations, ...testerTextTranslations } =
+    testerTranslation;
+
+  const translatedPathParams = Array.isArray(tester.pathParams)
+    ? tester.pathParams.map((param) => ({
+        ...param,
+        ...(pathParamTranslations?.[param.name] || {}),
+      }))
+    : tester.pathParams;
+
+  return {
+    ...tester,
+    ...testerTextTranslations,
+    pathParams: translatedPathParams,
+  };
+}
+
+function mergeCaseTranslations(cases = [], caseTranslations = []) {
+  if (!Array.isArray(cases)) return cases;
+  return cases.map((item, index) => ({
+    ...item,
+    ...((Array.isArray(caseTranslations) ? caseTranslations[index] : null) || {}),
+  }));
+}
+
+function localizeDocSections(sections, language) {
+  if (language !== "vi") return sections;
+
+  return sections.map((section) => {
+    const sectionTranslation = DOC_SECTION_TRANSLATIONS.vi?.[section.id];
+    if (!sectionTranslation) return section;
+
+    return {
+      ...section,
+      eyebrow: sectionTranslation.eyebrow || section.eyebrow,
+      title: sectionTranslation.title || section.title,
+      summary: sectionTranslation.summary || section.summary,
+      note: sectionTranslation.note || section.note,
+      endpoints: Array.isArray(section.endpoints)
+        ? section.endpoints.map((endpoint) => {
+            const endpointKey = `${endpoint.method} ${endpoint.path}`;
+            const endpointTranslation =
+              sectionTranslation.endpoints?.[endpointKey];
+
+            if (!endpointTranslation) return endpoint;
+
+            return {
+              ...endpoint,
+              title: endpointTranslation.title || endpoint.title,
+              summary: endpointTranslation.summary || endpoint.summary,
+              notes: endpointTranslation.notes || endpoint.notes,
+              tester: mergeTesterTranslation(
+                endpoint.tester,
+                endpointTranslation.tester,
+              ),
+              cases: mergeCaseTranslations(
+                endpoint.cases,
+                endpointTranslation.cases,
+              ),
+            };
+          })
+        : section.endpoints,
+    };
+  });
+}
+
+function getEndpointAuthLabel(auth, uiText) {
+  return uiText?.authLabels?.[auth] || auth;
+}
+
 function CodePanel({
   label,
   code,
   language = "bash",
   docsColors,
+  uiText = DOCS_UI_TEXT.en,
   copyId,
   copied,
   onCopy,
@@ -1770,10 +2619,10 @@ function CodePanel({
             {language}
           </Typography>
           {onCopy ? (
-            <Tooltip title={copied ? "Copied" : "Copy code"}>
+            <Tooltip title={copied ? uiText.copied : uiText.copyCode}>
               <IconButton
                 size="small"
-                aria-label={copied ? "Copied" : "Copy code"}
+                aria-label={copied ? uiText.copied : uiText.copyCode}
                 onClick={() => onCopy(copyId, code)}
                 sx={{
                   color: copied ? "success.main" : "text.secondary",
@@ -1810,6 +2659,7 @@ function CodePanel({
 function EndpointTester({
   tester,
   docsColors,
+  uiText = DOCS_UI_TEXT.en,
   runtimeBaseUrl,
   copiedKey,
   onCopyCode,
@@ -1868,9 +2718,9 @@ function EndpointTester({
       }
 
       setStatusText(`${response.status} ${response.statusText}`.trim());
-      setResponseText(prettyText || "<empty response>");
+      setResponseText(prettyText || uiText.emptyResponse);
     } catch (error) {
-      setRequestError(error?.message || "Request failed");
+      setRequestError(error?.message || uiText.requestFailed);
     } finally {
       setIsRunning(false);
     }
@@ -1893,7 +2743,7 @@ function EndpointTester({
             color: "text.secondary",
           }}
         >
-          Test environment
+          {uiText.testEnvironment}
         </Typography>
         <Typography
           sx={{
@@ -1901,7 +2751,7 @@ function EndpointTester({
             color: docsColors.text,
           }}
         >
-          {tester.title || "Run a live request"}
+          {tester.title || uiText.runLiveRequest}
         </Typography>
         <Typography
           sx={{
@@ -1910,13 +2760,13 @@ function EndpointTester({
           }}
         >
           {tester.summary ||
-            "Browser test console for this public GET endpoint. It depends on the configured base URL and browser CORS access."}
+            uiText.testerDefaultSummary}
         </Typography>
       </Stack>
 
       <Stack spacing={1}>
         <TextField
-          label="Base URL"
+          label={uiText.baseUrl}
           size="small"
           value={baseUrl}
           onChange={(event) => setBaseUrl(event.target.value)}
@@ -1959,7 +2809,7 @@ function EndpointTester({
             ...STRIPE_TYPE.label,
           }}
         >
-          {isRunning ? "Running request..." : "Run request"}
+          {isRunning ? uiText.runningRequest : uiText.runRequest}
         </Button>
         <Typography
           sx={{
@@ -1968,14 +2818,15 @@ function EndpointTester({
             alignSelf: "center",
           }}
         >
-          {statusText || requestError || "Ready"}
+          {statusText || requestError || uiText.ready}
         </Typography>
       </Stack>
 
       <CodePanel
-        label="Resolved request"
+        label={uiText.resolvedRequest}
         code={`${tester.method || "GET"} ${requestUrl}`}
         docsColors={docsColors}
+        uiText={uiText}
         copyId={`${tester.pathTemplate}-resolved-request`}
         copied={copiedKey === `${tester.pathTemplate}-resolved-request`}
         onCopy={onCopyCode}
@@ -1983,9 +2834,10 @@ function EndpointTester({
 
       {responseText ? (
         <CodePanel
-          label="Live response"
+          label={uiText.liveResponse}
           code={responseText}
           docsColors={docsColors}
+          uiText={uiText}
           copyId={`${tester.pathTemplate}-live-response`}
           copied={copiedKey === `${tester.pathTemplate}-live-response`}
           onCopy={onCopyCode}
@@ -1998,6 +2850,7 @@ function EndpointTester({
 function EndpointCard({
   endpoint,
   docsColors,
+  uiText = DOCS_UI_TEXT.en,
   copiedKey,
   onCopyCode,
   runtimeBaseUrl,
@@ -2039,7 +2892,7 @@ function EndpointCard({
             />
             <Chip
               icon={isPublic ? <PublicIcon /> : <LockIcon />}
-              label={endpoint.auth}
+              label={getEndpointAuthLabel(endpoint.auth, uiText)}
               size="small"
               variant="outlined"
               sx={{
@@ -2098,7 +2951,7 @@ function EndpointCard({
                   color: "text.secondary",
                 }}
               >
-                Query
+                {uiText.query}
               </Typography>
               {endpoint.query.map((item) => (
                 <Chip
@@ -2122,7 +2975,7 @@ function EndpointCard({
                   color: "text.secondary",
                 }}
               >
-                Body
+                {uiText.body}
               </Typography>
               {endpoint.body.map((item) => (
                 <Chip
@@ -2145,18 +2998,20 @@ function EndpointCard({
           }}
         >
           <CodePanel
-            label="Request"
+            label={uiText.request}
             code={resolvedRequestCode}
             docsColors={docsColors}
+            uiText={uiText}
             copyId={`${endpoint.method}-${endpoint.path}-request`}
             copied={copiedKey === `${endpoint.method}-${endpoint.path}-request`}
             onCopy={onCopyCode}
           />
           <CodePanel
-            label="Representative response"
+            label={uiText.representativeResponse}
             code={endpoint.response}
             language={endpoint.responseLang || "json"}
             docsColors={docsColors}
+            uiText={uiText}
             copyId={`${endpoint.method}-${endpoint.path}-response`}
             copied={copiedKey === `${endpoint.method}-${endpoint.path}-response`}
             onCopy={onCopyCode}
@@ -2171,7 +3026,7 @@ function EndpointCard({
                 color: "text.secondary",
               }}
             >
-              Additional cases
+              {uiText.additionalCases}
             </Typography>
             {endpoint.cases.map((item) => (
               <Stack
@@ -2203,10 +3058,11 @@ function EndpointCard({
                   </Typography>
                 </Stack>
                 <CodePanel
-                  label={item.label || "Case response"}
+                  label={item.label || uiText.caseResponse}
                   code={item.response}
                   language={item.language || "json"}
                   docsColors={docsColors}
+                  uiText={uiText}
                   copyId={`${endpoint.method}-${endpoint.path}-${item.title}`}
                   copied={
                     copiedKey === `${endpoint.method}-${endpoint.path}-${item.title}`
@@ -2222,6 +3078,7 @@ function EndpointCard({
           <EndpointTester
             tester={endpoint.tester}
             docsColors={docsColors}
+            uiText={uiText}
             runtimeBaseUrl={runtimeBaseUrl}
             copiedKey={copiedKey}
             onCopyCode={onCopyCode}
@@ -2310,11 +3167,14 @@ const docsColorsPropType = PropTypes.shape({
   codeText: PropTypes.string.isRequired,
 });
 
+const docsUiPropType = PropTypes.object;
+
 CodePanel.propTypes = {
   label: PropTypes.string.isRequired,
   code: PropTypes.string.isRequired,
   language: PropTypes.string,
   docsColors: docsColorsPropType.isRequired,
+  uiText: docsUiPropType,
   copyId: PropTypes.string,
   copied: PropTypes.bool,
   onCopy: PropTypes.func,
@@ -2323,6 +3183,7 @@ CodePanel.propTypes = {
 EndpointTester.propTypes = {
   tester: testerPropType.isRequired,
   docsColors: docsColorsPropType.isRequired,
+  uiText: docsUiPropType,
   runtimeBaseUrl: PropTypes.string.isRequired,
   copiedKey: PropTypes.string,
   onCopyCode: PropTypes.func,
@@ -2331,13 +3192,29 @@ EndpointTester.propTypes = {
 EndpointCard.propTypes = {
   endpoint: endpointPropType.isRequired,
   docsColors: docsColorsPropType.isRequired,
+  uiText: docsUiPropType,
   copiedKey: PropTypes.string,
   onCopyCode: PropTypes.func,
   runtimeBaseUrl: PropTypes.string.isRequired,
 };
 
 export default function ApiDocsPage() {
+  const { language } = useLanguage();
   const { isDark, toggleTheme } = useThemeMode();
+  const docsUi = DOCS_UI_TEXT[language] || DOCS_UI_TEXT.en;
+  const primaryNav = docsUi.primaryNav || DOCS_UI_TEXT.en.primaryNav;
+  const secondaryNav = docsUi.secondaryNav || DOCS_UI_TEXT.en.secondaryNav;
+  const landingColumns = docsUi.landingColumns || DOCS_UI_TEXT.en.landingColumns;
+  const landingPlaygroundCasesConfig =
+    docsUi.playgroundCases || DOCS_UI_TEXT.en.playgroundCases;
+  const useCaseEntryPoints =
+    docsUi.useCaseEntryPoints || DOCS_UI_TEXT.en.useCaseEntryPoints;
+  const clientHeaders = docsUi.clientHeaders || DOCS_UI_TEXT.en.clientHeaders;
+  const accessFilters = docsUi.accessFilters || DOCS_UI_TEXT.en.accessFilters;
+  const localizedDocSections = useMemo(
+    () => localizeDocSections(DOC_SECTIONS, language),
+    [language],
+  );
   const docsColors = isDark ? DOCS_DARK : DOCS_LIGHT;
   const DOCS_PAGE_BG = docsColors.pageBg;
   const DOCS_SECTION_BG = docsColors.sectionBg;
@@ -2352,7 +3229,7 @@ export default function ApiDocsPage() {
   const STRIPE_SUBTLE_LIGHT = docsColors.subtle;
   const DOCS_ACCENT_TEXT = docsColors.accentText;
   const DOCS_CODE_TEXT = docsColors.codeText;
-  const sectionIds = DOC_SECTIONS.map((section) => section.id);
+  const sectionIds = localizedDocSections.map((section) => section.id);
   const [activeSection, setActiveSection] = useState(sectionIds[0]);
   const [searchTerm, setSearchTerm] = useState("");
   const [accessFilter, setAccessFilter] = useState("all");
@@ -2360,12 +3237,12 @@ export default function ApiDocsPage() {
   const [activePlaygroundCaseId, setActivePlaygroundCaseId] = useState(
     LANDING_PLAYGROUND_CASES[0].id,
   );
-  const endpointCount = DOC_SECTIONS.reduce(
+  const endpointCount = localizedDocSections.reduce(
     (total, section) => total + section.endpoints.length,
     0,
   );
   const filteredSections = useMemo(() => {
-    return DOC_SECTIONS.map((section) => {
+    return localizedDocSections.map((section) => {
       const endpoints = section.endpoints.filter(
         (endpoint) =>
           matchesAccessFilter(endpoint, accessFilter) &&
@@ -2381,7 +3258,7 @@ export default function ApiDocsPage() {
       if (section.endpoints.length > 0) return true;
       return sectionMatchesSearch(section, searchTerm);
     });
-  }, [accessFilter, searchTerm]);
+  }, [accessFilter, localizedDocSections, searchTerm]);
   const filteredEndpointCount = filteredSections.reduce(
     (total, section) => total + section.endpoints.length,
     0,
@@ -2489,11 +3366,11 @@ export default function ApiDocsPage() {
 
   const landingPlaygroundCases = useMemo(
     () =>
-      LANDING_PLAYGROUND_CASES.map((item) => ({
+      landingPlaygroundCasesConfig.map((item) => ({
         ...item,
         request: resolveDocsBaseUrl(item.request, runtimeBaseUrl),
       })),
-    [runtimeBaseUrl],
+    [landingPlaygroundCasesConfig, runtimeBaseUrl],
   );
 
   const activePlaygroundCase =
@@ -2571,10 +3448,10 @@ export default function ApiDocsPage() {
   return (
     <>
       <Helmet>
-        <title>PickleTour User API Docs</title>
+        <title>{docsUi.metaTitle}</title>
         <meta
           name="description"
-          content="User-facing API documentation for PickleTour auth, profiles, tournaments, clubs and live features."
+          content={docsUi.metaDescription}
         />
       </Helmet>
 
@@ -2661,7 +3538,7 @@ export default function ApiDocsPage() {
                   <TextField
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="Search"
+                    placeholder={docsUi.searchPlaceholder}
                     InputProps={{
                       startAdornment: (
                         <SearchIcon
@@ -2732,7 +3609,7 @@ export default function ApiDocsPage() {
                       ...STRIPE_TYPE.label,
                     }}
                   >
-                    Ask AI
+                    {docsUi.askAi}
                   </Button>
                 </Stack>
 
@@ -2747,7 +3624,7 @@ export default function ApiDocsPage() {
                       ...STRIPE_TYPE.label,
                     }}
                   >
-                    Create account
+                    {docsUi.createAccount}
                   </Button>
                   <Button
                     component={RouterLink}
@@ -2763,13 +3640,13 @@ export default function ApiDocsPage() {
                       ...STRIPE_TYPE.label,
                     }}
                   >
-                    Sign in
+                    {docsUi.signIn}
                   </Button>
                   <IconButton
                     aria-label={
                       isDark
-                        ? "Switch to light theme"
-                        : "Switch to dark theme"
+                        ? docsUi.switchToLightTheme
+                        : docsUi.switchToDarkTheme
                     }
                     onClick={toggleTheme}
                     sx={{
@@ -2808,7 +3685,7 @@ export default function ApiDocsPage() {
                   flexWrap="wrap"
                   useFlexGap
                 >
-                  {DOCS_PRIMARY_NAV.map((item) => (
+                  {primaryNav.map((item) => (
                     <ButtonBase
                       key={item.label}
                       onClick={() => handlePrimaryNavClick(item)}
@@ -2832,7 +3709,7 @@ export default function ApiDocsPage() {
                   alignItems="center"
                   sx={{ display: { xs: "none", lg: "flex" } }}
                 >
-                  {DOCS_SECONDARY_NAV.map((item) => (
+                  {secondaryNav.map((item) => (
                     <ButtonBase
                       key={item.label}
                       onClick={() => handleSecondaryNavClick(item)}
@@ -2943,7 +3820,7 @@ export default function ApiDocsPage() {
                         color: STRIPE_TEXT_LIGHT,
                       }}
                     >
-                      Documentation
+                      {docsUi.heroTitle}
                     </Typography>
                     <Typography
                       sx={{
@@ -2954,8 +3831,7 @@ export default function ApiDocsPage() {
                         maxWidth: 720,
                       }}
                     >
-                      Explore guides, reference endpoints and testable examples to
-                      integrate PickleTour user flows.
+                      {docsUi.heroSummary}
                     </Typography>
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.4}>
                       <Button
@@ -2978,7 +3854,7 @@ export default function ApiDocsPage() {
                           },
                         }}
                       >
-                        Get started with PickleTour
+                        {docsUi.heroPrimaryCta}
                       </Button>
                       <Button
                         onClick={jumpToReference}
@@ -2992,7 +3868,7 @@ export default function ApiDocsPage() {
                           fontSize: "1.05rem",
                         }}
                       >
-                        Explore API reference
+                        {docsUi.heroSecondaryCta}
                       </Button>
                     </Stack>
                   </Stack>
@@ -3021,11 +3897,11 @@ export default function ApiDocsPage() {
                             color: STRIPE_SUBTLE_LIGHT,
                           }}
                         >
-                          Recently viewed
+                          {docsUi.recentlyViewed}
                         </Typography>
 
                         <Stack spacing={0.35}>
-                          {USE_CASE_ENTRY_POINTS.slice(0, 2).map((item) => (
+                          {useCaseEntryPoints.slice(0, 2).map((item) => (
                             <ButtonBase
                               key={item.id}
                               onClick={() => jumpToSection(item.id)}
@@ -3059,13 +3935,13 @@ export default function ApiDocsPage() {
                                   color: STRIPE_SUBTLE_LIGHT,
                                 }}
                               >
-                                API base
+                                {docsUi.apiBase}
                               </Typography>
                               <Chip
                                 label={
                                   runtimeBaseUrl.includes("localhost")
-                                    ? "Local"
-                                    : "Configured"
+                                    ? docsUi.local
+                                    : docsUi.configured
                                 }
                                 size="small"
                                 sx={{
@@ -3082,7 +3958,7 @@ export default function ApiDocsPage() {
                               spacing={1}
                             >
                               <Typography sx={{ ...STRIPE_TYPE.body }}>
-                                Public base URL
+                                {docsUi.publicBaseUrl}
                               </Typography>
                               <Typography
                                 component="code"
@@ -3103,7 +3979,7 @@ export default function ApiDocsPage() {
                               spacing={1}
                             >
                               <Typography sx={{ ...STRIPE_TYPE.body }}>
-                                Reference endpoints
+                                {docsUi.referenceEndpoints}
                               </Typography>
                               <Typography sx={{ ...STRIPE_TYPE.body }}>
                                 {endpointCount}
@@ -3159,8 +4035,7 @@ export default function ApiDocsPage() {
                             color: STRIPE_SUBTLE_LIGHT,
                           }}
                         >
-                          Test directly from the docs landing, then continue into
-                          the full endpoint reference below.
+                          {docsUi.floatingCardSummary}
                         </Typography>
                       </Stack>
                     </Box>
@@ -3177,7 +4052,7 @@ export default function ApiDocsPage() {
                     },
                   }}
                 >
-                  {DOCS_LANDING_COLUMNS.map((column) => (
+                  {landingColumns.map((column) => (
                     <Stack key={column.title} spacing={1.3}>
                       <Typography
                         sx={{
@@ -3223,7 +4098,7 @@ export default function ApiDocsPage() {
                           color: STRIPE_TEXT_LIGHT,
                         }}
                       >
-                        Try it out
+                        {docsUi.tryItOutTitle}
                       </Typography>
                       <Typography
                         sx={{
@@ -3231,8 +4106,7 @@ export default function ApiDocsPage() {
                           color: STRIPE_SUBTLE_LIGHT,
                         }}
                       >
-                        Start with a common request, then continue into the full
-                        API reference with search and filters.
+                        {docsUi.tryItOutSummary}
                       </Typography>
                     </Stack>
 
@@ -3360,9 +4234,10 @@ export default function ApiDocsPage() {
                             }}
                           >
                             <CodePanel
-                              label="Request"
+                              label={docsUi.request}
                               code={activePlaygroundCase.request}
                               docsColors={docsColors}
+                              uiText={docsUi}
                               copyId={`landing-${activePlaygroundCase.id}-request`}
                               copied={
                                 copiedKey ===
@@ -3371,9 +4246,10 @@ export default function ApiDocsPage() {
                               onCopy={copyCode}
                             />
                             <CodePanel
-                              label="Representative response"
+                              label={docsUi.representativeResponse}
                               code={activePlaygroundCase.response}
                               docsColors={docsColors}
+                              uiText={docsUi}
                               copyId={`landing-${activePlaygroundCase.id}-response`}
                               copied={
                                 copiedKey ===
@@ -3717,7 +4593,7 @@ export default function ApiDocsPage() {
                       />
 
                       <Stack spacing={1}>
-                        {CLIENT_HEADERS.map((header) => (
+                        {clientHeaders.map((header) => (
                           <Box
                             key={header.name}
                             sx={{
@@ -3790,7 +4666,7 @@ export default function ApiDocsPage() {
                     color: STRIPE_SUBTLE_LIGHT,
                   }}
                 >
-                  API reference
+                  {docsUi.apiReferenceOverline}
                 </Typography>
                 <Typography
                   sx={{
@@ -3800,7 +4676,7 @@ export default function ApiDocsPage() {
                     color: STRIPE_TEXT_LIGHT,
                   }}
                 >
-                  Browse endpoints by collection
+                  {docsUi.browseEndpointsTitle}
                 </Typography>
                 <Typography
                   sx={{
@@ -3809,15 +4685,14 @@ export default function ApiDocsPage() {
                     maxWidth: 840,
                   }}
                 >
-                  Search the user API surface, filter by access level, then jump
-                  into the full endpoint cards below.
+                  {docsUi.browseEndpointsSummary}
                 </Typography>
               </Stack>
 
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip
                   icon={<ApiIcon />}
-                  label="User API docs"
+                  label={docsUi.userApiDocs}
                   sx={{
                     borderRadius: 999,
                     bgcolor: DOCS_ACTIVE_BG,
@@ -3828,11 +4703,10 @@ export default function ApiDocsPage() {
                 />
                 <Chip
                   icon={<BoltIcon />}
-                  label={
-                    filteredEndpointCount === endpointCount
-                      ? `${endpointCount} reference endpoints`
-                      : `${filteredEndpointCount}/${endpointCount} endpoints shown`
-                  }
+                  label={docsUi.referenceEndpointsChip(
+                    filteredEndpointCount,
+                    endpointCount,
+                  )}
                   sx={{
                     borderRadius: 999,
                     bgcolor: DOCS_SURFACE,
@@ -3845,7 +4719,7 @@ export default function ApiDocsPage() {
                 />
                 <Chip
                   icon={<StreamIcon />}
-                  label="REST + JSON"
+                  label={docsUi.restJson}
                   sx={{
                     borderRadius: 999,
                     bgcolor: DOCS_SURFACE,
@@ -3872,7 +4746,7 @@ export default function ApiDocsPage() {
                 <TextField
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search by endpoint path, method, or feature"
+                  placeholder={docsUi.referenceSearchPlaceholder}
                   fullWidth
                   InputProps={{
                     startAdornment: (
@@ -3909,7 +4783,7 @@ export default function ApiDocsPage() {
                 />
 
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  {ACCESS_FILTERS.map((filter) => (
+                  {accessFilters.map((filter) => (
                     <Chip
                       key={filter.value}
                       label={filter.label}
@@ -3968,7 +4842,7 @@ export default function ApiDocsPage() {
                         color: "text.secondary",
                       }}
                     >
-                      Collections
+                      {docsUi.collections}
                     </Typography>
                     <Typography
                       variant="h4"
@@ -3986,8 +4860,7 @@ export default function ApiDocsPage() {
                         color: STRIPE_SUBTLE_LIGHT,
                       }}
                     >
-                      {filteredEndpointCount} visible endpoints across the current
-                      filtered collections.
+                      {docsUi.visibleEndpointsSummary(filteredEndpointCount)}
                     </Typography>
                   </Stack>
                 </Box>
@@ -4065,7 +4938,9 @@ export default function ApiDocsPage() {
                                 textOverflow: "ellipsis",
                               }}
                             >
-                              {section.endpoints.length} endpoints
+                              {docsUi.endpointsCountLabel(
+                                section.endpoints.length,
+                              )}
                             </Typography>
                           </Box>
                         </Stack>
@@ -4091,7 +4966,7 @@ export default function ApiDocsPage() {
                         lineHeight: "1.75rem",
                       }}
                     >
-                      Support
+                      {docsUi.support}
                     </Typography>
                     <Typography
                       sx={{
@@ -4099,8 +4974,7 @@ export default function ApiDocsPage() {
                         color: STRIPE_SUBTLE_LIGHT,
                       }}
                     >
-                      Need a new endpoint group or an OpenAPI export for these
-                      user flows?
+                      {docsUi.supportSummary}
                     </Typography>
                     <Button
                       component="a"
@@ -4139,7 +5013,7 @@ export default function ApiDocsPage() {
                         ...STRIPE_TYPE.panelTitle,
                       }}
                     >
-                      No matching endpoints
+                      {docsUi.noMatchingEndpoints}
                     </Typography>
                     <Typography
                       sx={{
@@ -4147,8 +5021,7 @@ export default function ApiDocsPage() {
                         color: STRIPE_SUBTLE_LIGHT,
                       }}
                     >
-                      Try a broader keyword or switch the access filter back to
-                      `All endpoints`.
+                      {docsUi.noMatchingEndpointsSummary}
                     </Typography>
                   </Stack>
                 </Box>
@@ -4239,6 +5112,7 @@ export default function ApiDocsPage() {
                             key={`${endpoint.method}-${endpoint.path}`}
                             endpoint={endpoint}
                             docsColors={docsColors}
+                            uiText={docsUi}
                             copiedKey={copiedKey}
                             onCopyCode={copyCode}
                             runtimeBaseUrl={runtimeBaseUrl}
