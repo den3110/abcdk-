@@ -1020,6 +1020,64 @@ END:VCALENDAR`,
   }
 }`,
       },
+      {
+        method: "GET",
+        path: "/api/overlay/match/:id",
+        auth: "Public",
+        title: "Get match detail for overlay surfaces",
+        summary:
+          "Return the public match snapshot used by the score overlay, live studio and scoreboard surfaces.",
+        request: `curl {{BASE_URL}}/api/overlay/match/match-id`,
+        response: `{
+  "matchId": "match-id",
+  "status": "LIVE",
+  "tournament": {
+    "id": "tour-id",
+    "name": "Open Spring Cup",
+    "eventType": "double"
+  },
+  "teams": {
+    "A": {
+      "displayName": "pickle.alpha & pickle.beta"
+    },
+    "B": {
+      "displayName": "pickle.gamma & pickle.delta"
+    }
+  },
+  "rules": {
+    "bestOf": 3,
+    "pointsToWin": 11,
+    "winByTwo": true
+  },
+  "currentGame": 1,
+  "gameScores": [
+    { "a": 11, "b": 7 },
+    { "a": 6, "b": 4 }
+  ],
+  "sets": {
+    "A": 1,
+    "B": 0
+  },
+  "court": {
+    "id": "court-id",
+    "name": "Court 1",
+    "number": 1
+  },
+  "serve": {
+    "side": "A",
+    "server": 1
+  },
+  "overlay": {
+    "theme": "dark",
+    "showSets": true,
+    "webLogoUrl": "https://cdn.example.com/logo.png"
+  }
+}`,
+        notes: [
+          "This is the public snapshot endpoint currently used by /overlay/score and live studio overlay fetches.",
+          "The backend accepts both regular match ids and user-match ids on this route.",
+        ],
+      },
     ],
   },
 ];
