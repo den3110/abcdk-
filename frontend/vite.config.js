@@ -12,7 +12,6 @@ async function resolveSentryVitePlugin() {
 }
 
 export default defineConfig(async ({ mode }) => {
-  const isTest = mode === "test" || process.env.VITEST === "true";
   const env = loadEnv(mode, process.cwd(), "");
   const sentryVitePlugin = await resolveSentryVitePlugin();
   const sentryAuthToken = env.SENTRY_AUTH_TOKEN || process.env.SENTRY_AUTH_TOKEN;
@@ -34,86 +33,84 @@ export default defineConfig(async ({ mode }) => {
 
   const plugins = [react()];
 
-  if (!isTest) {
-    plugins.push(
-      VitePWA({
-        registerType: "autoUpdate",
-        injectRegister: "auto",
-        includeAssets: [
-          "favicon-64.png",
-          "apple-touch-icon.png",
-          "icon-192.png",
-          "icon-512.png",
-          "icon-chatbot-192.png",
-          "vite.svg",
-        ],
-        workbox: {
-          skipWaiting: true,
-          clientsClaim: true,
-          cleanupOutdatedCaches: true,
-          globPatterns: [],
-          navigateFallback: null,
-          runtimeCaching: [
-            {
-              urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
-              handler: "CacheFirst",
-              options: {
-                cacheName: "images-cache",
-                expiration: {
-                  maxEntries: 200,
-                  maxAgeSeconds: 2 * 24 * 60 * 60,
-                },
+  plugins.push(
+    VitePWA({
+      registerType: "autoUpdate",
+      injectRegister: "auto",
+      includeAssets: [
+        "favicon-64.png",
+        "apple-touch-icon.png",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-chatbot-192.png",
+        "vite.svg",
+      ],
+      workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        globPatterns: [],
+        navigateFallback: null,
+        runtimeCaching: [
+          {
+            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "images-cache",
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 2 * 24 * 60 * 60,
               },
             },
-          ],
-        },
-        manifest: {
-          name: "Pickletour.vn",
-          short_name: "Pickletour",
-          description: "Nen tang quan ly giai dau Pickleball hang dau Viet Nam",
-          theme_color: "#0d6efd",
-          background_color: "#ffffff",
-          display: "standalone",
-          icons: [
-            {
-              src: "/icon-192.png",
-              sizes: "192x192",
-              type: "image/png",
-            },
-            {
-              src: "/icon-512.png",
-              sizes: "512x512",
-              type: "image/png",
-            },
-            {
-              src: "/icon-512.png",
-              sizes: "512x512",
-              type: "image/png",
-              purpose: "any maskable",
-            },
-          ],
-        },
-      }),
-      {
-        name: "configure-well-known",
-        configureServer(server) {
-          server.middlewares.use((req, res, next) => {
-            if (req.url === "/.well-known/apple-app-site-association") {
-              res.setHeader("Content-Type", "application/json");
-              res.setHeader("Cache-Control", "public, max-age=3600");
-            }
-
-            if (req.url === "/.well-known/assetlinks.json") {
-              res.setHeader("Content-Type", "application/json");
-              res.setHeader("Cache-Control", "public, max-age=3600");
-            }
-
-            next();
-          });
-        },
+          },
+        ],
       },
-    );
-  }
+      manifest: {
+        name: "Pickletour.vn",
+        short_name: "Pickletour",
+        description: "Nen tang quan ly giai dau Pickleball hang dau Viet Nam",
+        theme_color: "#0d6efd",
+        background_color: "#ffffff",
+        display: "standalone",
+        icons: [
+          {
+            src: "/icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
+          },
+          {
+            src: "/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+          },
+          {
+            src: "/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
+          },
+        ],
+      },
+    }),
+    {
+      name: "configure-well-known",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url === "/.well-known/apple-app-site-association") {
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Cache-Control", "public, max-age=3600");
+          }
+
+          if (req.url === "/.well-known/assetlinks.json") {
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Cache-Control", "public, max-age=3600");
+          }
+
+          next();
+        });
+      },
+    },
+  );
 
   if (enableSentrySourcemaps) {
     plugins.push(
@@ -134,13 +131,6 @@ export default defineConfig(async ({ mode }) => {
 
   return {
     plugins,
-    test: {
-      environment: "jsdom",
-      setupFiles: "./src/test/setup.js",
-      globals: true,
-      restoreMocks: true,
-      clearMocks: true,
-    },
     server: {
       port: 3000,
       proxy: {

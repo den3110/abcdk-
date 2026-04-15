@@ -426,8 +426,12 @@ const DOCS_UI_TEXT = {
     testEnvironment: "Test environment",
     runLiveRequest: "Run a live request",
     testerDefaultSummary:
-      "Browser test console for this public GET endpoint. It depends on the configured base URL and browser CORS access.",
+      "Direct browser tester for this endpoint. It supports path params, query params, headers, and JSON body when needed. Results still depend on the configured base URL and browser CORS access.",
     baseUrl: "Base URL",
+    pathParameters: "Path parameters",
+    queryParameters: "Query parameters",
+    headersJson: "Headers (JSON)",
+    bodyJson: "Body (JSON)",
     runRequest: "Run request",
     runningRequest: "Running request...",
     ready: "Ready",
@@ -435,6 +439,8 @@ const DOCS_UI_TEXT = {
     liveResponse: "Live response",
     emptyResponse: "<empty response>",
     requestFailed: "Request failed",
+    invalidHeadersJson: "Headers must be a valid JSON object",
+    invalidBodyJson: "Body must be valid JSON",
     copyCode: "Copy code",
     copied: "Copied",
     authLabels: {
@@ -679,8 +685,12 @@ const DOCS_UI_TEXT = {
     testEnvironment: "Môi trường test",
     runLiveRequest: "Chạy request thật",
     testerDefaultSummary:
-      "Bảng test trực tiếp trong trình duyệt cho endpoint GET public này. Kết quả phụ thuộc vào base URL đã cấu hình và quyền CORS của trình duyệt.",
+      "Khung test trực tiếp trong trình duyệt cho endpoint này. Hỗ trợ path params, query params, headers và JSON body khi cần. Kết quả vẫn phụ thuộc vào base URL đã cấu hình và quyền CORS của trình duyệt.",
     baseUrl: "Base URL",
+    pathParameters: "Tham số path",
+    queryParameters: "Tham số query",
+    headersJson: "Headers (JSON)",
+    bodyJson: "Body (JSON)",
     runRequest: "Chạy request",
     runningRequest: "Đang chạy request...",
     ready: "Sẵn sàng",
@@ -688,6 +698,8 @@ const DOCS_UI_TEXT = {
     liveResponse: "Response thật",
     emptyResponse: "<response rỗng>",
     requestFailed: "Request thất bại",
+    invalidHeadersJson: "Headers phải là một object JSON hợp lệ",
+    invalidBodyJson: "Body phải là JSON hợp lệ",
     copyCode: "Sao chép mã",
     copied: "Đã sao chép",
     authLabels: {
@@ -2482,13 +2494,230 @@ function sectionMatchesSearch(section, searchTerm) {
   return haystack.includes(query);
 }
 
-function buildTesterUrl(baseUrl, pathTemplate, values = {}) {
+function buildTesterUrl(
+  baseUrl,
+  pathTemplate,
+  pathValues = {},
+  queryValues = {},
+) {
   const normalizedBase = String(baseUrl || "").trim().replace(/\/+$/, "");
-  const resolvedPath = Object.entries(values).reduce((path, [key, value]) => {
+  const resolvedPath = Object.entries(pathValues).reduce((path, [key, value]) => {
     return path.replace(`:${key}`, encodeURIComponent(String(value || "").trim()));
   }, pathTemplate);
+  const searchParams = new URLSearchParams();
 
-  return `${normalizedBase}${resolvedPath}`;
+  Object.entries(queryValues).forEach(([key, value]) => {
+    const normalizedValue = String(value ?? "").trim();
+    if (!normalizedValue) return;
+    searchParams.append(key, normalizedValue);
+  });
+
+  const queryString = searchParams.toString();
+  return `${normalizedBase}${resolvedPath}${queryString ? `?${queryString}` : ""}`;
+}
+
+function extractPathParamNames(pathTemplate) {
+  return Array.from(
+    String(pathTemplate || "").matchAll(/:([A-Za-z0-9_]+)/g),
+    (match) => match[1],
+  );
+}
+
+function humanizeDocFieldLabel(name) {
+  return String(name || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) =>
+      /^id$/i.test(part)
+        ? "ID"
+        : `${part.charAt(0).toUpperCase()}${part.slice(1)}`,
+    )
+    .join(" ");
+}
+
+function parseEndpointFieldSpec(field) {
+  const raw = String(field || "").trim();
+  if (!raw) return null;
+
+  const optional = raw.endsWith("?");
+  const normalized = optional ? raw.slice(0, -1) : raw;
+  const separatorIndex = normalized.indexOf("=");
+  const name =
+    separatorIndex >= 0
+      ? normalized.slice(0, separatorIndex).trim()
+      : normalized.trim();
+  const defaultValue =
+    separatorIndex >= 0 ? normalized.slice(separatorIndex + 1).trim() : "";
+
+  if (!name) return null;
+
+  return {
+    name,
+    label: humanizeDocFieldLabel(name),
+    placeholder: name,
+    defaultValue,
+    required: !optional,
+  };
+}
+
+function buildTesterFieldsFromSpecs(fields = []) {
+  return fields
+    .map((item) => parseEndpointFieldSpec(item))
+    .filter(Boolean);
+}
+
+function extractCurlHeaders(requestCode = "") {
+  const headers = {};
+  const pattern = /-H\s+["']([^"']+)["']/g;
+  let match;
+
+  while ((match = pattern.exec(String(requestCode || ""))) !== null) {
+    const rawHeader = match[1];
+    const separatorIndex = rawHeader.indexOf(":");
+    if (separatorIndex === -1) continue;
+
+    const key = rawHeader.slice(0, separatorIndex).trim();
+    const value = rawHeader.slice(separatorIndex + 1).trim();
+    if (!key) continue;
+    headers[key] = value;
+  }
+
+  return headers;
+}
+
+function extractCurlBody(requestCode = "") {
+  const singleQuoteMatch = String(requestCode || "").match(/-d\s+'([\s\S]*?)'/);
+  if (singleQuoteMatch?.[1]) {
+    return singleQuoteMatch[1].trim();
+  }
+
+  const doubleQuoteMatch = String(requestCode || "").match(/-d\s+"([\s\S]*?)"/);
+  return doubleQuoteMatch?.[1]?.trim() || "";
+}
+
+function extractCurlRequestTarget(requestCode = "") {
+  const match = String(requestCode || "").match(
+    /(?:\{\{BASE_URL\}\}|https?:\/\/|\/api)[^"'`\s\\]+/,
+  );
+  return match?.[0] || "";
+}
+
+function extractCurlQueryDefaults(requestCode = "") {
+  const requestTarget = extractCurlRequestTarget(requestCode);
+  if (!requestTarget) return {};
+
+  try {
+    const normalizedTarget = requestTarget.startsWith("http")
+      ? requestTarget
+      : requestTarget.replace("{{BASE_URL}}", "https://example.com");
+    const parsedUrl = new URL(normalizedTarget, "https://example.com");
+    return Object.fromEntries(parsedUrl.searchParams.entries());
+  } catch {
+    return {};
+  }
+}
+
+function buildDefaultTesterBody(bodyFields = []) {
+  const payload = bodyFields.reduce((acc, item) => {
+    const field = parseEndpointFieldSpec(item);
+    if (!field) return acc;
+    acc[field.name] = field.defaultValue || "";
+    return acc;
+  }, {});
+
+  return Object.keys(payload).length
+    ? JSON.stringify(payload, null, 2)
+    : "";
+}
+
+function buildDefaultTesterHeaders(endpoint, method, bodyText) {
+  const defaultAccept =
+    endpoint.responseLang === "text" ? "text/plain" : "application/json";
+  const headers = {
+    Accept: defaultAccept,
+    ...extractCurlHeaders(endpoint.request),
+  };
+
+  if (endpoint.auth !== "Public" && !headers.Authorization) {
+    headers.Authorization = "Bearer <token>";
+  }
+
+  if (String(bodyText || "").trim() && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return JSON.stringify(headers, null, 2);
+}
+
+function buildResolvedRequestPreview({
+  method,
+  requestUrl,
+  headersText,
+  bodyText,
+  supportsBody,
+  uiText,
+}) {
+  const preview = [`${method} ${requestUrl}`];
+
+  if (String(headersText || "").trim()) {
+    preview.push("", `${uiText.headersJson}:`, String(headersText || "").trim());
+  }
+
+  if (supportsBody && String(bodyText || "").trim()) {
+    preview.push("", `${uiText.bodyJson}:`, String(bodyText || "").trim());
+  }
+
+  return preview.join("\n");
+}
+
+function buildEndpointTester(endpoint, uiText = DOCS_UI_TEXT.en) {
+  const method = endpoint.tester?.method || endpoint.method || "GET";
+  const pathTemplate = endpoint.tester?.pathTemplate || endpoint.path;
+  const queryDefaults = extractCurlQueryDefaults(endpoint.request);
+  const pathParams =
+    endpoint.tester?.pathParams?.length
+      ? endpoint.tester.pathParams
+      : extractPathParamNames(pathTemplate).map((name) => ({
+          name,
+          label: humanizeDocFieldLabel(name),
+          placeholder: name,
+          defaultValue: "",
+          required: true,
+        }));
+  const queryParams =
+    endpoint.tester?.queryParams?.length
+      ? endpoint.tester.queryParams
+      : buildTesterFieldsFromSpecs(endpoint.query).map((item) => ({
+          ...item,
+          defaultValue: queryDefaults[item.name] ?? item.defaultValue ?? "",
+        }));
+  const extractedBody = extractCurlBody(endpoint.request);
+  const bodyText =
+    endpoint.tester?.bodyText ??
+    (extractedBody || buildDefaultTesterBody(endpoint.body));
+  const supportsBody =
+    endpoint.tester?.supportsBody ??
+    (Boolean(String(bodyText || "").trim()) ||
+      ["POST", "PUT", "PATCH", "DELETE"].includes(method));
+  const headersText =
+    endpoint.tester?.headersText ||
+    buildDefaultTesterHeaders(endpoint, method, supportsBody ? bodyText : "");
+
+  return {
+    title: endpoint.tester?.title || `${uiText.runRequest}: ${method} ${pathTemplate}`,
+    summary: endpoint.tester?.summary || uiText.testerDefaultSummary,
+    method,
+    pathTemplate,
+    pathParams,
+    queryParams,
+    headersText,
+    bodyText: supportsBody ? bodyText : "",
+    supportsBody,
+    responseLanguage: endpoint.responseLang || "json",
+  };
 }
 
 function resolveDocsBaseUrl(code, runtimeBaseUrl) {
@@ -2498,7 +2727,11 @@ function resolveDocsBaseUrl(code, runtimeBaseUrl) {
 function mergeTesterTranslation(tester, testerTranslation = {}) {
   if (!tester) return tester;
 
-  const { pathParams: pathParamTranslations, ...testerTextTranslations } =
+  const {
+    pathParams: pathParamTranslations,
+    queryParams: queryParamTranslations,
+    ...testerTextTranslations
+  } =
     testerTranslation;
 
   const translatedPathParams = Array.isArray(tester.pathParams)
@@ -2508,10 +2741,18 @@ function mergeTesterTranslation(tester, testerTranslation = {}) {
       }))
     : tester.pathParams;
 
+  const translatedQueryParams = Array.isArray(tester.queryParams)
+    ? tester.queryParams.map((param) => ({
+        ...param,
+        ...(queryParamTranslations?.[param.name] || {}),
+      }))
+    : tester.queryParams;
+
   return {
     ...tester,
     ...testerTextTranslations,
     pathParams: translatedPathParams,
+    queryParams: translatedQueryParams,
   };
 }
 
@@ -2664,26 +2905,74 @@ function EndpointTester({
   copiedKey,
   onCopyCode,
 }) {
-  const initialParams = (tester.pathParams || []).reduce((acc, item) => {
-    acc[item.name] = item.defaultValue || "";
-    return acc;
-  }, {});
+  const pathParamSignature = JSON.stringify(tester.pathParams || []);
+  const queryParamSignature = JSON.stringify(tester.queryParams || []);
+  const initialParams = useMemo(() => {
+    return (tester.pathParams || []).reduce((acc, item) => {
+      acc[item.name] = item.defaultValue || "";
+      return acc;
+    }, {});
+  }, [tester.pathParams]);
+  const initialQueryParams = useMemo(() => {
+    return (tester.queryParams || []).reduce((acc, item) => {
+      acc[item.name] = item.defaultValue || "";
+      return acc;
+    }, {});
+  }, [tester.queryParams]);
 
   const [baseUrl, setBaseUrl] = useState(runtimeBaseUrl);
   const [params, setParams] = useState(initialParams);
+  const [queryParams, setQueryParams] = useState(initialQueryParams);
+  const [headersText, setHeadersText] = useState(tester.headersText || "");
+  const [bodyText, setBodyText] = useState(tester.bodyText || "");
   const [isRunning, setIsRunning] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [responseText, setResponseText] = useState("");
+  const [responseLanguage, setResponseLanguage] = useState(
+    tester.responseLanguage || "json",
+  );
   const [requestError, setRequestError] = useState("");
 
   useEffect(() => {
     setBaseUrl(runtimeBaseUrl);
-  }, [runtimeBaseUrl]);
+    setParams(initialParams);
+    setQueryParams(initialQueryParams);
+    setHeadersText(tester.headersText || "");
+    setBodyText(tester.bodyText || "");
+    setResponseLanguage(tester.responseLanguage || "json");
+  }, [
+    runtimeBaseUrl,
+    pathParamSignature,
+    queryParamSignature,
+    tester.bodyText,
+    tester.headersText,
+    tester.responseLanguage,
+    initialParams,
+    initialQueryParams,
+  ]);
 
-  const requestUrl = buildTesterUrl(baseUrl, tester.pathTemplate, params);
+  const requestUrl = buildTesterUrl(
+    baseUrl,
+    tester.pathTemplate,
+    params,
+    queryParams,
+  );
   const missingRequiredParam = (tester.pathParams || []).some(
     (item) => item.required !== false && !String(params[item.name] || "").trim(),
   );
+  const missingRequiredQueryParam = (tester.queryParams || []).some(
+    (item) =>
+      item.required !== false &&
+      !String(queryParams[item.name] || "").trim(),
+  );
+  const resolvedRequestPreview = buildResolvedRequestPreview({
+    method: tester.method || "GET",
+    requestUrl,
+    headersText,
+    bodyText,
+    supportsBody: tester.supportsBody,
+    uiText,
+  });
 
   const handleParamChange = (name, value) => {
     setParams((prev) => ({
@@ -2692,8 +2981,15 @@ function EndpointTester({
     }));
   };
 
+  const handleQueryParamChange = (name, value) => {
+    setQueryParams((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
   const runRequest = async () => {
-    if (missingRequiredParam) return;
+    if (missingRequiredParam || missingRequiredQueryParam) return;
 
     setIsRunning(true);
     setRequestError("");
@@ -2701,26 +2997,69 @@ function EndpointTester({
     setResponseText("");
 
     try {
+      let parsedHeaders = {};
+      if (String(headersText || "").trim()) {
+        try {
+          const headerPayload = JSON.parse(headersText);
+          if (
+            !headerPayload ||
+            Array.isArray(headerPayload) ||
+            typeof headerPayload !== "object"
+          ) {
+            throw new Error(uiText.invalidHeadersJson);
+          }
+
+          parsedHeaders = Object.fromEntries(
+            Object.entries(headerPayload)
+              .filter(([key, value]) => {
+                return (
+                  String(key || "").trim() &&
+                  value !== null &&
+                  value !== undefined &&
+                  String(value).trim() !== ""
+                );
+              })
+              .map(([key, value]) => [String(key), String(value)]),
+          );
+        } catch {
+          throw new Error(uiText.invalidHeadersJson);
+        }
+      }
+
+      let requestBody;
+      if (tester.supportsBody && String(bodyText || "").trim()) {
+        try {
+          requestBody = JSON.stringify(JSON.parse(bodyText));
+        } catch {
+          throw new Error(uiText.invalidBodyJson);
+        }
+      }
+
       const response = await fetch(requestUrl, {
         method: tester.method || "GET",
-        headers: {
-          Accept: "application/json",
-        },
+        headers: parsedHeaders,
+        body: requestBody,
+        credentials: "include",
       });
 
       const rawText = await response.text();
       let prettyText = rawText;
+      let nextLanguage = tester.responseLanguage || "text";
 
       try {
         prettyText = JSON.stringify(JSON.parse(rawText), null, 2);
+        nextLanguage = "json";
       } catch {
         prettyText = rawText;
+        nextLanguage = tester.responseLanguage || "text";
       }
 
       setStatusText(`${response.status} ${response.statusText}`.trim());
+      setResponseLanguage(nextLanguage);
       setResponseText(prettyText || uiText.emptyResponse);
     } catch (error) {
       setRequestError(error?.message || uiText.requestFailed);
+      setResponseLanguage("text");
     } finally {
       setIsRunning(false);
     }
@@ -2778,6 +3117,18 @@ function EndpointTester({
           }}
         />
 
+        {tester.pathParams?.length ? (
+          <Typography
+            sx={{
+              ...STRIPE_TYPE.overline,
+              color: "text.secondary",
+              pt: 0.4,
+            }}
+          >
+            {uiText.pathParameters}
+          </Typography>
+        ) : null}
+
         {(tester.pathParams || []).map((item) => (
           <TextField
             key={item.name}
@@ -2794,6 +3145,71 @@ function EndpointTester({
             }}
           />
         ))}
+
+        {tester.queryParams?.length ? (
+          <Typography
+            sx={{
+              ...STRIPE_TYPE.overline,
+              color: "text.secondary",
+              pt: 0.4,
+            }}
+          >
+            {uiText.queryParameters}
+          </Typography>
+        ) : null}
+
+        {(tester.queryParams || []).map((item) => (
+          <TextField
+            key={item.name}
+            label={item.label}
+            size="small"
+            value={queryParams[item.name] || ""}
+            onChange={(event) =>
+              handleQueryParamChange(item.name, event.target.value)
+            }
+            placeholder={item.placeholder}
+            fullWidth
+            sx={{
+              "& .MuiOutlinedInput-root": {
+                backgroundColor: docsColors.surface,
+              },
+            }}
+          />
+        ))}
+
+        <TextField
+          label={uiText.headersJson}
+          size="small"
+          value={headersText}
+          onChange={(event) => setHeadersText(event.target.value)}
+          fullWidth
+          multiline
+          minRows={4}
+          sx={{
+            "& .MuiOutlinedInput-root": {
+              backgroundColor: docsColors.surface,
+              fontFamily: FONT_STACK_MONO,
+            },
+          }}
+        />
+
+        {tester.supportsBody ? (
+          <TextField
+            label={uiText.bodyJson}
+            size="small"
+            value={bodyText}
+            onChange={(event) => setBodyText(event.target.value)}
+            fullWidth
+            multiline
+            minRows={6}
+            sx={{
+              "& .MuiOutlinedInput-root": {
+                backgroundColor: docsColors.surface,
+                fontFamily: FONT_STACK_MONO,
+              },
+            }}
+          />
+        ) : null}
       </Stack>
 
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
@@ -2801,7 +3217,7 @@ function EndpointTester({
           variant="contained"
           disableElevation
           onClick={runRequest}
-          disabled={isRunning || missingRequiredParam}
+          disabled={isRunning || missingRequiredParam || missingRequiredQueryParam}
           sx={{
             alignSelf: "flex-start",
             borderRadius: 999,
@@ -2824,7 +3240,8 @@ function EndpointTester({
 
       <CodePanel
         label={uiText.resolvedRequest}
-        code={`${tester.method || "GET"} ${requestUrl}`}
+        code={resolvedRequestPreview}
+        language="http"
         docsColors={docsColors}
         uiText={uiText}
         copyId={`${tester.pathTemplate}-resolved-request`}
@@ -2836,6 +3253,7 @@ function EndpointTester({
         <CodePanel
           label={uiText.liveResponse}
           code={responseText}
+          language={responseLanguage}
           docsColors={docsColors}
           uiText={uiText}
           copyId={`${tester.pathTemplate}-live-response`}
@@ -2859,6 +3277,10 @@ function EndpointCard({
   const resolvedRequestCode = resolveDocsBaseUrl(
     endpoint.request,
     runtimeBaseUrl,
+  );
+  const testerConfig = useMemo(
+    () => buildEndpointTester(endpoint, uiText),
+    [endpoint, uiText],
   );
 
   return (
@@ -3074,16 +3496,14 @@ function EndpointCard({
           </Stack>
         ) : null}
 
-        {endpoint.tester ? (
-          <EndpointTester
-            tester={endpoint.tester}
-            docsColors={docsColors}
-            uiText={uiText}
-            runtimeBaseUrl={runtimeBaseUrl}
-            copiedKey={copiedKey}
-            onCopyCode={onCopyCode}
-          />
-        ) : null}
+        <EndpointTester
+          tester={testerConfig}
+          docsColors={docsColors}
+          uiText={uiText}
+          runtimeBaseUrl={runtimeBaseUrl}
+          copiedKey={copiedKey}
+          onCopyCode={onCopyCode}
+        />
 
         {endpoint.notes?.length ? (
           <Stack spacing={0.6}>
@@ -3107,20 +3527,25 @@ function EndpointCard({
   );
 }
 
+const testerFieldPropType = PropTypes.shape({
+  name: PropTypes.string.isRequired,
+  label: PropTypes.string.isRequired,
+  placeholder: PropTypes.string,
+  defaultValue: PropTypes.string,
+  required: PropTypes.bool,
+});
+
 const testerPropType = PropTypes.shape({
   title: PropTypes.string,
   summary: PropTypes.string,
   method: PropTypes.string,
   pathTemplate: PropTypes.string.isRequired,
-  pathParams: PropTypes.arrayOf(
-    PropTypes.shape({
-      name: PropTypes.string.isRequired,
-      label: PropTypes.string.isRequired,
-      placeholder: PropTypes.string,
-      defaultValue: PropTypes.string,
-      required: PropTypes.bool,
-    }),
-  ),
+  pathParams: PropTypes.arrayOf(testerFieldPropType),
+  queryParams: PropTypes.arrayOf(testerFieldPropType),
+  headersText: PropTypes.string,
+  bodyText: PropTypes.string,
+  supportsBody: PropTypes.bool,
+  responseLanguage: PropTypes.string,
 });
 
 const endpointPropType = PropTypes.shape({
