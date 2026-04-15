@@ -49,7 +49,7 @@ const DOCS_LIGHT = {
   border: alpha(STRIPE_TEXT_LIGHT, 0.08),
   borderStrong: alpha(STRIPE_TEXT_LIGHT, 0.12),
   activeBg: "#edf4ff",
-  headerBg: "rgba(255,255,255,0.94)",
+  headerBg: "#ffffff",
   shadow: "0 1px 2px rgba(26,44,68,0.04), 0 12px 24px rgba(26,44,68,0.03)",
   text: STRIPE_TEXT_LIGHT,
   subtle: STRIPE_SUBTLE_LIGHT,
@@ -69,7 +69,7 @@ const DOCS_DARK = {
   border: alpha("#dce7ff", 0.12),
   borderStrong: alpha("#dce7ff", 0.2),
   activeBg: "rgba(76, 127, 255, 0.16)",
-  headerBg: "rgba(10,15,26,0.92)",
+  headerBg: "#0a0f1a",
   shadow: "0 1px 2px rgba(0,0,0,0.32), 0 18px 36px rgba(0,0,0,0.24)",
   text: "#e7eefb",
   subtle: "#9fb0c9",
@@ -209,6 +209,33 @@ const ACCESS_FILTERS = [
   { value: "all", label: "All endpoints" },
   { value: "public", label: "Public only" },
   { value: "bearer", label: "Auth required" },
+];
+
+const USE_CASE_ENTRY_POINTS = [
+  {
+    id: "auth",
+    title: "Onboard and sign in",
+    summary: "Register users, create sessions and recover accounts.",
+    recommended: "Auth, sessions and recovery",
+  },
+  {
+    id: "profiles",
+    title: "Profiles and rankings",
+    summary: "Load public profiles, history and leaderboard data.",
+    recommended: "Profiles, ratings and rankings",
+  },
+  {
+    id: "clubs",
+    title: "Community features",
+    summary: "Create clubs, manage members and RSVP to events.",
+    recommended: "Clubs, events and announcements",
+  },
+  {
+    id: "live",
+    title: "Live watch surfaces",
+    summary: "Search feed items, clusters and live-ready matches.",
+    recommended: "Live feed, clusters and courts",
+  },
 ];
 
 const DOC_SECTIONS = [
@@ -1384,9 +1411,7 @@ export default function ApiDocsPage() {
   const STRIPE_TEXT_LIGHT = docsColors.text;
   const STRIPE_SUBTLE_LIGHT = docsColors.subtle;
   const DOCS_ACCENT_TEXT = docsColors.accentText;
-  const DOCS_ACCENT_STRONG = docsColors.accentStrong;
   const DOCS_BRAND_SURFACE = docsColors.brandSurface;
-  const DOCS_BUTTON_HOVER = docsColors.buttonHover;
   const DOCS_BRAND_CONTRAST = docsColors.brandContrast;
   const DOCS_CODE_TEXT = docsColors.codeText;
   const sectionIds = DOC_SECTIONS.map((section) => section.id);
@@ -1540,7 +1565,6 @@ export default function ApiDocsPage() {
             top: 0,
             zIndex: 40,
             bgcolor: DOCS_HEADER_BG,
-            backdropFilter: "blur(12px)",
             borderBottom: `1px solid ${DOCS_BORDER}`,
           }}
         >
@@ -1650,7 +1674,11 @@ export default function ApiDocsPage() {
                   Back to app
                 </Button>
                 <IconButton
-                  aria-label={isDark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}
+                  aria-label={
+                    isDark
+                      ? "Switch to light theme"
+                      : "Switch to dark theme"
+                  }
                   onClick={toggleTheme}
                   sx={{
                     width: 40,
@@ -1745,67 +1773,39 @@ export default function ApiDocsPage() {
                 >
                   <Stack spacing={2.2}>
                     <Typography
+                      variant="overline"
+                      sx={{
+                        ...STRIPE_TYPE.overline,
+                        color: STRIPE_SUBTLE_LIGHT,
+                      }}
+                    >
+                      Common use cases
+                    </Typography>
+                    <Typography
                       variant="h1"
                       sx={{
-                        ...STRIPE_TYPE.display,
-                        maxWidth: 920,
+                        ...STRIPE_TYPE.sectionTitle,
+                        fontSize: { xs: "2.3rem", md: "3rem" },
+                        lineHeight: { xs: "2.8rem", md: "3.5rem" },
+                        maxWidth: 860,
                         color: STRIPE_TEXT_LIGHT,
                       }}
                     >
-                      Ship user flows on top of the same APIs the PickleTour clients already use.
+                      Build user-facing flows with the same endpoints the PickleTour clients already use.
                     </Typography>
 
                     <Typography
                       sx={{
                         ...STRIPE_TYPE.bodyLarge,
                         color: STRIPE_SUBTLE_LIGHT,
-                        maxWidth: 820,
+                        maxWidth: 780,
                       }}
                     >
-                      This page documents the user-facing auth, profile, tournament,
-                      club and live endpoints currently wired into the web and mobile
-                      clients. The structure follows a docs landing plus reference
-                      layout, with use-case entry points first and concrete request
-                      examples right after.
+                      Browse the auth, profile, tournament, club and live APIs
+                      already wired into the current web and mobile clients. The
+                      page starts with common entry points, then moves into the
+                      full endpoint reference.
                     </Typography>
-
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
-                      <Button
-                        variant="contained"
-                        disableElevation
-                        onClick={() => jumpToSection("auth")}
-                        endIcon={<ArrowIcon />}
-                        sx={{
-                          alignSelf: "flex-start",
-                          px: 2.4,
-                          py: 1.15,
-                          borderRadius: 999,
-                          textTransform: "none",
-                          ...STRIPE_TYPE.label,
-                          backgroundColor: DOCS_BRAND_SURFACE,
-                          color: DOCS_BRAND_CONTRAST,
-                          "&:hover": {
-                            backgroundColor: DOCS_BUTTON_HOVER,
-                          },
-                        }}
-                      >
-                        Start with auth
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        onClick={() => jumpToSection("tournaments")}
-                        sx={{
-                          alignSelf: "flex-start",
-                          px: 2.4,
-                          py: 1.15,
-                          borderRadius: 999,
-                          textTransform: "none",
-                          ...STRIPE_TYPE.label,
-                        }}
-                      >
-                        Browse collections
-                      </Button>
-                    </Stack>
 
                     <Stack spacing={1.4}>
                       <TextField
@@ -1877,104 +1877,118 @@ export default function ApiDocsPage() {
 
                     <Box
                       sx={{
-                        display: "grid",
-                        gap: 1.2,
-                        gridTemplateColumns: {
-                          xs: "1fr",
-                          sm: "repeat(2, minmax(0, 1fr))",
-                        },
+                        borderRadius: 4,
+                        border: `1px solid ${DOCS_BORDER}`,
+                        background: DOCS_SURFACE,
+                        overflow: "hidden",
                       }}
                     >
-                      {[
-                        {
-                          id: "auth",
-                          title: "Onboard and sign in",
-                          detail:
-                            "Register users, create sessions and recover accounts.",
-                          icon: LockIcon,
-                        },
-                        {
-                          id: "profiles",
-                          title: "Profiles and rankings",
-                          detail:
-                            "Load public profiles, history and public leaderboard data.",
-                          icon: SportsIcon,
-                        },
-                        {
-                          id: "clubs",
-                          title: "Community features",
-                          detail:
-                            "Create clubs, join members and RSVP to events.",
-                          icon: GroupsIcon,
-                        },
-                        {
-                          id: "live",
-                          title: "Live watch surfaces",
-                          detail:
-                            "Search feed items, clusters and live-ready matches.",
-                          icon: SensorsIcon,
-                        },
-                      ].map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <ButtonBase
-                            key={item.id}
-                            onClick={() => jumpToSection(item.id)}
+                      <Box
+                        sx={{
+                          display: { xs: "none", md: "grid" },
+                          gridTemplateColumns:
+                            "minmax(0, 0.92fr) minmax(260px, 0.75fr)",
+                          columnGap: 2,
+                          px: 2.2,
+                          py: 1.35,
+                          borderBottom: `1px solid ${DOCS_BORDER}`,
+                          bgcolor: DOCS_SURFACE_MUTED,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            ...STRIPE_TYPE.overline,
+                            color: STRIPE_SUBTLE_LIGHT,
+                          }}
+                        >
+                          Use case
+                        </Typography>
+                        <Typography
+                          sx={{
+                            ...STRIPE_TYPE.overline,
+                            color: STRIPE_SUBTLE_LIGHT,
+                          }}
+                        >
+                          Recommended flow
+                        </Typography>
+                      </Box>
+
+                      {USE_CASE_ENTRY_POINTS.map((item, index) => (
+                        <ButtonBase
+                          key={item.id}
+                          onClick={() => jumpToSection(item.id)}
+                          sx={{
+                            width: "100%",
+                            textAlign: "left",
+                            justifyContent: "flex-start",
+                            borderRadius: 0,
+                            px: 2.2,
+                            py: 1.7,
+                            borderBottom:
+                              index === USE_CASE_ENTRY_POINTS.length - 1
+                                ? "none"
+                                : `1px solid ${DOCS_BORDER}`,
+                          }}
+                        >
+                          <Box
                             sx={{
-                              textAlign: "left",
-                              borderRadius: 4,
-                              border: `1px solid ${DOCS_BORDER}`,
-                              background: DOCS_SURFACE,
-                              boxShadow: DOCS_SHADOW,
-                              px: 2,
-                              py: 1.8,
-                              justifyContent: "flex-start",
-                              alignItems: "stretch",
+                              width: "100%",
+                              display: "grid",
+                              gridTemplateColumns: {
+                                xs: "1fr",
+                                md: "minmax(0, 0.92fr) minmax(260px, 0.75fr)",
+                              },
+                              gap: { xs: 1, md: 2 },
+                              alignItems: "center",
                             }}
                           >
-                            <Stack spacing={1.05} sx={{ width: "100%" }}>
-                              <Stack
-                                direction="row"
-                                justifyContent="space-between"
-                                alignItems="center"
-                              >
-                                <Box
-                                  sx={{
-                                    width: 42,
-                                    height: 42,
-                                    borderRadius: 3,
-                                    display: "grid",
-                                    placeItems: "center",
-                                    bgcolor: DOCS_ACTIVE_BG,
-                                    color: DOCS_ACCENT_STRONG,
-                                  }}
-                                >
-                                  <Icon fontSize="small" />
-                                </Box>
-                                <ArrowIcon
-                                  sx={{ color: "text.secondary", fontSize: 18 }}
-                                />
-                              </Stack>
+                            <Stack spacing={0.45}>
                               <Typography
-                                variant="h6"
                                 sx={{
                                   ...STRIPE_TYPE.cardTitle,
+                                  fontSize: "1.125rem",
+                                  lineHeight: "1.5rem",
                                 }}
                               >
                                 {item.title}
                               </Typography>
                               <Typography
                                 sx={{
+                                  ...STRIPE_TYPE.bodySmall,
+                                  color: STRIPE_SUBTLE_LIGHT,
+                                  maxWidth: 620,
+                                }}
+                              >
+                                {item.summary}
+                              </Typography>
+                            </Stack>
+
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              justifyContent="space-between"
+                              alignItems="center"
+                              sx={{ minWidth: 0 }}
+                            >
+                              <Typography
+                                sx={{
                                   ...STRIPE_TYPE.body,
                                   color: STRIPE_SUBTLE_LIGHT,
                                 }}
                               >
-                                {item.detail}
+                                {item.recommended}
                               </Typography>
+                              <ArrowIcon
+                                sx={{
+                                  color: STRIPE_SUBTLE_LIGHT,
+                                  fontSize: 18,
+                                  flexShrink: 0,
+                                }}
+                              />
                             </Stack>
-                          </ButtonBase>
-                        );
-                      })}
+                          </Box>
+                        </ButtonBase>
+                      ))}
                     </Box>
                   </Stack>
 
@@ -2189,6 +2203,15 @@ export default function ApiDocsPage() {
                           <Box sx={{ minWidth: 0 }}>
                             <Typography
                               sx={{
+                                ...STRIPE_TYPE.overline,
+                                color: STRIPE_SUBTLE_LIGHT,
+                                mb: 0.15,
+                              }}
+                            >
+                              {section.eyebrow}
+                            </Typography>
+                            <Typography
+                              sx={{
                                 ...STRIPE_TYPE.label,
                                 fontSize: "1rem",
                                 lineHeight: "1.5rem",
@@ -2295,7 +2318,7 @@ export default function ApiDocsPage() {
                 </Box>
               ) : null}
 
-              {filteredSections.map((section) => {
+              {filteredSections.map((section, sectionIndex) => {
                 const Icon = section.icon;
 
                 return (
@@ -2304,10 +2327,9 @@ export default function ApiDocsPage() {
                     id={section.id}
                     sx={{
                       scrollMarginTop: { xs: 96, md: 132 },
-                      borderRadius: 5,
-                      border: `1px solid ${DOCS_BORDER}`,
-                      background: DOCS_SURFACE,
-                      p: { xs: 2, md: 2.6 },
+                      pt: sectionIndex === 0 ? 0 : { xs: 3.5, md: 4.5 },
+                      borderTop:
+                        sectionIndex === 0 ? "none" : `1px solid ${DOCS_BORDER}`,
                     }}
                   >
                     <Stack spacing={2.4}>
