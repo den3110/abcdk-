@@ -455,6 +455,8 @@ const DOCS_UI_TEXT = {
     visibleEndpointsSummary: (count) =>
       `${count} visible endpoints across the current filtered collections.`,
     endpointsCountLabel: (count) => `${count} endpoints`,
+    expandCollection: "Expand collection",
+    collapseCollection: "Collapse collection",
   },
   vi: {
     metaTitle: "Tài liệu User API PickleTour",
@@ -714,6 +716,8 @@ const DOCS_UI_TEXT = {
     visibleEndpointsSummary: (count) =>
       `${count} endpoint đang hiển thị trong các nhóm đã lọc.`,
     endpointsCountLabel: (count) => `${count} endpoint`,
+    expandCollection: "Mở rộng nhóm",
+    collapseCollection: "Thu gọn nhóm",
   },
 };
 
@@ -2913,6 +2917,13 @@ function sectionMatchesSearch(section, searchTerm) {
   return haystack.includes(query);
 }
 
+function buildEndpointAnchorId(sectionId, endpoint) {
+  return `${sectionId}-${endpoint.method}-${endpoint.path}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function buildTesterUrl(
   baseUrl,
   pathTemplate,
@@ -3686,6 +3697,7 @@ function EndpointTester({
 
 function EndpointCard({
   endpoint,
+  anchorId,
   docsColors,
   uiText = DOCS_UI_TEXT.en,
   copiedKey,
@@ -3704,7 +3716,9 @@ function EndpointCard({
 
   return (
     <Box
+      id={anchorId}
       sx={{
+        scrollMarginTop: { xs: 112, md: 176 },
         borderRadius: 5,
         border: `1px solid ${docsColors.border}`,
         background: docsColors.surface,
@@ -4035,6 +4049,7 @@ EndpointTester.propTypes = {
 
 EndpointCard.propTypes = {
   endpoint: endpointPropType.isRequired,
+  anchorId: PropTypes.string,
   docsColors: docsColorsPropType.isRequired,
   uiText: docsUiPropType,
   copiedKey: PropTypes.string,
@@ -4078,6 +4093,7 @@ export default function ApiDocsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [accessFilter, setAccessFilter] = useState("all");
   const [copiedKey, setCopiedKey] = useState("");
+  const [expandedSectionId, setExpandedSectionId] = useState(sectionIds[0] || "");
   const [activePlaygroundCaseId, setActivePlaygroundCaseId] = useState(
     LANDING_PLAYGROUND_CASES[0].id,
   );
@@ -4183,6 +4199,16 @@ export default function ApiDocsPage() {
     setActiveSection(visibleSectionIds[0]);
   }, [activeSection, visibleSectionIds]);
 
+  useEffect(() => {
+    if (!visibleSectionIds.length) {
+      setExpandedSectionId("");
+      return;
+    }
+
+    if (expandedSectionId && visibleSectionIds.includes(expandedSectionId)) return;
+    setExpandedSectionId(visibleSectionIds[0]);
+  }, [expandedSectionId, visibleSectionIds]);
+
   const landingPlaygroundCases = useMemo(
     () =>
       landingPlaygroundCasesConfig.map((item) => ({
@@ -4204,6 +4230,26 @@ export default function ApiDocsPage() {
     node.scrollIntoView({ behavior: "smooth", block: "start" });
     window.history.replaceState(null, "", `#${id}`);
     setActiveSection(id);
+  };
+
+  const jumpToEndpoint = (sectionId, endpoint) => {
+    if (typeof window === "undefined") return;
+
+    const endpointId = buildEndpointAnchorId(sectionId, endpoint);
+    const node = document.getElementById(endpointId);
+    if (!node) {
+      jumpToSection(sectionId);
+      return;
+    }
+
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.history.replaceState(null, "", `#${endpointId}`);
+    setActiveSection(sectionId);
+    setExpandedSectionId(sectionId);
+  };
+
+  const toggleSectionExpanded = (sectionId) => {
+    setExpandedSectionId((prev) => (prev === sectionId ? "" : sectionId));
   };
 
   const jumpToReference = () => {
@@ -5688,82 +5734,195 @@ export default function ApiDocsPage() {
                   {filteredSections.map((section) => {
                     const Icon = section.icon;
                     const active = activeSection === section.id;
+                    const expanded = expandedSectionId === section.id;
 
                     return (
-                      <ButtonBase
+                      <Box
                         key={section.id}
-                        onClick={() => jumpToSection(section.id)}
                         sx={{
                           width: "100%",
-                          textAlign: "left",
-                          justifyContent: "flex-start",
                           borderRadius: 3.5,
                           border: `1px solid ${active ? DOCS_BORDER_STRONG : DOCS_BORDER}`,
                           background: active
                             ? DOCS_ACTIVE_BG
                             : DOCS_SURFACE,
-                          px: 1.4,
-                          py: 1.3,
+                          overflow: "hidden",
                         }}
                       >
-                        <Stack
-                          direction="row"
-                          spacing={1.2}
-                          alignItems="center"
-                          sx={{ width: "100%" }}
-                        >
-                          <Box
-                            sx={{
-                              width: 38,
-                              height: 38,
-                              borderRadius: 2.8,
-                              display: "grid",
-                              placeItems: "center",
-                              bgcolor: active
-                                ? alpha(section.accent, 0.12)
-                                : DOCS_SECTION_BG,
-                              color: active ? section.accent : "text.secondary",
-                              flexShrink: 0,
-                            }}
-                          >
-                            <Icon fontSize="small" />
-                          </Box>
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography
+                        <Stack spacing={expanded ? 0.75 : 0}>
+                          <Stack direction="row" alignItems="stretch" sx={{ width: "100%" }}>
+                            <ButtonBase
+                              onClick={() => {
+                                setExpandedSectionId(section.id);
+                                jumpToSection(section.id);
+                              }}
                               sx={{
-                                ...STRIPE_TYPE.overline,
+                                flex: 1,
+                                textAlign: "left",
+                                justifyContent: "flex-start",
+                                px: 1.4,
+                                py: 1.3,
+                              }}
+                            >
+                              <Stack
+                                direction="row"
+                                spacing={1.2}
+                                alignItems="center"
+                                sx={{ width: "100%" }}
+                              >
+                                <Box
+                                  sx={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 2.8,
+                                    display: "grid",
+                                    placeItems: "center",
+                                    bgcolor: active
+                                      ? alpha(section.accent, 0.12)
+                                      : DOCS_SECTION_BG,
+                                    color: active ? section.accent : "text.secondary",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Icon fontSize="small" />
+                                </Box>
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography
+                                    sx={{
+                                      ...STRIPE_TYPE.overline,
+                                      color: STRIPE_SUBTLE_LIGHT,
+                                      mb: 0.15,
+                                    }}
+                                  >
+                                    {section.eyebrow}
+                                  </Typography>
+                                  <Typography
+                                    sx={{
+                                      ...STRIPE_TYPE.label,
+                                      fontSize: "1rem",
+                                      lineHeight: "1.5rem",
+                                    }}
+                                  >
+                                    {section.title}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      ...STRIPE_TYPE.bodySmall,
+                                      color: STRIPE_SUBTLE_LIGHT,
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {docsUi.endpointsCountLabel(
+                                      section.endpoints.length,
+                                    )}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            </ButtonBase>
+                            <IconButton
+                              size="small"
+                              aria-label={
+                                expanded
+                                  ? `${docsUi.collapseCollection}: ${section.title}`
+                                  : `${docsUi.expandCollection}: ${section.title}`
+                              }
+                              onClick={() => toggleSectionExpanded(section.id)}
+                              sx={{
+                                alignSelf: "center",
+                                mr: 1,
                                 color: STRIPE_SUBTLE_LIGHT,
-                                mb: 0.15,
                               }}
                             >
-                              {section.eyebrow}
-                            </Typography>
-                            <Typography
+                              <ChevronDownIcon
+                                sx={{
+                                  fontSize: 20,
+                                  transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                                  transition: "transform 0.2s ease",
+                                }}
+                              />
+                            </IconButton>
+                          </Stack>
+
+                          {expanded ? (
+                            <Stack
+                              spacing={0.55}
                               sx={{
-                                ...STRIPE_TYPE.label,
-                                fontSize: "1rem",
-                                lineHeight: "1.5rem",
+                                px: 1.15,
+                                pb: 1.15,
+                                pt: 0.15,
+                                borderTop: `1px solid ${DOCS_BORDER}`,
                               }}
                             >
-                              {section.title}
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                ...STRIPE_TYPE.bodySmall,
-                                color: STRIPE_SUBTLE_LIGHT,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              {docsUi.endpointsCountLabel(
-                                section.endpoints.length,
-                              )}
-                            </Typography>
-                          </Box>
+                              {section.endpoints.map((endpoint) => {
+                                const endpointAnchorId = buildEndpointAnchorId(
+                                  section.id,
+                                  endpoint,
+                                );
+
+                                return (
+                                  <ButtonBase
+                                    key={endpointAnchorId}
+                                    onClick={() => jumpToEndpoint(section.id, endpoint)}
+                                    sx={{
+                                      justifyContent: "space-between",
+                                      alignItems: "center",
+                                      gap: 1,
+                                      borderRadius: 2.5,
+                                      px: 1,
+                                      py: 0.8,
+                                      background: DOCS_SECTION_BG,
+                                    }}
+                                  >
+                                    <Stack spacing={0.15} sx={{ minWidth: 0, textAlign: "left" }}>
+                                      <Typography
+                                        sx={{
+                                          ...STRIPE_TYPE.bodySmall,
+                                          color: STRIPE_TEXT_LIGHT,
+                                          whiteSpace: "nowrap",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                        }}
+                                      >
+                                        {endpoint.title}
+                                      </Typography>
+                                      <Typography
+                                        component="code"
+                                        sx={{
+                                          ...STRIPE_TYPE.mono,
+                                          fontSize: "0.75rem",
+                                          color: STRIPE_SUBTLE_LIGHT,
+                                          whiteSpace: "nowrap",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                        }}
+                                      >
+                                        {endpoint.path}
+                                      </Typography>
+                                    </Stack>
+                                    <Chip
+                                      label={endpoint.method}
+                                      size="small"
+                                      sx={{
+                                        fontFamily: FONT_STACK_SANS,
+                                        fontWeight: 600,
+                                        borderRadius: 999,
+                                        flexShrink: 0,
+                                        ...getMethodPalette(
+                                          endpoint.method,
+                                          isDark ? "dark" : "light",
+                                        ),
+                                      }}
+                                    />
+                                  </ButtonBase>
+                                );
+                              })}
+                            </Stack>
+                          ) : null}
                         </Stack>
-                      </ButtonBase>
+                      </Box>
                     );
                   })}
                 </Stack>
@@ -5930,6 +6089,7 @@ export default function ApiDocsPage() {
                           <EndpointCard
                             key={`${endpoint.method}-${endpoint.path}`}
                             endpoint={endpoint}
+                            anchorId={buildEndpointAnchorId(section.id, endpoint)}
                             docsColors={docsColors}
                             uiText={docsUi}
                             copiedKey={copiedKey}
