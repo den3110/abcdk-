@@ -975,6 +975,93 @@ const DOC_SECTION_TRANSLATIONS = {
             },
           ],
         },
+        "GET /api/live/courts/:courtStationId/current-match-overlay": {
+          title: "Lấy trận live hiện tại của sân theo định dạng overlay",
+          summary:
+            "Trả về cluster, court station và payload currentMatch cùng cấu trúc với /api/overlay/match/:id cho trận đang live của sân.",
+          notes: [
+            "Endpoint này chỉ phục vụ khi sân đang có trận live; nếu sân đang idle hoặc chỉ mới gán trận thì backend sẽ trả 404.",
+            "Dùng endpoint này khi frontend đã đứng trong ngữ cảnh một sân và cần payload overlay chi tiết mà không phải gọi thêm /api/overlay/match/:id.",
+          ],
+          tester: {
+            title: "Chạy thử endpoint trận live dạng overlay của sân",
+            summary:
+              "Nhập court station id thật để lấy cluster, station và payload currentMatch kiểu overlay trực tiếp từ trang docs.",
+            pathParams: {
+              courtStationId: {
+                label: "ID sân",
+                placeholder: "663ca5f1c7b5e4a2ab123456",
+              },
+            },
+          },
+          cases: [
+            {
+              title: "Sân tồn tại nhưng chưa có trận live",
+              summary:
+                "Endpoint này không trả currentMatch = null mà trả 404 để báo rõ sân chưa có trận live sẵn sàng cho overlay.",
+              label: "Response 404 khi chưa có trận live",
+            },
+            {
+              title: "courtStationId không hợp lệ",
+              summary:
+                "Backend trả lỗi 400 khi id không phải ObjectId hợp lệ.",
+              label: "Response 400",
+            },
+            {
+              title: "Không tìm thấy sân",
+              summary:
+                "Backend trả lỗi 404 khi court station không tồn tại.",
+              label: "Response 404",
+            },
+          ],
+        },
+        "GET /api/overlay/match/:id/current": {
+          title: "Lấy trận hiện tại theo ngữ cảnh sân của trận",
+          summary:
+            "Nhận match id, dò xem trận đó đang thuộc sân/cụm sân nào, rồi trả payload overlay của trận đang live trên chính sân đó nếu có.",
+          notes: [
+            "Nếu chính trận được truyền vào đang live thì response sẽ là overlay của chính trận đó.",
+            "Nếu trận được truyền vào chưa live nhưng sân của nó đang phát một trận live khác thì response sẽ tự chuyển sang trận đang live đó.",
+            "Nếu không tìm được sân phù hợp hoặc sân chưa có trận live nào thì endpoint sẽ fallback về payload overlay của chính trận được truyền vào.",
+          ],
+          tester: {
+            title: "Chạy thử endpoint trận hiện tại theo match id",
+            summary:
+              "Nhập match id để backend tự kiểm tra sân hiện tại của trận và trả payload overlay của trận đang live theo đúng ngữ cảnh sân.",
+            pathParams: {
+              id: {
+                label: "Match ID",
+                placeholder: "663ca5f1c7b5e4a2ab123456",
+              },
+            },
+          },
+          cases: [
+            {
+              title: "Chính trận được gọi đang live",
+              summary:
+                "Endpoint trả payload overlay của đúng trận được yêu cầu vì đó đã là trận live hiện tại của sân.",
+              label: "Response của chính trận live",
+            },
+            {
+              title: "Sân đang live trận khác",
+              summary:
+                "response.matchId sẽ đổi sang match id của trận đang live trên cùng sân, thay vì giữ match id ở path.",
+              label: "Response chuyển sang trận live của sân",
+            },
+            {
+              title: "match id không hợp lệ",
+              summary:
+                "Backend trả lỗi 400 khi id không phải ObjectId hợp lệ.",
+              label: "Response 400",
+            },
+            {
+              title: "Không tìm thấy trận",
+              summary:
+                "Backend trả lỗi 404 khi không tồn tại Match hoặc UserMatch tương ứng.",
+              label: "Response 404",
+            },
+          ],
+        },
         "GET /api/overlay/match/:id": {
           title: "Lấy chi tiết trận cho overlay",
           summary:
@@ -1903,6 +1990,337 @@ END:VCALENDAR`,
             {
               name: "courtStationId",
               label: "Court station ID",
+              placeholder: "663ca5f1c7b5e4a2ab123456",
+              defaultValue: "",
+            },
+          ],
+        },
+      },
+      {
+        method: "GET",
+        path: "/api/live/courts/:courtStationId/current-match-overlay",
+        auth: "Public",
+        title: "Get the current live court match in overlay format",
+        summary:
+          "Return the public cluster, station runtime payload and the current live match in the same response shape used by /api/overlay/match/:id.",
+        request: `curl {{BASE_URL}}/api/live/courts/court-id/current-match-overlay`,
+        response: `{
+  "cluster": {
+    "_id": "cluster-id",
+    "name": "Championship cluster",
+    "slug": "championship-cluster",
+    "venueName": "PickleTour Arena",
+    "color": "#2455d1"
+  },
+  "station": {
+    "_id": "court-id",
+    "name": "Court 1",
+    "code": "C1",
+    "status": "live",
+    "isActive": true,
+    "currentMatch": {
+      "_id": "match-id",
+      "status": "live",
+      "code": "M-203",
+      "displayCode": "M-203"
+    }
+  },
+  "currentMatch": {
+    "matchId": "match-id",
+    "status": "LIVE",
+    "winner": "",
+    "tournament": {
+      "id": "tour-id",
+      "name": "Open Spring Cup",
+      "image": "https://cdn.example.com/tournaments/open-spring-cup.jpg",
+      "nameDisplayMode": "nickname",
+      "displayNameMode": "nickname",
+      "eventType": "double",
+      "overlay": {
+        "theme": "dark",
+        "accentA": "#25C2A0",
+        "accentB": "#4F46E5"
+      }
+    },
+    "bracket": {
+      "id": "bracket-id",
+      "type": "knockout",
+      "name": "Main Draw",
+      "stage": "main",
+      "drawRounds": 4
+    },
+    "roundCode": "SF",
+    "roundName": "Semi Final",
+    "round": 3,
+    "roundSize": 4,
+    "stageType": "playoff",
+    "stageName": "Semi Final",
+    "code": "M-203",
+    "teams": {
+      "A": {
+        "name": "pickle.alpha & pickle.beta",
+        "displayName": "pickle.alpha & pickle.beta",
+        "players": [
+          {
+            "id": "user-a",
+            "nickname": "pickle.alpha",
+            "displayName": "pickle.alpha",
+            "shortName": "Alpha"
+          },
+          {
+            "id": "user-b",
+            "nickname": "pickle.beta",
+            "displayName": "pickle.beta",
+            "shortName": "Beta"
+          }
+        ],
+        "seed": 1,
+        "label": "Team A",
+        "teamName": "Alpha / Beta"
+      },
+      "B": {
+        "name": "pickle.gamma & pickle.delta",
+        "displayName": "pickle.gamma & pickle.delta",
+        "players": [
+          {
+            "id": "user-c",
+            "nickname": "pickle.gamma",
+            "displayName": "pickle.gamma",
+            "shortName": "Gamma"
+          },
+          {
+            "id": "user-d",
+            "nickname": "pickle.delta",
+            "displayName": "pickle.delta",
+            "shortName": "Delta"
+          }
+        ],
+        "seed": 4,
+        "label": "Team B",
+        "teamName": "Gamma / Delta"
+      }
+    },
+    "score": {
+      "bestOf": 3,
+      "gamesToWin": 2,
+      "pointsToWin": 11,
+      "winByTwo": true,
+      "setsWon": {
+        "A": 1,
+        "B": 0
+      },
+      "gameScores": [
+        { "a": 11, "b": 8 },
+        { "a": 6, "b": 4 }
+      ]
+    },
+    "court": {
+      "courtId": "court-id",
+      "courtName": "Court 1",
+      "courtExtra": {
+        "label": "Court 1",
+        "cluster": "Championship cluster"
+      }
+    },
+    "referee": {
+      "name": "Referee Demo"
+    },
+    "liveBy": {
+      "name": "Streaming Operator"
+    },
+    "serve": {
+      "team": "A",
+      "server": 2,
+      "opening": true
+    },
+    "video": "https://stream.example.com/live.m3u8"
+  }
+}`,
+        notes: [
+          "Use this endpoint when the client is already scoped to a court station and needs the overlay payload for the live match in one request.",
+          "This endpoint returns 404 instead of currentMatch: null when the court does not have a live match. Keep using /api/live/courts/:courtStationId if you need idle court state.",
+        ],
+        cases: [
+          {
+            title: "Court exists but no live match is active",
+            summary:
+              "The station resolves, but the endpoint rejects the request because it only serves live overlay payloads.",
+            label: "404 response without an active live match",
+            response: `{
+  "message": "No live match found for this court station"
+}`,
+          },
+          {
+            title: "Invalid courtStationId",
+            summary:
+              "The backend returns a 400 error when the path param is not a valid ObjectId.",
+            label: "400 response",
+            response: `{
+  "message": "Invalid courtStationId"
+}`,
+          },
+          {
+            title: "Court station not found",
+            summary:
+              "The backend returns a 404 error when the station does not exist.",
+            label: "404 response",
+            response: `{
+  "message": "Court station not found"
+}`,
+          },
+        ],
+        tester: {
+          title: "Run the live court overlay endpoint",
+          summary:
+            "Enter a real court station id to fetch the cluster, station and overlay-style currentMatch payload directly from this docs page.",
+          method: "GET",
+          pathTemplate: "/api/live/courts/:courtStationId/current-match-overlay",
+          pathParams: [
+            {
+              name: "courtStationId",
+              label: "Court station ID",
+              placeholder: "663ca5f1c7b5e4a2ab123456",
+              defaultValue: "",
+            },
+          ],
+        },
+      },
+      {
+        method: "GET",
+        path: "/api/overlay/match/:id/current",
+        auth: "Public",
+        title: "Get the current live overlay match from a match context",
+        summary:
+          "Accept a match id, inspect the court station and cluster that match belongs to, then return the overlay payload for the live match currently running on that station when applicable.",
+        request: `curl {{BASE_URL}}/api/overlay/match/match-id/current`,
+        response: `{
+  "matchId": "live-match-id",
+  "status": "LIVE",
+  "winner": "",
+  "tournament": {
+    "id": "tour-id",
+    "name": "Open Spring Cup",
+    "image": "https://cdn.example.com/tournaments/open-spring-cup.jpg",
+    "nameDisplayMode": "nickname",
+    "displayNameMode": "nickname",
+    "eventType": "double",
+    "overlay": {
+      "theme": "dark",
+      "accentA": "#25C2A0",
+      "accentB": "#4F46E5"
+    },
+    "webLogoUrl": "/uploads/overlay/web-logo.png",
+    "webLogoAlt": "PickleTour"
+  },
+  "bracket": {
+    "id": "bracket-id",
+    "type": "knockout",
+    "name": "Main Draw",
+    "order": 1,
+    "stage": "main",
+    "drawRounds": 4,
+    "drawStatus": "ready"
+  },
+  "roundCode": "SF",
+  "roundName": "Semi Final",
+  "round": 3,
+  "roundSize": 4,
+  "stageType": "playoff",
+  "stageName": "Bán kết",
+  "code": "M-207",
+  "teams": {
+    "A": {
+      "displayName": "pickle.alpha & pickle.beta"
+    },
+    "B": {
+      "displayName": "pickle.gamma & pickle.delta"
+    }
+  },
+  "score": {
+    "bestOf": 3,
+    "gamesToWin": 2,
+    "pointsToWin": 11,
+    "winByTwo": true,
+    "setsWon": {
+      "A": 1,
+      "B": 0
+    },
+    "gameScores": [
+      { "a": 11, "b": 8 },
+      { "a": 6, "b": 4 }
+    ]
+  },
+  "court": {
+    "courtId": "court-id",
+    "courtName": "Court 1",
+    "courtExtra": {
+      "label": "Court 1",
+      "cluster": "Championship cluster"
+    }
+  },
+  "serve": {
+    "team": "A",
+    "server": 2,
+    "opening": true
+  },
+  "video": "https://stream.example.com/live.m3u8"
+}`,
+        notes: [
+          "The response shape matches the overlay endpoint. Compare the requested path id with response.matchId if you need to know whether the backend resolved to another live match on the same court.",
+          "Use this endpoint when the caller starts from a match id but still wants the currently live overlay payload for the same court context.",
+        ],
+        cases: [
+          {
+            title: "The requested match is already live",
+            summary:
+              "The endpoint returns the overlay payload for the requested match itself because it is already the live match on that court.",
+            label: "Response for the requested live match",
+            response: `{
+  "matchId": "requested-match-id",
+  "status": "LIVE",
+  "code": "M-203"
+}`,
+          },
+          {
+            title: "Another match is currently live on the same court",
+            summary:
+              "The response payload switches to the court station's live match, so response.matchId can differ from the path id.",
+            label: "Response for the station's current live match",
+            response: `{
+  "matchId": "live-match-id",
+  "status": "LIVE",
+  "code": "M-207"
+}`,
+          },
+          {
+            title: "Invalid match id",
+            summary:
+              "The backend returns a 400 error when the path param is not a valid ObjectId.",
+            label: "400 response",
+            response: `{
+  "message": "Invalid match id"
+}`,
+          },
+          {
+            title: "Match not found",
+            summary:
+              "The backend returns a 404 error when neither Match nor UserMatch exists for the requested id.",
+            label: "404 response",
+            response: `{
+  "message": "Match not found"
+}`,
+          },
+        ],
+        tester: {
+          title: "Run the resolved current overlay endpoint",
+          summary:
+            "Enter a match id to fetch the overlay payload for the live match currently active on the same court context.",
+          method: "GET",
+          pathTemplate: "/api/overlay/match/:id/current",
+          pathParams: [
+            {
+              name: "id",
+              label: "Match ID",
               placeholder: "663ca5f1c7b5e4a2ab123456",
               defaultValue: "",
             },
