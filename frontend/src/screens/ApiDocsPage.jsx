@@ -4205,7 +4205,8 @@ export default function ApiDocsPage() {
       return;
     }
 
-    if (expandedSectionId && visibleSectionIds.includes(expandedSectionId)) return;
+    if (!expandedSectionId) return;
+    if (visibleSectionIds.includes(expandedSectionId)) return;
     setExpandedSectionId(visibleSectionIds[0]);
   }, [expandedSectionId, visibleSectionIds]);
 
@@ -5688,6 +5689,18 @@ export default function ApiDocsPage() {
                 position: { lg: "sticky" },
                 top: { lg: 156 },
                 alignSelf: "start",
+                maxHeight: { lg: "calc(100vh - 172px)" },
+                overflowY: { lg: "auto" },
+                pr: { lg: 0.5 },
+                overscrollBehavior: { lg: "contain" },
+                scrollbarWidth: "thin",
+                "&::-webkit-scrollbar": {
+                  width: 8,
+                },
+                "&::-webkit-scrollbar-thumb": {
+                  backgroundColor: DOCS_BORDER_STRONG,
+                  borderRadius: 999,
+                },
               }}
             >
               <Stack spacing={2}>
