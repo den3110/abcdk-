@@ -378,6 +378,7 @@ export default function HomeScreenV2() {
 
   const clubs = Array.isArray(homeRes?.clubs) ? homeRes.clubs.slice(0, 3) : [];
   const heroSpotlightStats = stats.slice(0, 3);
+  const heroBackdropUrl = heroData.imageUrl || fallbackImg;
   const footerLinks = [
     ...copy.navItems,
     {
@@ -421,16 +422,78 @@ export default function HomeScreenV2() {
         sx={{
           position: "relative",
           overflow: "clip",
-          background:
-            "radial-gradient(circle at top left, rgba(203,107,47,0.16), transparent 26%), radial-gradient(circle at 85% 18%, rgba(255,255,255,0.1), transparent 18%), linear-gradient(180deg, #161110 0%, #141012 34%, #0f1319 100%)",
+          background: "linear-gradient(180deg, #1a120d 0%, #17100d 46%, #130f12 100%)",
         }}
       >
         <Box
           sx={{
             position: "absolute",
             inset: 0,
+            backgroundImage: `url(${heroBackdropUrl})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            filter: "blur(34px) saturate(0.72)",
+            transform: "scale(1.14)",
+            opacity: 0.58,
+          }}
+        />
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
             background:
-              "linear-gradient(180deg, rgba(9,10,13,0.04), rgba(9,10,13,0.32) 40%, rgba(9,10,13,0.08)), repeating-linear-gradient(90deg, transparent 0, transparent 119px, rgba(255,255,255,0.03) 120px)",
+              "linear-gradient(180deg, rgba(16,11,9,0.66) 0%, rgba(14,10,10,0.52) 18%, rgba(10,10,12,0.12) 42%, rgba(11,9,10,0.7) 100%), linear-gradient(90deg, rgba(20,12,10,0.9) 0%, rgba(20,12,10,0.58) 24%, rgba(20,12,10,0.18) 54%, rgba(20,12,10,0.42) 100%)",
+          }}
+        />
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "radial-gradient(circle at 72% 74%, rgba(255,255,255,0.18), transparent 16%), radial-gradient(circle at 82% 18%, rgba(203,107,47,0.28), transparent 18%), repeating-linear-gradient(90deg, transparent 0, transparent 119px, rgba(255,255,255,0.03) 120px)",
+          }}
+        />
+        <Stack
+          direction="row"
+          spacing={{ md: 1.8, xl: 2.2 }}
+          sx={{
+            position: "absolute",
+            top: { md: 38, xl: 34 },
+            left: { md: "53%", xl: "56%" },
+            transform: "translateX(-18%)",
+            display: { xs: "none", md: "flex" },
+            opacity: 0.9,
+          }}
+        >
+          {[
+            "rgba(181,72,45,0.75)",
+            "rgba(37,118,169,0.68)",
+            "rgba(193,168,61,0.68)",
+            "rgba(82,146,77,0.68)",
+            "rgba(183,183,183,0.44)",
+          ].map((color, index) => (
+            <Box
+              key={`hero-band-${index}`}
+              sx={{
+                width: { md: 58, xl: 72 },
+                height: { md: 180, xl: 210 },
+                borderRadius: "0 0 26px 26px",
+                background: `linear-gradient(180deg, ${color}, rgba(255,255,255,0.08))`,
+                boxShadow: "0 28px 42px rgba(0,0,0,0.18)",
+                transform: `rotate(${index % 2 === 0 ? -1.5 : 1.5}deg)`,
+              }}
+            />
+          ))}
+        </Stack>
+
+        <Box
+          sx={{
+            position: "absolute",
+            insetInline: 0,
+            bottom: 0,
+            height: { xs: 140, md: 220 },
+            background:
+              "linear-gradient(180deg, rgba(12,10,10,0) 0%, rgba(12,10,10,0.58) 36%, rgba(12,10,10,0.94) 100%)",
           }}
         />
 
@@ -447,12 +510,12 @@ export default function HomeScreenV2() {
           <Box
             sx={{
               position: "relative",
-              borderRadius: { xs: 5, md: 99 },
+              borderRadius: { xs: 5, md: 0 },
               px: { xs: 2, md: 3.5 },
               py: { xs: 1.4, md: 1.6 },
-              border: `1px solid ${SURFACE_BORDER}`,
-              background: "rgba(20, 16, 14, 0.58)",
-              backdropFilter: "blur(18px)",
+              border: { xs: `1px solid ${SURFACE_BORDER}`, md: "none" },
+              background: { xs: "rgba(20, 16, 14, 0.58)", md: "transparent" },
+              backdropFilter: { xs: "blur(18px)", md: "none" },
             }}
           >
             <Stack
@@ -573,7 +636,7 @@ export default function HomeScreenV2() {
                   to={heroPrimaryLink}
                   variant="contained"
                   disableElevation
-                  endIcon={<ArrowForwardRounded />}
+                  startIcon={<Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#fff" }} />}
                   sx={{
                     minHeight: 48,
                     px: 2.6,
@@ -676,49 +739,53 @@ export default function HomeScreenV2() {
             zIndex: 1,
             maxWidth: "1440px",
             px: { xs: 2, md: 4, xl: 6 },
-            pt: { xs: 7, md: 11 },
-            pb: { xs: 7, md: 10 },
+            pt: { xs: 7, md: 12 },
+            pb: { xs: 6, md: 7 },
           }}
         >
           <Box
             sx={{
               display: "grid",
               gap: { xs: 4, md: 5 },
-              gridTemplateColumns: {
-                xs: "1fr",
-                lg: "minmax(0, 0.92fr) minmax(0, 1.08fr)",
-              },
-              alignItems: "stretch",
+              gridTemplateColumns: "1fr",
+              alignItems: "end",
+              minHeight: { xs: "auto", md: "calc(100svh - 135px)" },
             }}
           >
             <Stack
               spacing={{ xs: 3, md: 4 }}
               sx={{
-                maxWidth: 720,
-                justifyContent: "center",
-                p: { xs: 2.5, md: 4 },
-                borderRadius: { xs: 5, md: 6 },
-                border: `1px solid ${SURFACE_BORDER}`,
-                background: HERO_PANEL_BG,
-                backdropFilter: "blur(12px)",
-                boxShadow: "0 30px 90px rgba(0,0,0,0.26)",
+                maxWidth: 900,
+                justifyContent: "flex-end",
+                pt: { md: 6 },
+                pb: { md: 2.5 },
               }}
             >
-              <Typography
-                variant="overline"
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
                 sx={{
                   alignSelf: "flex-start",
                   px: 1.3,
                   py: 0.7,
                   borderRadius: 999,
-                  color: "rgba(248,245,240,0.78)",
-                  letterSpacing: "0.18em",
                   border: "1px solid rgba(255,255,255,0.12)",
-                  backgroundColor: "rgba(255,255,255,0.05)",
+                  backgroundColor: "rgba(20,14,11,0.36)",
+                  backdropFilter: "blur(10px)",
                 }}
               >
-                {copy.eyebrow}
-              </Typography>
+                <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: ACCENT_COLOR, flexShrink: 0 }} />
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: "rgba(248,245,240,0.84)",
+                    letterSpacing: "0.18em",
+                  }}
+                >
+                  {copy.eyebrow}
+                </Typography>
+              </Stack>
 
               <Box>
                 {heroLines.map((line, index) => (
@@ -728,14 +795,15 @@ export default function HomeScreenV2() {
                     sx={{
                       fontFamily: DISPLAY_FONT_FAMILY,
                       fontSize: {
-                        xs: "clamp(3rem, 13vw, 4.65rem)",
-                        md: "clamp(4.8rem, 7.2vw, 7.8rem)",
+                        xs: "clamp(3.4rem, 15vw, 4.9rem)",
+                        md: "clamp(6rem, 8vw, 8.8rem)",
                       },
-                      lineHeight: { xs: 0.95, md: 0.9 },
-                      letterSpacing: "-0.05em",
+                      lineHeight: { xs: 0.92, md: 0.88 },
+                      letterSpacing: "-0.06em",
                       color: line.accent ? ACCENT_COLOR : "#f8f5f0",
                       fontStyle: line.italic ? "italic" : "normal",
-                      pr: { md: 2 },
+                      pr: { md: 10 },
+                      textShadow: "0 18px 42px rgba(0,0,0,0.22)",
                     }}
                   >
                     {line.text}
@@ -745,10 +813,11 @@ export default function HomeScreenV2() {
 
               <Typography
                 sx={{
-                  maxWidth: 620,
-                  color: "rgba(248,245,240,0.78)",
-                  fontSize: { xs: "1rem", md: "1.25rem" },
-                  lineHeight: 1.8,
+                  maxWidth: 580,
+                  color: "rgba(248,245,240,0.82)",
+                  fontSize: { xs: "1rem", md: "1.22rem" },
+                  lineHeight: 1.78,
+                  textShadow: "0 10px 28px rgba(0,0,0,0.22)",
                 }}
               >
                 {heroData.lead}
@@ -804,168 +873,143 @@ export default function HomeScreenV2() {
             </Stack>
 
             <Stack
-              spacing={2}
+              spacing={1.35}
               sx={{
+                display: "none",
                 minWidth: 0,
-                justifyContent: "space-between",
+                justifyContent: "flex-end",
+                mb: { md: 2.5 },
+                maxWidth: { lg: 392 },
+                ml: "auto",
               }}
             >
               <Box
                 sx={{
                   position: "relative",
-                  minHeight: { xs: 360, md: 560 },
-                  p: { xs: 1.2, md: 1.4 },
-                  borderRadius: { xs: 5, md: 6 },
+                  minHeight: { xs: 250, md: 315 },
+                  p: { xs: 2.1, md: 2.4 },
+                  borderRadius: { xs: 4.5, md: 5 },
                   border: `1px solid ${SURFACE_BORDER}`,
-                  background:
-                    "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))",
-                  boxShadow: "0 34px 90px rgba(0,0,0,0.24)",
+                  background: alpha("#110c0b", 0.52),
+                  backdropFilter: "blur(18px)",
+                  boxShadow: "0 28px 70px rgba(0,0,0,0.22)",
                 }}
               >
-                <Box
-                  sx={{
-                    position: "relative",
-                    minHeight: "100%",
-                    overflow: "hidden",
-                    borderRadius: { xs: 4.2, md: 5 },
-                    backgroundImage: [
-                      "linear-gradient(180deg, rgba(8,9,12,0.1), rgba(8,9,12,0.82))",
-                      "linear-gradient(135deg, rgba(18,14,12,0.34), rgba(11,15,22,0.2))",
-                      `url(${heroData.imageUrl || fallbackImg})`,
-                    ].join(", "),
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                  }}
-                >
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      inset: 0,
-                      background:
-                        "linear-gradient(120deg, rgba(8,9,12,0.78) 0%, rgba(8,9,12,0.18) 56%, rgba(8,9,12,0.08) 100%)",
-                    }}
-                  />
-
+                <Stack spacing={2.1} sx={{ position: "relative", zIndex: 1 }}>
                   <Stack
+                    direction={{ xs: "column", sm: "row" }}
                     justifyContent="space-between"
-                    sx={{ position: "relative", zIndex: 1, minHeight: "100%", p: { xs: 2.2, md: 2.8 } }}
+                    spacing={1.2}
                   >
-                    <Stack
-                      direction={{ xs: "column", sm: "row" }}
-                      justifyContent="space-between"
-                      spacing={1.2}
+                    <Box
+                      sx={{
+                        display: "inline-flex",
+                        alignSelf: "flex-start",
+                        px: 1.3,
+                        py: 0.65,
+                        borderRadius: 999,
+                        backgroundColor: "rgba(255,255,255,0.08)",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                      }}
                     >
-                      <Box
-                        sx={{
-                          display: "inline-flex",
-                          alignSelf: "flex-start",
-                          px: 1.3,
-                          py: 0.7,
-                          borderRadius: 999,
-                          backgroundColor: "rgba(255,255,255,0.08)",
-                          border: "1px solid rgba(255,255,255,0.12)",
-                        }}
-                      >
-                        <Typography
-                          variant="overline"
-                          sx={{
-                            color: alpha(ACCENT_COLOR, 0.98),
-                            letterSpacing: "0.16em",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {nextTournament ? copy.nextEvent : copy.liveLabel}
-                        </Typography>
-                      </Box>
-
-                      <Stack
-                        direction="row"
-                        spacing={0.75}
-                        alignItems="center"
-                        sx={{
-                          alignSelf: "flex-start",
-                          px: 1.25,
-                          py: 0.8,
-                          borderRadius: 999,
-                          backgroundColor: "rgba(8,9,12,0.34)",
-                          border: "1px solid rgba(255,255,255,0.12)",
-                        }}
-                      >
-                        <PlaceRounded
-                          sx={{ fontSize: 16, color: alpha(ACCENT_COLOR, 0.96) }}
-                        />
-                        <Typography
-                          variant="caption"
-                          sx={{ color: "rgba(248,245,240,0.72)" }}
-                        >
-                          {normalizeLocation(nextTournament) || copy.clubsFallback}
-                        </Typography>
-                      </Stack>
-                    </Stack>
-
-                    <Stack spacing={2.2} sx={{ maxWidth: 470 }}>
-                      <Stack spacing={1.2}>
-                        <Typography
-                          sx={{
-                            fontFamily: DISPLAY_FONT_FAMILY,
-                            fontSize: { xs: "2.2rem", md: "4.2rem" },
-                            lineHeight: { xs: 0.98, md: 0.94 },
-                            letterSpacing: "-0.05em",
-                          }}
-                        >
-                          {nextTournament?.name || heroData.title}
-                        </Typography>
-
-                        <Stack
-                          direction={{ xs: "column", sm: "row" }}
-                          spacing={{ xs: 1, sm: 2 }}
-                          divider={
-                            <Divider
-                              orientation="vertical"
-                              flexItem
-                              sx={{
-                                borderColor: "rgba(255,255,255,0.1)",
-                                display: { xs: "none", sm: "block" },
-                              }}
-                            />
-                          }
-                        >
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <CalendarMonthRounded
-                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
-                            />
-                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
-                              {formatDateRange(
-                                nextTournament?.startDate,
-                                nextTournament?.endDate,
-                                locale,
-                              )}
-                            </Typography>
-                          </Stack>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Groups2Rounded
-                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
-                            />
-                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
-                              {formatCompactNumber(homeRes?.stats?.players || 0, locale)}{" "}
-                              {t("home.stats.cards.players")}
-                            </Typography>
-                          </Stack>
-                        </Stack>
-                      </Stack>
-
                       <Typography
+                        variant="overline"
                         sx={{
-                          maxWidth: 460,
-                          color: "rgba(248,245,240,0.76)",
-                          lineHeight: 1.8,
+                          color: alpha(ACCENT_COLOR, 0.98),
+                          letterSpacing: "0.16em",
+                          fontWeight: 700,
                         }}
                       >
-                        {copy.featuredBody}
+                        {nextTournament ? copy.nextEvent : copy.liveLabel}
+                      </Typography>
+                    </Box>
+
+                    <Stack
+                      direction="row"
+                      spacing={0.75}
+                      alignItems="center"
+                      sx={{
+                        alignSelf: "flex-start",
+                        px: 1.1,
+                        py: 0.7,
+                        borderRadius: 999,
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                      }}
+                    >
+                      <PlaceRounded
+                        sx={{ fontSize: 16, color: alpha(ACCENT_COLOR, 0.96) }}
+                      />
+                      <Typography
+                        variant="caption"
+                        sx={{ color: "rgba(248,245,240,0.72)" }}
+                      >
+                        {normalizeLocation(nextTournament) || copy.clubsFallback}
                       </Typography>
                     </Stack>
                   </Stack>
-                </Box>
+
+                  <Stack spacing={1.2}>
+                    <Typography
+                      sx={{
+                        fontFamily: DISPLAY_FONT_FAMILY,
+                        fontSize: { xs: "2rem", md: "3rem" },
+                        lineHeight: { xs: 0.98, md: 0.94 },
+                        letterSpacing: "-0.05em",
+                        maxWidth: 420,
+                      }}
+                    >
+                      {nextTournament?.name || copy.nextEventFallback}
+                    </Typography>
+
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={{ xs: 1, sm: 2 }}
+                      divider={
+                        <Divider
+                          orientation="vertical"
+                          flexItem
+                          sx={{
+                            borderColor: "rgba(255,255,255,0.1)",
+                            display: { xs: "none", sm: "block" },
+                          }}
+                        />
+                      }
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <CalendarMonthRounded
+                          sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                        />
+                        <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                          {formatDateRange(
+                            nextTournament?.startDate,
+                            nextTournament?.endDate,
+                            locale,
+                          )}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Groups2Rounded
+                          sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                        />
+                        <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                          {formatCompactNumber(homeRes?.stats?.players || 0, locale)}{" "}
+                          {t("home.stats.cards.players")}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </Stack>
+
+                  <Typography
+                    sx={{
+                      maxWidth: 420,
+                      color: "rgba(248,245,240,0.72)",
+                      lineHeight: 1.75,
+                    }}
+                  >
+                    {copy.featuredBody}
+                  </Typography>
+                </Stack>
               </Box>
 
               <Box
@@ -982,10 +1026,10 @@ export default function HomeScreenV2() {
                   <Box
                     key={`hero-${item.key}`}
                     sx={{
-                      p: { xs: 1.8, md: 2.1 },
-                      borderRadius: { xs: 4, md: 4.5 },
+                      p: { xs: 1.5, md: 1.8 },
+                      borderRadius: { xs: 3.4, md: 4 },
                       border: `1px solid ${SURFACE_BORDER}`,
-                      background: "rgba(255,255,255,0.04)",
+                      background: "rgba(255,255,255,0.05)",
                       backdropFilter: "blur(10px)",
                     }}
                   >
@@ -993,7 +1037,7 @@ export default function HomeScreenV2() {
                       <Typography
                         sx={{
                           fontFamily: DISPLAY_FONT_FAMILY,
-                          fontSize: { xs: "1.8rem", md: "2.4rem" },
+                          fontSize: { xs: "1.65rem", md: "2rem" },
                           lineHeight: 0.94,
                         }}
                       >
@@ -1023,7 +1067,7 @@ export default function HomeScreenV2() {
             borderTop: "1px solid rgba(255,255,255,0.08)",
             borderBottom: "1px solid rgba(255,255,255,0.08)",
             background:
-              "linear-gradient(90deg, rgba(28,20,15,0.88), rgba(18,18,22,0.82) 52%, rgba(28,20,15,0.88))",
+              "linear-gradient(90deg, rgba(30,20,14,0.96), rgba(22,18,19,0.9) 52%, rgba(30,20,14,0.96))",
             backdropFilter: "blur(18px)",
           }}
         >
@@ -1046,7 +1090,8 @@ export default function HomeScreenV2() {
                 alignItems: "center",
               }}
             >
-              <Stack spacing={0.5}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: ACCENT_COLOR, flexShrink: 0 }} />
                 <Typography
                   variant="overline"
                   sx={{
@@ -1055,16 +1100,7 @@ export default function HomeScreenV2() {
                     fontWeight: 700,
                   }}
                 >
-                  {copy.nextEvent}
-                </Typography>
-                <Typography
-                  sx={{
-                    color: "rgba(248,245,240,0.82)",
-                    fontWeight: 700,
-                    fontSize: { xs: "1rem", md: "1.1rem" },
-                  }}
-                >
-                  {nextTournament?.name || copy.nextEventFallback}
+                  {copy.nextEvent} — {nextTournament?.name || copy.nextEventFallback}
                 </Typography>
               </Stack>
 
@@ -1163,16 +1199,19 @@ export default function HomeScreenV2() {
             }}
           >
             <Stack spacing={1.5} sx={{ minWidth: 0 }}>
-              <Typography
-                variant="overline"
-                sx={{
-                  color: alpha(ACCENT_COLOR, 0.96),
-                  letterSpacing: "0.18em",
-                  fontWeight: 700,
-                }}
-              >
-                {copy.seasonData}
-              </Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: alpha(ACCENT_COLOR, 0.96),
+                    letterSpacing: "0.18em",
+                    fontWeight: 700,
+                  }}
+                >
+                  {copy.seasonData}
+                </Typography>
+              </Stack>
               <Typography
                 sx={{
                   fontFamily: DISPLAY_FONT_FAMILY,
@@ -1203,57 +1242,51 @@ export default function HomeScreenV2() {
               gap: { xs: 2, md: 2.5 },
               gridTemplateColumns: {
                 xs: "repeat(2, minmax(0, 1fr))",
-                lg: "repeat(4, minmax(0, 1fr))",
+                lg: "1fr 1fr 1fr",
               },
             }}
           >
             {copy.seasonStats.map((item, index) => {
               const stat = stats[index];
+              const isLarge = index === 0;
+              const isAccent = index === 2;
 
               return (
                 <Box
                   key={item.key}
                   sx={{
-                    p: { xs: 2.2, md: 2.8 },
+                    p: isLarge ? { xs: 2.5, md: 3.5 } : { xs: 2.2, md: 2.8 },
                     borderRadius: { xs: 4, md: 5 },
                     border: `1px solid ${SURFACE_BORDER}`,
-                    background: SURFACE_BG,
+                    background: isAccent
+                      ? `linear-gradient(135deg, ${alpha(ACCENT_COLOR, 0.28)}, ${alpha(ACCENT_COLOR, 0.1)})`
+                      : SURFACE_BG,
                     boxShadow: "0 24px 54px rgba(0,0,0,0.18)",
+                    ...(isLarge && { gridRow: { lg: "1 / 3" } }),
+                    ...(index === 1 && { gridColumn: { lg: "2 / 4" } }),
                   }}
                 >
-                  <Stack spacing={1.5}>
-                    <Box
+                  <Stack spacing={1.5} sx={{ height: "100%", justifyContent: isLarge ? "flex-end" : "flex-start" }}>
+                    <Typography
+                      variant="overline"
                       sx={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: "50%",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: alpha(ACCENT_COLOR, 0.14),
-                        color: ACCENT_COLOR,
-                        fontWeight: 800,
+                        color: alpha(ACCENT_COLOR, 0.96),
+                        letterSpacing: "0.16em",
+                        fontWeight: 700,
                       }}
                     >
-                      {item.icon}
-                    </Box>
+                      {stat?.label}
+                    </Typography>
                     <Typography
                       sx={{
                         fontFamily: DISPLAY_FONT_FAMILY,
-                        fontSize: { xs: "2.2rem", md: "3.1rem" },
+                        fontSize: isLarge
+                          ? { xs: "4rem", md: "7rem" }
+                          : { xs: "2.2rem", md: "3.1rem" },
                         lineHeight: 1,
                       }}
                     >
                       {formatCompactNumber(stat?.value || 0, locale)}
-                    </Typography>
-                    <Typography
-                      variant="overline"
-                      sx={{
-                        color: "rgba(248,245,240,0.62)",
-                        letterSpacing: "0.18em",
-                      }}
-                    >
-                      {stat?.label}
                     </Typography>
                   </Stack>
                 </Box>
@@ -1272,16 +1305,19 @@ export default function HomeScreenV2() {
             }}
           >
             <Stack spacing={1.4} sx={{ minWidth: 0 }}>
-              <Typography
-                variant="overline"
-                sx={{
-                  color: alpha(ACCENT_COLOR, 0.96),
-                  letterSpacing: "0.18em",
-                  fontWeight: 700,
-                }}
-              >
-                {copy.featuredEyebrow}
-              </Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: alpha(ACCENT_COLOR, 0.96),
+                    letterSpacing: "0.18em",
+                    fontWeight: 700,
+                  }}
+                >
+                  {copy.featuredEyebrow}
+                </Typography>
+              </Stack>
               <Typography
                 sx={{
                   fontFamily: DISPLAY_FONT_FAMILY,
@@ -1347,7 +1383,8 @@ export default function HomeScreenV2() {
                 backgroundImage: [
                   "linear-gradient(180deg, rgba(8, 9, 12, 0.16), rgba(8, 9, 12, 0.84))",
                   "linear-gradient(120deg, rgba(20, 14, 11, 0.76), rgba(13, 14, 18, 0.48))",
-                  `url(${nextTournament?.image || heroData.imageUrl || fallbackImg})`,
+                  `url(${nextTournament?.image || ""})`,
+                  `url(${heroBackdropUrl})`,
                 ].join(", "),
                 backgroundSize: "cover",
                 backgroundPosition: "center",
@@ -1486,10 +1523,20 @@ export default function HomeScreenV2() {
                 <Box
                   key={item?._id || `tournament-${index}`}
                   sx={{
+                    position: "relative",
+                    overflow: "hidden",
+                    minHeight: { xs: 220, md: 232 },
                     p: { xs: 2.2, md: 2.5 },
                     borderRadius: { xs: 4.5, md: 5 },
                     border: `1px solid ${SURFACE_BORDER}`,
-                    background: SURFACE_BG,
+                    backgroundImage: [
+                      "linear-gradient(180deg, rgba(8,9,12,0.12), rgba(8,9,12,0.92))",
+                      "linear-gradient(140deg, rgba(20,14,11,0.18), rgba(12,14,18,0.28))",
+                      `url(${item?.image || ""})`,
+                      `url(${heroBackdropUrl})`,
+                    ].join(", "),
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
                     boxShadow: "0 20px 48px rgba(0,0,0,0.18)",
                   }}
                 >
@@ -1567,16 +1614,19 @@ export default function HomeScreenV2() {
             }}
           >
             <Stack spacing={1.4} sx={{ minWidth: 0 }}>
-              <Typography
-                variant="overline"
-                sx={{
-                  color: alpha(ACCENT_COLOR, 0.96),
-                  letterSpacing: "0.18em",
-                  fontWeight: 700,
-                }}
-              >
-                {copy.capabilitiesEyebrow}
-              </Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: alpha(ACCENT_COLOR, 0.96),
+                    letterSpacing: "0.18em",
+                    fontWeight: 700,
+                  }}
+                >
+                  {copy.capabilitiesEyebrow}
+                </Typography>
+              </Stack>
               <Typography
                 sx={{
                   fontFamily: DISPLAY_FONT_FAMILY,
@@ -1660,16 +1710,19 @@ export default function HomeScreenV2() {
             }}
           >
             <Stack spacing={1.4} sx={{ minWidth: 0 }}>
-              <Typography
-                variant="overline"
-                sx={{
-                  color: alpha(ACCENT_COLOR, 0.96),
-                  letterSpacing: "0.18em",
-                  fontWeight: 700,
-                }}
-              >
-                {copy.clubsEyebrow}
-              </Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: alpha(ACCENT_COLOR, 0.96),
+                    letterSpacing: "0.18em",
+                    fontWeight: 700,
+                  }}
+                >
+                  {copy.clubsEyebrow}
+                </Typography>
+              </Stack>
               <Typography
                 sx={{
                   fontFamily: DISPLAY_FONT_FAMILY,
@@ -1918,6 +1971,7 @@ export default function HomeScreenV2() {
             maxWidth: "1440px",
             px: { xs: 2, md: 4, xl: 6 },
             py: { xs: 3.5, md: 4.2 },
+            pb: { xs: 10, md: 10 },
           }}
         >
           <Box
@@ -1991,6 +2045,95 @@ export default function HomeScreenV2() {
               ))}
             </Stack>
           </Box>
+        </Container>
+      </Box>
+
+      {/* Sticky bottom bar */}
+      <Box
+        sx={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1200,
+          borderTop: `1px solid ${SURFACE_BORDER}`,
+          background: "rgba(12, 10, 10, 0.88)",
+          backdropFilter: "blur(18px)",
+        }}
+      >
+        <Container
+          maxWidth={false}
+          sx={{
+            maxWidth: "1440px",
+            px: { xs: 2, md: 4, xl: 6 },
+            py: { xs: 1.2, md: 1.5 },
+          }}
+        >
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="center"
+            spacing={2}
+          >
+            <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+              <Typography
+                variant="overline"
+                sx={{
+                  color: "rgba(248,245,240,0.52)",
+                  letterSpacing: "0.14em",
+                  fontSize: "0.7rem",
+                }}
+              >
+                {nextTournament?.name || copy.nextEventFallback} · {formatDateRange(nextTournament?.startDate, nextTournament?.endDate, locale)}
+              </Typography>
+              <Typography
+                sx={{
+                  color: "rgba(248,245,240,0.76)",
+                  fontWeight: 700,
+                  fontSize: { xs: "0.82rem", md: "0.88rem" },
+                }}
+              >
+                {formatCompactNumber(homeRes?.stats?.players || 0, locale)} {t("home.stats.cards.players")} — {isEnglish ? "early registration active" : "đăng ký sớm đang mở"}
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ display: { xs: "none", md: "flex" }, flexShrink: 0 }}>
+              <Button
+                component={Link}
+                to="/pickle-ball/tournaments"
+                sx={{
+                  color: "rgba(248,245,240,0.72)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.1em",
+                  fontWeight: 700,
+                  fontSize: "0.78rem",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {copy.featuredSecondaryCta}
+              </Button>
+              <Button
+                component={Link}
+                to={heroPrimaryLink}
+                variant="contained"
+                disableElevation
+                startIcon={<Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#fff" }} />}
+                sx={{
+                  minHeight: 42,
+                  px: 2.4,
+                  borderRadius: 999,
+                  textTransform: "none",
+                  fontWeight: 800,
+                  whiteSpace: "nowrap",
+                  backgroundColor: ACCENT_COLOR,
+                  "&:hover": {
+                    backgroundColor: "#db7b3a",
+                  },
+                }}
+              >
+                {isLoggedIn ? copy.featuredSecondaryCta : copy.primaryCta}
+              </Button>
+            </Stack>
+          </Stack>
         </Container>
       </Box>
     </Box>
