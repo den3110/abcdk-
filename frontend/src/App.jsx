@@ -25,6 +25,7 @@ import {
   publishCrossTabMessage,
   subscribeCrossTabChannel,
 } from "./utils/crossTabChannel";
+import useFrontendUiVersion from "./hook/useFrontendUiVersion.js";
 
 import Clarity from "@microsoft/clarity";
 
@@ -239,6 +240,7 @@ function NativeWebViewAuthBridge() {
 const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
+  const { isModernVersion } = useFrontendUiVersion();
 
   // Define routes that should have a full-screen layout (no header/footer)
   const isAuthPage = [
@@ -249,6 +251,7 @@ const App = () => {
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
   const isImmersiveLiveFeedPage = location.pathname === "/live";
+  const hideMobileBottomNav = isModernVersion && location.pathname === "/";
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -318,7 +321,7 @@ const App = () => {
             </Box>
             <AppFooter />
           </Box>
-          <MobileBottomNav />
+          {!hideMobileBottomNav ? <MobileBottomNav /> : null}
           {/* <RegInvitesModal /> */}
         </Container>
       )}

@@ -81,6 +81,19 @@ function sanitizeSettingsPatch(patch = {}) {
     next.appShell.webViewUrl = String(next.appShell.webViewUrl || "").trim();
   }
 
+  if (next.frontendUi && typeof next.frontendUi === "object") {
+    const version = String(next.frontendUi.version || "v1")
+      .trim()
+      .toLowerCase();
+    next.frontendUi.version = ["v1", "v2", "v3"].includes(version)
+      ? version
+      : "v1";
+
+    if (!Object.keys(next.frontendUi).length) {
+      delete next.frontendUi;
+    }
+  }
+
   if (next.links && typeof next.links === "object") {
     if (Object.prototype.hasOwnProperty.call(next.links, "guideUrl")) {
       next.links.guideUrl = String(next.links.guideUrl || "").trim();

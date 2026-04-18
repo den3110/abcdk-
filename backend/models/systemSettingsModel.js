@@ -153,6 +153,14 @@ const SystemSettingsSchema = new mongoose.Schema(
       hideUserRatingsSelf: { type: Boolean, default: false },
     },
 
+    frontendUi: {
+      version: {
+        type: String,
+        enum: ["v1", "v2", "v3"],
+        default: "v1",
+      },
+    },
+
     azure: {
       enabled: { type: Boolean, default: false },
       accounts: { type: [azureAccountSchema], default: [] },

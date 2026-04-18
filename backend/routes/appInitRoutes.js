@@ -5,12 +5,34 @@ import {
   verifyAppSessionToken,
   APP_SESSION_TTL,
 } from "../utils/appSession.js";
+import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
 
 const router = express.Router();
 
-router.get("/", (req, res) => {
+async function buildPublicUiPayload() {
+  try {
+    const settings = await getSystemSettingsRuntime({ ensureDocument: true });
+    const frontendVersion = String(settings?.frontendUi?.version || "v1")
+      .trim()
+      .toLowerCase();
+
+    return {
+      frontendVersion: ["v1", "v2", "v3"].includes(frontendVersion)
+        ? frontendVersion
+        : "v1",
+    };
+  } catch (error) {
+    console.error("[appInit] Cannot load frontend UI settings:", error);
+    return {
+      frontendVersion: "v1",
+    };
+  }
+}
+
+router.get("/", async (req, res) => {
   try {
     const ua = req.get("user-agent") || "";
+    const publicUi = await buildPublicUiPayload();
 
     // Nếu đã có session hợp lệ -> trả lại (không spam tạo mới)
     const existingToken =
@@ -20,6 +42,7 @@ router.get("/", (req, res) => {
     if (existing) {
       return res.json({
         sessionId: existing.sid,
+        publicUi,
         // expiresIn: APP_SESSION_TTL,
         // chỗ này có thể trả thêm public config/flags nếu muốn
       });
@@ -38,6 +61,7 @@ router.get("/", (req, res) => {
     return res.json({
       sessionId: sid,
       issuedAt: iat,
+      publicUi,
       // expiresIn: ttl,
       // có thể trả:
       // publicConfig: { env: process.env.APP_ENV || "prod" },
