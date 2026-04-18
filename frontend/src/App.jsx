@@ -251,7 +251,8 @@ const App = () => {
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
   const isImmersiveLiveFeedPage = location.pathname === "/live";
-  const hideMobileBottomNav = isModernVersion && location.pathname === "/";
+  const isModernHomeRoute = isModernVersion && location.pathname === "/";
+  const hideMobileBottomNav = isModernHomeRoute;
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -297,10 +298,12 @@ const App = () => {
       <AuthSessionSync />
       <SentryRuntimeSync />
       <NativeWebViewAuthBridge />
-      {!isAuthPage && !isImmersiveLiveFeedPage && <Header />}
+      {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (
+        <Header />
+      )}
       <ToastContainer theme={isDark ? "dark" : "light"} />
 
-      {isAuthPage || isImmersiveLiveFeedPage ? (
+      {isAuthPage || isImmersiveLiveFeedPage || isModernHomeRoute ? (
         <Outlet />
       ) : (
         <Container className="app-shell">
@@ -326,7 +329,9 @@ const App = () => {
         </Container>
       )}
 
-      {!isAuthPage && !isImmersiveLiveFeedPage && <ChatBotDrawer />}
+      {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (
+        <ChatBotDrawer />
+      )}
       <GlobalCommandPalette />
     </>
   );

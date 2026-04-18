@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSelector } from "react-redux";
 import { Link } from "react-router-dom";
 import {
@@ -7,50 +7,68 @@ import {
   Box,
   Button,
   Container,
+  Divider,
+  IconButton,
   Stack,
   Typography,
+  useMediaQuery,
   useTheme,
 } from "@mui/material";
+import {
+  ArrowForwardRounded,
+  CalendarMonthRounded,
+  CloseRounded,
+  Groups2Rounded,
+  MenuRounded,
+  PlaceRounded,
+  QueryStatsRounded,
+} from "@mui/icons-material";
 
 import SEOHead from "../components/SEOHead.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
-import { useThemeMode } from "../context/ThemeContext.jsx";
 import { useGetHeroContentQuery } from "../slices/cmsApiSlice.js";
 import { useGetHomeSummaryQuery } from "../slices/homeApiSlice.js";
+import { useListTournamentsQuery } from "../slices/tournamentsApiSlice.js";
 
 const fallbackImg = `${import.meta.env.BASE_URL}hero.jpg`;
 
-const FULL_BLEED_SX = {
-  position: "relative",
-  left: "50%",
-  right: "50%",
-  ml: "-50vw",
-  mr: "-50vw",
-  width: "100vw",
-};
-
 const DISPLAY_FONT_FAMILY =
   '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif';
+const ACCENT_COLOR = "#cb6b2f";
+const HERO_PANEL_BG = "rgba(18, 15, 13, 0.58)";
+const SURFACE_BORDER = "rgba(255, 255, 255, 0.12)";
+const SURFACE_BG = "rgba(24, 20, 18, 0.76)";
 
-function splitHeroTitle(title) {
-  const words = String(title || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+function toEpochMs(primaryValue, fallbackValue) {
+  const first = primaryValue ? new Date(primaryValue).getTime() : NaN;
+  if (Number.isFinite(first) && first > 0) return first;
+  const second = fallbackValue ? new Date(fallbackValue).getTime() : NaN;
+  return Number.isFinite(second) && second > 0 ? second : 0;
+}
 
-  if (words.length < 4) {
-    return {
-      main: words.join(" "),
-      accent: "",
-    };
+function normalizeLocation(item) {
+  if (!item) return "";
+  if (typeof item.location === "string" && item.location.trim()) {
+    return item.location.trim();
   }
 
-  const accentCount = Math.max(1, Math.ceil(words.length / 3));
+  if (item.location && typeof item.location === "object") {
+    const parts = [
+      item.location.venue,
+      item.location.city,
+      item.location.province,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
 
-  return {
-    main: words.slice(0, words.length - accentCount).join(" "),
-    accent: words.slice(words.length - accentCount).join(" "),
-  };
+    if (parts.length) return parts.join(", ");
+  }
+
+  const parts = [item.venueName, item.city, item.province]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return parts.join(", ");
 }
 
 function formatCompactNumber(value, locale) {
@@ -61,19 +79,215 @@ function formatCompactNumber(value, locale) {
   }).format(numericValue);
 }
 
+function formatDateRange(startDate, endDate, locale) {
+  const startMs = toEpochMs(startDate);
+  const endMs = toEpochMs(endDate);
+  const effectiveStartMs = startMs || endMs;
+  const effectiveEndMs = endMs || startMs;
+
+  if (!effectiveStartMs) return "--";
+
+  const formatter = new Intl.DateTimeFormat(locale, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
+  if (!effectiveEndMs || effectiveEndMs === effectiveStartMs) {
+    return formatter.format(new Date(effectiveStartMs));
+  }
+
+  return `${formatter.format(new Date(effectiveStartMs))} - ${formatter.format(
+    new Date(effectiveEndMs),
+  )}`;
+}
+
+function getCountdownParts(targetMs, nowMs) {
+  const diff = Math.max(0, targetMs - nowMs);
+  const totalSeconds = Math.floor(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return {
+    days,
+    hours,
+    minutes,
+    seconds,
+  };
+}
+
+function padCountdown(value) {
+  return String(Math.max(0, Number(value) || 0)).padStart(2, "0");
+}
+
+function buildHeroLines(title, locale) {
+  const trimmed = String(title || "").trim();
+  const words = trimmed.split(/\s+/).filter(Boolean);
+
+  if (!words.length) {
+    return locale.startsWith("en")
+      ? [
+          { text: "Run Better" },
+          { text: "Tournaments", accent: true, italic: true },
+          { text: "Together" },
+        ]
+      : [
+          { text: "Tổ Chức" },
+          { text: "Giải Đấu", accent: true, italic: true },
+          { text: "Mượt Hơn" },
+        ];
+  }
+
+  if (words.length <= 4) {
+    return [
+      { text: words.slice(0, 2).join(" ") },
+      { text: words.slice(2).join(" "), accent: true, italic: true },
+    ];
+  }
+
+  const firstCut = Math.max(2, Math.ceil(words.length * 0.34));
+  const secondCut = Math.max(firstCut + 1, Math.ceil(words.length * 0.68));
+
+  return [
+    { text: words.slice(0, firstCut).join(" ") },
+    {
+      text: words.slice(firstCut, secondCut).join(" "),
+      accent: true,
+      italic: true,
+    },
+    { text: words.slice(secondCut).join(" ") },
+  ].filter((line) => line.text);
+}
+
+function buildPageCopy(isEnglish) {
+  return {
+    navItems: [
+      {
+        label: isEnglish ? "Tournaments" : "Giải đấu",
+        to: "/pickle-ball/tournaments",
+      },
+      {
+        label: isEnglish ? "Rankings" : "Điểm trình",
+        to: "/pickle-ball/rankings",
+      },
+      {
+        label: isEnglish ? "Clubs" : "Câu lạc bộ",
+        to: "/clubs",
+      },
+      {
+        label: isEnglish ? "News" : "Tin tức",
+        to: "/news",
+      },
+    ],
+    eyebrow: isEnglish
+      ? "Tournament, rankings, clubs, live"
+      : "Giải đấu, điểm trình, câu lạc bộ, live",
+    primaryCta: isEnglish ? "Create account" : "Tạo tài khoản",
+    secondaryCta: isEnglish ? "Explore tournaments" : "Xem giải đấu",
+    tertiaryCta: isEnglish ? "View rankings" : "Xem bảng xếp hạng",
+    nextEvent: isEnglish ? "Next event countdown" : "Đếm ngược sự kiện tiếp theo",
+    nextEventFallback: isEnglish ? "PickleTour season" : "Mùa giải PickleTour",
+    registerNow: isEnglish ? "Register now" : "Đăng ký ngay",
+    seasonData: isEnglish ? "Performance data" : "Dữ liệu mùa giải",
+    seasonTitle: isEnglish
+      ? "Public tournament momentum, one landing page."
+      : "Nhịp vận hành giải đấu, gói gọn trên một landing page.",
+    seasonBody: isEnglish
+      ? "The homepage should feel like an event platform first: clear hierarchy, bold hero, quick stats, and obvious paths into tournaments, rankings, clubs, and news."
+      : "Trang chủ cần cho cảm giác một event platform thực thụ: hero rõ thứ bậc, nhịp typography lớn, số liệu ngay lập tức, và đường dẫn nhanh vào giải đấu, bảng xếp hạng, câu lạc bộ, và tin tức.",
+    featuredEyebrow: isEnglish ? "Upcoming calendar" : "Lịch nổi bật",
+    featuredTitle: isEnglish ? "Featured tournaments" : "Giải đấu nổi bật",
+    featuredBody: isEnglish
+      ? "Built directly from the public tournament feed so the landing stays aligned with the real schedule."
+      : "Lấy trực tiếp từ feed giải đấu public để landing luôn bám sát lịch thật ngoài hệ thống.",
+    featuredPrimaryCta: isEnglish ? "Open overview" : "Mở tổng quan",
+    featuredSecondaryCta: isEnglish ? "All tournaments" : "Tất cả giải đấu",
+    capabilitiesEyebrow: isEnglish ? "Platform capabilities" : "Năng lực nền tảng",
+    capabilitiesTitle: isEnglish
+      ? "The rest of the platform is already there."
+      : "Phần còn lại của nền tảng đã có sẵn ở backend.",
+    capabilitiesBody: isEnglish
+      ? "V2 should not be a pretty shell only. It should pull users into the real system: registration flows, rankings, clubs, and public content."
+      : "V2 không chỉ là lớp vỏ đẹp hơn. Nó phải kéo người dùng vào đúng luồng hệ thống thật: đăng ký giải, bảng xếp hạng, câu lạc bộ, và nội dung public.",
+    clubsEyebrow: isEnglish ? "Club network" : "Mạng lưới câu lạc bộ",
+    clubsTitle: isEnglish ? "Trusted by active clubs" : "Được tin dùng bởi các CLB hoạt động mạnh",
+    clubsBody: isEnglish
+      ? "Use public club data as proof that the ecosystem is already active."
+      : "Dùng dữ liệu club public như bằng chứng rằng hệ sinh thái đã hoạt động thật sự.",
+    ctaTitle: isEnglish
+      ? "Ready to move from browsing to registration?"
+      : "Sẵn sàng chuyển từ xem landing sang đăng ký thật?",
+    ctaBody: isEnglish
+      ? "Keep the energy of the hero, then send people into the actual tournament and profile flows already backed by the platform."
+      : "Giữ đúng năng lượng của phần hero, sau đó đẩy người dùng vào luồng giải đấu và hồ sơ thật đã có sẵn trong nền tảng.",
+    ctaPrimary: isEnglish ? "Browse tournaments" : "Duyệt giải đấu",
+    ctaSecondary: isEnglish ? "Open clubs" : "Mở câu lạc bộ",
+    footerBlurb: isEnglish
+      ? "Public landing for tournaments, ratings, clubs, and community activity."
+      : "Landing public cho giải đấu, điểm trình, câu lạc bộ, và hoạt động cộng đồng.",
+    footerLinksTitle: isEnglish ? "Quick links" : "Liên kết nhanh",
+    footerLegalTitle: isEnglish ? "Legal" : "Pháp lý",
+    liveLabel: isEnglish ? "Live data" : "Dữ liệu live",
+    clubsFallback: isEnglish ? "Vietnam" : "Việt Nam",
+    viewClub: isEnglish ? "View club" : "Xem CLB",
+    seasonStats: [
+      {
+        key: "players",
+        icon: "01",
+      },
+      {
+        key: "tournaments",
+        icon: "02",
+      },
+      {
+        key: "matches",
+        icon: "03",
+      },
+      {
+        key: "clubs",
+        icon: "04",
+      },
+    ],
+  };
+}
+
 export default function HomeScreenV2() {
   const theme = useTheme();
-  const { isDark } = useThemeMode();
-  const { t, locale } = useLanguage();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const { t, locale, language } = useLanguage();
   const { userInfo } = useSelector((state) => state.auth);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const { data: heroRes, isError: heroError, isLoading: heroLoading } =
     useGetHeroContentQuery();
   const { data: homeRes } = useGetHomeSummaryQuery({ clubsLimit: 6 });
+  const { data: tournamentsRes = [] } = useListTournamentsQuery({
+    limit: 8,
+    sort: "startDate",
+  });
 
+  const isEnglish = language === "en";
+  const copy = useMemo(() => buildPageCopy(isEnglish), [isEnglish]);
   const fallbackHero = t("home.heroFallback");
   const featureItems = t("home.features.items", {}, []);
   const clubMembersLabel = t("home.clubs.members", { count: "{count}" });
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile && mobileMenuOpen) {
+      setMobileMenuOpen(false);
+    }
+  }, [isMobile, mobileMenuOpen]);
 
   const heroData = useMemo(() => {
     if (heroLoading || heroError) {
@@ -93,8 +307,44 @@ export default function HomeScreenV2() {
     };
   }, [fallbackHero, heroError, heroLoading, heroRes]);
 
-  const heroTitle = splitHeroTitle(heroData.title);
-  const statCards = useMemo(
+  const heroLines = useMemo(
+    () => buildHeroLines(heroData.title, locale),
+    [heroData.title, locale],
+  );
+
+  const tournaments = useMemo(
+    () => (Array.isArray(tournamentsRes) ? tournamentsRes : []),
+    [tournamentsRes],
+  );
+
+  const upcomingTournaments = useMemo(() => {
+    const next = tournaments
+      .filter((item) => toEpochMs(item?.startAt, item?.startDate) >= nowMs)
+      .sort(
+        (left, right) =>
+          toEpochMs(left?.startAt, left?.startDate) -
+          toEpochMs(right?.startAt, right?.startDate),
+      );
+
+    return next;
+  }, [nowMs, tournaments]);
+
+  const nextTournament = upcomingTournaments[0] || tournaments[0] || null;
+  const featuredTournaments = useMemo(() => {
+    const source = upcomingTournaments.length ? upcomingTournaments : tournaments;
+    return source.slice(0, 3);
+  }, [tournaments, upcomingTournaments]);
+
+  const countdownTargetMs =
+    toEpochMs(nextTournament?.startAt, nextTournament?.startDate) ||
+    nowMs + 1000 * 60 * 60 * 24 * 12;
+  const countdownParts = getCountdownParts(countdownTargetMs, nowMs);
+
+  const isLoggedIn = Boolean(userInfo?._id || userInfo?.id || userInfo?.email);
+  const heroPrimaryLink = isLoggedIn ? "/pickle-ball/tournaments" : "/register";
+  const heroSecondaryLink = isLoggedIn ? "/pickle-ball/rankings" : "/pickle-ball/tournaments";
+
+  const stats = useMemo(
     () => [
       {
         key: "players",
@@ -117,18 +367,46 @@ export default function HomeScreenV2() {
         value: homeRes?.stats?.clubs || 0,
       },
     ],
-    [homeRes?.stats?.clubs, homeRes?.stats?.matches, homeRes?.stats?.players, homeRes?.stats?.tournaments, t],
+    [
+      homeRes?.stats?.clubs,
+      homeRes?.stats?.matches,
+      homeRes?.stats?.players,
+      homeRes?.stats?.tournaments,
+      t,
+    ],
   );
 
-  const clubs = Array.isArray(homeRes?.clubs) ? homeRes.clubs.slice(0, 6) : [];
-  const isLoggedIn = Boolean(userInfo?._id || userInfo?.id || userInfo?.email);
+  const clubs = Array.isArray(homeRes?.clubs) ? homeRes.clubs.slice(0, 3) : [];
+  const heroSpotlightStats = stats.slice(0, 3);
+  const footerLinks = [
+    ...copy.navItems,
+    {
+      label: isEnglish ? "Docs" : "Tài liệu",
+      to: "/docs/api",
+    },
+  ];
+  const footerLegalLinks = [
+    {
+      label: isEnglish ? "Privacy" : "Quyền riêng tư",
+      to: "/privacy-and-policy",
+    },
+    {
+      label: isEnglish ? "Terms" : "Điều khoản",
+      to: "/terms-of-service",
+    },
+    {
+      label: isEnglish ? "Cookies" : "Cookies",
+      to: "/cookies",
+    },
+  ];
 
   return (
     <Box
       sx={{
-        ...FULL_BLEED_SX,
-        overflowX: "clip",
-        backgroundColor: "background.default",
+        minHeight: "100vh",
+        color: "#f8f5f0",
+        background:
+          "linear-gradient(180deg, #120f0d 0%, #17110e 22%, #101216 48%, #0d1015 100%)",
       }}
     >
       <SEOHead
@@ -142,206 +420,695 @@ export default function HomeScreenV2() {
       <Box
         sx={{
           position: "relative",
-          minHeight: { xs: "88svh", md: "92svh" },
-          color: "#f8fafc",
-          backgroundImage: [
-            `linear-gradient(180deg, rgba(9, 13, 20, 0.38), rgba(9, 13, 20, 0.72))`,
-            `linear-gradient(120deg, rgba(9, 13, 20, 0.94) 0%, rgba(9, 13, 20, 0.72) 38%, rgba(9, 13, 20, 0.52) 100%)`,
-            `url(${heroData.imageUrl || fallbackImg})`,
-          ].join(", "),
-          backgroundSize: "cover",
-          backgroundPosition: { xs: "center", md: "76% center" },
+          overflow: "clip",
+          background:
+            "radial-gradient(circle at top left, rgba(203,107,47,0.16), transparent 26%), radial-gradient(circle at 85% 18%, rgba(255,255,255,0.1), transparent 18%), linear-gradient(180deg, #161110 0%, #141012 34%, #0f1319 100%)",
         }}
       >
         <Box
           sx={{
             position: "absolute",
             inset: 0,
-            background: isDark
-              ? "radial-gradient(circle at 72% 28%, rgba(61,139,255,0.16), transparent 34%)"
-              : "radial-gradient(circle at 72% 28%, rgba(13,110,253,0.18), transparent 36%)",
+            background:
+              "linear-gradient(180deg, rgba(9,10,13,0.04), rgba(9,10,13,0.32) 40%, rgba(9,10,13,0.08)), repeating-linear-gradient(90deg, transparent 0, transparent 119px, rgba(255,255,255,0.03) 120px)",
           }}
         />
 
         <Container
-          maxWidth="xl"
+          maxWidth={false}
+          sx={{
+            position: "relative",
+            zIndex: 2,
+            maxWidth: "1440px",
+            px: { xs: 2, md: 4, xl: 6 },
+            pt: { xs: 2, md: 3 },
+          }}
+        >
+          <Box
+            sx={{
+              position: "relative",
+              borderRadius: { xs: 5, md: 99 },
+              px: { xs: 2, md: 3.5 },
+              py: { xs: 1.4, md: 1.6 },
+              border: `1px solid ${SURFACE_BORDER}`,
+              background: "rgba(20, 16, 14, 0.58)",
+              backdropFilter: "blur(18px)",
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              spacing={2}
+            >
+              <Stack
+                component={Link}
+                to="/"
+                direction="row"
+                spacing={1.5}
+                alignItems="center"
+                sx={{
+                  color: "#f8f5f0",
+                  textDecoration: "none",
+                  minWidth: 0,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background:
+                      "linear-gradient(135deg, rgba(255,255,255,0.16), rgba(203,107,47,0.18))",
+                    color: ACCENT_COLOR,
+                    fontWeight: 800,
+                    fontSize: "1rem",
+                  }}
+                >
+                  PT
+                </Box>
+                <Stack spacing={0.15} sx={{ minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      fontWeight: 800,
+                      letterSpacing: "0.24em",
+                      fontSize: { xs: "0.88rem", md: "1.1rem" },
+                    }}
+                  >
+                    PICKLETOUR
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    sx={{ color: "rgba(248,245,240,0.62)" }}
+                  >
+                    {copy.liveLabel}
+                  </Typography>
+                </Stack>
+              </Stack>
+
+              <Stack
+                direction="row"
+                spacing={0.25}
+                alignItems="center"
+                sx={{ display: { xs: "none", md: "flex" } }}
+              >
+                {copy.navItems.map((item) => (
+                  <Button
+                    key={item.to}
+                    component={Link}
+                    to={item.to}
+                    sx={{
+                      color: "rgba(248,245,240,0.74)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.12em",
+                      fontSize: "0.82rem",
+                      fontWeight: 700,
+                      px: 1.8,
+                      py: 1,
+                      borderRadius: 999,
+                      "&:hover": {
+                        color: "#f8f5f0",
+                        backgroundColor: "rgba(255,255,255,0.08)",
+                      },
+                    }}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </Stack>
+
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                sx={{ display: { xs: "none", md: "flex" } }}
+              >
+                <Button
+                  component={Link}
+                  to={isLoggedIn ? "/profile" : "/login"}
+                  sx={{
+                    color: "#f8f5f0",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    px: 2.2,
+                    py: 1.1,
+                    borderRadius: 999,
+                    "&:hover": {
+                      backgroundColor: "rgba(255,255,255,0.08)",
+                    },
+                  }}
+                >
+                  {isLoggedIn
+                    ? isEnglish
+                      ? "Profile"
+                      : "Hồ sơ"
+                    : copy.tertiaryCta}
+                </Button>
+                <Button
+                  component={Link}
+                  to={heroPrimaryLink}
+                  variant="contained"
+                  disableElevation
+                  endIcon={<ArrowForwardRounded />}
+                  sx={{
+                    minHeight: 48,
+                    px: 2.6,
+                    borderRadius: 999,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.09em",
+                    fontWeight: 800,
+                    backgroundColor: ACCENT_COLOR,
+                    "&:hover": {
+                      backgroundColor: "#db7b3a",
+                    },
+                  }}
+                >
+                  {isLoggedIn ? copy.featuredSecondaryCta : copy.primaryCta}
+                </Button>
+              </Stack>
+
+              <IconButton
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
+                sx={{
+                  display: { xs: "inline-flex", md: "none" },
+                  color: "#f8f5f0",
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  backgroundColor: "rgba(255,255,255,0.04)",
+                }}
+              >
+                {mobileMenuOpen ? <CloseRounded /> : <MenuRounded />}
+              </IconButton>
+            </Stack>
+
+            {mobileMenuOpen ? (
+              <Box
+                sx={{
+                  display: { xs: "block", md: "none" },
+                  pt: 2,
+                }}
+              >
+                <Divider sx={{ borderColor: "rgba(255,255,255,0.1)", mb: 2 }} />
+                <Stack spacing={1}>
+                  {copy.navItems.map((item) => (
+                    <Button
+                      key={item.to}
+                      component={Link}
+                      to={item.to}
+                      onClick={() => setMobileMenuOpen(false)}
+                      sx={{
+                        justifyContent: "space-between",
+                        color: "#f8f5f0",
+                        textTransform: "none",
+                        fontWeight: 700,
+                        fontSize: "1rem",
+                        px: 0.5,
+                        py: 1.2,
+                      }}
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                  <Stack direction="row" spacing={1} pt={1}>
+                    <Button
+                      component={Link}
+                      to={heroSecondaryLink}
+                      onClick={() => setMobileMenuOpen(false)}
+                      variant="outlined"
+                      fullWidth
+                      sx={{
+                        minHeight: 48,
+                        borderRadius: 999,
+                        color: "#f8f5f0",
+                        borderColor: "rgba(255,255,255,0.18)",
+                      }}
+                    >
+                      {copy.tertiaryCta}
+                    </Button>
+                    <Button
+                      component={Link}
+                      to={heroPrimaryLink}
+                      onClick={() => setMobileMenuOpen(false)}
+                      variant="contained"
+                      fullWidth
+                      sx={{
+                        minHeight: 48,
+                        borderRadius: 999,
+                        backgroundColor: ACCENT_COLOR,
+                      }}
+                    >
+                      {isLoggedIn ? copy.featuredSecondaryCta : copy.primaryCta}
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Box>
+            ) : null}
+          </Box>
+        </Container>
+
+        <Container
+          maxWidth={false}
           sx={{
             position: "relative",
             zIndex: 1,
-            pt: { xs: 12, md: 16 },
-            pb: { xs: 8, md: 11 },
+            maxWidth: "1440px",
+            px: { xs: 2, md: 4, xl: 6 },
+            pt: { xs: 7, md: 11 },
+            pb: { xs: 7, md: 10 },
           }}
         >
-          <Stack
-            spacing={{ xs: 3, md: 4 }}
+          <Box
             sx={{
-              maxWidth: { xs: "100%", md: 760 },
-              minWidth: 0,
-              p: { xs: 2.5, md: 3.5 },
-              borderRadius: { xs: 4, md: 5 },
-              border: "1px solid rgba(255,255,255,0.1)",
-              background:
-                "linear-gradient(180deg, rgba(9,13,20,0.34), rgba(9,13,20,0.52))",
-              backdropFilter: "blur(10px)",
+              display: "grid",
+              gap: { xs: 4, md: 5 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 0.92fr) minmax(0, 1.08fr)",
+              },
+              alignItems: "stretch",
             }}
           >
-            <Box
+            <Stack
+              spacing={{ xs: 3, md: 4 }}
               sx={{
-                display: "inline-flex",
-                alignSelf: "flex-start",
-                px: 1.5,
-                py: 0.75,
-                borderRadius: 999,
-                bgcolor: "rgba(255,255,255,0.08)",
-                border: "1px solid rgba(255,255,255,0.12)",
+                maxWidth: 720,
+                justifyContent: "center",
+                p: { xs: 2.5, md: 4 },
+                borderRadius: { xs: 5, md: 6 },
+                border: `1px solid ${SURFACE_BORDER}`,
+                background: HERO_PANEL_BG,
                 backdropFilter: "blur(12px)",
+                boxShadow: "0 30px 90px rgba(0,0,0,0.26)",
               }}
             >
               <Typography
                 variant="overline"
                 sx={{
-                  color: "rgba(255,255,255,0.8)",
+                  alignSelf: "flex-start",
+                  px: 1.3,
+                  py: 0.7,
+                  borderRadius: 999,
+                  color: "rgba(248,245,240,0.78)",
                   letterSpacing: "0.18em",
-                  fontWeight: 700,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  backgroundColor: "rgba(255,255,255,0.05)",
                 }}
               >
-                {t("home.hero.badge")}
+                {copy.eyebrow}
               </Typography>
-            </Box>
 
-            <Typography
-              component="h1"
-              sx={{
-                maxWidth: 720,
-                fontFamily: DISPLAY_FONT_FAMILY,
-                fontWeight: 500,
-                letterSpacing: "-0.04em",
-                lineHeight: { xs: 0.95, md: 0.9 },
-                fontSize: {
-                  xs: "clamp(3.25rem, 13vw, 4.8rem)",
-                  md: "clamp(5rem, 8vw, 7.4rem)",
-                },
-              }}
-            >
-              {heroTitle.main ? (
-                <Box component="span" sx={{ display: "block" }}>
-                  {heroTitle.main}
-                </Box>
-              ) : null}
-              {heroTitle.accent ? (
-                <Box
-                  component="span"
+              <Box>
+                {heroLines.map((line, index) => (
+                  <Typography
+                    key={`${line.text}-${index}`}
+                    component="div"
+                    sx={{
+                      fontFamily: DISPLAY_FONT_FAMILY,
+                      fontSize: {
+                        xs: "clamp(3rem, 13vw, 4.65rem)",
+                        md: "clamp(4.8rem, 7.2vw, 7.8rem)",
+                      },
+                      lineHeight: { xs: 0.95, md: 0.9 },
+                      letterSpacing: "-0.05em",
+                      color: line.accent ? ACCENT_COLOR : "#f8f5f0",
+                      fontStyle: line.italic ? "italic" : "normal",
+                      pr: { md: 2 },
+                    }}
+                  >
+                    {line.text}
+                  </Typography>
+                ))}
+              </Box>
+
+              <Typography
+                sx={{
+                  maxWidth: 620,
+                  color: "rgba(248,245,240,0.78)",
+                  fontSize: { xs: "1rem", md: "1.25rem" },
+                  lineHeight: 1.8,
+                }}
+              >
+                {heroData.lead}
+              </Typography>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                <Button
+                  component={Link}
+                  to={heroPrimaryLink}
+                  variant="contained"
+                  disableElevation
+                  endIcon={<ArrowForwardRounded />}
                   sx={{
-                    display: "block",
-                    color: theme.palette.primary.light,
+                    minHeight: 58,
+                    px: 3.2,
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 800,
+                    fontSize: "1rem",
+                    backgroundColor: ACCENT_COLOR,
+                    boxShadow: `0 18px 40px ${alpha(ACCENT_COLOR, 0.34)}`,
+                    "&:hover": {
+                      backgroundColor: "#db7b3a",
+                    },
                   }}
                 >
-                  {heroTitle.accent}
-                </Box>
-              ) : null}
-            </Typography>
+                  {isLoggedIn ? copy.featuredSecondaryCta : copy.primaryCta}
+                </Button>
 
-            <Typography
+                <Button
+                  component={Link}
+                  to={heroSecondaryLink}
+                  variant="outlined"
+                  sx={{
+                    minHeight: 58,
+                    px: 3.2,
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 700,
+                    fontSize: "1rem",
+                    color: "#f8f5f0",
+                    borderColor: "rgba(255,255,255,0.18)",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    "&:hover": {
+                      borderColor: "rgba(255,255,255,0.34)",
+                      backgroundColor: "rgba(255,255,255,0.08)",
+                    },
+                  }}
+                >
+                  {copy.secondaryCta}
+                </Button>
+              </Stack>
+            </Stack>
+
+            <Stack
+              spacing={2}
               sx={{
-                maxWidth: 620,
-                color: "rgba(248,250,252,0.82)",
-                fontSize: { xs: "1rem", md: "1.35rem" },
-                lineHeight: 1.72,
+                minWidth: 0,
+                justifyContent: "space-between",
               }}
             >
-              {heroData.lead}
-            </Typography>
-
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-              <Button
-                component={Link}
-                to={isLoggedIn ? "/pickle-ball/tournaments" : "/register"}
-                variant="contained"
-                disableElevation
+              <Box
                 sx={{
-                  minHeight: 58,
-                  px: 3.5,
-                  borderRadius: 999,
-                  textTransform: "none",
-                  fontWeight: 700,
-                  fontSize: "1rem",
-                  backgroundColor: "primary.main",
-                  boxShadow: `0 18px 40px ${alpha(theme.palette.primary.main, 0.28)}`,
-                  "&:hover": {
-                    backgroundColor: "primary.dark",
-                    boxShadow: `0 22px 44px ${alpha(theme.palette.primary.main, 0.32)}`,
+                  position: "relative",
+                  minHeight: { xs: 360, md: 560 },
+                  p: { xs: 1.2, md: 1.4 },
+                  borderRadius: { xs: 5, md: 6 },
+                  border: `1px solid ${SURFACE_BORDER}`,
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))",
+                  boxShadow: "0 34px 90px rgba(0,0,0,0.24)",
+                }}
+              >
+                <Box
+                  sx={{
+                    position: "relative",
+                    minHeight: "100%",
+                    overflow: "hidden",
+                    borderRadius: { xs: 4.2, md: 5 },
+                    backgroundImage: [
+                      "linear-gradient(180deg, rgba(8,9,12,0.1), rgba(8,9,12,0.82))",
+                      "linear-gradient(135deg, rgba(18,14,12,0.34), rgba(11,15,22,0.2))",
+                      `url(${heroData.imageUrl || fallbackImg})`,
+                    ].join(", "),
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      inset: 0,
+                      background:
+                        "linear-gradient(120deg, rgba(8,9,12,0.78) 0%, rgba(8,9,12,0.18) 56%, rgba(8,9,12,0.08) 100%)",
+                    }}
+                  />
+
+                  <Stack
+                    justifyContent="space-between"
+                    sx={{ position: "relative", zIndex: 1, minHeight: "100%", p: { xs: 2.2, md: 2.8 } }}
+                  >
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      justifyContent="space-between"
+                      spacing={1.2}
+                    >
+                      <Box
+                        sx={{
+                          display: "inline-flex",
+                          alignSelf: "flex-start",
+                          px: 1.3,
+                          py: 0.7,
+                          borderRadius: 999,
+                          backgroundColor: "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                        }}
+                      >
+                        <Typography
+                          variant="overline"
+                          sx={{
+                            color: alpha(ACCENT_COLOR, 0.98),
+                            letterSpacing: "0.16em",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {nextTournament ? copy.nextEvent : copy.liveLabel}
+                        </Typography>
+                      </Box>
+
+                      <Stack
+                        direction="row"
+                        spacing={0.75}
+                        alignItems="center"
+                        sx={{
+                          alignSelf: "flex-start",
+                          px: 1.25,
+                          py: 0.8,
+                          borderRadius: 999,
+                          backgroundColor: "rgba(8,9,12,0.34)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                        }}
+                      >
+                        <PlaceRounded
+                          sx={{ fontSize: 16, color: alpha(ACCENT_COLOR, 0.96) }}
+                        />
+                        <Typography
+                          variant="caption"
+                          sx={{ color: "rgba(248,245,240,0.72)" }}
+                        >
+                          {normalizeLocation(nextTournament) || copy.clubsFallback}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+
+                    <Stack spacing={2.2} sx={{ maxWidth: 470 }}>
+                      <Stack spacing={1.2}>
+                        <Typography
+                          sx={{
+                            fontFamily: DISPLAY_FONT_FAMILY,
+                            fontSize: { xs: "2.2rem", md: "4.2rem" },
+                            lineHeight: { xs: 0.98, md: 0.94 },
+                            letterSpacing: "-0.05em",
+                          }}
+                        >
+                          {nextTournament?.name || heroData.title}
+                        </Typography>
+
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          spacing={{ xs: 1, sm: 2 }}
+                          divider={
+                            <Divider
+                              orientation="vertical"
+                              flexItem
+                              sx={{
+                                borderColor: "rgba(255,255,255,0.1)",
+                                display: { xs: "none", sm: "block" },
+                              }}
+                            />
+                          }
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <CalendarMonthRounded
+                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                            />
+                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                              {formatDateRange(
+                                nextTournament?.startDate,
+                                nextTournament?.endDate,
+                                locale,
+                              )}
+                            </Typography>
+                          </Stack>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Groups2Rounded
+                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                            />
+                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                              {formatCompactNumber(homeRes?.stats?.players || 0, locale)}{" "}
+                              {t("home.stats.cards.players")}
+                            </Typography>
+                          </Stack>
+                        </Stack>
+                      </Stack>
+
+                      <Typography
+                        sx={{
+                          maxWidth: 460,
+                          color: "rgba(248,245,240,0.76)",
+                          lineHeight: 1.8,
+                        }}
+                      >
+                        {copy.featuredBody}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                </Box>
+              </Box>
+
+              <Box
+                sx={{
+                  display: "grid",
+                  gap: { xs: 1.2, md: 1.4 },
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(3, minmax(0, 1fr))",
                   },
                 }}
               >
-                {isLoggedIn
-                  ? t("home.actions.exploreTournaments")
-                  : t("home.actions.getStarted")}
-              </Button>
-
-              <Button
-                component={Link}
-                to={isLoggedIn ? "/clubs" : "/pickle-ball/tournaments"}
-                variant="outlined"
-                sx={{
-                  minHeight: 58,
-                  px: 3.5,
-                  borderRadius: 999,
-                  textTransform: "none",
-                  fontWeight: 700,
-                  fontSize: "1rem",
-                  color: "#f8fafc",
-                  borderColor: "rgba(255,255,255,0.22)",
-                  bgcolor: "rgba(255,255,255,0.04)",
-                  backdropFilter: "blur(14px)",
-                  "&:hover": {
-                    borderColor: "rgba(255,255,255,0.4)",
-                    bgcolor: "rgba(255,255,255,0.1)",
-                  },
-                }}
-              >
-                {isLoggedIn ? t("header.nav.clubs") : t("home.actions.exploreTournaments")}
-              </Button>
+                {heroSpotlightStats.map((item) => (
+                  <Box
+                    key={`hero-${item.key}`}
+                    sx={{
+                      p: { xs: 1.8, md: 2.1 },
+                      borderRadius: { xs: 4, md: 4.5 },
+                      border: `1px solid ${SURFACE_BORDER}`,
+                      background: "rgba(255,255,255,0.04)",
+                      backdropFilter: "blur(10px)",
+                    }}
+                  >
+                    <Stack spacing={0.8}>
+                      <Typography
+                        sx={{
+                          fontFamily: DISPLAY_FONT_FAMILY,
+                          fontSize: { xs: "1.8rem", md: "2.4rem" },
+                          lineHeight: 0.94,
+                        }}
+                      >
+                        {formatCompactNumber(item?.value || 0, locale)}
+                      </Typography>
+                      <Typography
+                        variant="overline"
+                        sx={{
+                          color: "rgba(248,245,240,0.58)",
+                          letterSpacing: "0.16em",
+                        }}
+                      >
+                        {item?.label}
+                      </Typography>
+                    </Stack>
+                  </Box>
+                ))}
+              </Box>
             </Stack>
-          </Stack>
+          </Box>
         </Container>
 
         <Box
           sx={{
             position: "relative",
-            zIndex: 1,
-            borderTop: "1px solid rgba(255,255,255,0.1)",
+            zIndex: 2,
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
             background:
-              "linear-gradient(180deg, rgba(9,13,20,0.28), rgba(9,13,20,0.66))",
+              "linear-gradient(90deg, rgba(28,20,15,0.88), rgba(18,18,22,0.82) 52%, rgba(28,20,15,0.88))",
             backdropFilter: "blur(18px)",
           }}
         >
-          <Container maxWidth="xl" sx={{ py: { xs: 2.5, md: 3.5 } }}>
+          <Container
+            maxWidth={false}
+            sx={{
+              maxWidth: "1440px",
+              px: { xs: 2, md: 4, xl: 6 },
+              py: { xs: 2.4, md: 3.2 },
+            }}
+          >
             <Box
               sx={{
                 display: "grid",
-                gap: { xs: 2, md: 3 },
+                gap: { xs: 2.5, md: 3 },
                 gridTemplateColumns: {
-                  xs: "repeat(2, minmax(0, 1fr))",
-                  md: "repeat(4, minmax(0, 1fr))",
+                  xs: "1fr",
+                  lg: "minmax(0, 1.2fr) repeat(4, minmax(0, 0.38fr)) minmax(0, 0.8fr)",
                 },
+                alignItems: "center",
               }}
             >
-              {statCards.map((item) => (
-                <Stack key={item.key} spacing={0.75} sx={{ minWidth: 0 }}>
+              <Stack spacing={0.5}>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: alpha(ACCENT_COLOR, 0.96),
+                    letterSpacing: "0.18em",
+                    fontWeight: 700,
+                  }}
+                >
+                  {copy.nextEvent}
+                </Typography>
+                <Typography
+                  sx={{
+                    color: "rgba(248,245,240,0.82)",
+                    fontWeight: 700,
+                    fontSize: { xs: "1rem", md: "1.1rem" },
+                  }}
+                >
+                  {nextTournament?.name || copy.nextEventFallback}
+                </Typography>
+              </Stack>
+
+              {[
+                {
+                  key: "days",
+                  label: isEnglish ? "Days" : "Ngày",
+                  value: countdownParts.days,
+                },
+                {
+                  key: "hours",
+                  label: isEnglish ? "Hours" : "Giờ",
+                  value: countdownParts.hours,
+                },
+                {
+                  key: "minutes",
+                  label: isEnglish ? "Min" : "Phút",
+                  value: countdownParts.minutes,
+                },
+                {
+                  key: "seconds",
+                  label: isEnglish ? "Sec" : "Giây",
+                  value: countdownParts.seconds,
+                },
+              ].map((item) => (
+                <Stack
+                  key={item.key}
+                  spacing={0.4}
+                  alignItems={{ xs: "flex-start", lg: "center" }}
+                >
                   <Typography
                     sx={{
-                      color: "#f8fafc",
                       fontFamily: DISPLAY_FONT_FAMILY,
-                      fontSize: { xs: "2.1rem", md: "3rem" },
-                      lineHeight: 1,
+                      fontSize: { xs: "2.3rem", md: "3.4rem" },
+                      lineHeight: 0.95,
+                      color: "#f8f5f0",
                     }}
                   >
-                    {formatCompactNumber(item.value, locale)}
+                    {padCountdown(item.value)}
                   </Typography>
                   <Typography
                     variant="overline"
                     sx={{
-                      color: "rgba(248,250,252,0.62)",
+                      color: "rgba(248,245,240,0.58)",
                       letterSpacing: "0.18em",
                     }}
                   >
@@ -349,68 +1116,492 @@ export default function HomeScreenV2() {
                   </Typography>
                 </Stack>
               ))}
+
+              <Stack alignItems={{ xs: "flex-start", lg: "flex-end" }}>
+                <Button
+                  component={Link}
+                  to={nextTournament?._id ? `/tournament/${nextTournament._id}` : "/pickle-ball/tournaments"}
+                  endIcon={<ArrowForwardRounded />}
+                  sx={{
+                    color: ACCENT_COLOR,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.12em",
+                    fontWeight: 800,
+                    p: 0,
+                    "&:hover": {
+                      backgroundColor: "transparent",
+                      color: "#db7b3a",
+                    },
+                  }}
+                >
+                  {copy.registerNow}
+                </Button>
+              </Stack>
             </Box>
           </Container>
         </Box>
       </Box>
 
-      <Box
+      <Container
+        maxWidth={false}
         sx={{
-          background: isDark
-            ? "linear-gradient(180deg, rgba(17,24,39,0.96), rgba(17,24,39,1))"
-            : "linear-gradient(180deg, #f4f6fb 0%, #ffffff 100%)",
-          color: "text.primary",
+          maxWidth: "1440px",
+          px: { xs: 2, md: 4, xl: 6 },
+          py: { xs: 6, md: 9 },
         }}
       >
-        <Container maxWidth="xl" sx={{ py: { xs: 6, md: 10 } }}>
-          <Stack spacing={{ xs: 5, md: 7 }}>
-            <Box
-              sx={{
-                display: "grid",
-                gap: { xs: 3, lg: 5 },
-                gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 0.95fr) minmax(0, 1.05fr)" },
-                alignItems: "start",
-              }}
-            >
-              <Stack spacing={2} sx={{ minWidth: 0 }}>
-                <Typography
-                  variant="overline"
-                  sx={{
-                    color: "primary.main",
-                    fontWeight: 700,
-                    letterSpacing: "0.18em",
-                  }}
-                >
-                  {t("home.features.eyebrow")}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: DISPLAY_FONT_FAMILY,
-                    fontSize: { xs: "2.3rem", md: "4.2rem" },
-                    lineHeight: { xs: 1.02, md: 0.96 },
-                    letterSpacing: "-0.04em",
-                  }}
-                >
-                  {t("home.features.title")}
-                </Typography>
-              </Stack>
-
+        <Stack spacing={{ xs: 5, md: 8 }}>
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2, md: 3 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 0.95fr) minmax(0, 1.05fr)",
+              },
+              alignItems: "start",
+            }}
+          >
+            <Stack spacing={1.5} sx={{ minWidth: 0 }}>
               <Typography
+                variant="overline"
                 sx={{
-                  color: "text.secondary",
-                  fontSize: { xs: "1rem", md: "1.12rem" },
-                  lineHeight: 1.8,
-                  maxWidth: 720,
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
                 }}
               >
-                {t("home.features.description")}
+                {copy.seasonData}
               </Typography>
+              <Typography
+                sx={{
+                  fontFamily: DISPLAY_FONT_FAMILY,
+                  fontSize: { xs: "2.4rem", md: "4.2rem" },
+                  lineHeight: { xs: 1, md: 0.96 },
+                  letterSpacing: "-0.05em",
+                }}
+              >
+                {copy.seasonTitle}
+              </Typography>
+            </Stack>
+
+            <Typography
+              sx={{
+                color: "rgba(248,245,240,0.72)",
+                fontSize: { xs: "1rem", md: "1.08rem" },
+                lineHeight: 1.85,
+                maxWidth: 760,
+              }}
+            >
+              {copy.seasonBody}
+            </Typography>
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2, md: 2.5 },
+              gridTemplateColumns: {
+                xs: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(4, minmax(0, 1fr))",
+              },
+            }}
+          >
+            {copy.seasonStats.map((item, index) => {
+              const stat = stats[index];
+
+              return (
+                <Box
+                  key={item.key}
+                  sx={{
+                    p: { xs: 2.2, md: 2.8 },
+                    borderRadius: { xs: 4, md: 5 },
+                    border: `1px solid ${SURFACE_BORDER}`,
+                    background: SURFACE_BG,
+                    boxShadow: "0 24px 54px rgba(0,0,0,0.18)",
+                  }}
+                >
+                  <Stack spacing={1.5}>
+                    <Box
+                      sx={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: "50%",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: alpha(ACCENT_COLOR, 0.14),
+                        color: ACCENT_COLOR,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {item.icon}
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontFamily: DISPLAY_FONT_FAMILY,
+                        fontSize: { xs: "2.2rem", md: "3.1rem" },
+                        lineHeight: 1,
+                      }}
+                    >
+                      {formatCompactNumber(stat?.value || 0, locale)}
+                    </Typography>
+                    <Typography
+                      variant="overline"
+                      sx={{
+                        color: "rgba(248,245,240,0.62)",
+                        letterSpacing: "0.18em",
+                      }}
+                    >
+                      {stat?.label}
+                    </Typography>
+                  </Stack>
+                </Box>
+              );
+            })}
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2.2, md: 2.5 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 1.35fr) minmax(0, 0.65fr)",
+              },
+            }}
+          >
+            <Stack spacing={1.4} sx={{ minWidth: 0 }}>
+              <Typography
+                variant="overline"
+                sx={{
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
+                }}
+              >
+                {copy.featuredEyebrow}
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: DISPLAY_FONT_FAMILY,
+                  fontSize: { xs: "2.2rem", md: "3.8rem" },
+                  lineHeight: { xs: 1.02, md: 0.98 },
+                  letterSpacing: "-0.05em",
+                }}
+              >
+                {copy.featuredTitle}
+              </Typography>
+              <Typography
+                sx={{
+                  color: "rgba(248,245,240,0.72)",
+                  lineHeight: 1.8,
+                  maxWidth: 760,
+                }}
+              >
+                {copy.featuredBody}
+              </Typography>
+            </Stack>
+
+            <Stack
+              direction={{ xs: "column", sm: "row", lg: "column" }}
+              spacing={1.2}
+              alignItems={{ xs: "stretch", lg: "flex-end" }}
+              justifyContent="flex-end"
+            >
+              <Button
+                component={Link}
+                to="/pickle-ball/tournaments"
+                variant="outlined"
+                sx={{
+                  minHeight: 52,
+                  px: 2.8,
+                  borderRadius: 999,
+                  color: "#f8f5f0",
+                  borderColor: "rgba(255,255,255,0.18)",
+                }}
+              >
+                {copy.featuredSecondaryCta}
+              </Button>
+            </Stack>
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2.2, md: 2.5 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 1.15fr) minmax(0, 0.85fr)",
+              },
+            }}
+          >
+            <Box
+              sx={{
+                position: "relative",
+                minHeight: { xs: 360, md: 470 },
+                p: { xs: 2.5, md: 3.2 },
+                borderRadius: { xs: 5, md: 6 },
+                overflow: "hidden",
+                border: `1px solid ${SURFACE_BORDER}`,
+                backgroundImage: [
+                  "linear-gradient(180deg, rgba(8, 9, 12, 0.16), rgba(8, 9, 12, 0.84))",
+                  "linear-gradient(120deg, rgba(20, 14, 11, 0.76), rgba(13, 14, 18, 0.48))",
+                  `url(${nextTournament?.image || heroData.imageUrl || fallbackImg})`,
+                ].join(", "),
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                boxShadow: "0 32px 80px rgba(0,0,0,0.24)",
+              }}
+            >
+              <Stack
+                justifyContent="space-between"
+                sx={{ position: "relative", zIndex: 1, minHeight: "100%" }}
+              >
+                <Stack direction="row" justifyContent="space-between" spacing={2}>
+                  <Box
+                    sx={{
+                      display: "inline-flex",
+                      alignSelf: "flex-start",
+                      px: 1.3,
+                      py: 0.7,
+                      borderRadius: 999,
+                      backgroundColor: "rgba(255,255,255,0.08)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                    }}
+                  >
+                    <Typography
+                      variant="overline"
+                      sx={{
+                        color: alpha(ACCENT_COLOR, 0.98),
+                        letterSpacing: "0.16em",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {nextTournament ? copy.nextEvent : copy.liveLabel}
+                    </Typography>
+                  </Box>
+                </Stack>
+
+                <Stack spacing={2} sx={{ maxWidth: 680 }}>
+                  <Stack spacing={1.1}>
+                    <Typography
+                      sx={{
+                        fontFamily: DISPLAY_FONT_FAMILY,
+                        fontSize: { xs: "2.2rem", md: "4rem" },
+                        lineHeight: { xs: 0.98, md: 0.94 },
+                        letterSpacing: "-0.05em",
+                      }}
+                    >
+                      {nextTournament?.name || heroData.title}
+                    </Typography>
+
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={{ xs: 1, sm: 2 }}
+                      divider={
+                        <Divider
+                          orientation="vertical"
+                          flexItem
+                          sx={{
+                            borderColor: "rgba(255,255,255,0.1)",
+                            display: { xs: "none", sm: "block" },
+                          }}
+                        />
+                      }
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <CalendarMonthRounded
+                          sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                        />
+                        <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                          {formatDateRange(
+                            nextTournament?.startDate,
+                            nextTournament?.endDate,
+                            locale,
+                          )}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <PlaceRounded
+                          sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                        />
+                        <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                          {normalizeLocation(nextTournament) || copy.clubsFallback}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </Stack>
+
+                  <Typography
+                    sx={{
+                      maxWidth: 560,
+                      color: "rgba(248,245,240,0.78)",
+                      lineHeight: 1.8,
+                    }}
+                  >
+                    {copy.capabilitiesBody}
+                  </Typography>
+
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.3}>
+                    <Button
+                      component={Link}
+                      to={nextTournament?._id ? `/tournament/${nextTournament._id}` : "/pickle-ball/tournaments"}
+                      variant="contained"
+                      endIcon={<ArrowForwardRounded />}
+                      sx={{
+                        minHeight: 56,
+                        px: 3,
+                        borderRadius: 999,
+                        textTransform: "none",
+                        fontWeight: 800,
+                        backgroundColor: ACCENT_COLOR,
+                      }}
+                    >
+                      {copy.featuredPrimaryCta}
+                    </Button>
+                    <Button
+                      component={Link}
+                      to="/pickle-ball/tournaments"
+                      variant="outlined"
+                      sx={{
+                        minHeight: 56,
+                        px: 3,
+                        borderRadius: 999,
+                        color: "#f8f5f0",
+                        borderColor: "rgba(255,255,255,0.2)",
+                        textTransform: "none",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {copy.featuredSecondaryCta}
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Stack>
             </Box>
+
+            <Stack spacing={2.2}>
+              {featuredTournaments.slice(1).map((item, index) => (
+                <Box
+                  key={item?._id || `tournament-${index}`}
+                  sx={{
+                    p: { xs: 2.2, md: 2.5 },
+                    borderRadius: { xs: 4.5, md: 5 },
+                    border: `1px solid ${SURFACE_BORDER}`,
+                    background: SURFACE_BG,
+                    boxShadow: "0 20px 48px rgba(0,0,0,0.18)",
+                  }}
+                >
+                  <Stack spacing={1.6}>
+                    <Stack direction="row" justifyContent="space-between" spacing={1.5}>
+                      <Typography
+                        variant="overline"
+                        sx={{
+                          color: alpha(ACCENT_COLOR, 0.96),
+                          letterSpacing: "0.16em",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {item?.status || copy.liveLabel}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: "rgba(248,245,240,0.52)" }}
+                      >
+                        {formatDateRange(item?.startDate, item?.endDate, locale)}
+                      </Typography>
+                    </Stack>
+
+                    <Typography
+                      sx={{
+                        fontFamily: DISPLAY_FONT_FAMILY,
+                        fontSize: { xs: "1.8rem", md: "2.3rem" },
+                        lineHeight: 1,
+                        letterSpacing: "-0.04em",
+                      }}
+                    >
+                      {item?.name}
+                    </Typography>
+
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <PlaceRounded sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }} />
+                      <Typography sx={{ color: "rgba(248,245,240,0.72)" }}>
+                        {normalizeLocation(item) || copy.clubsFallback}
+                      </Typography>
+                    </Stack>
+
+                    <Button
+                      component={Link}
+                      to={item?._id ? `/tournament/${item._id}` : "/pickle-ball/tournaments"}
+                      endIcon={<ArrowForwardRounded />}
+                      sx={{
+                        alignSelf: "flex-start",
+                        color: "#f8f5f0",
+                        textTransform: "none",
+                        fontWeight: 700,
+                        px: 0,
+                        "&:hover": {
+                          backgroundColor: "transparent",
+                          color: ACCENT_COLOR,
+                        },
+                      }}
+                    >
+                      {copy.featuredPrimaryCta}
+                    </Button>
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2.2, md: 2.8 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 0.92fr) minmax(0, 1.08fr)",
+              },
+              alignItems: "start",
+            }}
+          >
+            <Stack spacing={1.4} sx={{ minWidth: 0 }}>
+              <Typography
+                variant="overline"
+                sx={{
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
+                }}
+              >
+                {copy.capabilitiesEyebrow}
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: DISPLAY_FONT_FAMILY,
+                  fontSize: { xs: "2.3rem", md: "3.7rem" },
+                  lineHeight: { xs: 1.02, md: 0.98 },
+                  letterSpacing: "-0.05em",
+                }}
+              >
+                {copy.capabilitiesTitle}
+              </Typography>
+              <Typography
+                sx={{
+                  color: "rgba(248,245,240,0.72)",
+                  lineHeight: 1.8,
+                  maxWidth: 640,
+                }}
+              >
+                {copy.capabilitiesBody}
+              </Typography>
+            </Stack>
 
             <Box
               sx={{
                 display: "grid",
-                gap: { xs: 2, md: 2.5 },
+                gap: { xs: 2, md: 2.2 },
                 gridTemplateColumns: {
                   xs: "1fr",
                   md: "repeat(2, minmax(0, 1fr))",
@@ -422,269 +1613,384 @@ export default function HomeScreenV2() {
                 <Box
                   key={`${item?.title || "feature"}-${index}`}
                   sx={{
-                    p: { xs: 2.5, md: 3 },
-                    borderRadius: { xs: 4, md: 5 },
-                    bgcolor: "background.paper",
-                    border: "1px solid",
-                    borderColor: alpha(theme.palette.text.primary, isDark ? 0.12 : 0.07),
-                    boxShadow: isDark
-                      ? "0 22px 48px rgba(0,0,0,0.24)"
-                      : "0 22px 48px rgba(15,23,42,0.08)",
-                    minWidth: 0,
+                    p: { xs: 2.2, md: 2.5 },
+                    borderRadius: { xs: 4.5, md: 5 },
+                    border: `1px solid ${SURFACE_BORDER}`,
+                    background: SURFACE_BG,
+                    boxShadow: "0 18px 44px rgba(0,0,0,0.16)",
                   }}
                 >
-                  <Stack spacing={2.5}>
+                  <Stack spacing={1.7}>
                     <Box
                       sx={{
-                        width: 52,
-                        height: 52,
-                        borderRadius: 999,
+                        width: 42,
+                        height: 42,
+                        borderRadius: "50%",
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        bgcolor: alpha(theme.palette.primary.main, 0.12),
-                        color: "primary.main",
-                        fontWeight: 800,
+                        backgroundColor: alpha(ACCENT_COLOR, 0.14),
+                        color: ACCENT_COLOR,
                       }}
                     >
-                      {String(index + 1).padStart(2, "0")}
+                      <QueryStatsRounded sx={{ fontSize: 20 }} />
                     </Box>
-                    <Stack spacing={1.25}>
-                      <Typography variant="h6" fontWeight={800}>
-                        {item?.title}
-                      </Typography>
-                      <Typography color="text.secondary" sx={{ lineHeight: 1.75 }}>
-                        {item?.desc}
-                      </Typography>
-                    </Stack>
+
+                    <Typography variant="h6" fontWeight={800}>
+                      {item?.title}
+                    </Typography>
+                    <Typography sx={{ color: "rgba(248,245,240,0.68)", lineHeight: 1.75 }}>
+                      {item?.desc}
+                    </Typography>
                   </Stack>
                 </Box>
               ))}
             </Box>
+          </Box>
 
-            <Stack spacing={2.5}>
-              <Stack
-                direction={{ xs: "column", md: "row" }}
-                spacing={2}
-                justifyContent="space-between"
-                alignItems={{ xs: "flex-start", md: "flex-end" }}
-              >
-                <Box>
-                  <Typography
-                    variant="overline"
-                    sx={{
-                      color: "primary.main",
-                      fontWeight: 700,
-                      letterSpacing: "0.18em",
-                    }}
-                  >
-                    {t("home.clubs.eyebrow")}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      mt: 1,
-                      fontFamily: DISPLAY_FONT_FAMILY,
-                      fontSize: { xs: "2rem", md: "3.4rem" },
-                      lineHeight: 0.98,
-                      letterSpacing: "-0.04em",
-                    }}
-                  >
-                    {t("home.clubs.title")}
-                  </Typography>
-                </Box>
-
-                <Typography
-                  color="text.secondary"
-                  sx={{ maxWidth: 620, lineHeight: 1.8 }}
-                >
-                  {t("home.clubs.description")}
-                </Typography>
-              </Stack>
-
-              <Box
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2.2, md: 2.5 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
+              },
+              alignItems: "start",
+            }}
+          >
+            <Stack spacing={1.4} sx={{ minWidth: 0 }}>
+              <Typography
+                variant="overline"
                 sx={{
-                  display: "grid",
-                  gap: { xs: 2, md: 2.5 },
-                  gridTemplateColumns: {
-                    xs: "1fr",
-                    md: "repeat(2, minmax(0, 1fr))",
-                    xl: "repeat(3, minmax(0, 1fr))",
-                  },
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
                 }}
               >
-                {clubs.map((club, index) => {
-                  const imageUrl = club?.coverUrl || club?.logoUrl || "";
-                  const fallbackLetter = String(club?.name || "?").trim().charAt(0).toUpperCase() || "?";
+                {copy.clubsEyebrow}
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: DISPLAY_FONT_FAMILY,
+                  fontSize: { xs: "2.3rem", md: "3.7rem" },
+                  lineHeight: { xs: 1.02, md: 0.98 },
+                  letterSpacing: "-0.05em",
+                }}
+              >
+                {copy.clubsTitle}
+              </Typography>
+              <Typography
+                sx={{
+                  color: "rgba(248,245,240,0.72)",
+                  lineHeight: 1.8,
+                  maxWidth: 620,
+                }}
+              >
+                {copy.clubsBody}
+              </Typography>
+            </Stack>
 
-                  return (
+            <Box
+              sx={{
+                display: "grid",
+                gap: { xs: 2, md: 2.2 },
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  md: "repeat(3, minmax(0, 1fr))",
+                },
+              }}
+            >
+              {clubs.map((club, index) => {
+                const imageUrl = club?.coverUrl || club?.logoUrl || fallbackImg;
+                const clubName = club?.name || `Club ${index + 1}`;
+                const clubHref = club?.id ? `/clubs/${club.id}` : "/clubs";
+                const memberText = clubMembersLabel.replace(
+                  "{count}",
+                  formatCompactNumber(club?.memberCount || 0, locale),
+                );
+
+                return (
+                  <Box
+                    key={club?.id || `club-${index}`}
+                    sx={{
+                      position: "relative",
+                      minHeight: 310,
+                      p: 1,
+                      borderRadius: { xs: 4.5, md: 5 },
+                      border: `1px solid ${SURFACE_BORDER}`,
+                      background: SURFACE_BG,
+                      boxShadow: "0 20px 48px rgba(0,0,0,0.18)",
+                    }}
+                  >
                     <Box
-                      key={club?.id || `club-${index}`}
                       sx={{
-                        p: 1,
-                        borderRadius: { xs: 4, md: 5 },
-                        bgcolor: "background.paper",
-                        border: "1px solid",
-                        borderColor: alpha(theme.palette.text.primary, isDark ? 0.12 : 0.07),
-                        boxShadow: isDark
-                          ? "0 20px 42px rgba(0,0,0,0.24)"
-                          : "0 20px 42px rgba(15,23,42,0.08)",
-                        minWidth: 0,
+                        position: "relative",
+                        minHeight: "100%",
+                        borderRadius: 4,
+                        overflow: "hidden",
+                        backgroundImage: [
+                          "linear-gradient(180deg, rgba(8,9,12,0.18), rgba(8,9,12,0.82))",
+                          "linear-gradient(135deg, rgba(20,14,11,0.42), rgba(11,15,22,0.28))",
+                          `url(${imageUrl})`,
+                        ].join(", "),
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
                       }}
                     >
-                      <Box
-                        sx={{
-                          minHeight: 220,
-                          borderRadius: 4,
-                          p: 2.5,
-                          display: "flex",
-                          flexDirection: "column",
-                          justifyContent: "space-between",
-                          color: "#f8fafc",
-                          backgroundImage: imageUrl
-                            ? `linear-gradient(180deg, rgba(9,13,20,0.24), rgba(9,13,20,0.82)), url(${imageUrl})`
-                            : `linear-gradient(135deg, ${alpha(theme.palette.primary.dark, 0.94)}, ${alpha(theme.palette.primary.main, 0.72)})`,
-                          backgroundSize: "cover",
-                          backgroundPosition: "center",
-                        }}
+                      <Stack
+                        justifyContent="space-between"
+                        sx={{ position: "relative", zIndex: 1, minHeight: "100%", p: 2.2 }}
                       >
                         <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                           <Avatar
                             src={club?.logoUrl || ""}
-                            alt={club?.name || ""}
+                            alt={clubName}
                             sx={{
-                              width: 52,
-                              height: 52,
+                              width: 50,
+                              height: 50,
                               bgcolor: "rgba(255,255,255,0.14)",
-                              color: "#f8fafc",
+                              color: "#f8f5f0",
                               fontWeight: 800,
                             }}
                           >
-                            {fallbackLetter}
+                            {clubName.charAt(0).toUpperCase()}
                           </Avatar>
 
-                          {club?.verified ? (
-                            <Box
-                              sx={{
-                                px: 1.1,
-                                py: 0.45,
-                                borderRadius: 999,
-                                bgcolor: "rgba(255,255,255,0.12)",
-                                border: "1px solid rgba(255,255,255,0.16)",
-                              }}
+                          <Box
+                            sx={{
+                              px: 1,
+                              py: 0.45,
+                              borderRadius: 999,
+                              backgroundColor: "rgba(255,255,255,0.08)",
+                              border: "1px solid rgba(255,255,255,0.12)",
+                            }}
+                          >
+                            <Typography
+                              variant="caption"
+                              sx={{ color: alpha(ACCENT_COLOR, 0.96), fontWeight: 700 }}
                             >
-                              <Typography
-                                variant="caption"
-                                sx={{ color: "#f8fafc", fontWeight: 700 }}
-                              >
-                                Verified
-                              </Typography>
-                            </Box>
-                          ) : null}
+                              {club?.verified ? "Verified" : copy.liveLabel}
+                            </Typography>
+                          </Box>
                         </Stack>
 
                         <Stack spacing={1}>
                           <Typography variant="h5" fontWeight={800}>
-                            {club?.name}
+                            {clubName}
                           </Typography>
-                          <Typography sx={{ color: "rgba(248,250,252,0.78)" }}>
-                            {club?.location || "Việt Nam"}
-                          </Typography>
-                          <Typography
-                            variant="body2"
-                            sx={{ color: "rgba(248,250,252,0.76)" }}
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <PlaceRounded
+                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                            />
+                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                              {club?.location || copy.clubsFallback}
+                            </Typography>
+                          </Stack>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Groups2Rounded
+                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                            />
+                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                              {memberText}
+                            </Typography>
+                          </Stack>
+                          <Button
+                            component={Link}
+                            to={clubHref}
+                            endIcon={<ArrowForwardRounded />}
+                            sx={{
+                              alignSelf: "flex-start",
+                              mt: 0.6,
+                              color: "#f8f5f0",
+                              fontWeight: 700,
+                              px: 0,
+                              textTransform: "none",
+                              "&:hover": {
+                                backgroundColor: "transparent",
+                                color: ACCENT_COLOR,
+                              },
+                            }}
                           >
-                            {clubMembersLabel.replace("{count}", formatCompactNumber(club?.memberCount || 0, locale))}
-                          </Typography>
+                            {copy.viewClub}
+                          </Button>
                         </Stack>
-                      </Box>
+                      </Stack>
                     </Box>
-                  );
-                })}
-              </Box>
-
-              <Box
-                sx={{
-                  p: { xs: 3, md: 4 },
-                  borderRadius: { xs: 4, md: 5 },
-                  color: "#f8fafc",
-                  backgroundImage: `linear-gradient(135deg, ${alpha(theme.palette.primary.dark, 0.96)}, ${alpha(theme.palette.primary.main, 0.8)})`,
-                  boxShadow: `0 26px 52px ${alpha(theme.palette.primary.main, 0.24)}`,
-                }}
-              >
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={2.5}
-                  justifyContent="space-between"
-                  alignItems={{ xs: "flex-start", md: "center" }}
-                >
-                  <Box sx={{ maxWidth: 760 }}>
-                    <Typography
-                      sx={{
-                        fontFamily: DISPLAY_FONT_FAMILY,
-                        fontSize: { xs: "2rem", md: "3.25rem" },
-                        lineHeight: 0.96,
-                        letterSpacing: "-0.04em",
-                      }}
-                    >
-                      {t("home.cta.title")}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        mt: 1.5,
-                        color: "rgba(248,250,252,0.84)",
-                        lineHeight: 1.8,
-                        maxWidth: 620,
-                      }}
-                    >
-                      {t("home.cta.description")}
-                    </Typography>
                   </Box>
+                );
+              })}
+            </Box>
+          </Box>
 
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                    <Button
-                      component={Link}
-                      to={isLoggedIn ? "/pickle-ball/tournaments" : "/register"}
-                      variant="contained"
-                      sx={{
-                        minHeight: 56,
-                        px: 3.25,
-                        borderRadius: 999,
-                        textTransform: "none",
-                        fontWeight: 700,
-                        backgroundColor: "#f8fafc",
-                        color: theme.palette.primary.dark,
-                        "&:hover": {
-                          backgroundColor: "#ffffff",
-                        },
-                      }}
-                    >
-                      {isLoggedIn ? t("home.cta.memberButton") : t("home.cta.guestButton")}
-                    </Button>
-                    <Button
-                      component={Link}
-                      to="/clubs"
-                      variant="outlined"
-                      sx={{
-                        minHeight: 56,
-                        px: 3.25,
-                        borderRadius: 999,
-                        textTransform: "none",
-                        fontWeight: 700,
-                        color: "#f8fafc",
-                        borderColor: "rgba(255,255,255,0.4)",
-                        "&:hover": {
-                          borderColor: "#f8fafc",
-                          bgcolor: "rgba(255,255,255,0.08)",
-                        },
-                      }}
-                    >
-                      {t("header.nav.clubs")}
-                    </Button>
-                  </Stack>
-                </Stack>
-              </Box>
+          <Box
+            sx={{
+              p: { xs: 2.8, md: 4 },
+              borderRadius: { xs: 5, md: 6 },
+              border: `1px solid ${SURFACE_BORDER}`,
+              background:
+                "linear-gradient(135deg, rgba(203,107,47,0.24), rgba(34,26,22,0.88) 36%, rgba(13,16,21,0.94) 100%)",
+              boxShadow: `0 28px 70px ${alpha("#000000", 0.24)}`,
+            }}
+          >
+            <Box
+              sx={{
+                display: "grid",
+                gap: { xs: 2.5, md: 3 },
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  lg: "minmax(0, 1fr) auto",
+                },
+                alignItems: "center",
+              }}
+            >
+              <Stack spacing={1.4} sx={{ minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontFamily: DISPLAY_FONT_FAMILY,
+                    fontSize: { xs: "2.2rem", md: "3.6rem" },
+                    lineHeight: { xs: 1.02, md: 0.96 },
+                    letterSpacing: "-0.05em",
+                  }}
+                >
+                  {copy.ctaTitle}
+                </Typography>
+                <Typography
+                  sx={{
+                    maxWidth: 760,
+                    color: "rgba(248,245,240,0.76)",
+                    lineHeight: 1.8,
+                  }}
+                >
+                  {copy.ctaBody}
+                </Typography>
+              </Stack>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                <Button
+                  component={Link}
+                  to="/pickle-ball/tournaments"
+                  variant="contained"
+                  endIcon={<ArrowForwardRounded />}
+                  sx={{
+                    minHeight: 56,
+                    px: 3,
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 800,
+                    backgroundColor: ACCENT_COLOR,
+                  }}
+                >
+                  {copy.ctaPrimary}
+                </Button>
+                <Button
+                  component={Link}
+                  to="/clubs"
+                  variant="outlined"
+                  sx={{
+                    minHeight: 56,
+                    px: 3,
+                    borderRadius: 999,
+                    color: "#f8f5f0",
+                    borderColor: "rgba(255,255,255,0.2)",
+                    textTransform: "none",
+                    fontWeight: 700,
+                  }}
+                >
+                  {copy.ctaSecondary}
+                </Button>
+              </Stack>
+            </Box>
+          </Box>
+        </Stack>
+      </Container>
+
+      <Box
+        component="footer"
+        sx={{
+          borderTop: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(8, 10, 14, 0.62)",
+        }}
+      >
+        <Container
+          maxWidth={false}
+          sx={{
+            maxWidth: "1440px",
+            px: { xs: 2, md: 4, xl: 6 },
+            py: { xs: 3.5, md: 4.2 },
+          }}
+        >
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 3, md: 4 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                md: "minmax(0, 1.2fr) repeat(2, minmax(0, 0.55fr))",
+              },
+            }}
+          >
+            <Stack spacing={1.25} sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontWeight: 800, letterSpacing: "0.16em" }}>
+                PICKLETOUR
+              </Typography>
+              <Typography sx={{ color: "rgba(248,245,240,0.62)", maxWidth: 420 }}>
+                {copy.footerBlurb}
+              </Typography>
             </Stack>
-          </Stack>
+
+            <Stack spacing={1}>
+              <Typography
+                variant="overline"
+                sx={{ color: "rgba(248,245,240,0.52)", letterSpacing: "0.16em" }}
+              >
+                {copy.footerLinksTitle}
+              </Typography>
+              {footerLinks.map((item) => (
+                <Typography
+                  key={item.to}
+                  component={Link}
+                  to={item.to}
+                  sx={{
+                    color: "#f8f5f0",
+                    textDecoration: "none",
+                    fontWeight: 600,
+                    "&:hover": {
+                      color: ACCENT_COLOR,
+                    },
+                  }}
+                >
+                  {item.label}
+                </Typography>
+              ))}
+            </Stack>
+
+            <Stack spacing={1}>
+              <Typography
+                variant="overline"
+                sx={{ color: "rgba(248,245,240,0.52)", letterSpacing: "0.16em" }}
+              >
+                {copy.footerLegalTitle}
+              </Typography>
+              {footerLegalLinks.map((item) => (
+                <Typography
+                  key={item.to}
+                  component={Link}
+                  to={item.to}
+                  sx={{
+                    color: "#f8f5f0",
+                    textDecoration: "none",
+                    fontWeight: 600,
+                    "&:hover": {
+                      color: ACCENT_COLOR,
+                    },
+                  }}
+                >
+                  {item.label}
+                </Typography>
+              ))}
+            </Stack>
+          </Box>
         </Container>
       </Box>
     </Box>
