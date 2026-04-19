@@ -662,68 +662,117 @@ struct MatchRecordingResponse: Decodable, Equatable {
 
 struct RecordingSegmentPresignRequest: Codable {
     var recordingId: String
-    var fileName: String
+    var segmentIndex: Int
     var contentType: String
-    var durationSeconds: Double?
-    var bytes: Int64?
+}
+
+struct RecordingSegmentPresignBatchRequest: Codable {
+    var recordingId: String
+    var startSegmentIndex: Int
+    var count: Int
+    var contentType: String
+}
+
+struct RecordingPresignedUpload: Codable, Equatable {
+    var uploadURL: String
+    var objectKey: String?
+    var expiresInSeconds: Int?
+    var method: String?
+    var headers: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case uploadURL = "uploadUrl"
+        case objectKey
+        case expiresInSeconds
+        case method
+        case headers
+    }
 }
 
 struct RecordingSegmentPresignResponse: Codable, Equatable {
     var ok: Bool
-    var segmentId: String?
-    var uploadURL: String?
+    var recordingId: String?
+    var segmentIndex: Int?
     var objectKey: String?
+    var upload: RecordingPresignedUpload?
+}
 
-    enum CodingKeys: String, CodingKey {
-        case ok
-        case segmentId
-        case uploadURL = "uploadUrl"
-        case objectKey
-    }
+struct RecordingSegmentPresignBatchItem: Codable, Equatable {
+    var segmentIndex: Int
+    var objectKey: String?
+    var upload: RecordingPresignedUpload?
+}
+
+struct RecordingSegmentPresignBatchResponse: Codable, Equatable {
+    var ok: Bool
+    var recordingId: String?
+    var count: Int
+    var segments: [RecordingSegmentPresignBatchItem]
 }
 
 struct RecordingSegmentCompleteRequest: Codable {
     var recordingId: String
-    var segmentId: String
-    var bytes: Int64?
+    var segmentIndex: Int
+    var objectKey: String
+    var etag: String?
+    var sizeBytes: Int64?
     var durationSeconds: Double?
+    var startedAt: String?
+    var isFinal: Bool
 }
 
 struct RecordingMultipartStartRequest: Codable {
     var recordingId: String
-    var fileName: String
+    var segmentIndex: Int
+    var startedAt: String?
     var contentType: String
-    var bytes: Int64?
 }
 
 struct RecordingMultipartStartResponse: Codable, Equatable {
     var ok: Bool
-    var segmentId: String?
+    var recordingId: String?
+    var segmentIndex: Int?
     var uploadId: String?
     var objectKey: String?
+    var partSizeBytes: Int64?
+    var alreadyUploaded: Bool?
 }
 
 struct RecordingMultipartPartURLRequest: Codable {
     var recordingId: String
-    var segmentId: String
-    var uploadId: String
+    var segmentIndex: Int
     var partNumber: Int
 }
 
 struct RecordingMultipartPartURLResponse: Codable, Equatable {
     var ok: Bool
-    var uploadURL: String?
+    var recordingId: String?
+    var segmentIndex: Int?
+    var partNumber: Int?
+    var objectKey: String?
+    var uploadId: String?
+    var upload: RecordingPresignedUpload?
+}
 
-    enum CodingKeys: String, CodingKey {
-        case ok
-        case uploadURL = "uploadUrl"
-    }
+struct RecordingMultipartAbortRequest: Codable {
+    var recordingId: String
+    var segmentIndex: Int
+}
+
+struct RecordingMultipartAbortResponse: Decodable, Equatable {
+    var ok: Bool
+    var aborted: Bool?
+    var alreadyUploaded: Bool?
+    var recording: MatchRecording?
 }
 
 struct RecordingMultipartProgressRequest: Codable {
     var recordingId: String
-    var segmentId: String
-    var uploadedBytes: Int64
+    var segmentIndex: Int
+    var partNumber: Int
+    var etag: String
+    var sizeBytes: Int64
+    var totalSizeBytes: Int64
 }
 
 struct RecordingMultipartPartETag: Codable, Equatable, Hashable {
@@ -733,11 +782,11 @@ struct RecordingMultipartPartETag: Codable, Equatable, Hashable {
 
 struct RecordingMultipartCompleteRequest: Codable {
     var recordingId: String
-    var segmentId: String
-    var uploadId: String
-    var parts: [RecordingMultipartPartETag]
-    var bytes: Int64?
+    var segmentIndex: Int
+    var sizeBytes: Int64?
     var durationSeconds: Double?
+    var isFinal: Bool
+    var parts: [RecordingMultipartPartETag]
 }
 
 struct FinalizeMatchRecordingRequest: Codable {
@@ -1272,6 +1321,8 @@ struct PendingRecordingSegment: Codable, Equatable, Hashable, Identifiable {
     var parts: [RecordingMultipartPartETag]
     var lastError: String?
     var createdAtMs: Int64
+    var retryCount: Int?
+    var nextRetryAtMs: Int64?
 
     var id: String {
         "\(recordingId)-\(segmentIndex)-\(fileName)"

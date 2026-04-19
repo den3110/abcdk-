@@ -86,8 +86,16 @@ final class LiveStreamingService: NSObject, ObservableObject {
         AVCaptureDevice.authorizationStatus(for: .video) == .authorized
     }
 
+    static var cameraAuthorizationStatus: AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .video)
+    }
+
     static var microphonePermissionGranted: Bool {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    static var microphoneAuthorizationStatus: AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .audio)
     }
 
     static var cameraDeviceAvailable: Bool {

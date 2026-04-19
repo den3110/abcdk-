@@ -48,6 +48,7 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var preflightIssues: [LivePreflightIssue] = []
     @Published private(set) var recordOnlyArmed = false
     @Published private(set) var goLiveArmed = false
+    @Published private(set) var showModeSelector = false
     @Published var batterySaverEnabled = false
     @Published var orientationMode: DeviceOrientationMode = .auto
 
@@ -89,22 +90,28 @@ final class LiveAppStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var heartbeatTask: Task<Void, Never>?
     private var runtimePollTask: Task<Void, Never>?
+    private var setupMatchHydrationTask: Task<Void, Never>?
     private var goLiveCountdownTask: Task<Void, Never>?
     private var stopLiveCountdownTask: Task<Void, Never>?
     private var backgroundExitTask: Task<Void, Never>?
+    private var foregroundResumeTask: Task<Void, Never>?
     private var pendingLaunchTarget: LiveLaunchTarget?
     private var activeRecording: MatchRecording?
     private var recordingFinalizeRequested = false
+    private var pendingRecordingSegmentDispatches = 0
     private var watchedClusterId: String?
     private var watchedCourtId: String?
     private var watchedTournamentId: String?
     private var queuedCourtMatchId: String?
     private var isSwitchingMatch = false
+    private var setupMatchHydrationRequestId = UUID()
+    private var setupMatchHydrationMatchId: String?
     private var isRefreshingOverlay = false
     private var isResumingRecordingQueue = false
     private var lastOverlayRefreshAttemptAt: Date?
     private var lastSocketSelfHealAt: Date?
     private var lastRecordingQueueResumeAt: Date?
+    private var lastForegroundRefreshAt: Date?
     private var lastHandledIncomingURL: String?
     private var lastHandledIncomingURLAt: Date?
     private var lastHandledTerminalMatchId: String?
@@ -148,6 +155,8 @@ final class LiveAppStore: ObservableObject {
         heartbeatTask = nil
         runtimePollTask?.cancel()
         runtimePollTask = nil
+        setupMatchHydrationTask?.cancel()
+        setupMatchHydrationTask = nil
         goLiveCountdownTask?.cancel()
         goLiveCountdownTask = nil
         stopLiveCountdownTask?.cancel()
@@ -334,6 +343,7 @@ final class LiveAppStore: ObservableObject {
         activeRecording = nil
         queuedCourtMatchId = nil
         recordingFinalizeRequested = false
+        pendingRecordingSegmentDispatches = 0
         recordingStateText = "Chưa ghi hình"
         recordingPendingUploads = 0
         recordingPendingQueueBytes = 0
@@ -352,6 +362,7 @@ final class LiveAppStore: ObservableObject {
         preflightIssues = []
         recordOnlyArmed = false
         goLiveArmed = false
+        showModeSelector = false
         batterySaverEnabled = false
         orientationMode = .auto
         streamingService.updateOrientationMode(orientationMode)
@@ -403,11 +414,17 @@ final class LiveAppStore: ObservableObject {
 
     func goBackToAdminHome() {
         errorMessage = nil
+        showModeSelector = false
         route = bootstrap == nil ? .login : .adminHome
     }
 
     func openCourt(_ court: AdminCourtData) async {
+        setupMatchHydrationTask?.cancel()
+        setupMatchHydrationTask = nil
+        setupMatchHydrationMatchId = nil
+        activeMatch = nil
         selectedCourt = court
+        showModeSelector = false
         launchTarget = LiveLaunchTarget(
             courtId: court.id,
             matchId: court.currentMatchId?.trimmedNilIfBlank,
@@ -452,6 +469,7 @@ final class LiveAppStore: ObservableObject {
         freshEntryRequired = false
         isWorking = true
         defer { isWorking = false }
+        let previousRoute = route
 
         do {
             if launchTarget.isUserMatchLaunch {
@@ -459,11 +477,34 @@ final class LiveAppStore: ObservableObject {
             }
             let resolvedTarget = try await resolveLaunchTarget(launchTarget)
             launchTarget = resolvedTarget
-            try await prepareLiveScreen(using: resolvedTarget)
+            showModeSelector = false
             route = .liveStream
+            try await prepareLiveScreen(using: resolvedTarget)
+            showModeSelector = !resolvedTarget.isUserMatchLaunch
         } catch {
+            route = previousRoute
+            showModeSelector = false
             errorMessage = error.localizedDescription
         }
+    }
+
+    func confirmLiveModeSelection(_ mode: LiveStreamMode) {
+        guard !launchTarget.isUserMatchLaunch else {
+            liveMode = .streamOnly
+            showModeSelector = false
+            return
+        }
+        liveMode = mode
+        cancelWaitingStates()
+        errorMessage = nil
+        showModeSelector = false
+    }
+
+    func reopenModeSelector() {
+        guard !launchTarget.isUserMatchLaunch else { return }
+        guard !hasPrimarySessionIntent else { return }
+        errorMessage = nil
+        showModeSelector = true
     }
 
     func refreshBootstrap() async {
@@ -740,6 +781,7 @@ final class LiveAppStore: ObservableObject {
     }
 
     func leaveLiveScreen() async {
+        showModeSelector = false
         if hasActiveLivestreamSession || streamingService.isRecordingLocally {
             await stopLive()
         } else if let courtId = currentCourtId {
@@ -922,6 +964,10 @@ final class LiveAppStore: ObservableObject {
         LiveStreamingService.cameraPermissionGranted
     }
 
+    var cameraAuthorizationStatus: AVAuthorizationStatus {
+        LiveStreamingService.cameraAuthorizationStatus
+    }
+
     var cameraDeviceAvailable: Bool {
         LiveStreamingService.cameraDeviceAvailable
     }
@@ -990,6 +1036,10 @@ final class LiveAppStore: ObservableObject {
         LiveStreamingService.microphonePermissionGranted
     }
 
+    var microphoneAuthorizationStatus: AVAuthorizationStatus {
+        LiveStreamingService.microphoneAuthorizationStatus
+    }
+
     var microphoneDeviceAvailable: Bool {
         LiveStreamingService.microphoneDeviceAvailable
     }
@@ -1002,7 +1052,7 @@ final class LiveAppStore: ObservableObject {
         if !cameraDeviceAvailable {
             return "Thiết bị này không có camera. App vẫn mở màn live để test flow, nhưng preview sẽ chỉ hiện placeholder."
         }
-        if !cameraPermissionGranted {
+        if cameraAuthorizationStatus == .denied || cameraAuthorizationStatus == .restricted {
             return "PickleTour Live chưa có quyền camera, nên chưa thể dựng preview."
         }
         return nil
@@ -1737,18 +1787,24 @@ final class LiveAppStore: ObservableObject {
 
         goLiveCountdownTask = Task { [weak self] in
             guard let self else { return }
-            defer {
-                self.goLiveCountdownTask = nil
-                self.goLiveCountdownSeconds = nil
-            }
 
             for value in stride(from: 3, through: 1, by: -1) {
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    self.goLiveCountdownTask = nil
+                    self.goLiveCountdownSeconds = nil
+                    return
+                }
                 self.goLiveCountdownSeconds = value
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
 
-            if Task.isCancelled { return }
+            if Task.isCancelled {
+                self.goLiveCountdownTask = nil
+                self.goLiveCountdownSeconds = nil
+                return
+            }
+            self.goLiveCountdownTask = nil
+            self.goLiveCountdownSeconds = nil
 
             self.goLiveArmed = self.liveMode.includesLivestream
             self.recordOnlyArmed = self.liveMode == .recordOnly
@@ -1778,6 +1834,7 @@ final class LiveAppStore: ObservableObject {
             self.waitingForNextMatch = false
             self.goLiveArmed = false
             self.recordOnlyArmed = false
+            await Task.yield()
             await self.startLive()
         }
     }
@@ -2018,7 +2075,7 @@ final class LiveAppStore: ObservableObject {
     private func performBackgroundExitIfNeeded() async {
         backgroundExitTask = nil
 
-        guard !appIsActive else { return }
+        guard !Task.isCancelled, !appIsActive else { return }
         let hasCourtPresenceIntent =
             currentCourtId?.trimmedNilIfBlank != nil
             || courtPresence?.isEffectivelyOccupied() == true
@@ -2046,6 +2103,7 @@ final class LiveAppStore: ObservableObject {
                 clientSessionId: streamingService.clientSessionId,
                 userMatch: launchTarget.isUserMatchLaunch
             )
+            guard !Task.isCancelled, !appIsActive else { return }
         }
 
         streamingService.stopPublishing()
@@ -2055,6 +2113,7 @@ final class LiveAppStore: ObservableObject {
 
         if shouldStopRecording {
             await streamingService.stopRecording()
+            guard !Task.isCancelled, !appIsActive else { return }
             recordingFinalizeRequested = activeRecording != nil
         }
 
@@ -2063,6 +2122,7 @@ final class LiveAppStore: ObservableObject {
                 courtId: courtId,
                 clientSessionId: streamingService.clientSessionId
             )
+            guard !Task.isCancelled, !appIsActive else { return }
         }
         courtPresence = nil
 
@@ -2240,26 +2300,26 @@ final class LiveAppStore: ObservableObject {
                 self.appIsActive = true
                 self.backgroundExitTask?.cancel()
                 self.backgroundExitTask = nil
+                self.foregroundResumeTask?.cancel()
+                self.foregroundResumeTask = nil
                 self.refreshStorageMetrics()
                 self.environment.deviceMonitor.refresh()
-                Task { @MainActor in
-                    LiveAppOrientationController.apply(self.orientationMode)
-                    self.streamingService.updateOrientationMode(self.orientationMode)
-                    if let courtId = self.currentCourtId?.trimmedNilIfBlank {
-                        await self.refreshCourtRuntime(courtId: courtId)
-                        if !self.freshEntryRequired {
-                            let presence = try? await self.environment.apiClient.heartbeatCourtPresence(
-                                courtId: courtId,
-                                clientSessionId: self.streamingService.clientSessionId,
-                                screenState: self.currentPresenceScreenState(),
-                                matchId: self.activeMatch?.id
-                            )
-                            self.applyPresenceResponse(presence, matchId: self.activeMatch?.id)
-                        }
-                    }
+                LiveAppOrientationController.apply(self.orientationMode)
+                self.streamingService.updateOrientationMode(self.orientationMode)
+
+                let shouldRefresh = self.freshEntryRequired || self.route == .liveStream || self.hasPrimarySessionIntent
+                let refreshTooSoon = self.lastForegroundRefreshAt.map { Date().timeIntervalSince($0) < 1.25 } ?? false
+
+                guard shouldRefresh || !refreshTooSoon else {
                     self.maybeReleaseSafetyDegrade()
                     self.syncStreamingSafetyProfile()
-                    await self.performHealthMaintenanceIfNeeded(force: true)
+                    return
+                }
+
+                self.lastForegroundRefreshAt = Date()
+                self.foregroundResumeTask = Task { [weak self] in
+                    guard let self else { return }
+                    await self.resumeFromForeground(force: self.freshEntryRequired)
                 }
             }
             .store(in: &cancellables)
@@ -2269,6 +2329,8 @@ final class LiveAppStore: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.appIsActive = false
+                self.foregroundResumeTask?.cancel()
+                self.foregroundResumeTask = nil
                 if self.hasPrimarySessionIntent {
                     self.freshEntryRequired = true
                 }
@@ -2407,8 +2469,19 @@ final class LiveAppStore: ObservableObject {
             .store(in: &cancellables)
 
         streamingService.onRecordingSegmentReady = { [weak self] segment in
+            guard let self else { return }
+            self.pendingRecordingSegmentDispatches += 1
             Task { @MainActor in
-                guard let self, self.session?.accessToken.trimmedNilIfBlank != nil else { return }
+                defer {
+                    self.pendingRecordingSegmentDispatches = max(0, self.pendingRecordingSegmentDispatches - 1)
+                    if self.pendingRecordingSegmentDispatches == 0, self.recordingFinalizeRequested {
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            await self.maybeFinalizeRecordingIfReady()
+                        }
+                    }
+                }
+                guard self.session?.accessToken.trimmedNilIfBlank != nil else { return }
                 await self.enqueueRecordingUpload(segment)
             }
         }
@@ -2664,8 +2737,12 @@ final class LiveAppStore: ObservableObject {
 
         if let selectedCluster, clusters.contains(where: { $0.id == selectedCluster.id }) {
             await loadCourts(clusterId: selectedCluster.id)
-        } else if let firstCluster = clusters.first {
-            await selectCluster(firstCluster)
+        } else {
+            self.selectedCluster = nil
+            courts = []
+            selectedCourt = nil
+            courtRuntime = nil
+            courtPresence = nil
         }
 
         if let pendingLaunchTarget {
@@ -2749,7 +2826,11 @@ final class LiveAppStore: ObservableObject {
             let runtime = try await environment.apiClient.getCourtRuntime(courtId: courtId)
             courtRuntime = runtime
             courtPresence = runtime.presence
-            handleRuntimeMatchCandidate(currentMatchId: runtime.currentMatchId ?? runtime.nextMatchId, announcement: nil)
+            let runtimeMatchId = runtime.currentMatchId ?? runtime.nextMatchId
+            handleRuntimeMatchCandidate(currentMatchId: runtimeMatchId, announcement: nil)
+            if runtimeMatchId?.trimmedNilIfBlank == nil, route == .courtSetup {
+                clearCourtSetupMatchContext()
+            }
             if runtime.currentMatchId?.trimmedNilIfBlank == nil, runtime.nextMatchId?.trimmedNilIfBlank == nil, route == .liveStream {
                 waitingForCourt = activeMatch == nil
             }
@@ -2802,6 +2883,7 @@ final class LiveAppStore: ObservableObject {
     }
 
     private func prepareLiveScreen(using target: LiveLaunchTarget) async throws {
+        showModeSelector = false
         stopBackgroundLoops()
         cancelRecordingUploads()
         environment.matchSocket.unwatch()
@@ -2849,6 +2931,7 @@ final class LiveAppStore: ObservableObject {
         liveStartedAt = nil
         activeRecording = nil
         recordingFinalizeRequested = false
+        pendingRecordingSegmentDispatches = 0
         recordingPendingUploads = 0
         recordingPendingQueueBytes = 0
         goLiveCountdownSeconds = nil
@@ -2881,7 +2964,7 @@ final class LiveAppStore: ObservableObject {
             environment.matchSocket.watch(matchId: matchId)
         }
         environment.courtRuntimeSocket.connectIfNeeded()
-        if livePreviewPlaceholderMessage == nil {
+        if cameraDeviceAvailable {
             try await streamingService.preparePreview(quality: selectedQuality)
         } else {
             streamState = .idle
@@ -2890,6 +2973,31 @@ final class LiveAppStore: ObservableObject {
             await refreshOverlay()
         }
         maybeAutoStartArmedSession()
+    }
+
+    private func resumeFromForeground(force: Bool) async {
+        if !force {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        guard !Task.isCancelled else { return }
+
+        if let courtId = currentCourtId?.trimmedNilIfBlank {
+            await refreshCourtRuntime(courtId: courtId)
+            guard !Task.isCancelled else { return }
+            if !freshEntryRequired {
+                let presence = try? await environment.apiClient.heartbeatCourtPresence(
+                    courtId: courtId,
+                    clientSessionId: streamingService.clientSessionId,
+                    screenState: currentPresenceScreenState(),
+                    matchId: activeMatch?.id
+                )
+                applyPresenceResponse(presence, matchId: activeMatch?.id)
+            }
+        }
+
+        maybeReleaseSafetyDegrade()
+        syncStreamingSafetyProfile()
+        await performHealthMaintenanceIfNeeded(force: force)
     }
 
     private func startHeartbeats() {
@@ -2956,9 +3064,8 @@ final class LiveAppStore: ObservableObject {
         guard let nextMatchId = currentMatchId?.trimmedNilIfBlank else { return }
 
         if route == .courtSetup {
-            if launchTarget.matchId?.trimmedNilIfBlank == nil || launchTarget.matchId == activeMatch?.id {
-                launchTarget.matchId = nextMatchId
-            }
+            launchTarget.matchId = nextMatchId
+            scheduleCourtSetupMatchHydration(for: nextMatchId)
             return
         }
 
@@ -2977,6 +3084,54 @@ final class LiveAppStore: ObservableObject {
         Task {
             await switchMatchContext(to: nextMatchId, announcement: announcement)
         }
+    }
+
+    private func scheduleCourtSetupMatchHydration(for matchId: String) {
+        guard route == .courtSetup else { return }
+        guard matchId != activeMatch?.id else { return }
+        guard setupMatchHydrationMatchId != matchId else { return }
+
+        setupMatchHydrationTask?.cancel()
+        let requestId = UUID()
+        setupMatchHydrationRequestId = requestId
+        setupMatchHydrationMatchId = matchId
+
+        setupMatchHydrationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.setupMatchHydrationRequestId == requestId {
+                    self.setupMatchHydrationTask = nil
+                    self.setupMatchHydrationMatchId = nil
+                }
+            }
+
+            do {
+                let match = try await self.environment.apiClient.getMatchRuntime(matchId: matchId)
+                guard !Task.isCancelled else { return }
+                guard self.setupMatchHydrationRequestId == requestId else { return }
+                guard self.route == .courtSetup else { return }
+
+                let runtimeCandidateId =
+                    self.courtRuntime?.currentMatchId?.trimmedNilIfBlank
+                    ?? self.courtRuntime?.nextMatchId?.trimmedNilIfBlank
+                    ?? self.launchTarget.matchId?.trimmedNilIfBlank
+                guard runtimeCandidateId == matchId else { return }
+
+                self.activeMatch = match
+                self.launchTarget.matchId = match.id.trimmedNilIfBlank
+            } catch {
+                guard !Task.isCancelled else { return }
+            }
+        }
+    }
+
+    private func clearCourtSetupMatchContext() {
+        guard route == .courtSetup else { return }
+        setupMatchHydrationTask?.cancel()
+        setupMatchHydrationTask = nil
+        setupMatchHydrationMatchId = nil
+        launchTarget.matchId = nil
+        activeMatch = nil
     }
 
     private func switchMatchContext(to matchId: String, announcement: String?) async {
@@ -3059,9 +3214,11 @@ final class LiveAppStore: ObservableObject {
             matchId?.trimmedNilIfBlank
             ?? activeRecording?.matchId?.trimmedNilIfBlank
             ?? activeMatch?.id.trimmedNilIfBlank
+            ?? launchTarget.matchId?.trimmedNilIfBlank
 
         if (recordingFinalizeRequested || requestedRecordingId != nil),
            recordingPendingUploads == 0,
+           pendingRecordingSegmentDispatches == 0,
            let requestedRecordingId,
            let requestedMatchId {
             do {
@@ -3083,21 +3240,7 @@ final class LiveAppStore: ObservableObject {
 
         guard recordingFinalizeRequested else { return }
         guard recordingPendingUploads == 0 else { return }
-        guard let recordingId = activeRecording?.id?.trimmedNilIfBlank else { return }
-
-        recordingFinalizeRequested = false
-
-        do {
-            let response = try await environment.apiClient.finalizeRecording(recordingId: recordingId)
-            if let recording = response.recording {
-                activeRecording = recording
-            }
-            recordingStateText = response.recording?.status ?? "Đã chốt recording"
-        } catch {
-            recordingFinalizeRequested = true
-            recordingStateText = "Chốt recording lỗi"
-            errorMessage = error.localizedDescription
-        }
+        guard pendingRecordingSegmentDispatches == 0 else { return }
     }
 
     private func restoreRecordingQueue() async {

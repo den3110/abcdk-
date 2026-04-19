@@ -1,4 +1,5 @@
 import Combine
+import FirebaseCrashlytics
 import SwiftUI
 import UIKit
 
@@ -18,13 +19,6 @@ struct LiveAppRootView: View {
                 Spacer(minLength: 0)
             }
 
-            if store.isWorking {
-                WorkingPill()
-                    .padding(.top, 18)
-                    .padding(.trailing, 20)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
         }
         .animation(.easeInOut(duration: 0.2), value: store.isWorking)
         .animation(.easeInOut(duration: 0.2), value: store.route)
@@ -88,6 +82,9 @@ private struct LoginScreen: View {
     @State private var loginId = ""
     @State private var password = ""
     @State private var showPassword = false
+    @State private var diagnosticsTapCount = 0
+
+    private let diagnosticsUnlockThreshold = 7
 
     private var targetSummary: String? {
         if store.launchTarget.isUserMatchLaunch, let matchId = store.launchTarget.matchId?.trimmedNilIfBlank {
@@ -115,6 +112,14 @@ private struct LoginScreen: View {
         "Tiếp tục với \(store.session?.displayName?.trimmedNilIfBlank ?? "PickleTour")"
     }
 
+    private var showDiagnosticsTools: Bool {
+        diagnosticsTapCount >= diagnosticsUnlockThreshold
+    }
+
+    private var diagnosticsRemainingTaps: Int {
+        max(diagnosticsUnlockThreshold - diagnosticsTapCount, 0)
+    }
+
     private var passwordToggleTitle: String {
         showPasswordLogin ? "Quay lại" : "Đăng nhập bằng mật khẩu"
     }
@@ -136,6 +141,10 @@ private struct LoginScreen: View {
                                     .font(.system(size: 20, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .multilineTextAlignment(.center)
+                                    .onTapGesture {
+                                        guard !showDiagnosticsTools else { return }
+                                        diagnosticsTapCount = min(diagnosticsTapCount + 1, diagnosticsUnlockThreshold)
+                                    }
 
                                 Text("Đăng nhập bằng tài khoản PickleTour để tiếp tục.")
                                     .font(.system(size: 12, weight: .medium))
@@ -267,6 +276,28 @@ private struct LoginScreen: View {
                                     .foregroundStyle(LivePalette.textSecondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
+
+                            if showDiagnosticsTools {
+                                Button {
+                                    triggerCrashlyticsTestCrash()
+                                } label: {
+                                    Text("💥 Test Crash")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .fill(LivePalette.danger)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            } else if diagnosticsTapCount > 0 {
+                                Text("Nhấn thêm \(diagnosticsRemainingTaps) lần vào tiêu đề để mở công cụ test.")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(LivePalette.textSecondary)
+                                    .multilineTextAlignment(.center)
+                            }
                         }
                     }
                     .frame(maxWidth: 460)
@@ -282,6 +313,18 @@ private struct LoginScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 32)
             }
+        }
+    }
+
+    private func triggerCrashlyticsTestCrash() {
+        let crashlytics = Crashlytics.crashlytics()
+        crashlytics.log("Manual Crashlytics test requested from login screen.")
+        crashlytics.setCustomValue("login_screen_manual_test", forKey: "crash_test_origin")
+        crashlytics.setCustomValue(String(describing: store.route), forKey: "crash_test_route")
+        crashlytics.setCustomValue(store.liveMode.rawValue, forKey: "crash_test_live_mode")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            fatalError("Crashlytics test crash — nếu thấy trên Firebase Console là Crashlytics hoạt động!")
         }
     }
 }
@@ -594,12 +637,12 @@ private struct LiveStreamScreen: View {
     @State private var showSettingsSheet = false
     @State private var showQualitySheet = false
     @State private var showRecordingSheet = false
-    @State private var showSignOutDialog = false
     @State private var storedBrightness: CGFloat?
     @State private var brightnessReduced = false
     @State private var pinchZoomBase: CGFloat?
     @State private var now = Date()
     @State private var topBarHeight: CGFloat = 0
+    @State private var pendingModeSelection: LiveStreamMode = .streamAndRecord
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -673,7 +716,7 @@ private struct LiveStreamScreen: View {
                         }
                     }
                 }
-                .padding(.top, 8)
+                .padding(.top, topStatusTopPadding)
                 .background(
                     GeometryReader { proxy in
                         Color.clear
@@ -839,6 +882,10 @@ private struct LiveStreamScreen: View {
                 )
             }
 
+            if store.showModeSelector && !store.launchTarget.isUserMatchLaunch {
+                modeSelectorOverlay
+            }
+
             if let seconds = store.goLiveCountdownSeconds {
                 CountdownOverlay(
                     title: store.liveMode == .recordOnly ? "Chuẩn bị ghi hình" : "Chuẩn bị vào live",
@@ -892,20 +939,16 @@ private struct LiveStreamScreen: View {
         .sheet(isPresented: $showRecordingSheet) {
             recordingRequestSheet
         }
-        .confirmationDialog(
-            "Đăng xuất khỏi PickleTour Live?",
-            isPresented: $showSignOutDialog,
-            titleVisibility: .visible
-        ) {
-            Button("Đăng xuất", role: .destructive) {
-                store.signOut()
-            }
-            Button("Huỷ", role: .cancel) {}
-        }
         .onAppear {
+            pendingModeSelection = store.liveMode
             captureBrightnessIfNeeded()
             updateBrightnessIfNeeded()
             updateIdleTimer(disabled: true)
+        }
+        .onChange(of: store.showModeSelector) { showSelector in
+            if showSelector {
+                pendingModeSelection = store.liveMode
+            }
         }
         .onChange(of: store.batterySaverEnabled) { _ in
             updateBrightnessIfNeeded()
@@ -966,6 +1009,10 @@ private struct LiveStreamScreen: View {
             return "REC"
         }
         return "MODE"
+    }
+
+    private var canOpenModeSelector: Bool {
+        !store.launchTarget.isUserMatchLaunch && !store.hasPrimarySessionIntent
     }
 
     private var networkStatusTitle: String {
@@ -1050,11 +1097,15 @@ private struct LiveStreamScreen: View {
     }
 
     private var mainActionDisabled: Bool {
-        store.isWorking || (primaryStartAction == nil && stopAction == nil) || (stopAction == nil && !store.cameraOperational)
+        store.showModeSelector || store.isWorking || (primaryStartAction == nil && stopAction == nil) || (stopAction == nil && !store.cameraOperational)
     }
 
     private var isLandscapeLayout: Bool {
         verticalSizeClass == .compact
+    }
+
+    private var topStatusTopPadding: CGFloat {
+        isLandscapeLayout ? 8 : 22
     }
 
     private var topStatusLeftCluster: some View {
@@ -1069,12 +1120,17 @@ private struct LiveStreamScreen: View {
                 CompactTimerPill(startedAt: liveStartedAt)
             }
 
-            if store.liveMode.includesRecording {
-                CompactStatusPill(
-                    title: recordingBadgeTitle,
-                    systemImage: "record.circle.fill",
-                    tint: recordingTint
-                )
+            if !store.launchTarget.isUserMatchLaunch {
+                Button(action: openModeSelector) {
+                    CompactStatusPill(
+                        title: recordingBadgeTitle,
+                        systemImage: "record.circle.fill",
+                        tint: recordingTint
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canOpenModeSelector)
+                .opacity(canOpenModeSelector ? 1 : 0.72)
             }
 
             if store.liveStartedAt == nil, let waitingLabel = waitingStateLabel {
@@ -1216,6 +1272,254 @@ private struct LiveStreamScreen: View {
         default:
             showQualitySheet = true
         }
+    }
+
+    private func openModeSelector() {
+        guard canOpenModeSelector else { return }
+        pendingModeSelection = store.liveMode
+        store.reopenModeSelector()
+    }
+
+    private var modeSelectorConfirmEnabled: Bool {
+        !modeSelectorUsesRecording || !modeSelectorHardBlock
+    }
+
+    private var modeSelectorUsesRecording: Bool {
+        pendingModeSelection.includesRecording
+    }
+
+    private var modeSelectorRecordingBytesPerSecondBudget: Int64 {
+        let rawBytesPerSecond = Double(store.selectedQuality.videoBitrate + 128_000) / 8.0
+        return Int64((rawBytesPerSecond * 1.25).rounded(.up))
+    }
+
+    private var modeSelectorSegmentEstimateBytes: Int64 {
+        Int64((Double(modeSelectorRecordingBytesPerSecondBudget) * 6.0).rounded(.up))
+    }
+
+    private var modeSelectorMinimumBytes: Int64 {
+        guard modeSelectorUsesRecording else { return 0 }
+        return max(
+            512 * 1024 * 1024,
+            store.recordingPendingQueueBytes + (modeSelectorSegmentEstimateBytes * 4) + (160 * 1024 * 1024)
+        )
+    }
+
+    private var modeSelectorStandardBytes: Int64 {
+        guard modeSelectorUsesRecording else { return 0 }
+        return max(
+            768 * 1024 * 1024,
+            store.recordingPendingQueueBytes + (modeSelectorSegmentEstimateBytes * 8) + (256 * 1024 * 1024)
+        )
+    }
+
+    private var modeSelectorRecommendedBytes: Int64 {
+        guard modeSelectorUsesRecording else { return 0 }
+        return store.recordingPendingQueueBytes + (modeSelectorSegmentEstimateBytes * 15) + (256 * 1024 * 1024)
+    }
+
+    private var modeSelectorHardBlock: Bool {
+        modeSelectorUsesRecording && store.availableStorageBytes > 0 && store.availableStorageBytes < modeSelectorMinimumBytes
+    }
+
+    private var modeSelectorRedWarning: Bool {
+        modeSelectorUsesRecording
+            && store.availableStorageBytes > 0
+            && !modeSelectorHardBlock
+            && store.availableStorageBytes < modeSelectorStandardBytes
+    }
+
+    private var modeSelectorWarning: Bool {
+        modeSelectorUsesRecording
+            && store.availableStorageBytes > 0
+            && !modeSelectorHardBlock
+            && store.availableStorageBytes < modeSelectorRecommendedBytes
+    }
+
+    private var modeSelectorMinimumAdditionalBytesNeeded: Int64 {
+        max(modeSelectorMinimumBytes - store.availableStorageBytes, 0)
+    }
+
+    private var modeSelectorStandardAdditionalBytesNeeded: Int64 {
+        max(modeSelectorStandardBytes - store.availableStorageBytes, 0)
+    }
+
+    private var modeSelectorRecommendedAdditionalBytesNeeded: Int64 {
+        max(modeSelectorRecommendedBytes - store.availableStorageBytes, 0)
+    }
+
+    private var modeSelectorStorageStrategyLabel: String {
+        modeSelectorRedWarning ? "Căng bộ nhớ • segment \(store.recordingSegmentDurationSeconds)s" : "Chuẩn • segment \(store.recordingSegmentDurationSeconds)s"
+    }
+
+    private var modeSelectorStorageMessage: String? {
+        guard modeSelectorUsesRecording else { return nil }
+        if modeSelectorHardBlock {
+            return "Bộ nhớ không đủ để bắt đầu ghi hình an toàn. Hãy giải phóng thêm dung lượng rồi thử lại."
+        }
+        if modeSelectorRedWarning {
+            return "Bộ nhớ đang thấp hơn mức chạy chuẩn. App vẫn có thể ghi, nhưng nên giải phóng thêm dung lượng ngay."
+        }
+        if modeSelectorWarning {
+            return "Bộ nhớ đang thấp. Vẫn có thể ghi hình, nhưng nên dọn thêm máy để phiên dài ổn định hơn."
+        }
+        return nil
+    }
+
+    private var modeSelectorStorageTint: Color {
+        if modeSelectorHardBlock || modeSelectorRedWarning {
+            return LivePalette.danger
+        }
+        if modeSelectorWarning {
+            return LivePalette.warning
+        }
+        return LivePalette.textSecondary
+    }
+
+    private var modeSelectorOverlay: some View {
+        GeometryReader { proxy in
+            let wideLayout = isLandscapeLayout && proxy.size.width >= 720
+
+            ZStack {
+                Color.black.opacity(0.82)
+                    .ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    if wideLayout {
+                        HStack(alignment: .top, spacing: 18) {
+                            modeSelectorModesColumn
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            VStack(alignment: .leading, spacing: 14) {
+                                modeSelectorStorageColumn
+                                modeSelectorConfirmButton
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(22)
+                    } else {
+                        VStack(alignment: .leading, spacing: 14) {
+                            modeSelectorModesColumn
+                            modeSelectorStorageColumn
+                            modeSelectorConfirmButton
+                        }
+                        .padding(22)
+                    }
+                }
+                .frame(maxWidth: min(proxy.size.width - 32, 820))
+                .frame(maxHeight: min(proxy.size.height - 36, 560))
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(LivePalette.card)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(LivePalette.cardStroke, lineWidth: 1)
+                        )
+                )
+            }
+        }
+    }
+
+    private var modeSelectorModesColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Chọn chế độ phiên này")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+
+            Text("Chọn cách vận hành cho sân này trước khi thao tác. Chế độ sẽ được giữ xuyên suốt phiên hiện tại.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(LivePalette.textSecondary)
+                .lineSpacing(2)
+
+            VStack(spacing: 10) {
+                ForEach(LiveStreamMode.allCases) { mode in
+                    SelectableModeCard(
+                        title: mode.title,
+                        summary: mode.summary,
+                        footnote: mode == .recordOnly ? "Bật một lần cho cả sân. App sẽ tự ghi hết trận này sang trận khác cho tới khi anh dừng phiên." : nil,
+                        selected: pendingModeSelection == mode,
+                        disabled: false
+                    ) {
+                        pendingModeSelection = mode
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modeSelectorStorageColumn: some View {
+        if !modeSelectorUsesRecording {
+            Text("Chế độ này chỉ livestream nên không cần kiểm tra bộ nhớ ghi hình. Anh có thể tiếp tục ngay.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(LivePalette.textSecondary)
+                .lineSpacing(2)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                if let message = modeSelectorStorageMessage {
+                    Text(message)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(modeSelectorStorageTint)
+                        .lineSpacing(2)
+                } else {
+                    Text("Dung lượng trống: \(formatStorageBytes(store.availableStorageBytes)) • Queue local: \(formatStorageBytes(store.recordingPendingQueueBytes))")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(LivePalette.textSecondary)
+                        .lineSpacing(2)
+                }
+
+                if modeSelectorRedWarning || modeSelectorHardBlock {
+                    Text(
+                        modeSelectorHardBlock
+                            ? "Cảnh báo đỏ: bộ nhớ đang quá thấp, app sẽ chặn ghi hình để tránh mất record."
+                            : "Cảnh báo đỏ: app vẫn cố ghi bằng cách tự chia segment \(store.recordingSegmentDurationSeconds)s. Nên giải phóng thêm dung lượng ngay."
+                    )
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(LivePalette.danger)
+                    .lineSpacing(2)
+                }
+
+                LiveCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        DetailLine(label: "Còn trống", value: formatStorageBytes(store.availableStorageBytes))
+                        DetailLine(label: "Queue local", value: formatStorageBytes(store.recordingPendingQueueBytes))
+                        DetailLine(label: "Chế độ segment", value: modeSelectorStorageStrategyLabel)
+                        DetailLine(label: "Tối thiểu để bắt đầu ghi", value: formatStorageBytes(modeSelectorMinimumBytes))
+                        DetailLine(label: "Mốc chạy chuẩn 60s", value: formatStorageBytes(modeSelectorStandardBytes))
+                        DetailLine(label: "Khuyến nghị để chạy ổn", value: formatStorageBytes(modeSelectorRecommendedBytes))
+
+                        if modeSelectorMinimumAdditionalBytesNeeded > 0 {
+                            DetailLine(label: "Đang thiếu tối thiểu", value: formatStorageBytes(modeSelectorMinimumAdditionalBytesNeeded))
+                        } else if modeSelectorStandardAdditionalBytesNeeded > 0 {
+                            DetailLine(label: "Cần thêm để về mức chuẩn 60s", value: formatStorageBytes(modeSelectorStandardAdditionalBytesNeeded))
+                        } else if modeSelectorRecommendedAdditionalBytesNeeded > 0 {
+                            DetailLine(label: "Cần thêm để đạt mức khuyến nghị", value: formatStorageBytes(modeSelectorRecommendedAdditionalBytesNeeded))
+                        } else {
+                            DetailLine(label: "Bộ nhớ ghi hình", value: "Đủ để bắt đầu")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var modeSelectorConfirmButton: some View {
+        Button {
+            store.confirmLiveModeSelection(pendingModeSelection)
+        } label: {
+            Text("Tiếp tục")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(modeSelectorConfirmEnabled ? LivePalette.accent : LivePalette.cardMuted)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!modeSelectorConfirmEnabled)
+        .opacity(modeSelectorConfirmEnabled ? 1 : 0.6)
     }
 
     private var previewSection: some View {
@@ -2610,13 +2914,6 @@ private struct LiveStreamScreen: View {
 
                     sessionSection
                     healthSection
-
-                    SecondaryActionButton(
-                        title: "Đăng xuất",
-                        systemImage: "rectangle.portrait.and.arrow.right"
-                    ) {
-                        showSignOutDialog = true
-                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
@@ -3080,24 +3377,6 @@ private struct LiveBackdrop: View {
                 .frame(width: 260, height: 260)
                 .offset(x: 150, y: 260)
         }
-    }
-}
-
-private struct WorkingPill: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .tint(.white)
-            Text("Đang xử lý")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color.black.opacity(0.62))
-        )
     }
 }
 
@@ -3604,6 +3883,8 @@ private struct TopLiveIconButton: View {
                         .offset(x: 6, y: -4)
                 }
             }
+            .padding(.top, 6)
+            .padding(.trailing, 8)
         }
         .buttonStyle(.plain)
     }
@@ -4245,6 +4526,7 @@ private struct CountdownOverlay: View {
 private struct SelectableModeCard: View {
     let title: String
     let summary: String
+    var footnote: String? = nil
     let selected: Bool
     let disabled: Bool
     let action: () -> Void
@@ -4269,6 +4551,12 @@ private struct SelectableModeCard: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(LivePalette.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if let footnote = footnote?.trimmedNilIfBlank {
+                        Text(footnote)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(LivePalette.warning)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .padding(16)
