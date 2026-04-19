@@ -81,6 +81,37 @@ function sanitizeSettingsPatch(patch = {}) {
     next.appShell.webViewUrl = String(next.appShell.webViewUrl || "").trim();
   }
 
+  if (next.frontendUi && typeof next.frontendUi === "object") {
+    const version = String(next.frontendUi.version || "v1")
+      .trim()
+      .toLowerCase();
+    next.frontendUi.version = ["v1", "v2", "v3"].includes(version)
+      ? version
+      : "v1";
+
+    if (!Object.keys(next.frontendUi).length) {
+      delete next.frontendUi;
+    }
+  }
+
+  if (next.links && typeof next.links === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.links, "guideUrl")) {
+      next.links.guideUrl = String(next.links.guideUrl || "").trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(next.links, "liveObserverUrl")) {
+      next.links.liveObserverUrl = String(next.links.liveObserverUrl || "").trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(next.links, "docsApiBaseUrl")) {
+      next.links.docsApiBaseUrl = String(
+        next.links.docsApiBaseUrl || ""
+      ).trim();
+    }
+
+    if (!Object.keys(next.links).length) {
+      delete next.links;
+    }
+  }
+
   if (next.ota && typeof next.ota === "object") {
     if (Object.prototype.hasOwnProperty.call(next.ota, "enabled")) {
       next.ota.enabled = next.ota.enabled !== false;
@@ -122,6 +153,58 @@ function sanitizeSettingsPatch(patch = {}) {
 
     if (!Object.keys(next.ota).length) {
       delete next.ota;
+    }
+  }
+
+  if (next.recordingDrive && typeof next.recordingDrive === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.recordingDrive, "enabled")) {
+      next.recordingDrive.enabled = next.recordingDrive.enabled !== false;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.recordingDrive, "mode")) {
+      const mode = String(next.recordingDrive.mode || "serviceAccount")
+        .trim()
+        .toLowerCase();
+      next.recordingDrive.mode =
+        mode === "oauthuser" ? "oauthUser" : "serviceAccount";
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        next.recordingDrive,
+        "showAdvancedControls"
+      )
+    ) {
+      next.recordingDrive.showAdvancedControls =
+        next.recordingDrive.showAdvancedControls === true;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        next.recordingDrive,
+        "useModernPickerFlow"
+      )
+    ) {
+      next.recordingDrive.useModernPickerFlow =
+        next.recordingDrive.useModernPickerFlow !== false;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next.recordingDrive, "folderId")) {
+      next.recordingDrive.folderId = String(
+        next.recordingDrive.folderId || ""
+      ).trim();
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(next.recordingDrive, "sharedDriveId")
+    ) {
+      next.recordingDrive.sharedDriveId = String(
+        next.recordingDrive.sharedDriveId || ""
+      ).trim();
+    }
+
+    if (!Object.keys(next.recordingDrive).length) {
+      delete next.recordingDrive;
     }
   }
 
@@ -345,6 +428,7 @@ export const getGuideLink = async (req, res, next) => {
     const settings = await getSystemSettingsRuntime({ ensureDocument: true });
     res.json({
       guideUrl: settings.links?.guideUrl || "",
+      docsApiBaseUrl: settings.links?.docsApiBaseUrl || "",
     });
   } catch (err) {
     next(err);

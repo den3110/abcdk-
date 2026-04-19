@@ -66,6 +66,8 @@ const SystemSettingsSchema = new mongoose.Schema(
 
     links: {
       guideUrl: { type: String, default: "", trim: true },
+      liveObserverUrl: { type: String, default: "", trim: true },
+      docsApiBaseUrl: { type: String, default: "", trim: true },
     },
 
     appShell: {
@@ -96,6 +98,7 @@ const SystemSettingsSchema = new mongoose.Schema(
         enum: ["serviceAccount", "oauthUser"],
         default: "serviceAccount",
       },
+      showAdvancedControls: { type: Boolean, default: false },
       useModernPickerFlow: { type: Boolean, default: true },
       folderId: { type: String, default: "", trim: true },
       sharedDriveId: { type: String, default: "", trim: true },
@@ -148,6 +151,14 @@ const SystemSettingsSchema = new mongoose.Schema(
     privacy: {
       hideUserRatings: { type: Boolean, default: false },
       hideUserRatingsSelf: { type: Boolean, default: false },
+    },
+
+    frontendUi: {
+      version: {
+        type: String,
+        enum: ["v1", "v2", "v3"],
+        default: "v1",
+      },
     },
 
     azure: {

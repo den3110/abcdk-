@@ -9,15 +9,15 @@ services:
       - "127.0.0.1:27017:27017"
 
   observer:
-    image: ${OBSERVER_IMAGE:-ghcr.io/your-org/pickletour-observer:latest}
+    image: ${OBSERVER_IMAGE:-060802/pickletour-observer:latest}
     container_name: pickletour-observer
     restart: unless-stopped
     depends_on:
       - observer-mongo
     env_file:
-      - ./observer.env
+      - ./.env
     ports:
-      - "127.0.0.1:8787:8787"
+      - "8787:8787"
 
 volumes:
   observer-mongo-data:

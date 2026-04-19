@@ -25,6 +25,7 @@ import {
   publishCrossTabMessage,
   subscribeCrossTabChannel,
 } from "./utils/crossTabChannel";
+import useFrontendUiVersion from "./hook/useFrontendUiVersion.js";
 
 import Clarity from "@microsoft/clarity";
 
@@ -239,6 +240,7 @@ function NativeWebViewAuthBridge() {
 const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
+  const { isModernVersion } = useFrontendUiVersion();
 
   // Define routes that should have a full-screen layout (no header/footer)
   const isAuthPage = [
@@ -249,6 +251,8 @@ const App = () => {
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
   const isImmersiveLiveFeedPage = location.pathname === "/live";
+  const isModernHomeRoute = isModernVersion && location.pathname === "/";
+  const hideMobileBottomNav = isModernHomeRoute;
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -294,10 +298,12 @@ const App = () => {
       <AuthSessionSync />
       <SentryRuntimeSync />
       <NativeWebViewAuthBridge />
-      {!isAuthPage && !isImmersiveLiveFeedPage && <Header />}
+      {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (
+        <Header />
+      )}
       <ToastContainer theme={isDark ? "dark" : "light"} />
 
-      {isAuthPage || isImmersiveLiveFeedPage ? (
+      {isAuthPage || isImmersiveLiveFeedPage || isModernHomeRoute ? (
         <Outlet />
       ) : (
         <Container className="app-shell">
@@ -318,12 +324,14 @@ const App = () => {
             </Box>
             <AppFooter />
           </Box>
-          <MobileBottomNav />
+          {!hideMobileBottomNav ? <MobileBottomNav /> : null}
           {/* <RegInvitesModal /> */}
         </Container>
       )}
 
-      {!isAuthPage && !isImmersiveLiveFeedPage && <ChatBotDrawer />}
+      {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (
+        <ChatBotDrawer />
+      )}
       <GlobalCommandPalette />
     </>
   );

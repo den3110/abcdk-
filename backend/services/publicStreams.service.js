@@ -118,9 +118,9 @@ function buildFacebookStreamSource(match = {}) {
   const watchUrl = asTrimmed(
     fb?.watch_url || fb?.watchUrl || metaFb?.watch_url || metaFb?.watchUrl
   );
-  const fallbackMatchVideoUrl = isFacebookUrl(match?.video)
-    ? asTrimmed(match?.video)
-    : "";
+  const fallbackMatchVideoUrl = [match?.video, match?.playbackUrl, match?.streamUrl, match?.liveUrl]
+    .map(asTrimmed)
+    .find((url) => isFacebookUrl(url)) || "";
   const pageVideoUrl = buildFacebookPageVideoUrl({ pageId, videoId, liveId });
   const legacyVideoUrl = buildFacebookLegacyVideoUrl({ videoId, liveId });
   const embedHtml = asTrimmed(fb?.embed_html || fb?.embedHtml);
@@ -308,6 +308,32 @@ function selectLegacyPlaybackUrl(match = {}) {
     .find((url) => url && !isTemporaryRecordingPlaybackUrl(url));
 }
 
+function hasDriveReplayReady(recording = null) {
+  return Boolean(recording?.driveFileId || recording?.driveRawUrl);
+}
+
+function hasPendingReplayProcessing(match = {}, recording = null) {
+  const recordingStatus = asTrimmed(recording?.status).toLowerCase();
+  if (
+    recording &&
+    !hasDriveReplayReady(recording) &&
+    ["recording", "uploading", "pending_export_window", "exporting", "ready"].includes(
+      recordingStatus,
+    )
+  ) {
+    return true;
+  }
+
+  return [match?.video, match?.playbackUrl, match?.streamUrl, match?.liveUrl]
+    .map(asTrimmed)
+    .some(
+      (url) =>
+        Boolean(url) &&
+        (isTemporaryRecordingPlaybackUrl(url) ||
+          Boolean(extractInternalRecordingRoute(url))),
+    );
+}
+
 function normalizeUploadedSegments(recording) {
   return [...(recording?.segments || [])]
     .filter((segment) => segment?.uploadStatus === "uploaded")
@@ -384,7 +410,7 @@ function pickFinalServer2Url(recording) {
 
 function buildCompletedReplayStream(match = {}, recording = null) {
   const recordingId = asTrimmed(recording?._id);
-  const hasDriveReady = Boolean(recording?.driveFileId || recording?.driveRawUrl);
+  const hasDriveReady = hasDriveReplayReady(recording);
   if (recordingId && hasDriveReady) {
     const internalRawUrl = buildRecordingRawStreamUrl(recordingId);
     const internalPlaybackUrl = buildRecordingPlaybackUrl(recordingId);
@@ -411,6 +437,7 @@ function buildCompletedReplayStream(match = {}, recording = null) {
 
   const legacyPlaybackUrl = selectLegacyPlaybackUrl(match);
   if (!legacyPlaybackUrl) return null;
+  if (extractInternalRecordingRoute(legacyPlaybackUrl)) return null;
 
   const kind = detectLegacyKind(legacyPlaybackUrl);
   if (kind !== "file") return null;
@@ -632,7 +659,6 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   const finishedLike =
     isFinishedLikeStatus(match?.status) ||
     isFinishedLikeStatus(match?.facebookLive?.status);
-  const server2 = buildRecordingServer2State(recording);
   const completedReplayStream = finishedLike
     ? buildCompletedReplayStream(match, recording)
     : null;
@@ -673,87 +699,9 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     });
   }
 
-  const shouldRenderServer2 = Boolean(
-    server2 &&
-      !finishedLike &&
-      (server2.manifestUrl || server2.hlsManifestUrl || server2.finalPlaybackUrl)
-  );
-
-  if (shouldRenderServer2) {
-    const hasSegmentManifest =
-      Boolean(server2.manifestUrl || server2.hlsManifestUrl) &&
-      server2.uploadedSegmentCount > 0;
-    const hlsUrl =
-      !server2.sourceCleanupCompleted && server2.hlsManifestUrl
-        ? server2.hlsManifestUrl
-        : "";
-    const useFileMode =
-      Boolean(server2.finalPlaybackUrl) &&
-      (server2.status === "final" ||
-        server2.sourceCleanupCompleted ||
-        !hasSegmentManifest);
-    const useHlsMode = !useFileMode && Boolean(hlsUrl);
-    const playbackKind = useFileMode
-      ? "file"
-      : useHlsMode
-        ? "hls"
-        : "delayed_manifest";
-    const playbackUrl = useFileMode
-      ? server2.finalPlaybackUrl
-      : useHlsMode
-        ? hlsUrl
-        : server2.manifestUrl;
-
-    pushUniqueStream(streams, {
-      key: server2.key,
-      displayLabel: server2.displayLabel,
-      providerLabel: server2.providerLabel,
-      kind: playbackKind,
-      priority: 2,
-      status: server2.status,
-      playUrl: playbackUrl,
-      openUrl: server2.finalPlaybackUrl || hlsUrl || server2.manifestUrl || null,
-      delaySeconds: server2.delaySeconds,
-      ready: server2.ready,
-      disabledReason: server2.disabledReason,
-      meta: {
-        recordingId: String(recording?._id || "") || null,
-        manifestUrl: server2.manifestUrl,
-        manifestObjectKey: server2.manifestObjectKey,
-        finalPlaybackUrl: server2.finalPlaybackUrl,
-        publicBaseUrl: server2.publicBaseUrl,
-        targetPublicBaseUrls: server2.targetPublicBaseUrls,
-        // Backward-compatible fallback CDN path down to /segments/ directory.
-        segmentBaseUrl: recording?._id && recording?.match
-          ? (() => {
-              const segKey = buildRecordingSegmentObjectKey({
-                recordingId: recording._id,
-                matchId: recording.match,
-                segmentIndex: 0,
-              });
-              // segKey = 'recordings/v2/matches/{mid}/{rid}/segments/segment_00000.mp4'
-              // Strip the filename to get the directory
-              const segDir = segKey.replace(/\/[^/]+$/, "");
-              return buildRecordingPublicObjectUrl({
-                objectKey: segDir,
-                storageTargetId: recording.r2TargetId,
-              }) || null;
-            })()
-          : null,
-        uploadedDurationSeconds: server2.uploadedDurationSeconds,
-        uploadedSegmentCount: server2.uploadedSegmentCount,
-        showLiveBadge: !finishedLike,
-        status: server2.status,
-        refreshSeconds: getServer2RefreshSeconds(recording, {
-          isFinal: server2.status === "final",
-        }),
-        hlsUrl: hlsUrl || null,
-        delayedManifestUrl: server2.manifestUrl || null,
-      },
-    });
-  }
-
-  const aiCommentary = buildRecordingAiCommentaryState(recording);
+  const aiCommentary = completedReplayStream
+    ? buildRecordingAiCommentaryState(recording)
+    : null;
   if (aiCommentary && (aiCommentary.finalPlaybackUrl || aiCommentary.rawUrl)) {
     pushUniqueStream(streams, {
       key: aiCommentary.key,
@@ -783,10 +731,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     const normalizedLegacyUrl = legacyPlaybackUrl.trim();
     const legacyRecordingRoute =
       extractInternalRecordingRoute(normalizedLegacyUrl);
-    const shouldIgnoreLegacyInternalPlayback =
-      asTrimmed(match?.status).toLowerCase() === "live" &&
-      Boolean(legacyRecordingRoute) &&
-      ["raw", "play"].includes(legacyRecordingRoute.variant);
+    const shouldIgnoreLegacyInternalPlayback = Boolean(legacyRecordingRoute);
     const duplicate = streams.some((stream) => {
       const streamPlayUrl = asTrimmed(stream?.playUrl);
       const streamOpenUrl = asTrimmed(stream?.openUrl);
@@ -824,9 +769,9 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
           delaySeconds: 0,
           ready: true,
         });
-      } else {
+      } else if (kind === "file" && finishedLike && !completedReplayStream) {
         const hasPrimaryReplay = streams.some(
-          (stream) => stream.key === "server2" || stream.key === "full_video",
+          (stream) => stream.key === "full_video",
         );
         pushUniqueStream(streams, {
           key: hasPrimaryReplay ? "legacy_video" : "full_video",
@@ -848,54 +793,6 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     }
   }
 
-  const youtubeWatchUrl = selectYouTubeWatchUrl(match);
-  if (youtubeWatchUrl) {
-    pushUniqueStream(streams, {
-      key: "youtube",
-      displayLabel: "YouTube",
-      providerLabel: "YouTube",
-      kind: "iframe",
-      priority: 3,
-      status: "ready",
-      playUrl: buildYouTubeEmbedUrl(match) || youtubeWatchUrl,
-      openUrl: youtubeWatchUrl,
-      delaySeconds: 0,
-      ready: true,
-    });
-  }
-
-  const tiktokWatchUrl = selectTikTokWatchUrl(match);
-  if (tiktokWatchUrl) {
-    pushUniqueStream(streams, {
-      key: "tiktok",
-      displayLabel: "TikTok",
-      providerLabel: "TikTok",
-      kind: "iframe",
-      priority: 4,
-      status: "ready",
-      playUrl: tiktokWatchUrl,
-      openUrl: tiktokWatchUrl,
-      delaySeconds: 0,
-      ready: true,
-    });
-  }
-
-  const rtmpPublicUrl = selectRtmpPublicUrl(match);
-  if (rtmpPublicUrl) {
-    pushUniqueStream(streams, {
-      key: "rtmp",
-      displayLabel: "RTMP",
-      providerLabel: "RTMP",
-      kind: detectLegacyKind(rtmpPublicUrl) || "iframe",
-      priority: 5,
-      status: "ready",
-      playUrl: rtmpPublicUrl,
-      openUrl: rtmpPublicUrl,
-      delaySeconds: 0,
-      ready: true,
-    });
-  }
-
   const status = asTrimmed(match?.status).toLowerCase();
   const facebookStatus = asTrimmed(match?.facebookLive?.status).toLowerCase();
   const shouldPreferReplayVideo =
@@ -904,7 +801,6 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
   if (status === "live") {
     defaultStreamKey =
       streams.find((stream) => stream.key === "server1" && stream.ready)?.key ||
-      streams.find((stream) => stream.key === "server2")?.key ||
       defaultStreamKey;
   }
   if (shouldPreferReplayVideo) {
@@ -914,31 +810,40 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       defaultStreamKey;
   }
 
+  let publicReplayStateHint = "none";
+  if (finishedLike) {
+    const hasCompletedReplay = streams.some(
+      (stream) => stream.key === "full_video" && stream.ready,
+    );
+    const hasFacebookFallback = streams.some(
+      (stream) => stream.key === "server1" && stream.ready,
+    );
+    if (hasCompletedReplay) publicReplayStateHint = "complete";
+    else if (hasFacebookFallback) publicReplayStateHint = "temporary";
+    else if (hasPendingReplayProcessing(match, recording)) {
+      publicReplayStateHint = "processing";
+    }
+  }
+
   return {
     streams,
     defaultStreamKey,
     hasMultipleStreams: streams.length > 1,
+    publicReplayStateHint,
   };
 }
 
 export function attachPublicStreamsToMatch(match = {}, recording = null) {
-  const { streams, defaultStreamKey, hasMultipleStreams } =
+  const { streams, defaultStreamKey, hasMultipleStreams, publicReplayStateHint } =
     buildPublicStreamsForMatch(match, recording);
   const sanitizedMatch = sanitizePublicMatchPayload(match);
-  const existingStreams = Array.isArray(sanitizedMatch?.streams)
-    ? sanitizedMatch.streams
-    : [];
-  const effectiveStreams = streams.length > 0 ? streams : existingStreams;
 
   return {
     ...sanitizedMatch,
-    streams: effectiveStreams,
-    defaultStreamKey:
-      streams.length > 0
-        ? defaultStreamKey
-        : sanitizedMatch?.defaultStreamKey || effectiveStreams[0]?.key || null,
-    hasMultipleStreams:
-      streams.length > 0 ? hasMultipleStreams : effectiveStreams.length > 1,
+    streams,
+    defaultStreamKey: defaultStreamKey || null,
+    hasMultipleStreams,
+    publicReplayStateHint,
   };
 }
 

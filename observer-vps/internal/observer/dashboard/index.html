@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PickleTour Observer</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f0e6;
+        --panel: rgba(255, 252, 246, 0.94);
+        --border: rgba(37, 53, 44, 0.14);
+        --ink: #1b2a22;
+        --muted: #607061;
+        --accent: #2c6a56;
+        --warn: #ad6d24;
+        --danger: #ae2e3f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Aptos", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(240, 192, 106, 0.24), transparent 28%),
+          linear-gradient(180deg, #efe2bf, var(--bg));
+        color: var(--ink);
+      }
+      .wrap { width: min(1360px, calc(100vw - 28px)); margin: 20px auto 32px; }
+      .hero, .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        box-shadow: 0 18px 50px rgba(31, 41, 35, 0.08);
+      }
+      .hero { padding: 24px; }
+      .hero-head, .panel-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+      .eyebrow { margin: 0 0 8px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .18em; font-weight: 700; }
+      h1 { margin: 0; font-size: clamp(30px, 5vw, 54px); line-height: .95; letter-spacing: -.05em; }
+      .copy { color: var(--muted); max-width: 700px; line-height: 1.5; }
+      .pill { padding: 10px 14px; border-radius: 999px; background: rgba(44, 106, 86, .12); color: var(--accent); font-size: 13px; font-weight: 700; }
+      .pill.error { background: rgba(174, 46, 63, .12); color: var(--danger); }
+      .controls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+      .field { display: grid; gap: 6px; }
+      .field label { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+      .field input, .field select, .field button {
+        height: 46px; border-radius: 14px; border: 1px solid var(--border); font: inherit;
+      }
+      .field input, .field select { padding: 0 14px; background: #fffdf7; color: var(--ink); }
+      .field button { background: var(--accent); color: white; font-weight: 700; cursor: pointer; }
+      .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+      .chip { padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,.72); border: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+      .grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; margin-top: 16px; }
+      .col { display: grid; gap: 16px; }
+      .panel { padding: 18px; }
+      .panel-title { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+      .panel-sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+      .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .card { padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,.74); }
+      .card-k { margin: 0 0 10px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+      .card-v { margin: 0; font-size: clamp(24px, 4vw, 42px); font-weight: 800; letter-spacing: -.05em; }
+      .card-n { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+      .mini-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px 0; border-bottom: 1px solid rgba(37,53,44,.1); text-align: left; font-size: 13px; vertical-align: top; }
+      th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+      .mono { font-family: Consolas, "SFMono-Regular", monospace; }
+      .stack { display: grid; gap: 10px; }
+      .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+      .warn { color: var(--warn); }
+      .danger { color: var(--danger); }
+      .split { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+      .device-name { font-weight: 800; }
+      .soft { color: var(--muted); }
+      @media (max-width: 1100px) {
+        .controls, .cards, .grid, .split, .mini-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="hero">
+        <div class="hero-head">
+          <div>
+            <p class="eyebrow">Go Observer</p>
+            <h1>Realtime Internal Data Box</h1>
+            <p class="copy">This collector is intended for private VPS use. Keep it behind Docker port binding, SSH tunnel, Tailscale, WireGuard, or another internal access layer.</p>
+          </div>
+          <div id="status" class="pill">Idle</div>
+        </div>
+
+        <div class="controls">
+          <div class="field">
+            <label for="readKey">Read Key</label>
+            <input id="readKey" type="password" placeholder="x-pkt-observer-key" />
+          </div>
+          <div class="field">
+            <label for="source">Source</label>
+            <input id="source" type="text" placeholder="Optional source filter" />
+          </div>
+          <div class="field">
+            <label for="minutes">Window</label>
+            <select id="minutes">
+              <option value="15">Last 15 minutes</option>
+              <option value="60" selected>Last 60 minutes</option>
+              <option value="180">Last 3 hours</option>
+              <option value="720">Last 12 hours</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="refreshMs">Refresh</label>
+            <select id="refreshMs">
+              <option value="0">Manual only</option>
+              <option value="10000" selected>10 seconds</option>
+              <option value="15000">15 seconds</option>
+              <option value="30000">30 seconds</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="refresh">Refresh now</button>
+          </div>
+        </div>
+
+        <div class="meta">
+          <div class="chip">Collector: <span id="collectorHost" class="mono">/healthz</span></div>
+          <div class="chip">Last update: <span id="lastUpdate">never</span></div>
+          <div class="chip">Runtime source: <span id="runtimeSource">n/a</span></div>
+          <div class="chip">Backups listed: <span id="backupCount">0</span></div>
+        </div>
+      </section>
+
+      <div class="grid">
+        <div class="col">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Traffic Snapshot</h2>
+                <p class="panel-sub">Recent request counts, latency, and worker status.</p>
+              </div>
+            </div>
+            <div class="cards">
+              <div class="card"><p class="card-k">Events</p><p id="mEvents" class="card-v">0</p><p id="mWindow" class="card-n">Last 60 minutes</p></div>
+              <div class="card"><p class="card-k">Req/Min</p><p id="mRpm" class="card-v">0</p><p class="card-n">From latest runtime snapshot</p></div>
+              <div class="card"><p class="card-k">P95</p><p id="mP95" class="card-v">0 ms</p><p class="card-n">Latest runtime snapshot</p></div>
+              <div class="card"><p class="card-k">4xx</p><p id="m4xx" class="card-v warn">0</p><p class="card-n">Recent window</p></div>
+              <div class="card"><p class="card-k">5xx</p><p id="m5xx" class="card-v danger">0</p><p id="mErrors" class="card-n">0 error events</p></div>
+              <div class="card"><p class="card-k">Worker / Queue</p><p id="mQueue" class="card-v">0 / 0</p><p id="mWorker" class="card-n">Export worker unknown</p></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Live Devices</h2>
+                <p class="panel-sub">Máy live đang giữ sân, stream và overlay trên hiện trường.</p>
+              </div>
+            </div>
+            <div class="mini-grid">
+              <div class="card"><p class="card-k">Tracked</p><p id="dTracked" class="card-v">0</p><p class="card-n">Thiết bị đã gửi heartbeat</p></div>
+              <div class="card"><p class="card-k">Online</p><p id="dOnline" class="card-v">0</p><p class="card-n">Còn heartbeat trong ngưỡng</p></div>
+              <div class="card"><p class="card-k">Live</p><p id="dLive" class="card-v">0</p><p class="card-n">Stream đang live / connecting</p></div>
+              <div class="card"><p class="card-k">Overlay Issues</p><p id="dOverlayIssues" class="card-v warn">0</p><p class="card-n">Máy đang báo lỗi overlay</p></div>
+            </div>
+            <div id="liveDevices" style="margin-top:14px;"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2 class="panel-title">Top Endpoints</h2><p class="panel-sub">Highest request volume from the latest runtime sample.</p></div>
+            </div>
+            <div id="endpoints"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2 class="panel-title">Latest Error Events</h2><p class="panel-sub">Most recent stored error-level observer events.</p></div>
+            </div>
+            <div id="events"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2 class="panel-title">Device Events</h2><p class="panel-sub">Overlay detach, memory warning, thermal degrade, recovery stage, socket stale.</p></div>
+            </div>
+            <div id="deviceEvents"></div>
+          </section>
+        </div>
+
+        <div class="col">
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2 class="panel-title">Process + Hot Paths</h2><p class="panel-sub">Server memory and the busiest live endpoints.</p></div>
+            </div>
+            <div class="split">
+              <div class="card"><p class="card-k">Process</p><div id="process" class="stack"></div></div>
+              <div class="card"><p class="card-k">Hot Paths</p><div id="hotPaths" class="stack"></div></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2 class="panel-title">Recent Backups</h2><p class="panel-sub">Metadata pushed from backup jobs or scripts.</p></div>
+            </div>
+            <div id="backups"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2 class="panel-title">Event Buckets</h2><p class="panel-sub">Top observer event groups in the selected window.</p></div>
+            </div>
+            <div id="buckets"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const q = (id) => document.getElementById(id);
+      const els = {
+        readKey: q("readKey"), source: q("source"), minutes: q("minutes"), refreshMs: q("refreshMs"),
+        refresh: q("refresh"), status: q("status"), collectorHost: q("collectorHost"), lastUpdate: q("lastUpdate"),
+        runtimeSource: q("runtimeSource"), backupCount: q("backupCount"), mEvents: q("mEvents"), mWindow: q("mWindow"),
+        mRpm: q("mRpm"), mP95: q("mP95"), m4xx: q("m4xx"), m5xx: q("m5xx"), mErrors: q("mErrors"),
+        mQueue: q("mQueue"), mWorker: q("mWorker"), endpoints: q("endpoints"), events: q("events"),
+        process: q("process"), hotPaths: q("hotPaths"), backups: q("backups"), buckets: q("buckets"),
+        dTracked: q("dTracked"), dOnline: q("dOnline"), dLive: q("dLive"), dOverlayIssues: q("dOverlayIssues"),
+        liveDevices: q("liveDevices"), deviceEvents: q("deviceEvents")
+      };
+      const storage = window.sessionStorage;
+      let timer = null;
+
+      function loadControls() {
+        els.readKey.value = storage.getItem("observer.readKey") || "";
+        els.source.value = storage.getItem("observer.source") || "";
+        els.minutes.value = storage.getItem("observer.minutes") || "60";
+        els.refreshMs.value = storage.getItem("observer.refreshMs") || "10000";
+      }
+
+      function saveControls() {
+        storage.setItem("observer.readKey", els.readKey.value.trim());
+        storage.setItem("observer.source", els.source.value.trim());
+        storage.setItem("observer.minutes", els.minutes.value);
+        storage.setItem("observer.refreshMs", els.refreshMs.value);
+      }
+
+      function setStatus(message, isError = false) {
+        els.status.textContent = message;
+        els.status.classList.toggle("error", Boolean(isError));
+      }
+
+      function fmtNumber(value, digits = 0) {
+        const n = Number(value || 0);
+        return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : "0";
+      }
+
+      function fmtDate(value) {
+        if (!value) return "n/a";
+        const d = new Date(value);
+        return Number.isFinite(d.getTime()) ? d.toLocaleString() : "n/a";
+      }
+
+      function query(params) {
+        const qs = new URLSearchParams();
+        for (const [key, value] of Object.entries(params)) {
+          if (value !== undefined && value !== null && String(value).trim() !== "") qs.set(key, value);
+        }
+        return qs.toString();
+      }
+
+      async function api(path, params = {}) {
+        const readKey = els.readKey.value.trim();
+        if (!readKey) throw new Error("Read key is required");
+        const response = await fetch(`${path}?${query({ ...params, source: els.source.value.trim() })}`, {
+          headers: { "x-pkt-observer-key": readKey }
+        });
+        if (!response.ok) throw new Error(await response.text() || `Request failed with status ${response.status}`);
+        return response.json();
+      }
+
+      function renderEmpty(message) { return `<div class="empty">${message}</div>`; }
+
+      function renderTable(columns, rows) {
+        if (!rows.length) return renderEmpty("No data yet.");
+        return `<table><thead><tr>${columns.map((x) => `<th>${x}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table>`;
+      }
+
+      function renderStack(target, items) {
+        if (!items.length) {
+          target.innerHTML = renderEmpty("No data yet.");
+          return;
+        }
+        target.innerHTML = items.map((item) => `<div><strong>${item.label}</strong><div class="card-n mono">${item.value}</div></div>`).join("");
+      }
+
+      async function refreshHealth() {
+        const response = await fetch("/healthz");
+        if (!response.ok) return;
+        const data = await response.json();
+        els.collectorHost.textContent = `${data.host || "0.0.0.0"}:${data.port}`;
+      }
+
+      function renderSummary(summary, events) {
+        const runtime = summary.runtime || {};
+        const totals = runtime.totals || {};
+        const process = runtime.process || {};
+        const recordingExport = runtime.recordingExport || {};
+        const queue = recordingExport.queue || {};
+        const worker = recordingExport.worker || {};
+        const buckets = Array.isArray(summary.events?.buckets) ? summary.events.buckets : [];
+        const endpoints = Array.isArray(runtime.endpoints) ? runtime.endpoints : [];
+        const hotPaths = runtime.hotPaths || {};
+        const backups = Array.isArray(summary.backups) ? summary.backups : [];
+        const errorItems = Array.isArray(events.items) ? events.items : [];
+
+        els.runtimeSource.textContent = runtime.source || summary.source || "all sources";
+        els.backupCount.textContent = String(backups.length);
+        els.mEvents.textContent = fmtNumber(summary.events?.totalRecentEvents);
+        els.mWindow.textContent = `Last ${summary.windowMinutes || els.minutes.value} minutes`;
+        els.mRpm.textContent = fmtNumber(totals.reqPerMin, 2);
+        els.mP95.textContent = `${fmtNumber(totals.p95Ms)} ms`;
+        els.m4xx.textContent = fmtNumber(totals.errors4xx);
+        els.m5xx.textContent = fmtNumber(totals.errors5xx);
+        els.mErrors.textContent = `${fmtNumber(summary.events?.errorRecentEvents)} error events`;
+        els.mQueue.textContent = `${fmtNumber(queue.waitingCount)} / ${fmtNumber(queue.activeCount)}`;
+        els.mWorker.textContent = worker.alive ? `Export worker ${worker.status || "alive"}` : "Export worker offline";
+
+        renderStack(els.process, [
+          { label: "PID", value: process.pid || "n/a" },
+          { label: "Uptime", value: `${fmtNumber(process.uptimeSeconds)} s` },
+          { label: "RSS", value: `${fmtNumber(process.rssMb, 1)} MB` },
+          { label: "Heap Used", value: `${fmtNumber(process.heapUsedMb, 1)} MB` },
+        ]);
+
+        renderStack(els.hotPaths, Object.entries(hotPaths).slice(0, 6).map(([key, value]) => ({
+          label: key,
+          value: `${fmtNumber(value.reqPerMin, 2)} rpm | p95 ${fmtNumber(value.p95Ms)} ms`
+        })));
+
+        els.endpoints.innerHTML = renderTable(["Endpoint", "Volume", "Latency"], endpoints.slice(0, 12).map((item) => `
+          <tr>
+            <td><strong class="mono">${item.method || "GET"} ${item.path || "/"}</strong><div class="card-n mono">${item.key || ""}</div></td>
+            <td>${fmtNumber(item.count)} hits<br /><span class="card-n">${fmtNumber(item.reqPerMin, 2)} rpm</span></td>
+            <td>avg ${fmtNumber(item.avgMs)} ms<br /><span class="card-n">p95 ${fmtNumber(item.p95Ms)} ms</span></td>
+          </tr>
+        `));
+
+        els.events.innerHTML = renderTable(["When", "Request", "Status"], errorItems.slice(0, 16).map((item) => `
+          <tr>
+            <td>${fmtDate(item.occurredAt)}</td>
+            <td><strong class="mono">${item.method || ""} ${item.path || item.url || ""}</strong><div class="card-n mono">${item.requestId || item.source || ""}</div></td>
+            <td><span class="danger">${item.statusCode || item.level || "error"}</span><br /><span class="card-n">${fmtNumber(item.durationMs)} ms</span></td>
+          </tr>
+        `));
+
+        els.backups.innerHTML = renderTable(["Scope", "Status", "Captured"], backups.slice(0, 10).map((item) => `
+          <tr>
+            <td><strong>${item.scope || "generic"}</strong><div class="card-n mono">${item.backupType || ""}</div></td>
+            <td><span class="${item.status === "ok" ? "" : "danger"}">${item.status || "unknown"}</span><br /><span class="card-n">${fmtNumber(item.sizeBytes)} bytes</span></td>
+            <td>${fmtDate(item.capturedAt)}</td>
+          </tr>
+        `));
+
+        els.buckets.innerHTML = renderTable(["Bucket", "Level", "Count"], buckets.slice(0, 16).map((item) => `
+          <tr>
+            <td><strong>${item.category || "generic"}</strong><div class="card-n mono">${item.type || ""}</div></td>
+            <td class="${item.level === "error" ? "danger" : item.level === "warn" ? "warn" : ""}">${item.level || "info"}</td>
+            <td>${fmtNumber(item.count)}</td>
+          </tr>
+        `));
+      }
+
+      function formatRelative(value) {
+        if (!value) return "n/a";
+        const date = new Date(value);
+        if (!Number.isFinite(date.getTime())) return "n/a";
+        const diffMs = Date.now() - date.getTime();
+        const seconds = Math.max(0, Math.round(diffMs / 1000));
+        if (seconds < 60) return `${seconds}s trước`;
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) return `${minutes}m trước`;
+        const hours = Math.round(minutes / 60);
+        return `${hours}h trước`;
+      }
+
+      function renderLiveDeviceRows(payload) {
+        const counts = payload?.counts || {};
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        els.dTracked.textContent = fmtNumber(counts.total);
+        els.dOnline.textContent = fmtNumber(counts.online);
+        els.dLive.textContent = fmtNumber(counts.live);
+        els.dOverlayIssues.textContent = fmtNumber(counts.overlayIssues);
+
+        els.liveDevices.innerHTML = renderTable(
+          ["Machine", "Context", "Stream / Overlay", "Recovery / Health"],
+          items.slice(0, 20).map((item) => {
+            const overlay = item.overlay || {};
+            const battery = item.battery || {};
+            const thermal = item.thermal || {};
+            const recovery = item.recovery || {};
+            const stream = item.stream || {};
+            const match = item.match || {};
+            const court = item.court || {};
+            const onlineTone = item.isOnline ? "" : "soft";
+            const overlayTone = item.overlayIssue ? "warn" : "";
+            const recoveryTone = item.recoverySeverity === "critical" ? "danger" : item.recoverySeverity === "warning" ? "warn" : "";
+            return `
+              <tr>
+                <td>
+                  <strong class="device-name ${onlineTone}">${item.deviceName || item.deviceId || "unknown-device"}</strong>
+                  <div class="card-n mono">${item.deviceModel || item.platform || ""}</div>
+                  <div class="card-n">${item.operatorName || item.operatorUserId || "No operator"} • ${item.isOnline ? "Online" : "Stale"}</div>
+                </td>
+                <td>
+                  <strong>${court.name || item.courtName || "Chưa gắn sân"}</strong>
+                  <div class="card-n mono">${match.code || item.matchCode || item.matchId || "Chưa gắn match"}</div>
+                  <div class="card-n">${item.routeLabel || "n/a"} • ${item.screenState || stream.state || item.streamState || "idle"}</div>
+                  <div class="card-n">${formatRelative(item.lastSeenAt)} • heartbeat ${fmtNumber(item.heartbeatIntervalMs)} ms</div>
+                </td>
+                <td>
+                  <strong>${stream.state || item.streamState || "idle"}</strong>
+                  <div class="card-n ${overlayTone}">${overlay.issue || overlay.lastIssue || item.overlayIssue || "Overlay ổn"}</div>
+                  <div class="card-n">Socket ${stream.socketConnected ? "on" : "off"} • Room mismatch ${overlay.roomMismatch ? "có" : "không"}</div>
+                </td>
+                <td>
+                  <strong class="${recoveryTone}">${recovery.summary || recovery.stage || item.recoveryStage || "Nominal"}</strong>
+                  <div class="card-n">Thermal ${thermal.stateLabel || thermal.state || "n/a"} • Battery ${battery.levelPercent ?? "n/a"}%</div>
+                  <div class="card-n">Warnings ${fmtNumber(item.warningCount)} • ${item.recoverySeverity || "info"}</div>
+                </td>
+              </tr>
+            `;
+          })
+        );
+      }
+
+      function renderDeviceEventRows(payload) {
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        els.deviceEvents.innerHTML = renderTable(
+          ["When", "Device", "Reason", "Context"],
+          items.slice(0, 24).map((item) => {
+            const p = item.payload || {};
+            const tone = item.level === "error" ? "danger" : item.level === "warn" ? "warn" : "";
+            return `
+              <tr>
+                <td>${fmtDate(item.occurredAt)}</td>
+                <td>
+                  <strong class="mono">${p.deviceId || item.source || "device"}</strong>
+                  <div class="card-n">${p.operatorName || p.operatorUserId || "No operator"}</div>
+                </td>
+                <td>
+                  <strong class="${tone}">${p.reasonCode || item.type || "event"}</strong>
+                  <div class="card-n">${p.reasonText || p.summary || p.message || "Không có mô tả"}</div>
+                </td>
+                <td>
+                  <div class="card-n mono">${p.courtName || p.courtId || "-"} • ${p.matchCode || p.matchId || "-"}</div>
+                  <div class="card-n">${p.stage || p.severity || item.level || "info"}</div>
+                </td>
+              </tr>
+            `;
+          })
+        );
+      }
+
+      async function refreshAll() {
+        saveControls();
+        setStatus("Refreshing...");
+        try {
+          const [summary, events, liveDevices, deviceEvents] = await Promise.all([
+            api("/api/observer/read/summary", { minutes: els.minutes.value }),
+            api("/api/observer/read/events", { level: "error", limit: 25 }),
+            api("/api/observer/read/live-devices", { limit: 30 }),
+            api("/api/observer/read/events", { category: "live_device", limit: 40 }),
+          ]);
+          renderSummary(summary, events);
+          renderLiveDeviceRows(liveDevices);
+          renderDeviceEventRows(deviceEvents);
+          els.lastUpdate.textContent = new Date().toLocaleTimeString();
+          setStatus("Live");
+        } catch (error) {
+          setStatus("Request failed", true);
+          els.events.innerHTML = renderEmpty(error.message || "Failed to load data.");
+          els.liveDevices.innerHTML = renderEmpty(error.message || "Failed to load data.");
+          els.deviceEvents.innerHTML = renderEmpty(error.message || "Failed to load data.");
+        }
+      }
+
+      function restartTimer() {
+        if (timer) clearInterval(timer);
+        timer = null;
+        const ms = Number(els.refreshMs.value || 0);
+        if (ms > 0) {
+          timer = setInterval(() => { void refreshAll(); }, ms);
+        }
+      }
+
+      [els.readKey, els.source, els.minutes, els.refreshMs].forEach((element) => {
+        element.addEventListener("change", () => {
+          restartTimer();
+          void refreshAll();
+        });
+      });
+
+      els.refresh.addEventListener("click", () => { void refreshAll(); });
+
+      loadControls();
+      restartTimer();
+      void refreshHealth();
+      void refreshAll();
+    </script>
+  </body>
+</html>

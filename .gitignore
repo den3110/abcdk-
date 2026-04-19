@@ -15,6 +15,7 @@ dist-ssr
 *.local
 tmp-codex-export
 ffmpeg-go-worker
+stripe_use_cases.html
 
 # Editor directories and files
 .vscode/*
@@ -34,6 +35,10 @@ backend-go/bin/
 backend-go/tmp/
 backend-go/.air/
 backend-go/coverage.out
+observer-vps/.env
+observer-vps/bin/
+observer-vps/observer
+observer-vps/*.exe
 .go-cache/
 .go-mod-cache/
 

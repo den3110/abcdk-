@@ -273,6 +273,7 @@ import {
   runAvatarOptimizationSweepNow,
 } from "../controllers/admin/adminAvatarOptimizationController.js";
 import { getAdminTournamentImageProxy } from "../controllers/admin/adminAssetProxyController.js";
+import { getAdminObserverOverview as getObserverOverviewProxy } from "../controllers/admin/adminObserverController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -619,6 +620,12 @@ router.get(
   protect,
   authorize("admin"),
   getPeakRuntimeMetrics,
+);
+router.get(
+  "/observer/overview",
+  protect,
+  requireAdminAndSuperUser,
+  getObserverOverviewProxy,
 );
 router.get(
   "/cache/summary",

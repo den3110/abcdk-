@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.pkt.live.data.api.PickleTourApi
+import com.pkt.live.data.observer.LiveObserverConfig
 import com.pkt.live.data.model.*
 import com.pkt.live.data.socket.CourtPresenceSocketManager
 import com.pkt.live.data.socket.CourtRuntimeSocketManager
@@ -127,7 +128,9 @@ class LiveRepository(
         return try {
             val resp = api.getLiveAppBootstrap()
             if (resp.isSuccessful && resp.body() != null) {
-                Result.success(resp.body()!!)
+                val bootstrap = resp.body()!!
+                LiveObserverConfig.setObserverBaseUrlOverride(bootstrap.observerBaseUrl)
+                Result.success(bootstrap)
             } else {
                 val raw = runCatching { resp.errorBody()?.string() }.getOrNull()
                 val msg = parseErrorMessage(raw)

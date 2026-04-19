@@ -129,6 +129,51 @@ const StatBox = styled(Box)(({ theme }) => ({
 
 const TABS = ["upcoming", "ongoing", "finished"];
 
+function toTournamentEpochMs(...values) {
+  for (const value of values) {
+    if (!value) continue;
+    const parsed = dayjs(value);
+    if (parsed.isValid()) return parsed.valueOf();
+  }
+  return 0;
+}
+
+function compareTournamentCardsByTab(left = {}, right = {}, tab = "upcoming") {
+  const leftStart = toTournamentEpochMs(left?.startAt, left?.startDate);
+  const rightStart = toTournamentEpochMs(right?.startAt, right?.startDate);
+  const leftEnd = toTournamentEpochMs(
+    left?.endAt,
+    left?.endDate,
+    left?.startAt,
+    left?.startDate,
+  );
+  const rightEnd = toTournamentEpochMs(
+    right?.endAt,
+    right?.endDate,
+    right?.startAt,
+    right?.startDate,
+  );
+
+  if (tab === "finished") {
+    const endDiff = rightEnd - leftEnd;
+    if (endDiff !== 0) return endDiff;
+    const startDiff = rightStart - leftStart;
+    if (startDiff !== 0) return startDiff;
+  } else if (tab === "ongoing") {
+    const endDiff = leftEnd - rightEnd;
+    if (endDiff !== 0) return endDiff;
+    const startDiff = rightStart - leftStart;
+    if (startDiff !== 0) return startDiff;
+  } else {
+    const startDiff = leftStart - rightStart;
+    if (startDiff !== 0) return startDiff;
+    const endDiff = leftEnd - rightEnd;
+    if (endDiff !== 0) return endDiff;
+  }
+
+  return String(left?.name || "").localeCompare(String(right?.name || ""), "vi");
+}
+
 export default function TournamentDashboard() {
   const theme = useTheme();
   const { t: translate, locale } = useLanguage();
@@ -273,7 +318,7 @@ export default function TournamentDashboard() {
     if (!tournaments) return [];
     const [from, to] = dateRange;
 
-    return tournaments
+    return [...tournaments]
       .filter((t) => t.status === tab)
       .filter((t) =>
         debouncedKeyword
@@ -287,7 +332,8 @@ export default function TournamentDashboard() {
         if (from && tEnd.isBefore(from, "day")) return false;
         if (to && tStart.isAfter(to, "day")) return false;
         return true;
-      });
+      })
+      .sort((left, right) => compareTournamentCardsByTab(left, right, tab));
   }, [tournaments, tab, debouncedKeyword, dateRange]);
 
   const chatBotSnapshot = useMemo(

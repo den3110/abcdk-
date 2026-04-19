@@ -4,5 +4,14 @@ frontend/node_modules
 frontend/dist
 backend/node_modules
 backend/dist
+**/.env
 *.log
 .DS_Store
+observer-vps/.gocache
+observer-vps/observer.exe
+native-live-app/.gradle
+native-live-app/.gradle-user
+native-live-app/.android-user
+native-live-app/app/build
+native-live-app-ios/build-sim
+native-live-app-ios/Pods

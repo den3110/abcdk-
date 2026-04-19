@@ -34,6 +34,7 @@ import CookiesPage from "./screens/CookiesPage.jsx";
 import PrivacyPage from "./screens/PrivacyPage.jsx";
 import TermsPage from "./screens/TermsPage.jsx";
 import StatusPage from "./screens/StatusPage.jsx";
+import ApiDocsPage from "./screens/ApiDocsPage.jsx";
 import SeoNewsListScreen from "./screens/seo-news/SeoNewsListScreen.jsx";
 import SeoNewsDetailScreen from "./screens/seo-news/SeoNewsDetailScreen.jsx";
 import { SocketProvider } from "./context/SocketContext.jsx";
@@ -168,6 +169,8 @@ const router = sentryCreateBrowserRouter(
         <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>
+      <Route path="/docs" element={<Navigate to="/docs/api" replace />} />
+      <Route path="/docs/api" element={<ApiDocsPage />} />
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />
       <Route path="/studio/live" element={<LiveStudioPage />} />

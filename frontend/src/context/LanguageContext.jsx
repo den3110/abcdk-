@@ -13,6 +13,7 @@ import dayjs from "dayjs";
 import "dayjs/locale/en";
 import "dayjs/locale/vi";
 
+import AppBootSplash from "../components/AppBootSplash.jsx";
 import {
   DEFAULT_LANGUAGE,
   SUPPORTED_LANGUAGES,
@@ -325,26 +326,9 @@ export const LanguageContextProvider = ({ children }) => {
   return (
     <LanguageContext.Provider value={contextValue}>
       {geoResolving ? (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "#fff",
-          }}
-        >
-          <img
-            src="/icon-512.png"
-            alt="Loading"
-            width={64}
-            height={64}
-            style={{ animation: "pulse 1.2s ease-in-out infinite" }}
-          />
-          <style>{`@keyframes pulse{0%,100%{opacity:.4;transform:scale(.95)}50%{opacity:1;transform:scale(1.05)}}`}</style>
-        </div>
+        <AppBootSplash
+          message={t("common.states.loading", {}, "Đang tải...")}
+        />
       ) : null}
       <div
         style={

@@ -31,8 +31,9 @@ export default defineConfig(async ({ mode }) => {
       sentryRelease
   );
 
-  const plugins = [
-    react(),
+  const plugins = [react()];
+
+  plugins.push(
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: "auto",
@@ -109,7 +110,7 @@ export default defineConfig(async ({ mode }) => {
         });
       },
     },
-  ];
+  );
 
   if (enableSentrySourcemaps) {
     plugins.push(

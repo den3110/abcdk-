@@ -10,6 +10,7 @@ import {
 } from "../controllers/liveFeedController.js";
 import {
   getPublicLiveClusterById,
+  getPublicLiveCourtCurrentMatchOverlay,
   getPublicLiveCourtById,
   listPublicLiveClusters,
 } from "../controllers/liveClusterController.js";
@@ -28,6 +29,10 @@ router.get("/feed/search", searchPublicLiveFeed);
 router.get("/feed", getPublicLiveFeed);
 router.get("/clusters", listPublicLiveClusters);
 router.get("/clusters/:clusterId", getPublicLiveClusterById);
+router.get(
+  "/courts/:courtStationId/current-match-overlay",
+  getPublicLiveCourtCurrentMatchOverlay
+);
 router.get("/courts/:courtStationId", getPublicLiveCourtById);
 router.delete(
   "/matches/:matchId/video",

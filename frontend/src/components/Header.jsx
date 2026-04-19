@@ -250,7 +250,10 @@ export default function Header() {
   };
 
   const moreMenuItems = useMemo(() => {
-    const items = [{ label: t("header.nav.news"), path: "/news" }];
+    const items = [
+      { label: t("header.nav.news"), path: "/news" },
+      { label: "Docs", path: "/docs/api" },
+    ];
 
     if (userInfo) {
       items.push({

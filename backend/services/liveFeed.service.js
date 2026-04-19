@@ -90,7 +90,7 @@ const MATCH_LIST_SELECT = [
 const MATCH_LIST_POPULATE = [
   {
     path: "tournament",
-    select: "name image status eventType nameDisplayMode",
+    select: "name image status eventType nameDisplayMode startDate startAt endDate endAt",
   },
   {
     path: "bracket",
@@ -207,6 +207,15 @@ function firstText(...values) {
   return "";
 }
 
+function toEpochMs(...values) {
+  for (const value of values) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time) && time > 0) return time;
+  }
+  return 0;
+}
+
 export function normalizeLiveFeedMode(mode) {
   const normalized = asTrimmed(mode).toLowerCase();
   return LIVE_FEED_MODE_STATUSES[normalized] ? normalized : "all";
@@ -258,14 +267,12 @@ function getIframeRank(stream) {
 }
 
 function getFeedStreamTypeRank(stream) {
-  const key = asTrimmed(stream?.key).toLowerCase();
   const kind = asTrimmed(stream?.kind).toLowerCase();
 
   if (isCompletedReplayStream(stream)) return 0;
-  if (key === "server2") return 1;
-  if (kind === "file") return 2;
-  if (kind === "hls") return 3;
-  if (kind === "delayed_manifest") return 4;
+  if (kind === "file") return 1;
+  if (kind === "hls") return 2;
+  if (kind === "delayed_manifest") return 3;
   return 10 + getIframeRank(stream);
 }
 
@@ -310,7 +317,7 @@ function getFeedPrimarySourceTypeFromStream(stream) {
   const provider = asTrimmed(stream?.providerLabel).toLowerCase();
 
   if (isCompletedReplayStream(stream)) return "complete";
-  if (key === "server2" || isNativeStreamKind(kind)) return "native";
+  if (isNativeStreamKind(kind)) return "native";
   if (kind === "facebook" || key === "server1" || provider.includes("facebook")) {
     return "facebook";
   }
@@ -862,6 +869,7 @@ export function buildFeedPosterUrl(match = {}) {
 
 export function buildLiveFeedItem(match = {}) {
   const streams = Array.isArray(match?.streams) ? match.streams : [];
+  const replayStateHint = asTrimmed(match?.publicReplayStateHint).toLowerCase();
   const preferredStream =
     pickFeedPreferredStream(streams, match?.defaultStreamKey) ||
     findStreamByKey(streams, match?.defaultStreamKey) ||
@@ -879,15 +887,18 @@ export function buildLiveFeedItem(match = {}) {
   const temporaryReplayReady = streams.some(
     (stream) =>
       !isCompletedReplayStream(stream) &&
-      isReadyStream(stream) &&
-      asTrimmed(stream?.key).toLowerCase() !== "server2",
+      isReadyStream(stream),
   );
   const normalizedStatus = asTrimmed(match?.status).toLowerCase();
   let replayState = "none";
   if (normalizedStatus === "finished") {
-    if (completedReplayReady) replayState = "complete";
-    else if (temporaryReplayReady) replayState = "temporary";
-    else replayState = "processing";
+    if (replayStateHint === "complete" || completedReplayReady) {
+      replayState = "complete";
+    } else if (replayStateHint === "temporary" || temporaryReplayReady) {
+      replayState = "temporary";
+    } else if (replayStateHint === "processing") {
+      replayState = "processing";
+    }
   }
   const useNativeControls = Boolean(
     primaryStream?.meta?.useNativeControls || isCompletedReplayStream(primaryStream),
@@ -908,6 +919,7 @@ export function buildLiveFeedItem(match = {}) {
       Boolean(primaryStream) &&
       isReadyStream(primaryStream) &&
       isNativeStreamKind(primaryStream?.kind),
+    publicReplayStateHint: replayStateHint || "none",
     replayState,
     useNativeControls,
     preferredObjectFit,
@@ -933,6 +945,65 @@ function matchesReplayStateFilter(item = {}, replayStateFilter = "all") {
   const normalizedFilter = normalizeLiveFeedReplayStateFilter(replayStateFilter);
   if (normalizedFilter === "all") return true;
   return asTrimmed(item?.replayState).toLowerCase() === normalizedFilter;
+}
+
+function getTournamentFacetSortKey(tournament = {}, nowMs = Date.now()) {
+  const normalizedStatus = asTrimmed(tournament?.status).toLowerCase();
+  const startMs = toEpochMs(tournament?.startDate, tournament?.startAt);
+  const endMs = toEpochMs(
+    tournament?.endDate,
+    tournament?.endAt,
+    tournament?.startDate,
+    tournament?.startAt,
+  );
+  const hasStart = startMs > 0;
+  const hasEnd = endMs > 0;
+  const inferredOngoing = hasStart && hasEnd && startMs <= nowMs && endMs >= nowMs;
+  const inferredUpcoming = hasStart && startMs > nowMs;
+  const isOngoing = normalizedStatus === "ongoing" || inferredOngoing;
+  const isUpcoming = normalizedStatus === "upcoming" || (!isOngoing && inferredUpcoming);
+
+  if (isOngoing) {
+    return {
+      bucket: 0,
+      primary: hasEnd ? Math.max(0, endMs - nowMs) : Number.MAX_SAFE_INTEGER,
+      secondary: hasStart ? -startMs : 0,
+    };
+  }
+
+  if (isUpcoming) {
+    return {
+      bucket: 1,
+      primary: hasStart ? Math.max(0, startMs - nowMs) : Number.MAX_SAFE_INTEGER,
+      secondary: hasStart ? startMs : Number.MAX_SAFE_INTEGER,
+    };
+  }
+
+  const finishedMs = endMs || startMs;
+  return {
+    bucket: normalizedStatus === "finished" ? 2 : 3,
+    primary: finishedMs ? -finishedMs : Number.MAX_SAFE_INTEGER,
+    secondary: finishedMs ? -finishedMs : Number.MAX_SAFE_INTEGER,
+  };
+}
+
+export function compareLiveFeedTournamentFacets(left = {}, right = {}, nowMs = Date.now()) {
+  const leftKey = getTournamentFacetSortKey(left, nowMs);
+  const rightKey = getTournamentFacetSortKey(right, nowMs);
+
+  const bucketDiff = leftKey.bucket - rightKey.bucket;
+  if (bucketDiff !== 0) return bucketDiff;
+
+  const primaryDiff = leftKey.primary - rightKey.primary;
+  if (primaryDiff !== 0) return primaryDiff;
+
+  const secondaryDiff = leftKey.secondary - rightKey.secondary;
+  if (secondaryDiff !== 0) return secondaryDiff;
+
+  const countDiff = Number(right?.count || 0) - Number(left?.count || 0);
+  if (countDiff !== 0) return countDiff;
+
+  return asTrimmed(left?.name).localeCompare(asTrimmed(right?.name), "vi");
 }
 
 function buildFeedMeta(items = []) {
@@ -986,11 +1057,38 @@ function buildFeedMeta(items = []) {
         _id: tournamentId || null,
         name: tournamentName || "Giải đấu",
         image: asTrimmed(item?.tournament?.image) || "",
+        status: asTrimmed(item?.tournament?.status).toLowerCase() || "",
+        startDate: item?.tournament?.startDate || item?.tournament?.startAt || null,
+        endDate:
+          item?.tournament?.endDate ||
+          item?.tournament?.endAt ||
+          item?.tournament?.startDate ||
+          item?.tournament?.startAt ||
+          null,
         count: 0,
       };
       previous.count += 1;
       if (!previous.image && item?.tournament?.image) {
         previous.image = asTrimmed(item.tournament.image);
+      }
+      if (!previous.status && item?.tournament?.status) {
+        previous.status = asTrimmed(item.tournament.status).toLowerCase();
+      }
+      if (!previous.startDate && (item?.tournament?.startDate || item?.tournament?.startAt)) {
+        previous.startDate = item.tournament.startDate || item.tournament.startAt;
+      }
+      if (
+        !previous.endDate &&
+        (item?.tournament?.endDate ||
+          item?.tournament?.endAt ||
+          item?.tournament?.startDate ||
+          item?.tournament?.startAt)
+      ) {
+        previous.endDate =
+          item.tournament.endDate ||
+          item.tournament.endAt ||
+          item.tournament.startDate ||
+          item.tournament.startAt;
       }
       tournamentMap.set(key, previous);
     }
@@ -1011,11 +1109,9 @@ function buildFeedMeta(items = []) {
       statuses,
       sources,
       replayStates,
-      tournaments: [...tournamentMap.values()].sort((left, right) => {
-        const countDiff = right.count - left.count;
-        if (countDiff !== 0) return countDiff;
-        return asTrimmed(left?.name).localeCompare(asTrimmed(right?.name));
-      }),
+      tournaments: [...tournamentMap.values()].sort((left, right) =>
+        compareLiveFeedTournamentFacets(left, right),
+      ),
     },
   };
 }
@@ -1076,9 +1172,6 @@ export async function listLiveFeed({
     $and: [
       { $or: candidateClauses },
       { status: { $in: statuses } },
-      mongoose.Types.ObjectId.isValid(normalizedTournamentId)
-        ? { tournament: normalizedTournamentId }
-        : {},
     ].filter((clause) => Object.keys(clause).length > 0),
   };
 
@@ -1140,7 +1233,10 @@ export async function listLiveFeed({
 
       return buildLiveFeedItem(attached);
     })
-    .filter((item) => Array.isArray(item?.streams) && item.streams.length > 0);
+    .filter((item) => {
+      const streams = Array.isArray(item?.streams) ? item.streams : [];
+      return streams.length > 0 || item?.replayState === "processing";
+    });
 
   if (normalizedQuery) {
     items = items.filter((item) =>
@@ -1156,7 +1252,21 @@ export async function listLiveFeed({
 
   items.sort(getLiveFeedComparator(normalizedSort));
 
+  // Build tournament facets from ALL items BEFORE tournament filter
+  // so the dropdown always shows every available tournament.
+  const allTournamentsFacet = buildFeedMeta(items).facets.tournaments;
+
+  // Now filter by tournament for the actual results
+  if (mongoose.Types.ObjectId.isValid(normalizedTournamentId)) {
+    items = items.filter(
+      (item) => toIdString(item?.tournament?._id) === normalizedTournamentId,
+    );
+  }
+
   const feedMeta = buildFeedMeta(items);
+
+  // Override tournaments facet with the full unfiltered list
+  feedMeta.facets.tournaments = allTournamentsFacet;
 
   const paginated = paginate(items, safePage, safeLimit);
 

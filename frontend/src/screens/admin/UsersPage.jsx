@@ -524,8 +524,34 @@ export default function UsersPage() {
     ? Math.ceil((data.total || 0) / (data.pageSize || 1))
     : 0;
 
-  // ========= COMPONENT: USER CARD =========
-  const UserCard = ({ u }) => {
+  // Keep card identity stable so React does not remount every row on parent re-renders.
+  const UserCard = useMemo(
+    () =>
+      function UserCard({
+        u,
+        theme,
+        isXs,
+        t,
+        currentUser,
+        fullMap,
+        expandedMap,
+        setExpandedMap,
+        kycLabelMap,
+        canManageSuperAdmin,
+        updateRoleMut,
+        updateInfoMut,
+        updateRankingSearchConfigMut,
+        showSnack,
+        updateLocalUser,
+        handle,
+        toggleAdminEvaluator,
+        toggleSuperAdmin,
+        setAuditUser,
+        setScore,
+        setEdit,
+        setDel,
+        setKyc,
+      }) {
     const isFull = !!fullMap[u._id];
     const targetIsSuperAdmin = isSuperAdminUser(u);
     const isSelf = String(u?._id) === String(currentUser?._id);
@@ -588,6 +614,9 @@ export default function UsersPage() {
       <Card
         sx={{
           mb: 2,
+          width: "100%",
+          minWidth: 0,
+          overflow: "hidden",
           border: "1px solid",
           borderColor: "divider",
           boxShadow: theme.shadows[1],
@@ -599,7 +628,7 @@ export default function UsersPage() {
         }}
       >
         {/* === Header: Responsive layout === */}
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
           <Stack
             direction={{ xs: "column", sm: "row" }}
             spacing={2}
@@ -608,7 +637,7 @@ export default function UsersPage() {
             {/* Left: Avatar + Info */}
             <Stack
               direction="row"
-              spacing={2}
+              spacing={{ xs: 1.5, sm: 2 }}
               alignItems="flex-start"
               sx={{ flex: 1, minWidth: 0 }}
             >
@@ -638,7 +667,8 @@ export default function UsersPage() {
                 <Stack
                   direction="row"
                   alignItems="center"
-                  spacing={1}
+                  columnGap={1}
+                  rowGap={0.75}
                   flexWrap="wrap"
                 >
                   <Typography
@@ -702,7 +732,7 @@ export default function UsersPage() {
                   mt={1}
                   alignItems={{ xs: "stretch", sm: "center" }}
                 >
-                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                     <Chip
                       icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
                       label={t("admin.users.card.singles", {
@@ -753,7 +783,11 @@ export default function UsersPage() {
               justifyContent="flex-end"
               alignItems="center"
               flexWrap="wrap"
-              sx={{ alignSelf: { xs: "flex-end", sm: "flex-start" } }}
+              sx={{
+                width: { xs: "100%", sm: "auto" },
+                alignSelf: { xs: "stretch", sm: "flex-start" },
+                pt: { xs: 0.25, sm: 0 },
+              }}
             >
               <Tooltip title={t("admin.users.card.editHistory")}>
                 <IconButton
@@ -804,6 +838,7 @@ export default function UsersPage() {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            gap: 1,
             cursor: "pointer",
             "&:hover": { bgcolor: "action.hover" },
           }}
@@ -811,7 +846,7 @@ export default function UsersPage() {
         >
           <Typography
             variant="caption"
-            sx={{ fontWeight: 600, color: "text.secondary" }}
+            sx={{ flex: 1, fontWeight: 600, color: "text.secondary" }}
           >
             {expanded
               ? t("admin.users.card.advancedHidden")
@@ -830,7 +865,7 @@ export default function UsersPage() {
 
         {/* === Expanded Configuration === */}
         <Collapse in={expanded} timeout="auto" unmountOnExit>
-          <Box sx={{ p: 2, bgcolor: "background.default" }}>
+          <Box sx={{ p: { xs: 1.5, sm: 2 }, bgcolor: "background.default" }}>
             <Grid container spacing={2}>
               {/* Col 1: Role & Evaluator */}
               <Grid size={{ xs: 12, md: 5 }}>
@@ -1045,7 +1080,9 @@ export default function UsersPage() {
         </Collapse>
       </Card>
     );
-  };
+      },
+    [],
+  );
 
   /* ============ Password local states ============ */
   const [changePass, setChangePass] = useState(false);
@@ -1075,7 +1112,9 @@ export default function UsersPage() {
 
   /* ================== Main Render ================== */
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 1, md: 3 } }}>
+    <Box
+      sx={{ maxWidth: 1200, width: "100%", minWidth: 0, mx: "auto", p: { xs: 1, md: 3 } }}
+    >
       {/* Header Title */}
       <Stack
         direction="row"
@@ -1103,11 +1142,13 @@ export default function UsersPage() {
           borderRadius: 2,
           bgcolor: "background.paper",
           display: "flex",
+          flexDirection: { xs: "column", lg: "row" },
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: { xs: "stretch", lg: "center" },
+          gap: 2,
         }}
       >
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="subtitle1" fontWeight={700}>
             {t("admin.users.systemSettingsTitle")}
           </Typography>
@@ -1115,8 +1156,29 @@ export default function UsersPage() {
             {t("admin.users.systemSettingsBody")}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={3} alignItems="center">
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1.25}
+          useFlexGap
+          flexWrap="wrap"
+          alignItems={{ xs: "stretch", sm: "center" }}
+          sx={{ width: { xs: "100%", lg: "auto" } }}
+        >
           <FormControlLabel
+            sx={{
+              m: 0,
+              px: 1.25,
+              py: 0.75,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1.5,
+              bgcolor: "background.default",
+              width: { xs: "100%", sm: "auto" },
+              "& .MuiFormControlLabel-label": {
+                fontSize: 14,
+                lineHeight: 1.35,
+              },
+            }}
             control={
               <Checkbox
                 checked={sysSettings?.ota?.enabled !== false}
@@ -1141,6 +1203,20 @@ export default function UsersPage() {
             }
           />
           <FormControlLabel
+            sx={{
+              m: 0,
+              px: 1.25,
+              py: 0.75,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1.5,
+              bgcolor: "background.default",
+              width: { xs: "100%", sm: "auto" },
+              "& .MuiFormControlLabel-label": {
+                fontSize: 14,
+                lineHeight: 1.35,
+              },
+            }}
             control={
               <Checkbox
                 checked={sysSettings?.notifications?.systemPushEnabled !== false}
@@ -1165,6 +1241,20 @@ export default function UsersPage() {
             }
           />
           <FormControlLabel
+            sx={{
+              m: 0,
+              px: 1.25,
+              py: 0.75,
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1.5,
+              bgcolor: "background.default",
+              width: { xs: "100%", sm: "auto" },
+              "& .MuiFormControlLabel-label": {
+                fontSize: 14,
+                lineHeight: 1.35,
+              },
+            }}
             control={
               <Checkbox
                 checked={sysSettings?.privacy?.hideUserRatings === true}
@@ -1208,7 +1298,7 @@ export default function UsersPage() {
         <Stack
           direction={{ xs: "column", md: "row" }}
           spacing={2}
-          alignItems="center"
+          alignItems={{ xs: "stretch", md: "center" }}
         >
           <TextField
             name="search-query"
@@ -1225,16 +1315,18 @@ export default function UsersPage() {
                 </InputAdornment>
               ),
             }}
-            sx={{ flex: 2 }}
+            sx={{ flex: 2, minWidth: 0 }}
           />
 
           {/* ✅ Responsive: stack xuống cột khi màn nhỏ */}
           <Stack
             direction={{ xs: "column", sm: "row" }}
             spacing={2}
-            sx={{ width: { xs: "100%", md: "auto" }, flex: 1 }}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ width: { xs: "100%", md: "auto" }, flex: 1, minWidth: 0 }}
           >
-            <FormControl size="small" fullWidth>
+            <FormControl size="small" fullWidth sx={{ minWidth: { sm: 180 }, flex: 1 }}>
               <InputLabel id="role-filter">
                 {t("admin.users.filters.role")}
               </InputLabel>
@@ -1258,7 +1350,7 @@ export default function UsersPage() {
               </Select>
             </FormControl>
 
-            <FormControl size="small" fullWidth>
+            <FormControl size="small" fullWidth sx={{ minWidth: { sm: 180 }, flex: 1 }}>
               <InputLabel id="cccd-filter">
                 {t("admin.users.filters.kycStatus")}
               </InputLabel>
@@ -1283,7 +1375,7 @@ export default function UsersPage() {
       </Paper>
 
       {/* LIST USERS */}
-      <Box>
+      <Box sx={{ minWidth: 0 }}>
         {isFetching ? (
           <Stack alignItems="center" py={8}>
             <CircularProgress />
@@ -1309,7 +1401,32 @@ export default function UsersPage() {
         ) : (
           <Box>
             {users.map((u) => (
-              <UserCard key={u._id} u={u} />
+              <UserCard
+                key={u._id}
+                u={u}
+                theme={theme}
+                isXs={isXs}
+                t={t}
+                currentUser={currentUser}
+                fullMap={fullMap}
+                expandedMap={expandedMap}
+                setExpandedMap={setExpandedMap}
+                kycLabelMap={kycLabelMap}
+                canManageSuperAdmin={canManageSuperAdmin}
+                updateRoleMut={updateRoleMut}
+                updateInfoMut={updateInfoMut}
+                updateRankingSearchConfigMut={updateRankingSearchConfigMut}
+                showSnack={showSnack}
+                updateLocalUser={updateLocalUser}
+                handle={handle}
+                toggleAdminEvaluator={toggleAdminEvaluator}
+                toggleSuperAdmin={toggleSuperAdmin}
+                setAuditUser={setAuditUser}
+                setScore={setScore}
+                setEdit={setEdit}
+                setDel={setDel}
+                setKyc={setKyc}
+              />
             ))}
           </Box>
         )}

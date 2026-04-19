@@ -83,6 +83,10 @@ final class LiveAppStore: ObservableObject {
     @Published private(set) var authDebugContinueURL: String?
     @Published private(set) var authDebugTargetURL: String?
     @Published private(set) var authDebugIncomingURL: String?
+    @Published private(set) var observerLastSuccessAt: Date?
+    @Published private(set) var observerLastFailureAt: Date?
+    @Published private(set) var observerLastErrorMessage: String?
+    @Published private(set) var observerPendingEventCount = 0
 
     let streamingService = LiveStreamingService()
 
@@ -91,6 +95,7 @@ final class LiveAppStore: ObservableObject {
     private var heartbeatTask: Task<Void, Never>?
     private var runtimePollTask: Task<Void, Never>?
     private var setupMatchHydrationTask: Task<Void, Never>?
+    private var liveDeviceTelemetryTask: Task<Void, Never>?
     private var goLiveCountdownTask: Task<Void, Never>?
     private var stopLiveCountdownTask: Task<Void, Never>?
     private var backgroundExitTask: Task<Void, Never>?
@@ -119,6 +124,12 @@ final class LiveAppStore: ObservableObject {
     private var streamHeartbeatIntervalMs = 15_000
     private var lastStreamLeaseRecoveryAt: Date?
     private var isRecoveringStreamLease = false
+    private var lastTelemetryOverlayEventKey: String?
+    private var lastTelemetryRecoveryEventKey: String?
+    private var lastTelemetryThermalEventKey: String?
+    private var lastTelemetryMemoryPressureEventKey: String?
+    private var pendingObserverDeviceEvents: [LiveDeviceEventRequest] = []
+    private var observerEventFlushTask: Task<Void, Never>?
 
     init() {
         session = environment.sessionStore.session
@@ -127,6 +138,7 @@ final class LiveAppStore: ObservableObject {
         bind()
         configureSockets()
         syncStreamingSafetyProfile()
+        startLiveDeviceTelemetryLoop()
         Task {
             await restoreRecordingQueue()
         }
@@ -157,6 +169,10 @@ final class LiveAppStore: ObservableObject {
         runtimePollTask = nil
         setupMatchHydrationTask?.cancel()
         setupMatchHydrationTask = nil
+        liveDeviceTelemetryTask?.cancel()
+        liveDeviceTelemetryTask = nil
+        observerEventFlushTask?.cancel()
+        observerEventFlushTask = nil
         goLiveCountdownTask?.cancel()
         goLiveCountdownTask = nil
         stopLiveCountdownTask?.cancel()
@@ -325,6 +341,8 @@ final class LiveAppStore: ObservableObject {
         }
 
         environment.sessionStore.replace(nil)
+        LiveAppConfig.clearObserverBaseURLOverride()
+        resetObserverTelemetryState()
         session = nil
         user = nil
         bootstrap = nil
@@ -2191,7 +2209,21 @@ final class LiveAppStore: ObservableObject {
         environment.sessionStore.$session
             .receive(on: DispatchQueue.main)
             .sink { [weak self] session in
-                self?.session = session
+                guard let self else { return }
+                self.session = session
+                if session?.accessToken.trimmedNilIfBlank == nil {
+                    self.lastTelemetryOverlayEventKey = nil
+                    self.lastTelemetryRecoveryEventKey = nil
+                    self.lastTelemetryThermalEventKey = nil
+                    self.lastTelemetryMemoryPressureEventKey = nil
+                    self.pendingObserverDeviceEvents.removeAll()
+                    self.observerEventFlushTask?.cancel()
+                    self.observerEventFlushTask = nil
+                    return
+                }
+                Task { [weak self] in
+                    await self?.sendLiveDeviceHeartbeat(force: true)
+                }
             }
             .store(in: &cancellables)
 
@@ -2261,6 +2293,11 @@ final class LiveAppStore: ObservableObject {
                     }
                 }
                 self.syncStreamingSafetyProfile()
+                if let event {
+                    Task { [weak self] in
+                        await self?.sendThermalTelemetryEvent(event)
+                    }
+                }
             }
             .store(in: &cancellables)
 
@@ -2281,6 +2318,11 @@ final class LiveAppStore: ObservableObject {
                     self.engageSafetyDegrade(reason: event.summary)
                 }
                 self.syncStreamingSafetyProfile()
+                if let event {
+                    Task { [weak self] in
+                        await self?.sendMemoryPressureTelemetryEvent(event)
+                    }
+                }
             }
             .store(in: &cancellables)
 
@@ -2382,6 +2424,9 @@ final class LiveAppStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 self?.overlayHealth = state
+                Task { [weak self] in
+                    await self?.sendOverlayTelemetryEventIfNeeded(state)
+                }
             }
             .store(in: &cancellables)
 
@@ -2390,6 +2435,9 @@ final class LiveAppStore: ObservableObject {
             .sink { [weak self] event in
                 self?.lastRecovery = event
                 self?.refreshOperatorRecoveryDialog()
+                Task { [weak self] in
+                    await self?.sendRecoveryTelemetryEventIfNeeded(event)
+                }
             }
             .store(in: &cancellables)
 
@@ -2716,6 +2764,9 @@ final class LiveAppStore: ObservableObject {
             )
         }
 
+        LiveAppConfig.setObserverBaseURLOverride(bootstrap.observerBaseUrl)
+        startLiveDeviceTelemetryLoop()
+        syncObserverTelemetryState()
         self.bootstrap = bootstrap
         user = bootstrap.user
         clusters = bootstrap.manageableCourtClusters.sorted { ($0.order ?? 0) < ($1.order ?? 0) }
@@ -2749,6 +2800,8 @@ final class LiveAppStore: ObservableObject {
             self.pendingLaunchTarget = nil
             await applyLaunchTarget(pendingLaunchTarget)
         }
+
+        await sendLiveDeviceHeartbeat(force: true)
     }
 
     private var currentLaunchTarget: LiveLaunchTarget? {
@@ -2777,6 +2830,8 @@ final class LiveAppStore: ObservableObject {
             )
         )
 
+        LiveAppConfig.clearObserverBaseURLOverride()
+        resetObserverTelemetryState()
         user = nil
         bootstrap = nil
         clusters = []
@@ -2787,6 +2842,8 @@ final class LiveAppStore: ObservableObject {
 
     private func clearAuthenticatedStateAfterLoginFailure() {
         environment.sessionStore.replace(nil)
+        LiveAppConfig.clearObserverBaseURLOverride()
+        resetObserverTelemetryState()
         session = nil
         user = nil
         bootstrap = nil
@@ -3313,6 +3370,579 @@ final class LiveAppStore: ObservableObject {
             return "court_setup"
         case .liveStream:
             return "live_stream"
+        }
+    }
+
+    private var observerTelemetryEnabled: Bool {
+        LiveAppConfig.observerBaseURL != nil
+    }
+
+    var observerTelemetryBaseURLString: String? {
+        bootstrap?.observerBaseUrl?.trimmedNilIfBlank ?? LiveAppConfig.observerBaseURL?.absoluteString
+    }
+
+    var observerTelemetryStatusLabel: String {
+        let now = Date()
+        guard observerTelemetryEnabled else { return "Chưa cấu hình" }
+        if let lastSuccess = observerLastSuccessAt,
+           observerLastFailureAt == nil || lastSuccess >= (observerLastFailureAt ?? .distantPast),
+           now.timeIntervalSince(lastSuccess) <= 45
+        {
+            return "Đã kết nối"
+        }
+        if let lastFailure = observerLastFailureAt,
+           observerLastSuccessAt == nil || lastFailure > (observerLastSuccessAt ?? .distantPast)
+        {
+            return "Đang lỗi"
+        }
+        if observerLastSuccessAt != nil {
+            return "Đã gửi trước đó"
+        }
+        return "Đang chờ heartbeat"
+    }
+
+    private var liveDeviceTelemetrySourceName: String {
+        "pickletour-live-app"
+    }
+
+    private var liveDeviceTelemetryIntervalMs: Int {
+        10_000
+    }
+
+    private var observerEventBatchWindowMs: Int {
+        1_500
+    }
+
+    private var observerEventBatchMaxSize: Int {
+        8
+    }
+
+    private var shouldPublishLiveDeviceTelemetry: Bool {
+        observerTelemetryEnabled
+            && session?.accessToken.trimmedNilIfBlank != nil
+            && networkConnected
+    }
+
+    private func startLiveDeviceTelemetryLoop() {
+        liveDeviceTelemetryTask?.cancel()
+        syncObserverTelemetryState()
+        guard observerTelemetryEnabled else {
+            liveDeviceTelemetryTask = nil
+            pendingObserverDeviceEvents.removeAll()
+            observerEventFlushTask?.cancel()
+            observerEventFlushTask = nil
+            syncObserverTelemetryState()
+            return
+        }
+
+        liveDeviceTelemetryTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                await self.sendLiveDeviceHeartbeat()
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(max(self.liveDeviceTelemetryIntervalMs, 3_000)) * 1_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func syncObserverTelemetryState() {
+        observerPendingEventCount = pendingObserverDeviceEvents.count
+        if observerTelemetryEnabled == false, observerTelemetryBaseURLString == nil {
+            observerLastErrorMessage = nil
+        }
+    }
+
+    private func noteObserverSendSuccess() {
+        observerLastSuccessAt = Date()
+        observerLastErrorMessage = nil
+        syncObserverTelemetryState()
+    }
+
+    private func noteObserverSendFailure(_ error: Error) {
+        observerLastFailureAt = Date()
+        observerLastErrorMessage = error.localizedDescription
+        syncObserverTelemetryState()
+    }
+
+    private func resetObserverTelemetryState() {
+        observerLastSuccessAt = nil
+        observerLastFailureAt = nil
+        observerLastErrorMessage = nil
+        observerPendingEventCount = 0
+    }
+
+    private func sendLiveDeviceHeartbeat(force: Bool = false) async {
+        guard force || shouldPublishLiveDeviceTelemetry else { return }
+        let status = buildLiveDeviceTelemetryStatus()
+        let body = LiveDeviceHeartbeatRequest(
+            source: liveDeviceTelemetrySourceName,
+            deviceId: streamingService.clientSessionId,
+            capturedAt: Date().iso8601UTCString,
+            heartbeatIntervalMs: liveDeviceTelemetryIntervalMs,
+            status: status
+        )
+
+        do {
+            _ = try await environment.apiClient.sendObserverDeviceHeartbeat(body)
+            noteObserverSendSuccess()
+            await flushPendingObserverDeviceEvents(force: true)
+        } catch {
+            noteObserverSendFailure(error)
+            #if DEBUG
+            print("[observer] heartbeat failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    private func sendLiveDeviceEvent(
+        type: String,
+        level: String,
+        reasonCode: String,
+        reasonText: String,
+        stage: String? = nil,
+        severity: String? = nil,
+        payload: LiveDeviceTelemetryEventPayload? = nil
+    ) async {
+        guard shouldPublishLiveDeviceTelemetry else { return }
+
+        let status = buildLiveDeviceTelemetryStatus()
+        let event = LiveDeviceTelemetryEvent(
+            type: type,
+            level: level,
+            reasonCode: reasonCode,
+            reasonText: reasonText,
+            stage: stage?.trimmedNilIfBlank,
+            severity: severity?.trimmedNilIfBlank,
+            occurredAt: Date().iso8601UTCString,
+            courtId: status.court.id,
+            courtName: status.court.name,
+            matchId: status.match.id,
+            matchCode: status.match.code,
+            operatorUserId: status.operatorInfo.userId,
+            operatorName: status.operatorInfo.displayName,
+            payload: payload
+        )
+        let body = LiveDeviceEventRequest(
+            source: liveDeviceTelemetrySourceName,
+            deviceId: status.deviceId,
+            capturedAt: Date().iso8601UTCString,
+            event: event,
+            status: status
+        )
+
+        if isImmediateObserverDeviceEvent(body) {
+            await flushPendingObserverDeviceEvents(force: true)
+            do {
+                _ = try await environment.apiClient.sendObserverDeviceEvent(body)
+                noteObserverSendSuccess()
+            } catch {
+                noteObserverSendFailure(error)
+                #if DEBUG
+                print("[observer] event failed: \(error.localizedDescription)")
+                #endif
+            }
+            return
+        }
+
+        pendingObserverDeviceEvents.append(body)
+        syncObserverTelemetryState()
+        if pendingObserverDeviceEvents.count >= observerEventBatchMaxSize {
+            await flushPendingObserverDeviceEvents(force: true)
+            return
+        }
+
+        schedulePendingObserverEventFlush()
+    }
+
+    private func isImmediateObserverDeviceEvent(_ request: LiveDeviceEventRequest) -> Bool {
+        let level = request.event.level.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let reasonCode = request.event.reasonCode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if level == "error" {
+            return true
+        }
+        return [
+            "overlay_detached",
+            "socket_room_mismatch",
+            "stream_recovery",
+            "thermal_critical",
+            "recording_error",
+            "app_crash_recovered",
+            "app_crash_suspected"
+        ].contains(reasonCode)
+    }
+
+    private func schedulePendingObserverEventFlush() {
+        guard observerEventFlushTask == nil else { return }
+        observerEventFlushTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await Task.sleep(nanoseconds: UInt64(max(self.observerEventBatchWindowMs, 500)) * 1_000_000)
+            } catch {
+                return
+            }
+            await self.flushPendingObserverDeviceEvents(force: true)
+        }
+    }
+
+    private func flushPendingObserverDeviceEvents(force: Bool) async {
+        guard !pendingObserverDeviceEvents.isEmpty else {
+            observerEventFlushTask?.cancel()
+            observerEventFlushTask = nil
+            syncObserverTelemetryState()
+            return
+        }
+        guard force || pendingObserverDeviceEvents.count >= observerEventBatchMaxSize else {
+            return
+        }
+
+        observerEventFlushTask?.cancel()
+        observerEventFlushTask = nil
+
+        let batch = pendingObserverDeviceEvents
+        pendingObserverDeviceEvents.removeAll()
+        syncObserverTelemetryState()
+
+        let request = LiveDeviceEventsBatchRequest(
+            source: liveDeviceTelemetrySourceName,
+            capturedAt: Date().iso8601UTCString,
+            events: batch
+        )
+
+        do {
+            _ = try await environment.apiClient.sendObserverDeviceEventsBatch(request)
+            noteObserverSendSuccess()
+        } catch {
+            noteObserverSendFailure(error)
+            #if DEBUG
+            print("[observer] batch events failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    private func buildLiveDeviceTelemetryStatus() -> LiveDeviceTelemetryStatus {
+        let device = UIDevice.current
+        let operatorName = user?.displayName ?? session?.displayName?.trimmedNilIfBlank
+        let operatorRole = user?.role?.trimmedNilIfBlank ?? session?.accessToken.trimmedNilIfBlank.map { _ in "operator" }
+
+        return LiveDeviceTelemetryStatus(
+            platform: "ios",
+            clientSessionId: streamingService.clientSessionId,
+            deviceId: streamingService.clientSessionId,
+            screenState: currentPresenceScreenState(),
+            routeLabel: routeLabel(for: route),
+            app: LiveDeviceTelemetryAppInfo(
+                bundleId: Bundle.main.bundleIdentifier,
+                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                buildNumber: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+                liveMode: liveMode.rawValue,
+                quality: selectedQuality.rawValue
+            ),
+            device: LiveDeviceTelemetryDeviceInfo(
+                name: device.name,
+                model: device.model,
+                systemName: device.systemName,
+                systemVersion: device.systemVersion
+            ),
+            operatorInfo: LiveDeviceTelemetryOperatorInfo(
+                userId: user?.id ?? session?.userId,
+                displayName: operatorName,
+                role: operatorRole
+            ),
+            route: LiveDeviceTelemetryRouteInfo(
+                label: routeLabel(for: route),
+                waitingForCourt: waitingForCourt,
+                waitingForMatchLive: waitingForMatchLive,
+                waitingForNextMatch: waitingForNextMatch,
+                freshEntryRequired: freshEntryRequired,
+                appIsActive: appIsActive
+            ),
+            court: LiveDeviceTelemetryCourtInfo(
+                id: currentCourtId?.trimmedNilIfBlank,
+                name: selectedCourt?.displayName ?? courtRuntime?.name?.trimmedNilIfBlank,
+                clusterId: selectedCourt?.clusterId?.trimmedNilIfBlank ?? courtRuntime?.courtClusterId?.trimmedNilIfBlank,
+                clusterName: selectedCourt?.clusterName?.trimmedNilIfBlank ?? courtRuntime?.courtClusterName?.trimmedNilIfBlank
+            ),
+            match: LiveDeviceTelemetryMatchInfo(
+                id: activeMatch?.id.trimmedNilIfBlank,
+                code: activeMatch?.displayCode?.trimmedNilIfBlank ?? activeMatch?.code?.trimmedNilIfBlank,
+                status: activeMatch?.status?.trimmedNilIfBlank,
+                tournamentName: activeMatch?.tournament?.name?.trimmedNilIfBlank ?? activeMatch?.tournamentName?.trimmedNilIfBlank
+            ),
+            stream: LiveDeviceTelemetryStreamInfo(
+                state: streamStateSummary(streamState),
+                bitrate: Int(streamingService.stats.currentBitrate),
+                quality: selectedQuality.title,
+                socketConnected: socketConnected,
+                runtimeSocketConnected: runtimeSocketConnected,
+                presenceSocketConnected: presenceSocketConnected,
+                activeSocketMatchId: activeSocketMatchId?.trimmedNilIfBlank,
+                socketPayloadStale: socketPayloadStale,
+                liveStartedAt: liveStartedAt?.iso8601UTCString
+            ),
+            recording: LiveDeviceTelemetryRecordingInfo(
+                stateText: recordingStateText,
+                pendingUploads: recordingPendingUploads,
+                pendingQueueBytes: recordingPendingQueueBytes,
+                pendingFinalizations: recordingPendingFinalizations,
+                segmentCount: recordingSegmentCount,
+                uploadMode: activeRecording?.uploadMode?.trimmedNilIfBlank,
+                playbackURL: recordingPlaybackURLString?.trimmedNilIfBlank,
+                storageFreeBytes: availableStorageBytes,
+                storageTotalBytes: totalStorageBytes
+            ),
+            overlay: LiveDeviceTelemetryOverlayInfo(
+                attached: overlayHealth.attached,
+                healthy: overlayHealth.healthy,
+                reattaching: overlayHealth.reattaching,
+                snapshotFresh: overlayHealth.snapshotFresh,
+                roomMismatch: overlayHealth.roomMismatch,
+                brandingConfigured: overlayHealth.brandingConfigured,
+                brandingLoading: overlayHealth.brandingLoading,
+                brandingReady: overlayHealth.brandingReady,
+                brandingLoadedCount: overlayHealth.brandingLoadedCount,
+                brandingAssetCount: overlayHealth.brandingAssetCount,
+                destinationBound: overlayHealth.destinationBound,
+                issue: overlayHealth.lastIssue?.trimmedNilIfBlank,
+                issueAtMs: overlayHealth.lastIssueAtMs,
+                lastEvent: overlayHealth.lastEvent?.trimmedNilIfBlank
+            ),
+            presence: courtPresence,
+            network: LiveDeviceTelemetryNetworkInfo(
+                connected: networkConnected,
+                wifi: networkIsWiFi,
+                lowPowerModeEnabled: systemLowPowerModeEnabled
+            ),
+            battery: LiveDeviceTelemetryBatteryInfo(
+                levelPercent: batteryPercent,
+                state: batteryStateLabel,
+                lowWarning: batteryLowWarning
+            ),
+            thermal: LiveDeviceTelemetryThermalInfo(
+                state: thermalStateLabel,
+                stateRawValue: thermalState.rawValue,
+                warning: thermalWarning,
+                critical: thermalCritical,
+                lastEventAtMs: lastThermalEvent?.atMs,
+                lastEventSummary: latestThermalEventSummary,
+                memoryPressureSummary: latestMemoryPressureSummary
+            ),
+            recovery: recoveryState,
+            warnings: buildTelemetryWarnings(),
+            diagnostics: Array(streamingService.diagnostics.prefix(12))
+        )
+    }
+
+    private func buildTelemetryWarnings() -> [String] {
+        var warnings: [String] = []
+        warnings.append(contentsOf: computePreflightIssues().map(\.title))
+
+        if batteryLowWarning {
+            warnings.append("Pin yếu")
+        }
+        if thermalCritical {
+            warnings.append("Thiết bị quá nóng")
+        } else if thermalWarning {
+            warnings.append("Thiết bị đang nóng")
+        }
+        if socketPayloadStale {
+            warnings.append("Socket overlay đang stale")
+        }
+        if socketRoomMismatch {
+            warnings.append("Socket đang ở sai room match")
+        }
+        if recordingStorageHardBlock {
+            warnings.append("Bộ nhớ ghi hình không đủ")
+        } else if recordingStorageWarning || recordingStorageRedWarning {
+            warnings.append("Bộ nhớ ghi hình đang thấp")
+        }
+        if let issue = overlayHealth.lastIssue?.trimmedNilIfBlank {
+            warnings.append(issue)
+        }
+        if let reason = safetyDegradeReason?.trimmedNilIfBlank {
+            warnings.append("Tự hạ tải: \(reason)")
+        }
+
+        return Array(Set(warnings.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })).sorted()
+    }
+
+    private func sendOverlayTelemetryEventIfNeeded(_ state: OverlayHealth) async {
+        let reasonCode = overlayReasonCode(from: state)
+        let issueText = state.lastIssue?.trimmedNilIfBlank ?? state.lastEvent?.trimmedNilIfBlank
+        let key = [
+            reasonCode,
+            issueText ?? "",
+            String(state.lastIssueAtMs),
+            state.attached ? "1" : "0",
+            state.snapshotFresh ? "1" : "0",
+            state.roomMismatch ? "1" : "0",
+            state.brandingReady ? "1" : "0",
+            state.reattaching ? "1" : "0"
+        ].joined(separator: "|")
+
+        let previousKey = lastTelemetryOverlayEventKey
+        guard previousKey != key else { return }
+        lastTelemetryOverlayEventKey = key
+
+        if previousKey == nil && reasonCode == "healthy" {
+            return
+        }
+
+        let reasonText: String
+        let eventType: String
+        let level: String
+
+        if reasonCode == "healthy" {
+            reasonText = "Overlay đã hồi phục và quay lại trạng thái ổn định."
+            eventType = "overlay_restored"
+            level = "info"
+        } else {
+            reasonText = issueText ?? "Overlay đang có dấu hiệu bất thường."
+            eventType = "overlay_issue"
+            level = reasonCode == "overlay_detached" ? "error" : "warn"
+        }
+
+        await sendLiveDeviceEvent(
+            type: eventType,
+            level: level,
+            reasonCode: reasonCode,
+            reasonText: reasonText,
+            stage: recoveryState.stage.rawValue,
+            severity: recoveryState.severity.rawValue,
+            payload: LiveDeviceTelemetryEventPayload(
+                summary: state.lastEvent?.trimmedNilIfBlank ?? reasonText,
+                detail: issueText,
+                overlayIssue: state.lastIssue?.trimmedNilIfBlank,
+                thermalState: thermalStateLabel,
+                memoryPressure: latestMemoryPressureSummary,
+                diagnostics: Array(streamingService.diagnostics.prefix(8))
+            )
+        )
+    }
+
+    private func sendRecoveryTelemetryEventIfNeeded(_ event: RecoveryEvent?) async {
+        guard let event else { return }
+        let key = "\(event.id)|\(recoveryState.stage.rawValue)|\(recoveryState.severity.rawValue)|\(recoveryState.attempt)"
+        guard lastTelemetryRecoveryEventKey != key else { return }
+        lastTelemetryRecoveryEventKey = key
+
+        await sendLiveDeviceEvent(
+            type: "recovery_event",
+            level: recoveryLogLevel(recoveryState.severity),
+            reasonCode: "stream_recovery",
+            reasonText: event.reason,
+            stage: recoveryState.stage.rawValue,
+            severity: recoveryState.severity.rawValue,
+            payload: LiveDeviceTelemetryEventPayload(
+                summary: recoveryState.summary.trimmedNilIfBlank ?? event.reason,
+                detail: recoveryState.detail?.trimmedNilIfBlank,
+                overlayIssue: overlayHealth.lastIssue?.trimmedNilIfBlank,
+                thermalState: thermalStateLabel,
+                memoryPressure: latestMemoryPressureSummary,
+                diagnostics: Array(streamingService.diagnostics.prefix(8))
+            )
+        )
+    }
+
+    private func sendThermalTelemetryEvent(_ event: ThermalEvent) async {
+        let key = event.id
+        guard lastTelemetryThermalEventKey != key else { return }
+        lastTelemetryThermalEventKey = key
+
+        let reasonCode = thermalCritical ? "thermal_critical" : "thermal_warning"
+        let reasonText = "Thiết bị ghi nhận sự kiện nhiệt: \(thermalStateLabel.lowercased())."
+
+        await sendLiveDeviceEvent(
+            type: "thermal_event",
+            level: thermalCritical ? "error" : "warn",
+            reasonCode: reasonCode,
+            reasonText: reasonText,
+            stage: recoveryState.stage.rawValue,
+            severity: recoveryState.severity.rawValue,
+            payload: LiveDeviceTelemetryEventPayload(
+                summary: reasonText,
+                detail: latestThermalEventSummary,
+                overlayIssue: overlayHealth.lastIssue?.trimmedNilIfBlank,
+                thermalState: thermalStateLabel,
+                memoryPressure: latestMemoryPressureSummary,
+                diagnostics: Array(streamingService.diagnostics.prefix(8))
+            )
+        )
+    }
+
+    private func sendMemoryPressureTelemetryEvent(_ event: MemoryPressureEvent) async {
+        let key = event.id
+        guard lastTelemetryMemoryPressureEventKey != key else { return }
+        lastTelemetryMemoryPressureEventKey = key
+
+        await sendLiveDeviceEvent(
+            type: "memory_pressure_event",
+            level: event.level >= 2 ? "error" : "warn",
+            reasonCode: "memory_pressure",
+            reasonText: event.summary,
+            stage: recoveryState.stage.rawValue,
+            severity: recoveryState.severity.rawValue,
+            payload: LiveDeviceTelemetryEventPayload(
+                summary: event.summary,
+                detail: latestMemoryPressureSummary,
+                overlayIssue: overlayHealth.lastIssue?.trimmedNilIfBlank,
+                thermalState: thermalStateLabel,
+                memoryPressure: latestMemoryPressureSummary,
+                diagnostics: Array(streamingService.diagnostics.prefix(8))
+            )
+        )
+    }
+
+    private func overlayReasonCode(from state: OverlayHealth) -> String {
+        if !state.attached {
+            return "overlay_detached"
+        }
+        if state.reattaching {
+            return "overlay_reattaching"
+        }
+        if state.roomMismatch {
+            return "socket_room_mismatch"
+        }
+        if !state.snapshotFresh {
+            return "overlay_snapshot_stale"
+        }
+        if state.brandingConfigured && !state.brandingReady {
+            return state.brandingLoading ? "branding_loading" : "branding_not_ready"
+        }
+        if let issue = state.lastIssue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !issue.isEmpty {
+            if issue.contains("memory") {
+                return "memory_pressure"
+            }
+            if issue.contains("thermal") {
+                return "thermal_pressure"
+            }
+            if issue.contains("room") {
+                return "socket_room_mismatch"
+            }
+            if issue.contains("snapshot") {
+                return "overlay_snapshot_stale"
+            }
+            if issue.contains("brand") {
+                return "branding_not_ready"
+            }
+            if issue.contains("fail-soft") || issue.contains("failsoft") {
+                return "overlay_fail_soft"
+            }
+            return "overlay_issue"
+        }
+        return "healthy"
+    }
+
+    private func recoveryLogLevel(_ severity: RecoverySeverity) -> String {
+        switch severity {
+        case .info:
+            return "info"
+        case .warning:
+            return "warn"
+        case .critical:
+            return "error"
         }
     }
 
@@ -3885,7 +4515,7 @@ actor LiveMatchActivityCoordinator {
         }
 
         if waitingForCourt {
-            return liveMode == .recordOnly ? "Chờ ghi hình" : "Chờ lên sân"
+            return liveMode == .recordOnly ? "Chỉ ghi hình" : "Chỉ lên sân"
         }
 
         if waitingForMatchLive {
@@ -3928,7 +4558,7 @@ actor LiveMatchActivityCoordinator {
         case "finished":
             return "Trận đã kết thúc"
         case "assigned":
-            return "Đã gán sân"
+            return "Đã gắn sân"
         case "scheduled":
             return "Chờ bắt đầu"
         default:
@@ -4012,7 +4642,7 @@ actor LiveMatchActivityCoordinator {
         case "finished":
             return "Trận đã kết thúc"
         case "assigned":
-            return "Đã gán sân"
+            return "Đã gắn sân"
         case "scheduled":
             return "Chờ bắt đầu"
         default:

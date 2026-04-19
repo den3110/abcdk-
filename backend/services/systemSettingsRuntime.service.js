@@ -22,10 +22,15 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   },
   links: {
     guideUrl: "",
+    liveObserverUrl: "",
+    docsApiBaseUrl: "",
   },
   appShell: {
     mode: "native",
     webViewUrl: "",
+  },
+  frontendUi: {
+    version: "v1",
   },
   ota: {
     enabled: true,
@@ -40,6 +45,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   recordingDrive: {
     enabled: true,
     mode: "serviceAccount",
+    showAdvancedControls: false,
     useModernPickerFlow: true,
     folderId: "",
     sharedDriveId: "",
@@ -114,6 +120,10 @@ export function normalizeSystemSettings(doc = {}) {
     appShell: {
       ...DEFAULT_SYSTEM_SETTINGS.appShell,
       ...(source.appShell || {}),
+    },
+    frontendUi: {
+      ...DEFAULT_SYSTEM_SETTINGS.frontendUi,
+      ...(source.frontendUi || {}),
     },
     ota: {
       ...DEFAULT_SYSTEM_SETTINGS.ota,

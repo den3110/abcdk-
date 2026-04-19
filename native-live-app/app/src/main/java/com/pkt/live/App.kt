@@ -14,6 +14,7 @@ import coil.request.CachePolicy
 import com.pkt.live.di.appModule
 import com.pkt.live.data.api.AuthInterceptor
 import com.pkt.live.data.auth.TokenStore
+import com.pkt.live.data.observer.ObserverCrashMarkerStore
 import com.pkt.live.data.repository.LiveRepository
 import com.pkt.live.streaming.StreamRuntimeRegistry
 import org.koin.android.ext.koin.androidContext
@@ -144,6 +145,11 @@ class App : Application(), ImageLoaderFactory {
                 }
                 return@setDefaultUncaughtExceptionHandler
             }
+            ObserverCrashMarkerStore.recordUnhandledCrash(
+                context = applicationContext,
+                threadName = thread.name,
+                throwable = throwable,
+            )
             previousHandler?.uncaughtException(thread, throwable)
         }
     }

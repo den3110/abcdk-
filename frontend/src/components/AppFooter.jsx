@@ -1,5 +1,6 @@
 import Grid from "@mui/material/Grid";
 import {
+  alpha,
   Box,
   Link as MuiLink,
   Stack,
@@ -10,6 +11,7 @@ import { Link as RouterLink, useLocation } from "react-router-dom";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 
 import { useLanguage } from "../context/LanguageContext.jsx";
+import useFrontendUiVersion from "../hook/useFrontendUiVersion.js";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -17,10 +19,12 @@ export default function AppFooter() {
   const theme = useTheme();
   const location = useLocation();
   const { t } = useLanguage();
+  const { isModernVersion } = useFrontendUiVersion();
 
   const quickLinks = [
     { label: t("footer.links.news"), to: "/news" },
     { label: t("footer.links.clubs"), to: "/clubs" },
+    { label: "Docs", to: "/docs/api" },
     { label: t("footer.links.contact"), to: "/contact" },
     { label: t("footer.links.status"), to: "/status" },
   ];
@@ -62,20 +66,33 @@ export default function AppFooter() {
         pt: { xs: 3.5, md: 4.5 },
         pb: { xs: 2.5, md: 3 },
         borderTop: "1px solid",
-        borderColor: "divider",
+        borderColor: isModernVersion
+          ? alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.08)
+          : "divider",
       }}
     >
       <Box
         sx={{
           p: { xs: 2, md: 3 },
-          borderRadius: 4,
+          borderRadius: isModernVersion ? { xs: 4, md: 5 } : 4,
           border: "1px solid",
-          borderColor: "divider",
+          borderColor: isModernVersion
+            ? alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.08)
+            : "divider",
           bgcolor: "background.paper",
+          backgroundImage: isModernVersion
+            ? theme.palette.mode === "dark"
+              ? "linear-gradient(180deg, rgba(30,41,59,0.9), rgba(15,23,42,0.94))"
+              : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.96))"
+            : "none",
           boxShadow:
-            theme.palette.mode === "dark"
-              ? "0 18px 40px rgba(0,0,0,0.22)"
-              : "0 18px 40px rgba(15, 23, 42, 0.06)",
+            isModernVersion
+              ? theme.palette.mode === "dark"
+                ? "0 24px 48px rgba(0,0,0,0.28)"
+                : "0 24px 48px rgba(15, 23, 42, 0.08)"
+              : theme.palette.mode === "dark"
+                ? "0 18px 40px rgba(0,0,0,0.22)"
+                : "0 18px 40px rgba(15, 23, 42, 0.06)",
         }}
       >
         <Grid container spacing={{ xs: 2.5, md: 3 }}>

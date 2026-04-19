@@ -241,6 +241,7 @@ data class LiveAppBootstrapResponse(
     val roleSummary: String? = null,
     val reason: String? = null,
     val message: String? = null,
+    val observerBaseUrl: String? = null,
     val user: UserMe? = null,
     val manageableTournaments: List<TournamentData> = emptyList(),
     val manageableCourtClusters: List<CourtClusterData> = emptyList(),
