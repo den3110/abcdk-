@@ -36,7 +36,7 @@ export default defineConfig(async ({ mode }) => {
   plugins.push(
     VitePWA({
       registerType: "autoUpdate",
-      injectRegister: "auto",
+      injectRegister: null,
       includeAssets: [
         "favicon-64.png",
         "apple-touch-icon.png",

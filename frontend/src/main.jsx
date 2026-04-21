@@ -2,6 +2,7 @@ import React from "react";
 import { HelmetProvider } from "react-helmet-async";
 import ReactDOM from "react-dom/client";
 import * as Sentry from "@sentry/react";
+import { registerSW } from "virtual:pwa-register";
 import App from "./App.jsx";
 import {
   createBrowserRouter,
@@ -80,6 +81,33 @@ import { initSentry } from "./utils/sentry.js";
 // OTP tạm tắt
 // import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
+
+if (import.meta.env.PROD && typeof window !== "undefined") {
+  let reloadingForSwUpdate = false;
+
+  const updateSW = registerSW({
+    immediate: true,
+    onNeedRefresh() {
+      updateSW(true);
+    },
+    onRegisteredSW(_swUrl, registration) {
+      if (!registration) return;
+
+      window.setInterval(() => {
+        if (!navigator.onLine) return;
+        registration.update().catch(() => {});
+      }, 60_000);
+    },
+  });
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadingForSwUpdate) return;
+      reloadingForSwUpdate = true;
+      window.location.reload();
+    });
+  }
+}
 
 initSentry({
   routerTracingIntegration: Sentry.reactRouterV6BrowserTracingIntegration({
