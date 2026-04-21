@@ -3251,6 +3251,40 @@ async function sendMessageStream(
   }
 }
 
+function buildBufferedReplyChunks(text) {
+  const source = String(text || "");
+  if (!source) return [];
+
+  const segments = source.match(/\S+\s*|\n+/g) || [source];
+  const chunks = [];
+  let current = "";
+  const targetChunkSize =
+    source.length > 900 ? 26 : source.length > 400 ? 22 : 18;
+
+  segments.forEach((segment) => {
+    if (!segment) return;
+    if (
+      current &&
+      current.length + segment.length > targetChunkSize &&
+      !/^\s+$/.test(segment)
+    ) {
+      chunks.push(current);
+      current = segment;
+      return;
+    }
+    current += segment;
+  });
+
+  if (current) chunks.push(current);
+  return chunks.length ? chunks : [source];
+}
+
+function waitForMs(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function getChatActionLabel(action, t) {
   if (!action) return "";
   if (action.label) return action.label;
@@ -4308,6 +4342,10 @@ export default function ChatBotDrawer() {
     abortControllerRef.current = new AbortController();
     let replyData = null;
     let streamAborted = false;
+    let hasMessageDelta = false;
+    let bufferedReplyPlaybackPromise = null;
+    let bufferedReplyPlaybackCancelled = false;
+    let bufferedReplyPlaybackText = "";
 
     const commitLiveDraft = () => {
       setLiveDraft({
@@ -4352,6 +4390,39 @@ export default function ChatBotDrawer() {
         draftFrameRef.current = null;
         commitLiveDraft();
       });
+    };
+
+    const ensureBufferedReplyPlayback = (textToPlay) => {
+      const fullText = String(textToPlay || "");
+      if (!fullText || hasMessageDelta || bufferedReplyPlaybackCancelled) return;
+      if (
+        bufferedReplyPlaybackPromise &&
+        bufferedReplyPlaybackText === fullText
+      ) {
+        return;
+      }
+
+      bufferedReplyPlaybackText = fullText;
+      bufferedReplyPlaybackPromise = (async () => {
+        const chunks = buildBufferedReplyChunks(fullText);
+        liveReplyRef.current = "";
+        syncLiveDraft();
+
+        for (let index = 0; index < chunks.length; index += 1) {
+          if (bufferedReplyPlaybackCancelled) return;
+          const chunk = chunks[index];
+          liveReplyRef.current += chunk;
+          syncLiveDraft();
+
+          if (index < chunks.length - 1) {
+            const delay = Math.min(
+              34,
+              Math.max(14, Math.round(chunk.length * 1.5)),
+            );
+            await waitForMs(delay);
+          }
+        }
+      })();
     };
 
     const replaceSteps = (nextSteps) => {
@@ -4478,6 +4549,7 @@ export default function ChatBotDrawer() {
               break;
             }
             case "message_delta": {
+              hasMessageDelta = true;
               liveReplyRef.current += data.delta || "";
               syncLiveDraft();
               break;
@@ -4569,6 +4641,7 @@ export default function ChatBotDrawer() {
                 rawThinking: liveReasoningRef.current,
                 reasoningAvailable: liveMetaRef.current.reasoningAvailable,
               };
+              ensureBufferedReplyPlayback(data.text || liveReplyRef.current);
               syncLiveDraft();
               break;
             }
@@ -4624,6 +4697,7 @@ export default function ChatBotDrawer() {
                   data.reasoningAvailable || liveReasoningRef.current,
                 ),
               };
+              ensureBufferedReplyPlayback(data.text || liveReplyRef.current);
               break;
             }
             case "persisted": {
@@ -4685,6 +4759,10 @@ export default function ChatBotDrawer() {
         },
         abortControllerRef.current.signal,
       );
+
+      if (bufferedReplyPlaybackPromise) {
+        await bufferedReplyPlaybackPromise;
+      }
 
       if (replyData || liveReplyRef.current) {
         if (draftFrameRef.current) {
@@ -4755,6 +4833,7 @@ export default function ChatBotDrawer() {
     } catch (err) {
       if (err?.name === "AbortError") {
         streamAborted = true;
+        bufferedReplyPlaybackCancelled = true;
         if (draftFrameRef.current) {
           cancelAnimationFrame(draftFrameRef.current);
           draftFrameRef.current = null;
@@ -4806,6 +4885,7 @@ export default function ChatBotDrawer() {
       }
 
       let errorText = `❌ ${t("chatbot.errors.genericRetry")}`;
+      bufferedReplyPlaybackCancelled = true;
       if (
         err.message?.includes("session_limit_reached") ||
         err.message?.includes("429")
@@ -4848,6 +4928,7 @@ export default function ChatBotDrawer() {
         },
       ]);
     } finally {
+      bufferedReplyPlaybackCancelled = true;
       if (draftFrameRef.current) {
         cancelAnimationFrame(draftFrameRef.current);
         draftFrameRef.current = null;
