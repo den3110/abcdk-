@@ -648,6 +648,7 @@ export async function handleChatStream(req, res) {
   let telemetryContext = null;
   let telemetryUserId = null;
   let replyToMessageId = null;
+  let heartbeatInterval = null;
   try {
     const { message } = req.body;
     if (!message || typeof message !== "string") {
@@ -736,19 +737,28 @@ export async function handleChatStream(req, res) {
 
     // ═══ SSE Headers ═══
     res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
+      "Content-Encoding": "identity",
     });
+    res.flushHeaders?.();
+    res.socket?.setNoDelay?.(true);
 
     const streamAbortController = new AbortController();
     let clientDisconnected = false;
     let streamFinished = false;
+    heartbeatInterval = setInterval(() => {
+      if (clientDisconnected || res.writableEnded || res.destroyed) return;
+      res.write(": heartbeat\n\n");
+      res.flush?.();
+    }, 15_000);
 
     const handleClientDisconnect = () => {
       if (clientDisconnected) return;
       clientDisconnected = true;
+      clearInterval(heartbeatInterval);
       streamAbortController.abort();
     };
 
@@ -762,7 +772,10 @@ export async function handleChatStream(req, res) {
     const emit = (event, data) => {
       if (clientDisconnected || res.writableEnded || res.destroyed) return;
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      res.flush?.();
     };
+
+    emit("ready", { ok: true });
 
     // Collect thinking steps during stream for DB persistence
     const collectedSteps = [];
@@ -847,10 +860,12 @@ export async function handleChatStream(req, res) {
       }),
     );
 
+    clearInterval(heartbeatInterval);
     emit("done", {});
     streamFinished = true;
     res.end();
   } catch (err) {
+    clearInterval(heartbeatInterval);
     if (isAbortError(err) || req.aborted) {
       await logChatTelemetry(
         buildTelemetryPayload({

@@ -378,7 +378,6 @@ export default function HomeScreenV2() {
 
   const clubs = Array.isArray(homeRes?.clubs) ? homeRes.clubs.slice(0, 3) : [];
   const heroSpotlightStats = stats.slice(0, 3);
-  const heroBackdropUrl = heroData.imageUrl || fallbackImg;
   const footerLinks = [
     ...copy.navItems,
     {
@@ -422,78 +421,22 @@ export default function HomeScreenV2() {
         sx={{
           position: "relative",
           overflow: "clip",
-          background: "linear-gradient(180deg, #1a120d 0%, #17100d 46%, #130f12 100%)",
+          backgroundImage: [
+            "radial-gradient(circle at top left, rgba(203,107,47,0.16), transparent 26%)",
+            "radial-gradient(circle at 85% 18%, rgba(255,255,255,0.1), transparent 18%)",
+            "linear-gradient(180deg, rgba(22,17,16,0.78) 0%, rgba(20,16,18,0.84) 34%, rgba(15,19,25,0.92) 100%)",
+            `url(${heroBackdropUrl})`,
+          ].join(", "),
+          backgroundSize: "cover",
+          backgroundPosition: "center top",
         }}
       >
         <Box
           sx={{
             position: "absolute",
             inset: 0,
-            backgroundImage: `url(${heroBackdropUrl})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(34px) saturate(0.72)",
-            transform: "scale(1.14)",
-            opacity: 0.58,
-          }}
-        />
-        <Box
-          sx={{
-            position: "absolute",
-            inset: 0,
             background:
-              "linear-gradient(180deg, rgba(16,11,9,0.66) 0%, rgba(14,10,10,0.52) 18%, rgba(10,10,12,0.12) 42%, rgba(11,9,10,0.7) 100%), linear-gradient(90deg, rgba(20,12,10,0.9) 0%, rgba(20,12,10,0.58) 24%, rgba(20,12,10,0.18) 54%, rgba(20,12,10,0.42) 100%)",
-          }}
-        />
-        <Box
-          sx={{
-            position: "absolute",
-            inset: 0,
-            background:
-              "radial-gradient(circle at 72% 74%, rgba(255,255,255,0.18), transparent 16%), radial-gradient(circle at 82% 18%, rgba(203,107,47,0.28), transparent 18%), repeating-linear-gradient(90deg, transparent 0, transparent 119px, rgba(255,255,255,0.03) 120px)",
-          }}
-        />
-        <Stack
-          direction="row"
-          spacing={{ md: 1.8, xl: 2.2 }}
-          sx={{
-            position: "absolute",
-            top: { md: 38, xl: 34 },
-            left: { md: "53%", xl: "56%" },
-            transform: "translateX(-18%)",
-            display: { xs: "none", md: "flex" },
-            opacity: 0.9,
-          }}
-        >
-          {[
-            "rgba(181,72,45,0.75)",
-            "rgba(37,118,169,0.68)",
-            "rgba(193,168,61,0.68)",
-            "rgba(82,146,77,0.68)",
-            "rgba(183,183,183,0.44)",
-          ].map((color, index) => (
-            <Box
-              key={`hero-band-${index}`}
-              sx={{
-                width: { md: 58, xl: 72 },
-                height: { md: 180, xl: 210 },
-                borderRadius: "0 0 26px 26px",
-                background: `linear-gradient(180deg, ${color}, rgba(255,255,255,0.08))`,
-                boxShadow: "0 28px 42px rgba(0,0,0,0.18)",
-                transform: `rotate(${index % 2 === 0 ? -1.5 : 1.5}deg)`,
-              }}
-            />
-          ))}
-        </Stack>
-
-        <Box
-          sx={{
-            position: "absolute",
-            insetInline: 0,
-            bottom: 0,
-            height: { xs: 140, md: 220 },
-            background:
-              "linear-gradient(180deg, rgba(12,10,10,0) 0%, rgba(12,10,10,0.58) 36%, rgba(12,10,10,0.94) 100%)",
+              "linear-gradient(180deg, rgba(9,10,13,0.04), rgba(9,10,13,0.32) 40%, rgba(9,10,13,0.08)), repeating-linear-gradient(90deg, transparent 0, transparent 119px, rgba(255,255,255,0.03) 120px)",
           }}
         />
 
@@ -510,12 +453,12 @@ export default function HomeScreenV2() {
           <Box
             sx={{
               position: "relative",
-              borderRadius: { xs: 5, md: 99 },
-              px: { xs: 2, md: 3.5 },
+              borderRadius: { xs: 5, md: 0 },
+              px: { xs: 2, md: 0 },
               py: { xs: 1.4, md: 1.6 },
-              border: `1px solid ${SURFACE_BORDER}`,
-              background: "rgba(20, 16, 14, 0.58)",
-              backdropFilter: "blur(18px)",
+              border: { xs: `1px solid ${SURFACE_BORDER}`, md: "none" },
+              background: { xs: "rgba(20, 16, 14, 0.58)", md: "transparent" },
+              backdropFilter: { xs: "blur(18px)", md: "none" },
             }}
           >
             <Stack
@@ -739,29 +682,26 @@ export default function HomeScreenV2() {
             zIndex: 1,
             maxWidth: "1440px",
             px: { xs: 2, md: 4, xl: 6 },
-            pt: { xs: 7, md: 12 },
-            pb: { xs: 6, md: 7 },
+            pt: { xs: 7, md: 14 },
+            pb: { xs: 6, md: 8 },
           }}
         >
           <Box
             sx={{
               display: "grid",
               gap: { xs: 4, md: 5 },
-              gridTemplateColumns: {
-                xs: "1fr",
-                lg: "minmax(0, 0.88fr) minmax(360px, 0.58fr)",
-              },
+              gridTemplateColumns: "1fr",
               alignItems: "end",
-              minHeight: { xs: "auto", md: "calc(100svh - 135px)" },
+              minHeight: { xs: "auto", md: "calc(100vh - 260px)" },
             }}
           >
             <Stack
               spacing={{ xs: 3, md: 4 }}
               sx={{
-                maxWidth: 760,
+                maxWidth: 860,
                 justifyContent: "flex-end",
                 pt: { md: 6 },
-                pb: { md: 2.5 },
+                pb: { md: 2 },
               }}
             >
               <Stack
@@ -774,7 +714,7 @@ export default function HomeScreenV2() {
                   py: 0.7,
                   borderRadius: 999,
                   border: "1px solid rgba(255,255,255,0.12)",
-                  backgroundColor: "rgba(20,14,11,0.36)",
+                  backgroundColor: "rgba(20,14,11,0.4)",
                   backdropFilter: "blur(10px)",
                 }}
               >
@@ -798,15 +738,15 @@ export default function HomeScreenV2() {
                     sx={{
                       fontFamily: DISPLAY_FONT_FAMILY,
                       fontSize: {
-                        xs: "clamp(3.4rem, 15vw, 4.9rem)",
-                        md: "clamp(6rem, 8vw, 8.8rem)",
+                        xs: "clamp(3.2rem, 14vw, 5rem)",
+                        md: "clamp(5.5rem, 8vw, 9rem)",
                       },
                       lineHeight: { xs: 0.92, md: 0.88 },
                       letterSpacing: "-0.06em",
                       color: line.accent ? ACCENT_COLOR : "#f8f5f0",
                       fontStyle: line.italic ? "italic" : "normal",
                       pr: { md: 10 },
-                      textShadow: "0 18px 42px rgba(0,0,0,0.22)",
+                      textShadow: "0 8px 40px rgba(0,0,0,0.3)",
                     }}
                   >
                     {line.text}
@@ -816,11 +756,11 @@ export default function HomeScreenV2() {
 
               <Typography
                 sx={{
-                  maxWidth: 580,
+                  maxWidth: 620,
                   color: "rgba(248,245,240,0.82)",
-                  fontSize: { xs: "1rem", md: "1.22rem" },
-                  lineHeight: 1.78,
-                  textShadow: "0 10px 28px rgba(0,0,0,0.22)",
+                  textShadow: "0 4px 20px rgba(0,0,0,0.3)",
+                  fontSize: { xs: "1rem", md: "1.25rem" },
+                  lineHeight: 1.8,
                 }}
               >
                 {heroData.lead}
@@ -876,143 +816,169 @@ export default function HomeScreenV2() {
             </Stack>
 
             <Stack
-              spacing={1.35}
+              spacing={2}
               sx={{
-
+                display: "none",
                 minWidth: 0,
-                justifyContent: "flex-end",
-                mb: { md: 2.5 },
-                maxWidth: { lg: 392 },
-                ml: "auto",
+                justifyContent: "space-between",
               }}
             >
               <Box
                 sx={{
                   position: "relative",
-                  minHeight: { xs: 250, md: 315 },
-                  p: { xs: 2.1, md: 2.4 },
-                  borderRadius: { xs: 4.5, md: 5 },
+                  minHeight: { xs: 360, md: 560 },
+                  p: { xs: 1.2, md: 1.4 },
+                  borderRadius: { xs: 5, md: 6 },
                   border: `1px solid ${SURFACE_BORDER}`,
-                  background: alpha("#110c0b", 0.52),
-                  backdropFilter: "blur(18px)",
-                  boxShadow: "0 28px 70px rgba(0,0,0,0.22)",
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))",
+                  boxShadow: "0 34px 90px rgba(0,0,0,0.24)",
                 }}
               >
-                <Stack spacing={2.1} sx={{ position: "relative", zIndex: 1 }}>
+                <Box
+                  sx={{
+                    position: "relative",
+                    minHeight: "100%",
+                    overflow: "hidden",
+                    borderRadius: { xs: 4.2, md: 5 },
+                    backgroundImage: [
+                      "linear-gradient(180deg, rgba(8,9,12,0.1), rgba(8,9,12,0.82))",
+                      "linear-gradient(135deg, rgba(18,14,12,0.34), rgba(11,15,22,0.2))",
+                      `url(${heroData.imageUrl || fallbackImg})`,
+                    ].join(", "),
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      inset: 0,
+                      background:
+                        "linear-gradient(120deg, rgba(8,9,12,0.78) 0%, rgba(8,9,12,0.18) 56%, rgba(8,9,12,0.08) 100%)",
+                    }}
+                  />
+
                   <Stack
-                    direction={{ xs: "column", sm: "row" }}
                     justifyContent="space-between"
-                    spacing={1.2}
+                    sx={{ position: "relative", zIndex: 1, minHeight: "100%", p: { xs: 2.2, md: 2.8 } }}
                   >
-                    <Box
-                      sx={{
-                        display: "inline-flex",
-                        alignSelf: "flex-start",
-                        px: 1.3,
-                        py: 0.65,
-                        borderRadius: 999,
-                        backgroundColor: "rgba(255,255,255,0.08)",
-                        border: "1px solid rgba(255,255,255,0.12)",
-                      }}
-                    >
-                      <Typography
-                        variant="overline"
-                        sx={{
-                          color: alpha(ACCENT_COLOR, 0.98),
-                          letterSpacing: "0.16em",
-                          fontWeight: 700,
-                        }}
-                      >
-                        {nextTournament ? copy.nextEvent : copy.liveLabel}
-                      </Typography>
-                    </Box>
-
-                    <Stack
-                      direction="row"
-                      spacing={0.75}
-                      alignItems="center"
-                      sx={{
-                        alignSelf: "flex-start",
-                        px: 1.1,
-                        py: 0.7,
-                        borderRadius: 999,
-                        backgroundColor: "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                      }}
-                    >
-                      <PlaceRounded
-                        sx={{ fontSize: 16, color: alpha(ACCENT_COLOR, 0.96) }}
-                      />
-                      <Typography
-                        variant="caption"
-                        sx={{ color: "rgba(248,245,240,0.72)" }}
-                      >
-                        {normalizeLocation(nextTournament) || copy.clubsFallback}
-                      </Typography>
-                    </Stack>
-                  </Stack>
-
-                  <Stack spacing={1.2}>
-                    <Typography
-                      sx={{
-                        fontFamily: DISPLAY_FONT_FAMILY,
-                        fontSize: { xs: "2rem", md: "3rem" },
-                        lineHeight: { xs: 0.98, md: 0.94 },
-                        letterSpacing: "-0.05em",
-                        maxWidth: 420,
-                      }}
-                    >
-                      {nextTournament?.name || copy.nextEventFallback}
-                    </Typography>
-
                     <Stack
                       direction={{ xs: "column", sm: "row" }}
-                      spacing={{ xs: 1, sm: 2 }}
-                      divider={
-                        <Divider
-                          orientation="vertical"
-                          flexItem
-                          sx={{
-                            borderColor: "rgba(255,255,255,0.1)",
-                            display: { xs: "none", sm: "block" },
-                          }}
-                        />
-                      }
+                      justifyContent="space-between"
+                      spacing={1.2}
                     >
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <CalendarMonthRounded
-                          sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
-                        />
-                        <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
-                          {formatDateRange(
-                            nextTournament?.startDate,
-                            nextTournament?.endDate,
-                            locale,
-                          )}
+                      <Box
+                        sx={{
+                          display: "inline-flex",
+                          alignSelf: "flex-start",
+                          px: 1.3,
+                          py: 0.7,
+                          borderRadius: 999,
+                          backgroundColor: "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                        }}
+                      >
+                        <Typography
+                          variant="overline"
+                          sx={{
+                            color: alpha(ACCENT_COLOR, 0.98),
+                            letterSpacing: "0.16em",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {nextTournament ? copy.nextEvent : copy.liveLabel}
                         </Typography>
-                      </Stack>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Groups2Rounded
-                          sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                      </Box>
+
+                      <Stack
+                        direction="row"
+                        spacing={0.75}
+                        alignItems="center"
+                        sx={{
+                          alignSelf: "flex-start",
+                          px: 1.25,
+                          py: 0.8,
+                          borderRadius: 999,
+                          backgroundColor: "rgba(8,9,12,0.34)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                        }}
+                      >
+                        <PlaceRounded
+                          sx={{ fontSize: 16, color: alpha(ACCENT_COLOR, 0.96) }}
                         />
-                        <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
-                          {formatCompactNumber(homeRes?.stats?.players || 0, locale)}{" "}
-                          {t("home.stats.cards.players")}
+                        <Typography
+                          variant="caption"
+                          sx={{ color: "rgba(248,245,240,0.72)" }}
+                        >
+                          {normalizeLocation(nextTournament) || copy.clubsFallback}
                         </Typography>
                       </Stack>
                     </Stack>
-                  </Stack>
 
-                  <Typography
-                    sx={{
-                      maxWidth: 420,
-                      color: "rgba(248,245,240,0.72)",
-                      lineHeight: 1.75,
-                    }}
-                  >
-                    {copy.featuredBody}
-                  </Typography>
-                </Stack>
+                    <Stack spacing={2.2} sx={{ maxWidth: 470 }}>
+                      <Stack spacing={1.2}>
+                        <Typography
+                          sx={{
+                            fontFamily: DISPLAY_FONT_FAMILY,
+                            fontSize: { xs: "2.2rem", md: "4.2rem" },
+                            lineHeight: { xs: 0.98, md: 0.94 },
+                            letterSpacing: "-0.05em",
+                          }}
+                        >
+                          {nextTournament?.name || heroData.title}
+                        </Typography>
+
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          spacing={{ xs: 1, sm: 2 }}
+                          divider={
+                            <Divider
+                              orientation="vertical"
+                              flexItem
+                              sx={{
+                                borderColor: "rgba(255,255,255,0.1)",
+                                display: { xs: "none", sm: "block" },
+                              }}
+                            />
+                          }
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <CalendarMonthRounded
+                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                            />
+                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                              {formatDateRange(
+                                nextTournament?.startDate,
+                                nextTournament?.endDate,
+                                locale,
+                              )}
+                            </Typography>
+                          </Stack>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Groups2Rounded
+                              sx={{ fontSize: 18, color: alpha(ACCENT_COLOR, 0.96) }}
+                            />
+                            <Typography sx={{ color: "rgba(248,245,240,0.76)" }}>
+                              {formatCompactNumber(homeRes?.stats?.players || 0, locale)}{" "}
+                              {t("home.stats.cards.players")}
+                            </Typography>
+                          </Stack>
+                        </Stack>
+                      </Stack>
+
+                      <Typography
+                        sx={{
+                          maxWidth: 460,
+                          color: "rgba(248,245,240,0.76)",
+                          lineHeight: 1.8,
+                        }}
+                      >
+                        {copy.featuredBody}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                </Box>
               </Box>
 
               <Box
@@ -1029,10 +995,10 @@ export default function HomeScreenV2() {
                   <Box
                     key={`hero-${item.key}`}
                     sx={{
-                      p: { xs: 1.5, md: 1.8 },
-                      borderRadius: { xs: 3.4, md: 4 },
+                      p: { xs: 1.8, md: 2.1 },
+                      borderRadius: { xs: 4, md: 4.5 },
                       border: `1px solid ${SURFACE_BORDER}`,
-                      background: "rgba(255,255,255,0.05)",
+                      background: "rgba(255,255,255,0.04)",
                       backdropFilter: "blur(10px)",
                     }}
                   >
@@ -1040,7 +1006,7 @@ export default function HomeScreenV2() {
                       <Typography
                         sx={{
                           fontFamily: DISPLAY_FONT_FAMILY,
-                          fontSize: { xs: "1.65rem", md: "2rem" },
+                          fontSize: { xs: "1.8rem", md: "2.4rem" },
                           lineHeight: 0.94,
                         }}
                       >
@@ -1070,7 +1036,7 @@ export default function HomeScreenV2() {
             borderTop: "1px solid rgba(255,255,255,0.08)",
             borderBottom: "1px solid rgba(255,255,255,0.08)",
             background:
-              "linear-gradient(90deg, rgba(30,20,14,0.96), rgba(22,18,19,0.9) 52%, rgba(30,20,14,0.96))",
+              "linear-gradient(90deg, rgba(28,20,15,0.88), rgba(18,18,22,0.82) 52%, rgba(28,20,15,0.88))",
             backdropFilter: "blur(18px)",
           }}
         >
@@ -1093,8 +1059,7 @@ export default function HomeScreenV2() {
                 alignItems: "center",
               }}
             >
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: ACCENT_COLOR, flexShrink: 0 }} />
+              <Stack spacing={0.5}>
                 <Typography
                   variant="overline"
                   sx={{
@@ -1103,7 +1068,16 @@ export default function HomeScreenV2() {
                     fontWeight: 700,
                   }}
                 >
-                  {copy.nextEvent} — {nextTournament?.name || copy.nextEventFallback}
+                  {copy.nextEvent}
+                </Typography>
+                <Typography
+                  sx={{
+                    color: "rgba(248,245,240,0.82)",
+                    fontWeight: 700,
+                    fontSize: { xs: "1rem", md: "1.1rem" },
+                  }}
+                >
+                  {nextTournament?.name || copy.nextEventFallback}
                 </Typography>
               </Stack>
 
@@ -1190,367 +1164,114 @@ export default function HomeScreenV2() {
         }}
       >
         <Stack spacing={{ xs: 5, md: 8 }}>
-          {/* —— SECTION EYEBROW */}
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
-            <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
+          <Box
+            sx={{
+              display: "grid",
+              gap: { xs: 2, md: 3 },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "minmax(0, 0.95fr) minmax(0, 1.05fr)",
+              },
+              alignItems: "start",
+            }}
+          >
+            <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+              <Typography
+                variant="overline"
+                sx={{
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
+                }}
+              >
+                {copy.seasonData}
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: DISPLAY_FONT_FAMILY,
+                  fontSize: { xs: "2.4rem", md: "4.2rem" },
+                  lineHeight: { xs: 1, md: 0.96 },
+                  letterSpacing: "-0.05em",
+                }}
+              >
+                {copy.seasonTitle}
+              </Typography>
+            </Stack>
+
             <Typography
-              variant="overline"
               sx={{
-                color: alpha(ACCENT_COLOR, 0.96),
-                letterSpacing: "0.18em",
-                fontWeight: 700,
+                color: "rgba(248,245,240,0.72)",
+                fontSize: { xs: "1rem", md: "1.08rem" },
+                lineHeight: 1.85,
+                maxWidth: 760,
               }}
             >
-              {copy.seasonData} · {isEnglish ? "2025-26 SEASON" : "MÙA GIẢI 2025-26"}
+              {copy.seasonBody}
             </Typography>
-          </Stack>
+          </Box>
 
-          {/* —— BENTO GRID */}
           <Box
             sx={{
               display: "grid",
               gap: { xs: 2, md: 2.5 },
               gridTemplateColumns: {
-                xs: "1fr",
-                md: "repeat(2, minmax(0, 1fr))",
-                lg: "minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)",
+                xs: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(4, minmax(0, 1fr))",
               },
             }}
           >
-            {/* Card 1 — Players (tall, spans 2 rows) */}
-            <Box
-              sx={{
-                p: { xs: 2.8, md: 3.5 },
-                borderRadius: { xs: 4, md: 5 },
-                border: `1px solid ${SURFACE_BORDER}`,
-                background: SURFACE_BG,
-                boxShadow: "0 24px 54px rgba(0,0,0,0.18)",
-                gridRow: { lg: "1 / 3" },
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <Stack spacing={2} sx={{ flex: 1, justifyContent: "space-between" }}>
-                <Stack spacing={1.5}>
-                  <Stack direction="row" spacing={1} alignItems="center">
+            {copy.seasonStats.map((item, index) => {
+              const stat = stats[index];
+
+              return (
+                <Box
+                  key={item.key}
+                  sx={{
+                    p: { xs: 2.2, md: 2.8 },
+                    borderRadius: { xs: 4, md: 5 },
+                    border: `1px solid ${SURFACE_BORDER}`,
+                    background: SURFACE_BG,
+                    boxShadow: "0 24px 54px rgba(0,0,0,0.18)",
+                  }}
+                >
+                  <Stack spacing={1.5}>
+                    <Box
+                      sx={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: "50%",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: alpha(ACCENT_COLOR, 0.14),
+                        color: ACCENT_COLOR,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {item.icon}
+                    </Box>
+                    <Typography
+                      sx={{
+                        fontFamily: DISPLAY_FONT_FAMILY,
+                        fontSize: { xs: "2.2rem", md: "3.1rem" },
+                        lineHeight: 1,
+                      }}
+                    >
+                      {formatCompactNumber(stat?.value || 0, locale)}
+                    </Typography>
                     <Typography
                       variant="overline"
-                      sx={{ color: "rgba(248,245,240,0.62)", letterSpacing: "0.16em" }}
+                      sx={{
+                        color: "rgba(248,245,240,0.62)",
+                        letterSpacing: "0.18em",
+                      }}
                     >
-                      {stats[0]?.label}
+                      {stat?.label}
                     </Typography>
-                    <Box
-                      sx={{
-                        px: 1,
-                        py: 0.25,
-                        borderRadius: 999,
-                        backgroundColor: alpha(ACCENT_COLOR, 0.2),
-                      }}
-                    >
-                      <Typography
-                        variant="caption"
-                        sx={{ color: ACCENT_COLOR, fontWeight: 700, fontSize: "0.65rem", letterSpacing: "0.06em" }}
-                      >
-                        {isEnglish ? "ACTIVE" : "HOẠT ĐỘNG"}
-                      </Typography>
-                    </Box>
                   </Stack>
-                </Stack>
-
-                <Typography
-                  sx={{
-                    fontFamily: DISPLAY_FONT_FAMILY,
-                    fontSize: { xs: "5rem", md: "7.5rem" },
-                    lineHeight: 0.85,
-                    letterSpacing: "-0.04em",
-                    py: { xs: 1, md: 2 },
-                  }}
-                >
-                  {formatCompactNumber(stats[0]?.value || 0, locale)}
-                </Typography>
-
-                <Stack spacing={1.5}>
-                  <Typography sx={{ color: "rgba(248,245,240,0.62)", lineHeight: 1.7, fontSize: "0.92rem" }}>
-                    {copy.seasonBody.split(".")[0]}.
-                  </Typography>
-                  <Stack direction="row" spacing={0.8} flexWrap="wrap">
-                    {(isEnglish
-                      ? ["DUPR RATED", "VERIFIED", "ALL LEVELS"]
-                      : ["DUPR", "XÁC THỰC", "MỌI TRÌNH ĐỘ"]
-                    ).map((tag) => (
-                      <Box
-                        key={tag}
-                        sx={{
-                          px: 1.2,
-                          py: 0.4,
-                          borderRadius: 999,
-                          border: `1px solid ${SURFACE_BORDER}`,
-                          backgroundColor: "rgba(255,255,255,0.04)",
-                        }}
-                      >
-                        <Typography
-                          variant="caption"
-                          sx={{ color: "rgba(248,245,240,0.52)", fontWeight: 600, letterSpacing: "0.08em", fontSize: "0.68rem" }}
-                        >
-                          {tag}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Stack>
-                </Stack>
-              </Stack>
-            </Box>
-
-            {/* Card 2 — Tournaments (wide, spans 2 columns, with chart) */}
-            <Box
-              sx={{
-                p: { xs: 2.5, md: 2.8 },
-                borderRadius: { xs: 4, md: 5 },
-                border: `1px solid ${SURFACE_BORDER}`,
-                background: SURFACE_BG,
-                boxShadow: "0 24px 54px rgba(0,0,0,0.18)",
-                gridColumn: { lg: "2 / 4" },
-                overflow: "hidden",
-              }}
-            >
-              <Stack spacing={2}>
-                <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                  <Typography
-                    variant="overline"
-                    sx={{ color: "rgba(248,245,240,0.62)", letterSpacing: "0.16em" }}
-                  >
-                    {stats[1]?.label}
-                  </Typography>
-                  <Typography sx={{ color: "rgba(248,245,240,0.52)", fontSize: "0.85rem" }}>
-                    {isEnglish ? "Avg " : "TB "}
-                    <Box
-                      component="span"
-                      sx={{ fontFamily: DISPLAY_FONT_FAMILY, fontStyle: "italic", color: "#f8f5f0" }}
-                    >
-                      {formatCompactNumber(stats[1]?.value || 0, locale)}
-                    </Box>
-                    {isEnglish ? " / month" : " / tháng"}
-                  </Typography>
-                </Stack>
-                <Stack direction="row" spacing={1} alignItems="baseline">
-                  <Typography
-                    sx={{
-                      fontFamily: DISPLAY_FONT_FAMILY,
-                      fontSize: { xs: "3rem", md: "3.6rem" },
-                      lineHeight: 1,
-                      color: ACCENT_COLOR,
-                    }}
-                  >
-                    {formatCompactNumber(stats[1]?.value || 0, locale)}
-                  </Typography>
-                  <Typography sx={{ color: "rgba(248,245,240,0.42)", fontSize: "1.6rem" }}>→</Typography>
-                  <Typography
-                    sx={{
-                      fontFamily: DISPLAY_FONT_FAMILY,
-                      fontSize: { xs: "2rem", md: "2.4rem" },
-                      lineHeight: 1,
-                      color: "rgba(248,245,240,0.82)",
-                    }}
-                  >
-                    {isEnglish ? "growing" : "tăng trưởng"}
-                  </Typography>
-                </Stack>
-                {/* SVG chart */}
-                <Box sx={{ width: "100%", height: { xs: 80, md: 110 }, mt: 1 }}>
-                  <svg
-                    width="100%"
-                    height="100%"
-                    viewBox="0 0 600 110"
-                    preserveAspectRatio="none"
-                    style={{ display: "block" }}
-                  >
-                    <defs>
-                      <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={ACCENT_COLOR} stopOpacity="0.3" />
-                        <stop offset="100%" stopColor={ACCENT_COLOR} stopOpacity="0" />
-                      </linearGradient>
-                    </defs>
-                    <path
-                      d="M0,90 C30,85 60,80 100,72 C140,64 170,68 220,55 C270,42 310,48 360,35 C410,22 450,30 500,18 C540,10 570,14 600,8 L600,110 L0,110 Z"
-                      fill="url(#chartGrad)"
-                    />
-                    <path
-                      d="M0,90 C30,85 60,80 100,72 C140,64 170,68 220,55 C270,42 310,48 360,35 C410,22 450,30 500,18 C540,10 570,14 600,8"
-                      fill="none"
-                      stroke={ACCENT_COLOR}
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                    />
-                    <circle cx="600" cy="8" r="4" fill={ACCENT_COLOR} />
-                    <circle cx="600" cy="8" r="8" fill={ACCENT_COLOR} fillOpacity="0.2" />
-                  </svg>
                 </Box>
-              </Stack>
-            </Box>
-
-            {/* Card 3 — Matches (orange gradient) */}
-            <Box
-              sx={{
-                p: { xs: 2.5, md: 2.8 },
-                borderRadius: { xs: 4, md: 5 },
-                border: `1px solid rgba(203,107,47,0.3)`,
-                background: `linear-gradient(145deg, ${alpha(ACCENT_COLOR, 0.35)}, ${alpha(ACCENT_COLOR, 0.08)} 70%)`,
-                boxShadow: `0 24px 54px rgba(0,0,0,0.18), inset 0 1px 0 ${alpha(ACCENT_COLOR, 0.15)}`,
-              }}
-            >
-              <Stack spacing={2}>
-                <Typography
-                  variant="overline"
-                  sx={{ color: "rgba(248,245,240,0.72)", letterSpacing: "0.16em" }}
-                >
-                  {stats[2]?.label} · {isEnglish ? "ONE SEASON" : "MÙA GIẢI"}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: DISPLAY_FONT_FAMILY,
-                    fontSize: { xs: "3.5rem", md: "4.8rem" },
-                    lineHeight: 0.9,
-                    py: 1,
-                  }}
-                >
-                  {formatCompactNumber(stats[2]?.value || 0, locale)}
-                </Typography>
-                <Typography sx={{ color: "rgba(248,245,240,0.68)", lineHeight: 1.7, fontSize: "0.9rem" }}>
-                  {copy.seasonBody.split(".").slice(0, 1).join(".")}.
-                </Typography>
-                <Stack direction="row" spacing={0.6} alignItems="flex-end" sx={{ pt: 0.5 }}>
-                  {[0.3, 0.5, 0.4, 0.7, 0.85, 0.6, 1, 0.75, 0.5, 0.9, 0.65, 0.8].map((h, i) => (
-                    <Box
-                      key={i}
-                      sx={{
-                        flex: 1,
-                        height: h * 36,
-                        borderRadius: "3px 3px 0 0",
-                        backgroundColor: alpha("#fff", 0.12 + h * 0.2),
-                      }}
-                    />
-                  ))}
-                </Stack>
-              </Stack>
-            </Box>
-
-            {/* Card 4 — Clubs (with progress bar) */}
-            <Box
-              sx={{
-                p: { xs: 2.5, md: 2.8 },
-                borderRadius: { xs: 4, md: 5 },
-                border: `1px solid ${SURFACE_BORDER}`,
-                background: SURFACE_BG,
-                boxShadow: "0 24px 54px rgba(0,0,0,0.18)",
-              }}
-            >
-              <Stack spacing={2}>
-                <Typography
-                  variant="overline"
-                  sx={{ color: "rgba(248,245,240,0.62)", letterSpacing: "0.16em" }}
-                >
-                  {stats[3]?.label} · {isEnglish ? "NETWORK" : "MẠNG LƯỚI"}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontFamily: DISPLAY_FONT_FAMILY,
-                    fontSize: { xs: "3rem", md: "3.6rem" },
-                    lineHeight: 1,
-                  }}
-                >
-                  {formatCompactNumber(stats[3]?.value || 0, locale)}
-                </Typography>
-                <Typography sx={{ color: "rgba(248,245,240,0.52)", fontSize: "0.85rem" }}>
-                  {isEnglish ? "Verified clubs across " : "CLB xác thực tại "}
-                  <Box component="span" sx={{ color: "#f8f5f0", fontWeight: 700 }}>
-                    {isEnglish ? "Vietnam" : "Việt Nam"}
-                  </Box>
-                </Typography>
-                <Box sx={{ width: "100%", height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.08)", mt: 0.5 }}>
-                  <Box
-                    sx={{
-                      width: "68%",
-                      height: "100%",
-                      borderRadius: 4,
-                      background: `linear-gradient(90deg, ${alpha(ACCENT_COLOR, 0.35)}, ${ACCENT_COLOR})`,
-                    }}
-                  />
-                </Box>
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography variant="caption" sx={{ color: "rgba(248,245,240,0.42)" }}>
-                    {isEnglish ? "Target: 50 clubs" : "Mục tiêu: 50 CLB"}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: ACCENT_COLOR, fontWeight: 700 }}>
-                    68%
-                  </Typography>
-                </Stack>
-              </Stack>
-            </Box>
-          </Box>
-
-          {/* —— EVENT INFO BAR (like Caliber's persistent bar) */}
-          <Box
-            sx={{
-              p: { xs: 2, md: 2.5 },
-              borderRadius: { xs: 4, md: 5 },
-              border: `1px solid ${SURFACE_BORDER}`,
-              background: "linear-gradient(90deg, rgba(30,20,14,0.88), rgba(22,18,19,0.82) 52%, rgba(30,20,14,0.88))",
-              backdropFilter: "blur(10px)",
-            }}
-          >
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "stretch", md: "center" }}
-              spacing={2}
-            >
-              <Stack spacing={0.3}>
-                <Typography
-                  variant="overline"
-                  sx={{ color: "rgba(248,245,240,0.52)", letterSpacing: "0.14em", fontSize: "0.72rem" }}
-                >
-                  {nextTournament?.name || copy.nextEventFallback} · {formatDateRange(nextTournament?.startDate, nextTournament?.endDate, locale)}
-                </Typography>
-                <Typography sx={{ color: "rgba(248,245,240,0.78)", fontWeight: 700, fontSize: "0.92rem" }}>
-                  {formatCompactNumber(stats[0]?.value || 0, locale)} {stats[0]?.label?.toLowerCase()} — {isEnglish ? "early registration active" : "đăng ký sớm đang mở"}
-                </Typography>
-              </Stack>
-              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexShrink: 0 }}>
-                <Button
-                  component={Link}
-                  to="/pickle-ball/tournaments"
-                  sx={{
-                    color: "rgba(248,245,240,0.72)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.1em",
-                    fontWeight: 700,
-                    fontSize: "0.78rem",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {copy.featuredSecondaryCta}
-                </Button>
-                <Button
-                  component={Link}
-                  to={heroPrimaryLink}
-                  variant="contained"
-                  disableElevation
-                  startIcon={<Box sx={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#fff" }} />}
-                  sx={{
-                    minHeight: 42,
-                    px: 2.4,
-                    borderRadius: 999,
-                    textTransform: "none",
-                    fontWeight: 800,
-                    whiteSpace: "nowrap",
-                    backgroundColor: ACCENT_COLOR,
-                    "&:hover": { backgroundColor: "#db7b3a" },
-                  }}
-                >
-                  {isLoggedIn ? copy.featuredSecondaryCta : copy.primaryCta}
-                </Button>
-              </Stack>
-            </Stack>
+              );
+            })}
           </Box>
 
           <Box
@@ -1564,19 +1285,16 @@ export default function HomeScreenV2() {
             }}
           >
             <Stack spacing={1.4} sx={{ minWidth: 0 }}>
-              <Stack direction="row" spacing={1.5} alignItems="center">
-                <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
-                <Typography
-                  variant="overline"
-                  sx={{
-                    color: alpha(ACCENT_COLOR, 0.96),
-                    letterSpacing: "0.18em",
-                    fontWeight: 700,
-                  }}
-                >
-                  {copy.featuredEyebrow}
-                </Typography>
-              </Stack>
+              <Typography
+                variant="overline"
+                sx={{
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
+                }}
+              >
+                {copy.featuredEyebrow}
+              </Typography>
               <Typography
                 sx={{
                   fontFamily: DISPLAY_FONT_FAMILY,
@@ -1642,8 +1360,7 @@ export default function HomeScreenV2() {
                 backgroundImage: [
                   "linear-gradient(180deg, rgba(8, 9, 12, 0.16), rgba(8, 9, 12, 0.84))",
                   "linear-gradient(120deg, rgba(20, 14, 11, 0.76), rgba(13, 14, 18, 0.48))",
-                  `url(${nextTournament?.image || ""})`,
-                  `url(${heroBackdropUrl})`,
+                  `url(${nextTournament?.image || heroData.imageUrl || fallbackImg})`,
                 ].join(", "),
                 backgroundSize: "cover",
                 backgroundPosition: "center",
@@ -1782,20 +1499,10 @@ export default function HomeScreenV2() {
                 <Box
                   key={item?._id || `tournament-${index}`}
                   sx={{
-                    position: "relative",
-                    overflow: "hidden",
-                    minHeight: { xs: 220, md: 232 },
                     p: { xs: 2.2, md: 2.5 },
                     borderRadius: { xs: 4.5, md: 5 },
                     border: `1px solid ${SURFACE_BORDER}`,
-                    backgroundImage: [
-                      "linear-gradient(180deg, rgba(8,9,12,0.12), rgba(8,9,12,0.92))",
-                      "linear-gradient(140deg, rgba(20,14,11,0.18), rgba(12,14,18,0.28))",
-                      `url(${item?.image || ""})`,
-                      `url(${heroBackdropUrl})`,
-                    ].join(", "),
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
+                    background: SURFACE_BG,
                     boxShadow: "0 20px 48px rgba(0,0,0,0.18)",
                   }}
                 >
@@ -1873,19 +1580,16 @@ export default function HomeScreenV2() {
             }}
           >
             <Stack spacing={1.4} sx={{ minWidth: 0 }}>
-              <Stack direction="row" spacing={1.5} alignItems="center">
-                <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
-                <Typography
-                  variant="overline"
-                  sx={{
-                    color: alpha(ACCENT_COLOR, 0.96),
-                    letterSpacing: "0.18em",
-                    fontWeight: 700,
-                  }}
-                >
-                  {copy.capabilitiesEyebrow}
-                </Typography>
-              </Stack>
+              <Typography
+                variant="overline"
+                sx={{
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
+                }}
+              >
+                {copy.capabilitiesEyebrow}
+              </Typography>
               <Typography
                 sx={{
                   fontFamily: DISPLAY_FONT_FAMILY,
@@ -1969,19 +1673,16 @@ export default function HomeScreenV2() {
             }}
           >
             <Stack spacing={1.4} sx={{ minWidth: 0 }}>
-              <Stack direction="row" spacing={1.5} alignItems="center">
-                <Box sx={{ width: 40, height: 2, backgroundColor: ACCENT_COLOR, borderRadius: 1 }} />
-                <Typography
-                  variant="overline"
-                  sx={{
-                    color: alpha(ACCENT_COLOR, 0.96),
-                    letterSpacing: "0.18em",
-                    fontWeight: 700,
-                  }}
-                >
-                  {copy.clubsEyebrow}
-                </Typography>
-              </Stack>
+              <Typography
+                variant="overline"
+                sx={{
+                  color: alpha(ACCENT_COLOR, 0.96),
+                  letterSpacing: "0.18em",
+                  fontWeight: 700,
+                }}
+              >
+                {copy.clubsEyebrow}
+              </Typography>
               <Typography
                 sx={{
                   fontFamily: DISPLAY_FONT_FAMILY,

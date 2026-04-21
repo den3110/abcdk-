@@ -3033,7 +3033,10 @@ function setContextHeader(headers, key, value) {
 }
 
 function buildChatContextHeaders() {
-  const headers = { "Content-Type": "application/json" };
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+  };
   const currentUrl = new URL(window.location.href);
   const pathname = currentUrl.pathname;
   const search = currentUrl.search || "";
