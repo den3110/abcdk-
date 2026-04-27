@@ -32,10 +32,10 @@ import LogoAnimationMorph from "../components/LogoAnimationMorph.jsx";
 import CapWidget from "../components/CapWidget.jsx";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import useCapEnabled from "../hook/useCapEnabled.js";
 import { setCredentials } from "../slices/authSlice";
 import apiSlice from "../slices/apiSlice";
 import { useLoginMutation } from "../slices/usersApiSlice";
-import { CAP_ENABLED } from "../utils/cap.js";
 import { addBusinessBreadcrumb } from "../utils/sentry";
 
 const WEB_LOGO_PATH = "/icon-192.png";
@@ -269,7 +269,8 @@ export default function LoginScreen() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isCompactMobile = useMediaQuery("(max-width:480px)");
   const isDark = theme.palette.mode === "dark";
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const isCapEnabled = useCapEnabled();
 
   const [login, { isLoading }] = useLoginMutation();
   const { userInfo } = useSelector((state) => state.auth);
@@ -329,7 +330,7 @@ export default function LoginScreen() {
     const formData = new FormData(e.currentTarget);
     const capToken = String(formData.get("cap-token") || "").trim();
 
-    if (CAP_ENABLED && !capToken) {
+    if (isCapEnabled && !capToken) {
       toast.error(
         t(
           "auth.cap.requiredToast",

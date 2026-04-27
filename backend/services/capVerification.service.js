@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import { getSystemSettingsRuntime } from "./systemSettingsRuntime.service.js";
 
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 
@@ -13,7 +14,7 @@ export const extractCapToken = (body = {}) => {
   return String(body.capToken || body["cap-token"] || body.cap_token || "").trim();
 };
 
-export const isCapVerificationEnabled = () => {
+export const isCapVerificationEnabledByEnv = () => {
   const explicitFlag = String(process.env.CAP_ENABLED || "").trim();
   if (explicitFlag) return isTruthy(explicitFlag);
 
@@ -24,8 +25,20 @@ export const isCapVerificationEnabled = () => {
   );
 };
 
+export const isCapVerificationEnabled = async () => {
+  if (!isCapVerificationEnabledByEnv()) return false;
+
+  try {
+    const settings = await getSystemSettingsRuntime();
+    return settings?.captcha?.enabled !== false;
+  } catch (error) {
+    console.error("[cap] Cannot load captcha system settings:", error);
+    return true;
+  }
+};
+
 export async function verifyCapToken(capToken) {
-  if (!isCapVerificationEnabled()) {
+  if (!(await isCapVerificationEnabled())) {
     return { enabled: false, success: true };
   }
 

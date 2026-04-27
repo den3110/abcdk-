@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { Box, Typography } from "@mui/material";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import useCapEnabled from "../hook/useCapEnabled.js";
 import {
   CAP_API_ENDPOINT,
-  CAP_ENABLED,
   CAP_WASM_URL,
   CAP_WIDGET_SCRIPT_URL,
 } from "../utils/cap.js";
@@ -51,6 +51,7 @@ export default function CapWidget({
   hiddenFieldName = "cap-token",
 }) {
   const { t, language } = useLanguage();
+  const isCapEnabled = useCapEnabled();
   const [isReady, setIsReady] = useState(() =>
     typeof window !== "undefined" &&
     Boolean(window.customElements?.get("cap-widget")),
@@ -58,7 +59,7 @@ export default function CapWidget({
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    if (!CAP_ENABLED) return undefined;
+    if (!isCapEnabled) return undefined;
 
     if (!CAP_API_ENDPOINT || !CAP_WIDGET_SCRIPT_URL) {
       setLoadError(
@@ -101,9 +102,9 @@ export default function CapWidget({
     return () => {
       cancelled = true;
     };
-  }, [language, t]);
+  }, [isCapEnabled, language, t]);
 
-  if (!CAP_ENABLED) return null;
+  if (!isCapEnabled) return null;
 
   if (loadError) {
     return (

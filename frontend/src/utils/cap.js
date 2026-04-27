@@ -9,7 +9,8 @@ const normalizeUrl = (value) => {
   return raw.endsWith("/") ? raw : `${raw}/`;
 };
 
-export const CAP_ENABLED = normalizeFlag(import.meta.env.VITE_CAP_ENABLED);
+export const CAP_ENV_ENABLED = normalizeFlag(import.meta.env.VITE_CAP_ENABLED);
+export const CAP_ENABLED = CAP_ENV_ENABLED;
 export const CAP_API_ENDPOINT = normalizeUrl(import.meta.env.VITE_CAP_API_ENDPOINT);
 export const CAP_WIDGET_SCRIPT_URL = String(
   import.meta.env.VITE_CAP_WIDGET_SCRIPT_URL || "",

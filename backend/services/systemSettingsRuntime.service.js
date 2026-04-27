@@ -9,6 +9,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     open: true,
     requireOptionalProfileFields: true,
   },
+  captcha: {
+    enabled: true,
+  },
   kyc: { enabled: true, autoApprove: false, faceMatchThreshold: 0.78 },
   security: { enforce2FAForAdmins: false, sessionTTLHours: 72 },
   uploads: {
@@ -96,6 +99,10 @@ export function normalizeSystemSettings(doc = {}) {
     registration: {
       ...DEFAULT_SYSTEM_SETTINGS.registration,
       ...(source.registration || {}),
+    },
+    captcha: {
+      ...DEFAULT_SYSTEM_SETTINGS.captcha,
+      ...(source.captcha || {}),
     },
     kyc: {
       ...DEFAULT_SYSTEM_SETTINGS.kyc,

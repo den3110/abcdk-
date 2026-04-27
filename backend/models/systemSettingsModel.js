@@ -42,6 +42,10 @@ const SystemSettingsSchema = new mongoose.Schema(
       requireOptionalProfileFields: { type: Boolean, default: true },
     },
 
+    captcha: {
+      enabled: { type: Boolean, default: true },
+    },
+
     kyc: {
       enabled: { type: Boolean, default: true },
       autoApprove: { type: Boolean, default: false },

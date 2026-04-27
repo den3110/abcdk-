@@ -34,7 +34,7 @@ import SEOHead from "../components/SEOHead";
 import LogoAnimationMorph from "../components/LogoAnimationMorph.jsx";
 import CapWidget from "../components/CapWidget.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
-import { CAP_ENABLED } from "../utils/cap.js";
+import useCapEnabled from "../hook/useCapEnabled.js";
 import { addBusinessBreadcrumb } from "../utils/sentry";
 
 /* Icons */
@@ -204,6 +204,7 @@ export default function RegisterScreen() {
   const isCompactMobile = useMediaQuery("(max-width:480px)");
   const isDark = theme.palette.mode === "dark";
   const { t, language } = useLanguage();
+  const isCapEnabled = useCapEnabled();
 
   const [register, { isLoading }] = useRegisterMutation();
   const [uploadAvatar, { isLoading: uploadingAvatar }] =
@@ -315,7 +316,7 @@ export default function RegisterScreen() {
     if (errs.avatar) jumpAndHighlight(avatarRef, setHighlightAvatar);
     if (!agreedTerms) { errs.terms = true; }
     if (Object.keys(errs).length) { toast.error(t("auth.register.errors.checkInfo")); return; }
-    if (CAP_ENABLED && !capToken) {
+    if (isCapEnabled && !capToken) {
       toast.error(
         t(
           "auth.cap.requiredToast",

@@ -94,6 +94,16 @@ function sanitizeSettingsPatch(patch = {}) {
     }
   }
 
+  if (next.captcha && typeof next.captcha === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.captcha, "enabled")) {
+      next.captcha.enabled = next.captcha.enabled !== false;
+    }
+
+    if (!Object.keys(next.captcha).length) {
+      delete next.captcha;
+    }
+  }
+
   if (next.links && typeof next.links === "object") {
     if (Object.prototype.hasOwnProperty.call(next.links, "guideUrl")) {
       next.links.guideUrl = String(next.links.guideUrl || "").trim();
