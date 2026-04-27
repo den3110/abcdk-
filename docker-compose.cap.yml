@@ -9,6 +9,7 @@ services:
       WIDGET_VERSION: "0.1.46"
       WASM_VERSION: "0.0.6"
       CORS_ORIGIN: ${CAP_CORS_ORIGIN:-http://localhost:3000}
+      RATELIMIT_IP_HEADER: cf-connecting-ip
     ports:
       - "3100:3000"
     depends_on:
