@@ -32,7 +32,9 @@ import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 import SEOHead from "../components/SEOHead";
 import LogoAnimationMorph from "../components/LogoAnimationMorph.jsx";
+import CapWidget from "../components/CapWidget.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { CAP_ENABLED } from "../utils/cap.js";
 import { addBusinessBreadcrumb } from "../utils/sentry";
 
 /* Icons */
@@ -305,12 +307,26 @@ export default function RegisterScreen() {
 
   const submitHandler = async (e) => {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const capToken = String(formData.get("cap-token") || "").trim();
     setTouched({ name: true, nickname: true, phone: true, dob: true, email: true, password: true, confirmPassword: true, cccd: true, province: true, gender: true, avatar: true });
     const errs = validate(form);
     setErrors(errs);
     if (errs.avatar) jumpAndHighlight(avatarRef, setHighlightAvatar);
     if (!agreedTerms) { errs.terms = true; }
     if (Object.keys(errs).length) { toast.error(t("auth.register.errors.checkInfo")); return; }
+    if (CAP_ENABLED && !capToken) {
+      toast.error(
+        t(
+          "auth.cap.requiredToast",
+          {},
+          language === "vi"
+            ? "Vui lòng hoàn thành xác minh CAPTCHA."
+            : "Please complete the CAPTCHA.",
+        ),
+      );
+      return;
+    }
 
     addBusinessBreadcrumb("auth.register.submit", { province: form.province, gender: form.gender, hasAvatar: Boolean(avatarFile) });
 
@@ -321,7 +337,7 @@ export default function RegisterScreen() {
         avatarUrl = up?.url || "";
         if (!avatarUrl) throw new Error(t("auth.register.errors.avatarUploadFailed"));
       }
-      const payload = { name: form.name.trim(), nickname: form.nickname.trim(), phone: form.phone.trim(), dob: form.dob, email: form.email.trim(), password: form.password, cccd: form.cccd.trim(), province: form.province, gender: form.gender, avatar: avatarUrl };
+      const payload = { name: form.name.trim(), nickname: form.nickname.trim(), phone: form.phone.trim(), dob: form.dob, email: form.email.trim(), password: form.password, cccd: form.cccd.trim(), province: form.province, gender: form.gender, avatar: avatarUrl, capToken };
       const res = await register(payload).unwrap();
       dispatch(setCredentials(res));
       toast.success(t("auth.register.success"));
@@ -755,6 +771,13 @@ export default function RegisterScreen() {
                           </Typography>
                         }
                         sx={{ alignItems: "flex-start", mx: 0, mt: 0.5 }}
+                      />
+
+                      <CapWidget
+                        fieldBackground={fieldBackground}
+                        fieldBorder={fieldBorder}
+                        textColor={formTextPrimary}
+                        helperColor={formTextSecondary}
                       />
 
                       <Button

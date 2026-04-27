@@ -35,9 +35,14 @@ import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
 import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
 import { syncRegistrationProfileSnapshot } from "../services/registrationProfileSync.service.js";
 import {
+  assertCapTokenOrThrow,
+  extractCapToken,
+} from "../services/capVerification.service.js";
+import {
   buildFallbackPublicProfileSummary,
   buildPublicProfileSummary,
 } from "../services/publicProfileSummary.service.js";
+import { isWebRequest } from "../utils/isWebRequest.js";
 
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
@@ -1379,6 +1384,9 @@ const registerUser = async (req, res) => {
 };
 
 export const registerUserNotOTP = asyncHandler(async (req, res) => {
+  if (isWebRequest(req) || extractCapToken(req.body)) {
+    await assertCapTokenOrThrow(req, res);
+  }
   // ===== Nhận & chuẩn hoá đầu vào =====
   let {
     name,

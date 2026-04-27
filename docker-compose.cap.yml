@@ -1,0 +1,33 @@
+services:
+  cap:
+    image: tiago2/cap:latest
+    container_name: cap-standalone
+    environment:
+      ADMIN_KEY: ${CAP_ADMIN_KEY:-cap-local-admin-key-change-me-123456789}
+      REDIS_URL: redis://cap-valkey:6379
+      ENABLE_ASSETS_SERVER: "true"
+      WIDGET_VERSION: "0.1.46"
+      WASM_VERSION: "0.0.6"
+      CORS_ORIGIN: ${CAP_CORS_ORIGIN:-http://localhost:3000}
+    ports:
+      - "3100:3000"
+    depends_on:
+      cap-valkey:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cap-valkey:
+    image: valkey/valkey:9-alpine
+    container_name: cap-standalone-valkey
+    command: valkey-server --save 60 1 --loglevel warning --maxmemory-policy noeviction
+    volumes:
+      - cap-standalone-valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  cap-standalone-valkey-data:

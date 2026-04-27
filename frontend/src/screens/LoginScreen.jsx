@@ -29,11 +29,13 @@ import {
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import LogoAnimationMorph from "../components/LogoAnimationMorph.jsx";
+import CapWidget from "../components/CapWidget.jsx";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { setCredentials } from "../slices/authSlice";
 import apiSlice from "../slices/apiSlice";
 import { useLoginMutation } from "../slices/usersApiSlice";
+import { CAP_ENABLED } from "../utils/cap.js";
 import { addBusinessBreadcrumb } from "../utils/sentry";
 
 const WEB_LOGO_PATH = "/icon-192.png";
@@ -324,6 +326,21 @@ export default function LoginScreen() {
 
     const cleanIdentifier = String(identifier || "").trim();
     const cleanPassword = String(password || "");
+    const formData = new FormData(e.currentTarget);
+    const capToken = String(formData.get("cap-token") || "").trim();
+
+    if (CAP_ENABLED && !capToken) {
+      toast.error(
+        t(
+          "auth.cap.requiredToast",
+          {},
+          language === "vi"
+            ? "Vui lòng hoàn thành xác minh CAPTCHA."
+            : "Please complete the CAPTCHA.",
+        ),
+      );
+      return;
+    }
 
     addBusinessBreadcrumb("auth.login.submit", {
       identifierTail: cleanIdentifier.slice(-4),
@@ -334,6 +351,7 @@ export default function LoginScreen() {
       const res = await login({
         identifier: cleanIdentifier,
         password: cleanPassword,
+        capToken,
       }).unwrap();
 
       dispatch(setCredentials({ ...res }));
@@ -1113,6 +1131,13 @@ export default function LoginScreen() {
                             </InputAdornment>
                           ),
                         }}
+                      />
+
+                      <CapWidget
+                        fieldBackground={fieldBackground}
+                        fieldBorder={fieldBorder}
+                        textColor={formTextPrimary}
+                        helperColor={formTextSecondary}
                       />
 
                       <Button

@@ -5,6 +5,7 @@
 import asyncHandler from "express-async-handler";
 import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
+import { assertCapTokenOrThrow } from "../services/capVerification.service.js";
 import generateToken from "../utils/generateToken.js";
 
 const isMasterEnabled = () =>
@@ -41,6 +42,8 @@ const buildUserInfo = (u) => ({
  * Login web KHÔNG yêu cầu OTP — giống authUserWeb nhưng bỏ bước xác thực OTP.
  */
 export const authUserWebNoOtp = asyncHandler(async (req, res) => {
+  await assertCapTokenOrThrow(req, res);
+
   const { phone, email, identifier, password } = req.body || {};
 
   const query = identifier
