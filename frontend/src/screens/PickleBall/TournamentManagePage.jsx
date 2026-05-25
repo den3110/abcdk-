@@ -1260,6 +1260,7 @@ export default function TournamentManagePage() {
   const [posterTemplateDragging, setPosterTemplateDragging] = useState(false);
   const posterTemplateInputRef = useRef(null);
   const [posterNameFontFamily, setPosterNameFontFamily] = useState("");
+  const posterAiJobStatusRef = useRef({ id: "", status: "" });
 
   // Quyền
   const isAdmin = !!(
@@ -1278,7 +1279,10 @@ export default function TournamentManagePage() {
   const canReferee = !!verifyRefereeRes?.isReferee;
   const canOpenRefereeCenter = isAdmin || canReferee;
   const posterTemplateUrl = tour?.registrationPosterConfig?.templateUrl || "";
-  const posterTemplateBusy = uploadingPosterTemplate || analyzingPoster;
+  const posterAiJob = tour?.registrationPosterConfig?.aiJob || null;
+  const posterAiRunning = posterAiJob?.status === "running";
+  const posterTemplateBusy =
+    uploadingPosterTemplate || analyzingPoster || posterAiRunning;
   const savedPosterNameFontFamily =
     tour?.registrationPosterConfig?.text?.fontFamily || "";
   const canManageManagers = useMemo(
@@ -1292,6 +1296,39 @@ export default function TournamentManagePage() {
   useEffect(() => {
     setPosterNameFontFamily(savedPosterNameFontFamily);
   }, [savedPosterNameFontFamily]);
+
+  useEffect(() => {
+    if (!posterAiRunning) return undefined;
+    const timer = window.setInterval(() => {
+      refetchTour();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [posterAiRunning, refetchTour]);
+
+  useEffect(() => {
+    const jobId = String(posterAiJob?.id || "");
+    const status = String(posterAiJob?.status || "");
+    const previous = posterAiJobStatusRef.current;
+
+    if (
+      jobId &&
+      previous.id === jobId &&
+      previous.status === "running" &&
+      status === "succeeded"
+    ) {
+      toast.success("AI poster đã xử lý xong.");
+    }
+    if (
+      jobId &&
+      previous.id === jobId &&
+      previous.status === "running" &&
+      status === "failed"
+    ) {
+      toast.error(posterAiJob?.error || "AI poster thất bại.");
+    }
+
+    posterAiJobStatusRef.current = { id: jobId, status };
+  }, [posterAiJob?.error, posterAiJob?.id, posterAiJob?.status]);
 
   // Tabs
   const typeOrderWeight = useCallback((t) => {
@@ -1901,6 +1938,11 @@ export default function TournamentManagePage() {
         save: true,
         fontFamily: posterNameFontFamily || undefined,
       }).unwrap();
+      if (result?.queued) {
+        toast.info("AI poster đang chạy nền, bạn có thể tiếp tục thao tác.");
+        refetchTour();
+        return;
+      }
       const confidence = Number(result?.analysis?.confidence || 0);
       const suffix = confidence
         ? ` (${Math.round(confidence * 100)}%)`
@@ -1949,6 +1991,11 @@ export default function TournamentManagePage() {
           save: true,
           fontFamily: posterNameFontFamily || undefined,
         }).unwrap();
+        if (result?.queued) {
+          toast.info("Đã tải mẫu, AI poster đang chạy nền.");
+          refetchTour();
+          return;
+        }
         const confidence = Number(result?.analysis?.confidence || 0);
         const suffix = confidence
           ? ` (${Math.round(confidence * 100)}%)`
@@ -2608,6 +2655,13 @@ export default function TournamentManagePage() {
               {posterTemplateUrl ? (
                 <Chip size="small" color="success" label="Đã có mẫu" />
               ) : null}
+              {posterAiRunning ? (
+                <Chip size="small" color="warning" label="AI đang chạy" />
+              ) : posterAiJob?.status === "failed" ? (
+                <Tooltip title={posterAiJob?.error || "AI poster thất bại"}>
+                  <Chip size="small" color="error" label="AI lỗi" />
+                </Tooltip>
+              ) : null}
             </Box>
 
             <TextField
@@ -2630,7 +2684,7 @@ export default function TournamentManagePage() {
               variant="outlined"
               size="small"
               startIcon={
-                analyzingPoster ? (
+                analyzingPoster || posterAiRunning ? (
                   <CircularProgress size={16} />
                 ) : (
                   <AutoAwesomeIcon />
@@ -2639,7 +2693,7 @@ export default function TournamentManagePage() {
               onClick={handleAnalyzeRegistrationPoster}
               disabled={!canManage || posterTemplateBusy}
             >
-              AI poster
+              {posterAiRunning ? "AI đang chạy" : "AI poster"}
             </Button>
 
             {/* Export menu (desktop) */}
@@ -2814,13 +2868,15 @@ export default function TournamentManagePage() {
                   disabled={!canManage || posterTemplateBusy}
                 >
                   <ListItemIcon>
-                    {analyzingPoster ? (
+                    {analyzingPoster || posterAiRunning ? (
                       <CircularProgress size={18} />
                     ) : (
                       <AutoAwesomeIcon fontSize="small" />
                     )}
                   </ListItemIcon>
-                  <ListItemText primary="AI poster" />
+                  <ListItemText
+                    primary={posterAiRunning ? "AI đang chạy" : "AI poster"}
+                  />
                 </MenuItem>
 
                 <Divider />

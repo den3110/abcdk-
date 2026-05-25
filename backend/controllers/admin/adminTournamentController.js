@@ -683,10 +683,57 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
       throw new Error("Bạn cần tải ảnh mẫu poster trước khi chạy AI poster");
     }
 
-    const fontFamily = String(req.body?.fontFamily || "")
-      .trim()
-      .replace(/[<>{}]/g, "")
-      .slice(0, 160);
+    const fontFamily = sanitizePosterFontFamily(req.body?.fontFamily);
+    const shouldSave = req.body?.save !== false;
+
+    if (shouldSave) {
+      const jobId = new mongoose.Types.ObjectId().toString();
+      const now = new Date().toISOString();
+      const nextConfig = {
+        ...(tour.registrationPosterConfig || {}),
+        templateUrl,
+        needsAnalysis: true,
+        aiJob: {
+          id: jobId,
+          status: "running",
+          startedAt: now,
+          requestedAt: now,
+          fontFamily,
+        },
+      };
+
+      await Tournament.updateOne(
+        { _id: id },
+        { $set: { registrationPosterConfig: nextConfig } },
+      );
+
+      const reqContext = makePosterRequestContext(req);
+      const io = req.app.get("io");
+      setImmediate(() => {
+        runRegistrationPosterAnalysisJob({
+          tournamentId: id,
+          jobId,
+          templateUrl,
+          fontFamily,
+          reqContext,
+          io,
+        }).catch((error) => {
+          console.error(
+            "[AI Poster] background launcher failed:",
+            error?.message || error,
+          );
+        });
+      });
+      notifyPosterAnalysisUpdate(io, id, "registration_poster_started");
+
+      return res.status(202).json({
+        ok: true,
+        queued: true,
+        saved: false,
+        config: nextConfig,
+        job: nextConfig.aiJob,
+      });
+    }
 
     const { config, analysis } = await analyzeRegistrationPosterLayout({
       req,
@@ -699,15 +746,6 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
         ...(config.text || {}),
         fontFamily,
       };
-    }
-
-    const shouldSave = req.body?.save !== false;
-    if (shouldSave) {
-      await Tournament.updateOne(
-        { _id: id },
-        { $set: { registrationPosterConfig: config } },
-      );
-      await clearTournamentPresentationCaches();
     }
 
     res.json({
@@ -783,6 +821,91 @@ const normalizeAllowedCourtClusterIds = (value) => {
     )
   ).slice(0, 1);
 };
+function sanitizePosterFontFamily(value = "") {
+  return String(value || "")
+    .trim()
+    .replace(/[<>{}]/g, "")
+    .slice(0, 160);
+}
+
+function makePosterRequestContext(req) {
+  const headers = { ...(req.headers || {}) };
+  return {
+    protocol: req.protocol,
+    get(name) {
+      return headers[String(name || "").toLowerCase()];
+    },
+  };
+}
+
+function notifyPosterAnalysisUpdate(io, tournamentId, reason) {
+  if (!io) return;
+  emitTournamentInvalidate(io, {
+    tournamentId,
+    reason,
+  });
+}
+
+async function runRegistrationPosterAnalysisJob({
+  tournamentId,
+  jobId,
+  templateUrl,
+  fontFamily,
+  reqContext,
+  io,
+}) {
+  const startedAt = new Date().toISOString();
+  try {
+    const { config, analysis } = await analyzeRegistrationPosterLayout({
+      req: reqContext,
+      imageSource: templateUrl,
+    });
+    config.templateUrl = templateUrl;
+    config.needsAnalysis = false;
+    config.aiJob = {
+      id: jobId,
+      status: "succeeded",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      confidence: analysis?.confidence ?? null,
+      model: analysis?.model || "",
+      route: analysis?.route || "",
+    };
+    if (fontFamily) {
+      config.text = {
+        ...(config.text || {}),
+        fontFamily,
+      };
+    }
+
+    const result = await Tournament.updateOne(
+      { _id: tournamentId, "registrationPosterConfig.aiJob.id": jobId },
+      { $set: { registrationPosterConfig: config } },
+    );
+    if (result.matchedCount || result.modifiedCount) {
+      await clearTournamentPresentationCaches();
+      notifyPosterAnalysisUpdate(io, tournamentId, "registration_poster_ready");
+    }
+  } catch (error) {
+    const message = String(error?.message || error || "AI poster thất bại").slice(
+      0,
+      700,
+    );
+    await Tournament.updateOne(
+      { _id: tournamentId, "registrationPosterConfig.aiJob.id": jobId },
+      {
+        $set: {
+          "registrationPosterConfig.needsAnalysis": true,
+          "registrationPosterConfig.aiJob.status": "failed",
+          "registrationPosterConfig.aiJob.finishedAt": new Date().toISOString(),
+          "registrationPosterConfig.aiJob.error": message,
+        },
+      },
+    );
+    notifyPosterAnalysisUpdate(io, tournamentId, "registration_poster_failed");
+    console.error("[AI Poster] background job failed:", message);
+  }
+}
 const normalizeIncomingTeamConfig = (incoming, existingConfig = {}) => {
   const mode = normalizeTournamentMode(incoming?.tournamentMode);
   if (mode !== "team") return { factions: [] };
