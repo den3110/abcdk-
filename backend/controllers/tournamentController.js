@@ -474,6 +474,167 @@ async function refinePosterAvatarSlots(baseBuffer, slots, width, height, raw) {
   );
 }
 
+function isPosterNamePanelPixel(data, offset) {
+  const pixel = getPosterPixel(data, offset);
+  return pixel.alpha >= 180 && pixel.luma <= 82;
+}
+
+function findPosterNamePanel(templateRaw, canvasWidth, canvasHeight, slot = {}) {
+  const avatar = slot.avatar || {};
+  const name = slot.name || {};
+  const avatarBottom = avatar.top + avatar.height;
+  const centerX = numOr(name.cx, avatar.left + avatar.width / 2);
+  const halfWidth = Math.max(
+    numOr(name.width, avatar.width * 1.4) * 0.75,
+    avatar.width * 1.05,
+  );
+  const searchLeft = clampInt(centerX - halfWidth, 0, canvasWidth - 1, 0);
+  const searchRight = clampInt(centerX + halfWidth, searchLeft + 1, canvasWidth, canvasWidth);
+  const searchTop = clampInt(
+    avatarBottom + Math.max(6, avatar.height * 0.05),
+    0,
+    canvasHeight - 1,
+    0,
+  );
+  const searchBottom = clampInt(
+    avatarBottom + Math.max(160, avatar.height * 0.72),
+    searchTop + 1,
+    canvasHeight,
+    canvasHeight,
+  );
+  const searchWidth = searchRight - searchLeft;
+  const searchHeight = searchBottom - searchTop;
+  const visited = new Uint8Array(searchWidth * searchHeight);
+  const candidates = [];
+
+  const isDarkAt = (localX, localY) => {
+    const x = searchLeft + localX;
+    const y = searchTop + localY;
+    return isPosterNamePanelPixel(templateRaw, (y * canvasWidth + x) * 4);
+  };
+
+  for (let y = 0; y < searchHeight; y += 1) {
+    for (let x = 0; x < searchWidth; x += 1) {
+      const startIndex = y * searchWidth + x;
+      if (visited[startIndex] || !isDarkAt(x, y)) continue;
+
+      const stack = [startIndex];
+      visited[startIndex] = 1;
+      let area = 0;
+      let minX = x;
+      let minY = y;
+      let maxX = x;
+      let maxY = y;
+
+      while (stack.length) {
+        const index = stack.pop();
+        const px = index % searchWidth;
+        const py = Math.floor(index / searchWidth);
+        area += 1;
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+
+        const neighbors = [
+          index - 1,
+          index + 1,
+          index - searchWidth,
+          index + searchWidth,
+        ];
+        for (const next of neighbors) {
+          if (next < 0 || next >= visited.length || visited[next]) continue;
+          const nx = next % searchWidth;
+          const ny = Math.floor(next / searchWidth);
+          if (Math.abs(nx - px) + Math.abs(ny - py) !== 1) continue;
+          if (!isDarkAt(nx, ny)) continue;
+          visited[next] = 1;
+          stack.push(next);
+        }
+      }
+
+      const box = {
+        left: searchLeft + minX,
+        top: searchTop + minY,
+        width: maxX - minX + 1,
+        height: maxY - minY + 1,
+      };
+      const touchesSearchEdge =
+        minX <= 1 ||
+        minY <= 1 ||
+        maxX >= searchWidth - 2 ||
+        maxY >= searchHeight - 2;
+      const boxCenterX = box.left + box.width / 2;
+      const boxCenterY = box.top + box.height / 2;
+      const minPanelWidth = Math.max(avatar.width * 1.04, numOr(name.width, avatar.width) * 0.55);
+      const minPanelHeight = Math.max(26, avatar.height * 0.11);
+      const maxPanelHeight = Math.max(130, avatar.height * 0.5);
+      const belowRoleLabel = boxCenterY >= avatarBottom + avatar.height * 0.18;
+      const centered = Math.abs(boxCenterX - centerX) <= Math.max(avatar.width * 0.35, 80);
+
+      if (
+        touchesSearchEdge ||
+        !belowRoleLabel ||
+        !centered ||
+        box.width < minPanelWidth ||
+        box.height < minPanelHeight ||
+        box.height > maxPanelHeight ||
+        area < minPanelWidth * minPanelHeight * 0.35
+      ) {
+        continue;
+      }
+
+      candidates.push({
+        box,
+        area,
+        score: area + box.width * box.height + boxCenterY,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.box || null;
+}
+
+function refinePosterNameSlots(slots, width, height, templateRaw) {
+  if (!templateRaw || !Array.isArray(slots) || !slots.length) return slots;
+
+  return slots.map((slot) => {
+    const panel = findPosterNamePanel(templateRaw, width, height, slot);
+    if (panel) {
+      return {
+        ...slot,
+        name: {
+          ...slot.name,
+          cx: panel.left + panel.width / 2,
+          y: panel.top + panel.height / 2,
+          width: Math.max(1, Math.round(panel.width * 0.82)),
+        },
+      };
+    }
+
+    const avatar = slot.avatar || {};
+    const name = slot.name || {};
+    const avatarBottom = avatar.top + avatar.height;
+    if (numOr(name.y, 0) <= avatarBottom + avatar.height * 0.22) {
+      return {
+        ...slot,
+        name: {
+          ...name,
+          cx: numOr(name.cx, avatar.left + avatar.width / 2),
+          y: Math.min(
+            height - 1,
+            avatarBottom + Math.max(58, avatar.height * 0.34),
+          ),
+          width: Math.max(numOr(name.width, 1), Math.round(avatar.width * 1.45)),
+        },
+      };
+    }
+
+    return slot;
+  });
+}
+
 async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
   const src = player?.avatar || "";
   let input = null;
@@ -2399,13 +2560,14 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   const players = [reg.player1, reg.player2].filter(Boolean);
   const layout = resolvePosterLayout(tour, players.length, width, height);
   const templateRaw = await readPosterTemplateRaw(baseBuffer, width, height);
-  const slots = await refinePosterAvatarSlots(
+  const avatarSlots = await refinePosterAvatarSlots(
     baseBuffer,
     layout.slots,
     width,
     height,
     templateRaw,
   );
+  const slots = refinePosterNameSlots(avatarSlots, width, height, templateRaw);
   const avatarLayers = await Promise.all(
     players.map(async (player, idx) => {
       const slot = slots[idx]?.avatar;
