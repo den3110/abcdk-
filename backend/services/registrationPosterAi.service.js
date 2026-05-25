@@ -5,6 +5,15 @@ import { openai, OPENAI_VISION_MODEL } from "../lib/openaiClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
 
+function resolvePosterVisionModel() {
+  return (
+    String(process.env.OPENAI_POSTER_VISION_MODEL || OPENAI_VISION_MODEL || "")
+      .trim() || "gpt-5-codex-mini"
+  );
+}
+
+const POSTER_VISION_MODEL = resolvePosterVisionModel();
+
 const slotSchema = {
   type: "object",
   additionalProperties: false,
@@ -222,7 +231,7 @@ function normalizeLayout(raw, width, height) {
     },
     ai: {
       source: "openai_vision",
-      model: OPENAI_VISION_MODEL,
+      model: POSTER_VISION_MODEL,
       confidence: clamp(raw?.confidence, 0, 1, 0),
       notes: String(raw?.notes || "").slice(0, 500),
       generatedAt: new Date().toISOString(),
@@ -251,7 +260,9 @@ Bạn là hệ thống thị giác máy tính cho PickleTour. Hãy phân tích p
 Yêu cầu:
 - Trả tọa độ theo đúng kích thước ảnh đã gửi: width=${width}, height=${height}.
 - avatar là vùng ảnh trắng/trống/placeholder để đặt ảnh VĐV. Trả x,y là góc trái trên, w,h là kích thước.
-- name là vùng chữ tên VĐV, thường nằm dưới ảnh, có chữ mẫu như "HỌ TÊN", "VDV", hoặc khung tên. Trả x là tâm ngang, y là tâm dọc dòng chữ, w là bề rộng tối đa.
+- name là vùng chữ tên VĐV, thường nằm dưới ảnh, có chữ mẫu như "HỌ TÊN", "VDV", hoặc khung tên.
+- Nếu thấy chữ "HỌ TÊN" hoặc một placeholder tên tương tự, name.x/name.y phải là tâm của chính dòng chữ đó để backend thay chữ này bằng tên VĐV thật.
+- Trả x là tâm ngang, y là tâm dọc dòng chữ, w là bề rộng tối đa của khung tên.
 - Nếu poster có 2 VĐV, trả slots.double có đúng 2 slot từ trái sang phải.
 - slots.single là slot cho giải đơn; nếu template có 2 slot thì đặt slot single ở giữa 2 slot hoặc vùng trung tâm hợp lý.
 - Bỏ qua logo, địa điểm, lịch thi đấu, tiêu đề, QR, nhà tài trợ.
@@ -260,7 +271,7 @@ Yêu cầu:
 `;
 
   const response = await openai.chat.completions.create({
-    model: OPENAI_VISION_MODEL,
+    model: POSTER_VISION_MODEL,
     response_format: {
       type: "json_schema",
       json_schema: posterLayoutJsonSchema,
@@ -301,7 +312,7 @@ Yêu cầu:
       height,
       confidence: config.ai.confidence,
       notes: config.ai.notes,
-      model: OPENAI_VISION_MODEL,
+      model: POSTER_VISION_MODEL,
     },
   };
 }

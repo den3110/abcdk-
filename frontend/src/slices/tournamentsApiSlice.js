@@ -725,6 +725,21 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Tournaments", id: "LIST" },
       ],
     }),
+    uploadRegistrationPosterTemplate: builder.mutation({
+      query: ({ id, file }) => {
+        const formData = new FormData();
+        formData.append("template", file);
+        return {
+          url: `/api/admin/tournaments/${id}/registration-poster/template`,
+          method: "POST",
+          body: formData,
+        };
+      },
+      invalidatesTags: (result, error, { id }) => [
+        { type: "Tournaments", id },
+        { type: "Tournaments", id: "LIST" },
+      ],
+    }),
   }),
 });
 
@@ -798,4 +813,5 @@ export const {
   useAdminGetMatchRefereesQuery,
   useAdminBatchSetMatchLiveUrlMutation,
   useAnalyzeRegistrationPosterMutation,
+  useUploadRegistrationPosterTemplateMutation,
 } = tournamentsApiSlice;

@@ -70,6 +70,7 @@ import {
   Movie as MovieIcon,
   Print as PrintIcon,
   AutoAwesome as AutoAwesomeIcon,
+  CloudUpload as CloudUploadIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -81,6 +82,7 @@ import {
   useAdminBatchSetMatchLiveUrlMutation,
   useVerifyRefereeQuery,
   useAnalyzeRegistrationPosterMutation,
+  useUploadRegistrationPosterTemplateMutation,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -1242,6 +1244,12 @@ export default function TournamentManagePage() {
     useAdminBatchSetMatchLiveUrlMutation();
   const [analyzeRegistrationPoster, { isLoading: analyzingPoster }] =
     useAnalyzeRegistrationPosterMutation();
+  const [
+    uploadRegistrationPosterTemplate,
+    { isLoading: uploadingPosterTemplate },
+  ] = useUploadRegistrationPosterTemplateMutation();
+  const [posterTemplateDragging, setPosterTemplateDragging] = useState(false);
+  const posterTemplateInputRef = useRef(null);
 
   // Quyền
   const isAdmin = !!(
@@ -1259,6 +1267,8 @@ export default function TournamentManagePage() {
   const canManage = isAdmin || isManager;
   const canReferee = !!verifyRefereeRes?.isReferee;
   const canOpenRefereeCenter = isAdmin || canReferee;
+  const posterTemplateUrl = tour?.registrationPosterConfig?.templateUrl || "";
+  const posterTemplateBusy = uploadingPosterTemplate || analyzingPoster;
   const canManageManagers = useMemo(
     () =>
       isAdmin ||
@@ -1865,6 +1875,10 @@ export default function TournamentManagePage() {
     [],
   );
   const handleAnalyzeRegistrationPoster = useCallback(async () => {
+    if (!posterTemplateUrl) {
+      toast.error("Bạn cần tải ảnh mẫu poster trước");
+      return;
+    }
     try {
       const result = await analyzeRegistrationPoster({
         id,
@@ -1883,7 +1897,55 @@ export default function TournamentManagePage() {
           "AI phân tích poster thất bại",
       );
     }
-  }, [analyzeRegistrationPoster, id, refetchTour]);
+  }, [analyzeRegistrationPoster, id, posterTemplateUrl, refetchTour]);
+
+  const handlePosterTemplateFile = useCallback(
+    async (file) => {
+      if (!file) return;
+      if (!String(file.type || "").startsWith("image/")) {
+        toast.error("Chỉ hỗ trợ file ảnh poster");
+        return;
+      }
+
+      try {
+        await uploadRegistrationPosterTemplate({ id, file }).unwrap();
+        toast.success("Đã tải ảnh mẫu poster");
+        refetchTour();
+      } catch (error) {
+        toast.error(
+          error?.data?.message ||
+            error?.message ||
+            "Không tải được ảnh mẫu poster",
+        );
+        return;
+      }
+
+      try {
+        const result = await analyzeRegistrationPoster({
+          id,
+          save: true,
+        }).unwrap();
+        const confidence = Number(result?.analysis?.confidence || 0);
+        const suffix = confidence
+          ? ` (${Math.round(confidence * 100)}%)`
+          : "";
+        toast.success(`AI đã lưu layout poster${suffix}`);
+        refetchTour();
+      } catch (error) {
+        toast.error(
+          error?.data?.message ||
+            error?.message ||
+            "Đã tải mẫu, nhưng AI phân tích poster thất bại",
+        );
+      }
+    },
+    [
+      analyzeRegistrationPoster,
+      id,
+      refetchTour,
+      uploadRegistrationPosterTemplate,
+    ],
+  );
 
   // Socket realtime
   const socket = useSocket();
@@ -2387,6 +2449,16 @@ export default function TournamentManagePage() {
         })}
         noIndex={true}
       />
+      <input
+        ref={posterTemplateInputRef}
+        hidden
+        type="file"
+        accept="image/*"
+        onChange={(event) => {
+          handlePosterTemplateFile(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
       {/* Header */}
       <Stack spacing={1.5} mb={2}>
         <Stack
@@ -2456,6 +2528,63 @@ export default function TournamentManagePage() {
               </Button>
             </Tooltip>
 
+            <Box
+              onDragOver={(event) => {
+                event.preventDefault();
+                if (!posterTemplateBusy) setPosterTemplateDragging(true);
+              }}
+              onDragLeave={() => setPosterTemplateDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setPosterTemplateDragging(false);
+                if (!posterTemplateBusy) {
+                  handlePosterTemplateFile(event.dataTransfer.files?.[0]);
+                }
+              }}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                px: 1,
+                py: 0.5,
+                minHeight: 40,
+                border: "1px dashed",
+                borderColor: posterTemplateDragging
+                  ? "primary.main"
+                  : "divider",
+                borderRadius: 1,
+                bgcolor: posterTemplateDragging
+                  ? "action.hover"
+                  : "transparent",
+              }}
+            >
+              <Button
+                variant={posterTemplateUrl ? "outlined" : "contained"}
+                size="small"
+                startIcon={
+                  uploadingPosterTemplate ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <CloudUploadIcon />
+                  )
+                }
+                onClick={() => posterTemplateInputRef.current?.click()}
+                disabled={posterTemplateBusy}
+              >
+                {posterTemplateUrl ? "Đổi mẫu poster" : "Tải mẫu poster"}
+              </Button>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: { md: "none", lg: "block" } }}
+              >
+                Kéo thả ảnh mẫu
+              </Typography>
+              {posterTemplateUrl ? (
+                <Chip size="small" color="success" label="Đã có mẫu" />
+              ) : null}
+            </Box>
+
             <Button
               variant="outlined"
               size="small"
@@ -2467,7 +2596,7 @@ export default function TournamentManagePage() {
                 )
               }
               onClick={handleAnalyzeRegistrationPoster}
-              disabled={!canManage || analyzingPoster}
+              disabled={!canManage || posterTemplateBusy}
             >
               AI poster
             </Button>
@@ -2618,9 +2747,30 @@ export default function TournamentManagePage() {
                 <MenuItem
                   onClick={() => {
                     closeActionMenu();
+                    posterTemplateInputRef.current?.click();
+                  }}
+                  disabled={posterTemplateBusy}
+                >
+                  <ListItemIcon>
+                    {uploadingPosterTemplate ? (
+                      <CircularProgress size={18} />
+                    ) : (
+                      <CloudUploadIcon fontSize="small" />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      posterTemplateUrl ? "Đổi mẫu poster" : "Tải mẫu poster"
+                    }
+                  />
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
                     handleAnalyzeRegistrationPoster();
                   }}
-                  disabled={!canManage || analyzingPoster}
+                  disabled={!canManage || posterTemplateBusy}
                 >
                   <ListItemIcon>
                     {analyzingPoster ? (

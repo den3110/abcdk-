@@ -1,7 +1,9 @@
 // controllers/tournamentController.js
+import fs from "fs/promises";
 import mongoose from "mongoose";
 import Joi from "joi";
 import sanitizeHtml from "sanitize-html";
+import sharp from "sharp";
 import { DateTime } from "luxon";
 import expressAsyncHandler from "express-async-handler";
 
@@ -666,27 +668,27 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
     }
 
     const tour = await Tournament.findById(id)
-      .select("_id image registrationPosterConfig")
+      .select("_id registrationPosterConfig")
       .lean();
     if (!tour) {
       res.status(404);
       throw new Error("Không tìm thấy giải đấu");
     }
 
-    const templateUrl = String(req.body?.templateUrl || "").trim();
-    const imageSource = templateUrl || tour.image;
-    if (!imageSource) {
+    const templateUrl = String(
+      tour.registrationPosterConfig?.templateUrl || "",
+    ).trim();
+    if (!templateUrl) {
       res.status(400);
-      throw new Error("Giải đấu chưa có ảnh poster để AI phân tích");
+      throw new Error("Bạn cần tải ảnh mẫu poster trước khi chạy AI poster");
     }
 
     const { config, analysis } = await analyzeRegistrationPosterLayout({
       req,
-      imageSource,
+      imageSource: templateUrl,
     });
-    if (templateUrl) {
-      config.templateUrl = templateUrl;
-    }
+    config.templateUrl = templateUrl;
+    config.needsAnalysis = false;
 
     const shouldSave = req.body?.save !== false;
     if (shouldSave) {
@@ -702,6 +704,55 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
       saved: shouldSave,
       config,
       analysis,
+    });
+  },
+);
+
+export const uploadTournamentRegistrationPosterTemplate = expressAsyncHandler(
+  async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400);
+      throw new Error("ID giải đấu không hợp lệ");
+    }
+    if (!req.file) {
+      res.status(400);
+      throw new Error("Bạn cần chọn ảnh mẫu poster");
+    }
+
+    try {
+      await sharp(req.file.path).metadata();
+    } catch (error) {
+      await fs.unlink(req.file.path).catch(() => {});
+      res.status(400);
+      throw new Error("File tải lên không phải ảnh hợp lệ");
+    }
+
+    const tour = await Tournament.findById(id).select("_id").lean();
+    if (!tour) {
+      await fs.unlink(req.file.path).catch(() => {});
+      res.status(404);
+      throw new Error("Không tìm thấy giải đấu");
+    }
+
+    const templateUrl = `/uploads/tournament-posters/registration-templates/${req.file.filename}`;
+    const nextConfig = {
+      templateUrl,
+      templateUploadedAt: new Date().toISOString(),
+      templateOriginalName: String(req.file.originalname || "").slice(0, 180),
+      needsAnalysis: true,
+    };
+
+    await Tournament.updateOne(
+      { _id: id },
+      { $set: { registrationPosterConfig: nextConfig } },
+    );
+    await clearTournamentPresentationCaches();
+
+    res.json({
+      ok: true,
+      templateUrl,
+      config: nextConfig,
     });
   },
 );

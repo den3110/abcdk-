@@ -182,7 +182,7 @@ function getPosterConfig(tour = {}) {
 
 function getPosterTemplateSource(tour = {}) {
   const cfg = getPosterConfig(tour);
-  return cfg.templateUrl || cfg.template || cfg.image || tour.image;
+  return cfg.templateUrl || cfg.template;
 }
 
 function pickPosterSlots(layout, playersCount) {
@@ -301,9 +301,8 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout) {
       const slot = slots[idx];
       if (!slot?.name) return "";
       const textCfg = { ...layout.text, ...(slot.name || {}) };
-      const name = escapeXml(
-        formatPosterName(asDisplayName(player, tour), textCfg),
-      );
+      const rawName = formatPosterName(asDisplayName(player, tour), textCfg);
+      const name = escapeXml(rawName);
       const minFontSize = scaleFont(
         textCfg.minFontSize,
         height,
@@ -327,10 +326,15 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout) {
           textCfg.fontSize
             ? scaleFont(textCfg.fontSize, height, layout.baseHeight, maxFontSize)
             : Math.floor(
-                slot.name.width / Math.max(8, name.length * charRatio),
+                slot.name.width / Math.max(8, rawName.length * charRatio),
               ),
         ),
       );
+      const estimatedWidth = rawName.length * size * charRatio;
+      const fitAttrs =
+        estimatedWidth > slot.name.width
+          ? `textLength="${Math.max(1, Math.floor(slot.name.width))}" lengthAdjust="spacingAndGlyphs"`
+          : "";
       const stroke =
         textCfg.stroke && textCfg.strokeWidth
           ? `stroke="${escapeXml(textCfg.stroke)}" stroke-width="${numOr(
@@ -343,7 +347,7 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout) {
           dominant-baseline="middle" font-family="${escapeXml(textCfg.fontFamily)}"
           font-size="${size}" font-weight="${escapeXml(textCfg.fontWeight)}"
           font-style="${escapeXml(textCfg.fontStyle)}"
-          fill="${escapeXml(textCfg.color)}" ${stroke}>${name}</text>
+          fill="${escapeXml(textCfg.color)}" ${stroke} ${fitAttrs}>${name}</text>
       `;
     })
     .join("");
@@ -1912,7 +1916,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   const templateSrc = getPosterTemplateSource(tour);
   if (!templateSrc) {
     res.status(400);
-    throw new Error("Giải đấu chưa có poster");
+    throw new Error("Giải đấu chưa có ảnh mẫu poster");
   }
 
   const baseBuffer = await readImageBuffer(req, templateSrc);

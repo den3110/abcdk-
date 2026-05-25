@@ -46,6 +46,7 @@ import {
   updateTournamentOverlay,
   updateTournamentTimeoutPerGame,
   upsertTournamentReferees,
+  uploadTournamentRegistrationPosterTemplate,
 } from "../controllers/admin/adminTournamentController.js";
 import {
   adminCreateRegistration,
@@ -177,7 +178,10 @@ import {
   listAdminPushDispatches,
 } from "../controllers/admin/adminPushDispatchController.js";
 import { searchUsersForRefereeAssign } from "../controllers/admin/refereeController.js";
-import { uploadSingleAiImportFile } from "../middleware/uploadMiddleware.js";
+import {
+  uploadSingleAiImportFile,
+  uploadSingleRegistrationPosterTemplate,
+} from "../middleware/uploadMiddleware.js";
 import { suggestAndCommit, suggestPlan } from "./planSuggest.js";
 import {
   getConfig,
@@ -427,6 +431,11 @@ router
   .put(adminUpdateTournament) // PUT    /api/admin/tournaments/:id
   .delete(deleteTournament); // DELETE /api/admin/tournaments/:id
 
+router.post(
+  "/tournaments/:id/registration-poster/template",
+  uploadSingleRegistrationPosterTemplate,
+  uploadTournamentRegistrationPosterTemplate,
+);
 router.post(
   "/tournaments/:id/registration-poster/analyze",
   analyzeTournamentRegistrationPoster,

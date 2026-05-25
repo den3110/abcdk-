@@ -2516,10 +2516,17 @@ export default function TournamentRegistration() {
       <Dialog
         open={imgPreview.open}
         onClose={handleClosePreview}
-        maxWidth="md"
-        fullWidth
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: "fit-content",
+            maxWidth: "calc(100vw - 32px)",
+            maxHeight: "calc(100vh - 32px)",
+            overflow: "hidden",
+          },
+        }}
       >
-        <DialogTitle sx={{ p: 2 }}>
+        <DialogTitle sx={{ px: 2, py: 1.5 }}>
           {imgPreview.name ||
             t("tournaments.registration.dialogs.imageFallback")}
         </DialogTitle>
@@ -2529,14 +2536,22 @@ export default function TournamentRegistration() {
             bgcolor: "black",
             display: "flex",
             justifyContent: "center",
+            alignItems: "center",
+            overflow: "auto",
+            maxWidth: "calc(100vw - 32px)",
+            maxHeight: "calc(100vh - 96px)",
           }}
         >
-          <img
+          <Box
+            component="img"
             src={safeSrc(imgPreview.src || PLACE)}
             alt=""
-            style={{
-              maxWidth: "100%",
-              maxHeight: "85vh",
+            sx={{
+              display: "block",
+              width: "auto",
+              height: "auto",
+              maxWidth: "calc(100vw - 32px)",
+              maxHeight: "calc(100vh - 110px)",
               objectFit: "contain",
             }}
             onError={(e) => (e.currentTarget.src = PLACE)}
