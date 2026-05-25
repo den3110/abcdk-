@@ -14,13 +14,15 @@ function resolvePosterVisionModel() {
 
 const POSTER_VISION_MODEL = resolvePosterVisionModel();
 
-function shouldStreamPosterCompletion() {
+function shouldStreamPosterCompletion(modelName = POSTER_VISION_MODEL) {
   const baseUrl = String(process.env.CLIPROXY_BASE_URL || "").toLowerCase();
-  const model = String(POSTER_VISION_MODEL || "").toLowerCase();
+  const model = String(modelName || "").toLowerCase();
   return (
     model.includes("deepseek") ||
     baseUrl.includes("127.0.0.1:5024") ||
-    baseUrl.includes("localhost:5024")
+    baseUrl.includes("localhost:5024") ||
+    baseUrl.includes("127.0.0.1:5026") ||
+    baseUrl.includes("localhost:5026")
   );
 }
 
@@ -180,7 +182,7 @@ function extractChatTextCandidates(response) {
 }
 
 async function createChatTextCandidates(payload) {
-  if (!shouldStreamPosterCompletion()) {
+  if (!shouldStreamPosterCompletion(payload?.model)) {
     const response = await openai.chat.completions.create(payload);
     return extractChatTextCandidates(response);
   }
@@ -347,9 +349,11 @@ Bạn là hệ thống thị giác máy tính cho PickleTour. Hãy phân tích p
 
 Yêu cầu:
 - Trả tọa độ theo đúng kích thước ảnh đã gửi: width=${width}, height=${height}.
-- avatar là vùng ảnh trắng/trống/placeholder để đặt ảnh VĐV. Trả x,y là góc trái trên, w,h là kích thước.
-- name là vùng chữ tên VĐV, thường nằm dưới ảnh, có chữ mẫu như "HỌ TÊN", "VDV", hoặc khung tên.
-- Nếu thấy chữ "HỌ TÊN" hoặc một placeholder tên tương tự, name.x/name.y phải là tâm của chính dòng chữ đó để backend thay chữ này bằng tên VĐV thật.
+- avatar là vùng trắng/trống bên trong khung ảnh để đặt ảnh VĐV. Trả x,y,w,h là bounding box của phần ruột khung ảnh, không lấy viền trang trí, không lấy nhãn "VĐV", không lấy khung tên.
+- Nếu khung ảnh có bo góc, lượn sóng hoặc hình dạng đặc biệt, vẫn trả bounding box phủ toàn bộ phần ruột khung ảnh để backend dùng mask của template ghép ảnh vừa khung.
+- name là vùng chữ tên VĐV thật, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc khung tên riêng bên dưới ảnh.
+- Không được chọn nhãn vai trò nhỏ như "VĐV", "PLAYER", "ATHLETE" làm vùng name.
+- Nếu thấy chữ "HỌ TÊN" hoặc một placeholder tên tương tự, name.x/name.y phải là tâm của chính dòng chữ đó để backend xoá placeholder và thay bằng nickname/tên VĐV thật.
 - Trả x là tâm ngang, y là tâm dọc dòng chữ, w là bề rộng tối đa của khung tên.
 - Nếu poster có 2 VĐV, trả slots.double có đúng 2 slot từ trái sang phải.
 - slots.single là slot cho giải đơn; nếu template có 2 slot thì đặt slot single ở giữa 2 slot hoặc vùng trung tâm hợp lý.
@@ -414,6 +418,7 @@ Yêu cầu:
 
   let parsed = null;
   let usedRoute = "";
+  let usedModel = POSTER_VISION_MODEL;
   const routeErrors = [];
   for (const route of routes) {
     try {
@@ -436,10 +441,11 @@ Yêu cầu:
       }
       if (!parsed) {
         throw new Error(
-          `AI trả text nhưng không parse được (${summarizeAiResponse(response)}; candidates=${summarizeTextCandidates(textCandidates)}): ${lastParseError?.message || "unknown"}`,
+          `AI trả text nhưng không parse được (candidates=${summarizeTextCandidates(textCandidates)}): ${lastParseError?.message || "unknown"}`,
         );
       }
       usedRoute = route.name;
+      usedModel = POSTER_VISION_MODEL;
       break;
     } catch (error) {
       routeErrors.push(summarizeRouteError(route.name, error));
@@ -457,6 +463,7 @@ Yêu cầu:
   }
   const config = normalizeLayout(parsed, width, height);
   config.ai.route = usedRoute;
+  config.ai.model = usedModel;
 
   if (!config.slots.double.length && !config.slots.single.length) {
     throw new Error("AI không tìm thấy slot ảnh/tên trên poster");
@@ -469,7 +476,7 @@ Yêu cầu:
       height,
       confidence: config.ai.confidence,
       notes: config.ai.notes,
-      model: POSTER_VISION_MODEL,
+      model: usedModel,
       route: usedRoute,
     },
   };

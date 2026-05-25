@@ -715,10 +715,10 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
     }),
     analyzeRegistrationPoster: builder.mutation({
-      query: ({ id, templateUrl, save = true }) => ({
+      query: ({ id, templateUrl, save = true, fontFamily } = {}) => ({
         url: `/api/admin/tournaments/${id}/registration-poster/analyze`,
         method: "POST",
-        body: { templateUrl, save },
+        body: { templateUrl, save, fontFamily },
       }),
       invalidatesTags: (result, error, { id }) => [
         { type: "Tournaments", id },

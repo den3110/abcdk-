@@ -110,9 +110,9 @@ function normalizeLanguage(value) {
   return SUPPORTED_LANGUAGES.includes(value) ? value : DEFAULT_LANGUAGE;
 }
 
-function readStoredLanguagePreference() {
+function readStoredUserLanguagePreference() {
   if (typeof window === "undefined") {
-    return { language: DEFAULT_LANGUAGE, source: AUTO_LANGUAGE_SOURCE };
+    return null;
   }
 
   const saved = window.localStorage.getItem(STORAGE_KEY);
@@ -120,6 +120,19 @@ function readStoredLanguagePreference() {
 
   if (source === USER_LANGUAGE_SOURCE && SUPPORTED_LANGUAGES.includes(saved)) {
     return { language: saved, source: USER_LANGUAGE_SOURCE };
+  }
+
+  return null;
+}
+
+function readStoredLanguagePreference() {
+  if (typeof window === "undefined") {
+    return { language: DEFAULT_LANGUAGE, source: AUTO_LANGUAGE_SOURCE };
+  }
+
+  const userPreference = readStoredUserLanguagePreference();
+  if (userPreference) {
+    return userPreference;
   }
 
   return { language: detectBrowserLanguage(), source: AUTO_LANGUAGE_SOURCE };
@@ -179,13 +192,16 @@ export const LanguageContextProvider = ({ children }) => {
 
     const unsubscribe = subscribeCrossTabChannel(channel, (message) => {
       if (message?.topic !== LANGUAGE_SYNC_TOPIC) return;
+      if (
+        message?.source !== USER_LANGUAGE_SOURCE ||
+        !SUPPORTED_LANGUAGES.includes(message?.language)
+      ) {
+        return;
+      }
 
       const nextState = {
-        language: normalizeLanguage(message?.language),
-        source:
-          message?.source === USER_LANGUAGE_SOURCE
-            ? USER_LANGUAGE_SOURCE
-            : AUTO_LANGUAGE_SOURCE,
+        language: message.language,
+        source: USER_LANGUAGE_SOURCE,
       };
 
       setLanguageState((current) => {
@@ -210,6 +226,8 @@ export const LanguageContextProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    if (languageState.source !== USER_LANGUAGE_SOURCE) return;
+
     publishCrossTabMessage(syncChannelRef.current, {
       topic: LANGUAGE_SYNC_TOPIC,
       language: languageState.language,
@@ -229,7 +247,9 @@ export const LanguageContextProvider = ({ children }) => {
         return;
       }
 
-      const nextState = readStoredLanguagePreference();
+      const nextState = readStoredUserLanguagePreference();
+      if (!nextState) return;
+
       setLanguageState((current) => {
         if (
           current.language === nextState.language &&
@@ -239,11 +259,7 @@ export const LanguageContextProvider = ({ children }) => {
         }
         return nextState;
       });
-      setGeoResolving(
-        nextState.source !== USER_LANGUAGE_SOURCE &&
-          typeof window !== "undefined" &&
-          !isBot(),
-      );
+      setGeoResolving(false);
     };
 
     window.addEventListener("storage", handleStorage);

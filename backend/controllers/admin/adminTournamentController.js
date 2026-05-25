@@ -683,12 +683,23 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
       throw new Error("Bạn cần tải ảnh mẫu poster trước khi chạy AI poster");
     }
 
+    const fontFamily = String(req.body?.fontFamily || "")
+      .trim()
+      .replace(/[<>{}]/g, "")
+      .slice(0, 160);
+
     const { config, analysis } = await analyzeRegistrationPosterLayout({
       req,
       imageSource: templateUrl,
     });
     config.templateUrl = templateUrl;
     config.needsAnalysis = false;
+    if (fontFamily) {
+      config.text = {
+        ...(config.text || {}),
+        fontFamily,
+      };
+    }
 
     const shouldSave = req.body?.save !== false;
     if (shouldSave) {

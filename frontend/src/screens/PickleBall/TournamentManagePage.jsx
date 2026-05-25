@@ -112,6 +112,15 @@ import {
   getTournamentPairName,
 } from "../../utils/tournamentName";
 
+const POSTER_NAME_FONT_OPTIONS = [
+  { value: "", label: "Mặc định AI" },
+  { value: "FreeSans, Arial, sans-serif", label: "FreeSans" },
+  { value: "Arial, sans-serif", label: "Arial" },
+  { value: "Arial Black, Arial, sans-serif", label: "Arial Black" },
+  { value: "Impact, Arial Black, sans-serif", label: "Impact" },
+  { value: "Montserrat, Arial, sans-serif", label: "Montserrat" },
+];
+
 /* ---------------- helpers ---------------- */
 // ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
 const normalizeGroupCode = (code) => {
@@ -1250,6 +1259,7 @@ export default function TournamentManagePage() {
   ] = useUploadRegistrationPosterTemplateMutation();
   const [posterTemplateDragging, setPosterTemplateDragging] = useState(false);
   const posterTemplateInputRef = useRef(null);
+  const [posterNameFontFamily, setPosterNameFontFamily] = useState("");
 
   // Quyền
   const isAdmin = !!(
@@ -1269,6 +1279,8 @@ export default function TournamentManagePage() {
   const canOpenRefereeCenter = isAdmin || canReferee;
   const posterTemplateUrl = tour?.registrationPosterConfig?.templateUrl || "";
   const posterTemplateBusy = uploadingPosterTemplate || analyzingPoster;
+  const savedPosterNameFontFamily =
+    tour?.registrationPosterConfig?.text?.fontFamily || "";
   const canManageManagers = useMemo(
     () =>
       isAdmin ||
@@ -1276,6 +1288,10 @@ export default function TournamentManagePage() {
         String(me?._id || me?.id || ""),
     [isAdmin, me?._id, me?.id, tour?.createdBy],
   );
+
+  useEffect(() => {
+    setPosterNameFontFamily(savedPosterNameFontFamily);
+  }, [savedPosterNameFontFamily]);
 
   // Tabs
   const typeOrderWeight = useCallback((t) => {
@@ -1883,6 +1899,7 @@ export default function TournamentManagePage() {
       const result = await analyzeRegistrationPoster({
         id,
         save: true,
+        fontFamily: posterNameFontFamily || undefined,
       }).unwrap();
       const confidence = Number(result?.analysis?.confidence || 0);
       const suffix = confidence
@@ -1897,7 +1914,13 @@ export default function TournamentManagePage() {
           "AI phân tích poster thất bại",
       );
     }
-  }, [analyzeRegistrationPoster, id, posterTemplateUrl, refetchTour]);
+  }, [
+    analyzeRegistrationPoster,
+    id,
+    posterNameFontFamily,
+    posterTemplateUrl,
+    refetchTour,
+  ]);
 
   const handlePosterTemplateFile = useCallback(
     async (file) => {
@@ -1924,6 +1947,7 @@ export default function TournamentManagePage() {
         const result = await analyzeRegistrationPoster({
           id,
           save: true,
+          fontFamily: posterNameFontFamily || undefined,
         }).unwrap();
         const confidence = Number(result?.analysis?.confidence || 0);
         const suffix = confidence
@@ -1942,6 +1966,7 @@ export default function TournamentManagePage() {
     [
       analyzeRegistrationPoster,
       id,
+      posterNameFontFamily,
       refetchTour,
       uploadRegistrationPosterTemplate,
     ],
@@ -2584,6 +2609,22 @@ export default function TournamentManagePage() {
                 <Chip size="small" color="success" label="Đã có mẫu" />
               ) : null}
             </Box>
+
+            <TextField
+              select
+              size="small"
+              label="Font tên"
+              value={posterNameFontFamily}
+              onChange={(event) => setPosterNameFontFamily(event.target.value)}
+              disabled={!canManage || posterTemplateBusy}
+              sx={{ minWidth: 150 }}
+            >
+              {POSTER_NAME_FONT_OPTIONS.map((option) => (
+                <MenuItem key={option.value || "ai"} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
 
             <Button
               variant="outlined"

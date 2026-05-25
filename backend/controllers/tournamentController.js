@@ -103,7 +103,378 @@ function resolveRadius(radius, width, height, fallbackRatio = 0.08) {
   return Math.round(width * fallbackRatio);
 }
 
-async function makeAvatarLayer(req, player, width, height, radius) {
+function clampInt(value, min, max, fallback = min) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function getRectOverlapArea(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
+function getPosterPixel(data, offset) {
+  const alpha = data[offset + 3];
+  const r = data[offset];
+  const g = data[offset + 1];
+  const b = data[offset + 2];
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return {
+    r,
+    g,
+    b,
+    alpha,
+    max,
+    min,
+    luma: 0.2126 * r + 0.7152 * g + 0.0722 * b,
+  };
+}
+
+function colorDistance(a, b) {
+  return Math.sqrt(
+    (a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2,
+  );
+}
+
+function addPosterColorCandidate(candidates, color, threshold = 44) {
+  if (!color || color.alpha < 180) return;
+  if (
+    candidates.some(
+      (candidate) => colorDistance(candidate, color) <= candidate.threshold,
+    )
+  ) {
+    return;
+  }
+  candidates.push({
+    r: color.r,
+    g: color.g,
+    b: color.b,
+    threshold,
+  });
+}
+
+function averagePosterColorAt(data, canvasWidth, canvasHeight, x, y, radius = 3) {
+  const left = clampInt(x - radius, 0, canvasWidth - 1, 0);
+  const top = clampInt(y - radius, 0, canvasHeight - 1, 0);
+  const right = clampInt(x + radius + 1, left + 1, canvasWidth, canvasWidth);
+  const bottom = clampInt(y + radius + 1, top + 1, canvasHeight, canvasHeight);
+  let count = 0;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  for (let yy = top; yy < bottom; yy += 1) {
+    for (let xx = left; xx < right; xx += 1) {
+      const pixel = getPosterPixel(data, (yy * canvasWidth + xx) * 4);
+      if (pixel.alpha < 180) continue;
+      r += pixel.r;
+      g += pixel.g;
+      b += pixel.b;
+      count += 1;
+    }
+  }
+  if (!count) return null;
+  r = Math.round(r / count);
+  g = Math.round(g / count);
+  b = Math.round(b / count);
+  return {
+    r,
+    g,
+    b,
+    alpha: 255,
+    max: Math.max(r, g, b),
+    min: Math.min(r, g, b),
+  };
+}
+
+function collectPosterPlaceholderCandidates(
+  data,
+  canvasWidth,
+  canvasHeight,
+  slotBox,
+) {
+  const candidates = [];
+  const points = [
+    [0.5, 0.5],
+    [0.28, 0.28],
+    [0.72, 0.28],
+    [0.28, 0.72],
+    [0.72, 0.72],
+  ];
+  for (const [px, py] of points) {
+    const color = averagePosterColorAt(
+      data,
+      canvasWidth,
+      canvasHeight,
+      slotBox.left + slotBox.width * px,
+      slotBox.top + slotBox.height * py,
+    );
+    addPosterColorCandidate(candidates, color, 48);
+  }
+
+  const buckets = new Map();
+  const step = Math.max(2, Math.floor(Math.min(slotBox.width, slotBox.height) / 44));
+  const left = clampInt(slotBox.left + slotBox.width * 0.12, 0, canvasWidth - 1, 0);
+  const top = clampInt(slotBox.top + slotBox.height * 0.12, 0, canvasHeight - 1, 0);
+  const right = clampInt(
+    slotBox.left + slotBox.width * 0.88,
+    left + 1,
+    canvasWidth,
+    canvasWidth,
+  );
+  const bottom = clampInt(
+    slotBox.top + slotBox.height * 0.88,
+    top + 1,
+    canvasHeight,
+    canvasHeight,
+  );
+  let total = 0;
+  for (let y = top; y < bottom; y += step) {
+    for (let x = left; x < right; x += step) {
+      const pixel = getPosterPixel(data, (y * canvasWidth + x) * 4);
+      if (pixel.alpha < 180) continue;
+      const key = `${pixel.r >> 4}:${pixel.g >> 4}:${pixel.b >> 4}`;
+      const bucket = buckets.get(key) || { count: 0, r: 0, g: 0, b: 0 };
+      bucket.count += 1;
+      bucket.r += pixel.r;
+      bucket.g += pixel.g;
+      bucket.b += pixel.b;
+      buckets.set(key, bucket);
+      total += 1;
+    }
+  }
+  Array.from(buckets.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 4)
+    .forEach((bucket) => {
+      if (!total || bucket.count / total < 0.08) return;
+      const color = {
+        r: Math.round(bucket.r / bucket.count),
+        g: Math.round(bucket.g / bucket.count),
+        b: Math.round(bucket.b / bucket.count),
+        alpha: 255,
+      };
+      addPosterColorCandidate(candidates, color, 42);
+    });
+
+  return candidates;
+}
+
+function isPosterPhotoPlaceholderPixel(data, offset, colorCandidates = []) {
+  const pixel = getPosterPixel(data, offset);
+  if (pixel.alpha < 180) return false;
+  if (pixel.r >= 218 && pixel.g >= 218 && pixel.b >= 218 && pixel.max - pixel.min <= 42) {
+    return true;
+  }
+  if (pixel.max - pixel.min <= 36 && pixel.max >= 176) {
+    return true;
+  }
+  return colorCandidates.some(
+    (candidate) => colorDistance(pixel, candidate) <= candidate.threshold,
+  );
+}
+
+async function buildAvatarPlaceholderMask(templateRaw, canvasWidth, canvasHeight, avatar = {}) {
+  const slotLeft = clampInt(avatar.left, 0, canvasWidth - 1, 0);
+  const slotTop = clampInt(avatar.top, 0, canvasHeight - 1, 0);
+  const slotWidth = clampInt(avatar.width, 1, canvasWidth - slotLeft, 1);
+  const slotHeight = clampInt(avatar.height, 1, canvasHeight - slotTop, 1);
+  const slotBox = {
+    left: slotLeft,
+    top: slotTop,
+    width: slotWidth,
+    height: slotHeight,
+  };
+  const colorCandidates = collectPosterPlaceholderCandidates(
+    templateRaw,
+    canvasWidth,
+    canvasHeight,
+    slotBox,
+  );
+  const padX = Math.max(18, Math.round(slotWidth * 0.7));
+  const padY = Math.max(18, Math.round(slotHeight * 0.7));
+  const searchLeft = clampInt(slotLeft - padX, 0, canvasWidth - 1, 0);
+  const searchTop = clampInt(slotTop - padY, 0, canvasHeight - 1, 0);
+  const searchRight = clampInt(
+    slotLeft + slotWidth + padX,
+    searchLeft + 1,
+    canvasWidth,
+    canvasWidth,
+  );
+  const searchBottom = clampInt(
+    slotTop + slotHeight + padY,
+    searchTop + 1,
+    canvasHeight,
+    canvasHeight,
+  );
+  const searchWidth = searchRight - searchLeft;
+  const searchHeight = searchBottom - searchTop;
+  const visited = new Uint8Array(searchWidth * searchHeight);
+  const centerX = slotLeft + slotWidth / 2;
+  const centerY = slotTop + slotHeight / 2;
+  let best = null;
+
+  const isPlaceholderAt = (localX, localY) => {
+    const x = searchLeft + localX;
+    const y = searchTop + localY;
+    return isPosterPhotoPlaceholderPixel(
+      templateRaw,
+      (y * canvasWidth + x) * 4,
+      colorCandidates,
+    );
+  };
+
+  for (let y = 0; y < searchHeight; y += 1) {
+    for (let x = 0; x < searchWidth; x += 1) {
+      const startIndex = y * searchWidth + x;
+      if (visited[startIndex] || !isPlaceholderAt(x, y)) continue;
+
+      const stack = [startIndex];
+      const pixels = [];
+      visited[startIndex] = 1;
+      let minX = x;
+      let minY = y;
+      let maxX = x;
+      let maxY = y;
+
+      while (stack.length) {
+        const index = stack.pop();
+        pixels.push(index);
+        const px = index % searchWidth;
+        const py = Math.floor(index / searchWidth);
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+
+        const neighbors = [
+          index - 1,
+          index + 1,
+          index - searchWidth,
+          index + searchWidth,
+        ];
+        for (const next of neighbors) {
+          if (next < 0 || next >= visited.length || visited[next]) continue;
+          const nx = next % searchWidth;
+          const ny = Math.floor(next / searchWidth);
+          if (Math.abs(nx - px) + Math.abs(ny - py) !== 1) continue;
+          if (!isPlaceholderAt(nx, ny)) continue;
+          visited[next] = 1;
+          stack.push(next);
+        }
+      }
+
+      const box = {
+        left: searchLeft + minX,
+        top: searchTop + minY,
+        width: maxX - minX + 1,
+        height: maxY - minY + 1,
+      };
+      if (box.width > slotWidth * 2.8 || box.height > slotHeight * 2.8) {
+        continue;
+      }
+      const overlap = getRectOverlapArea(box, slotBox);
+      const containsCenter =
+        centerX >= box.left &&
+        centerX <= box.left + box.width &&
+        centerY >= box.top &&
+        centerY <= box.top + box.height;
+      if (!overlap && !containsCenter) continue;
+
+      const area = pixels.length;
+      const score = area + overlap * 8 + (containsCenter ? area * 3 : 0);
+      if (!best || score > best.score) {
+        best = { score, area, box, pixels, minX, minY, maxX, maxY };
+      }
+    }
+  }
+
+  if (!best || best.area < Math.max(slotWidth * slotHeight * 0.35, 1200)) {
+    return null;
+  }
+
+  const { box } = best;
+  const inset = clampInt(Math.min(box.width, box.height) * 0.025, 4, 16, 8);
+  const mask = Buffer.alloc(box.width * box.height * 4);
+  for (const index of best.pixels) {
+    const localX = index % searchWidth;
+    const localY = Math.floor(index / searchWidth);
+    const globalX = searchLeft + localX;
+    const globalY = searchTop + localY;
+    if (
+      globalX < box.left + inset ||
+      globalX >= box.left + box.width - inset ||
+      globalY < box.top + inset ||
+      globalY >= box.top + box.height - inset
+    ) {
+      continue;
+    }
+    const maskX = globalX - box.left;
+    const maskY = globalY - box.top;
+    const offset = (maskY * box.width + maskX) * 4;
+    mask[offset] = 255;
+    mask[offset + 1] = 255;
+    mask[offset + 2] = 255;
+    mask[offset + 3] = 255;
+  }
+
+  return {
+    left: box.left,
+    top: box.top,
+    width: box.width,
+    height: box.height,
+    radius: 0,
+    mask: await sharp(mask, {
+      raw: { width: box.width, height: box.height, channels: 4 },
+    })
+      .blur(0.6)
+      .png()
+      .toBuffer(),
+  };
+}
+
+async function readPosterTemplateRaw(baseBuffer, width, height) {
+  try {
+    return await sharp(baseBuffer)
+      .resize(width, height, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+  } catch {
+    return null;
+  }
+}
+
+async function refinePosterAvatarSlots(baseBuffer, slots, width, height, raw) {
+  if (!Array.isArray(slots) || !slots.length) return slots;
+  const templateRaw = raw || (await readPosterTemplateRaw(baseBuffer, width, height));
+  if (!templateRaw) return slots;
+
+  return Promise.all(
+    slots.map(async (slot) => {
+      const refined = await buildAvatarPlaceholderMask(
+        templateRaw,
+        width,
+        height,
+        slot?.avatar,
+      ).catch(() => null);
+      if (!refined) return slot;
+      return {
+        ...slot,
+        avatar: {
+          ...slot.avatar,
+          ...refined,
+        },
+      };
+    }),
+  );
+}
+
+async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
   const src = player?.avatar || "";
   let input = null;
   try {
@@ -127,11 +498,13 @@ async function makeAvatarLayer(req, player, width, height, radius) {
   }
 
   const rx = resolveRadius(radius, width, height);
-  const mask = Buffer.from(`
-    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
-    </svg>
-  `);
+  const mask =
+    maskInput ||
+    Buffer.from(`
+      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
+      </svg>
+    `);
 
   return sharp(input)
     .resize(width, height, { fit: "cover", position: "center" })
@@ -295,7 +668,82 @@ function formatPosterName(name, cfg) {
   return name.toUpperCase();
 }
 
-function buildPosterTextSvg(width, height, players, slots, tour, layout) {
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b]
+    .map((value) => clampInt(value, 0, 255, 0).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function samplePosterTextBackground(templateRaw, canvasWidth, canvasHeight, box) {
+  if (!templateRaw) return "#071322";
+  const left = clampInt(box.left, 0, canvasWidth - 1, 0);
+  const top = clampInt(box.top, 0, canvasHeight - 1, 0);
+  const right = clampInt(box.left + box.width, left + 1, canvasWidth, canvasWidth);
+  const bottom = clampInt(
+    box.top + box.height,
+    top + 1,
+    canvasHeight,
+    canvasHeight,
+  );
+  const samples = [];
+  for (let y = top; y < bottom; y += 4) {
+    for (let x = left; x < right; x += 4) {
+      const offset = (y * canvasWidth + x) * 4;
+      if (templateRaw[offset + 3] < 180) continue;
+      const r = templateRaw[offset];
+      const g = templateRaw[offset + 1];
+      const b = templateRaw[offset + 2];
+      samples.push({
+        r,
+        g,
+        b,
+        luma: 0.2126 * r + 0.7152 * g + 0.0722 * b,
+      });
+    }
+  }
+  if (!samples.length) return "#071322";
+  samples.sort((a, b) => a.luma - b.luma);
+  const picked = samples[Math.floor(samples.length * 0.35)] || samples[0];
+  return rgbToHex(picked.r, picked.g, picked.b);
+}
+
+function parseHexColor(value) {
+  const raw = String(value || "").trim();
+  const short = raw.match(/^#([0-9a-f]{3})$/i)?.[1];
+  if (short) {
+    return {
+      r: parseInt(short[0] + short[0], 16),
+      g: parseInt(short[1] + short[1], 16),
+      b: parseInt(short[2] + short[2], 16),
+    };
+  }
+  const long = raw.match(/^#([0-9a-f]{6})$/i)?.[1];
+  if (!long) return null;
+  return {
+    r: parseInt(long.slice(0, 2), 16),
+    g: parseInt(long.slice(2, 4), 16),
+    b: parseInt(long.slice(4, 6), 16),
+  };
+}
+
+function colorLuma(color) {
+  return color ? 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b : null;
+}
+
+function getReadablePosterTextColor(color, backgroundColor) {
+  const textColor = parseHexColor(color);
+  const bgColor = parseHexColor(backgroundColor);
+  if (!bgColor) return color || "#ffffff";
+  const bgLuma = colorLuma(bgColor);
+  if (!textColor) return bgLuma < 150 ? "#ffffff" : "#111827";
+  const textLuma = colorLuma(textColor);
+  if (Math.abs(textLuma - bgLuma) < 95) {
+    return bgLuma < 150 ? "#ffffff" : "#111827";
+  }
+  return color || "#ffffff";
+}
+
+function buildPosterTextSvg(width, height, players, slots, tour, layout, templateRaw) {
   const textNodes = players
     .map((player, idx) => {
       const slot = slots[idx];
@@ -342,12 +790,36 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout) {
               0,
             )}"`
           : "";
+      const backgroundHeight = Math.max(size * 1.55, maxFontSize * 1.1);
+      const backgroundWidth = Math.max(1, slot.name.width * 0.94);
+      const backgroundBox = {
+        left: slot.name.cx - backgroundWidth / 2,
+        top: slot.name.y - backgroundHeight / 2,
+        width: backgroundWidth,
+        height: backgroundHeight,
+      };
+      const backgroundFill =
+        textCfg.backgroundFill === "none"
+          ? ""
+          : textCfg.backgroundFill ||
+            samplePosterTextBackground(templateRaw, width, height, backgroundBox);
+      const backgroundNode = backgroundFill
+        ? `<rect x="${backgroundBox.left}" y="${backgroundBox.top}" width="${backgroundBox.width}" height="${backgroundBox.height}"
+            rx="${Math.round(backgroundHeight * 0.22)}" ry="${Math.round(
+              backgroundHeight * 0.22,
+            )}" fill="${escapeXml(backgroundFill)}" fill-opacity="0.96"/>`
+        : "";
+      const fillColor = getReadablePosterTextColor(
+        textCfg.color,
+        backgroundFill || "#071322",
+      );
       return `
+        ${backgroundNode}
         <text x="${slot.name.cx}" y="${slot.name.y}" text-anchor="middle"
           dominant-baseline="middle" font-family="${escapeXml(textCfg.fontFamily)}"
           font-size="${size}" font-weight="${escapeXml(textCfg.fontWeight)}"
           font-style="${escapeXml(textCfg.fontStyle)}"
-          fill="${escapeXml(textCfg.color)}" ${stroke} ${fitAttrs}>${name}</text>
+          fill="${escapeXml(fillColor)}" ${stroke} ${fitAttrs}>${name}</text>
       `;
     })
     .join("");
@@ -1926,7 +2398,14 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
 
   const players = [reg.player1, reg.player2].filter(Boolean);
   const layout = resolvePosterLayout(tour, players.length, width, height);
-  const slots = layout.slots;
+  const templateRaw = await readPosterTemplateRaw(baseBuffer, width, height);
+  const slots = await refinePosterAvatarSlots(
+    baseBuffer,
+    layout.slots,
+    width,
+    height,
+    templateRaw,
+  );
   const avatarLayers = await Promise.all(
     players.map(async (player, idx) => {
       const slot = slots[idx]?.avatar;
@@ -1938,6 +2417,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
           slot.width,
           slot.height,
           slot.radius,
+          slot.mask,
         ),
         left: slot.left,
         top: slot.top,
@@ -1952,6 +2432,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
     slots,
     tour,
     layout,
+    templateRaw,
   );
   const out = await sharp(baseBuffer)
     .resize(width, height, { fit: "fill" })
