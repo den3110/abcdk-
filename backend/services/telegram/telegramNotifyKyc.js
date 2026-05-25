@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { openai, OPENAI_VISION_MODEL } from "../../lib/openaiClient.js";
+import { cccdOpenai, OPENAI_CCCD_MODEL } from "../../lib/openaiClient.js";
 import FormData from "form-data";
 import {
   CATEGORY,
@@ -331,9 +331,6 @@ function normDOB(value) {
 }
 
 export async function openaiExtractFromDataUrl(imageOrDataUrls, detail = "low") {
-  if (!process.env.OPENAI_API_KEY && !process.env.CLIPROXY_API_KEY)
-    throw new Error("Missing OPENAI_API_KEY");
-
   const urls = Array.isArray(imageOrDataUrls) ? imageOrDataUrls : [imageOrDataUrls];
   const imageParts = urls.filter(Boolean).map((url) => ({
     type: "image_url",
@@ -375,8 +372,8 @@ export async function openaiExtractFromDataUrl(imageOrDataUrls, detail = "low") 
   let resp;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      resp = await openai.chat.completions.create({
-        model: OPENAI_VISION_MODEL,
+      resp = await cccdOpenai.chat.completions.create({
+        model: OPENAI_CCCD_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           {
