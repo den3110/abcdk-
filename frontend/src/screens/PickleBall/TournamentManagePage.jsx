@@ -120,6 +120,7 @@ const POSTER_NAME_FONT_OPTIONS = [
   { value: "Impact, Arial Black, sans-serif", label: "Impact" },
   { value: "Montserrat, Arial, sans-serif", label: "Montserrat" },
 ];
+const POSTER_AI_RUNNING_TIMEOUT_MS = 10 * 60 * 1000;
 
 /* ---------------- helpers ---------------- */
 // ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
@@ -1280,9 +1281,19 @@ export default function TournamentManagePage() {
   const canOpenRefereeCenter = isAdmin || canReferee;
   const posterTemplateUrl = tour?.registrationPosterConfig?.templateUrl || "";
   const posterAiJob = tour?.registrationPosterConfig?.aiJob || null;
-  const posterAiRunning = posterAiJob?.status === "running";
-  const posterTemplateBusy =
-    uploadingPosterTemplate || analyzingPoster || posterAiRunning;
+  const posterAiStatus = String(posterAiJob?.status || "");
+  const posterAiStartedAt = Date.parse(
+    posterAiJob?.startedAt || posterAiJob?.requestedAt || "",
+  );
+  const posterAiStale =
+    posterAiStatus === "running" &&
+    Number.isFinite(posterAiStartedAt) &&
+    Date.now() - posterAiStartedAt > POSTER_AI_RUNNING_TIMEOUT_MS;
+  const posterAiRunning =
+    posterAiStatus === "running" &&
+    !posterAiStale &&
+    tour?.registrationPosterConfig?.needsAnalysis !== false;
+  const posterTemplateBusy = uploadingPosterTemplate || analyzingPoster;
   const savedPosterNameFontFamily =
     tour?.registrationPosterConfig?.text?.fontFamily || "";
   const canManageManagers = useMemo(
@@ -1326,9 +1337,17 @@ export default function TournamentManagePage() {
     ) {
       toast.error(posterAiJob?.error || "AI poster thất bại.");
     }
+    if (
+      jobId &&
+      status === "running" &&
+      posterAiStale &&
+      !previous.stale
+    ) {
+      toast.error("AI poster chạy quá lâu, bạn có thể bấm chạy lại.");
+    }
 
-    posterAiJobStatusRef.current = { id: jobId, status };
-  }, [posterAiJob?.error, posterAiJob?.id, posterAiJob?.status]);
+    posterAiJobStatusRef.current = { id: jobId, status, stale: posterAiStale };
+  }, [posterAiJob?.error, posterAiJob?.id, posterAiJob?.status, posterAiStale]);
 
   // Tabs
   const typeOrderWeight = useCallback((t) => {
@@ -2657,6 +2676,10 @@ export default function TournamentManagePage() {
               ) : null}
               {posterAiRunning ? (
                 <Chip size="small" color="warning" label="AI đang chạy" />
+              ) : posterAiStale ? (
+                <Tooltip title="Job AI poster chạy quá lâu, bạn có thể bấm chạy lại">
+                  <Chip size="small" color="error" label="AI kẹt" />
+                </Tooltip>
               ) : posterAiJob?.status === "failed" ? (
                 <Tooltip title={posterAiJob?.error || "AI poster thất bại"}>
                   <Chip size="small" color="error" label="AI lỗi" />
@@ -2684,7 +2707,7 @@ export default function TournamentManagePage() {
               variant="outlined"
               size="small"
               startIcon={
-                analyzingPoster || posterAiRunning ? (
+                analyzingPoster ? (
                   <CircularProgress size={16} />
                 ) : (
                   <AutoAwesomeIcon />
@@ -2693,7 +2716,7 @@ export default function TournamentManagePage() {
               onClick={handleAnalyzeRegistrationPoster}
               disabled={!canManage || posterTemplateBusy}
             >
-              {posterAiRunning ? "AI đang chạy" : "AI poster"}
+              {posterAiRunning || posterAiStale ? "Chạy lại AI" : "AI poster"}
             </Button>
 
             {/* Export menu (desktop) */}
@@ -2868,14 +2891,18 @@ export default function TournamentManagePage() {
                   disabled={!canManage || posterTemplateBusy}
                 >
                   <ListItemIcon>
-                    {analyzingPoster || posterAiRunning ? (
+                    {analyzingPoster ? (
                       <CircularProgress size={18} />
                     ) : (
                       <AutoAwesomeIcon fontSize="small" />
                     )}
                   </ListItemIcon>
                   <ListItemText
-                    primary={posterAiRunning ? "AI đang chạy" : "AI poster"}
+                    primary={
+                      posterAiRunning || posterAiStale
+                        ? "Chạy lại AI"
+                        : "AI poster"
+                    }
                   />
                 </MenuItem>
 

@@ -726,103 +726,127 @@ const ActionButtonsInner = ({
   busy,
 }) => {
   const { t } = useLanguage();
+  const actionTileSx = (color) => ({
+    minWidth: 0,
+    minHeight: 58,
+    px: 0.75,
+    py: 0.75,
+    borderRadius: 2,
+    border: "1px solid",
+    borderColor: alpha(color, 0.18),
+    color,
+    bgcolor: alpha(color, 0.06),
+    textTransform: "none",
+    fontWeight: 700,
+    lineHeight: 1.15,
+    "&:hover": {
+      bgcolor: alpha(color, 0.1),
+      borderColor: alpha(color, 0.3),
+    },
+  });
 
-  return (
-    <Stack
-      direction="row"
-      spacing={0.5}
-      justifyContent="flex-end"
-      alignItems="center"
-    >
-      <Tooltip title="Tải poster">
-        <Button
-          size="small"
-          variant="text"
-          startIcon={<ImageOutlined fontSize="small" />}
-          onClick={() => onOpenPoster(r)}
+  const ActionTile = ({ color, icon, children, ...buttonProps }) => (
+    <Button size="small" variant="text" fullWidth sx={actionTileSx(color)} {...buttonProps}>
+      <Stack spacing={0.35} alignItems="center" justifyContent="center">
+        {icon}
+        <Typography
+          component="span"
           sx={{
-            color: "#1976d2",
-            bgcolor: alpha("#1976d2", 0.05),
-            textTransform: "none",
-            minWidth: "auto",
-            px: 1,
+            fontSize: 12,
+            fontWeight: 700,
+            lineHeight: 1.15,
+            textAlign: "center",
           }}
         >
+          {children}
+        </Typography>
+      </Stack>
+    </Button>
+  );
+
+  return (
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: {
+          xs: "repeat(2, minmax(0, 1fr))",
+          sm: "repeat(auto-fit, minmax(86px, 1fr))",
+        },
+        gap: 0.75,
+        width: "100%",
+        p: 0.75,
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: alpha("#0f172a", 0.08),
+        bgcolor: alpha("#0f172a", 0.025),
+      }}
+    >
+      <Tooltip title="Tải poster">
+        <ActionTile
+          color="#1976d2"
+          icon={<ImageOutlined fontSize="small" />}
+          onClick={() => onOpenPoster(r)}
+        >
           Tải poster
-        </Button>
+        </ActionTile>
       </Tooltip>
 
       {canManage && !isFreeTournament && (
         <Tooltip title={t("tournaments.registration.payment.toggleTooltip")}>
-          <IconButton
-            size="small"
+          <ActionTile
+            color={r.payment?.status === "Paid" ? "#64748b" : "#178a45"}
+            icon={
+              r.payment?.status === "Paid" ? (
+                <MoneyOff fontSize="small" />
+              ) : (
+                <MonetizationOn fontSize="small" />
+              )
+            }
             onClick={() => onTogglePayment(r)}
-            color={r.payment?.status === "Paid" ? "default" : "success"}
             disabled={busy?.settingPayment}
           >
-            {r.payment?.status === "Paid" ? (
-              <MoneyOff fontSize="small" />
-            ) : (
-              <MonetizationOn fontSize="small" />
-            )}
-          </IconButton>
+            {r.payment?.status === "Paid" ? "Bỏ thu" : "Đã thu"}
+          </ActionTile>
         </Tooltip>
       )}
 
       {!isFreeTournament ? (
         <Tooltip title={t("tournaments.registration.payment.qrTooltip")}>
-          <Button
-            size="small"
-            variant="text"
-            startIcon={<QrCode fontSize="small" />}
+          <ActionTile
+            color="#1976d2"
+            icon={<QrCode fontSize="small" />}
             onClick={() => onOpenPayment(r)}
-            sx={{
-              color: "#1976d2",
-              bgcolor: alpha("#1976d2", 0.05),
-              textTransform: "none",
-              minWidth: "auto",
-              px: 1,
-            }}
           >
             {t("tournaments.registration.actions.pay")}
-          </Button>
+          </ActionTile>
         </Tooltip>
       ) : null}
 
       <Tooltip title={t("tournaments.registration.actions.complaint")}>
-        <Button
-          size="small"
-          variant="text"
-          startIcon={<ReportProblem fontSize="small" />}
+        <ActionTile
+          color="#ed6c02"
+          icon={<ReportProblem fontSize="small" />}
           onClick={() => onOpenComplaint(r)}
-          sx={{
-            color: "#ed6c02",
-            bgcolor: alpha("#ed6c02", 0.05),
-            textTransform: "none",
-            minWidth: "auto",
-            px: 1,
-          }}
         >
           {t("tournaments.registration.actions.complaint")}
-        </Button>
+        </ActionTile>
       </Tooltip>
 
       {(canManage || isOwner) && (
         <Tooltip
           title={t("tournaments.registration.actions.cancelRegistration")}
         >
-          <IconButton
-            size="small"
-            color="error"
+          <ActionTile
+            color="#d32f2f"
+            icon={<DeleteOutline fontSize="small" />}
             onClick={() => onCancel(r)}
             disabled={busy?.deletingId === r._id}
-            sx={{ bgcolor: alpha("#d32f2f", 0.05) }}
           >
-            <DeleteOutline fontSize="small" />
-          </IconButton>
+            Xoá
+          </ActionTile>
         </Tooltip>
       )}
-    </Stack>
+    </Box>
   );
 };
 
@@ -1061,12 +1085,18 @@ const RegCard = memo(
 
             {/* Score + Actions */}
             <Stack
-              direction={{ xs: "column", sm: "column" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "stretch", sm: "left" }}
-              spacing={2}
+              direction="column"
+              alignItems="stretch"
+              spacing={1.25}
             >
-              <Box>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "flex-end",
+                  justifyContent: "space-between",
+                  gap: 1,
+                }}
+              >
                 <Typography variant="caption" color="text.secondary">
                   {t("tournaments.registration.list.totalScore")}
                 </Typography>
@@ -1084,7 +1114,7 @@ const RegCard = memo(
                   )}
                 </Stack>
               </Box>
-              <Box sx={{ flexShrink: 0 }}>
+              <Box sx={{ width: "100%" }}>
                 <ActionButtons r={r} {...props} />
               </Box>
             </Stack>
