@@ -14,6 +14,16 @@ function resolvePosterVisionModel() {
 
 const POSTER_VISION_MODEL = resolvePosterVisionModel();
 
+function shouldStreamPosterCompletion() {
+  const baseUrl = String(process.env.CLIPROXY_BASE_URL || "").toLowerCase();
+  const model = String(POSTER_VISION_MODEL || "").toLowerCase();
+  return (
+    model.includes("deepseek") ||
+    baseUrl.includes("127.0.0.1:5024") ||
+    baseUrl.includes("localhost:5024")
+  );
+}
+
 const slotSchema = {
   type: "object",
   additionalProperties: false,
@@ -165,6 +175,30 @@ function extractChatTextCandidates(response) {
     getContentText(choice.text),
   ]
     .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item, index, items) => items.indexOf(item) === index);
+}
+
+async function createChatTextCandidates(payload) {
+  if (!shouldStreamPosterCompletion()) {
+    const response = await openai.chat.completions.create(payload);
+    return extractChatTextCandidates(response);
+  }
+
+  const stream = await openai.chat.completions.create({
+    ...payload,
+    stream: true,
+  });
+  let content = "";
+  let reasoning = "";
+  for await (const chunk of stream) {
+    const delta = chunk?.choices?.[0]?.delta || {};
+    content += getContentText(delta.content);
+    reasoning += getContentText(delta.reasoning_content);
+    reasoning += getContentText(delta.reasoning);
+    content += getContentText(delta.output_text);
+  }
+  return [content.trim(), reasoning.trim()]
     .filter(Boolean)
     .filter((item, index, items) => items.indexOf(item) === index);
 }
@@ -383,16 +417,13 @@ Yêu cầu:
   const routeErrors = [];
   for (const route of routes) {
     try {
-      const response = await openai.chat.completions.create({
+      const textCandidates = await createChatTextCandidates({
         model: POSTER_VISION_MODEL,
         max_tokens: 4096,
         ...route.payload,
       });
-      const textCandidates = extractChatTextCandidates(response);
       if (!textCandidates.length) {
-        throw new Error(
-          `AI không trả về JSON layout (${summarizeAiResponse(response)})`,
-        );
+        throw new Error("AI không trả về JSON layout");
       }
       let lastParseError = null;
       for (const jsonText of textCandidates) {
