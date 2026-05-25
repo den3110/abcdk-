@@ -27,6 +27,7 @@ import {
   listScoreHistory,
 } from "../controllers/scoreHistoryController.js";
 import {
+  analyzeTournamentRegistrationPoster,
   adminCreateTournament,
   adminUpdateTournament,
   deleteTournament,
@@ -425,6 +426,11 @@ router
   .get(getTournamentById) // GET    /api/admin/tournaments/:id
   .put(adminUpdateTournament) // PUT    /api/admin/tournaments/:id
   .delete(deleteTournament); // DELETE /api/admin/tournaments/:id
+
+router.post(
+  "/tournaments/:id/registration-poster/analyze",
+  analyzeTournamentRegistrationPoster,
+);
 
 router
   .route("/tournaments")

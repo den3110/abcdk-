@@ -69,6 +69,7 @@ import {
   HowToReg as RefereeIcon,
   Movie as MovieIcon,
   Print as PrintIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -79,6 +80,7 @@ import {
   useAdminSetMatchLiveUrlMutation,
   useAdminBatchSetMatchLiveUrlMutation,
   useVerifyRefereeQuery,
+  useAnalyzeRegistrationPosterMutation,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -1238,6 +1240,8 @@ export default function TournamentManagePage() {
     useAdminSetMatchLiveUrlMutation();
   const [batchSetLiveUrl, { isLoading: batchingVideo }] =
     useAdminBatchSetMatchLiveUrlMutation();
+  const [analyzeRegistrationPoster, { isLoading: analyzingPoster }] =
+    useAnalyzeRegistrationPosterMutation();
 
   // Quyền
   const isAdmin = !!(
@@ -1860,6 +1864,26 @@ export default function TournamentManagePage() {
     () => setLiveSetup((s) => ({ ...s, open: false })),
     [],
   );
+  const handleAnalyzeRegistrationPoster = useCallback(async () => {
+    try {
+      const result = await analyzeRegistrationPoster({
+        id,
+        save: true,
+      }).unwrap();
+      const confidence = Number(result?.analysis?.confidence || 0);
+      const suffix = confidence
+        ? ` (${Math.round(confidence * 100)}%)`
+        : "";
+      toast.success(`AI đã lưu layout poster${suffix}`);
+      refetchTour();
+    } catch (error) {
+      toast.error(
+        error?.data?.message ||
+          error?.message ||
+          "AI phân tích poster thất bại",
+      );
+    }
+  }, [analyzeRegistrationPoster, id, refetchTour]);
 
   // Socket realtime
   const socket = useSocket();
@@ -2432,6 +2456,22 @@ export default function TournamentManagePage() {
               </Button>
             </Tooltip>
 
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={
+                analyzingPoster ? (
+                  <CircularProgress size={16} />
+                ) : (
+                  <AutoAwesomeIcon />
+                )
+              }
+              onClick={handleAnalyzeRegistrationPoster}
+              disabled={!canManage || analyzingPoster}
+            >
+              AI poster
+            </Button>
+
             {/* Export menu (desktop) */}
             <Button
               variant="outlined"
@@ -2573,6 +2613,23 @@ export default function TournamentManagePage() {
                     <MovieIcon fontSize="small" />
                   </ListItemIcon>
                   <ListItemText primary={t("tournaments.manage.liveSetup")} />
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
+                    handleAnalyzeRegistrationPoster();
+                  }}
+                  disabled={!canManage || analyzingPoster}
+                >
+                  <ListItemIcon>
+                    {analyzingPoster ? (
+                      <CircularProgress size={18} />
+                    ) : (
+                      <AutoAwesomeIcon fontSize="small" />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText primary="AI poster" />
                 </MenuItem>
 
                 <Divider />

@@ -9,9 +9,9 @@ import Assessment from "../models/assessmentModel.js";
 /**
  * Tính số giải đã finished mà user tham gia
  * @param {ObjectId} userId
- * @returns {Promise<number>}
+ * @returns {Promise<{ totalFinishedTours: number, lastFinishedTourAt: Date | null }>}
  */
-async function countFinishedTournamentsForUser(userId) {
+async function getFinishedTournamentStatsForUser(userId) {
   const now = new Date();
 
   // Lấy tất cả registrations của user
@@ -21,7 +21,9 @@ async function countFinishedTournamentsForUser(userId) {
     .select("tournament")
     .lean();
 
-  if (!registrations.length) return 0;
+  if (!registrations.length) {
+    return { totalFinishedTours: 0, lastFinishedTourAt: null };
+  }
 
   const tournamentIds = [
     ...new Set(
@@ -29,30 +31,69 @@ async function countFinishedTournamentsForUser(userId) {
     ),
   ];
 
-  // Đếm các tournament đã finished
-  const finishedCount = await Tournament.countDocuments({
+  // Lấy các tournament đã finished để vừa đếm vừa lấy mốc gần nhất
+  const finishedTours = await Tournament.find({
     _id: { $in: tournamentIds },
     $or: [
       { status: "finished" },
       { finishedAt: { $ne: null } },
       { endAt: { $lt: now } },
+      { endDate: { $lt: now } },
     ],
-  });
+  })
+    .select("finishedAt endAt endDate updatedAt")
+    .lean();
 
-  return finishedCount;
+  const lastFinishedTourAt =
+    finishedTours
+      .flatMap((tour) => [
+        tour.finishedAt,
+        tour.endAt,
+        tour.endDate,
+        tour.updatedAt,
+      ])
+      .map((value) => (value ? new Date(value) : null))
+      .filter((date) => date && Number.isFinite(date.getTime()))
+      .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+  return {
+    totalFinishedTours: finishedTours.length,
+    lastFinishedTourAt,
+  };
 }
 
 /**
- * Check xem user có staff assessment không
+ * Lấy mốc chấm trình gần nhất và cờ staff assessment
  * @param {ObjectId} userId
- * @returns {Promise<boolean>}
+ * @returns {Promise<{ hasStaffAssessment: boolean, lastAssessmentAt: Date | null, lastStaffAssessmentAt: Date | null }>}
  */
-async function hasStaffAssessmentForUser(userId) {
-  const exists = await Assessment.exists({
+async function getAssessmentStatsForUser(userId) {
+  const staffQuery = {
     user: userId,
     "meta.scoreBy": { $in: ["admin", "mod", "moderator"] },
-  });
-  return !!exists;
+  };
+  const [latestAssessment, latestStaffAssessment, staffExists] =
+    await Promise.all([
+      Assessment.findOne({ user: userId })
+        .sort({ scoredAt: -1, updatedAt: -1 })
+        .select("scoredAt updatedAt")
+        .lean(),
+      Assessment.findOne(staffQuery)
+        .sort({ scoredAt: -1, updatedAt: -1 })
+        .select("scoredAt updatedAt")
+        .lean(),
+      Assessment.exists(staffQuery),
+    ]);
+
+  return {
+    hasStaffAssessment: !!staffExists,
+    lastAssessmentAt:
+      latestAssessment?.scoredAt || latestAssessment?.updatedAt || null,
+    lastStaffAssessmentAt:
+      latestStaffAssessment?.scoredAt ||
+      latestStaffAssessment?.updatedAt ||
+      null,
+  };
 }
 
 /**
@@ -60,9 +101,9 @@ async function hasStaffAssessmentForUser(userId) {
  * @param {ObjectId} userId
  */
 export async function syncRankingForUser(userId) {
-  const [totalFinishedTours, hasStaffAssessment] = await Promise.all([
-    countFinishedTournamentsForUser(userId),
-    hasStaffAssessmentForUser(userId),
+  const [finishedStats, assessmentStats] = await Promise.all([
+    getFinishedTournamentStatsForUser(userId),
+    getAssessmentStatsForUser(userId),
   ]);
 
   // Upsert để đảm bảo ranking tồn tại
@@ -70,8 +111,11 @@ export async function syncRankingForUser(userId) {
     { user: userId },
     {
       $set: {
-        totalFinishedTours,
-        hasStaffAssessment,
+        totalFinishedTours: finishedStats.totalFinishedTours,
+        lastFinishedTourAt: finishedStats.lastFinishedTourAt,
+        hasStaffAssessment: assessmentStats.hasStaffAssessment,
+        lastAssessmentAt: assessmentStats.lastAssessmentAt,
+        lastStaffAssessmentAt: assessmentStats.lastStaffAssessmentAt,
       },
     },
     { upsert: true, new: true },

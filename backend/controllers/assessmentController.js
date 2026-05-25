@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Assessment from "../models/assessmentModel.js";
 import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
+import User from "../models/userModel.js";
 import { normalizeDupr, rawFromDupr, sanitizeMeta } from "../utils/level.js";
 import Registration from "../models/registrationModel.js";
 import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
@@ -136,6 +137,7 @@ export async function createAssessment(req, res) {
   }
 
   // === PHẦN TẠO ASSESSMENT GIỮ NGUYÊN ===
+  const scoredAt = new Date();
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
@@ -151,7 +153,7 @@ export async function createAssessment(req, res) {
           doubleLevel: dLv,
           meta: { ...metaInput, selfScored, scoreBy },
           note: finalNote,
-          scoredAt: new Date(),
+          scoredAt,
         },
       ],
       { session },
@@ -176,9 +178,12 @@ export async function createAssessment(req, res) {
         $set: {
           single: sLv,
           double: dLv,
-          lastUpdated: new Date(),
+          lastUpdated: scoredAt,
+          lastAssessmentAt: scoredAt,
           // Set hasStaffAssessment if staff is scoring
-          ...(isStaffScoring ? { hasStaffAssessment: true } : {}),
+          ...(isStaffScoring
+            ? { hasStaffAssessment: true, lastStaffAssessmentAt: scoredAt }
+            : {}),
         },
         $inc: {
           points:
@@ -190,8 +195,8 @@ export async function createAssessment(req, res) {
       { upsert: true, new: true, session },
     );
 
-    // Recalculate tier after updating hasStaffAssessment
-    if (isStaffScoring && ranking) {
+    // Recalculate tier after updating score metadata
+    if (ranking) {
       ranking.recalculateTier();
       await ranking.save({ session });
     }
@@ -204,7 +209,7 @@ export async function createAssessment(req, res) {
           single: sLv,
           double: dLv,
           note: finalNote,
-          scoredAt: new Date(),
+          scoredAt,
         },
       ],
       { session },

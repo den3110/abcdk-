@@ -428,7 +428,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const ids = isDouble ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
     .select(
-      "_id name nickname phone avatar province score cccd cccdStatus dob dateOfBirth birthYear"
+      "_id name nickname phone avatar province score cccd cccdStatus verified dob dateOfBirth birthYear"
     )
     .lean();
 
@@ -625,8 +625,11 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   // 3) Yêu cầu KYC (nếu giải bật). Mặc định requireKyc=true.
   const requireKyc = tour.requireKyc !== false;
   if (requireKyc) {
-    const isKycVerified = (u) =>
-      !!u?.cccd && String(u?.cccdStatus || "").toLowerCase() === "verified";
+    const isKycVerified = (u) => {
+      const cccdStatus = String(u?.cccdStatus || "").toLowerCase();
+      const legacyVerified = String(u?.verified || "").toLowerCase();
+      return cccdStatus === "verified" || legacyVerified === "verified";
+    };
 
     const needKycP1 = !isKycVerified(u1);
     const needKycP2 = isDouble ? !isKycVerified(u2) : false;

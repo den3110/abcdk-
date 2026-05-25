@@ -40,6 +40,7 @@ import {
 import {
   clearTournamentPresentationCaches,
 } from "../../services/cacheInvalidation.service.js";
+import { analyzeRegistrationPosterLayout } from "../../services/registrationPosterAi.service.js";
 import {
   emitTournamentInvalidate,
   emitTournamentMatchUpdate,
@@ -172,6 +173,7 @@ const cleanHTML = (html = "") => sanitizeHtml(html, SAFE_HTML);
 const FIELD_LABELS = {
   name: "Tên giải đấu",
   image: "Ảnh",
+  registrationPosterConfig: "Cấu hình poster đăng ký",
   code: "Mã giải",
   sportType: "Loại môn",
   groupId: "Nhóm",
@@ -407,6 +409,10 @@ const createSchema = Joi.object({
   code: Joi.string().trim().min(3).max(32).label(FIELD_LABELS.code),
 
   image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
+  registrationPosterConfig: Joi.object()
+    .unknown(true)
+    .allow(null)
+    .label(FIELD_LABELS.registrationPosterConfig),
   sportType: Joi.number().valid(1, 2).required().label(FIELD_LABELS.sportType),
   groupId: Joi.number().integer().min(0).default(0).label(FIELD_LABELS.groupId),
   eventType: Joi.string()
@@ -488,6 +494,10 @@ const updateSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).label(FIELD_LABELS.name),
   code: Joi.string().trim().min(3).max(32).label(FIELD_LABELS.code),
   image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
+  registrationPosterConfig: Joi.object()
+    .unknown(true)
+    .allow(null)
+    .label(FIELD_LABELS.registrationPosterConfig),
   sportType: Joi.number().valid(1, 2).label(FIELD_LABELS.sportType),
   groupId: Joi.number().integer().min(0).label(FIELD_LABELS.groupId),
   eventType: Joi.string()
@@ -646,6 +656,55 @@ const validate = (schema, payload) => {
   if (strippedKeys.length) value._meta = { strippedKeys };
   return value;
 };
+
+export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
+  async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400);
+      throw new Error("ID giải đấu không hợp lệ");
+    }
+
+    const tour = await Tournament.findById(id)
+      .select("_id image registrationPosterConfig")
+      .lean();
+    if (!tour) {
+      res.status(404);
+      throw new Error("Không tìm thấy giải đấu");
+    }
+
+    const templateUrl = String(req.body?.templateUrl || "").trim();
+    const imageSource = templateUrl || tour.image;
+    if (!imageSource) {
+      res.status(400);
+      throw new Error("Giải đấu chưa có ảnh poster để AI phân tích");
+    }
+
+    const { config, analysis } = await analyzeRegistrationPosterLayout({
+      req,
+      imageSource,
+    });
+    if (templateUrl) {
+      config.templateUrl = templateUrl;
+    }
+
+    const shouldSave = req.body?.save !== false;
+    if (shouldSave) {
+      await Tournament.updateOne(
+        { _id: id },
+        { $set: { registrationPosterConfig: config } },
+      );
+      await clearTournamentPresentationCaches();
+    }
+
+    res.json({
+      ok: true,
+      saved: shouldSave,
+      config,
+      analysis,
+    });
+  },
+);
 
 const isObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 const normalizeAllowedCourtClusterIds = (value) => {

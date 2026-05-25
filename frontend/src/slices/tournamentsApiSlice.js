@@ -714,6 +714,17 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         body: { ids, video },
       }),
     }),
+    analyzeRegistrationPoster: builder.mutation({
+      query: ({ id, templateUrl, save = true }) => ({
+        url: `/api/admin/tournaments/${id}/registration-poster/analyze`,
+        method: "POST",
+        body: { templateUrl, save },
+      }),
+      invalidatesTags: (result, error, { id }) => [
+        { type: "Tournaments", id },
+        { type: "Tournaments", id: "LIST" },
+      ],
+    }),
   }),
 });
 
@@ -786,4 +797,5 @@ export const {
   useAdminClearMatchCourtMutation,
   useAdminGetMatchRefereesQuery,
   useAdminBatchSetMatchLiveUrlMutation,
+  useAnalyzeRegistrationPosterMutation,
 } = tournamentsApiSlice;

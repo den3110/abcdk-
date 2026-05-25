@@ -29,10 +29,15 @@ const rankingSchema = new mongoose.Schema(
     // User có assessment do staff chấm không
     hasStaffAssessment: { type: Boolean, default: false },
 
-    // Tier/màu xếp hạng (Gold/Red/Grey)
+    // Mốc gần nhất để xác định độ mới của điểm
+    lastFinishedTourAt: { type: Date, default: null },
+    lastAssessmentAt: { type: Date, default: null },
+    lastStaffAssessmentAt: { type: Date, default: null },
+
+    // Tier/màu xếp hạng (Blue/Gold/Red/Grey)
     tierColor: {
       type: String,
-      enum: ["yellow", "red", "grey"],
+      enum: ["blue", "yellow", "red", "grey"],
       default: "grey",
     },
 
@@ -40,6 +45,8 @@ const rankingSchema = new mongoose.Schema(
       type: String,
       enum: [
         "Official/Đã duyệt",
+        "Đã thi đấu >= 3 giải",
+        "Cần cập nhật điểm",
         "Tự chấm",
         "0 điểm / Chưa đấu",
         "Chưa có điểm",
@@ -47,10 +54,10 @@ const rankingSchema = new mongoose.Schema(
       default: "0 điểm / Chưa đấu",
     },
 
-    // Số thứ tự ưu tiên sort: 0=Gold, 1=Red, 2=Grey, 3=Default
+    // Số thứ tự ưu tiên sort: 0=Blue, 1=Gold, 2=Red, 3=Grey
     colorRank: {
       type: Number,
-      default: 2,
+      default: 3,
       min: 0,
       max: 3,
     },
@@ -121,28 +128,61 @@ rankingSchema.virtual("isZeroPoints").get(function () {
 // ========== METHODS ==========
 // Method để recalculate tier
 rankingSchema.methods.recalculateTier = function () {
+  const now = new Date();
+  const staleCutoff = new Date(now);
+  staleCutoff.setMonth(staleCutoff.getMonth() - 4);
+
+  const asDate = (value) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isFinite(date.getTime()) ? date : null;
+  };
+
+  const latestActivityAt = [
+    this.lastFinishedTourAt,
+    this.lastAssessmentAt,
+    this.lastStaffAssessmentAt,
+    this.lastUpdated,
+    this.updatedAt,
+  ]
+    .map(asDate)
+    .filter(Boolean)
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+
   const zeroPoints =
     this.points === 0 &&
     this.single === 0 &&
     this.double === 0 &&
     this.mix === 0;
 
-  const isGrey = zeroPoints && this.totalFinishedTours === 0;
+  const hasAnyScore = !zeroPoints;
+  const isStale =
+    hasAnyScore &&
+    (!latestActivityAt || latestActivityAt.getTime() < staleCutoff.getTime());
+  const isGrey = zeroPoints;
+  const isBlue = !isGrey && !isStale && this.totalFinishedTours >= 3;
   const isGold =
-    !isGrey && (this.totalFinishedTours > 0 || this.hasStaffAssessment);
-  const isRed = this.totalFinishedTours === 0 && !isGold && !isGrey;
+    !isGrey &&
+    !isStale &&
+    !isBlue &&
+    (this.totalFinishedTours > 0 || this.hasStaffAssessment);
+  const isRed = !isGrey && !isBlue && !isGold;
 
   // Update tier fields
-  if (isGold) {
+  if (isBlue) {
     this.colorRank = 0;
+    this.tierColor = "blue";
+    this.tierLabel = "Đã thi đấu >= 3 giải";
+  } else if (isGold) {
+    this.colorRank = 1;
     this.tierColor = "yellow";
     this.tierLabel = "Official/Đã duyệt";
   } else if (isRed) {
-    this.colorRank = 1;
-    this.tierColor = "red";
-    this.tierLabel = "Tự chấm";
-  } else if (isGrey) {
     this.colorRank = 2;
+    this.tierColor = "red";
+    this.tierLabel = isStale ? "Cần cập nhật điểm" : "Tự chấm";
+  } else if (isGrey) {
+    this.colorRank = 3;
     this.tierColor = "grey";
     this.tierLabel = "0 điểm / Chưa đấu";
   } else {
@@ -204,7 +244,10 @@ rankingSchema.pre("save", function (next) {
     this.isModified("mix") ||
     this.isModified("points") ||
     this.isModified("totalFinishedTours") ||
-    this.isModified("hasStaffAssessment")
+    this.isModified("hasStaffAssessment") ||
+    this.isModified("lastFinishedTourAt") ||
+    this.isModified("lastAssessmentAt") ||
+    this.isModified("lastStaffAssessmentAt")
   ) {
     this.recalculateTier();
   }

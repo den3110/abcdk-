@@ -48,6 +48,7 @@ import {
   EmojiEvents,
   PersonAdd,
   CheckCircle,
+  ImageOutlined,
   InfoOutlined,
 } from "@mui/icons-material";
 import DangerousSharpIcon from "@mui/icons-material/DangerousSharp";
@@ -64,6 +65,7 @@ import {
   useSearchRegistrationsQuery,
   useCancelRegistrationMutation,
 } from "../../slices/tournamentsApiSlice";
+import { BASE_URL } from "../../slices/apiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import { useUploadRealAvatarMutation } from "../../slices/uploadApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
@@ -227,6 +229,14 @@ const toHttpsIfNeeded = (u) => {
 };
 
 const safeSrc = (u) => toHttpsIfNeeded(u);
+
+const apiImageSrc = (path) => {
+  const base = String(BASE_URL || "").replace(/\/+$/, "");
+  const cleanPath = String(path || "").startsWith("/")
+    ? String(path || "")
+    : `/${String(path || "")}`;
+  return safeSrc(`${base}${cleanPath}`);
+};
 
 const fixHtmlHttps = (html) => {
   if (!shouldForceHttps || !html) return html || "";
@@ -684,6 +694,7 @@ const ActionButtons = memo(
     onTogglePayment,
     onCancel,
     onOpenPayment,
+    onOpenPoster,
     onOpenComplaint,
     busy,
   }) => (
@@ -695,6 +706,7 @@ const ActionButtons = memo(
       onTogglePayment={onTogglePayment}
       onCancel={onCancel}
       onOpenPayment={onOpenPayment}
+      onOpenPoster={onOpenPoster}
       onOpenComplaint={onOpenComplaint}
       busy={busy}
     />
@@ -709,6 +721,7 @@ const ActionButtonsInner = ({
   onTogglePayment,
   onCancel,
   onOpenPayment,
+  onOpenPoster,
   onOpenComplaint,
   busy,
 }) => {
@@ -721,6 +734,24 @@ const ActionButtonsInner = ({
       justifyContent="flex-end"
       alignItems="center"
     >
+      <Tooltip title="Tải poster">
+        <Button
+          size="small"
+          variant="text"
+          startIcon={<ImageOutlined fontSize="small" />}
+          onClick={() => onOpenPoster(r)}
+          sx={{
+            color: "#1976d2",
+            bgcolor: alpha("#1976d2", 0.05),
+            textTransform: "none",
+            minWidth: "auto",
+            px: 1,
+          }}
+        >
+          Tải poster
+        </Button>
+      </Tooltip>
+
       {canManage && !isFreeTournament && (
         <Tooltip title={t("tournaments.registration.payment.toggleTooltip")}>
           <IconButton
@@ -1339,6 +1370,19 @@ export default function TournamentRegistration() {
     [tour, me, regCodeOf],
   );
 
+  const posterImgUrlFor = useCallback(
+    (r) => {
+      const tourId = tour?._id || tour?.id || id;
+      const regId = r?._id || r?.id;
+      if (!tourId || !regId) return "";
+      const stamp = encodeURIComponent(String(r?.updatedAt || Date.now()));
+      return apiImageSrc(
+        `/api/tournaments/${tourId}/registrations/${regId}/poster?v=${stamp}`,
+      );
+    },
+    [id, tour],
+  );
+
   /* Handlers */
   const submit = useCallback(
     async (e) => {
@@ -1511,6 +1555,15 @@ export default function TournamentRegistration() {
   const handleClosePreview = useCallback(() => {
     setImgPreview({ open: false, src: "", name: "" });
   }, []);
+
+  const handleOpenPoster = useCallback(
+    (reg) => {
+      const src = posterImgUrlFor(reg);
+      if (!src) return toast.error("Không tạo được poster");
+      handleOpenPreview(src, `Poster #${regCodeOf(reg)}`);
+    },
+    [handleOpenPreview, posterImgUrlFor, regCodeOf],
+  );
 
   const handleOpenReplace = useCallback(
     (reg, slot) => {
@@ -2439,6 +2492,7 @@ export default function TournamentRegistration() {
                             onOpenPreview={handleOpenPreview}
                             onOpenProfile={handleOpenProfile}
                             onOpenPayment={handleOpenPayment}
+                            onOpenPoster={handleOpenPoster}
                             onOpenComplaint={handleOpenComplaint}
                             getPlayerAvatar={getPlayerAvatar}
                             displayMode={displayMode}

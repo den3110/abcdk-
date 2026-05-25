@@ -1,6 +1,9 @@
 import asyncHandler from "express-async-handler";
 import Tournament from "../models/tournamentModel.js";
 import mongoose from "mongoose";
+import fs from "fs/promises";
+import path from "path";
+import sharp from "sharp";
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
@@ -21,6 +24,336 @@ import {
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
+const POSTER_BASE_W = 960;
+const POSTER_BASE_H = 1280;
+
+function escapeXml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function asDisplayName(player = {}, tour = {}) {
+  const mode = String(tour?.nameDisplayMode || "").toLowerCase();
+  if (mode === "fullname") {
+    return player.fullName || player.nickName || player.nickname || "VĐV";
+  }
+  return player.nickName || player.nickname || player.fullName || "VĐV";
+}
+
+function resolveLocalImagePath(src = "") {
+  const clean = String(src || "").split("?")[0].replace(/\\/g, "/").trim();
+  if (!clean || /^https?:\/\//i.test(clean)) return null;
+  if (/^[a-zA-Z]:\//.test(clean)) {
+    return path.normalize(clean);
+  }
+  if (clean.startsWith("/")) {
+    return path.join(process.cwd(), clean.replace(/^\/+/, ""));
+  }
+  return path.join(process.cwd(), clean.replace(/^\/+/, ""));
+}
+
+async function readImageBuffer(req, src = "") {
+  const raw = String(src || "").trim();
+  if (!raw) throw new Error("Missing image source");
+
+  const localPath = resolveLocalImagePath(raw);
+  if (localPath) {
+    try {
+      return await fs.readFile(localPath);
+    } catch {}
+  }
+
+  const origin = `${req.protocol}://${req.get("host")}`;
+  const url = /^https?:\/\//i.test(raw) ? raw : new URL(raw, origin).toString();
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Cannot load image: ${resp.status}`);
+  return Buffer.from(await resp.arrayBuffer());
+}
+
+function numOr(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function scaleCoord(value, outputSize, baseSize, fallback = 0) {
+  const n = numOr(value, fallback);
+  if (n >= 0 && n <= 1) return Math.round(n * outputSize);
+  return Math.round(n * (outputSize / baseSize));
+}
+
+function scaleFont(value, outputHeight, baseHeight, fallback) {
+  const n = numOr(value, fallback);
+  if (n > 0 && n <= 1) return Math.round(n * outputHeight);
+  return Math.round(n * (outputHeight / baseHeight));
+}
+
+function resolveRadius(radius, width, height, fallbackRatio = 0.08) {
+  if (String(radius || "").toLowerCase() === "circle") {
+    return Math.round(Math.min(width, height) / 2);
+  }
+  const n = Number(radius);
+  if (Number.isFinite(n)) {
+    if (n >= 0 && n <= 1) return Math.round(n * Math.min(width, height));
+    return Math.round(n);
+  }
+  return Math.round(width * fallbackRatio);
+}
+
+async function makeAvatarLayer(req, player, width, height, radius) {
+  const src = player?.avatar || "";
+  let input = null;
+  try {
+    input = src ? await readImageBuffer(req, src) : null;
+  } catch {
+    input = null;
+  }
+
+  if (!input) {
+    const label = escapeXml(
+      asDisplayName(player).slice(0, 1).toUpperCase() || "?",
+    );
+    input = Buffer.from(`
+      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="#e5e7eb"/>
+        <text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle"
+          font-family="Arial, sans-serif" font-size="${Math.round(width * 0.36)}"
+          font-weight="800" fill="#64748b">${label}</text>
+      </svg>
+    `);
+  }
+
+  const rx = resolveRadius(radius, width, height);
+  const mask = Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
+    </svg>
+  `);
+
+  return sharp(input)
+    .resize(width, height, { fit: "cover", position: "center" })
+    .composite([{ input: mask, blend: "dest-in" }])
+    .png()
+    .toBuffer();
+}
+
+const DEFAULT_POSTER_LAYOUT = {
+  baseWidth: POSTER_BASE_W,
+  baseHeight: POSTER_BASE_H,
+  slots: {
+    single: [
+      {
+        avatar: { left: 333, top: 455, width: 294, height: 294 },
+        name: { cx: 480, y: 835, width: 390 },
+      },
+    ],
+    double: [
+      {
+        avatar: { left: 108, top: 455, width: 294, height: 294 },
+        name: { cx: 256, y: 835, width: 390 },
+      },
+      {
+        avatar: { left: 558, top: 455, width: 294, height: 294 },
+        name: { cx: 704, y: 835, width: 390 },
+      },
+    ],
+  },
+  text: {
+    color: "#ffffff",
+    fontFamily: "Arial, sans-serif",
+    fontWeight: 900,
+    fontStyle: "italic",
+    transform: "uppercase",
+    minFontSize: 24,
+    maxFontSize: 46,
+    charRatio: 0.58,
+  },
+};
+
+function getPosterConfig(tour = {}) {
+  return tour.registrationPosterConfig &&
+    typeof tour.registrationPosterConfig === "object"
+    ? tour.registrationPosterConfig
+    : {};
+}
+
+function getPosterTemplateSource(tour = {}) {
+  const cfg = getPosterConfig(tour);
+  return cfg.templateUrl || cfg.template || cfg.image || tour.image;
+}
+
+function pickPosterSlots(layout, playersCount) {
+  const rawSlots = layout.slots;
+  if (Array.isArray(rawSlots)) return rawSlots;
+  if (!rawSlots || typeof rawSlots !== "object") {
+    return playersCount <= 1
+      ? DEFAULT_POSTER_LAYOUT.slots.single
+      : DEFAULT_POSTER_LAYOUT.slots.double;
+  }
+
+  if (playersCount <= 1) {
+    return (
+      rawSlots.single ||
+      rawSlots.singles ||
+      rawSlots.one ||
+      DEFAULT_POSTER_LAYOUT.slots.single
+    );
+  }
+
+  return (
+    rawSlots.double ||
+    rawSlots.doubles ||
+    rawSlots.two ||
+    DEFAULT_POSTER_LAYOUT.slots.double
+  );
+}
+
+function resolvePosterBox(box = {}, width, height, baseWidth, baseHeight) {
+  const left = scaleCoord(box.left ?? box.x, width, baseWidth);
+  const top = scaleCoord(box.top ?? box.y, height, baseHeight);
+  return {
+    left,
+    top,
+    width: Math.max(1, scaleCoord(box.width ?? box.w, width, baseWidth, 1)),
+    height: Math.max(1, scaleCoord(box.height ?? box.h, height, baseHeight, 1)),
+    radius: box.radius ?? box.r,
+  };
+}
+
+function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
+  return {
+    cx: scaleCoord(name.cx ?? name.x, width, baseWidth),
+    y: scaleCoord(name.y ?? name.top, height, baseHeight),
+    width: Math.max(1, scaleCoord(name.width ?? name.w, width, baseWidth, 1)),
+    fontSize: name.fontSize,
+    minFontSize: name.minFontSize,
+    maxFontSize: name.maxFontSize,
+    color: name.color,
+    fontFamily: name.fontFamily,
+    fontWeight: name.fontWeight,
+    fontStyle: name.fontStyle,
+    transform: name.transform,
+    charRatio: name.charRatio,
+    stroke: name.stroke,
+    strokeWidth: name.strokeWidth,
+  };
+}
+
+function resolvePosterLayout(tour, playersCount, width, height) {
+  const cfg = getPosterConfig(tour);
+  const baseWidth = numOr(cfg.baseWidth, DEFAULT_POSTER_LAYOUT.baseWidth);
+  const baseHeight = numOr(cfg.baseHeight, DEFAULT_POSTER_LAYOUT.baseHeight);
+  const rawSlots = pickPosterSlots(
+    {
+      ...DEFAULT_POSTER_LAYOUT,
+      ...cfg,
+      slots: cfg.slots || DEFAULT_POSTER_LAYOUT.slots,
+    },
+    playersCount,
+  );
+  const selectedSlots = Array.isArray(rawSlots)
+    ? rawSlots
+    : playersCount <= 1
+      ? DEFAULT_POSTER_LAYOUT.slots.single
+      : DEFAULT_POSTER_LAYOUT.slots.double;
+  const slots = selectedSlots.map((slot = {}) => ({
+    avatar: {
+      ...resolvePosterBox(
+        slot.avatar || slot.photo,
+        width,
+        height,
+        baseWidth,
+        baseHeight,
+      ),
+    },
+    name: {
+      ...resolvePosterName(
+        slot.name || slot.text,
+        width,
+        height,
+        baseWidth,
+        baseHeight,
+      ),
+    },
+  }));
+
+  return {
+    baseWidth,
+    baseHeight,
+    slots,
+    text: { ...DEFAULT_POSTER_LAYOUT.text, ...(cfg.text || {}) },
+  };
+}
+
+function formatPosterName(name, cfg) {
+  const mode = String(cfg.transform || "uppercase").toLowerCase();
+  if (mode === "none") return name;
+  if (mode === "lowercase") return name.toLowerCase();
+  return name.toUpperCase();
+}
+
+function buildPosterTextSvg(width, height, players, slots, tour, layout) {
+  const textNodes = players
+    .map((player, idx) => {
+      const slot = slots[idx];
+      if (!slot?.name) return "";
+      const textCfg = { ...layout.text, ...(slot.name || {}) };
+      const name = escapeXml(
+        formatPosterName(asDisplayName(player, tour), textCfg),
+      );
+      const minFontSize = scaleFont(
+        textCfg.minFontSize,
+        height,
+        layout.baseHeight,
+        DEFAULT_POSTER_LAYOUT.text.minFontSize,
+      );
+      const maxFontSize = scaleFont(
+        textCfg.maxFontSize,
+        height,
+        layout.baseHeight,
+        DEFAULT_POSTER_LAYOUT.text.maxFontSize,
+      );
+      const charRatio = numOr(
+        textCfg.charRatio,
+        DEFAULT_POSTER_LAYOUT.text.charRatio,
+      );
+      const size = Math.max(
+        minFontSize,
+        Math.min(
+          maxFontSize,
+          textCfg.fontSize
+            ? scaleFont(textCfg.fontSize, height, layout.baseHeight, maxFontSize)
+            : Math.floor(
+                slot.name.width / Math.max(8, name.length * charRatio),
+              ),
+        ),
+      );
+      const stroke =
+        textCfg.stroke && textCfg.strokeWidth
+          ? `stroke="${escapeXml(textCfg.stroke)}" stroke-width="${numOr(
+              textCfg.strokeWidth,
+              0,
+            )}"`
+          : "";
+      return `
+        <text x="${slot.name.cx}" y="${slot.name.y}" text-anchor="middle"
+          dominant-baseline="middle" font-family="${escapeXml(textCfg.fontFamily)}"
+          font-size="${size}" font-weight="${escapeXml(textCfg.fontWeight)}"
+          font-style="${escapeXml(textCfg.fontStyle)}"
+          fill="${escapeXml(textCfg.color)}" ${stroke}>${name}</text>
+      `;
+    })
+    .join("");
+
+  return Buffer.from(`
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+      ${textNodes}
+    </svg>
+  `);
+}
 const normalizeTournamentPublicUrls = async (req, tournament) => {
   if (!tournament || typeof tournament !== "object") return tournament;
 
@@ -1554,6 +1887,80 @@ export const getTeamStandings = asyncHandler(async (req, res) => {
   }
   const payload = await buildTeamStandings(id);
   res.json(payload);
+});
+
+export const getRegistrationPoster = asyncHandler(async (req, res) => {
+  const { id, regId } = req.params;
+  if (!isId(id) || !isId(regId)) {
+    res.status(400);
+    throw new Error("Invalid tournament or registration id");
+  }
+
+  const [tour, reg] = await Promise.all([
+    Tournament.findById(id)
+      .select("name image eventType nameDisplayMode registrationPosterConfig")
+      .lean(),
+    Registration.findOne({ _id: regId, tournament: id })
+      .select("player1 player2 updatedAt")
+      .lean(),
+  ]);
+
+  if (!tour || !reg) {
+    res.status(404);
+    throw new Error("Không tìm thấy đăng ký hoặc giải đấu");
+  }
+  const templateSrc = getPosterTemplateSource(tour);
+  if (!templateSrc) {
+    res.status(400);
+    throw new Error("Giải đấu chưa có poster");
+  }
+
+  const baseBuffer = await readImageBuffer(req, templateSrc);
+  const meta = await sharp(baseBuffer).metadata();
+  const width = meta.width || POSTER_BASE_W;
+  const height = meta.height || POSTER_BASE_H;
+
+  const players = [reg.player1, reg.player2].filter(Boolean);
+  const layout = resolvePosterLayout(tour, players.length, width, height);
+  const slots = layout.slots;
+  const avatarLayers = await Promise.all(
+    players.map(async (player, idx) => {
+      const slot = slots[idx]?.avatar;
+      if (!slot) return null;
+      return {
+        input: await makeAvatarLayer(
+          req,
+          player,
+          slot.width,
+          slot.height,
+          slot.radius,
+        ),
+        left: slot.left,
+        top: slot.top,
+      };
+    }),
+  );
+
+  const textLayer = buildPosterTextSvg(
+    width,
+    height,
+    players,
+    slots,
+    tour,
+    layout,
+  );
+  const out = await sharp(baseBuffer)
+    .resize(width, height, { fit: "fill" })
+    .composite([
+      ...avatarLayers.filter(Boolean),
+      { input: textLayer, left: 0, top: 0 },
+    ])
+    .png()
+    .toBuffer();
+
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.send(out);
 });
 
 export { getTournaments, getTournamentById };

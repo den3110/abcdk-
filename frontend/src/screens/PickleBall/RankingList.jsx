@@ -305,6 +305,45 @@ const fmt3 = (x) => {
   if (x === null) return "***";
   return Number.isFinite(x) ? Number(x).toFixed(3) : "0.000";
 };
+const SCORE_STALE_MONTHS = 4;
+
+const hasAnyScore = (r) =>
+  [r?.single, r?.double, r?.mix, r?.points].some((v) => Number(v) > 0);
+
+const getLatestScoreActivityAt = (r) => {
+  const dates = [
+    r?.lastFinishedTourAt,
+    r?.lastAssessmentAt,
+    r?.lastStaffAssessmentAt,
+    r?.lastUpdated,
+    r?.updatedAt,
+  ]
+    .map((v) => (v ? new Date(v) : null))
+    .filter((d) => d && Number.isFinite(d.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime());
+  return dates[0] || null;
+};
+
+const isScoreStale = (r) => {
+  if (!hasAnyScore(r)) return false;
+  const latest = getLatestScoreActivityAt(r);
+  if (!latest) return true;
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - SCORE_STALE_MONTHS);
+  return latest.getTime() < cutoff.getTime();
+};
+
+const getScoreHex = (r) => {
+  if (!hasAnyScore(r)) return HEX.grey;
+  if (isScoreStale(r)) return HEX.red;
+  const totalTours = Number(r?.totalTours || r?.totalFinishedTours || 0);
+  if (totalTours >= 3 || r?.tierColor === "blue") return HEX.blue;
+  if (totalTours > 0 || r?.hasStaffAssessment || r?.tierColor === "yellow") {
+    return HEX.yellow;
+  }
+  if (r?.tierColor === "red") return HEX.red;
+  return HEX.grey;
+};
 
 const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;
@@ -536,7 +575,7 @@ const DesktopCard = memo(
     );
     const avatarSrc =
       u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-    const tierHex = HEX[r?.tierColor] || HEX.grey;
+    const tierHex = getScoreHex(r);
     const age = useMemo(() => calcAge(u), [u]);
     const canGrade = useMemo(
       () => canGradeUser(me, u?.province),
@@ -1355,16 +1394,17 @@ export default function RankingList() {
           useFlexGap
           sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
         >
+          <Chip label="Từ 3 giải" sx={{ bgcolor: HEX.blue, color: "#fff" }} />
           <Chip
-            label={t("rankings.scoreLegend.verified")}
+            label="Admin chấm"
             sx={{ bgcolor: HEX.yellow, color: "#000" }}
           />
           <Chip
-            label={t("rankings.scoreLegend.selfAssessed")}
+            label="Cần chấm lại"
             sx={{ bgcolor: HEX.red, color: "#fff" }}
           />
           <Chip
-            label={t("rankings.scoreLegend.unverified")}
+            label="Chưa có điểm"
             sx={{ bgcolor: HEX.grey, color: "#fff" }}
           />
         </Stack>
@@ -1609,7 +1649,7 @@ export default function RankingList() {
                 const badge = cccdBadge(effectiveStatus, t);
                 const avatarSrc =
                   u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-                const tierHex = HEX[r?.tierColor] || HEX.grey;
+                const tierHex = getScoreHex(r);
                 const age = calcAge(u);
                 const canGrade = canGradeUser(me, u?.province);
                 const patched = patchMap[u?._id || ""] || {};
@@ -1818,7 +1858,7 @@ export default function RankingList() {
                   const avatarSrc =
                     u?.avatar ||
                     PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-                  const tierHex = HEX[r?.tierColor] || HEX.grey;
+                  const tierHex = getScoreHex(r);
                   const age = calcAge(u);
                   const canGrade = canGradeUser(me, u?.province);
                   const patched = patchMap[u?._id || ""] || {};

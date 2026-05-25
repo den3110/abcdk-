@@ -75,6 +75,10 @@ const tournamentSchema = new mongoose.Schema(
       maxlength: 32,
     },
     image: { type: String, default: null, required: true },
+    registrationPosterConfig: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     sportType: { type: Number, required: true },
     groupId: { type: Number, default: 0 },
 
