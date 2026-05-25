@@ -32,6 +32,25 @@ export const cccdOpenai = new OpenAI({
   ),
 });
 
+export const OPENAI_POSTER_VISION_MODEL =
+  process.env.OPENAI_POSTER_VISION_MODEL ||
+  process.env.OPENAI_POSTER_MODEL ||
+  "gpt-5";
+
+export const posterOpenai = new OpenAI({
+  apiKey:
+    process.env.OPENAI_POSTER_API_KEY ||
+    process.env.OPENAI_CCCD_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.CLIPROXY_API_KEY ||
+    "local-poster",
+  baseURL: normalizeOpenAiBaseUrl(
+    process.env.OPENAI_POSTER_BASE_URL ||
+      process.env.OPENAI_CCCD_BASE_URL ||
+      "http://127.0.0.1:8317",
+  ),
+});
+
 export const OPENAI_DEFAULT_MODEL =
   process.env.BOT_MODEL ||
   process.env.OPENAI_DEFAULT_MODEL ||

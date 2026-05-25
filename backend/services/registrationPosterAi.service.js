@@ -1,21 +1,25 @@
 import fs from "fs/promises";
 import path from "path";
 import sharp from "sharp";
-import { openai } from "../lib/openaiClient.js";
+import {
+  posterOpenai,
+  OPENAI_POSTER_VISION_MODEL,
+} from "../lib/openaiClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
 
 function resolvePosterVisionModel() {
-  return (
-    String(process.env.OPENAI_POSTER_VISION_MODEL || "deepseek-reasoner").trim() ||
-    "deepseek-reasoner"
-  );
+  return String(OPENAI_POSTER_VISION_MODEL || "gpt-5").trim() || "gpt-5";
 }
 
 const POSTER_VISION_MODEL = resolvePosterVisionModel();
 
 function shouldStreamPosterCompletion(modelName = POSTER_VISION_MODEL) {
-  const baseUrl = String(process.env.CLIPROXY_BASE_URL || "").toLowerCase();
+  const baseUrl = String(
+    process.env.OPENAI_POSTER_BASE_URL ||
+      process.env.OPENAI_CCCD_BASE_URL ||
+      "",
+  ).toLowerCase();
   const model = String(modelName || "").toLowerCase();
   return (
     model.includes("deepseek") ||
@@ -183,11 +187,11 @@ function extractChatTextCandidates(response) {
 
 async function createChatTextCandidates(payload) {
   if (!shouldStreamPosterCompletion(payload?.model)) {
-    const response = await openai.chat.completions.create(payload);
+    const response = await posterOpenai.chat.completions.create(payload);
     return extractChatTextCandidates(response);
   }
 
-  const stream = await openai.chat.completions.create({
+  const stream = await posterOpenai.chat.completions.create({
     ...payload,
     stream: true,
   });
@@ -330,10 +334,6 @@ function normalizeLayout(raw, width, height) {
 }
 
 export async function analyzeRegistrationPosterLayout({ req, imageSource }) {
-  if (!process.env.OPENAI_API_KEY && !process.env.CLIPROXY_API_KEY) {
-    throw new Error("Thiếu OPENAI_API_KEY hoặc CLIPROXY_API_KEY để chạy AI poster");
-  }
-
   const original = await readImageBuffer(req, imageSource);
   const normalized = await sharp(original)
     .resize({ width: MAX_ANALYSIS_WIDTH, withoutEnlargement: true })
