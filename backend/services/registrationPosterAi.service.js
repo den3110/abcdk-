@@ -139,6 +139,36 @@ function extractJson(text = "") {
   throw new Error("Không đọc được JSON layout từ AI");
 }
 
+function extractChatText(response) {
+  const message = response?.choices?.[0]?.message || {};
+  const content = message.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        return part?.text || part?.output_text || "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
+function summarizeAiResponse(response) {
+  const choice = response?.choices?.[0] || {};
+  const message = choice.message || {};
+  const finishReason = choice.finish_reason || "unknown";
+  const refusal = message.refusal
+    ? ` refusal=${String(message.refusal).slice(0, 120)}`
+    : "";
+  const reasoningLength = message.reasoning_content
+    ? ` reasoning=${String(message.reasoning_content).length} chars`
+    : "";
+  return `finish=${finishReason}${refusal}${reasoningLength}`;
+}
+
 function clamp(n, min, max, fallback) {
   const value = Number(n);
   if (!Number.isFinite(value)) return fallback;
@@ -270,36 +300,96 @@ Yêu cầu:
 - Chỉ trả JSON đúng schema.
 `;
 
-  const response = await openai.chat.completions.create({
-    model: POSTER_VISION_MODEL,
-    response_format: {
-      type: "json_schema",
-      json_schema: posterLayoutJsonSchema,
+  const schemaText = JSON.stringify(posterLayoutJsonSchema.schema);
+  const baseMessages = [
+    {
+      role: "system",
+      content:
+        "Bạn phân tích bố cục ảnh poster và trả JSON layout để backend render ảnh tự động. Không trả markdown.",
     },
-    messages: [
-      {
-        role: "system",
-        content:
-          "Bạn phân tích bố cục ảnh poster và trả JSON layout để backend render ảnh tự động. Không trả markdown.",
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+      ],
+    },
+  ];
+  const jsonObjectMessages = [
+    baseMessages[0],
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `${prompt}\n\nSchema JSON bắt buộc:\n${schemaText}\n\nChỉ trả về một JSON object hợp lệ, không markdown, không giải thích.`,
+        },
+        { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+      ],
+    },
+  ];
+  const routes = [
+    {
+      name: "chat_json_schema",
+      payload: {
+        response_format: {
+          type: "json_schema",
+          json_schema: posterLayoutJsonSchema,
+        },
+        messages: baseMessages,
       },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
-        ],
+    },
+    {
+      name: "chat_json_object",
+      payload: {
+        response_format: { type: "json_object" },
+        messages: jsonObjectMessages,
       },
-    ],
-  });
+    },
+    {
+      name: "chat_plain_json",
+      payload: {
+        messages: jsonObjectMessages,
+      },
+    },
+  ];
 
-  const content = response.choices?.[0]?.message?.content;
-  const jsonText =
-    typeof content === "string"
-      ? content
-      : content?.find?.((part) => part.type === "text" || part.type === "output_text")
-          ?.text;
-  const parsed = extractJson(jsonText);
+  let parsed = null;
+  let usedRoute = "";
+  const routeErrors = [];
+  for (const route of routes) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: POSTER_VISION_MODEL,
+        ...route.payload,
+      });
+      const jsonText = extractChatText(response);
+      if (!jsonText) {
+        throw new Error(
+          `AI không trả về JSON layout (${summarizeAiResponse(response)})`,
+        );
+      }
+      parsed = extractJson(jsonText);
+      usedRoute = route.name;
+      break;
+    } catch (error) {
+      const responseSummary = error?.response
+        ? ` (${summarizeAiResponse(error.response)})`
+        : "";
+      routeErrors.push(`${route.name}: ${error.message}${responseSummary}`);
+    }
+  }
+  if (!parsed) {
+    console.error(
+      "[AI Poster] all JSON routes failed:",
+      routeErrors.join(" | "),
+    );
+    throw new Error(
+      "AI không trả về JSON layout. Đã thử json_schema, json_object và plain JSON.",
+    );
+  }
   const config = normalizeLayout(parsed, width, height);
+  config.ai.route = usedRoute;
 
   if (!config.slots.double.length && !config.slots.single.length) {
     throw new Error("AI không tìm thấy slot ảnh/tên trên poster");
@@ -313,6 +403,7 @@ Yêu cầu:
       confidence: config.ai.confidence,
       notes: config.ai.notes,
       model: POSTER_VISION_MODEL,
+      route: usedRoute,
     },
   };
 }
