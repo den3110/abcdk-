@@ -20,7 +20,10 @@ import {
   loadAll as spcLoadAll,
   getMeta as spcGetMeta,
 } from "../services/spcStore.js";
-import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
+import {
+  cccdOpenai,
+  OPENAI_CCCD_MODEL,
+} from "../lib/openaiClient.js";
 import {
   EVENTS,
   publishNotification,
@@ -4242,13 +4245,44 @@ function resolveLocalImagePath(raw) {
 
   let p = String(raw).trim().replace(/\\/g, "/"); // fix '\' -> '/'
 
-  // nếu lỡ truyền nhầm URL public thì trả luôn, không map local
-  if (/^https?:\/\//i.test(p)) return null;
+  if (/^https?:\/\//i.test(p)) {
+    try {
+      const url = new URL(p);
+      p = decodeURIComponent(url.pathname || "");
+    } catch {
+      return null;
+    }
+  }
+
+  if (!p.startsWith("/uploads/") && !p.startsWith("uploads/")) return null;
 
   // bỏ slash đầu để join với cwd
   if (p.startsWith("/")) p = p.slice(1);
 
   return path.join(process.cwd(), p); // ./uploads/cccd/...
+}
+
+function mimeFromImagePath(filePath = "") {
+  const ext = path.extname(String(filePath || "")).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/jpeg";
+}
+
+function buildLocalImagePart(raw) {
+  const localPath = resolveLocalImagePath(raw);
+  if (!localPath || !fs.existsSync(localPath)) return null;
+
+  const buf = fs.readFileSync(localPath);
+  const dataUrl = `data:${mimeFromImagePath(localPath)};base64,${buf.toString(
+    "base64",
+  )}`;
+
+  return {
+    type: "image_url",
+    image_url: { url: dataUrl },
+  };
 }
 
 /**
@@ -4284,6 +4318,9 @@ function buildImagePart(raw) {
   // normalize slash
   val = val.replace(/\\/g, "/");
 
+  const localPart = buildLocalImagePart(val);
+  if (localPart) return localPart;
+
   // Nếu là URL http(s) (dev hoặc prod) thì dùng luôn
   if (/^https?:\/\//i.test(val)) {
     return {
@@ -4302,12 +4339,9 @@ function buildImagePart(raw) {
     }
 
     const buf = fs.readFileSync(localPath);
-
-    let mime = "image/jpeg";
-    if (/\.png$/i.test(localPath)) mime = "image/png";
-    else if (/\.webp$/i.test(localPath)) mime = "image/webp";
-
-    const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
+    const dataUrl = `data:${mimeFromImagePath(localPath)};base64,${buf.toString(
+      "base64",
+    )}`;
 
     return {
       type: "image_url",
@@ -4325,6 +4359,13 @@ function buildImagePart(raw) {
     type: "image_url",
     image_url: { url },
   };
+}
+
+async function createCccdCompletion(payload) {
+  return cccdOpenai.chat.completions.create({
+    ...payload,
+    model: OPENAI_CCCD_MODEL,
+  });
 }
 
 // ====== HELPER: gọi OpenAI đọc CCCD ======
@@ -4346,8 +4387,8 @@ async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
     throw new Error("Không có ảnh CCCD hợp lệ để check");
   }
 
-  const resp = await openai.chat.completions.create({
-    model: OPENAI_DEFAULT_MODEL,
+  const resp = await createCccdCompletion({
+    model: OPENAI_CCCD_MODEL,
     response_format: {
       type: "json_schema",
       json_schema: {

@@ -6,7 +6,10 @@ import jsQR from "jsqr";
 import os from "os";
 import crypto from "crypto";
 import { parseQRPayload, mapQRToFields } from "../utils/cccdParsing.js";
-import { openai, OPENAI_VISION_MODEL } from "../lib/openaiClient.js";
+import {
+  cccdOpenai,
+  OPENAI_CCCD_MODEL,
+} from "../lib/openaiClient.js";
 import { openaiExtractFromDataUrl } from "../services/telegram/telegramNotifyKyc.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
@@ -158,12 +161,16 @@ function normalizeDate(s) {
   return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+async function createCccdCompletion(payload) {
+  return cccdOpenai.chat.completions.create({
+    ...payload,
+    model: OPENAI_CCCD_MODEL,
+  });
+}
+
 export async function extractCCCDOpenAI(req, res) {
   try {
     if (!req.file) return res.status(400).json({ message: "Thiếu file ảnh" });
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ message: "Thiếu OPENAI_API_KEY" });
-    }
 
     // ảnh -> data URL
     const dataUrl = `data:${
@@ -181,8 +188,8 @@ export async function extractCCCDOpenAI(req, res) {
       "Không thấy rõ thì để null.";
 
     // 👇 Chat Completions + Structured Outputs
-    const resp = await openai.chat.completions.create({
-      model: OPENAI_VISION_MODEL,
+    const resp = await createCccdCompletion({
+      model: OPENAI_CCCD_MODEL,
       response_format: { type: "json_schema", json_schema: CCCD_JSON_SCHEMA }, // structured outputs
       messages: [
         { role: "system", content: systemPrompt },
@@ -223,7 +230,7 @@ export async function extractCCCDOpenAI(req, res) {
     data.dob = normalizeDate(data.dob);
     data.expiry = normalizeDate(data.expiry);
 
-    return res.json({ source: "openai", model: OPENAI_VISION_MODEL, ...data });
+    return res.json({ source: "openai", model: OPENAI_CCCD_MODEL, ...data });
   } catch (err) {
     console.error("[cccd-openai] extract error:", err);
     return res.status(500).json({
