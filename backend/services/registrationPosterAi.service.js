@@ -139,9 +139,7 @@ function extractJson(text = "") {
   throw new Error("Không đọc được JSON layout từ AI");
 }
 
-function extractChatText(response) {
-  const message = response?.choices?.[0]?.message || {};
-  const content = message.content;
+function getContentText(content) {
   if (typeof content === "string") return content.trim();
   if (Array.isArray(content)) {
     return content
@@ -154,6 +152,32 @@ function extractChatText(response) {
       .trim();
   }
   return "";
+}
+
+function extractChatTextCandidates(response) {
+  const choice = response?.choices?.[0] || {};
+  const message = response?.choices?.[0]?.message || {};
+  return [
+    getContentText(message.content),
+    getContentText(message.reasoning_content),
+    getContentText(message.reasoning),
+    getContentText(message.output_text),
+    getContentText(choice.text),
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .filter((item, index, items) => items.indexOf(item) === index);
+}
+
+function summarizeRouteError(routeName, error) {
+  return `${routeName}: ${String(error?.message || error).slice(0, 240)}`;
+}
+
+function summarizeTextCandidates(candidates) {
+  return candidates
+    .map((text) => `${text.length} chars`)
+    .filter(Boolean)
+    .join(", ");
 }
 
 function summarizeAiResponse(response) {
@@ -361,22 +385,33 @@ Yêu cầu:
     try {
       const response = await openai.chat.completions.create({
         model: POSTER_VISION_MODEL,
+        max_tokens: 4096,
         ...route.payload,
       });
-      const jsonText = extractChatText(response);
-      if (!jsonText) {
+      const textCandidates = extractChatTextCandidates(response);
+      if (!textCandidates.length) {
         throw new Error(
           `AI không trả về JSON layout (${summarizeAiResponse(response)})`,
         );
       }
-      parsed = extractJson(jsonText);
+      let lastParseError = null;
+      for (const jsonText of textCandidates) {
+        try {
+          parsed = extractJson(jsonText);
+          break;
+        } catch (parseError) {
+          lastParseError = parseError;
+        }
+      }
+      if (!parsed) {
+        throw new Error(
+          `AI trả text nhưng không parse được (${summarizeAiResponse(response)}; candidates=${summarizeTextCandidates(textCandidates)}): ${lastParseError?.message || "unknown"}`,
+        );
+      }
       usedRoute = route.name;
       break;
     } catch (error) {
-      const responseSummary = error?.response
-        ? ` (${summarizeAiResponse(error.response)})`
-        : "";
-      routeErrors.push(`${route.name}: ${error.message}${responseSummary}`);
+      routeErrors.push(summarizeRouteError(route.name, error));
     }
   }
   if (!parsed) {
@@ -384,8 +419,9 @@ Yêu cầu:
       "[AI Poster] all JSON routes failed:",
       routeErrors.join(" | "),
     );
+    const detail = routeErrors.join(" | ").slice(0, 700);
     throw new Error(
-      "AI không trả về JSON layout. Đã thử json_schema, json_object và plain JSON.",
+      `AI không trả về JSON layout. Đã thử json_schema, json_object và plain JSON. Chi tiết: ${detail}`,
     );
   }
   const config = normalizeLayout(parsed, width, height);
