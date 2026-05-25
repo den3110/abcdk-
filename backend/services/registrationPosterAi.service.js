@@ -1,14 +1,14 @@
 import fs from "fs/promises";
 import path from "path";
 import sharp from "sharp";
-import { openai, OPENAI_VISION_MODEL } from "../lib/openaiClient.js";
+import { openai } from "../lib/openaiClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
 
 function resolvePosterVisionModel() {
   return (
-    String(process.env.OPENAI_POSTER_VISION_MODEL || OPENAI_VISION_MODEL || "")
-      .trim() || "gpt-5-codex-mini"
+    String(process.env.OPENAI_POSTER_VISION_MODEL || "deepseek-reasoner").trim() ||
+    "deepseek-reasoner"
   );
 }
 
