@@ -89,6 +89,69 @@ function asDisplayName(player = {}, tour = {}) {
   );
 }
 
+function posterAvatarValue(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value !== "object") return "";
+  return String(
+    value.url ||
+      value.secureUrl ||
+      value.secure_url ||
+      value.src ||
+      value.path ||
+      value.optimizedFor ||
+      "",
+  ).trim();
+}
+
+function isPosterPlaceholderAvatar(src = "") {
+  const value = String(src || "").toLowerCase();
+  return (
+    !value ||
+    value.includes("dummyimage.com") ||
+    value.includes("default-avatar") ||
+    value.includes("placeholder") ||
+    value.includes("text=?")
+  );
+}
+
+function resolvePosterAvatarSource(player = {}) {
+  const user = player?.user && typeof player.user === "object" ? player.user : {};
+  const candidates = [
+    { source: "user.avatar", value: posterAvatarValue(user?.avatar) },
+    {
+      source: "user.avatarOptimization.optimizedFor",
+      value: posterAvatarValue(user?.avatarOptimization?.optimizedFor),
+    },
+    { source: "user.avatarUrl", value: posterAvatarValue(user?.avatarUrl) },
+    { source: "user.image", value: posterAvatarValue(user?.image) },
+    {
+      source: "registration.player.avatar",
+      value: posterAvatarValue(player?.avatar),
+    },
+    {
+      source: "registration.player.avatarUrl",
+      value: posterAvatarValue(player?.avatarUrl),
+    },
+    {
+      source: "registration.player.image",
+      value: posterAvatarValue(player?.image),
+    },
+  ].filter((item) => item.value);
+
+  const selected =
+    candidates.find((item) => !isPosterPlaceholderAvatar(item.value)) ||
+    candidates[0] ||
+    null;
+
+  return {
+    source: selected?.source || "",
+    url: selected?.value || "",
+    isPlaceholder: selected ? isPosterPlaceholderAvatar(selected.value) : true,
+    candidates,
+  };
+}
+
 function resolveLocalImagePath(src = "") {
   const clean = String(src || "").split("?")[0].replace(/\\/g, "/").trim();
   if (!clean) return null;
@@ -128,6 +191,9 @@ async function readImageBuffer(req, src = "") {
   if (!resp.ok) throw new Error(`Cannot load image: ${resp.status}`);
   return Buffer.from(await resp.arrayBuffer());
 }
+
+const POSTER_USER_SELECT =
+  "name fullName nickname nickName avatar avatarUrl image avatarOptimization";
 
 function numOr(value, fallback) {
   const n = Number(value);
@@ -691,15 +757,7 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
 }
 
 async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
-  const user = player?.user && typeof player.user === "object" ? player.user : {};
-  const src =
-    player?.avatar ||
-    user?.avatar ||
-    player?.avatarUrl ||
-    user?.avatarUrl ||
-    player?.image ||
-    user?.image ||
-    "";
+  const { url: src } = resolvePosterAvatarSource(player);
   let input = null;
   try {
     input = src ? await readImageBuffer(req, src) : null;
@@ -882,6 +940,22 @@ function resolvePosterLayout(tour, playersCount, width, height) {
     baseHeight,
     slots,
     text: { ...DEFAULT_POSTER_LAYOUT.text, ...(cfg.text || {}) },
+  };
+}
+
+function buildPosterPlayerDebug(player = {}, index = 0, tour = {}) {
+  const user = player?.user && typeof player.user === "object" ? player.user : {};
+  const avatar = resolvePosterAvatarSource(player);
+  return {
+    slot: index + 1,
+    userId: String(user?._id || player?.user || ""),
+    name: asDisplayName(player, tour),
+    avatarUrl: avatar.url,
+    avatarSource: avatar.source,
+    avatarIsPlaceholder: avatar.isPlaceholder,
+    userAvatar: posterAvatarValue(user?.avatar),
+    playerAvatar: posterAvatarValue(player?.avatar),
+    candidates: avatar.candidates,
   };
 }
 
@@ -2602,8 +2676,8 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
       .lean(),
     Registration.findOne({ _id: regId, tournament: id })
       .select("player1 player2 payment updatedAt")
-      .populate("player1.user", "name fullName nickname nickName avatar")
-      .populate("player2.user", "name fullName nickname nickName avatar")
+      .populate("player1.user", POSTER_USER_SELECT)
+      .populate("player2.user", POSTER_USER_SELECT)
       .lean(),
   ]);
 
@@ -2680,6 +2754,46 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.send(out);
+});
+
+export const getRegistrationPosterPlayers = asyncHandler(async (req, res) => {
+  const { id, regId } = req.params;
+  if (!isId(id) || !isId(regId)) {
+    res.status(400);
+    throw new Error("Invalid tournament or registration id");
+  }
+
+  const [tour, reg] = await Promise.all([
+    Tournament.findById(id)
+      .select("name eventType nameDisplayMode createdBy")
+      .lean(),
+    Registration.findOne({ _id: regId, tournament: id })
+      .select("player1 player2 payment updatedAt")
+      .populate("player1.user", POSTER_USER_SELECT)
+      .populate("player2.user", POSTER_USER_SELECT)
+      .lean(),
+  ]);
+
+  if (!tour || !reg) {
+    res.status(404);
+    throw new Error("Không tìm thấy đăng ký hoặc giải đấu");
+  }
+  if (
+    reg.payment?.status !== "Paid" &&
+    !(await canBypassPosterPayment(req, id, tour))
+  ) {
+    res.status(403);
+    throw new Error("Đăng ký cần hoàn tất thanh toán trước khi xem poster");
+  }
+
+  const players = [reg.player1, reg.player2].filter(Boolean);
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.json({
+    registrationId: String(reg._id),
+    players: players.map((player, index) =>
+      buildPosterPlayerDebug(player, index, tour),
+    ),
+  });
 });
 
 export { getTournaments, getTournamentById };

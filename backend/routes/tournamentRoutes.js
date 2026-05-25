@@ -4,6 +4,7 @@ import {
   getTeamRoster,
   getTeamStandings,
   getRegistrationPoster,
+  getRegistrationPosterPlayers,
   getTournaments,
   listTournamentBrackets,
   listTournamentMatches,
@@ -51,6 +52,11 @@ router
   .route("/:id/registrations")
   .post(protect, createRegistration)
   .get(optionalAuth, getRegistrations);
+router.get(
+  "/:id/registrations/:regId/poster/players",
+  optionalAuth,
+  getRegistrationPosterPlayers
+);
 router.get(
   "/:id/registrations/:regId/poster",
   optionalAuth,

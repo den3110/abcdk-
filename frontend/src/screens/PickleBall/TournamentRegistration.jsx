@@ -240,6 +240,13 @@ const apiImageSrc = (path) => {
   return safeSrc(`${base}${cleanPath}`);
 };
 
+const posterDebugAvatarSrc = (src = "") => {
+  const value = String(src || "").trim();
+  if (!value) return "";
+  if (/^(https?:|data:|blob:)/i.test(value)) return safeSrc(value);
+  return apiImageSrc(value);
+};
+
 const fixHtmlHttps = (html) => {
   if (!shouldForceHttps || !html) return html || "";
   try {
@@ -699,6 +706,7 @@ const ActionButtons = memo(
     onOpenPoster,
     onOpenComplaint,
     busy,
+    posterBusyId,
   }) => (
     <ActionButtonsInner
       r={r}
@@ -711,6 +719,7 @@ const ActionButtons = memo(
       onOpenPoster={onOpenPoster}
       onOpenComplaint={onOpenComplaint}
       busy={busy}
+      posterBusyId={posterBusyId}
     />
   ),
 );
@@ -726,10 +735,13 @@ const ActionButtonsInner = ({
   onOpenPoster,
   onOpenComplaint,
   busy,
+  posterBusyId,
 }) => {
   const { t } = useLanguage();
   const isPaid = r.payment?.status === "Paid";
   const canOpenPoster = isPaid || canManage;
+  const posterRegId = String(r?._id || r?.id || "");
+  const posterBusy = Boolean(posterRegId && posterBusyId === posterRegId);
   const actionTileSx = (color) => ({
     minWidth: 0,
     minHeight: 58,
@@ -789,10 +801,17 @@ const ActionButtonsInner = ({
         <Tooltip title="Tải poster">
           <ActionTile
             color="#1976d2"
-            icon={<ImageOutlined fontSize="small" />}
+            icon={
+              posterBusy ? (
+                <CircularProgress size={18} color="inherit" />
+              ) : (
+                <ImageOutlined fontSize="small" />
+              )
+            }
             onClick={() => onOpenPoster(r)}
+            disabled={posterBusy}
           >
-            Tải poster
+            {posterBusy ? "Đang tạo" : "Tải poster"}
           </ActionTile>
         </Tooltip>
       ) : null}
@@ -1249,7 +1268,17 @@ export default function TournamentRegistration() {
     isPoster: false,
     fileName: "",
     objectUrl: false,
+    loading: false,
+    error: "",
+    players: [],
+    playersLoading: false,
+    playersError: "",
   });
+  const posterFetchRef = useRef(null);
+  const posterPreviewRegIdRef = useRef("");
+  const posterDownloadRef = useRef(false);
+  const [posterBusyId, setPosterBusyId] = useState("");
+  const [posterDownloading, setPosterDownloading] = useState(false);
   const [replaceDlg, setReplaceDlg] = useState({
     open: false,
     reg: null,
@@ -1437,6 +1466,18 @@ export default function TournamentRegistration() {
     [id, tour],
   );
 
+  const posterPlayersUrlFor = useCallback(
+    (r) => {
+      const tourId = tour?._id || tour?.id || id;
+      const regId = r?._id || r?.id;
+      if (!tourId || !regId) return "";
+      return apiImageSrc(
+        `/api/tournaments/${tourId}/registrations/${regId}/poster/players`,
+      );
+    },
+    [id, tour],
+  );
+
   /* Handlers */
   const submit = useCallback(
     async (e) => {
@@ -1612,11 +1653,25 @@ export default function TournamentRegistration() {
         isPoster: Boolean(options.isPoster),
         fileName: options.fileName || "",
         objectUrl: Boolean(options.objectUrl),
+        loading: Boolean(options.loading),
+        error: options.error || "",
+        players: options.players || prev.players || [],
+        playersLoading: Object.prototype.hasOwnProperty.call(
+          options,
+          "playersLoading",
+        )
+          ? Boolean(options.playersLoading)
+          : prev.playersLoading,
+        playersError: options.playersError || "",
       };
     });
   }, []);
 
   const handleClosePreview = useCallback(() => {
+    posterFetchRef.current?.controller?.abort();
+    posterFetchRef.current = null;
+    posterPreviewRegIdRef.current = "";
+    setPosterBusyId("");
     setImgPreview((prev) => {
       if (prev.objectUrl && prev.src) URL.revokeObjectURL(prev.src);
       return {
@@ -1626,6 +1681,11 @@ export default function TournamentRegistration() {
         isPoster: false,
         fileName: "",
         objectUrl: false,
+        loading: false,
+        error: "",
+        players: [],
+        playersLoading: false,
+        playersError: "",
       };
     });
   }, []);
@@ -1638,29 +1698,98 @@ export default function TournamentRegistration() {
       }
       const src = posterImgUrlFor(reg);
       if (!src) return toast.error("Không tạo được poster");
+      if (posterFetchRef.current) return;
+
+      const regId = String(reg?._id || reg?.id || "");
       const code = regCodeOf(reg);
       const fileName = `poster-${code}.png`;
+      const playersUrl = posterPlayersUrlFor(reg);
+      const controller = new AbortController();
+      posterFetchRef.current = { regId, controller };
+      posterPreviewRegIdRef.current = regId;
+      setPosterBusyId(regId);
+      handleOpenPreview("", `Poster #${code}`, {
+        isPoster: true,
+        fileName,
+        loading: true,
+        playersLoading: true,
+      });
+      if (playersUrl) {
+        fetch(playersUrl, {
+          credentials: "include",
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+          signal: controller.signal,
+        })
+          .then(async (response) => {
+            if (!response.ok) throw new Error("Không thể tải thông tin avatar");
+            return response.json();
+          })
+          .then((payload) => {
+            if (posterPreviewRegIdRef.current !== regId) return;
+            setImgPreview((prev) => ({
+              ...prev,
+              players: Array.isArray(payload?.players) ? payload.players : [],
+              playersLoading: false,
+              playersError: "",
+            }));
+          })
+          .catch((error) => {
+            if (error?.name === "AbortError") return;
+            if (posterPreviewRegIdRef.current !== regId) return;
+            setImgPreview((prev) => ({
+              ...prev,
+              playersLoading: false,
+              playersError:
+                error?.message || "Không thể tải thông tin avatar",
+            }));
+          });
+      }
       try {
         const response = await fetch(src, {
           credentials: "include",
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+          signal: controller.signal,
         });
         if (!response.ok) throw new Error("Không thể tải poster");
         const objectUrl = URL.createObjectURL(await response.blob());
+        if (posterPreviewRegIdRef.current !== regId) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
         handleOpenPreview(objectUrl, `Poster #${code}`, {
           isPoster: true,
           fileName,
           objectUrl: true,
         });
       } catch (error) {
+        if (error?.name === "AbortError") return;
         toast.error(error?.message || "Không thể tải poster");
+        setImgPreview((prev) => ({
+          ...prev,
+          loading: false,
+          error: error?.message || "Không thể tải poster",
+        }));
+      } finally {
+        if (posterFetchRef.current?.regId === regId) {
+          posterFetchRef.current = null;
+          setPosterBusyId("");
+        }
       }
     },
-    [authToken, canManage, handleOpenPreview, posterImgUrlFor, regCodeOf],
+    [
+      authToken,
+      canManage,
+      handleOpenPreview,
+      posterImgUrlFor,
+      posterPlayersUrlFor,
+      regCodeOf,
+    ],
   );
 
   const handleDownloadPreview = useCallback(async () => {
-    if (!imgPreview.src) return;
+    if (!imgPreview.src || posterDownloadRef.current) return;
+    posterDownloadRef.current = true;
+    setPosterDownloading(true);
     try {
       if (imgPreview.objectUrl) {
         const link = document.createElement("a");
@@ -1684,6 +1813,9 @@ export default function TournamentRegistration() {
       URL.revokeObjectURL(objectUrl);
     } catch (error) {
       toast.error(error?.message || "Không thể tải poster");
+    } finally {
+      posterDownloadRef.current = false;
+      setPosterDownloading(false);
     }
   }, [imgPreview.fileName, imgPreview.objectUrl, imgPreview.src]);
 
@@ -2621,6 +2753,7 @@ export default function TournamentRegistration() {
                             isFreeTournament={isFreeTournament}
                             regCodeOf={regCodeOf}
                             busy={busy}
+                            posterBusyId={posterBusyId}
                           />
                         </Grid>
                       ))}
@@ -2657,6 +2790,7 @@ export default function TournamentRegistration() {
             p: 0,
             bgcolor: "black",
             display: "flex",
+            flexDirection: "column",
             justifyContent: "center",
             alignItems: "center",
             overflow: "auto",
@@ -2664,29 +2798,120 @@ export default function TournamentRegistration() {
             maxHeight: "calc(100vh - 150px)",
           }}
         >
-          <Box
-            component="img"
-            src={safeSrc(imgPreview.src || PLACE)}
-            alt=""
-            sx={{
-              display: "block",
-              width: "auto",
-              height: "auto",
-              maxWidth: "calc(100vw - 32px)",
-              maxHeight: "calc(100vh - 164px)",
-              objectFit: "contain",
-            }}
-            onError={(e) => (e.currentTarget.src = PLACE)}
-          />
+          {imgPreview.isPoster ? (
+            <Box
+              sx={{
+                width: "100%",
+                px: 1.5,
+                py: 1,
+                bgcolor: "rgba(15,23,42,0.94)",
+                borderBottom: "1px solid rgba(255,255,255,0.12)",
+              }}
+            >
+              <Stack spacing={0.75}>
+                <Typography sx={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>
+                  Avatar backend dùng trong poster
+                </Typography>
+                {imgPreview.playersLoading ? (
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <CircularProgress size={16} />
+                    <Typography sx={{ color: "rgba(255,255,255,0.72)", fontSize: 12 }}>
+                      Đang kiểm tra avatar...
+                    </Typography>
+                  </Stack>
+                ) : imgPreview.playersError ? (
+                  <Typography sx={{ color: "#fecaca", fontSize: 12 }}>
+                    {imgPreview.playersError}
+                  </Typography>
+                ) : (
+                  <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
+                    {(imgPreview.players || []).map((player) => (
+                      <Tooltip
+                        key={`${player.slot}-${player.userId || player.name}`}
+                        title={player.avatarUrl || "Không có avatar"}
+                      >
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          alignItems="center"
+                          sx={{ maxWidth: 280 }}
+                        >
+                          <Avatar
+                            src={posterDebugAvatarSrc(player.avatarUrl)}
+                            sx={{ width: 30, height: 30 }}
+                          >
+                            {String(player.name || "?").slice(0, 1).toUpperCase()}
+                          </Avatar>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography
+                              noWrap
+                              sx={{ color: "#fff", fontSize: 12, fontWeight: 700 }}
+                            >
+                              {player.name || `VĐV ${player.slot}`}
+                            </Typography>
+                            <Typography
+                              noWrap
+                              sx={{ color: "rgba(255,255,255,0.64)", fontSize: 11 }}
+                            >
+                              {player.avatarSource || "không có avatar"}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </Tooltip>
+                    ))}
+                  </Stack>
+                )}
+              </Stack>
+            </Box>
+          ) : null}
+          {imgPreview.loading ? (
+            <Stack
+              spacing={1.5}
+              alignItems="center"
+              justifyContent="center"
+              sx={{ minWidth: 260, minHeight: 220 }}
+            >
+              <CircularProgress />
+              <Typography sx={{ color: "#fff" }}>Đang tạo poster...</Typography>
+            </Stack>
+          ) : imgPreview.error ? (
+            <Alert severity="error">{imgPreview.error}</Alert>
+          ) : (
+            <Box
+              component="img"
+              src={safeSrc(imgPreview.src || PLACE)}
+              alt=""
+              sx={{
+                display: "block",
+                width: "auto",
+                height: "auto",
+                maxWidth: "calc(100vw - 32px)",
+                maxHeight: "calc(100vh - 164px)",
+                objectFit: "contain",
+              }}
+              onError={(e) => (e.currentTarget.src = PLACE)}
+            />
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 2, py: 1.25 }}>
           {imgPreview.isPoster ? (
             <Button
               variant="contained"
-              startIcon={<FileDownloadOutlined />}
+              startIcon={
+                posterDownloading ? (
+                  <CircularProgress size={18} color="inherit" />
+                ) : (
+                  <FileDownloadOutlined />
+                )
+              }
               onClick={handleDownloadPreview}
+              disabled={
+                imgPreview.loading ||
+                Boolean(imgPreview.error) ||
+                posterDownloading
+              }
             >
-              Tải xuống
+              {posterDownloading ? "Đang tải..." : "Tải xuống"}
             </Button>
           ) : null}
           <Button onClick={handleClosePreview}>Đóng</Button>
