@@ -240,13 +240,6 @@ const apiImageSrc = (path) => {
   return safeSrc(`${base}${cleanPath}`);
 };
 
-const posterDebugAvatarSrc = (src = "") => {
-  const value = String(src || "").trim();
-  if (!value) return "";
-  if (/^(https?:|data:|blob:)/i.test(value)) return safeSrc(value);
-  return apiImageSrc(value);
-};
-
 const fixHtmlHttps = (html) => {
   if (!shouldForceHttps || !html) return html || "";
   try {
@@ -1270,12 +1263,8 @@ export default function TournamentRegistration() {
     objectUrl: false,
     loading: false,
     error: "",
-    players: [],
-    playersLoading: false,
-    playersError: "",
   });
   const posterFetchRef = useRef(null);
-  const posterPreviewRegIdRef = useRef("");
   const posterDownloadRef = useRef(false);
   const [posterBusyId, setPosterBusyId] = useState("");
   const [posterDownloading, setPosterDownloading] = useState(false);
@@ -1655,14 +1644,6 @@ export default function TournamentRegistration() {
         objectUrl: Boolean(options.objectUrl),
         loading: Boolean(options.loading),
         error: options.error || "",
-        players: options.players || prev.players || [],
-        playersLoading: Object.prototype.hasOwnProperty.call(
-          options,
-          "playersLoading",
-        )
-          ? Boolean(options.playersLoading)
-          : prev.playersLoading,
-        playersError: options.playersError || "",
       };
     });
   }, []);
@@ -1670,7 +1651,6 @@ export default function TournamentRegistration() {
   const handleClosePreview = useCallback(() => {
     posterFetchRef.current?.controller?.abort();
     posterFetchRef.current = null;
-    posterPreviewRegIdRef.current = "";
     setPosterBusyId("");
     setImgPreview((prev) => {
       if (prev.objectUrl && prev.src) URL.revokeObjectURL(prev.src);
@@ -1683,9 +1663,6 @@ export default function TournamentRegistration() {
         objectUrl: false,
         loading: false,
         error: "",
-        players: [],
-        playersLoading: false,
-        playersError: "",
       };
     });
   }, []);
@@ -1706,13 +1683,11 @@ export default function TournamentRegistration() {
       const playersUrl = posterPlayersUrlFor(reg);
       const controller = new AbortController();
       posterFetchRef.current = { regId, controller };
-      posterPreviewRegIdRef.current = regId;
       setPosterBusyId(regId);
       handleOpenPreview("", `Poster #${code}`, {
         isPoster: true,
         fileName,
         loading: true,
-        playersLoading: true,
       });
       if (playersUrl) {
         fetch(playersUrl, {
@@ -1725,23 +1700,11 @@ export default function TournamentRegistration() {
             return response.json();
           })
           .then((payload) => {
-            if (posterPreviewRegIdRef.current !== regId) return;
-            setImgPreview((prev) => ({
-              ...prev,
-              players: Array.isArray(payload?.players) ? payload.players : [],
-              playersLoading: false,
-              playersError: "",
-            }));
+            console.info("[Poster avatar debug]", payload);
           })
           .catch((error) => {
             if (error?.name === "AbortError") return;
-            if (posterPreviewRegIdRef.current !== regId) return;
-            setImgPreview((prev) => ({
-              ...prev,
-              playersLoading: false,
-              playersError:
-                error?.message || "Không thể tải thông tin avatar",
-            }));
+            console.warn("[Poster avatar debug] failed", error);
           });
       }
       try {
@@ -1752,7 +1715,7 @@ export default function TournamentRegistration() {
         });
         if (!response.ok) throw new Error("Không thể tải poster");
         const objectUrl = URL.createObjectURL(await response.blob());
-        if (posterPreviewRegIdRef.current !== regId) {
+        if (posterFetchRef.current?.regId !== regId) {
           URL.revokeObjectURL(objectUrl);
           return;
         }
@@ -2790,80 +2753,13 @@ export default function TournamentRegistration() {
             p: 0,
             bgcolor: "black",
             display: "flex",
-            flexDirection: "column",
             justifyContent: "center",
             alignItems: "center",
-            overflow: "auto",
+            overflow: "hidden",
             maxWidth: "calc(100vw - 32px)",
             maxHeight: "calc(100vh - 150px)",
           }}
         >
-          {imgPreview.isPoster ? (
-            <Box
-              sx={{
-                width: "100%",
-                px: 1.5,
-                py: 1,
-                bgcolor: "rgba(15,23,42,0.94)",
-                borderBottom: "1px solid rgba(255,255,255,0.12)",
-              }}
-            >
-              <Stack spacing={0.75}>
-                <Typography sx={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>
-                  Avatar backend dùng trong poster
-                </Typography>
-                {imgPreview.playersLoading ? (
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <CircularProgress size={16} />
-                    <Typography sx={{ color: "rgba(255,255,255,0.72)", fontSize: 12 }}>
-                      Đang kiểm tra avatar...
-                    </Typography>
-                  </Stack>
-                ) : imgPreview.playersError ? (
-                  <Typography sx={{ color: "#fecaca", fontSize: 12 }}>
-                    {imgPreview.playersError}
-                  </Typography>
-                ) : (
-                  <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
-                    {(imgPreview.players || []).map((player) => (
-                      <Tooltip
-                        key={`${player.slot}-${player.userId || player.name}`}
-                        title={player.avatarUrl || "Không có avatar"}
-                      >
-                        <Stack
-                          direction="row"
-                          spacing={0.75}
-                          alignItems="center"
-                          sx={{ maxWidth: 280 }}
-                        >
-                          <Avatar
-                            src={posterDebugAvatarSrc(player.avatarUrl)}
-                            sx={{ width: 30, height: 30 }}
-                          >
-                            {String(player.name || "?").slice(0, 1).toUpperCase()}
-                          </Avatar>
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography
-                              noWrap
-                              sx={{ color: "#fff", fontSize: 12, fontWeight: 700 }}
-                            >
-                              {player.name || `VĐV ${player.slot}`}
-                            </Typography>
-                            <Typography
-                              noWrap
-                              sx={{ color: "rgba(255,255,255,0.64)", fontSize: 11 }}
-                            >
-                              {player.avatarSource || "không có avatar"}
-                            </Typography>
-                          </Box>
-                        </Stack>
-                      </Tooltip>
-                    ))}
-                  </Stack>
-                )}
-              </Stack>
-            </Box>
-          ) : null}
           {imgPreview.loading ? (
             <Stack
               spacing={1.5}
