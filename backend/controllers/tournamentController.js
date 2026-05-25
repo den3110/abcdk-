@@ -27,6 +27,32 @@ const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const POSTER_BASE_W = 960;
 const POSTER_BASE_H = 1280;
 
+function isAdminLikeUser(user = {}) {
+  if (!user) return false;
+  if (user.isAdmin === true || user.isSuperUser === true || user.isSuperAdmin === true) {
+    return true;
+  }
+  if (String(user.role || "").trim().toLowerCase() === "admin") return true;
+  if (Array.isArray(user.roles)) {
+    return user.roles
+      .map((role) => String(role || "").trim().toLowerCase())
+      .includes("admin");
+  }
+  return false;
+}
+
+async function canBypassPosterPayment(req, tourId, tour = {}) {
+  if (isAdminLikeUser(req.user)) return true;
+  const userId = String(req.user?._id || req.user?.id || "");
+  if (!userId) return false;
+  if (tour?.createdBy && String(tour.createdBy) === userId) return true;
+  const manager = await TournamentManager.exists({
+    tournament: tourId,
+    user: userId,
+  });
+  return Boolean(manager);
+}
+
 function escapeXml(value = "") {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -2572,7 +2598,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
 
   const [tour, reg] = await Promise.all([
     Tournament.findById(id)
-      .select("name image eventType nameDisplayMode registrationPosterConfig")
+      .select("name image eventType nameDisplayMode registrationPosterConfig createdBy")
       .lean(),
     Registration.findOne({ _id: regId, tournament: id })
       .select("player1 player2 payment updatedAt")
@@ -2585,7 +2611,10 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy đăng ký hoặc giải đấu");
   }
-  if (reg.payment?.status !== "Paid") {
+  if (
+    reg.payment?.status !== "Paid" &&
+    !(await canBypassPosterPayment(req, id, tour))
+  ) {
     res.status(403);
     throw new Error("Đăng ký cần hoàn tất thanh toán trước khi xem poster");
   }

@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types, react/display-name */
 import { useState, useMemo, useEffect, useCallback, memo, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   Avatar,
   Box,
@@ -728,6 +729,7 @@ const ActionButtonsInner = ({
 }) => {
   const { t } = useLanguage();
   const isPaid = r.payment?.status === "Paid";
+  const canOpenPoster = isPaid || canManage;
   const actionTileSx = (color) => ({
     minWidth: 0,
     minHeight: 58,
@@ -783,7 +785,7 @@ const ActionButtonsInner = ({
         bgcolor: alpha("#0f172a", 0.025),
       }}
     >
-      {isPaid ? (
+      {canOpenPoster ? (
         <Tooltip title="Tải poster">
           <ActionTile
             color="#1976d2"
@@ -1185,6 +1187,7 @@ export default function TournamentRegistration() {
   const { locale, t } = useLanguage();
 
   /* Data Fetching */
+  const authToken = useSelector((s) => s.auth?.userInfo?.token || "");
   const { data: me, isLoading: meLoading } = useGetMeScoreQuery();
   const {
     data: tour,
@@ -1245,6 +1248,7 @@ export default function TournamentRegistration() {
     name: "",
     isPoster: false,
     fileName: "",
+    objectUrl: false,
   });
   const [replaceDlg, setReplaceDlg] = useState({
     open: false,
@@ -1599,45 +1603,74 @@ export default function TournamentRegistration() {
 
   /* Dialog open/close handlers */
   const handleOpenPreview = useCallback((src, name, options = {}) => {
-    setImgPreview({
-      open: true,
-      src,
-      name,
-      isPoster: Boolean(options.isPoster),
-      fileName: options.fileName || "",
+    setImgPreview((prev) => {
+      if (prev.objectUrl && prev.src) URL.revokeObjectURL(prev.src);
+      return {
+        open: true,
+        src,
+        name,
+        isPoster: Boolean(options.isPoster),
+        fileName: options.fileName || "",
+        objectUrl: Boolean(options.objectUrl),
+      };
     });
   }, []);
 
   const handleClosePreview = useCallback(() => {
-    setImgPreview({
-      open: false,
-      src: "",
-      name: "",
-      isPoster: false,
-      fileName: "",
+    setImgPreview((prev) => {
+      if (prev.objectUrl && prev.src) URL.revokeObjectURL(prev.src);
+      return {
+        open: false,
+        src: "",
+        name: "",
+        isPoster: false,
+        fileName: "",
+        objectUrl: false,
+      };
     });
   }, []);
 
   const handleOpenPoster = useCallback(
-    (reg) => {
-      if (reg?.payment?.status !== "Paid") {
+    async (reg) => {
+      if (reg?.payment?.status !== "Paid" && !canManage) {
         toast.info("Đăng ký cần hoàn tất thanh toán trước khi xem poster");
         return;
       }
       const src = posterImgUrlFor(reg);
       if (!src) return toast.error("Không tạo được poster");
       const code = regCodeOf(reg);
-      handleOpenPreview(src, `Poster #${code}`, {
-        isPoster: true,
-        fileName: `poster-${code}.png`,
-      });
+      const fileName = `poster-${code}.png`;
+      try {
+        const response = await fetch(src, {
+          credentials: "include",
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+        });
+        if (!response.ok) throw new Error("Không thể tải poster");
+        const objectUrl = URL.createObjectURL(await response.blob());
+        handleOpenPreview(objectUrl, `Poster #${code}`, {
+          isPoster: true,
+          fileName,
+          objectUrl: true,
+        });
+      } catch (error) {
+        toast.error(error?.message || "Không thể tải poster");
+      }
     },
-    [handleOpenPreview, posterImgUrlFor, regCodeOf],
+    [authToken, canManage, handleOpenPreview, posterImgUrlFor, regCodeOf],
   );
 
   const handleDownloadPreview = useCallback(async () => {
     if (!imgPreview.src) return;
     try {
+      if (imgPreview.objectUrl) {
+        const link = document.createElement("a");
+        link.href = imgPreview.src;
+        link.download = imgPreview.fileName || "poster.png";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return;
+      }
       const response = await fetch(imgPreview.src, { credentials: "include" });
       if (!response.ok) throw new Error("Không thể tải poster");
       const blob = await response.blob();
@@ -1652,7 +1685,7 @@ export default function TournamentRegistration() {
     } catch (error) {
       toast.error(error?.message || "Không thể tải poster");
     }
-  }, [imgPreview.fileName, imgPreview.src]);
+  }, [imgPreview.fileName, imgPreview.objectUrl, imgPreview.src]);
 
   const handleOpenReplace = useCallback(
     (reg, slot) => {
