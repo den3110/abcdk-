@@ -38,15 +38,44 @@ function escapeXml(value = "") {
 
 function asDisplayName(player = {}, tour = {}) {
   const mode = String(tour?.nameDisplayMode || "").toLowerCase();
+  const user = player?.user && typeof player.user === "object" ? player.user : {};
   if (mode === "fullname") {
-    return player.fullName || player.nickName || player.nickname || "VĐV";
+    return (
+      player.fullName ||
+      user.fullName ||
+      user.name ||
+      player.nickName ||
+      player.nickname ||
+      user.nickName ||
+      user.nickname ||
+      "VĐV"
+    );
   }
-  return player.nickName || player.nickname || player.fullName || "VĐV";
+  return (
+    player.nickName ||
+    player.nickname ||
+    user.nickName ||
+    user.nickname ||
+    player.fullName ||
+    user.fullName ||
+    user.name ||
+    "VĐV"
+  );
 }
 
 function resolveLocalImagePath(src = "") {
   const clean = String(src || "").split("?")[0].replace(/\\/g, "/").trim();
-  if (!clean || /^https?:\/\//i.test(clean)) return null;
+  if (!clean) return null;
+  if (/^https?:\/\//i.test(clean)) {
+    try {
+      const url = new URL(clean);
+      const pathname = decodeURIComponent(url.pathname || "");
+      if (pathname.startsWith("/uploads/")) {
+        return path.join(process.cwd(), pathname.replace(/^\/+/, ""));
+      }
+    } catch {}
+    return null;
+  }
   if (/^[a-zA-Z]:\//.test(clean)) {
     return path.normalize(clean);
   }
@@ -636,7 +665,15 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
 }
 
 async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
-  const src = player?.avatar || "";
+  const user = player?.user && typeof player.user === "object" ? player.user : {};
+  const src =
+    player?.avatar ||
+    user?.avatar ||
+    player?.avatarUrl ||
+    user?.avatarUrl ||
+    player?.image ||
+    user?.image ||
+    "";
   let input = null;
   try {
     input = src ? await readImageBuffer(req, src) : null;
@@ -2538,13 +2575,19 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
       .select("name image eventType nameDisplayMode registrationPosterConfig")
       .lean(),
     Registration.findOne({ _id: regId, tournament: id })
-      .select("player1 player2 updatedAt")
+      .select("player1 player2 payment updatedAt")
+      .populate("player1.user", "name fullName nickname nickName avatar")
+      .populate("player2.user", "name fullName nickname nickName avatar")
       .lean(),
   ]);
 
   if (!tour || !reg) {
     res.status(404);
     throw new Error("Không tìm thấy đăng ký hoặc giải đấu");
+  }
+  if (reg.payment?.status !== "Paid") {
+    res.status(403);
+    throw new Error("Đăng ký cần hoàn tất thanh toán trước khi xem poster");
   }
   const templateSrc = getPosterTemplateSource(tour);
   if (!templateSrc) {

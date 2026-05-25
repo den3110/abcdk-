@@ -50,6 +50,7 @@ import {
   CheckCircle,
   ImageOutlined,
   InfoOutlined,
+  FileDownloadOutlined,
 } from "@mui/icons-material";
 import DangerousSharpIcon from "@mui/icons-material/DangerousSharp";
 
@@ -726,6 +727,7 @@ const ActionButtonsInner = ({
   busy,
 }) => {
   const { t } = useLanguage();
+  const isPaid = r.payment?.status === "Paid";
   const actionTileSx = (color) => ({
     minWidth: 0,
     minHeight: 58,
@@ -781,15 +783,17 @@ const ActionButtonsInner = ({
         bgcolor: alpha("#0f172a", 0.025),
       }}
     >
-      <Tooltip title="Tải poster">
-        <ActionTile
-          color="#1976d2"
-          icon={<ImageOutlined fontSize="small" />}
-          onClick={() => onOpenPoster(r)}
-        >
-          Tải poster
-        </ActionTile>
-      </Tooltip>
+      {isPaid ? (
+        <Tooltip title="Tải poster">
+          <ActionTile
+            color="#1976d2"
+            icon={<ImageOutlined fontSize="small" />}
+            onClick={() => onOpenPoster(r)}
+          >
+            Tải poster
+          </ActionTile>
+        </Tooltip>
+      ) : null}
 
       {canManage && !isFreeTournament && (
         <Tooltip title={t("tournaments.registration.payment.toggleTooltip")}>
@@ -1239,6 +1243,8 @@ export default function TournamentRegistration() {
     open: false,
     src: "",
     name: "",
+    isPoster: false,
+    fileName: "",
   });
   const [replaceDlg, setReplaceDlg] = useState({
     open: false,
@@ -1405,7 +1411,21 @@ export default function TournamentRegistration() {
       const tourId = tour?._id || tour?.id || id;
       const regId = r?._id || r?.id;
       if (!tourId || !regId) return "";
-      const stamp = encodeURIComponent(String(r?.updatedAt || Date.now()));
+      const cfg = tour?.registrationPosterConfig || {};
+      const aiJob = cfg?.aiJob || {};
+      const stamp = encodeURIComponent(
+        [
+          r?.updatedAt,
+          cfg?.templateUploadedAt,
+          cfg?.updatedAt,
+          cfg?.templateUrl,
+          aiJob?.id,
+          aiJob?.status,
+          aiJob?.finishedAt,
+        ]
+          .filter(Boolean)
+          .join("|") || String(Date.now()),
+      );
       return apiImageSrc(
         `/api/tournaments/${tourId}/registrations/${regId}/poster?v=${stamp}`,
       );
@@ -1578,22 +1598,61 @@ export default function TournamentRegistration() {
   }, [complaintDlg, createComplaint, id, t]);
 
   /* Dialog open/close handlers */
-  const handleOpenPreview = useCallback((src, name) => {
-    setImgPreview({ open: true, src, name });
+  const handleOpenPreview = useCallback((src, name, options = {}) => {
+    setImgPreview({
+      open: true,
+      src,
+      name,
+      isPoster: Boolean(options.isPoster),
+      fileName: options.fileName || "",
+    });
   }, []);
 
   const handleClosePreview = useCallback(() => {
-    setImgPreview({ open: false, src: "", name: "" });
+    setImgPreview({
+      open: false,
+      src: "",
+      name: "",
+      isPoster: false,
+      fileName: "",
+    });
   }, []);
 
   const handleOpenPoster = useCallback(
     (reg) => {
+      if (reg?.payment?.status !== "Paid") {
+        toast.info("Đăng ký cần hoàn tất thanh toán trước khi xem poster");
+        return;
+      }
       const src = posterImgUrlFor(reg);
       if (!src) return toast.error("Không tạo được poster");
-      handleOpenPreview(src, `Poster #${regCodeOf(reg)}`);
+      const code = regCodeOf(reg);
+      handleOpenPreview(src, `Poster #${code}`, {
+        isPoster: true,
+        fileName: `poster-${code}.png`,
+      });
     },
     [handleOpenPreview, posterImgUrlFor, regCodeOf],
   );
+
+  const handleDownloadPreview = useCallback(async () => {
+    if (!imgPreview.src) return;
+    try {
+      const response = await fetch(imgPreview.src, { credentials: "include" });
+      if (!response.ok) throw new Error("Không thể tải poster");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = imgPreview.fileName || "poster.png";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      toast.error(error?.message || "Không thể tải poster");
+    }
+  }, [imgPreview.fileName, imgPreview.src]);
 
   const handleOpenReplace = useCallback(
     (reg, slot) => {
@@ -2569,7 +2628,7 @@ export default function TournamentRegistration() {
             alignItems: "center",
             overflow: "auto",
             maxWidth: "calc(100vw - 32px)",
-            maxHeight: "calc(100vh - 96px)",
+            maxHeight: "calc(100vh - 150px)",
           }}
         >
           <Box
@@ -2581,12 +2640,24 @@ export default function TournamentRegistration() {
               width: "auto",
               height: "auto",
               maxWidth: "calc(100vw - 32px)",
-              maxHeight: "calc(100vh - 110px)",
+              maxHeight: "calc(100vh - 164px)",
               objectFit: "contain",
             }}
             onError={(e) => (e.currentTarget.src = PLACE)}
           />
         </DialogContent>
+        <DialogActions sx={{ px: 2, py: 1.25 }}>
+          {imgPreview.isPoster ? (
+            <Button
+              variant="contained"
+              startIcon={<FileDownloadOutlined />}
+              onClick={handleDownloadPreview}
+            >
+              Tải xuống
+            </Button>
+          ) : null}
+          <Button onClick={handleClosePreview}>Đóng</Button>
+        </DialogActions>
       </Dialog>
 
       {/* 2. Replace Player */}
