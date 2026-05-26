@@ -436,8 +436,8 @@ router.post("/score-history", createScoreHistory); // body { userId, ... }
 router.get("/self-assessments", listSelfAssessments);
 router.post("/self-assessments/reset", resetSelfAssessments);
 
-router.get("/auth-logs", listAuthLogs);
-router.get("/auth-logs/:id", getAuthLogDetail);
+router.get("/auth-logs", requireSuperAdmin, listAuthLogs);
+router.get("/auth-logs/:id", requireSuperAdmin, getAuthLogDetail);
 
 router
   .route("/tournaments/:id")
