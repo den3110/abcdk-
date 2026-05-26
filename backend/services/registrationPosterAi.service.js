@@ -336,7 +336,11 @@ function normalizeLayout(raw, width, height) {
   };
 }
 
-export async function analyzeRegistrationPosterLayout({ req, imageSource }) {
+export async function analyzeRegistrationPosterLayout({
+  req,
+  imageSource,
+  extraPrompt = "",
+}) {
   const original = await readImageBuffer(req, imageSource);
   const normalized = await sharp(original)
     .resize({ width: MAX_ANALYSIS_WIDTH, withoutEnlargement: true })
@@ -346,6 +350,16 @@ export async function analyzeRegistrationPosterLayout({ req, imageSource }) {
   const width = meta.width || 960;
   const height = meta.height || 1280;
   const dataUrl = `data:image/png;base64,${normalized.toString("base64")}`;
+  const adminPrompt = String(extraPrompt || "").trim().slice(0, 1200);
+  const adminPromptBlock = adminPrompt
+    ? `
+
+Prompt bổ sung từ admin cho riêng mẫu poster này:
+${adminPrompt}
+
+Hãy ưu tiên prompt bổ sung này khi xác định vị trí avatar/name, miễn là vẫn trả đúng schema JSON và vẫn chỉ phân tích layout.
+`
+    : "";
 
   const prompt = `
 Bạn là hệ thống thị giác máy tính cho PickleTour. Hãy phân tích poster template giải đấu và tìm đúng vùng để ghép ảnh đại diện VĐV + thay tên VĐV bằng nickname.
@@ -365,6 +379,7 @@ Yêu cầu:
 - Bỏ qua logo, địa điểm, lịch thi đấu, tiêu đề, QR, nhà tài trợ.
 - Không bịa nội dung chữ; chỉ tìm layout.
 - Chỉ trả JSON đúng schema.
+${adminPromptBlock}
 `;
 
   const schemaText = JSON.stringify(posterLayoutJsonSchema.schema);

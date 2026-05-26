@@ -684,6 +684,7 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
     }
 
     const fontFamily = sanitizePosterFontFamily(req.body?.fontFamily);
+    const extraPrompt = sanitizePosterExtraPrompt(req.body?.extraPrompt);
     const shouldSave = req.body?.save !== false;
 
     if (shouldSave) {
@@ -692,6 +693,7 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
       const nextConfig = {
         ...(tour.registrationPosterConfig || {}),
         templateUrl,
+        aiExtraPrompt: extraPrompt,
         needsAnalysis: true,
         aiJob: {
           id: jobId,
@@ -699,6 +701,7 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
           startedAt: now,
           requestedAt: now,
           fontFamily,
+          extraPrompt,
         },
       };
 
@@ -715,6 +718,7 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
           jobId,
           templateUrl,
           fontFamily,
+          extraPrompt,
           reqContext,
           io,
         }).catch((error) => {
@@ -738,8 +742,10 @@ export const analyzeTournamentRegistrationPoster = expressAsyncHandler(
     const { config, analysis } = await analyzeRegistrationPosterLayout({
       req,
       imageSource: templateUrl,
+      extraPrompt,
     });
     config.templateUrl = templateUrl;
+    config.aiExtraPrompt = extraPrompt;
     config.needsAnalysis = false;
     if (fontFamily) {
       config.text = {
@@ -828,6 +834,14 @@ function sanitizePosterFontFamily(value = "") {
     .slice(0, 160);
 }
 
+function sanitizePosterExtraPrompt(value = "") {
+  return String(value || "")
+    .replace(/\0/g, "")
+    .replace(/\r\n?/g, "\n")
+    .trim()
+    .slice(0, 1200);
+}
+
 function makePosterRequestContext(req) {
   const headers = { ...(req.headers || {}) };
   return {
@@ -851,6 +865,7 @@ async function runRegistrationPosterAnalysisJob({
   jobId,
   templateUrl,
   fontFamily,
+  extraPrompt,
   reqContext,
   io,
 }) {
@@ -859,8 +874,10 @@ async function runRegistrationPosterAnalysisJob({
     const { config, analysis } = await analyzeRegistrationPosterLayout({
       req: reqContext,
       imageSource: templateUrl,
+      extraPrompt,
     });
     config.templateUrl = templateUrl;
+    config.aiExtraPrompt = extraPrompt;
     config.needsAnalysis = false;
     config.aiJob = {
       id: jobId,

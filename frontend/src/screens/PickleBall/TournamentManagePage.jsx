@@ -1261,6 +1261,7 @@ export default function TournamentManagePage() {
   const [posterTemplateDragging, setPosterTemplateDragging] = useState(false);
   const posterTemplateInputRef = useRef(null);
   const [posterNameFontFamily, setPosterNameFontFamily] = useState("");
+  const [posterAiExtraPrompt, setPosterAiExtraPrompt] = useState("");
   const posterAiJobStatusRef = useRef({ id: "", status: "" });
 
   // Quyền
@@ -1296,6 +1297,8 @@ export default function TournamentManagePage() {
   const posterTemplateBusy = uploadingPosterTemplate || analyzingPoster;
   const savedPosterNameFontFamily =
     tour?.registrationPosterConfig?.text?.fontFamily || "";
+  const savedPosterAiExtraPrompt =
+    tour?.registrationPosterConfig?.aiExtraPrompt || "";
   const canManageManagers = useMemo(
     () =>
       isAdmin ||
@@ -1307,6 +1310,10 @@ export default function TournamentManagePage() {
   useEffect(() => {
     setPosterNameFontFamily(savedPosterNameFontFamily);
   }, [savedPosterNameFontFamily]);
+
+  useEffect(() => {
+    setPosterAiExtraPrompt(savedPosterAiExtraPrompt);
+  }, [savedPosterAiExtraPrompt]);
 
   useEffect(() => {
     if (!posterAiRunning) return undefined;
@@ -1956,6 +1963,7 @@ export default function TournamentManagePage() {
         id,
         save: true,
         fontFamily: posterNameFontFamily || undefined,
+        extraPrompt: posterAiExtraPrompt.trim() || undefined,
       }).unwrap();
       if (result?.queued) {
         toast.info("AI poster đang chạy nền, bạn có thể tiếp tục thao tác.");
@@ -1978,6 +1986,7 @@ export default function TournamentManagePage() {
   }, [
     analyzeRegistrationPoster,
     id,
+    posterAiExtraPrompt,
     posterNameFontFamily,
     posterTemplateUrl,
     refetchTour,
@@ -2009,6 +2018,7 @@ export default function TournamentManagePage() {
           id,
           save: true,
           fontFamily: posterNameFontFamily || undefined,
+          extraPrompt: posterAiExtraPrompt.trim() || undefined,
         }).unwrap();
         if (result?.queued) {
           toast.info("Đã tải mẫu, AI poster đang chạy nền.");
@@ -2032,6 +2042,7 @@ export default function TournamentManagePage() {
     [
       analyzeRegistrationPoster,
       id,
+      posterAiExtraPrompt,
       posterNameFontFamily,
       refetchTour,
       uploadRegistrationPosterTemplate,
@@ -2702,6 +2713,17 @@ export default function TournamentManagePage() {
                 </MenuItem>
               ))}
             </TextField>
+
+            <TextField
+              size="small"
+              label="Prompt bổ sung"
+              placeholder="VD: thay đúng chữ HỌ TÊN, giữ nguyên VĐV"
+              value={posterAiExtraPrompt}
+              onChange={(event) => setPosterAiExtraPrompt(event.target.value)}
+              disabled={!canManage || posterTemplateBusy}
+              inputProps={{ maxLength: 1200 }}
+              sx={{ minWidth: 260, maxWidth: 360 }}
+            />
 
             <Button
               variant="outlined"
