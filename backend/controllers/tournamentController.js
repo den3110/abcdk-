@@ -730,6 +730,12 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
           cx: panel.left + panel.width / 2,
           y: panel.top + panel.height / 2,
           width: Math.max(1, Math.round(panel.width * 0.82)),
+          erase: {
+            left: panel.left + panel.width * 0.06,
+            top: panel.top + panel.height * 0.12,
+            width: panel.width * 0.88,
+            height: panel.height * 0.76,
+          },
         },
       };
     }
@@ -737,17 +743,30 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
     const avatar = slot.avatar || {};
     const name = slot.name || {};
     const avatarBottom = avatar.top + avatar.height;
-    if (numOr(name.y, 0) <= avatarBottom + avatar.height * 0.22) {
+    const preferredGap = clampInt(avatar.height * 0.22, 34, 72, 48);
+    const preferredY = Math.min(height - 1, avatarBottom + preferredGap);
+    const minY = avatarBottom + Math.max(22, avatar.height * 0.1);
+    const maxY = avatarBottom + Math.max(74, avatar.height * 0.3);
+    const currentY = numOr(name.y, preferredY);
+    if (currentY < minY || currentY > maxY) {
+      const boxWidth = Math.max(
+        numOr(name.width, 1),
+        Math.round(avatar.width * 1.48),
+      );
+      const boxHeight = Math.max(46, Math.round(avatar.height * 0.24));
       return {
         ...slot,
         name: {
           ...name,
           cx: numOr(name.cx, avatar.left + avatar.width / 2),
-          y: Math.min(
-            height - 1,
-            avatarBottom + Math.max(58, avatar.height * 0.34),
-          ),
-          width: Math.max(numOr(name.width, 1), Math.round(avatar.width * 1.45)),
+          y: preferredY,
+          width: boxWidth,
+          erase: {
+            left: numOr(name.cx, avatar.left + avatar.width / 2) - boxWidth / 2,
+            top: preferredY - boxHeight / 2,
+            width: boxWidth,
+            height: boxHeight,
+          },
         },
       };
     }
@@ -1088,14 +1107,26 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
               0,
             )}"`
           : "";
+      const eraseBox = slot.name.erase || {};
       const backgroundHeight = Math.max(size * 1.55, maxFontSize * 1.1);
       const backgroundWidth = Math.max(1, slot.name.width * 0.94);
-      const backgroundBox = {
-        left: slot.name.cx - backgroundWidth / 2,
-        top: slot.name.y - backgroundHeight / 2,
-        width: backgroundWidth,
-        height: backgroundHeight,
-      };
+      const backgroundBox =
+        Number.isFinite(Number(eraseBox.left)) &&
+        Number.isFinite(Number(eraseBox.top)) &&
+        Number.isFinite(Number(eraseBox.width)) &&
+        Number.isFinite(Number(eraseBox.height))
+          ? {
+              left: Number(eraseBox.left),
+              top: Number(eraseBox.top),
+              width: Math.max(1, Number(eraseBox.width)),
+              height: Math.max(1, Number(eraseBox.height)),
+            }
+          : {
+              left: slot.name.cx - backgroundWidth / 2,
+              top: slot.name.y - backgroundHeight / 2,
+              width: backgroundWidth,
+              height: backgroundHeight,
+            };
       const backgroundFill =
         textCfg.backgroundFill === "none"
           ? ""
@@ -1103,9 +1134,9 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
             samplePosterTextBackground(templateRaw, width, height, backgroundBox);
       const backgroundNode = backgroundFill
         ? `<rect x="${backgroundBox.left}" y="${backgroundBox.top}" width="${backgroundBox.width}" height="${backgroundBox.height}"
-            rx="${Math.round(backgroundHeight * 0.22)}" ry="${Math.round(
-              backgroundHeight * 0.22,
-            )}" fill="${escapeXml(backgroundFill)}" fill-opacity="0.96"/>`
+            rx="${Math.round(backgroundBox.height * 0.22)}" ry="${Math.round(
+              backgroundBox.height * 0.22,
+            )}" fill="${escapeXml(backgroundFill)}" fill-opacity="1"/>`
         : "";
       const fillColor = getReadablePosterTextColor(
         textCfg.color,
