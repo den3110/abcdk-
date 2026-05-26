@@ -53,10 +53,11 @@ const slotSchema = {
         x: { type: "number" },
         y: { type: "number" },
         w: { type: "number" },
+        h: { type: "number" },
         minFontSize: { type: "number" },
         maxFontSize: { type: "number" },
       },
-      required: ["x", "y", "w", "minFontSize", "maxFontSize"],
+      required: ["x", "y", "w", "h", "minFontSize", "maxFontSize"],
     },
   },
   required: ["avatar", "name"],
@@ -254,6 +255,7 @@ function normalizeSlot(slot, width, height) {
       x: clamp(name.x, 0, width, Math.round(width / 2)),
       y: clamp(name.y, 0, height, Math.round(height * 0.65)),
       w: clamp(name.w, 1, width, Math.round(width * 0.4)),
+      h: clamp(name.h ?? name.height, 1, height, Math.round(height * 0.06)),
       minFontSize: clamp(name.minFontSize, 8, 96, 22),
       maxFontSize: clamp(name.maxFontSize, 8, 120, 46),
     },
@@ -280,6 +282,7 @@ function deriveSingleSlotFromDouble(slots, width, height) {
         x: (a.name.x + b.name.x) / 2,
         y: (a.name.y + b.name.y) / 2,
         w: Math.max(a.name.w, b.name.w),
+        h: Math.max(a.name.h, b.name.h),
         minFontSize: Math.min(a.name.minFontSize, b.name.minFontSize),
         maxFontSize: Math.max(a.name.maxFontSize, b.name.maxFontSize),
       },
@@ -345,16 +348,18 @@ export async function analyzeRegistrationPosterLayout({ req, imageSource }) {
   const dataUrl = `data:image/png;base64,${normalized.toString("base64")}`;
 
   const prompt = `
-Bạn là hệ thống thị giác máy tính cho PickleTour. Hãy phân tích poster template giải đấu và tìm vùng để ghép ảnh đại diện VĐV + tên VĐV.
+Bạn là hệ thống thị giác máy tính cho PickleTour. Hãy phân tích poster template giải đấu và tìm đúng vùng để ghép ảnh đại diện VĐV + thay tên VĐV bằng nickname.
 
 Yêu cầu:
 - Trả tọa độ theo đúng kích thước ảnh đã gửi: width=${width}, height=${height}.
 - avatar là vùng trắng/trống bên trong khung ảnh để đặt ảnh VĐV. Trả x,y,w,h là bounding box của phần ruột khung ảnh, không lấy viền trang trí, không lấy nhãn "VĐV", không lấy khung tên.
 - Nếu khung ảnh có bo góc, lượn sóng hoặc hình dạng đặc biệt, vẫn trả bounding box phủ toàn bộ phần ruột khung ảnh để backend dùng mask của template ghép ảnh vừa khung.
-- name là vùng chữ tên VĐV thật, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc khung tên riêng bên dưới ảnh.
-- Không được chọn nhãn vai trò nhỏ như "VĐV", "PLAYER", "ATHLETE" làm vùng name.
-- Nếu thấy chữ "HỌ TÊN" hoặc một placeholder tên tương tự, name.x/name.y phải là tâm của chính dòng chữ đó để backend xoá placeholder và thay bằng nickname/tên VĐV thật.
-- Trả x là tâm ngang, y là tâm dọc dòng chữ, w là bề rộng tối đa của khung tên.
+- name là vùng placeholder tên cần bị thay thế, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc vùng tên riêng bên dưới ảnh.
+- name.x/name.y phải là tâm của chính placeholder tên cần thay thế. name.w/name.h phải bao phủ toàn bộ vùng chữ placeholder để backend xoá đúng vùng đó rồi vẽ nickname vào cùng vị trí.
+- Không đặt name ở dưới placeholder, không đặt name ở khoảng giữa khung tên và footer, và không đặt name theo vị trí avatar nếu trên poster đã có vùng placeholder tên rõ ràng.
+- Phải giữ nguyên nhãn vai trò nhỏ như "VĐV", "PLAYER", "ATHLETE"; tuyệt đối không chọn các nhãn này làm name.
+- Nếu một slot có cả nhãn vai trò "VĐV" và chữ "HỌ TÊN", name phải là vùng "HỌ TÊN"; avatar vẫn là vùng ảnh bên trên; nhãn "VĐV" phải nằm ngoài vùng name.
+- Trả x là tâm ngang, y là tâm dọc của vùng tên cần thay; w là bề rộng tối đa của vùng tên; h là chiều cao vùng cần xoá/thay.
 - Nếu poster có 2 VĐV, trả slots.double có đúng 2 slot từ trái sang phải.
 - slots.single là slot cho giải đơn; nếu template có 2 slot thì đặt slot single ở giữa 2 slot hoặc vùng trung tâm hợp lý.
 - Bỏ qua logo, địa điểm, lịch thi đấu, tiêu đề, QR, nhà tài trợ.

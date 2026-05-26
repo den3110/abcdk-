@@ -721,6 +721,11 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
   if (!templateRaw || !Array.isArray(slots) || !slots.length) return slots;
 
   return slots.map((slot) => {
+    const hasAiNameBox =
+      Number.isFinite(Number(slot?.name?.height)) ||
+      Number.isFinite(Number(slot?.name?.h));
+    if (hasAiNameBox) return slot;
+
     const panel = findPosterNamePanel(templateRaw, width, height, slot);
     if (panel) {
       return {
@@ -735,37 +740,6 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
             top: panel.top + panel.height * 0.12,
             width: panel.width * 0.88,
             height: panel.height * 0.76,
-          },
-        },
-      };
-    }
-
-    const avatar = slot.avatar || {};
-    const name = slot.name || {};
-    const avatarBottom = avatar.top + avatar.height;
-    const preferredGap = clampInt(avatar.height * 0.22, 34, 72, 48);
-    const preferredY = Math.min(height - 1, avatarBottom + preferredGap);
-    const minY = avatarBottom + Math.max(22, avatar.height * 0.1);
-    const maxY = avatarBottom + Math.max(74, avatar.height * 0.3);
-    const currentY = numOr(name.y, preferredY);
-    if (currentY < minY || currentY > maxY) {
-      const boxWidth = Math.max(
-        numOr(name.width, 1),
-        Math.round(avatar.width * 1.48),
-      );
-      const boxHeight = Math.max(46, Math.round(avatar.height * 0.24));
-      return {
-        ...slot,
-        name: {
-          ...name,
-          cx: numOr(name.cx, avatar.left + avatar.width / 2),
-          y: preferredY,
-          width: boxWidth,
-          erase: {
-            left: numOr(name.cx, avatar.left + avatar.width / 2) - boxWidth / 2,
-            top: preferredY - boxHeight / 2,
-            width: boxWidth,
-            height: boxHeight,
           },
         },
       };
@@ -898,10 +872,29 @@ function resolvePosterBox(box = {}, width, height, baseWidth, baseHeight) {
 }
 
 function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
+  const rawErase = name.erase && typeof name.erase === "object" ? name.erase : null;
   return {
     cx: scaleCoord(name.cx ?? name.x, width, baseWidth),
     y: scaleCoord(name.y ?? name.top, height, baseHeight),
     width: Math.max(1, scaleCoord(name.width ?? name.w, width, baseWidth, 1)),
+    height:
+      name.height || name.h
+        ? Math.max(1, scaleCoord(name.height ?? name.h, height, baseHeight, 1))
+        : undefined,
+    erase: rawErase
+      ? {
+          left: scaleCoord(rawErase.left ?? rawErase.x, width, baseWidth),
+          top: scaleCoord(rawErase.top ?? rawErase.y, height, baseHeight),
+          width: Math.max(
+            1,
+            scaleCoord(rawErase.width ?? rawErase.w, width, baseWidth, 1),
+          ),
+          height: Math.max(
+            1,
+            scaleCoord(rawErase.height ?? rawErase.h, height, baseHeight, 1),
+          ),
+        }
+      : undefined,
     fontSize: name.fontSize,
     minFontSize: name.minFontSize,
     maxFontSize: name.maxFontSize,
@@ -1108,6 +1101,7 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
             )}"`
           : "";
       const eraseBox = slot.name.erase || {};
+      const explicitNameHeight = Number(slot.name.height ?? slot.name.h);
       const backgroundHeight = Math.max(size * 1.55, maxFontSize * 1.1);
       const backgroundWidth = Math.max(1, slot.name.width * 0.94);
       const backgroundBox =
@@ -1121,6 +1115,13 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
               width: Math.max(1, Number(eraseBox.width)),
               height: Math.max(1, Number(eraseBox.height)),
             }
+          : Number.isFinite(explicitNameHeight) && explicitNameHeight > 0
+            ? {
+                left: slot.name.cx - slot.name.width / 2,
+                top: slot.name.y - explicitNameHeight / 2,
+                width: slot.name.width,
+                height: explicitNameHeight,
+              }
           : {
               left: slot.name.cx - backgroundWidth / 2,
               top: slot.name.y - backgroundHeight / 2,
