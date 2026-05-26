@@ -70,6 +70,13 @@ export async function createAssessment(req, res) {
     scoreBy === "admin" || scoreBy === "mod" || scoreBy === "moderator";
 
   // Note hiển thị
+  if (selfScored && !isStaff) {
+    return res.status(403).json({
+      message:
+        "Tính năng tự chấm trình đã tắt. Vui lòng chờ admin hoặc người chấm trình cập nhật điểm.",
+    });
+  }
+
   let finalNote = noteInput;
   if (scoreBy === "admin") {
     finalNote = "admin chấm điểm trình";

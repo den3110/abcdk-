@@ -3711,13 +3711,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         ? `Mod "${scorerName}" chấm trình, Ghi chú thêm: ${rawNote}`
         : `Mod "${scorerName}" chấm trình`;
 
-      const existedSelf = !!(await Assessment.exists({
-        user: target._id,
-        "meta.selfScored": true,
-      }).session(session));
-      const hasCompetedFinished = await hasFinishedTournament(target._id);
-      const shouldAutoSelf = !existedSelf && !hasCompetedFinished;
-
       // 1) Evaluation
       evaluationDoc = await Evaluation.create(
         [
@@ -3797,37 +3790,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       );
       officialAssessmentId = officialAss?._id || null;
 
-      // 5) Auto self nếu cần
-      if (shouldAutoSelf) {
-        const sLv2 = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
-        const dLv2 = normalizeDupr(Number(doubles ?? singles ?? MIN_RATING));
-        const singleScore2 = rawFromDupr(sLv2);
-        const doubleScore2 = rawFromDupr(dLv2);
-        const evalTs = evaluationDoc?.createdAt
-          ? new Date(evaluationDoc.createdAt).getTime()
-          : Date.now();
-        const scoredAt = new Date(evalTs + 1);
-        const [selfDoc] = await Assessment.create(
-          [
-            {
-              user: target._id,
-              scorer: target._id,
-              items: [],
-              singleScore: singleScore2,
-              doubleScore: doubleScore2,
-              singleLevel: sLv2,
-              doubleLevel: dLv2,
-              meta: { selfScored: true },
-              note: "Tự chấm trình (mod hỗ trợ)",
-              scoredAt,
-            },
-          ],
-          { session }
-        );
-        selfAssessmentId = selfDoc?._id || null;
-      }
-
-      // 6) Cập nhật điểm đăng ký
+      // 5) Cập nhật điểm đăng ký
       registrationUpdates = await updateActiveRegistrations(
         session,
         target._id,

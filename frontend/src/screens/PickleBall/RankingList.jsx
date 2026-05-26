@@ -843,7 +843,7 @@ export default function RankingList() {
     },
   );
   const me = meData || null;
-  const canSelfAssess = !me || me.isScoreVerified === false;
+  const canSelfAssess = false;
 
   // Scroll to top with smooth behavior
   useEffect(() => {

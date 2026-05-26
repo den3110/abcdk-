@@ -17,7 +17,6 @@ import { alpha } from "@mui/material/styles";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
-  useCreateAssessmentMutation,
   useGetLatestAssessmentQuery,
 } from "../../slices/assessmentsApiSlice";
 import { useLanguage } from "../../context/LanguageContext";
@@ -157,8 +156,8 @@ export default function LevelPointPage({ userId: userIdProp }) {
   // Chặn auto-fill ghi đè khi user đã gõ
   const didPrefillRef = useRef(false);
 
-  const [createAssessment, { isLoading: saving }] =
-    useCreateAssessmentMutation();
+  const saving = false;
+  const selfAssessmentDisabled = true;
   const {
     data: latest,
     isLoading: loadingLatest,
@@ -240,32 +239,9 @@ export default function LevelPointPage({ userId: userIdProp }) {
   })();
 
   const handleSubmit = async () => {
-    if (!userId) {
-      toast.error(t("levelPoint.missingUserId"));
-      return;
-    }
-    if (!singleValid || !doubleValid) {
-      toast.error(
-        t("levelPoint.invalidRange", {
-          min: DUPR_MIN.toFixed(3),
-          max: DUPR_MAX.toFixed(3),
-        }),
-      );
-      return;
-    }
-    try {
-      await createAssessment({
-        userId,
-        singleLevel: singleVal,
-        doubleLevel: doubleVal,
-        note: t("levelPoint.saveNote"),
-      }).unwrap();
-      toast.success(t("levelPoint.saveSuccess"));
-    } catch (err) {
-      const msg =
-        err?.data?.message || err?.error || t("levelPoint.saveUnknownError");
-      toast.error(msg);
-    }
+    toast.error(
+      "Tính năng tự chấm trình đã tắt. Vui lòng chờ admin hoặc người chấm trình cập nhật điểm.",
+    );
   };
 
   return (
@@ -286,6 +262,17 @@ export default function LevelPointPage({ userId: userIdProp }) {
         </Stack>
 
         {/* Inputs */}
+        <Card elevation={0} sx={{ borderRadius: 3, mb: 2, border: "1px solid", borderColor: "warning.main" }}>
+          <CardContent>
+            <Typography color="warning.main" fontWeight={700}>
+              Tính năng tự chấm trình đã tắt.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Admin hoặc người chấm trình sẽ cập nhật điểm cho vận động viên.
+            </Typography>
+          </CardContent>
+        </Card>
+
         <Card elevation={3} sx={{ borderRadius: 3, mb: 3 }}>
           <CardContent>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
@@ -335,10 +322,10 @@ export default function LevelPointPage({ userId: userIdProp }) {
                   variant="contained"
                   size="large"
                   onClick={handleSubmit}
-                  disabled={saving || !userId || isGold}
+                  disabled={selfAssessmentDisabled || saving || !userId || isGold}
                   title={isGold ? t("levelPoint.goldScoreDisabled", "Đã có điểm vàng, không thể cập nhật") : ""}
                 >
-                  {saving ? t("levelPoint.saving") : t("levelPoint.save")}
+                  Đã tắt
                 </Button>
                 <Button
                   variant="text"

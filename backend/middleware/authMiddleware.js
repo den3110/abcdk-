@@ -198,8 +198,15 @@ export const canScore = asyncHandler(async (req, res, next) => {
 
   const isSelf = targetUserId && String(actor._id) === String(targetUserId);
 
-  if (isSelf || actor.role === "admin" || actor.role === "referee") {
+  if (actor.role === "admin" || actor.role === "referee") {
     return next();
+  }
+
+  if (isSelf) {
+    return res.status(403).json({
+      message:
+        "Tính năng tự chấm trình đã tắt. Vui lòng chờ admin hoặc người chấm trình cập nhật điểm.",
+    });
   }
 
   return res.status(403).json({ message: "Forbidden" });

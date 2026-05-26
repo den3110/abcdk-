@@ -186,35 +186,18 @@ export const adminUpdateRanking = asyncHandler(async (req, res) => {
     await rank.save();
   }
 
-  // 4) Nếu CHƯA từng có "tự chấm", tạo một bản tự chấm (admin hỗ trợ)
-  const hasSelfAssessment = await Assessment.exists({
+  await Assessment.create({
     user: userId,
-    "meta.selfScored": true,
+    scorer: req.user?._id || null,
+    items: [],
+    singleLevel: sSingle,
+    doubleLevel: sDouble,
+    meta: { selfScored: false, scoreBy: "admin" },
+    note: "Admin chấm điểm trình",
+    scoredAt: new Date(),
   });
 
-  let createdSelfAssessment = false;
-  if (!hasSelfAssessment) {
-    await Assessment.create({
-      user: userId,
-      scorer: req.user?._id || null, // ai chấm (admin)
-      items: [], // items không bắt buộc
-      singleScore: sSingle, // snapshot thời điểm này
-      doubleScore: sDouble,
-      // singleLevel/doubleLevel: tuỳ bạn có map từ DUPR không, tạm để trống
-      meta: {
-        selfScored: true, // ❗ cờ tự chấm nằm trong meta
-        // các field khác giữ default: freq=0, competed=false, external=0
-      },
-      note: "Tự chấm trình (admin hỗ trợ)",
-      scoredAt: new Date(),
-    });
-    createdSelfAssessment = true;
-  }
-
-  // 5) Ghi lịch sử
-  const note = createdSelfAssessment
-    ? "Admin chấm điểm và tạo tự chấm (admin hỗ trợ)"
-    : "Admin chấm điểm trình";
+  const note = "Admin chấm điểm trình";
 
   await ScoreHistory.create({
     user: userId,
@@ -225,15 +208,11 @@ export const adminUpdateRanking = asyncHandler(async (req, res) => {
     scoredAt: new Date(),
   });
 
-  // 6) Trả kết quả
   res.json({
-    message: createdSelfAssessment
-      ? "Đã cập nhật điểm và tạo tự chấm (admin hỗ trợ)"
-      : "Đã cập nhật điểm",
+    message: "Đã cập nhật điểm",
     user: userId,
     single: rank.single,
     double: rank.double,
-    createdSelfAssessment,
   });
 });
 

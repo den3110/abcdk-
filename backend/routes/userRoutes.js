@@ -53,12 +53,13 @@ import { loadConfig } from "../middleware/versionGate.js";
 import { isWebRequest } from "../utils/isWebRequest.js";
 // import { resendLoginOtp, verifyLoginOtp } from "../controllers/userLoginController.js"; // OTP tạm tắt
 import { authUserWebNoOtp } from "../controllers/userLoginNoOtpController.js";
+import { authLog } from "../middleware/authLogMiddleware.js";
 
 const router = express.Router();
 
 // router.post("/", registerUser); // OTP tạm tắt
 // OTP tạm tắt — luôn dùng registerUserNotOTP
-router.post("/", registerUserNotOTP);
+router.post("/", authLog({ action: "register" }), registerUserNotOTP);
 
 // OTP tạm tắt
 // router.post("/register/verify-otp", verifyRegisterOtp);
@@ -68,8 +69,8 @@ router.post("/", registerUserNotOTP);
 
 router.get("/reauth", protect, reauthUser);
 router.post("/webview/session", protect, syncWebViewSession);
-router.post("/auth", authUser); // mobile
-router.post("/auth/web", authUserWebNoOtp); // web — OTP tạm tắt (cũ: authUserWeb)
+router.post("/auth", authLog({ action: "login", channel: "mobile" }), authUser); // mobile
+router.post("/auth/web", authLog({ action: "login", channel: "web" }), authUserWebNoOtp); // web — OTP tạm tắt (cũ: authUserWeb)
 router.post("/logout", logoutUser);
 router.get("/:id/public", passProtect, getPublicProfile);
 router.get("/:id/ratings", passProtect, getRatingHistory);

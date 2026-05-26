@@ -16,6 +16,7 @@ import {
   requireAdminAndSuperUser,
   requireSuperAdmin,
 } from "../middleware/authMiddleware.js";
+import { authLog } from "../middleware/authLogMiddleware.js";
 import { adminLogin } from "../controllers/admin/adminAuthController.js";
 import {
   adminCreateUser,
@@ -277,6 +278,14 @@ import {
   runAvatarOptimizationCleanupNow,
   runAvatarOptimizationSweepNow,
 } from "../controllers/admin/adminAvatarOptimizationController.js";
+import {
+  listSelfAssessments,
+  resetSelfAssessments,
+} from "../controllers/admin/adminSelfAssessmentController.js";
+import {
+  getAuthLogDetail,
+  listAuthLogs,
+} from "../controllers/admin/adminAuthLogController.js";
 import { getAdminTournamentImageProxy } from "../controllers/admin/adminAssetProxyController.js";
 import { getAdminObserverOverview as getObserverOverviewProxy } from "../controllers/admin/adminObserverController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
@@ -284,7 +293,7 @@ import { getAdminObserverOverview as getObserverOverviewProxy } from "../control
 
 const router = express.Router();
 
-router.post("/login", adminLogin);
+router.post("/login", authLog({ action: "login", channel: "admin" }), adminLogin);
 
 router.get("/matches/:id([0-9a-fA-F]{24})", protect, adminGetMatchById);
 
@@ -423,6 +432,12 @@ router.put("/rankings/:id", adminUpdateRanking);
 
 router.get("/score-history", listScoreHistory); // ?user=&page=
 router.post("/score-history", createScoreHistory); // body { userId, ... }
+
+router.get("/self-assessments", listSelfAssessments);
+router.post("/self-assessments/reset", resetSelfAssessments);
+
+router.get("/auth-logs", listAuthLogs);
+router.get("/auth-logs/:id", getAuthLogDetail);
 
 router
   .route("/tournaments/:id")

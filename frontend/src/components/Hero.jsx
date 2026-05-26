@@ -4,7 +4,6 @@ import { Container, Row, Col, Button, Card, Badge } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { useSelector } from "react-redux";
 import PropTypes from "prop-types";
-import { useGetLatestAssessmentQuery } from "../slices/assessmentsApiSlice";
 import {
   useGetHeroContentQuery,
   useGetContactContentQuery,
@@ -214,16 +213,12 @@ const IDownload = (p) => (
 export default function Hero() {
   const { userInfo } = useSelector((state) => state.auth);
   const isLoggedIn = !!userInfo;
-  const userId = userInfo?._id || userInfo?.id;
   const { isDark } = useThemeMode();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isSmallPhone = useMediaQuery("(max-width:399.95px)");
   const { t, locale } = useLanguage();
 
-  const { data: latest, isFetching } = useGetLatestAssessmentQuery(userId, {
-    skip: !userId,
-  });
   const {
     data: heroRes,
     isLoading: heroLoading,
@@ -269,13 +264,7 @@ export default function Hero() {
     return { ...CONTACT_FALLBACK, ...(contactRes || {}) };
   }, [contactLoading, contactError, contactRes]);
 
-  const needSelfAssess = useMemo(() => {
-    if (!isLoggedIn || isFetching) return false;
-    if (!latest) return true;
-    const s = Number(latest.singleLevel || 0);
-    const d = Number(latest.doubleLevel || 0);
-    return s === 0 || d === 0;
-  }, [isLoggedIn, isFetching, latest]);
+  const needSelfAssess = false;
 
   const needKyc =
     isLoggedIn && (userInfo?.cccdStatus || "unverified") !== "verified";

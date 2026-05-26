@@ -944,29 +944,18 @@ export async function initKycBot(app) {
           await rank.save();
         }
 
-        const hasSelfAssessment = await Assessment.exists({
+        await Assessment.create({
           user: userId,
-          "meta.selfScored": true,
+          scorer: null,
+          items: [],
+          singleLevel: sSingle,
+          doubleLevel: sDouble,
+          meta: { selfScored: false, scoreBy: "admin" },
+          note: "Admin chấm điểm trình",
+          scoredAt: new Date(),
         });
 
-        let createdSelfAssessment = false;
-        if (!hasSelfAssessment) {
-          await Assessment.create({
-            user: userId,
-            scorer: null,
-            items: [],
-            singleScore: sSingle,
-            doubleScore: sDouble,
-            meta: { selfScored: true },
-            note: "Tự chấm trình (admin hỗ trợ)",
-            scoredAt: new Date(),
-          });
-          createdSelfAssessment = true;
-        }
-
-        const baseNote = createdSelfAssessment
-          ? "Admin chấm điểm và tạo tự chấm (admin hỗ trợ)"
-          : "Admin chấm điểm trình";
+        const baseNote = "Admin chấm điểm trình";
 
         await ScoreHistory.create({
           user: userId,
@@ -989,7 +978,6 @@ export async function initKycBot(app) {
             `• Double: ${
               rank.double?.toFixed ? rank.double.toFixed(1) : rank.double
             }`,
-            createdSelfAssessment ? "• Đã tạo tự chấm (admin hỗ trợ)" : "",
             note ? `• Ghi chú: ${note}` : "",
           ]
             .filter(Boolean)
