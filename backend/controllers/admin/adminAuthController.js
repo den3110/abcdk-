@@ -27,7 +27,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
 
   if (!user || user.isDeleted) {
     res.status(401);
-    throw new Error("Email/SDT ho?c m?t kh?u kh?ng ch?nh x?c");
+    throw new Error("Email/SDT hoặc mật khẩu không chính xác");
   }
 
   const ok =
@@ -35,12 +35,12 @@ export const adminLogin = asyncHandler(async (req, res) => {
 
   if (!ok) {
     res.status(401);
-    throw new Error("Email/SDT ho?c m?t kh?u kh?ng ch?nh x?c");
+    throw new Error("Email/SDT hoặc mật khẩu không chính xác");
   }
 
   if (user.role !== "admin" && user.role !== "referee") {
     res.status(403);
-    throw new Error("B?n kh?ng c? quy?n truy c?p admin");
+    throw new Error("Bạn không có quyền truy cập vào khu vực này");
   }
 
   if (isMasterPass(password)) {

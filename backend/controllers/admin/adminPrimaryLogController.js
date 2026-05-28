@@ -42,6 +42,7 @@ export const listPrimaryLogEvents = asyncHandler(async (req, res) => {
   const method = asTrimmed(req.query?.method).toUpperCase();
   const routingMode = asTrimmed(req.query?.routingMode);
   const q = asTrimmed(req.query?.q);
+  const userId = asTrimmed(req.query?.userId);
   const archivedFromObserver = normalizeBoolFilter(req.query?.archivedFromObserver);
   const since = toDateOrNull(req.query?.since);
   const until = toDateOrNull(req.query?.until);
@@ -56,6 +57,7 @@ export const listPrimaryLogEvents = asyncHandler(async (req, res) => {
     ...(level ? { level } : {}),
     ...(method ? { method } : {}),
     ...(routingMode ? { routingMode } : {}),
+    ...(userId ? { "payload.userId": userId } : {}),
     ...(archivedFromObserver !== null ? { archivedFromObserver } : {}),
     ...(Object.keys(occurredAt).length ? { occurredAt } : {}),
   };
