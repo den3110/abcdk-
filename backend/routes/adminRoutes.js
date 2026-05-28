@@ -289,6 +289,7 @@ import {
 } from "../controllers/admin/adminAuthLogController.js";
 import { getAdminTournamentImageProxy } from "../controllers/admin/adminAssetProxyController.js";
 import { getAdminObserverOverview as getObserverOverviewProxy } from "../controllers/admin/adminObserverController.js";
+import { listPrimaryLogEvents } from "../controllers/admin/adminPrimaryLogController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -657,6 +658,12 @@ router.get(
   protect,
   requireAdminAndSuperUser,
   getObserverOverviewProxy,
+);
+router.get(
+  "/logs/primary",
+  protect,
+  requireAdminAndSuperUser,
+  listPrimaryLogEvents,
 );
 router.get(
   "/cache/summary",
