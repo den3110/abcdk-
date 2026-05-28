@@ -721,11 +721,6 @@ export default function TournamentDashboard() {
               sx={{
                 minHeight: `calc(2em * ${tournamentTitleLineHeight} + 0.16em)`,
                 lineHeight: tournamentTitleLineHeight,
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
                 pt: "0.08em",
                 pb: "0.08em",
                 mb: 1,

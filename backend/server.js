@@ -106,6 +106,7 @@ import healthRoutes from "./routes/healthRoutes.js";
 import commandPaletteRoutes from "./routes/commandPaletteRoutes.js";
 import voiceRoutes from "./routes/voiceRoutes.js";
 import observerRoutes from "./routes/observerRoutes.js";
+import identitySecurityRoutes from "./routes/identitySecurityRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
@@ -283,6 +284,7 @@ app.use("/api/openai", openaiRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/command-palette", commandPaletteRoutes);
 app.use("/api/observer", observerRoutes);
+app.use("/api/identity-security", identitySecurityRoutes);
 
 // ===== Geo proxy for language detection (avoids browser CORS issues) =====
 const geoCache = new Map();
