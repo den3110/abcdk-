@@ -110,10 +110,19 @@ import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
 import { loadLiveRecordingStorageTargetsConfig } from "./services/liveRecordingStorageTargetsConfig.service.js";
+import { getSystemSettingsRuntime } from "./services/systemSettingsRuntime.service.js";
 import {
   shutdownObserverSink,
   startObserverRuntimePublisher,
 } from "./services/observerSink.service.js";
+import {
+  restartPrimaryLogSink,
+  shutdownPrimaryLogSink,
+} from "./services/primaryLogSink.service.js";
+import {
+  shutdownSmartLogNightlySync,
+  startSmartLogNightlySync,
+} from "./services/smartLogNightlySync.service.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -355,6 +364,15 @@ const startServer = async () => {
     await connectDB();
     await loadLiveMultiSourceConfig();
     await loadLiveRecordingStorageTargetsConfig();
+    await getSystemSettingsRuntime({
+      ensureDocument: true,
+      forceRefresh: true,
+    }).catch((error) => {
+      console.warn(
+        "[observer] failed to load observer logging settings:",
+        error?.message || error
+      );
+    });
 
     // 🔹 mount GraphQL trước fallback routes (*)
     await setupGraphQL(app);
@@ -427,12 +445,16 @@ const startServer = async () => {
         await startAgenda(); // ✅ Await agenda start
         registerAutoHealJobs({ Tournament, Match });
         startObserverRuntimePublisher();
+        restartPrimaryLogSink();
+        startSmartLogNightlySync();
       } catch (error) {
         console.error(`❌ Error starting server: ${error.message}`);
       }
     });
   } catch (err) {
     console.error("❌ Failed to start server", err);
+    shutdownSmartLogNightlySync();
+    await shutdownPrimaryLogSink().catch(() => {});
     await shutdownObserverSink().catch(() => {});
     process.exit(1);
   }
@@ -445,6 +467,8 @@ async function handleProcessShutdown(signal) {
   shutdownInFlight = true;
 
   console.log(`[observer] received ${signal}, draining observer sink...`);
+  shutdownSmartLogNightlySync();
+  await shutdownPrimaryLogSink().catch(() => {});
   await shutdownObserverSink().catch(() => {});
 
   if (!server.listening) {

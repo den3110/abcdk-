@@ -5,6 +5,7 @@ import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js
 import { runCrawlEngine } from "../services/crawlEngine.js";
 import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
 import { clearNewsPresentationCaches } from "../services/cacheInvalidation.service.js";
+import { generateNewsArticles } from "../services/newsArticleGenerationService.js";
 
 /**
  * GET /api/admin/news/settings
@@ -108,6 +109,35 @@ export const runNewsSyncNowV2 = async (req, res) => {
     return res.status(500).json({
       ok: false,
       message: "Chạy đồng bộ tin tức thất bại.",
+      error: e.message,
+    });
+  }
+};
+
+export const generateNewsArticlesNow = async (req, res) => {
+  try {
+    const count = Math.max(1, Math.min(Number(req.body?.count) || 1, 5));
+    const topic = String(req.body?.topic || "").trim();
+    const publish = req.body?.publish !== false;
+
+    const result = await generateNewsArticles({
+      count,
+      topic,
+      publish,
+    });
+
+    await clearNewsPresentationCaches();
+
+    return res.json({
+      ok: true,
+      message: "Đã tạo bài AI.",
+      ...result,
+    });
+  } catch (e) {
+    console.error("[NewsGenerateNow] Error:", e);
+    return res.status(500).json({
+      ok: false,
+      message: "Tạo bài AI thất bại.",
       error: e.message,
     });
   }

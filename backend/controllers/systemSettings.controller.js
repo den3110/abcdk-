@@ -3,6 +3,10 @@ import { invalidateMaintenanceCache } from "../middleware/maintainance.js";
 import SystemSettings from "../models/systemSettingsModel.js";
 import { invalidateLiveRecordingAiCommentaryGatewayHealthCache } from "../services/liveRecordingAiCommentaryGateway.service.js";
 import { clearAllMatchLiveOwners } from "../services/matchLiveOwnership.service.js";
+import { setObserverRuntimeSettings } from "../services/observerConfig.service.js";
+import { restartObserverRuntimePublisher } from "../services/observerSink.service.js";
+import { restartPrimaryLogSink } from "../services/primaryLogSink.service.js";
+import { restartSmartLogNightlySync } from "../services/smartLogNightlySync.service.js";
 import {
   DEFAULT_SYSTEM_SETTINGS,
   ensureSystemSettingsDocument,
@@ -56,6 +60,12 @@ function buildSystemSettingsUiFlags() {
       false
     ),
   };
+}
+
+function clampNumber(value, fallback, min, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
 }
 
 function attachSystemSettingsUiFlags(settings) {
@@ -345,6 +355,102 @@ function sanitizeSettingsPatch(patch = {}) {
     }
   }
 
+  if (next.observerLogging && typeof next.observerLogging === "object") {
+    const logging = { ...next.observerLogging };
+    logging.enabled = logging.enabled !== false;
+    logging.httpAccessEnabled = logging.httpAccessEnabled !== false;
+    logging.primaryLogEnabled = logging.primaryLogEnabled !== false;
+    logging.runtimePushEnabled = logging.runtimePushEnabled !== false;
+    logging.nightlySyncEnabled = logging.nightlySyncEnabled !== false;
+    logging.aiAdvisorEnabled = logging.aiAdvisorEnabled !== false;
+
+    const smartMode = String(logging.smartMode || "smart").trim().toLowerCase();
+    logging.smartMode = ["smart", "primary", "observer", "hybrid"].includes(
+      smartMode
+    )
+      ? smartMode
+      : "smart";
+
+    const minLevel = String(logging.minLevel || "info")
+      .trim()
+      .toLowerCase();
+    logging.minLevel = ["info", "warn", "error"].includes(minLevel)
+      ? minLevel
+      : "info";
+
+    logging.successSampleRate = clampNumber(
+      logging.successSampleRate,
+      1,
+      0,
+      1
+    );
+    logging.batchSize = Math.round(
+      clampNumber(logging.batchSize, 100, 1, 1000)
+    );
+    logging.flushIntervalMs = Math.round(
+      clampNumber(logging.flushIntervalMs, 5000, 500, 60000)
+    );
+    logging.maxPendingEvents = Math.round(
+      clampNumber(logging.maxPendingEvents, 2000, 100, 50000)
+    );
+    logging.timeoutMs = Math.round(
+      clampNumber(logging.timeoutMs, 4000, 500, 30000)
+    );
+    logging.primaryBatchSize = Math.round(
+      clampNumber(logging.primaryBatchSize, 100, 1, 1000)
+    );
+    logging.primaryFlushIntervalMs = Math.round(
+      clampNumber(logging.primaryFlushIntervalMs, 5000, 500, 60000)
+    );
+    logging.primaryMaxPendingEvents = Math.round(
+      clampNumber(logging.primaryMaxPendingEvents, 5000, 100, 100000)
+    );
+    logging.primaryRetentionDays = Math.round(
+      clampNumber(logging.primaryRetentionDays, 14, 1, 365)
+    );
+    logging.primaryQueueBurstThreshold = Math.round(
+      clampNumber(logging.primaryQueueBurstThreshold, 3000, 100, 100000)
+    );
+    logging.burstReqPerMinuteThreshold = Math.round(
+      clampNumber(logging.burstReqPerMinuteThreshold, 1200, 10, 100000)
+    );
+    logging.burstP95MsThreshold = Math.round(
+      clampNumber(logging.burstP95MsThreshold, 1500, 50, 60000)
+    );
+    logging.burst5xxPerMinuteThreshold = Math.round(
+      clampNumber(logging.burst5xxPerMinuteThreshold, 30, 1, 10000)
+    );
+    logging.burstCooldownMs = Math.round(
+      clampNumber(logging.burstCooldownMs, 300000, 10000, 3600000)
+    );
+    logging.runtimePushIntervalMs = Math.round(
+      clampNumber(logging.runtimePushIntervalMs, 15000, 5000, 300000)
+    );
+    logging.nightlySyncStartHour = Math.round(
+      clampNumber(logging.nightlySyncStartHour, 1, 0, 23)
+    );
+    logging.nightlySyncEndHour = Math.round(
+      clampNumber(logging.nightlySyncEndHour, 5, 0, 23)
+    );
+    logging.nightlySyncIntervalMs = Math.round(
+      clampNumber(logging.nightlySyncIntervalMs, 600000, 60000, 86400000)
+    );
+    logging.nightlySyncLimit = Math.round(
+      clampNumber(logging.nightlySyncLimit, 500, 1, 500)
+    );
+    logging.nightlySyncLookbackHours = Math.round(
+      clampNumber(logging.nightlySyncLookbackHours, 24, 1, 168)
+    );
+    logging.aiAdvisorTimeoutMs = Math.round(
+      clampNumber(logging.aiAdvisorTimeoutMs, 8000, 1000, 60000)
+    );
+    logging.aiAdvisorMinIntervalMs = Math.round(
+      clampNumber(logging.aiAdvisorMinIntervalMs, 300000, 60000, 3600000)
+    );
+
+    next.observerLogging = logging;
+  }
+
   return next;
 }
 
@@ -369,7 +475,9 @@ const pick = (obj, shape) => {
 export const getSystemSettings = async (req, res, next) => {
   try {
     const doc = await ensureSystemSettingsDocument();
-    res.json(attachSystemSettingsUiFlags(normalizeSystemSettings(doc)));
+    const normalized = normalizeSystemSettings(doc);
+    setObserverRuntimeSettings(normalized.observerLogging);
+    res.json(attachSystemSettingsUiFlags(normalized));
   } catch (err) {
     next(err);
   }
@@ -401,6 +509,10 @@ export const updateSystemSettings = async (req, res, next) => {
     );
 
     const normalizedUpdated = normalizeSystemSettings(updated);
+    setObserverRuntimeSettings(normalizedUpdated.observerLogging);
+    restartObserverRuntimePublisher();
+    restartPrimaryLogSink();
+    restartSmartLogNightlySync();
 
     invalidateSettingsCache();
     invalidateMaintenanceCache();

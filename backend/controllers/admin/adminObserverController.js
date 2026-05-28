@@ -2,6 +2,9 @@ import asyncHandler from "express-async-handler";
 import { getObserverAzureVmStatus } from "../../services/azureVmWorker.service.js";
 import { getObserverReadProxyConfig } from "../../services/observerConfig.service.js";
 import { fetchObserverJson } from "../../services/observerReadProxy.service.js";
+import { getPrimaryLogSinkStats } from "../../services/primaryLogSink.service.js";
+import { getSmartLogNightlySyncState } from "../../services/smartLogNightlySync.service.js";
+import { getSmartLogRoutingState } from "../../services/smartLogPolicy.service.js";
 
 function asTrimmed(value) {
   return String(value || "").trim();
@@ -160,6 +163,11 @@ export const getAdminObserverOverview = asyncHandler(async (req, res) => {
       windowMinutes: minutes,
       observerAzureVm,
       observerAvailability: buildObserverAvailability(observerAzureVm),
+      smartLogging: {
+        routing: getSmartLogRoutingState(),
+        primarySink: getPrimaryLogSinkStats(),
+        nightlySync: getSmartLogNightlySyncState(),
+      },
       observerHealth: {
         ok: false,
         service: "pickletour-observer-go",
@@ -201,6 +209,11 @@ export const getAdminObserverOverview = asyncHandler(async (req, res) => {
       windowMinutes: minutes,
       observerAzureVm,
       observerAvailability: buildObserverAvailability(observerAzureVm, "online"),
+      smartLogging: {
+        routing: getSmartLogRoutingState(),
+        primarySink: getPrimaryLogSinkStats(),
+        nightlySync: getSmartLogNightlySyncState(),
+      },
       observerHealth: health,
       summary,
       liveDevices,

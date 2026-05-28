@@ -249,6 +249,7 @@ import { exchangeLongUserToken } from "../controllers/adminFacebookController.js
 import {
   getNewsCandidates,
   getNewsSettings,
+  generateNewsArticlesNow,
   runNewsSyncNow,
   runNewsSyncNowV2,
   updateNewsSettings,
@@ -1199,6 +1200,7 @@ router.put("/news/settings", updateNewsSettings);
 router.get("/news/candidates", getNewsCandidates);
 router.post("/news/run", runNewsSyncNow);
 router.post("/news/run/v2", runNewsSyncNowV2);
+router.post("/news/generate", generateNewsArticlesNow);
 
 router.get("/seo-news/settings", getSeoNewsSettings);
 router.put("/seo-news/settings", updateSeoNewsSettings);

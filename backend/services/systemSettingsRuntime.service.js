@@ -1,4 +1,5 @@
 import SystemSettings from "../models/systemSettingsModel.js";
+import { setObserverRuntimeSettings } from "./observerConfig.service.js";
 
 export const SYSTEM_SETTINGS_CACHE_TTL_MS = 10_000;
 
@@ -22,6 +23,38 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     telegramEnabled: false,
     telegramComplaintChatId: "",
     systemPushEnabled: true,
+  },
+  observerLogging: {
+    enabled: true,
+    httpAccessEnabled: true,
+    smartMode: "smart",
+    primaryLogEnabled: true,
+    minLevel: "info",
+    successSampleRate: 1,
+    batchSize: 100,
+    flushIntervalMs: 5000,
+    maxPendingEvents: 2000,
+    timeoutMs: 4000,
+    primaryBatchSize: 100,
+    primaryFlushIntervalMs: 5000,
+    primaryMaxPendingEvents: 5000,
+    primaryRetentionDays: 14,
+    primaryQueueBurstThreshold: 3000,
+    burstReqPerMinuteThreshold: 1200,
+    burstP95MsThreshold: 1500,
+    burst5xxPerMinuteThreshold: 30,
+    burstCooldownMs: 300000,
+    runtimePushEnabled: true,
+    runtimePushIntervalMs: 15000,
+    nightlySyncEnabled: true,
+    nightlySyncStartHour: 1,
+    nightlySyncEndHour: 5,
+    nightlySyncIntervalMs: 600000,
+    nightlySyncLimit: 500,
+    nightlySyncLookbackHours: 24,
+    aiAdvisorEnabled: true,
+    aiAdvisorTimeoutMs: 8000,
+    aiAdvisorMinIntervalMs: 300000,
   },
   links: {
     guideUrl: "",
@@ -120,6 +153,10 @@ export function normalizeSystemSettings(doc = {}) {
       ...DEFAULT_SYSTEM_SETTINGS.notifications,
       ...(source.notifications || {}),
     },
+    observerLogging: {
+      ...DEFAULT_SYSTEM_SETTINGS.observerLogging,
+      ...(source.observerLogging || {}),
+    },
     links: {
       ...DEFAULT_SYSTEM_SETTINGS.links,
       ...(source.links || {}),
@@ -197,6 +234,7 @@ export async function getSystemSettingsRuntime(options = {}) {
     : await SystemSettings.findById("system").lean();
 
   const normalized = normalizeSystemSettings(doc || DEFAULT_SYSTEM_SETTINGS);
+  setObserverRuntimeSettings(normalized.observerLogging);
   runtimeCache = { doc: normalized, ts: now };
   return normalized;
 }

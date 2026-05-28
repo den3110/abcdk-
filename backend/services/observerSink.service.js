@@ -5,6 +5,16 @@ let pendingEvents = [];
 let flushTimer = null;
 let flushInFlight = null;
 let runtimeTimer = null;
+let droppedEvents = 0;
+
+const LEVEL_WEIGHT = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  warning: 30,
+  error: 40,
+  critical: 50,
+};
 
 function cloneConfig() {
   return getObserverSinkConfig();
@@ -12,7 +22,33 @@ function cloneConfig() {
 
 function trimPendingEvents(maxPendingEvents) {
   if (pendingEvents.length <= maxPendingEvents) return;
+  droppedEvents += pendingEvents.length - maxPendingEvents;
   pendingEvents = pendingEvents.slice(-maxPendingEvents);
+}
+
+function levelWeight(value) {
+  return LEVEL_WEIGHT[String(value || "").trim().toLowerCase()] || LEVEL_WEIGHT.info;
+}
+
+function shouldForwardEvent(event = {}, cfg = {}) {
+  if (!cfg.enabled) return false;
+  if (event.category === "http_access" && cfg.httpAccessEnabled === false) {
+    return false;
+  }
+
+  const eventLevel = levelWeight(event.level);
+  const minLevel = levelWeight(cfg.minLevel || "info");
+  if (eventLevel < minLevel) return false;
+
+  const isSuccessHttp =
+    event.category === "http_access" &&
+    Number(event.statusCode || 0) > 0 &&
+    Number(event.statusCode || 0) < 400;
+  if (isSuccessHttp && Number(cfg.successSampleRate) < 1) {
+    if (Math.random() >= Number(cfg.successSampleRate || 0)) return false;
+  }
+
+  return true;
 }
 
 async function postObserverPayload(path, payload) {
@@ -87,7 +123,7 @@ function ensureFlushTimer() {
 
 export function publishObserverEvent(event = {}) {
   const cfg = cloneConfig();
-  if (!cfg.enabled) return;
+  if (!shouldForwardEvent(event, cfg)) return;
 
   pendingEvents.push({
     category: event.category || "generic",
@@ -103,7 +139,12 @@ export function publishObserverEvent(event = {}) {
     tags: Array.isArray(event.tags) ? event.tags : [],
     occurredAt: event.occurredAt || new Date().toISOString(),
     payload:
-      event.payload && typeof event.payload === "object" ? event.payload : {},
+      event.payload && typeof event.payload === "object"
+        ? {
+            ...event.payload,
+            observerDroppedEvents: droppedEvents || undefined,
+          }
+        : { observerDroppedEvents: droppedEvents || undefined },
   });
 
   trimPendingEvents(cfg.maxPendingEvents);
@@ -172,6 +213,22 @@ export function startObserverRuntimePublisher() {
     void publishObserverRuntimeSnapshot();
   }, cfg.runtimePushIntervalMs);
   void publishObserverRuntimeSnapshot();
+}
+
+export function restartObserverRuntimePublisher() {
+  if (runtimeTimer) {
+    clearInterval(runtimeTimer);
+    runtimeTimer = null;
+  }
+  if (flushTimer) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+  if (pendingEvents.length) {
+    ensureFlushTimer();
+    void flushObserverEventsNow();
+  }
+  startObserverRuntimePublisher();
 }
 
 export async function shutdownObserverSink() {

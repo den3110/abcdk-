@@ -17,6 +17,12 @@ function toDateOrNow(value) {
   return Number.isFinite(parsed.getTime()) ? parsed : new Date();
 }
 
+function toDateOrNull(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
 function toPositiveInt(value, fallback, { min = 1, max = 500 } = {}) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -280,12 +286,18 @@ export const listObserverEvents = asyncHandler(async (req, res) => {
   const type = asTrimmed(req.query?.type);
   const level = normalizeLevel(req.query?.level, "");
   const limit = toPositiveInt(req.query?.limit, 100, { min: 1, max: 500 });
+  const since = toDateOrNull(req.query?.since);
+  const until = toDateOrNull(req.query?.until);
+  const occurredAt = {};
+  if (since) occurredAt.$gte = since;
+  if (until) occurredAt.$lte = until;
 
   const query = {
     ...(source ? { source } : {}),
     ...(category ? { category } : {}),
     ...(type ? { type } : {}),
     ...(level ? { level } : {}),
+    ...(Object.keys(occurredAt).length ? { occurredAt } : {}),
   };
 
   const rows = await ObserverEvent.find(query)

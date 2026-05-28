@@ -4,10 +4,15 @@ import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
 import { publishFbVodDriveMonitorUpdate } from "../services/fbVodDriveMonitorEvents.service.js";
 import { scheduleFacebookVodFallbackForMatch } from "../services/liveRecordingFacebookVodFallback.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 const matchPop = [
   { path: "tournament", select: "name image" },
-  { path: "bracket", select: "name type stage order" },
+  {
+    path: "bracket",
+    select:
+      "name type stage order meta.maxRounds meta.drawSize drawRounds drawSize config.blueprint.drawSize config.doubleElim.drawSize config.roundElim.drawSize",
+  },
   {
     path: "pairA",
     populate: [
@@ -29,6 +34,11 @@ const matchPop = [
 const MATCH_SELECT = [
   "code",
   "shortCode",
+  "displayCode",
+  "codeResolved",
+  "globalCode",
+  "globalRound",
+  "labelKey",
   "status",
   "startedAt",
   "liveBy",
@@ -40,9 +50,24 @@ const MATCH_SELECT = [
   "referee",
   "facebookLive",
   "meta",
+  "format",
+  "phase",
+  "branch",
   "round",
   "order",
-  "pool.name",
+  "orderInGroup",
+  "rrRound",
+  "stageIndex",
+  "matchNo",
+  "index",
+  "pool",
+  "poolName",
+  "poolKey",
+  "group",
+  "groupCode",
+  "groupNo",
+  "groupIndex",
+  "groupIdx",
   "courtLabel",
   "courtStationLabel",
   "courtClusterLabel",
@@ -134,59 +159,71 @@ async function buildBracketIndexByTournament(tournamentIds = []) {
   return map;
 }
 
-function computeGlobalVForMatch(match, bracketListOfTournament = []) {
-  const bracketId = String(match?.bracket?._id || match?.bracket || "");
-  let accumulated = 0;
-  for (const bracket of bracketListOfTournament) {
-    if (String(bracket._id) === bracketId) {
-      const localRound = GROUPISH_TYPES.has(bracket.type) ? 1 : match.round || 1;
-      return accumulated + localRound;
+function buildBaseRoundByBracketId(bracketIndexByTournament = new Map()) {
+  const baseByBracketId = new Map();
+  for (const brackets of bracketIndexByTournament.values()) {
+    let accumulated = 0;
+    for (const bracket of brackets || []) {
+      const bracketId = String(bracket?._id || "").trim();
+      if (bracketId) baseByBracketId.set(bracketId, accumulated);
+      accumulated += roundsInBracket(bracket);
     }
-    accumulated += roundsInBracket(bracket);
   }
-  return match.round || 1;
+  return baseByBracketId;
 }
 
-function computePoolIndex(poolName) {
-  const text = String(poolName || "").trim();
-  if (!text) return 1;
-
-  const numberMatch = text.match(/(\d+)/);
-  if (numberMatch) return Math.max(1, Number(numberMatch[1]));
-
-  if (/^[A-Za-z]$/.test(text)) {
-    return text.toUpperCase().charCodeAt(0) - 64;
+function buildMatchesByBracketId(matches = []) {
+  const map = new Map();
+  for (const match of matches) {
+    const bracketId = String(match?.bracket?._id || match?.bracket || "").trim();
+    if (!bracketId) continue;
+    if (!map.has(bracketId)) map.set(bracketId, []);
+    map.get(bracketId).push(match);
   }
-
-  return 1;
+  return map;
 }
 
-function renderNewMatchCode({ bracketType, poolName, order0, v }) {
-  const matchOrder = (Number.isFinite(order0) ? order0 : 0) + 1;
-  if (GROUPISH_TYPES.has(bracketType)) {
-    return `V${v}-B${computePoolIndex(poolName)}-T${matchOrder}`;
+function applyDisplayCodeOnMatch(match, codeOptions = {}) {
+  if (!match) return;
+
+  const codePayload = buildMatchCodePayload(
+    {
+      ...match,
+      code: "",
+      shortCode: "",
+    },
+    codeOptions
+  );
+
+  const resolvedCode = String(
+    codePayload?.displayCode ||
+      codePayload?.code ||
+      match?.displayCode ||
+      match?.codeResolved ||
+      match?.globalCode ||
+      match?.labelKey ||
+      match?.code ||
+      match?.shortCode ||
+      ""
+  ).trim();
+
+  if (resolvedCode) {
+    match.code = resolvedCode;
+    match.shortCode = resolvedCode;
+    match.displayCode = codePayload?.displayCode || resolvedCode;
+    match.codeResolved = resolvedCode;
   }
-  return `V${v}-T${matchOrder}`;
+  if (codePayload?.globalCode) {
+    match.globalCode = codePayload.globalCode;
+  }
 }
 
-function applyNewCodeOnMatch(match, bracketsOfTournament = []) {
-  const v = computeGlobalVForMatch(match, bracketsOfTournament);
-  const bracketType = match?.bracket?.type || match?.format;
-  const poolName = match?.pool?.name || null;
-  match.code = renderNewMatchCode({
-    bracketType,
-    poolName,
-    order0: match.order,
-    v,
-  });
-  match.shortCode = match.code;
-}
-
-function applyNewCodeOnMatches(matches = [], bracketIndexByTournament = new Map()) {
-  matches.forEach((match) => {
-    const tournamentKey = String(match?.tournament?._id || match?.tournament || "");
-    applyNewCodeOnMatch(match, bracketIndexByTournament.get(tournamentKey) || []);
-  });
+function applyDisplayCodesOnMatches(matches = [], bracketIndexByTournament = new Map()) {
+  const codeOptions = {
+    baseByBracketId: buildBaseRoundByBracketId(bracketIndexByTournament),
+    matchesByBracketId: buildMatchesByBracketId(matches),
+  };
+  matches.forEach((match) => applyDisplayCodeOnMatch(match, codeOptions));
 }
 
 function extractFacebookOutputsFromMatch(match) {
@@ -335,7 +372,11 @@ function derivePagesLiveFromSessions(sessions = []) {
       if (output?.meta?.liveId) current.liveIds.add(output.meta.liveId);
       current.matches.push({
         id: session.id,
-        code: session.match?.code,
+        code:
+          session.match?.displayCode ||
+          session.match?.codeResolved ||
+          session.match?.globalCode ||
+          session.match?.code,
         tournament: session.tournament?.name,
         bracket: session.bracket?.name,
       });
@@ -358,6 +399,10 @@ function buildSessionSearchText(session) {
   return [
     match?.code,
     match?.shortCode,
+    match?.displayCode,
+    match?.codeResolved,
+    match?.globalCode,
+    match?.labelKey,
     match?._id,
     session?.tournament?.name,
     session?.bracket?.name,
@@ -402,7 +447,7 @@ function buildTournamentBuckets(sessions = []) {
       map.get(tournamentId) ||
       {
         _id: tournamentId,
-        name: tournament?.name || "Kh?ng r? gi?i",
+        name: tournament?.name || "Không rõ giải",
         count: 0,
         liveCount: 0,
       };
@@ -474,12 +519,14 @@ export const adminListLivePages = expressAsyncHandler(async (_req, res) => {
         { "meta.facebook.permalinkUrl": { $type: "string" } },
       ],
     })
-      .select(
-        "code shortCode status tournament bracket round order pool.name facebookLive meta startedAt"
-      )
+      .select(MATCH_SELECT)
       .populate([
         { path: "tournament", select: "name" },
-        { path: "bracket", select: "name type order" },
+        {
+          path: "bracket",
+          select:
+            "name type stage order meta.maxRounds meta.drawSize drawRounds drawSize config.blueprint.drawSize config.doubleElim.drawSize config.roundElim.drawSize",
+        },
       ])
       .lean({ getters: true, virtuals: true });
 
@@ -492,7 +539,7 @@ export const adminListLivePages = expressAsyncHandler(async (_req, res) => {
       ),
     ];
     const bracketIndexByTournament = await buildBracketIndexByTournament(tournamentIds);
-    applyNewCodeOnMatches(matches, bracketIndexByTournament);
+    applyDisplayCodesOnMatches(matches, bracketIndexByTournament);
 
     const sessions = matches
       .map((match) => toSessionDTO(match))
@@ -549,7 +596,7 @@ export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
       ),
     ];
     const bracketIndexByTournament = await buildBracketIndexByTournament(tournamentIds);
-    applyNewCodeOnMatches(matches, bracketIndexByTournament);
+    applyDisplayCodesOnMatches(matches, bracketIndexByTournament);
 
     let sessions = matches
       .map((match) => toSessionDTO(match))
@@ -635,7 +682,7 @@ export const adminGetLiveSession = expressAsyncHandler(async (req, res) => {
     const bracketIndexByTournament = await buildBracketIndexByTournament(
       tournamentId ? [tournamentId] : []
     );
-    applyNewCodeOnMatch(match, bracketIndexByTournament.get(tournamentId) || []);
+    applyDisplayCodesOnMatches(match ? [match] : [], bracketIndexByTournament);
 
     const dto = toSessionDTO(match);
     if (!isSessionLiveable(dto)) return res.json({});
@@ -657,7 +704,7 @@ export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
   try {
     const match = await Match.findById(req.params.id);
     if (!match) {
-      return res.status(404).json({ message: "Kh?ng t?m th?y tr?n" });
+      return res.status(404).json({ message: "Không tìm thấy trận" });
     }
 
     const facebookLive = match.facebookLive || {};
@@ -677,7 +724,7 @@ export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
     });
 
     return res.json({
-      message: "?? d?ng live Facebook cho tr?n",
+      message: "Đã dừng live Facebook cho trận",
       id: match._id,
       facebook: facebookLive,
     });
