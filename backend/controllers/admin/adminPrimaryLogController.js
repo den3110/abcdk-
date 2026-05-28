@@ -57,20 +57,40 @@ export const listPrimaryLogEvents = asyncHandler(async (req, res) => {
     ...(level ? { level } : {}),
     ...(method ? { method } : {}),
     ...(routingMode ? { routingMode } : {}),
-    ...(userId ? { "payload.userId": userId } : {}),
     ...(archivedFromObserver !== null ? { archivedFromObserver } : {}),
     ...(Object.keys(occurredAt).length ? { occurredAt } : {}),
   };
 
+  const queryClauses = [];
+
   if (q) {
     const pattern = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    query.$or = [
-      { path: pattern },
-      { url: pattern },
-      { requestId: pattern },
-      { "payload.smartLogReason": pattern },
-      { "payload.smartLogMode": pattern },
-    ];
+    queryClauses.push({
+      $or: [
+        { path: pattern },
+        { url: pattern },
+        { requestId: pattern },
+        { "payload.smartLogReason": pattern },
+        { "payload.smartLogMode": pattern },
+        { "payload.userId": pattern },
+      ],
+    });
+  }
+
+  if (userId) {
+    queryClauses.push({
+      $or: [
+        { "payload.userId": userId },
+        { "payload.user.id": userId },
+        { "payload.user._id": userId },
+        { "payload.actorId": userId },
+        { "payload.actor.id": userId },
+      ],
+    });
+  }
+
+  if (queryClauses.length > 0) {
+    query.$and = queryClauses;
   }
 
   const skip = (page - 1) * limit;
