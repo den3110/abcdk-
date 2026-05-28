@@ -57,6 +57,7 @@ import UsersPage from "./screens/admin/UsersPage.jsx";
 import NewsPage from "./screens/admin/NewsPage.jsx";
 import AvatarOptimizationPage from "./screens/admin/AvatarOptimizationPage.jsx";
 import ChatBotOpsPage from "./screens/admin/ChatBotOpsPage.jsx";
+import IdentitySecurityPage from "./screens/admin/IdentitySecurityPage.jsx";
 // import "../index.css"; // REMOVED: Moved to src/index.css
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
@@ -211,6 +212,7 @@ const router = sentryCreateBrowserRouter(
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/users" replace />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="identity-security" element={<IdentitySecurityPage />} />
         <Route path="news" element={<NewsPage />} />
         <Route path="pikora-ops" element={<ChatBotOpsPage />} />
         <Route

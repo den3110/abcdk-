@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
 import AuthLog from "../models/authLogModel.js";
+import IdentitySecuritySettings from "../models/identitySecuritySettingsModel.js";
 import User from "../models/userModel.js";
 import UserLogin from "../models/userLoginModel.js";
 import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
@@ -8,6 +9,149 @@ import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 180;
 const MAX_EVENTS = 240;
+
+export const IDENTITY_SECURITY_SETTINGS_ID = "identity-security";
+
+export const DEFAULT_IDENTITY_SECURITY_SETTINGS = Object.freeze({
+  _id: IDENTITY_SECURITY_SETTINGS_ID,
+  enabled: true,
+  analysis: {
+    defaultWindowDays: 30,
+    overviewLimit: 12,
+    eventLimit: 240,
+  },
+  rules: {
+    newIp: { enabled: true, severity: "medium", threshold: 3, penalty: 8 },
+    newDevice: { enabled: true, severity: "medium", threshold: 3, penalty: 8 },
+    failureBurst: {
+      enabled: true,
+      severity: "high",
+      threshold: 3,
+      windowMinutes: 15,
+      penalty: 14,
+    },
+    failedThenSuccess: {
+      enabled: true,
+      severity: "medium",
+      windowMinutes: 30,
+      penalty: 8,
+    },
+    offHour: { enabled: true, severity: "low", threshold: 8, penalty: 4 },
+    sharedAccounts: {
+      enabled: true,
+      severity: "medium",
+      threshold: 3,
+      penalty: 8,
+    },
+    deviceChanges: {
+      enabled: true,
+      severity: "low",
+      threshold: 5,
+      penalty: 6,
+    },
+  },
+  trust: {
+    baseScore: 65,
+    highTrustMin: 85,
+    normalMin: 70,
+    watchMin: 50,
+    matureAccountDays: 180,
+    newAccountDays: 7,
+    matureAccountBonus: 8,
+    newAccountPenalty: 8,
+    verifiedBonus: 5,
+    kycBonus: 6,
+    phoneVerifiedBonus: 5,
+    stableDeviceBonus: 5,
+    failedAuthPenaltyEach: 3,
+    failedAuthPenaltyMax: 18,
+  },
+  actions: {
+    highRisk: "challenge",
+    watch: "monitor",
+    normal: "allow",
+    highTrust: "allow",
+  },
+  explainableUx: {
+    normalUserMessage:
+      "Hoạt động đăng nhập gần đây của bạn đang phù hợp với thói quen tài khoản.",
+    riskyUserMessage:
+      "Chúng tôi nhận thấy hoạt động đăng nhập khác với thói quen thường ngày. Vui lòng xác minh trước khi tiếp tục thao tác nhạy cảm.",
+    normalChallengeCopy: "Hiện tại chưa cần xác minh bổ sung.",
+    riskyChallengeCopy:
+      "Để bảo vệ tài khoản, vui lòng xác minh trước khi thực hiện thay đổi này.",
+  },
+  ai: {
+    enabled: true,
+    model: "",
+    fallbackEnabled: true,
+  },
+});
+
+const isPlainObject = (value) =>
+  value && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date);
+
+const deepMerge = (base, override) => {
+  const out = { ...base };
+  Object.entries(override || {}).forEach(([key, value]) => {
+    if (value === undefined) return;
+    if (isPlainObject(base[key]) && isPlainObject(value)) {
+      out[key] = deepMerge(base[key], value);
+      return;
+    }
+    out[key] = value;
+  });
+  return out;
+};
+
+const normalizeSettings = (settings = {}) => {
+  const merged = deepMerge(
+    DEFAULT_IDENTITY_SECURITY_SETTINGS,
+    settings?.toObject ? settings.toObject() : settings,
+  );
+  merged.analysis.defaultWindowDays = clampInt(
+    merged.analysis.defaultWindowDays,
+    DEFAULT_DAYS,
+    1,
+    MAX_DAYS,
+  );
+  merged.analysis.overviewLimit = clampInt(merged.analysis.overviewLimit, 12, 3, 30);
+  merged.analysis.eventLimit = clampInt(merged.analysis.eventLimit, MAX_EVENTS, 20, MAX_EVENTS);
+  merged.trust.baseScore = clampInt(merged.trust.baseScore, 65, 0, 100);
+  merged.trust.highTrustMin = clampInt(merged.trust.highTrustMin, 85, 0, 100);
+  merged.trust.normalMin = clampInt(merged.trust.normalMin, 70, 0, 100);
+  merged.trust.watchMin = clampInt(merged.trust.watchMin, 50, 0, 100);
+  return merged;
+};
+
+export async function getIdentitySecuritySettings() {
+  const doc = await IdentitySecuritySettings.findById(IDENTITY_SECURITY_SETTINGS_ID).lean();
+  return normalizeSettings(doc || DEFAULT_IDENTITY_SECURITY_SETTINGS);
+}
+
+export async function updateIdentitySecuritySettings(input = {}, actorId = null) {
+  const current = await getIdentitySecuritySettings();
+  const next = normalizeSettings(deepMerge(current, input || {}));
+  delete next.createdAt;
+  delete next.updatedAt;
+  delete next.__v;
+  next._id = IDENTITY_SECURITY_SETTINGS_ID;
+  next.updatedBy = actorId || null;
+  const updatePayload = { ...next };
+  delete updatePayload._id;
+
+  const saved = await IdentitySecuritySettings.findByIdAndUpdate(
+    IDENTITY_SECURITY_SETTINGS_ID,
+    { $set: updatePayload },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+  ).lean();
+
+  return normalizeSettings(saved || next);
+}
+
+export function getDefaultIdentitySecuritySettings() {
+  return normalizeSettings(DEFAULT_IDENTITY_SECURITY_SETTINGS);
+}
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -83,7 +227,7 @@ const countBy = (items, keyFn) => {
   const map = new Map();
   items.forEach((item) => {
     const key = keyFn(item);
-    if (!key) return;
+    if (key === undefined || key === null || key === "") return;
     map.set(key, (map.get(key) || 0) + 1);
   });
   return Array.from(map.entries())
@@ -177,7 +321,8 @@ const makeEventFilter = (user, since) => ({
   createdAt: { $gte: since },
 });
 
-const summarizeBaseline = (events) => {
+const summarizeBaseline = (events, settings = DEFAULT_IDENTITY_SECURITY_SETTINGS) => {
+  const rules = settings.rules || DEFAULT_IDENTITY_SECURITY_SETTINGS.rules;
   const sorted = [...events].sort((a, b) => {
     const atA = toDate(a.at)?.getTime() || 0;
     const atB = toDate(b.at)?.getTime() || 0;
@@ -193,9 +338,12 @@ const summarizeBaseline = (events) => {
     const at = toDate(event.at)?.getTime() || 0;
     return now - at <= 24 * 60 * 60 * 1000;
   });
-  const last15m = sorted.filter((event) => {
+  const failureBurstWindowMinutes =
+    rules.failureBurst?.windowMinutes ||
+    DEFAULT_IDENTITY_SECURITY_SETTINGS.rules.failureBurst.windowMinutes;
+  const lastFailureBurstWindow = sorted.filter((event) => {
     const at = toDate(event.at)?.getTime() || 0;
-    return now - at <= 15 * 60 * 1000;
+    return now - at <= failureBurstWindowMinutes * 60 * 1000;
   });
 
   const hourCounts = countBy(successEvents, (event) => toDate(event.at)?.getHours());
@@ -207,60 +355,84 @@ const summarizeBaseline = (events) => {
   const priorDevices = new Set(previous.map((event) => event.deviceHash).filter(Boolean));
   const usualHours = hourCounts.slice(0, 4).map((item) => item.key);
   const failedLast24h = last24h.filter((event) => !event.success).length;
-  const failedLast15m = last15m.filter((event) => !event.success).length;
+  const failedInBurstWindow = lastFailureBurstWindow.filter((event) => !event.success).length;
   const latestHour = latest ? toDate(latest.at)?.getHours() : null;
 
   const anomalies = [];
-  if (latest?.ip && previous.length >= 3 && !priorIps.has(latest.ip)) {
+  if (
+    rules.newIp?.enabled &&
+    latest?.ip &&
+    previous.length >= (rules.newIp?.threshold || 3) &&
+    !priorIps.has(latest.ip)
+  ) {
     anomalies.push({
       code: "new_ip",
-      severity: "medium",
+      severity: rules.newIp?.severity || "medium",
       label: "New IP for this account",
       detail: "The latest auth event came from an IP not seen in the baseline window.",
-    });
-  }
-  if (latest?.deviceHash && previous.length >= 3 && !priorDevices.has(latest.deviceHash)) {
-    anomalies.push({
-      code: "new_device",
-      severity: "medium",
-      label: "New device fingerprint",
-      detail: "The latest auth event used a device fingerprint not seen before.",
-    });
-  }
-  if (failedLast15m >= 3) {
-    anomalies.push({
-      code: "failure_burst",
-      severity: "high",
-      label: "Failure burst",
-      detail: `${failedLast15m} failed auth events were seen in the last 15 minutes.`,
+      penalty: rules.newIp?.penalty || 0,
     });
   }
   if (
+    rules.newDevice?.enabled &&
+    latest?.deviceHash &&
+    previous.length >= (rules.newDevice?.threshold || 3) &&
+    !priorDevices.has(latest.deviceHash)
+  ) {
+    anomalies.push({
+      code: "new_device",
+      severity: rules.newDevice?.severity || "medium",
+      label: "New device fingerprint",
+      detail: "The latest auth event used a device fingerprint not seen before.",
+      penalty: rules.newDevice?.penalty || 0,
+    });
+  }
+  if (
+    rules.failureBurst?.enabled &&
+    failedInBurstWindow >= (rules.failureBurst?.threshold || 3)
+  ) {
+    anomalies.push({
+      code: "failure_burst",
+      severity: rules.failureBurst?.severity || "high",
+      label: "Failure burst",
+      detail: `${failedInBurstWindow} failed auth events were seen in the configured burst window.`,
+      penalty: rules.failureBurst?.penalty || 0,
+    });
+  }
+  if (
+    rules.failedThenSuccess?.enabled &&
     latest?.success &&
     failedEvents.some((event) => {
       const at = toDate(event.at)?.getTime() || 0;
       const latestAt = toDate(latest.at)?.getTime() || 0;
-      return latestAt - at >= 0 && latestAt - at <= 30 * 60 * 1000;
+      return (
+        latestAt - at >= 0 &&
+        latestAt - at <=
+          (rules.failedThenSuccess?.windowMinutes || 30) * 60 * 1000
+      );
     })
   ) {
     anomalies.push({
       code: "failed_then_success",
-      severity: "medium",
+      severity: rules.failedThenSuccess?.severity || "medium",
       label: "Failed attempts before success",
       detail: "A successful login happened shortly after failed attempts.",
+      penalty: rules.failedThenSuccess?.penalty || 0,
     });
   }
   if (
+    rules.offHour?.enabled &&
     latestHour !== null &&
-    successEvents.length >= 8 &&
+    successEvents.length >= (rules.offHour?.threshold || 8) &&
     usualHours.length > 0 &&
     !usualHours.includes(latestHour)
   ) {
     anomalies.push({
       code: "off_hour",
-      severity: "low",
+      severity: rules.offHour?.severity || "low",
       label: "Unusual login hour",
       detail: "The latest event happened outside the account's usual login hours.",
+      penalty: rules.offHour?.penalty || 0,
     });
   }
 
@@ -271,7 +443,7 @@ const summarizeBaseline = (events) => {
       success: successEvents.length,
       failed: failedEvents.length,
       failedLast24h,
-      failedLast15m,
+      failedInBurstWindow,
       uniqueIps: ipCounts.length,
       uniqueDevices: deviceCounts.length,
     },
@@ -312,7 +484,7 @@ const buildSessionForensics = (loginHistory = [], authEvents = []) => {
       device: normalized.deviceLabel,
       deviceHash: normalized.deviceHash,
       flags,
-      ageHours: at ? Math.round((Date.now() - at.getTime()) / 36_000) / 10 : null,
+      ageHours: at ? Math.round((Date.now() - at.getTime()) / 360_000) / 10 : null,
     };
   });
 
@@ -334,7 +506,7 @@ const buildSessionForensics = (loginHistory = [], authEvents = []) => {
         device: event.deviceLabel,
         deviceHash: event.deviceHash,
         flags,
-        ageHours: at ? Math.round((Date.now() - at.getTime()) / 36_000) / 10 : null,
+        ageHours: at ? Math.round((Date.now() - at.getTime()) / 360_000) / 10 : null,
       };
     });
 
@@ -477,8 +649,16 @@ const buildIdentityGraph = ({ user, events, relatedAccounts }) => {
   };
 };
 
-const scoreTrust = ({ user, baseline, relatedAccounts, sessions }) => {
-  let score = 65;
+const scoreTrust = ({
+  user,
+  baseline,
+  relatedAccounts,
+  sessions,
+  settings = DEFAULT_IDENTITY_SECURITY_SETTINGS,
+}) => {
+  const trustConfig = settings.trust || DEFAULT_IDENTITY_SECURITY_SETTINGS.trust;
+  const rules = settings.rules || DEFAULT_IDENTITY_SECURITY_SETTINGS.rules;
+  let score = trustConfig.baseScore;
   const positive = [];
   const negative = [];
 
@@ -487,49 +667,60 @@ const scoreTrust = ({ user, baseline, relatedAccounts, sessions }) => {
     ? Math.floor((Date.now() - createdAt.getTime()) / (24 * 60 * 60 * 1000))
     : 0;
 
-  if (accountAgeDays >= 180) {
-    score += 8;
+  if (accountAgeDays >= trustConfig.matureAccountDays) {
+    score += trustConfig.matureAccountBonus;
     positive.push("Mature account age");
-  } else if (accountAgeDays < 7) {
-    score -= 8;
+  } else if (accountAgeDays < trustConfig.newAccountDays) {
+    score -= trustConfig.newAccountPenalty;
     negative.push("Very new account");
   }
 
   if (user.verified === "verified") {
-    score += 5;
+    score += trustConfig.verifiedBonus;
     positive.push("Account is verified");
   }
   if (user.cccdStatus === "verified") {
-    score += 6;
+    score += trustConfig.kycBonus;
     positive.push("KYC is verified");
   }
   if (user.phoneVerified === true) {
-    score += 5;
+    score += trustConfig.phoneVerifiedBonus;
     positive.push("Phone is verified");
   }
 
   if (baseline.totals.success >= 5 && baseline.totals.uniqueDevices <= 3) {
-    score += 5;
+    score += trustConfig.stableDeviceBonus;
     positive.push("Stable device baseline");
   }
   if (baseline.totals.failedLast24h > 0) {
-    const penalty = Math.min(18, baseline.totals.failedLast24h * 3);
+    const penalty = Math.min(
+      trustConfig.failedAuthPenaltyMax,
+      baseline.totals.failedLast24h * trustConfig.failedAuthPenaltyEach,
+    );
     score -= penalty;
     negative.push(`${baseline.totals.failedLast24h} failed auth events in 24h`);
   }
 
   baseline.anomalies.forEach((anomaly) => {
-    const penalty = anomaly.severity === "high" ? 14 : anomaly.severity === "medium" ? 8 : 4;
+    const penalty =
+      anomaly.penalty ||
+      (anomaly.severity === "high" ? 14 : anomaly.severity === "medium" ? 8 : 4);
     score -= penalty;
     negative.push(anomaly.label);
   });
 
-  if (relatedAccounts.length >= 3) {
-    score -= 8;
+  if (
+    rules.sharedAccounts?.enabled &&
+    relatedAccounts.length >= (rules.sharedAccounts?.threshold || 3)
+  ) {
+    score -= rules.sharedAccounts?.penalty || 8;
     negative.push("Several accounts share identity signals");
   }
-  if (sessions.summary.deviceChanges >= 5) {
-    score -= 6;
+  if (
+    rules.deviceChanges?.enabled &&
+    sessions.summary.deviceChanges >= (rules.deviceChanges?.threshold || 5)
+  ) {
+    score -= rules.deviceChanges?.penalty || 6;
     negative.push("Many device changes in recent sessions");
   }
   if (user.isDeleted || user.deletedAt) {
@@ -539,13 +730,21 @@ const scoreTrust = ({ user, baseline, relatedAccounts, sessions }) => {
 
   score = clamp(Math.round(score), 0, 100);
   const level =
-    score >= 85 ? "high_trust" : score >= 70 ? "normal" : score >= 50 ? "watch" : "high_risk";
+    score >= trustConfig.highTrustMin
+      ? "high_trust"
+      : score >= trustConfig.normalMin
+        ? "normal"
+        : score >= trustConfig.watchMin
+          ? "watch"
+          : "high_risk";
   const recommendedAction =
     level === "high_risk"
-      ? "challenge"
+      ? settings.actions?.highRisk || "challenge"
       : level === "watch"
-        ? "monitor"
-        : "allow";
+        ? settings.actions?.watch || "monitor"
+        : level === "high_trust"
+          ? settings.actions?.highTrust || "allow"
+          : settings.actions?.normal || "allow";
 
   return {
     score,
@@ -556,11 +755,15 @@ const scoreTrust = ({ user, baseline, relatedAccounts, sessions }) => {
   };
 };
 
-const buildExplainableSecurityUx = ({ trust, baseline, sessions }) => {
+const buildExplainableSecurityUx = ({
+  trust,
+  baseline,
+  sessions,
+  settings = DEFAULT_IDENTITY_SECURITY_SETTINGS,
+}) => {
+  const copy = settings.explainableUx || DEFAULT_IDENTITY_SECURITY_SETTINGS.explainableUx;
   const risky = trust.level === "high_risk" || trust.level === "watch";
-  const userMessage = risky
-    ? "We noticed sign-in activity that differs from your usual pattern. Please confirm this was you before continuing sensitive actions."
-    : "Your recent sign-in pattern looks consistent with your normal account activity.";
+  const userMessage = risky ? copy.riskyUserMessage : copy.normalUserMessage;
 
   const adminSummary = [
     `Trust score ${trust.score}/100 (${trust.level}).`,
@@ -580,9 +783,7 @@ const buildExplainableSecurityUx = ({ trust, baseline, sessions }) => {
     userMessage,
     adminSummary,
     suggestedActions: actions,
-    challengeCopy: risky
-      ? "For your safety, please verify your account before making this change."
-      : "No extra verification is needed right now.",
+    challengeCopy: risky ? copy.riskyChallengeCopy : copy.normalChallengeCopy,
   };
 };
 
@@ -608,8 +809,7 @@ const loadRelatedAccounts = async ({ user, events, since }) => {
         createdAt: { $gte: since },
         user: {
           $exists: true,
-          $ne: null,
-          $ne: new mongoose.Types.ObjectId(user._id),
+          $nin: [null, new mongoose.Types.ObjectId(user._id)],
         },
         $or: matchOr,
       },
@@ -672,7 +872,8 @@ export async function buildIdentitySecuritySnapshot({
   }
 
   const resolvedDays = clampInt(days, DEFAULT_DAYS, 1, MAX_DAYS);
-  const limit = clampInt(eventLimit, MAX_EVENTS, 20, MAX_EVENTS);
+  const settings = await getIdentitySecuritySettings();
+  const limit = clampInt(eventLimit, settings.analysis.eventLimit, 20, MAX_EVENTS);
   const since = new Date(Date.now() - resolvedDays * 24 * 60 * 60 * 1000);
 
   const user = await User.findById(userId)
@@ -704,11 +905,11 @@ export async function buildIdentitySecuritySnapshot({
     .slice(0, limit);
 
   const relatedAccounts = await loadRelatedAccounts({ user, events, since });
-  const baseline = summarizeBaseline(events);
+  const baseline = summarizeBaseline(events, settings);
   const sessions = buildSessionForensics(loginHistory, authEvents);
   const graph = buildIdentityGraph({ user, events, relatedAccounts });
-  const trust = scoreTrust({ user, baseline, relatedAccounts, sessions });
-  const explainableUx = buildExplainableSecurityUx({ trust, baseline, sessions });
+  const trust = scoreTrust({ user, baseline, relatedAccounts, sessions, settings });
+  const explainableUx = buildExplainableSecurityUx({ trust, baseline, sessions, settings });
 
   return {
     user: {
@@ -728,6 +929,16 @@ export async function buildIdentitySecuritySnapshot({
       days: resolvedDays,
       since,
       generatedAt: new Date(),
+    },
+    settings: {
+      enabled: settings.enabled,
+      analysis: settings.analysis,
+      actions: settings.actions,
+      ai: {
+        enabled: settings.ai?.enabled,
+        model: settings.ai?.model || "",
+        fallbackEnabled: settings.ai?.fallbackEnabled,
+      },
     },
     graph,
     baseline,
@@ -774,8 +985,9 @@ export function toUserSafeSnapshot(snapshot) {
 }
 
 export async function buildIdentitySecurityOverview({ days = DEFAULT_DAYS, limit = 12 } = {}) {
-  const resolvedDays = clampInt(days, DEFAULT_DAYS, 1, MAX_DAYS);
-  const resolvedLimit = clampInt(limit, 12, 3, 30);
+  const settings = await getIdentitySecuritySettings();
+  const resolvedDays = clampInt(days, settings.analysis.defaultWindowDays, 1, MAX_DAYS);
+  const resolvedLimit = clampInt(limit, settings.analysis.overviewLimit, 3, 30);
   const since = new Date(Date.now() - resolvedDays * 24 * 60 * 60 * 1000);
 
   const [totalEvents, failedEvents, successEvents, recentLogs] = await Promise.all([
@@ -829,6 +1041,10 @@ export async function buildIdentitySecurityOverview({ days = DEFAULT_DAYS, limit
       since,
       generatedAt: new Date(),
     },
+    settings: {
+      enabled: settings.enabled,
+      analysis: settings.analysis,
+    },
     summary: {
       totalEvents,
       failedEvents,
@@ -859,6 +1075,7 @@ const extractJson = (text = "") => {
 };
 
 export async function buildAiIdentityExplanation({ snapshot, audience = "admin" } = {}) {
+  const settings = await getIdentitySecuritySettings();
   const input = {
     audience,
     user: snapshot.user,
@@ -889,9 +1106,20 @@ export async function buildAiIdentityExplanation({ snapshot, audience = "admin" 
     userFacingMessage: snapshot.explainableUx.userMessage,
   };
 
+  if (!settings.ai?.enabled) {
+    return {
+      ...fallback,
+      source: "disabled",
+      summary: `${fallback.summary} AI explanation is disabled in Identity Security settings.`,
+    };
+  }
+
   try {
     const response = await openai.chat.completions.create({
-      model: process.env.IDENTITY_SECURITY_AI_MODEL || OPENAI_DEFAULT_MODEL,
+      model:
+        settings.ai?.model ||
+        process.env.IDENTITY_SECURITY_AI_MODEL ||
+        OPENAI_DEFAULT_MODEL,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -921,6 +1149,10 @@ export async function buildAiIdentityExplanation({ snapshot, audience = "admin" 
       userFacingMessage: String(parsed.userFacingMessage || fallback.userFacingMessage),
     };
   } catch (error) {
+    if (settings.ai?.fallbackEnabled === false) {
+      throw error;
+    }
+
     return {
       ...fallback,
       error: error?.message || "AI explanation failed",

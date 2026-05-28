@@ -23,6 +23,7 @@ import HomeIcon from "@mui/icons-material/Home";
 import ArticleIcon from "@mui/icons-material/Article";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
+import SecurityIcon from "@mui/icons-material/Security";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import SEOHead from "../components/SEOHead";
@@ -87,6 +88,11 @@ export default function AdminLayout({ children }) {
       label: t("admin.layout.users"),
       icon: <PeopleIcon />,
       path: "/admin/users",
+    },
+    {
+      label: tx("admin.layout.identitySecurity", "Identity Security"),
+      icon: <SecurityIcon />,
+      path: "/admin/identity-security",
     },
     {
       label: t("admin.layout.news"),

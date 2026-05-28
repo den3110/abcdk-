@@ -4554,6 +4554,60 @@ function overwriteCccdIntoUser(user, extracted) {
   return changed;
 }
 
+function getExtractedCccd(extracted) {
+  return String(extracted?.cccd || "").trim();
+}
+
+function shouldAssignExtractedCccd(user, extracted, overwrite = false) {
+  const cccd = getExtractedCccd(extracted);
+  if (!/^\d{12}$/.test(cccd)) return false;
+
+  const currentCccd = String(user?.cccd || "").trim();
+  if (overwrite) return currentCccd !== cccd;
+  return !currentCccd;
+}
+
+function makeDuplicateCccdError(cccd, owner) {
+  const suffix = owner?._id ? ` bởi user khác (${owner._id})` : " bởi user khác";
+  const err = new Error(`CCCD ${cccd} đã được sử dụng${suffix}.`);
+  err.statusCode = 409;
+  return err;
+}
+
+async function assertExtractedCccdAssignable(user, extracted, overwrite = false) {
+  if (!shouldAssignExtractedCccd(user, extracted, overwrite)) return;
+
+  const cccd = getExtractedCccd(extracted);
+  const owner = await User.findOne({
+    _id: { $ne: user._id },
+    cccd,
+  })
+    .select("_id")
+    .lean();
+
+  if (owner) {
+    throw makeDuplicateCccdError(cccd, owner);
+  }
+}
+
+function isDuplicateCccdError(err) {
+  return (
+    err?.code === 11000 &&
+    (err?.keyPattern?.cccd || err?.keyValue?.cccd)
+  );
+}
+
+async function saveUserWithFriendlyCccdDuplicate(user) {
+  try {
+    await user.save();
+  } catch (err) {
+    if (isDuplicateCccdError(err)) {
+      throw makeDuplicateCccdError(err?.keyValue?.cccd || "này");
+    }
+    throw err;
+  }
+}
+
 // helper: tính các field đang thiếu để gửi về UI
 function getMissingFieldsForUser(u) {
   const missing = [];
@@ -4639,10 +4693,11 @@ export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
         backUrl,
       });
 
+      await assertExtractedCccdAssignable(user, extracted, false);
       const changed = mergeCccdIntoUser(user, extracted);
 
       if (changed) {
-        await user.save();
+        await saveUserWithFriendlyCccdDuplicate(user);
         updatedCount += 1;
       }
 
@@ -4720,6 +4775,7 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
   // - Nếu overwrite = true  → ghi đè theo CCCD
   // - Nếu overwrite = false → chỉ fill những field trống
   let changed = false;
+  await assertExtractedCccdAssignable(user, extracted, overwrite);
   if (overwrite) {
     changed = overwriteCccdIntoUser(user, extracted);
   } else {
@@ -4727,7 +4783,7 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
   }
 
   if (changed) {
-    await user.save();
+    await saveUserWithFriendlyCccdDuplicate(user);
   }
 
   // Tính lại missingFields sau khi đã fill
