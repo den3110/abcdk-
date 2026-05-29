@@ -28,6 +28,31 @@ const azureAccountSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const aiGatewayEndpointSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, trim: true },
+    label: { type: String, default: "", trim: true },
+    baseUrl: { type: String, default: "", trim: true },
+    apiKey: { type: String, default: "", trim: true },
+    enabled: { type: Boolean, default: true },
+    priority: { type: Number, default: 100, min: 1, max: 10000 },
+    timeoutMs: { type: Number, default: 45000, min: 1000, max: 300000 },
+    defaultModel: { type: String, default: "", trim: true },
+    notes: { type: String, default: "", trim: true },
+  },
+  { _id: false },
+);
+
+const aiGatewayScopeSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: true },
+    endpointIds: { type: [String], default: [] },
+    model: { type: String, default: "", trim: true },
+    fallbackToEnv: { type: Boolean, default: true },
+  },
+  { _id: false },
+);
+
 const SystemSettingsSchema = new mongoose.Schema(
   {
     _id: { type: String, default: "system" },
@@ -209,6 +234,28 @@ const SystemSettingsSchema = new mongoose.Schema(
     azure: {
       enabled: { type: Boolean, default: false },
       accounts: { type: [azureAccountSchema], default: [] },
+    },
+
+    aiGateway: {
+      enabled: { type: Boolean, default: true },
+      strategy: {
+        type: String,
+        enum: ["failover", "roundRobin"],
+        default: "failover",
+      },
+      timeoutMs: { type: Number, default: 45000, min: 1000, max: 300000 },
+      failureCooldownMs: {
+        type: Number,
+        default: 60000,
+        min: 1000,
+        max: 600000,
+      },
+      endpoints: { type: [aiGatewayEndpointSchema], default: [] },
+      scopes: {
+        cccd: { type: aiGatewayScopeSchema, default: () => ({}) },
+        poster: { type: aiGatewayScopeSchema, default: () => ({}) },
+        default: { type: aiGatewayScopeSchema, default: () => ({}) },
+      },
     },
 
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

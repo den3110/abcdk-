@@ -405,7 +405,7 @@ function normalizeStory(value, fallback) {
 }
 
 function aiConfigured() {
-  return Boolean(process.env.CLIPROXY_API_KEY || process.env.OPENAI_API_KEY);
+  return true;
 }
 
 function getAiErrorMessage(error) {

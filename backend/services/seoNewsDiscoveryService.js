@@ -259,10 +259,6 @@ async function discoverWithGemini(payload) {
 }
 
 async function discoverWithOpenAI(payload) {
-  if (!process.env.OPENAI_API_KEY && !process.env.CLIPROXY_API_KEY) {
-    return { provider: "openai", items: [], error: "missing_openai_key" };
-  }
-
   try {
     const response = await openai.responses.create({
       model: OPENAI_DISCOVERY_MODEL,

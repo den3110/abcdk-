@@ -114,6 +114,33 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     enabled: false,
     accounts: [],
   },
+  aiGateway: {
+    enabled: true,
+    strategy: "failover",
+    timeoutMs: 45000,
+    failureCooldownMs: 60000,
+    endpoints: [],
+    scopes: {
+      cccd: {
+        enabled: true,
+        endpointIds: [],
+        model: "",
+        fallbackToEnv: true,
+      },
+      poster: {
+        enabled: true,
+        endpointIds: [],
+        model: "",
+        fallbackToEnv: true,
+      },
+      default: {
+        enabled: true,
+        endpointIds: [],
+        model: "",
+        fallbackToEnv: true,
+      },
+    },
+  },
 };
 
 let runtimeCache = { doc: null, ts: 0 };
@@ -199,6 +226,27 @@ export function normalizeSystemSettings(doc = {}) {
       accounts: Array.isArray(source.azure?.accounts) 
         ? source.azure.accounts 
         : DEFAULT_SYSTEM_SETTINGS.azure.accounts,
+    },
+    aiGateway: {
+      ...DEFAULT_SYSTEM_SETTINGS.aiGateway,
+      ...(source.aiGateway || {}),
+      endpoints: Array.isArray(source.aiGateway?.endpoints)
+        ? source.aiGateway.endpoints
+        : DEFAULT_SYSTEM_SETTINGS.aiGateway.endpoints,
+      scopes: {
+        cccd: {
+          ...DEFAULT_SYSTEM_SETTINGS.aiGateway.scopes.cccd,
+          ...(source.aiGateway?.scopes?.cccd || {}),
+        },
+        poster: {
+          ...DEFAULT_SYSTEM_SETTINGS.aiGateway.scopes.poster,
+          ...(source.aiGateway?.scopes?.poster || {}),
+        },
+        default: {
+          ...DEFAULT_SYSTEM_SETTINGS.aiGateway.scopes.default,
+          ...(source.aiGateway?.scopes?.default || {}),
+        },
+      },
     },
   };
 }

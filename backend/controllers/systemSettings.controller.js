@@ -71,6 +71,18 @@ function clampNumber(value, fallback, min, max) {
 function attachSystemSettingsUiFlags(settings) {
   return {
     ...settings,
+    aiGateway: settings?.aiGateway
+      ? {
+          ...settings.aiGateway,
+          endpoints: Array.isArray(settings.aiGateway.endpoints)
+            ? settings.aiGateway.endpoints.map((endpoint) => ({
+                ...endpoint,
+                apiKey: "",
+                apiKeySet: Boolean(String(endpoint?.apiKey || "").trim()),
+              }))
+            : [],
+        }
+      : settings?.aiGateway,
     uiFlags: {
       ...(settings?.uiFlags && typeof settings.uiFlags === "object"
         ? settings.uiFlags
@@ -82,6 +94,11 @@ function attachSystemSettingsUiFlags(settings) {
 
 function sanitizeSettingsPatch(patch = {}) {
   const next = { ...patch };
+
+  // AI gateway contains secrets and is managed through /admin/ai-gateway.
+  if (Object.prototype.hasOwnProperty.call(next, "aiGateway")) {
+    delete next.aiGateway;
+  }
 
   if (next.appShell && typeof next.appShell === "object") {
     const mode = String(next.appShell.mode || "native")

@@ -362,7 +362,7 @@ function sanitizeAssistResponse(raw, allowedIds) {
 }
 
 function getClient() {
-  return DIRECT_OPENAI || configuredOpenAI;
+  return configuredOpenAI;
 }
 
 async function requestAssistWithResponses(client, normalized, requestContext) {
@@ -434,7 +434,7 @@ async function requestAssistWithChatCompletions(client, normalized, requestConte
 }
 
 export function isCommandPaletteAiConfigured() {
-  return Boolean(process.env.OPENAI_API_KEY || process.env.CLIPROXY_API_KEY);
+  return true;
 }
 
 export async function assistCommandPalette(payload, requestContext = {}) {

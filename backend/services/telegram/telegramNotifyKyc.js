@@ -492,7 +492,7 @@ export async function notifyNewKyc(user) {
   let auto = { status: "pending", reason: "", report: null, usage: null };
 
   try {
-    if (frontUrl && process.env.OPENAI_API_KEY) {
+    if (frontUrl) {
       // Pass both front and back if available
       const extracted = await openaiExtractFromImageUrl([frontUrl, backUrl], "auto");
       auto.usage = extracted._usage || null;
@@ -548,7 +548,7 @@ export async function notifyNewKyc(user) {
       }
     } else {
       auto.status = "pending";
-      auto.reason = !frontUrl ? "Thiếu ảnh mặt trước" : "Thiếu OPENAI_API_KEY";
+      auto.reason = "Thiếu ảnh mặt trước";
     }
   } catch (e) {
     console.error("[kyc-auto] error:", e?.message);

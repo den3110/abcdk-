@@ -168,6 +168,12 @@ import {
   updateSystemSettings,
 } from "../controllers/systemSettings.controller.js";
 import {
+  getAiGatewayConfig,
+  listAiGatewayModels,
+  testAiGatewayEndpoint,
+  updateAiGatewayConfig,
+} from "../controllers/admin/aiGatewayController.js";
+import {
   getPresenceOfUser,
   getPresenceSummary,
   listPresenceUsers,
@@ -1017,6 +1023,20 @@ router.get("/versions/by-user", protect, authorize("admin"), getUsersVersion);
 
 router.get("/settings", protect, authorize("admin"), getSystemSettings);
 router.put("/settings", protect, authorize("admin"), updateSystemSettings);
+router.get("/ai-gateway", protect, authorize("admin"), getAiGatewayConfig);
+router.put("/ai-gateway", protect, authorize("admin"), updateAiGatewayConfig);
+router.post(
+  "/ai-gateway/models",
+  protect,
+  authorize("admin"),
+  listAiGatewayModels,
+);
+router.post(
+  "/ai-gateway/test",
+  protect,
+  authorize("admin"),
+  testAiGatewayEndpoint,
+);
 router.get(
   "/recording-drive/oauth/init",
   protect,

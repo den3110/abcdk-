@@ -220,13 +220,6 @@ export async function geocodeTournamentLocation({
   const raw = String(location || "").trim();
   if (!raw) return { ...BASE_RESULT, raw: "" };
 
-  if (!process.env.CLIPROXY_API_KEY && !process.env.OPENAI_API_KEY) {
-    console.warn("[geocodeTournamentLocation] Missing geocode API key", {
-      location: raw,
-    });
-    return { ...BASE_RESULT, raw };
-  }
-
   try {
     const systemPrompt = buildSystemPrompt("tournament");
     const resolvedCountryHint = normalizeStr(countryHint);
@@ -306,13 +299,6 @@ export async function geocodeClubLocation({
 } = {}) {
   const raw = String(location || "").trim();
   if (!raw) return { ...BASE_RESULT, raw: "" };
-
-  if (!process.env.CLIPROXY_API_KEY && !process.env.OPENAI_API_KEY) {
-    console.warn("[geocodeClubLocation] Missing geocode API key", {
-      location: raw,
-    });
-    return { ...BASE_RESULT, raw };
-  }
 
   try {
     const systemPrompt = buildSystemPrompt("club");
