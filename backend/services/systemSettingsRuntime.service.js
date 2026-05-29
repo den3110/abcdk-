@@ -118,6 +118,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     enabled: true,
     strategy: "failover",
     timeoutMs: 45000,
+    modelsRefreshTtlMs: 900000,
     failureCooldownMs: 60000,
     endpoints: [],
     scopes: {

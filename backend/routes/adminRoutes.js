@@ -169,7 +169,9 @@ import {
 } from "../controllers/systemSettings.controller.js";
 import {
   getAiGatewayConfig,
+  getAiGatewayLogs,
   listAiGatewayModels,
+  refreshAiGatewayEndpoints,
   testAiGatewayEndpoint,
   updateAiGatewayConfig,
 } from "../controllers/admin/aiGatewayController.js";
@@ -324,7 +326,7 @@ router.post(
   assignMatchToCourt,
 );
 
-// DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bọĩ gán sân
+// DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bỏ gán sân
 router.delete("/tournaments/:tid/matches/:mid/court", protect, clearMatchCourt);
 
 router.get(
@@ -1025,6 +1027,7 @@ router.get("/settings", protect, authorize("admin"), getSystemSettings);
 router.put("/settings", protect, authorize("admin"), updateSystemSettings);
 router.get("/ai-gateway", protect, authorize("admin"), getAiGatewayConfig);
 router.put("/ai-gateway", protect, authorize("admin"), updateAiGatewayConfig);
+router.get("/ai-gateway/logs", protect, authorize("admin"), getAiGatewayLogs);
 router.post(
   "/ai-gateway/models",
   protect,
@@ -1036,6 +1039,12 @@ router.post(
   protect,
   authorize("admin"),
   testAiGatewayEndpoint,
+);
+router.post(
+  "/ai-gateway/refresh",
+  protect,
+  authorize("admin"),
+  refreshAiGatewayEndpoints,
 );
 router.get(
   "/recording-drive/oauth/init",

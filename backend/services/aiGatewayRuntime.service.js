@@ -1,16 +1,83 @@
 import OpenAI from "openai";
 import fetch from "node-fetch";
-import { getSystemSettingsRuntime } from "./systemSettingsRuntime.service.js";
+import SystemSettings from "../models/systemSettingsModel.js";
+import {
+  getSystemSettingsRuntime,
+  invalidateSystemSettingsRuntimeCache,
+} from "./systemSettingsRuntime.service.js";
 
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_FAILURE_COOLDOWN_MS = 60_000;
 const MAX_FAILURE_COOLDOWN_MS = 10 * 60_000;
+const DEFAULT_MODELS_REFRESH_TTL_MS = 15 * 60_000;
+const AI_GATEWAY_LOG_LIMIT = 300;
 
 const runtimeState = new Map();
 const roundRobinCursor = new Map();
+const aiGatewayLogs = [];
+let aiGatewayLogSeq = 0;
 
 function trim(value) {
   return String(value || "").trim();
+}
+
+function cleanLogText(value, max = 500) {
+  const text = trim(value);
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function makeRequestId(prefix = "ai") {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function endpointLogMeta(endpoint = {}) {
+  return {
+    endpointId: trim(endpoint.id),
+    endpointLabel: trim(endpoint.label),
+    endpointSource: trim(endpoint.source),
+    baseUrl: trim(endpoint.baseUrl),
+  };
+}
+
+export function appendAiGatewayLog(entry = {}) {
+  const item = {
+    id: ++aiGatewayLogSeq,
+    timestamp: new Date().toISOString(),
+    requestId: cleanLogText(entry.requestId, 80),
+    type: cleanLogText(entry.type || "runtime", 60),
+    status: cleanLogText(entry.status || "info", 40),
+    scope: cleanLogText(entry.scope, 40),
+    operation: cleanLogText(entry.operation, 80),
+    endpointId: cleanLogText(entry.endpointId, 120),
+    endpointLabel: cleanLogText(entry.endpointLabel, 160),
+    endpointSource: cleanLogText(entry.endpointSource, 40),
+    baseUrl: cleanLogText(entry.baseUrl, 240),
+    model: cleanLogText(entry.model, 160),
+    strategy: cleanLogText(entry.strategy, 40),
+    latencyMs: Number.isFinite(Number(entry.latencyMs))
+      ? Math.round(Number(entry.latencyMs))
+      : null,
+    modelCount: Number.isFinite(Number(entry.modelCount))
+      ? Math.round(Number(entry.modelCount))
+      : null,
+    message: cleanLogText(entry.message, 500),
+    error: cleanLogText(entry.error, 500),
+  };
+
+  aiGatewayLogs.push(item);
+  if (aiGatewayLogs.length > AI_GATEWAY_LOG_LIMIT) {
+    aiGatewayLogs.splice(0, aiGatewayLogs.length - AI_GATEWAY_LOG_LIMIT);
+  }
+  return item;
+}
+
+export function getAiGatewayRequestLogs({ limit = 100, afterId = 0 } = {}) {
+  const safeLimit = Math.min(300, Math.max(1, Number(limit) || 100));
+  const safeAfterId = Math.max(0, Number(afterId) || 0);
+  const logs = safeAfterId
+    ? aiGatewayLogs.filter((item) => item.id > safeAfterId)
+    : aiGatewayLogs.slice(-safeLimit);
+  return logs.slice(-safeLimit);
 }
 
 function normalizeOpenAiBaseUrl(value) {
@@ -92,6 +159,8 @@ function normalizeConfiguredEndpoint(endpoint, scopeConfig, gateway, envConfig) 
   const id = trim(endpoint?.id);
   const baseUrl = normalizeOpenAiBaseUrl(endpoint?.baseUrl);
   if (!id || !baseUrl || endpoint?.enabled === false) return null;
+  const modelCache = endpoint?.modelCache || {};
+  const health = endpoint?.health || {};
 
   return {
     id,
@@ -99,12 +168,19 @@ function normalizeConfiguredEndpoint(endpoint, scopeConfig, gateway, envConfig) 
     baseUrl,
     apiKey: trim(endpoint.apiKey) || envConfig.apiKey,
     model: trim(scopeConfig.model) || trim(endpoint.defaultModel),
+    defaultModel: trim(endpoint.defaultModel),
     envModel: trim(envConfig.model),
     timeoutMs:
       Number(endpoint.timeoutMs) ||
       Number(gateway?.timeoutMs) ||
       DEFAULT_TIMEOUT_MS,
     priority: Number(endpoint.priority) || 100,
+    models: Array.isArray(modelCache.models)
+      ? modelCache.models.map((model) => trim(model)).filter(Boolean)
+      : [],
+    modelsUpdatedAt: modelCache.updatedAt || null,
+    modelCacheError: trim(modelCache.error),
+    health,
     source: "settings",
   };
 }
@@ -117,9 +193,12 @@ function buildEnvEndpoint(scopeConfig, gateway, envConfig) {
     baseUrl,
     apiKey: envConfig.apiKey,
     model: trim(scopeConfig.model) || envConfig.model,
+    defaultModel: "",
     envModel: envConfig.model,
     timeoutMs: Number(gateway?.timeoutMs) || envConfig.timeoutMs,
     priority: 9999,
+    models: [],
+    modelsUpdatedAt: null,
     source: "env",
   };
 }
@@ -133,13 +212,21 @@ function isEndpointCooling(scope, endpoint, now = Date.now()) {
   return state?.cooldownUntil && state.cooldownUntil > now;
 }
 
-function markEndpointSuccess(scope, endpoint) {
+function markEndpointSuccess(scope, endpoint, meta = {}) {
   runtimeState.set(endpointKey(scope, endpoint), {
     failures: 0,
     lastError: "",
     lastFailureAt: null,
     cooldownUntil: 0,
     lastSuccessAt: new Date().toISOString(),
+  });
+  persistEndpointHealth(endpoint, {
+    status: "ok",
+    lastCheckedAt: new Date(),
+    lastOkAt: new Date(),
+    lastError: "",
+    latencyMs: Number(meta.latencyMs) || 0,
+    selectedModel: endpoint.selectedModel || "",
   });
 }
 
@@ -161,6 +248,12 @@ function markEndpointFailure(scope, endpoint, error, gateway) {
     cooldownUntil: Date.now() + cooldownMs,
     lastSuccessAt: previous.lastSuccessAt || null,
   });
+  persistEndpointHealth(endpoint, {
+    status: "error",
+    lastCheckedAt: new Date(),
+    lastError: String(error?.message || error || "").slice(0, 500),
+    selectedModel: endpoint.selectedModel || "",
+  });
 }
 
 function rotateEndpoints(scope, operation, endpoints) {
@@ -169,6 +262,43 @@ function rotateEndpoints(scope, operation, endpoints) {
   const cursor = Number(roundRobinCursor.get(key) || 0) % endpoints.length;
   roundRobinCursor.set(key, cursor + 1);
   return [...endpoints.slice(cursor), ...endpoints.slice(0, cursor)];
+}
+
+function persistEndpointHealth(endpoint, patch = {}) {
+  if (!endpoint || endpoint.source !== "settings" || !endpoint.id) return;
+  const update = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    update[`aiGateway.endpoints.$.health.${key}`] = value;
+  }
+  if (!Object.keys(update).length) return;
+
+  void SystemSettings.updateOne(
+    { _id: "system", "aiGateway.endpoints.id": endpoint.id },
+    { $set: update },
+  )
+    .then(() => invalidateSystemSettingsRuntimeCache())
+    .catch((error) => {
+      console.warn("[ai-gateway] cannot persist endpoint health:", error?.message);
+    });
+}
+
+function persistEndpointModelCache(endpoint, { models = [], error = "" } = {}) {
+  if (!endpoint || endpoint.source !== "settings" || !endpoint.id) return;
+  void SystemSettings.updateOne(
+    { _id: "system", "aiGateway.endpoints.id": endpoint.id },
+    {
+      $set: {
+        "aiGateway.endpoints.$.modelCache.models": models,
+        "aiGateway.endpoints.$.modelCache.updatedAt": new Date(),
+        "aiGateway.endpoints.$.modelCache.error": error,
+      },
+    },
+  )
+    .then(() => invalidateSystemSettingsRuntimeCache())
+    .catch((updateError) => {
+      console.warn("[ai-gateway] cannot persist model cache:", updateError?.message);
+    });
 }
 
 async function getRuntimeEndpoints(scope) {
@@ -221,16 +351,148 @@ function createOpenAiClient(endpoint) {
   });
 }
 
-function withResolvedModel(payload, endpoint) {
+function modelExists(models, model) {
+  if (!trim(model)) return false;
+  return models.some((item) => item === model);
+}
+
+export function choosePreferredAiGatewayModel(scope, operation, models = []) {
+  const list = models.map((model) => trim(model)).filter(Boolean);
+  if (!list.length) return "";
+
+  const embeddingRules = [
+    /^text-embedding-3-large$/i,
+    /^text-embedding-3-small$/i,
+    /embedding/i,
+  ];
+  const visionRules = [
+    /^gpt-5/i,
+    /^gpt-4\.1/i,
+    /^gpt-4o/i,
+    /vision/i,
+    /gemini.*flash/i,
+    /flash/i,
+    /sonnet/i,
+  ];
+  const defaultRules = [
+    /^gpt-5/i,
+    /^gpt-4\.1/i,
+    /^gpt-4o/i,
+    /gemini.*flash/i,
+    /flash/i,
+    /sonnet/i,
+    /mini/i,
+  ];
+
+  const rules =
+    operation === "embeddings.create"
+      ? embeddingRules
+      : scope === "cccd" || scope === "poster"
+        ? visionRules
+        : defaultRules;
+
+  for (const rule of rules) {
+    const found = list.find((model) => rule.test(model));
+    if (found) return found;
+  }
+
+  return list[0] || "";
+}
+
+function resolveSmartModel({ scope, operation, payload, endpoint }) {
+  const models = Array.isArray(endpoint.models) ? endpoint.models : [];
+  const candidates = [
+    trim(endpoint.model),
+    trim(endpoint.defaultModel),
+    trim(payload?.model),
+    trim(endpoint.envModel),
+  ].filter(Boolean);
+
+  if (!models.length) {
+    return candidates[0] || "";
+  }
+
+  const supported = candidates.find((model) => modelExists(models, model));
+  if (supported) return supported;
+
+  return choosePreferredAiGatewayModel(scope, operation, models);
+}
+
+function isModelCacheFresh(endpoint, ttlMs) {
+  if (!endpoint?.modelsUpdatedAt || !Array.isArray(endpoint.models)) return false;
+  const updatedAt = new Date(endpoint.modelsUpdatedAt).getTime();
+  if (!Number.isFinite(updatedAt)) return false;
+  return Date.now() - updatedAt <= ttlMs;
+}
+
+async function ensureEndpointModels(endpoint, gateway, logContext = {}) {
+  if (!endpoint || endpoint.source !== "settings") return endpoint;
+  const ttlMs =
+    Number(gateway?.modelsRefreshTtlMs) || DEFAULT_MODELS_REFRESH_TTL_MS;
+  if (isModelCacheFresh(endpoint, ttlMs)) {
+    appendAiGatewayLog({
+      ...logContext,
+      ...endpointLogMeta(endpoint),
+      type: "models",
+      status: "cache",
+      modelCount: endpoint.models.length,
+      message: "Dùng model cache còn hạn.",
+    });
+    return endpoint;
+  }
+
+  try {
+    const result = await fetchAiGatewayModels({
+      baseUrl: endpoint.baseUrl,
+      apiKey: endpoint.apiKey,
+      timeoutMs: Math.min(endpoint.timeoutMs || DEFAULT_TIMEOUT_MS, 30000),
+      logContext: {
+        ...logContext,
+        ...endpointLogMeta(endpoint),
+        type: "models",
+      },
+    });
+    const models = result.models || [];
+    persistEndpointModelCache(endpoint, { models, error: "" });
+    return {
+      ...endpoint,
+      models,
+      modelsUpdatedAt: new Date().toISOString(),
+      modelCacheError: "",
+    };
+  } catch (error) {
+    persistEndpointModelCache(endpoint, {
+      models: endpoint.models || [],
+      error: String(error?.message || error || "").slice(0, 500),
+    });
+    return {
+      ...endpoint,
+      modelCacheError: String(error?.message || error || "").slice(0, 500),
+    };
+  }
+}
+
+function withResolvedModel(scope, operation, payload, endpoint) {
   if (!payload || typeof payload !== "object") return payload;
-  const model = trim(endpoint.model) || trim(payload.model) || trim(endpoint.envModel);
+  const model = resolveSmartModel({ scope, operation, payload, endpoint });
   if (!model) return payload;
+  endpoint.selectedModel = model;
   return { ...payload, model };
 }
 
-async function callOperation(client, operation, args, endpoint) {
-  const payload = withResolvedModel(args[0], endpoint);
+async function callOperation(client, scope, operation, args, endpoint, requestId) {
+  const payload = withResolvedModel(scope, operation, args[0], endpoint);
   const rest = args.slice(1);
+  appendAiGatewayLog({
+    requestId,
+    scope,
+    operation,
+    ...endpointLogMeta(endpoint),
+    type: "request",
+    status: "sending",
+    model: endpoint.selectedModel || trim(payload?.model),
+    message: "Đang gửi request AI.",
+  });
 
   if (operation === "chat.completions.create") {
     return client.chat.completions.create(payload, ...rest);
@@ -247,9 +509,29 @@ async function callOperation(client, operation, args, endpoint) {
 
 export async function runAiGatewayOperation(scope, operation, args) {
   const { gateway, endpoints } = await getRuntimeEndpoints(scope);
+  const requestId = makeRequestId(scope || "ai");
   if (!endpoints.length) {
+    appendAiGatewayLog({
+      requestId,
+      scope,
+      operation,
+      type: "request",
+      status: "error",
+      message: `Không có AI endpoint khả dụng cho scope ${scope}.`,
+    });
     throw new Error(`Không có AI endpoint khả dụng cho scope ${scope}`);
   }
+
+  appendAiGatewayLog({
+    requestId,
+    scope,
+    operation,
+    type: "request",
+    status: "start",
+    strategy: gateway?.strategy || "failover",
+    model: trim(args?.[0]?.model),
+    message: `Bắt đầu request AI với ${endpoints.length} endpoint khả dụng.`,
+  });
 
   const rotated =
     gateway?.strategy === "roundRobin"
@@ -263,19 +545,79 @@ export async function runAiGatewayOperation(scope, operation, args) {
   const errors = [];
 
   for (const endpoint of candidates) {
+    let activeEndpoint = endpoint;
+    const attemptStartedAt = Date.now();
     try {
-      const client = createOpenAiClient(endpoint);
-      const result = await callOperation(client, operation, args, endpoint);
-      markEndpointSuccess(scope, endpoint);
+      appendAiGatewayLog({
+        requestId,
+        scope,
+        operation,
+        ...endpointLogMeta(endpoint),
+        type: "request",
+        status: "attempt",
+        strategy: gateway?.strategy || "failover",
+        message: "Đang thử endpoint.",
+      });
+      activeEndpoint = await ensureEndpointModels(endpoint, gateway, {
+        requestId,
+        scope,
+        operation,
+      });
+      const client = createOpenAiClient(activeEndpoint);
+      const startedAt = Date.now();
+      const result = await callOperation(
+        client,
+        scope,
+        operation,
+        args,
+        activeEndpoint,
+        requestId,
+      );
+      const latencyMs = Date.now() - startedAt;
+      markEndpointSuccess(scope, activeEndpoint, {
+        latencyMs,
+      });
+      appendAiGatewayLog({
+        requestId,
+        scope,
+        operation,
+        ...endpointLogMeta(activeEndpoint),
+        type: "request",
+        status: "ok",
+        model: activeEndpoint.selectedModel,
+        latencyMs,
+        message: "Request AI thành công.",
+      });
       return result;
     } catch (error) {
-      markEndpointFailure(scope, endpoint, error, gateway);
+      markEndpointFailure(scope, activeEndpoint, error, gateway);
+      appendAiGatewayLog({
+        requestId,
+        scope,
+        operation,
+        ...endpointLogMeta(activeEndpoint),
+        type: "request",
+        status: "error",
+        model: activeEndpoint.selectedModel,
+        latencyMs: Date.now() - attemptStartedAt,
+        error: String(error?.message || error || ""),
+        message: "Endpoint trả lỗi, runtime sẽ thử endpoint tiếp theo nếu còn.",
+      });
       errors.push(
         `${endpoint.label || endpoint.id}: ${String(error?.message || error)}`,
       );
     }
   }
 
+  appendAiGatewayLog({
+    requestId,
+    scope,
+    operation,
+    type: "request",
+    status: "failed_all",
+    error: errors.join(" | "),
+    message: "Tất cả endpoint đều lỗi.",
+  });
   throw new Error(
     `Tất cả AI endpoint đều lỗi cho scope ${scope}: ${errors.join(" | ")}`,
   );
@@ -318,15 +660,39 @@ function extractModelIds(payload) {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export async function fetchAiGatewayModels({ baseUrl, apiKey, timeoutMs } = {}) {
+export async function fetchAiGatewayModels({
+  baseUrl,
+  apiKey,
+  timeoutMs,
+  logContext,
+} = {}) {
   const url = endpointModelsUrl(baseUrl);
-  if (!url) throw new Error("Thiếu base URL để tải danh sách model");
+  if (!url) {
+    appendAiGatewayLog({
+      ...(logContext || {}),
+      type: "models",
+      status: "error",
+      baseUrl,
+      error: "Thiếu base URL để tải danh sách model.",
+    });
+    throw new Error("Thiếu base URL để tải danh sách model");
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(),
     Number(timeoutMs) || DEFAULT_TIMEOUT_MS,
   );
+  const startedAt = Date.now();
+  if (logContext) {
+    appendAiGatewayLog({
+      ...logContext,
+      type: logContext.type || "models",
+      status: "sending",
+      baseUrl: normalizeOpenAiBaseUrl(baseUrl),
+      message: "Đang gọi /models.",
+    });
+  }
 
   try {
     const headers = { Accept: "application/json" };
@@ -344,7 +710,7 @@ export async function fetchAiGatewayModels({ baseUrl, apiKey, timeoutMs } = {}) 
         json?.error?.message || json?.message || `HTTP ${response.status}`,
       );
     }
-    return {
+    const result = {
       url,
       models: extractModelIds(json),
       rawCount: Array.isArray(json?.data)
@@ -353,6 +719,31 @@ export async function fetchAiGatewayModels({ baseUrl, apiKey, timeoutMs } = {}) 
           ? json.models.length
           : 0,
     };
+    if (logContext) {
+      appendAiGatewayLog({
+        ...logContext,
+        type: logContext.type || "models",
+        status: "ok",
+        baseUrl: normalizeOpenAiBaseUrl(baseUrl),
+        latencyMs: Date.now() - startedAt,
+        modelCount: result.models.length,
+        message: "Đã tải danh sách model.",
+      });
+    }
+    return result;
+  } catch (error) {
+    if (logContext) {
+      appendAiGatewayLog({
+        ...logContext,
+        type: logContext.type || "models",
+        status: "error",
+        baseUrl: normalizeOpenAiBaseUrl(baseUrl),
+        latencyMs: Date.now() - startedAt,
+        error: String(error?.message || error || ""),
+        message: "Không tải được danh sách model.",
+      });
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }

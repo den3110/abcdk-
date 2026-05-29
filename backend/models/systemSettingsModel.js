@@ -39,6 +39,23 @@ const aiGatewayEndpointSchema = new mongoose.Schema(
     timeoutMs: { type: Number, default: 45000, min: 1000, max: 300000 },
     defaultModel: { type: String, default: "", trim: true },
     notes: { type: String, default: "", trim: true },
+    modelCache: {
+      models: { type: [String], default: [] },
+      updatedAt: { type: Date },
+      error: { type: String, default: "", trim: true },
+    },
+    health: {
+      status: {
+        type: String,
+        enum: ["unknown", "ok", "error"],
+        default: "unknown",
+      },
+      lastCheckedAt: { type: Date },
+      lastOkAt: { type: Date },
+      lastError: { type: String, default: "", trim: true },
+      latencyMs: { type: Number, default: 0, min: 0 },
+      selectedModel: { type: String, default: "", trim: true },
+    },
   },
   { _id: false },
 );
@@ -244,6 +261,12 @@ const SystemSettingsSchema = new mongoose.Schema(
         default: "failover",
       },
       timeoutMs: { type: Number, default: 45000, min: 1000, max: 300000 },
+      modelsRefreshTtlMs: {
+        type: Number,
+        default: 900000,
+        min: 60000,
+        max: 86400000,
+      },
       failureCooldownMs: {
         type: Number,
         default: 60000,
