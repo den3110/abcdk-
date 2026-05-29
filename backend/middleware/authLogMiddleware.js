@@ -44,19 +44,45 @@ const getLoginKey = (body = {}, payload = {}) =>
       payload?.user?.nickname,
   );
 
-const resolveChannel = (req, fallback = "unknown") => {
+export const inferAuthLogChannel = ({
+  fallback = "unknown",
+  path = "",
+  userAgent = "",
+  platform = "",
+} = {}) => {
   if (["admin", "mobile", "web"].includes(fallback)) return fallback;
 
-  const path = String(req.originalUrl || req.url || "").toLowerCase();
-  if (path.includes("/admin/login")) return "admin";
-  if (path.includes("/auth/web")) return "web";
-  if (path.includes("/auth")) return "mobile";
+  const normalizedPlatform = String(platform || "").toLowerCase();
+  if (/(ios|android|app|mobile)/.test(normalizedPlatform)) return "mobile";
+  if (/(web|browser)/.test(normalizedPlatform)) return "web";
 
-  const ua = String(req.headers["user-agent"] || "").toLowerCase();
-  if (/(okhttp|dalvik|expo|reactnative|react-native)/.test(ua)) return "mobile";
+  const normalizedPath = String(path || "").toLowerCase();
+  if (normalizedPath.includes("/admin/login")) return "admin";
+  if (normalizedPath.includes("/auth/web")) return "web";
+  if (normalizedPath.includes("/auth")) return "mobile";
+
+  const ua = String(userAgent || "").toLowerCase();
+  if (
+    /(okhttp|dalvik|expo|reactnative|react-native|cfnetwork|darwin|pickletour|iphone|ipad|android)/.test(
+      ua,
+    )
+  ) {
+    return "mobile";
+  }
   if (/(mozilla|chrome|safari|firefox|edge)/.test(ua)) return "web";
   return fallback;
 };
+
+const resolveChannel = (req, fallback = "unknown") =>
+  inferAuthLogChannel({
+    fallback,
+    path: req.originalUrl || req.url,
+    userAgent: req.headers["user-agent"],
+    platform:
+      req.headers["x-client-platform"] ||
+      req.headers["x-platform"] ||
+      req.headers["x-app-platform"],
+  });
 
 export const authLog =
   ({ action, channel = "unknown" }) =>

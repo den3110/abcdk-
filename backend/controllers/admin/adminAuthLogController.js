@@ -1,6 +1,7 @@
 import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import AuthLog from "../../models/authLogModel.js";
+import { inferAuthLogChannel } from "../../middleware/authLogMiddleware.js";
 
 const parsePositiveInt = (value, fallback) => {
   const n = Number.parseInt(value, 10);
@@ -8,6 +9,15 @@ const parsePositiveInt = (value, fallback) => {
 };
 
 const escapeRegex = (s = "") => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const normalizeAuthLogForAdmin = (log = {}) => ({
+  ...log,
+  channel: inferAuthLogChannel({
+    fallback: log.channel,
+    path: log.path,
+    userAgent: log.userAgent,
+  }),
+});
 
 export const listAuthLogs = asyncHandler(async (req, res) => {
   const page = parsePositiveInt(req.query.page, 1);
@@ -49,7 +59,7 @@ export const listAuthLogs = asyncHandler(async (req, res) => {
   ]);
 
   res.json({
-    logs,
+    logs: logs.map(normalizeAuthLogForAdmin),
     total,
     page,
     pageSize,
@@ -73,5 +83,5 @@ export const getAuthLogDetail = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy log");
   }
 
-  res.json(log);
+  res.json(normalizeAuthLogForAdmin(log));
 });
