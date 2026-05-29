@@ -290,6 +290,10 @@ import {
 import { getAdminTournamentImageProxy } from "../controllers/admin/adminAssetProxyController.js";
 import { getAdminObserverOverview as getObserverOverviewProxy } from "../controllers/admin/adminObserverController.js";
 import { listPrimaryLogEvents } from "../controllers/admin/adminPrimaryLogController.js";
+import {
+  generateAdminBracketStory,
+  getAdminBracketStory,
+} from "../controllers/admin/adminBracketStoryController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -402,6 +406,9 @@ router.post(
 );
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
+
+router.get("/tournaments/:id/bracket-story", getAdminBracketStory);
+router.post("/tournaments/:id/bracket-story", generateAdminBracketStory);
 
 router.get("/assets/tournament-image", getAdminTournamentImageProxy);
 
