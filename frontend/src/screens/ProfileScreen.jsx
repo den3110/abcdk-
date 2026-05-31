@@ -42,7 +42,6 @@ import FingerprintRoundedIcon from "@mui/icons-material/FingerprintRounded";
 import GppBadIcon from "@mui/icons-material/GppBad";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import LogoutIcon from "@mui/icons-material/Logout";
-import MailOutlineRoundedIcon from "@mui/icons-material/MailOutlineRounded";
 import PendingIcon from "@mui/icons-material/Pending";
 import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
 import PhoneIphoneRoundedIcon from "@mui/icons-material/PhoneIphoneRounded";
@@ -195,46 +194,6 @@ const formatDisplayDate = (value, language, fallback) => {
   return parsed.isValid() ? parsed.format(format) : fallback;
 };
 
-function HeroMetric({ label, value, caption }) {
-  const theme = useTheme();
-
-  return (
-    <Box
-      sx={{
-        p: 2.25,
-        height: "100%",
-        borderRadius: 4,
-        border: "1px solid",
-        borderColor: "divider",
-        bgcolor:
-          theme.palette.mode === "light"
-            ? alpha(theme.palette.primary.main, 0.04)
-            : alpha(theme.palette.primary.main, 0.08),
-      }}
-    >
-      <Typography
-        variant="caption"
-        sx={{ display: "block", color: "text.secondary", mb: 0.75 }}
-      >
-        {label}
-      </Typography>
-      <Typography
-        sx={{
-          color: "text.primary",
-          fontWeight: 800,
-          lineHeight: 1.15,
-          fontSize: { xs: "1.3rem", md: "1.7rem" },
-        }}
-      >
-        {value}
-      </Typography>
-      <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.75 }}>
-        {caption}
-      </Typography>
-    </Box>
-  );
-}
-
 function SectionCard({
   icon,
   title,
@@ -315,35 +274,6 @@ function SectionCard({
         {children}
       </Box>
     </Paper>
-  );
-}
-
-function SummaryRow({ icon, label, value }) {
-  return (
-    <Stack direction="row" spacing={1.25} alignItems="center">
-      <Box
-        sx={{
-          width: 40,
-          height: 40,
-          borderRadius: 3,
-          display: "grid",
-          placeItems: "center",
-          bgcolor: "action.hover",
-          color: "primary.main",
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </Box>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography variant="caption" color="text.secondary">
-          {label}
-        </Typography>
-        <Typography variant="body2" fontWeight={700} noWrap title={value}>
-          {value}
-        </Typography>
-      </Box>
-    </Stack>
   );
 }
 
@@ -1147,135 +1077,16 @@ export default function ProfileScreen() {
             maxWidth="xl"
             sx={{ pt: { xs: 1.5, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}
           >
-            <Box
-              sx={{
-                position: "relative",
-                overflow: "hidden",
-                borderRadius: { xs: 4, md: 7 },
-                px: { xs: 1.5, md: 4 },
-                py: { xs: 2.5, md: 4 },
-                mb: 3,
-                bgcolor: "background.paper",
-                border: "1px solid",
-                borderColor: "divider",
-                boxShadow:
-                  theme.palette.mode === "light"
-                    ? "0 18px 40px rgba(15, 23, 42, 0.08)"
-                    : "0 18px 40px rgba(0, 0, 0, 0.28)",
-              }}
-            >
-              <Grid
-                container
-                spacing={3}
-                alignItems="stretch"
-                sx={{ position: "relative", zIndex: 1 }}
-              >
-                <Grid size={{ xs: 12, lg: 7 }}>
-                  <Stack spacing={2.25}>
-                    <Typography
-                      variant="overline"
-                      sx={{
-                        display: "block",
-                        color: "text.secondary",
-                        fontWeight: 700,
-                        letterSpacing: "0.16em",
-                      }}
-                    >
-                      {t("profile.hero.title").toUpperCase()}
-                    </Typography>
-
-                    <Box>
-                      <Typography
-                        sx={{
-                          fontWeight: 900,
-                          lineHeight: 1.05,
-                          fontSize: { xs: "2rem", md: "3rem" },
-                          letterSpacing: "-0.02em",
-                          maxWidth: 760,
-                        }}
-                      >
-                        {t("profile.hero.title")}
-                      </Typography>
-                      <Typography
-                        variant="body1"
-                        sx={{
-                          maxWidth: 650,
-                          mt: 1.25,
-                          color: "text.secondary",
-                        }}
-                      >
-                        {t("profile.hero.subtitle")}
-                      </Typography>
-                    </Box>
-
-                    <Stack direction="row" flexWrap="wrap" gap={1}>
-                      <Chip
-                        icon={<KycStatusIcon fontSize="small" />}
-                        label={`KYC: ${kycMeta.label}`}
-                        sx={{
-                          color: "text.primary",
-                          bgcolor: alpha(theme.palette.primary.main, 0.06),
-                          border: "1px solid",
-                          borderColor: alpha(theme.palette.primary.main, 0.14),
-                        }}
-                      />
-                      <Chip
-                        icon={
-                          isDirty ? (
-                            <EditRoundedIcon fontSize="small" />
-                          ) : (
-                            <VerifiedUserIcon fontSize="small" />
-                          )
-                        }
-                        label={
-                          isDirty
-                            ? t("profile.summary.unsaved")
-                            : t("profile.summary.synced")
-                        }
-                        sx={{
-                          color: "text.primary",
-                          bgcolor: alpha(theme.palette.primary.main, 0.06),
-                          border: "1px solid",
-                          borderColor: alpha(theme.palette.primary.main, 0.14),
-                        }}
-                      />
-                    </Stack>
-
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 12, sm: 4 }}>
-                        <HeroMetric
-                          label={t("profile.summary.completion")}
-                          value={`${profileCompletion}%`}
-                          caption={`${completionCount}/${completionItems.length} ${t("profile.summary.completion").toLowerCase()}`}
-                        />
-                      </Grid>
-                      <Grid size={{ xs: 12, sm: 4 }}>
-                        <HeroMetric
-                          label={t("profile.summary.kycStatus")}
-                          value={kycMeta.label}
-                          caption={kycMeta.description}
-                        />
-                      </Grid>
-                      <Grid size={{ xs: 12, sm: 4 }}>
-                        <HeroMetric
-                          label={t("profile.summary.pendingChanges")}
-                          value={
-                            isDirty
-                              ? t("common.states.on")
-                              : t("common.states.off")
-                          }
-                          caption={
-                            isDirty
-                              ? t("profile.savePanel.ready")
-                              : t("profile.summary.noChanges")
-                          }
-                        />
-                      </Grid>
-                    </Grid>
-                  </Stack>
-                </Grid>
-
-                <Grid size={{ xs: 12, lg: 5 }}>
+            <Box component="form" onSubmit={submit} noValidate>
+              <Grid container spacing={3} alignItems="flex-start">
+                <Grid size={{ xs: 12, lg: 4 }}>
+                  <Stack
+                    spacing={3}
+                    sx={{
+                      position: { lg: "sticky" },
+                      top: { lg: 96 },
+                    }}
+                  >
                   <Paper
                     elevation={0}
                     sx={{
@@ -1514,20 +1325,7 @@ export default function ProfileScreen() {
                       )}
                     </Stack>
                   </Paper>
-                </Grid>
-              </Grid>
-            </Box>
 
-            <Box component="form" onSubmit={submit} noValidate>
-              <Grid container spacing={3} alignItems="flex-start">
-                <Grid size={{ xs: 12, lg: 4 }}>
-                  <Stack
-                    spacing={3}
-                    sx={{
-                      position: { lg: "sticky" },
-                      top: { lg: 96 },
-                    }}
-                  >
                     <Paper
                       elevation={0}
                       sx={{
@@ -1669,29 +1467,6 @@ export default function ProfileScreen() {
                         ))}
                       </Grid>
 
-                      <Stack spacing={1.5}>
-                        <SummaryRow
-                          icon={<PersonRoundedIcon fontSize="small" />}
-                          label={t("profile.fields.name")}
-                          value={form.name || t("common.states.notUpdated")}
-                        />
-                        <SummaryRow
-                          icon={<MailOutlineRoundedIcon fontSize="small" />}
-                          label={t("profile.fields.email")}
-                          value={form.email || t("common.states.notUpdated")}
-                        />
-                        <SummaryRow
-                          icon={<PhoneIphoneRoundedIcon fontSize="small" />}
-                          label={t("profile.fields.phone")}
-                          value={form.phone || t("common.states.notUpdated")}
-                        />
-                        <SummaryRow
-                          icon={<PlaceRoundedIcon fontSize="small" />}
-                          label={t("profile.fields.province")}
-                          value={form.province || provincePlaceholder}
-                        />
-                      </Stack>
-
                       <Divider sx={{ my: 3 }} />
 
                       <Stack
@@ -1775,6 +1550,49 @@ export default function ProfileScreen() {
 
                 <Grid size={{ xs: 12, lg: 8 }}>
                   <Stack spacing={3}>
+                    <Box sx={{ mb: 0.5 }}>
+                      <Typography variant="h5" fontWeight={800}>
+                        {t("profile.hero.title")}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ mt: 0.5 }}
+                      >
+                        {t("profile.hero.subtitle")}
+                      </Typography>
+                      <Stack
+                        direction="row"
+                        flexWrap="wrap"
+                        gap={1}
+                        sx={{ mt: 1.5 }}
+                      >
+                        <Chip
+                          size="small"
+                          icon={<KycStatusIcon fontSize="small" />}
+                          label={`KYC: ${kycMeta.label}`}
+                          color={kycMeta.chipColor}
+                          variant="outlined"
+                        />
+                        <Chip
+                          size="small"
+                          icon={
+                            isDirty ? (
+                              <EditRoundedIcon fontSize="small" />
+                            ) : (
+                              <VerifiedUserIcon fontSize="small" />
+                            )
+                          }
+                          label={
+                            isDirty
+                              ? t("profile.summary.unsaved")
+                              : t("profile.summary.synced")
+                          }
+                          color={isDirty ? "warning" : "success"}
+                          variant="outlined"
+                        />
+                      </Stack>
+                    </Box>
                     <SectionCard
                       tone="primary"
                       icon={<PersonRoundedIcon />}
