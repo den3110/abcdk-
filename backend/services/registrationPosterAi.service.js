@@ -7,7 +7,7 @@ import {
 } from "../lib/anthropicClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
-const POSTER_AI_LAYOUT_VERSION = 2;
+const POSTER_AI_LAYOUT_VERSION = 3;
 
 function resolvePosterVisionModel() {
   return String(CLAUDE_POSTER_VISION_MODEL || "claude-opus-4-8").trim() ||
@@ -48,6 +48,11 @@ const slotSchema = {
           type: "number",
           description: "Độ bo góc của ô ảnh để crop avatar khớp với placeholder.",
         },
+        safeInset: {
+          type: "number",
+          description:
+            "Số pixel cần lùi vào trong vùng avatar để tránh che viền/khung/tab. Thường 0-6.",
+        },
         clipPath: {
           type: "object",
           additionalProperties: false,
@@ -75,7 +80,7 @@ const slotSchema = {
           required: ["type", "points"],
         },
       },
-      required: ["x", "y", "w", "h", "radius", "clipPath"],
+      required: ["x", "y", "w", "h", "radius", "safeInset", "clipPath"],
     },
     name: {
       type: "object",
@@ -260,13 +265,21 @@ function normalizeClipPath(clipPath, width, height) {
 function normalizeSlot(slot, width, height) {
   const avatar = slot?.avatar || {};
   const name = slot?.name || {};
+  const avatarW = clamp(avatar.w, 1, width, Math.round(width * 0.3));
+  const avatarH = clamp(avatar.h, 1, height, Math.round(width * 0.3));
   return {
     avatar: {
       x: clamp(avatar.x, 0, width, 0),
       y: clamp(avatar.y, 0, height, 0),
-      w: clamp(avatar.w, 1, width, Math.round(width * 0.3)),
-      h: clamp(avatar.h, 1, height, Math.round(width * 0.3)),
+      w: avatarW,
+      h: avatarH,
       radius: avatar.radius ?? 24,
+      safeInset: clamp(
+        avatar.safeInset,
+        0,
+        Math.min(24, Math.min(avatarW, avatarH) * 0.12),
+        0,
+      ),
       clipPath: normalizeClipPath(avatar.clipPath, width, height),
     },
     name: {
@@ -295,6 +308,7 @@ function deriveSingleSlotFromDouble(slots, width, height) {
         w: avatarW,
         h: avatarH,
         radius: a.avatar.radius ?? b.avatar.radius ?? 24,
+        safeInset: Math.max(a.avatar.safeInset || 0, b.avatar.safeInset || 0),
       },
       name: {
         x: (a.name.x + b.name.x) / 2,
@@ -388,6 +402,7 @@ Yêu cầu:
 - avatar là vùng trắng/kem/trống bên trong khung ảnh để đặt ảnh VĐV. Đây là vùng ảnh thật sẽ bị crop và ghép vào poster.
 - avatar.x và avatar.y BẮT BUỘC là góc trái trên của phần ruột ô trắng/kem; avatar.w/avatar.h là chiều rộng/chiều cao phần ruột ô đó. Không trả x/y theo tâm.
 - avatar phải sát mép trong của khung ảnh để ảnh render phủ kín vùng mở ảnh. Không được thu nhỏ box vào giữa làm còn thừa nền trắng/kem xung quanh ảnh.
+- avatar.safeInset là số pixel cần lùi vào trong để ảnh không che viền vàng/đen/tab. Nếu avatar.x/y/w/h đã là vùng ảnh an toàn thì safeInset = 0; nếu còn sát viền khung thì dùng 1-6. Không dùng safeInset lớn làm ảnh bị hụt khỏi ô trắng.
 - Ảnh VĐV sau khi render phải nằm bên trong ô trắng/kem. Nếu avatar box rơi xuống nền sân, nền người chơi, thanh tên, nhãn "VĐV", footer hoặc vùng tối phía sau thì kết quả sai.
 - Không lấy viền trang trí, không lấy nhãn "VĐV", không lấy dấu "&", không lấy khung tên, không lấy ảnh nền sân phía sau làm avatar.
 - Nếu có ô trắng bên trên nhãn "VĐV" và khung tên "HỌ TÊN", avatar phải là ô trắng đó; avatar.y + avatar.h phải kết thúc trước nhãn "VĐV"/khung tên.
@@ -395,7 +410,7 @@ Yêu cầu:
 - Nếu khung ảnh là chữ nhật hoặc bo góc thông thường và không có tab/nhãn chen vào phần ảnh, trả avatar.clipPath.type = "rounded_rect", avatar.clipPath.points = [], radius phản ánh độ bo góc thực tế.
 - Nếu khung ảnh lượn sóng, vát chéo, đa giác, có tai/gờ, có tab/nhãn "VĐV" đè vào đáy khung, hoặc hình dạng phức tạp, trả avatar.clipPath.type = "polygon" và avatar.clipPath.points là các điểm bám theo mép phần ảnh nhìn thấy, theo chiều kim đồng hồ, dùng tọa độ tuyệt đối trong ảnh width=${width}, height=${height}. Không dùng polygon bám viền trang trí bên ngoài.
 - Nếu không chắc khung có phải rounded_rect đơn giản hay không, hãy ưu tiên polygon.
-- Với polygon, avatar.x/y/w/h vẫn là bounding box bao toàn bộ vùng polygon, còn clipPath.points mới là hình crop thật. Dùng khoảng 6-16 điểm; chỉ dùng nhiều hơn nếu khung thật sự phức tạp.
+- Với polygon, avatar.x/y/w/h vẫn là bounding box bao toàn bộ vùng polygon sau khi đã né viền/tab, còn clipPath.points mới là hình crop thật. Dùng khoảng 6-16 điểm; chỉ dùng nhiều hơn nếu khung thật sự phức tạp.
 - name là vùng placeholder tên cần bị thay thế, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc vùng tên riêng bên dưới ảnh.
 - name.x/name.y phải là tâm của chính placeholder tên cần thay thế. name.w/name.h phải bao phủ toàn bộ vùng chữ placeholder để backend xoá đúng vùng đó rồi vẽ nickname vào cùng vị trí.
 - Không đặt name ở dưới placeholder, không đặt name ở khoảng giữa khung tên và footer, và không đặt name theo vị trí avatar nếu trên poster đã có vùng placeholder tên rõ ràng.

@@ -864,7 +864,13 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
   });
 }
 
-function buildPosterAvatarClipMask(width, height, radius, clipPath) {
+async function buildPosterAvatarClipMask(width, height, radius, clipPath, safeInset = 0) {
+  const inset = clampInt(safeInset, 0, Math.min(12, width, height), 0);
+  const finalizeMask = async (mask) => {
+    if (!inset) return mask;
+    return sharp(mask).ensureAlpha().erode(inset).png().toBuffer();
+  };
+
   if (
     String(clipPath?.type || "").toLowerCase() === "polygon" &&
     Array.isArray(clipPath.points) &&
@@ -878,23 +884,32 @@ function buildPosterAvatarClipMask(width, height, radius, clipPath) {
       })
       .join(" ");
     if (points) {
-      return Buffer.from(`
+      return finalizeMask(Buffer.from(`
         <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
           <polygon points="${points}" fill="#fff"/>
         </svg>
-      `);
+      `));
     }
   }
 
   const rx = resolveRadius(radius, width, height);
-  return Buffer.from(`
+  return finalizeMask(Buffer.from(`
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
     </svg>
-  `);
+  `));
 }
 
-async function makeAvatarLayer(req, player, width, height, radius, maskInput, clipPath) {
+async function makeAvatarLayer(
+  req,
+  player,
+  width,
+  height,
+  radius,
+  maskInput,
+  clipPath,
+  safeInset,
+) {
   const { url: src } = resolvePosterAvatarSource(player);
   let input = null;
   try {
@@ -917,7 +932,9 @@ async function makeAvatarLayer(req, player, width, height, radius, maskInput, cl
     `);
   }
 
-  const mask = maskInput || buildPosterAvatarClipMask(width, height, radius, clipPath);
+  const mask =
+    maskInput ||
+    (await buildPosterAvatarClipMask(width, height, radius, clipPath, safeInset));
 
   const renderWithMask = (maskBuffer) =>
     sharp(input)
@@ -932,7 +949,7 @@ async function makeAvatarLayer(req, player, width, height, radius, maskInput, cl
   const visibleEnough = await hasVisiblePosterAlpha(output);
   if (visibleEnough) return output;
 
-  const fallbackMask = buildPosterAvatarClipMask(width, height, radius, null);
+  const fallbackMask = await buildPosterAvatarClipMask(width, height, radius, null, 0);
   return renderWithMask(fallbackMask);
 }
 
@@ -999,6 +1016,7 @@ function isClaudePosterLayoutConfig(cfg = {}) {
 }
 
 function hasPosterAvatarClipPathContract(slot = {}) {
+  if (!Number.isFinite(Number(slot?.avatar?.safeInset))) return false;
   const clipPath = slot?.avatar?.clipPath;
   if (!clipPath || typeof clipPath !== "object") return false;
   const type = String(clipPath.type || "").toLowerCase();
@@ -1028,7 +1046,7 @@ function getRawPosterSlotsForCount(cfg = {}, playersCount = 2) {
 
 function hasCurrentPosterAiLayoutContract(cfg = {}, playersCount = 2) {
   const layoutVersion = Number(cfg?.ai?.layoutVersion || 0);
-  if (layoutVersion < 2) return false;
+  if (layoutVersion < 3) return false;
   const slots = getRawPosterSlotsForCount(cfg, playersCount);
   const expected = Math.max(1, Math.min(Number(playersCount) || 1, 2));
   if (!Array.isArray(slots) || slots.length < expected) return false;
@@ -1092,6 +1110,17 @@ function resolvePosterBox(box = {}, width, height, baseWidth, baseHeight) {
     height: Math.max(1, scaleCoord(box.height ?? box.h, height, baseHeight, 1)),
     radius: box.radius ?? box.r,
   };
+  const safeInset = clampInt(
+    scaleCoord(
+      box.safeInset ?? box.inset ?? 0,
+      Math.min(width, height),
+      Math.min(baseWidth, baseHeight),
+      0,
+    ),
+    0,
+    Math.floor(Math.min(resolved.width, resolved.height) * 0.2),
+    0,
+  );
   const clipPath = resolvePosterClipPath(
     box.clipPath,
     width,
@@ -1103,6 +1132,7 @@ function resolvePosterBox(box = {}, width, height, baseWidth, baseHeight) {
     return {
       ...clipPath.box,
       radius: resolved.radius,
+      safeInset,
       clipPath: {
         type: "polygon",
         points: clipPath.points,
@@ -1110,8 +1140,20 @@ function resolvePosterBox(box = {}, width, height, baseWidth, baseHeight) {
     };
   }
 
+  const insetBox = {
+    left: resolved.left + safeInset,
+    top: resolved.top + safeInset,
+    width: Math.max(1, resolved.width - safeInset * 2),
+    height: Math.max(1, resolved.height - safeInset * 2),
+    radius:
+      typeof resolved.radius === "number"
+        ? Math.max(0, resolved.radius - safeInset)
+        : resolved.radius,
+    safeInset: 0,
+  };
+
   return {
-    ...resolved,
+    ...insetBox,
     clipPath,
   };
 }
@@ -3060,6 +3102,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
           slot.radius,
           slot.mask,
           slot.clipPath,
+          slot.safeInset,
         ),
         left: slot.left,
         top: slot.top,
