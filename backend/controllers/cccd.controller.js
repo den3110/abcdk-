@@ -6,10 +6,7 @@ import jsQR from "jsqr";
 import os from "os";
 import crypto from "crypto";
 import { parseQRPayload, mapQRToFields } from "../utils/cccdParsing.js";
-import {
-  cccdOpenai,
-  OPENAI_CCCD_MODEL,
-} from "../lib/openaiClient.js";
+import { CLAUDE_CCCD_MODEL } from "../lib/anthropicClient.js";
 import { openaiExtractFromDataUrl } from "../services/telegram/telegramNotifyKyc.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
@@ -117,39 +114,6 @@ export async function getCCCDResult(req, res) {
   }
 }
 
-// JSON Schema cho structured outputs (tuân thủ: type: "object", required, additionalProperties: false)
-const CCCD_JSON_SCHEMA = {
-  name: "cccd_extract",
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      idNumber: { type: ["string", "null"] },
-      fullName: { type: ["string", "null"] },
-      dob: { type: ["string", "null"], description: "yyyy-mm-dd" },
-      sex: { type: ["string", "null"] },
-      nationality: { type: ["string", "null"] },
-      hometown: { type: ["string", "null"] },
-      residence: { type: ["string", "null"] },
-      expiry: { type: ["string", "null"], description: "yyyy-mm-dd" },
-      notes: { type: ["string", "null"] },
-    },
-    // 🔧 Structured Outputs yêu cầu liệt kê HẾT các key ở đây
-    required: [
-      "idNumber",
-      "fullName",
-      "dob",
-      "sex",
-      "nationality",
-      "hometown",
-      "residence",
-      "expiry",
-      "notes",
-    ],
-  },
-  strict: true,
-};
-
 function normalizeDate(s) {
   if (!s) return null;
   const m = String(s).match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
@@ -161,13 +125,6 @@ function normalizeDate(s) {
   return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-async function createCccdCompletion(payload) {
-  return cccdOpenai.chat.completions.create({
-    ...payload,
-    model: OPENAI_CCCD_MODEL,
-  });
-}
-
 export async function extractCCCDOpenAI(req, res) {
   try {
     if (!req.file) return res.status(400).json({ message: "Thiếu file ảnh" });
@@ -177,62 +134,23 @@ export async function extractCCCDOpenAI(req, res) {
       req.file.mimetype
     };base64,${req.file.buffer.toString("base64")}`;
 
-    const systemPrompt =
-      "Bạn là trợ lý trích xuất trường từ ảnh Căn cước công dân Việt Nam. " +
-      "Chỉ dựa trên nội dung nhìn thấy; không suy đoán. " +
-      "Chuẩn hóa các ngày dd/mm/yyyy thành yyyy-mm-dd. Trả đúng JSON theo schema.";
-
-    const userPrompt =
-      "Trích xuất: idNumber (Số/No.), fullName (Họ và tên), dob (Ngày sinh), sex (Giới tính), " +
-      "nationality (Quốc tịch), hometown (Quê/Nguyên quán), residence (Nơi thường trú), expiry (Có giá trị đến). " +
-      "Không thấy rõ thì để null.";
-
-    // 👇 Chat Completions + Structured Outputs
-    const resp = await createCccdCompletion({
-      model: OPENAI_CCCD_MODEL,
-      response_format: { type: "json_schema", json_schema: CCCD_JSON_SCHEMA }, // structured outputs
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            { type: "image_url", image_url: { url: dataUrl, detail: "low" } }, // multimodal (ảnh)
-          ],
-        },
-      ],
-    });
-
-    const msg = resp.choices?.[0]?.message;
-    // SDK mới có thể trả mảng content; lấy text
-    let jsonText =
-      typeof msg?.content === "string"
-        ? msg.content
-        : msg?.content?.find?.(
-            (p) => p.type === "output_text" || p.type === "text",
-          )?.text;
-
-    if (!jsonText)
-      return res
-        .status(400)
-        .json({ message: "Không nhận được dữ liệu từ model", debug: resp });
-
-    let data;
-    try {
-      data = JSON.parse(jsonText);
-    } catch {
-      const match = String(jsonText).match(/\{[\s\S]*\}$/);
-      data = match
-        ? JSON.parse(match[0])
-        : { error: "Bad JSON", raw: jsonText };
-    }
+    const extracted = await openaiExtractFromDataUrl(dataUrl, "low");
+    const data = extracted.raw || {};
 
     data.dob = normalizeDate(data.dob);
     data.expiry = normalizeDate(data.expiry);
 
-    return res.json({ source: "openai", model: OPENAI_CCCD_MODEL, ...data });
+    return res.json({
+      source: "claude",
+      model: CLAUDE_CCCD_MODEL,
+      ...data,
+      idNumber: extracted.idNumber || data.idNumber || null,
+      fullName: data.fullName || extracted.fullName || null,
+      dob: data.dob || extracted.dob || null,
+      _usage: extracted._usage || null,
+    });
   } catch (err) {
-    console.error("[cccd-openai] extract error:", err);
+    console.error("[cccd-claude] extract error:", err);
     return res.status(500).json({
       message: "Ảnh extract lỗi",
       error: String(err?.message || err),
@@ -262,11 +180,11 @@ export async function extractKycCCCD(req, res) {
     // Call the exact same function used by the Telegram bot
     const extracted = await openaiExtractFromDataUrl(payloads, "auto");
     
-    return res.json({ source: "openai-kyc", ...extracted });
+    return res.json({ source: "claude-kyc", model: CLAUDE_CCCD_MODEL, ...extracted });
   } catch (err) {
     console.error("[extractKycCCCD] error:", err);
     return res.status(500).json({
-      message: "Lỗi extract KYC qua OpenAI",
+      message: "Lỗi extract KYC qua Claude",
       error: String(err?.message || err),
     });
   }

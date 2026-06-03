@@ -21,9 +21,9 @@ import {
   getMeta as spcGetMeta,
 } from "../services/spcStore.js";
 import {
-  cccdOpenai,
-  OPENAI_CCCD_MODEL,
-} from "../lib/openaiClient.js";
+  CLAUDE_CCCD_MODEL,
+  createClaudeJsonMessage,
+} from "../lib/anthropicClient.js";
 import {
   EVENTS,
   publishNotification,
@@ -4269,7 +4269,7 @@ function toPublicUrl(raw) {
 }
 
 /**
- * Từ giá trị lưu trong DB (path hoặc URL) -> content part cho OpenAI
+ * Từ giá trị lưu trong DB (path hoặc URL) -> content part cho Claude
  * - DEV: đọc file local -> data URL base64
  * - PROD: build URL public từ HOST
  */
@@ -4325,14 +4325,31 @@ function buildImagePart(raw) {
 }
 
 async function createCccdCompletion(payload) {
-  return cccdOpenai.chat.completions.create({
-    ...payload,
-    model: OPENAI_CCCD_MODEL,
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  const system = messages.find((message) => message?.role === "system")?.content || "";
+  const userMessage = messages.find((message) => message?.role === "user") || {};
+  const schema = payload?.response_format?.json_schema?.schema;
+  const toolName = payload?.response_format?.json_schema?.name || "cccd_fields";
+  const result = await createClaudeJsonMessage({
+    model: CLAUDE_CCCD_MODEL,
+    system,
+    content: userMessage.content || [],
+    schema,
+    toolName,
+    toolDescription:
+      "Trích xuất các trường hồ sơ từ ảnh CCCD Việt Nam và trả về JSON đúng schema.",
+    maxTokens: payload?.max_tokens || 2048,
   });
+
+  return {
+    choices: [{ message: { content: result.text } }],
+    usage: result.response?.usage,
+    _claude: result.response,
+  };
 }
 
-// ====== HELPER: gọi OpenAI đọc CCCD ======
-// ====== HELPER: gọi OpenAI đọc CCCD ======
+// ====== HELPER: gọi Claude đọc CCCD ======
+// ====== HELPER: gọi Claude đọc CCCD ======
 async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
   if (!frontUrl && !backUrl) {
     throw new Error("User không có ảnh CCCD");
@@ -4351,7 +4368,7 @@ async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
   }
 
   const resp = await createCccdCompletion({
-    model: OPENAI_CCCD_MODEL,
+    model: CLAUDE_CCCD_MODEL,
     response_format: {
       type: "json_schema",
       json_schema: {
@@ -4622,7 +4639,7 @@ function getMissingFieldsForUser(u) {
   return missing;
 }
 
-// ====== API: Quét user đã KYC & thiếu field, gọi OpenAI auto-fill ======
+// ====== API: Quét user đã KYC & thiếu field, gọi Claude auto-fill ======
 // POST /api/admin/users/cccd-backfill?limit=10&dryRun=1
 export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 10, 50); // tránh xử lý quá nhiều 1 lượt
@@ -4660,7 +4677,7 @@ export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
   }
 
   if (dryRun) {
-    // Chế độ xem trước: chỉ trả danh sách user sẽ bị ảnh hưởng, không gọi OpenAI
+    // Chế độ xem trước: chỉ trả danh sách user sẽ bị ảnh hưởng, không gọi Claude
     return res.json({
       message: "Dry-run: chỉ liệt kê user sẽ gọi, không cập nhật DB.",
       totalCandidates: users.length,
@@ -4755,7 +4772,7 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
       .json({ message: "User này chưa có ảnh CCCD để đọc AI" });
   }
 
-  // Gọi OpenAI đọc CCCD
+  // Gọi Claude đọc CCCD
   const extracted = await extractCccdFieldsFromImages({
     frontUrl,
     backUrl,

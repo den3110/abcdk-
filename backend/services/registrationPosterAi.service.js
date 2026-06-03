@@ -2,33 +2,18 @@ import fs from "fs/promises";
 import path from "path";
 import sharp from "sharp";
 import {
-  posterOpenai,
-  OPENAI_POSTER_VISION_MODEL,
-} from "../lib/openaiClient.js";
+  CLAUDE_POSTER_VISION_MODEL,
+  createClaudeJsonMessage,
+} from "../lib/anthropicClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
 
 function resolvePosterVisionModel() {
-  return String(OPENAI_POSTER_VISION_MODEL || "gpt-5").trim() || "gpt-5";
+  return String(CLAUDE_POSTER_VISION_MODEL || "claude-sonnet-4-6").trim() ||
+    "claude-sonnet-4-6";
 }
 
 const POSTER_VISION_MODEL = resolvePosterVisionModel();
-
-function shouldStreamPosterCompletion(modelName = POSTER_VISION_MODEL) {
-  const baseUrl = String(
-    process.env.OPENAI_POSTER_BASE_URL ||
-      process.env.OPENAI_CCCD_BASE_URL ||
-      "",
-  ).toLowerCase();
-  const model = String(modelName || "").toLowerCase();
-  return (
-    model.includes("deepseek") ||
-    baseUrl.includes("127.0.0.1:5024") ||
-    baseUrl.includes("localhost:5024") ||
-    baseUrl.includes("127.0.0.1:5026") ||
-    baseUrl.includes("localhost:5026")
-  );
-}
 
 const slotSchema = {
   type: "object",
@@ -171,43 +156,24 @@ function getContentText(content) {
   return "";
 }
 
-function extractChatTextCandidates(response) {
-  const choice = response?.choices?.[0] || {};
-  const message = response?.choices?.[0]?.message || {};
-  return [
-    getContentText(message.content),
-    getContentText(message.reasoning_content),
-    getContentText(message.reasoning),
-    getContentText(message.output_text),
-    getContentText(choice.text),
-  ]
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .filter((item, index, items) => items.indexOf(item) === index);
-}
-
 async function createChatTextCandidates(payload) {
-  if (!shouldStreamPosterCompletion(payload?.model)) {
-    const response = await posterOpenai.chat.completions.create(payload);
-    return extractChatTextCandidates(response);
-  }
-
-  const stream = await posterOpenai.chat.completions.create({
-    ...payload,
-    stream: true,
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  const system = getContentText(
+    messages.find((message) => message?.role === "system")?.content,
+  );
+  const userMessage = messages.find((message) => message?.role === "user") || {};
+  const result = await createClaudeJsonMessage({
+    model: payload?.model || POSTER_VISION_MODEL,
+    system,
+    content: userMessage.content || [],
+    schema: posterLayoutJsonSchema.schema,
+    toolName: "registration_poster_layout",
+    toolDescription:
+      "Phân tích layout poster đăng ký giải đấu và trả về JSON đúng schema.",
+    maxTokens: payload?.max_tokens || 4096,
   });
-  let content = "";
-  let reasoning = "";
-  for await (const chunk of stream) {
-    const delta = chunk?.choices?.[0]?.delta || {};
-    content += getContentText(delta.content);
-    reasoning += getContentText(delta.reasoning_content);
-    reasoning += getContentText(delta.reasoning);
-    content += getContentText(delta.output_text);
-  }
-  return [content.trim(), reasoning.trim()]
-    .filter(Boolean)
-    .filter((item, index, items) => items.indexOf(item) === index);
+
+  return [result.text].filter(Boolean);
 }
 
 function summarizeRouteError(routeName, error) {
@@ -219,19 +185,6 @@ function summarizeTextCandidates(candidates) {
     .map((text) => `${text.length} chars`)
     .filter(Boolean)
     .join(", ");
-}
-
-function summarizeAiResponse(response) {
-  const choice = response?.choices?.[0] || {};
-  const message = choice.message || {};
-  const finishReason = choice.finish_reason || "unknown";
-  const refusal = message.refusal
-    ? ` refusal=${String(message.refusal).slice(0, 120)}`
-    : "";
-  const reasoningLength = message.reasoning_content
-    ? ` reasoning=${String(message.reasoning_content).length} chars`
-    : "";
-  return `finish=${finishReason}${refusal}${reasoningLength}`;
 }
 
 function clamp(n, min, max, fallback) {
@@ -327,7 +280,7 @@ function normalizeLayout(raw, width, height) {
       charRatio: clamp(raw?.text?.charRatio, 0.35, 1.2, 0.58),
     },
     ai: {
-      source: "openai_vision",
+      source: "claude_vision",
       model: POSTER_VISION_MODEL,
       confidence: clamp(raw?.confidence, 0, 1, 0),
       notes: String(raw?.notes || "").slice(0, 500),

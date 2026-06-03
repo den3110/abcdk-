@@ -1,6 +1,9 @@
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { cccdOpenai, OPENAI_CCCD_MODEL } from "../../lib/openaiClient.js";
+import {
+  CLAUDE_CCCD_MODEL,
+  createClaudeJsonMessage,
+} from "../../lib/anthropicClient.js";
 import FormData from "form-data";
 import {
   CATEGORY,
@@ -242,7 +245,7 @@ async function tgSendDocumentUrl({
   });
 }
 
-// ---------------- Auto KYC (OpenAI Vision) ----------------
+// ---------------- Auto KYC (Claude Vision) ----------------
 const CCCD_JSON_SCHEMA = {
   name: "cccd_extract",
   schema: {
@@ -370,47 +373,34 @@ export async function openaiExtractFromDataUrl(imageOrDataUrls, detail = "low") 
 
   const MAX_RETRIES = 2;
   let resp;
+  let jsonText = "";
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      resp = await cccdOpenai.chat.completions.create({
-        model: OPENAI_CCCD_MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [{ type: "text", text: userPrompt }, ...imageParts],
-          },
-        ],
+      const result = await createClaudeJsonMessage({
+        model: CLAUDE_CCCD_MODEL,
+        system: systemPrompt,
+        content: [{ type: "text", text: userPrompt }, ...imageParts],
+        schema: CCCD_JSON_SCHEMA.schema,
+        toolName: "extract_cccd",
+        toolDescription:
+          "Trích xuất thông tin từ ảnh CCCD Việt Nam và trả về JSON đúng schema.",
+        maxTokens: 2048,
       });
 
-      // Check if DeepSeek returned empty content → retry
-      const c = resp.choices?.[0]?.message?.content;
-      const hasContent = typeof c === "string" ? c.trim().length > 0 : false;
-      if (!hasContent && attempt < MAX_RETRIES) {
-        console.warn(`[cccd-openai] attempt ${attempt + 1}: empty response, retrying...`);
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
-      }
+      resp = result.response;
+      jsonText = result.text;
       break; // success
     } catch (err) {
       const msg = String(err?.message || err?.error?.message || "");
-      const isRetryable = /pow|proof.of.work|upload.error|timeout|econnreset/i.test(msg);
+      const isRetryable = /timeout|econnreset|429|rate.?limit|overloaded|api_error/i.test(msg);
       if (isRetryable && attempt < MAX_RETRIES) {
-        console.warn(`[cccd-openai] attempt ${attempt + 1} failed (${msg.slice(0, 80)}), retrying in 2s...`);
+        console.warn(`[cccd-claude] attempt ${attempt + 1} failed (${msg.slice(0, 80)}), retrying in 2s...`);
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
       throw err; // non-retryable or max retries reached
     }
   }
-
-  const msg = resp.choices?.[0]?.message;
-  const jsonText =
-    typeof msg?.content === "string"
-      ? msg.content
-      : msg?.content?.find?.(
-          (p) => p.type === "output_text" || p.type === "text",
-        )?.text;
 
   let data = {};
   try {
