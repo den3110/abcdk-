@@ -399,7 +399,13 @@ function isPosterPhotoPlaceholderPixel(data, offset, colorCandidates = []) {
   );
 }
 
-async function buildAvatarPlaceholderMask(templateRaw, canvasWidth, canvasHeight, avatar = {}) {
+async function buildAvatarPlaceholderMask(
+  templateRaw,
+  canvasWidth,
+  canvasHeight,
+  avatar = {},
+  options = {},
+) {
   const slotLeft = clampInt(avatar.left, 0, canvasWidth - 1, 0);
   const slotTop = clampInt(avatar.top, 0, canvasHeight - 1, 0);
   const slotWidth = clampInt(avatar.width, 1, canvasWidth - slotLeft, 1);
@@ -519,7 +525,16 @@ async function buildAvatarPlaceholderMask(templateRaw, canvasWidth, canvasHeight
   }
 
   const { box } = best;
-  const inset = clampInt(Math.min(box.width, box.height) * 0.025, 4, 16, 8);
+  const defaultInset = clampInt(Math.min(box.width, box.height) * 0.025, 4, 16, 8);
+  const requestedInset = Object.prototype.hasOwnProperty.call(options, "inset")
+    ? options.inset
+    : defaultInset;
+  const inset = clampInt(
+    requestedInset,
+    0,
+    Math.floor(Math.min(box.width, box.height) * 0.12),
+    defaultInset,
+  );
   const mask = Buffer.alloc(box.width * box.height * 4);
   for (const index of best.pixels) {
     const localX = index % searchWidth;
@@ -709,6 +724,33 @@ async function refinePosterAvatarSlots(baseBuffer, slots, width, height, raw) {
         avatar: {
           ...slot.avatar,
           ...refined,
+        },
+      };
+    }),
+  );
+}
+
+async function applyPosterAiTemplateMasks(slots, width, height, templateRaw) {
+  if (!templateRaw || !Array.isArray(slots) || !slots.length) return slots;
+
+  return Promise.all(
+    slots.map(async (slot) => {
+      const safeInset = numOr(slot?.avatar?.safeInset, 0);
+      const refined = await buildAvatarPlaceholderMask(
+        templateRaw,
+        width,
+        height,
+        slot?.avatar,
+        { inset: safeInset },
+      ).catch(() => null);
+      if (!refined) return slot;
+
+      return {
+        ...slot,
+        avatar: {
+          ...slot.avatar,
+          ...refined,
+          safeInset: 0,
         },
       };
     }),
@@ -3078,7 +3120,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   const templateRaw = await readPosterTemplateRaw(baseBuffer, width, height);
   const trustAiLayout = shouldTrustPosterAiLayout(tour, players.length);
   const avatarSlots = trustAiLayout
-    ? layout.slots
+    ? await applyPosterAiTemplateMasks(layout.slots, width, height, templateRaw)
     : await refinePosterAvatarSlots(
         baseBuffer,
         layout.slots,
