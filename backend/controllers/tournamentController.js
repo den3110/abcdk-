@@ -885,18 +885,34 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
   return slots.map((slot) => {
     const panel = findPosterNamePanel(templateRaw, width, height, slot);
     if (panel) {
+      const growTop = clampInt(panel.height * 0.75, 14, 32, 20);
+      const growBottom = clampInt(panel.height * 0.18, 4, 12, 6);
+      const expandedTop = clampInt(panel.top - growTop, 0, height - 1, panel.top);
+      const expandedBottom = clampInt(
+        panel.top + panel.height + growBottom,
+        expandedTop + 1,
+        height,
+        panel.top + panel.height,
+      );
+      const expandedPanel = {
+        left: panel.left,
+        top: expandedTop,
+        width: panel.width,
+        height: expandedBottom - expandedTop,
+      };
       return {
         ...slot,
         name: {
           ...slot.name,
-          cx: panel.left + panel.width / 2,
-          y: panel.top + panel.height / 2,
-          width: Math.max(1, Math.round(panel.width * 0.82)),
+          cx: expandedPanel.left + expandedPanel.width / 2,
+          y: expandedPanel.top + expandedPanel.height / 2,
+          width: Math.max(1, Math.round(expandedPanel.width * 0.82)),
+          height: expandedPanel.height,
           erase: {
-            left: panel.left + panel.width * 0.025,
-            top: panel.top + panel.height * 0.035,
-            width: panel.width * 0.95,
-            height: panel.height * 0.93,
+            left: expandedPanel.left + expandedPanel.width * 0.025,
+            top: expandedPanel.top + expandedPanel.height * 0.035,
+            width: expandedPanel.width * 0.95,
+            height: expandedPanel.height * 0.93,
           },
         },
       };
