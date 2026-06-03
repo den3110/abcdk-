@@ -227,7 +227,7 @@ export async function extractKycCCCD(req, res) {
   } catch (err) {
     console.error("[extractKycCCCD] error:", err);
     return res.status(500).json({
-      message: "Lỗi extract KYC qua Claude",
+      message: "Lỗi trích xuất KYC qua Claude",
       error: String(err?.message || err),
     });
   }

@@ -46,6 +46,7 @@ const HOST =
     ? (process.env.HOST || "").replace(/\/+$/, "")
     : "http://localhost:5001"; // ví dụ: https://pickletour.vn
 const toPosix = (s = "") => s.replace(/\\/g, "/");
+const MAX_KYC_IMAGE_BYTES = 8 * 1024 * 1024;
 
 // ---------------- utils ----------------
 function escapeHtml(s = "") {
@@ -69,42 +70,21 @@ function normalizeImageUrl(raw = "") {
   }
 }
 
-function isHttpUrl(u) {
-  try {
-    const x = new URL(u);
-    return x.protocol === "http:" || x.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-// true nếu URL là localhost hoặc IP nội bộ -> không public
-function isLocalish(u) {
-  try {
-    const { hostname } = new URL(u);
-    if (!hostname) return true;
-    if (hostname === "localhost") return true;
-    if (hostname === "::1") return true;
-    if (/^127\./.test(hostname)) return true;
-    if (/^10\./.test(hostname)) return true;
-    if (/^192\.168\./.test(hostname)) return true;
-    const m = hostname.match(/^172\.(\d+)\./);
-    if (m) {
-      const n = +m[1];
-      if (n >= 16 && n <= 31) return true;
-    }
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 async function fetchImageAsBuffer(url) {
-  const r = await fetch(url);
+  const r = await fetch(url, {
+    headers: {
+      accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      "user-agent": "PickleTour-KYC-Claude/1.0",
+    },
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status} when fetching ${url}`);
-  const ct = r.headers.get("content-type") || "application/octet-stream";
+  const ct = r.headers.get("content-type") || "image/jpeg";
   const ab = await r.arrayBuffer();
   const buf = Buffer.from(ab);
+  if (!buf.length) throw new Error(`Empty image when fetching ${url}`);
+  if (buf.length > MAX_KYC_IMAGE_BYTES) {
+    throw new Error(`Image is larger than ${MAX_KYC_IMAGE_BYTES / 1024 / 1024}MB`);
+  }
   // đoán tên file
   let filename = "image";
   try {
@@ -428,16 +408,22 @@ async function openaiExtractFromImageUrl(imageUrlOrArray, detail = "low") {
   const processedUrls = [];
   
   for (const url of urls.filter(Boolean)) {
-    if (isHttpUrl(url) && !isLocalish(url)) {
-      processedUrls.push(url);
-    } else {
-      try {
-        const { buffer, contentType } = await fetchImageAsBuffer(url);
-        processedUrls.push(bufferToDataUrl(buffer, contentType));
-      } catch (e) {
-        console.error("fetchImageAsBuffer fail for:", url, e.message);
-      }
+    const raw = String(url || "").trim();
+    if (/^data:image\//i.test(raw)) {
+      processedUrls.push(raw);
+      continue;
     }
+
+    try {
+      const { buffer, contentType } = await fetchImageAsBuffer(raw);
+      processedUrls.push(bufferToDataUrl(buffer, contentType));
+    } catch (e) {
+      console.error("fetchImageAsBuffer fail for:", raw, e.message);
+    }
+  }
+
+  if (!processedUrls.length) {
+    throw new Error("Không tải được ảnh KYC để gửi Claude");
   }
   
   return openaiExtractFromDataUrl(processedUrls, detail);
@@ -547,6 +533,10 @@ export async function notifyNewKyc(user) {
   }
 
   // 2) Gửi tin nhắn KYC (text + buttons)
+  if (auto.reason && String(auto.reason).includes("CCCD") && !auto.report) {
+    auto.reason = "Lỗi khi trích xuất KYC qua Claude (giữ trạng thái Chờ KYC).";
+  }
+
   const statusText =
     auto.status === "approved"
       ? "✅ <b>TỰ ĐỘNG DUYỆT</b>"

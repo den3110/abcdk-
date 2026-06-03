@@ -2,6 +2,7 @@
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import Court from "../models/courtModel.js";
+import CourtStation from "../models/courtStationModel.js";
 import expressAsyncHandler from "express-async-handler";
 import { Sponsor } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
@@ -139,6 +140,317 @@ function gameWinner(g, rules) {
   return null;
 }
 
+const toIdString = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value._id) return String(value._id);
+  return String(value);
+};
+
+const isAutoNextEnabled = (value) => {
+  if (Array.isArray(value)) return isAutoNextEnabled(value[0]);
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+};
+
+const activeAutoNextStatuses = ["live", "assigned", "queued", "scheduled"];
+const inactiveAutoNextStatuses = ["finished", "cancelled", "canceled"];
+
+function isAutoNextCandidate(match) {
+  return activeAutoNextStatuses.includes(
+    String(match?.status || "").trim().toLowerCase()
+  );
+}
+
+function uniqueIds(values = []) {
+  const seen = new Set();
+  const ids = [];
+  for (const value of values) {
+    const id = toIdString(value);
+    if (!id || seen.has(id) || !mongoose.Types.ObjectId.isValid(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function sortStationQueueItems(items = []) {
+  return [...items].sort((left, right) => {
+    const orderDelta = toNum(left?.order) - toNum(right?.order);
+    if (orderDelta) return orderDelta;
+    const queuedDelta = toTs(left?.queuedAt) - toTs(right?.queuedAt);
+    if (queuedDelta) return queuedDelta;
+    return String(left?.matchId || "").localeCompare(String(right?.matchId || ""));
+  });
+}
+
+async function loadOverlayUserMatch(matchId) {
+  return UserMatch.findById(matchId)
+    .populate("participants.user", "name fullName avatar nickname nickName phone")
+    .populate({
+      path: "referee",
+      select: "name fullName nickname nickName",
+    })
+    .populate({
+      path: "liveBy",
+      select: "name fullName nickname nickName",
+    })
+    .populate({
+      path: "serve.serverId",
+      model: "User",
+      select: "name fullName nickname nickName",
+    })
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor cluster group",
+    })
+    .lean();
+}
+
+async function loadOverlayTournamentMatch(matchId) {
+  return Match.findById(matchId)
+    .populate({
+      path: "tournament",
+      select: "name eventType image overlay nameDisplayMode",
+    })
+    .populate({
+      path: "bracket",
+      select:
+        "type name order stage overlay config meta drawRounds drawStatus slotPlan groups noRankDelta",
+    })
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "referee",
+      select: "name fullName nickname nickName",
+    })
+    .populate({
+      path: "liveBy",
+      select: "name fullName nickname nickName",
+    })
+    .populate({ path: "previousA", select: "round order code" })
+    .populate({ path: "previousB", select: "round order code" })
+    .populate({ path: "nextMatch", select: "_id round order code" })
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor cluster group",
+    })
+    .populate({
+      path: "serve.serverId",
+      model: "User",
+      select: "name fullName nickname nickName",
+    })
+    .lean();
+}
+
+async function pickActiveMatchFromOrderedIds(ids, { excludedId, stationId, tournamentId }) {
+  const orderedIds = uniqueIds(ids).filter((id) => id !== excludedId);
+  if (!orderedIds.length) return null;
+
+  const query = {
+    _id: { $in: orderedIds },
+    status: { $nin: inactiveAutoNextStatuses },
+  };
+  if (tournamentId && mongoose.Types.ObjectId.isValid(tournamentId)) {
+    query.tournament = tournamentId;
+  }
+
+  const rows = await Match.find(query)
+    .select("_id status tournament courtStation queueOrder assignedAt scheduledAt startedAt round order createdAt")
+    .lean();
+
+  const byId = new Map(rows.map((row) => [toIdString(row?._id), row]));
+  for (const id of orderedIds) {
+    const match = byId.get(id);
+    if (!match || !isAutoNextCandidate(match)) continue;
+    const matchStationId = toIdString(match.courtStation);
+    if (stationId && matchStationId && matchStationId !== stationId) continue;
+    return {
+      matchId: id,
+      match,
+    };
+  }
+
+  return null;
+}
+
+async function loadAutoNextStation(baseMatch) {
+  const stationId = toIdString(baseMatch?.courtStation);
+  const projection =
+    "_id name code clusterId assignmentMode assignmentQueue currentMatch currentTournament status";
+
+  if (stationId && mongoose.Types.ObjectId.isValid(stationId)) {
+    const station = await CourtStation.findById(stationId)
+      .select(projection)
+      .lean();
+    if (station) return station;
+  }
+
+  const baseMatchId = toIdString(baseMatch?._id);
+  if (!baseMatchId || !mongoose.Types.ObjectId.isValid(baseMatchId)) return null;
+
+  return CourtStation.findOne({
+    $or: [
+      { currentMatch: baseMatchId },
+      { "assignmentQueue.items.matchId": baseMatchId },
+    ],
+  })
+    .select(projection)
+    .lean();
+}
+
+async function resolveAutoNextOverlayMatch(baseMatch) {
+  const baseMatchId = toIdString(baseMatch?._id);
+  if (!baseMatchId || !mongoose.Types.ObjectId.isValid(baseMatchId)) return null;
+
+  const tournamentId = toIdString(baseMatch?.tournament?._id || baseMatch?.tournament);
+  const station = await loadAutoNextStation(baseMatch);
+  const stationId = toIdString(station?._id);
+  const stationName = String(station?.name || station?.code || "").trim() || null;
+  const clusterId =
+    toIdString(station?.clusterId) || toIdString(baseMatch?.courtClusterId);
+  const clusterName =
+    String(baseMatch?.courtClusterLabel || baseMatch?.courtCluster || "").trim() ||
+    null;
+
+  if (stationId) {
+    const queueItems = sortStationQueueItems(
+      Array.isArray(station?.assignmentQueue?.items)
+        ? station.assignmentQueue.items
+        : []
+    );
+    const orderedStationIds = [
+      station.currentMatch,
+      ...queueItems.map((item) => item?.matchId),
+    ];
+    const selected = await pickActiveMatchFromOrderedIds(orderedStationIds, {
+      excludedId: baseMatchId,
+      stationId,
+      tournamentId,
+    });
+    if (selected?.matchId) {
+      return {
+        matchId: selected.matchId,
+        stationId,
+        stationName,
+        clusterId,
+        clusterName,
+        source: "court_station_queue",
+      };
+    }
+
+    const directStationCandidates = await Match.find({
+      _id: { $ne: baseMatchId },
+      ...(tournamentId && mongoose.Types.ObjectId.isValid(tournamentId)
+        ? { tournament: tournamentId }
+        : {}),
+      courtStation: stationId,
+      status: { $nin: inactiveAutoNextStatuses },
+    })
+      .select("_id status queueOrder assignedAt scheduledAt startedAt round order createdAt")
+      .lean();
+
+    const directStationNext = directStationCandidates
+      .filter(isAutoNextCandidate)
+      .sort(lexCmp)[0];
+    if (directStationNext?._id) {
+      return {
+        matchId: toIdString(directStationNext._id),
+        stationId,
+        stationName,
+        clusterId,
+        clusterName,
+        source: "court_station_direct",
+      };
+    }
+  }
+
+  if (clusterId && mongoose.Types.ObjectId.isValid(clusterId)) {
+    const clusterCandidates = await Match.find({
+      _id: { $ne: baseMatchId },
+      ...(tournamentId && mongoose.Types.ObjectId.isValid(tournamentId)
+        ? { tournament: tournamentId }
+        : {}),
+      courtClusterId: clusterId,
+      status: { $nin: inactiveAutoNextStatuses },
+      $or: stationId
+        ? [{ courtStation: stationId }, { courtStation: null }, { courtStation: { $exists: false } }]
+        : [{ courtStation: null }, { courtStation: { $exists: false } }],
+    })
+      .select("_id status queueOrder assignedAt scheduledAt startedAt round order createdAt")
+      .lean();
+
+    const clusterNext = clusterCandidates.filter(isAutoNextCandidate).sort(lexCmp)[0];
+    if (clusterNext?._id) {
+      return {
+        matchId: toIdString(clusterNext._id),
+        stationId: stationId || null,
+        stationName,
+        clusterId,
+        clusterName,
+        source: "court_cluster_queue",
+      };
+    }
+  }
+
+  return null;
+}
+
+function applyAutoNextCourtContext(match, context) {
+  if (!match || !context?.stationId) return match;
+
+  if (!toIdString(match.courtStation)) {
+    match.courtStation = context.stationId;
+  }
+  if (!String(match.courtStationLabel || "").trim() && context.stationName) {
+    match.courtStationLabel = context.stationName;
+  }
+  if (!String(match.courtLabel || "").trim() && context.stationName) {
+    match.courtLabel = context.stationName;
+  }
+  if (!toIdString(match.courtClusterId) && context.clusterId) {
+    match.courtClusterId = context.clusterId;
+  }
+  if (!String(match.courtClusterLabel || "").trim() && context.clusterName) {
+    match.courtClusterLabel = context.clusterName;
+  }
+  if (!String(match.courtCluster || "").trim() && context.clusterName) {
+    match.courtCluster = context.clusterName;
+  }
+
+  return match;
+}
+
 export async function getOverlayMatch(req, res) {
   try {
     const { id } = req.params;
@@ -150,30 +462,10 @@ export async function getOverlayMatch(req, res) {
     }
 
     // 🟢 1) ƯU TIÊN USER MATCH
-    let m = await UserMatch.findById(id)
-      .populate(
-        "participants.user",
-        "name fullName avatar nickname nickName phone"
-      )
-      .populate({
-        path: "referee",
-        select: "name fullName nickname nickName",
-      })
-      .populate({
-        path: "liveBy",
-        select: "name fullName nickname nickName",
-      })
-      .populate({
-        path: "serve.serverId",
-        model: "User",
-        select: "name fullName nickname nickName",
-      })
-      .populate({
-        path: "court",
-        select:
-          "name number code label zone area venue building floor cluster group",
-      })
-      .lean();
+    let autoNext = null;
+    const autoNextRequested = isAutoNextEnabled(req.query?.autoNext);
+
+    let m = await loadOverlayUserMatch(id);
 
     const isUserMatch = !!m;
 
@@ -244,6 +536,46 @@ export async function getOverlayMatch(req, res) {
           select: "name fullName nickname nickName",
         })
         .lean();
+    }
+
+    if (autoNextRequested) {
+      if (m && !isUserMatch) {
+        autoNext = {
+          requested: true,
+          fromMatchId: toIdString(m._id),
+          selectedMatchId: null,
+          source: null,
+        };
+
+        const resolvedAutoNext = await resolveAutoNextOverlayMatch(m);
+        if (resolvedAutoNext?.matchId) {
+          const nextMatch = await loadOverlayTournamentMatch(resolvedAutoNext.matchId);
+          if (nextMatch) {
+            m = applyAutoNextCourtContext(nextMatch, resolvedAutoNext);
+            autoNext = {
+              ...autoNext,
+              selectedMatchId: toIdString(nextMatch._id),
+              stationId: resolvedAutoNext.stationId || null,
+              stationName: resolvedAutoNext.stationName || null,
+              clusterId: resolvedAutoNext.clusterId || null,
+              clusterName: resolvedAutoNext.clusterName || null,
+              source: resolvedAutoNext.source,
+            };
+          } else {
+            autoNext.reason = "selected_match_not_found";
+          }
+        } else {
+          autoNext.reason = "no_next_match";
+        }
+      } else if (m) {
+        autoNext = {
+          requested: true,
+          fromMatchId: toIdString(m._id),
+          selectedMatchId: null,
+          source: null,
+          reason: "user_match_not_supported",
+        };
+      }
     }
 
     if (!m) return res.status(404).json({ message: "Match not found" });
@@ -921,6 +1253,7 @@ export async function getOverlayMatch(req, res) {
       courtName: courtName || undefined,
       courtNo: courtNumber ?? undefined,
       queueOrder: m?.queueOrder ?? undefined,
+      autoNext: autoNext || undefined,
 
       referees,
       referee,
