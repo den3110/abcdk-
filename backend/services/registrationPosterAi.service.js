@@ -23,10 +23,10 @@ const slotSchema = {
       type: "object",
       additionalProperties: false,
       properties: {
-        x: { type: "number" },
-        y: { type: "number" },
-        w: { type: "number" },
-        h: { type: "number" },
+        x: { type: "number", description: "Tọa độ góc trái trên của vùng ảnh." },
+        y: { type: "number", description: "Tọa độ góc trái trên của vùng ảnh." },
+        w: { type: "number", description: "Chiều rộng vùng ảnh." },
+        h: { type: "number", description: "Chiều cao vùng ảnh." },
         radius: { type: "number" },
       },
       required: ["x", "y", "w", "h", "radius"],
@@ -319,7 +319,7 @@ Bạn là hệ thống thị giác máy tính cho PickleTour. Hãy phân tích p
 
 Yêu cầu:
 - Trả tọa độ theo đúng kích thước ảnh đã gửi: width=${width}, height=${height}.
-- avatar là vùng trắng/trống bên trong khung ảnh để đặt ảnh VĐV. Trả x,y,w,h là bounding box của phần ruột khung ảnh, không lấy viền trang trí, không lấy nhãn "VĐV", không lấy khung tên.
+- avatar là vùng trắng/trống bên trong khung ảnh để đặt ảnh VĐV. avatar.x và avatar.y BẮT BUỘC là góc trái trên của phần ruột khung ảnh; avatar.w/avatar.h là chiều rộng/chiều cao. Không trả x/y theo tâm. Không lấy viền trang trí, không lấy nhãn "VĐV", không lấy khung tên.
 - Nếu khung ảnh có bo góc, lượn sóng hoặc hình dạng đặc biệt, vẫn trả bounding box phủ toàn bộ phần ruột khung ảnh để backend dùng mask của template ghép ảnh vừa khung.
 - name là vùng placeholder tên cần bị thay thế, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc vùng tên riêng bên dưới ảnh.
 - name.x/name.y phải là tâm của chính placeholder tên cần thay thế. name.w/name.h phải bao phủ toàn bộ vùng chữ placeholder để backend xoá đúng vùng đó rồi vẽ nickname vào cùng vị trí.

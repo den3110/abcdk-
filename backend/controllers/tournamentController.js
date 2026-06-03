@@ -781,11 +781,42 @@ async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
       </svg>
     `);
 
-  return sharp(input)
-    .resize(width, height, { fit: "cover", position: "center" })
-    .composite([{ input: mask, blend: "dest-in" }])
-    .png()
-    .toBuffer();
+  const renderWithMask = (maskBuffer) =>
+    sharp(input)
+      .resize(width, height, { fit: "cover", position: "center" })
+      .composite([{ input: maskBuffer, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+
+  const output = await renderWithMask(mask);
+  if (!maskInput) return output;
+
+  const visibleEnough = await hasVisiblePosterAlpha(output);
+  if (visibleEnough) return output;
+
+  const fallbackMask = Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
+    </svg>
+  `);
+  return renderWithMask(fallbackMask);
+}
+
+async function hasVisiblePosterAlpha(buffer, minRatio = 0.12) {
+  try {
+    const { data, info } = await sharp(buffer)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const total = Math.max(1, Number(info?.width || 0) * Number(info?.height || 0));
+    let visible = 0;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 24) visible += 1;
+    }
+    return visible / total >= minRatio;
+  } catch {
+    return true;
+  }
 }
 
 const DEFAULT_POSTER_LAYOUT = {
