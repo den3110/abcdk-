@@ -864,7 +864,37 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
   });
 }
 
-async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
+function buildPosterAvatarClipMask(width, height, radius, clipPath) {
+  if (
+    String(clipPath?.type || "").toLowerCase() === "polygon" &&
+    Array.isArray(clipPath.points) &&
+    clipPath.points.length >= 3
+  ) {
+    const points = clipPath.points
+      .map((point) => {
+        const x = clampInt(point?.x, 0, width, 0);
+        const y = clampInt(point?.y, 0, height, 0);
+        return `${x},${y}`;
+      })
+      .join(" ");
+    if (points) {
+      return Buffer.from(`
+        <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="${points}" fill="#fff"/>
+        </svg>
+      `);
+    }
+  }
+
+  const rx = resolveRadius(radius, width, height);
+  return Buffer.from(`
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
+    </svg>
+  `);
+}
+
+async function makeAvatarLayer(req, player, width, height, radius, maskInput, clipPath) {
   const { url: src } = resolvePosterAvatarSource(player);
   let input = null;
   try {
@@ -887,14 +917,7 @@ async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
     `);
   }
 
-  const rx = resolveRadius(radius, width, height);
-  const mask =
-    maskInput ||
-    Buffer.from(`
-      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
-      </svg>
-    `);
+  const mask = maskInput || buildPosterAvatarClipMask(width, height, radius, clipPath);
 
   const renderWithMask = (maskBuffer) =>
     sharp(input)
@@ -909,11 +932,7 @@ async function makeAvatarLayer(req, player, width, height, radius, maskInput) {
   const visibleEnough = await hasVisiblePosterAlpha(output);
   if (visibleEnough) return output;
 
-  const fallbackMask = Buffer.from(`
-    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width="${width}" height="${height}" rx="${rx}" ry="${rx}" fill="#fff"/>
-    </svg>
-  `);
+  const fallbackMask = buildPosterAvatarClipMask(width, height, radius, null);
   return renderWithMask(fallbackMask);
 }
 
@@ -974,6 +993,11 @@ function getPosterConfig(tour = {}) {
     : {};
 }
 
+function shouldTrustPosterAiLayout(tour = {}) {
+  const source = String(getPosterConfig(tour)?.ai?.source || "").toLowerCase();
+  return source === "claude_vision" || source.includes("claude");
+}
+
 function getPosterTemplateSource(tour = {}) {
   const cfg = getPosterConfig(tour);
   return cfg.templateUrl || cfg.template;
@@ -1008,13 +1032,52 @@ function pickPosterSlots(layout, playersCount) {
 function resolvePosterBox(box = {}, width, height, baseWidth, baseHeight) {
   const left = scaleCoord(box.left ?? box.x, width, baseWidth);
   const top = scaleCoord(box.top ?? box.y, height, baseHeight);
-  return {
+  const resolved = {
     left,
     top,
     width: Math.max(1, scaleCoord(box.width ?? box.w, width, baseWidth, 1)),
     height: Math.max(1, scaleCoord(box.height ?? box.h, height, baseHeight, 1)),
     radius: box.radius ?? box.r,
   };
+  return {
+    ...resolved,
+    clipPath: resolvePosterClipPath(
+      box.clipPath,
+      width,
+      height,
+      baseWidth,
+      baseHeight,
+      resolved,
+    ),
+  };
+}
+
+function resolvePosterClipPath(clipPath, width, height, baseWidth, baseHeight, box) {
+  const type = String(clipPath?.type || "").toLowerCase();
+  const rawPoints = Array.isArray(clipPath?.points) ? clipPath.points : [];
+  if (type !== "polygon" || rawPoints.length < 3) {
+    return { type: "rounded_rect", points: [] };
+  }
+
+  const points = rawPoints
+    .map((point) => {
+      const x = scaleCoord(point?.x, width, baseWidth) - box.left;
+      const y = scaleCoord(point?.y, height, baseHeight) - box.top;
+      return {
+        x: clampInt(x, 0, box.width, 0),
+        y: clampInt(y, 0, box.height, 0),
+      };
+    })
+    .filter((point, index, list) => {
+      const prev = list[index - 1];
+      return !prev || prev.x !== point.x || prev.y !== point.y;
+    });
+
+  if (points.length < 3) {
+    return { type: "rounded_rect", points: [] };
+  }
+
+  return { type: "polygon", points: points.slice(0, 32) };
 }
 
 function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
@@ -2884,14 +2947,19 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   const players = [reg.player1, reg.player2].filter(Boolean);
   const layout = resolvePosterLayout(tour, players.length, width, height);
   const templateRaw = await readPosterTemplateRaw(baseBuffer, width, height);
-  const avatarSlots = await refinePosterAvatarSlots(
-    baseBuffer,
-    layout.slots,
-    width,
-    height,
-    templateRaw,
-  );
-  const slots = refinePosterNameSlots(avatarSlots, width, height, templateRaw);
+  const trustAiLayout = shouldTrustPosterAiLayout(tour);
+  const avatarSlots = trustAiLayout
+    ? layout.slots
+    : await refinePosterAvatarSlots(
+        baseBuffer,
+        layout.slots,
+        width,
+        height,
+        templateRaw,
+      );
+  const slots = trustAiLayout
+    ? avatarSlots
+    : refinePosterNameSlots(avatarSlots, width, height, templateRaw);
   const avatarLayers = await Promise.all(
     players.map(async (player, idx) => {
       const slot = slots[idx]?.avatar;
@@ -2904,6 +2972,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
           slot.height,
           slot.radius,
           slot.mask,
+          slot.clipPath,
         ),
         left: slot.left,
         top: slot.top,
