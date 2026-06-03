@@ -5,12 +5,16 @@ import { createCanvas, loadImage } from "canvas";
 import jsQR from "jsqr";
 import os from "os";
 import crypto from "crypto";
+import fs from "fs/promises";
+import path from "path";
+import fetch from "node-fetch";
 import { parseQRPayload, mapQRToFields } from "../utils/cccdParsing.js";
 import { CLAUDE_CCCD_MODEL } from "../lib/anthropicClient.js";
 import { openaiExtractFromDataUrl } from "../services/telegram/telegramNotifyKyc.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_NAME = process.env.CCCD_QUEUE_NAME || "cccd-ocr";
+const MAX_REMOTE_CCCD_IMAGE_BYTES = 8 * 1024 * 1024;
 
 const connection = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null, // BullMQ yêu cầu
@@ -34,6 +38,43 @@ async function writeTmp(buffer, ext = ".jpg") {
   const tmpPath = path.join(os.tmpdir(), fname);
   await fs.writeFile(tmpPath, buffer);
   return tmpPath;
+}
+
+function normalizeImageMimeType(contentType = "") {
+  const type = String(contentType || "").split(";")[0].trim().toLowerCase();
+  if (type === "image/jpg") return "image/jpeg";
+  if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(type)) {
+    return type;
+  }
+  return "image/jpeg";
+}
+
+async function fetchImageAsDataUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (/^data:image\//i.test(raw)) return raw;
+  if (!/^https?:\/\//i.test(raw)) {
+    throw new Error("imageUrl phải là URL HTTP(S) hoặc data URL ảnh");
+  }
+
+  const response = await fetch(raw, {
+    headers: {
+      accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      "user-agent": "PickleTour-CCCD-KYC/1.0",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Không tải được ảnh CCCD: HTTP ${response.status}`);
+  }
+
+  const mimeType = normalizeImageMimeType(response.headers.get("content-type"));
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) throw new Error("Ảnh CCCD tải về bị rỗng");
+  if (buffer.length > MAX_REMOTE_CCCD_IMAGE_BYTES) {
+    throw new Error("Ảnh CCCD vượt quá giới hạn 8MB");
+  }
+
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
 }
 
 /* ===== Controllers ===== */
@@ -170,8 +211,10 @@ export async function extractKycCCCD(req, res) {
       payloads.push(`data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`);
     }
 
-    if (req.body.imageUrl) payloads.push(req.body.imageUrl);
-    if (req.body.imageUrlBack) payloads.push(req.body.imageUrlBack);
+    if (req.body.imageUrl) payloads.push(await fetchImageAsDataUrl(req.body.imageUrl));
+    if (req.body.imageUrlBack) {
+      payloads.push(await fetchImageAsDataUrl(req.body.imageUrlBack));
+    }
 
     if (payloads.length === 0) {
       return res.status(400).json({ message: "Thiếu file ảnh hoặc tham số imageUrl/imageUrlBack" });
