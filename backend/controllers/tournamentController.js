@@ -885,34 +885,18 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
   return slots.map((slot) => {
     const panel = findPosterNamePanel(templateRaw, width, height, slot);
     if (panel) {
-      const growTop = clampInt(panel.height * 0.75, 14, 32, 20);
-      const growBottom = clampInt(panel.height * 0.18, 4, 12, 6);
-      const expandedTop = clampInt(panel.top - growTop, 0, height - 1, panel.top);
-      const expandedBottom = clampInt(
-        panel.top + panel.height + growBottom,
-        expandedTop + 1,
-        height,
-        panel.top + panel.height,
-      );
-      const expandedPanel = {
-        left: panel.left,
-        top: expandedTop,
-        width: panel.width,
-        height: expandedBottom - expandedTop,
-      };
       return {
         ...slot,
         name: {
           ...slot.name,
-          cx: expandedPanel.left + expandedPanel.width / 2,
-          y: expandedPanel.top + expandedPanel.height / 2,
-          width: Math.max(1, Math.round(expandedPanel.width * 0.82)),
-          height: expandedPanel.height,
+          cx: panel.left + panel.width / 2,
+          y: panel.top + panel.height / 2,
+          width: Math.max(1, Math.round(panel.width * 0.82)),
           erase: {
-            left: expandedPanel.left + expandedPanel.width * 0.025,
-            top: expandedPanel.top + expandedPanel.height * 0.035,
-            width: expandedPanel.width * 0.95,
-            height: expandedPanel.height * 0.93,
+            left: panel.left + panel.width * 0.06,
+            top: panel.top + panel.height * 0.12,
+            width: panel.width * 0.88,
+            height: panel.height * 0.76,
           },
         },
       };
@@ -1093,6 +1077,18 @@ function hasPosterAvatarClipPathContract(slot = {}) {
   return false;
 }
 
+function hasPosterNameEraseContract(slot = {}) {
+  const erase = slot?.name?.erase;
+  return (
+    erase &&
+    typeof erase === "object" &&
+    Number.isFinite(Number(erase.x ?? erase.left)) &&
+    Number.isFinite(Number(erase.y ?? erase.top)) &&
+    Number.isFinite(Number(erase.w ?? erase.width)) &&
+    Number.isFinite(Number(erase.h ?? erase.height))
+  );
+}
+
 function getRawPosterSlotsForCount(cfg = {}, playersCount = 2) {
   const slots = cfg.slots;
   if (Array.isArray(slots)) return slots;
@@ -1104,11 +1100,16 @@ function getRawPosterSlotsForCount(cfg = {}, playersCount = 2) {
 
 function hasCurrentPosterAiLayoutContract(cfg = {}, playersCount = 2) {
   const layoutVersion = Number(cfg?.ai?.layoutVersion || 0);
-  if (layoutVersion < 3) return false;
+  if (layoutVersion < 4) return false;
   const slots = getRawPosterSlotsForCount(cfg, playersCount);
   const expected = Math.max(1, Math.min(Number(playersCount) || 1, 2));
   if (!Array.isArray(slots) || slots.length < expected) return false;
-  return slots.slice(0, expected).every(hasPosterAvatarClipPathContract);
+  return slots
+    .slice(0, expected)
+    .every(
+      (slot) =>
+        hasPosterAvatarClipPathContract(slot) && hasPosterNameEraseContract(slot),
+    );
 }
 
 function shouldTrustPosterAiLayout(tour = {}, playersCount = 2) {
@@ -3129,7 +3130,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   if (shouldRejectStalePosterAiLayout(tour, players.length)) {
     res.status(409);
     throw new Error(
-      "Layout AI poster đã cũ hoặc thiếu mask crop ảnh. Vui lòng bấm chạy lại AI poster để Claude phân tích lại khung ảnh.",
+      "Layout AI poster đã cũ hoặc thiếu mask crop ảnh/vùng xoá tên. Vui lòng bấm chạy lại AI poster để Claude phân tích lại khung ảnh và vùng tên.",
     );
   }
   const layout = resolvePosterLayout(tour, players.length, width, height);
@@ -3144,7 +3145,9 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
         height,
         templateRaw,
       );
-  const slots = refinePosterNameSlots(avatarSlots, width, height, templateRaw);
+  const slots = trustAiLayout
+    ? avatarSlots
+    : refinePosterNameSlots(avatarSlots, width, height, templateRaw);
   const avatarLayers = await Promise.all(
     players.map(async (player, idx) => {
       const slot = slots[idx]?.avatar;

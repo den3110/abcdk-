@@ -7,7 +7,7 @@ import {
 } from "../lib/anthropicClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
-const POSTER_AI_LAYOUT_VERSION = 3;
+const POSTER_AI_LAYOUT_VERSION = 4;
 
 function resolvePosterVisionModel() {
   return String(CLAUDE_POSTER_VISION_MODEL || "claude-opus-4-8").trim() ||
@@ -90,10 +90,21 @@ const slotSchema = {
         y: { type: "number" },
         w: { type: "number" },
         h: { type: "number" },
+        erase: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            x: { type: "number" },
+            y: { type: "number" },
+            w: { type: "number" },
+            h: { type: "number" },
+          },
+          required: ["x", "y", "w", "h"],
+        },
         minFontSize: { type: "number" },
         maxFontSize: { type: "number" },
       },
-      required: ["x", "y", "w", "h", "minFontSize", "maxFontSize"],
+      required: ["x", "y", "w", "h", "erase", "minFontSize", "maxFontSize"],
     },
   },
   required: ["avatar", "name"],
@@ -265,8 +276,38 @@ function normalizeClipPath(clipPath, width, height) {
 function normalizeSlot(slot, width, height) {
   const avatar = slot?.avatar || {};
   const name = slot?.name || {};
+  const erase = name?.erase;
+  if (!erase || typeof erase !== "object") {
+    throw new Error("AI poster layout thiếu name.erase cho vùng xoá tên.");
+  }
+  const nameX = Number(name.x);
+  const nameY = Number(name.y);
+  const nameWRaw = Number(name.w);
+  const nameHRaw = Number(name.h ?? name.height);
+  const eraseX = Number(erase.x);
+  const eraseY = Number(erase.y);
+  const eraseWRaw = Number(erase.w);
+  const eraseHRaw = Number(erase.h);
+  if (
+    ![
+      nameX,
+      nameY,
+      nameWRaw,
+      nameHRaw,
+      eraseX,
+      eraseY,
+      eraseWRaw,
+      eraseHRaw,
+    ].every(Number.isFinite)
+  ) {
+    throw new Error("AI poster layout trả name/name.erase không hợp lệ.");
+  }
   const avatarW = clamp(avatar.w, 1, width, Math.round(width * 0.3));
   const avatarH = clamp(avatar.h, 1, height, Math.round(width * 0.3));
+  const nameW = clamp(nameWRaw, 1, width, Math.round(width * 0.4));
+  const nameH = clamp(nameHRaw, 1, height, Math.round(height * 0.06));
+  const eraseW = clamp(eraseWRaw, 1, width, nameW);
+  const eraseH = clamp(eraseHRaw, 1, height, nameH);
   return {
     avatar: {
       x: clamp(avatar.x, 0, width, 0),
@@ -283,10 +324,16 @@ function normalizeSlot(slot, width, height) {
       clipPath: normalizeClipPath(avatar.clipPath, width, height),
     },
     name: {
-      x: clamp(name.x, 0, width, Math.round(width / 2)),
-      y: clamp(name.y, 0, height, Math.round(height * 0.65)),
-      w: clamp(name.w, 1, width, Math.round(width * 0.4)),
-      h: clamp(name.h ?? name.height, 1, height, Math.round(height * 0.06)),
+      x: clamp(nameX, 0, width, Math.round(width / 2)),
+      y: clamp(nameY, 0, height, Math.round(height * 0.65)),
+      w: nameW,
+      h: nameH,
+      erase: {
+        x: clamp(eraseX, 0, width, 0),
+        y: clamp(eraseY, 0, height, 0),
+        w: eraseW,
+        h: eraseH,
+      },
       minFontSize: clamp(name.minFontSize, 8, 96, 22),
       maxFontSize: clamp(name.maxFontSize, 8, 120, 46),
     },
@@ -315,6 +362,18 @@ function deriveSingleSlotFromDouble(slots, width, height) {
         y: (a.name.y + b.name.y) / 2,
         w: Math.max(a.name.w, b.name.w),
         h: Math.max(a.name.h, b.name.h),
+        erase: {
+          x: Math.min(a.name.erase.x, b.name.erase.x),
+          y: Math.min(a.name.erase.y, b.name.erase.y),
+          w: Math.max(
+            a.name.erase.x + a.name.erase.w,
+            b.name.erase.x + b.name.erase.w,
+          ) - Math.min(a.name.erase.x, b.name.erase.x),
+          h: Math.max(
+            a.name.erase.y + a.name.erase.h,
+            b.name.erase.y + b.name.erase.h,
+          ) - Math.min(a.name.erase.y, b.name.erase.y),
+        },
         minFontSize: Math.min(a.name.minFontSize, b.name.minFontSize),
         maxFontSize: Math.max(a.name.maxFontSize, b.name.maxFontSize),
       },
@@ -413,6 +472,9 @@ Yêu cầu:
 - Với polygon, avatar.x/y/w/h vẫn là bounding box bao toàn bộ vùng polygon sau khi đã né viền/tab, còn clipPath.points mới là hình crop thật. Dùng khoảng 6-16 điểm; chỉ dùng nhiều hơn nếu khung thật sự phức tạp.
 - name là vùng placeholder tên cần bị thay thế, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc vùng tên riêng bên dưới ảnh.
 - name.x/name.y phải là tâm của chính placeholder tên cần thay thế. name.w/name.h phải bao phủ toàn bộ vùng chữ placeholder để backend xoá đúng vùng đó rồi vẽ nickname vào cùng vị trí.
+- name.erase là hình chữ nhật xoá placeholder tên, với x/y là góc trái trên và w/h là kích thước. name.erase phải bao phủ TOÀN BỘ chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" và nền panel tên cần che, không được để sót phần trên của chữ mẫu cũ.
+- Với template có chữ "HỌ TÊN" nằm phía trên vị trí tên thật, name.erase.y phải nằm cao hơn điểm cao nhất của chữ "HỌ TÊN"; name.erase.h phải kết thúc thấp hơn điểm thấp nhất của placeholder đó.
+- name.x/name.y là tâm nơi backend vẽ nickname mới. Thường name.x/name.y nằm gần tâm name.erase; tuyệt đối không đặt thấp xuống làm chữ mẫu cũ lộ phía trên.
 - Không đặt name ở dưới placeholder, không đặt name ở khoảng giữa khung tên và footer, và không đặt name theo vị trí avatar nếu trên poster đã có vùng placeholder tên rõ ràng.
 - Phải giữ nguyên nhãn vai trò nhỏ như "VĐV", "PLAYER", "ATHLETE"; tuyệt đối không chọn các nhãn này làm name.
 - Nếu một slot có cả nhãn vai trò "VĐV" và chữ "HỌ TÊN", name phải là vùng "HỌ TÊN"; avatar vẫn là vùng ảnh bên trên; nhãn "VĐV" phải nằm ngoài vùng name.
