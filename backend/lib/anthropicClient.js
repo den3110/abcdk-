@@ -178,16 +178,15 @@ export async function createClaudeJsonMessage({
   toolName = "return_json",
   toolDescription = "Return the requested structured JSON data.",
   maxTokens = 4096,
-  temperature = 0,
+  temperature,
 }) {
   if (!schema || typeof schema !== "object") {
     throw new Error("Thiếu JSON schema cho Claude structured output");
   }
 
-  const response = await createClaudeMessage({
+  const payload = {
     model,
     max_tokens: maxTokens,
-    temperature,
     ...(system ? { system } : {}),
     messages: [
       {
@@ -206,7 +205,12 @@ export async function createClaudeJsonMessage({
       type: "tool",
       name: toolName,
     },
-  });
+  };
+  if (Number.isFinite(Number(temperature))) {
+    payload.temperature = Number(temperature);
+  }
+
+  const response = await createClaudeMessage(payload);
 
   const toolUse = (Array.isArray(response?.content) ? response.content : []).find(
     (part) => part?.type === "tool_use" && part?.name === toolName,
