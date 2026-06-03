@@ -558,6 +558,101 @@ async function buildAvatarPlaceholderMask(templateRaw, canvasWidth, canvasHeight
   };
 }
 
+function findPosterPhotoPlaceholderRegions(templateRaw, canvasWidth, canvasHeight) {
+  if (!templateRaw || !canvasWidth || !canvasHeight) return [];
+
+  const visited = new Uint8Array(canvasWidth * canvasHeight);
+  const candidates = [];
+  const minTop = canvasHeight * 0.24;
+  const maxTop = canvasHeight * 0.78;
+  const minWidth = canvasWidth * 0.12;
+  const maxWidth = canvasWidth * 0.42;
+  const minHeight = canvasHeight * 0.08;
+  const maxHeight = canvasHeight * 0.34;
+
+  const isPlaceholderAt = (x, y) =>
+    isPosterPhotoPlaceholderPixel(templateRaw, (y * canvasWidth + x) * 4, []);
+
+  for (let y = 0; y < canvasHeight; y += 1) {
+    for (let x = 0; x < canvasWidth; x += 1) {
+      const startIndex = y * canvasWidth + x;
+      if (visited[startIndex] || !isPlaceholderAt(x, y)) continue;
+
+      const stack = [startIndex];
+      visited[startIndex] = 1;
+      let area = 0;
+      let minX = x;
+      let minY = y;
+      let maxX = x;
+      let maxY = y;
+
+      while (stack.length) {
+        const index = stack.pop();
+        const px = index % canvasWidth;
+        const py = Math.floor(index / canvasWidth);
+        area += 1;
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+
+        const neighbors = [
+          index - 1,
+          index + 1,
+          index - canvasWidth,
+          index + canvasWidth,
+        ];
+        for (const next of neighbors) {
+          if (next < 0 || next >= visited.length || visited[next]) continue;
+          const nx = next % canvasWidth;
+          const ny = Math.floor(next / canvasWidth);
+          if (Math.abs(nx - px) + Math.abs(ny - py) !== 1) continue;
+          if (!isPlaceholderAt(nx, ny)) continue;
+          visited[next] = 1;
+          stack.push(next);
+        }
+      }
+
+      const box = {
+        left: minX,
+        top: minY,
+        width: maxX - minX + 1,
+        height: maxY - minY + 1,
+      };
+      const fillRatio = area / Math.max(1, box.width * box.height);
+      if (
+        box.top < minTop ||
+        box.top > maxTop ||
+        box.width < minWidth ||
+        box.width > maxWidth ||
+        box.height < minHeight ||
+        box.height > maxHeight ||
+        fillRatio < 0.45
+      ) {
+        continue;
+      }
+
+      const inset = clampInt(Math.min(box.width, box.height) * 0.035, 4, 16, 8);
+      const inner = {
+        left: box.left + inset,
+        top: box.top + inset,
+        width: Math.max(1, box.width - inset * 2),
+        height: Math.max(1, box.height - inset * 2),
+      };
+      candidates.push({
+        ...inner,
+        radius: Math.round(Math.min(inner.width, inner.height) * 0.07),
+        score: area + box.width * box.height * fillRatio,
+      });
+    }
+  }
+
+  return candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .sort((a, b) => a.left - b.left);
+}
+
 async function readPosterTemplateRaw(baseBuffer, width, height) {
   try {
     return await sharp(baseBuffer)
@@ -574,6 +669,31 @@ async function refinePosterAvatarSlots(baseBuffer, slots, width, height, raw) {
   if (!Array.isArray(slots) || !slots.length) return slots;
   const templateRaw = raw || (await readPosterTemplateRaw(baseBuffer, width, height));
   if (!templateRaw) return slots;
+  const detectedRegions = findPosterPhotoPlaceholderRegions(
+    templateRaw,
+    width,
+    height,
+  );
+  if (detectedRegions.length >= slots.length) {
+    const selected =
+      slots.length <= 1
+        ? [
+            detectedRegions.reduce((best, item) => {
+              const bestCenter = Math.abs(best.left + best.width / 2 - width / 2);
+              const itemCenter = Math.abs(item.left + item.width / 2 - width / 2);
+              return itemCenter < bestCenter ? item : best;
+            }, detectedRegions[0]),
+          ]
+        : detectedRegions.slice(0, slots.length);
+
+    return slots.map((slot, index) => ({
+      ...slot,
+      avatar: {
+        ...slot.avatar,
+        ...selected[index],
+      },
+    }));
+  }
 
   return Promise.all(
     slots.map(async (slot) => {
@@ -721,11 +841,6 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
   if (!templateRaw || !Array.isArray(slots) || !slots.length) return slots;
 
   return slots.map((slot) => {
-    const hasAiNameBox =
-      Number.isFinite(Number(slot?.name?.height)) ||
-      Number.isFinite(Number(slot?.name?.h));
-    if (hasAiNameBox) return slot;
-
     const panel = findPosterNamePanel(templateRaw, width, height, slot);
     if (panel) {
       return {
