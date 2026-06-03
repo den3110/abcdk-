@@ -206,7 +206,12 @@ export async function createClaudeJsonMessage({
       name: toolName,
     },
   };
-  if (Number.isFinite(Number(temperature))) {
+  if (
+    temperature !== undefined &&
+    temperature !== null &&
+    String(temperature).trim() !== "" &&
+    Number.isFinite(Number(temperature))
+  ) {
     payload.temperature = Number(temperature);
   }
 
