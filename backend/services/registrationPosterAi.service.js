@@ -7,10 +7,11 @@ import {
 } from "../lib/anthropicClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
+const POSTER_AI_LAYOUT_VERSION = 2;
 
 function resolvePosterVisionModel() {
-  return String(CLAUDE_POSTER_VISION_MODEL || "claude-sonnet-4-6").trim() ||
-    "claude-sonnet-4-6";
+  return String(CLAUDE_POSTER_VISION_MODEL || "claude-opus-4-8").trim() ||
+    "claude-opus-4-8";
 }
 
 const POSTER_VISION_MODEL = resolvePosterVisionModel();
@@ -346,6 +347,7 @@ function normalizeLayout(raw, width, height) {
     ai: {
       source: "claude_vision",
       model: POSTER_VISION_MODEL,
+      layoutVersion: POSTER_AI_LAYOUT_VERSION,
       confidence: clamp(raw?.confidence, 0, 1, 0),
       notes: String(raw?.notes || "").slice(0, 500),
       generatedAt: new Date().toISOString(),

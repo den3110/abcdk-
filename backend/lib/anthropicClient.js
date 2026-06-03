@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
+const DEFAULT_CLAUDE_POSTER_MODEL = "claude-opus-4-8";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 export const CLAUDE_CCCD_MODEL =
@@ -17,9 +18,7 @@ export const CLAUDE_POSTER_VISION_MODEL =
   process.env.CLAUDE_POSTER_VISION_MODEL ||
   process.env.CLAUDE_POSTER_MODEL ||
   process.env.ANTHROPIC_POSTER_MODEL ||
-  process.env.CLAUDE_MODEL ||
-  process.env.ANTHROPIC_MODEL ||
-  DEFAULT_CLAUDE_MODEL;
+  DEFAULT_CLAUDE_POSTER_MODEL;
 
 function trim(value) {
   return String(value || "").trim();

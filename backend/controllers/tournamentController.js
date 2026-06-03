@@ -993,9 +993,62 @@ function getPosterConfig(tour = {}) {
     : {};
 }
 
-function shouldTrustPosterAiLayout(tour = {}) {
-  const source = String(getPosterConfig(tour)?.ai?.source || "").toLowerCase();
+function isClaudePosterLayoutConfig(cfg = {}) {
+  const source = String(cfg?.ai?.source || "").toLowerCase();
   return source === "claude_vision" || source.includes("claude");
+}
+
+function hasPosterAvatarClipPathContract(slot = {}) {
+  const clipPath = slot?.avatar?.clipPath;
+  if (!clipPath || typeof clipPath !== "object") return false;
+  const type = String(clipPath.type || "").toLowerCase();
+  if (type === "rounded_rect") return Array.isArray(clipPath.points);
+  if (type === "polygon") {
+    return (
+      Array.isArray(clipPath.points) &&
+      clipPath.points.length >= 3 &&
+      clipPath.points.every(
+        (point) =>
+          Number.isFinite(Number(point?.x)) &&
+          Number.isFinite(Number(point?.y)),
+      )
+    );
+  }
+  return false;
+}
+
+function getRawPosterSlotsForCount(cfg = {}, playersCount = 2) {
+  const slots = cfg.slots;
+  if (Array.isArray(slots)) return slots;
+  if (!slots || typeof slots !== "object") return [];
+  return playersCount <= 1
+    ? slots.single || slots.singles || slots.one || []
+    : slots.double || slots.doubles || slots.two || [];
+}
+
+function hasCurrentPosterAiLayoutContract(cfg = {}, playersCount = 2) {
+  const layoutVersion = Number(cfg?.ai?.layoutVersion || 0);
+  if (layoutVersion < 2) return false;
+  const slots = getRawPosterSlotsForCount(cfg, playersCount);
+  const expected = Math.max(1, Math.min(Number(playersCount) || 1, 2));
+  if (!Array.isArray(slots) || slots.length < expected) return false;
+  return slots.slice(0, expected).every(hasPosterAvatarClipPathContract);
+}
+
+function shouldTrustPosterAiLayout(tour = {}, playersCount = 2) {
+  const cfg = getPosterConfig(tour);
+  return (
+    isClaudePosterLayoutConfig(cfg) &&
+    hasCurrentPosterAiLayoutContract(cfg, playersCount)
+  );
+}
+
+function shouldRejectStalePosterAiLayout(tour = {}, playersCount = 2) {
+  const cfg = getPosterConfig(tour);
+  return (
+    isClaudePosterLayoutConfig(cfg) &&
+    !hasCurrentPosterAiLayoutContract(cfg, playersCount)
+  );
 }
 
 function getPosterTemplateSource(tour = {}) {
@@ -2945,9 +2998,15 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   const height = meta.height || POSTER_BASE_H;
 
   const players = [reg.player1, reg.player2].filter(Boolean);
+  if (shouldRejectStalePosterAiLayout(tour, players.length)) {
+    res.status(409);
+    throw new Error(
+      "Layout AI poster đã cũ hoặc thiếu mask crop ảnh. Vui lòng bấm chạy lại AI poster để Claude phân tích lại khung ảnh.",
+    );
+  }
   const layout = resolvePosterLayout(tour, players.length, width, height);
   const templateRaw = await readPosterTemplateRaw(baseBuffer, width, height);
-  const trustAiLayout = shouldTrustPosterAiLayout(tour);
+  const trustAiLayout = shouldTrustPosterAiLayout(tour, players.length);
   const avatarSlots = trustAiLayout
     ? layout.slots
     : await refinePosterAvatarSlots(
