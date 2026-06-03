@@ -387,12 +387,14 @@ Yêu cầu:
 - Trả tọa độ theo đúng kích thước ảnh đã gửi: width=${width}, height=${height}.
 - avatar là vùng trắng/kem/trống bên trong khung ảnh để đặt ảnh VĐV. Đây là vùng ảnh thật sẽ bị crop và ghép vào poster.
 - avatar.x và avatar.y BẮT BUỘC là góc trái trên của phần ruột ô trắng/kem; avatar.w/avatar.h là chiều rộng/chiều cao phần ruột ô đó. Không trả x/y theo tâm.
+- avatar phải sát mép trong của khung ảnh để ảnh render phủ kín vùng mở ảnh. Không được thu nhỏ box vào giữa làm còn thừa nền trắng/kem xung quanh ảnh.
 - Ảnh VĐV sau khi render phải nằm bên trong ô trắng/kem. Nếu avatar box rơi xuống nền sân, nền người chơi, thanh tên, nhãn "VĐV", footer hoặc vùng tối phía sau thì kết quả sai.
 - Không lấy viền trang trí, không lấy nhãn "VĐV", không lấy dấu "&", không lấy khung tên, không lấy ảnh nền sân phía sau làm avatar.
 - Nếu có ô trắng bên trên nhãn "VĐV" và khung tên "HỌ TÊN", avatar phải là ô trắng đó; avatar.y + avatar.h phải kết thúc trước nhãn "VĐV"/khung tên.
 - Nếu poster có hai ô trắng cho hai VĐV, slots.double[0] là ô trắng bên trái và slots.double[1] là ô trắng bên phải. Hai ô này thường nằm cùng hàng, cùng kích thước, phía trên từng khung tên.
-- Nếu khung ảnh là chữ nhật hoặc bo góc thông thường, trả avatar.clipPath.type = "rounded_rect", avatar.clipPath.points = [], radius phản ánh độ bo góc thực tế.
-- Nếu khung ảnh lượn sóng, vát chéo, đa giác, có tai/gờ hoặc hình dạng phức tạp, trả avatar.clipPath.type = "polygon" và avatar.clipPath.points là các điểm bám theo mép phần ảnh nhìn thấy, theo chiều kim đồng hồ, dùng tọa độ tuyệt đối trong ảnh width=${width}, height=${height}. Không dùng polygon bám viền trang trí bên ngoài.
+- Nếu khung ảnh là chữ nhật hoặc bo góc thông thường và không có tab/nhãn chen vào phần ảnh, trả avatar.clipPath.type = "rounded_rect", avatar.clipPath.points = [], radius phản ánh độ bo góc thực tế.
+- Nếu khung ảnh lượn sóng, vát chéo, đa giác, có tai/gờ, có tab/nhãn "VĐV" đè vào đáy khung, hoặc hình dạng phức tạp, trả avatar.clipPath.type = "polygon" và avatar.clipPath.points là các điểm bám theo mép phần ảnh nhìn thấy, theo chiều kim đồng hồ, dùng tọa độ tuyệt đối trong ảnh width=${width}, height=${height}. Không dùng polygon bám viền trang trí bên ngoài.
+- Nếu không chắc khung có phải rounded_rect đơn giản hay không, hãy ưu tiên polygon.
 - Với polygon, avatar.x/y/w/h vẫn là bounding box bao toàn bộ vùng polygon, còn clipPath.points mới là hình crop thật. Dùng khoảng 6-16 điểm; chỉ dùng nhiều hơn nếu khung thật sự phức tạp.
 - name là vùng placeholder tên cần bị thay thế, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc vùng tên riêng bên dưới ảnh.
 - name.x/name.y phải là tâm của chính placeholder tên cần thay thế. name.w/name.h phải bao phủ toàn bộ vùng chữ placeholder để backend xoá đúng vùng đó rồi vẽ nickname vào cùng vị trí.
@@ -403,7 +405,7 @@ Yêu cầu:
 - Nếu poster có 2 VĐV, trả slots.double có đúng 2 slot từ trái sang phải.
 - slots.single là slot cho giải đơn; nếu template có 2 slot thì đặt slot single ở giữa 2 slot hoặc vùng trung tâm hợp lý.
 - Bỏ qua logo, địa điểm, lịch thi đấu, tiêu đề, QR, nhà tài trợ.
-- Tự kiểm tra trước khi trả JSON: avatar phải nằm phía trên name của cùng slot, không giao với name, không giao với nhãn "VĐV", clipPath phải nằm trong avatar box, và phải phủ phần trắng/kem lớn nhất trong khung ảnh.
+- Tự kiểm tra trước khi trả JSON: avatar phải nằm phía trên name của cùng slot, không giao với name, không giao với nhãn "VĐV", clipPath phải nằm trong avatar box, ảnh khi object-fit cover phải lấp đầy clipPath, và không được còn mảng trắng/kem lớn bên trong vùng ảnh.
 - Không bịa nội dung chữ; chỉ tìm layout.
 - Chỉ trả JSON đúng schema.
 ${adminPromptBlock}

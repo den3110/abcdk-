@@ -1092,33 +1092,42 @@ function resolvePosterBox(box = {}, width, height, baseWidth, baseHeight) {
     height: Math.max(1, scaleCoord(box.height ?? box.h, height, baseHeight, 1)),
     radius: box.radius ?? box.r,
   };
+  const clipPath = resolvePosterClipPath(
+    box.clipPath,
+    width,
+    height,
+    baseWidth,
+    baseHeight,
+  );
+  if (clipPath.type === "polygon" && clipPath.box) {
+    return {
+      ...clipPath.box,
+      radius: resolved.radius,
+      clipPath: {
+        type: "polygon",
+        points: clipPath.points,
+      },
+    };
+  }
+
   return {
     ...resolved,
-    clipPath: resolvePosterClipPath(
-      box.clipPath,
-      width,
-      height,
-      baseWidth,
-      baseHeight,
-      resolved,
-    ),
+    clipPath,
   };
 }
 
-function resolvePosterClipPath(clipPath, width, height, baseWidth, baseHeight, box) {
+function resolvePosterClipPath(clipPath, width, height, baseWidth, baseHeight) {
   const type = String(clipPath?.type || "").toLowerCase();
   const rawPoints = Array.isArray(clipPath?.points) ? clipPath.points : [];
   if (type !== "polygon" || rawPoints.length < 3) {
     return { type: "rounded_rect", points: [] };
   }
 
-  const points = rawPoints
+  const absolutePoints = rawPoints
     .map((point) => {
-      const x = scaleCoord(point?.x, width, baseWidth) - box.left;
-      const y = scaleCoord(point?.y, height, baseHeight) - box.top;
       return {
-        x: clampInt(x, 0, box.width, 0),
-        y: clampInt(y, 0, box.height, 0),
+        x: clampInt(scaleCoord(point?.x, width, baseWidth), 0, width, 0),
+        y: clampInt(scaleCoord(point?.y, height, baseHeight), 0, height, 0),
       };
     })
     .filter((point, index, list) => {
@@ -1126,11 +1135,30 @@ function resolvePosterClipPath(clipPath, width, height, baseWidth, baseHeight, b
       return !prev || prev.x !== point.x || prev.y !== point.y;
     });
 
-  if (points.length < 3) {
+  if (absolutePoints.length < 3) {
     return { type: "rounded_rect", points: [] };
   }
 
-  return { type: "polygon", points: points.slice(0, 32) };
+  const minX = Math.min(...absolutePoints.map((point) => point.x));
+  const minY = Math.min(...absolutePoints.map((point) => point.y));
+  const maxX = Math.max(...absolutePoints.map((point) => point.x));
+  const maxY = Math.max(...absolutePoints.map((point) => point.y));
+  const box = {
+    left: minX,
+    top: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+  if (box.width < 2 || box.height < 2) {
+    return { type: "rounded_rect", points: [] };
+  }
+
+  const points = absolutePoints.map((point) => ({
+    x: point.x - box.left,
+    y: point.y - box.top,
+  }));
+
+  return { type: "polygon", points: points.slice(0, 32), box };
 }
 
 function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
