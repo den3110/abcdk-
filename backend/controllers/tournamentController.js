@@ -893,10 +893,10 @@ function refinePosterNameSlots(slots, width, height, templateRaw) {
           y: panel.top + panel.height / 2,
           width: Math.max(1, Math.round(panel.width * 0.82)),
           erase: {
-            left: panel.left + panel.width * 0.06,
-            top: panel.top + panel.height * 0.12,
-            width: panel.width * 0.88,
-            height: panel.height * 0.76,
+            left: panel.left + panel.width * 0.025,
+            top: panel.top + panel.height * 0.035,
+            width: panel.width * 0.95,
+            height: panel.height * 0.93,
           },
         },
       };
@@ -3128,9 +3128,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
         height,
         templateRaw,
       );
-  const slots = trustAiLayout
-    ? avatarSlots
-    : refinePosterNameSlots(avatarSlots, width, height, templateRaw);
+  const slots = refinePosterNameSlots(avatarSlots, width, height, templateRaw);
   const avatarLayers = await Promise.all(
     players.map(async (player, idx) => {
       const slot = slots[idx]?.avatar;
