@@ -70,6 +70,26 @@ function normalizeImageUrl(raw = "") {
   }
 }
 
+function isHttpUrl(value = "") {
+  return /^https?:\/\//i.test(String(value || "").trim());
+}
+
+function isLocalish(value = "") {
+  try {
+    const host = new URL(String(value || "")).hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host.startsWith("10.") ||
+      host.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+    );
+  } catch {
+    return true;
+  }
+}
+
 async function fetchImageAsBuffer(url) {
   const r = await fetch(url, {
     headers: {
@@ -610,31 +630,31 @@ export async function notifyNewKyc(user) {
         caption: label,
         reply_to_message_id: replyToId,
       });
-      if (!r2?.ok) console.error("Failed to send photo/document for:", url);
+      if (r2?.ok) return r2;
+      console.error("Failed to send photo/document by URL, fallback to file:", url);
+    }
+
+    // URL local/private hoặc Telegram không fetch được URL public -> tải về rồi upload file
+    try {
+      const { buffer, filename } = await fetchImageAsBuffer(url);
+      const r = await tgSendPhotoFile({
+        buffer,
+        filename,
+        caption: label,
+        reply_to_message_id: replyToId,
+      });
+      if (r?.ok) return r;
+      const r2 = await tgSendDocumentFile({
+        buffer,
+        filename,
+        caption: label,
+        reply_to_message_id: replyToId,
+      });
+      if (!r2?.ok)
+        console.error("Failed to send photo/document(file) for:", url);
       return r2;
-    } else {
-      // URL local/private -> tải về rồi upload file
-      try {
-        const { buffer, filename } = await fetchImageAsBuffer(url);
-        const r = await tgSendPhotoFile({
-          buffer,
-          filename,
-          caption: label,
-          reply_to_message_id: replyToId,
-        });
-        if (r?.ok) return r;
-        const r2 = await tgSendDocumentFile({
-          buffer,
-          filename,
-          caption: label,
-          reply_to_message_id: replyToId,
-        });
-        if (!r2?.ok)
-          console.error("Failed to send photo/document(file) for:", url);
-        return r2;
-      } catch (e) {
-        console.error("sendOnePhoto(local) error:", e?.message);
-      }
+    } catch (e) {
+      console.error("sendOnePhoto(file fallback) error:", e?.message);
     }
   }
 
@@ -644,7 +664,7 @@ export async function notifyNewKyc(user) {
 
 // (tuỳ chọn) Thông báo khi duyệt/từ chối
 export async function notifyKycReviewed(user, action) {
-  const map = { approve: "✅ Đý DUYỆT", reject: "❌ BỊ TỪ CHỐI" };
+  const map = { approve: "✅ ĐÃ DUYỆT", reject: "❌ BỊ TỪ CHỐI" };
   const tag = map[action] || action;
   const text = [
     `🔔 <b>Kết quả KYC</b>: ${tag}`,
