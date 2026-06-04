@@ -1,14 +1,8 @@
 /* eslint-disable react/prop-types */
 import { useMemo, useState, useEffect } from "react";
-import {
-  Box,
-  Typography,
-  Stack,
-  Button,
-  Paper,
-  Divider,
-} from "@mui/material";
+import { Box, Typography, Stack, Button, useTheme, alpha } from "@mui/material";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+import CloseIcon from "@mui/icons-material/Close";
 import { fmtVND } from "./courtShared";
 
 /**
@@ -19,34 +13,23 @@ import { fmtVND } from "./courtShared";
  *  - onConfirm({ courtId, courtName, start, end, total, count })
  */
 export default function AvailabilityGrid({ data, disabled = false, onConfirm }) {
+  const theme = useTheme();
   const courts = useMemo(
     () => (Array.isArray(data?.courts) ? data.courts : []),
     [data],
   );
 
-  // Cột thời gian = lấy theo sân có nhiều slot nhất
+  // Cột thời gian = sân có nhiều slot nhất
   const columns = useMemo(() => {
     let best = [];
-    for (const c of courts) {
-      if ((c.slots?.length || 0) > best.length) best = c.slots || [];
-    }
-    return best.map((s) => ({ start: s.start, end: s.end }));
+    for (const c of courts) if ((c.slots?.length || 0) > best.length) best = c.slots || [];
+    return best.map((s) => s.start);
   }, [courts]);
 
-  // selection: { courtId, lo, hi } theo index trong slots của sân đó
-  const [sel, setSel] = useState(null);
+  const [sel, setSel] = useState(null); // { courtId, lo, hi }
+  useEffect(() => setSel(null), [data?.date, data?.venueId]);
 
-  // Reset khi đổi ngày/dữ liệu
-  useEffect(() => {
-    setSel(null);
-  }, [data?.date, data?.venueId]);
-
-  const courtById = useMemo(() => {
-    const m = new Map();
-    for (const c of courts) m.set(c._id, c);
-    return m;
-  }, [courts]);
-
+  const courtById = useMemo(() => new Map(courts.map((c) => [c._id, c])), [courts]);
   const selCourt = sel ? courtById.get(sel.courtId) : null;
 
   const summary = useMemo(() => {
@@ -56,14 +39,7 @@ export default function AvailabilityGrid({ data, disabled = false, onConfirm }) 
     const hi = Math.max(sel.lo, sel.hi);
     let total = 0;
     for (let i = lo; i <= hi; i += 1) total += Number(slots[i]?.price || 0);
-    return {
-      courtId: selCourt._id,
-      courtName: selCourt.name,
-      start: slots[lo]?.start,
-      end: slots[hi]?.end,
-      total,
-      count: hi - lo + 1,
-    };
+    return { courtId: selCourt._id, courtName: selCourt.name, start: slots[lo]?.start, end: slots[hi]?.end, total, count: hi - lo + 1 };
   }, [sel, selCourt]);
 
   function clickSlot(court, idx) {
@@ -71,199 +47,189 @@ export default function AvailabilityGrid({ data, disabled = false, onConfirm }) 
     const slots = court.slots || [];
     const s = slots[idx];
     if (!s || s.booked || s.past) return;
-
-    if (!sel || sel.courtId !== court._id) {
-      setSel({ courtId: court._id, lo: idx, hi: idx });
-      return;
-    }
-    if (sel.lo === idx && sel.hi === idx) {
-      setSel(null); // bấm lại slot duy nhất => bỏ chọn
-      return;
-    }
+    if (!sel || sel.courtId !== court._id) return setSel({ courtId: court._id, lo: idx, hi: idx });
+    if (sel.lo === idx && sel.hi === idx) return setSel(null);
     const lo = Math.min(sel.lo, idx);
     const hi = Math.max(sel.hi, idx);
-    // kiểm tra toàn bộ khoảng đều trống
-    let ok = true;
     for (let i = lo; i <= hi; i += 1) {
       const t = slots[i];
-      if (!t || t.booked || t.past) {
-        ok = false;
-        break;
-      }
+      if (!t || t.booked || t.past) return setSel({ courtId: court._id, lo: idx, hi: idx });
     }
-    setSel(ok ? { courtId: court._id, lo, hi } : { courtId: court._id, lo: idx, hi: idx });
+    setSel({ courtId: court._id, lo, hi });
   }
-
-  const isSelected = (court, idx) =>
-    sel &&
-    sel.courtId === court._id &&
-    idx >= Math.min(sel.lo, sel.hi) &&
-    idx <= Math.max(sel.lo, sel.hi);
 
   if (!courts.length) {
     return (
-      <Box sx={{ py: 4, textAlign: "center", color: "text.secondary" }}>
-        Chưa có sân nào.
+      <Box sx={{ py: 6, textAlign: "center", color: "text.secondary" }}>
+        <Typography>Chưa có sân nào cho ngày này.</Typography>
       </Box>
     );
   }
 
-  const COURT_COL = 116;
-  const CELL_W = 78;
+  const COURT_COL = 120;
+  const CELL_W = 76;
+  const noMotion = { "@media (prefers-reduced-motion: reduce)": { transition: "none" } };
 
   return (
     <Box>
-      {/* Chú thích */}
-      <Stack direction="row" spacing={2} sx={{ mb: 1.5, flexWrap: "wrap" }} useFlexGap>
-        <Legend color="background.paper" border label="Trống" />
-        <Legend color="primary.main" label="Đang chọn" textColor="#fff" />
-        <Legend color="error.light" label="Đã đặt" />
-        <Legend color="action.disabledBackground" label="Đã qua" />
+      {/* Chú thích trạng thái */}
+      <Stack direction="row" spacing={2.5} sx={{ mb: 1.5, flexWrap: "wrap" }} useFlexGap>
+        <Legend swatch={{ bgcolor: "background.paper", border: `1px solid ${theme.palette.divider}` }} label="Còn trống" />
+        <Legend swatch={{ bgcolor: "primary.main" }} label="Đang chọn" />
+        <Legend swatch={{ bgcolor: alpha(theme.palette.error.main, 0.16), border: `1px solid ${alpha(theme.palette.error.main, 0.3)}` }} label="Đã đặt" />
+        <Legend swatch={{ bgcolor: "action.hover" }} label="Đã qua" />
       </Stack>
 
-      <Box sx={{ overflowX: "auto", border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
-        <Box sx={{ minWidth: COURT_COL + columns.length * CELL_W }}>
-          {/* Header thời gian */}
-          <Box sx={{ display: "flex", position: "sticky", top: 0, zIndex: 2, bgcolor: "background.default" }}>
-            <Box sx={{ width: COURT_COL, flexShrink: 0, p: 1, fontWeight: 700, fontSize: 13 }}>
-              Sân \\ Giờ
+      <Box
+        sx={{
+          overflowX: "auto",
+          border: `1px solid ${theme.palette.divider}`,
+          borderRadius: 3,
+          bgcolor: "background.paper",
+        }}
+      >
+        <Box sx={{ minWidth: COURT_COL + columns.length * CELL_W, position: "relative" }}>
+          {/* Header giờ */}
+          <Box sx={{ display: "flex", position: "sticky", top: 0, zIndex: 3, bgcolor: alpha(theme.palette.background.paper, 0.96), backdropFilter: "blur(6px)", borderBottom: `1px solid ${theme.palette.divider}` }}>
+            <Box sx={{ width: COURT_COL, flexShrink: 0, p: 1.25, fontSize: 12, fontWeight: 700, color: "text.secondary", position: "sticky", left: 0, zIndex: 1, bgcolor: alpha(theme.palette.background.paper, 0.96) }}>
+              Sân
             </Box>
-            {columns.map((c) => (
-              <Box
-                key={c.start}
-                sx={{
-                  width: CELL_W,
-                  flexShrink: 0,
-                  p: 0.5,
-                  textAlign: "center",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: "text.secondary",
-                  borderLeft: "1px dashed",
-                  borderColor: "divider",
-                }}
-              >
-                {c.start}
+            {columns.map((start) => (
+              <Box key={start} sx={{ width: CELL_W, flexShrink: 0, py: 1, textAlign: "center", fontSize: 11.5, fontWeight: 600, color: "text.secondary" }}>
+                {start}
               </Box>
             ))}
           </Box>
-          <Divider />
 
           {/* Mỗi sân 1 hàng */}
-          {courts.map((court) => {
+          {courts.map((court, rowIdx) => {
             const startMap = new Map((court.slots || []).map((s, i) => [s.start, i]));
+            const isSel = (i) => sel && sel.courtId === court._id && i >= Math.min(sel.lo, sel.hi) && i <= Math.max(sel.lo, sel.hi);
             return (
-              <Box key={court._id} sx={{ display: "flex", alignItems: "stretch", "&:not(:last-of-type)": { borderBottom: "1px solid", borderColor: "divider" } }}>
-                <Box
-                  sx={{
-                    width: COURT_COL,
-                    flexShrink: 0,
-                    p: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    fontWeight: 700,
-                    fontSize: 13,
-                    position: "sticky",
-                    left: 0,
-                    bgcolor: "background.paper",
-                    zIndex: 1,
-                    borderRight: "1px solid",
-                    borderColor: "divider",
-                  }}
-                >
-                  {court.name}
+              <Box
+                key={court._id}
+                sx={{
+                  display: "flex",
+                  alignItems: "stretch",
+                  minHeight: 60,
+                  bgcolor: rowIdx % 2 ? alpha(theme.palette.text.primary, 0.015) : "transparent",
+                  "&:not(:last-of-type)": { borderBottom: `1px solid ${theme.palette.divider}` },
+                }}
+              >
+                {/* Tên sân (sticky trái) */}
+                <Box sx={{ width: COURT_COL, flexShrink: 0, px: 1.25, display: "flex", alignItems: "center", gap: 1, position: "sticky", left: 0, zIndex: 1, bgcolor: "background.paper", borderRight: `1px solid ${theme.palette.divider}` }}>
+                  <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: court.closed ? "text.disabled" : "success.main", flexShrink: 0 }} />
+                  <Typography sx={{ fontWeight: 700, fontSize: 13.5 }} noWrap>
+                    {court.name}
+                  </Typography>
                 </Box>
-                {columns.map((col) => {
-                  const idx = startMap.get(col.start);
-                  const slot = idx != null ? court.slots[idx] : null;
-                  if (!slot) {
-                    return <Box key={col.start} sx={{ width: CELL_W, flexShrink: 0 }} />;
-                  }
-                  const selected = isSelected(court, idx);
-                  const unavailable = slot.booked || slot.past;
-                  let bg = "background.paper";
-                  let fg = "text.primary";
-                  if (selected) {
-                    bg = "primary.main";
-                    fg = "#fff";
-                  } else if (slot.booked) {
-                    bg = "error.light";
-                    fg = "#fff";
-                  } else if (slot.past) {
-                    bg = "action.disabledBackground";
-                    fg = "text.disabled";
-                  }
-                  return (
-                    <Box
-                      key={col.start}
-                      onClick={() => clickSlot(court, idx)}
-                      sx={{
-                        width: CELL_W,
-                        flexShrink: 0,
-                        p: 0.5,
-                        m: 0.5,
-                        borderRadius: 1.5,
-                        textAlign: "center",
-                        cursor: unavailable || disabled ? "default" : "pointer",
-                        bgcolor: bg,
-                        color: fg,
-                        border: "1px solid",
-                        borderColor: selected ? "primary.main" : "divider",
-                        userSelect: "none",
-                        transition: "background-color .1s",
-                        "&:hover": unavailable || disabled
-                          ? {}
-                          : { borderColor: "primary.main", boxShadow: 1 },
-                      }}
-                    >
-                      <Typography sx={{ fontSize: 11, fontWeight: 700, lineHeight: 1.2 }}>
-                        {slot.start}
-                      </Typography>
-                      <Typography sx={{ fontSize: 10, opacity: 0.85, lineHeight: 1.3 }}>
-                        {slot.booked ? "Đã đặt" : fmtVND(slot.price)}
-                      </Typography>
-                    </Box>
-                  );
-                })}
+
+                {court.closed ? (
+                  <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "text.disabled", fontSize: 13, fontStyle: "italic" }}>
+                    Đóng cửa
+                  </Box>
+                ) : (
+                  columns.map((colStart) => {
+                    const idx = startMap.get(colStart);
+                    const slot = idx != null ? court.slots[idx] : null;
+                    if (!slot) return <Box key={colStart} sx={{ width: CELL_W, flexShrink: 0 }} />;
+                    const selected = isSel(idx);
+                    const runStart = selected && !isSel(idx - 1);
+                    const runEnd = selected && !isSel(idx + 1);
+                    const clickable = !slot.booked && !slot.past && !disabled;
+
+                    let sx = {
+                      bgcolor: "transparent",
+                      color: "text.primary",
+                      borderColor: theme.palette.divider,
+                    };
+                    if (selected) {
+                      sx = { bgcolor: "primary.main", color: theme.palette.primary.contrastText, borderColor: theme.palette.primary.main };
+                    } else if (slot.booked) {
+                      sx = { bgcolor: alpha(theme.palette.error.main, 0.13), color: theme.palette.error.dark, borderColor: alpha(theme.palette.error.main, 0.25) };
+                    } else if (slot.past) {
+                      sx = { bgcolor: alpha(theme.palette.text.primary, 0.04), color: "text.disabled", borderColor: "transparent" };
+                    }
+
+                    return (
+                      <Box key={colStart} sx={{ width: CELL_W, flexShrink: 0, p: 0.5 }}>
+                        <Box
+                          onClick={() => clickSlot(court, idx)}
+                          sx={{
+                            height: "100%",
+                            minHeight: 48,
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 0.25,
+                            border: `1px solid ${sx.borderColor}`,
+                            bgcolor: sx.bgcolor,
+                            color: sx.color,
+                            borderTopLeftRadius: selected && !runStart ? 0 : 10,
+                            borderBottomLeftRadius: selected && !runStart ? 0 : 10,
+                            borderTopRightRadius: selected && !runEnd ? 0 : 10,
+                            borderBottomRightRadius: selected && !runEnd ? 0 : 10,
+                            cursor: clickable ? "pointer" : "default",
+                            userSelect: "none",
+                            transition: "background-color .14s ease, border-color .14s ease, transform .14s ease",
+                            ...noMotion,
+                            ...(clickable && {
+                              "&:hover": {
+                                borderColor: theme.palette.primary.main,
+                                bgcolor: selected ? "primary.dark" : alpha(theme.palette.primary.main, 0.08),
+                                transform: "translateY(-1px)",
+                              },
+                            }),
+                          }}
+                        >
+                          <Typography sx={{ fontSize: 12, fontWeight: 700, lineHeight: 1.1 }}>{slot.start}</Typography>
+                          <Typography sx={{ fontSize: 10.5, fontWeight: 600, opacity: slot.booked || slot.past ? 0.9 : 0.7, lineHeight: 1.1 }}>
+                            {slot.booked ? "Đã đặt" : slot.past ? "—" : fmtVND(slot.price)}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    );
+                  })
+                )}
               </Box>
             );
           })}
         </Box>
       </Box>
 
-      {/* Thanh tổng kết + đặt */}
+      {/* Thanh tổng kết */}
       {summary ? (
-        <Paper
-          elevation={3}
+        <Box
           sx={{
+            position: "sticky",
+            bottom: 12,
+            zIndex: 5,
             mt: 2,
-            p: 2,
+            p: { xs: 1.5, sm: 2 },
             borderRadius: 3,
             display: "flex",
             flexDirection: { xs: "column", sm: "row" },
             alignItems: { xs: "stretch", sm: "center" },
             justifyContent: "space-between",
             gap: 1.5,
-            border: "1px solid",
-            borderColor: "primary.main",
+            color: theme.palette.primary.contrastText,
+            background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+            boxShadow: `0 10px 30px -8px ${alpha(theme.palette.primary.main, 0.5)}`,
           }}
         >
           <Box>
-            <Typography variant="subtitle2" color="text.secondary">
-              {summary.courtName} • {summary.count} khung
+            <Typography sx={{ fontSize: 12, opacity: 0.85 }}>
+              {summary.courtName} · {summary.count} khung giờ
             </Typography>
-            <Typography variant="h6" fontWeight={800}>
+            <Typography sx={{ fontSize: 20, fontWeight: 800, lineHeight: 1.15 }}>
               {summary.start} – {summary.end}
             </Typography>
           </Box>
           <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
             <Box sx={{ textAlign: { xs: "left", sm: "right" } }}>
-              <Typography variant="caption" color="text.secondary">
-                Tạm tính
-              </Typography>
-              <Typography variant="h6" fontWeight={900} color="primary.main">
-                {fmtVND(summary.total)}
-              </Typography>
+              <Typography sx={{ fontSize: 11, opacity: 0.85 }}>Tạm tính</Typography>
+              <Typography sx={{ fontSize: 20, fontWeight: 900, lineHeight: 1.1 }}>{fmtVND(summary.total)}</Typography>
             </Box>
             <Button
               size="large"
@@ -271,37 +237,36 @@ export default function AvailabilityGrid({ data, disabled = false, onConfirm }) 
               startIcon={<EventAvailableIcon />}
               disabled={disabled}
               onClick={() => onConfirm?.(summary)}
+              sx={{
+                bgcolor: "#fff",
+                color: "primary.main",
+                fontWeight: 800,
+                px: 2.5,
+                boxShadow: "none",
+                "&:hover": { bgcolor: alpha("#ffffff", 0.9), boxShadow: "none" },
+              }}
             >
               Đặt sân
             </Button>
+            <Button onClick={() => setSel(null)} sx={{ color: "#fff", minWidth: 0, p: 1, "&:hover": { bgcolor: alpha("#ffffff", 0.15) } }} aria-label="Bỏ chọn">
+              <CloseIcon fontSize="small" />
+            </Button>
           </Stack>
-        </Paper>
+        </Box>
       ) : (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-          Chọn 1 hoặc nhiều khung giờ liền nhau trên cùng một sân để đặt.
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, textAlign: "center" }}>
+          Chạm vào 1 hoặc nhiều khung giờ liền nhau trên cùng một sân để đặt.
         </Typography>
       )}
     </Box>
   );
 }
 
-function Legend({ color, label, border = false, textColor }) {
+function Legend({ swatch, label }) {
   return (
     <Stack direction="row" spacing={0.75} alignItems="center">
-      <Box
-        sx={{
-          width: 16,
-          height: 16,
-          borderRadius: 0.75,
-          bgcolor: color,
-          border: border ? "1px solid" : "none",
-          borderColor: "divider",
-          color: textColor,
-        }}
-      />
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
+      <Box sx={{ width: 16, height: 16, borderRadius: 1, ...swatch }} />
+      <Typography variant="caption" color="text.secondary">{label}</Typography>
     </Stack>
   );
 }
