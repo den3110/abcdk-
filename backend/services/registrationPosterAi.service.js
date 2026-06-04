@@ -7,7 +7,7 @@ import {
 } from "../lib/anthropicClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
-const POSTER_AI_LAYOUT_VERSION = 4;
+const POSTER_AI_LAYOUT_VERSION = 5;
 
 function resolvePosterVisionModel() {
   return String(CLAUDE_POSTER_VISION_MODEL || "claude-opus-4-8").trim() ||
@@ -15,6 +15,18 @@ function resolvePosterVisionModel() {
 }
 
 const POSTER_VISION_MODEL = resolvePosterVisionModel();
+
+const rectSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    x: { type: "number" },
+    y: { type: "number" },
+    w: { type: "number" },
+    h: { type: "number" },
+  },
+  required: ["x", "y", "w", "h"],
+};
 
 const slotSchema = {
   type: "object",
@@ -90,21 +102,26 @@ const slotSchema = {
         y: { type: "number" },
         w: { type: "number" },
         h: { type: "number" },
-        erase: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            x: { type: "number" },
-            y: { type: "number" },
-            w: { type: "number" },
-            h: { type: "number" },
-          },
-          required: ["x", "y", "w", "h"],
+        erase: rectSchema,
+        eraseRegions: {
+          type: "array",
+          items: rectSchema,
+          minItems: 1,
+          maxItems: 6,
         },
         minFontSize: { type: "number" },
         maxFontSize: { type: "number" },
       },
-      required: ["x", "y", "w", "h", "erase", "minFontSize", "maxFontSize"],
+      required: [
+        "x",
+        "y",
+        "w",
+        "h",
+        "erase",
+        "eraseRegions",
+        "minFontSize",
+        "maxFontSize",
+      ],
     },
   },
   required: ["avatar", "name"],
@@ -238,6 +255,65 @@ async function createChatTextCandidates(payload) {
   return [result.text].filter(Boolean);
 }
 
+async function verifyPosterLayoutWithClaude({ initial, dataUrl, width, height, schemaText }) {
+  const prompt = `
+Bạn là bước kiểm tra cuối cho layout poster PickleTour.
+
+Ảnh template đang có kích thước width=${width}, height=${height}. Dưới đây là JSON layout do bước detect đầu tiên trả:
+${JSON.stringify(initial)}
+
+Hãy nhìn lại ảnh template và sửa JSON nếu có bất kỳ lỗi nào sau đây:
+- avatar không phủ kín đúng phần ruột ô ảnh trắng/kem.
+- avatar che nhãn "VĐV", viền, tab hoặc khung tên.
+- name.x/name.y đặt lệch khỏi tâm vùng tên cần thay.
+- name.erase hoặc name.eraseRegions không che hết chữ mẫu "HỌ TÊN", "FULL NAME", "NICKNAME".
+- Có chữ mẫu "HỌ TÊN" nằm phía trên nickname mới nhưng không có eraseRegion riêng phủ trọn chữ đó.
+
+Quy tắc bắt buộc:
+- Vẫn trả đầy đủ JSON đúng schema.
+- Mọi sửa đổi vị trí đều phải dựa trên ảnh template, không tự bịa.
+- name.eraseRegions phải là các vùng AI tự detect để xoá chữ mẫu/panel tên; backend sẽ chỉ vẽ theo các vùng này.
+- Nếu layout ban đầu đã đúng, trả lại JSON đó nhưng vẫn đảm bảo đủ name.eraseRegions.
+
+Schema JSON bắt buộc:
+${schemaText}
+`;
+
+  const textCandidates = await createChatTextCandidates({
+    model: POSTER_VISION_MODEL,
+    max_tokens: 4096,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Bạn là model thị giác kiểm tra và sửa layout poster. Chỉ trả JSON đúng schema, không trả markdown.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
+        ],
+      },
+    ],
+  });
+  if (!textCandidates.length) {
+    throw new Error("AI không trả về JSON khi kiểm tra layout poster.");
+  }
+
+  let lastParseError = null;
+  for (const jsonText of textCandidates) {
+    try {
+      return extractJson(jsonText);
+    } catch (parseError) {
+      lastParseError = parseError;
+    }
+  }
+  throw new Error(
+    `AI trả text nhưng không parse được JSON sau bước kiểm tra: ${lastParseError?.message || "unknown"}`,
+  );
+}
+
 function summarizeRouteError(routeName, error) {
   return `${routeName}: ${String(error?.message || error).slice(0, 240)}`;
 }
@@ -273,6 +349,22 @@ function normalizeClipPath(clipPath, width, height) {
   return { type: "rounded_rect", points: [] };
 }
 
+function normalizeEraseRegion(region, width, height, label) {
+  const x = Number(region?.x ?? region?.left);
+  const y = Number(region?.y ?? region?.top);
+  const w = Number(region?.w ?? region?.width);
+  const h = Number(region?.h ?? region?.height);
+  if (![x, y, w, h].every(Number.isFinite)) {
+    throw new Error(`AI poster layout trả ${label} không hợp lệ.`);
+  }
+  return {
+    x: clamp(x, 0, width, 0),
+    y: clamp(y, 0, height, 0),
+    w: clamp(w, 1, width, 1),
+    h: clamp(h, 1, height, 1),
+  };
+}
+
 function normalizeSlot(slot, width, height) {
   const avatar = slot?.avatar || {};
   const name = slot?.name || {};
@@ -280,34 +372,26 @@ function normalizeSlot(slot, width, height) {
   if (!erase || typeof erase !== "object") {
     throw new Error("AI poster layout thiếu name.erase cho vùng xoá tên.");
   }
+  if (!Array.isArray(name?.eraseRegions) || !name.eraseRegions.length) {
+    throw new Error("AI poster layout thiếu name.eraseRegions cho vùng xoá tên.");
+  }
   const nameX = Number(name.x);
   const nameY = Number(name.y);
   const nameWRaw = Number(name.w);
   const nameHRaw = Number(name.h ?? name.height);
-  const eraseX = Number(erase.x);
-  const eraseY = Number(erase.y);
-  const eraseWRaw = Number(erase.w);
-  const eraseHRaw = Number(erase.h);
-  if (
-    ![
-      nameX,
-      nameY,
-      nameWRaw,
-      nameHRaw,
-      eraseX,
-      eraseY,
-      eraseWRaw,
-      eraseHRaw,
-    ].every(Number.isFinite)
-  ) {
+  if (![nameX, nameY, nameWRaw, nameHRaw].every(Number.isFinite)) {
     throw new Error("AI poster layout trả name/name.erase không hợp lệ.");
   }
+  const eraseRect = normalizeEraseRegion(erase, width, height, "name.erase");
+  const eraseRegions = name.eraseRegions
+    .slice(0, 6)
+    .map((region, idx) =>
+      normalizeEraseRegion(region, width, height, `name.eraseRegions[${idx}]`),
+    );
   const avatarW = clamp(avatar.w, 1, width, Math.round(width * 0.3));
   const avatarH = clamp(avatar.h, 1, height, Math.round(width * 0.3));
   const nameW = clamp(nameWRaw, 1, width, Math.round(width * 0.4));
   const nameH = clamp(nameHRaw, 1, height, Math.round(height * 0.06));
-  const eraseW = clamp(eraseWRaw, 1, width, nameW);
-  const eraseH = clamp(eraseHRaw, 1, height, nameH);
   return {
     avatar: {
       x: clamp(avatar.x, 0, width, 0),
@@ -328,12 +412,8 @@ function normalizeSlot(slot, width, height) {
       y: clamp(nameY, 0, height, Math.round(height * 0.65)),
       w: nameW,
       h: nameH,
-      erase: {
-        x: clamp(eraseX, 0, width, 0),
-        y: clamp(eraseY, 0, height, 0),
-        w: eraseW,
-        h: eraseH,
-      },
+      erase: eraseRect,
+      eraseRegions,
       minFontSize: clamp(name.minFontSize, 8, 96, 22),
       maxFontSize: clamp(name.maxFontSize, 8, 120, 46),
     },
@@ -347,6 +427,19 @@ function deriveSingleSlotFromDouble(slots, width, height) {
     (a.avatar.x + a.avatar.w / 2 + b.avatar.x + b.avatar.w / 2) / 2;
   const avatarW = Math.max(1, Math.round((a.avatar.w + b.avatar.w) / 2));
   const avatarH = Math.max(1, Math.round((a.avatar.h + b.avatar.h) / 2));
+  const eraseX = Math.min(a.name.erase.x, b.name.erase.x);
+  const eraseY = Math.min(a.name.erase.y, b.name.erase.y);
+  const eraseW =
+    Math.max(
+      a.name.erase.x + a.name.erase.w,
+      b.name.erase.x + b.name.erase.w,
+    ) - eraseX;
+  const eraseH =
+    Math.max(
+      a.name.erase.y + a.name.erase.h,
+      b.name.erase.y + b.name.erase.h,
+    ) - eraseY;
+  const erase = { x: eraseX, y: eraseY, w: eraseW, h: eraseH };
   return normalizeSlot(
     {
       avatar: {
@@ -362,18 +455,8 @@ function deriveSingleSlotFromDouble(slots, width, height) {
         y: (a.name.y + b.name.y) / 2,
         w: Math.max(a.name.w, b.name.w),
         h: Math.max(a.name.h, b.name.h),
-        erase: {
-          x: Math.min(a.name.erase.x, b.name.erase.x),
-          y: Math.min(a.name.erase.y, b.name.erase.y),
-          w: Math.max(
-            a.name.erase.x + a.name.erase.w,
-            b.name.erase.x + b.name.erase.w,
-          ) - Math.min(a.name.erase.x, b.name.erase.x),
-          h: Math.max(
-            a.name.erase.y + a.name.erase.h,
-            b.name.erase.y + b.name.erase.h,
-          ) - Math.min(a.name.erase.y, b.name.erase.y),
-        },
+        erase,
+        eraseRegions: [erase],
         minFontSize: Math.min(a.name.minFontSize, b.name.minFontSize),
         maxFontSize: Math.max(a.name.maxFontSize, b.name.maxFontSize),
       },
@@ -473,7 +556,10 @@ Yêu cầu:
 - name là vùng placeholder tên cần bị thay thế, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc vùng tên riêng bên dưới ảnh.
 - name.x/name.y phải là tâm của chính placeholder tên cần thay thế. name.w/name.h phải bao phủ toàn bộ vùng chữ placeholder để backend xoá đúng vùng đó rồi vẽ nickname vào cùng vị trí.
 - name.erase là hình chữ nhật xoá placeholder tên, với x/y là góc trái trên và w/h là kích thước. name.erase phải bao phủ TOÀN BỘ chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" và nền panel tên cần che, không được để sót phần trên của chữ mẫu cũ.
+- name.eraseRegions là danh sách các hình chữ nhật xoá do AI tự detect. Mỗi vùng phải bao phủ một cụm chữ mẫu hoặc nền panel cần xoá trước khi vẽ nickname. Nếu chữ "HỌ TÊN" nằm cao hơn nickname mới, phải có một eraseRegion riêng bao phủ trọn chữ "HỌ TÊN" đó.
+- Nếu placeholder tên có nhiều phần bị tách nhau bởi viền/trang trí, trả nhiều eraseRegions nhỏ thay vì một vùng lớn che nhầm sang nhãn "VĐV", avatar, dòng xác nhận, tiêu đề hoặc footer.
 - Với template có chữ "HỌ TÊN" nằm phía trên vị trí tên thật, name.erase.y phải nằm cao hơn điểm cao nhất của chữ "HỌ TÊN"; name.erase.h phải kết thúc thấp hơn điểm thấp nhất của placeholder đó.
+- Tự kiểm tra bằng mắt trước khi trả JSON: nếu backend vẽ một hình chữ nhật tối lên từng eraseRegion thì toàn bộ chữ mẫu "HỌ TÊN"/"FULL NAME"/"NICKNAME" phải biến mất, còn nhãn "VĐV" vẫn còn.
 - name.x/name.y là tâm nơi backend vẽ nickname mới. Thường name.x/name.y nằm gần tâm name.erase; tuyệt đối không đặt thấp xuống làm chữ mẫu cũ lộ phía trên.
 - Không đặt name ở dưới placeholder, không đặt name ở khoảng giữa khung tên và footer, và không đặt name theo vị trí avatar nếu trên poster đã có vùng placeholder tên rõ ràng.
 - Phải giữ nguyên nhãn vai trò nhỏ như "VĐV", "PLAYER", "ATHLETE"; tuyệt đối không chọn các nhãn này làm name.
@@ -585,6 +671,20 @@ ${adminPromptBlock}
     const detail = routeErrors.join(" | ").slice(0, 700);
     throw new Error(
       `AI không trả về JSON layout. Đã thử json_schema, json_object và plain JSON. Chi tiết: ${detail}`,
+    );
+  }
+  try {
+    parsed = await verifyPosterLayoutWithClaude({
+      initial: parsed,
+      dataUrl,
+      width,
+      height,
+      schemaText,
+    });
+    usedRoute = `${usedRoute}+verify`;
+  } catch (error) {
+    throw new Error(
+      `AI không xác minh được layout poster: ${String(error?.message || error).slice(0, 500)}`,
     );
   }
   const config = normalizeLayout(parsed, width, height);

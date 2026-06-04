@@ -1079,13 +1079,25 @@ function hasPosterAvatarClipPathContract(slot = {}) {
 
 function hasPosterNameEraseContract(slot = {}) {
   const erase = slot?.name?.erase;
+  const eraseRegions = slot?.name?.eraseRegions;
   return (
     erase &&
     typeof erase === "object" &&
     Number.isFinite(Number(erase.x ?? erase.left)) &&
     Number.isFinite(Number(erase.y ?? erase.top)) &&
     Number.isFinite(Number(erase.w ?? erase.width)) &&
-    Number.isFinite(Number(erase.h ?? erase.height))
+    Number.isFinite(Number(erase.h ?? erase.height)) &&
+    Array.isArray(eraseRegions) &&
+    eraseRegions.length > 0 &&
+    eraseRegions.every(
+      (region) =>
+        region &&
+        typeof region === "object" &&
+        Number.isFinite(Number(region.x ?? region.left)) &&
+        Number.isFinite(Number(region.y ?? region.top)) &&
+        Number.isFinite(Number(region.w ?? region.width)) &&
+        Number.isFinite(Number(region.h ?? region.height)),
+    )
   );
 }
 
@@ -1100,7 +1112,7 @@ function getRawPosterSlotsForCount(cfg = {}, playersCount = 2) {
 
 function hasCurrentPosterAiLayoutContract(cfg = {}, playersCount = 2) {
   const layoutVersion = Number(cfg?.ai?.layoutVersion || 0);
-  if (layoutVersion < 4) return false;
+  if (layoutVersion < 5) return false;
   const slots = getRawPosterSlotsForCount(cfg, playersCount);
   const expected = Math.max(1, Math.min(Number(playersCount) || 1, 2));
   if (!Array.isArray(slots) || slots.length < expected) return false;
@@ -1264,6 +1276,21 @@ function resolvePosterClipPath(clipPath, width, height, baseWidth, baseHeight) {
 
 function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
   const rawErase = name.erase && typeof name.erase === "object" ? name.erase : null;
+  const rawEraseRegions = Array.isArray(name.eraseRegions)
+    ? name.eraseRegions
+    : [];
+  const scaleEraseBox = (box = {}) => ({
+    left: scaleCoord(box.left ?? box.x, width, baseWidth),
+    top: scaleCoord(box.top ?? box.y, height, baseHeight),
+    width: Math.max(
+      1,
+      scaleCoord(box.width ?? box.w, width, baseWidth, 1),
+    ),
+    height: Math.max(
+      1,
+      scaleCoord(box.height ?? box.h, height, baseHeight, 1),
+    ),
+  });
   return {
     cx: scaleCoord(name.cx ?? name.x, width, baseWidth),
     y: scaleCoord(name.y ?? name.top, height, baseHeight),
@@ -1273,19 +1300,12 @@ function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
         ? Math.max(1, scaleCoord(name.height ?? name.h, height, baseHeight, 1))
         : undefined,
     erase: rawErase
-      ? {
-          left: scaleCoord(rawErase.left ?? rawErase.x, width, baseWidth),
-          top: scaleCoord(rawErase.top ?? rawErase.y, height, baseHeight),
-          width: Math.max(
-            1,
-            scaleCoord(rawErase.width ?? rawErase.w, width, baseWidth, 1),
-          ),
-          height: Math.max(
-            1,
-            scaleCoord(rawErase.height ?? rawErase.h, height, baseHeight, 1),
-          ),
-        }
+      ? scaleEraseBox(rawErase)
       : undefined,
+    eraseRegions: rawEraseRegions
+      .filter((box) => box && typeof box === "object")
+      .slice(0, 6)
+      .map(scaleEraseBox),
     fontSize: name.fontSize,
     minFontSize: name.minFontSize,
     maxFontSize: name.maxFontSize,
@@ -1491,21 +1511,26 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
               0,
             )}"`
           : "";
+      const toBackgroundBox = (box = {}) =>
+        Number.isFinite(Number(box.left)) &&
+        Number.isFinite(Number(box.top)) &&
+        Number.isFinite(Number(box.width)) &&
+        Number.isFinite(Number(box.height))
+          ? {
+              left: Number(box.left),
+              top: Number(box.top),
+              width: Math.max(1, Number(box.width)),
+              height: Math.max(1, Number(box.height)),
+            }
+          : null;
       const eraseBox = slot.name.erase || {};
       const explicitNameHeight = Number(slot.name.height ?? slot.name.h);
       const backgroundHeight = Math.max(size * 1.55, maxFontSize * 1.1);
       const backgroundWidth = Math.max(1, slot.name.width * 0.94);
+      const explicitEraseBox = toBackgroundBox(eraseBox);
       const backgroundBox =
-        Number.isFinite(Number(eraseBox.left)) &&
-        Number.isFinite(Number(eraseBox.top)) &&
-        Number.isFinite(Number(eraseBox.width)) &&
-        Number.isFinite(Number(eraseBox.height))
-          ? {
-              left: Number(eraseBox.left),
-              top: Number(eraseBox.top),
-              width: Math.max(1, Number(eraseBox.width)),
-              height: Math.max(1, Number(eraseBox.height)),
-            }
+        explicitEraseBox
+          ? explicitEraseBox
           : Number.isFinite(explicitNameHeight) && explicitNameHeight > 0
             ? {
                 left: slot.name.cx - slot.name.width / 2,
@@ -1519,20 +1544,46 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
               width: backgroundWidth,
               height: backgroundHeight,
             };
-      const backgroundFill =
+      const eraseRegionBoxes = Array.isArray(slot.name.eraseRegions)
+        ? slot.name.eraseRegions.map(toBackgroundBox).filter(Boolean)
+        : [];
+      const seenBoxes = new Set();
+      const backgroundBoxes = [backgroundBox, ...eraseRegionBoxes].filter((box) => {
+        const key = [
+          Math.round(box.left),
+          Math.round(box.top),
+          Math.round(box.width),
+          Math.round(box.height),
+        ].join(":");
+        if (seenBoxes.has(key)) return false;
+        seenBoxes.add(key);
+        return true;
+      });
+      const backgroundFills =
+        textCfg.backgroundFill === "none"
+          ? []
+          : backgroundBoxes.map((box) => ({
+              box,
+              fill:
+                textCfg.backgroundFill ||
+                samplePosterTextBackground(templateRaw, width, height, box),
+            }));
+      const backgroundNode = backgroundFills
+        .filter(({ fill }) => fill)
+        .map(({ box, fill }) => {
+          const radius = Math.round(box.height * 0.22);
+          return `<rect x="${box.left}" y="${box.top}" width="${box.width}" height="${box.height}"
+            rx="${radius}" ry="${radius}" fill="${escapeXml(fill)}" fill-opacity="1"/>`;
+        })
+        .join("");
+      const primaryBackgroundFill =
         textCfg.backgroundFill === "none"
           ? ""
           : textCfg.backgroundFill ||
             samplePosterTextBackground(templateRaw, width, height, backgroundBox);
-      const backgroundNode = backgroundFill
-        ? `<rect x="${backgroundBox.left}" y="${backgroundBox.top}" width="${backgroundBox.width}" height="${backgroundBox.height}"
-            rx="${Math.round(backgroundBox.height * 0.22)}" ry="${Math.round(
-              backgroundBox.height * 0.22,
-            )}" fill="${escapeXml(backgroundFill)}" fill-opacity="1"/>`
-        : "";
       const fillColor = getReadablePosterTextColor(
         textCfg.color,
-        backgroundFill || "#071322",
+        primaryBackgroundFill || "#071322",
       );
       return `
         ${backgroundNode}
