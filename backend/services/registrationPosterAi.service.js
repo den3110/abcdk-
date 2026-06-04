@@ -1,20 +1,133 @@
 import fs from "fs/promises";
 import path from "path";
 import sharp from "sharp";
-import {
-  CLAUDE_POSTER_VISION_MODEL,
-  createClaudeJsonMessage,
-} from "../lib/anthropicClient.js";
+import OpenAI from "openai";
+import dotenv from "dotenv";
+import AiPosterUsage from "../models/aiPosterUsageModel.js";
+
+dotenv.config();
 
 const MAX_ANALYSIS_WIDTH = 1024;
 const POSTER_AI_LAYOUT_VERSION = 6;
+const DEFAULT_OPENAI_POSTER_MODEL = "gpt-5.5";
+const OPENAI_OFFICIAL_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_OPENAI_POSTER_DAILY_LIMIT = 10;
 
 function resolvePosterVisionModel() {
-  return String(CLAUDE_POSTER_VISION_MODEL || "claude-opus-4-8").trim() ||
-    "claude-opus-4-8";
+  return String(
+    process.env.OPENAI_POSTER_VISION_MODEL ||
+      process.env.OPENAI_POSTER_MODEL ||
+      DEFAULT_OPENAI_POSTER_MODEL,
+  ).trim() || DEFAULT_OPENAI_POSTER_MODEL;
 }
 
 const POSTER_VISION_MODEL = resolvePosterVisionModel();
+let posterOpenAiClient = null;
+
+function trim(value) {
+  return String(value || "").trim();
+}
+
+function resolveOfficialOpenAiPosterBaseUrl() {
+  const base = trim(process.env.OPENAI_POSTER_BASE_URL).replace(/\/+$/, "");
+  if (
+    base === "https://api.openai.com" ||
+    base === OPENAI_OFFICIAL_BASE_URL
+  ) {
+    return OPENAI_OFFICIAL_BASE_URL;
+  }
+  return OPENAI_OFFICIAL_BASE_URL;
+}
+
+function getOfficialOpenAiPosterKey() {
+  const key = trim(process.env.OPENAI_POSTER_API_KEY);
+  return key.startsWith("sk-") ? key : "";
+}
+
+function getOpenAiPosterClient() {
+  const apiKey = getOfficialOpenAiPosterKey();
+  if (!apiKey) {
+    throw new Error(
+      "Thiếu OPENAI_POSTER_API_KEY hợp lệ để gọi OpenAI chính thống cho AI poster.",
+    );
+  }
+  if (!posterOpenAiClient) {
+    posterOpenAiClient = new OpenAI({
+      apiKey,
+      baseURL: resolveOfficialOpenAiPosterBaseUrl(),
+    });
+  }
+  return posterOpenAiClient;
+}
+
+function resolveOpenAiPosterDailyLimit() {
+  const limit = Number(process.env.OPENAI_POSTER_DAILY_LIMIT);
+  return Number.isFinite(limit) && limit > 0
+    ? Math.floor(limit)
+    : DEFAULT_OPENAI_POSTER_DAILY_LIMIT;
+}
+
+function getPosterUsageYmd(date = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${map.year}-${map.month}-${map.day}`;
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+async function reserveOpenAiPosterCall(model = POSTER_VISION_MODEL) {
+  const limit = resolveOpenAiPosterDailyLimit();
+  const ymd = getPosterUsageYmd();
+  try {
+    const usage = await AiPosterUsage.findOneAndUpdate(
+      {
+        scope: "openai-poster",
+        ymd,
+        count: { $lt: limit },
+      },
+      {
+        $inc: { count: 1 },
+        $setOnInsert: { scope: "openai-poster", ymd },
+        $set: { lastAttemptAt: new Date(), model },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    ).lean();
+
+    if (!usage) {
+      throw new Error("quota_exceeded");
+    }
+    return { ymd, count: usage.count, limit };
+  } catch (error) {
+    if (error?.code === 11000) {
+      const usage = await AiPosterUsage.findOneAndUpdate(
+        {
+          scope: "openai-poster",
+          ymd,
+          count: { $lt: limit },
+        },
+        {
+          $inc: { count: 1 },
+          $set: { lastAttemptAt: new Date(), model },
+        },
+        { new: true },
+      ).lean();
+      if (usage) return { ymd, count: usage.count, limit };
+    }
+    if (error?.code === 11000 || error?.message === "quota_exceeded") {
+      throw new Error(
+        `Đã đạt giới hạn ${limit} lần gọi OpenAI AI poster trong ngày ${ymd}. Vui lòng thử lại ngày mai hoặc tăng OPENAI_POSTER_DAILY_LIMIT.`,
+      );
+    }
+    throw error;
+  }
+}
 
 const rectSchema = {
   type: "object",
@@ -237,85 +350,76 @@ function getContentText(content) {
   return "";
 }
 
-async function createChatTextCandidates(payload) {
+function toOpenAiResponsesContent(content) {
+  const parts = Array.isArray(content) ? content : [{ type: "text", text: content }];
+  return parts
+    .map((part) => {
+      if (!part) return null;
+      if (typeof part === "string") {
+        return { type: "input_text", text: part };
+      }
+      if (part.type === "text") {
+        return { type: "input_text", text: String(part.text || "") };
+      }
+      if (part.type === "image_url") {
+        const imageUrl = String(part.image_url?.url || "").trim();
+        return imageUrl ? { type: "input_image", image_url: imageUrl } : null;
+      }
+      if (part.type === "input_text" || part.type === "input_image") {
+        return part;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function extractResponsesText(response) {
+  if (typeof response?.output_text === "string" && response.output_text.trim()) {
+    return response.output_text.trim();
+  }
+  const output = Array.isArray(response?.output) ? response.output : [];
+  return output
+    .flatMap((item) => (Array.isArray(item?.content) ? item.content : []))
+    .map((part) => {
+      if (typeof part?.text === "string") return part.text;
+      if (typeof part?.content === "string") return part.content;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function createOpenAiPosterTextCandidates(payload) {
   const messages = Array.isArray(payload?.messages) ? payload.messages : [];
   const system = getContentText(
     messages.find((message) => message?.role === "system")?.content,
   );
   const userMessage = messages.find((message) => message?.role === "user") || {};
-  const result = await createClaudeJsonMessage({
-    model: payload?.model || POSTER_VISION_MODEL,
-    system,
-    content: userMessage.content || [],
-    schema: posterLayoutJsonSchema.schema,
-    toolName: "registration_poster_layout",
-    toolDescription:
-      "Tự phân tích layout poster đăng ký giải đấu, xác định đúng ô trắng avatar và khung tên, rồi trả về JSON đúng schema.",
-    maxTokens: payload?.max_tokens || 4096,
-  });
-
-  return [result.text].filter(Boolean);
-}
-
-async function verifyPosterLayoutWithClaude({ initial, dataUrl, width, height, schemaText }) {
-  const prompt = `
-Bạn là bước kiểm tra cuối cho layout poster PickleTour.
-
-Ảnh template đang có kích thước width=${width}, height=${height}. Dưới đây là JSON layout do bước detect đầu tiên trả:
-${JSON.stringify(initial)}
-
-Hãy nhìn lại ảnh template và sửa JSON nếu có bất kỳ lỗi nào sau đây:
-- avatar không phủ kín đúng phần ruột ô ảnh trắng/kem.
-- avatar che nhãn "VĐV", viền, tab hoặc khung tên.
-- name.textBox không phải panel đen/vàng nơi nickname mới cần nằm chính giữa.
-- name.x/name.y đặt lệch khỏi tâm name.textBox.
-- name.erase hoặc name.eraseRegions không che hết chữ mẫu "HỌ TÊN", "FULL NAME", "NICKNAME".
-- Có chữ mẫu "HỌ TÊN" nằm phía trên nickname mới nhưng không có eraseRegion riêng phủ trọn chữ đó.
-
-Quy tắc bắt buộc:
-- Vẫn trả đầy đủ JSON đúng schema.
-- Mọi sửa đổi vị trí đều phải dựa trên ảnh template, không tự bịa.
-- name.textBox là hình chữ nhật của panel vẽ nickname mới; backend sẽ căn giữa chữ trong textBox này.
-- name.eraseRegions phải là các vùng AI tự detect để xoá chữ mẫu/panel tên; backend sẽ chỉ vẽ theo các vùng này.
-- Nếu layout ban đầu đã đúng, trả lại JSON đó nhưng vẫn đảm bảo đủ name.eraseRegions.
-
-Schema JSON bắt buộc:
-${schemaText}
-`;
-
-  const textCandidates = await createChatTextCandidates({
-    model: POSTER_VISION_MODEL,
-    max_tokens: 4096,
-    messages: [
-      {
-        role: "system",
-        content:
-          "Bạn là model thị giác kiểm tra và sửa layout poster. Chỉ trả JSON đúng schema, không trả markdown.",
-      },
+  const model = payload?.model || POSTER_VISION_MODEL;
+  const client = getOpenAiPosterClient();
+  await reserveOpenAiPosterCall(model);
+  const response = await client.responses.create({
+    model,
+    ...(system ? { instructions: system } : {}),
+    input: [
       {
         role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
-        ],
+        content: toOpenAiResponsesContent(userMessage.content || []),
       },
     ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "registration_poster_layout",
+        strict: true,
+        schema: posterLayoutJsonSchema.schema,
+      },
+    },
+    max_output_tokens: payload?.max_tokens || 4096,
   });
-  if (!textCandidates.length) {
-    throw new Error("AI không trả về JSON khi kiểm tra layout poster.");
-  }
 
-  let lastParseError = null;
-  for (const jsonText of textCandidates) {
-    try {
-      return extractJson(jsonText);
-    } catch (parseError) {
-      lastParseError = parseError;
-    }
-  }
-  throw new Error(
-    `AI trả text nhưng không parse được JSON sau bước kiểm tra: ${lastParseError?.message || "unknown"}`,
-  );
+  return [extractResponsesText(response)].filter(Boolean);
 }
 
 function summarizeRouteError(routeName, error) {
@@ -517,7 +621,7 @@ function normalizeLayout(raw, width, height) {
       charRatio: clamp(raw?.text?.charRatio, 0.35, 1.2, 0.58),
     },
     ai: {
-      source: "claude_vision",
+      source: "openai_vision",
       model: POSTER_VISION_MODEL,
       layoutVersion: POSTER_AI_LAYOUT_VERSION,
       confidence: clamp(raw?.confidence, 0, 1, 0),
@@ -592,7 +696,6 @@ Yêu cầu:
 ${adminPromptBlock}
 `;
 
-  const schemaText = JSON.stringify(posterLayoutJsonSchema.schema);
   const baseMessages = [
     {
       role: "system",
@@ -607,41 +710,11 @@ ${adminPromptBlock}
       ],
     },
   ];
-  const jsonObjectMessages = [
-    baseMessages[0],
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: `${prompt}\n\nSchema JSON bắt buộc:\n${schemaText}\n\nChỉ trả về một JSON object hợp lệ, không markdown, không giải thích.`,
-        },
-        { type: "image_url", image_url: { url: dataUrl, detail: "high" } },
-      ],
-    },
-  ];
   const routes = [
     {
-      name: "chat_json_schema",
+      name: "responses_json_schema",
       payload: {
-        response_format: {
-          type: "json_schema",
-          json_schema: posterLayoutJsonSchema,
-        },
         messages: baseMessages,
-      },
-    },
-    {
-      name: "chat_json_object",
-      payload: {
-        response_format: { type: "json_object" },
-        messages: jsonObjectMessages,
-      },
-    },
-    {
-      name: "chat_plain_json",
-      payload: {
-        messages: jsonObjectMessages,
       },
     },
   ];
@@ -652,7 +725,7 @@ ${adminPromptBlock}
   const routeErrors = [];
   for (const route of routes) {
     try {
-      const textCandidates = await createChatTextCandidates({
+      const textCandidates = await createOpenAiPosterTextCandidates({
         model: POSTER_VISION_MODEL,
         max_tokens: 4096,
         ...route.payload,
@@ -688,21 +761,7 @@ ${adminPromptBlock}
     );
     const detail = routeErrors.join(" | ").slice(0, 700);
     throw new Error(
-      `AI không trả về JSON layout. Đã thử json_schema, json_object và plain JSON. Chi tiết: ${detail}`,
-    );
-  }
-  try {
-    parsed = await verifyPosterLayoutWithClaude({
-      initial: parsed,
-      dataUrl,
-      width,
-      height,
-      schemaText,
-    });
-    usedRoute = `${usedRoute}+verify`;
-  } catch (error) {
-    throw new Error(
-      `AI không xác minh được layout poster: ${String(error?.message || error).slice(0, 500)}`,
+      `OpenAI không trả về JSON layout cho AI poster. Chi tiết: ${detail}`,
     );
   }
   const config = normalizeLayout(parsed, width, height);

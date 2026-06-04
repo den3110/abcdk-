@@ -1052,9 +1052,14 @@ function getPosterConfig(tour = {}) {
     : {};
 }
 
-function isClaudePosterLayoutConfig(cfg = {}) {
+function isPosterAiLayoutConfig(cfg = {}) {
   const source = String(cfg?.ai?.source || "").toLowerCase();
-  return source === "claude_vision" || source.includes("claude");
+  return (
+    source === "openai_vision" ||
+    source.includes("openai") ||
+    source === "claude_vision" ||
+    source.includes("claude")
+  );
 }
 
 function hasPosterAvatarClipPathContract(slot = {}) {
@@ -1134,7 +1139,7 @@ function hasCurrentPosterAiLayoutContract(cfg = {}, playersCount = 2) {
 function shouldTrustPosterAiLayout(tour = {}, playersCount = 2) {
   const cfg = getPosterConfig(tour);
   return (
-    isClaudePosterLayoutConfig(cfg) &&
+    isPosterAiLayoutConfig(cfg) &&
     hasCurrentPosterAiLayoutContract(cfg, playersCount)
   );
 }
@@ -1142,7 +1147,7 @@ function shouldTrustPosterAiLayout(tour = {}, playersCount = 2) {
 function shouldRejectStalePosterAiLayout(tour = {}, playersCount = 2) {
   const cfg = getPosterConfig(tour);
   return (
-    isClaudePosterLayoutConfig(cfg) &&
+    isPosterAiLayoutConfig(cfg) &&
     !hasCurrentPosterAiLayoutContract(cfg, playersCount)
   );
 }
@@ -3214,7 +3219,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   if (shouldRejectStalePosterAiLayout(tour, players.length)) {
     res.status(409);
     throw new Error(
-      "Layout AI poster đã cũ hoặc thiếu mask crop ảnh/vùng vẽ tên/vùng xoá tên. Vui lòng bấm chạy lại AI poster để Claude phân tích lại khung ảnh và vùng tên.",
+      "Layout AI poster đã cũ hoặc thiếu mask crop ảnh/vùng vẽ tên/vùng xoá tên. Vui lòng bấm chạy lại AI poster để OpenAI phân tích lại khung ảnh và vùng tên.",
     );
   }
   const layout = resolvePosterLayout(tour, players.length, width, height);
