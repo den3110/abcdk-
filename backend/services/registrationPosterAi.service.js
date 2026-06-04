@@ -7,7 +7,7 @@ import {
 } from "../lib/anthropicClient.js";
 
 const MAX_ANALYSIS_WIDTH = 1024;
-const POSTER_AI_LAYOUT_VERSION = 5;
+const POSTER_AI_LAYOUT_VERSION = 6;
 
 function resolvePosterVisionModel() {
   return String(CLAUDE_POSTER_VISION_MODEL || "claude-opus-4-8").trim() ||
@@ -102,6 +102,7 @@ const slotSchema = {
         y: { type: "number" },
         w: { type: "number" },
         h: { type: "number" },
+        textBox: rectSchema,
         erase: rectSchema,
         eraseRegions: {
           type: "array",
@@ -117,6 +118,7 @@ const slotSchema = {
         "y",
         "w",
         "h",
+        "textBox",
         "erase",
         "eraseRegions",
         "minFontSize",
@@ -265,13 +267,15 @@ ${JSON.stringify(initial)}
 Hãy nhìn lại ảnh template và sửa JSON nếu có bất kỳ lỗi nào sau đây:
 - avatar không phủ kín đúng phần ruột ô ảnh trắng/kem.
 - avatar che nhãn "VĐV", viền, tab hoặc khung tên.
-- name.x/name.y đặt lệch khỏi tâm vùng tên cần thay.
+- name.textBox không phải panel đen/vàng nơi nickname mới cần nằm chính giữa.
+- name.x/name.y đặt lệch khỏi tâm name.textBox.
 - name.erase hoặc name.eraseRegions không che hết chữ mẫu "HỌ TÊN", "FULL NAME", "NICKNAME".
 - Có chữ mẫu "HỌ TÊN" nằm phía trên nickname mới nhưng không có eraseRegion riêng phủ trọn chữ đó.
 
 Quy tắc bắt buộc:
 - Vẫn trả đầy đủ JSON đúng schema.
 - Mọi sửa đổi vị trí đều phải dựa trên ảnh template, không tự bịa.
+- name.textBox là hình chữ nhật của panel vẽ nickname mới; backend sẽ căn giữa chữ trong textBox này.
 - name.eraseRegions phải là các vùng AI tự detect để xoá chữ mẫu/panel tên; backend sẽ chỉ vẽ theo các vùng này.
 - Nếu layout ban đầu đã đúng, trả lại JSON đó nhưng vẫn đảm bảo đủ name.eraseRegions.
 
@@ -372,6 +376,9 @@ function normalizeSlot(slot, width, height) {
   if (!erase || typeof erase !== "object") {
     throw new Error("AI poster layout thiếu name.erase cho vùng xoá tên.");
   }
+  if (!name?.textBox || typeof name.textBox !== "object") {
+    throw new Error("AI poster layout thiếu name.textBox cho vùng vẽ tên.");
+  }
   if (!Array.isArray(name?.eraseRegions) || !name.eraseRegions.length) {
     throw new Error("AI poster layout thiếu name.eraseRegions cho vùng xoá tên.");
   }
@@ -383,6 +390,7 @@ function normalizeSlot(slot, width, height) {
     throw new Error("AI poster layout trả name/name.erase không hợp lệ.");
   }
   const eraseRect = normalizeEraseRegion(erase, width, height, "name.erase");
+  const textBox = normalizeEraseRegion(name.textBox, width, height, "name.textBox");
   const eraseRegions = name.eraseRegions
     .slice(0, 6)
     .map((region, idx) =>
@@ -390,8 +398,8 @@ function normalizeSlot(slot, width, height) {
     );
   const avatarW = clamp(avatar.w, 1, width, Math.round(width * 0.3));
   const avatarH = clamp(avatar.h, 1, height, Math.round(width * 0.3));
-  const nameW = clamp(nameWRaw, 1, width, Math.round(width * 0.4));
-  const nameH = clamp(nameHRaw, 1, height, Math.round(height * 0.06));
+  const nameW = textBox.w;
+  const nameH = textBox.h;
   return {
     avatar: {
       x: clamp(avatar.x, 0, width, 0),
@@ -408,10 +416,11 @@ function normalizeSlot(slot, width, height) {
       clipPath: normalizeClipPath(avatar.clipPath, width, height),
     },
     name: {
-      x: clamp(nameX, 0, width, Math.round(width / 2)),
-      y: clamp(nameY, 0, height, Math.round(height * 0.65)),
+      x: clamp(textBox.x + textBox.w / 2, 0, width, Math.round(width / 2)),
+      y: clamp(textBox.y + textBox.h / 2, 0, height, Math.round(height * 0.65)),
       w: nameW,
       h: nameH,
+      textBox,
       erase: eraseRect,
       eraseRegions,
       minFontSize: clamp(name.minFontSize, 8, 96, 22),
@@ -440,6 +449,12 @@ function deriveSingleSlotFromDouble(slots, width, height) {
       b.name.erase.y + b.name.erase.h,
     ) - eraseY;
   const erase = { x: eraseX, y: eraseY, w: eraseW, h: eraseH };
+  const textBox = {
+    x: eraseX,
+    y: eraseY,
+    w: eraseW,
+    h: Math.max(a.name.textBox.h, b.name.textBox.h),
+  };
   return normalizeSlot(
     {
       avatar: {
@@ -455,6 +470,7 @@ function deriveSingleSlotFromDouble(slots, width, height) {
         y: (a.name.y + b.name.y) / 2,
         w: Math.max(a.name.w, b.name.w),
         h: Math.max(a.name.h, b.name.h),
+        textBox,
         erase,
         eraseRegions: [erase],
         minFontSize: Math.min(a.name.minFontSize, b.name.minFontSize),
@@ -554,13 +570,15 @@ Yêu cầu:
 - Nếu không chắc khung có phải rounded_rect đơn giản hay không, hãy ưu tiên polygon.
 - Với polygon, avatar.x/y/w/h vẫn là bounding box bao toàn bộ vùng polygon sau khi đã né viền/tab, còn clipPath.points mới là hình crop thật. Dùng khoảng 6-16 điểm; chỉ dùng nhiều hơn nếu khung thật sự phức tạp.
 - name là vùng placeholder tên cần bị thay thế, thường là ô lớn có chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" hoặc vùng tên riêng bên dưới ảnh.
-- name.x/name.y phải là tâm của chính placeholder tên cần thay thế. name.w/name.h phải bao phủ toàn bộ vùng chữ placeholder để backend xoá đúng vùng đó rồi vẽ nickname vào cùng vị trí.
+- name.textBox là hình chữ nhật của panel nơi backend sẽ vẽ nickname mới. textBox.x/textBox.y là góc trái trên panel tên, textBox.w/textBox.h là kích thước panel tên. Chọn đúng ô đen/vàng lớn dành cho tên VĐV, không chọn nhãn "VĐV", không chọn dòng xác nhận, không chọn tiêu đề giải.
+- name.x/name.y phải là tâm của name.textBox. name.w/name.h phải bằng kích thước name.textBox để backend căn giữa nickname trong panel đó.
 - name.erase là hình chữ nhật xoá placeholder tên, với x/y là góc trái trên và w/h là kích thước. name.erase phải bao phủ TOÀN BỘ chữ mẫu như "HỌ TÊN", "FULL NAME", "NICKNAME" và nền panel tên cần che, không được để sót phần trên của chữ mẫu cũ.
 - name.eraseRegions là danh sách các hình chữ nhật xoá do AI tự detect. Mỗi vùng phải bao phủ một cụm chữ mẫu hoặc nền panel cần xoá trước khi vẽ nickname. Nếu chữ "HỌ TÊN" nằm cao hơn nickname mới, phải có một eraseRegion riêng bao phủ trọn chữ "HỌ TÊN" đó.
 - Nếu placeholder tên có nhiều phần bị tách nhau bởi viền/trang trí, trả nhiều eraseRegions nhỏ thay vì một vùng lớn che nhầm sang nhãn "VĐV", avatar, dòng xác nhận, tiêu đề hoặc footer.
 - Với template có chữ "HỌ TÊN" nằm phía trên vị trí tên thật, name.erase.y phải nằm cao hơn điểm cao nhất của chữ "HỌ TÊN"; name.erase.h phải kết thúc thấp hơn điểm thấp nhất của placeholder đó.
 - Tự kiểm tra bằng mắt trước khi trả JSON: nếu backend vẽ một hình chữ nhật tối lên từng eraseRegion thì toàn bộ chữ mẫu "HỌ TÊN"/"FULL NAME"/"NICKNAME" phải biến mất, còn nhãn "VĐV" vẫn còn.
-- name.x/name.y là tâm nơi backend vẽ nickname mới. Thường name.x/name.y nằm gần tâm name.erase; tuyệt đối không đặt thấp xuống làm chữ mẫu cũ lộ phía trên.
+- Tự kiểm tra vị trí chữ mới: nếu backend vẽ nickname ở tâm name.textBox thì nickname phải nằm gọn trong panel tên, không nằm đè lên ảnh, nhãn "VĐV", dòng xác nhận, tiêu đề giải hoặc footer.
+- name.x/name.y là tâm nơi backend vẽ nickname mới. name.x/name.y phải nằm trong name.textBox; tuyệt đối không đặt theo tâm eraseRegions nếu eraseRegions chỉ là vùng xoá chữ mẫu phía trên.
 - Không đặt name ở dưới placeholder, không đặt name ở khoảng giữa khung tên và footer, và không đặt name theo vị trí avatar nếu trên poster đã có vùng placeholder tên rõ ràng.
 - Phải giữ nguyên nhãn vai trò nhỏ như "VĐV", "PLAYER", "ATHLETE"; tuyệt đối không chọn các nhãn này làm name.
 - Nếu một slot có cả nhãn vai trò "VĐV" và chữ "HỌ TÊN", name phải là vùng "HỌ TÊN"; avatar vẫn là vùng ảnh bên trên; nhãn "VĐV" phải nằm ngoài vùng name.

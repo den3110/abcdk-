@@ -1078,9 +1078,16 @@ function hasPosterAvatarClipPathContract(slot = {}) {
 }
 
 function hasPosterNameEraseContract(slot = {}) {
+  const textBox = slot?.name?.textBox;
   const erase = slot?.name?.erase;
   const eraseRegions = slot?.name?.eraseRegions;
   return (
+    textBox &&
+    typeof textBox === "object" &&
+    Number.isFinite(Number(textBox.x ?? textBox.left)) &&
+    Number.isFinite(Number(textBox.y ?? textBox.top)) &&
+    Number.isFinite(Number(textBox.w ?? textBox.width)) &&
+    Number.isFinite(Number(textBox.h ?? textBox.height)) &&
     erase &&
     typeof erase === "object" &&
     Number.isFinite(Number(erase.x ?? erase.left)) &&
@@ -1112,7 +1119,7 @@ function getRawPosterSlotsForCount(cfg = {}, playersCount = 2) {
 
 function hasCurrentPosterAiLayoutContract(cfg = {}, playersCount = 2) {
   const layoutVersion = Number(cfg?.ai?.layoutVersion || 0);
-  if (layoutVersion < 5) return false;
+  if (layoutVersion < 6) return false;
   const slots = getRawPosterSlotsForCount(cfg, playersCount);
   const expected = Math.max(1, Math.min(Number(playersCount) || 1, 2));
   if (!Array.isArray(slots) || slots.length < expected) return false;
@@ -1275,6 +1282,8 @@ function resolvePosterClipPath(clipPath, width, height, baseWidth, baseHeight) {
 }
 
 function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
+  const rawTextBox =
+    name.textBox && typeof name.textBox === "object" ? name.textBox : null;
   const rawErase = name.erase && typeof name.erase === "object" ? name.erase : null;
   const rawEraseRegions = Array.isArray(name.eraseRegions)
     ? name.eraseRegions
@@ -1291,14 +1300,23 @@ function resolvePosterName(name = {}, width, height, baseWidth, baseHeight) {
       scaleCoord(box.height ?? box.h, height, baseHeight, 1),
     ),
   });
+  const textBox = rawTextBox ? scaleEraseBox(rawTextBox) : null;
+  const fallbackHeight =
+    name.height || name.h
+      ? Math.max(1, scaleCoord(name.height ?? name.h, height, baseHeight, 1))
+      : undefined;
   return {
-    cx: scaleCoord(name.cx ?? name.x, width, baseWidth),
-    y: scaleCoord(name.y ?? name.top, height, baseHeight),
-    width: Math.max(1, scaleCoord(name.width ?? name.w, width, baseWidth, 1)),
-    height:
-      name.height || name.h
-        ? Math.max(1, scaleCoord(name.height ?? name.h, height, baseHeight, 1))
-        : undefined,
+    cx: textBox
+      ? textBox.left + textBox.width / 2
+      : scaleCoord(name.cx ?? name.x, width, baseWidth),
+    y: textBox
+      ? textBox.top + textBox.height / 2
+      : scaleCoord(name.y ?? name.top, height, baseHeight),
+    width: textBox
+      ? textBox.width
+      : Math.max(1, scaleCoord(name.width ?? name.w, width, baseWidth, 1)),
+    height: textBox ? textBox.height : fallbackHeight,
+    textBox: textBox || undefined,
     erase: rawErase
       ? scaleEraseBox(rawErase)
       : undefined,
@@ -1472,6 +1490,26 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
       const textCfg = { ...layout.text, ...(slot.name || {}) };
       const rawName = formatPosterName(asDisplayName(player, tour), textCfg);
       const name = escapeXml(rawName);
+      const toBackgroundBox = (box = {}) =>
+        Number.isFinite(Number(box.left)) &&
+        Number.isFinite(Number(box.top)) &&
+        Number.isFinite(Number(box.width)) &&
+        Number.isFinite(Number(box.height))
+          ? {
+              left: Number(box.left),
+              top: Number(box.top),
+              width: Math.max(1, Number(box.width)),
+              height: Math.max(1, Number(box.height)),
+            }
+          : null;
+      const textBox = toBackgroundBox(slot.name.textBox);
+      const drawCx = textBox
+        ? textBox.left + textBox.width / 2
+        : slot.name.cx;
+      const drawY = textBox
+        ? textBox.top + textBox.height / 2
+        : slot.name.y;
+      const drawWidth = textBox ? textBox.width : slot.name.width;
       const minFontSize = scaleFont(
         textCfg.minFontSize,
         height,
@@ -1495,14 +1533,14 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
           textCfg.fontSize
             ? scaleFont(textCfg.fontSize, height, layout.baseHeight, maxFontSize)
             : Math.floor(
-                slot.name.width / Math.max(8, rawName.length * charRatio),
+                drawWidth / Math.max(8, rawName.length * charRatio),
               ),
         ),
       );
       const estimatedWidth = rawName.length * size * charRatio;
       const fitAttrs =
-        estimatedWidth > slot.name.width
-          ? `textLength="${Math.max(1, Math.floor(slot.name.width))}" lengthAdjust="spacingAndGlyphs"`
+        estimatedWidth > drawWidth
+          ? `textLength="${Math.max(1, Math.floor(drawWidth))}" lengthAdjust="spacingAndGlyphs"`
           : "";
       const stroke =
         textCfg.stroke && textCfg.strokeWidth
@@ -1511,36 +1549,26 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
               0,
             )}"`
           : "";
-      const toBackgroundBox = (box = {}) =>
-        Number.isFinite(Number(box.left)) &&
-        Number.isFinite(Number(box.top)) &&
-        Number.isFinite(Number(box.width)) &&
-        Number.isFinite(Number(box.height))
-          ? {
-              left: Number(box.left),
-              top: Number(box.top),
-              width: Math.max(1, Number(box.width)),
-              height: Math.max(1, Number(box.height)),
-            }
-          : null;
       const eraseBox = slot.name.erase || {};
       const explicitNameHeight = Number(slot.name.height ?? slot.name.h);
       const backgroundHeight = Math.max(size * 1.55, maxFontSize * 1.1);
-      const backgroundWidth = Math.max(1, slot.name.width * 0.94);
+      const backgroundWidth = Math.max(1, drawWidth * 0.94);
       const explicitEraseBox = toBackgroundBox(eraseBox);
       const backgroundBox =
-        explicitEraseBox
-          ? explicitEraseBox
+        textBox
+          ? textBox
+          : explicitEraseBox
+            ? explicitEraseBox
           : Number.isFinite(explicitNameHeight) && explicitNameHeight > 0
             ? {
-                left: slot.name.cx - slot.name.width / 2,
-                top: slot.name.y - explicitNameHeight / 2,
-                width: slot.name.width,
+                left: drawCx - drawWidth / 2,
+                top: drawY - explicitNameHeight / 2,
+                width: drawWidth,
                 height: explicitNameHeight,
               }
           : {
-              left: slot.name.cx - backgroundWidth / 2,
-              top: slot.name.y - backgroundHeight / 2,
+              left: drawCx - backgroundWidth / 2,
+              top: drawY - backgroundHeight / 2,
               width: backgroundWidth,
               height: backgroundHeight,
             };
@@ -1548,7 +1576,12 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
         ? slot.name.eraseRegions.map(toBackgroundBox).filter(Boolean)
         : [];
       const seenBoxes = new Set();
-      const backgroundBoxes = [backgroundBox, ...eraseRegionBoxes].filter((box) => {
+      const backgroundBoxes = [
+        backgroundBox,
+        explicitEraseBox,
+        ...eraseRegionBoxes,
+      ].filter((box) => {
+        if (!box) return false;
         const key = [
           Math.round(box.left),
           Math.round(box.top),
@@ -1587,7 +1620,7 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
       );
       return `
         ${backgroundNode}
-        <text x="${slot.name.cx}" y="${slot.name.y}" text-anchor="middle"
+        <text x="${drawCx}" y="${drawY}" text-anchor="middle"
           dominant-baseline="middle" font-family="${escapeXml(textCfg.fontFamily)}"
           font-size="${size}" font-weight="${escapeXml(textCfg.fontWeight)}"
           font-style="${escapeXml(textCfg.fontStyle)}"
@@ -3181,7 +3214,7 @@ export const getRegistrationPoster = asyncHandler(async (req, res) => {
   if (shouldRejectStalePosterAiLayout(tour, players.length)) {
     res.status(409);
     throw new Error(
-      "Layout AI poster đã cũ hoặc thiếu mask crop ảnh/vùng xoá tên. Vui lòng bấm chạy lại AI poster để Claude phân tích lại khung ảnh và vùng tên.",
+      "Layout AI poster đã cũ hoặc thiếu mask crop ảnh/vùng vẽ tên/vùng xoá tên. Vui lòng bấm chạy lại AI poster để Claude phân tích lại khung ảnh và vùng tên.",
     );
   }
   const layout = resolvePosterLayout(tour, players.length, width, height);
