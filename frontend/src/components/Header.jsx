@@ -84,9 +84,10 @@ export default function Header() {
     () => [
       { label: t("header.nav.tournaments"), path: "/pickle-ball/tournaments" },
       { label: t("header.nav.rankings"), path: "/pickle-ball/rankings" },
-      { label: "Đặt sân", path: "/courts" },
+      // Tạm thời chỉ hiện "Đặt sân" cho admin
+      ...(isAdmin ? [{ label: "Đặt sân", path: "/courts" }] : []),
     ],
-    [t],
+    [t, isAdmin],
   );
 
   const [canGoBack, setCanGoBack] = useState(false);
@@ -266,11 +267,12 @@ export default function Header() {
         path: "/clubs",
         badge: showClubNewBadge ? "NEW" : "",
       });
-      items.push({ label: "Lượt đặt sân của tôi", path: "/my-bookings" });
-      items.push({ label: "Quản lý sân", path: "/owner/venues" });
     }
 
     if (isAdmin) {
+      // Tạm thời chỉ hiện phần đặt sân cho admin
+      items.push({ label: "Lượt đặt sân của tôi", path: "/my-bookings" });
+      items.push({ label: "Quản lý sân", path: "/owner/venues" });
       items.push({ label: t("header.nav.admin"), path: "/admin" });
     }
 
