@@ -2456,8 +2456,18 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
 
     // ========================================================
 
+    // Chuẩn hoá URL ảnh CCCD giống danh sách admin (getUsersWithRank)
+    const isProdEnv = process.env.NODE_ENV === "production";
+    const cccdImagesPublic = isProdEnv
+      ? {
+          front: toClientPublicUrl(req, rest?.cccdImages?.front || ""),
+          back: toClientPublicUrl(req, rest?.cccdImages?.back || ""),
+        }
+      : rest?.cccdImages || { front: "", back: "" };
+
     return res.json({
       ...rest,
+      cccdImages: cccdImagesPublic,
       joinedAt: rest.createdAt,
       lastLoginAt: lastLogin || null,
       loginHistory: history,

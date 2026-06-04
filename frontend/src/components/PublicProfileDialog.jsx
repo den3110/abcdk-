@@ -52,6 +52,9 @@ import LeaderboardIcon from "@mui/icons-material/Leaderboard";
 import TableChartIcon from "@mui/icons-material/TableChart";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import InboxIcon from "@mui/icons-material/Inbox";
+import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
+import VerifiedIcon from "@mui/icons-material/Verified";
+import CancelIcon from "@mui/icons-material/Cancel";
 import { useSelector } from "react-redux";
 import { skipToken } from "@reduxjs/toolkit/query";
 
@@ -62,6 +65,7 @@ import {
   useDeleteRatingHistoryMutation,
   useGetUserAchievementsQuery,
 } from "../slices/usersApiSlice";
+import { useReviewKycMutation } from "../slices/adminApiSlice";
 import ResponsiveMatchViewer from "../screens/PickleBall/match/ResponsiveMatchViewer";
 
 /* ---------- placeholders ---------- */
@@ -138,6 +142,26 @@ function genderLabel(g) {
 
   return "Không xác định";
 }
+
+/* ---------- KYC (CCCD) labels & colors ---------- */
+const KYC_LABELS = {
+  unverified: "Chưa xác minh",
+  pending: "Chờ duyệt",
+  verified: "Đã xác minh",
+  rejected: "Bị từ chối",
+};
+const KYC_COLORS = {
+  unverified: "default",
+  pending: "warning",
+  verified: "success",
+  rejected: "error",
+};
+const kycStatusKey = (b) => {
+  const s = String(b?.cccdStatus || "unverified");
+  return ["unverified", "pending", "verified", "rejected"].includes(s)
+    ? s
+    : "unverified";
+};
 
 /* --------- score helpers --------- */
 function toScoreLines(m) {
@@ -552,6 +576,29 @@ function PublicProfileDialog({ open, onClose, userId }) {
       !!(s?.auth?.userInfo?.isAdmin || s?.auth?.userInfo?.role === "admin"),
   );
 
+  /* --- duyệt / từ chối KYC (admin) --- */
+  const [reviewKyc, { isLoading: kycSubmitting }] = useReviewKycMutation();
+  const [kycAction, setKycAction] = useState(null); // "approve" | "reject" | null
+
+  async function handleReviewKyc(action) {
+    if (!userId || kycSubmitting) return;
+    try {
+      setKycAction(action);
+      await reviewKyc({ id: userId, action }).unwrap();
+      openSnack(action === "approve" ? "Đã duyệt KYC." : "Đã từ chối KYC.");
+      await baseQ.refetch();
+    } catch (e) {
+      const msg =
+        e?.data?.message ||
+        e?.error ||
+        e?.message ||
+        "Thao tác thất bại. Vui lòng thử lại.";
+      openSnack(msg, "error");
+    } finally {
+      setKycAction(null);
+    }
+  }
+
   /* --- backend pagination --- */
   const ratingPaged = Array.isArray(rateQ.data?.history)
     ? rateQ.data.history
@@ -566,6 +613,9 @@ function PublicProfileDialog({ open, onClose, userId }) {
   /* --- match detail modal --- */
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
+
+  /* --- KYC (CCCD) modal: chỉ admin --- */
+  const [kycOpen, setKycOpen] = useState(false);
   const detailViewerKey = String(
     detail?._id || detail?.id || detail?.code || detail?.dateTime || "match",
   );
@@ -578,6 +628,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
     if (open) return;
     setDetailOpen(false);
     setDetail(null);
+    setKycOpen(false);
   }, [open]);
 
   /* --- ZOOM image state & dialog --- */
@@ -637,6 +688,174 @@ function PublicProfileDialog({ open, onClose, userId }) {
             />
           </Box>
         </Box>
+      </Dialog>
+    );
+  }
+
+  /* ---------- KYC (CCCD) dialog — chỉ hiển thị cho admin ---------- */
+  function KycDialog({ open, onClose }) {
+    const fullScreen = isMobile;
+    const s = kycStatusKey(base);
+    const front = base?.cccdImages?.front || "";
+    const back = base?.cccdImages?.back || "";
+    const sides = [
+      { key: "front", label: "Mặt trước", src: front },
+      { key: "back", label: "Mặt sau", src: back },
+    ];
+    const hasImages = Boolean(front || back);
+
+    return (
+      <Dialog
+        open={open}
+        onClose={onClose}
+        fullScreen={fullScreen}
+        maxWidth="md"
+        fullWidth={!fullScreen}
+        PaperProps={{
+          sx: fullScreen ? { m: 0, borderRadius: 0 } : { borderRadius: 3 },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            pr: 7,
+            position: "sticky",
+            top: 0,
+            zIndex: 2,
+            bgcolor: "background.paper",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          Thông tin KYC / CCCD
+          <IconButton
+            onClick={onClose}
+            sx={{ position: "absolute", right: 8, top: 8 }}
+            aria-label="close"
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent
+          dividers
+          sx={{ p: { xs: 2, md: 3 }, bgcolor: "background.default" }}
+        >
+          <Stack spacing={2}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              flexWrap="wrap"
+              rowGap={1}
+            >
+              <Typography variant="subtitle2" fontWeight={700}>
+                Trạng thái xác minh
+              </Typography>
+              <Chip
+                size="small"
+                icon={s === "verified" ? <VerifiedIcon /> : undefined}
+                color={KYC_COLORS[s]}
+                label={KYC_LABELS[s]}
+              />
+            </Stack>
+
+            {hasImages ? (
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                {sides.map(({ key, label, src }) => (
+                  <Paper
+                    key={key}
+                    variant="outlined"
+                    sx={{ flex: 1, p: 1, textAlign: "center" }}
+                  >
+                    {src ? (
+                      <Box
+                        component="img"
+                        src={src}
+                        alt={label}
+                        sx={{
+                          width: "100%",
+                          height: 200,
+                          objectFit: "contain",
+                          cursor: "zoom-in",
+                          display: "block",
+                        }}
+                        onClick={() => openZoom(src, label)}
+                      />
+                    ) : (
+                      <Box
+                        sx={{
+                          height: 200,
+                          display: "grid",
+                          placeItems: "center",
+                          color: "text.disabled",
+                        }}
+                      >
+                        Không có ảnh
+                      </Box>
+                    )}
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        mt: 1,
+                        display: "block",
+                        fontWeight: 600,
+                        color: "text.secondary",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {label}
+                    </Typography>
+                  </Paper>
+                ))}
+              </Stack>
+            ) : (
+              <Alert severity="info">Người dùng chưa tải lên ảnh CCCD.</Alert>
+            )}
+
+            <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.paper" }}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                Thông tin người dùng
+              </Typography>
+              <Stack spacing={0.75}>
+                <InfoRow label="Họ và tên" value={safe(base?.name)} />
+                <InfoRow
+                  label="Ngày sinh"
+                  value={base?.dob ? fmtDate(base.dob) : TEXT_PLACE}
+                />
+                <InfoRow label="Số CCCD" value={safe(base?.cccd)} />
+                <InfoRow
+                  label="Khu vực"
+                  value={safe(base?.province, "Không rõ")}
+                />
+              </Stack>
+            </Paper>
+          </Stack>
+        </DialogContent>
+
+        <DialogActions sx={{ p: 2, gap: 1, flexWrap: "wrap" }}>
+          <Button onClick={onClose} variant="outlined" color="inherit">
+            Đóng
+          </Button>
+          <Box sx={{ flexGrow: 1, display: { xs: "none", sm: "block" } }} />
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<CancelIcon />}
+            disabled={kycSubmitting}
+            onClick={() => handleReviewKyc("reject")}
+          >
+            {kycAction === "reject" ? "Đang xử lý…" : "Từ chối"}
+          </Button>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<VerifiedIcon />}
+            disabled={kycSubmitting}
+            onClick={() => handleReviewKyc("approve")}
+          >
+            {kycAction === "approve" ? "Đang xử lý…" : "Duyệt"}
+          </Button>
+        </DialogActions>
       </Dialog>
     );
   }
@@ -709,6 +928,23 @@ function PublicProfileDialog({ open, onClose, userId }) {
                   label={base.isAdmin ? "Quyền: Admin" : "Quyền: User"}
                 />
               )}
+              <Chip
+                size="small"
+                color={KYC_COLORS[kycStatusKey(base)]}
+                icon={
+                  kycStatusKey(base) === "verified" ? <VerifiedIcon /> : undefined
+                }
+                label={`KYC: ${KYC_LABELS[kycStatusKey(base)]}`}
+              />
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<BadgeOutlinedIcon />}
+                onClick={() => setKycOpen(true)}
+                sx={{ textTransform: "none", borderRadius: 5, py: 0.1 }}
+              >
+                Xem KYC
+              </Button>
               {base?._id && (
                 <Chip
                   size="small"
@@ -2342,6 +2578,10 @@ function PublicProfileDialog({ open, onClose, userId }) {
         </Drawer>
 
         {ImageZoomDialog({ open: zoom.open, src: zoom.src, title: zoom.title, onClose: closeZoom })}
+        {KycDialog({
+          open: Boolean(kycOpen && viewerIsAdmin),
+          onClose: () => setKycOpen(false),
+        })}
         {SnackRender}
       </>
     );
@@ -2423,6 +2663,10 @@ function PublicProfileDialog({ open, onClose, userId }) {
       </Dialog>
 
       {ImageZoomDialog({ open: zoom.open, src: zoom.src, title: zoom.title, onClose: closeZoom })}
+      {KycDialog({
+        open: Boolean(kycOpen && viewerIsAdmin),
+        onClose: () => setKycOpen(false),
+      })}
       {SnackRender}
     </>
   );
