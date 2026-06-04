@@ -64,6 +64,13 @@ import ServiceUnavailable from "./screens/503.jsx";
 import PublicProfilePage from "./screens/PublicProfilePage.jsx";
 import ClubsListPage from "./screens/clubs/ClubsListPage.jsx";
 import ClubDetailPage from "./components/ClubDetailPage.jsx";
+import CourtsBrowsePage from "./screens/courts/CourtsBrowsePage.jsx";
+import VenueDetailPage from "./screens/courts/VenueDetailPage.jsx";
+import MyBookingsPage from "./screens/courts/MyBookingsPage.jsx";
+import OwnerVenuesPage from "./screens/courts/owner/OwnerVenuesPage.jsx";
+import VenueEditorPage from "./screens/courts/owner/VenueEditorPage.jsx";
+import VenueBookingsPage from "./screens/courts/owner/VenueBookingsPage.jsx";
+import VenueRevenuePage from "./screens/courts/owner/VenueRevenuePage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import "@fontsource-variable/montserrat";
 import { ThemeContextProvider } from "./context/ThemeContext.jsx";
@@ -191,9 +198,22 @@ const router = sentryCreateBrowserRouter(
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/levelpoint" element={<LevelPointPage />} />
           <Route path="/my-tournaments" element={<MyTournamentsPage />} />
+          <Route path="/my-bookings" element={<MyBookingsPage />} />
+          <Route path="/owner/venues" element={<OwnerVenuesPage />} />
+          <Route path="/owner/venues/:id" element={<VenueEditorPage />} />
+          <Route
+            path="/owner/venues/:id/bookings"
+            element={<VenueBookingsPage />}
+          />
+          <Route
+            path="/owner/venues/:id/revenue"
+            element={<VenueRevenuePage />}
+          />
         </Route>
         <Route path="/clubs" element={<ClubsListPage />} />
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
+        <Route path="/courts" element={<CourtsBrowsePage />} />
+        <Route path="/courts/:id" element={<VenueDetailPage />} />
         <Route path="/live" element={<LiveFeedPage />} />
         <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />

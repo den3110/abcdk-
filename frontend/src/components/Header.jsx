@@ -84,6 +84,7 @@ export default function Header() {
     () => [
       { label: t("header.nav.tournaments"), path: "/pickle-ball/tournaments" },
       { label: t("header.nav.rankings"), path: "/pickle-ball/rankings" },
+      { label: "Đặt sân", path: "/courts" },
     ],
     [t],
   );
@@ -265,6 +266,8 @@ export default function Header() {
         path: "/clubs",
         badge: showClubNewBadge ? "NEW" : "",
       });
+      items.push({ label: "Lượt đặt sân của tôi", path: "/my-bookings" });
+      items.push({ label: "Quản lý sân", path: "/owner/venues" });
     }
 
     if (isAdmin) {

@@ -61,6 +61,8 @@ export function getRoleLabel(t, role) {
       return t("admin.users.roles.admin");
     case "referee":
       return t("admin.users.roles.referee");
+    case "courtowner":
+      return "Chủ sân";
     case "superadmin":
     case "superuser":
       return t("admin.users.roles.superAdmin");

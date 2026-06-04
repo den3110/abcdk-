@@ -812,6 +812,68 @@ export const uploadTournamentRegistrationPosterTemplate = expressAsyncHandler(
   },
 );
 
+export const setTournamentRegistrationPosterTemplateUrl = expressAsyncHandler(
+  async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400);
+      throw new Error("ID giải đấu không hợp lệ");
+    }
+
+    const rawUrl = String(req.body?.url || "").trim();
+    if (!rawUrl) {
+      res.status(400);
+      throw new Error("Bạn cần nhập link ảnh mẫu poster");
+    }
+    if (!/^https?:\/\//i.test(rawUrl)) {
+      res.status(400);
+      throw new Error("Link ảnh phải bắt đầu bằng http:// hoặc https://");
+    }
+
+    const tour = await Tournament.findById(id).select("_id").lean();
+    if (!tour) {
+      res.status(404);
+      throw new Error("Không tìm thấy giải đấu");
+    }
+
+    // Tải thử + xác thực là ảnh hợp lệ (tương tự luồng upload file)
+    try {
+      const response = await fetch(rawUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await sharp(buffer).metadata();
+    } catch (error) {
+      res.status(400);
+      throw new Error(
+        "Không tải được ảnh từ link này. Hãy kiểm tra lại URL (cần là link ảnh trực tiếp).",
+      );
+    }
+
+    const nextConfig = {
+      templateUrl: rawUrl,
+      templateUploadedAt: new Date().toISOString(),
+      templateOriginalName: String(rawUrl.split("/").pop() || "")
+        .split("?")[0]
+        .slice(0, 180),
+      needsAnalysis: true,
+    };
+
+    await Tournament.updateOne(
+      { _id: id },
+      { $set: { registrationPosterConfig: nextConfig } },
+    );
+    await clearTournamentPresentationCaches();
+
+    res.json({
+      ok: true,
+      templateUrl: rawUrl,
+      config: nextConfig,
+    });
+  },
+);
+
 const isObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 const normalizeAllowedCourtClusterIds = (value) => {
   if (!Array.isArray(value)) return [];

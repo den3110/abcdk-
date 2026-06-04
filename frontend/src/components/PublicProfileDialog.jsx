@@ -1030,6 +1030,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
                 <InfoRow label="Nickname" value={TEXT_PLACE} />
               )}
               <InfoRow label="Giới tính" value={genderLabel(base?.gender)} />
+              <InfoRow label="Ngày sinh" value={fmtDate(base?.dob)} />
               <InfoRow
                 label="Tỉnh/TP"
                 value={safe(base?.province, "Không rõ")}

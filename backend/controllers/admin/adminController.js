@@ -57,7 +57,7 @@ export const getUsers = asyncHandler(async (req, res) => {
  */
 export const updateUserRole = asyncHandler(async (req, res) => {
   const { role } = req.body;
-  if (!["user", "referee", "admin"].includes(role)) {
+  if (!["user", "referee", "courtOwner", "admin"].includes(role)) {
     res.status(400);
     throw new Error("Role kh?ng h?p l?");
   }

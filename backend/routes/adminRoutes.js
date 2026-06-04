@@ -9,6 +9,12 @@ import {
   updateUserSuperAdmin,
 } from "../controllers/admin/adminController.js";
 import {
+  adminListVenues,
+  adminGetVenue,
+  adminSetVenueStatus,
+  adminListBookings,
+} from "../controllers/admin/adminVenueController.js";
+import {
   protect,
   authorize,
   isManagerTournament,
@@ -29,6 +35,7 @@ import {
 } from "../controllers/scoreHistoryController.js";
 import {
   analyzeTournamentRegistrationPoster,
+  setTournamentRegistrationPosterTemplateUrl,
   adminCreateTournament,
   adminUpdateTournament,
   deleteTournament,
@@ -445,6 +452,12 @@ router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
 
+// ===== Quản lý đặt sân (venues/bookings) =====
+router.get("/venues", adminListVenues);
+router.get("/venues/:id", adminGetVenue);
+router.patch("/venues/:id/status", adminSetVenueStatus);
+router.get("/bookings", adminListBookings);
+
 router.put("/rankings/:id", adminUpdateRanking);
 
 router.get("/score-history", listScoreHistory); // ?user=&page=
@@ -471,6 +484,10 @@ router.post(
 router.post(
   "/tournaments/:id/registration-poster/analyze",
   analyzeTournamentRegistrationPoster,
+);
+router.post(
+  "/tournaments/:id/registration-poster/template-url",
+  setTournamentRegistrationPosterTemplateUrl,
 );
 
 router

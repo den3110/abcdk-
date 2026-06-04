@@ -907,6 +907,7 @@ export default function UsersPage() {
                       <MenuItem value="referee">
                         {t("admin.users.roles.referee")}
                       </MenuItem>
+                      <MenuItem value="courtOwner">Chủ sân</MenuItem>
                       <MenuItem value="admin">Admin</MenuItem>
                     </Select>
                   </FormControl>
@@ -1345,6 +1346,9 @@ export default function UsersPage() {
                 <MenuItem value="user">{getRoleLabel(t, "user")}</MenuItem>
                 <MenuItem value="referee">
                   {getRoleLabel(t, "referee")}
+                </MenuItem>
+                <MenuItem value="courtOwner">
+                  {getRoleLabel(t, "courtOwner")}
                 </MenuItem>
                 <MenuItem value="admin">{getRoleLabel(t, "admin")}</MenuItem>
               </Select>

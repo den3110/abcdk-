@@ -71,6 +71,7 @@ import {
   Print as PrintIcon,
   AutoAwesome as AutoAwesomeIcon,
   CloudUpload as CloudUploadIcon,
+  InsertLink as InsertLinkIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -83,6 +84,7 @@ import {
   useVerifyRefereeQuery,
   useAnalyzeRegistrationPosterMutation,
   useUploadRegistrationPosterTemplateMutation,
+  useSetRegistrationPosterTemplateUrlMutation,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -1258,8 +1260,13 @@ export default function TournamentManagePage() {
     uploadRegistrationPosterTemplate,
     { isLoading: uploadingPosterTemplate },
   ] = useUploadRegistrationPosterTemplateMutation();
+  const [setPosterTemplateUrl, { isLoading: settingPosterUrl }] =
+    useSetRegistrationPosterTemplateUrlMutation();
   const [posterTemplateDragging, setPosterTemplateDragging] = useState(false);
   const posterTemplateInputRef = useRef(null);
+  const [posterUrlDialogOpen, setPosterUrlDialogOpen] = useState(false);
+  const [posterUrlInput, setPosterUrlInput] = useState("");
+  const [posterUrlPreviewError, setPosterUrlPreviewError] = useState(false);
   const [posterNameFontFamily, setPosterNameFontFamily] = useState("");
   const [posterAiExtraPrompt, setPosterAiExtraPrompt] = useState("");
   const posterAiJobStatusRef = useRef({ id: "", status: "" });
@@ -1294,7 +1301,8 @@ export default function TournamentManagePage() {
     posterAiStatus === "running" &&
     !posterAiStale &&
     tour?.registrationPosterConfig?.needsAnalysis !== false;
-  const posterTemplateBusy = uploadingPosterTemplate || analyzingPoster;
+  const posterTemplateBusy =
+    uploadingPosterTemplate || analyzingPoster || settingPosterUrl;
   const savedPosterNameFontFamily =
     tour?.registrationPosterConfig?.text?.fontFamily || "";
   const savedPosterAiExtraPrompt =
@@ -2049,6 +2057,75 @@ export default function TournamentManagePage() {
     ],
   );
 
+  const handlePosterTemplateUrl = useCallback(
+    async (rawUrl) => {
+      const url = String(rawUrl || "").trim();
+      if (!url) {
+        toast.error("Bạn cần nhập link ảnh mẫu");
+        return;
+      }
+      if (!/^https?:\/\//i.test(url)) {
+        toast.error("Link ảnh phải bắt đầu bằng http:// hoặc https://");
+        return;
+      }
+
+      try {
+        await setPosterTemplateUrl({ id, url }).unwrap();
+        toast.success("Đã dùng link làm ảnh mẫu poster");
+        setPosterUrlDialogOpen(false);
+        setPosterUrlInput("");
+        refetchTour();
+      } catch (error) {
+        toast.error(
+          error?.data?.message ||
+            error?.message ||
+            "Không dùng được link ảnh mẫu",
+        );
+        return;
+      }
+
+      try {
+        const result = await analyzeRegistrationPoster({
+          id,
+          save: true,
+          fontFamily: posterNameFontFamily || undefined,
+          extraPrompt: posterAiExtraPrompt.trim() || undefined,
+        }).unwrap();
+        if (result?.queued) {
+          toast.info("Đã dùng link, AI poster đang chạy nền.");
+          refetchTour();
+          return;
+        }
+        const confidence = Number(result?.analysis?.confidence || 0);
+        const suffix = confidence ? ` (${Math.round(confidence * 100)}%)` : "";
+        toast.success(`AI đã lưu layout poster${suffix}`);
+        refetchTour();
+      } catch (error) {
+        toast.error(
+          error?.data?.message ||
+            error?.message ||
+            "Đã dùng link, nhưng AI phân tích poster thất bại",
+        );
+      }
+    },
+    [
+      analyzeRegistrationPoster,
+      id,
+      posterAiExtraPrompt,
+      posterNameFontFamily,
+      refetchTour,
+      setPosterTemplateUrl,
+    ],
+  );
+
+  const openPosterUrlDialog = useCallback(() => {
+    setPosterUrlInput(
+      /^https?:\/\//i.test(posterTemplateUrl) ? posterTemplateUrl : "",
+    );
+    setPosterUrlPreviewError(false);
+    setPosterUrlDialogOpen(true);
+  }, [posterTemplateUrl]);
+
   // Socket realtime
   const socket = useSocket();
   const matchRefetchTimer = useRef(null);
@@ -2561,6 +2638,104 @@ export default function TournamentManagePage() {
           event.target.value = "";
         }}
       />
+
+      <Dialog
+        open={posterUrlDialogOpen}
+        onClose={() => {
+          if (!settingPosterUrl) setPosterUrlDialogOpen(false);
+        }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Dùng link ảnh làm mẫu poster</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5}>
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              label="Link ảnh mẫu (URL)"
+              placeholder="https://..."
+              value={posterUrlInput}
+              onChange={(event) => {
+                setPosterUrlInput(event.target.value);
+                setPosterUrlPreviewError(false);
+              }}
+              disabled={settingPosterUrl}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Dán link ảnh trực tiếp (jpg/png/webp…). Ảnh sẽ được dùng làm mẫu và
+              AI tự phân tích layout.
+            </Typography>
+
+            {/^https?:\/\//i.test(posterUrlInput.trim()) ? (
+              <Box
+                sx={{
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1,
+                  bgcolor: "action.hover",
+                  minHeight: 160,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                  p: 1,
+                }}
+              >
+                {posterUrlPreviewError ? (
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ p: 2, textAlign: "center" }}
+                  >
+                    Không xem trước được ảnh (có thể do trang chặn hotlink). Bạn
+                    vẫn có thể thử bấm “Dùng link” — hệ thống sẽ tự kiểm tra.
+                  </Typography>
+                ) : (
+                  <Box
+                    component="img"
+                    src={posterUrlInput.trim()}
+                    alt="Xem trước ảnh mẫu"
+                    onError={() => setPosterUrlPreviewError(true)}
+                    sx={{
+                      maxWidth: "100%",
+                      maxHeight: 320,
+                      objectFit: "contain",
+                      display: "block",
+                    }}
+                  />
+                )}
+              </Box>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setPosterUrlDialogOpen(false)}
+            disabled={settingPosterUrl}
+          >
+            Hủy
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={
+              settingPosterUrl ? (
+                <CircularProgress size={16} />
+              ) : (
+                <InsertLinkIcon />
+              )
+            }
+            onClick={() => handlePosterTemplateUrl(posterUrlInput)}
+            disabled={
+              settingPosterUrl ||
+              !/^https?:\/\//i.test(posterUrlInput.trim())
+            }
+          >
+            Dùng link &amp; chạy AI
+          </Button>
+        </DialogActions>
+      </Dialog>
       {/* Header */}
       <Stack spacing={1.5} mb={2}>
         <Stack
@@ -2675,6 +2850,19 @@ export default function TournamentManagePage() {
               >
                 {posterTemplateUrl ? "Đổi mẫu poster" : "Tải mẫu poster"}
               </Button>
+              <Tooltip title="Dùng link ảnh làm mẫu poster">
+                <span>
+                  <Button
+                    variant="text"
+                    size="small"
+                    startIcon={<InsertLinkIcon />}
+                    onClick={openPosterUrlDialog}
+                    disabled={posterTemplateBusy}
+                  >
+                    Dán link
+                  </Button>
+                </span>
+              </Tooltip>
               <Typography
                 variant="caption"
                 color="text.secondary"
@@ -2903,6 +3091,19 @@ export default function TournamentManagePage() {
                       posterTemplateUrl ? "Đổi mẫu poster" : "Tải mẫu poster"
                     }
                   />
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
+                    openPosterUrlDialog();
+                  }}
+                  disabled={posterTemplateBusy}
+                >
+                  <ListItemIcon>
+                    <InsertLinkIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Dán link ảnh mẫu" />
                 </MenuItem>
 
                 <MenuItem

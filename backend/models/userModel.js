@@ -285,7 +285,11 @@ const userSchema = new mongoose.Schema(
     },
 
     /* ------- Quyền chính ------- */
-    role: { type: String, enum: ["user", "referee", "admin"], default: "user" },
+    role: {
+      type: String,
+      enum: ["user", "referee", "courtOwner", "admin"],
+      default: "user",
+    },
     // ✅ Super user – quyền cao nhất, thường dùng cho owner hệ thống
     isSuperUser: {
       type: Boolean,
