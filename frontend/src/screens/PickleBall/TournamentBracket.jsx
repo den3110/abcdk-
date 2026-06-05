@@ -4436,6 +4436,24 @@ export default function TournamentBracket() {
           : match?.bracket && typeof match.bracket === "object"
             ? match.bracket
             : null;
+      if (String(sourceBracket?.type || "").toLowerCase() !== "knockout") {
+        return null;
+      }
+
+      if (localRound > 1) {
+        const stageIndex = Number(sourceBracket?.stage ?? current?.stage ?? 0);
+        const sourceOrder = localOrder * 2 + (side === "B" ? 1 : 0);
+        return {
+          type: "stageMatchWinner",
+          ref: {
+            stageIndex,
+            stage: stageIndex,
+            round: localRound - 1,
+            order: sourceOrder,
+          },
+          label: `W-V${localRound - 1}-T${sourceOrder + 1}`,
+        };
+      }
 
       const seedRows = Array.isArray(sourceBracket?.prefill?.seeds)
         ? sourceBracket.prefill.seeds
