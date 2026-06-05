@@ -858,6 +858,23 @@ const CustomSeed = ({
     };
   }, [m, liveBranch.leader, liveBranch.progress, seed?.__lastCol, syncedMinH]);
 
+  if (seed.__layoutSpacer) {
+    return (
+      <Seed
+        mobileBreakpoint={breakpoint}
+        ref={seedRef}
+        className="bracket-layout-spacer bracket-disable-connector"
+        style={{
+          fontSize: 13,
+          visibility: "hidden",
+          pointerEvents: "none",
+        }}
+      >
+        <SeedItem style={{ minHeight: syncedMinH }} />
+      </Seed>
+    );
+  }
+
   const RightTick = (props) => (
     <span
       {...props}
@@ -982,7 +999,12 @@ const CustomSeed = ({
     : statusColors(m);
   const clickable = !!m;
   return (
-    <Seed mobileBreakpoint={breakpoint} ref={seedRef} style={{ fontSize: 13 }}>
+    <Seed
+      mobileBreakpoint={breakpoint}
+      ref={seedRef}
+      className={seed.__disableConnector ? "bracket-disable-connector" : undefined}
+      style={{ fontSize: 13 }}
+    >
       <SeedItem
         ref={itemRef}
         onClick={() => clickable && onOpen?.(m)}
@@ -2743,6 +2765,49 @@ function buildRoundElimRounds(
   const last = rounds[rounds.length - 1];
   if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
   return rounds;
+}
+
+function padRoundElimRoundsForLayout(rounds = []) {
+  if (!Array.isArray(rounds) || rounds.length < 2) return rounds;
+
+  const nextRounds = rounds.map((round) => ({
+    ...round,
+    seeds: Array.isArray(round?.seeds) ? [...round.seeds] : [],
+  }));
+
+  for (let roundIndex = 1; roundIndex < nextRounds.length; roundIndex += 1) {
+    const prevSlots = nextRounds[roundIndex - 1]?.seeds?.length || 0;
+    const expectedSlots = Math.ceil(prevSlots / 2);
+    const currentRound = nextRounds[roundIndex];
+
+    while (currentRound.seeds.length < expectedSlots) {
+      const spacerIndex = currentRound.seeds.length;
+      currentRound.seeds.push({
+        id: `re-layout-spacer-${roundIndex + 1}-${spacerIndex}`,
+        __layoutSpacer: true,
+        __round: roundIndex + 1,
+        __lastCol: !!currentRound.seeds[0]?.__lastCol,
+        teams: [{ name: "" }, { name: "" }],
+      });
+    }
+  }
+
+  for (let roundIndex = 0; roundIndex < nextRounds.length - 1; roundIndex += 1) {
+    const seeds = nextRounds[roundIndex].seeds;
+    const lastActualIndex = seeds.reduce(
+      (last, seed, index) => (seed?.__layoutSpacer ? last : index),
+      -1,
+    );
+
+    if (lastActualIndex >= 0 && lastActualIndex < seeds.length - 1) {
+      seeds[lastActualIndex] = {
+        ...seeds[lastActualIndex],
+        __disableConnector: true,
+      };
+    }
+  }
+
+  return nextRounds;
 }
 
 function buildEmptyRoundsByScale(
@@ -6542,12 +6607,13 @@ export default function TournamentBracket() {
           </Typography>
 
           {(() => {
-            const reRounds = buildRoundElimRounds(
+            const reRoundsRaw = buildRoundElimRounds(
               current,
               currentMatches,
               resolveSideLabel,
               pendingTeamLabel,
             );
+            const reRounds = padRoundElimRoundsForLayout(reRoundsRaw);
             const roundsKeyRE = `${current._id}:${reRounds.length}:${reRounds
               .map((r) => r.seeds.length)
               .join(",")}`;
@@ -6560,6 +6626,20 @@ export default function TournamentBracket() {
             .re-bracket .sc-gEvEer:last-of-type .sc-dcJsrY::before, \
             .re-bracket .sc-gEvEer:last-of-type .sc-imWYAI::after, \
             ": {
+                      content: '""',
+                      display: "none !important",
+                      border: "0 !important",
+                      width: 0,
+                      height: 0,
+                    },
+                    ".re-bracket .bracket-layout-spacer": {
+                      visibility: "hidden !important",
+                      pointerEvents: "none !important",
+                    },
+                    ".re-bracket .bracket-layout-spacer::before, \
+            .re-bracket .bracket-layout-spacer::after, \
+            .re-bracket .bracket-disable-connector::before, \
+            .re-bracket .bracket-disable-connector::after": {
                       content: '""',
                       display: "none !important",
                       border: "0 !important",
