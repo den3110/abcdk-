@@ -4425,32 +4425,77 @@ export default function TournamentBracket() {
       if (!match) return null;
 
       const localRound = Number(match?.round || 1);
-      const localOrder = Number(match?.order);
-      if (localRound !== 1 || !Number.isFinite(localOrder)) return null;
+      const codeOrder = Number(
+        extractDisplayCodeText(match?.code || match?.displayCode || "").match(
+          /-T(\d+)/i,
+        )?.[1],
+      );
+      const localOrder = Number(
+        match?.order ??
+          match?.meta?.order ??
+          (Number.isFinite(codeOrder) ? codeOrder - 1 : NaN),
+      );
+      if (!Number.isFinite(localOrder)) return null;
 
       const matchBracketId = String(match?.bracket?._id || match?.bracket || "");
       const currentBracketId = String(current?._id || "");
+      const matchBracket =
+        match?.bracket && typeof match.bracket === "object" ? match.bracket : null;
       const sourceBracket =
         matchBracketId && currentBracketId && matchBracketId === currentBracketId
           ? current
-          : match?.bracket && typeof match.bracket === "object"
-            ? match.bracket
-            : null;
-      if (String(sourceBracket?.type || "").toLowerCase() !== "knockout") {
+          : matchBracket;
+      const sourceType = String(
+        sourceBracket?.type || matchBracket?.type || match?.format || "",
+      ).toLowerCase();
+      if (sourceType !== "knockout") {
         return null;
       }
 
       if (localRound > 1) {
-        const stageIndex = Number(sourceBracket?.stage ?? current?.stage ?? 0);
-        const sourceOrder = localOrder * 2 + (side === "B" ? 1 : 0);
+        const bracketMatches = matchBracketId ? byBracket?.[matchBracketId] || [] : [];
+        const sameBranch = (candidate) =>
+          String(candidate?.branch || "main") === String(match?.branch || "main") &&
+          String(candidate?.phase || "") === String(match?.phase || "") &&
+          isThirdPlaceMatch(candidate) === isThirdPlaceMatch(match);
+        const byOrder = (a, b) => Number(a?.order || 0) - Number(b?.order || 0);
+        const currentRoundMatches = bracketMatches
+          .filter((candidate) => Number(candidate?.round || 1) === localRound)
+          .filter(sameBranch)
+          .sort(byOrder);
+        const currentIndex = currentRoundMatches.findIndex(
+          (candidate) => String(candidate?._id || "") === String(match?._id || ""),
+        );
+        const sourceSlot =
+          (currentIndex >= 0 ? currentIndex : localOrder) * 2 +
+          (side === "B" ? 1 : 0);
+        const previousRoundMatches = bracketMatches
+          .filter((candidate) => Number(candidate?.round || 1) === localRound - 1)
+          .filter(sameBranch)
+          .sort(byOrder);
+        const sourceMatch = previousRoundMatches[sourceSlot] || null;
+        const stageIndex = Number(
+          sourceMatch?.bracket?.stage ??
+            sourceBracket?.stage ??
+            matchBracket?.stage ??
+            current?.stage ??
+            0,
+        );
+        const sourceRound = Number(sourceMatch?.round ?? localRound - 1);
+        const sourceOrder = Number(
+          sourceMatch?.order ?? localOrder * 2 + (side === "B" ? 1 : 0),
+        );
+        const ref = {
+          stageIndex,
+          stage: stageIndex,
+          round: sourceRound,
+          order: sourceOrder,
+        };
+        if (sourceMatch?._id) ref.matchId = sourceMatch._id;
+
         return {
           type: "stageMatchWinner",
-          ref: {
-            stageIndex,
-            stage: stageIndex,
-            round: localRound - 1,
-            order: sourceOrder,
-          },
+          ref,
           label: `W-V${localRound - 1}-T${sourceOrder + 1}`,
         };
       }
@@ -4470,7 +4515,7 @@ export default function TournamentBracket() {
       const plannedSeed = side === "A" ? planned?.A : planned?.B;
       return plannedSeed?.type ? plannedSeed : null;
     },
-    [current],
+    [byBracket, current],
   );
 
   const resolveSideLabel = useCallback(
@@ -4480,8 +4525,17 @@ export default function TournamentBracket() {
 
       const seed = side === "A" ? m.seedA : m.seedB;
       const pair = side === "A" ? m.pairA : m.pairB;
+      const plannedSeed = getPlannedSeedForMatchSide(m, side);
+      const seedType = String(seed?.type || "");
+      const isEmptyRegistrationSeed =
+        seedType === "registration" &&
+        !seed?.label &&
+        !seed?.ref?.registration &&
+        !seed?.ref?.reg &&
+        !seed?.ref?.id &&
+        !seed?.ref?._id;
       const effectiveSeed =
-        seed?.type ? seed : getPlannedSeedForMatchSide(m, side);
+        seed?.type && !isEmptyRegistrationSeed ? seed : plannedSeed || seed;
 
       // Nếu đã có đội thật thì luôn ưu tiên hiển thị đội thật.
       if (hasResolvedPair(pair)) {
@@ -4563,6 +4617,40 @@ export default function TournamentBracket() {
         const isLoserSeed =
           effectiveSeed?.type === "stageMatchLoser" ||
           effectiveSeed?.type === "matchLoser";
+
+        if (sourceMatch && isWinnerSeed && isByeMatchObj(sourceMatch)) {
+          const byeA =
+            sourceMatch?.seedA?.type === "bye" ||
+            (typeof sourceMatch?.seedA?.label === "string" &&
+              /\bBYE\b/i.test(sourceMatch.seedA.label));
+          const byeB =
+            sourceMatch?.seedB?.type === "bye" ||
+            (typeof sourceMatch?.seedB?.label === "string" &&
+              /\bBYE\b/i.test(sourceMatch.seedB.label));
+          const winSide = byeA ? "B" : byeB ? "A" : null;
+
+          if (winSide) {
+            const isUsefulLabel = (value) =>
+              value &&
+              value !== pendingTeamLabel &&
+              !/^(BYE|TBD|Registration)$/.test(value);
+
+            const carried = resolveSideLabel(sourceMatch, winSide);
+            if (isUsefulLabel(carried)) return carried;
+
+            const carriedSeed = sourceMatch[`seed${winSide}`];
+            const fromSeed = resolveSeedReferenceLabel(
+              carriedSeed,
+              sourceMatch,
+            );
+            if (isUsefulLabel(fromSeed)) return fromSeed;
+
+            const carriedPair = sourceMatch[`pair${winSide}`];
+            if (carriedPair) {
+              return pairLabelWithNick(carriedPair, eventType, displayMode);
+            }
+          }
+        }
 
         if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
           const sourcePair = isLoserSeed
