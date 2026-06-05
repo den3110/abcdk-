@@ -1668,7 +1668,14 @@ const setNoStoreHeaders = (res) => {
   res.setHeader("Expires", "0");
   res.setHeader("X-PKT-Cache", "BYPASS");
 };
-const ROUND_ELIM_TYPES = new Set(["roundelim", "po", "playoff"]);
+const ROUND_ELIM_TYPES = new Set([
+  "roundElim",
+  "roundelim",
+  "round_elim",
+  "round-elim",
+  "po",
+  "playoff",
+]);
 const DEFAULT_MATCH_RULES = {
   bestOf: 1,
   pointsToWin: 11,
