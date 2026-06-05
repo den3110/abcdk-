@@ -1563,9 +1563,17 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
 
     for (let i = 0; i < pairs.length; i++) {
       const p = pairs[i];
-      if (!p?.a || !p?.b) continue;
+      const hasA = Boolean(p?.a);
+      const hasB = Boolean(p?.b);
+      if (!hasA && !hasB) continue;
       const desiredOrder = Number(p.index ?? i);
       const found = byOrder.get(desiredOrder) || existing[i];
+      const seedA = hasA
+        ? { type: "registration", ref: { registration: p.a }, label: "" }
+        : { type: "bye", ref: null, label: "BYE" };
+      const seedB = hasB
+        ? { type: "registration", ref: { registration: p.b }, label: "" }
+        : { type: "bye", ref: null, label: "BYE" };
 
       if (found) {
         if (found.status === "finished" && !overwriteExisting) {
@@ -1579,8 +1587,10 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
               bracket: br._id,
               round: roundNumber,
               order: desiredOrder,
-              pairA: p.a,
-              pairB: p.b,
+              pairA: hasA ? p.a : null,
+              pairB: hasB ? p.b : null,
+              seedA,
+              seedB,
               rules: defaultRules,
               status: "scheduled",
               gameScores: [],
@@ -1596,8 +1606,10 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
           bracket: br._id,
           round: roundNumber,
           order: desiredOrder,
-          pairA: p.a,
-          pairB: p.b,
+          pairA: hasA ? p.a : null,
+          pairB: hasB ? p.b : null,
+          seedA,
+          seedB,
           rules: defaultRules,
           gameScores: [],
           status: "scheduled",

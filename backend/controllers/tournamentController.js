@@ -8,6 +8,7 @@ import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import Registration from "../models/registrationModel.js";
+import DrawSession from "../models/drawSessionModel.js";
 import Court from "../models/courtModel.js";
 import { sleep } from "../utils/sleep.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
@@ -1811,6 +1812,61 @@ const buildRoundElimSeedsForSlot = (bracket, drawSize, r1Pairs, roundNum, orderN
   };
 };
 
+const roundElimRegistrationSeedFromId = (registrationId) => ({
+  type: "registration",
+  ref: { registration: registrationId },
+  label: "",
+});
+
+const getLatestCommittedRoundElimPairsByBracketId = async (bracketIds = []) => {
+  const ids = bracketIds
+    .map((id) => String(id || ""))
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  if (!ids.length) return new Map();
+
+  const sessions = await DrawSession.find({
+    bracket: { $in: ids },
+    mode: "po",
+    status: "committed",
+    "board.type": "roundElim",
+  })
+    .select("bracket board committedAt createdAt")
+    .sort({ committedAt: -1, createdAt: -1 })
+    .lean();
+
+  const out = new Map();
+  for (const session of sessions) {
+    const bracketId = String(session?.bracket || "");
+    if (!bracketId || out.has(bracketId)) continue;
+    out.set(
+      bracketId,
+      Array.isArray(session?.board?.pairs) ? session.board.pairs : []
+    );
+  }
+
+  return out;
+};
+
+const applyCommittedRoundElimPairToSeeds = (seeds, pair) => {
+  const hasA = Boolean(pair?.a);
+  const hasB = Boolean(pair?.b);
+  if (!hasA && !hasB) return { ...seeds, hasCommittedPair: false };
+
+  return {
+    seedA: hasA
+      ? roundElimRegistrationSeedFromId(pair.a)
+      : cloneRoundElimSeed(ROUND_ELIM_BYE_SEED, ROUND_ELIM_BYE_SEED),
+    seedB: hasB
+      ? roundElimRegistrationSeedFromId(pair.b)
+      : cloneRoundElimSeed(ROUND_ELIM_BYE_SEED, ROUND_ELIM_BYE_SEED),
+    pairA: hasA ? pair.a : null,
+    pairB: hasB ? pair.b : null,
+    hasCommittedPair: true,
+  };
+};
+
 const ensureRoundElimBracketMatches = async (tournamentId) => {
   const brackets = await Bracket.find({
     tournament: tournamentId,
@@ -1826,7 +1882,7 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
     bracket: { $in: brackets.map((bracket) => bracket._id) },
   })
     .select(
-      "_id bracket round order seedA seedB rules bestOf pointsToWin winByTwo capMode capPoints"
+      "_id bracket round order seedA seedB pairA pairB status rules bestOf pointsToWin winByTwo capMode capPoints"
     )
     .lean();
 
@@ -1839,6 +1895,10 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
 
   const ops = [];
   const touchedBracketIds = new Set();
+  const committedPairsByBracketId =
+    await getLatestCommittedRoundElimPairsByBracketId(
+      brackets.map((bracket) => bracket._id)
+    );
 
   for (const bracket of brackets) {
     const bracketId = String(bracket?._id || "");
@@ -1886,13 +1946,21 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
       for (let orderNum = 0; orderNum < Math.max(1, expectedMatches); orderNum += 1) {
         const key = `${bracketId}:${roundNum}:${orderNum}`;
         const existingMatch = existingByKey.get(key) || null;
-        const seeds = buildRoundElimSeedsForSlot(
+        let seeds = buildRoundElimSeedsForSlot(
           bracket,
           drawSize,
           r1Pairs,
           roundNum,
           orderNum
         );
+        if (roundNum === 1) {
+          const committedPairs = committedPairsByBracketId.get(bracketId) || [];
+          const committedPair =
+            committedPairs.find((pair) => Number(pair?.index) === orderNum) ||
+            committedPairs[orderNum] ||
+            null;
+          seeds = applyCommittedRoundElimPairToSeeds(seeds, committedPair);
+        }
         const roundRule = getRoundElimRuleForRound(bracket, roundNum);
 
         if (!existingMatch) {
@@ -1904,6 +1972,8 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
             order: orderNum,
             seedA: seeds.seedA,
             seedB: seeds.seedB,
+            pairA: seeds.hasCommittedPair ? seeds.pairA : null,
+            pairB: seeds.hasCommittedPair ? seeds.pairB : null,
             rules: roundRule,
             bestOf: roundRule.bestOf,
             pointsToWin: roundRule.pointsToWin,
@@ -1931,6 +2001,19 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
         const patch = {};
         if (!existingMatch?.seedA?.type && seeds.seedA) patch.seedA = seeds.seedA;
         if (!existingMatch?.seedB?.type && seeds.seedB) patch.seedB = seeds.seedB;
+        if (
+          seeds.hasCommittedPair &&
+          String(existingMatch?.status || "").toLowerCase() !== "finished"
+        ) {
+          if (String(existingMatch?.pairA || "") !== String(seeds.pairA || "")) {
+            patch.pairA = seeds.pairA;
+          }
+          if (String(existingMatch?.pairB || "") !== String(seeds.pairB || "")) {
+            patch.pairB = seeds.pairB;
+          }
+          if (seeds.seedA) patch.seedA = seeds.seedA;
+          if (seeds.seedB) patch.seedB = seeds.seedB;
+        }
         if (!existingMatch?.rules && roundRule) patch.rules = roundRule;
         if (!Number.isFinite(Number(existingMatch?.bestOf)))
           patch.bestOf = roundRule.bestOf;
