@@ -185,6 +185,19 @@ const hasResolvedPair = (pair) =>
       pair?.displayName),
   );
 
+const isUsefulPendingLabel = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return !/^(BYE|TBD|Registration|Chưa có đội)$/i.test(text);
+};
+
+const previewSideLabel = (match, side) => {
+  const key = side === "A" ? "resolvedSideNameA" : "resolvedSideNameB";
+  const altKey = side === "A" ? "teamAName" : "teamBName";
+  const value = match?.[key] || match?.[altKey] || "";
+  return isUsefulPendingLabel(value) ? String(value).trim() : "";
+};
+
 function extractDisplayCodeText(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -1723,6 +1736,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
       const seed = side === "A" ? match?.seedA : match?.seedB;
       const pair = side === "A" ? match?.pairA : match?.pairB;
+      const previewLabel = previewSideLabel(match, side);
 
       if (hasResolvedPair(pair)) {
         return pairLabel(pair, isSingle, displayMode);
@@ -1751,7 +1765,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         }
 
         if (sourceCode) return `W-${sourceCode}`;
-        return resolveSeedReferenceLabel(seed, match);
+        return previewLabel || resolveSeedReferenceLabel(seed, match);
       }
 
       if (seed && seed.type) {
@@ -1784,6 +1798,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
         return seedLabel(seed);
       }
+
+      if (previewLabel) return previewLabel;
 
       return "Chưa có đội";
     },

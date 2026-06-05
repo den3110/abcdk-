@@ -3977,19 +3977,27 @@ export default function TournamentBracket() {
 
   const openMatch = (m) => {
     if (!m || isByeMatchObj(m)) return; // chặn mở nếu BYE
+    const resolvedSideNameA = resolveSideLabel(m, "A");
+    const resolvedSideNameB = resolveSideLabel(m, "B");
     setActiveMatchId(m._id);
     setActiveMatchPreview({
       ...m,
       displayCode: getDisplayCodeForMatch(m) || m?.displayCode || "",
+      resolvedSideNameA,
+      resolvedSideNameB,
     });
     setOpen(true);
   };
   const openMatchModal = (m) => {
     if (!m) return;
+    const resolvedSideNameA = resolveSideLabel(m, "A");
+    const resolvedSideNameB = resolveSideLabel(m, "B");
     setActiveMatchId(m._id);
     setActiveMatchPreview({
       ...m,
       displayCode: getDisplayCodeForMatch(m) || m?.displayCode || "",
+      resolvedSideNameA,
+      resolvedSideNameB,
     });
     setOpen(true);
   };
