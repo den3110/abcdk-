@@ -858,23 +858,6 @@ const CustomSeed = ({
     };
   }, [m, liveBranch.leader, liveBranch.progress, seed?.__lastCol, syncedMinH]);
 
-  if (seed.__layoutSpacer) {
-    return (
-      <Seed
-        mobileBreakpoint={breakpoint}
-        ref={seedRef}
-        className="bracket-layout-spacer bracket-disable-connector"
-        style={{
-          fontSize: 13,
-          visibility: "hidden",
-          pointerEvents: "none",
-        }}
-      >
-        <SeedItem style={{ minHeight: syncedMinH }} />
-      </Seed>
-    );
-  }
-
   const RightTick = (props) => (
     <span
       {...props}
@@ -2767,48 +2750,237 @@ function buildRoundElimRounds(
   return rounds;
 }
 
-function padRoundElimRoundsForLayout(rounds = []) {
-  if (!Array.isArray(rounds) || rounds.length < 2) return rounds;
+const ROUND_ELIM_CARD_W = SEED_CARD_W + 48;
+const ROUND_ELIM_CARD_H = 144;
+const ROUND_ELIM_COL_GAP = 8;
+const ROUND_ELIM_ROW_GAP = 34;
+const ROUND_ELIM_HEADER_H = 34;
+const ROUND_ELIM_SEED_PAD_X = 24;
+const ROUND_ELIM_CONNECTOR_COLOR = "#707070";
 
-  const nextRounds = rounds.map((round) => ({
-    ...round,
-    seeds: Array.isArray(round?.seeds) ? [...round.seeds] : [],
-  }));
-
-  for (let roundIndex = 1; roundIndex < nextRounds.length; roundIndex += 1) {
-    const prevSlots = nextRounds[roundIndex - 1]?.seeds?.length || 0;
-    const expectedSlots = Math.ceil(prevSlots / 2);
-    const currentRound = nextRounds[roundIndex];
-
-    while (currentRound.seeds.length < expectedSlots) {
-      const spacerIndex = currentRound.seeds.length;
-      currentRound.seeds.push({
-        id: `re-layout-spacer-${roundIndex + 1}-${spacerIndex}`,
-        __layoutSpacer: true,
-        __round: roundIndex + 1,
-        __lastCol: !!currentRound.seeds[0]?.__lastCol,
-        teams: [{ name: "" }, { name: "" }],
-      });
-    }
-  }
-
-  for (let roundIndex = 0; roundIndex < nextRounds.length - 1; roundIndex += 1) {
-    const seeds = nextRounds[roundIndex].seeds;
-    const lastActualIndex = seeds.reduce(
-      (last, seed, index) => (seed?.__layoutSpacer ? last : index),
-      -1,
-    );
-
-    if (lastActualIndex >= 0 && lastActualIndex < seeds.length - 1) {
-      seeds[lastActualIndex] = {
-        ...seeds[lastActualIndex],
-        __disableConnector: true,
-      };
-    }
-  }
-
-  return nextRounds;
+function getRoundElimSeedKey(seed, fallbackRound, fallbackOrder) {
+  const match = seed?.__match;
+  const round = Number(match?.round ?? seed?.__round ?? fallbackRound);
+  const order = Number(match?.order ?? fallbackOrder);
+  if (!Number.isFinite(round) || !Number.isFinite(order)) return "";
+  return `${round}:${order}`;
 }
+
+function getRoundElimSourceRefs(seed) {
+  const match = seed?.__match;
+  if (!match) return [];
+  return [match.seedA, match.seedB]
+    .map((source) => {
+      const type = String(source?.type || "");
+      if (
+        type !== "stageMatchLoser" &&
+        type !== "stageMatchWinner" &&
+        type !== "matchLoser" &&
+        type !== "matchWinner"
+      ) {
+        return null;
+      }
+      const round = Number(source?.ref?.round);
+      const order = Number(source?.ref?.order);
+      if (!Number.isFinite(round) || !Number.isFinite(order)) return null;
+      return { round, order };
+    })
+    .filter(Boolean);
+}
+
+function buildRoundElimManualLayout(rounds = []) {
+  const positionsByKey = new Map();
+  const columns = [];
+  const connectors = [];
+  let maxBottom = ROUND_ELIM_HEADER_H + ROUND_ELIM_CARD_H;
+
+  (rounds || []).forEach((round, roundIndex) => {
+    const x = roundIndex * (ROUND_ELIM_CARD_W + ROUND_ELIM_COL_GAP);
+    const seeds = Array.isArray(round?.seeds) ? round.seeds : [];
+    const nodes = seeds.map((seed, seedIndex) => {
+      const key = getRoundElimSeedKey(seed, roundIndex + 1, seedIndex);
+      let centerY =
+        ROUND_ELIM_HEADER_H +
+        seedIndex * (ROUND_ELIM_CARD_H + ROUND_ELIM_ROW_GAP) +
+        ROUND_ELIM_CARD_H / 2;
+
+      if (roundIndex > 0) {
+        const sourceCenters = getRoundElimSourceRefs(seed)
+          .map((ref) => positionsByKey.get(`${ref.round}:${ref.order}`)?.centerY)
+          .filter((value) => Number.isFinite(value));
+        if (sourceCenters.length) {
+          centerY =
+            sourceCenters.reduce((sum, value) => sum + value, 0) /
+            sourceCenters.length;
+        }
+      }
+
+      const y = Math.max(ROUND_ELIM_HEADER_H, centerY - ROUND_ELIM_CARD_H / 2);
+      const node = {
+        key: key || `${roundIndex + 1}:${seedIndex}`,
+        seed,
+        x,
+        y,
+        centerY: y + ROUND_ELIM_CARD_H / 2,
+      };
+
+      if (key) positionsByKey.set(key, node);
+      maxBottom = Math.max(maxBottom, y + ROUND_ELIM_CARD_H);
+      return node;
+    });
+
+    columns.push({
+      title: round?.title || "",
+      x,
+      nodes,
+    });
+  });
+
+  columns.forEach((column, roundIndex) => {
+    if (roundIndex === 0) return;
+
+    column.nodes.forEach((target) => {
+      getRoundElimSourceRefs(target.seed).forEach((ref) => {
+        const source = positionsByKey.get(`${ref.round}:${ref.order}`);
+        if (!source) return;
+
+        const startX = source.x + ROUND_ELIM_CARD_W - ROUND_ELIM_SEED_PAD_X;
+        const endX = target.x + ROUND_ELIM_SEED_PAD_X;
+        const bendX = startX + Math.max(12, (endX - startX) / 2);
+
+        connectors.push({
+          key: `${source.key}->${target.key}`,
+          d: buildConnectorPath(
+            startX,
+            source.centerY,
+            endX,
+            target.centerY,
+            bendX,
+          ),
+        });
+      });
+    });
+  });
+
+  return {
+    columns,
+    connectors,
+    width:
+      Math.max(1, columns.length) * ROUND_ELIM_CARD_W +
+      Math.max(0, columns.length - 1) * ROUND_ELIM_COL_GAP,
+    height: maxBottom + ROUND_ELIM_ROW_GAP,
+  };
+}
+
+function RoundElimBracketLayout({
+  rounds,
+  onOpen,
+  championMatchId,
+  resolveSideLabel,
+  baseRoundStart,
+  breakpoint = 0,
+}) {
+  const layout = useMemo(() => buildRoundElimManualLayout(rounds), [rounds]);
+  const roundsKey = `re-manual:${rounds?.length || 0}:${(rounds || [])
+    .map((round) => round?.seeds?.length || 0)
+    .join(",")}`;
+
+  return (
+    <HighlightProvider>
+      <HeightSyncProvider roundsKey={roundsKey}>
+        <Box
+          sx={{
+            position: "relative",
+            width: layout.width,
+            height: layout.height,
+            minWidth: layout.width,
+          }}
+        >
+          <svg
+            width={layout.width}
+            height={layout.height}
+            style={{
+              position: "absolute",
+              inset: 0,
+              overflow: "visible",
+              pointerEvents: "none",
+              zIndex: 0,
+            }}
+          >
+            {layout.connectors.map((connector) => (
+              <path
+                key={connector.key}
+                d={connector.d}
+                fill="none"
+                stroke={ROUND_ELIM_CONNECTOR_COLOR}
+                strokeWidth="1"
+                shapeRendering="crispEdges"
+              />
+            ))}
+          </svg>
+
+          {layout.columns.map((column, columnIndex) => (
+            <Box key={`${column.title}-${columnIndex}`}>
+              {column.title && (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    position: "absolute",
+                    left: column.x,
+                    top: 0,
+                    width: ROUND_ELIM_CARD_W,
+                    color: "#8f8f8f",
+                    fontWeight: 400,
+                    textAlign: "center",
+                  }}
+                >
+                  {column.title}
+                </Typography>
+              )}
+
+              {column.nodes.map((node) => (
+                <Box
+                  key={node.key}
+                  sx={{
+                    position: "absolute",
+                    left: node.x,
+                    top: node.y,
+                    width: ROUND_ELIM_CARD_W,
+                    height: ROUND_ELIM_CARD_H,
+                    zIndex: 1,
+                  }}
+                >
+                  <CustomSeed
+                    seed={{ ...node.seed, __disableConnector: true }}
+                    breakpoint={breakpoint}
+                    onOpen={onOpen}
+                    championMatchId={championMatchId}
+                    resolveSideLabel={resolveSideLabel}
+                    baseRoundStart={baseRoundStart}
+                  />
+                </Box>
+              ))}
+            </Box>
+          ))}
+        </Box>
+      </HeightSyncProvider>
+    </HighlightProvider>
+  );
+}
+
+RoundElimBracketLayout.propTypes = {
+  rounds: PropTypes.arrayOf(
+    PropTypes.shape({
+      title: PropTypes.string,
+      seeds: PropTypes.array,
+    }),
+  ).isRequired,
+  onOpen: PropTypes.func,
+  championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  resolveSideLabel: PropTypes.func,
+  baseRoundStart: PropTypes.number,
+  breakpoint: PropTypes.number,
+};
 
 function buildEmptyRoundsByScale(
   scale /* 2^n */,
@@ -6607,16 +6779,12 @@ export default function TournamentBracket() {
           </Typography>
 
           {(() => {
-            const reRoundsRaw = buildRoundElimRounds(
+            const reRounds = buildRoundElimRounds(
               current,
               currentMatches,
               resolveSideLabel,
               pendingTeamLabel,
             );
-            const reRounds = padRoundElimRoundsForLayout(reRoundsRaw);
-            const roundsKeyRE = `${current._id}:${reRounds.length}:${reRounds
-              .map((r) => r.seeds.length)
-              .join(",")}`;
 
             return (
               <>
@@ -6632,13 +6800,7 @@ export default function TournamentBracket() {
                       width: 0,
                       height: 0,
                     },
-                    ".re-bracket .bracket-layout-spacer": {
-                      visibility: "hidden !important",
-                      pointerEvents: "none !important",
-                    },
-                    ".re-bracket .bracket-layout-spacer::before, \
-            .re-bracket .bracket-layout-spacer::after, \
-            .re-bracket .bracket-disable-connector::before, \
+                    ".re-bracket .bracket-disable-connector::before, \
             .re-bracket .bracket-disable-connector::after": {
                       content: '""',
                       display: "none !important",
@@ -6673,23 +6835,14 @@ export default function TournamentBracket() {
                         transformOrigin: "0 0",
                       }}
                     >
-                      <HighlightProvider>
-                        <HeightSyncProvider roundsKey={roundsKeyRE}>
-                          <Bracket
-                            rounds={reRounds}
-                            renderSeedComponent={(props) => (
-                              <CustomSeed
-                                {...props}
-                                onOpen={openMatchModal}
-                                championMatchId={null}
-                                resolveSideLabel={resolveSideLabel}
-                                baseRoundStart={baseRoundStartForCurrent}
-                              />
-                            )}
-                            mobileBreakpoint={0}
-                          />
-                        </HeightSyncProvider>
-                      </HighlightProvider>
+                      <RoundElimBracketLayout
+                        rounds={reRounds}
+                        onOpen={openMatchModal}
+                        championMatchId={null}
+                        resolveSideLabel={resolveSideLabel}
+                        baseRoundStart={baseRoundStartForCurrent}
+                        breakpoint={0}
+                      />
                     </Box>
                   </Box>
                 </Box>
