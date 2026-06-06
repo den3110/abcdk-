@@ -176,6 +176,29 @@ const SAFE_SELECT = {
 
 // ─────────────── TOOL IMPLEMENTATIONS ─────────────────
 
+const rankingTierSortFields = {
+  tierSortRank: {
+    $switch: {
+      branches: [
+        {
+          case: {
+            $in: [{ $ifNull: ["$tierColor", ""] }, ["blue", "green", "yellow"]],
+          },
+          then: 0,
+        },
+        { case: { $eq: ["$tierColor", "red"] }, then: 1 },
+        {
+          case: { $in: [{ $ifNull: ["$tierColor", ""] }, ["grey", "gray"]] },
+          then: 2,
+        },
+        { case: { $in: [{ $ifNull: ["$colorRank", 3] }, [0, 1]] }, then: 0 },
+        { case: { $eq: ["$colorRank", 2] }, then: 1 },
+      ],
+      default: 2,
+    },
+  },
+};
+
 /**
  * Tìm giải đấu theo tên hoặc status
  */
@@ -366,7 +389,7 @@ export async function get_match_info({ matchId }, context) {
 
 /**
  * Bảng xếp hạng — dùng cùng sort order với trang ranking V2
- * Sort mặc định: double DESC → single DESC → points DESC → colorRank ASC
+ * Sort mặc định: tier group → double DESC → single DESC → points DESC
  * Có thể chọn sortBy: single, double, mix, points, reputation
  * Có thể filter theo tierColor: yellow (xác thực), red (tự chấm), grey (chưa đấu)
  */
@@ -375,7 +398,10 @@ export async function get_leaderboard({ limit = 10, sortBy, tierColor }) {
 
   // Build match stage for tier filter
   const matchStage = {};
-  if (tierColor && ["yellow", "red", "grey"].includes(tierColor)) {
+  if (
+    tierColor &&
+    ["blue", "green", "yellow", "red", "grey", "gray"].includes(tierColor)
+  ) {
     matchStage.tierColor = tierColor;
   }
 
@@ -386,18 +412,24 @@ export async function get_leaderboard({ limit = 10, sortBy, tierColor }) {
     ["single", "double", "mix", "points", "reputation"].includes(sortBy)
   ) {
     sortStage = {
+      tierSortRank: 1,
       [sortBy]: -1,
-      colorRank: 1,
+      double: sortBy === "double" ? undefined : -1,
+      single: sortBy === "single" ? undefined : -1,
+      points: sortBy === "points" ? undefined : -1,
       updatedAt: -1,
       _id: 1,
     };
+    Object.keys(sortStage).forEach((key) => {
+      if (sortStage[key] === undefined) delete sortStage[key];
+    });
   } else {
-    // Default sort: uses compound index ranking_score_sort_idx
     sortStage = {
+      tierSortRank: 1,
       double: -1,
       single: -1,
       points: -1,
-      colorRank: 1,
+      reputation: -1,
       updatedAt: -1,
       _id: 1,
     };
@@ -411,7 +443,7 @@ export async function get_leaderboard({ limit = 10, sortBy, tierColor }) {
   }
 
   pipeline.push(
-    // Sort — uses index when no $addFields before it
+    { $addFields: rankingTierSortFields },
     { $sort: sortStage },
     // Limit BEFORE $lookup
     { $limit: safeLimit * 2 },
@@ -458,7 +490,7 @@ export async function get_leaderboard({ limit = 10, sortBy, tierColor }) {
   };
 
   return {
-    sortedBy: sortBy || "default (double → single → points → colorRank)",
+    sortedBy: sortBy || "default (tier group -> double -> single -> points)",
     ...(tierColor
       ? { filteredByTier: tierLabels[tierColor] || tierColor }
       : {}),

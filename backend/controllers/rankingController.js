@@ -250,16 +250,10 @@ export async function getLeaderboard(req, res) {
         },
       },
     },
-    // Sort theo điểm trước; tier/reputation chỉ dùng để phá hòa.
+    // Sort by tier group first: blue/yellow/green > red > grey.
+    { $addFields: rankingTierSortFields },
     {
-      $sort: {
-        double: -1,
-        single: -1,
-        points: -1,
-        colorRank: 1,
-        reputation: -1,
-        lastUpdated: -1,
-      },
+      $sort: rankingDefaultSort,
     },
     {
       $project: {
@@ -270,6 +264,8 @@ export async function getLeaderboard(req, res) {
         reputation: 1,
         isSelfScoredLatest: 1,
         lastUpdated: 1,
+        tierColor: 1,
+        colorRank: 1,
       },
     },
   ]);
@@ -288,6 +284,40 @@ const nowUtc = () => new Date();
 const escapeRegExp = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const stripSpaces = (s = "") => s.replace(/\s+/g, "");
 const digitsOnly = (s = "") => s.replace(/\D+/g, "");
+
+const rankingTierSortFields = {
+  tierSortRank: {
+    $switch: {
+      branches: [
+        {
+          case: {
+            $in: [{ $ifNull: ["$tierColor", ""] }, ["blue", "green", "yellow"]],
+          },
+          then: 0,
+        },
+        { case: { $eq: ["$tierColor", "red"] }, then: 1 },
+        {
+          case: { $in: [{ $ifNull: ["$tierColor", ""] }, ["grey", "gray"]] },
+          then: 2,
+        },
+        { case: { $in: [{ $ifNull: ["$colorRank", 3] }, [0, 1]] }, then: 0 },
+        { case: { $eq: ["$colorRank", 2] }, then: 1 },
+      ],
+      default: 2,
+    },
+  },
+};
+
+const rankingDefaultSort = {
+  tierSortRank: 1,
+  double: -1,
+  single: -1,
+  points: -1,
+  reputation: -1,
+  updatedAt: -1,
+  lastUpdated: -1,
+  _id: 1,
+};
 
 /** Map regIds -> userIds (player1.user / player2.user / users[] / members[].user)  */
 async function mapRegToUsers(regIds) {
@@ -1145,15 +1175,9 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
 
+          { $addFields: rankingTierSortFields },
           {
-            $sort: {
-              double: -1,
-              single: -1,
-              points: -1,
-              colorRank: 1,
-              updatedAt: -1,
-              _id: 1,
-            },
+            $sort: rankingDefaultSort,
           },
           { $skip: page * limit },
           { $limit: limit },
@@ -1492,15 +1516,9 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
+          { $addFields: rankingTierSortFields },
           {
-            $sort: {
-              double: -1,
-              single: -1,
-              points: -1,
-              colorRank: 1,
-              updatedAt: -1,
-              _id: 1,
-            },
+            $sort: rankingDefaultSort,
           },
           { $skip: page * limit },
           { $limit: limit },
@@ -1778,15 +1796,9 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
+          { $addFields: rankingTierSortFields },
           {
-            $sort: {
-              double: -1,
-              single: -1,
-              points: -1,
-              colorRank: 1,
-              updatedAt: -1,
-              _id: 1,
-            },
+            $sort: rankingDefaultSort,
           },
           { $skip: page * limit },
           { $limit: limit },
@@ -2265,15 +2277,9 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
             },
           },
 
+          { $addFields: rankingTierSortFields },
           {
-            $sort: {
-              double: -1,
-              single: -1,
-              points: -1,
-              colorRank: 1,
-              updatedAt: -1,
-              _id: 1,
-            },
+            $sort: rankingDefaultSort,
           },
           { $skip: page * limit },
           { $limit: limit },
