@@ -275,6 +275,47 @@ const playersOf = (entry, eventType = "double") => {
 const firstPlayerIdOfSide = (match, side, eventType) =>
   userIdOf(playersOf(sidePairOf(match, side), eventType)[0]);
 
+const refereeScoreDigitSx = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: { xs: 72, md: 92 },
+  fontVariantNumeric: "tabular-nums",
+  fontFeatureSettings: '"tnum"',
+  letterSpacing: 0,
+};
+
+const refereeSetDigitSx = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: { xs: 42, md: 52 },
+  fontVariantNumeric: "tabular-nums",
+  fontFeatureSettings: '"tnum"',
+  letterSpacing: 0,
+};
+
+const refereeScoreLabelSx = {
+  width: { xs: 52, md: 64 },
+  flexShrink: 0,
+  textAlign: "center",
+};
+
+const stableButtonIconSx = {
+  "& .MuiButton-startIcon": {
+    width: 22,
+    minWidth: 22,
+    display: "inline-flex",
+    justifyContent: "center",
+  },
+  "& .MuiButton-endIcon": {
+    width: 22,
+    minWidth: 22,
+    display: "inline-flex",
+    justifyContent: "center",
+  },
+};
+
 function BreakCountdown({ endTime, color = "#ef4444" }) {
   const [text, setText] = useState("00:00");
 
@@ -407,7 +448,7 @@ function TeamPanel({
   return (
     <Box
       sx={{
-        flex: 1,
+        flex: { xs: "1 1 auto", md: "1 1 0" },
         minWidth: 0,
         borderRadius: 4,
         border: "1px solid",
@@ -1486,6 +1527,7 @@ export default function RefereeScoreDialog({
               <Box
                 sx={{
                   width: { xs: "100%", md: 280 },
+                  flexShrink: 0,
                   borderRadius: 4,
                   border: "1px solid",
                   borderColor: ui.softBorder,
@@ -1529,6 +1571,7 @@ export default function RefereeScoreDialog({
                         fontWeight: 900,
                         fontSize: 18,
                         letterSpacing: "-0.02em",
+                        ...stableButtonIconSx,
                       }}
                     >
                       {preStartServeSideLabel}
@@ -1631,14 +1674,20 @@ export default function RefereeScoreDialog({
                       {callout}
                     </Typography>
 
-                    <Stack direction="row" alignItems="center" spacing={2.2}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="center"
+                      spacing={{ xs: 0.8, md: 1.1 }}
+                      sx={{ width: "100%" }}
+                    >
                       <Typography
                         sx={{
                           fontSize: { xs: 44, md: 56 },
                           lineHeight: 1,
                           fontWeight: 900,
                           color: ui.success,
-                          letterSpacing: "-0.06em",
+                          ...refereeScoreDigitSx,
                         }}
                       >
                         {leftGameScore}
@@ -1650,6 +1699,7 @@ export default function RefereeScoreDialog({
                           fontWeight: 800,
                           letterSpacing: "0.12em",
                           color: ui.muted,
+                          ...refereeScoreLabelSx,
                         }}
                       >
                         Game
@@ -1660,21 +1710,27 @@ export default function RefereeScoreDialog({
                           lineHeight: 1,
                           fontWeight: 900,
                           color: ui.success,
-                          letterSpacing: "-0.06em",
+                          ...refereeScoreDigitSx,
                         }}
                       >
                         {rightGameScore}
                       </Typography>
                     </Stack>
 
-                    <Stack direction="row" alignItems="center" spacing={2.2}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="center"
+                      spacing={{ xs: 0.8, md: 1.1 }}
+                      sx={{ width: "100%" }}
+                    >
                       <Typography
                         sx={{
                           fontSize: { xs: 28, md: 34 },
                           lineHeight: 1,
                           fontWeight: 900,
-                          letterSpacing: "-0.05em",
                           color: ui.text,
+                          ...refereeSetDigitSx,
                         }}
                       >
                         {leftSetWins}
@@ -1686,6 +1742,7 @@ export default function RefereeScoreDialog({
                           fontWeight: 800,
                           letterSpacing: "0.12em",
                           color: ui.muted,
+                          ...refereeScoreLabelSx,
                         }}
                       >
                         Match
@@ -1695,8 +1752,8 @@ export default function RefereeScoreDialog({
                           fontSize: { xs: 28, md: 34 },
                           lineHeight: 1,
                           fontWeight: 900,
-                          letterSpacing: "-0.05em",
                           color: ui.text,
+                          ...refereeSetDigitSx,
                         }}
                       >
                         {rightSetWins}
@@ -1780,6 +1837,7 @@ export default function RefereeScoreDialog({
                     fontWeight: 900,
                     bgcolor: "#10b981",
                     "&:hover": { bgcolor: "#059669" },
+                    ...stableButtonIconSx,
                   }}
                 >
                   Tiếp tục
@@ -1793,7 +1851,14 @@ export default function RefereeScoreDialog({
               alignItems={{ xs: "stretch", md: "center" }}
               spacing={1.25}
             >
-              <Box sx={{ minWidth: { md: 140 } }}>
+              <Box
+                sx={{
+                  width: { xs: "100%", md: 140 },
+                  minWidth: { md: 140 },
+                  display: "flex",
+                  justifyContent: { xs: "center", md: "flex-start" },
+                }}
+              >
                 <LiveClock color={ui.text} />
               </Box>
 
@@ -1805,6 +1870,7 @@ export default function RefereeScoreDialog({
                   flexWrap="wrap"
                   justifyContent="center"
                   flex={1}
+                  sx={{ minWidth: 0 }}
                 >
                   {cta ? (
                     <Button
@@ -1836,6 +1902,7 @@ export default function RefereeScoreDialog({
                       fontWeight: 800,
                       borderColor: ui.border,
                       color: ui.text,
+                      ...stableButtonIconSx,
                     }}
                   >
                     Đổi bên
@@ -1853,6 +1920,7 @@ export default function RefereeScoreDialog({
                       borderColor: alpha(ui.accent, 0.34),
                       color: ui.accent,
                       bgcolor: ui.accentSoft,
+                      ...stableButtonIconSx,
                     }}
                   >
                     Bốc thăm
@@ -1865,7 +1933,7 @@ export default function RefereeScoreDialog({
                   alignItems="stretch"
                   justifyContent="center"
                   flex={1}
-                  sx={{ width: "100%" }}
+                  sx={{ width: "100%", minWidth: 0 }}
                 >
                   <Button
                     variant="outlined"
@@ -1887,6 +1955,7 @@ export default function RefereeScoreDialog({
                       color: activeSide === leftSide ? "#ffffff" : ui.text,
                       fontWeight: 900,
                       fontSize: { xs: 16, md: 18 },
+                      ...stableButtonIconSx,
                     }}
                   >
                     Đội bên trái
@@ -1906,6 +1975,7 @@ export default function RefereeScoreDialog({
                       fontWeight: 900,
                       fontSize: { xs: 16, md: 17 },
                       "&:hover": { bgcolor: "#b45309" },
+                      ...stableButtonIconSx,
                     }}
                   >
                     {midLabel}
@@ -1931,6 +2001,7 @@ export default function RefereeScoreDialog({
                       color: activeSide === rightSide ? "#ffffff" : ui.text,
                       fontWeight: 900,
                       fontSize: { xs: 16, md: 18 },
+                      ...stableButtonIconSx,
                     }}
                   >
                     Đội bên phải
@@ -1939,7 +2010,13 @@ export default function RefereeScoreDialog({
               )}
 
               {!needsStartAction && cta ? (
-                <Box sx={{ minWidth: { md: 170 } }}>
+                <Box
+                  sx={{
+                    width: { xs: "100%", md: 170 },
+                    minWidth: { md: 170 },
+                    flexShrink: 0,
+                  }}
+                >
                   <Button
                     fullWidth
                     variant="contained"
@@ -1960,7 +2037,13 @@ export default function RefereeScoreDialog({
                   </Button>
                 </Box>
               ) : (
-                <Box sx={{ minWidth: { md: 170 } }} />
+                <Box
+                  sx={{
+                    width: { xs: "100%", md: 170 },
+                    minWidth: { md: 170 },
+                    flexShrink: 0,
+                  }}
+                />
               )}
             </Stack>
           </Box>
