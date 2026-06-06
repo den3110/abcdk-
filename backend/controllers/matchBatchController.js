@@ -240,7 +240,7 @@ export const batchDeleteMatches = expressAsyncHandler(async (req, res) => {
  */
 export const buildRoundElimSkeleton = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
-  const { drawSize, cutRounds, overwrite } = req.body || {};
+  const { drawSize, cutRounds, overwrite, append } = req.body || {};
 
   const br = await Bracket.findById(bracketId);
   if (!br) {
@@ -263,11 +263,14 @@ export const buildRoundElimSkeleton = expressAsyncHandler(async (req, res) => {
     throw new Error("cutRounds must be >=1 and < log2(drawSize)");
   }
 
-  const existingCount = await Match.countDocuments({ bracket: br._id });
-  if (existingCount > 0 && !overwrite) {
+  const existing = await Match.find({ bracket: br._id })
+    .select("_id round order")
+    .lean();
+  const existingCount = existing.length;
+  if (existingCount > 0 && !overwrite && !append) {
     res.status(400);
     throw new Error(
-      "Bracket already has matches. Pass overwrite=true to force."
+      "Bracket already has matches. Pass overwrite=true or append=true."
     );
   }
   if (existingCount > 0 && overwrite) {
@@ -278,26 +281,70 @@ export const buildRoundElimSkeleton = expressAsyncHandler(async (req, res) => {
     bestOf: br.config?.rules?.bestOf ?? 3,
     pointsToWin: br.config?.rules?.pointsToWin ?? 11,
     winByTwo: br.config?.rules?.winByTwo ?? true,
+    cap: {
+      mode: br.config?.rules?.cap?.mode ?? "none",
+      points: br.config?.rules?.cap?.points ?? null,
+    },
   };
+
+  const existingKeys =
+    existingCount > 0 && !overwrite
+      ? new Set(existing.map((m) => `${Number(m.round || 1)}:${Number(m.order || 0)}`))
+      : new Set();
+
+  const byeSeed = { type: "bye", ref: null, label: "BYE" };
+  const loserSeed = (round, order) => ({
+    type: "stageMatchLoser",
+    ref: {
+      stageIndex: Number(br.stage || 1),
+      round,
+      order,
+    },
+    label: `L-V${round}-T${order + 1}`,
+  });
 
   const docs = [];
   const rounds = Math.min(K, Math.max(1, Math.log2(N) - 1));
   for (let r = 1; r <= rounds; r++) {
     const count = Math.max(1, N >> r); // N/2^r
+    const prevCount = r > 1 ? Math.max(1, N >> (r - 1)) : 0;
     for (let i = 0; i < count; i++) {
+      if (existingKeys.has(`${r}:${i}`)) continue;
+      const leftOrder = 2 * i;
+      const rightOrder = 2 * i + 1;
+      const seedA = r > 1 ? loserSeed(r - 1, leftOrder) : null;
+      const seedB =
+        r > 1 ? (rightOrder < prevCount ? loserSeed(r - 1, rightOrder) : byeSeed) : null;
       docs.push({
         tournament: br.tournament,
         bracket: br._id,
+        format: "roundElim",
         round: r,
         order: i,
+        seedA,
+        seedB,
         rules: defaultRules,
         status: "scheduled",
       });
     }
   }
-  if (!docs.length) return res.json({ created: 0 });
+  if (!docs.length) return res.json({ created: 0, rounds });
 
   const result = await Match.insertMany(docs);
+  br.config = br.config || {};
+  br.config.roundElim = {
+    ...(br.config.roundElim?.toObject?.() || br.config.roundElim || {}),
+    drawSize: N,
+    cutRounds: rounds,
+  };
+  br.meta = br.meta || {};
+  br.meta.maxRounds = Math.max(Number(br.meta.maxRounds || 0), rounds);
+  br.meta.expectedFirstRoundMatches = Math.max(
+    Number(br.meta.expectedFirstRoundMatches || 0),
+    Math.max(1, N >> 1)
+  );
+  br.matchesCount = await Match.countDocuments({ bracket: br._id });
+  await br.save();
   res.json({ created: result.length, rounds });
 });
 

@@ -1758,9 +1758,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           const winnerPair =
             sourceMatch.winner === "A" ? sourceMatch.pairA : sourceMatch.pairB;
           if (hasResolvedPair(winnerPair)) {
-            return `${pairLabel(winnerPair, isSingle, displayMode)}${
-              sourceCode ? ` (W-${sourceCode})` : ""
-            }`;
+            return pairLabel(winnerPair, isSingle, displayMode);
           }
         }
 
@@ -1786,9 +1784,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               : sourceMatch.pairB;
 
           if (hasResolvedPair(sourcePair)) {
-            return `${pairLabel(sourcePair, isSingle, displayMode)}${
-              sourceRefLabel ? ` (${sourceRefLabel})` : ""
-            }`;
+            return pairLabel(sourcePair, isSingle, displayMode);
           }
         }
 

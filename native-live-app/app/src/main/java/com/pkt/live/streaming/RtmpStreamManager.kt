@@ -691,7 +691,11 @@ class RtmpStreamManager(
                 val outputPath = buildRecordingSegmentPath(normalizedMatchId, normalizedRecordingId, 0)
                     ?: return@withLock Result.failure(IllegalStateException("Không tạo được file ghi hình"))
 
-                runCatching { cam.startRecord(outputPath) }.getOrElse { error ->
+                startRecordSegmentLocked(
+                    cam = cam,
+                    outputPath = outputPath,
+                    reason = "start_recording",
+                ).getOrElse { error ->
                     markRecordingError("Không bắt đầu được ghi hình: ${error.message}")
                     return@withLock Result.failure(error)
                 }
@@ -985,7 +989,20 @@ class RtmpStreamManager(
     private fun maybeResumeRecordingAfterBoundaryLocked(reason: String) {
         val pending = pendingRecordingResume ?: return
         val cam = rtmpCamera ?: return
-        if (!cam.isOnPreview) return
+        if (!cam.isStreaming) {
+            val prepared = prepareStreamPipelineLocked(
+                cam = cam,
+                quality = currentQuality,
+                reason = "recording_resume_$reason",
+            )
+            if (!prepared) {
+                pendingRecordingResume = null
+                markRecordingError("Không chuẩn bị lại được encoder để ghi segment mới.")
+                return
+            }
+        } else if (!cam.isOnPreview) {
+            return
+        }
 
         val nextPath =
             buildRecordingSegmentPath(
@@ -998,7 +1015,11 @@ class RtmpStreamManager(
                 return
             }
 
-        runCatching { cam.startRecord(nextPath) }.onFailure {
+        startRecordSegmentLocked(
+            cam = cam,
+            outputPath = nextPath,
+            reason = "resume_$reason",
+        ).onFailure {
             markRecordingError("Không resume được ghi hình sau khi đồng bộ encoder: ${it.message}")
             pendingRecordingResume = null
         }.onSuccess {
@@ -1022,6 +1043,47 @@ class RtmpStreamManager(
                 )
             scheduleRecordingRotationLocked()
         }
+    }
+
+    private fun prepareRecordingPipelineLocked(cam: RtmpCamera2, reason: String): Boolean {
+        if (cam.isStreaming) return cam.isOnPreview
+        autoPreviewAllowed = true
+        val prepared = prepareStreamPipelineLocked(
+            cam = cam,
+            quality = currentQuality,
+            reason = reason,
+        )
+        if (prepared) {
+            _state.value = StreamState.Previewing
+        }
+        return prepared
+    }
+
+    private fun startRecordSegmentLocked(
+        cam: RtmpCamera2,
+        outputPath: String,
+        reason: String,
+    ): Result<Unit> {
+        val prepared = prepareRecordingPipelineLocked(
+            cam = cam,
+            reason = "${reason}_prepare",
+        )
+        if (!prepared) {
+            return Result.failure(IllegalStateException("Không chuẩn bị được encoder để ghi hình."))
+        }
+
+        return runCatching { cam.startRecord(outputPath) }
+            .recoverCatching { error ->
+                val message = error.message.orEmpty()
+                if (!message.contains("not prepared", ignoreCase = true)) throw error
+                Log.w(TAG, "Encoder was not prepared on startRecord ($reason), retrying once")
+                val retryPrepared = prepareRecordingPipelineLocked(
+                    cam = cam,
+                    reason = "${reason}_retry",
+                )
+                if (!retryPrepared) throw error
+                cam.startRecord(outputPath)
+            }
     }
 
     private fun pauseRecordingForBoundaryLocked(reason: String) {

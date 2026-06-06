@@ -164,6 +164,18 @@ test("finished record-only matches stay in processing until Drive video is ready
   assert.equal(payload.publicReplayStateHint, "processing");
 });
 
+test("finished matches ignore stale internal recording URLs when no recording exists", () => {
+  const payload = attachPublicStreamsToMatch({
+    _id: "match-stale-recording-url",
+    status: "finished",
+    video: "/api/live/recordings/v2/666666666666666666666666/play",
+  });
+
+  assert.deepEqual(payload.streams, []);
+  assert.equal(payload.defaultStreamKey, null);
+  assert.equal(payload.publicReplayStateHint, "none");
+});
+
 test("ai commentary is not exposed before full replay Drive video is ready", () => {
   const payload = attachPublicStreamsToMatch(
     {

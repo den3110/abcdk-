@@ -4670,8 +4670,7 @@ export default function TournamentBracket() {
               : sourceMatch.pairB;
 
           if (sourcePair) {
-            const relationSuffix = sourceRefLabel ? ` (${sourceRefLabel})` : "";
-            return `${pairLabelWithNick(sourcePair, eventType, displayMode)}${relationSuffix}`;
+            return pairLabelWithNick(sourcePair, eventType, displayMode);
           }
         }
 

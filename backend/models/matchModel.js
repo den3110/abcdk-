@@ -679,16 +679,117 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
   }
 }
 
-/** Propagate winner/loser sau khi trận đã finished */
-async function propagateFromFinishedMatch(doc) {
-  const MatchModel = doc.model("Match");
+const DEPENDENT_AUTO_SYNC_STATUS = { $nin: ["live", "finished"] };
 
-  // stageIndex fallback
+function canAutoSyncDependentMatch(match) {
+  return !["live", "finished"].includes(String(match?.status || ""));
+}
+
+async function stageIndexForMatch(doc) {
   let st = doc.stageIndex;
   if (!st) {
     const br = await Bracket.findById(doc.bracket).select("stage").lean();
     if (br?.stage) st = br.stage;
   }
+  return st;
+}
+
+function stageConditions(refPath, stageIndex) {
+  if (stageIndex === null || stageIndex === undefined || stageIndex === "") {
+    return [];
+  }
+  return [
+    { [`${refPath}.stageIndex`]: stageIndex },
+    { [`${refPath}.stage`]: stageIndex },
+    { [`${refPath}.stageIndex`]: String(stageIndex) },
+    { [`${refPath}.stage`]: String(stageIndex) },
+  ];
+}
+
+function seedSourceQuery({
+  doc,
+  side,
+  type,
+  stageIndex,
+  sameBracketOnly = false,
+}) {
+  const seedPath = side === "A" ? "seedA" : "seedB";
+  const refPath = `${seedPath}.ref`;
+  const sourceBranches = [{ [`${refPath}.matchId`]: doc._id }];
+
+  const roundOrderBranch = {
+    [`${refPath}.round`]: doc.round,
+    [`${refPath}.order`]: doc.order,
+  };
+  const stageOr = sameBracketOnly ? [] : stageConditions(refPath, stageIndex);
+  if (sameBracketOnly || stageOr.length) {
+    if (stageOr.length) roundOrderBranch.$or = stageOr;
+    sourceBranches.push(roundOrderBranch);
+  }
+
+  return {
+    tournament: doc.tournament,
+    ...(sameBracketOnly ? { bracket: doc.bracket } : {}),
+    [`${seedPath}.type`]: type,
+    status: DEPENDENT_AUTO_SYNC_STATUS,
+    $or: sourceBranches,
+  };
+}
+
+async function clearDependentSlotsFromMatch(doc) {
+  const MatchModel = doc.model("Match");
+  const st = await stageIndexForMatch(doc);
+
+  await MatchModel.updateMany(
+    {
+      tournament: doc.tournament,
+      previousA: doc._id,
+      status: DEPENDENT_AUTO_SYNC_STATUS,
+    },
+    { $set: { pairA: null } }
+  );
+  await MatchModel.updateMany(
+    {
+      tournament: doc.tournament,
+      previousB: doc._id,
+      status: DEPENDENT_AUTO_SYNC_STATUS,
+    },
+    { $set: { pairB: null } }
+  );
+
+  const updates = [
+    ["A", "stageMatchWinner", false, { pairA: null }],
+    ["B", "stageMatchWinner", false, { pairB: null }],
+    ["A", "stageMatchLoser", false, { pairA: null }],
+    ["B", "stageMatchLoser", false, { pairB: null }],
+    ["A", "matchWinner", true, { pairA: null }],
+    ["B", "matchWinner", true, { pairB: null }],
+    ["A", "matchLoser", true, { pairA: null }],
+    ["B", "matchLoser", true, { pairB: null }],
+  ];
+
+  for (const [side, type, sameBracketOnly, set] of updates) {
+    await MatchModel.updateMany(
+      seedSourceQuery({ doc, side, type, stageIndex: st, sameBracketOnly }),
+      { $set: set }
+    );
+  }
+}
+
+async function syncDependentSlotsFromMatch(doc) {
+  if (doc.status === "finished" && (doc.winner === "A" || doc.winner === "B")) {
+    await propagateFromFinishedMatch(doc);
+    return;
+  }
+  await clearDependentSlotsFromMatch(doc);
+}
+
+/** Propagate winner/loser sau khi trận đã finished */
+async function propagateFromFinishedMatch(doc) {
+  const MatchModel = doc.model("Match");
+
+  // stageIndex fallback
+  const st = await stageIndexForMatch(doc);
 
   const winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
   const loserReg = doc.winner === "A" ? doc.pairB : doc.pairA;
@@ -696,7 +797,7 @@ async function propagateFromFinishedMatch(doc) {
   // 1) KO chaining
   if (doc.nextMatch && doc.nextSlot && winnerReg) {
     const nm = await MatchModel.findById(doc.nextMatch);
-    if (nm) {
+    if (nm && canAutoSyncDependentMatch(nm)) {
       const field = doc.nextSlot === "A" ? "pairA" : "pairB";
       if (!nm[field]) {
         nm[field] = winnerReg;
@@ -705,98 +806,62 @@ async function propagateFromFinishedMatch(doc) {
     }
   }
   await MatchModel.updateMany(
-    { tournament: doc.tournament, previousA: doc._id },
-    { $set: { pairA: winnerReg }, $unset: { previousA: "" } }
+    {
+      tournament: doc.tournament,
+      previousA: doc._id,
+      status: DEPENDENT_AUTO_SYNC_STATUS,
+    },
+    { $set: { pairA: winnerReg } }
   );
   await MatchModel.updateMany(
-    { tournament: doc.tournament, previousB: doc._id },
-    { $set: { pairB: winnerReg }, $unset: { previousB: "" } }
+    {
+      tournament: doc.tournament,
+      previousB: doc._id,
+      status: DEPENDENT_AUTO_SYNC_STATUS,
+    },
+    { $set: { pairB: winnerReg } }
   );
 
   // 2) stageMatchWinner
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      "seedA.type": "stageMatchWinner",
-      "seedA.ref.round": doc.round,
-      "seedA.ref.order": doc.order,
-      $or: [
-        { "seedA.ref.stageIndex": st },
-        { "seedA.ref.stage": st },
-        { "seedA.ref.stageIndex": String(st) },
-        { "seedA.ref.stage": String(st) },
-      ],
-    },
-    { $set: { pairA: winnerReg }, $unset: { seedA: "" } }
+    seedSourceQuery({ doc, side: "A", type: "stageMatchWinner", stageIndex: st }),
+    { $set: { pairA: winnerReg } }
   );
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      "seedB.type": "stageMatchWinner",
-      "seedB.ref.round": doc.round,
-      "seedB.ref.order": doc.order,
-      $or: [
-        { "seedB.ref.stageIndex": st },
-        { "seedB.ref.stage": st },
-        { "seedB.ref.stageIndex": String(st) },
-        { "seedB.ref.stage": String(st) },
-      ],
-    },
-    { $set: { pairB: winnerReg }, $unset: { seedB: "" } }
+    seedSourceQuery({ doc, side: "B", type: "stageMatchWinner", stageIndex: st }),
+    { $set: { pairB: winnerReg } }
   );
 
   // 3) stageMatchLoser
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      "seedA.type": "stageMatchLoser",
-      "seedA.ref.round": doc.round,
-      "seedA.ref.order": doc.order,
-      $or: [
-        { "seedA.ref.stageIndex": st },
-        { "seedA.ref.stage": st },
-        { "seedA.ref.stageIndex": String(st) },
-        { "seedA.ref.stage": String(st) },
-      ],
-    },
-    { $set: { pairA: loserReg }, $unset: { seedA: "" } }
+    seedSourceQuery({ doc, side: "A", type: "stageMatchLoser", stageIndex: st }),
+    { $set: { pairA: loserReg } }
   );
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      "seedB.type": "stageMatchLoser",
-      "seedB.ref.round": doc.round,
-      "seedB.ref.order": doc.order,
-      $or: [
-        { "seedB.ref.stageIndex": st },
-        { "seedB.ref.stage": st },
-        { "seedB.ref.stageIndex": String(st) },
-        { "seedB.ref.stage": String(st) },
-      ],
-    },
-    { $set: { pairB: loserReg }, $unset: { seedB: "" } }
+    seedSourceQuery({ doc, side: "B", type: "stageMatchLoser", stageIndex: st }),
+    { $set: { pairB: loserReg } }
   );
 
   // 4) matchLoser trong cùng bracket
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      bracket: doc.bracket,
-      "seedA.type": "matchLoser",
-      "seedA.ref.round": doc.round,
-      "seedA.ref.order": doc.order,
-    },
-    { $set: { pairA: loserReg }, $unset: { seedA: "" } }
+    seedSourceQuery({
+      doc,
+      side: "A",
+      type: "matchLoser",
+      stageIndex: st,
+      sameBracketOnly: true,
+    }),
+    { $set: { pairA: loserReg } }
   );
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      bracket: doc.bracket,
-      "seedB.type": "matchLoser",
-      "seedB.ref.round": doc.round,
-      "seedB.ref.order": doc.order,
-    },
-    { $set: { pairB: loserReg }, $unset: { seedB: "" } }
+    seedSourceQuery({
+      doc,
+      side: "B",
+      type: "matchLoser",
+      stageIndex: st,
+      sameBracketOnly: true,
+    }),
+    { $set: { pairB: loserReg } }
   );
 }
 
@@ -1031,26 +1096,7 @@ matchSchema.post("save", async function (doc, next) {
       await emitMatchRefereeSnapshot([doc._id]);
     }
 
-    if (
-      doc.status === "finished" &&
-      (doc.winner === "A" || doc.winner === "B")
-    ) {
-      if (doc.nextMatch && doc.nextSlot) {
-        const winnerRegId = doc.winner === "A" ? doc.pairA : doc.pairB;
-        if (winnerRegId) {
-          const Next = doc.model("Match");
-          const nm = await Next.findById(doc.nextMatch);
-          if (nm) {
-            const field = doc.nextSlot === "A" ? "pairA" : "pairB";
-            if (!nm[field]) {
-              nm[field] = winnerRegId;
-              await nm.save();
-            }
-          }
-        }
-      }
-      await propagateFromFinishedMatch(doc);
-    }
+    await syncDependentSlotsFromMatch(doc);
 
     // auto rating
     try {
@@ -1214,12 +1260,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       }
     }
 
-    if (
-      fresh.status === "finished" &&
-      (fresh.winner === "A" || fresh.winner === "B")
-    ) {
-      await propagateFromFinishedMatch(fresh);
-    }
+    await syncDependentSlotsFromMatch(fresh);
 
     // auto rating (giữ nguyên)
     try {

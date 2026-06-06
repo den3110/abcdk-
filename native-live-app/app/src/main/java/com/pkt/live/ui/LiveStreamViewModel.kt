@@ -75,6 +75,7 @@ class LiveStreamViewModel(
         private const val TAG = "LiveVM"
         private const val DEFAULT_COURT_WATCH_POLL_INTERVAL_MS = 5_000L
         private const val MATCH_LIVE_WAIT_POLL_INTERVAL_MS = 3_000L
+        private const val OBSERVER_BOOTSTRAP_RETRY_MS = 60_000L
     }
 
     // ===== Params from deeplink =====
@@ -109,6 +110,9 @@ class LiveStreamViewModel(
     private var endingLiveDismissJob: Job? = null
     private var backgroundExitJob: Job? = null
     private var liveDeviceTelemetryJob: Job? = null
+    private var observerBootstrapJob: Job? = null
+    private var observerBootstrapToken: String = ""
+    private var observerBootstrapLastAttemptMs: Long = 0L
     private val liveDeviceTelemetryClientSessionId = UUID.randomUUID().toString()
     private val liveDeviceId = resolveLiveDeviceId()
     private var lastTelemetryOverlayEventKey: String? = null
@@ -1018,6 +1022,7 @@ class LiveStreamViewModel(
 
         // Set auth token for API calls
         authInterceptor.token = token
+        refreshObserverBootstrapForTelemetry(token)
 
         ensureObservers()
         overlayRenderer.start()
@@ -1117,6 +1122,7 @@ class LiveStreamViewModel(
         _waitingForNextMatch.value = false
 
         authInterceptor.token = token
+        refreshObserverBootstrapForTelemetry(token)
 
         _loading.value = true
         resetMatchScopedState()
@@ -2329,6 +2335,41 @@ class LiveStreamViewModel(
     val observerConnectionState: StateFlow<ObserverTelemetryConnectionState>
         get() = observerTelemetryClient.connectionState
 
+    private fun refreshObserverBootstrapForTelemetry(token: String) {
+        val normalizedToken = token.trim()
+        if (normalizedToken.isBlank()) return
+        if (observerTelemetryClient.isEnabled && observerBootstrapToken == normalizedToken) return
+        if (observerBootstrapJob?.isActive == true) return
+
+        val now = System.currentTimeMillis()
+        if (observerBootstrapToken == normalizedToken && now - observerBootstrapLastAttemptMs < OBSERVER_BOOTSTRAP_RETRY_MS) {
+            return
+        }
+
+        observerBootstrapLastAttemptMs = now
+        observerBootstrapJob =
+            launchGuarded(name = "refreshObserverBootstrapForTelemetry") {
+                repository.getLiveAppBootstrap()
+                    .onSuccess { bootstrap ->
+                        observerBootstrapToken = normalizedToken
+                        observerTelemetryClient.refreshConnectionState()
+                        if (!bootstrap.canUseLiveApp) {
+                            Log.w(
+                                TAG,
+                                "Live app bootstrap denied while refreshing observer telemetry: ${bootstrap.reason}"
+                            )
+                            return@onSuccess
+                        }
+                        if (shouldPublishLiveDeviceTelemetry) {
+                            sendLiveDeviceHeartbeat(force = true)
+                        }
+                    }
+                    .onFailure { error ->
+                        Log.w(TAG, "Observer bootstrap refresh failed: ${error.message}")
+                    }
+            }
+    }
+
     private val liveDeviceTelemetrySourceName: String
         get() = "pickletour-live-app-android"
 
@@ -2354,6 +2395,9 @@ class LiveStreamViewModel(
     }
 
     private suspend fun sendLiveDeviceHeartbeat(force: Boolean = false) {
+        if (!observerTelemetryEnabled) {
+            refreshObserverBootstrapForTelemetry(authInterceptor.token.orEmpty())
+        }
         if (!force && !shouldPublishLiveDeviceTelemetry) return
         val status = buildLiveDeviceTelemetryStatus()
         observerTelemetryClient.sendDeviceHeartbeat(
@@ -3048,6 +3092,8 @@ class LiveStreamViewModel(
         stopLiveCountdownJob = null
         liveDeviceTelemetryJob?.cancel()
         liveDeviceTelemetryJob = null
+        observerBootstrapJob?.cancel()
+        observerBootstrapJob = null
         recordingCoordinator.setRecoveryBusy(false)
         recordingCoordinator.setLiveCriticalPathBusy(false)
         endingLiveDismissJob?.cancel()

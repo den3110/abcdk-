@@ -314,24 +314,13 @@ function hasDriveReplayReady(recording = null) {
 
 function hasPendingReplayProcessing(match = {}, recording = null) {
   const recordingStatus = asTrimmed(recording?.status).toLowerCase();
-  if (
+  return Boolean(
     recording &&
-    !hasDriveReplayReady(recording) &&
-    ["recording", "uploading", "pending_export_window", "exporting", "ready"].includes(
-      recordingStatus,
-    )
-  ) {
-    return true;
-  }
-
-  return [match?.video, match?.playbackUrl, match?.streamUrl, match?.liveUrl]
-    .map(asTrimmed)
-    .some(
-      (url) =>
-        Boolean(url) &&
-        (isTemporaryRecordingPlaybackUrl(url) ||
-          Boolean(extractInternalRecordingRoute(url))),
-    );
+      !hasDriveReplayReady(recording) &&
+      ["recording", "uploading", "pending_export_window", "exporting", "ready"].includes(
+        recordingStatus,
+      ),
+  );
 }
 
 function normalizeUploadedSegments(recording) {

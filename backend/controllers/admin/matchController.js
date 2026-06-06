@@ -14,6 +14,200 @@ import { decorateServeAndSlots } from "../../utils/liveServeUtils.js";
 import UserMatch from "../../models/userMatchModel.js";
 import { buildMatchCodePayload } from "../../utils/matchDisplayCode.js";
 
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+
+const idString = (value) => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object") {
+    const nested =
+      value._id ??
+      value.id ??
+      value.matchId ??
+      value.registration ??
+      value.reg ??
+      value.value ??
+      null;
+    if (nested && nested !== value) return idString(nested);
+  }
+  return String(value || "").trim();
+};
+
+const normalizeAdminSeedType = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "empty" || raw === "none") return "";
+  if (raw === "matchWinner") return "stageMatchWinner";
+  if (raw === "matchLoser") return "stageMatchLoser";
+  if (["registration", "bye", "stageMatchWinner", "stageMatchLoser"].includes(raw)) {
+    return raw;
+  }
+  return "";
+};
+
+const isWinnerSeedType = (type) => type === "stageMatchWinner";
+const isLoserSeedType = (type) => type === "stageMatchLoser";
+
+const matchCodeForSeed = (match) => {
+  const round = Math.max(1, Number(match?.round || 1));
+  const order = Math.max(0, Number(match?.order || 0));
+  return `V${round}-T${order + 1}`;
+};
+
+async function findSeedSourceMatch({ rawSeed, bracket, targetRound }) {
+  const ref = rawSeed?.ref && typeof rawSeed.ref === "object" ? rawSeed.ref : {};
+  const rawMatchId =
+    ref.matchId ??
+    rawSeed.matchId ??
+    rawSeed.sourceMatchId ??
+    rawSeed.sourceMatch ??
+    null;
+  const matchId = idString(rawMatchId);
+
+  let source = null;
+  if (matchId && mongoose.isValidObjectId(matchId)) {
+    source = await Match.findById(matchId).select(
+      "_id tournament bracket round order pairA pairB status winner"
+    );
+  } else {
+    const round = Number(ref.round ?? rawSeed.round);
+    const order = Number(ref.order ?? rawSeed.order);
+    if (!Number.isInteger(round) || !Number.isInteger(order)) return null;
+
+    let sourceBracketId = bracket._id;
+    const stageIndex = Number(ref.stageIndex ?? ref.stage ?? rawSeed.stageIndex ?? rawSeed.stage);
+    if (Number.isInteger(stageIndex) && stageIndex > 0) {
+      const sourceBracket = await Bracket.findOne({
+        tournament: bracket.tournament,
+        stage: stageIndex,
+      }).select("_id");
+      if (sourceBracket?._id) sourceBracketId = sourceBracket._id;
+    }
+
+    source = await Match.findOne({
+      tournament: bracket.tournament,
+      bracket: sourceBracketId,
+      round,
+      order,
+    }).select("_id tournament bracket round order pairA pairB status winner");
+  }
+
+  if (!source) return null;
+  if (String(source.tournament) !== String(bracket.tournament)) {
+    throw new Error("Source match does not belong to this tournament");
+  }
+
+  const sameBracket = String(source.bracket) === String(bracket._id);
+  if (sameBracket && Number(source.round || 1) >= Number(targetRound || 1)) {
+    throw new Error("Source match must be from an earlier round");
+  }
+
+  return source;
+}
+
+async function normalizeAdminSeedSide({ rawSeed, bracket, targetRound }) {
+  const type = normalizeAdminSeedType(rawSeed?.type);
+  if (!type) {
+    return { hasSource: false, seed: null, pair: null, previous: null, previousMatch: null };
+  }
+
+  if (type === "bye") {
+    return {
+      hasSource: true,
+      seed: { type: "bye", ref: null, label: "BYE" },
+      pair: null,
+      previous: null,
+      previousMatch: null,
+    };
+  }
+
+  if (type === "registration") {
+    const ref = rawSeed?.ref && typeof rawSeed.ref === "object" ? rawSeed.ref : {};
+    const registrationId = idString(
+      ref.registration ?? ref.reg ?? rawSeed.registration ?? rawSeed.reg ?? rawSeed.value
+    );
+    if (!registrationId || !mongoose.isValidObjectId(registrationId)) {
+      throw new Error("Registration seed is invalid");
+    }
+
+    const reg = await Registration.findById(registrationId).select("_id tournament");
+    if (!reg) throw new Error("Registration seed was not found");
+    if (String(reg.tournament) !== String(bracket.tournament)) {
+      throw new Error("Registration seed does not belong to this tournament");
+    }
+
+    return {
+      hasSource: true,
+      seed: {
+        type: "registration",
+        ref: { registration: reg._id },
+        label: String(rawSeed?.label || "").trim(),
+      },
+      pair: reg._id,
+      previous: null,
+      previousMatch: null,
+    };
+  }
+
+  if (isWinnerSeedType(type) || isLoserSeedType(type)) {
+    const source = await findSeedSourceMatch({ rawSeed, bracket, targetRound });
+    if (!source) throw new Error("Source match seed was not found");
+
+    const sourceBracket = await Bracket.findById(source.bracket).select("stage");
+    const stageIndex = Number(sourceBracket?.stage || bracket.stage || 1);
+    const prefix = isWinnerSeedType(type) ? "W" : "L";
+    const code = matchCodeForSeed(source);
+    let resolvedPair = null;
+
+    if (source.status === "finished" && (source.winner === "A" || source.winner === "B")) {
+      if (isWinnerSeedType(type)) {
+        resolvedPair = source.winner === "A" ? source.pairA : source.pairB;
+      } else {
+        resolvedPair = source.winner === "A" ? source.pairB : source.pairA;
+      }
+    }
+
+    return {
+      hasSource: true,
+      seed: {
+        type,
+        ref: {
+          matchId: source._id,
+          stageIndex,
+          round: Number(source.round || 1),
+          order: Number(source.order || 0),
+        },
+        label: String(rawSeed?.label || `${prefix}-${code}`).trim(),
+      },
+      pair: resolvedPair || null,
+      previous:
+        isWinnerSeedType(type) && String(source.bracket) === String(bracket._id)
+          ? source._id
+          : null,
+      previousMatch:
+        isWinnerSeedType(type) && String(source.bracket) === String(bracket._id)
+          ? source
+          : null,
+    };
+  }
+
+  throw new Error("Unsupported seed type");
+}
+
+async function unlinkPreviousMatch(matchId, previousId, side) {
+  if (!previousId) return;
+  await Match.updateOne(
+    { _id: previousId, nextMatch: matchId, nextSlot: side },
+    { $set: { nextMatch: null, nextSlot: null } }
+  );
+}
+
+async function linkPreviousMatch(matchId, previousMatch, side) {
+  if (!previousMatch?._id) return;
+  previousMatch.nextMatch = matchId;
+  previousMatch.nextSlot = side;
+  await previousMatch.save();
+}
+
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
@@ -22,6 +216,8 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     pairB,
     previousA,
     previousB,
+    seedA,
+    seedB,
     round = 1,
     order = 0,
     rules,
@@ -37,24 +233,59 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     throw new Error("Bracket not found");
   }
 
+  const targetRound = Math.max(1, Number(round));
+  const hasSeedA = hasOwn(req.body, "seedA");
+  const hasSeedB = hasOwn(req.body, "seedB");
+  const sideA = hasSeedA
+    ? await normalizeAdminSeedSide({ rawSeed: seedA, bracket, targetRound })
+    : {
+        hasSource: !!(pairA || previousA),
+        seed: null,
+        pair: pairA || null,
+        previous: previousA || null,
+        previousMatch: null,
+      };
+  const sideB = hasSeedB
+    ? await normalizeAdminSeedSide({ rawSeed: seedB, bracket, targetRound })
+    : {
+        hasSource: !!(pairB || previousB),
+        seed: null,
+        pair: pairB || null,
+        previous: previousB || null,
+        previousMatch: null,
+      };
+
+  const effectivePairA = sideA.pair || null;
+  const effectivePairB = sideB.pair || null;
+  const effectivePreviousA = sideA.previous || null;
+  const effectivePreviousB = sideB.previous || null;
+
   // Validate nguồn đội (giữ nguyên)
-  if (pairA && previousA) {
+  if (!hasSeedA && pairA && previousA) {
     res.status(400);
     throw new Error("Provide either pairA or previousA for side A (not both)");
   }
-  if (pairB && previousB) {
+  if (!hasSeedB && pairB && previousB) {
     res.status(400);
     throw new Error("Provide either pairB or previousB for side B (not both)");
   }
-  if ((!pairA && !previousA) || (!pairB && !previousB)) {
+  if ((!sideA.hasSource && !hasSeedA) || (!sideB.hasSource && !hasSeedB)) {
     res.status(400);
     throw new Error("Each side must have a team: pairX or previousX");
   }
-  if (previousA && previousB && String(previousA) === String(previousB)) {
+  if (
+    effectivePreviousA &&
+    effectivePreviousB &&
+    String(effectivePreviousA) === String(effectivePreviousB)
+  ) {
     res.status(400);
     throw new Error("previousA and previousB cannot be the same match");
   }
-  if (pairA && pairB && String(pairA) === String(pairB)) {
+  if (
+    effectivePairA &&
+    effectivePairB &&
+    String(effectivePairA) === String(effectivePairB)
+  ) {
     res.status(400);
     throw new Error("Two teams must be different");
   }
@@ -88,8 +319,8 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   // Nếu theo Registration: kiểm tra tính hợp lệ (giữ nguyên)
   let rA = null,
     rB = null;
-  if (pairA) {
-    rA = await Registration.findById(pairA);
+  if (effectivePairA) {
+    rA = await Registration.findById(effectivePairA);
     if (!rA) {
       res.status(400);
       throw new Error("pairA is not a valid registration");
@@ -99,8 +330,8 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
       throw new Error("pairA does not belong to this tournament");
     }
   }
-  if (pairB) {
-    rB = await Registration.findById(pairB);
+  if (effectivePairB) {
+    rB = await Registration.findById(effectivePairB);
     if (!rB) {
       res.status(400);
       throw new Error("pairB is not a valid registration");
@@ -114,8 +345,8 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   // Nếu theo Winner-of: kiểm tra trận nguồn (giữ nguyên)
   let prevMatchA = null,
     prevMatchB = null;
-  if (previousA) {
-    prevMatchA = await Match.findById(previousA);
+  if (effectivePreviousA) {
+    prevMatchA = sideA.previousMatch || (await Match.findById(effectivePreviousA));
     if (!prevMatchA) {
       res.status(400);
       throw new Error("previousA match not found");
@@ -134,8 +365,8 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
       throw new Error("previousA must be from an earlier round");
     }
   }
-  if (previousB) {
-    prevMatchB = await Match.findById(previousB);
+  if (effectivePreviousB) {
+    prevMatchB = sideB.previousMatch || (await Match.findById(effectivePreviousB));
     if (!prevMatchB) {
       res.status(400);
       throw new Error("previousB match not found");
@@ -156,7 +387,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   }
 
   // Validate mềm cho knockout khi round > 1 và chọn tay (giữ nguyên)
-  if (Number(round) > 1 && (pairA || pairB)) {
+  if (Number(round) > 1 && !hasSeedA && !hasSeedB && (effectivePairA || effectivePairB)) {
     const prevRoundMatches = await Match.find({
       bracket: bracketId,
       tournament: bracket.tournament,
@@ -169,13 +400,13 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
       if (m.pairB) appearedInPrev.add(String(m.pairB));
     });
 
-    if (pairA && !appearedInPrev.has(String(pairA))) {
+    if (effectivePairA && !appearedInPrev.has(String(effectivePairA))) {
       res.status(400);
       throw new Error(
         "pairA is not coming from previous round of this bracket"
       );
     }
-    if (pairB && !appearedInPrev.has(String(pairB))) {
+    if (effectivePairB && !appearedInPrev.has(String(effectivePairB))) {
       res.status(400);
       throw new Error(
         "pairB is not coming from previous round of this bracket"
@@ -184,9 +415,10 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
 
     const samePrevMatch = prevRoundMatches.some(
       (m) =>
-        (String(m.pairA) === String(pairA) &&
-          String(m.pairB) === String(pairB)) ||
-        (String(m.pairA) === String(pairB) && String(m.pairB) === String(pairA))
+        (String(m.pairA) === String(effectivePairA) &&
+          String(m.pairB) === String(effectivePairB)) ||
+        (String(m.pairA) === String(effectivePairB) &&
+          String(m.pairB) === String(effectivePairA))
     );
     if (samePrevMatch) {
       res.status(400);
@@ -227,12 +459,14 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   const createPayload = {
     tournament: bracket.tournament,
     bracket: bracketId,
-    round: Math.max(1, Number(round)),
+    round: targetRound,
     order: Math.max(0, Number(order)),
-    pairA: pairA || null,
-    pairB: pairB || null,
-    previousA: previousA || null,
-    previousB: previousB || null,
+    seedA: sideA.seed || null,
+    seedB: sideB.seed || null,
+    pairA: effectivePairA,
+    pairB: effectivePairB,
+    previousA: effectivePreviousA,
+    previousB: effectivePreviousB,
     rules: finalRules,
     gameScores: [],
     status: "scheduled",
@@ -1581,6 +1815,9 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     order,
     pairA,
     pairB,
+    seedA,
+    seedB,
+    forceSeedEdit,
     rules,
     status, // 'scheduled' | 'live' | 'finished' | 'assigned' | 'queued'
     winner, // 'A' | 'B' | ''
@@ -1605,6 +1842,43 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
   // round/order
   if (Number.isFinite(Number(round))) mt.round = Math.max(1, Number(round));
   if (Number.isFinite(Number(order))) mt.order = Math.max(0, Number(order));
+
+  const hasSeedPatchA = hasOwn(req.body, "seedA");
+  const hasSeedPatchB = hasOwn(req.body, "seedB");
+  if ((hasSeedPatchA || hasSeedPatchB) && !forceSeedEdit) {
+    if (mt.status === "live" || mt.status === "finished") {
+      res.status(409);
+      throw new Error("Cannot edit bracket seeds for a live or finished match");
+    }
+  }
+
+  if (hasSeedPatchA) {
+    const side = await normalizeAdminSeedSide({
+      rawSeed: seedA,
+      bracket: br,
+      targetRound: mt.round,
+    });
+    await unlinkPreviousMatch(mt._id, mt.previousA, "A");
+    mt.seedA = side.seed;
+    mt.pairA = side.pair;
+    mt.previousA = side.previous;
+    if (side.previousMatch) await linkPreviousMatch(mt._id, side.previousMatch, "A");
+    mt.markModified("seedA");
+  }
+
+  if (hasSeedPatchB) {
+    const side = await normalizeAdminSeedSide({
+      rawSeed: seedB,
+      bracket: br,
+      targetRound: mt.round,
+    });
+    await unlinkPreviousMatch(mt._id, mt.previousB, "B");
+    mt.seedB = side.seed;
+    mt.pairB = side.pair;
+    mt.previousB = side.previous;
+    if (side.previousMatch) await linkPreviousMatch(mt._id, side.previousMatch, "B");
+    mt.markModified("seedB");
+  }
 
   // cập nhật ratingDelta nếu có truyền (không âm)
   if (ratingDelta !== undefined) {
@@ -1667,8 +1941,20 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     mt[sideKey] = r._id;
   };
 
-  if (pairA) await setRegIfProvided("pairA", pairA);
-  if (pairB) await setRegIfProvided("pairB", pairB);
+  if (pairA && !hasSeedPatchA) {
+    await unlinkPreviousMatch(mt._id, mt.previousA, "A");
+    mt.seedA = null;
+    mt.previousA = null;
+    mt.markModified("seedA");
+    await setRegIfProvided("pairA", pairA);
+  }
+  if (pairB && !hasSeedPatchB) {
+    await unlinkPreviousMatch(mt._id, mt.previousB, "B");
+    mt.seedB = null;
+    mt.previousB = null;
+    mt.markModified("seedB");
+    await setRegIfProvided("pairB", pairB);
+  }
 
   if (mt.pairA && mt.pairB && String(mt.pairA) === String(mt.pairB)) {
     res.status(400);
@@ -1750,12 +2036,12 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     const winnerReg = mt.winner === "A" ? mt.pairA : mt.pairB;
     if (winnerReg) {
       await Match.updateMany(
-        { previousA: mt._id },
-        { $set: { pairA: winnerReg }, $unset: { previousA: "" } }
+        { previousA: mt._id, status: { $nin: ["live", "finished"] } },
+        { $set: { pairA: winnerReg } }
       );
       await Match.updateMany(
-        { previousB: mt._id },
-        { $set: { pairB: winnerReg }, $unset: { previousB: "" } }
+        { previousB: mt._id, status: { $nin: ["live", "finished"] } },
+        { $set: { pairB: winnerReg } }
       );
     }
   }

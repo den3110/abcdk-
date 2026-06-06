@@ -3,6 +3,38 @@ import Match from "../models/matchModel.js";
 
 const GROUP_LIKE_TYPES = new Set(["group", "round_robin", "gsl"]);
 
+function isByeSeed(seed) {
+  return (
+    seed?.type === "bye" ||
+    (typeof seed?.label === "string" && /\bBYE\b/i.test(seed.label))
+  );
+}
+
+async function autoFinishResolvedByeMatch(matchId) {
+  const match = await Match.findById(matchId);
+  if (!match) return false;
+  if (["live", "finished"].includes(String(match.status || ""))) return false;
+
+  const openByeA = isByeSeed(match.seedA) && !match.pairA;
+  const openByeB = isByeSeed(match.seedB) && !match.pairB;
+  if (openByeA === openByeB) return false;
+
+  const winnerSide = openByeA ? "B" : "A";
+  const winnerPair = winnerSide === "A" ? match.pairA : match.pairB;
+  if (!winnerPair) return false;
+
+  match.status = "finished";
+  match.winner = winnerSide;
+  match.startedAt = match.startedAt || new Date();
+  match.finishedAt = match.finishedAt || new Date();
+  match.meta = {
+    ...(match.meta?.toObject?.() || match.meta || {}),
+    autoReason: "bye",
+  };
+  await match.save();
+  return true;
+}
+
 function normGroupToken(value) {
   if (value === 0) return "0";
   if (!value) return "";
@@ -411,11 +443,12 @@ export async function autoFeedGroupRank({
           continue;
         }
 
-        const res = await Match.updateOne(
+        const updatedDoc = await Match.findOneAndUpdate(
           { _id: match._id },
-          { $set: { [field]: null } }
+          { $set: { [field]: null } },
+          { new: true }
         );
-        if (res.modifiedCount > 0) {
+        if (updatedDoc) {
           updated += 1;
           if (log) {
             console.log(
@@ -433,15 +466,17 @@ export async function autoFeedGroupRank({
         continue;
       }
 
-      const res = await Match.updateOne(
+      const updatedDoc = await Match.findOneAndUpdate(
         { _id: match._id },
-        { $set: { [field]: nextRegId } }
+        { $set: { [field]: nextRegId } },
+        { new: true }
       );
-      if (res.modifiedCount > 0) {
+      if (updatedDoc) {
+        const autoFinishedBye = await autoFinishResolvedByeMatch(match._id);
         updated += 1;
         if (log) {
           console.log(
-            `[feed] ${match.labelKey || match._id} set ${field} <- ${nextRegId} (from ${slotLabel})`
+            `[feed] ${match.labelKey || match._id} set ${field} <- ${nextRegId} (from ${slotLabel})${autoFinishedBye ? " and auto-finished BYE" : ""}`
           );
         }
       }

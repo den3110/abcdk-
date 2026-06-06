@@ -1566,14 +1566,15 @@ private fun TopStatusLeftCluster(
     liveStartTime?.let { startTime ->
         Spacer(modifier = Modifier.width(12.dp))
         LiveTimer(startTime = startTime)
-        if (recordBadgeVisible) {
-            Spacer(modifier = Modifier.width(8.dp))
-            RecordingStateChip(
-                isRecording = recordingEngineState.isRecording,
-                exporting = recordingUiState.status == "exporting",
-                pendingUploads = recordingUiState.pendingUploads,
-            )
-        }
+    }
+
+    if (recordBadgeVisible) {
+        Spacer(modifier = Modifier.width(if (liveStartTime == null) 12.dp else 8.dp))
+        RecordingStateChip(
+            isRecording = recordingEngineState.isRecording,
+            exporting = recordingUiState.status == "exporting",
+            pendingUploads = recordingUiState.pendingUploads,
+        )
     }
 
     if (liveStartTime == null && !loading && !waitingActivationChipLabel.isNullOrBlank()) {
