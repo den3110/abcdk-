@@ -59,6 +59,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "PUT",
         body: { single, double },
       }),
+      invalidatesTags: [
+        "User",
+        { type: "Rankings", id: "LIST" },
+        { type: "Rankings", id: "PODIUM30D" },
+      ],
     }),
 
     // =========================

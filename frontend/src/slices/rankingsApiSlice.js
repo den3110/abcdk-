@@ -38,6 +38,7 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
           },
         };
       },
+      providesTags: [{ type: "Rankings", id: "LIST" }],
       keepUnusedDataFor: 30,
     }),
     // ✅ List rankings (không kèm podiums30d)
@@ -55,8 +56,7 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
           method: "GET",
         };
       },
-      // nếu bạn có tags cho rankings thì thêm vào đây
-      // providesTags: (result) => [{ type: "Rankings", id: "LIST" }],
+      providesTags: [{ type: "Rankings", id: "LIST" }],
       keepUnusedDataFor: 10,
     }),
 
@@ -66,6 +66,7 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
         url: `/api/rankings/podium30d`,
         method: "GET",
       }),
+      providesTags: [{ type: "Rankings", id: "PODIUM30D" }],
       keepUnusedDataFor: 30,
     }),
   }),

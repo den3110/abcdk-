@@ -17,6 +17,7 @@ export const assessmentsApiSlice = apiSlice.injectEndpoints({
           note,
         },
       }),
+      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
     }),
 
     // Lấy bản chấm mới nhất của 1 user
@@ -43,6 +44,7 @@ export const assessmentsApiSlice = apiSlice.injectEndpoints({
           ...(typeof note === "string" ? { note } : {}),
         },
       }),
+      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
     }),
 
     // (tuỳ chọn) Lấy ranking hiện tại của user – nếu bạn có route này

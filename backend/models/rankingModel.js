@@ -89,14 +89,14 @@ rankingSchema.index({ user: 1 }, { unique: true });
 // Compound index cho sorting rankings (QUAN TRỌNG nhất!)
 rankingSchema.index(
   {
-    colorRank: 1, // Sort tier trước
-    double: -1, // Sau đó sort theo double
-    single: -1, // Rồi single
-    points: -1, // Rồi points
+    double: -1, // Sort theo điểm đôi trước
+    single: -1, // Rồi điểm đơn
+    points: -1, // Rồi điểm tích luỹ
+    colorRank: 1, // Tier chỉ dùng để phá hòa
     updatedAt: -1, // Cuối cùng updatedAt
     _id: 1, // Tie-breaker
   },
-  { name: "ranking_sort_idx" },
+  { name: "ranking_score_sort_idx" },
 );
 
 // Index cho filter theo tier

@@ -366,7 +366,7 @@ export async function get_match_info({ matchId }, context) {
 
 /**
  * Bảng xếp hạng — dùng cùng sort order với trang ranking V2
- * Sort mặc định: colorRank ASC → double DESC → single DESC → points DESC
+ * Sort mặc định: double DESC → single DESC → points DESC → colorRank ASC
  * Có thể chọn sortBy: single, double, mix, points, reputation
  * Có thể filter theo tierColor: yellow (xác thực), red (tự chấm), grey (chưa đấu)
  */
@@ -385,18 +385,19 @@ export async function get_leaderboard({ limit = 10, sortBy, tierColor }) {
     sortBy &&
     ["single", "double", "mix", "points", "reputation"].includes(sortBy)
   ) {
-    // When filtering by specific tier, no need for colorRank in sort
-    // When NOT filtering, still sort by colorRank first then by sortBy
-    sortStage = tierColor
-      ? { [sortBy]: -1, updatedAt: -1, _id: 1 }
-      : { colorRank: 1, [sortBy]: -1, updatedAt: -1, _id: 1 };
-  } else {
-    // Default sort: uses compound index ranking_sort_idx
     sortStage = {
+      [sortBy]: -1,
       colorRank: 1,
+      updatedAt: -1,
+      _id: 1,
+    };
+  } else {
+    // Default sort: uses compound index ranking_score_sort_idx
+    sortStage = {
       double: -1,
       single: -1,
       points: -1,
+      colorRank: 1,
       updatedAt: -1,
       _id: 1,
     };
@@ -457,7 +458,7 @@ export async function get_leaderboard({ limit = 10, sortBy, tierColor }) {
   };
 
   return {
-    sortedBy: sortBy || "default (colorRank → double → single → points)",
+    sortedBy: sortBy || "default (double → single → points → colorRank)",
     ...(tierColor
       ? { filteredByTier: tierLabels[tierColor] || tierColor }
       : {}),

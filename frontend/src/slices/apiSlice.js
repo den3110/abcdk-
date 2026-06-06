@@ -338,6 +338,7 @@ export const apiSlice = createApi({
     "TournamentCourtClusterRuntime",
     "CourtClusterRuntime",
     "TournamentManagers",
+    "Rankings",
     "Tournaments",
     "REFEREE_MATCHES",
     "Venue",

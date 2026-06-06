@@ -9,7 +9,7 @@ export const evaluationsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body,
       }),
-      // không chắc rankings slice có tag, nên mình refetch thủ công ở UI
+      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
     }),
   }),
 });

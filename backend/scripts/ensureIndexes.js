@@ -32,25 +32,24 @@ async function main() {
     console.log(`  ${i + 1}. ${idx.name}: ${JSON.stringify(idx.key)}`);
   });
 
-  console.log("\n🔧 Creating/ensuring compound index for V2 API...");
+  console.log("\n🔧 Creating/ensuring score-first compound index for V2 API...");
 
   try {
-    // Index chính cho sorting rankings
     await rankingsCollection.createIndex(
       {
-        colorRank: 1,
         double: -1,
         single: -1,
         points: -1,
+        colorRank: 1,
         updatedAt: -1,
         _id: 1,
       },
-      { name: "ranking_sort_v2_idx", background: true },
+      { name: "ranking_score_sort_v2_idx", background: true },
     );
-    console.log("✅ Index 'ranking_sort_v2_idx' created successfully!");
+    console.log("✅ Index 'ranking_score_sort_v2_idx' created successfully!");
   } catch (e) {
     if (e.code === 85 || e.code === 86) {
-      console.log("✅ Index already exists (equivalent index found)");
+      console.log("✅ Score-first ranking index already exists");
     } else {
       throw e;
     }

@@ -250,13 +250,14 @@ export async function getLeaderboard(req, res) {
         },
       },
     },
-    // sort theo yêu cầu: reputation trước, rồi points, rồi điểm
+    // Sort theo điểm trước; tier/reputation chỉ dùng để phá hòa.
     {
       $sort: {
-        reputation: -1,
         double: -1,
         single: -1,
         points: -1,
+        colorRank: 1,
+        reputation: -1,
         lastUpdated: -1,
       },
     },
@@ -1146,10 +1147,10 @@ export const getRankings = asyncHandler(async (req, res) => {
 
           {
             $sort: {
-              colorRank: 1,
               double: -1,
               single: -1,
               points: -1,
+              colorRank: 1,
               updatedAt: -1,
               _id: 1,
             },
@@ -1493,10 +1494,10 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
           },
           {
             $sort: {
-              colorRank: 1,
               double: -1,
               single: -1,
               points: -1,
+              colorRank: 1,
               updatedAt: -1,
               _id: 1,
             },
@@ -1779,10 +1780,10 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
           },
           {
             $sort: {
-              colorRank: 1,
               double: -1,
               single: -1,
               points: -1,
+              colorRank: 1,
               updatedAt: -1,
               _id: 1,
             },
@@ -2266,10 +2267,10 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
 
           {
             $sort: {
-              colorRank: 1,
               double: -1,
               single: -1,
               points: -1,
+              colorRank: 1,
               updatedAt: -1,
               _id: 1,
             },
