@@ -485,6 +485,32 @@ const matchCode = (m) => {
   return `V${r}${t ? `-T${t}` : ""}`;
 };
 
+const parseMatchCodeParts = (m) => {
+  const raw = String(
+    m?.displayCode || m?.code || m?.globalCode || m?.matchCode || "",
+  ).trim();
+  const hit = raw.match(/^V(\d+)(?:-[^-]+)?-T(\d+)$/i);
+  if (!hit) return { round: NaN, order: NaN };
+  return {
+    round: Number(hit[1]),
+    order: Number(hit[2]) - 1,
+  };
+};
+
+const matchRoundNumber = (m) => {
+  const direct = Number(m?.round ?? m?.rrRound);
+  if (Number.isFinite(direct)) return direct;
+  const global = Number(m?.globalRound);
+  if (Number.isFinite(global)) return global;
+  return parseMatchCodeParts(m).round;
+};
+
+const matchOrderNumber = (m) => {
+  const direct = Number(m?.order ?? m?.meta?.order);
+  if (Number.isFinite(direct)) return direct;
+  return parseMatchCodeParts(m).order;
+};
+
 const statusChip = (st) => {
   const map = {
     scheduled: { color: "default", label: "Chưa xếp" },
@@ -1481,8 +1507,8 @@ export default function TournamentManagePage() {
       const bid = String(m?.bracket?._id || m?.bracket || "");
       const bracket = bracketById.get(bid);
       const stage = Number(m?.bracket?.stage ?? bracket?.stage);
-      const r = Number(m?.round);
-      const o = Number(m?.order);
+      const r = matchRoundNumber(m);
+      const o = matchOrderNumber(m);
       if (bid) {
         if (!matchesByBracketId.has(bid)) matchesByBracketId.set(bid, []);
         matchesByBracketId.get(bid).push(m);
@@ -1511,8 +1537,8 @@ export default function TournamentManagePage() {
     const getPlannedSeed = (m, side) => {
       if (!m) return null;
 
-      const localRound = Number(m?.round || 1);
-      const localOrder = Number(m?.order ?? m?.meta?.order);
+      const localRound = matchRoundNumber(m) || 1;
+      const localOrder = matchOrderNumber(m);
       if (!Number.isFinite(localOrder)) return null;
 
       const matchBracketId = String(m?.bracket?._id || m?.bracket || "");
@@ -1532,7 +1558,7 @@ export default function TournamentManagePage() {
           String(candidate?.phase || "") === String(m?.phase || "");
         const byOrder = (a, b) => Number(a?.order || 0) - Number(b?.order || 0);
         const currentRoundMatches = bracketMatches
-          .filter((candidate) => Number(candidate?.round || 1) === localRound)
+          .filter((candidate) => matchRoundNumber(candidate) === localRound)
           .filter(sameBranch)
           .sort(byOrder);
         const currentIndex = currentRoundMatches.findIndex(
@@ -1542,15 +1568,19 @@ export default function TournamentManagePage() {
           (currentIndex >= 0 ? currentIndex : localOrder) * 2 +
           (side === "B" ? 1 : 0);
         const previousRoundMatches = bracketMatches
-          .filter((candidate) => Number(candidate?.round || 1) === localRound - 1)
+          .filter((candidate) => matchRoundNumber(candidate) === localRound - 1)
           .filter(sameBranch)
           .sort(byOrder);
         const sourceMatch = previousRoundMatches[sourceSlot] || null;
         const stageIndex = Number(sourceMatch?.bracket?.stage ?? matchBracket?.stage ?? 0);
-        const sourceRound = Number(sourceMatch?.round ?? localRound - 1);
-        const sourceOrder = Number(
-          sourceMatch?.order ?? localOrder * 2 + (side === "B" ? 1 : 0),
-        );
+        const sourceRoundValue = matchRoundNumber(sourceMatch);
+        const sourceOrderValue = matchOrderNumber(sourceMatch);
+        const sourceRound = Number.isFinite(sourceRoundValue)
+          ? sourceRoundValue
+          : localRound - 1;
+        const sourceOrder = Number.isFinite(sourceOrderValue)
+          ? sourceOrderValue
+          : localOrder * 2 + (side === "B" ? 1 : 0);
         const ref = {
           stageIndex,
           stage: stageIndex,
@@ -1930,6 +1960,8 @@ export default function TournamentManagePage() {
 
   /* ====== Live store + realtime ====== */
   const liveStore = useMemo(() => createLiveStore(), []);
+  const [orderVersion, setOrderVersion] = useState(0);
+  const [isPending, startTransition] = useTransition();
   const viewerInitialMatch = useMemo(() => {
     void orderVersion;
     const matchId = String(viewer.matchId || "");
@@ -1980,8 +2012,6 @@ export default function TournamentManagePage() {
     },
     [liveStore, t, tour],
   );
-  const [orderVersion, setOrderVersion] = useState(0);
-  const [isPending, startTransition] = useTransition();
 
   const getLiveStatus = useCallback(
     (m) => liveStore.get(String(m?._id))?.status ?? m?.status,
