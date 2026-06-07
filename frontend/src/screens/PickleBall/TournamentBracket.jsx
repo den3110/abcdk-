@@ -288,6 +288,32 @@ const normalizeSeedRefLabel = (value) =>
     .trim()
     .replace(/\s+/g, "-");
 
+const normalizeTeamLabel = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0111/g, "d")
+    .replace(/\u0110/g, "D")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const isReferenceLabel = (value) =>
+  /^[WL]\s*-\s*V\d+(?:-[^-]+)?-T\d+$/i.test(String(value || "").trim());
+
+const isUsefulResolvedLabel = (value, pendingLabel = "") => {
+  const text = String(value || "").trim();
+  if (!text || isReferenceLabel(text)) return false;
+  const normalized = normalizeTeamLabel(text);
+  const normalizedPending = normalizeTeamLabel(pendingLabel);
+  return !(
+    normalized === normalizedPending ||
+    ["bye", "tbd", "registration", "chua co doi", "-", "--", "—"].includes(
+      normalized,
+    )
+  );
+};
+
 // --- Helpers chỉnh nhãn W/L theo vòng hiện tại ---
 function getRoundNumber(m) {
   const n =
@@ -4156,6 +4182,7 @@ export default function TournamentBracket() {
     const byId = new Map();
     const byBracketRoundOrder = new Map();
     const byStageRoundOrder = new Map();
+    const byDisplayCode = new Map();
 
     for (const m of matchesMerged || []) {
       const id = String(m?._id || "");
@@ -4166,6 +4193,23 @@ export default function TournamentBracket() {
 
       if (id) byId.set(id, m);
 
+      const codeCandidates = [
+        m?.displayCode,
+        m?.codeResolved,
+        m?.code,
+        m?.globalCode,
+        m?.matchCode,
+        m?.slotCode,
+        m?.bracketCode,
+        m?.labelKey,
+        m?.meta?.code,
+        m?.meta?.label,
+      ];
+      for (const value of codeCandidates) {
+        const code = extractDisplayCodeText(value);
+        if (code) byDisplayCode.set(code.toUpperCase(), m);
+      }
+
       if (bracketId && Number.isFinite(roundNum) && Number.isFinite(orderNum)) {
         byBracketRoundOrder.set(`${bracketId}:${roundNum}:${orderNum}`, m);
       }
@@ -4175,7 +4219,7 @@ export default function TournamentBracket() {
       }
     }
 
-    return { byId, byBracketRoundOrder, byStageRoundOrder };
+    return { byId, byBracketRoundOrder, byStageRoundOrder, byDisplayCode };
   }, [matchesMerged]);
   const baseRoundStartForCurrent = useMemo(
     () => computeBaseRoundStart(brackets, byBracket, current),
@@ -4220,7 +4264,7 @@ export default function TournamentBracket() {
       baseRoundStartForCurrent,
       localizedScaleForCurrent,
     );
-  }, [current, current?.type, currentMatches, baseRoundStartForCurrent]);
+  }, [current, currentMatches, baseRoundStartForCurrent]);
   const getDoubleElimDisplayCodeForMatch = useCallback(
     (sourceMatch) => {
       const matchId = String(sourceMatch?._id || "");
@@ -4315,6 +4359,12 @@ export default function TournamentBracket() {
       const matchId = String(seed?.ref?.matchId || "");
       if (matchId && matchRefIndex.byId.has(matchId)) {
         return matchRefIndex.byId.get(matchId);
+      }
+
+      const labelCode = extractDisplayCodeText(seed?.label);
+      if (labelCode) {
+        const labelHit = matchRefIndex.byDisplayCode.get(labelCode.toUpperCase());
+        if (labelHit) return labelHit;
       }
 
       const roundNum = Number(seed?.ref?.round);
@@ -4603,8 +4653,12 @@ export default function TournamentBracket() {
 
         // Trận trước đã xong và có winner → trả tên cặp thắng
         if (pm && pm.status === "finished" && pm.winner) {
-          const wp = pm.winner === "A" ? pm.pairA : pm.pairB;
+          const winnerSide = pm.winner === "A" ? "A" : "B";
+          const wp = winnerSide === "A" ? pm.pairA : pm.pairB;
           if (wp) return pairLabelWithNick(wp, eventType, displayMode);
+
+          const carried = resolveSideLabel(pm, winnerSide);
+          if (isUsefulResolvedLabel(carried, pendingTeamLabel)) return carried;
         }
 
         // Trận trước chưa xong → nhãn W-V{offset}-T{idx}
@@ -4661,17 +4715,22 @@ export default function TournamentBracket() {
         }
 
         if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
-          const sourcePair = isLoserSeed
+          const sourceSide = isLoserSeed
             ? sourceMatch.winner === "A"
-              ? sourceMatch.pairB
-              : sourceMatch.pairA
+              ? "B"
+              : "A"
             : sourceMatch.winner === "A"
-              ? sourceMatch.pairA
-              : sourceMatch.pairB;
+              ? "A"
+              : "B";
+          const sourcePair =
+            sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
 
           if (sourcePair) {
             return pairLabelWithNick(sourcePair, eventType, displayMode);
           }
+
+          const carried = resolveSideLabel(sourceMatch, sourceSide);
+          if (isUsefulResolvedLabel(carried, pendingTeamLabel)) return carried;
         }
 
         if ((isWinnerSeed || isLoserSeed) && sourceRefLabel) return sourceRefLabel;
