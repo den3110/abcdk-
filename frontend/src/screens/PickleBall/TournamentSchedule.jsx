@@ -33,6 +33,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import {
   useGetTournamentQuery,
   useListPublicMatchesByTournamentQuery,
+  useListTournamentBracketsQuery,
   useVerifyManagerQuery,
   useVerifyRefereeQuery,
 } from "../../slices/tournamentsApiSlice";
@@ -159,11 +160,56 @@ function pairToName(pair, eventType = "double", displayMode = "nickname") {
 function seedToName(seed) {
   return seed?.label || null;
 }
-const isUsefulTeamLabel = (value) => {
-  const text = String(value || "").trim();
-  if (!text) return false;
-  return !/^(BYE|TBD|Registration|Chưa có đội|—)$/i.test(text);
+const labelText = (value) => {
+  if (value == null) return "";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value).trim();
+  }
+  if (typeof value === "object") {
+    return String(
+      value.displayName ||
+        value.teamName ||
+        value.name ||
+        value.label ||
+        value.title ||
+        "",
+    ).trim();
+  }
+  return "";
 };
+
+const normalizedLabelText = (value) =>
+  labelText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const isByeLabel = (value) => normalizedLabelText(value) === "bye";
+
+const isReferenceTeamLabel = (value) =>
+  /^[WL]\s*-\s*V\d+(?:-[^-]+)?-T\d+$/i.test(labelText(value));
+
+const isUsefulTeamLabel = (value) => {
+  const text = labelText(value);
+  if (!text) return false;
+  const normalized = normalizedLabelText(text);
+  return !(
+    ["bye", "tbd", "registration", "chua co doi", "-", "--", "—"].includes(
+      normalized,
+    ) || /^doi\s+\d+$/.test(normalized)
+  );
+};
+
+const isConcreteTeamLabel = (value) =>
+  isUsefulTeamLabel(value) && !isReferenceTeamLabel(value);
 
 const parseMatchCodeParts = (m) => {
   const raw = String(
@@ -225,7 +271,7 @@ const scheduleSeedRefTypes = new Set([
 ]);
 
 const isByeSeed = (seed) =>
-  seed?.type === "bye" || /\bBYE\b/i.test(String(seed?.label || ""));
+  seed?.type === "bye" || isByeLabel(seed?.label);
 
 const isByeMatchObj = (m) => {
   if (!m) return false;
@@ -237,6 +283,7 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
   const byId = new Map();
   const byBRO = new Map();
   const bySRO = new Map();
+  const byCode = new Map();
   const matchesByBracketId = new Map();
   const addIndex = (map, key, match) => {
     const bucket = map.get(key);
@@ -283,6 +330,8 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
   for (const m of rawList || []) {
     const mid = String(m?._id || m?.id || "");
     if (mid) byId.set(mid, m);
+    const code = matchDisplayCode(m).toUpperCase();
+    if (code) byCode.set(code, m);
     const bid = String(m?.bracket?._id || m?.bracket || "");
     if (bid) {
       if (!matchesByBracketId.has(bid)) matchesByBracketId.set(bid, []);
@@ -301,6 +350,13 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
     if (!seed) return null;
     const mid = String(seed?.ref?.matchId || "");
     if (mid && byId.has(mid)) return byId.get(mid);
+    const labelCode = String(seed?.label || "")
+      .trim()
+      .match(/^[WL]\s*-\s*(V\d+(?:-[^-]+)?-T\d+)$/i)?.[1];
+    if (labelCode) {
+      const hit = byCode.get(labelCode.toUpperCase());
+      if (hit) return hit;
+    }
     const round = Number(seed?.ref?.round);
     const order = Number(seed?.ref?.order);
     if (!Number.isFinite(round) || !Number.isFinite(order)) return null;
@@ -321,7 +377,21 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
     const bid = String(m?.bracket?._id || m?.bracket || "");
     const sourceType = String(m?.bracket?.type || m?.type || m?.format || "").toLowerCase();
     if (sourceType !== "knockout" && sourceType !== "ko") return null;
-    if (localRound <= 1) return null;
+    if (localRound <= 1) {
+      const seedRows = Array.isArray(m?.bracket?.prefill?.seeds)
+        ? m.bracket.prefill.seeds
+        : Array.isArray(m?.bracket?.config?.blueprint?.seeds)
+          ? m.bracket.config.blueprint.seeds
+          : [];
+      if (!seedRows.length) return null;
+      const pairNo = localOrder + 1;
+      const planned =
+        seedRows.find((entry) => Number(entry?.pair) === pairNo) ||
+        seedRows[localOrder] ||
+        null;
+      const plannedSeed = side === "A" ? planned?.A : planned?.B;
+      return plannedSeed?.type ? plannedSeed : null;
+    }
     const sameBranch = (candidate) =>
       String(candidate?.branch || "main") === String(m?.branch || "main") &&
       String(candidate?.phase || "") === String(m?.phase || "");
@@ -363,11 +433,11 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
       side === "A"
         ? m.__sideA || m.resolvedSideNameA || m.teamAName || m.sideAName
         : m.__sideB || m.resolvedSideNameB || m.teamBName || m.sideBName;
-    if (isUsefulTeamLabel(direct)) return direct;
+    if (isConcreteTeamLabel(direct)) return direct;
 
     const pair = side === "A" ? m.pairA : m.pairB;
     const pairName = pairToName(pair, eventType, displayMode);
-    if (isUsefulTeamLabel(pairName)) return pairName;
+    if (isConcreteTeamLabel(pairName)) return pairName;
 
     const rawSeed = side === "A" ? m.seedA : m.seedB;
     const plannedSeed = getPlannedSeed(m, side);
@@ -395,7 +465,7 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
         if (isLoser) return "—";
         const carriedSide = isByeSeed(source.seedA) ? "B" : "A";
         const carried = resolveSide(source, carriedSide, depth + 1);
-        if (isUsefulTeamLabel(carried)) return carried;
+        if (isConcreteTeamLabel(carried)) return carried;
       } else if (source.status === "finished" && source.winner) {
         const sourceSide = isLoser
           ? source.winner === "A"
@@ -405,7 +475,7 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
             ? "A"
             : "B";
         const carried = resolveSide(source, sourceSide, depth + 1);
-        if (isUsefulTeamLabel(carried)) return carried;
+        if (isConcreteTeamLabel(carried)) return carried;
       }
 
       if (scheduleSeedRefTypes.has(seedType)) {
@@ -461,10 +531,14 @@ function teamNameFrom(
     side === "A"
       ? m.__sideA || m.resolvedSideNameA || m.teamAName || m.sideAName
       : m.__sideB || m.resolvedSideNameB || m.teamBName || m.sideBName;
+  const resolvedText = labelText(resolved);
+  const seedText = seedToName(seed);
   return (
-    (isUsefulTeamLabel(resolved) ? resolved : "") ||
+    (isUsefulTeamLabel(resolvedText) || isByeLabel(resolvedText)
+      ? resolvedText
+      : "") ||
     pairToName(pair, eventType, displayMode) ||
-    (isUsefulTeamLabel(seedToName(seed)) ? seedToName(seed) : "") ||
+    (isUsefulTeamLabel(seedText) || isByeLabel(seedText) ? seedText : "") ||
     resolvedFallback
   );
 }
@@ -1262,7 +1336,12 @@ export default function TournamentSchedule() {
     useListPublicMatchesByTournamentQuery({
       tid: id,
     });
-  const isLoading = tLoading || mLoading;
+  const {
+    data: brackets = [],
+    isLoading: bLoading,
+    refetch: refetchBrackets,
+  } = useListTournamentBracketsQuery(id);
+  const isLoading = tLoading || mLoading || bLoading;
 
   // Realtime Logic
   const socket = useSocket();
@@ -1345,6 +1424,7 @@ export default function TournamentSchedule() {
     onResync: () => {
       refetchTournament?.();
       refetchMatches?.();
+      refetchBrackets?.();
     },
   });
 
@@ -1356,6 +1436,7 @@ export default function TournamentSchedule() {
       if (tournamentId && tournamentId !== String(id || "").trim()) return;
       refetchTournament?.();
       refetchMatches?.();
+      refetchBrackets?.();
     };
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
@@ -1377,7 +1458,7 @@ export default function TournamentSchedule() {
         rafRef.current = null;
       }
     };
-  }, [socket, queueUpsert, id, refetchMatches, refetchTournament]);
+  }, [socket, queueUpsert, id, refetchBrackets, refetchMatches, refetchTournament]);
 
   // Aggregation
   const matches = useMemo(
@@ -1392,7 +1473,18 @@ export default function TournamentSchedule() {
   const unassignedCourtLabel = t("tournaments.schedule.court.unassigned");
   const pendingTeamLabel = t("tournaments.schedule.match.pendingTeam");
   const matchesWithCode = useMemo(() => {
+    const bracketById = new Map(
+      (brackets || [])
+        .map((bracket) => [String(bracket?._id || ""), bracket])
+        .filter(([bracketId]) => bracketId),
+    );
     const baseList = (matches || []).map((m) => {
+      const bracketId = String(m?.bracket?._id || m?.bracket || "");
+      const bracketDetail = bracketById.get(bracketId);
+      const bracket =
+        m?.bracket && typeof m.bracket === "object"
+          ? { ...(bracketDetail || {}), ...m.bracket }
+          : bracketDetail || m?.bracket;
       const label =
         matchDisplayCode(m) ||
         (typeof m?.displayCode === "string" && m.displayCode.trim()) ||
@@ -1411,6 +1503,7 @@ export default function TournamentSchedule() {
         : displayMode;
       return {
         ...m,
+        bracket,
         tournament: {
           ...(m?.tournament || {}),
           eventType: matchEventType,
@@ -1421,7 +1514,7 @@ export default function TournamentSchedule() {
       };
     });
     return resolveScheduleSides(baseList, eventType, displayMode);
-  }, [matches, eventType, t, displayMode]);
+  }, [brackets, matches, eventType, t, displayMode]);
   const allSorted = useMemo(() => {
     return [...matchesWithCode].sort((a, b) => {
       const ak = orderKey(a);
