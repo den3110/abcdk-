@@ -113,6 +113,7 @@ import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
 } from "../../utils/tournamentName";
+import { getMatchSideDisplayName } from "../../utils/matchDisplay";
 
 const POSTER_NAME_FONT_OPTIONS = [
   { value: "", label: "Mặc định AI" },
@@ -183,38 +184,18 @@ const personNickname = (p) =>
 const pairLabel = (pair, eventType = "double", displayMode = "nickname") =>
   getTournamentPairName(pair, eventType, displayMode, { separator: " / " });
 
-/* Nhãn nguồn (seed) khi cặp đấu CHƯA xác định — đồng bộ với sơ đồ giải,
-   để không hiện "—" trống trơn ở quản lý giải. */
-const seedSourceLabel = (seed) => {
-  if (!seed || !seed.type) return "";
-  if (seed.label) return String(seed.label);
-  const r = seed.ref?.round ?? "?";
-  const t = (seed.ref?.order ?? -1) + 1;
-  switch (seed.type) {
-    case "groupRank": {
-      const st = seed.ref?.stage ?? seed.ref?.stageIndex ?? "?";
-      const g = seed.ref?.groupCode;
-      const rk = seed.ref?.rank ?? "?";
-      return g ? `V${st}-B${g}-T${rk}` : `V${st}-T${rk}`;
-    }
-    case "stageMatchWinner":
-    case "matchWinner":
-      return `W-V${r}-T${t}`;
-    case "stageMatchLoser":
-    case "matchLoser":
-      return `L-V${r}-T${t}`;
-    case "bye":
-      return "BYE";
-    default:
-      return "";
-  }
-};
+/* Cặp đã có đội thật chưa (có VĐV/tên) */
+const hasResolvedPair = (p) =>
+  !!(
+    p &&
+    (p.player1 || p.player2 || p.name || p.teamName || p.label || p.displayName)
+  );
 
-/* Tên đội hiển thị: ưu tiên cặp đã xác định; nếu chưa, hiện nguồn (seed) thay vì "—". */
-const teamLabel = (pair, seed, eventType = "double", displayMode = "nickname") => {
-  const name = pairLabel(pair, eventType, displayMode);
-  if (name && name !== "—" && name !== "N/A") return name;
-  return seedSourceLabel(seed) || name || "—";
+/* Tên đội hiển thị: ưu tiên tên đã resolve sẵn (__sideA/__sideB, tính như sơ đồ),
+   nếu không có thì dùng resolver chung (đội thật → seed → "W-V…" → "—"). */
+const teamLabel = (match, side) => {
+  const pre = side === "A" ? match?.__sideA : match?.__sideB;
+  return pre || getMatchSideDisplayName(match, side, "—");
 };
 
 const TYPE_LABEL = (t) => {
@@ -899,12 +880,12 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
         <Typography noWrap>
-          {teamLabel(merged?.pairA, merged?.seedA, eventType, displayMode)}
+          {teamLabel(merged, "A")}
         </Typography>
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
         <Typography noWrap>
-          {teamLabel(merged?.pairB, merged?.seedB, eventType, displayMode)}
+          {teamLabel(merged, "B")}
         </Typography>
       </TableCell>
       <TableCell sx={{ width: 96, whiteSpace: "nowrap", py: 0.5 }}>
@@ -1065,7 +1046,7 @@ const MatchCard = React.memo(function MatchCard({
               {t("tournaments.manage.pairA")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-              {teamLabel(merged?.pairA, merged?.seedA, eventType, displayMode)}
+              {teamLabel(merged, "A")}
             </Typography>
           </Box>
           <Box>
@@ -1073,7 +1054,7 @@ const MatchCard = React.memo(function MatchCard({
               {t("tournaments.manage.pairB")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-              {teamLabel(merged?.pairB, merged?.seedB, eventType, displayMode)}
+              {teamLabel(merged, "B")}
             </Typography>
           </Box>
           <Box>
@@ -1465,7 +1446,33 @@ export default function TournamentManagePage() {
       }),
     [],
   );
-  const allMatchesBase = useMemo(() => matchPage?.list || [], [matchPage]);
+  const allMatchesBase = useMemo(() => {
+    const rawList = matchPage?.list || [];
+    // Resolve tên đội như SƠ ĐỒ (không đệ quy):
+    //  - đã có đội thật -> tên thật
+    //  - trận nguồn (previousA/previousB) đã kết thúc -> đội thắng (tên thật)
+    //  - còn lại -> seed / "W-V…" (resolver chung)
+    const byId = new Map(rawList.map((m) => [String(m._id), m]));
+    const evType = tour?.eventType;
+    const resolveName = (m, side) => {
+      const pair = side === "A" ? m.pairA : m.pairB;
+      if (hasResolvedPair(pair)) return pairLabel(pair, evType, displayMode);
+      const prev = side === "A" ? m.previousA : m.previousB;
+      if (prev) {
+        const pm = byId.get(String(prev._id || prev));
+        if (pm && pm.status === "finished" && pm.winner) {
+          const wp = pm.winner === "A" ? pm.pairA : pm.pairB;
+          if (hasResolvedPair(wp)) return pairLabel(wp, evType, displayMode);
+        }
+      }
+      return getMatchSideDisplayName(m, side, "");
+    };
+    return rawList.map((m) => ({
+      ...m,
+      __sideA: resolveName(m, "A"),
+      __sideB: resolveName(m, "B"),
+    }));
+  }, [matchPage, displayMode, tour?.eventType]);
 
   // Tập hợp danh sách sân
   const courtOptions = useMemo(() => {
