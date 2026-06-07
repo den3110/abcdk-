@@ -1481,44 +1481,61 @@ export default function TournamentManagePage() {
       return bid ? byBRO.get(`${bid}:${r}:${o}`) || null : null;
     };
 
-    // Trận nguồn đã xong -> cặp thắng/thua (KHÔNG đệ quy), chỉ lấy nếu là đội thật
-    const resolvedWinner = (pm, seedType) => {
-      if (!pm || pm.status !== "finished" || !pm.winner) return null;
-      const loser = seedType === "matchLoser" || seedType === "stageMatchLoser";
-      const wp = loser
-        ? pm.winner === "A"
-          ? pm.pairB
-          : pm.pairA
-        : pm.winner === "A"
-          ? pm.pairA
-          : pm.pairB;
-      return hasResolvedPair(wp) ? wp : null;
+    // Trận có đúng 1 bên là BYE
+    const isByeObj = (mm) => {
+      if (!mm) return false;
+      const a =
+        mm.seedA?.type === "bye" || /\bBYE\b/i.test(mm.seedA?.label || "");
+      const b =
+        mm.seedB?.type === "bye" || /\bBYE\b/i.test(mm.seedB?.label || "");
+      return (a ? 1 : 0) + (b ? 1 : 0) === 1;
     };
+    const SEED_REF_TYPES = [
+      "matchWinner",
+      "matchLoser",
+      "stageMatchWinner",
+      "stageMatchLoser",
+    ];
+    const isUseful = (v) => v && !/^(BYE|TBD|Registration)$/i.test(v);
 
-    // Resolve tên đội như SƠ ĐỒ:
-    const resolveName = (m, side) => {
+    // Resolve tên đội ĐÚNG NHƯ SƠ ĐỒ (đệ quy có kiểm soát cho BYE-carry):
+    const resolveName = (m, side, depth = 0) => {
+      if (!m || depth > 12) return "";
       const pair = side === "A" ? m.pairA : m.pairB;
       if (hasResolvedPair(pair)) return pairLabel(pair, evType, displayMode);
 
       const seed = side === "A" ? m.seedA : m.seedB;
       const seedType = String(seed?.type || "");
+      const isLoser =
+        seedType === "matchLoser" || seedType === "stageMatchLoser";
 
-      // 1) qua previousA/previousB (trận trước trực tiếp)
+      // Tìm trận nguồn: previousA/B trước, rồi tới seed ref
       const prev = side === "A" ? m.previousA : m.previousB;
-      if (prev) {
-        const wp = resolvedWinner(byId.get(String(prev._id || prev)), seedType);
-        if (wp) return pairLabel(wp, evType, displayMode);
+      let src = prev ? byId.get(String(prev._id || prev)) : null;
+      if (!src && SEED_REF_TYPES.includes(seedType)) src = findSource(m, seed);
+
+      if (src) {
+        if (isByeObj(src)) {
+          // Trận nguồn là BYE: gánh nhãn của bên KHÔNG bye (đệ quy)
+          if (!isLoser) {
+            const byeA =
+              src.seedA?.type === "bye" ||
+              /\bBYE\b/i.test(src.seedA?.label || "");
+            const carried = resolveName(src, byeA ? "B" : "A", depth + 1);
+            if (isUseful(carried)) return carried;
+          }
+        } else if (src.status === "finished" && src.winner) {
+          const wp = isLoser
+            ? src.winner === "A"
+              ? src.pairB
+              : src.pairA
+            : src.winner === "A"
+              ? src.pairA
+              : src.pairB;
+          if (hasResolvedPair(wp)) return pairLabel(wp, evType, displayMode);
+        }
       }
-      // 2) qua seed nguồn (winner/loser của 1 trận)
-      if (
-        ["matchWinner", "matchLoser", "stageMatchWinner", "stageMatchLoser"].includes(
-          seedType,
-        )
-      ) {
-        const wp = resolvedWinner(findSource(m, seed), seedType);
-        if (wp) return pairLabel(wp, evType, displayMode);
-      }
-      // 3) còn lại: seed / "W-V…" (resolver chung)
+      // Còn lại: seed / "W-V…" (resolver chung)
       return getMatchSideDisplayName(m, side, "");
     };
 
