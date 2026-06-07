@@ -1720,11 +1720,12 @@ export default {
       },
       match: {
         versus: "VS",
-        pendingTeam: "TBD",
+        pendingTeam: "Chưa có đội",
         scoreFallback: "0 - 0",
         status: {
           live: "Đang đấu",
           finished: "Kết thúc",
+          assigned: "Đã gán sân",
           pending: "Chưa đấu",
         },
       },

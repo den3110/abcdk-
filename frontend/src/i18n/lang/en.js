@@ -1726,6 +1726,7 @@ export default {
         status: {
           live: "Live",
           finished: "Finished",
+          assigned: "Assigned",
           pending: "Not started",
         },
       },

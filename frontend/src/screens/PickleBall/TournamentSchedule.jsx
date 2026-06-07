@@ -48,6 +48,10 @@ import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
 } from "../../utils/tournamentName";
+import {
+  getMatchDisplayCode,
+  getMatchSideDisplayName,
+} from "../../utils/matchDisplay";
 
 /* ---------- KEEPING HELPERS (LOGIC GIỮ NGUYÊN) ---------- */
 const hasVal = (v) =>
@@ -155,6 +159,277 @@ function pairToName(pair, eventType = "double", displayMode = "nickname") {
 function seedToName(seed) {
   return seed?.label || null;
 }
+const isUsefulTeamLabel = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return !/^(BYE|TBD|Registration|Chưa có đội|—)$/i.test(text);
+};
+
+const parseMatchCodeParts = (m) => {
+  const raw = String(
+    m?.__displayCode ||
+      m?.displayCode ||
+      m?.codeDisplay ||
+      m?.globalCode ||
+      m?.matchCode ||
+      m?.code ||
+      "",
+  ).trim();
+  const hit = raw.match(/^V(\d+)(?:-[^-]+)?-T(\d+)$/i);
+  if (!hit) return { round: NaN, order: NaN };
+  return { round: Number(hit[1]), order: Number(hit[2]) - 1 };
+};
+
+const uniqueFiniteNumbers = (...values) =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value)),
+    ),
+  );
+
+const matchRoundNumber = (m) => {
+  const direct = Number(m?.round ?? m?.rrRound);
+  if (Number.isFinite(direct)) return direct;
+  const global = Number(m?.globalRound);
+  if (Number.isFinite(global)) return global;
+  return parseMatchCodeParts(m).round;
+};
+
+const matchOrderNumber = (m) => {
+  const direct = Number(m?.order ?? m?.meta?.order);
+  if (Number.isFinite(direct)) return direct;
+  return parseMatchCodeParts(m).order;
+};
+
+const matchRoundCandidates = (m) =>
+  uniqueFiniteNumbers(
+    m?.round ?? m?.rrRound,
+    m?.globalRound,
+    parseMatchCodeParts(m).round,
+  );
+
+const matchOrderCandidates = (m) =>
+  uniqueFiniteNumbers(m?.order ?? m?.meta?.order, parseMatchCodeParts(m).order);
+
+const matchDisplayCode = (m) =>
+  getMatchDisplayCode(m) ||
+  String(m?.__displayCode || m?.globalCode || m?.displayCode || m?.code || "").trim();
+
+const scheduleSeedRefTypes = new Set([
+  "matchWinner",
+  "matchLoser",
+  "stageMatchWinner",
+  "stageMatchLoser",
+]);
+
+const isByeSeed = (seed) =>
+  seed?.type === "bye" || /\bBYE\b/i.test(String(seed?.label || ""));
+
+const isByeMatchObj = (m) => {
+  if (!m) return false;
+  const count = (isByeSeed(m.seedA) ? 1 : 0) + (isByeSeed(m.seedB) ? 1 : 0);
+  return count === 1;
+};
+
+function resolveScheduleSides(rawList, eventType, displayMode) {
+  const byId = new Map();
+  const byBRO = new Map();
+  const bySRO = new Map();
+  const matchesByBracketId = new Map();
+  const addIndex = (map, key, match) => {
+    const bucket = map.get(key);
+    if (bucket) bucket.push(match);
+    else map.set(key, [match]);
+  };
+  const displayRoundOf = (m) => {
+    const fromCode = parseMatchCodeParts(m).round;
+    return Number.isFinite(fromCode) ? fromCode : matchRoundNumber(m);
+  };
+  const sortableDisplayRound = (m) => {
+    const value = displayRoundOf(m);
+    return Number.isFinite(value) ? value : -1;
+  };
+  const sortableMatchOrder = (m) => {
+    const value = matchOrderNumber(m);
+    return Number.isFinite(value) ? value : 0;
+  };
+  const pickIndexedSource = (matches, owner) => {
+    const list = Array.isArray(matches) ? matches : matches ? [matches] : [];
+    const ownerId = String(owner?._id || owner?.id || "");
+    const candidates = list.filter(
+      (candidate) => String(candidate?._id || candidate?.id || "") !== ownerId,
+    );
+    if (candidates.length <= 1) return candidates[0] || null;
+    const ownerRound = displayRoundOf(owner);
+    const sameBranch = candidates.filter(
+      (candidate) =>
+        String(candidate?.branch || "main") === String(owner?.branch || "main") &&
+        String(candidate?.phase || "") === String(owner?.phase || ""),
+    );
+    const branchCandidates = sameBranch.length ? sameBranch : candidates;
+    const previousCandidates = Number.isFinite(ownerRound)
+      ? branchCandidates.filter((candidate) => {
+          const candidateRound = displayRoundOf(candidate);
+          return Number.isFinite(candidateRound) && candidateRound < ownerRound;
+        })
+      : [];
+    return (previousCandidates.length ? previousCandidates : branchCandidates)
+      .slice()
+      .sort((a, b) => sortableDisplayRound(b) - sortableDisplayRound(a))[0];
+  };
+
+  for (const m of rawList || []) {
+    const mid = String(m?._id || m?.id || "");
+    if (mid) byId.set(mid, m);
+    const bid = String(m?.bracket?._id || m?.bracket || "");
+    if (bid) {
+      if (!matchesByBracketId.has(bid)) matchesByBracketId.set(bid, []);
+      matchesByBracketId.get(bid).push(m);
+    }
+    const stage = Number(m?.bracket?.stage ?? m?.stage);
+    for (const round of matchRoundCandidates(m)) {
+      for (const order of matchOrderCandidates(m)) {
+        if (bid) addIndex(byBRO, `${bid}:${round}:${order}`, m);
+        if (Number.isFinite(stage)) addIndex(bySRO, `${stage}:${round}:${order}`, m);
+      }
+    }
+  }
+
+  const findSource = (m, seed) => {
+    if (!seed) return null;
+    const mid = String(seed?.ref?.matchId || "");
+    if (mid && byId.has(mid)) return byId.get(mid);
+    const round = Number(seed?.ref?.round);
+    const order = Number(seed?.ref?.order);
+    if (!Number.isFinite(round) || !Number.isFinite(order)) return null;
+    const stage = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+    if (Number.isFinite(stage)) {
+      const hit = pickIndexedSource(bySRO.get(`${stage}:${round}:${order}`), m);
+      if (hit) return hit;
+    }
+    const bid = String(m?.bracket?._id || m?.bracket || "");
+    return bid ? pickIndexedSource(byBRO.get(`${bid}:${round}:${order}`), m) : null;
+  };
+
+  const getPlannedSeed = (m, side) => {
+    if (!m) return null;
+    const localRound = matchRoundNumber(m) || 1;
+    const localOrder = matchOrderNumber(m);
+    if (!Number.isFinite(localOrder)) return null;
+    const bid = String(m?.bracket?._id || m?.bracket || "");
+    const sourceType = String(m?.bracket?.type || m?.type || m?.format || "").toLowerCase();
+    if (sourceType !== "knockout" && sourceType !== "ko") return null;
+    if (localRound <= 1) return null;
+    const sameBranch = (candidate) =>
+      String(candidate?.branch || "main") === String(m?.branch || "main") &&
+      String(candidate?.phase || "") === String(m?.phase || "");
+    const byOrder = (a, b) => sortableMatchOrder(a) - sortableMatchOrder(b);
+    const bracketMatches = matchesByBracketId.get(bid) || [];
+    const currentRoundMatches = bracketMatches
+      .filter((candidate) => matchRoundCandidates(candidate).includes(localRound))
+      .filter(sameBranch)
+      .sort(byOrder);
+    const currentIndex = currentRoundMatches.findIndex(
+      (candidate) => String(candidate?._id || "") === String(m?._id || ""),
+    );
+    const sourceSlot =
+      (currentIndex >= 0 ? currentIndex : localOrder) * 2 +
+      (side === "B" ? 1 : 0);
+    const previousRoundMatches = bracketMatches
+      .filter((candidate) => matchRoundCandidates(candidate).includes(localRound - 1))
+      .filter(sameBranch)
+      .sort(byOrder);
+    const sourceMatch = previousRoundMatches[sourceSlot] || null;
+    const stageIndex = Number(sourceMatch?.bracket?.stage ?? m?.bracket?.stage ?? 0);
+    const sourceRoundValue = matchRoundNumber(sourceMatch);
+    const sourceOrderValue = matchOrderNumber(sourceMatch);
+    const ref = {
+      stageIndex,
+      stage: stageIndex,
+      round: Number.isFinite(sourceRoundValue) ? sourceRoundValue : localRound - 1,
+      order: Number.isFinite(sourceOrderValue)
+        ? sourceOrderValue
+        : localOrder * 2 + (side === "B" ? 1 : 0),
+    };
+    if (sourceMatch?._id) ref.matchId = sourceMatch._id;
+    return { type: "stageMatchWinner", ref };
+  };
+
+  const resolveSide = (m, side, depth = 0) => {
+    if (!m || depth > 12) return "";
+    const direct =
+      side === "A"
+        ? m.__sideA || m.resolvedSideNameA || m.teamAName || m.sideAName
+        : m.__sideB || m.resolvedSideNameB || m.teamBName || m.sideBName;
+    if (isUsefulTeamLabel(direct)) return direct;
+
+    const pair = side === "A" ? m.pairA : m.pairB;
+    const pairName = pairToName(pair, eventType, displayMode);
+    if (isUsefulTeamLabel(pairName)) return pairName;
+
+    const rawSeed = side === "A" ? m.seedA : m.seedB;
+    const plannedSeed = getPlannedSeed(m, side);
+    const rawSeedType = String(rawSeed?.type || "");
+    const isEmptyRegistrationSeed =
+      rawSeedType === "registration" &&
+      !rawSeed?.label &&
+      !rawSeed?.ref?.registration &&
+      !rawSeed?.ref?.reg &&
+      !rawSeed?.ref?.id &&
+      !rawSeed?.ref?._id;
+    const seed =
+      rawSeed?.type && !isEmptyRegistrationSeed
+        ? rawSeed
+        : plannedSeed || rawSeed;
+    const seedType = String(seed?.type || "");
+    const isLoser =
+      seedType === "matchLoser" || seedType === "stageMatchLoser";
+    const prev = side === "A" ? m.previousA : m.previousB;
+    let source = prev ? byId.get(String(prev?._id || prev)) : null;
+    if (!source && scheduleSeedRefTypes.has(seedType)) source = findSource(m, seed);
+
+    if (source) {
+      if (isByeMatchObj(source)) {
+        if (isLoser) return "—";
+        const carriedSide = isByeSeed(source.seedA) ? "B" : "A";
+        const carried = resolveSide(source, carriedSide, depth + 1);
+        if (isUsefulTeamLabel(carried)) return carried;
+      } else if (source.status === "finished" && source.winner) {
+        const sourceSide = isLoser
+          ? source.winner === "A"
+            ? "B"
+            : "A"
+          : source.winner === "A"
+            ? "A"
+            : "B";
+        const carried = resolveSide(source, sourceSide, depth + 1);
+        if (isUsefulTeamLabel(carried)) return carried;
+      }
+
+      if (scheduleSeedRefTypes.has(seedType)) {
+        const code = matchDisplayCode(source);
+        if (code) return `${isLoser ? "L" : "W"}-${code}`;
+      }
+    }
+
+    const fallbackName = getMatchSideDisplayName(
+      seed ? { ...m, [side === "A" ? "seedA" : "seedB"]: seed } : m,
+      side,
+      "",
+    );
+    if (isUsefulTeamLabel(fallbackName)) return fallbackName;
+    return seedToName(seed) || "";
+  };
+
+  return (rawList || []).map((m) => ({
+    ...m,
+    __sideA: resolveSide(m, "A"),
+    __sideB: resolveSide(m, "B"),
+  }));
+}
+
 function teamNameFrom(
   m,
   side,
@@ -182,9 +457,14 @@ function teamNameFrom(
       : eventTypeOrFallback;
   const pair = side === "A" ? m.pairA : m.pairB;
   const seed = side === "A" ? m.seedA : m.seedB;
+  const resolved =
+    side === "A"
+      ? m.__sideA || m.resolvedSideNameA || m.teamAName || m.sideAName
+      : m.__sideB || m.resolvedSideNameB || m.teamBName || m.sideBName;
   return (
+    (isUsefulTeamLabel(resolved) ? resolved : "") ||
     pairToName(pair, eventType, displayMode) ||
-    seedToName(seed) ||
+    (isUsefulTeamLabel(seedToName(seed)) ? seedToName(seed) : "") ||
     resolvedFallback
   );
 }
@@ -889,12 +1169,12 @@ function MatchListItem({
               }}
             >
               {live
-                ? t("tournaments.schedule.match.status.live", { defaultValue: "Đang diễn ra" })
+                ? t("tournaments.schedule.match.status.live", {}, "Đang diễn ra")
                 : finished
-                  ? t("tournaments.schedule.match.status.finished", { defaultValue: "Đã diễn ra" })
+                  ? t("tournaments.schedule.match.status.finished", {}, "Đã diễn ra")
                   : assigned
-                    ? t("tournaments.schedule.match.status.assigned", { defaultValue: "Đã gán sân" })
-                    : t("tournaments.schedule.match.status.pending", { defaultValue: "Chưa diễn ra" })}
+                    ? t("tournaments.schedule.match.status.assigned", {}, "Đã gán sân")
+                    : t("tournaments.schedule.match.status.pending", {}, "Chưa diễn ra")}
             </Typography>
           </Box>
           <Box
@@ -1101,19 +1381,23 @@ export default function TournamentSchedule() {
 
   // Aggregation
   const matches = useMemo(
-    () =>
-      Array.from(liveMapRef.current.values()).filter(
+    () => {
+      void liveBump;
+      return Array.from(liveMapRef.current.values()).filter(
         (m) => String(m?.tournament?._id || m?.tournament) === String(id),
-      ),
+      );
+    },
     [id, liveBump],
   );
   const unassignedCourtLabel = t("tournaments.schedule.court.unassigned");
   const pendingTeamLabel = t("tournaments.schedule.match.pendingTeam");
   const matchesWithCode = useMemo(() => {
-    return (matches || []).map((m) => {
+    const baseList = (matches || []).map((m) => {
       const label =
-        (typeof m?.code === "string" && m.code.trim()) ||
+        matchDisplayCode(m) ||
+        (typeof m?.displayCode === "string" && m.displayCode.trim()) ||
         (typeof m?.globalCode === "string" && m.globalCode.trim()) ||
+        (typeof m?.code === "string" && m.code.trim()) ||
         t("tournaments.schedule.fallbackMatchCode");
       const matchEventType = String(
         m?.tournament?.eventType || eventType || "double",
@@ -1136,6 +1420,7 @@ export default function TournamentSchedule() {
         __displayCode: label,
       };
     });
+    return resolveScheduleSides(baseList, eventType, displayMode);
   }, [matches, eventType, t, displayMode]);
   const allSorted = useMemo(() => {
     return [...matchesWithCode].sort((a, b) => {
