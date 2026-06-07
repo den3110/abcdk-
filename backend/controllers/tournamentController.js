@@ -3841,6 +3841,7 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       };
     });
 
+    setNoStoreHeaders(res);
     res.json({ total, page: pg, limit: lim, list });
   } catch (err) {
     next(err);

@@ -1256,11 +1256,14 @@ export default function TournamentManagePage() {
     isLoading: mLoading,
     error: mErr,
     refetch: refetchMatches,
-  } = useAdminListMatchesByTournamentQuery({
-    tid: id,
-    page: 1,
-    pageSize: 1000,
-  });
+  } = useAdminListMatchesByTournamentQuery(
+    {
+      tid: id,
+      page: 1,
+      pageSize: 1000,
+    },
+    { refetchOnMountOrArgChange: true, refetchOnFocus: true },
+  );
   const { data: verifyRefereeRes } = useVerifyRefereeQuery(
     me?._id && id ? id : skipToken,
   );
@@ -2290,9 +2293,17 @@ export default function TournamentManagePage() {
       if (Object.keys(partial).length === 0) return;
 
       const statusChanged = liveStore.set(mid, partial);
-      if (statusChanged) startTransition(() => setOrderVersion((v) => v + 1));
+      if (statusChanged) {
+        startTransition(() => setOrderVersion((v) => v + 1));
+        // Khi 1 trận KẾT THÚC, đội thắng mới quyết định đội ở các trận sau.
+        // Realtime không kèm `winner`, nên refetch danh sách (debounced) để
+        // resolver hiển thị đúng đội — đồng bộ với sơ đồ/popup.
+        if (String(partial.status || "").toLowerCase() === "finished") {
+          scheduleMatchesRefetch();
+        }
+      }
     },
-    [liveStore, startTransition],
+    [liveStore, startTransition, scheduleMatchesRefetch],
   );
 
   useEffect(() => {
