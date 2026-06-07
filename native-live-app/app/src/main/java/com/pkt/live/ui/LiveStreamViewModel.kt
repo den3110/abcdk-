@@ -1392,7 +1392,7 @@ class LiveStreamViewModel(
         }
         if (matchId.isBlank()) {
             if (_waitingForCourt.value && (mode.includesLivestream || mode == StreamMode.RECORD_ONLY)) {
-                beginWaitingForCourtCountdown(mode)
+                armWaitingForCourtStart(mode)
                 return
             }
             _errorMessage.value =
@@ -1658,38 +1658,19 @@ class LiveStreamViewModel(
         }
     }
 
-    private fun beginWaitingForCourtCountdown(mode: StreamMode) {
-        if (goLiveCountdownJob?.isActive == true) return
-        launchGuarded(name = "goLiveWaitingForCourtCountdown") {
-            val targetCourtId = courtId
-            if (targetCourtId.isBlank() || !_waitingForCourt.value) return@launchGuarded
-            val currentJob = coroutineContext[Job]
-            goLiveCountdownJob = currentJob
-            try {
-                for (value in 3 downTo 1) {
-                    if (courtId != targetCourtId || !_waitingForCourt.value || _matchTransitioning.value) {
-                        return@launchGuarded
-                    }
-                    _goLiveCountdownSeconds.value = value
-                    delay(1_000L)
-                }
-                if (courtId != targetCourtId || !_waitingForCourt.value || _matchTransitioning.value) {
-                    return@launchGuarded
-                }
-                if (mode == StreamMode.RECORD_ONLY) {
-                    armRecordOnlySession()
-                } else {
-                    setAutoGoLive(true)
-                }
-                _loading.value = false
-                _errorMessage.value = null
-            } finally {
-                if (goLiveCountdownJob === currentJob) {
-                    goLiveCountdownJob = null
-                }
-                _goLiveCountdownSeconds.value = null
-            }
+    private fun armWaitingForCourtStart(mode: StreamMode) {
+        val targetCourtId = courtId
+        if (targetCourtId.isBlank() || !_waitingForCourt.value) return
+        goLiveCountdownJob?.cancel()
+        goLiveCountdownJob = null
+        _goLiveCountdownSeconds.value = null
+        if (mode == StreamMode.RECORD_ONLY) {
+            armRecordOnlySession()
+        } else {
+            setAutoGoLive(true)
         }
+        _loading.value = false
+        _errorMessage.value = null
     }
 
     private fun shouldMaintainActiveLiveStopCountdown(): Boolean {

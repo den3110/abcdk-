@@ -183,6 +183,40 @@ const personNickname = (p) =>
 const pairLabel = (pair, eventType = "double", displayMode = "nickname") =>
   getTournamentPairName(pair, eventType, displayMode, { separator: " / " });
 
+/* Nhãn nguồn (seed) khi cặp đấu CHƯA xác định — đồng bộ với sơ đồ giải,
+   để không hiện "—" trống trơn ở quản lý giải. */
+const seedSourceLabel = (seed) => {
+  if (!seed || !seed.type) return "";
+  if (seed.label) return String(seed.label);
+  const r = seed.ref?.round ?? "?";
+  const t = (seed.ref?.order ?? -1) + 1;
+  switch (seed.type) {
+    case "groupRank": {
+      const st = seed.ref?.stage ?? seed.ref?.stageIndex ?? "?";
+      const g = seed.ref?.groupCode;
+      const rk = seed.ref?.rank ?? "?";
+      return g ? `V${st}-B${g}-T${rk}` : `V${st}-T${rk}`;
+    }
+    case "stageMatchWinner":
+    case "matchWinner":
+      return `W-V${r}-T${t}`;
+    case "stageMatchLoser":
+    case "matchLoser":
+      return `L-V${r}-T${t}`;
+    case "bye":
+      return "BYE";
+    default:
+      return "";
+  }
+};
+
+/* Tên đội hiển thị: ưu tiên cặp đã xác định; nếu chưa, hiện nguồn (seed) thay vì "—". */
+const teamLabel = (pair, seed, eventType = "double", displayMode = "nickname") => {
+  const name = pairLabel(pair, eventType, displayMode);
+  if (name && name !== "—" && name !== "N/A") return name;
+  return seedSourceLabel(seed) || name || "—";
+};
+
 const TYPE_LABEL = (t) => {
   const key = String(t || "").toLowerCase();
   if (key === "group") return "Vòng bảng";
@@ -865,12 +899,12 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
         <Typography noWrap>
-          {pairLabel(merged?.pairA, eventType, displayMode)}
+          {teamLabel(merged?.pairA, merged?.seedA, eventType, displayMode)}
         </Typography>
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
         <Typography noWrap>
-          {pairLabel(merged?.pairB, eventType, displayMode)}
+          {teamLabel(merged?.pairB, merged?.seedB, eventType, displayMode)}
         </Typography>
       </TableCell>
       <TableCell sx={{ width: 96, whiteSpace: "nowrap", py: 0.5 }}>
@@ -1031,7 +1065,7 @@ const MatchCard = React.memo(function MatchCard({
               {t("tournaments.manage.pairA")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-              {pairLabel(merged?.pairA, eventType, displayMode)}
+              {teamLabel(merged?.pairA, merged?.seedA, eventType, displayMode)}
             </Typography>
           </Box>
           <Box>
@@ -1039,7 +1073,7 @@ const MatchCard = React.memo(function MatchCard({
               {t("tournaments.manage.pairB")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-              {pairLabel(merged?.pairB, eventType, displayMode)}
+              {teamLabel(merged?.pairB, merged?.seedB, eventType, displayMode)}
             </Typography>
           </Box>
           <Box>

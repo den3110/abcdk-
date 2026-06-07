@@ -94,6 +94,7 @@ export function useRefereeLiveSyncMatch(
   const syncInFlightRef = useRef(null);
   const bootstrapInFlightRef = useRef(null);
   const claimInFlightRef = useRef(null);
+  const enqueueChainRef = useRef(Promise.resolve());
   const appStateRef = useRef(
     typeof document === "undefined" ? "visible" : document.visibilityState
   );
@@ -834,32 +835,38 @@ export function useRefereeLiveSyncMatch(
   ]);
 
   const enqueueEvent = useCallback(
-    async (type, payload = {}) => {
-      if (!enabled || !matchId) return null;
-      const baseVersion =
-        Number(dataRef.current?.liveVersion || 0) ||
-        Number(persistRef.current.lastAckedServerVersion || 0);
-      const event = createClientLiveSyncEvent(type, payload, baseVersion);
-      const nextQueue = [...(persistRef.current.queue || []), event];
-      const sourceSnapshot = dataRef.current || persistRef.current.snapshot;
-      const optimistic = applyLiveSyncEventLocally(sourceSnapshot, event);
-      dataRef.current = optimistic;
-      await persistState({
-        queue: nextQueue,
-        snapshot: normalizeMatchDisplay(persistRef.current.snapshot),
-      });
-      setDerivedState((prev) => ({
-        ...prev,
-        data: optimistic || prev.data,
-        pendingCount: nextQueue.length,
-        error: null,
-      }));
-      const onlineNow = state.online;
-      const owner = persistRef.current.owner;
-      if (onlineNow && (!owner || owner.isSelf)) {
-        syncNow();
-      }
-      return event;
+    (type, payload = {}) => {
+      const run = enqueueChainRef.current
+        .catch(() => null)
+        .then(async () => {
+          if (!enabled || !matchId) return null;
+          const baseVersion =
+            Number(dataRef.current?.liveVersion || 0) ||
+            Number(persistRef.current.lastAckedServerVersion || 0);
+          const event = createClientLiveSyncEvent(type, payload, baseVersion);
+          const nextQueue = [...(persistRef.current.queue || []), event];
+          const sourceSnapshot = dataRef.current || persistRef.current.snapshot;
+          const optimistic = applyLiveSyncEventLocally(sourceSnapshot, event);
+          dataRef.current = optimistic;
+          await persistState({
+            queue: nextQueue,
+            snapshot: normalizeMatchDisplay(persistRef.current.snapshot),
+          });
+          setDerivedState((prev) => ({
+            ...prev,
+            data: optimistic || prev.data,
+            pendingCount: nextQueue.length,
+            error: null,
+          }));
+          const onlineNow = state.online;
+          const owner = persistRef.current.owner;
+          if (onlineNow && (!owner || owner.isSelf)) {
+            syncNow();
+          }
+          return event;
+        });
+      enqueueChainRef.current = run.catch(() => null);
+      return run;
     },
     [
       enabled,

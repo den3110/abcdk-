@@ -122,9 +122,6 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
                 )
 
     var loadingCollapsed by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(loading) {
-        if (loading) loadingCollapsed = false
-    }
 
     var showWarnings by rememberSaveable { mutableStateOf(false) }
     var showSignals by rememberSaveable { mutableStateOf(false) }
@@ -202,13 +199,15 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
     val goLiveCountdownVisible = goLiveCountdownSeconds != null
     val stopLiveCountdownVisible = stopLiveCountdownSeconds != null
     val suppressPreparationUi = goLiveCountdownVisible || stopLiveCountdownVisible || endingLive
+    val waitingForActivation = waitingForCourt || waitingForMatchLive || waitingForNextMatch
+    LaunchedEffect(loading, waitingForActivation) {
+        loadingCollapsed = loading && waitingForActivation
+    }
     val streamIntentActive =
         liveStartTime != null ||
             streamState is StreamState.Connecting ||
             streamState is StreamState.Reconnecting ||
-            waitingForCourt ||
-            waitingForMatchLive ||
-            waitingForNextMatch ||
+            waitingForActivation ||
             goLiveCountdownVisible ||
             stopLiveCountdownVisible ||
             endingLive
@@ -226,7 +225,7 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
     val startupVisible =
         !suppressPreparationUi &&
         !matchSwapLoading &&
-        !waitingForNextMatch &&
+        !waitingForActivation &&
         (loading || !previewReady || shouldShowStartupOverlayForAssets) &&
             streamState !is StreamState.Live &&
             streamState !is StreamState.Connecting &&
@@ -1498,7 +1497,7 @@ private fun TopStatusLeftCluster(
     recordingUiState: com.pkt.live.data.model.RecordingUiState,
 ) {
     val armedBadgeLabel =
-        if (streamMode == StreamMode.RECORD_ONLY && recordOnlyArmed) "REC AUTO" else "LIVE"
+        if (streamMode == StreamMode.RECORD_ONLY && recordOnlyArmed) "REC ARMED" else "LIVE"
     val storageTargetChipLabel =
         recordingUiState.activeStorageTargetId
             ?.takeIf { it.isNotBlank() }

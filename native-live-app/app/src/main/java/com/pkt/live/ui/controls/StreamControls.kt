@@ -89,10 +89,14 @@ fun StreamControls(
     var showExitDialog by remember { mutableStateOf(false) }
     var showRecordingRequestDetails by remember { mutableStateOf(false) }
     var controlThrottleUntilMs by remember { mutableLongStateOf(0L) }
+    val currentMatchIsLive =
+        matchInfo?.status?.trim()?.equals("live", ignoreCase = true) == true
     val requestingStream =
+        (if (streamMode == com.pkt.live.data.model.StreamMode.RECORD_ONLY) recordOnlyArmed else goLiveArmed) &&
         loading &&
             previewReady &&
             matchInfo != null &&
+            currentMatchIsLive &&
             rtmpUrl.isNullOrBlank() &&
             !waitingForCourt &&
             !waitingForMatchLive &&
@@ -504,6 +508,8 @@ fun GoLiveButton(
 ) {
     val isRecordOnly = streamMode == com.pkt.live.data.model.StreamMode.RECORD_ONLY
     val isLive = streamState is StreamState.Live
+    val startTransitioning =
+        matchTransitioning && (armed || isLive || hasLiveSession)
     val isRecordOnlyWaiting =
         isRecordOnly &&
             armed &&
@@ -520,7 +526,7 @@ fun GoLiveButton(
             armed &&
             !isLive &&
             !requestingStream &&
-            !matchTransitioning &&
+            !startTransitioning &&
             !isRecoveringLive &&
             streamState !is StreamState.Connecting &&
             streamState !is StreamState.Reconnecting &&
@@ -533,9 +539,9 @@ fun GoLiveButton(
         }
     val isBusy =
         if (isRecordOnly) {
-            recordingBusy || matchTransitioning
+            (recordingBusy && armed) || startTransitioning
         } else {
-            requestingStream || matchTransitioning || isRecoveringLive || streamState is StreamState.Connecting || streamState is StreamState.Reconnecting
+            requestingStream || startTransitioning || isRecoveringLive || streamState is StreamState.Connecting || streamState is StreamState.Reconnecting
         }
 
     val bgColor = when {
@@ -545,7 +551,7 @@ fun GoLiveButton(
         isRecordOnly && isBusy -> LiveColors.Warning
         isLive -> LiveColors.LiveRed
         requestingStream -> Color.White.copy(alpha = 0.18f)
-        matchTransitioning -> LiveColors.Warning
+        startTransitioning -> LiveColors.Warning
         isRecoveringLive || streamState is StreamState.Reconnecting -> LiveColors.Reconnecting
         waitingForNextMatch -> LiveColors.Warning
         isBusy || armed -> LiveColors.LiveRedPulse
@@ -555,7 +561,7 @@ fun GoLiveButton(
     Button(
         onClick = {
             when {
-                (requestingStream && !isRecordOnly) || matchTransitioning -> Unit
+                (requestingStream && !isRecordOnly) || startTransitioning -> Unit
                 canStop -> onStop()
                 else -> onGoLive()
             }
@@ -566,7 +572,7 @@ fun GoLiveButton(
         colors = ButtonDefaults.buttonColors(containerColor = bgColor),
         contentPadding = PaddingValues(0.dp),
         shape = CircleShape,
-        enabled = !(requestingStream && !isRecordOnly) && !matchTransitioning,
+        enabled = !(requestingStream && !isRecordOnly) && !startTransitioning,
     ) {
         when {
             isRecordOnly && isRecording -> {
@@ -623,7 +629,7 @@ fun GoLiveButton(
                     color = Color.White,
                 )
             }
-            matchTransitioning -> {
+            startTransitioning -> {
                 CircularProgressIndicator(
                     modifier = Modifier.size(28.dp),
                     strokeWidth = 3.dp,
@@ -647,7 +653,7 @@ fun GoLiveButton(
             }
             isRecordOnly -> {
                 Text(
-                    text = "AUTO",
+                    text = "RECORD",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
