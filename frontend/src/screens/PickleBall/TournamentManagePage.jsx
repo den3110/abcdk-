@@ -1448,25 +1448,80 @@ export default function TournamentManagePage() {
   );
   const allMatchesBase = useMemo(() => {
     const rawList = matchPage?.list || [];
-    // Resolve tên đội như SƠ ĐỒ (không đệ quy):
-    //  - đã có đội thật -> tên thật
-    //  - trận nguồn (previousA/previousB) đã kết thúc -> đội thắng (tên thật)
-    //  - còn lại -> seed / "W-V…" (resolver chung)
-    const byId = new Map(rawList.map((m) => [String(m._id), m]));
     const evType = tour?.eventType;
+
+    // Index trận để tra nguồn (giống SƠ ĐỒ):
+    const byId = new Map();
+    const byBRO = new Map(); // `${bracketId}:${round}:${order}`
+    const bySRO = new Map(); // `${stage}:${round}:${order}`
+    for (const m of rawList) {
+      byId.set(String(m._id), m);
+      const bid = String(m?.bracket?._id || m?.bracket || "");
+      const stage = Number(m?.bracket?.stage);
+      const r = Number(m?.round);
+      const o = Number(m?.order);
+      if (bid && Number.isFinite(r) && Number.isFinite(o)) byBRO.set(`${bid}:${r}:${o}`, m);
+      if (Number.isFinite(stage) && Number.isFinite(r) && Number.isFinite(o)) bySRO.set(`${stage}:${r}:${o}`, m);
+    }
+
+    // Tìm trận nguồn từ seed (matchId, hoặc stage/bracket + round + order)
+    const findSource = (m, seed) => {
+      if (!seed) return null;
+      const mid = String(seed?.ref?.matchId || "");
+      if (mid && byId.has(mid)) return byId.get(mid);
+      const r = Number(seed?.ref?.round);
+      const o = Number(seed?.ref?.order);
+      if (!Number.isFinite(r) || !Number.isFinite(o)) return null;
+      const stage = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+      if (Number.isFinite(stage)) {
+        const hit = bySRO.get(`${stage}:${r}:${o}`);
+        if (hit) return hit;
+      }
+      const bid = String(m?.bracket?._id || m?.bracket || "");
+      return bid ? byBRO.get(`${bid}:${r}:${o}`) || null : null;
+    };
+
+    // Trận nguồn đã xong -> cặp thắng/thua (KHÔNG đệ quy), chỉ lấy nếu là đội thật
+    const resolvedWinner = (pm, seedType) => {
+      if (!pm || pm.status !== "finished" || !pm.winner) return null;
+      const loser = seedType === "matchLoser" || seedType === "stageMatchLoser";
+      const wp = loser
+        ? pm.winner === "A"
+          ? pm.pairB
+          : pm.pairA
+        : pm.winner === "A"
+          ? pm.pairA
+          : pm.pairB;
+      return hasResolvedPair(wp) ? wp : null;
+    };
+
+    // Resolve tên đội như SƠ ĐỒ:
     const resolveName = (m, side) => {
       const pair = side === "A" ? m.pairA : m.pairB;
       if (hasResolvedPair(pair)) return pairLabel(pair, evType, displayMode);
+
+      const seed = side === "A" ? m.seedA : m.seedB;
+      const seedType = String(seed?.type || "");
+
+      // 1) qua previousA/previousB (trận trước trực tiếp)
       const prev = side === "A" ? m.previousA : m.previousB;
       if (prev) {
-        const pm = byId.get(String(prev._id || prev));
-        if (pm && pm.status === "finished" && pm.winner) {
-          const wp = pm.winner === "A" ? pm.pairA : pm.pairB;
-          if (hasResolvedPair(wp)) return pairLabel(wp, evType, displayMode);
-        }
+        const wp = resolvedWinner(byId.get(String(prev._id || prev)), seedType);
+        if (wp) return pairLabel(wp, evType, displayMode);
       }
+      // 2) qua seed nguồn (winner/loser của 1 trận)
+      if (
+        ["matchWinner", "matchLoser", "stageMatchWinner", "stageMatchLoser"].includes(
+          seedType,
+        )
+      ) {
+        const wp = resolvedWinner(findSource(m, seed), seedType);
+        if (wp) return pairLabel(wp, evType, displayMode);
+      }
+      // 3) còn lại: seed / "W-V…" (resolver chung)
       return getMatchSideDisplayName(m, side, "");
     };
+
     return rawList.map((m) => ({
       ...m,
       __sideA: resolveName(m, "A"),
