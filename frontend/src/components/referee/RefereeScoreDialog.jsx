@@ -385,7 +385,15 @@ function LiveClock({ color = "inherit" }) {
   );
 }
 
-function PlayerRow({ label, isServer, muted, borderColor, accentColor }) {
+function PlayerRow({
+  label,
+  isServer,
+  muted,
+  borderColor,
+  accentColor,
+  textColor,
+  rowBg,
+}) {
   return (
     <Stack
       direction="row"
@@ -398,7 +406,7 @@ function PlayerRow({ label, isServer, muted, borderColor, accentColor }) {
         borderRadius: 999,
         border: "1px solid",
         borderColor,
-        bgcolor: isServer ? alpha(accentColor, 0.16) : alpha("#ffffff", 0.02),
+        bgcolor: isServer ? alpha(accentColor, 0.16) : rowBg,
         minHeight: 40,
       }}
     >
@@ -417,7 +425,7 @@ function PlayerRow({ label, isServer, muted, borderColor, accentColor }) {
           sx={{
             fontSize: 14,
             fontWeight: isServer ? 800 : 600,
-            color: "#f8fafc",
+            color: textColor,
             lineHeight: 1.2,
           }}
         >
@@ -440,6 +448,9 @@ function TeamPanel({
   muted,
   borderColor,
   accentColor,
+  textColor,
+  surfaceBg,
+  surfaceStrongBg,
   align = "left",
   swapDisabled = false,
 }) {
@@ -453,7 +464,7 @@ function TeamPanel({
         borderRadius: 4,
         border: "1px solid",
         borderColor: isActiveSide ? alpha(accentColor, 0.62) : borderColor,
-        bgcolor: isActiveSide ? alpha(accentColor, 0.14) : alpha("#ffffff", 0.02),
+        bgcolor: isActiveSide ? alpha(accentColor, 0.14) : surfaceBg,
         p: { xs: 1.4, md: 1.8 },
         display: "flex",
         flexDirection: "column",
@@ -474,7 +485,7 @@ function TeamPanel({
           label={title}
           sx={{
             fontWeight: 800,
-            bgcolor: isServing ? alpha(accentColor, 0.22) : alpha("#ffffff", 0.05),
+            bgcolor: isServing ? alpha(accentColor, 0.22) : surfaceStrongBg,
             color: isServing ? accentColor : muted,
             border: "1px solid",
             borderColor: isServing ? alpha(accentColor, 0.36) : borderColor,
@@ -505,7 +516,7 @@ function TeamPanel({
             fontSize: { xs: 19, md: 24 },
             fontWeight: 900,
             letterSpacing: "-0.03em",
-            color: "#f8fafc",
+            color: textColor,
             lineHeight: 1.05,
           }}
         >
@@ -525,6 +536,8 @@ function TeamPanel({
                 muted={muted}
                 borderColor={borderColor}
                 accentColor={accentColor}
+                textColor={textColor}
+                rowBg={surfaceStrongBg}
               />
             );
           })
@@ -536,6 +549,8 @@ function TeamPanel({
             muted={muted}
             borderColor={borderColor}
             accentColor={accentColor}
+            textColor={textColor}
+            rowBg={surfaceStrongBg}
           />
         )}
       </Stack>
@@ -592,6 +607,15 @@ export default function RefereeScoreDialog({
           : "rgba(51,65,85,0.76)",
       text: theme.palette.mode === "dark" ? "#f8fafc" : "#0f172a",
       accent: theme.palette.mode === "dark" ? "#60a5fa" : "#2563eb",
+      activeText: theme.palette.mode === "dark" ? "#f8fafc" : "#1d4ed8",
+      subtleBg:
+        theme.palette.mode === "dark"
+          ? "rgba(255,255,255,0.02)"
+          : "rgba(15,23,42,0.02)",
+      subtleBgStrong:
+        theme.palette.mode === "dark"
+          ? "rgba(255,255,255,0.05)"
+          : "rgba(15,23,42,0.035)",
       accentSoft:
         theme.palette.mode === "dark"
           ? "rgba(96,165,250,0.16)"
@@ -1522,6 +1546,9 @@ export default function RefereeScoreDialog({
                 muted={ui.muted}
                 borderColor={ui.softBorder}
                 accentColor={ui.accent}
+                textColor={ui.text}
+                surfaceBg={ui.subtleBg}
+                surfaceStrongBg={ui.subtleBgStrong}
               />
 
               <Box
@@ -1776,6 +1803,9 @@ export default function RefereeScoreDialog({
                 muted={ui.muted}
                 borderColor={ui.softBorder}
                 accentColor={ui.accent}
+                textColor={ui.text}
+                surfaceBg={ui.subtleBg}
+                surfaceStrongBg={ui.subtleBgStrong}
                 align="right"
               />
             </Stack>
@@ -1951,8 +1981,8 @@ export default function RefereeScoreDialog({
                       borderColor:
                         activeSide === leftSide ? alpha(ui.accent, 0.45) : ui.border,
                       bgcolor:
-                        activeSide === leftSide ? alpha(ui.accent, 0.18) : alpha("#ffffff", 0.02),
-                      color: activeSide === leftSide ? "#ffffff" : ui.text,
+                        activeSide === leftSide ? alpha(ui.accent, 0.18) : ui.subtleBg,
+                      color: activeSide === leftSide ? ui.activeText : ui.text,
                       fontWeight: 900,
                       fontSize: { xs: 16, md: 18 },
                       ...stableButtonIconSx,
@@ -1997,8 +2027,8 @@ export default function RefereeScoreDialog({
                       borderColor:
                         activeSide === rightSide ? alpha(ui.accent, 0.45) : ui.border,
                       bgcolor:
-                        activeSide === rightSide ? alpha(ui.accent, 0.18) : alpha("#ffffff", 0.02),
-                      color: activeSide === rightSide ? "#ffffff" : ui.text,
+                        activeSide === rightSide ? alpha(ui.accent, 0.18) : ui.subtleBg,
+                      color: activeSide === rightSide ? ui.activeText : ui.text,
                       fontWeight: 900,
                       fontSize: { xs: 16, md: 18 },
                       ...stableButtonIconSx,
