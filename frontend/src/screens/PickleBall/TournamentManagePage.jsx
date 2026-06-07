@@ -188,8 +188,21 @@ const pairLabel = (pair, eventType = "double", displayMode = "nickname") =>
 const hasResolvedPair = (p) =>
   !!(
     p &&
-    (p.player1 || p.player2 || p.name || p.teamName || p.label || p.displayName)
+    (p.player1 ||
+      p.player2 ||
+      (Array.isArray(p.players) && p.players.length) ||
+      p.name ||
+      p.teamName ||
+      p.label ||
+      p.displayName)
   );
+
+const isConcreteTeamLabel = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (/^(BYE|TBD|Registration|Chưa có đội|—)$/i.test(text)) return false;
+  return !/^[WL]\s*-/i.test(text);
+};
 
 /* Tên đội hiển thị: ưu tiên tên đã resolve sẵn (__sideA/__sideB, tính như sơ đồ),
    nếu không có thì dùng resolver chung (đội thật → seed → "W-V…" → "—"). */
@@ -517,12 +530,12 @@ const statusPriority = (st) => {
 const isByeMatch = (m) => {
   if (m?.isBye || m?.bye) return true;
   const aOK = !!(
-    m?.pairA &&
-    (m.pairA.name || m.pairA.player1 || m.pairA.player2)
+    hasResolvedPair(m?.pairA) ||
+    isConcreteTeamLabel(m?.__sideA || m?.resolvedSideNameA || m?.teamAName)
   );
   const bOK = !!(
-    m?.pairB &&
-    (m.pairB.name || m.pairB.player1 || m.pairB.player2)
+    hasResolvedPair(m?.pairB) ||
+    isConcreteTeamLabel(m?.__sideB || m?.resolvedSideNameB || m?.teamBName)
   );
   return !(aOK && bOK);
 };
@@ -1457,12 +1470,23 @@ export default function TournamentManagePage() {
     const byId = new Map();
     const byBRO = new Map(); // `${bracketId}:${round}:${order}`
     const bySRO = new Map(); // `${stage}:${round}:${order}`
+    const bracketById = new Map();
+    const matchesByBracketId = new Map();
+    (brackets || []).forEach((bracket) => {
+      const id = String(bracket?._id || bracket?.id || "");
+      if (id) bracketById.set(id, bracket);
+    });
     for (const m of rawList) {
       byId.set(String(m._id), m);
       const bid = String(m?.bracket?._id || m?.bracket || "");
-      const stage = Number(m?.bracket?.stage);
+      const bracket = bracketById.get(bid);
+      const stage = Number(m?.bracket?.stage ?? bracket?.stage);
       const r = Number(m?.round);
       const o = Number(m?.order);
+      if (bid) {
+        if (!matchesByBracketId.has(bid)) matchesByBracketId.set(bid, []);
+        matchesByBracketId.get(bid).push(m);
+      }
       if (bid && Number.isFinite(r) && Number.isFinite(o)) byBRO.set(`${bid}:${r}:${o}`, m);
       if (Number.isFinite(stage) && Number.isFinite(r) && Number.isFinite(o)) bySRO.set(`${stage}:${r}:${o}`, m);
     }
@@ -1482,6 +1506,79 @@ export default function TournamentManagePage() {
       }
       const bid = String(m?.bracket?._id || m?.bracket || "");
       return bid ? byBRO.get(`${bid}:${r}:${o}`) || null : null;
+    };
+
+    const getPlannedSeed = (m, side) => {
+      if (!m) return null;
+
+      const localRound = Number(m?.round || 1);
+      const localOrder = Number(m?.order ?? m?.meta?.order);
+      if (!Number.isFinite(localOrder)) return null;
+
+      const matchBracketId = String(m?.bracket?._id || m?.bracket || "");
+      const matchBracket =
+        (m?.bracket && typeof m.bracket === "object" ? m.bracket : null) ||
+        bracketById.get(matchBracketId) ||
+        null;
+      const sourceType = String(
+        matchBracket?.type || m?.type || m?.format || "",
+      ).toLowerCase();
+      if (sourceType !== "knockout" && sourceType !== "ko") return null;
+
+      if (localRound > 1) {
+        const bracketMatches = matchesByBracketId.get(matchBracketId) || [];
+        const sameBranch = (candidate) =>
+          String(candidate?.branch || "main") === String(m?.branch || "main") &&
+          String(candidate?.phase || "") === String(m?.phase || "");
+        const byOrder = (a, b) => Number(a?.order || 0) - Number(b?.order || 0);
+        const currentRoundMatches = bracketMatches
+          .filter((candidate) => Number(candidate?.round || 1) === localRound)
+          .filter(sameBranch)
+          .sort(byOrder);
+        const currentIndex = currentRoundMatches.findIndex(
+          (candidate) => String(candidate?._id || "") === String(m?._id || ""),
+        );
+        const sourceSlot =
+          (currentIndex >= 0 ? currentIndex : localOrder) * 2 +
+          (side === "B" ? 1 : 0);
+        const previousRoundMatches = bracketMatches
+          .filter((candidate) => Number(candidate?.round || 1) === localRound - 1)
+          .filter(sameBranch)
+          .sort(byOrder);
+        const sourceMatch = previousRoundMatches[sourceSlot] || null;
+        const stageIndex = Number(sourceMatch?.bracket?.stage ?? matchBracket?.stage ?? 0);
+        const sourceRound = Number(sourceMatch?.round ?? localRound - 1);
+        const sourceOrder = Number(
+          sourceMatch?.order ?? localOrder * 2 + (side === "B" ? 1 : 0),
+        );
+        const ref = {
+          stageIndex,
+          stage: stageIndex,
+          round: sourceRound,
+          order: sourceOrder,
+        };
+        if (sourceMatch?._id) ref.matchId = sourceMatch._id;
+        return {
+          type: "stageMatchWinner",
+          ref,
+          label: `W-V${localRound - 1}-T${sourceOrder + 1}`,
+        };
+      }
+
+      const seedRows = Array.isArray(matchBracket?.prefill?.seeds)
+        ? matchBracket.prefill.seeds
+        : Array.isArray(matchBracket?.config?.blueprint?.seeds)
+          ? matchBracket.config.blueprint.seeds
+          : [];
+      if (!seedRows.length) return null;
+
+      const pairNo = localOrder + 1;
+      const planned =
+        seedRows.find((entry) => Number(entry?.pair) === pairNo) ||
+        seedRows[localOrder] ||
+        null;
+      const plannedSeed = side === "A" ? planned?.A : planned?.B;
+      return plannedSeed?.type ? plannedSeed : null;
     };
 
     // Trận có đúng 1 bên là BYE
@@ -1507,7 +1604,20 @@ export default function TournamentManagePage() {
       const pair = side === "A" ? m.pairA : m.pairB;
       if (hasResolvedPair(pair)) return pairLabel(pair, evType, displayMode);
 
-      const seed = side === "A" ? m.seedA : m.seedB;
+      const rawSeed = side === "A" ? m.seedA : m.seedB;
+      const plannedSeed = getPlannedSeed(m, side);
+      const rawSeedType = String(rawSeed?.type || "");
+      const isEmptyRegistrationSeed =
+        rawSeedType === "registration" &&
+        !rawSeed?.label &&
+        !rawSeed?.ref?.registration &&
+        !rawSeed?.ref?.reg &&
+        !rawSeed?.ref?.id &&
+        !rawSeed?.ref?._id;
+      const seed =
+        rawSeed?.type && !isEmptyRegistrationSeed
+          ? rawSeed
+          : plannedSeed || rawSeed;
       const seedType = String(seed?.type || "");
       const isLoser =
         seedType === "matchLoser" || seedType === "stageMatchLoser";
@@ -1528,26 +1638,45 @@ export default function TournamentManagePage() {
             if (isUseful(carried)) return carried;
           }
         } else if (src.status === "finished" && src.winner) {
-          const wp = isLoser
+          const sourceSide = isLoser
             ? src.winner === "A"
-              ? src.pairB
-              : src.pairA
+              ? "B"
+              : "A"
             : src.winner === "A"
-              ? src.pairA
-              : src.pairB;
+              ? "A"
+              : "B";
+          const wp = sourceSide === "A" ? src.pairA : src.pairB;
           if (hasResolvedPair(wp)) return pairLabel(wp, evType, displayMode);
+          const carried = resolveName(src, sourceSide, depth + 1);
+          if (isUseful(carried)) return carried;
         }
       }
       // Còn lại: seed / "W-V…" (resolver chung)
-      return getMatchSideDisplayName(m, side, "");
+      const matchWithSeed = seed
+        ? {
+            ...m,
+            [side === "A" ? "seedA" : "seedB"]: seed,
+          }
+        : m;
+      return getMatchSideDisplayName(matchWithSeed, side, "");
     };
 
-    return rawList.map((m) => ({
-      ...m,
-      __sideA: resolveName(m, "A"),
-      __sideB: resolveName(m, "B"),
-    }));
-  }, [matchPage, displayMode, tour?.eventType]);
+    return rawList.map((m) => {
+      const sideA = resolveName(m, "A");
+      const sideB = resolveName(m, "B");
+      return {
+        ...m,
+        __sideA: sideA,
+        __sideB: sideB,
+        resolvedSideNameA: isConcreteTeamLabel(sideA)
+          ? sideA
+          : m?.resolvedSideNameA,
+        resolvedSideNameB: isConcreteTeamLabel(sideB)
+          ? sideB
+          : m?.resolvedSideNameB,
+      };
+    });
+  }, [brackets, matchPage, displayMode, tour?.eventType]);
 
   // Tập hợp danh sách sân
   const courtOptions = useMemo(() => {
@@ -1801,6 +1930,17 @@ export default function TournamentManagePage() {
 
   /* ====== Live store + realtime ====== */
   const liveStore = useMemo(() => createLiveStore(), []);
+  const viewerInitialMatch = useMemo(() => {
+    void orderVersion;
+    const matchId = String(viewer.matchId || "");
+    if (!matchId) return null;
+    const baseMatch =
+      allMatchesBase.find((match) => String(match?._id || match?.id || "") === matchId) ||
+      null;
+    if (!baseMatch) return null;
+    return { ...baseMatch, ...(liveStore.get(matchId) || {}) };
+  }, [allMatchesBase, liveStore, orderVersion, viewer.matchId]);
+
   const handleExportRefNote = useCallback(
     (m) => {
       try {
@@ -1810,8 +1950,8 @@ export default function TournamentManagePage() {
           code: matchCode(merged),
           court: courtLabel(merged),
           referee: refereeNames(merged),
-          team1: pairLabel(merged?.pairA, tour?.eventType, displayMode),
-          team2: pairLabel(merged?.pairB, tour?.eventType, displayMode),
+          team1: teamLabel(merged, "A"),
+          team2: teamLabel(merged, "B"),
           logoUrl: WEB_LOGO_URL,
         });
         const w = window.open("", "_blank");
@@ -1838,7 +1978,7 @@ export default function TournamentManagePage() {
         toast.error(t("tournaments.manage.openRefereeReportFailed"));
       }
     },
-    [displayMode, liveStore, t, tour],
+    [liveStore, t, tour],
   );
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
@@ -1989,8 +2129,8 @@ export default function TournamentManagePage() {
         const text = norm(
           [
             matchCode(merged),
-            pairLabel(merged?.pairA, tour?.eventType, displayMode),
-            pairLabel(merged?.pairB, tour?.eventType, displayMode),
+            teamLabel(merged, "A"),
+            teamLabel(merged, "B"),
             courtLabel(merged),
             merged?.status,
             merged?.video,
@@ -2050,7 +2190,6 @@ export default function TournamentManagePage() {
     return byBracket;
   }, [
     allMatchesBase,
-    displayMode,
     qDeferred,
     sortKey,
     sortDir,
@@ -2060,7 +2199,6 @@ export default function TournamentManagePage() {
     showBye,
     brackets,
     t,
-    tour?.eventType,
   ]);
 
   // LIVE Setup — TOÀN GIẢI
@@ -2347,14 +2485,14 @@ export default function TournamentManagePage() {
         const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
         return [
           matchCode(merged),
-          pairLabel(merged?.pairA, tour?.eventType, displayMode),
-          pairLabel(merged?.pairB, tour?.eventType, displayMode),
+          teamLabel(merged, "A"),
+          teamLabel(merged, "B"),
           courtLabel(merged),
           Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—",
           scoreSummary(merged),
         ];
       }),
-    [displayMode, liveStore, tour?.eventType],
+    [liveStore],
   );
 
   const buildExportPayload = useCallback(() => {
@@ -3876,6 +4014,7 @@ export default function TournamentManagePage() {
       <ResponsiveMatchViewer
         open={viewer.open}
         matchId={viewer.matchId}
+        initialMatch={viewerInitialMatch}
         onClose={closeMatch}
       />
       <RefereeScoreDialog

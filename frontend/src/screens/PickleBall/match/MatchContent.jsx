@@ -5,7 +5,6 @@ import {
   Alert,
   Box,
   Chip,
-  CircularProgress,
   Divider,
   Stack,
   Link as MuiLink,
@@ -179,6 +178,7 @@ const hasResolvedPair = (pair) =>
     pair &&
     (pair?.player1 ||
       pair?.player2 ||
+      (Array.isArray(pair?.players) && pair.players.length) ||
       pair?.name ||
       pair?.teamName ||
       pair?.label ||
@@ -188,13 +188,23 @@ const hasResolvedPair = (pair) =>
 const isUsefulPendingLabel = (value) => {
   const text = String(value || "").trim();
   if (!text) return false;
-  return !/^(BYE|TBD|Registration|Chưa có đội)$/i.test(text);
+  if (/^(BYE|TBD|Registration|Chưa có đội|—)$/i.test(text)) return false;
+  return !/^(?:[WL]\s*-|V\d+(?:-|$))/i.test(text);
 };
 
 const previewSideLabel = (match, side) => {
   const key = side === "A" ? "resolvedSideNameA" : "resolvedSideNameB";
   const altKey = side === "A" ? "teamAName" : "teamBName";
-  const value = match?.[key] || match?.[altKey] || "";
+  const internalKey = side === "A" ? "__sideA" : "__sideB";
+  const pairNameKey = side === "A" ? "pairAName" : "pairBName";
+  const sideNameKey = side === "A" ? "sideAName" : "sideBName";
+  const value =
+    match?.[key] ||
+    match?.[internalKey] ||
+    match?.[altKey] ||
+    match?.[pairNameKey] ||
+    match?.[sideNameKey] ||
+    "";
   return isUsefulPendingLabel(value) ? String(value).trim() : "";
 };
 
@@ -1731,8 +1741,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   );
 
   const resolvePendingSideLabel = useCallback(
-    (match, side) => {
+    function resolvePendingSideLabelInner(match, side, depth = 0) {
       if (!match) return "Chưa có đội";
+      if (depth > 12) return "Chưa có đội";
 
       const seed = side === "A" ? match?.seedA : match?.seedB;
       const pair = side === "A" ? match?.pairA : match?.pairB;
@@ -1741,6 +1752,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       if (hasResolvedPair(pair)) {
         return pairLabel(pair, isSingle, displayMode);
       }
+
+      if (previewLabel) return previewLabel;
 
       if (seed && isSeedBlockedByUnfinishedGroup(seed)) {
         return resolveSeedReferenceLabel(seed, match);
@@ -1755,15 +1768,22 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         const sourceCode = getDisplayCodeForMatch(sourceMatch);
 
         if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
+          const winnerSide = sourceMatch.winner === "A" ? "A" : "B";
           const winnerPair =
-            sourceMatch.winner === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+            winnerSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
           if (hasResolvedPair(winnerPair)) {
             return pairLabel(winnerPair, isSingle, displayMode);
           }
+          const carried = resolvePendingSideLabelInner(
+            sourceMatch,
+            winnerSide,
+            depth + 1,
+          );
+          if (isUsefulPendingLabel(carried)) return carried;
         }
 
         if (sourceCode) return `W-${sourceCode}`;
-        return previewLabel || resolveSeedReferenceLabel(seed, match);
+        return resolveSeedReferenceLabel(seed, match);
       }
 
       if (seed && seed.type) {
@@ -1775,17 +1795,25 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           seed?.type === "stageMatchLoser" || seed?.type === "matchLoser";
 
         if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
-          const sourcePair = isLoserSeed
+          const sourceSide = isLoserSeed
             ? sourceMatch.winner === "A"
-              ? sourceMatch.pairB
-              : sourceMatch.pairA
+              ? "B"
+              : "A"
             : sourceMatch.winner === "A"
-              ? sourceMatch.pairA
-              : sourceMatch.pairB;
+              ? "A"
+              : "B";
+          const sourcePair =
+            sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
 
           if (hasResolvedPair(sourcePair)) {
             return pairLabel(sourcePair, isSingle, displayMode);
           }
+          const carried = resolvePendingSideLabelInner(
+            sourceMatch,
+            sourceSide,
+            depth + 1,
+          );
+          if (isUsefulPendingLabel(carried)) return carried;
         }
 
         if ((isWinnerSeed || isLoserSeed) && sourceRefLabel) {
@@ -1794,8 +1822,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
         return seedLabel(seed);
       }
-
-      if (previewLabel) return previewLabel;
 
       return "Chưa có đội";
     },
@@ -2681,21 +2707,27 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {hasResolvedPair(mm?.pairA) && !blockA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink
-                  person={mm.pairA?.player1}
-                  onOpen={openProfile}
-                  displayMode={displayMode}
-                />
-                {!isSingle && mm.pairA?.player2 && (
+                {mm.pairA?.player1 || mm.pairA?.player2 ? (
                   <>
-                    {" "}
-                    &{" "}
                     <PlayerLink
-                      person={mm.pairA.player2}
+                      person={mm.pairA?.player1}
                       onOpen={openProfile}
                       displayMode={displayMode}
                     />
+                    {!isSingle && mm.pairA?.player2 && (
+                      <>
+                        {" "}
+                        &{" "}
+                        <PlayerLink
+                          person={mm.pairA.player2}
+                          onOpen={openProfile}
+                          displayMode={displayMode}
+                        />
+                      </>
+                    )}
                   </>
+                ) : (
+                  pairLabel(mm.pairA, isSingle, displayMode)
                 )}
               </Typography>
             ) : (
@@ -2731,21 +2763,27 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {hasResolvedPair(mm?.pairB) && !blockB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink
-                  person={mm.pairB?.player1}
-                  onOpen={openProfile}
-                  displayMode={displayMode}
-                />
-                {!isSingle && mm.pairB?.player2 && (
+                {mm.pairB?.player1 || mm.pairB?.player2 ? (
                   <>
-                    {" "}
-                    &{" "}
                     <PlayerLink
-                      person={mm.pairB.player2}
+                      person={mm.pairB?.player1}
                       onOpen={openProfile}
                       displayMode={displayMode}
                     />
+                    {!isSingle && mm.pairB?.player2 && (
+                      <>
+                        {" "}
+                        &{" "}
+                        <PlayerLink
+                          person={mm.pairB.player2}
+                          onOpen={openProfile}
+                          displayMode={displayMode}
+                        />
+                      </>
+                    )}
                   </>
+                ) : (
+                  pairLabel(mm.pairB, isSingle, displayMode)
                 )}
               </Typography>
             ) : (
