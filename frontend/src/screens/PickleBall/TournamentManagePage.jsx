@@ -511,6 +511,25 @@ const matchOrderNumber = (m) => {
   return parseMatchCodeParts(m).order;
 };
 
+const uniqueFiniteNumbers = (...values) =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value)),
+    ),
+  );
+
+const matchRoundCandidates = (m) =>
+  uniqueFiniteNumbers(
+    m?.round ?? m?.rrRound,
+    m?.globalRound,
+    parseMatchCodeParts(m).round,
+  );
+
+const matchOrderCandidates = (m) =>
+  uniqueFiniteNumbers(m?.order ?? m?.meta?.order, parseMatchCodeParts(m).order);
+
 const statusChip = (st) => {
   const map = {
     scheduled: { color: "default", label: "Chưa xếp" },
@@ -1498,6 +1517,50 @@ export default function TournamentManagePage() {
     const bySRO = new Map(); // `${stage}:${round}:${order}`
     const bracketById = new Map();
     const matchesByBracketId = new Map();
+    const addIndex = (map, key, match) => {
+      const bucket = map.get(key);
+      if (bucket) bucket.push(match);
+      else map.set(key, [match]);
+    };
+    const displayRoundOf = (m) => {
+      const fromCode = parseMatchCodeParts(m).round;
+      return Number.isFinite(fromCode) ? fromCode : matchRoundNumber(m);
+    };
+    const sortableDisplayRound = (m) => {
+      const value = displayRoundOf(m);
+      return Number.isFinite(value) ? value : -1;
+    };
+    const sortableMatchOrder = (m) => {
+      const value = matchOrderNumber(m);
+      return Number.isFinite(value) ? value : 0;
+    };
+    const pickIndexedSource = (matches, owner) => {
+      const list = Array.isArray(matches) ? matches : matches ? [matches] : [];
+      const ownerId = String(owner?._id || owner?.id || "");
+      const candidates = list.filter(
+        (candidate) =>
+          String(candidate?._id || candidate?.id || "") !== ownerId,
+      );
+      if (candidates.length <= 1) return candidates[0] || null;
+
+      const ownerRound = displayRoundOf(owner);
+      const sameBranch = candidates.filter(
+        (candidate) =>
+          String(candidate?.branch || "main") ===
+            String(owner?.branch || "main") &&
+          String(candidate?.phase || "") === String(owner?.phase || ""),
+      );
+      const branchCandidates = sameBranch.length ? sameBranch : candidates;
+      const previousCandidates = Number.isFinite(ownerRound)
+        ? branchCandidates.filter((candidate) => {
+            const candidateRound = displayRoundOf(candidate);
+            return Number.isFinite(candidateRound) && candidateRound < ownerRound;
+          })
+        : [];
+      return (previousCandidates.length ? previousCandidates : branchCandidates)
+        .slice()
+        .sort((a, b) => sortableDisplayRound(b) - sortableDisplayRound(a))[0];
+    };
     (brackets || []).forEach((bracket) => {
       const id = String(bracket?._id || bracket?.id || "");
       if (id) bracketById.set(id, bracket);
@@ -1507,14 +1570,18 @@ export default function TournamentManagePage() {
       const bid = String(m?.bracket?._id || m?.bracket || "");
       const bracket = bracketById.get(bid);
       const stage = Number(m?.bracket?.stage ?? bracket?.stage);
-      const r = matchRoundNumber(m);
-      const o = matchOrderNumber(m);
+      const rounds = matchRoundCandidates(m);
+      const orders = matchOrderCandidates(m);
       if (bid) {
         if (!matchesByBracketId.has(bid)) matchesByBracketId.set(bid, []);
         matchesByBracketId.get(bid).push(m);
       }
-      if (bid && Number.isFinite(r) && Number.isFinite(o)) byBRO.set(`${bid}:${r}:${o}`, m);
-      if (Number.isFinite(stage) && Number.isFinite(r) && Number.isFinite(o)) bySRO.set(`${stage}:${r}:${o}`, m);
+      for (const r of rounds) {
+        for (const o of orders) {
+          if (bid) addIndex(byBRO, `${bid}:${r}:${o}`, m);
+          if (Number.isFinite(stage)) addIndex(bySRO, `${stage}:${r}:${o}`, m);
+        }
+      }
     }
 
     // Tìm trận nguồn từ seed (matchId, hoặc stage/bracket + round + order)
@@ -1527,11 +1594,11 @@ export default function TournamentManagePage() {
       if (!Number.isFinite(r) || !Number.isFinite(o)) return null;
       const stage = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
       if (Number.isFinite(stage)) {
-        const hit = bySRO.get(`${stage}:${r}:${o}`);
+        const hit = pickIndexedSource(bySRO.get(`${stage}:${r}:${o}`), m);
         if (hit) return hit;
       }
       const bid = String(m?.bracket?._id || m?.bracket || "");
-      return bid ? byBRO.get(`${bid}:${r}:${o}`) || null : null;
+      return bid ? pickIndexedSource(byBRO.get(`${bid}:${r}:${o}`), m) : null;
     };
 
     const getPlannedSeed = (m, side) => {
@@ -1556,9 +1623,11 @@ export default function TournamentManagePage() {
         const sameBranch = (candidate) =>
           String(candidate?.branch || "main") === String(m?.branch || "main") &&
           String(candidate?.phase || "") === String(m?.phase || "");
-        const byOrder = (a, b) => Number(a?.order || 0) - Number(b?.order || 0);
+        const byOrder = (a, b) => sortableMatchOrder(a) - sortableMatchOrder(b);
         const currentRoundMatches = bracketMatches
-          .filter((candidate) => matchRoundNumber(candidate) === localRound)
+          .filter((candidate) =>
+            matchRoundCandidates(candidate).includes(localRound),
+          )
           .filter(sameBranch)
           .sort(byOrder);
         const currentIndex = currentRoundMatches.findIndex(
@@ -1568,7 +1637,9 @@ export default function TournamentManagePage() {
           (currentIndex >= 0 ? currentIndex : localOrder) * 2 +
           (side === "B" ? 1 : 0);
         const previousRoundMatches = bracketMatches
-          .filter((candidate) => matchRoundNumber(candidate) === localRound - 1)
+          .filter((candidate) =>
+            matchRoundCandidates(candidate).includes(localRound - 1),
+          )
           .filter(sameBranch)
           .sort(byOrder);
         const sourceMatch = previousRoundMatches[sourceSlot] || null;
@@ -1679,6 +1750,12 @@ export default function TournamentManagePage() {
           if (hasResolvedPair(wp)) return pairLabel(wp, evType, displayMode);
           const carried = resolveName(src, sourceSide, depth + 1);
           if (isUseful(carried)) return carried;
+        }
+      }
+      if (src && SEED_REF_TYPES.includes(seedType)) {
+        const sourceCode = matchCode(src);
+        if (sourceCode && sourceCode !== "—") {
+          return `${isLoser ? "L" : "W"}-${sourceCode}`;
         }
       }
       // Còn lại: seed / "W-V…" (resolver chung)
