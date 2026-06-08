@@ -673,7 +673,7 @@ class RtmpStreamManager(
                     stopCurrentRecordingLocked(isFinal = true, reason = "start_new_recording", resumeAfter = false)
                 }
 
-                if (!cam.isOnPreview) {
+                if (!cam.isStreaming && !cam.isOnPreview) {
                     autoPreviewAllowed = true
                     val prepared = prepareStreamPipelineLocked(
                         cam = cam,
@@ -683,9 +683,7 @@ class RtmpStreamManager(
                     if (!prepared) {
                         return@withLock Result.failure(IllegalStateException("Không chuẩn bị được preview để ghi hình"))
                     }
-                    if (!cam.isStreaming) {
-                        _state.value = StreamState.Previewing
-                    }
+                    _state.value = StreamState.Previewing
                 }
 
                 val outputPath = buildRecordingSegmentPath(normalizedMatchId, normalizedRecordingId, 0)
@@ -1000,8 +998,6 @@ class RtmpStreamManager(
                 markRecordingError("Không chuẩn bị lại được encoder để ghi segment mới.")
                 return
             }
-        } else if (!cam.isOnPreview) {
-            return
         }
 
         val nextPath =
@@ -1046,7 +1042,7 @@ class RtmpStreamManager(
     }
 
     private fun prepareRecordingPipelineLocked(cam: RtmpCamera2, reason: String): Boolean {
-        if (cam.isStreaming) return cam.isOnPreview
+        if (cam.isStreaming) return true
         autoPreviewAllowed = true
         val prepared = prepareStreamPipelineLocked(
             cam = cam,

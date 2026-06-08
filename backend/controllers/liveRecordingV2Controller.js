@@ -1338,13 +1338,6 @@ export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Recording not found" });
   }
 
-  if (["recording", "uploading", "exporting"].includes(String(recording.status || ""))) {
-    return res.status(409).json({
-      message: "Không thể xóa R2 khi recording vẫn đang hoạt động",
-      recording: serializeRecording(recording),
-    });
-  }
-
   const [entry] = await presignRecordingSegmentEntries({
     recording,
     segmentIndexes: [segmentIndex],
@@ -1704,16 +1697,72 @@ export const reportMultipartLiveRecordingSegmentProgressV2 = asyncHandler(
     if (!Number.isInteger(partNumber) || partNumber <= 0) {
       return res.status(400).json({ message: "partNumber must be >= 1" });
     }
+    if (!etag) {
+      return res.status(400).json({ message: "etag is required" });
+    }
+
+    const recording = await LiveRecordingV2.findById(recordingId);
+    if (!recording) {
+      return res.status(404).json({ message: "Recording not found" });
+    }
+
+    const segment = findRecordingSegment(recording, segmentIndex);
+    if (!segment) {
+      return res.status(404).json({ message: "Recording segment not found" });
+    }
+
+    if (segment.uploadStatus === "uploaded") {
+      return res.json({
+        ok: true,
+        accepted: true,
+        recording: serializeRecording(recording),
+      });
+    }
+
+    const uploadedAt = new Date().toISOString();
+    const segmentMeta = getSegmentMeta(segment);
+    const completedParts = (
+      Array.isArray(segmentMeta.completedParts) ? segmentMeta.completedParts : []
+    )
+      .filter((part) => Number(part?.partNumber) !== partNumber)
+      .concat({
+        partNumber,
+        etag,
+        sizeBytes: Math.max(0, sizeBytes),
+        uploadedAt,
+      })
+      .sort((a, b) => Number(a.partNumber) - Number(b.partNumber));
+    const completedBytes = completedParts.reduce(
+      (sum, part) => sum + Math.max(0, Number(part?.sizeBytes) || 0),
+      0
+    );
+    const normalizedTotalSizeBytes = Math.max(
+      0,
+      totalSizeBytes,
+      Number(segmentMeta.totalSizeBytes) || 0,
+      Number(segment.sizeBytes) || 0
+    );
+
+    segment.uploadStatus = "uploading_parts";
+    segment.meta = {
+      ...segmentMeta,
+      completedParts,
+      completedPartCount: completedParts.length,
+      completedBytes,
+      nextByteOffset: completedBytes,
+      totalSizeBytes: normalizedTotalSizeBytes,
+      segmentSizeBytes: normalizedTotalSizeBytes,
+      lastPartUploadedAt: uploadedAt,
+    };
+    recording.error = null;
+    recording.markModified("segments");
+    await recording.save();
+    await publishRecordingMonitor(recording, "multipart_segment_progress");
 
     return res.json({
       ok: true,
       accepted: true,
-      recordingId,
-      segmentIndex,
-      partNumber,
-      etag,
-      sizeBytes,
-      totalSizeBytes,
+      recording: serializeRecording(recording),
     });
   }
 );

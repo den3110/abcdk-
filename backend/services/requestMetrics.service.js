@@ -85,6 +85,30 @@ function buildHotPathKey(method, pathname, searchParams) {
   ) {
     return "recordingSegmentComplete";
   }
+  if (
+    method === "POST" &&
+    pathname === "/api/live/recordings/v2/segments/multipart/start"
+  ) {
+    return "recordingMultipartStart";
+  }
+  if (
+    method === "POST" &&
+    pathname === "/api/live/recordings/v2/segments/multipart/part-url"
+  ) {
+    return "recordingMultipartPartUrl";
+  }
+  if (
+    method === "POST" &&
+    pathname === "/api/live/recordings/v2/segments/multipart/progress"
+  ) {
+    return "recordingMultipartProgress";
+  }
+  if (
+    method === "POST" &&
+    pathname === "/api/live/recordings/v2/segments/multipart/complete"
+  ) {
+    return "recordingMultipartComplete";
+  }
   if (method === "POST" && pathname === "/api/live/recordings/v2/finalize") {
     return "recordingFinalize";
   }

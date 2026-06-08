@@ -76,6 +76,8 @@ class LiveStreamViewModel(
         private const val DEFAULT_COURT_WATCH_POLL_INTERVAL_MS = 5_000L
         private const val MATCH_LIVE_WAIT_POLL_INTERVAL_MS = 3_000L
         private const val OBSERVER_BOOTSTRAP_RETRY_MS = 60_000L
+        private const val PRIMARY_START_RETRY_BASE_MS = 5_000L
+        private const val PRIMARY_START_RETRY_MAX_MS = 60_000L
     }
 
     // ===== Params from deeplink =====
@@ -109,6 +111,8 @@ class LiveStreamViewModel(
     private var stopLiveCountdownJob: Job? = null
     private var endingLiveDismissJob: Job? = null
     private var backgroundExitJob: Job? = null
+    private var primaryStartRetryJob: Job? = null
+    private var primaryStartRetryAttempt: Int = 0
     private var liveDeviceTelemetryJob: Job? = null
     private var observerBootstrapJob: Job? = null
     private var observerBootstrapToken: String = ""
@@ -586,6 +590,77 @@ class LiveStreamViewModel(
     private fun setAutoGoLive(value: Boolean) {
         autoGoLive = value
         _goLiveArmed.value = value
+        if (!value) {
+            cancelPrimaryStartRetry()
+        }
+    }
+
+    private fun cancelPrimaryStartRetry() {
+        primaryStartRetryJob?.cancel()
+        primaryStartRetryJob = null
+        primaryStartRetryAttempt = 0
+    }
+
+    private fun schedulePrimaryStartRetry(reason: String) {
+        val mode = primaryMode() ?: return
+        if (!autoGoLive && mode != StreamMode.RECORD_ONLY) return
+        if (mode == StreamMode.RECORD_ONLY && !_recordOnlyArmed.value) return
+        if (!liveScreenForeground || backgroundExitJob?.isActive == true || freshEntryRequired) return
+        if (primaryStartRetryJob?.isActive == true) return
+
+        val attempt = primaryStartRetryAttempt++
+        val delayMs =
+            minOf(
+                PRIMARY_START_RETRY_MAX_MS,
+                PRIMARY_START_RETRY_BASE_MS * (1L shl attempt.coerceAtMost(4)),
+            )
+
+        primaryStartRetryJob =
+            launchGuarded(name = "primaryStartRetry") {
+                delay(delayMs)
+                primaryStartRetryJob = null
+                if (!liveScreenForeground || backgroundExitJob?.isActive == true || freshEntryRequired) return@launchGuarded
+                val currentMode = primaryMode() ?: return@launchGuarded
+                if (currentMode == StreamMode.RECORD_ONLY && !_recordOnlyArmed.value) return@launchGuarded
+                if (currentMode != StreamMode.RECORD_ONLY && !autoGoLive) return@launchGuarded
+
+                Log.w(TAG, "Retry primary start intent: $reason attempt=$attempt")
+                if (currentMode == StreamMode.RECORD_ONLY) {
+                    if (matchId.isNotBlank()) {
+                        val isLive = _matchInfo.value?.status?.trim()?.equals("live", ignoreCase = true) == true
+                        if (isLive) {
+                            startRecordOnly()
+                        } else {
+                            goLive()
+                        }
+                    } else if (_waitingForCourt.value) {
+                        goLive()
+                    }
+                    return@launchGuarded
+                }
+
+                val state = streamManager.state.value
+                if (
+                    currentMode.includesRecording &&
+                    (state is StreamState.Live || state is StreamState.Connecting || state is StreamState.Reconnecting) &&
+                    !recordingEngineState.value.isRecording
+                ) {
+                    maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
+                    return@launchGuarded
+                }
+
+                goLive()
+            }
+    }
+
+    private fun wakePrimaryStartRetry(reason: String) {
+        val mode = primaryMode() ?: return
+        if (!autoGoLive && mode != StreamMode.RECORD_ONLY) return
+        if (mode == StreamMode.RECORD_ONLY && !_recordOnlyArmed.value) return
+        primaryStartRetryJob?.cancel()
+        primaryStartRetryJob = null
+        primaryStartRetryAttempt = 0
+        schedulePrimaryStartRetry(reason)
     }
 
     fun confirmStreamMode(mode: StreamMode) {
@@ -639,6 +714,8 @@ class LiveStreamViewModel(
 
         val currentRecording = recordingEngineState.value
         if (currentRecording.isRecording && currentRecording.matchId == targetMatchId) {
+            recordingCoordinator.markRecordingStarted()
+            cancelPrimaryStartRetry()
             return true
         }
 
@@ -649,6 +726,7 @@ class LiveStreamViewModel(
                 storageStatus.message
                     ?: "Không đủ bộ nhớ để bắt đầu ghi hình."
             recordingCoordinator.noteSoftError(message)
+            schedulePrimaryStartRetry("recording_storage_block")
             if (allowSoftFailureForLivestream) {
                 _errorMessage.value = "$message Livestream vẫn tiếp tục."
                 return true
@@ -665,6 +743,7 @@ class LiveStreamViewModel(
             ).getOrElse { error ->
                 val message = error.message ?: "Không chuẩn bị được ghi hình."
                 recordingCoordinator.noteSoftError(message)
+                schedulePrimaryStartRetry("recording_prepare_failed")
                 if (allowSoftFailureForLivestream) {
                     _errorMessage.value = "$message Livestream vẫn tiếp tục."
                     return true
@@ -683,6 +762,7 @@ class LiveStreamViewModel(
             ).getOrElse { error ->
                 val message = error.message ?: "Không bắt đầu được ghi hình."
                 recordingCoordinator.noteSoftError(message)
+                schedulePrimaryStartRetry("recording_encoder_start_failed")
                 if (allowSoftFailureForLivestream) {
                     _errorMessage.value = "$message Livestream vẫn tiếp tục."
                     return true
@@ -692,6 +772,7 @@ class LiveStreamViewModel(
             }
 
         recordingCoordinator.markRecordingStarted()
+        cancelPrimaryStartRetry()
         return started == Unit
     }
 
@@ -1320,6 +1401,7 @@ class LiveStreamViewModel(
                 _matchInfo.value = match
             }.onFailure { e ->
                 if (isSessionCurrent(sessionEpoch) && this@LiveStreamViewModel.matchId == targetMatchId) {
+                    schedulePrimaryStartRetry("load_match_info_failed")
                     _loading.value = false
                     _errorMessage.value = e.message ?: "Không tải được thông tin trận"
                 }
@@ -1752,6 +1834,10 @@ class LiveStreamViewModel(
         launchGuarded(name = "observeNetwork") {
             networkMonitor.isConnected.collect { connected ->
                 streamManager.onNetworkAvailabilityChanged(connected)
+                if (connected) {
+                    recordingCoordinator.retryPendingWorkNow("network_connected")
+                    wakePrimaryStartRetry("network_connected")
+                }
             }
         }
 
@@ -2244,6 +2330,8 @@ class LiveStreamViewModel(
                     streamManager.startStream(url)
                     if (mode?.includesRecording == true) {
                         maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
+                    } else {
+                        cancelPrimaryStartRetry()
                     }
                 } finally {
                     recordingCoordinator.setLiveCriticalPathBusy(false)
@@ -2281,12 +2369,16 @@ class LiveStreamViewModel(
                     streamManager.startStream(newUrl)
                     if (mode?.includesRecording == true) {
                         maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
+                    } else {
+                        cancelPrimaryStartRetry()
                     }
                 } else {
+                    schedulePrimaryStartRetry("missing_rtmp_url")
                     _errorMessage.value = "Không nhận được RTMP URL từ server"
                 }
             }.onFailure { e ->
                 if (isSessionCurrent(sessionEpoch) && this@LiveStreamViewModel.matchId == targetMatchId) {
+                    schedulePrimaryStartRetry("create_live_session_failed")
                     _errorMessage.value = "Tạo live session thất bại: ${e.message}"
                 }
             }.also {
@@ -2445,6 +2537,21 @@ class LiveStreamViewModel(
         val batteryLevelPercent = currentBatteryLevelPercent()
         val batteryLowWarning = (batteryLevelPercent ?: 100) in 0..20 && !isCharging.value
         val diagnostics = buildTelemetryDiagnostics()
+        val recordingUi = recordingUiState.value
+        val recordingEngine = recordingEngineState.value
+        val recordingStateText =
+            when {
+                recordingEngine.isRecording -> "recording"
+                recordingEngine.pendingResume -> "rotating_segment"
+                recordingUi.pendingUploads > 0 -> "uploading"
+                else -> recordingUi.status
+            }
+        val recordingSegmentCount =
+            if (recordingEngine.isRecording || recordingEngine.pendingResume) {
+                (recordingEngine.segmentIndex + 1).coerceAtLeast(1)
+            } else {
+                recordingEngine.segmentIndex.coerceAtLeast(0)
+            }
 
         return LiveDeviceTelemetryStatus(
             platform = "android",
@@ -2524,13 +2631,13 @@ class LiveStreamViewModel(
                 ),
             recording =
                 LiveDeviceTelemetryRecordingInfo(
-                    stateText = recordingUiState.value.status,
-                    pendingUploads = recordingUiState.value.pendingUploads,
+                    stateText = recordingStateText,
+                    pendingUploads = recordingUi.pendingUploads,
                     pendingQueueBytes = storageStatus.pendingQueueBytes,
                     pendingFinalizations = 0,
-                    segmentCount = recordingEngineState.value.segmentIndex,
+                    segmentCount = recordingSegmentCount,
                     uploadMode = primaryMode()?.name?.lowercase(Locale.ROOT),
-                    playbackUrl = recordingUiState.value.playbackUrl?.trim()?.takeIf { it.isNotBlank() },
+                    playbackUrl = recordingUi.playbackUrl?.trim()?.takeIf { it.isNotBlank() },
                     storageFreeBytes = storageStatus.availableBytes,
                     storageTotalBytes = currentStorageTotalBytes(),
                     warning = storageStatus.warning,

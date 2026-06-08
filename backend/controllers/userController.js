@@ -24,6 +24,7 @@ import {
   CLAUDE_CCCD_MODEL,
   createClaudeJsonMessage,
 } from "../lib/anthropicClient.js";
+import { extractCccdProfileFieldsFromDataUrl } from "../services/ocr/claudeCccdExtractor.js";
 import {
   EVENTS,
   publishNotification,
@@ -4375,6 +4376,14 @@ async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
 
   if (!imageContents.length) {
     throw new Error("Không có ảnh CCCD hợp lệ để check");
+  }
+
+  const imageInputs = imageContents
+    .map((part) => part?.image_url?.url)
+    .filter((url) => typeof url === "string" && url.trim());
+
+  if (imageInputs.length) {
+    return extractCccdProfileFieldsFromDataUrl(imageInputs, "auto");
   }
 
   const resp = await createCccdCompletion({

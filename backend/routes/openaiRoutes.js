@@ -3,7 +3,7 @@ import { protect, authorize } from "../middleware/authMiddleware.js";
 import fetch from "node-fetch";
 
 // Giai đoạn 1
-import { openaiExtractFromDataUrl } from "../services/telegram/telegramNotifyKyc.js";
+import { openaiExtractFromDataUrl } from "../services/ocr/claudeCccdExtractor.js";
 import { geocodeTournamentLocation, geocodeClubLocation } from "../services/openaiGeocode.js";
 import { discoverSeoNewsCandidates } from "../services/seoNewsDiscoveryService.js";
 import { generateSeoNewsEvergreenArticles } from "../services/seoNewsEvergreenService.js";

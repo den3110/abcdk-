@@ -10,7 +10,7 @@ import path from "path";
 import fetch from "node-fetch";
 import { parseQRPayload, mapQRToFields } from "../utils/cccdParsing.js";
 import { CLAUDE_CCCD_MODEL } from "../lib/anthropicClient.js";
-import { openaiExtractFromDataUrl } from "../services/telegram/telegramNotifyKyc.js";
+import { openaiExtractFromDataUrl } from "../services/ocr/claudeCccdExtractor.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_NAME = process.env.CCCD_QUEUE_NAME || "cccd-ocr";

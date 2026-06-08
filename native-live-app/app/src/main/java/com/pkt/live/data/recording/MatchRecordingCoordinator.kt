@@ -86,6 +86,8 @@ private data class PendingRecordingPart(
 private data class PendingFinalizeRecording(
     val recordingId: String,
     val matchId: String,
+    val retryCount: Int = 0,
+    val nextRetryAtMs: Long = 0L,
 )
 
 private data class CachedSinglePutPresign(
@@ -321,7 +323,12 @@ class MatchRecordingCoordinator(
 
     fun markRecordingStoppedSoft(reason: String? = null) {
         updateUiState(
-            status = if (manifest.pendingSegments.isNotEmpty()) "uploading" else "idle",
+            status =
+                if (manifest.pendingSegments.isNotEmpty() || manifest.pendingFinalizations.isNotEmpty()) {
+                    "uploading"
+                } else {
+                    "idle"
+                },
             isRecording = false,
             errorMessage = reason,
         )
@@ -334,6 +341,42 @@ class MatchRecordingCoordinator(
 
     fun clearSoftError() {
         updateUiState(errorMessage = null)
+    }
+
+    fun retryPendingWorkNow(reason: String = "manual") {
+        scope.launch {
+            var changed = false
+            manifestMutex.withLock {
+                val nextSegments =
+                    manifest.pendingSegments.map { segment ->
+                        if (segment.nextRetryAtMs > 0L) {
+                            changed = true
+                            segment.copy(nextRetryAtMs = 0L)
+                        } else {
+                            segment
+                        }
+                    }
+                val nextFinalizations =
+                    manifest.pendingFinalizations.map { finalize ->
+                        if (finalize.nextRetryAtMs > 0L) {
+                            changed = true
+                            finalize.copy(nextRetryAtMs = 0L)
+                        } else {
+                            finalize
+                        }
+                    }
+                if (changed) {
+                    Log.i(TAG, "Wake pending recording queue: $reason")
+                    manifest =
+                        manifest.copy(
+                            pendingSegments = nextSegments,
+                            pendingFinalizations = nextFinalizations,
+                        )
+                    persistManifestLocked()
+                }
+            }
+            restartUploadLoopIfNeeded()
+        }
     }
 
     private fun resolveLatestStorageFailover(
@@ -527,17 +570,45 @@ class MatchRecordingCoordinator(
         val currentJob =
             scope.launch {
                 while (true) {
+                    val now = System.currentTimeMillis()
                     val nextSegment = manifestMutex.withLock {
                         manifest.pendingSegments
-                            .filter { it.nextRetryAtMs <= System.currentTimeMillis() }
+                            .filter { it.nextRetryAtMs <= now }
                             .minWithOrNull(compareBy<PendingRecordingSegment> { it.retryCount }.thenBy { it.segmentIndex })
                     }
 
                     if (nextSegment == null) {
-                        val finalized = manifestMutex.withLock { manifest.pendingFinalizations.toList() }
-                        if (finalized.isEmpty()) break
-                        val progressed = finalizeIfReady(finalized)
-                        if (!progressed) delay(2_000L)
+                        val queueState =
+                            manifestMutex.withLock {
+                                val readyFinalizations =
+                                    manifest.pendingFinalizations.filter { it.nextRetryAtMs <= now }
+                                val nextRetryAt =
+                                    (manifest.pendingSegments.map { it.nextRetryAtMs } +
+                                        manifest.pendingFinalizations.map { it.nextRetryAtMs })
+                                        .filter { it > now }
+                                        .minOrNull()
+                                Triple(
+                                    readyFinalizations,
+                                    manifest.pendingSegments.isNotEmpty() || manifest.pendingFinalizations.isNotEmpty(),
+                                    nextRetryAt,
+                                )
+                            }
+                        val readyFinalizations = queueState.first
+                        val hasPendingWork = queueState.second
+                        val nextRetryAt = queueState.third
+                        if (!hasPendingWork) break
+
+                        if (readyFinalizations.isNotEmpty()) {
+                            val attempted = finalizeIfReady(readyFinalizations)
+                            if (!attempted) delay(2_000L)
+                            continue
+                        }
+
+                        val delayMs =
+                            nextRetryAt
+                                ?.let { (it - System.currentTimeMillis()).coerceIn(2_000L, 5_000L) }
+                                ?: 5_000L
+                        delay(delayMs)
                         continue
                     }
 
@@ -1223,6 +1294,18 @@ class MatchRecordingCoordinator(
                         uploadMode = "multipart",
                     )
                 replacePendingSegment(currentSegment)
+                repository.reportMultipartRecordingSegmentProgress(
+                    recordingId = currentSegment.recordingId,
+                    segmentIndex = currentSegment.segmentIndex,
+                    partNumber = partNumber,
+                    etag = etag,
+                    sizeBytes = payload.size.toLong(),
+                    totalSizeBytes = totalSizeBytes,
+                ).onSuccess { progressResponse ->
+                    syncRecordingRuntimeState(progressResponse.recording)
+                }.onFailure { progressError ->
+                    Log.w(TAG, "reportMultipartRecordingSegmentProgress failed", progressError)
+                }
             }
         }
 
@@ -1242,7 +1325,7 @@ class MatchRecordingCoordinator(
                     },
             ).getOrThrow()
         syncRecordingRuntimeState(completeResponse.recording)
-        publishLiveManifestIfPossible(completeResponse.recording)
+        publishLiveManifestBestEffort(completeResponse.recording)
 
         runCatching { file.delete() }
 
@@ -1255,9 +1338,11 @@ class MatchRecordingCoordinator(
             )
             persistManifestLocked()
         }
+        wakePendingWorkForRecording(currentSegment.recordingId)
         updateUiState(
             pendingUploads = manifest.pendingSegments.size,
             status = if (manifest.pendingSegments.isNotEmpty()) "uploading" else _recordingUiState.value.status,
+            errorMessage = null,
         )
         refreshStorageStatus(activeSession?.quality)
         return true
@@ -1301,7 +1386,7 @@ class MatchRecordingCoordinator(
                     isFinal = segment.isFinal,
                 ).getOrThrow()
             syncRecordingRuntimeState(completeResponse.recording)
-            publishLiveManifestIfPossible(completeResponse.recording)
+            publishLiveManifestBestEffort(completeResponse.recording)
         }
 
         runCatching { file.delete() }
@@ -1314,9 +1399,11 @@ class MatchRecordingCoordinator(
             )
             persistManifestLocked()
         }
+        wakePendingWorkForRecording(segment.recordingId)
         updateUiState(
             pendingUploads = manifest.pendingSegments.size,
             status = if (manifest.pendingSegments.isNotEmpty()) "uploading" else _recordingUiState.value.status,
+            errorMessage = null,
         )
         refreshStorageStatus(activeSession?.quality)
         return true
@@ -1457,7 +1544,7 @@ class MatchRecordingCoordinator(
     }
 
     private suspend fun finalizeIfReady(finalizations: List<PendingFinalizeRecording>): Boolean {
-        var progressed = false
+        var attempted = false
         for (finalize in finalizations) {
             val hasPendingSegments =
                 manifestMutex.withLock {
@@ -1465,7 +1552,7 @@ class MatchRecordingCoordinator(
                 }
             if (hasPendingSegments) continue
 
-            progressed = true
+            attempted = true
             val result = repository.finalizeRecording(finalize.recordingId)
             result.onSuccess { payload ->
                 syncRecordingRuntimeState(
@@ -1481,21 +1568,78 @@ class MatchRecordingCoordinator(
                         Log.w(TAG, "publishLiveManifest after finalize failed", error)
                     }
                 }
-            }.onFailure {
-                Log.e(TAG, "finalizeIfReady failed", it)
-                updateUiState(status = "error", errorMessage = it.message)
+                manifestMutex.withLock {
+                    manifest = manifest.copy(
+                        pendingFinalizations = manifest.pendingFinalizations.filterNot {
+                            it.recordingId == finalize.recordingId
+                        }
+                    )
+                    persistManifestLocked()
+                }
+            }.onFailure { error ->
+                Log.e(TAG, "finalizeIfReady failed", error)
+                val delayMs = computeRetryDelayMs(finalize.retryCount + 1)
+                manifestMutex.withLock {
+                    manifest = manifest.copy(
+                        pendingFinalizations =
+                            manifest.pendingFinalizations.map {
+                                if (it.recordingId == finalize.recordingId) {
+                                    it.copy(
+                                        retryCount = it.retryCount + 1,
+                                        nextRetryAtMs = System.currentTimeMillis() + delayMs,
+                                    )
+                                } else {
+                                    it
+                                }
+                            }
+                    )
+                    persistManifestLocked()
+                }
+                updateUiState(status = "uploading", errorMessage = error.message)
             }
+        }
+        return attempted
+    }
 
-            manifestMutex.withLock {
-                manifest = manifest.copy(
-                    pendingFinalizations = manifest.pendingFinalizations.filterNot {
-                        it.recordingId == finalize.recordingId
+    private suspend fun publishLiveManifestBestEffort(recording: MatchRecording?) {
+        runCatching {
+            publishLiveManifestIfPossible(recording)
+        }.onFailure { error ->
+            Log.w(TAG, "publishLiveManifest failed; segment upload is kept completed", error)
+            updateUiState(errorMessage = error.message)
+        }
+    }
+
+    private suspend fun wakePendingWorkForRecording(recordingId: String) {
+        var changed = false
+        manifestMutex.withLock {
+            val nextSegments =
+                manifest.pendingSegments.map { segment ->
+                    if (segment.recordingId == recordingId && segment.nextRetryAtMs > 0L) {
+                        changed = true
+                        segment.copy(nextRetryAtMs = 0L)
+                    } else {
+                        segment
                     }
-                )
+                }
+            val nextFinalizations =
+                manifest.pendingFinalizations.map { finalize ->
+                    if (finalize.recordingId == recordingId && finalize.nextRetryAtMs > 0L) {
+                        changed = true
+                        finalize.copy(nextRetryAtMs = 0L)
+                    } else {
+                        finalize
+                    }
+                }
+            if (changed) {
+                manifest =
+                    manifest.copy(
+                        pendingSegments = nextSegments,
+                        pendingFinalizations = nextFinalizations,
+                    )
                 persistManifestLocked()
             }
         }
-        return progressed
     }
 
     private suspend fun refreshStorageStatus(quality: Quality?): RecordingStorageStatus {
@@ -1600,7 +1744,7 @@ class MatchRecordingCoordinator(
 
     private fun computeRetryDelayMs(retryCount: Int): Long {
         val base = 10_000L
-        val capped = minOf(30 * 60_000L, base * (1L shl retryCount.coerceAtMost(6)))
+        val capped = minOf(2 * 60_000L, base * (1L shl retryCount.coerceAtMost(5)))
         val jitter = (retryCount * 731L) % 2_500L
         return capped + jitter
     }

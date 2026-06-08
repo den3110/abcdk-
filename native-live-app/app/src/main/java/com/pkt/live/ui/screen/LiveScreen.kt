@@ -1504,6 +1504,10 @@ private fun TopStatusLeftCluster(
             ?.let { "R2: $it" }
     val storageFailoverChipLabel =
         buildStorageFailoverChipLabel(recordingUiState.latestStorageFailover)
+    val showRecordOnlyBadgeAsPrimary =
+        streamMode == StreamMode.RECORD_ONLY &&
+            recordBadgeVisible &&
+            streamState is StreamState.Previewing
 
     when {
         waitingForNextMatch -> WaitingNextMatchBadge()
@@ -1515,6 +1519,12 @@ private fun TopStatusLeftCluster(
         streamState is StreamState.Previewing -> {
             if (recoveringLiveSession) {
                 RecoveringBadge()
+            } else if (showRecordOnlyBadgeAsPrimary) {
+                RecordingStateChip(
+                    isRecording = recordingEngineState.isRecording,
+                    exporting = recordingUiState.status == "exporting",
+                    pendingUploads = recordingUiState.pendingUploads,
+                )
             } else if (streamMode == StreamMode.RECORD_ONLY && recordOnlyArmed && (waitingForMatchLive || waitingForCourt || waitingForNextMatch)) {
                 ArmedBadge(label = armedBadgeLabel)
             } else {
@@ -1567,7 +1577,7 @@ private fun TopStatusLeftCluster(
         LiveTimer(startTime = startTime)
     }
 
-    if (recordBadgeVisible) {
+    if (recordBadgeVisible && !showRecordOnlyBadgeAsPrimary) {
         Spacer(modifier = Modifier.width(if (liveStartTime == null) 12.dp else 8.dp))
         RecordingStateChip(
             isRecording = recordingEngineState.isRecording,

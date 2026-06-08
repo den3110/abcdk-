@@ -11,6 +11,13 @@ import {
   publishNotification,
 } from "../notifications/notificationHub.js";
 import { stripVN } from "../../utils/cccdParsing.js";
+import {
+  fetchImageAsBuffer as fetchCccdImageAsBuffer,
+  normDOB as normalizeCccdDOB,
+  normId as normalizeCccdId,
+  normName as normalizeCccdName,
+  openaiExtractFromImageUrl as extractCccdFromImageUrl,
+} from "../ocr/claudeCccdExtractor.js";
 
 dotenv.config();
 
@@ -450,9 +457,9 @@ async function openaiExtractFromImageUrl(imageUrlOrArray, detail = "low") {
 }
 
 function buildMatchReport(extracted, user) {
-  const userName = normName(user?.name || "");
-  const userDob = normDOB(user?.dob || user?.birthday || "");
-  const userCccd = normId(user?.cccd || user?.citizenId || "");
+  const userName = normalizeCccdName(user?.name || "");
+  const userDob = normalizeCccdDOB(user?.dob || user?.birthday || "");
+  const userCccd = normalizeCccdId(user?.cccd || user?.citizenId || "");
 
   const nameOK =
     extracted.fullName && userName && extracted.fullName === userName;
@@ -490,7 +497,7 @@ export async function notifyNewKyc(user) {
   try {
     if (frontUrl) {
       // Pass both front and back if available
-      const extracted = await openaiExtractFromImageUrl([frontUrl, backUrl], "auto");
+      const extracted = await extractCccdFromImageUrl([frontUrl, backUrl], "auto");
       auto.usage = extracted._usage || null;
       const report = buildMatchReport(extracted, user);
       auto.report = report;
@@ -636,7 +643,7 @@ export async function notifyNewKyc(user) {
 
     // URL local/private hoặc Telegram không fetch được URL public -> tải về rồi upload file
     try {
-      const { buffer, filename } = await fetchImageAsBuffer(url);
+      const { buffer, filename } = await fetchCccdImageAsBuffer(url);
       const r = await tgSendPhotoFile({
         buffer,
         filename,
