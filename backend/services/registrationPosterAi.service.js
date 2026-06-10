@@ -328,10 +328,52 @@ function extractJson(text = "") {
   } catch {}
 
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
-  if (fenced) return JSON.parse(fenced);
+  if (fenced) return extractJson(fenced);
 
-  const objectMatch = raw.match(/\{[\s\S]*\}$/);
-  if (objectMatch) return JSON.parse(objectMatch[0]);
+  const candidates = [];
+  for (let start = raw.indexOf("{"); start !== -1; start = raw.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < raw.length; i += 1) {
+      const ch = raw[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === "\\") {
+          escaped = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "{") {
+        depth += 1;
+      } else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          const candidate = raw.slice(start, i + 1);
+          try {
+            candidates.push(JSON.parse(candidate));
+          } catch {
+            // Continue scanning; the model may include JSON-like examples in prose.
+          }
+          break;
+        }
+      }
+    }
+  }
+  const layoutCandidate = candidates.find(
+    (candidate) =>
+      candidate &&
+      typeof candidate === "object" &&
+      candidate.slots &&
+      candidate.text,
+  );
+  if (layoutCandidate) return layoutCandidate;
+  if (candidates.length) return candidates[0];
   throw new Error("Không đọc được JSON layout từ AI");
 }
 
@@ -373,24 +415,39 @@ function toOpenAiResponsesContent(content) {
     .filter(Boolean);
 }
 
-function extractResponsesText(response) {
+function extractResponseCandidates(response) {
+  const candidates = [];
+  if (
+    response?.output_parsed &&
+    typeof response.output_parsed === "object"
+  ) {
+    candidates.push(response.output_parsed);
+  }
   if (typeof response?.output_text === "string" && response.output_text.trim()) {
-    return response.output_text.trim();
+    candidates.push(response.output_text.trim());
   }
   const output = Array.isArray(response?.output) ? response.output : [];
-  return output
-    .flatMap((item) => (Array.isArray(item?.content) ? item.content : []))
-    .map((part) => {
-      if (typeof part?.text === "string") return part.text;
-      if (typeof part?.content === "string") return part.content;
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const part of content) {
+      if (part?.type === "output_json" && part?.json) {
+        candidates.push(part.json);
+      }
+      if (part?.parsed && typeof part.parsed === "object") {
+        candidates.push(part.parsed);
+      }
+      const maybeText =
+        part?.text?.value ||
+        (typeof part?.text === "string" ? part.text : "") ||
+        (typeof part?.content === "string" ? part.content : "") ||
+        "";
+      if (maybeText.trim()) candidates.push(maybeText.trim());
+    }
+  }
+  return candidates;
 }
 
-async function createOpenAiPosterTextCandidates(payload) {
+async function createOpenAiPosterCandidates(payload) {
   const messages = Array.isArray(payload?.messages) ? payload.messages : [];
   const system = getContentText(
     messages.find((message) => message?.role === "system")?.content,
@@ -419,18 +476,27 @@ async function createOpenAiPosterTextCandidates(payload) {
     max_output_tokens: payload?.max_tokens || 4096,
   });
 
-  return [extractResponsesText(response)].filter(Boolean);
+  return extractResponseCandidates(response).filter(Boolean);
 }
 
 function summarizeRouteError(routeName, error) {
   return `${routeName}: ${String(error?.message || error).slice(0, 240)}`;
 }
 
-function summarizeTextCandidates(candidates) {
+function summarizeCandidates(candidates) {
   return candidates
-    .map((text) => `${text.length} chars`)
+    .map((candidate) =>
+      typeof candidate === "string"
+        ? `${candidate.length} chars`
+        : "parsed_json",
+    )
     .filter(Boolean)
     .join(", ");
+}
+
+function parsePosterJsonCandidate(candidate) {
+  if (candidate && typeof candidate === "object") return candidate;
+  return extractJson(candidate);
 }
 
 function clamp(n, min, max, fallback) {
@@ -725,18 +791,18 @@ ${adminPromptBlock}
   const routeErrors = [];
   for (const route of routes) {
     try {
-      const textCandidates = await createOpenAiPosterTextCandidates({
+      const jsonCandidates = await createOpenAiPosterCandidates({
         model: POSTER_VISION_MODEL,
         max_tokens: 4096,
         ...route.payload,
       });
-      if (!textCandidates.length) {
+      if (!jsonCandidates.length) {
         throw new Error("AI không trả về JSON layout");
       }
       let lastParseError = null;
-      for (const jsonText of textCandidates) {
+      for (const candidate of jsonCandidates) {
         try {
-          parsed = extractJson(jsonText);
+          parsed = parsePosterJsonCandidate(candidate);
           break;
         } catch (parseError) {
           lastParseError = parseError;
@@ -744,7 +810,7 @@ ${adminPromptBlock}
       }
       if (!parsed) {
         throw new Error(
-          `AI trả text nhưng không parse được (candidates=${summarizeTextCandidates(textCandidates)}): ${lastParseError?.message || "unknown"}`,
+          `AI trả kết quả nhưng không parse được JSON layout (candidates=${summarizeCandidates(jsonCandidates)}): ${lastParseError?.message || "unknown"}`,
         );
       }
       usedRoute = route.name;
