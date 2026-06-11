@@ -1045,6 +1045,9 @@ const DEFAULT_POSTER_LAYOUT = {
     charRatio: 0.58,
   },
 };
+const POSTER_NAME_TEXT_WIDTH_RATIO = 0.88;
+const POSTER_NAME_TEXT_MAX_FONT_SCALE = 0.86;
+const POSTER_NAME_TEXT_MAX_HEIGHT_RATIO = 0.52;
 
 function getPosterConfig(tour = {}) {
   return tour.registrationPosterConfig &&
@@ -1516,37 +1519,53 @@ function buildPosterTextSvg(width, height, players, slots, tour, layout, templat
         ? textBox.top + textBox.height / 2
         : slot.name.y;
       const drawWidth = textBox ? textBox.width : slot.name.width;
+      const textFitWidth = Math.max(
+        1,
+        drawWidth * POSTER_NAME_TEXT_WIDTH_RATIO,
+      );
       const minFontSize = scaleFont(
         textCfg.minFontSize,
         height,
         layout.baseHeight,
         DEFAULT_POSTER_LAYOUT.text.minFontSize,
       );
-      const maxFontSize = scaleFont(
+      const rawMaxFontSize = scaleFont(
         textCfg.maxFontSize,
         height,
         layout.baseHeight,
         DEFAULT_POSTER_LAYOUT.text.maxFontSize,
       );
+      const maxFontSize = Math.max(
+        8,
+        Math.floor(
+          Math.min(
+            rawMaxFontSize * POSTER_NAME_TEXT_MAX_FONT_SCALE,
+            textBox
+              ? textBox.height * POSTER_NAME_TEXT_MAX_HEIGHT_RATIO
+              : rawMaxFontSize,
+          ),
+        ),
+      );
+      const effectiveMinFontSize = Math.min(minFontSize, maxFontSize);
       const charRatio = numOr(
         textCfg.charRatio,
         DEFAULT_POSTER_LAYOUT.text.charRatio,
       );
       const size = Math.max(
-        minFontSize,
+        effectiveMinFontSize,
         Math.min(
           maxFontSize,
           textCfg.fontSize
             ? scaleFont(textCfg.fontSize, height, layout.baseHeight, maxFontSize)
             : Math.floor(
-                drawWidth / Math.max(8, rawName.length * charRatio),
+                textFitWidth / Math.max(8, rawName.length * charRatio),
               ),
         ),
       );
       const estimatedWidth = rawName.length * size * charRatio;
       const fitAttrs =
-        estimatedWidth > drawWidth
-          ? `textLength="${Math.max(1, Math.floor(drawWidth))}" lengthAdjust="spacingAndGlyphs"`
+        estimatedWidth > textFitWidth
+          ? `textLength="${Math.max(1, Math.floor(textFitWidth))}" lengthAdjust="spacingAndGlyphs"`
           : "";
       const stroke =
         textCfg.stroke && textCfg.strokeWidth

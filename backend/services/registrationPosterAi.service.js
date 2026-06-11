@@ -255,8 +255,8 @@ const posterLayoutJsonSchema = {
         type: "object",
         additionalProperties: false,
         properties: {
-          single: { type: "array", items: slotSchema },
-          double: { type: "array", items: slotSchema },
+          single: { type: "array", items: slotSchema, minItems: 1, maxItems: 1 },
+          double: { type: "array", items: slotSchema, minItems: 1, maxItems: 2 },
         },
         required: ["single", "double"],
       },
@@ -497,6 +497,15 @@ function summarizeCandidates(candidates) {
 function parsePosterJsonCandidate(candidate) {
   if (candidate && typeof candidate === "object") return candidate;
   return extractJson(candidate);
+}
+
+function hasRawPosterSlots(raw) {
+  return (
+    Array.isArray(raw?.slots?.single) &&
+    raw.slots.single.length > 0 &&
+    Array.isArray(raw?.slots?.double) &&
+    raw.slots.double.length > 0
+  );
 }
 
 function clamp(n, min, max, fallback) {
@@ -755,6 +764,8 @@ Yêu cầu:
 - Trả x là tâm ngang, y là tâm dọc của vùng tên cần thay; w là bề rộng tối đa của vùng tên; h là chiều cao vùng cần xoá/thay.
 - Nếu poster có 2 VĐV, trả slots.double có đúng 2 slot từ trái sang phải.
 - slots.single là slot cho giải đơn; nếu template có 2 slot thì đặt slot single ở giữa 2 slot hoặc vùng trung tâm hợp lý.
+- BẮT BUỘC trả ít nhất 1 slot trong slots.single và ít nhất 1 slot trong slots.double. Không được trả slots.single=[] hoặc slots.double=[].
+- Nếu không chắc tuyệt đối, vẫn chọn vùng avatar/name hợp lý nhất trên poster thay vì trả mảng rỗng.
 - Bỏ qua logo, địa điểm, lịch thi đấu, tiêu đề, QR, nhà tài trợ.
 - Tự kiểm tra trước khi trả JSON: avatar phải nằm phía trên name của cùng slot, không giao với name, không giao với nhãn "VĐV", clipPath phải nằm trong avatar box, ảnh khi object-fit cover phải lấp đầy clipPath, và không được còn mảng trắng/kem lớn bên trong vùng ảnh.
 - Không bịa nội dung chữ; chỉ tìm layout.
@@ -802,7 +813,11 @@ ${adminPromptBlock}
       let lastParseError = null;
       for (const candidate of jsonCandidates) {
         try {
-          parsed = parsePosterJsonCandidate(candidate);
+          const candidateJson = parsePosterJsonCandidate(candidate);
+          if (!hasRawPosterSlots(candidateJson)) {
+            throw new Error("AI trả layout nhưng slots.single/slots.double rỗng.");
+          }
+          parsed = candidateJson;
           break;
         } catch (parseError) {
           lastParseError = parseError;
