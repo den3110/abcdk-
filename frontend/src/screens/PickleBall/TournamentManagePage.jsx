@@ -638,6 +638,10 @@ function createLiveStore() {
           ? prev
           : { ...prev, ...partial };
       map.set(key, next);
+      const changed = Object.keys(partial || {}).some(
+        (field) => prev?.[field] !== next?.[field],
+      );
+      if (!changed) return false;
       const subs = listeners.get(key);
       if (subs) subs.forEach((fn) => fn());
       return prev.status !== next.status;
@@ -1320,7 +1324,7 @@ export default function TournamentManagePage() {
       page: 1,
       pageSize: 1000,
     },
-    { refetchOnMountOrArgChange: true, refetchOnFocus: true },
+    { refetchOnMountOrArgChange: 30, refetchOnFocus: false },
   );
   const { data: verifyRefereeRes } = useVerifyRefereeQuery(
     me?._id && id ? id : skipToken,

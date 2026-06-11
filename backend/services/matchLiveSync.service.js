@@ -705,32 +705,42 @@ async function applyLegacyRatingDeltaForMatch(matchDoc, scorerId) {
 }
 
 async function runFinishedSideEffects(matchDoc, actorId = null) {
+  let stationAdvance = null;
+
   try {
     if (!matchDoc.ratingApplied) {
       await applyRatingForFinishedMatch(matchDoc._id).catch(async () => {
         await applyLegacyRatingDeltaForMatch(matchDoc, actorId);
       });
-      await onMatchFinished({ matchId: matchDoc._id });
-      const stationAdvance = await advanceCourtStationQueueOnMatchFinished(
-        matchDoc._id
-      );
-      if (stationAdvance?.station?._id && stationAdvance?.station?.clusterId) {
-        await Promise.allSettled([
-          publishCourtClusterRuntimeUpdate({
-            clusterId: stationAdvance.station.clusterId,
-            stationIds: [stationAdvance.station._id],
-            reason: "match_finished_auto_advance",
-          }),
-          publishCourtStationRuntimeUpdate({
-            stationId: stationAdvance.station._id,
-            clusterId: stationAdvance.station.clusterId,
-            reason: "match_finished_auto_advance",
-          }),
-        ]);
-      }
     }
   } catch (error) {
-    console.error("[match-live-sync] finish side effects error:", error);
+    console.error("[match-live-sync] finish rating side effect error:", error);
+  }
+
+  try {
+    await onMatchFinished({ matchId: matchDoc._id });
+    stationAdvance = await advanceCourtStationQueueOnMatchFinished(matchDoc._id);
+  } catch (error) {
+    console.error("[match-live-sync] finish court side effect error:", error);
+  }
+
+  try {
+    if (stationAdvance?.station?._id && stationAdvance?.station?.clusterId) {
+      await Promise.allSettled([
+        publishCourtClusterRuntimeUpdate({
+          clusterId: stationAdvance.station.clusterId,
+          stationIds: [stationAdvance.station._id],
+          reason: "match_finished_auto_advance",
+        }),
+        publishCourtStationRuntimeUpdate({
+          stationId: stationAdvance.station._id,
+          clusterId: stationAdvance.station.clusterId,
+          reason: "match_finished_auto_advance",
+        }),
+      ]);
+    }
+  } catch (error) {
+    console.error("[match-live-sync] finish court publish error:", error);
   }
 }
 

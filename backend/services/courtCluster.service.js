@@ -24,6 +24,7 @@ import {
 } from "../utils/courtStationRuntimeLookup.js";
 
 const ACTIVE_MATCH_STATUSES = ["scheduled", "queued", "assigned", "live"];
+const COURT_OCCUPYING_MATCH_STATUSES = ["assigned", "live"];
 const TERMINAL_MATCH_STATUSES = ["finished", "cancelled", "canceled"];
 const ASSIGNMENT_MODES = ["manual", "queue"];
 const MATCH_REF_POPULATE = [
@@ -871,8 +872,19 @@ function isActiveMatchStatus(status) {
   return ACTIVE_MATCH_STATUSES.includes(safeText(status).toLowerCase());
 }
 
+function isCourtOccupyingMatchStatus(status) {
+  return COURT_OCCUPYING_MATCH_STATUSES.includes(safeText(status).toLowerCase());
+}
+
 function isLiveMatchOnStation(match, stationId = null) {
   if (safeText(match?.status).toLowerCase() !== "live") return false;
+  const matchStationId = toIdString(match?.courtStation?._id || match?.courtStation);
+  if (!matchStationId || !stationId) return true;
+  return matchStationId === stationId;
+}
+
+function isCourtOccupyingMatchOnStation(match, stationId = null) {
+  if (!isCourtOccupyingMatchStatus(match?.status)) return false;
   const matchStationId = toIdString(match?.courtStation?._id || match?.courtStation);
   if (!matchStationId || !stationId) return true;
   return matchStationId === stationId;
@@ -933,7 +945,9 @@ function selectPreferredStationMatchDocs(station, { liveCurrentMatch = null } = 
 
   const stationId = toIdString(station?._id);
   const preferredCurrent =
-    orderedCandidates.find((match) => isLiveMatchOnStation(match, stationId)) || null;
+    orderedCandidates.find((match) =>
+      isCourtOccupyingMatchOnStation(match, stationId)
+    ) || null;
   const preferredCurrentId = toIdString(
     preferredCurrent?._id || preferredCurrent
   );
@@ -1240,6 +1254,7 @@ async function buildClusterBusyParticipantMap(
     const currentMatch = station?.currentMatch;
     const currentMatchId = toIdString(currentMatch?._id || currentMatch);
     if (!currentMatchId || currentMatchId === normalizedAllowedMatchId) return;
+    if (!isCourtOccupyingMatchStatus(currentMatch?.status)) return;
 
     const stationName = safeText(station?.name, "Sân");
     collectMatchParticipantEntries(currentMatch).forEach(({ keys }) => {

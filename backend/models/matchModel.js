@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import seedSourceSchema from "./seedSourceSchemaModel.js";
 import Bracket from "./bracketModel.js";
 import Court from "./courtModel.js";
+import CourtStation from "./courtStationModel.js";
 import Tournament from "./tournamentModel.js";
 import {
   markFacebookPageFreeByMatch,
@@ -680,9 +681,33 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
 }
 
 const DEPENDENT_AUTO_SYNC_STATUS = { $nin: ["live", "finished"] };
+const LOSER_SEED_TYPES = new Set(["matchLoser", "stageMatchLoser"]);
 
 function canAutoSyncDependentMatch(match) {
   return !["live", "finished"].includes(String(match?.status || ""));
+}
+
+function isLoserSeedSource(seed) {
+  return LOSER_SEED_TYPES.has(String(seed?.type || ""));
+}
+
+function seedForSlot(match, slot) {
+  return slot === "A" ? match?.seedA : match?.seedB;
+}
+
+function nonLoserPreviousSlotQuery(doc, side) {
+  const seedTypePath = side === "A" ? "seedA.type" : "seedB.type";
+  const previousPath = side === "A" ? "previousA" : "previousB";
+  return {
+    tournament: doc.tournament,
+    [previousPath]: doc._id,
+    status: DEPENDENT_AUTO_SYNC_STATUS,
+    $or: [
+      { [seedTypePath]: { $exists: false } },
+      { [seedTypePath]: null },
+      { [seedTypePath]: { $nin: [...LOSER_SEED_TYPES] } },
+    ],
+  };
 }
 
 async function stageIndexForMatch(doc) {
@@ -795,30 +820,24 @@ async function propagateFromFinishedMatch(doc) {
   const loserReg = doc.winner === "A" ? doc.pairB : doc.pairA;
 
   // 1) KO chaining
-  if (doc.nextMatch && doc.nextSlot && winnerReg) {
+  if (doc.nextMatch && doc.nextSlot) {
     const nm = await MatchModel.findById(doc.nextMatch);
     if (nm && canAutoSyncDependentMatch(nm)) {
       const field = doc.nextSlot === "A" ? "pairA" : "pairB";
-      if (!nm[field]) {
-        nm[field] = winnerReg;
+      const targetSeed = seedForSlot(nm, doc.nextSlot);
+      const sourceReg = isLoserSeedSource(targetSeed) ? loserReg : winnerReg;
+      if (sourceReg && String(nm[field] || "") !== String(sourceReg || "")) {
+        nm[field] = sourceReg;
         await nm.save();
       }
     }
   }
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      previousA: doc._id,
-      status: DEPENDENT_AUTO_SYNC_STATUS,
-    },
+    nonLoserPreviousSlotQuery(doc, "A"),
     { $set: { pairA: winnerReg } }
   );
   await MatchModel.updateMany(
-    {
-      tournament: doc.tournament,
-      previousB: doc._id,
-      status: DEPENDENT_AUTO_SYNC_STATUS,
-    },
+    nonLoserPreviousSlotQuery(doc, "B"),
     { $set: { pairB: winnerReg } }
   );
 
@@ -899,6 +918,59 @@ async function releaseCourtFromFinishedMatch(doc) {
     );
   } catch (e) {
     console.error("[court] release on finish failed:", e?.message || e);
+  }
+}
+
+const queueMatchId = (item) => {
+  if (!item?.matchId) return "";
+  if (typeof item.matchId === "object" && item.matchId._id) {
+    return String(item.matchId._id);
+  }
+  return String(item.matchId);
+};
+
+function normalizeStationQueueItems(items = []) {
+  return items.map((item, index) => ({
+    matchId: item.matchId,
+    order: index + 1,
+    queuedAt: item.queuedAt || new Date(),
+    queuedBy: item.queuedBy || null,
+  }));
+}
+
+async function releaseCourtStationFromFinishedMatch(doc) {
+  try {
+    if (!doc?._id) return;
+    const matchId = String(doc._id);
+    const stations = await CourtStation.find({
+      currentMatch: doc._id,
+      assignmentMode: { $ne: "queue" },
+    })
+      .select("_id assignmentQueue")
+      .lean();
+
+    for (const station of stations) {
+      const nextItems = normalizeStationQueueItems(
+        (Array.isArray(station?.assignmentQueue?.items)
+          ? station.assignmentQueue.items
+          : []
+        ).filter((item) => queueMatchId(item) !== matchId)
+      );
+
+      await CourtStation.updateOne(
+        { _id: station._id, currentMatch: doc._id },
+        {
+          $set: {
+            currentMatch: null,
+            currentTournament: null,
+            assignmentQueue: { items: nextItems },
+            status: nextItems.length ? "assigned" : "idle",
+          },
+        }
+      );
+    }
+  } catch (e) {
+    console.error("[court-station] release on finish failed:", e?.message || e);
   }
 }
 
@@ -1183,6 +1255,7 @@ matchSchema.post("save", async function (doc, next) {
       if (doc.status === "finished") {
         try {
           await releaseCourtFromFinishedMatch(doc);
+          await releaseCourtStationFromFinishedMatch(doc);
         } catch (error) {
           console.log(error);
         }
@@ -1354,6 +1427,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
     try {
       if (fresh.status === "finished") {
         await releaseCourtFromFinishedMatch(fresh);
+        await releaseCourtStationFromFinishedMatch(fresh);
       }
     } catch (error) {
       console.log(error);

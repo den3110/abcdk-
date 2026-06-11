@@ -151,8 +151,7 @@ export const adminCourtApiSlice = apiSlice.injectEndpoints({
       },
       transformResponse: (res) =>
         res?.items ?? res?.results ?? res?.rows ?? res ?? [],
-      keepUnusedDataFor: 0, // bỏ cache khi unmount
-      forceRefetch: () => true, // luôn refetch khi có subscriber mới
+      keepUnusedDataFor: 10,
       providesTags: () => [{ type: "ADMIN_MATCHES", id: "LIST" }],
     }),
     // ⭐ NEW: Gán 1 trận cụ thể vào 1 sân

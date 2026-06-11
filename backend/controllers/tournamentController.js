@@ -1886,6 +1886,29 @@ const applyCommittedRoundElimPairToSeeds = (seeds, pair) => {
   };
 };
 
+const resolveRoundElimLoserSeedRegistration = (seed, bracketId, existingByKey) => {
+  const type = String(seed?.type || "");
+  if (type !== "stageMatchLoser" && type !== "matchLoser") return undefined;
+
+  const sourceRound = Number(seed?.ref?.round);
+  const sourceOrder = Number(seed?.ref?.order);
+  if (!Number.isFinite(sourceRound) || !Number.isFinite(sourceOrder)) {
+    return undefined;
+  }
+
+  const sourceMatch = existingByKey.get(
+    `${String(bracketId)}:${sourceRound}:${sourceOrder}`
+  );
+  if (
+    String(sourceMatch?.status || "").toLowerCase() !== "finished" ||
+    !["A", "B"].includes(String(sourceMatch?.winner || ""))
+  ) {
+    return undefined;
+  }
+
+  return sourceMatch.winner === "A" ? sourceMatch.pairB : sourceMatch.pairA;
+};
+
 const ensureRoundElimBracketMatches = async (tournamentId) => {
   const brackets = await Bracket.find({
     tournament: tournamentId,
@@ -1901,7 +1924,7 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
     bracket: { $in: brackets.map((bracket) => bracket._id) },
   })
     .select(
-      "_id bracket round order seedA seedB pairA pairB status rules bestOf pointsToWin winByTwo capMode capPoints"
+      "_id bracket round order seedA seedB pairA pairB status winner rules bestOf pointsToWin winByTwo capMode capPoints"
     )
     .lean();
 
@@ -2046,6 +2069,35 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
           roundRule.cap?.points !== undefined
         ) {
           patch.capPoints = roundRule.cap.points;
+        }
+        if (
+          roundNum > 1 &&
+          !["live", "finished"].includes(
+            String(existingMatch?.status || "").toLowerCase()
+          )
+        ) {
+          const expectedA = resolveRoundElimLoserSeedRegistration(
+            seeds.seedA || existingMatch?.seedA,
+            bracketId,
+            existingByKey
+          );
+          const expectedB = resolveRoundElimLoserSeedRegistration(
+            seeds.seedB || existingMatch?.seedB,
+            bracketId,
+            existingByKey
+          );
+          if (
+            expectedA !== undefined &&
+            String(existingMatch?.pairA || "") !== String(expectedA || "")
+          ) {
+            patch.pairA = expectedA || null;
+          }
+          if (
+            expectedB !== undefined &&
+            String(existingMatch?.pairB || "") !== String(expectedB || "")
+          ) {
+            patch.pairB = expectedB || null;
+          }
         }
 
         if (Object.keys(patch).length) {
