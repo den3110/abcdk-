@@ -779,7 +779,7 @@ const CustomSeed = ({
   const isByeWord = (s) => typeof s === "string" && /\bBYE\b/i.test(s);
   const isByeA = isByeWord(nameA) || (m?.seedA && m.seedA.type === "bye");
   const isByeB = isByeWord(nameB) || (m?.seedB && m.seedB.type === "bye");
-  const isByeMatch = (isByeA ? 1 : 0) + (isByeB ? 1 : 0) === 1;
+  const isByeMatch = isByeA || isByeB;
 
   const winA = !isByeMatch && m?.status === "finished" && m?.winner === "A";
   const winB = !isByeMatch && m?.status === "finished" && m?.winner === "B";
@@ -3998,7 +3998,7 @@ export default function TournamentBracket() {
     const byeB =
       (m.seedB && m.seedB.type === "bye") ||
       (typeof m.seedB?.label === "string" && /\bBYE\b/i.test(m.seedB.label));
-    return (byeA ? 1 : 0) + (byeB ? 1 : 0) === 1; // đúng 1 bên là BYE
+    return byeA || byeB;
   };
 
   const openMatch = (m) => {
@@ -4619,7 +4619,7 @@ export default function TournamentBracket() {
           const isLoserSeed =
             effectiveSeed?.type === "stageMatchLoser" ||
             effectiveSeed?.type === "matchLoser";
-          if (isLoserSeed) return "—";
+          if (isLoserSeed) return "BYE";
 
           const byeA =
             pm?.seedA?.type === "bye" ||
@@ -4629,7 +4629,8 @@ export default function TournamentBracket() {
             pm?.seedB?.type === "bye" ||
             (typeof pm?.seedB?.label === "string" &&
               /\bBYE\b/i.test(pm.seedB.label));
-          const winSide = byeA ? "B" : byeB ? "A" : null;
+          const winSide = byeA && byeB ? null : byeA ? "B" : byeB ? "A" : null;
+          if (!winSide) return "BYE";
 
           if (winSide) {
             const carried = resolveSideLabel(pm, winSide);
@@ -4680,7 +4681,11 @@ export default function TournamentBracket() {
           effectiveSeed?.type === "stageMatchLoser" ||
           effectiveSeed?.type === "matchLoser";
 
-        if (sourceMatch && isWinnerSeed && isByeMatchObj(sourceMatch)) {
+        if (
+          sourceMatch &&
+          (isWinnerSeed || isLoserSeed) &&
+          isByeMatchObj(sourceMatch)
+        ) {
           const byeA =
             sourceMatch?.seedA?.type === "bye" ||
             (typeof sourceMatch?.seedA?.label === "string" &&
@@ -4689,6 +4694,8 @@ export default function TournamentBracket() {
             sourceMatch?.seedB?.type === "bye" ||
             (typeof sourceMatch?.seedB?.label === "string" &&
               /\bBYE\b/i.test(sourceMatch.seedB.label));
+          if (isLoserSeed || (byeA && byeB)) return "BYE";
+
           const winSide = byeA ? "B" : byeB ? "A" : null;
 
           if (winSide) {

@@ -1693,7 +1693,7 @@ export default function TournamentManagePage() {
         mm.seedA?.type === "bye" || /\bBYE\b/i.test(mm.seedA?.label || "");
       const b =
         mm.seedB?.type === "bye" || /\bBYE\b/i.test(mm.seedB?.label || "");
-      return (a ? 1 : 0) + (b ? 1 : 0) === 1;
+      return a || b;
     };
     const SEED_REF_TYPES = [
       "matchWinner",
@@ -1734,6 +1734,13 @@ export default function TournamentManagePage() {
 
       if (src) {
         if (isByeObj(src)) {
+          const sourceByeA =
+            src.seedA?.type === "bye" ||
+            /\bBYE\b/i.test(src.seedA?.label || "");
+          const sourceByeB =
+            src.seedB?.type === "bye" ||
+            /\bBYE\b/i.test(src.seedB?.label || "");
+          if (isLoser || (sourceByeA && sourceByeB)) return "BYE";
           // Trận nguồn là BYE: gánh nhãn của bên KHÔNG bye (đệ quy)
           if (!isLoser) {
             const byeA =

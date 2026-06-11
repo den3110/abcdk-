@@ -682,6 +682,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
 
 const DEPENDENT_AUTO_SYNC_STATUS = { $nin: ["live", "finished"] };
 const LOSER_SEED_TYPES = new Set(["matchLoser", "stageMatchLoser"]);
+const MATCH_BYE_SEED = { type: "bye", ref: null, label: "BYE" };
 
 function canAutoSyncDependentMatch(match) {
   return !["live", "finished"].includes(String(match?.status || ""));
@@ -691,8 +692,20 @@ function isLoserSeedSource(seed) {
   return LOSER_SEED_TYPES.has(String(seed?.type || ""));
 }
 
+function isByeSeedSource(seed) {
+  return (
+    String(seed?.type || "").toLowerCase() === "bye" ||
+    String(seed?.label || "").trim().toUpperCase() === "BYE"
+  );
+}
+
 function seedForSlot(match, slot) {
   return slot === "A" ? match?.seedA : match?.seedB;
+}
+
+function setSeedForSlot(match, slot, seed) {
+  if (slot === "A") match.seedA = seed;
+  else match.seedB = seed;
 }
 
 function nonLoserPreviousSlotQuery(doc, side) {
@@ -818,6 +831,20 @@ async function propagateFromFinishedMatch(doc) {
 
   const winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
   const loserReg = doc.winner === "A" ? doc.pairB : doc.pairA;
+  const winnerSeed = doc.winner === "A" ? doc.seedA : doc.seedB;
+  const loserSeed = doc.winner === "A" ? doc.seedB : doc.seedA;
+  const winnerSeedIsBye = isByeSeedSource(winnerSeed);
+  const loserSeedIsBye = isByeSeedSource(loserSeed);
+  const slotSet = (side, reg, seedIsBye = false) => {
+    const pairField = side === "A" ? "pairA" : "pairB";
+    const seedField = side === "A" ? "seedA" : "seedB";
+    return {
+      $set: {
+        [pairField]: reg || null,
+        ...(seedIsBye ? { [seedField]: { ...MATCH_BYE_SEED } } : {}),
+      },
+    };
+  };
 
   // 1) KO chaining
   if (doc.nextMatch && doc.nextSlot) {
@@ -825,40 +852,56 @@ async function propagateFromFinishedMatch(doc) {
     if (nm && canAutoSyncDependentMatch(nm)) {
       const field = doc.nextSlot === "A" ? "pairA" : "pairB";
       const targetSeed = seedForSlot(nm, doc.nextSlot);
-      const sourceReg = isLoserSeedSource(targetSeed) ? loserReg : winnerReg;
-      if (sourceReg && String(nm[field] || "") !== String(sourceReg || "")) {
-        nm[field] = sourceReg;
+      const targetWantsLoser = isLoserSeedSource(targetSeed);
+      const sourceReg = targetWantsLoser ? loserReg || null : winnerReg;
+      const sourceSeed = targetWantsLoser
+        ? doc.winner === "A"
+          ? doc.seedB
+          : doc.seedA
+        : doc.winner === "A"
+          ? doc.seedA
+          : doc.seedB;
+      const sourceIsBye = isByeSeedSource(sourceSeed);
+      if (
+        (targetWantsLoser || sourceReg || sourceIsBye) &&
+        (String(nm[field] || "") !== String(sourceReg || "") ||
+          (sourceIsBye && !isByeSeedSource(targetSeed)))
+      ) {
+        nm[field] = sourceReg || null;
+        if (sourceIsBye) {
+          setSeedForSlot(nm, doc.nextSlot, { ...MATCH_BYE_SEED });
+        }
         await nm.save();
       }
     }
   }
   await MatchModel.updateMany(
     nonLoserPreviousSlotQuery(doc, "A"),
-    { $set: { pairA: winnerReg } }
+    slotSet("A", winnerReg, winnerSeedIsBye)
   );
   await MatchModel.updateMany(
     nonLoserPreviousSlotQuery(doc, "B"),
-    { $set: { pairB: winnerReg } }
+    slotSet("B", winnerReg, winnerSeedIsBye)
   );
 
   // 2) stageMatchWinner
   await MatchModel.updateMany(
     seedSourceQuery({ doc, side: "A", type: "stageMatchWinner", stageIndex: st }),
-    { $set: { pairA: winnerReg } }
+    slotSet("A", winnerReg, winnerSeedIsBye)
   );
   await MatchModel.updateMany(
     seedSourceQuery({ doc, side: "B", type: "stageMatchWinner", stageIndex: st }),
-    { $set: { pairB: winnerReg } }
+    slotSet("B", winnerReg, winnerSeedIsBye)
   );
 
   // 3) stageMatchLoser
   await MatchModel.updateMany(
     seedSourceQuery({ doc, side: "A", type: "stageMatchLoser", stageIndex: st }),
-    { $set: { pairA: loserReg } }
+    slotSet("A", loserReg, loserSeedIsBye)
   );
   await MatchModel.updateMany(
     seedSourceQuery({ doc, side: "B", type: "stageMatchLoser", stageIndex: st }),
-    { $set: { pairB: loserReg } }
+    slotSet("B", loserReg, loserSeedIsBye)
   );
 
   // 4) matchLoser trong cùng bracket
@@ -870,7 +913,7 @@ async function propagateFromFinishedMatch(doc) {
       stageIndex: st,
       sameBracketOnly: true,
     }),
-    { $set: { pairA: loserReg } }
+    slotSet("A", loserReg, loserSeedIsBye)
   );
   await MatchModel.updateMany(
     seedSourceQuery({
@@ -880,7 +923,7 @@ async function propagateFromFinishedMatch(doc) {
       stageIndex: st,
       sameBracketOnly: true,
     }),
-    { $set: { pairB: loserReg } }
+    slotSet("B", loserReg, loserSeedIsBye)
   );
 }
 
@@ -943,13 +986,16 @@ async function releaseCourtStationFromFinishedMatch(doc) {
     if (!doc?._id) return;
     const matchId = String(doc._id);
     const stations = await CourtStation.find({
-      currentMatch: doc._id,
-      assignmentMode: { $ne: "queue" },
+      $or: [
+        { currentMatch: doc._id },
+        { "assignmentQueue.items.matchId": doc._id },
+      ],
     })
-      .select("_id assignmentQueue")
+      .select("_id currentMatch currentTournament assignmentQueue")
       .lean();
 
     for (const station of stations) {
+      const isCurrentMatch = String(station.currentMatch || "") === matchId;
       const nextItems = normalizeStationQueueItems(
         (Array.isArray(station?.assignmentQueue?.items)
           ? station.assignmentQueue.items
@@ -958,13 +1004,20 @@ async function releaseCourtStationFromFinishedMatch(doc) {
       );
 
       await CourtStation.updateOne(
-        { _id: station._id, currentMatch: doc._id },
+        { _id: station._id },
         {
           $set: {
-            currentMatch: null,
-            currentTournament: null,
+            currentMatch: isCurrentMatch ? null : station.currentMatch || null,
+            currentTournament: isCurrentMatch
+              ? null
+              : station.currentTournament || null,
             assignmentQueue: { items: nextItems },
-            status: nextItems.length ? "assigned" : "idle",
+            status:
+              !isCurrentMatch && station.currentMatch
+                ? "assigned"
+                : nextItems.length
+                  ? "assigned"
+                  : "idle",
           },
         }
       );

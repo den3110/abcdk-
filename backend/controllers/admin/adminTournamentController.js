@@ -2443,10 +2443,15 @@ async function autoAdvanceByesForBracket(bracketId, session) {
       const status = String(m.status || "").toLowerCase();
       const aBye = isByeSeed(m.seedA);
       const bBye = isByeSeed(m.seedB);
-      if (aBye === bBye) continue;
+      if (!aBye && !bBye) continue;
 
-      const winnerSide = aBye ? "B" : "A";
-      const advSeed = aBye ? m.seedB : m.seedA;
+      const winnerSide = aBye && bBye ? "A" : aBye ? "B" : "A";
+      const advSeed =
+        aBye && bBye
+          ? { type: "bye", ref: null, label: "BYE" }
+          : aBye
+            ? m.seedB
+            : m.seedA;
       const thisRound = Number(m.round || 1);
 
       if (status !== "finished" || m.winner !== winnerSide) {

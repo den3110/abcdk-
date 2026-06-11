@@ -275,8 +275,7 @@ const isByeSeed = (seed) =>
 
 const isByeMatchObj = (m) => {
   if (!m) return false;
-  const count = (isByeSeed(m.seedA) ? 1 : 0) + (isByeSeed(m.seedB) ? 1 : 0);
-  return count === 1;
+  return isByeSeed(m.seedA) || isByeSeed(m.seedB);
 };
 
 function resolveScheduleSides(rawList, eventType, displayMode) {
@@ -462,8 +461,10 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
 
     if (source) {
       if (isByeMatchObj(source)) {
-        if (isLoser) return "—";
-        const carriedSide = isByeSeed(source.seedA) ? "B" : "A";
+        const sourceByeA = isByeSeed(source.seedA);
+        const sourceByeB = isByeSeed(source.seedB);
+        if (isLoser || (sourceByeA && sourceByeB)) return "BYE";
+        const carriedSide = sourceByeA ? "B" : "A";
         const carried = resolveSide(source, carriedSide, depth + 1);
         if (isConcreteTeamLabel(carried)) return carried;
       } else if (source.status === "finished" && source.winner) {

@@ -208,6 +208,13 @@ const previewSideLabel = (match, side) => {
   return isUsefulPendingLabel(value) ? String(value).trim() : "";
 };
 
+const isByeSeed = (seed) =>
+  seed?.type === "bye" ||
+  String(seed?.label || "").trim().toUpperCase() === "BYE";
+
+const isByeMatchObj = (match) =>
+  Boolean(match && (isByeSeed(match.seedA) || isByeSeed(match.seedB)));
+
 function extractDisplayCodeText(value) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -1766,6 +1773,23 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         const sourceMatch =
           matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
         const sourceCode = getDisplayCodeForMatch(sourceMatch);
+        const seedType = String(seed?.type || "");
+        const isLoserSeed =
+          seedType === "stageMatchLoser" || seedType === "matchLoser";
+
+        if (isByeMatchObj(sourceMatch)) {
+          const sourceByeA = isByeSeed(sourceMatch.seedA);
+          const sourceByeB = isByeSeed(sourceMatch.seedB);
+          if (isLoserSeed || (sourceByeA && sourceByeB)) return "BYE";
+
+          const carriedSide = sourceByeA ? "B" : "A";
+          const carried = resolvePendingSideLabelInner(
+            sourceMatch,
+            carriedSide,
+            depth + 1,
+          );
+          if (isUsefulPendingLabel(carried)) return carried;
+        }
 
         if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
           const winnerSide = sourceMatch.winner === "A" ? "A" : "B";
@@ -1793,6 +1817,20 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           seed?.type === "stageMatchWinner" || seed?.type === "matchWinner";
         const isLoserSeed =
           seed?.type === "stageMatchLoser" || seed?.type === "matchLoser";
+
+        if (isByeMatchObj(sourceMatch)) {
+          const sourceByeA = isByeSeed(sourceMatch.seedA);
+          const sourceByeB = isByeSeed(sourceMatch.seedB);
+          if (isLoserSeed || (sourceByeA && sourceByeB)) return "BYE";
+
+          const carriedSide = sourceByeA ? "B" : "A";
+          const carried = resolvePendingSideLabelInner(
+            sourceMatch,
+            carriedSide,
+            depth + 1,
+          );
+          if (isUsefulPendingLabel(carried)) return carried;
+        }
 
         if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
           const sourceSide = isLoserSeed

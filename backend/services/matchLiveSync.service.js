@@ -725,19 +725,34 @@ async function runFinishedSideEffects(matchDoc, actorId = null) {
   }
 
   try {
-    if (stationAdvance?.station?._id && stationAdvance?.station?.clusterId) {
-      await Promise.allSettled([
-        publishCourtClusterRuntimeUpdate({
-          clusterId: stationAdvance.station.clusterId,
-          stationIds: [stationAdvance.station._id],
-          reason: "match_finished_auto_advance",
-        }),
-        publishCourtStationRuntimeUpdate({
-          stationId: stationAdvance.station._id,
-          clusterId: stationAdvance.station.clusterId,
-          reason: "match_finished_auto_advance",
-        }),
-      ]);
+    const stationId =
+      stationAdvance?.station?._id || matchDoc.courtStation?._id || matchDoc.courtStation;
+    const clusterId =
+      stationAdvance?.station?.clusterId ||
+      matchDoc.courtClusterId?._id ||
+      matchDoc.courtClusterId;
+
+    if (stationId || clusterId) {
+      const tasks = [];
+      if (clusterId) {
+        tasks.push(
+          publishCourtClusterRuntimeUpdate({
+            clusterId,
+            stationIds: stationId ? [stationId] : [],
+            reason: "match_finished_auto_advance",
+          })
+        );
+      }
+      if (stationId) {
+        tasks.push(
+          publishCourtStationRuntimeUpdate({
+            stationId,
+            clusterId,
+            reason: "match_finished_auto_advance",
+          })
+        );
+      }
+      await Promise.allSettled(tasks);
     }
   } catch (error) {
     console.error("[match-live-sync] finish court publish error:", error);

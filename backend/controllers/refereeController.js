@@ -520,7 +520,11 @@ async function broadcastScoreUpdated(io, matchId) {
         }
       : baseDto;
 
-  io?.to(`match:${matchId}`)?.emit("score:updated", payload);
+  emitTournamentMatchUpdate(io, snap, payload, {
+    type: "score:update",
+    matchId,
+    emitScoreUpdated: true,
+  });
 }
 
 async function broadcastUserMatchScoreUpdated(io, matchId) {

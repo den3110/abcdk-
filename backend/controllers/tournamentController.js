@@ -1886,27 +1886,52 @@ const applyCommittedRoundElimPairToSeeds = (seeds, pair) => {
   };
 };
 
-const resolveRoundElimLoserSeedRegistration = (seed, bracketId, existingByKey) => {
+const isRoundElimByeSeed = (seed) =>
+  String(seed?.type || "").toLowerCase() === "bye" ||
+  String(seed?.label || "").trim().toUpperCase() === "BYE";
+
+const sameRoundElimSeed = (left, right) =>
+  JSON.stringify(left || null) === JSON.stringify(right || null);
+
+const resolveRoundElimLoserSeedSlot = (seed, bracketId, existingByKey) => {
   const type = String(seed?.type || "");
-  if (type !== "stageMatchLoser" && type !== "matchLoser") return undefined;
+  if (type !== "stageMatchLoser" && type !== "matchLoser") {
+    return { resolved: false };
+  }
 
   const sourceRound = Number(seed?.ref?.round);
   const sourceOrder = Number(seed?.ref?.order);
   if (!Number.isFinite(sourceRound) || !Number.isFinite(sourceOrder)) {
-    return undefined;
+    return { resolved: false };
   }
 
   const sourceMatch = existingByKey.get(
     `${String(bracketId)}:${sourceRound}:${sourceOrder}`
   );
+  if (!sourceMatch) return { resolved: false };
+
+  const sourceByeA = isRoundElimByeSeed(sourceMatch?.seedA);
+  const sourceByeB = isRoundElimByeSeed(sourceMatch?.seedB);
+  if (sourceByeA || sourceByeB) {
+    return {
+      resolved: true,
+      pair: null,
+      seed: cloneRoundElimSeed(ROUND_ELIM_BYE_SEED, ROUND_ELIM_BYE_SEED),
+    };
+  }
+
   if (
     String(sourceMatch?.status || "").toLowerCase() !== "finished" ||
     !["A", "B"].includes(String(sourceMatch?.winner || ""))
   ) {
-    return undefined;
+    return { resolved: false };
   }
 
-  return sourceMatch.winner === "A" ? sourceMatch.pairB : sourceMatch.pairA;
+  return {
+    resolved: true,
+    pair: sourceMatch.winner === "A" ? sourceMatch.pairB : sourceMatch.pairA,
+    seed: seed || null,
+  };
 };
 
 const ensureRoundElimBracketMatches = async (tournamentId) => {
@@ -2076,27 +2101,35 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
             String(existingMatch?.status || "").toLowerCase()
           )
         ) {
-          const expectedA = resolveRoundElimLoserSeedRegistration(
+          const resolvedA = resolveRoundElimLoserSeedSlot(
             seeds.seedA || existingMatch?.seedA,
             bracketId,
             existingByKey
           );
-          const expectedB = resolveRoundElimLoserSeedRegistration(
+          const resolvedB = resolveRoundElimLoserSeedSlot(
             seeds.seedB || existingMatch?.seedB,
             bracketId,
             existingByKey
           );
           if (
-            expectedA !== undefined &&
-            String(existingMatch?.pairA || "") !== String(expectedA || "")
+            resolvedA.resolved &&
+            String(existingMatch?.pairA || "") !== String(resolvedA.pair || "")
           ) {
-            patch.pairA = expectedA || null;
+            patch.pairA = resolvedA.pair || null;
           }
           if (
-            expectedB !== undefined &&
-            String(existingMatch?.pairB || "") !== String(expectedB || "")
+            resolvedB.resolved &&
+            String(existingMatch?.pairB || "") !== String(resolvedB.pair || "")
           ) {
-            patch.pairB = expectedB || null;
+            patch.pairB = resolvedB.pair || null;
+          }
+          const expectedSeedA = resolvedA.resolved ? resolvedA.seed : seeds.seedA;
+          const expectedSeedB = resolvedB.resolved ? resolvedB.seed : seeds.seedB;
+          if (expectedSeedA && !sameRoundElimSeed(existingMatch?.seedA, expectedSeedA)) {
+            patch.seedA = expectedSeedA;
+          }
+          if (expectedSeedB && !sameRoundElimSeed(existingMatch?.seedB, expectedSeedB)) {
+            patch.seedB = expectedSeedB;
           }
         }
 
