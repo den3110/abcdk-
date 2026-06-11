@@ -12,6 +12,7 @@ const POSTER_AI_LAYOUT_VERSION = 6;
 const DEFAULT_OPENAI_POSTER_MODEL = "gpt-5.5";
 const OPENAI_OFFICIAL_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENAI_POSTER_DAILY_LIMIT = 10;
+const DEFAULT_OPENAI_POSTER_MAX_OUTPUT_TOKENS = 8192;
 
 function resolvePosterVisionModel() {
   return String(
@@ -65,6 +66,13 @@ function resolveOpenAiPosterDailyLimit() {
   return Number.isFinite(limit) && limit > 0
     ? Math.floor(limit)
     : DEFAULT_OPENAI_POSTER_DAILY_LIMIT;
+}
+
+function resolveOpenAiPosterMaxOutputTokens(value) {
+  const configured = Number(value ?? process.env.OPENAI_POSTER_MAX_OUTPUT_TOKENS);
+  return Number.isFinite(configured) && configured >= 1024
+    ? Math.floor(configured)
+    : DEFAULT_OPENAI_POSTER_MAX_OUTPUT_TOKENS;
 }
 
 function getPosterUsageYmd(date = new Date()) {
@@ -447,6 +455,52 @@ function extractResponseCandidates(response) {
   return candidates;
 }
 
+function summarizeOpenAiPosterResponse(response) {
+  if (!response || typeof response !== "object") return "empty_response";
+  const output = Array.isArray(response.output) ? response.output : [];
+  const outputSummary = output
+    .slice(0, 5)
+    .map((item) => {
+      const content = Array.isArray(item?.content) ? item.content : [];
+      const contentTypes = content
+        .map((part) => part?.type || typeof part)
+        .filter(Boolean)
+        .join(",");
+      return contentTypes ? `${item?.type || "item"}[${contentTypes}]` : item?.type || "item";
+    })
+    .filter(Boolean)
+    .join(",");
+  const refusals = output
+    .flatMap((item) => (Array.isArray(item?.content) ? item.content : []))
+    .map((part) => String(part?.refusal || "").trim())
+    .filter(Boolean)
+    .join(" | ");
+  return [
+    response.status ? `status=${response.status}` : "",
+    response.incomplete_details?.reason
+      ? `incomplete=${response.incomplete_details.reason}`
+      : "",
+    response.error?.message ? `error=${response.error.message}` : "",
+    outputSummary ? `output=${outputSummary}` : "",
+    refusals ? `refusal=${refusals.slice(0, 180)}` : "",
+    typeof response.output_text === "string"
+      ? `output_text=${response.output_text.trim().length} chars`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("; ") || "no_output";
+}
+
+function shouldRetryWithoutReasoning(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    error?.status === 400 &&
+    (message.includes("reasoning") ||
+      message.includes("unsupported parameter") ||
+      message.includes("unknown parameter"))
+  );
+}
+
 async function createOpenAiPosterCandidates(payload) {
   const messages = Array.isArray(payload?.messages) ? payload.messages : [];
   const system = getContentText(
@@ -456,7 +510,9 @@ async function createOpenAiPosterCandidates(payload) {
   const model = payload?.model || POSTER_VISION_MODEL;
   const client = getOpenAiPosterClient();
   await reserveOpenAiPosterCall(model);
-  const response = await client.responses.create({
+  const maxOutputTokens = resolveOpenAiPosterMaxOutputTokens(payload?.max_tokens);
+  const strict = payload?.strict !== false;
+  const request = {
     model,
     ...(system ? { instructions: system } : {}),
     input: [
@@ -465,18 +521,34 @@ async function createOpenAiPosterCandidates(payload) {
         content: toOpenAiResponsesContent(userMessage.content || []),
       },
     ],
+    reasoning: { effort: "minimal" },
     text: {
       format: {
         type: "json_schema",
         name: "registration_poster_layout",
-        strict: true,
+        strict,
         schema: posterLayoutJsonSchema.schema,
       },
     },
-    max_output_tokens: payload?.max_tokens || 4096,
-  });
+    max_output_tokens: maxOutputTokens,
+  };
 
-  return extractResponseCandidates(response).filter(Boolean);
+  let response;
+  try {
+    response = await client.responses.create(request);
+  } catch (error) {
+    if (!shouldRetryWithoutReasoning(error)) throw error;
+    const { reasoning, ...requestWithoutReasoning } = request;
+    response = await client.responses.create(requestWithoutReasoning);
+  }
+
+  const candidates = extractResponseCandidates(response).filter(Boolean);
+  if (!candidates.length) {
+    throw new Error(
+      `AI không trả về JSON layout (${summarizeOpenAiPosterResponse(response)})`,
+    );
+  }
+  return candidates;
 }
 
 function summarizeRouteError(routeName, error) {
@@ -501,10 +573,8 @@ function parsePosterJsonCandidate(candidate) {
 
 function hasRawPosterSlots(raw) {
   return (
-    Array.isArray(raw?.slots?.single) &&
-    raw.slots.single.length > 0 &&
-    Array.isArray(raw?.slots?.double) &&
-    raw.slots.double.length > 0
+    (Array.isArray(raw?.slots?.single) && raw.slots.single.length > 0) ||
+    (Array.isArray(raw?.slots?.double) && raw.slots.double.length > 0)
   );
 }
 
@@ -792,6 +862,14 @@ ${adminPromptBlock}
       name: "responses_json_schema",
       payload: {
         messages: baseMessages,
+        strict: true,
+      },
+    },
+    {
+      name: "responses_json_schema_relaxed",
+      payload: {
+        messages: baseMessages,
+        strict: false,
       },
     },
   ];
@@ -804,18 +882,15 @@ ${adminPromptBlock}
     try {
       const jsonCandidates = await createOpenAiPosterCandidates({
         model: POSTER_VISION_MODEL,
-        max_tokens: 4096,
+        max_tokens: resolveOpenAiPosterMaxOutputTokens(),
         ...route.payload,
       });
-      if (!jsonCandidates.length) {
-        throw new Error("AI không trả về JSON layout");
-      }
       let lastParseError = null;
       for (const candidate of jsonCandidates) {
         try {
           const candidateJson = parsePosterJsonCandidate(candidate);
           if (!hasRawPosterSlots(candidateJson)) {
-            throw new Error("AI trả layout nhưng slots.single/slots.double rỗng.");
+            throw new Error("AI trả layout nhưng không có slot single/double.");
           }
           parsed = candidateJson;
           break;
