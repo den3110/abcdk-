@@ -496,7 +496,9 @@ function shouldRetryWithoutReasoning(error) {
   return (
     error?.status === 400 &&
     (message.includes("reasoning") ||
+      message.includes("effort") ||
       message.includes("unsupported parameter") ||
+      message.includes("unsupported value") ||
       message.includes("unknown parameter"))
   );
 }
@@ -521,7 +523,7 @@ async function createOpenAiPosterCandidates(payload) {
         content: toOpenAiResponsesContent(userMessage.content || []),
       },
     ],
-    reasoning: { effort: "minimal" },
+    reasoning: { effort: "none" },
     text: {
       format: {
         type: "json_schema",
