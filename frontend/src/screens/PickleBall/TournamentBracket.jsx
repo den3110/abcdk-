@@ -3021,6 +3021,7 @@ RoundElimBracketLayout.propTypes = {
 const SYMMETRIC_KO_CARD_W = SEED_CARD_W;
 const SYMMETRIC_KO_COL_GAP = 84;
 const SYMMETRIC_KO_ROW_GAP = 34;
+const SYMMETRIC_KO_HEADER_H = 26;
 const SYMMETRIC_KO_LINE = "rgba(25, 118, 210, 0.42)";
 
 function buildSymmetricSlotCounts(rounds = []) {
@@ -3080,7 +3081,7 @@ function buildSymmetricConnectorPath(startX, startY, endX, endY, side) {
   return `M ${startX} ${startY} H ${bend} V ${endY} H ${endX}`;
 }
 
-function SymmetricSeedSlot({ nodeKey, children }) {
+function SymmetricSeedSlot({ nodeKey, children, sx }) {
   return (
     <Box
       data-ko-node={nodeKey || undefined}
@@ -3089,6 +3090,7 @@ function SymmetricSeedSlot({ nodeKey, children }) {
         width: SYMMETRIC_KO_CARD_W,
         flex: `0 0 ${SYMMETRIC_KO_CARD_W}px`,
         zIndex: 1,
+        ...sx,
       }}
     >
       {children}
@@ -3099,6 +3101,7 @@ function SymmetricSeedSlot({ nodeKey, children }) {
 SymmetricSeedSlot.propTypes = {
   nodeKey: PropTypes.string,
   children: PropTypes.node,
+  sx: PropTypes.object,
 };
 
 function SymmetricBranch({
@@ -3110,34 +3113,54 @@ function SymmetricBranch({
   baseRoundStart,
 }) {
   const sync = useContext(HeightSyncContext);
+  const roundCardHeight = useCallback(
+    (round) => {
+      const sample = (round?.seeds || []).find((seed) => !seed.__symmetricSpacer);
+      const roundNo = Number(sample?.__round || round?.seeds?.[0]?.__round || 1);
+      return Math.max(SEED_MIN_H, sync.get(roundNo));
+    },
+    [sync],
+  );
+  const leafSlots = Math.max(
+    1,
+    ...rounds.map((round) => {
+      const roundIndex = Number(round?.__symmetricRoundIndex || 0);
+      return Math.max(1, round?.seeds?.length || 1) * 2 ** roundIndex;
+    }),
+  );
+  const leafPitch = Math.max(
+    SEED_MIN_H + SYMMETRIC_KO_ROW_GAP,
+    ...rounds.map((round) => roundCardHeight(round) + SYMMETRIC_KO_ROW_GAP),
+  );
+  const branchHeight = SYMMETRIC_KO_HEADER_H + leafSlots * leafPitch;
+
   return (
     <Box
       sx={{
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         gap: `${SYMMETRIC_KO_COL_GAP}px`,
+        height: branchHeight,
       }}
     >
       {rounds.map((round, roundIndex) => (
         <Box
           key={`${side}-${round?.title || roundIndex}-${roundIndex}`}
           sx={{
+            position: "relative",
             width: SYMMETRIC_KO_CARD_W,
             flex: `0 0 ${SYMMETRIC_KO_CARD_W}px`,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            gap: `${Math.max(
-              SYMMETRIC_KO_ROW_GAP,
-              SYMMETRIC_KO_ROW_GAP + Math.max(0, 3 - (round?.seeds?.length || 1)) * 8,
-            )}px`,
-            minHeight: Math.max(180, (round?.seeds?.length || 1) * 136),
+            height: branchHeight,
           }}
         >
           {round?.title && (
             <Typography
               variant="caption"
               sx={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
                 fontWeight: 700,
                 color: "text.secondary",
                 textAlign: "center",
@@ -3152,11 +3175,24 @@ function SymmetricBranch({
             const nodeKey = `${side}-${round.__symmetricRoundIndex}-${
               seed.__symmetricOriginalIndex ?? seedIndex
             }`;
+            const roundIndexForPosition = Number(round.__symmetricRoundIndex || 0);
+            const groupSize = Math.max(1, 2 ** roundIndexForPosition);
+            const cardHeight = roundCardHeight(round);
+            const top =
+              SYMMETRIC_KO_HEADER_H +
+              (seedIndex * groupSize + groupSize / 2) * leafPitch -
+              cardHeight / 2;
+            const slotSx = {
+              position: "absolute",
+              left: 0,
+              top,
+            };
             if (seed.__symmetricSpacer) {
               const spacerRound = Number(seed.__round || round.__round || 1);
               return (
                 <SymmetricSeedSlot
                   key={String(seed?.id || `${side}-${roundIndex}-${seedIndex}`)}
+                  sx={slotSx}
                 >
                   <Box
                     aria-hidden="true"
@@ -3173,6 +3209,7 @@ function SymmetricBranch({
             return (
               <SymmetricSeedSlot
                 key={String(seed?.id || `${side}-${roundIndex}-${seedIndex}`)}
+                sx={slotSx}
               >
                 <CustomSeed
                   seed={{ ...seed, __disableConnector: true }}
