@@ -49,6 +49,7 @@ export function emitTournamentMatchUpdate(
     emitMatchSnapshot = false,
     emitMatchUpdate = true,
     emitScoreUpdated = false,
+    emitLiveActivity = true,
   } = {}
 ) {
   if (!io || !data) return null;
@@ -89,9 +90,10 @@ export function emitTournamentMatchUpdate(
     );
   }
 
-  const liveActivitySource =
-    (data && typeof data === "object" ? data : null) ||
-    (source && typeof source === "object" ? source : null);
+  const liveActivitySource = emitLiveActivity
+    ? (data && typeof data === "object" ? data : null) ||
+      (source && typeof source === "object" ? source : null)
+    : null;
   if (liveActivitySource) {
     void dispatchMatchLiveActivityUpdate(liveActivitySource).catch((error) => {
       console.error(

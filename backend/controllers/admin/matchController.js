@@ -736,6 +736,9 @@ export const refereeUpdateScore = expressAsyncHandler(async (req, res) => {
   if (status) match.status = status;
   if (winner !== undefined) match.winner = winner; // "A"|"B"|""
   if (note !== undefined) match.note = note;
+  if (match.status === "finished" && ["A", "B"].includes(match.winner)) {
+    match.finishedAt = match.finishedAt || new Date();
+  }
 
   await match.save();
   await clearMatchPresentationCaches();

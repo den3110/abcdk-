@@ -2,6 +2,7 @@ import { presenceRedis } from "./presenceService.js";
 
 const OWNER_KEY_PREFIX = "match-live:owner:";
 const DEFAULT_TTL_SECONDS = 30;
+const memoryOwners = new Map();
 
 function redisAvailable() {
   return Boolean(presenceRedis?.isOpen);
@@ -20,13 +21,15 @@ export function liveOwnerMatchesIdentity(
   { deviceId = "", userId = null } = {}
 ) {
   if (!owner) return false;
+  const ownerDeviceId = normalizeIdentityValue(owner.deviceId);
+  const currentDeviceId = normalizeIdentityValue(deviceId);
+  if (ownerDeviceId || currentDeviceId) {
+    return Boolean(ownerDeviceId && currentDeviceId && ownerDeviceId === currentDeviceId);
+  }
+
   const ownerUserId = normalizeIdentityValue(owner.userId);
   const currentUserId = normalizeIdentityValue(userId);
-  if (ownerUserId && currentUserId) {
-    return ownerUserId === currentUserId;
-  }
-  const currentDeviceId = normalizeIdentityValue(deviceId);
-  return Boolean(currentDeviceId) && normalizeIdentityValue(owner.deviceId) === currentDeviceId;
+  return Boolean(ownerUserId && currentUserId && ownerUserId === currentUserId);
 }
 
 function parseOwner(raw) {
@@ -42,6 +45,18 @@ function parseOwner(raw) {
     );
     return null;
   }
+}
+
+function getMemoryOwner(matchId) {
+  const key = ownerKey(matchId);
+  const owner = memoryOwners.get(key);
+  if (!owner) return null;
+  const expiresAt = new Date(owner.expiresAt || 0).getTime();
+  if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+    return owner;
+  }
+  memoryOwners.delete(key);
+  return null;
 }
 
 function buildOwnerPayload({
@@ -75,11 +90,32 @@ function buildOwnerPayload({
 }
 
 async function writeOwner(owner, ttlSeconds = DEFAULT_TTL_SECONDS) {
-  if (!redisAvailable()) return owner;
+  if (!redisAvailable()) {
+    memoryOwners.set(ownerKey(owner.matchId), owner);
+    return owner;
+  }
   await presenceRedis.set(ownerKey(owner.matchId), JSON.stringify(owner), {
     EX: ttlSeconds,
   });
   return owner;
+}
+
+async function writeOwnerIfAbsent(owner, ttlSeconds = DEFAULT_TTL_SECONDS) {
+  if (!redisAvailable()) {
+    if (getMemoryOwner(owner.matchId)) return false;
+    memoryOwners.set(ownerKey(owner.matchId), owner);
+    return true;
+  }
+
+  const result = await presenceRedis.set(
+    ownerKey(owner.matchId),
+    JSON.stringify(owner),
+    {
+      EX: ttlSeconds,
+      NX: true,
+    }
+  );
+  return result === "OK";
 }
 
 export function normalizeLiveOwnerForClient(owner, deviceId = "", userId = null) {
@@ -91,7 +127,8 @@ export function normalizeLiveOwnerForClient(owner, deviceId = "", userId = null)
 }
 
 export async function getMatchLiveOwner(matchId) {
-  if (!matchId || !redisAvailable()) return null;
+  if (!matchId) return null;
+  if (!redisAvailable()) return getMemoryOwner(matchId);
   const current = parseOwner(await presenceRedis.get(ownerKey(matchId)));
   if (current) return current;
   return null;
@@ -126,23 +163,62 @@ export async function claimMatchLiveOwner({
     ttlSeconds,
   });
 
-  await writeOwner(nextOwner, ttlSeconds);
+  if (current || force) {
+    await writeOwner(nextOwner, ttlSeconds);
+    return {
+      ok: true,
+      owner: nextOwner,
+      takeover: Boolean(current) && !isSameOwner,
+    };
+  }
+
+  const claimed = await writeOwnerIfAbsent(nextOwner, ttlSeconds);
+  if (claimed) {
+    return {
+      ok: true,
+      owner: nextOwner,
+      takeover: false,
+    };
+  }
+
+  const competingOwner = await getMatchLiveOwner(matchId);
+  if (liveOwnerMatchesIdentity(competingOwner, { deviceId, userId })) {
+    const refreshedOwner = buildOwnerPayload({
+      matchId,
+      deviceId,
+      userId,
+      displayName,
+      claimedAt: new Date(competingOwner?.claimedAt || now),
+      lastHeartbeatAt: now,
+      ttlSeconds,
+    });
+    await writeOwner(refreshedOwner, ttlSeconds);
+    return {
+      ok: true,
+      owner: refreshedOwner,
+      takeover: false,
+    };
+  }
 
   return {
-    ok: true,
-    owner: nextOwner,
-    takeover: Boolean(current) && !isSameOwner,
+    ok: false,
+    reason: "ownership_conflict",
+    owner: competingOwner,
   };
 }
 
 export async function releaseMatchLiveOwner(matchId, deviceId = "") {
-  if (!matchId || !redisAvailable()) return { ok: true, released: false };
+  if (!matchId) return { ok: true, released: false };
   const current = await getMatchLiveOwner(matchId);
   if (!current) return { ok: true, released: false };
   if (deviceId && String(current.deviceId) !== String(deviceId)) {
     return { ok: false, reason: "ownership_conflict", owner: current };
   }
-  await presenceRedis.del(ownerKey(matchId));
+  if (redisAvailable()) {
+    await presenceRedis.del(ownerKey(matchId));
+  } else {
+    memoryOwners.delete(ownerKey(matchId));
+  }
   return { ok: true, released: true, owner: current };
 }
 

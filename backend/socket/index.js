@@ -2551,7 +2551,7 @@ export function initSocket(
 
     socket.on(
       "match:forfeit",
-      async ({ matchId, winner, reason = "forfeit" }) => {
+      async ({ matchId, winner, reason = "forfeit", forfeitedSide }) => {
         if (!ensureReferee(socket)) return;
         await forfeitMatch(
           matchId,
@@ -2559,8 +2559,20 @@ export function initSocket(
           reason,
           socket.user?._id,
           io,
-          liveDeviceContext(socket)
+          { ...liveDeviceContext(socket), forfeitedSide }
         );
+        try {
+          const m = await Match.findById(matchId)
+            .select("tournament bracket courtCluster")
+            .lean();
+          if (m)
+            await broadcastState(io, String(m.tournament), {
+              bracket: m.bracket,
+              cluster: m.courtCluster,
+            });
+        } catch (e) {
+          console.error("[scheduler] broadcast after forfeit error:", e?.message);
+        }
       }
     );
 

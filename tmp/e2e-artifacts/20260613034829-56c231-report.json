@@ -1,0 +1,105 @@
+{
+  "runId": "20260613034829-56c231",
+  "startedAt": "2026-06-13T03:48:29.917Z",
+  "services": [
+    {
+      "name": "api health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:29.930Z",
+      "durationMs": 77
+    },
+    {
+      "name": "web health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.007Z",
+      "durationMs": 20
+    },
+    {
+      "name": "admin health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.027Z",
+      "durationMs": 21
+    }
+  ],
+  "apiSteps": [
+    {
+      "name": "connect mongodb",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.048Z",
+      "durationMs": 38
+    },
+    {
+      "name": "prepare test admin",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.086Z",
+      "durationMs": 474
+    },
+    {
+      "name": "prepare player 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.561Z",
+      "durationMs": 104
+    },
+    {
+      "name": "prepare player 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.665Z",
+      "durationMs": 91
+    },
+    {
+      "name": "prepare player 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.756Z",
+      "durationMs": 96
+    },
+    {
+      "name": "prepare player 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.852Z",
+      "durationMs": 87
+    },
+    {
+      "name": "admin login",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:30.939Z",
+      "durationMs": 244
+    },
+    {
+      "name": "create tournament",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:48:31.183Z",
+      "durationMs": 108
+    },
+    {
+      "name": "create registration 1",
+      "status": "failed",
+      "startedAt": "2026-06-13T03:48:31.291Z",
+      "durationMs": 288,
+      "error": {
+        "message": "POST /api/admin/tournaments/6a2cd30f82e45b807a2b3645/registrations returned 500: E11000 duplicate key error collection: sportconnect.registrations index: code_1 dup key: { code: 10551 }",
+        "status": 500,
+        "body": "{\"message\":\"E11000 duplicate key error collection: sportconnect.registrations index: code_1 dup key: { code: 10551 }\",\"stack\":\"MongoServerError: E11000 duplicate key error collection: sportconnect.registrations index: code_1 dup key: { code: 10551 }\\n    at InsertOneOperation.handleOk (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\operations\\\\insert.js:51:19)\\n    at tryOperation (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\operations\\\\execute_operation.js:214:34)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\\n    at async executeOperation (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\operations\\\\execute_operation.js:78:16)\\n    at async Collection.insertOne (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\collection.js:154:16)\"}"
+      }
+    }
+  ],
+  "uiSmoke": [],
+  "data": {
+    "tournament": {
+      "id": "6a2cd30f82e45b807a2b3645",
+      "name": "Codex E2E Tournament 20260613034829-56c231",
+      "code": "E2E82956231"
+    }
+  },
+  "warnings": [],
+  "failures": [
+    {
+      "bucket": "apiSteps",
+      "name": "create registration 1",
+      "message": "POST /api/admin/tournaments/6a2cd30f82e45b807a2b3645/registrations returned 500: E11000 duplicate key error collection: sportconnect.registrations index: code_1 dup key: { code: 10551 }",
+      "status": 500,
+      "body": "{\"message\":\"E11000 duplicate key error collection: sportconnect.registrations index: code_1 dup key: { code: 10551 }\",\"stack\":\"MongoServerError: E11000 duplicate key error collection: sportconnect.registrations index: code_1 dup key: { code: 10551 }\\n    at InsertOneOperation.handleOk (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\operations\\\\insert.js:51:19)\\n    at tryOperation (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\operations\\\\execute_operation.js:214:34)\\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\\n    at async executeOperation (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\operations\\\\execute_operation.js:78:16)\\n    at async Collection.insertOne (D:\\\\code\\\\mern-auth\\\\node_modules\\\\mongoose\\\\node_modules\\\\mongodb\\\\lib\\\\collection.js:154:16)\"}"
+    }
+  ],
+  "finishedAt": "2026-06-13T03:48:31.580Z",
+  "ok": false
+}

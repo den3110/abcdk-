@@ -848,17 +848,6 @@ export default function TournamentOverviewPage() {
     regsErr?.data?.message ||
     brErr?.data?.message ||
     mErr?.data?.message;
-  const readyForPermission =
-    !loadingTour && !loadingRegs && !loadingBr && !loadingMatches;
-  if (readyForPermission && !canManage)
-    return (
-      <Box p={3} display="flex" justifyContent="center">
-        <Alert severity="warning">
-          {t("tournaments.overview.permissionDenied")}
-        </Alert>
-      </Box>
-    );
-
   // Logic hiển thị list
   const displayList = tabValue === 0 ? upcoming : recent;
   const visibleList = isExpanded ? displayList : displayList.slice(0, 10); // Mặc định hiện 10

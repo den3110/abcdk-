@@ -1,0 +1,294 @@
+{
+  "runId": "20260613035756-eb5469",
+  "startedAt": "2026-06-13T03:57:56.539Z",
+  "services": [
+    {
+      "name": "api health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:56.573Z",
+      "durationMs": 84
+    },
+    {
+      "name": "web health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:56.657Z",
+      "durationMs": 27
+    },
+    {
+      "name": "admin health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:56.684Z",
+      "durationMs": 24
+    }
+  ],
+  "apiSteps": [
+    {
+      "name": "connect mongodb",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:56.708Z",
+      "durationMs": 52
+    },
+    {
+      "name": "prepare test admin",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:56.761Z",
+      "durationMs": 170
+    },
+    {
+      "name": "prepare player 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:56.931Z",
+      "durationMs": 101
+    },
+    {
+      "name": "prepare player 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.032Z",
+      "durationMs": 102
+    },
+    {
+      "name": "prepare player 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.134Z",
+      "durationMs": 96
+    },
+    {
+      "name": "prepare player 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.230Z",
+      "durationMs": 95
+    },
+    {
+      "name": "admin login",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.325Z",
+      "durationMs": 253
+    },
+    {
+      "name": "create tournament",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.578Z",
+      "durationMs": 103
+    },
+    {
+      "name": "create registration 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.681Z",
+      "durationMs": 173
+    },
+    {
+      "name": "create registration 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.854Z",
+      "durationMs": 116
+    },
+    {
+      "name": "create registration 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:57.970Z",
+      "durationMs": 136
+    },
+    {
+      "name": "create registration 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.107Z",
+      "durationMs": 116
+    },
+    {
+      "name": "check in registration 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.223Z",
+      "durationMs": 56
+    },
+    {
+      "name": "check in registration 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.279Z",
+      "durationMs": 44
+    },
+    {
+      "name": "check in registration 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.323Z",
+      "durationMs": 46
+    },
+    {
+      "name": "check in registration 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.369Z",
+      "durationMs": 45
+    },
+    {
+      "name": "create knockout bracket",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.414Z",
+      "durationMs": 59
+    },
+    {
+      "name": "create semifinal 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.473Z",
+      "durationMs": 196
+    },
+    {
+      "name": "create semifinal 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.670Z",
+      "durationMs": 154
+    },
+    {
+      "name": "finish semifinal 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.823Z",
+      "durationMs": 125
+    },
+    {
+      "name": "finish semifinal 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:58.948Z",
+      "durationMs": 123
+    },
+    {
+      "name": "create final from semifinal winners",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.071Z",
+      "durationMs": 302
+    },
+    {
+      "name": "finish final",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.373Z",
+      "durationMs": 84
+    },
+    {
+      "name": "verify admin registrations",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.457Z",
+      "durationMs": 31
+    },
+    {
+      "name": "verify admin brackets",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.488Z",
+      "durationMs": 33
+    },
+    {
+      "name": "verify admin bracket matches",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.521Z",
+      "durationMs": 49
+    },
+    {
+      "name": "verify public tournament",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.570Z",
+      "durationMs": 21
+    },
+    {
+      "name": "verify public brackets",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.591Z",
+      "durationMs": 15
+    },
+    {
+      "name": "verify public matches",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:57:59.606Z",
+      "durationMs": 32
+    }
+  ],
+  "uiSmoke": [
+    {
+      "label": "web home desktop",
+      "url": "http://localhost:3000/",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "PickleTour.vn - Kết nối cộng đồng & quản lý giải đấu",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký CÁCH MẠNG HÓA PICKLEBALL VIỆT NAM Kết nối cộng đồng & quản lý giải đấu thể thao PickleTour giúp bạn đăng ký, tổ chức, theo dõi điểm trình và cập nhật bảng xếp hạng cho mọi môn thể thao – ngay trên điện thoại. Bắt đầu ngay Đăng ",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035756-eb5469-web-home-desktop.png"
+    },
+    {
+      "label": "web tournament overview desktop",
+      "url": "http://localhost:3000/tournament/6a2cd54563beada9dfdbf88d",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "Tổng quan: Codex E2E Tournament 20260613035756-eb5469 | Pickletour.vn",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký TỔNG QUAN GIẢI ĐẤU Codex E2E Tournament 20260613035756-eb5469 Theo dõi tiến độ thi đấu, đăng ký và lịch trận mới nhất tại Codex E2E Court. 15/06/2026 - 16/06/2026 Codex E2E Court 0 trận live 100% tiến độ bracket Bracket đang ch",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035756-eb5469-web-tournament-overview-desktop.png"
+    },
+    {
+      "label": "web bracket desktop",
+      "url": "http://localhost:3000/tournament/6a2cd54563beada9dfdbf88d/bracket",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "Sơ đồ: Codex E2E Tournament 20260613035756-eb5469 | Pickletour.vn",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký Sơ đồ giải: Codex E2E Tournament 20260613035756-eb5469 Số đội: 4 Check-in: 4/4 Địa điểm: Codex E2E Court Chú thích: R/V: Vòng; T: Trận; B: Bảng; W: Thắng; L: Thua; BYE: Ưu tiên Xanh: hoàn thành Cam: đang thi đấu Vàng: chuẩn bị ",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035756-eb5469-web-bracket-desktop.png"
+    },
+    {
+      "label": "web bracket mobile",
+      "url": "http://localhost:3000/tournament/6a2cd54563beada9dfdbf88d/bracket",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "Sơ đồ: Codex E2E Tournament 20260613035756-eb5469 | Pickletour.vn",
+      "bodySample": "P ickleTour VI EN Sơ đồ giải: Codex E2E Tournament 20260613035756-eb5469 Số đội: 4 Check-in: 4/4 Địa điểm: Codex E2E Court Chú thích: R/V: Vòng; T: Trận; B: Bảng; W: Thắng; L: Thua; BYE: Ưu tiên Xanh: hoàn thành Cam: đang thi đấu Vàng: chuẩn bị Ghi: dự kiến Main KO Knockout VÒNG KNOCK-OUT: MAIN KO B",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035756-eb5469-web-bracket-mobile.png"
+    },
+    {
+      "label": "web schedule desktop",
+      "url": "http://localhost:3000/tournament/6a2cd54563beada9dfdbf88d/schedule",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "Lịch thi đấu: Codex E2E Tournament 20260613035756-eb5469 | Pickletour.vn",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký Lịch thi đấu | Codex E2E Tournament 20260613035756-eb5469 XEM SƠ ĐỒ Tình trạng sân đấu Chưa có thông tin sân đấu. Tất cả Đang diễn ra Sắp tới Đã kết thúc ​ V1-T1 Main KO Chưa phân sân codex_20260613035756_eb5469_1 11-5 KẾT THÚC",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035756-eb5469-web-schedule-desktop.png"
+    },
+    {
+      "label": "admin tournament matches",
+      "url": "http://127.0.0.1:3001/admin/tournaments/6a2cd54563beada9dfdbf88d/matches",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "PickleTour React",
+      "bodySample": "PickleTour dashboard Bảng điều khiển stadium Quản lý sân event_available Quản lý đặt sân handshake Nhà tài trợ article Tin tức (AI) article Tin tức PickleTour people Quản lý người dùng fact_check Tự chấm trình how_to_reg Người chấm trình emoji_events Giải đấu sports_tennis Trận đấu visibility Xem tr",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035756-eb5469-admin-tournament-matches.png"
+    },
+    {
+      "label": "admin tournament bracket",
+      "url": "http://127.0.0.1:3001/admin/tournaments/6a2cd54563beada9dfdbf88d/bracket",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "PickleTour React",
+      "bodySample": "PickleTour dashboard Bảng điều khiển stadium Quản lý sân event_available Quản lý đặt sân handshake Nhà tài trợ article Tin tức (AI) article Tin tức PickleTour people Quản lý người dùng fact_check Tự chấm trình how_to_reg Người chấm trình emoji_events Giải đấu sports_tennis Trận đấu visibility Xem tr",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035756-eb5469-admin-tournament-bracket.png"
+    }
+  ],
+  "data": {
+    "tournament": {
+      "id": "6a2cd54563beada9dfdbf88d",
+      "name": "Codex E2E Tournament 20260613035756-eb5469",
+      "code": "E2E57565469"
+    },
+    "bracket": {
+      "id": "6a2cd54663beada9dfdbf8fa",
+      "name": "Main KO",
+      "type": "knockout"
+    },
+    "matches": {
+      "semifinal1": "6a2cd54663beada9dfdbf902",
+      "semifinal2": "6a2cd54663beada9dfdbf91a",
+      "final": "6a2cd54763beada9dfdbf96d",
+      "championRegistration": "6a2cd54563beada9dfdbf89e"
+    }
+  },
+  "warnings": [],
+  "failures": [],
+  "finishedAt": "2026-06-13T03:58:50.200Z",
+  "ok": true
+}

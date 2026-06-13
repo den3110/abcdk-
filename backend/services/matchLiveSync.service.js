@@ -121,6 +121,36 @@ function validSide(side) {
   return side === "A" || side === "B" ? side : "A";
 }
 
+function oppositeSide(side) {
+  return side === "A" ? "B" : "A";
+}
+
+function buildForfeitGameScores(match, winnerSide) {
+  const rules = buildNormalizedRules(match);
+  const pointsToWin = Math.max(1, toNum(rules.pointsToWin, 11));
+  const gamesToWin = Math.max(1, Math.floor(toNum(rules.bestOf, 1) / 2) + 1);
+  return Array.from({ length: gamesToWin }, () =>
+    winnerSide === "A"
+      ? { a: pointsToWin, b: 0 }
+      : { a: 0, b: pointsToWin },
+  );
+}
+
+function resolveForfeitedSide(winnerSide, payload = {}) {
+  const raw = String(payload?.forfeitedSide || "").toUpperCase();
+  if (raw === "A" || raw === "B") return raw;
+  return oppositeSide(winnerSide);
+}
+
+function isForfeitResult(match) {
+  return (
+    match?.meta?.resultType === "forfeit" ||
+    (Array.isArray(match?.liveLog) &&
+      match.liveLog.some((entry) => entry?.type === "forfeit")) ||
+    /^\[forfeit/.test(String(match?.note || "").trim().toLowerCase())
+  );
+}
+
 function validServer(server) {
   return server === 1 || server === 2 ? server : 1;
 }
@@ -547,6 +577,9 @@ function applyFinishEvent(match, event, actorId, { isForfeit = false } = {}) {
   if (!event.payload?.winner) {
     return { ok: false, code: "invalid_transition", message: "Winner is required" };
   }
+  if (!["A", "B"].includes(event.payload.winner)) {
+    return { ok: false, code: "invalid_transition", message: "Invalid winner" };
+  }
   if (match.status === "finished") {
     if (String(match.winner || "") === String(event.payload.winner || "")) {
       return { ok: true, emittedType: isForfeit ? "forfeit" : "finish" };
@@ -574,6 +607,19 @@ function applyFinishEvent(match, event, actorId, { isForfeit = false } = {}) {
   match.status = "finished";
   match.winner = event.payload.winner;
   match.finishedAt = new Date();
+  if (isForfeit) {
+    const winnerSide = event.payload.winner;
+    const forfeitedSide = resolveForfeitedSide(winnerSide, event.payload);
+    match.gameScores = buildForfeitGameScores(match, winnerSide);
+    match.currentGame = Math.max(0, match.gameScores.length - 1);
+    match.ratingDelta = 0;
+    match.ratingApplied = true;
+    match.ratingAppliedAt = new Date();
+    match.set("meta.resultType", "forfeit", { strict: false });
+    match.set("meta.forfeitedSide", forfeitedSide, { strict: false });
+    match.markModified("gameScores");
+    match.markModified("meta");
+  }
   if (event.payload?.reason) {
     match.note = `[${event.payload.reason}] ${match.note || ""}`.trim();
   }
@@ -586,6 +632,9 @@ function applyFinishEvent(match, event, actorId, { isForfeit = false } = {}) {
     payload: {
       winner: event.payload.winner,
       reason: event.payload.reason || (isForfeit ? "forfeit" : ""),
+      forfeitedSide: isForfeit
+        ? resolveForfeitedSide(event.payload.winner, event.payload)
+        : undefined,
     },
     at: new Date(),
   });
@@ -631,12 +680,20 @@ async function emitMatchRealtimeUpdate(io, matchId, type, doc) {
     type,
     matchId: String(matchId),
     emitScoreUpdated: true,
+    emitLiveActivity: type !== "point",
   });
 }
 
 async function applyLegacyRatingDeltaForMatch(matchDoc, scorerId) {
   const delta = Number(matchDoc.ratingDelta) || 0;
   if (matchDoc.ratingApplied || delta <= 0) return;
+  if (isForfeitResult(matchDoc)) {
+    matchDoc.ratingApplied = true;
+    matchDoc.ratingAppliedAt = new Date();
+    matchDoc.ratingDelta = 0;
+    await matchDoc.save();
+    return;
+  }
 
   const tournament = await Tournament.findById(matchDoc.tournament).select(
     "eventType"

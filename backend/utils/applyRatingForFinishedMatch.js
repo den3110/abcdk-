@@ -138,6 +138,15 @@ function qualityScoreFromScores(match, winnerSide /* "A" | "B" */) {
   return clamp(0.5 + 0.5 * Math.max(0, m), 0.5, 1);
 }
 
+function isForfeitResult(match) {
+  return (
+    match?.meta?.resultType === "forfeit" ||
+    (Array.isArray(match?.liveLog) &&
+      match.liveLog.some((entry) => entry?.type === "forfeit")) ||
+    /^\[forfeit/.test(String(match?.note || "").trim().toLowerCase())
+  );
+}
+
 function teamRatingDoubles(r1, r2) {
   const mean = (r1 + r2) / 2;
   const imbalance = Math.abs(r1 - r2);
@@ -433,6 +442,15 @@ export async function applyRatingForFinishedMatch(matchId) {
   }
   if (mt.ratingApplied) return;
 
+  const isForfeit = isForfeitResult(mt);
+  if (isForfeit) {
+    mt.ratingApplied = true;
+    mt.ratingAppliedAt = new Date();
+    mt.ratingDelta = 0;
+    await mt.save();
+    return;
+  }
+
   // ⭐ RATING GUARD
   const guardNoDelta =
     mt.noRankDelta === true ||
@@ -587,8 +605,6 @@ export async function applyRatingForFinishedMatch(matchId) {
   const expB = 1 - expA;
 
   // K scale
-  const isForfeit =
-    Array.isArray(mt.liveLog) && mt.liveLog.some((e) => e?.type === "forfeit");
   const marginBoost = isForfeit ? 0 : marginBoostFromScores(mt, winnerSide);
   const phaseMul = phaseMultiplier(mt, bracketType);
   const kScale =

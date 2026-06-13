@@ -759,6 +759,7 @@ const CustomSeed = ({
   championMatchId,
   resolveSideLabel,
   baseRoundStart = 1,
+  nodeKey,
 }) => {
   const { t: tLang } = useLanguage();
   const PRIMARY = "#1976d2";
@@ -1016,6 +1017,7 @@ const CustomSeed = ({
     >
       <SeedItem
         ref={itemRef}
+        data-ko-card={nodeKey || undefined}
         onClick={() => clickable && onOpen?.(m)}
         style={{
           cursor: clickable ? "pointer" : "default",
@@ -1023,7 +1025,6 @@ const CustomSeed = ({
           boxShadow: containsHovered
             ? `0 0 0 3px ${primaryRGBA(0.45)}, 0 10px 24px ${primaryRGBA(0.35)}`
             : "none",
-
           transition:
             "box-shadow .15s ease, background .15s ease, transform .12s ease",
         }}
@@ -1031,7 +1032,11 @@ const CustomSeed = ({
         <div
           className="champion-tour"
           ref={wrapRef}
-          style={{ position: "relative", display: "grid", gap: 6 }}
+          style={{
+            position: "relative",
+            display: "grid",
+            gap: 6,
+          }}
         >
           {isChampion && (
             <TrophyIcon
@@ -1048,7 +1053,10 @@ const CustomSeed = ({
           {m && (
             <div
               className="header-seed"
-              style={{ "--seed-bg": color.bg, "--seed-fg": color.fg }}
+              style={{
+                "--seed-bg": color.bg,
+                "--seed-fg": color.fg,
+              }}
             >
               <span className="seed-code" title={codeTitleFinal}>
                 {codeLabelFinal}
@@ -1169,6 +1177,8 @@ CustomSeed.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  baseRoundStart: PropTypes.number,
+  nodeKey: PropTypes.string,
 };
 
 const DOUBLE_ELIM_GF_GAP = 40;
@@ -3006,6 +3016,479 @@ RoundElimBracketLayout.propTypes = {
   resolveSideLabel: PropTypes.func,
   baseRoundStart: PropTypes.number,
   breakpoint: PropTypes.number,
+};
+
+const SYMMETRIC_KO_CARD_W = SEED_CARD_W;
+const SYMMETRIC_KO_COL_GAP = 84;
+const SYMMETRIC_KO_ROW_GAP = 34;
+const SYMMETRIC_KO_LINE = "rgba(25, 118, 210, 0.42)";
+
+function splitKnockoutRound(round, side) {
+  const seeds = Array.isArray(round?.seeds) ? round.seeds : [];
+  const mid = Math.ceil(seeds.length / 2);
+  const sourceSeeds = side === "left" ? seeds.slice(0, mid) : seeds.slice(mid);
+  return {
+    ...round,
+    seeds: sourceSeeds.map((seed, index) => ({
+      ...seed,
+      __symmetricOriginalIndex: side === "left" ? index : mid + index,
+    })),
+  };
+}
+
+function buildSymmetricConnectorPath(startX, startY, endX, endY, side) {
+  const distance = Math.abs(endX - startX);
+  const bend =
+    side === "left"
+      ? startX + Math.max(12, distance / 2)
+      : startX - Math.max(12, distance / 2);
+  return `M ${startX} ${startY} H ${bend} V ${endY} H ${endX}`;
+}
+
+function SymmetricSeedSlot({ nodeKey, children }) {
+  return (
+    <Box
+      data-ko-node={nodeKey || undefined}
+      sx={{
+        position: "relative",
+        width: SYMMETRIC_KO_CARD_W,
+        flex: `0 0 ${SYMMETRIC_KO_CARD_W}px`,
+        zIndex: 1,
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
+SymmetricSeedSlot.propTypes = {
+  nodeKey: PropTypes.string,
+  children: PropTypes.node,
+};
+
+function SymmetricBranch({
+  side,
+  rounds,
+  onOpen,
+  championMatchId,
+  resolveSideLabel,
+  baseRoundStart,
+}) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: `${SYMMETRIC_KO_COL_GAP}px`,
+      }}
+    >
+      {rounds.map((round, roundIndex) => (
+        <Box
+          key={`${side}-${round?.title || roundIndex}-${roundIndex}`}
+          sx={{
+            width: SYMMETRIC_KO_CARD_W,
+            flex: `0 0 ${SYMMETRIC_KO_CARD_W}px`,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            gap: `${Math.max(
+              SYMMETRIC_KO_ROW_GAP,
+              SYMMETRIC_KO_ROW_GAP + Math.max(0, 3 - (round?.seeds?.length || 1)) * 8,
+            )}px`,
+            minHeight: Math.max(180, (round?.seeds?.length || 1) * 136),
+          }}
+        >
+          {round?.title && (
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 700,
+                color: "text.secondary",
+                textAlign: "center",
+                textTransform: "uppercase",
+                letterSpacing: 0,
+              }}
+            >
+              {round.title}
+            </Typography>
+          )}
+          {(round?.seeds || []).map((seed, seedIndex) => (
+            <SymmetricSeedSlot key={String(seed?.id || `${side}-${roundIndex}-${seedIndex}`)}>
+              <CustomSeed
+                seed={{ ...seed, __disableConnector: true }}
+                breakpoint={0}
+                onOpen={onOpen}
+                championMatchId={championMatchId}
+                resolveSideLabel={resolveSideLabel}
+                baseRoundStart={baseRoundStart}
+                nodeKey={`${side}-${round.__symmetricRoundIndex}-${seed.__symmetricOriginalIndex ?? seedIndex}`}
+              />
+            </SymmetricSeedSlot>
+          ))}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+SymmetricBranch.propTypes = {
+  side: PropTypes.oneOf(["left", "right"]).isRequired,
+  rounds: PropTypes.arrayOf(
+    PropTypes.shape({
+      title: PropTypes.string,
+      seeds: PropTypes.array,
+    }),
+  ).isRequired,
+  onOpen: PropTypes.func,
+  championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  resolveSideLabel: PropTypes.func,
+  baseRoundStart: PropTypes.number,
+};
+
+function SymmetricKnockoutBracket({
+  rounds,
+  roundsKey,
+  onOpen,
+  championMatchId,
+  resolveSideLabel,
+  baseRoundStart,
+  zoom,
+}) {
+  const fitRef = useRef(null);
+  const rootRef = useRef(null);
+  const [connectors, setConnectors] = useState([]);
+  const [svgSize, setSvgSize] = useState({ width: 0, height: 0 });
+  const [autoScale, setAutoScale] = useState(1);
+  const finalRound = rounds[rounds.length - 1] || null;
+  const finalSeed =
+    Array.isArray(finalRound?.seeds) && finalRound.seeds.length
+      ? finalRound.seeds[0]
+      : null;
+  const { leftRounds, rightRounds } = useMemo(() => {
+    const branchRounds = rounds.slice(0, -1);
+    return {
+      leftRounds: branchRounds
+        .map((round, index) => ({
+          ...splitKnockoutRound(round, "left"),
+          __symmetricRoundIndex: index,
+        }))
+        .filter((round) => round.seeds.length > 0),
+      rightRounds: branchRounds
+        .map((round, index) => ({
+          ...splitKnockoutRound(round, "right"),
+          __symmetricRoundIndex: index,
+        }))
+        .filter((round) => round.seeds.length > 0)
+        .reverse(),
+    };
+  }, [rounds]);
+  const hasBranches = leftRounds.length || rightRounds.length;
+  const safeZoom =
+    Number.isFinite(Number(zoom)) && Number(zoom) > 0 ? Number(zoom) : 1;
+  const renderScale = safeZoom * autoScale;
+
+  useLayoutEffect(() => {
+    if (!hasBranches || !rootRef.current) {
+      setConnectors([]);
+      return undefined;
+    }
+
+    const root = rootRef.current;
+    let raf = 0;
+
+    const nodeMetrics = (key) => {
+      const node =
+        root.querySelector(`[data-ko-card="${key}"]`) ||
+        root.querySelector(`[data-ko-node="${key}"]`);
+      if (!node) return null;
+      const { left, top } = getNodeOffsetWithinRoot(root, node);
+      const width = node.offsetWidth || node.getBoundingClientRect().width || 0;
+      const height = node.offsetHeight || node.getBoundingClientRect().height || 0;
+      return {
+        left,
+        right: left + width,
+        centerY: top + height / 2,
+      };
+    };
+
+    const build = () => {
+      const nextConnectors = [];
+      const contentWidth =
+        root.scrollWidth ||
+        root.offsetWidth ||
+        root.getBoundingClientRect().width ||
+        0;
+      const contentHeight =
+        root.scrollHeight ||
+        root.offsetHeight ||
+        root.getBoundingClientRect().height ||
+        0;
+      const availableWidth = fitRef.current?.clientWidth || contentWidth;
+      const nextAutoScale =
+        contentWidth > 0 && availableWidth > 0
+          ? Math.min(1, Math.max(0.25, (availableWidth - 8) / contentWidth))
+          : 1;
+
+      setSvgSize((prev) => {
+        const next = {
+          width: contentWidth,
+          height: contentHeight,
+        };
+        if (
+          Math.abs(prev.width - next.width) < 0.5 &&
+          Math.abs(prev.height - next.height) < 0.5
+        ) {
+          return prev;
+        }
+        return next;
+      });
+      setAutoScale((prev) =>
+        Math.abs(prev - nextAutoScale) < 0.005 ? prev : nextAutoScale,
+      );
+
+      const finalNode = nodeMetrics("final");
+      if (!finalNode) {
+        setConnectors([]);
+        return;
+      }
+
+      const collect = (side, sideRounds) => {
+        const byIndex = new Map(
+          sideRounds.map((round) => [round.__symmetricRoundIndex, round]),
+        );
+        sideRounds.forEach((round) => {
+          (round.seeds || []).forEach((seed, seedIndex) => {
+            const originalIndex = seed.__symmetricOriginalIndex ?? seedIndex;
+            const sourceKey = `${side}-${round.__symmetricRoundIndex}-${originalIndex}`;
+            const source = nodeMetrics(sourceKey);
+            if (!source) return;
+
+            const nextRound = byIndex.get(round.__symmetricRoundIndex + 1);
+            const targetOriginalIndex = Math.floor(originalIndex / 2);
+            const target = nextRound
+              ? nodeMetrics(
+                  `${side}-${nextRound.__symmetricRoundIndex}-${targetOriginalIndex}`,
+                )
+              : finalNode;
+            if (!target) return;
+
+            const startX = side === "left" ? source.right : source.left;
+            const endX = side === "left" ? target.left : target.right;
+            nextConnectors.push({
+              key: `${sourceKey}->${nextRound ? `${side}-${nextRound.__symmetricRoundIndex}-${targetOriginalIndex}` : "final"}`,
+              d: buildSymmetricConnectorPath(
+                startX,
+                source.centerY,
+                endX,
+                target.centerY,
+                side,
+              ),
+            });
+          });
+        });
+      };
+
+      collect("left", leftRounds);
+      collect("right", rightRounds);
+      setConnectors((prev) => {
+        if (
+          prev.length === nextConnectors.length &&
+          prev.every(
+            (connector, index) =>
+              connector.key === nextConnectors[index]?.key &&
+              connector.d === nextConnectors[index]?.d,
+          )
+        ) {
+          return prev;
+        }
+        return nextConnectors;
+      });
+    };
+
+    const scheduleBuild = () => {
+      window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(build);
+    };
+
+    scheduleBuild();
+    const resizeObserver = new ResizeObserver(scheduleBuild);
+    if (fitRef.current) resizeObserver.observe(fitRef.current);
+    resizeObserver.observe(root);
+    root
+      .querySelectorAll("[data-ko-card], [data-ko-node]")
+      .forEach((node) => resizeObserver.observe(node));
+    window.addEventListener("resize", scheduleBuild);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", scheduleBuild);
+    };
+  }, [hasBranches, leftRounds, rightRounds, roundsKey]);
+
+  if (!hasBranches) {
+    return (
+      <HighlightProvider>
+        <HeightSyncProvider roundsKey={roundsKey}>
+          <Box sx={{ width: SYMMETRIC_KO_CARD_W, mx: "auto" }}>
+            {finalSeed && (
+              <CustomSeed
+                seed={{ ...finalSeed, __disableConnector: true }}
+                breakpoint={0}
+                onOpen={onOpen}
+                championMatchId={championMatchId}
+                resolveSideLabel={resolveSideLabel}
+                baseRoundStart={baseRoundStart}
+              />
+            )}
+          </Box>
+        </HeightSyncProvider>
+      </HighlightProvider>
+    );
+  }
+
+  return (
+    <HighlightProvider>
+      <HeightSyncProvider roundsKey={roundsKey}>
+        <Box
+          ref={fitRef}
+          data-ko-fit-shell="true"
+          sx={{ width: "100%", overflowX: "auto", overflowY: "visible" }}
+        >
+          <Box
+            sx={{
+              position: "relative",
+              width: svgSize.width ? svgSize.width * renderScale : "max-content",
+              height: svgSize.height ? svgSize.height * renderScale : "auto",
+              minHeight: svgSize.height ? svgSize.height * renderScale : 1,
+              mx: "auto",
+            }}
+          >
+            <Box
+              ref={rootRef}
+              data-ko-fit-root="true"
+              sx={{
+                position: svgSize.width ? "absolute" : "relative",
+                left: 0,
+                top: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: `${SYMMETRIC_KO_COL_GAP}px`,
+                width: "max-content",
+                p: { xs: 1, md: 2 },
+                transform: `scale(${renderScale})`,
+                transformOrigin: "0 0",
+              }}
+            >
+              <svg
+                width={svgSize.width}
+                height={svgSize.height}
+                viewBox={`0 0 ${svgSize.width || 0} ${svgSize.height || 0}`}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  width: svgSize.width,
+                  height: svgSize.height,
+                  overflow: "visible",
+                  pointerEvents: "none",
+                  zIndex: 0,
+                }}
+              >
+                {connectors.map((connector) => (
+                  <path
+                    key={connector.key}
+                    data-ko-connector="true"
+                    d={connector.d}
+                    fill="none"
+                    stroke={SYMMETRIC_KO_LINE}
+                    strokeWidth="2"
+                    strokeLinecap="square"
+                    shapeRendering="crispEdges"
+                  />
+                ))}
+              </svg>
+
+              <SymmetricBranch
+                side="left"
+                rounds={leftRounds}
+                onOpen={onOpen}
+                championMatchId={championMatchId}
+                resolveSideLabel={resolveSideLabel}
+                baseRoundStart={baseRoundStart}
+              />
+
+              <Box
+                sx={{
+                  width: SYMMETRIC_KO_CARD_W,
+                  flex: `0 0 ${SYMMETRIC_KO_CARD_W}px`,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                  justifyContent: "center",
+                  minHeight: 220,
+                }}
+              >
+                {finalRound?.title && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontWeight: 700,
+                      color: "text.secondary",
+                      textAlign: "center",
+                      textTransform: "uppercase",
+                      letterSpacing: 0,
+                      mb: 2,
+                    }}
+                  >
+                    {finalRound.title}
+                  </Typography>
+                )}
+                {finalSeed && (
+                  <SymmetricSeedSlot nodeKey="final">
+                    <CustomSeed
+                      seed={{ ...finalSeed, __disableConnector: true }}
+                      breakpoint={0}
+                      onOpen={onOpen}
+                      championMatchId={championMatchId}
+                      resolveSideLabel={resolveSideLabel}
+                      baseRoundStart={baseRoundStart}
+                      nodeKey="final"
+                    />
+                  </SymmetricSeedSlot>
+                )}
+              </Box>
+
+              <SymmetricBranch
+                side="right"
+                rounds={rightRounds}
+                onOpen={onOpen}
+                championMatchId={championMatchId}
+                resolveSideLabel={resolveSideLabel}
+                baseRoundStart={baseRoundStart}
+              />
+            </Box>
+          </Box>
+        </Box>
+      </HeightSyncProvider>
+    </HighlightProvider>
+  );
+}
+
+SymmetricKnockoutBracket.propTypes = {
+  rounds: PropTypes.arrayOf(
+    PropTypes.shape({
+      title: PropTypes.string,
+      seeds: PropTypes.array,
+    }),
+  ).isRequired,
+  roundsKey: PropTypes.string.isRequired,
+  onOpen: PropTypes.func,
+  championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  resolveSideLabel: PropTypes.func,
+  baseRoundStart: PropTypes.number,
+  zoom: PropTypes.number.isRequired,
 };
 
 function buildEmptyRoundsByScale(
@@ -7354,33 +7837,22 @@ export default function TournamentBracket() {
                     mobileFixed
                     mobileBottomGap={80}
                   />
-                  <Box sx={{ overflow: "auto", pb: 1, borderRadius: 1 }}>
-                    <Box
-                      className="ko-bracket"
-                      sx={{
-                        display: "inline-block",
-                        transform: `scale(${zoom})`,
-                        transformOrigin: "0 0",
-                      }}
-                    >
-                      <HighlightProvider>
-                        <HeightSyncProvider roundsKey={roundsKeyKO}>
-                          <Bracket
-                            rounds={roundsToRender}
-                            renderSeedComponent={(props) => (
-                              <CustomSeed
-                                {...props}
-                                onOpen={openMatchModal}
-                                championMatchId={finalMatchId}
-                                resolveSideLabel={resolveSideLabel}
-                                baseRoundStart={baseRoundStartForCurrent}
-                              />
-                            )}
-                            mobileBreakpoint={0}
-                          />
-                        </HeightSyncProvider>
-                      </HighlightProvider>
-                    </Box>
+                  <Box
+                    sx={{
+                      overflow: "auto",
+                      pb: 1,
+                      borderRadius: 1,
+                    }}
+                  >
+                    <SymmetricKnockoutBracket
+                      rounds={roundsToRender}
+                      roundsKey={roundsKeyKO}
+                      onOpen={openMatchModal}
+                      championMatchId={finalMatchId}
+                      resolveSideLabel={resolveSideLabel}
+                      baseRoundStart={baseRoundStartForCurrent}
+                      zoom={zoom}
+                    />
                   </Box>
                 </Box>
 

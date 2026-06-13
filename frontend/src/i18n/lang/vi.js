@@ -2285,6 +2285,11 @@ export default {
         "Vui lòng nhập số CCCD hợp lệ (12 số) trước khi gửi ảnh.",
       cccdUploadSuccess: "Đã gửi ảnh, vui lòng chờ xác minh.",
       cccdUploadFailed: "Upload thất bại",
+      cccdQrDetected: "Đã nhận diện QR CCCD và tự điền số {cccd}.",
+      cccdQrNotFound:
+        "QR của CCCD không thể nhận diện. Vui lòng chụp rõ mặt trước hoặc nhập số CCCD thủ công.",
+      cccdQrUnsupported:
+        "Trình duyệt chưa hỗ trợ quét QR tự động. Vui lòng nhập số CCCD thủ công.",
     },
     placeholder: {
       noImage: "Chưa có ảnh",
@@ -2379,6 +2384,13 @@ export default {
         processOnly: "Thông tin này chỉ dùng cho quy trình xác minh",
         enterBeforeUpload:
           "Vui lòng nhập số CCCD ở trên trước khi tải ảnh lên.",
+      },
+      qr: {
+        helper:
+          "Tải ảnh mặt trước CCCD để hệ thống quét QR trên trình duyệt và tự điền số CCCD nếu nhận diện được.",
+        frontHint: "Tự quét QR để điền CCCD",
+        scanning: "Đang quét QR trên ảnh CCCD...",
+        detected: "Đã quét QR và tự điền số CCCD {cccd}.",
       },
       images: {
         front: "Mặt trước",

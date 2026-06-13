@@ -12,6 +12,27 @@ function validSide(side) {
   return side === "A" || side === "B" ? side : "A";
 }
 
+function oppositeSide(side) {
+  return side === "A" ? "B" : "A";
+}
+
+function buildForfeitGameScores(snapshot, winnerSide) {
+  const pointsToWin = Math.max(1, toNum(snapshot?.rules?.pointsToWin, 11));
+  const bestOf = Math.max(1, toNum(snapshot?.rules?.bestOf, 1));
+  const gamesToWin = Math.max(1, Math.floor(bestOf / 2) + 1);
+  return Array.from({ length: gamesToWin }, () =>
+    winnerSide === "A"
+      ? { a: pointsToWin, b: 0 }
+      : { a: 0, b: pointsToWin },
+  );
+}
+
+function resolveForfeitedSide(winnerSide, payload = {}) {
+  const raw = String(payload?.forfeitedSide || "").toUpperCase();
+  if (raw === "A" || raw === "B") return raw;
+  return oppositeSide(winnerSide);
+}
+
 function validServer(server) {
   return server === 1 || server === 2 ? server : 1;
 }
@@ -291,6 +312,18 @@ export function applyLiveSyncEventLocally(snapshot, input) {
     next.status = "finished";
     next.winner = payload.winner;
     next.finishedAt = new Date().toISOString();
+    if (type === "forfeit") {
+      const winnerSide = validSide(payload.winner);
+      const forfeitedSide = resolveForfeitedSide(winnerSide, payload);
+      next.gameScores = buildForfeitGameScores(next, winnerSide);
+      next.currentGame = Math.max(0, next.gameScores.length - 1);
+      next.ratingDelta = 0;
+      next.ratingApplied = true;
+      next.ratingAppliedAt = new Date().toISOString();
+      next.meta = next.meta && typeof next.meta === "object" ? next.meta : {};
+      next.meta.resultType = "forfeit";
+      next.meta.forfeitedSide = forfeitedSide;
+    }
     if (payload.reason) {
       next.note = `[${payload.reason}] ${next.note || ""}`.trim();
     }

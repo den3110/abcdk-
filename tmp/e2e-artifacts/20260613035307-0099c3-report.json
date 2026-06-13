@@ -1,0 +1,383 @@
+{
+  "runId": "20260613035307-0099c3",
+  "startedAt": "2026-06-13T03:53:07.631Z",
+  "services": [
+    {
+      "name": "api health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:07.634Z",
+      "durationMs": 74
+    },
+    {
+      "name": "web health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:07.708Z",
+      "durationMs": 28
+    },
+    {
+      "name": "admin health",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:07.736Z",
+      "durationMs": 13
+    }
+  ],
+  "apiSteps": [
+    {
+      "name": "connect mongodb",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:07.749Z",
+      "durationMs": 33
+    },
+    {
+      "name": "prepare test admin",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:07.782Z",
+      "durationMs": 161
+    },
+    {
+      "name": "prepare player 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:07.943Z",
+      "durationMs": 109
+    },
+    {
+      "name": "prepare player 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:08.052Z",
+      "durationMs": 94
+    },
+    {
+      "name": "prepare player 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:08.146Z",
+      "durationMs": 91
+    },
+    {
+      "name": "prepare player 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:08.237Z",
+      "durationMs": 91
+    },
+    {
+      "name": "admin login",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:08.328Z",
+      "durationMs": 202
+    },
+    {
+      "name": "create tournament",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:08.530Z",
+      "durationMs": 87
+    },
+    {
+      "name": "create registration 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:08.617Z",
+      "durationMs": 333
+    },
+    {
+      "name": "create registration 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:08.950Z",
+      "durationMs": 98
+    },
+    {
+      "name": "create registration 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.048Z",
+      "durationMs": 98
+    },
+    {
+      "name": "create registration 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.146Z",
+      "durationMs": 87
+    },
+    {
+      "name": "check in registration 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.233Z",
+      "durationMs": 50
+    },
+    {
+      "name": "check in registration 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.283Z",
+      "durationMs": 59
+    },
+    {
+      "name": "check in registration 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.342Z",
+      "durationMs": 39
+    },
+    {
+      "name": "check in registration 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.381Z",
+      "durationMs": 34
+    },
+    {
+      "name": "create knockout bracket",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.415Z",
+      "durationMs": 194
+    },
+    {
+      "name": "create semifinal 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:09.609Z",
+      "durationMs": 1061
+    },
+    {
+      "name": "create semifinal 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:10.670Z",
+      "durationMs": 132
+    },
+    {
+      "name": "finish semifinal 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:10.802Z",
+      "durationMs": 119
+    },
+    {
+      "name": "finish semifinal 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:10.921Z",
+      "durationMs": 73
+    },
+    {
+      "name": "create final from semifinal winners",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:10.994Z",
+      "durationMs": 289
+    },
+    {
+      "name": "finish final",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:11.283Z",
+      "durationMs": 73
+    },
+    {
+      "name": "verify admin registrations",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:11.356Z",
+      "durationMs": 32
+    },
+    {
+      "name": "verify admin brackets",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:11.388Z",
+      "durationMs": 30
+    },
+    {
+      "name": "verify admin bracket matches",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:11.418Z",
+      "durationMs": 44
+    },
+    {
+      "name": "verify public tournament",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:11.462Z",
+      "durationMs": 38
+    },
+    {
+      "name": "verify public brackets",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:11.500Z",
+      "durationMs": 38
+    },
+    {
+      "name": "verify public matches",
+      "status": "ok",
+      "startedAt": "2026-06-13T03:53:11.538Z",
+      "durationMs": 44
+    }
+  ],
+  "uiSmoke": [
+    {
+      "label": "web home desktop",
+      "url": "http://localhost:3000/",
+      "status": "failed",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:300",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteResultsPane2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SD647BUE.js?v=69b20d87:78:30)\n    at Fade2 (http://localhost:3000/node_modules/.vite/deps/chunk-3SL23XJO.js?v=69b20d87:1214:17)\n    at FocusTrap (http://localhost:",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <p> p \n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:4",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <div> p \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ButtonBase2 (http://localhost:3000/node_modules/.vite/deps/chunk-U23DC243.js?v=69b20d87:605:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    ",
+        "console: Warning: %s: Support for defaultProps will be removed from function components in a future major release. Use JavaScript default parameters instead.%s AppInstallBanner \n    at AppInstallBanner (http://localhost:3000/src/components/AppInstallBanner.jsx:71:44)\n    at Hero (http://localhost:3000/src/components/Hero.jsx:326:24)\n    at HomeScreen (http://localhost:3000/src/screens/HomeScreen.jsx:23:31)\n    at RenderedRoute (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=dc985f72:4103:5)\n    at Outlet (http://localhost:3000/node_modules/.vite/deps/react-router-dom.js?v=dc985f72:4510:26)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at main\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b"
+      ],
+      "failedRequests": [
+        "POST https://www.google-analytics.com/g/collect?v=2&tid=G-BK01KVL8V8&gtm=45je66a1v873211830za200zd873211830&_p=1781322800111&gcd=13l3l3l3l1l1&npa=0&dma=0&are=1&cid=2016693894.1781322801&frm=0&pscdl=&rcb=10&sr=800x600&uaa=x86&uab=64&uafvl=Not_A%2520Brand%3B99.0.0.0%7CChromium%3B142.0.7444.162&uam=&uamb=0&uap=Windows&uapv=19.0.0&uaw=0&ul=en-us&_s=1&tag_exp=115616986~115938465~115938468~119456239~119456247&dp=%2F&dt=Pickletour.vn%20-%20K%E1%BA%BFt%20n%E1%BB%91i%20c%E1%BB%99ng%20%C4%91%E1%BB%93ng%20%26%20qu%E1%BA%A3n%20l%C3%BD%20gi%E1%BA%A3i%20%C4%91%E1%BA%A5u%20Pickleball&sid=1781322801&sct=1&seg=0&dl=http%3A%2F%2Flocalhost%2F&en=page_view&_fv=1&_nsi=1&_ss=1&_ee=1&tfd=6080 net::ERR_ABORTED"
+      ],
+      "title": "PickleTour.vn - Kết nối cộng đồng & quản lý giải đấu",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký CÁCH MẠNG HÓA PICKLEBALL VIỆT NAM Kết nối cộng đồng & quản lý giải đấu thể thao PickleTour giúp bạn đăng ký, tổ chức, theo dõi điểm trình và cập nhật bảng xếp hạng cho mọi môn thể thao – ngay trên điện thoại. Bắt đầu ngay Đăng ",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035307-0099c3-web-home-desktop.png"
+    },
+    {
+      "label": "web tournament overview desktop",
+      "url": "http://localhost:3000/tournament/6a2cd424bf0ad2d92cdb860c",
+      "status": "failed",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:300",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteResultsPane2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SD647BUE.js?v=69b20d87:78:30)\n    at Fade2 (http://localhost:3000/node_modules/.vite/deps/chunk-3SL23XJO.js?v=69b20d87:1214:17)\n    at FocusTrap (http://localhost:",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <p> p \n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:4",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <div> p \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ButtonBase2 (http://localhost:3000/node_modules/.vite/deps/chunk-U23DC243.js?v=69b20d87:605:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    ",
+        "console: Failed to load resource: the server responded with a status of 400 (Bad Request)"
+      ],
+      "failedRequests": [],
+      "title": "Tổng quan: Codex E2E Tournament 20260613035307-0099c3 | Pickletour.vn",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký Bạn không có quyền truy cập. PickleTour Nền tảng quản lý giải đấu, cộng đồng và trải nghiệm trực tiếp cho Pickleball, được thiết kế để mọi người theo dõi giải đấu nhanh hơn và rõ ràng hơn. Hỗ trợ pháp lý và vận hành: support@pi",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035307-0099c3-web-tournament-overview-desktop.png"
+    },
+    {
+      "label": "web bracket desktop",
+      "url": "http://localhost:3000/tournament/6a2cd424bf0ad2d92cdb860c/bracket",
+      "status": "failed",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:300",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteResultsPane2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SD647BUE.js?v=69b20d87:78:30)\n    at Fade2 (http://localhost:3000/node_modules/.vite/deps/chunk-3SL23XJO.js?v=69b20d87:1214:17)\n    at FocusTrap (http://localhost:",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <p> p \n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:4",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <div> p \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ButtonBase2 (http://localhost:3000/node_modules/.vite/deps/chunk-U23DC243.js?v=69b20d87:605:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    "
+      ],
+      "failedRequests": [],
+      "title": "Sơ đồ: Codex E2E Tournament 20260613035307-0099c3 | Pickletour.vn",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký Sơ đồ giải: Codex E2E Tournament 20260613035307-0099c3 Số đội: 4 Check-in: 4/4 Địa điểm: Codex E2E Court Chú thích: R/V: Vòng; T: Trận; B: Bảng; W: Thắng; L: Thua; BYE: Ưu tiên Xanh: hoàn thành Cam: đang thi đấu Vàng: chuẩn bị ",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035307-0099c3-web-bracket-desktop.png"
+    },
+    {
+      "label": "web bracket mobile",
+      "url": "http://localhost:3000/tournament/6a2cd424bf0ad2d92cdb860c/bracket",
+      "status": "failed",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:300",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteResultsPane2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SD647BUE.js?v=69b20d87:78:30)\n    at Fade2 (http://localhost:3000/node_modules/.vite/deps/chunk-3SL23XJO.js?v=69b20d87:1214:17)\n    at FocusTrap (http://localhost:",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <p> p \n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:4",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <div> p \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ButtonBase2 (http://localhost:3000/node_modules/.vite/deps/chunk-U23DC243.js?v=69b20d87:605:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    "
+      ],
+      "failedRequests": [],
+      "title": "Sơ đồ: Codex E2E Tournament 20260613035307-0099c3 | Pickletour.vn",
+      "bodySample": "P ickleTour VI EN Sơ đồ giải: Codex E2E Tournament 20260613035307-0099c3 Số đội: 4 Check-in: 4/4 Địa điểm: Codex E2E Court Chú thích: R/V: Vòng; T: Trận; B: Bảng; W: Thắng; L: Thua; BYE: Ưu tiên Xanh: hoàn thành Cam: đang thi đấu Vàng: chuẩn bị Ghi: dự kiến Main KO Knockout VÒNG KNOCK-OUT: MAIN KO B",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035307-0099c3-web-bracket-mobile.png"
+    },
+    {
+      "label": "web schedule desktop",
+      "url": "http://localhost:3000/tournament/6a2cd424bf0ad2d92cdb860c/schedule",
+      "status": "failed",
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:300",
+        "console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteResultsPane2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Transition2 (http://localhost:3000/node_modules/.vite/deps/chunk-SD647BUE.js?v=69b20d87:78:30)\n    at Fade2 (http://localhost:3000/node_modules/.vite/deps/chunk-3SL23XJO.js?v=69b20d87:1214:17)\n    at FocusTrap (http://localhost:",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <p> p \n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:4",
+        "console: Warning: validateDOMNesting(...): %s cannot appear as a descendant of <%s>.%s <div> p \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at p\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Typography2 (http://localhost:3000/node_modules/.vite/deps/chunk-ZPIXMMUO.js?v=69b20d87:169:7)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ListItemText2 (http://localhost:3000/node_modules/.vite/deps/chunk-A6SWYMIB.js?v=69b20d87:233:17)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at ButtonBase2 (http://localhost:3000/node_modules/.vite/deps/chunk-U23DC243.js?v=69b20d87:605:17)\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    "
+      ],
+      "failedRequests": [],
+      "title": "Lịch thi đấu: Codex E2E Tournament 20260613035307-0099c3 | Pickletour.vn",
+      "bodySample": "P ickleTour Giải đấu Điểm trình Live Thêm Ctrl K VI EN Đăng nhập Đăng ký Lịch thi đấu | Codex E2E Tournament 20260613035307-0099c3 XEM SƠ ĐỒ Tình trạng sân đấu Chưa có thông tin sân đấu. Tất cả Đang diễn ra Sắp tới Đã kết thúc ​ V1-T1 Main KO Chưa phân sân codex_20260613035307_0099c3_1 11-5 KẾT THÚC",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035307-0099c3-web-schedule-desktop.png"
+    },
+    {
+      "label": "admin tournament matches",
+      "url": "http://127.0.0.1:3001/admin/tournaments/6a2cd424bf0ad2d92cdb860c/matches",
+      "status": "failed",
+      "errors": [
+        "console: Warning: React does not recognize the `%s` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase `%s` instead. If you accidentally passed it from a parent component, remove it from the DOM element.%s noCollapse nocollapse \n    at div\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at Box (http://127.0.0.1:3001/static/js/bundle.js:220480:72)\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at _c (http://127.0.0.1:3001/static/js/bundle.js:15861:3)\n    at li\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at ListItem (http://127.0.0.1:3001/static/js/bundle.js:198595:83)\n    at SidenavCollapse (http://127.0.0.1:3001/static/js/bundle.js:24259:3)\n    at a\n    at LinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316255:7)\n    at NavLinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316328:23)\n    at ul\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at L"
+      ],
+      "failedRequests": [],
+      "title": "PickleTour React",
+      "bodySample": "PickleTour dashboard Bảng điều khiển stadium Quản lý sân event_available Quản lý đặt sân handshake Nhà tài trợ article Tin tức (AI) article Tin tức PickleTour people Quản lý người dùng fact_check Tự chấm trình how_to_reg Người chấm trình emoji_events Giải đấu sports_tennis Trận đấu visibility Xem tr",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035307-0099c3-admin-tournament-matches.png"
+    },
+    {
+      "label": "admin tournament bracket",
+      "url": "http://127.0.0.1:3001/admin/tournaments/6a2cd424bf0ad2d92cdb860c/bracket",
+      "status": "failed",
+      "errors": [
+        "console: Warning: React does not recognize the `%s` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase `%s` instead. If you accidentally passed it from a parent component, remove it from the DOM element.%s noCollapse nocollapse \n    at div\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at Box (http://127.0.0.1:3001/static/js/bundle.js:220480:72)\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at _c (http://127.0.0.1:3001/static/js/bundle.js:15861:3)\n    at li\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at ListItem (http://127.0.0.1:3001/static/js/bundle.js:198595:83)\n    at SidenavCollapse (http://127.0.0.1:3001/static/js/bundle.js:24259:3)\n    at a\n    at LinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316255:7)\n    at NavLinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316328:23)\n    at ul\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at L"
+      ],
+      "failedRequests": [],
+      "title": "PickleTour React",
+      "bodySample": "PickleTour dashboard Bảng điều khiển stadium Quản lý sân event_available Quản lý đặt sân handshake Nhà tài trợ article Tin tức (AI) article Tin tức PickleTour people Quản lý người dùng fact_check Tự chấm trình how_to_reg Người chấm trình emoji_events Giải đấu sports_tennis Trận đấu visibility Xem tr",
+      "screenshot": "tmp\\e2e-artifacts\\20260613035307-0099c3-admin-tournament-bracket.png"
+    }
+  ],
+  "data": {
+    "tournament": {
+      "id": "6a2cd424bf0ad2d92cdb860c",
+      "name": "Codex E2E Tournament 20260613035307-0099c3",
+      "code": "E2E30700993"
+    },
+    "bracket": {
+      "id": "6a2cd425bf0ad2d92cdb8678",
+      "name": "Main KO",
+      "type": "knockout"
+    },
+    "matches": {
+      "semifinal1": "6a2cd425bf0ad2d92cdb8680",
+      "semifinal2": "6a2cd426bf0ad2d92cdb869b",
+      "final": "6a2cd427bf0ad2d92cdb86ee",
+      "championRegistration": "6a2cd424bf0ad2d92cdb861c"
+    }
+  },
+  "warnings": [
+    {
+      "name": "final finishedAt missing",
+      "message": "The score endpoint finished the match but did not set finishedAt."
+    }
+  ],
+  "failures": [
+    {
+      "bucket": "uiSmoke",
+      "name": "web home desktop",
+      "message": "console: Failed to load resource: the server responded with a status of 404 (Not Found) | console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404 | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/ | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/no"
+    },
+    {
+      "bucket": "uiSmoke",
+      "name": "web tournament overview desktop",
+      "message": "console: Failed to load resource: the server responded with a status of 404 (Not Found) | console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404 | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/ | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/no"
+    },
+    {
+      "bucket": "uiSmoke",
+      "name": "web bracket desktop",
+      "message": "console: Failed to load resource: the server responded with a status of 404 (Not Found) | console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404 | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/ | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/no"
+    },
+    {
+      "bucket": "uiSmoke",
+      "name": "web bracket mobile",
+      "message": "console: Failed to load resource: the server responded with a status of 404 (Not Found) | console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404 | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/ | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/no"
+    },
+    {
+      "bucket": "uiSmoke",
+      "name": "web schedule desktop",
+      "message": "console: Failed to load resource: the server responded with a status of 404 (Not Found) | console: Manifest fetch from http://localhost:3000/manifest.webmanifest failed, code 404 | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteSearchInput2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Paper2 (http://localhost:3000/node_modules/.vite/deps/chunk-LU6VU3PP.js?v=69b20d87:148:17)\n    at http://localhost:3000/ | console: Warning: %s: Support for defaultProps will be removed from memo components in a future major release. Use JavaScript default parameters instead.%s PaletteOperatorStrip2 \n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Grid2 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:5225:24)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/node_modules/.vite/deps/chunk-CBJ6L6VZ.js?v=69b20d87:1290:45\n    at Box3 (http://localhost:3000/node_modules/.vite/deps/chunk-HYY6JSNC.js?v=69b20d87:2534:19)\n    at div\n    at http://localhost:3000/no"
+    },
+    {
+      "bucket": "uiSmoke",
+      "name": "admin tournament matches",
+      "message": "console: Warning: React does not recognize the `%s` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase `%s` instead. If you accidentally passed it from a parent component, remove it from the DOM element.%s noCollapse nocollapse \n    at div\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at Box (http://127.0.0.1:3001/static/js/bundle.js:220480:72)\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at _c (http://127.0.0.1:3001/static/js/bundle.js:15861:3)\n    at li\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at ListItem (http://127.0.0.1:3001/static/js/bundle.js:198595:83)\n    at SidenavCollapse (http://127.0.0.1:3001/static/js/bundle.js:24259:3)\n    at a\n    at LinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316255:7)\n    at NavLinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316328:23)\n    at ul\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at L"
+    },
+    {
+      "bucket": "uiSmoke",
+      "name": "admin tournament bracket",
+      "message": "console: Warning: React does not recognize the `%s` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase `%s` instead. If you accidentally passed it from a parent component, remove it from the DOM element.%s noCollapse nocollapse \n    at div\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at Box (http://127.0.0.1:3001/static/js/bundle.js:220480:72)\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at _c (http://127.0.0.1:3001/static/js/bundle.js:15861:3)\n    at li\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at ListItem (http://127.0.0.1:3001/static/js/bundle.js:198595:83)\n    at SidenavCollapse (http://127.0.0.1:3001/static/js/bundle.js:24259:3)\n    at a\n    at LinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316255:7)\n    at NavLinkWithRef (http://127.0.0.1:3001/static/js/bundle.js:316328:23)\n    at ul\n    at http://127.0.0.1:3001/static/js/bundle.js:171221:66\n    at L"
+    }
+  ],
+  "finishedAt": "2026-06-13T03:54:03.244Z",
+  "ok": false
+}

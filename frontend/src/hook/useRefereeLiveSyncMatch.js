@@ -81,6 +81,8 @@ function shouldApplyLiveSyncRuntime(nextRuntime = {}, currentRuntime = {}) {
   );
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+
 export function useRefereeLiveSyncMatch(
   matchId,
   tokenFromArg,
@@ -156,9 +158,9 @@ export function useRefereeLiveSyncMatch(
       const ownerUserId = trim(owner.userId);
       const ownerDeviceId = trim(owner.deviceId);
       const isSelf =
-        ownerUserId && currentUserId
-          ? ownerUserId === currentUserId
-          : Boolean(currentDeviceId) && ownerDeviceId === currentDeviceId;
+        ownerDeviceId || currentDeviceId
+          ? Boolean(ownerDeviceId && currentDeviceId && ownerDeviceId === currentDeviceId)
+          : Boolean(ownerUserId && currentUserId && ownerUserId === currentUserId);
       return {
         ...owner,
         isSelf,
@@ -221,31 +223,62 @@ export function useRefereeLiveSyncMatch(
   );
 
   const httpRequest = useCallback(
-    async (path, { method = "GET", body, headers = {} } = {}) => {
+    async (
+      path,
+      {
+        method = "GET",
+        body,
+        headers = {},
+        timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+      } = {}
+    ) => {
       const [deviceId, deviceName] = await Promise.all([
         getDeviceId(),
         getDeviceName(),
       ]);
       deviceRef.current = { deviceId, deviceName };
-      const response = await fetch(`${BASE_URL}${path}`, {
-        method,
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          "X-Device-Id": deviceId,
-          "X-Device-Name": deviceName,
-          ...(headers || {}),
-        },
-        body: body ? JSON.stringify({ ...body, deviceId, deviceName }) : undefined,
-      });
-      const json = await parseJsonSafe(response);
-      if (!response.ok) {
-        const error = buildRequestError(json, "Request failed");
-        error.status = response.status;
+
+      const canAbort = typeof AbortController !== "undefined";
+      const timeoutValue = Math.max(0, Number(timeoutMs || 0));
+      const controller = canAbort && timeoutValue > 0 ? new AbortController() : null;
+      const timer = controller
+        ? setTimeout(() => controller.abort(), timeoutValue)
+        : null;
+
+      try {
+        const response = await fetch(`${BASE_URL}${path}`, {
+          method,
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            "X-Device-Id": deviceId,
+            "X-Device-Name": deviceName,
+            ...(headers || {}),
+          },
+          body: body ? JSON.stringify({ ...body, deviceId, deviceName }) : undefined,
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+        const json = await parseJsonSafe(response);
+        if (!response.ok) {
+          const error = buildRequestError(json, "Request failed");
+          error.status = response.status;
+          throw error;
+        }
+        return json || {};
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          const timeoutError = buildRequestError(
+            { code: "request_timeout", message: "Request timed out" },
+            "Request timed out"
+          );
+          timeoutError.code = "request_timeout";
+          throw timeoutError;
+        }
         throw error;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
-      return json || {};
     },
     [token]
   );
@@ -317,7 +350,7 @@ export function useRefereeLiveSyncMatch(
         headers,
         socketEvent = "",
         socketFirst = true,
-        timeoutMs = 5000,
+        timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
       } = {}
     ) => {
       const shouldTrySocket =
@@ -339,7 +372,7 @@ export function useRefereeLiveSyncMatch(
         }
       }
 
-      return httpRequest(path, { method, body, headers });
+      return httpRequest(path, { method, body, headers, timeoutMs });
     },
     [socket, socketRequest, httpRequest]
   );
@@ -1158,6 +1191,27 @@ export function useRefereeLiveSyncMatch(
     return () => clearInterval(interval);
   }, [enabled, matchId, state.featureEnabled, state.online, token, claim, state.owner]);
 
+  useEffect(() => {
+    if (!enabled || !matchId || !state.online || !token || !state.pendingCount) {
+      return;
+    }
+    const interval = setInterval(() => {
+      const owner = persistRef.current.owner;
+      if (!state.featureEnabled || !owner || owner.isSelf) {
+        syncNow();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [
+    enabled,
+    matchId,
+    state.featureEnabled,
+    state.online,
+    state.pendingCount,
+    token,
+    syncNow,
+  ]);
+
   const api = useMemo(
     () => ({
       start: () => enqueueEvent("start"),
@@ -1170,12 +1224,12 @@ export function useRefereeLiveSyncMatch(
       undo: () => enqueueEvent("undo"),
       finish: (winner, reason = "") =>
         enqueueEvent("finish", { winner, reason }),
-      forfeit: (winner, reason = "forfeit") =>
-        enqueueEvent("forfeit", { winner, reason }),
+      forfeit: (winner, reason = "forfeit", extra = {}) =>
+        enqueueEvent("forfeit", { winner, reason, ...extra }),
       nextGame: ({ autoNext, userMatch = false } = {}) =>
         request(`/api/referee/matches/${matchId}/score`, {
           method: "PATCH",
-          body: { autoNext, userMatch },
+          body: { op: "nextGame", autoNext, userMatch },
           headers: userMatch ? { "X-Pkt-Match-Kind": "user" } : undefined,
           socketEvent: "match:nextGame",
         }),

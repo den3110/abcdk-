@@ -524,6 +524,7 @@ async function broadcastScoreUpdated(io, matchId) {
     type: "score:update",
     matchId,
     emitScoreUpdated: true,
+    emitLiveActivity: false,
   });
 }
 
@@ -985,7 +986,20 @@ export const patchScore = asyncHandler(async (req, res) => {
       return res.status(400).json({ message: "Invalid delta" });
     }
 
-    await addPoint(id, side, d, req.user?._id, io, { autoNext });
+    const liveResult = await addPoint(id, side, d, req.user?._id, io, {
+      autoNext,
+    });
+
+    if (!autoNext) {
+      const snapshot = liveResult?.snapshot || {};
+      return res.json({
+        message: "Score updated",
+        gameScores: snapshot.gameScores ?? [],
+        status: snapshot.status,
+        winner: snapshot.winner,
+        ratingApplied: snapshot.ratingApplied,
+      });
+    }
 
     // Lấy bản mới để tính lại
     const freshDoc = await Match.findById(id);
@@ -1034,14 +1048,13 @@ export const patchScore = asyncHandler(async (req, res) => {
       }
     }
 
-    const fresh = await Match.findById(id).lean();
     await broadcastScoreUpdated(io, id);
     return res.json({
       message: "Score updated",
-      gameScores: fresh?.gameScores ?? [],
-      status: fresh?.status,
-      winner: fresh?.winner,
-      ratingApplied: fresh?.ratingApplied,
+      gameScores: freshDoc?.gameScores ?? [],
+      status: freshDoc?.status,
+      winner: freshDoc?.winner,
+      ratingApplied: freshDoc?.ratingApplied,
     });
   }
 

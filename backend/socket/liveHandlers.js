@@ -1049,14 +1049,7 @@ async function applyRatingDeltaForMatch(mt, scorerId) {
 
 // ✅ addPoint mới: trung lập, chỉ auto khi opts.autoNext === true
 export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
-  const { autoNext = false } = opts;
-  if (autoNext) {
-    console.warn(
-      "[liveHandlers] autoNext is not supported by offline sync bridge; ignoring"
-    );
-  }
-
-  await applyLegacyLiveAction({
+  return applyLegacyLiveAction({
     matchId,
     type: "point",
     payload: { team, step },
@@ -1267,7 +1260,14 @@ export async function forfeitMatch(
   return applyLegacyLiveAction({
     matchId,
     type: "forfeit",
-    payload: { winner, reason: reason || "forfeit" },
+    payload: {
+      winner,
+      reason: reason || "forfeit",
+      forfeitedSide:
+        opts?.forfeitedSide === "A" || opts?.forfeitedSide === "B"
+          ? opts.forfeitedSide
+          : undefined,
+    },
     user: by ? { _id: by } : null,
     io,
     deviceId:

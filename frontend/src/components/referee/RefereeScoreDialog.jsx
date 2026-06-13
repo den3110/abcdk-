@@ -1168,6 +1168,17 @@ export default function RefereeScoreDialog({
     });
   }, [api, breakState?.active, currentGame, ensureInteractionAllowed, runProtectedBusy]);
 
+  const handleForfeitSide = useCallback(
+    (forfeitedSide) => {
+      const side = forfeitedSide === "A" ? "A" : "B";
+      const winner = side === "A" ? "B" : "A";
+      return runProtectedBusy(`forfeit-${side.toLowerCase()}`, () =>
+        api.forfeit(winner, "forfeit", { forfeitedSide: side }),
+      );
+    },
+    [api, runProtectedBusy],
+  );
+
   const cta = useMemo(() => {
     if (match?.status === "finished") return null;
     if (needsStartAction) {
@@ -2289,24 +2300,20 @@ export default function RefereeScoreDialog({
                       <Button
                         variant="outlined"
                         color="error"
-                        onClick={() =>
-                          runProtectedBusy("forfeit-a", () => api.forfeit("A", "forfeit"))
-                        }
+                        onClick={() => handleForfeitSide("A")}
                         disabled={!match?._id || Boolean(busy)}
                         sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                       >
-                        Forfeit A
+                        A bỏ trận
                       </Button>
                       <Button
                         variant="outlined"
                         color="error"
-                        onClick={() =>
-                          runProtectedBusy("forfeit-b", () => api.forfeit("B", "forfeit"))
-                        }
+                        onClick={() => handleForfeitSide("B")}
                         disabled={!match?._id || Boolean(busy)}
                         sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                       >
-                        Forfeit B
+                        B bỏ trận
                       </Button>
                     </Stack>
                   </Stack>
@@ -2537,24 +2544,20 @@ export default function RefereeScoreDialog({
                     <Button
                       variant="outlined"
                       color="error"
-                      onClick={() =>
-                        runProtectedBusy("forfeit-a", () => api.forfeit("A", "forfeit"))
-                      }
+                      onClick={() => handleForfeitSide("A")}
                       disabled={!match?._id || Boolean(busy)}
                       sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                     >
-                      Forfeit A
+                      A bỏ trận
                     </Button>
                     <Button
                       variant="outlined"
                       color="error"
-                      onClick={() =>
-                        runProtectedBusy("forfeit-b", () => api.forfeit("B", "forfeit"))
-                      }
+                      onClick={() => handleForfeitSide("B")}
                       disabled={!match?._id || Boolean(busy)}
                       sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                     >
-                      Forfeit B
+                      B bỏ trận
                     </Button>
                   </Stack>
                 </Stack>

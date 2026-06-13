@@ -1,0 +1,28 @@
+{
+  "runId": "20260613035141-e83074",
+  "startedAt": "2026-06-13T03:51:41.376Z",
+  "services": [
+    {
+      "name": "api health",
+      "status": "failed",
+      "startedAt": "2026-06-13T03:51:41.387Z",
+      "durationMs": 54,
+      "error": {
+        "message": "fetch failed"
+      }
+    }
+  ],
+  "apiSteps": [],
+  "uiSmoke": [],
+  "data": {},
+  "warnings": [],
+  "failures": [
+    {
+      "bucket": "services",
+      "name": "api health",
+      "message": "fetch failed"
+    }
+  ],
+  "finishedAt": "2026-06-13T03:51:41.442Z",
+  "ok": false
+}

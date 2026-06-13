@@ -307,6 +307,8 @@ export default function HomeScreenV2() {
     };
   }, [fallbackHero, heroError, heroLoading, heroRes]);
 
+  const heroBackdropUrl = heroData.imageUrl || fallbackImg;
+
   const heroLines = useMemo(
     () => buildHeroLines(heroData.title, locale),
     [heroData.title, locale],

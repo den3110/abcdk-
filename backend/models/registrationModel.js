@@ -15,11 +15,29 @@ const counterSchema = new mongoose.Schema(
 const Counter =
   mongoose.models.Counter || mongoose.model("Counter", counterSchema);
 
+async function getMaxExistingRegistrationCode() {
+  try {
+    const rows = await mongoose.connection
+      .collection("registrations")
+      .find({ code: { $type: "number" } })
+      .project({ code: 1 })
+      .sort({ code: -1 })
+      .limit(1)
+      .toArray();
+    const maxCode = Number(rows?.[0]?.code || 0);
+    return Number.isFinite(maxCode) ? maxCode : 0;
+  } catch (err) {
+    return 0;
+  }
+}
+
 /**
  * Lấy mã đăng ký tiếp theo (atomic, không trùng).
  * Bắt đầu từ 10000 (5 chữ số), khi vượt 99999 tự nhiên lên 6 chữ số (100000), v.v.
  */
 async function getNextRegistrationCode() {
+  const maxExistingCode = Math.max(9999, await getMaxExistingRegistrationCode());
+
   try {
     // ✅ Cách 1: aggregation pipeline update -> không còn xung đột path
     const doc = await Counter.findOneAndUpdate(
@@ -28,7 +46,13 @@ async function getNextRegistrationCode() {
         {
           $set: {
             // seq = (seq ?? 9999) + 1  -> lần đầu ra 10000
-            seq: { $add: [{ $ifNull: ["$seq", 9999] }, 1] },
+            // Keep the counter ahead of legacy/imported rows if it is stale.
+            seq: {
+              $add: [
+                { $max: [{ $ifNull: ["$seq", 9999] }, maxExistingCode] },
+                1,
+              ],
+            },
           },
         },
       ],
@@ -41,7 +65,7 @@ async function getNextRegistrationCode() {
     // Tách làm 2 bước vẫn an toàn với _id cố định.
     await Counter.updateOne(
       { _id: "registration_code" },
-      { $setOnInsert: { seq: 9999 } },
+      { $setOnInsert: { seq: 9999 }, $max: { seq: maxExistingCode } },
       { upsert: true }
     );
     const doc = await Counter.findOneAndUpdate(

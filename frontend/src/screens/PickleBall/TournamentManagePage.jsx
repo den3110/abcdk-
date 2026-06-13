@@ -612,6 +612,38 @@ const scoreSummary = (m) => {
 const extractRealtimeMatchPayload = (payload) =>
   payload?.data ?? payload?.snapshot ?? payload?.match ?? payload ?? null;
 
+const LIST_AFFECTING_LIVE_FIELDS = new Set([
+  "status",
+  "video",
+  "courtAssigned",
+  "assignedCourt",
+  "court",
+  "courtId",
+  "courtLabel",
+  "courtName",
+  "courtStation",
+  "courtStationId",
+  "courtStationLabel",
+  "courtStationName",
+]);
+
+const sameLiveValue = (left, right) => {
+  if (Object.is(left, right)) return true;
+  if (
+    left &&
+    right &&
+    typeof left === "object" &&
+    typeof right === "object"
+  ) {
+    try {
+      return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
+
 /* ========= Live store ========= */
 function createLiveStore() {
   const map = new Map();
@@ -638,13 +670,13 @@ function createLiveStore() {
           ? prev
           : { ...prev, ...partial };
       map.set(key, next);
-      const changed = Object.keys(partial || {}).some(
-        (field) => prev?.[field] !== next?.[field],
+      const changedFields = Object.keys(partial || {}).filter(
+        (field) => !sameLiveValue(prev?.[field], next?.[field]),
       );
-      if (!changed) return false;
+      if (!changedFields.length) return false;
       const subs = listeners.get(key);
       if (subs) subs.forEach((fn) => fn());
-      return prev.status !== next.status;
+      return changedFields.some((field) => LIST_AFFECTING_LIVE_FIELDS.has(field));
     },
     subscribe(id, cb) {
       const key = String(id);
@@ -737,6 +769,15 @@ const pickRealtimeFields = (src = {}) => {
     "serve",
     "courtAssigned",
     "assignedCourt",
+    "court",
+    "courtId",
+    "courtLabel",
+    "courtName",
+    "courtStation",
+    "courtStationId",
+    "courtStationLabel",
+    "courtStationName",
+    "video",
   ];
   const out = {};
   keys.forEach((k) => {
@@ -2548,8 +2589,8 @@ export default function TournamentManagePage() {
       const partial = pickRealtimeFields(data);
       if (Object.keys(partial).length === 0) return;
 
-      const statusChanged = liveStore.set(mid, partial);
-      if (statusChanged) {
+      const listChanged = liveStore.set(mid, partial);
+      if (listChanged) {
         startTransition(() => setOrderVersion((v) => v + 1));
         // Khi 1 trận KẾT THÚC, đội thắng mới quyết định đội ở các trận sau.
         // Realtime không kèm `winner`, nên refetch danh sách (debounced) để
@@ -3840,7 +3881,15 @@ export default function TournamentManagePage() {
           const allSelected = isAllSelectedIn(list);
 
           return (
-            <Paper key={bid} variant="outlined" sx={{ mb: 2 }}>
+            <Paper
+              key={bid}
+              variant="outlined"
+              sx={{
+                mb: 2,
+                contentVisibility: "auto",
+                containIntrinsicSize: "520px",
+              }}
+            >
               <Box p={2} pb={0}>
                 <Stack
                   direction="row"
@@ -3876,25 +3925,128 @@ export default function TournamentManagePage() {
               </Box>
 
               {/* Desktop table — fixed layout */}
-              <Box sx={{ display: { xs: "none", md: "block" } }}>
-                <TableContainer>
-                  <Table
-                    size="small"
-                    sx={{
-                      tableLayout: "fixed",
-                      "& th, & td": {
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        py: 0.5,
-                      },
-                    }}
-                  >
-                    <TableHead>
-                      <TableRow>
-                        <TableCell
-                          padding="checkbox"
-                          sx={{ width: 56, minWidth: 56 }}
+              {!isMobile && (
+                <Box>
+                  <TableContainer>
+                    <Table
+                      size="small"
+                      sx={{
+                        tableLayout: "fixed",
+                        "& th, & td": {
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          py: 0.5,
+                        },
+                      }}
+                    >
+                      <TableHead>
+                        <TableRow>
+                          <TableCell
+                            padding="checkbox"
+                            sx={{ width: 56, minWidth: 56 }}
+                          >
+                            <Checkbox
+                              size="small"
+                              checked={allSelected}
+                              indeterminate={
+                                !allSelected &&
+                                list.some((m) =>
+                                  selectedMatchIds.has(String(m._id)),
+                                )
+                              }
+                              onChange={(e) =>
+                                toggleSelectAllIn(list, e.target.checked)
+                              }
+                            />
+                          </TableCell>
+                          <TableCell sx={{ width: 100 }}>
+                            {t("tournaments.manage.exportHeaders.matchCode")}
+                          </TableCell>
+                          <TableCell sx={{ width: 220 }}>
+                            {t("tournaments.manage.exportHeaders.pairA")}
+                          </TableCell>
+                          <TableCell sx={{ width: 220 }}>
+                            {t("tournaments.manage.exportHeaders.pairB")}
+                          </TableCell>
+                          <TableCell sx={{ width: 96 }}>
+                            {t("tournaments.manage.exportHeaders.court")}
+                          </TableCell>
+                          <TableCell sx={{ width: 68 }}>Thứ tự</TableCell>
+                          <TableCell sx={{ width: 110 }}>
+                            {t("tournaments.manage.exportHeaders.score")}
+                          </TableCell>
+                          <TableCell sx={{ width: 110 }}>Trạng thái</TableCell>
+                          <TableCell sx={{ width: 76 }} align="center">
+                            Video
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+
+                      {mLoading ? (
+                        <TableSkeletonRows rows={8} cols={9} />
+                      ) : (
+                        <TableBody>
+                          {list.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={9} align="center">
+                                <Typography color="text.secondary">
+                                  Chưa có trận nào.
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            list.map((m) => (
+                              <MatchDesktopRows
+                                key={m._id}
+                                match={m}
+                                liveStore={liveStore}
+                                eventType={tour?.eventType || "double"}
+                                displayMode={displayMode}
+                                canStartReferee={canStartRefereeMatch(m)}
+                                onRowClick={(mid) => openMatch(mid)}
+                                onOpenVideo={openVideoDlg}
+                                onDeleteVideo={deleteVideoDlg}
+                                onAssignCourt={openAssignCourt}
+                                onAssignRef={openAssignRef}
+                                onExportRefNote={handleExportRefNote}
+                                onStartReferee={openRefereeMatch}
+                                checked={selectedMatchIds.has(String(m._id))}
+                                onToggleSelect={toggleSelectMatch}
+                              />
+                            ))
+                          )}
+                        </TableBody>
+                      )}
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+
+              {/* Mobile cards */}
+              {isMobile && (
+                <Box>
+                  <Box p={2} pt={1}>
+                    {mLoading ? (
+                      <Grid container spacing={1.2}>
+                        {Array.from({ length: 6 }).map((_, k) => (
+                          <Grid key={k} item size={{ xs: 12 }}>
+                            <MatchCardSkeleton />
+                          </Grid>
+                        ))}
+                      </Grid>
+                    ) : list.length === 0 ? (
+                      <Typography color="text.secondary" align="center" py={2}>
+                        Chưa có trận nào.
+                      </Typography>
+                    ) : (
+                      <>
+                        {/* Select-all cho mobile */}
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          spacing={1}
+                          sx={{ mb: 1 }}
                         >
                           <Checkbox
                             size="small"
@@ -3908,150 +4060,53 @@ export default function TournamentManagePage() {
                             onChange={(e) =>
                               toggleSelectAllIn(list, e.target.checked)
                             }
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onTouchStart={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            inputProps={{
+                              "aria-label": "Chọn tất cả (mobile)",
+                            }}
                           />
-                        </TableCell>
-                        <TableCell sx={{ width: 100 }}>
-                          {t("tournaments.manage.exportHeaders.matchCode")}
-                        </TableCell>
-                        <TableCell sx={{ width: 220 }}>
-                          {t("tournaments.manage.exportHeaders.pairA")}
-                        </TableCell>
-                        <TableCell sx={{ width: 220 }}>
-                          {t("tournaments.manage.exportHeaders.pairB")}
-                        </TableCell>
-                        <TableCell sx={{ width: 96 }}>
-                          {t("tournaments.manage.exportHeaders.court")}
-                        </TableCell>
-                        <TableCell sx={{ width: 68 }}>Thứ tự</TableCell>
-                        <TableCell sx={{ width: 110 }}>
-                          {t("tournaments.manage.exportHeaders.score")}
-                        </TableCell>
-                        <TableCell sx={{ width: 110 }}>Trạng thái</TableCell>
-                        <TableCell sx={{ width: 76 }} align="center">
-                          Video
-                        </TableCell>
-                      </TableRow>
-                    </TableHead>
+                          <Typography variant="body2">Chọn tất cả</Typography>
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`${
+                              list.filter((m) =>
+                                selectedMatchIds.has(String(m._id)),
+                              ).length
+                            } đã chọn`}
+                          />
+                        </Stack>
 
-                    {mLoading ? (
-                      <TableSkeletonRows rows={8} cols={9} />
-                    ) : (
-                      <TableBody>
-                        {list.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={9} align="center">
-                              <Typography color="text.secondary">
-                                Chưa có trận nào.
-                              </Typography>
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          list.map((m) => (
-                            <MatchDesktopRows
-                              key={m._id}
-                              match={m}
-                              liveStore={liveStore}
-                              eventType={tour?.eventType || "double"}
-                              displayMode={displayMode}
-                              canStartReferee={canStartRefereeMatch(m)}
-                              onRowClick={(mid) => openMatch(mid)}
-                              onOpenVideo={openVideoDlg}
-                              onDeleteVideo={deleteVideoDlg}
-                              onAssignCourt={openAssignCourt}
-                              onAssignRef={openAssignRef}
-                              onExportRefNote={handleExportRefNote}
-                              onStartReferee={openRefereeMatch}
-                              checked={selectedMatchIds.has(String(m._id))}
-                              onToggleSelect={toggleSelectMatch}
-                            />
-                          ))
-                        )}
-                      </TableBody>
-                    )}
-                  </Table>
-                </TableContainer>
-              </Box>
-
-              {/* Mobile cards */}
-              <Box sx={{ display: { xs: "block", md: "none" } }}>
-                <Box p={2} pt={1}>
-                  {mLoading ? (
-                    <Grid container spacing={1.2}>
-                      {Array.from({ length: 6 }).map((_, k) => (
-                        <Grid key={k} item size={{ xs: 12 }}>
-                          <MatchCardSkeleton />
+                        <Grid container spacing={1.2}>
+                          {list.map((m) => (
+                            <Grid key={m._id} item size={{ xs: 12, sm: 6 }}>
+                              <MatchCard
+                                match={m}
+                                liveStore={liveStore}
+                                eventType={tour?.eventType || "double"}
+                                displayMode={displayMode}
+                                canStartReferee={canStartRefereeMatch(m)}
+                                onCardClick={(mid) => openMatch(mid)}
+                                onOpenVideo={openVideoDlg}
+                                onDeleteVideo={deleteVideoDlg}
+                                onAssignCourt={openAssignCourt}
+                                onAssignRef={openAssignRef}
+                                onExportRefNote={handleExportRefNote}
+                                onStartReferee={openRefereeMatch}
+                                checked={selectedMatchIds.has(String(m._id))}
+                                onToggleSelect={toggleSelectMatch}
+                              />
+                            </Grid>
+                          ))}
                         </Grid>
-                      ))}
-                    </Grid>
-                  ) : list.length === 0 ? (
-                    <Typography color="text.secondary" align="center" py={2}>
-                      Chưa có trận nào.
-                    </Typography>
-                  ) : (
-                    <>
-                      {/* Select-all cho mobile */}
-                      <Stack
-                        direction="row"
-                        alignItems="center"
-                        spacing={1}
-                        sx={{ mb: 1 }}
-                      >
-                        <Checkbox
-                          size="small"
-                          checked={allSelected}
-                          indeterminate={
-                            !allSelected &&
-                            list.some((m) =>
-                              selectedMatchIds.has(String(m._id)),
-                            )
-                          }
-                          onChange={(e) =>
-                            toggleSelectAllIn(list, e.target.checked)
-                          }
-                          onClick={(e) => e.stopPropagation()}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          inputProps={{ "aria-label": "Chọn tất cả (mobile)" }}
-                        />
-                        <Typography variant="body2">Chọn tất cả</Typography>
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          label={`${
-                            list.filter((m) =>
-                              selectedMatchIds.has(String(m._id)),
-                            ).length
-                          } đã chọn`}
-                        />
-                      </Stack>
-
-                      <Grid container spacing={1.2}>
-                        {list.map((m) => (
-                          <Grid key={m._id} item size={{ xs: 12, sm: 6 }}>
-                            <MatchCard
-                              match={m}
-                              liveStore={liveStore}
-                              eventType={tour?.eventType || "double"}
-                              displayMode={displayMode}
-                              canStartReferee={canStartRefereeMatch(m)}
-                              onCardClick={(mid) => openMatch(mid)}
-                              onOpenVideo={openVideoDlg}
-                              onDeleteVideo={deleteVideoDlg}
-                              onAssignCourt={openAssignCourt}
-                              onAssignRef={openAssignRef}
-                              onExportRefNote={handleExportRefNote}
-                              onStartReferee={openRefereeMatch}
-                              checked={selectedMatchIds.has(String(m._id))}
-                              onToggleSelect={toggleSelectMatch}
-                            />
-                          </Grid>
-                        ))}
-                      </Grid>
-                    </>
-                  )}
+                      </>
+                    )}
+                  </Box>
                 </Box>
-              </Box>
+              )}
             </Paper>
           );
         })

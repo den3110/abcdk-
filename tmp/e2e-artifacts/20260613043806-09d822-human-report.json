@@ -1,0 +1,186 @@
+{
+  "runId": "20260613043806-09d822",
+  "startedAt": "2026-06-13T04:38:06.125Z",
+  "services": [
+    {
+      "name": "api health",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:06.129Z",
+      "durationMs": 55
+    },
+    {
+      "name": "web health",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:06.184Z",
+      "durationMs": 23
+    },
+    {
+      "name": "admin health",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:06.207Z",
+      "durationMs": 16
+    }
+  ],
+  "uiActions": [
+    {
+      "name": "admin ui login",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:08.295Z",
+      "userId": "68b9afe0d1097020f8291803",
+      "role": "admin",
+      "screenshot": "tmp\\e2e-artifacts\\20260613043806-09d822-human-admin-login.png",
+      "durationMs": 4936
+    }
+  ],
+  "apiSteps": [
+    {
+      "name": "connect mongodb",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:06.223Z",
+      "durationMs": 32
+    },
+    {
+      "name": "prepare player 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.272Z",
+      "durationMs": 159
+    },
+    {
+      "name": "prepare player 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.431Z",
+      "durationMs": 98
+    },
+    {
+      "name": "prepare player 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.529Z",
+      "durationMs": 86
+    },
+    {
+      "name": "prepare player 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.615Z",
+      "durationMs": 82
+    },
+    {
+      "name": "create tournament",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.697Z",
+      "durationMs": 66
+    },
+    {
+      "name": "create paid registration 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.763Z",
+      "durationMs": 146
+    },
+    {
+      "name": "create paid registration 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.909Z",
+      "durationMs": 64
+    },
+    {
+      "name": "create paid registration 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:13.973Z",
+      "durationMs": 78
+    },
+    {
+      "name": "create paid registration 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:14.051Z",
+      "durationMs": 53
+    },
+    {
+      "name": "check in registration 1",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:14.104Z",
+      "durationMs": 22
+    },
+    {
+      "name": "check in registration 2",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:14.126Z",
+      "durationMs": 21
+    },
+    {
+      "name": "check in registration 3",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:14.147Z",
+      "durationMs": 22
+    },
+    {
+      "name": "check in registration 4",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:14.169Z",
+      "durationMs": 26
+    },
+    {
+      "name": "create empty knockout bracket",
+      "status": "ok",
+      "startedAt": "2026-06-13T04:38:14.195Z",
+      "durationMs": 32
+    },
+    {
+      "name": "start knockout draw session",
+      "status": "failed",
+      "startedAt": "2026-06-13T04:38:24.437Z",
+      "durationMs": 74,
+      "error": {
+        "message": "POST /api/draw/6a2cdeb6bff98ec42d3191f4/start returned 400: Invalid 'round' for knockout.",
+        "status": 400,
+        "body": "{\"message\":\"Invalid 'round' for knockout.\",\"stack\":\"Error: Invalid 'round' for knockout.\\n    at file:///D:/code/mern-auth/backend/controllers/drawController.js:872:13\\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\"}"
+      }
+    }
+  ],
+  "uiChecks": [
+    {
+      "label": "admin bracket before draw",
+      "url": "http://127.0.0.1:3001/admin/tournaments/6a2cdeb5bff98ec42d31918c/brackets",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "PickleTour React",
+      "bodySample": "PickleTour dashboard Bảng điều khiển stadium Quản lý sân event_available Quản lý đặt sân handshake Nhà tài trợ article Tin tức (AI) article Tin tức PickleTour people Quản lý người dùng fact_check Tự chấm trình how_to_reg Người chấm trình emoji_events Giải đấu sports_tennis Trận đấu visibility Xem trận (Global) system_update Cấu hình phiên bản app cloud_upload File công khai tune Tham số thuật toán",
+      "screenshot": "tmp\\e2e-artifacts\\20260613043806-09d822-human-admin-bracket-before-draw.png"
+    },
+    {
+      "label": "public draw live idle",
+      "url": "http://localhost:3000/tournament/6a2cdeb5bff98ec42d31918c/draw/live",
+      "status": "ok",
+      "errors": [],
+      "failedRequests": [],
+      "title": "Bốc thăm trực tiếp | Pickletour.vn",
+      "bodySample": "",
+      "screenshot": "tmp\\e2e-artifacts\\20260613043806-09d822-human-public-draw-live-idle.png"
+    }
+  ],
+  "data": {
+    "tournament": {
+      "id": "6a2cdeb5bff98ec42d31918c",
+      "name": "Codex Human Draw 20260613043806-09d822",
+      "code": "HUM1304380609D822",
+      "bracketId": "6a2cdeb6bff98ec42d3191f4",
+      "registrations": [
+        "6a2cdeb5bff98ec42d319198",
+        "6a2cdeb5bff98ec42d3191aa",
+        "6a2cdeb6bff98ec42d3191bc",
+        "6a2cdeb6bff98ec42d3191ce"
+      ]
+    }
+  },
+  "warnings": [],
+  "failures": [
+    {
+      "bucket": "apiSteps",
+      "name": "start knockout draw session",
+      "message": "POST /api/draw/6a2cdeb6bff98ec42d3191f4/start returned 400: Invalid 'round' for knockout.",
+      "status": 400,
+      "body": "{\"message\":\"Invalid 'round' for knockout.\",\"stack\":\"Error: Invalid 'round' for knockout.\\n    at file:///D:/code/mern-auth/backend/controllers/drawController.js:872:13\\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\"}"
+    }
+  ],
+  "finishedAt": "2026-06-13T04:38:24.987Z",
+  "ok": false
+}

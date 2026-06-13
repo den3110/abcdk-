@@ -219,8 +219,8 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
       },
       undo: () => socket?.emit("match:undo", { matchId }),
       finish: (winner) => socket?.emit("match:finish", { matchId, winner }),
-      forfeit: (winner, reason = "forfeit") =>
-        socket?.emit("match:forfeit", { matchId, winner, reason }),
+      forfeit: (winner, reason = "forfeit", extra = {}) =>
+        socket?.emit("match:forfeit", { matchId, winner, reason, ...extra }),
       setRules: (rules) => socket?.emit("match:rules", { matchId, rules }),
       assignCourt: (courtId) =>
         socket?.emit("match:court", { matchId, courtId }),

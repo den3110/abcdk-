@@ -2294,6 +2294,11 @@ export default {
         "Please enter a valid citizen ID (12 digits) before sending images.",
       cccdUploadSuccess: "Images sent. Please wait for verification.",
       cccdUploadFailed: "Upload failed",
+      cccdQrDetected: "Citizen ID QR detected and filled with {cccd}.",
+      cccdQrNotFound:
+        "The Citizen ID QR code could not be recognized. Please upload a clearer front-side image or enter the number manually.",
+      cccdQrUnsupported:
+        "This browser does not support automatic QR scanning. Please enter the citizen ID manually.",
     },
     placeholder: {
       noImage: "No image",
@@ -2391,6 +2396,13 @@ export default {
         processOnly: "This information is only used for verification",
         enterBeforeUpload:
           "Please enter the citizen ID number above before uploading images.",
+      },
+      qr: {
+        helper:
+          "Upload the front side of the citizen ID so the browser can scan the QR code and fill the number when recognized.",
+        frontHint: "Auto-scan QR to fill ID",
+        scanning: "Scanning the citizen ID QR code...",
+        detected: "QR scanned and citizen ID {cccd} was filled.",
       },
       images: {
         front: "Front side",

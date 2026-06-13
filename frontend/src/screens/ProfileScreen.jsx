@@ -180,6 +180,86 @@ const EMPTY = {
   avatar: "",
 };
 
+const CCCD_NUMBER_RE = /^\d{12}$/;
+
+function extractCccdFromQrText(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const exactParts = text
+    .split(/[|\n;,\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const exact = exactParts.find((part) => CCCD_NUMBER_RE.test(part));
+  if (exact) return exact;
+  const match = text.match(/\d{12}/);
+  return match ? match[0] : "";
+}
+
+async function loadImageElementFromFile(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = url;
+    if (typeof image.decode === "function") {
+      await image.decode();
+    } else {
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+      });
+    }
+    return image;
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+}
+
+async function scanCccdQrFromFile(file) {
+  if (!file || typeof window === "undefined") {
+    return { status: "not-found", cccd: "" };
+  }
+
+  const BarcodeDetectorCtor = window.BarcodeDetector;
+  if (typeof BarcodeDetectorCtor !== "function") {
+    return { status: "unsupported", cccd: "" };
+  }
+
+  if (typeof BarcodeDetectorCtor.getSupportedFormats === "function") {
+    const supportedFormats = await BarcodeDetectorCtor.getSupportedFormats();
+    if (
+      Array.isArray(supportedFormats) &&
+      !supportedFormats.includes("qr_code")
+    ) {
+      return { status: "unsupported", cccd: "" };
+    }
+  }
+
+  const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
+  let bitmap = null;
+  let source = null;
+
+  try {
+    if (typeof window.createImageBitmap === "function") {
+      bitmap = await window.createImageBitmap(file);
+      source = bitmap;
+    } else {
+      source = await loadImageElementFromFile(file);
+    }
+
+    const codes = await detector.detect(source);
+    for (const code of codes || []) {
+      const cccd = extractCccdFromQrText(code?.rawValue);
+      if (cccd) return { status: "found", cccd, rawValue: code.rawValue };
+    }
+    return { status: "not-found", cccd: "" };
+  } catch {
+    return { status: "not-found", cccd: "" };
+  } finally {
+    if (bitmap && typeof bitmap.close === "function") bitmap.close();
+  }
+}
+
 const KYC_STATUS_ICONS = {
   unverified: PendingIcon,
   pending: PendingIcon,
@@ -508,6 +588,11 @@ export default function ProfileScreen() {
 
   const [frontImg, setFrontImg] = useState(null);
   const [backImg, setBackImg] = useState(null);
+  const [qrScanState, setQrScanState] = useState({
+    status: "idle",
+    message: "",
+  });
+  const qrScanSeqRef = useRef(0);
 
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
@@ -681,17 +766,69 @@ export default function ProfileScreen() {
   const isValid = useMemo(() => !Object.keys(errors).length, [errors]);
 
   const isCccdValid = useMemo(
-    () => /^\d{12}$/.test((form.cccd || "").trim()),
+    () => CCCD_NUMBER_RE.test((form.cccd || "").trim()),
     [form.cccd],
   );
 
   const showErr = (field) => touched[field] && !!errors[field];
 
-  const onChange = (event) =>
-    setForm((prev) => ({ ...prev, [event.target.name]: event.target.value }));
+  const onChange = (event) => {
+    const { name, value } = event.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: name === "cccd" ? value.replace(/\D/g, "").slice(0, 12) : value,
+    }));
+  };
 
   const onBlur = (event) =>
     setTouched((prev) => ({ ...prev, [event.target.name]: true }));
+
+  const handleCccdFile = useCallback(
+    async (side, file) => {
+      if (!file) return;
+      if (side === "front") setFrontImg(file);
+      else setBackImg(file);
+
+      if (side !== "front") return;
+
+      const scanSeq = qrScanSeqRef.current + 1;
+      qrScanSeqRef.current = scanSeq;
+      setQrScanState({
+        status: "scanning",
+        message: t("profile.kyc.qr.scanning"),
+      });
+
+      const result = await scanCccdQrFromFile(file);
+      if (qrScanSeqRef.current !== scanSeq) return;
+
+      if (result.status === "found" && result.cccd) {
+        setForm((prev) => ({ ...prev, cccd: result.cccd }));
+        setTouched((prev) => ({ ...prev, cccd: true }));
+        setQrScanState({
+          status: "success",
+          message: t("profile.kyc.qr.detected", { cccd: result.cccd }),
+        });
+        setSnack({
+          open: true,
+          type: "success",
+          msg: t("profile.feedback.cccdQrDetected", { cccd: result.cccd }),
+        });
+        return;
+      }
+
+      const message =
+        result.status === "unsupported"
+          ? t("profile.feedback.cccdQrUnsupported")
+          : t("profile.feedback.cccdQrNotFound");
+      setQrScanState({ status: "warning", message });
+      setSnack({
+        open: true,
+        type: "warning",
+        msg: message,
+      });
+    },
+    [t],
+  );
 
   const diff = () => {
     const output = { _id: user?._id };
@@ -773,7 +910,9 @@ export default function ProfileScreen() {
 
   const sendCccd = async () => {
     if (!frontImg || !backImg || upLoad) return;
-    if (!isCccdValid) {
+    const cccdForSubmit = (form.cccd || "").trim();
+    if (!CCCD_NUMBER_RE.test(cccdForSubmit)) {
+      setTouched((prev) => ({ ...prev, cccd: true }));
       setSnack({
         open: true,
         type: "error",
@@ -785,11 +924,13 @@ export default function ProfileScreen() {
     const formData = new FormData();
     formData.append("front", frontImg);
     formData.append("back", backImg);
+    formData.append("cccd", cccdForSubmit);
 
     try {
       await uploadCccd(formData).unwrap();
       setFrontImg(null);
       setBackImg(null);
+      setQrScanState({ status: "idle", message: "" });
       await refetch();
       setSnack({
         open: true,
@@ -2087,20 +2228,39 @@ export default function ProfileScreen() {
                                 {t("profile.kyc.helpers.enterBeforeUpload")}
                               </Alert>
                             )}
+                            <Alert
+                              severity={
+                                qrScanState.status === "warning"
+                                  ? "warning"
+                                  : qrScanState.status === "success"
+                                    ? "success"
+                                    : "info"
+                              }
+                              sx={{ mb: 2, borderRadius: 3 }}
+                            >
+                              {qrScanState.message ||
+                                t("profile.kyc.qr.helper")}
+                            </Alert>
 
                             <Grid container spacing={2}>
                               <Grid size={{ xs: 12, md: 6 }}>
                                 <CccdDropzone
                                   label={t("profile.kyc.images.front")}
                                   file={frontImg}
-                                  onFile={setFrontImg}
+                                  onFile={(file) =>
+                                    handleCccdFile("front", file)
+                                  }
+                                  busy={qrScanState.status === "scanning"}
+                                  helperText={t("profile.kyc.qr.frontHint")}
                                 />
                               </Grid>
                               <Grid size={{ xs: 12, md: 6 }}>
                                 <CccdDropzone
                                   label={t("profile.kyc.images.back")}
                                   file={backImg}
-                                  onFile={setBackImg}
+                                  onFile={(file) =>
+                                    handleCccdFile("back", file)
+                                  }
                                 />
                               </Grid>
                             </Grid>
