@@ -3023,8 +3023,43 @@ const SYMMETRIC_KO_COL_GAP = 84;
 const SYMMETRIC_KO_ROW_GAP = 34;
 const SYMMETRIC_KO_LINE = "rgba(25, 118, 210, 0.42)";
 
-function splitKnockoutRound(round, side) {
+function buildSymmetricSlotCounts(rounds = []) {
+  const counts = (rounds || []).map((round) =>
+    Math.max(1, Array.isArray(round?.seeds) ? round.seeds.length : 0),
+  );
+  if (!counts.length) return counts;
+
+  counts[counts.length - 1] = 1;
+  for (let index = counts.length - 2; index >= 0; index -= 1) {
+    counts[index] = Math.max(counts[index], counts[index + 1] * 2);
+  }
+  return counts;
+}
+
+function makeSymmetricSpacer(round, slotIndex) {
+  return {
+    id: `symmetric-spacer-${round?.title || "round"}-${slotIndex}`,
+    __match: null,
+    __round: round?.seeds?.[0]?.__round || 1,
+    __symmetricSpacer: true,
+    teams: [],
+  };
+}
+
+function fillSymmetricSlots(round, slotCount) {
   const seeds = Array.isArray(round?.seeds) ? round.seeds : [];
+  const safeCount = Math.max(slotCount, seeds.length, 1);
+  const slots = Array.from({ length: safeCount }, (_, index) =>
+    makeSymmetricSpacer(round, index),
+  );
+  seeds.forEach((seed, index) => {
+    if (index < slots.length) slots[index] = seed;
+  });
+  return slots;
+}
+
+function splitKnockoutRound(round, side, slotCount) {
+  const seeds = fillSymmetricSlots(round, slotCount);
   const mid = Math.ceil(seeds.length / 2);
   const sourceSeeds = side === "left" ? seeds.slice(0, mid) : seeds.slice(mid);
   return {
@@ -3074,6 +3109,7 @@ function SymmetricBranch({
   resolveSideLabel,
   baseRoundStart,
 }) {
+  const sync = useContext(HeightSyncContext);
   return (
     <Box
       sx={{
@@ -3112,19 +3148,44 @@ function SymmetricBranch({
               {round.title}
             </Typography>
           )}
-          {(round?.seeds || []).map((seed, seedIndex) => (
-            <SymmetricSeedSlot key={String(seed?.id || `${side}-${roundIndex}-${seedIndex}`)}>
-              <CustomSeed
-                seed={{ ...seed, __disableConnector: true }}
-                breakpoint={0}
-                onOpen={onOpen}
-                championMatchId={championMatchId}
-                resolveSideLabel={resolveSideLabel}
-                baseRoundStart={baseRoundStart}
-                nodeKey={`${side}-${round.__symmetricRoundIndex}-${seed.__symmetricOriginalIndex ?? seedIndex}`}
-              />
-            </SymmetricSeedSlot>
-          ))}
+          {(round?.seeds || []).map((seed, seedIndex) => {
+            const nodeKey = `${side}-${round.__symmetricRoundIndex}-${
+              seed.__symmetricOriginalIndex ?? seedIndex
+            }`;
+            if (seed.__symmetricSpacer) {
+              const spacerRound = Number(seed.__round || round.__round || 1);
+              return (
+                <SymmetricSeedSlot
+                  key={String(seed?.id || `${side}-${roundIndex}-${seedIndex}`)}
+                >
+                  <Box
+                    aria-hidden="true"
+                    sx={{
+                      minHeight: Math.max(SEED_MIN_H, sync.get(spacerRound)),
+                      visibility: "hidden",
+                      pointerEvents: "none",
+                    }}
+                  />
+                </SymmetricSeedSlot>
+              );
+            }
+
+            return (
+              <SymmetricSeedSlot
+                key={String(seed?.id || `${side}-${roundIndex}-${seedIndex}`)}
+              >
+                <CustomSeed
+                  seed={{ ...seed, __disableConnector: true }}
+                  breakpoint={0}
+                  onOpen={onOpen}
+                  championMatchId={championMatchId}
+                  resolveSideLabel={resolveSideLabel}
+                  baseRoundStart={baseRoundStart}
+                  nodeKey={nodeKey}
+                />
+              </SymmetricSeedSlot>
+            );
+          })}
         </Box>
       ))}
     </Box>
@@ -3164,24 +3225,25 @@ function SymmetricKnockoutBracket({
     Array.isArray(finalRound?.seeds) && finalRound.seeds.length
       ? finalRound.seeds[0]
       : null;
+  const slotCounts = useMemo(() => buildSymmetricSlotCounts(rounds), [rounds]);
   const { leftRounds, rightRounds } = useMemo(() => {
     const branchRounds = rounds.slice(0, -1);
     return {
       leftRounds: branchRounds
         .map((round, index) => ({
-          ...splitKnockoutRound(round, "left"),
+          ...splitKnockoutRound(round, "left", slotCounts[index]),
           __symmetricRoundIndex: index,
         }))
         .filter((round) => round.seeds.length > 0),
       rightRounds: branchRounds
         .map((round, index) => ({
-          ...splitKnockoutRound(round, "right"),
+          ...splitKnockoutRound(round, "right", slotCounts[index]),
           __symmetricRoundIndex: index,
         }))
         .filter((round) => round.seeds.length > 0)
         .reverse(),
     };
-  }, [rounds]);
+  }, [rounds, slotCounts]);
   const hasBranches = leftRounds.length || rightRounds.length;
   const safeZoom =
     Number.isFinite(Number(zoom)) && Number(zoom) > 0 ? Number(zoom) : 1;
@@ -3623,8 +3685,11 @@ function buildRoundsWithPlaceholders(
   });
 
   const seedsCount = {};
-  if (firstRound === 1 && expectedFirstRoundPairs > 0) {
-    seedsCount[1] = Math.max(countByRoundReal[1] || 0, expectedFirstRoundPairs);
+  if (expectedFirstRoundPairs > 0) {
+    seedsCount[firstRound] = Math.max(
+      countByRoundReal[firstRound] || 0,
+      expectedFirstRoundPairs,
+    );
   } else if (countByRoundReal[lastRound]) {
     seedsCount[lastRound] = countByRoundReal[lastRound];
   } else {
@@ -3632,7 +3697,11 @@ function buildRoundsWithPlaceholders(
   }
 
   for (let r = lastRound - 1; r >= firstRound; r--) {
-    seedsCount[r] = countByRoundReal[r] || (seedsCount[r + 1] || 1) * 2;
+    seedsCount[r] = Math.max(
+      seedsCount[r] || 0,
+      countByRoundReal[r] || 0,
+      (seedsCount[r + 1] || 1) * 2,
+    );
   }
 
   if (extendForward) {
@@ -3640,17 +3709,36 @@ function buildRoundsWithPlaceholders(
     if (firstRound !== 1 && seedsCount[1]) cur = 1;
     while ((seedsCount[cur] || 1) > 1) {
       const nxt = cur + 1;
-      seedsCount[nxt] = Math.ceil((seedsCount[cur] || 1) / 2);
+      seedsCount[nxt] = Math.max(
+        seedsCount[nxt] || 0,
+        Math.ceil((seedsCount[cur] || 1) / 2),
+      );
       cur = nxt;
     }
   }
+
+  real.forEach((m) => {
+    const r = m.round || 1;
+    const order = Number(m?.order);
+    if (Number.isFinite(order)) {
+      seedsCount[r] = Math.max(seedsCount[r] || 0, order + 1);
+    }
+  });
 
   const roundNums = Object.keys(seedsCount)
     .map(Number)
     .sort((a, b) => a - b);
   const res = roundNums.map((r) => {
     const need = seedsCount[r]; // số trận ở round r
-    const seeds = Array.from({ length: need }, (_, i) => [
+    const ms = real
+      .filter((m) => (m.round || 1) === r)
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+    const maxOrderSlot = ms.reduce((max, m) => {
+      const order = Number(m?.order);
+      return Number.isFinite(order) ? Math.max(max, order + 1) : max;
+    }, 0);
+    const effectiveNeed = Math.max(need || 1, maxOrderSlot);
+    const seeds = Array.from({ length: effectiveNeed }, (_, i) => [
       { name: pendingTeamLabel },
       { name: pendingTeamLabel },
     ]).map((teams, i) => ({
@@ -3659,11 +3747,6 @@ function buildRoundsWithPlaceholders(
       __round: r,
       teams,
     }));
-
-    const ms = real
-      .filter((m) => (m.round || 1) === r)
-      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-
     ms.forEach((m, idx) => {
       let i = Number.isInteger(m.order)
         ? m.order
