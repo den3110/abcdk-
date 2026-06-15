@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Box } from "@mui/material";
 import PropTypes from "prop-types";
@@ -9,10 +9,13 @@ gsap.registerPlugin(MorphSVGPlugin);
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
+const LogoAnimationMorph = memo(function LogoAnimationMorph({
+  isMobile,
+  showBackButton,
+}) {
   const containerRef = useRef(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!containerRef.current) return;
 
     const container = containerRef.current;
@@ -26,6 +29,8 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     const canvasW = 28;
     const canvasH = 50;
     const dpr = window.devicePixelRatio || 1;
+    const ickleTourWidth = isMobile ? 75 : 90;
+    let remainingTextWidth = ickleTourWidth;
 
     const canvas = document.createElement("canvas");
     canvas.width = canvasW * dpr;
@@ -36,6 +41,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     canvas.style.overflow = "visible";
     canvas.style.marginRight = "-2px";
     canvas.style.transformOrigin = "center";
+    canvas.style.willChange = "transform, opacity";
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -94,14 +100,20 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       document.body.appendChild(measureSpan);
       const fullWidth =
         Math.ceil(measureSpan.getBoundingClientRect().width) + 6;
+      measureSpan.textContent = text.slice(1);
+      remainingTextWidth =
+        Math.ceil(measureSpan.getBoundingClientRect().width) + 2;
       measureSpan.remove();
       logoWrapper.style.minWidth = `${fullWidth}px`;
     }
+    logoWrapper.style.willChange = "transform";
+    logoWrapper.style.backfaceVisibility = "hidden";
 
     const pWrapper = document.createElement("div");
     pWrapper.style.display = "inline-flex";
     pWrapper.style.alignItems = "center";
     pWrapper.style.position = "relative";
+    pWrapper.style.willChange = "transform";
 
     const pSpan = document.createElement("span");
     pSpan.textContent = pChar;
@@ -117,6 +129,8 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     pSpan.style.marginLeft = "-28px";
     pSpan.style.position = "relative";
     pSpan.style.zIndex = "10";
+    pSpan.style.willChange = "transform, opacity";
+    pSpan.style.backfaceVisibility = "hidden";
 
     pWrapper.appendChild(canvas);
     pWrapper.appendChild(pSpan);
@@ -125,8 +139,12 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     lettersWrapper.style.display = "inline-block";
     lettersWrapper.style.whiteSpace = "nowrap";
     lettersWrapper.style.opacity = "0";
-    lettersWrapper.style.width = "0";
+    lettersWrapper.style.width = `${remainingTextWidth}px`;
     lettersWrapper.style.overflow = "hidden";
+    lettersWrapper.style.clipPath = "inset(0 100% 0 0)";
+    lettersWrapper.style.webkitClipPath = "inset(0 100% 0 0)";
+    lettersWrapper.style.transformOrigin = "left center";
+    lettersWrapper.style.willChange = "clip-path, opacity";
 
     const remainingSpans = text
       .slice(1)
@@ -143,6 +161,8 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         span.style.fontWeight = "800";
         span.style.fontSize = fontSize;
         span.style.letterSpacing = letterSpacing;
+        span.style.willChange = "transform, opacity";
+        span.style.backfaceVisibility = "hidden";
         return span;
       });
 
@@ -152,8 +172,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     logoWrapper.appendChild(lettersWrapper);
     container.appendChild(logoWrapper);
 
-    const ickleTourWidth = isMobile ? 75 : 90;
-    gsap.set(logoWrapper, { x: ickleTourWidth / 2 });
+    gsap.set(logoWrapper, { x: ickleTourWidth / 2, force3D: true });
 
     const masterTl = gsap.timeline();
     let floatingTween = null;
@@ -181,6 +200,10 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       scale: 0.6,
       duration: 0.3,
       ease: "power2.in",
+      force3D: true,
+      onComplete: () => {
+        canvas.style.display = "none";
+      },
     });
 
     masterTl.fromTo(
@@ -196,6 +219,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         rotation: 0,
         duration: 0.8,
         ease: "elastic.out(1, 0.6)",
+        force3D: true,
       },
       "-=0.4",
     );
@@ -206,12 +230,14 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       x: 0,
       duration: 0.6,
       ease: "power2.out",
+      force3D: true,
     });
 
     masterTl.to(
       lettersWrapper,
       {
-        width: "auto",
+        clipPath: "inset(0 0% 0 0)",
+        webkitClipPath: "inset(0 0% 0 0)",
         opacity: 1,
         duration: 0.5,
         ease: "power2.out",
@@ -231,6 +257,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         duration: 0.35,
         stagger: 0.03,
         ease: "back.out(1.5)",
+        force3D: true,
       },
       "-=0.4",
     );
@@ -241,12 +268,14 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         duration: 0.2,
         stagger: 0.03,
         ease: "power2.out",
+        force3D: true,
       })
       .to(remainingSpans, {
         y: 0,
         duration: 0.3,
         stagger: 0.03,
         ease: "bounce.out",
+        force3D: true,
       });
 
     masterTl.call(() => {
@@ -258,10 +287,25 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         stagger: 0.08,
         yoyo: true,
         repeat: -1,
+        force3D: true,
       });
     });
 
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        masterTl.pause();
+        if (floatingTween) floatingTween.pause();
+        return;
+      }
+
+      masterTl.resume();
+      if (floatingTween) floatingTween.resume();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       masterTl.kill();
       if (floatingTween) floatingTween.kill();
       gsap.killTweensOf([
@@ -305,7 +349,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       />
     </Link>
   );
-};
+});
 
 LogoAnimationMorph.propTypes = {
   isMobile: PropTypes.bool,
