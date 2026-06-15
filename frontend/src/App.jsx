@@ -5,12 +5,11 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
 import MobileBottomNav from "./components/MenuMobile";
-import ChatBotDrawer from "./components/ChatBotDrawer";
-import GlobalCommandPalette from "./components/GlobalCommandPalette";
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { initGA, logPageView } from "./utils/analytics";
 import { useThemeMode } from "./context/ThemeContext";
+import { useCommandPalette } from "./context/CommandPaletteContext.jsx";
 import { useGetProfileQuery } from "./slices/usersApiSlice";
 import AppFooter from "./components/AppFooter";
 import { logout, setCredentials } from "./slices/authSlice";
@@ -28,6 +27,11 @@ import {
 import useFrontendUiVersion from "./hook/useFrontendUiVersion.js";
 
 import Clarity from "@microsoft/clarity";
+
+const ChatBotDrawer = lazy(() => import("./components/ChatBotDrawer"));
+const GlobalCommandPalette = lazy(() =>
+  import("./components/GlobalCommandPalette"),
+);
 
 function shouldEnableClarity() {
   if (typeof window === "undefined") return false;
@@ -240,6 +244,7 @@ function NativeWebViewAuthBridge() {
 const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
+  const { open: commandPaletteOpen } = useCommandPalette();
   const { isModernVersion } = useFrontendUiVersion();
 
   // Define routes that should have a full-screen layout (no header/footer)
@@ -330,9 +335,15 @@ const App = () => {
       )}
 
       {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (
-        <ChatBotDrawer />
+        <Suspense fallback={null}>
+          <ChatBotDrawer />
+        </Suspense>
       )}
-      <GlobalCommandPalette />
+      {commandPaletteOpen ? (
+        <Suspense fallback={null}>
+          <GlobalCommandPalette />
+        </Suspense>
+      ) : null}
     </>
   );
 };
