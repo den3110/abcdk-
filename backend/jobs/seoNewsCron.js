@@ -5,6 +5,10 @@ let timer = null;
 let started = false;
 let running = false;
 
+const DEBUG_SEO_NEWS_CRON = ["1", "true", "yes", "on"].includes(
+  String(process.env.DEBUG_SEO_NEWS_CRON || "").toLowerCase()
+);
+
 function getIntervalMs(settings) {
   const minutes = Math.max(5, Number(settings?.intervalMinutes) || 180);
   return Math.floor(minutes * 60 * 1000);
@@ -91,7 +95,9 @@ async function tick() {
         lastCronStats: result?.stats || null,
       });
     } else {
-      console.log("[SeoNewsCron] skipped because disabled");
+      if (DEBUG_SEO_NEWS_CRON) {
+        console.log("[SeoNewsCron] skipped because disabled");
+      }
       await patchCronState({
         cronRunning: false,
         cronStatus: "disabled",

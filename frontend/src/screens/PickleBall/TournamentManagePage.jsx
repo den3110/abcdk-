@@ -113,7 +113,12 @@ import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
 } from "../../utils/tournamentName";
-import { getMatchSideDisplayName } from "../../utils/matchDisplay";
+import {
+  getMatchSideDisplayName,
+  isNewerOrEqualMatchPayload,
+  mergeMatchPayload,
+  normalizeMatchDisplay,
+} from "../../utils/matchDisplay";
 
 const POSTER_NAME_FONT_OPTIONS = [
   { value: "", label: "Mặc định AI" },
@@ -655,22 +660,11 @@ function createLiveStore() {
     set(id, partial) {
       const key = String(id);
       const prev = map.get(key) || {};
-      const nextVersion = Number(
-        partial?.liveVersion ??
-          partial?.version ??
-          (partial?.updatedAt ? new Date(partial.updatedAt).getTime() : 0),
-      );
-      const prevVersion = Number(
-        prev?.liveVersion ??
-          prev?.version ??
-          (prev?.updatedAt ? new Date(prev.updatedAt).getTime() : 0),
-      );
-      const next =
-        prevVersion > 0 && nextVersion > 0 && nextVersion < prevVersion
-          ? prev
-          : { ...prev, ...partial };
+      if (prev && !isNewerOrEqualMatchPayload(prev, partial)) return false;
+      const incoming = normalizeMatchDisplay(partial, prev);
+      const next = mergeMatchPayload(prev, incoming, prev) || incoming || prev;
       map.set(key, next);
-      const changedFields = Object.keys(partial || {}).filter(
+      const changedFields = Object.keys(incoming || partial || {}).filter(
         (field) => !sameLiveValue(prev?.[field], next?.[field]),
       );
       if (!changedFields.length) return false;

@@ -696,8 +696,11 @@ export function useRefereeLiveSyncMatch(
           const rejected = Array.isArray(result?.rejectedEvents)
             ? result.rejectedEvents
             : [];
+          const durableRejected = rejected.filter(
+            (item) => item?.code !== "server_busy"
+          );
           const rejectedIds = new Set(
-            rejected
+            durableRejected
               .map((item) => String(item?.clientEventId || "").trim())
               .filter(Boolean)
           );
@@ -720,6 +723,7 @@ export function useRefereeLiveSyncMatch(
           const hasOwnershipConflict =
             runtimeState.runtime.featureEnabled &&
             rejected.some((item) => item?.code === "ownership_conflict");
+          const hasAuthoritativeRejection = durableRejected.length > 0;
 
           const nextPersist = {
             queue: remainingQueue,
@@ -743,7 +747,7 @@ export function useRefereeLiveSyncMatch(
           if (result?.snapshot) {
             await applyRemoteSnapshot(result.snapshot, {
               owner: runtimeState.owner,
-              force: hasOwnershipConflict,
+              force: hasOwnershipConflict || hasAuthoritativeRejection,
             });
           } else {
             setDerivedState((prev) => ({

@@ -5,6 +5,10 @@ import Registration from "../../models/registrationModel.js";
 import { publishNotification, EVENTS } from "./notificationHub.js";
 import mongoose from "mongoose";
 
+const DEBUG_GROUP_STAGE_NOTIFY = ["1", "true", "yes", "on"].includes(
+  String(process.env.DEBUG_GROUP_STAGE_NOTIFY || "").toLowerCase()
+);
+
 function asStr(v) {
   return v ? String(v) : null;
 }
@@ -447,9 +451,11 @@ export async function notifyGroupNextOpponents({ tournamentId, bracketId }) {
       .lean();
 
     if (!koBrackets.length) {
-      console.log(
-        "[notifyGroupNextOpponents] no KO brackets for this stage, skip."
-      );
+      if (DEBUG_GROUP_STAGE_NOTIFY) {
+        console.log(
+          "[notifyGroupNextOpponents] no KO brackets for this stage, skip."
+        );
+      }
       return { count: 0 };
     }
 
@@ -497,9 +503,11 @@ export async function notifyGroupNextOpponents({ tournamentId, bracketId }) {
       .lean();
 
     if (!matches.length) {
-      console.log(
-        "[notifyGroupNextOpponents] no KO matches with both pairs ready, skip."
-      );
+      if (DEBUG_GROUP_STAGE_NOTIFY) {
+        console.log(
+          "[notifyGroupNextOpponents] no KO matches with both pairs ready, skip."
+        );
+      }
       return { count: 0 };
     }
 
@@ -556,7 +564,11 @@ export async function notifyGroupNextOpponents({ tournamentId, bracketId }) {
     }
 
     if (!notifications.length) {
-      console.log("[notifyGroupNextOpponents] nothing to notify after filter.");
+      if (DEBUG_GROUP_STAGE_NOTIFY) {
+        console.log(
+          "[notifyGroupNextOpponents] nothing to notify after filter."
+        );
+      }
       return { count: 0 };
     }
 

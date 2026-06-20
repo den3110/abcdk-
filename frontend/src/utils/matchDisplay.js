@@ -761,23 +761,74 @@ export const isLightweightMatchPayload = (raw) => {
   return informativeKeys.length === 0;
 };
 
+const matchPayloadVersion = (match) => {
+  const value = Number(match?.liveVersion ?? match?.version);
+  return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+const matchPayloadTime = (match) => {
+  const value = Date.parse(match?.updatedAt ?? match?.liveAt ?? "");
+  return Number.isFinite(value) ? value : null;
+};
+
+const scoreEntryValue = (entry, key) =>
+  Number(entry?.[key] ?? entry?.[key.toUpperCase()] ?? 0) || 0;
+
+const payloadGameScores = (match) =>
+  (Array.isArray(match?.gameScores)
+    ? match.gameScores
+    : Array.isArray(match?.scores)
+      ? match.scores
+      : []
+  ).map((score) => ({
+    a: scoreEntryValue(score, "a"),
+    b: scoreEntryValue(score, "b"),
+  }));
+
+const totalPayloadScore = (match) =>
+  payloadGameScores(match).reduce(
+    (sum, score) => sum + Number(score?.a || 0) + Number(score?.b || 0),
+    0
+  );
+
+const hasResolvedPayloadResult = (match) => {
+  const status = String(match?.status || "").toLowerCase();
+  return status === "finished" || match?.winner === "A" || match?.winner === "B";
+};
+
+const isLikelyStaleScorePayload = (current, next) => {
+  const currentScores = payloadGameScores(current);
+  const nextScores = payloadGameScores(next);
+  if (!currentScores.length || !nextScores.length) return false;
+  if (hasResolvedPayloadResult(next)) return false;
+  return totalPayloadScore(next) < totalPayloadScore(current);
+};
+
 export const isNewerOrEqualMatchPayload = (current, incoming) => {
   const next = normalizeMatchDisplay(incoming, current);
-  const currentVersion = Number(
-    current?.liveVersion ?? current?.version ?? Number.NaN
-  );
-  const nextVersion = Number(next?.liveVersion ?? next?.version ?? Number.NaN);
+  const currentVersion = matchPayloadVersion(current);
+  const nextVersion = matchPayloadVersion(next);
 
-  if (Number.isFinite(currentVersion) && Number.isFinite(nextVersion)) {
-    return nextVersion >= currentVersion;
+  if (
+    currentVersion != null &&
+    nextVersion != null &&
+    nextVersion !== currentVersion
+  ) {
+    return nextVersion > currentVersion;
   }
 
-  const currentTime = Date.parse(current?.updatedAt ?? current?.liveAt ?? 0);
-  const nextTime = Date.parse(next?.updatedAt ?? next?.liveAt ?? 0);
+  const currentTime = matchPayloadTime(current);
+  const nextTime = matchPayloadTime(next);
 
-  if (Number.isFinite(currentTime) && Number.isFinite(nextTime)) {
-    return nextTime >= currentTime;
+  if (
+    currentTime != null &&
+    nextTime != null &&
+    nextTime !== currentTime
+  ) {
+    return nextTime > currentTime;
   }
+
+  if (isLikelyStaleScorePayload(current, next)) return false;
 
   return true;
 };

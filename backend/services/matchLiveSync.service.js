@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import IORedis from "ioredis";
 import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Registration from "../models/registrationModel.js";
@@ -21,6 +23,242 @@ import {
 } from "./matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "./matchLiveSnapshot.service.js";
 import { getRefereeMatchControlLockRuntime } from "./systemSettingsRuntime.service.js";
+
+const envValue = (key) =>
+  typeof process !== "undefined" ? process.env?.[key] : undefined;
+
+const readInt = (key, fallback, { min = 0, max = 60_000 } = {}) => {
+  const value = Number(envValue(key));
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+};
+
+const readBool = (key, fallback = false) => {
+  const raw = envValue(key);
+  if (raw == null || raw === "") return fallback;
+  const value = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return fallback;
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const LIVE_SYNC_REDIS_URL = String(envValue("REDIS_URL") || "").trim();
+const LIVE_SYNC_REDIS_LOCK_ENABLED = readBool(
+  "MATCH_LIVE_SYNC_REDIS_LOCK",
+  Boolean(LIVE_SYNC_REDIS_URL)
+);
+const LIVE_SYNC_REDIS_PREFIX = String(
+  envValue("MATCH_LIVE_SYNC_REDIS_PREFIX") || "pkt:matchLiveSync:v1"
+).trim();
+const LIVE_SYNC_REDIS_LOCK_TTL_MS = readInt(
+  "MATCH_LIVE_SYNC_REDIS_LOCK_TTL_MS",
+  15_000,
+  { min: 1000, max: 60_000 }
+);
+const LIVE_SYNC_REDIS_LOCK_WAIT_MS = readInt(
+  "MATCH_LIVE_SYNC_REDIS_LOCK_WAIT_MS",
+  10_000,
+  { min: 0, max: 60_000 }
+);
+const LIVE_SYNC_REDIS_LOCK_POLL_MS = readInt(
+  "MATCH_LIVE_SYNC_REDIS_LOCK_POLL_MS",
+  35,
+  { min: 10, max: 500 }
+);
+const LIVE_SYNC_REDIS_COMMAND_TIMEOUT_MS = readInt(
+  "MATCH_LIVE_SYNC_REDIS_COMMAND_TIMEOUT_MS",
+  500,
+  { min: 50, max: 5000 }
+);
+const LIVE_SYNC_REDIS_CONNECT_TIMEOUT_MS = readInt(
+  "MATCH_LIVE_SYNC_REDIS_CONNECT_TIMEOUT_MS",
+  500,
+  { min: 50, max: 5000 }
+);
+const LIVE_SYNC_REDIS_FAILURE_BACKOFF_MS = readInt(
+  "MATCH_LIVE_SYNC_REDIS_FAILURE_BACKOFF_MS",
+  5000,
+  { min: 500, max: 60_000 }
+);
+
+const RELEASE_REDIS_LOCK_LUA =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
+const liveSyncQueues = new Map();
+let liveSyncRedis = null;
+let liveSyncRedisDisabledUntil = 0;
+let lastLiveSyncRedisErrorAt = 0;
+
+function normalizeMatchLockId(matchId) {
+  return String(matchId || "").trim();
+}
+
+function logLiveSyncRedisError(context, error) {
+  const now = Date.now();
+  liveSyncRedisDisabledUntil = now + LIVE_SYNC_REDIS_FAILURE_BACKOFF_MS;
+  if (liveSyncRedis) {
+    liveSyncRedis.disconnect();
+    liveSyncRedis = null;
+  }
+  if (now - lastLiveSyncRedisErrorAt < 30_000) return;
+  lastLiveSyncRedisErrorAt = now;
+  console.error(
+    `[match-live-sync] redis ${context}:`,
+    error?.message || error
+  );
+}
+
+const withTimeout = (promise, ms, label) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label || "operation"} timed out after ${ms}ms`));
+    }, ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+
+function redisLockConfigured() {
+  return Boolean(LIVE_SYNC_REDIS_LOCK_ENABLED && LIVE_SYNC_REDIS_URL);
+}
+
+function redisLockUsableNow() {
+  return redisLockConfigured() && Date.now() >= liveSyncRedisDisabledUntil;
+}
+
+function createLiveSyncRedisClient() {
+  const client = new IORedis(LIVE_SYNC_REDIS_URL, {
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+    connectTimeout: LIVE_SYNC_REDIS_CONNECT_TIMEOUT_MS,
+    retryStrategy: (attempt) => Math.min(1000, 100 + attempt * 100),
+  });
+  client.on("error", (error) => logLiveSyncRedisError("client error", error));
+  return client;
+}
+
+function getLiveSyncRedisClient() {
+  if (!redisLockUsableNow()) return null;
+  if (liveSyncRedis?.status === "end") {
+    liveSyncRedis.disconnect();
+    liveSyncRedis = null;
+  }
+  if (!liveSyncRedis) liveSyncRedis = createLiveSyncRedisClient();
+  return liveSyncRedis;
+}
+
+async function ensureLiveSyncRedisReady(client) {
+  if (!client) return null;
+  if (client.status === "ready") return client;
+  if (client.status === "wait") {
+    await withTimeout(
+      client.connect(),
+      LIVE_SYNC_REDIS_CONNECT_TIMEOUT_MS,
+      "redis connect"
+    );
+  }
+  return client.status === "ready" ? client : null;
+}
+
+async function liveSyncRedisCommand(label, fn) {
+  const client = await ensureLiveSyncRedisReady(
+    getLiveSyncRedisClient()
+  ).catch((error) => {
+    logLiveSyncRedisError(label, error);
+    return null;
+  });
+  if (!client) return { ok: false, value: null };
+
+  try {
+    const value = await withTimeout(
+      fn(client),
+      LIVE_SYNC_REDIS_COMMAND_TIMEOUT_MS,
+      label
+    );
+    return { ok: true, value };
+  } catch (error) {
+    logLiveSyncRedisError(label, error);
+    return { ok: false, value: null };
+  }
+}
+
+function redisMatchLockKey(matchId) {
+  return `${LIVE_SYNC_REDIS_PREFIX}:lock:${normalizeMatchLockId(matchId)}`;
+}
+
+async function acquireRedisMatchSyncLock(matchId) {
+  if (!redisLockConfigured()) return { release: null, unavailable: true };
+
+  const key = redisMatchLockKey(matchId);
+  const token = randomUUID();
+  const deadline = Date.now() + LIVE_SYNC_REDIS_LOCK_WAIT_MS;
+
+  for (;;) {
+    const result = await liveSyncRedisCommand("lock acquire", (client) =>
+      client.set(key, token, "PX", LIVE_SYNC_REDIS_LOCK_TTL_MS, "NX")
+    );
+    if (!result.ok) return { release: null, unavailable: true };
+
+    if (result.value === "OK") {
+      return {
+        release: async () => {
+          await liveSyncRedisCommand("lock release", (client) =>
+            client.eval(RELEASE_REDIS_LOCK_LUA, 1, key, token)
+          );
+        },
+        unavailable: false,
+        busy: false,
+      };
+    }
+
+    if (
+      LIVE_SYNC_REDIS_LOCK_WAIT_MS <= 0 ||
+      Date.now() >= deadline
+    ) {
+      return { release: null, unavailable: false, busy: true };
+    }
+
+    await sleep(
+      Math.min(
+        LIVE_SYNC_REDIS_LOCK_POLL_MS,
+        Math.max(1, deadline - Date.now())
+      )
+    );
+  }
+}
+
+async function runMatchLiveSyncSerialized(matchId, task) {
+  const key = normalizeMatchLockId(matchId);
+  if (!key) return task();
+
+  const previous = liveSyncQueues.get(key) || Promise.resolve();
+  let releaseCurrent = () => {};
+  const current = new Promise((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => current);
+  liveSyncQueues.set(key, tail);
+
+  await previous.catch(() => {});
+  try {
+    return await task();
+  } finally {
+    releaseCurrent();
+    if (liveSyncQueues.get(key) === tail) {
+      liveSyncQueues.delete(key);
+    }
+  }
+}
 
 function isFinitePos(value) {
   return Number.isFinite(value) && value > 0;
@@ -842,7 +1080,7 @@ function buildLiveSyncModePayload(lockRuntime) {
   };
 }
 
-export async function syncMatchLiveEvents({
+async function syncMatchLiveEventsLocked({
   matchId,
   user,
   deviceId,
@@ -1053,6 +1291,48 @@ export async function syncMatchLiveEvents({
     serverVersion: toNum(snapshot?.liveVersion, toNum(match.liveVersion, 0)),
     owner: ownershipEnabled ? await getMatchLiveOwner(matchId) : null,
   };
+}
+
+export async function syncMatchLiveEvents(args = {}) {
+  const matchId = args?.matchId;
+  if (!matchId) return syncMatchLiveEventsLocked(args);
+
+  return runMatchLiveSyncSerialized(matchId, async () => {
+    const redisLock = await acquireRedisMatchSyncLock(matchId);
+    if (redisLock?.busy) {
+      const normalizedEvents = Array.isArray(args?.events) ? args.events : [];
+      const lockRuntime = await getRefereeMatchControlLockRuntime();
+      const modePayload = buildLiveSyncModePayload(lockRuntime);
+      const snapshot = await loadMatchLiveSnapshot(matchId);
+      const owner = modePayload.featureEnabled
+        ? await getMatchLiveOwner(matchId).catch(() => null)
+        : null;
+
+      return {
+        ...modePayload,
+        ackedClientEventIds: [],
+        rejectedEvents: buildRejected(
+          normalizedEvents,
+          "server_busy",
+          "Match is busy, retry shortly"
+        ),
+        snapshot,
+        serverVersion: toNum(
+          snapshot?.liveVersion,
+          toNum(args?.lastKnownServerVersion, 0)
+        ),
+        owner,
+      };
+    }
+
+    try {
+      return await syncMatchLiveEventsLocked(args);
+    } finally {
+      if (typeof redisLock?.release === "function") {
+        await redisLock.release();
+      }
+    }
+  });
 }
 
 export async function applyLegacyLiveAction({

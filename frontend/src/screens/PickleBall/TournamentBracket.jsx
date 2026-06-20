@@ -82,6 +82,11 @@ import {
   getTournamentPairName,
   getTournamentPlayerName,
 } from "../../utils/tournamentName";
+import {
+  getMatchRealtimeFingerprint,
+  isNewerOrEqualMatchPayload,
+  mergeMatchPayload,
+} from "../../utils/matchDisplay";
 
 const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
 const GROUP_VIEW_STORAGE_KEY = "pickletour:tournament-bracket:group-view-mode";
@@ -747,6 +752,69 @@ function scoreForSide(m, side) {
     return side === "A" ? m.scoreA : m.scoreB;
   }
   return "";
+}
+
+function matchPayloadVersionLocal(match) {
+  const value = Number(match?.liveVersion ?? match?.version);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function matchPayloadTimeLocal(match) {
+  const value = Date.parse(match?.updatedAt ?? match?.liveAt ?? "");
+  return Number.isFinite(value) ? value : null;
+}
+
+function totalScoreLocal(match) {
+  return gameScoresOfLocal(match).reduce(
+    (sum, game) => sum + Number(game?.a || 0) + Number(game?.b || 0),
+    0,
+  );
+}
+
+function hasResolvedIncomingResult(incoming) {
+  const status = String(incoming?.status || "").toLowerCase();
+  return (
+    status === "finished" ||
+    incoming?.winner === "A" ||
+    incoming?.winner === "B"
+  );
+}
+
+function isLikelyStaleScorePayload(current, incoming) {
+  if (!current || !incoming) return false;
+
+  const currentVersion = matchPayloadVersionLocal(current);
+  const incomingVersion = matchPayloadVersionLocal(incoming);
+  if (
+    currentVersion != null &&
+    incomingVersion != null &&
+    incomingVersion !== currentVersion
+  ) {
+    return incomingVersion < currentVersion;
+  }
+
+  const currentTime = matchPayloadTimeLocal(current);
+  const incomingTime = matchPayloadTimeLocal(incoming);
+  if (
+    currentTime != null &&
+    incomingTime != null &&
+    incomingTime !== currentTime
+  ) {
+    return incomingTime < currentTime;
+  }
+
+  const currentScores = gameScoresOfLocal(current);
+  const incomingScores = gameScoresOfLocal(incoming);
+  if (!currentScores.length || !incomingScores.length) return false;
+  if (hasResolvedIncomingResult(incoming)) return false;
+
+  return totalScoreLocal(incoming) < totalScoreLocal(current);
+}
+
+function shouldApplyMatchPayloadLocal(current, incoming) {
+  if (!current) return true;
+  if (isLikelyStaleScorePayload(current, incoming)) return false;
+  return isNewerOrEqualMatchPayload(current, incoming);
 }
 
 const sideTag = (s) => ` (${s})`;
@@ -4422,15 +4490,23 @@ export default function TournamentBracket() {
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const mp = liveMapRef.current;
+    let changed = false;
     for (const [id, inc] of pendingRef.current) {
       const cur = mp.get(id);
-      const vNew = Number(inc?.liveVersion ?? inc?.version ?? 0);
-      const vOld = Number(cur?.liveVersion ?? cur?.version ?? 0);
-      const merged = !cur || vNew >= vOld ? { ...(cur || {}), ...inc } : cur;
+      if (cur && !shouldApplyMatchPayloadLocal(cur, inc)) continue;
+
+      const merged = cur ? mergeMatchPayload(cur, inc, cur) : inc;
+      if (!merged) continue;
+
+      const currentKey = cur ? getMatchRealtimeFingerprint(cur) : "";
+      const nextKey = getMatchRealtimeFingerprint(merged);
+      if (currentKey && nextKey && currentKey === nextKey) continue;
+
       mp.set(id, merged);
+      changed = true;
     }
     pendingRef.current.clear();
-    setLiveBump((x) => x + 1);
+    if (changed) setLiveBump((x) => x + 1);
   }, []);
 
   const queueUpsert = useCallback(
@@ -4453,7 +4529,17 @@ export default function TournamentBracket() {
       if (inc.venue) inc.venue = normalizeEntity(inc.venue);
       if (inc.location) inc.location = normalizeEntity(inc.location);
       const id = String(inc._id);
-      pendingRef.current.set(id, inc);
+      const base = pendingRef.current.get(id) || liveMapRef.current.get(id);
+      if (base && !shouldApplyMatchPayloadLocal(base, inc)) return;
+
+      const merged = base ? mergeMatchPayload(base, inc, base) : inc;
+      if (!merged) return;
+
+      const baseKey = base ? getMatchRealtimeFingerprint(base) : "";
+      const nextKey = getMatchRealtimeFingerprint(merged);
+      if (baseKey && nextKey && baseKey === nextKey) return;
+
+      pendingRef.current.set(id, merged);
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
@@ -4464,10 +4550,19 @@ export default function TournamentBracket() {
   );
 
   useEffect(() => {
-    const mp = new Map();
+    const mp = new Map(liveMapRef.current);
+    let changed = false;
     for (const m of allMatchesFetched || []) {
-      if (m?._id) mp.set(String(m._id), m);
+      if (!m?._id) continue;
+      const id = String(m._id);
+      const cur = mp.get(id);
+      if (cur && !shouldApplyMatchPayloadLocal(cur, m)) continue;
+      const merged = cur ? mergeMatchPayload(cur, m, cur) : m;
+      if (!merged) continue;
+      mp.set(id, merged);
+      changed = true;
     }
+    if (!changed && mp.size === liveMapRef.current.size) return;
     liveMapRef.current = mp;
     setLiveBump((x) => x + 1);
   }, [allMatchesFetched]);

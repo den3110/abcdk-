@@ -67,6 +67,11 @@ import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
 } from "../../utils/tournamentName";
+import {
+  isNewerOrEqualMatchPayload,
+  mergeMatchPayload,
+  normalizeMatchDisplay,
+} from "../../utils/matchDisplay";
 import { TournamentWeatherSection } from "../TournamentWeatherSection";
 
 /* ===== HELPERS ===== */
@@ -521,36 +526,41 @@ export default function TournamentOverviewPage() {
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const liveMap = liveMapRef.current;
+    let changed = false;
     for (const [matchId, incoming] of pendingRef.current) {
       const current = liveMap.get(matchId);
-      const nextVersion = Number(
-        incoming?.liveVersion ?? incoming?.version ?? 0,
-      );
-      const currentVersion = Number(
-        current?.liveVersion ?? current?.version ?? 0,
-      );
+      if (current && !isNewerOrEqualMatchPayload(current, incoming)) continue;
       const merged =
-        !current || nextVersion >= currentVersion
-          ? { ...(current || {}), ...incoming }
-          : current;
+        mergeMatchPayload(current, incoming, current || tour) ||
+        normalizeMatchDisplay(incoming, current || tour);
+      if (!merged) continue;
       liveMap.set(matchId, merged);
+      changed = true;
     }
     pendingRef.current.clear();
-    setLiveBump((x) => x + 1);
-  }, []);
+    if (changed) setLiveBump((x) => x + 1);
+  }, [tour]);
 
   const queueUpsert = useCallback(
     (payload) => {
       const incoming = payload?.data ?? payload?.match ?? payload;
       if (!incoming?._id) return;
-      pendingRef.current.set(String(incoming._id), incoming);
+      const matchId = String(incoming._id);
+      const base =
+        pendingRef.current.get(matchId) || liveMapRef.current.get(matchId);
+      if (base && !isNewerOrEqualMatchPayload(base, incoming)) return;
+      pendingRef.current.set(
+        matchId,
+        mergeMatchPayload(base, incoming, base || tour) ||
+          normalizeMatchDisplay(incoming, base || tour),
+      );
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
         flushPending();
       });
     },
-    [flushPending],
+    [flushPending, tour],
   );
 
   const apiSig = useMemo(() => {
@@ -570,13 +580,24 @@ export default function TournamentOverviewPage() {
   useEffect(() => {
     if (apiSig === prevApiSigRef.current) return;
     prevApiSigRef.current = apiSig;
-    const nextMap = new Map();
+    const nextMap = new Map(liveMapRef.current);
+    let changed = false;
     for (const match of allMatchesInitial) {
-      if (match?._id) nextMap.set(String(match._id), match);
+      if (!match?._id) continue;
+      const id = String(match._id);
+      const current = nextMap.get(id);
+      if (current && !isNewerOrEqualMatchPayload(current, match)) continue;
+      const merged =
+        mergeMatchPayload(current, match, current || tour) ||
+        normalizeMatchDisplay(match, current || tour);
+      if (!merged) continue;
+      nextMap.set(id, merged);
+      changed = true;
     }
+    if (!changed && nextMap.size === liveMapRef.current.size) return;
     liveMapRef.current = nextMap;
     setLiveBump((x) => x + 1);
-  }, [apiSig, allMatchesInitial]);
+  }, [apiSig, allMatchesInitial, tour]);
 
   const allMatches = useMemo(
     () =>

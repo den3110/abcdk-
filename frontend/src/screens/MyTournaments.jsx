@@ -55,6 +55,11 @@ import LottieEmptyState from "../components/LottieEmptyState";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { useRegisterChatBotPageContext } from "../context/ChatBotPageContext.jsx";
 import { formatDate, formatDateTime } from "../i18n/format.js";
+import {
+  isNewerOrEqualMatchPayload,
+  mergeMatchPayload,
+  normalizeMatchDisplay,
+} from "../utils/matchDisplay";
 
 function normalizeGroupCode(code) {
   const s = String(code || "")
@@ -1004,12 +1009,18 @@ export default function MyTournamentsPage() {
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const mp = liveMapRef.current;
+    let changed = false;
     for (const [mid, inc] of pendingRef.current) {
       const cur = mp.get(mid);
-      mp.set(mid, { ...(cur || {}), ...inc });
+      if (cur && !isNewerOrEqualMatchPayload(cur, inc)) continue;
+      const merged =
+        mergeMatchPayload(cur, inc, cur) || normalizeMatchDisplay(inc, cur);
+      if (!merged) continue;
+      mp.set(mid, merged);
+      changed = true;
     }
     pendingRef.current.clear();
-    setLiveBump((x) => x + 1);
+    if (changed) setLiveBump((x) => x + 1);
   }, []);
   const queueUpsert = useCallback(
     (incRaw) => {
@@ -1034,7 +1045,13 @@ export default function MyTournamentsPage() {
       if (inc.venue) inc.venue = normalizeEntity(inc.venue);
       if (inc.location) inc.location = normalizeEntity(inc.location);
 
-      pendingRef.current.set(String(inc._id), inc);
+      const id = String(inc._id);
+      const base = pendingRef.current.get(id) || liveMapRef.current.get(id);
+      if (base && !isNewerOrEqualMatchPayload(base, inc)) return;
+      pendingRef.current.set(
+        id,
+        mergeMatchPayload(base, inc, base) || normalizeMatchDisplay(inc, base),
+      );
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
@@ -1044,10 +1061,20 @@ export default function MyTournamentsPage() {
     [flushPending],
   );
   useEffect(() => {
-    const mp = new Map();
+    const mp = new Map(liveMapRef.current);
+    let changed = false;
     for (const m of allMatchesInitial) {
-      if (m?._id) mp.set(String(m._id), m);
+      if (!m?._id) continue;
+      const id = String(m._id);
+      const cur = mp.get(id);
+      if (cur && !isNewerOrEqualMatchPayload(cur, m)) continue;
+      const merged =
+        mergeMatchPayload(cur, m, cur) || normalizeMatchDisplay(m, cur);
+      if (!merged) continue;
+      mp.set(id, merged);
+      changed = true;
     }
+    if (!changed && mp.size === liveMapRef.current.size) return;
     liveMapRef.current = mp;
     setLiveBump((x) => x + 1);
   }, [allMatchesInitial]);

@@ -53,6 +53,11 @@ import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatTime } from "../../i18n/format";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
+import {
+  isNewerOrEqualMatchPayload,
+  mergeMatchPayload,
+  normalizeMatchDisplay,
+} from "../../utils/matchDisplay";
 
 /* ---------- Utils & Config ---------- */
 const fmtTimeValue = (s, fallback) => (s && s.length ? s : fallback);
@@ -196,15 +201,18 @@ export default function TournamentCheckin() {
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const mp = liveMapRef.current;
+    let changed = false;
     for (const [id, inc] of pendingRef.current) {
       const cur = mp.get(id);
-      const vNew = Number(inc?.liveVersion ?? inc?.version ?? 0);
-      const vOld = Number(cur?.liveVersion ?? cur?.version ?? 0);
-      const merged = !cur || vNew >= vOld ? { ...(cur || {}), ...inc } : cur;
+      if (cur && !isNewerOrEqualMatchPayload(cur, inc)) continue;
+      const merged =
+        mergeMatchPayload(cur, inc, cur) || normalizeMatchDisplay(inc, cur);
+      if (!merged) continue;
       mp.set(id, merged);
+      changed = true;
     }
     pendingRef.current.clear();
-    setLiveBump((x) => x + 1);
+    if (changed) setLiveBump((x) => x + 1);
   }, []);
 
   const queueUpsert = useCallback(
@@ -229,7 +237,13 @@ export default function TournamentCheckin() {
       if (inc.court) inc.court = normalizeEntity(inc.court);
       if (inc.venue) inc.venue = normalizeEntity(inc.venue);
       if (inc.location) inc.location = normalizeEntity(inc.location);
-      pendingRef.current.set(String(inc._id), inc);
+      const id = String(inc._id);
+      const base = pendingRef.current.get(id) || liveMapRef.current.get(id);
+      if (base && !isNewerOrEqualMatchPayload(base, inc)) return;
+      pendingRef.current.set(
+        id,
+        mergeMatchPayload(base, inc, base) || normalizeMatchDisplay(inc, base),
+      );
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
@@ -256,8 +270,20 @@ export default function TournamentCheckin() {
   useEffect(() => {
     if (apiSig === prevApiSigRef.current) return;
     prevApiSigRef.current = apiSig;
-    const mp = new Map();
-    (matchesResp || []).forEach((m) => m?._id && mp.set(String(m._id), m));
+    const mp = new Map(liveMapRef.current);
+    let changed = false;
+    (matchesResp || []).forEach((m) => {
+      if (!m?._id) return;
+      const id = String(m._id);
+      const cur = mp.get(id);
+      if (cur && !isNewerOrEqualMatchPayload(cur, m)) return;
+      const merged =
+        mergeMatchPayload(cur, m, cur) || normalizeMatchDisplay(m, cur);
+      if (!merged) return;
+      mp.set(id, merged);
+      changed = true;
+    });
+    if (!changed && mp.size === liveMapRef.current.size) return;
     liveMapRef.current = mp;
     setLiveBump((x) => x + 1);
   }, [apiSig, matchesResp]);

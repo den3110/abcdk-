@@ -52,6 +52,9 @@ import {
 import {
   getMatchDisplayCode,
   getMatchSideDisplayName,
+  isNewerOrEqualMatchPayload,
+  mergeMatchPayload,
+  normalizeMatchDisplay,
 } from "../../utils/matchDisplay";
 
 /* ---------- KEEPING HELPERS (LOGIC GIỮ NGUYÊN) ---------- */
@@ -1353,16 +1356,20 @@ export default function TournamentSchedule() {
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const mp = liveMapRef.current;
+    let changed = false;
     for (const [mid, inc] of pendingRef.current) {
       const cur = mp.get(mid);
-      const vNew = Number(inc?.liveVersion ?? inc?.version ?? 0);
-      const vOld = Number(cur?.liveVersion ?? cur?.version ?? 0);
-      const merged = !cur || vNew >= vOld ? { ...(cur || {}), ...inc } : cur;
+      if (cur && !isNewerOrEqualMatchPayload(cur, inc)) continue;
+      const merged =
+        mergeMatchPayload(cur, inc, cur || tournament) ||
+        normalizeMatchDisplay(inc, cur || tournament);
+      if (!merged) continue;
       mp.set(mid, merged);
+      changed = true;
     }
     pendingRef.current.clear();
-    setLiveBump((x) => x + 1);
-  }, []);
+    if (changed) setLiveBump((x) => x + 1);
+  }, [tournament]);
 
   const queueUpsert = useCallback(
     (incRaw) => {
@@ -1385,23 +1392,43 @@ export default function TournamentSchedule() {
       if (inc.court) inc.court = normalizeEntity(inc.court);
       if (inc.venue) inc.venue = normalizeEntity(inc.venue);
       if (inc.location) inc.location = normalizeEntity(inc.location);
-      pendingRef.current.set(String(inc._id), inc);
+      const mid = String(inc._id);
+      const base = pendingRef.current.get(mid) || liveMapRef.current.get(mid);
+      if (base && !isNewerOrEqualMatchPayload(base, inc)) return;
+      pendingRef.current.set(
+        mid,
+        mergeMatchPayload(base, inc, base || tournament) ||
+          normalizeMatchDisplay(inc, base || tournament),
+      );
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
         flushPending();
       });
     },
-    [flushPending],
+    [flushPending, tournament],
   );
 
   useEffect(() => {
-    const mp = new Map();
+    const mp = new Map(liveMapRef.current);
+    let changed = false;
     const list = matchesResp?.list || [];
-    for (const m of list) if (m?._id) mp.set(String(m._id), m);
+    for (const m of list) {
+      if (!m?._id) continue;
+      const id = String(m._id);
+      const cur = mp.get(id);
+      if (cur && !isNewerOrEqualMatchPayload(cur, m)) continue;
+      const merged =
+        mergeMatchPayload(cur, m, cur || tournament) ||
+        normalizeMatchDisplay(m, cur || tournament);
+      if (!merged) continue;
+      mp.set(id, merged);
+      changed = true;
+    }
+    if (!changed && mp.size === liveMapRef.current.size) return;
     liveMapRef.current = mp;
     setLiveBump((x) => x + 1);
-  }, [matchesResp]);
+  }, [matchesResp, tournament]);
 
   const _diffSet = (currentSet, nextArr) => {
     const nextSet = new Set(nextArr);

@@ -63,6 +63,11 @@ import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
 } from "../../../utils/tournamentName";
+import {
+  isNewerOrEqualMatchPayload,
+  mergeMatchPayload,
+  normalizeMatchDisplay,
+} from "../../../utils/matchDisplay";
 
 /* ====================== utils ====================== */
 const sid = (x) => {
@@ -2287,7 +2292,33 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       payload.data?.scores ??
       payload.snapshot?.gameScores;
     if (Array.isArray(gameScores)) {
-      setLocalPatch((p) => ({ ...(p || {}), gameScores }));
+      const raw = payload.snapshot || payload.data || payload.match || payload;
+      setLocalPatch((p) => {
+        const current = p ? { ...(mm || {}), ...p } : mm || {};
+        const incoming = normalizeMatchDisplay(
+          {
+            ...(raw || {}),
+            _id: raw?._id || raw?.matchId || lockedId,
+            gameScores,
+          },
+          current
+        );
+        if (current && !isNewerOrEqualMatchPayload(current, incoming)) {
+          return p;
+        }
+        const merged =
+          mergeMatchPayload(current, incoming, current) || incoming || {};
+        return {
+          ...(p || {}),
+          gameScores: merged.gameScores ?? gameScores,
+          currentGame: merged.currentGame ?? p?.currentGame,
+          liveVersion: merged.liveVersion ?? p?.liveVersion,
+          version: merged.version ?? p?.version,
+          status: merged.status ?? p?.status,
+          winner: merged.winner ?? p?.winner,
+          updatedAt: merged.updatedAt ?? p?.updatedAt,
+        };
+      });
     }
   };
 

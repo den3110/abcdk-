@@ -262,6 +262,7 @@ const ensureRedisSubscriber = () => {
   if (!redisUsableNow() || redisSubscriberStarted) return;
   redisSubscriberStarted = true;
   redisSubscriber = createRedisClient("subscriber error");
+  const subscriber = redisSubscriber;
   redisSubscriber.on("message", (channel, message) => {
     if (channel !== REDIS_INVALIDATE_CHANNEL) return;
     try {
@@ -273,10 +274,17 @@ const ensureRedisSubscriber = () => {
       logRedisError("invalidate message parse failed", error);
     }
   });
-  redisSubscriber.subscribe(REDIS_INVALIDATE_CHANNEL).catch((error) => {
-    redisSubscriberStarted = false;
-    logRedisError("subscribe failed", error);
-  });
+  void ensureRedisReady(subscriber)
+    .then((ready) => {
+      if (!ready) throw new Error("redis subscriber not ready");
+      return ready.subscribe(REDIS_INVALIDATE_CHANNEL);
+    })
+    .catch((error) => {
+      if (redisSubscriber === subscriber) {
+        redisSubscriberStarted = false;
+      }
+      logRedisError("subscribe failed", error);
+    });
 };
 
 const parseGeneration = (value) => {

@@ -18,6 +18,7 @@ import {
 import {
   getMatchCourtStationName,
   getPairDisplayName,
+  isNewerOrEqualMatchPayload,
 } from "../../utils/matchDisplay";
 
 /* ========================== Utils ========================== */
@@ -312,9 +313,13 @@ function normalizePayload(p) {
     getMatchCourtStationName(p) || p?.courtName || p?.court?.name || "";
 
   return {
+    _id: String(p?._id || p?.matchId || ""),
     matchId: String(p?._id || p?.matchId || ""),
     status: p?.status || "",
     winner: p?.winner || "",
+    liveVersion: p?.liveVersion ?? p?.version,
+    version: p?.liveVersion ?? p?.version,
+    updatedAt: p?.updatedAt ?? p?.liveAt ?? p?.updated_at,
     isBreak: normBreak, // ✅ luôn có dạng chuẩn hoặc null
     tournament: {
       id: p?.tournament?._id || p?.tournament?.id || p?.tournamentId || null,
@@ -428,6 +433,7 @@ const mergeTeam = (prev = {}, next = {}) => ({
 const mergeNormalized = (prev, next) => {
   if (!prev) return next || null;
   if (!next) return prev;
+  if (!isNewerOrEqualMatchPayload(prev, next)) return prev;
   return {
     ...prev,
     ...next,

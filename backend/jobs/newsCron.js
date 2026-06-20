@@ -5,7 +5,11 @@ import NewsSettings from "../models/newsSettingsModel.js";
 // import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
 import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";
 
+let started = false;
+
 export function initNewsCron() {
+  if (started) return;
+  started = true;
   // Chạy mỗi ngày lúc 00:00 theo giờ Asia/Bangkok (GMT+7)
   cron.schedule(
     "0 0 * * *",

@@ -446,8 +446,6 @@ const startServer = async () => {
         initEmail();
         initNewsCron();
         initSeoNewsCron();
-        initEmail();
-        initNewsCron();
         await startAgenda(); // ✅ Await agenda start
         registerAutoHealJobs({ Tournament, Match });
         startObserverRuntimePublisher();
