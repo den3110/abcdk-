@@ -74,6 +74,26 @@ test("point updates score and flips serve on receiver point", () => {
   assert.equal(match.liveVersion, 1);
 });
 
+test("point rejects scoring after the current game is already finished", () => {
+  const match = createMatch({
+    status: "live",
+    gameScores: [{ a: 11, b: 8 }],
+    serve: { side: "A", server: 1, opening: false },
+  });
+
+  const result = applyLiveSyncEvent(match, {
+    type: "point",
+    clientEventId: "evt-point-after-game",
+    payload: { team: "A", step: 1 },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "game_already_finished");
+  assert.deepEqual(match.gameScores, [{ a: 11, b: 8 }]);
+  assert.equal(match.liveVersion, 0);
+  assert.equal(match.liveLog.length, 0);
+});
+
 test("undo reopens a finished match and restores previous serve", () => {
   const match = createMatch({
     status: "finished",

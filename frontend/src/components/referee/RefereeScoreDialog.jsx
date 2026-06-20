@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -54,6 +54,9 @@ import {
 } from "../../utils/matchDisplay";
 
 const OPENING_DOUBLES_SERVER = 2;
+const SCORE_TAP_GUARD_MS = 120;
+const SCORE_RENDER_GUARD_MS = 1500;
+const SERVER_UID_PIN_MS = 800;
 
 const textOf = (value) => (value && String(value).trim()) || "";
 
@@ -124,9 +127,23 @@ const ownerLabel = (owner) =>
 
 const needWins = (bestOf = 3) => Math.floor(bestOf / 2) + 1;
 
-const isGameWin = (a = 0, b = 0, pointsToWin = 11, winByTwo = true) => {
-  const max = Math.max(Number(a || 0), Number(b || 0));
-  const min = Math.min(Number(a || 0), Number(b || 0));
+const isGameWin = (a = 0, b = 0, pointsToWin = 11, winByTwo = true, cap = {}) => {
+  const left = Number(a || 0);
+  const right = Number(b || 0);
+  const max = Math.max(left, right);
+  const min = Math.min(left, right);
+  const capMode = String(cap?.mode ?? "none");
+  const capPoints = Number(cap?.points);
+
+  if (
+    (capMode === "hard" || capMode === "soft") &&
+    Number.isFinite(capPoints) &&
+    capPoints > 0 &&
+    (left >= capPoints || right >= capPoints)
+  ) {
+    return left !== right;
+  }
+
   if (max < Number(pointsToWin || 11)) return false;
   return winByTwo ? max - min >= 2 : max - min >= 1;
 };
@@ -636,13 +653,66 @@ export default function RefereeScoreDialog({
       bestOf: Number(match?.rules?.bestOf ?? 3),
       pointsToWin: Number(match?.rules?.pointsToWin ?? 11),
       winByTwo: Boolean(match?.rules?.winByTwo ?? true),
+      cap: {
+        mode: String(match?.rules?.cap?.mode ?? "none"),
+        points:
+          match?.rules?.cap?.points == null
+            ? null
+            : Number(match.rules.cap.points),
+      },
     }),
-    [match?.rules?.bestOf, match?.rules?.pointsToWin, match?.rules?.winByTwo],
+    [
+      match?.rules?.bestOf,
+      match?.rules?.cap?.mode,
+      match?.rules?.cap?.points,
+      match?.rules?.pointsToWin,
+      match?.rules?.winByTwo,
+    ],
   );
 
   const gameScores = useMemo(() => gameScoresOf(match), [match]);
   const currentGame = currentGameIndexOf(match || {});
-  const currentScore = useMemo(() => currentScoreOf(match || {}), [match]);
+  const rawCurrentScore = useMemo(() => currentScoreOf(match || {}), [match]);
+  const scoreTapGuardRef = useRef({ side: "", until: 0 });
+  const scoreGuardRef = useRef({ a: null, b: null, until: 0 });
+  const lastServerUidRef = useRef("");
+  const openingServerRef = useRef({ gameIndex: -1, side: "", uid: "" });
+  const forcedServerRef = useRef({
+    uid: "",
+    until: 0,
+    gameIndex: -1,
+    side: "",
+    serverNum: 0,
+  });
+  const prevServeSnapRef = useRef({
+    gameIndex: -1,
+    scoreA: 0,
+    scoreB: 0,
+    activeSide: "A",
+    activeServerNum: 1,
+    serverUidShow: "",
+  });
+  const scoreGuard = scoreGuardRef.current;
+  const scoreGuardOn = Date.now() < Number(scoreGuard?.until || 0);
+  const currentScore = useMemo(
+    () => ({
+      a:
+        scoreGuardOn && typeof scoreGuard?.a === "number"
+          ? Math.max(rawCurrentScore.a, scoreGuard.a)
+          : rawCurrentScore.a,
+      b:
+        scoreGuardOn && typeof scoreGuard?.b === "number"
+          ? Math.max(rawCurrentScore.b, scoreGuard.b)
+          : rawCurrentScore.b,
+    }),
+    [
+      rawCurrentScore.a,
+      rawCurrentScore.b,
+      scoreGuard?.a,
+      scoreGuard?.b,
+      scoreGuardOn,
+    ],
+  );
   const breakState = useMemo(
     () => normalizeBreakState(match?.isBreak || match?.break || match?.pause),
     [match?.break, match?.isBreak, match?.pause],
@@ -689,14 +759,14 @@ export default function RefereeScoreDialog({
   const wins = useMemo(() => {
     return gameScores.reduce(
       (acc, score) => {
-        if (!isGameWin(score?.a, score?.b, rules.pointsToWin, rules.winByTwo)) return acc;
+        if (!isGameWin(score?.a, score?.b, rules.pointsToWin, rules.winByTwo, rules.cap)) return acc;
         if (Number(score?.a || 0) > Number(score?.b || 0)) acc.a += 1;
         if (Number(score?.b || 0) > Number(score?.a || 0)) acc.b += 1;
         return acc;
       },
       { a: 0, b: 0 },
     );
-  }, [gameScores, rules.pointsToWin, rules.winByTwo]);
+  }, [gameScores, rules.cap, rules.pointsToWin, rules.winByTwo]);
 
   const leftGameScore = leftSide === "A" ? currentScore.a : currentScore.b;
   const rightGameScore = rightSide === "A" ? currentScore.a : currentScore.b;
@@ -711,6 +781,7 @@ export default function RefereeScoreDialog({
     currentScore.b,
     rules.pointsToWin,
     rules.winByTwo,
+    rules.cap,
   );
   const waitingNextGameStart =
     Boolean(match?._id) &&
@@ -781,20 +852,107 @@ export default function RefereeScoreDialog({
   );
 
   const serverUidShow = useMemo(() => {
-    const serveUid = textOf(match?.serve?.serverId);
-    if (serveUid) return serveUid;
+    const pinnedOpeningServer =
+      openingServerRef.current.gameIndex === currentGame &&
+      openingServerRef.current.side === activeSide
+        ? openingServerRef.current.uid
+        : "";
+    const rawServerUid = textOf(match?.serve?.serverId);
+    const forcedUid =
+      forcedServerRef.current.uid &&
+      Date.now() < Number(forcedServerRef.current.until || 0) &&
+      forcedServerRef.current.gameIndex === currentGame &&
+      forcedServerRef.current.side === activeSide &&
+      Number(forcedServerRef.current.serverNum) === Number(activeServerNum)
+        ? forcedServerRef.current.uid
+        : "";
+    const previous = prevServeSnapRef.current || {};
+    const serveSameAsPrevious =
+      previous.gameIndex === currentGame &&
+      previous.activeSide === activeSide &&
+      Number(previous.activeServerNum) === Number(activeServerNum);
+    const serveSideScored =
+      serveSameAsPrevious &&
+      (activeSide === "A"
+        ? Number(currentScore.a) === Number(previous.scoreA) + 1 &&
+          Number(currentScore.b) === Number(previous.scoreB)
+        : Number(currentScore.b) === Number(previous.scoreB) + 1 &&
+          Number(currentScore.a) === Number(previous.scoreA));
+    const stablePreviousUid =
+      textOf(previous.serverUidShow) || lastServerUidRef.current || "";
     const fallbackSlot = isPreStartOrOpening
       ? preStartRightSlotForSide(activeSide, currentLayout)
       : activeServerNum;
     const fallback = findUidAtCurrentSlot(activeSide, fallbackSlot);
-    return fallback || "";
+    const baseUid = serveSideScored
+      ? stablePreviousUid ||
+        rawServerUid ||
+        (isOpeningServe ? pinnedOpeningServer : "") ||
+        fallback ||
+        ""
+      : rawServerUid ||
+        (isOpeningServe ? pinnedOpeningServer : "") ||
+        fallback ||
+        lastServerUidRef.current ||
+        "";
+    return forcedUid || baseUid || "";
   }, [
     activeServerNum,
     activeSide,
     currentLayout,
+    currentGame,
+    currentScore.a,
+    currentScore.b,
     findUidAtCurrentSlot,
+    isOpeningServe,
     isPreStartOrOpening,
     match?.serve?.serverId,
+  ]);
+
+  useEffect(() => {
+    const isZeroZero = Number(currentScore.a) === 0 && Number(currentScore.b) === 0;
+    if (!isZeroZero || !isOpeningServe) return;
+    const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
+    const uid =
+      textOf(match?.serve?.serverId) ||
+      lastServerUidRef.current ||
+      findUidAtCurrentSlot(activeSide, rightSlot) ||
+      findUidAtCurrentSlot(activeSide, rightSlot === 1 ? 2 : 1) ||
+      "";
+    if (!uid) return;
+    openingServerRef.current = { gameIndex: currentGame, side: activeSide, uid };
+    lastServerUidRef.current = uid;
+  }, [
+    activeSide,
+    currentGame,
+    currentLayout,
+    currentScore.a,
+    currentScore.b,
+    findUidAtCurrentSlot,
+    isOpeningServe,
+    match?.serve?.serverId,
+  ]);
+
+  useEffect(() => {
+    if (serverUidShow) lastServerUidRef.current = serverUidShow;
+  }, [serverUidShow]);
+
+  useEffect(() => {
+    prevServeSnapRef.current = {
+      gameIndex: currentGame,
+      scoreA: currentScore.a,
+      scoreB: currentScore.b,
+      activeSide,
+      activeServerNum,
+      serverUidShow,
+    };
+  }, [
+    activeServerNum,
+    activeSide,
+    currentGame,
+    currentScore.a,
+    currentScore.b,
+    serverUidShow,
   ]);
 
   const headerText = [
@@ -1157,6 +1315,29 @@ export default function RefereeScoreDialog({
   const handleStart = useCallback(async () => {
     if (!ensureInteractionAllowed()) return;
     await runProtectedBusy("start", async () => {
+      if (isDouble && Number(currentScore.a) === 0 && Number(currentScore.b) === 0) {
+        const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
+        const serverId =
+          serverUidShow ||
+          findUidAtCurrentSlot(activeSide, rightSlot) ||
+          findUidAtCurrentSlot(activeSide, rightSlot === 1 ? 2 : 1) ||
+          firstPlayerIdOfSide(match, activeSide, eventType) ||
+          "";
+        if (serverId && textOf(match?.serve?.serverId) !== serverId) {
+          lastServerUidRef.current = serverId;
+          openingServerRef.current = {
+            gameIndex: currentGame,
+            side: activeSide,
+            uid: serverId,
+          };
+          await api.setServe({
+            side: activeSide,
+            server: OPENING_DOUBLES_SERVER,
+            serverId,
+            opening: true,
+          });
+        }
+      }
       await api.start();
       if (breakState?.active) {
         await api.setBreak({
@@ -1166,7 +1347,22 @@ export default function RefereeScoreDialog({
         });
       }
     });
-  }, [api, breakState?.active, currentGame, ensureInteractionAllowed, runProtectedBusy]);
+  }, [
+    activeSide,
+    api,
+    breakState?.active,
+    currentGame,
+    currentLayout,
+    currentScore.a,
+    currentScore.b,
+    ensureInteractionAllowed,
+    eventType,
+    findUidAtCurrentSlot,
+    isDouble,
+    match,
+    runProtectedBusy,
+    serverUidShow,
+  ]);
 
   const handleForfeitSide = useCallback(
     (forfeitedSide) => {
@@ -1177,6 +1373,75 @@ export default function RefereeScoreDialog({
       );
     },
     [api, runProtectedBusy],
+  );
+
+  const handlePoint = useCallback(
+    async (key, side) => {
+      if (side !== activeSide) return;
+      if (!canScoreByMatchState || currentGameFinished || matchDecided) return;
+      if (isInteractionLocked) {
+        await runLiveControlBusy(key, async () => {});
+        return;
+      }
+
+      const now = Date.now();
+      const tapGuard = scoreTapGuardRef.current;
+      if (tapGuard?.side === side && now < Number(tapGuard.until || 0)) return;
+      scoreTapGuardRef.current = {
+        side,
+        until: now + SCORE_TAP_GUARD_MS,
+      };
+
+      const previousServerUid = serverUidShow || lastServerUidRef.current;
+      if (previousServerUid) {
+        forcedServerRef.current = {
+          uid: previousServerUid,
+          until: now + SERVER_UID_PIN_MS,
+          gameIndex: currentGame,
+          side: activeSide,
+          serverNum: activeServerNum,
+        };
+        lastServerUidRef.current = previousServerUid;
+      }
+
+      const currentGuard = scoreGuardRef.current;
+      const guardActive = now < Number(currentGuard?.until || 0);
+      const guardedA =
+        guardActive && typeof currentGuard?.a === "number"
+          ? Math.max(currentScore.a, currentGuard.a)
+          : currentScore.a;
+      const guardedB =
+        guardActive && typeof currentGuard?.b === "number"
+          ? Math.max(currentScore.b, currentGuard.b)
+          : currentScore.b;
+      scoreGuardRef.current = {
+        a: side === "A" ? guardedA + 1 : guardedA,
+        b: side === "B" ? guardedB + 1 : guardedB,
+        until: now + SCORE_RENDER_GUARD_MS,
+      };
+
+      await runLiveControlBusy(key, () =>
+        api[side === "A" ? "pointA" : "pointB"](1),
+      );
+
+      if (previousServerUid) {
+        lastServerUidRef.current = previousServerUid;
+      }
+    },
+    [
+      activeServerNum,
+      activeSide,
+      api,
+      canScoreByMatchState,
+      currentGame,
+      currentGameFinished,
+      currentScore.a,
+      currentScore.b,
+      isInteractionLocked,
+      matchDecided,
+      runLiveControlBusy,
+      serverUidShow,
+    ],
   );
 
   const cta = useMemo(() => {
@@ -1204,22 +1469,6 @@ export default function RefereeScoreDialog({
     }
 
     if (currentGameFinished) {
-      const previewWinner = currentScore.a > currentScore.b ? "A" : "B";
-      const previewA = wins.a + (previewWinner === "A" ? 1 : 0);
-      const previewB = wins.b + (previewWinner === "B" ? 1 : 0);
-      const winnerBySets = previewA >= needed ? "A" : previewB >= needed ? "B" : "";
-
-      if (winnerBySets) {
-        return {
-          label: "Kết thúc trận",
-          danger: true,
-          onPress: () =>
-            runProtectedBusy(`finish-${winnerBySets}`, () =>
-              api.finish(winnerBySets, "finish"),
-            ),
-        };
-      }
-
       return {
         label: "Bắt game tiếp",
         danger: false,
@@ -1232,8 +1481,6 @@ export default function RefereeScoreDialog({
   }, [
     api,
     currentGameFinished,
-    currentScore.a,
-    currentScore.b,
     handleStart,
     match?.status,
     matchDecided,
@@ -1249,8 +1496,10 @@ export default function RefereeScoreDialog({
   const midLabel = midUsesServeToggle ? "Đổi giao" : "Đổi tay";
   const midIcon = midUsesServeToggle ? <SwapCallsIcon /> : <SwapVertIcon />;
   const onMidPress = midUsesServeToggle ? toggleServeSide : toggleServerNum;
-  const leftEnabled = canScoreByMatchState && activeSide === leftSide && !busy;
-  const rightEnabled = canScoreByMatchState && activeSide === rightSide && !busy;
+  const scoreControlsEnabled =
+    canScoreByMatchState && !currentGameFinished && !matchDecided && !busy;
+  const leftEnabled = scoreControlsEnabled && activeSide === leftSide;
+  const rightEnabled = scoreControlsEnabled && activeSide === rightSide;
   return (
     <>
       <Dialog
@@ -1978,11 +2227,7 @@ export default function RefereeScoreDialog({
                 >
                   <Button
                     variant="outlined"
-                    onClick={() =>
-                      runLiveControlBusy("point-left", () =>
-                        api[leftSide === "A" ? "pointA" : "pointB"](1),
-                      )
-                    }
+                    onClick={() => handlePoint("point-left", leftSide)}
                     disabled={!leftEnabled}
                     startIcon={busy === "point-left" ? <CircularProgress size={14} /> : <AddIcon />}
                     sx={{
@@ -2024,11 +2269,7 @@ export default function RefereeScoreDialog({
 
                   <Button
                     variant="outlined"
-                    onClick={() =>
-                      runLiveControlBusy("point-right", () =>
-                        api[rightSide === "A" ? "pointA" : "pointB"](1),
-                      )
-                    }
+                    onClick={() => handlePoint("point-right", rightSide)}
                     disabled={!rightEnabled}
                     startIcon={busy === "point-right" ? <CircularProgress size={14} /> : <AddIcon />}
                     sx={{

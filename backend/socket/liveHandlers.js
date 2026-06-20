@@ -27,6 +27,7 @@ import {
   applyLegacyLiveAction,
 } from "../services/matchLiveSync.service.js";
 import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
+import { invalidateMatchSnapshotCache } from "../services/matchSnapshotCache.service.js";
 
 const MATCH_CODE_OFFSET_CACHE_TTL_MS = 10000;
 const MATCH_CODE_GROUPISH_TYPES = new Set(["group", "round_robin", "gsl"]);
@@ -951,6 +952,7 @@ async function emitMatchRealtimeUpdate(io, matchId, type, doc) {
   if (!io || !matchId || !doc) return;
   const dto = await toRealtimePublicMatchDTO(doc);
   if (!dto) return;
+  await invalidateMatchSnapshotCache(matchId);
   emitTournamentMatchUpdate(io, doc, dto, {
     type,
     matchId,

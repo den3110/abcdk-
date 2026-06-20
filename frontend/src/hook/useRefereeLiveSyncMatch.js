@@ -4,6 +4,7 @@ import { useSocket } from "../context/SocketContext";
 import {
   extractMatchPayload,
   extractMatchPatchPayload,
+  getMatchRealtimeFingerprint,
   getMatchPayloadId,
   isLightweightMatchPayload,
   isNewerOrEqualMatchPayload,
@@ -93,6 +94,7 @@ export function useRefereeLiveSyncMatch(
   const mountedRef = useRef(false);
   const persistRef = useRef(createEmptyLiveSyncState(matchId));
   const dataRef = useRef(null);
+  const lastAppliedKeyRef = useRef("");
   const syncInFlightRef = useRef(null);
   const bootstrapInFlightRef = useRef(null);
   const claimInFlightRef = useRef(null);
@@ -404,11 +406,19 @@ export function useRefereeLiveSyncMatch(
                 }
                 return merged;
               })();
-        dataRef.current = nextData;
+        const nextKey = getMatchRealtimeFingerprint(nextData);
+        const prevKey = prev.data
+          ? getMatchRealtimeFingerprint(prev.data)
+          : lastAppliedKeyRef.current;
+        const reuseData = !force && nextKey && prevKey === nextKey;
+        if (!reuseData) {
+          dataRef.current = nextData;
+          lastAppliedKeyRef.current = nextKey;
+        }
         return {
           ...prev,
           loading: false,
-          data: nextData,
+          data: reuseData ? prev.data : nextData,
           error: null,
           owner: nextOwner,
           pendingCount: force ? 0 : queue.length,
@@ -915,6 +925,7 @@ export function useRefereeLiveSyncMatch(
     mountedRef.current = true;
     if (!enabled || !matchId) {
       dataRef.current = null;
+      lastAppliedKeyRef.current = "";
       setState({
         loading: false,
         data: null,
@@ -959,6 +970,9 @@ export function useRefereeLiveSyncMatch(
       dataRef.current = stored.snapshot
         ? rebuildLiveSyncSnapshot(stored.snapshot, stored.queue)
         : null;
+      lastAppliedKeyRef.current = dataRef.current
+        ? getMatchRealtimeFingerprint(dataRef.current)
+        : "";
       setState((prev) => ({
         ...prev,
         loading: true,
@@ -1056,17 +1070,22 @@ export function useRefereeLiveSyncMatch(
         shouldOverlayQueue
           ? rebuildLiveSyncSnapshot(incoming, queue)
           : incoming;
-      setDerivedState((prev) => {
-        const nextData = prev.data
-          ? mergeMatchPayload(prev.data, baseSnapshot, prev.data)
-          : baseSnapshot;
-        if (!nextData) return prev;
-        if (prev.data && !isNewerOrEqualMatchPayload(prev.data, nextData)) {
-          return prev;
-        }
-        dataRef.current = nextData;
-        return { ...prev, loading: false, data: nextData };
-      });
+      const currentData = dataRef.current;
+      const nextData = currentData
+        ? mergeMatchPayload(currentData, baseSnapshot, currentData)
+        : baseSnapshot;
+      if (!nextData) return;
+      if (currentData && !isNewerOrEqualMatchPayload(currentData, nextData)) {
+        return;
+      }
+      const nextKey = getMatchRealtimeFingerprint(nextData);
+      const currentKey = currentData
+        ? getMatchRealtimeFingerprint(currentData)
+        : lastAppliedKeyRef.current;
+      if (nextKey && currentKey === nextKey) return;
+      lastAppliedKeyRef.current = nextKey;
+      dataRef.current = nextData;
+      setDerivedState((prev) => ({ ...prev, loading: false, data: nextData }));
       await persistState({ snapshot: incoming });
     };
 
@@ -1095,14 +1114,22 @@ export function useRefereeLiveSyncMatch(
           ? rebuildLiveSyncSnapshot(mergedSnapshot, queue)
           : mergedSnapshot;
 
+      const currentData = dataRef.current;
+      if (currentData && !isNewerOrEqualMatchPayload(currentData, nextData)) {
+        return;
+      }
+      const nextKey = getMatchRealtimeFingerprint(nextData);
+      const currentKey = currentData
+        ? getMatchRealtimeFingerprint(currentData)
+        : lastAppliedKeyRef.current;
+      if (nextKey && currentKey === nextKey) return;
+      lastAppliedKeyRef.current = nextKey;
       dataRef.current = nextData;
       await persistState({ snapshot: normalizeMatchDisplay(mergedSnapshot) });
       setDerivedState((prev) => ({
         ...prev,
         loading: false,
-        data: prev.data
-          ? mergeMatchPayload(prev.data, nextData, prev.data)
-          : nextData,
+        data: nextData,
       }));
     };
     const onOwnershipChanged = (payload = {}) => {

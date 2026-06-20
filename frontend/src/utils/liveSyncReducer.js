@@ -8,6 +8,54 @@ function toNum(value, fallback = 0) {
   return Number.isFinite(num) ? num : fallback;
 }
 
+function isFinitePos(value) {
+  return Number.isFinite(value) && value > 0;
+}
+
+function buildNormalizedRules(snapshot) {
+  return {
+    pointsToWin: toNum(snapshot?.rules?.pointsToWin, 11),
+    winByTwo:
+      snapshot?.rules?.winByTwo === undefined
+        ? true
+        : Boolean(snapshot.rules.winByTwo),
+    cap: {
+      mode: String(snapshot?.rules?.cap?.mode ?? "none"),
+      points:
+        snapshot?.rules?.cap?.points === undefined
+          ? null
+          : Number(snapshot.rules.cap.points),
+    },
+  };
+}
+
+function evaluateGameFinish(aRaw, bRaw, rules) {
+  const a = Number(aRaw) || 0;
+  const b = Number(bRaw) || 0;
+  const base = Number(rules?.pointsToWin ?? 11);
+  const byTwo = rules?.winByTwo !== false;
+  const mode = String(rules?.cap?.mode ?? "none");
+  const capPoints =
+    rules?.cap?.points != null ? Number(rules.cap.points) : null;
+
+  if ((mode === "hard" || mode === "soft") && isFinitePos(capPoints)) {
+    if (a >= capPoints || b >= capPoints) {
+      if (a === b) return { finished: false, winner: null };
+      return { finished: true, winner: a > b ? "A" : "B" };
+    }
+  }
+
+  if (byTwo) {
+    if ((a >= base || b >= base) && Math.abs(a - b) >= 2) {
+      return { finished: true, winner: a > b ? "A" : "B" };
+    }
+  } else if ((a >= base || b >= base) && a !== b) {
+    return { finished: true, winner: a > b ? "A" : "B" };
+  }
+
+  return { finished: false, winner: null };
+}
+
 function validSide(side) {
   return side === "A" || side === "B" ? side : "A";
 }
@@ -155,6 +203,10 @@ export function applyLiveSyncEventLocally(snapshot, input) {
       a: toNum(current.a, 0),
       b: toNum(current.b, 0),
     };
+    if (evaluateGameFinish(score.a, score.b, buildNormalizedRules(next)).finished) {
+      return next;
+    }
+
     if (team === "A") score.a += step;
     else score.b += step;
     next.gameScores[gameIndex] = score;

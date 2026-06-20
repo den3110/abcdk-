@@ -21,6 +21,7 @@ import { broadcastState } from "../services/broadcastState.js";
 import UserMatch from "../models/userMatchModel.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { dispatchMatchLiveActivityUpdate } from "../services/liveActivityApns.service.js";
+import { invalidateMatchSnapshotCache } from "../services/matchSnapshotCache.service.js";
 const OPENING_DOUBLES_SERVER = 2;
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -557,6 +558,7 @@ async function broadcastUserMatchScoreUpdated(io, matchId) {
         : Date.now(),
   };
 
+  await invalidateMatchSnapshotCache(snap._id);
   io?.to(`match:${String(snap._id)}`)?.emit("score:updated", payload);
   void dispatchMatchLiveActivityUpdate(payload).catch((error) => {
     console.error(
@@ -1272,6 +1274,7 @@ export const patchStatus = asyncHandler(async (req, res) => {
     await match.save();
 
     const io = req.app.get("io");
+    await invalidateMatchSnapshotCache(match._id);
 
     // Emit status tối giản (giống post-save trong model nhưng thêm type)
     io?.to(String(match._id)).emit("status:updated", {
@@ -1317,6 +1320,7 @@ export const patchStatus = asyncHandler(async (req, res) => {
   }
 
   await match.save();
+  await invalidateMatchSnapshotCache(match._id);
 
   // Emit socket thay đổi trạng thái tối giản
   const io = req.app.get("io");
@@ -1518,6 +1522,7 @@ export const patchWinner = asyncHandler(async (req, res) => {
     }
 
     await match.save();
+    await invalidateMatchSnapshotCache(match._id);
 
     // 🔔 Bắn payload đầy đủ để client live không phải đoán score/serve/name
     await broadcastUserMatchScoreUpdated(io, id);
@@ -1549,6 +1554,7 @@ export const patchWinner = asyncHandler(async (req, res) => {
   }
 
   await match.save();
+  await invalidateMatchSnapshotCache(match._id);
   const mFull = await populateMatchForEmit(id);
   if (!mFull) return;
   const dto = toDTO(decorateServeAndSlots(mFull));

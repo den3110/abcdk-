@@ -4,6 +4,7 @@ import { useSocket } from "../context/SocketContext";
 import {
   extractMatchPayload,
   extractMatchPatchPayload,
+  getMatchRealtimeFingerprint,
   getMatchPayloadId,
   isLightweightMatchPayload,
   isNewerOrEqualMatchPayload,
@@ -23,8 +24,10 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
   const socket = useSocket();
   const [state, setState] = useState({ loading: true, data: null });
   const mountedRef = useRef(false);
+  const lastAppliedKeyRef = useRef("");
 
   useEffect(() => {
+    lastAppliedKeyRef.current = "";
     if (!enabled) {
       setState({ loading: false, data: null });
       return;
@@ -75,6 +78,12 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
         if (prev.data && !isNewerOrEqualMatchPayload(prev.data, next)) {
           return prev;
         }
+        const nextKey = getMatchRealtimeFingerprint(next);
+        const prevKey = prev.data
+          ? getMatchRealtimeFingerprint(prev.data)
+          : lastAppliedKeyRef.current;
+        if (nextKey && prevKey === nextKey) return prev;
+        lastAppliedKeyRef.current = nextKey;
         return { loading: false, data: next };
       });
     };
@@ -112,6 +121,15 @@ function useStandardLiveMatch(matchId, token, enabled = true) {
           ? mergeMatchPayload(prev.data, patch, prev.data)
           : normalizeMatchDisplay(patch);
         if (!next) return prev;
+        if (prev.data && !isNewerOrEqualMatchPayload(prev.data, next)) {
+          return prev;
+        }
+        const nextKey = getMatchRealtimeFingerprint(next);
+        const prevKey = prev.data
+          ? getMatchRealtimeFingerprint(prev.data)
+          : lastAppliedKeyRef.current;
+        if (nextKey && prevKey === nextKey) return prev;
+        lastAppliedKeyRef.current = nextKey;
         return { loading: false, data: next };
       });
     };

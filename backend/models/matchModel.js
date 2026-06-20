@@ -1754,6 +1754,22 @@ matchSchema.index({ bracket: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, bracket: 1, round: 1, order: 1 });
 matchSchema.index({ tournament: 1, status: 1, updatedAt: -1 });
+matchSchema.index({
+  tournament: 1,
+  courtCluster: 1,
+  status: 1,
+  queueOrder: 1,
+  round: 1,
+  order: 1,
+});
+matchSchema.index({
+  tournament: 1,
+  bracket: 1,
+  status: 1,
+  queueOrder: 1,
+  round: 1,
+  order: 1,
+});
 matchSchema.index({ pairA: 1, status: 1, finishedAt: -1 });
 matchSchema.index({ pairB: 1, status: 1, finishedAt: -1 });
 matchSchema.index({ court: 1, status: 1 });

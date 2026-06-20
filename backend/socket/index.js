@@ -97,6 +97,10 @@ import {
 import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
 import { syncMatchLiveEvents } from "../services/matchLiveSync.service.js";
 import { getRefereeMatchControlLockRuntime } from "../services/systemSettingsRuntime.service.js";
+import {
+  getCachedMatchSnapshotDto,
+  invalidateMatchSnapshotCache,
+} from "../services/matchSnapshotCache.service.js";
 
 const resolveSocketMatchCourt = (match) => {
   const courtId =
@@ -179,6 +183,50 @@ const LIVE_RECORDING_MONITOR_REDIS_URL =
   process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const MATCH_SNAPSHOT_DEDUPE_MS = 750;
 
+const truthyEnv = (value) =>
+  ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
+
+const readSocketInt = (key, fallback, { min = 0, max = 10_000_000 } = {}) => {
+  const value = Number(process.env[key]);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+};
+
+const resolveSocketTransports = () => {
+  const raw = String(process.env.SOCKET_TRANSPORTS || "").trim();
+  if (raw) {
+    const selected = raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item === "websocket" || item === "polling");
+    if (selected.length) return [...new Set(selected)];
+  }
+  return truthyEnv(process.env.SOCKET_ENABLE_POLLING)
+    ? ["websocket", "polling"]
+    : ["websocket"];
+};
+
+const SOCKET_TRANSPORTS = resolveSocketTransports();
+const SOCKET_MAX_HTTP_BUFFER_SIZE = readSocketInt(
+  "SOCKET_MAX_HTTP_BUFFER_SIZE",
+  1_000_000,
+  { min: 64 * 1024, max: 10_000_000 }
+);
+const SOCKET_PING_INTERVAL_MS = readSocketInt(
+  "SOCKET_PING_INTERVAL_MS",
+  25_000,
+  { min: 5_000, max: 60_000 }
+);
+const SOCKET_PING_TIMEOUT_MS = readSocketInt(
+  "SOCKET_PING_TIMEOUT_MS",
+  30_000,
+  { min: 5_000, max: 120_000 }
+);
+const SOCKET_CONNECT_TIMEOUT_MS = readSocketInt(
+  "SOCKET_CONNECT_TIMEOUT_MS",
+  10_000,
+  { min: 2_000, max: 60_000 }
+);
 function liveDeviceContext(socket) {
   return {
     deviceId:
@@ -203,6 +251,18 @@ function liveSyncDisplayName(user, fallback = "") {
       user?.nickname || user?.nickName || user?.name || user?.fullName || fallback
     ).trim() || "Referee"
   );
+}
+
+function allowSocketEvent(socket, key, { minIntervalMs = 0 } = {}) {
+  if (!socket || !key) return false;
+  if (!(socket.data.rateLimitTracker instanceof Map)) {
+    socket.data.rateLimitTracker = new Map();
+  }
+  const now = Date.now();
+  const prev = socket.data.rateLimitTracker.get(key) || 0;
+  if (minIntervalMs > 0 && now - prev < minIntervalMs) return false;
+  socket.data.rateLimitTracker.set(key, now);
+  return true;
 }
 
 function emitMatchOwnershipChanged(io, matchId, owner = null) {
@@ -1313,7 +1373,12 @@ const emitMatchSnapshotToSocket = async (
   }
 
   const task = (async () => {
-    const dto = await buildMatchSnapshotDto(normalizedMatchId, userMatch);
+    const dto = await getCachedMatchSnapshotDto(
+      normalizedMatchId,
+      userMatch,
+      buildMatchSnapshotDto,
+      { forceRefresh: force }
+    );
     if (dto) {
       socket.emit("match:snapshot", dto);
     }
@@ -1362,7 +1427,14 @@ export function initSocket(
   const io = new Server(httpServer, {
     path,
     cors: { origin: whitelist, credentials: true },
-    transports: ["websocket", "polling"],
+    transports: SOCKET_TRANSPORTS,
+    serveClient: false,
+    perMessageDeflate: false,
+    httpCompression: false,
+    maxHttpBufferSize: SOCKET_MAX_HTTP_BUFFER_SIZE,
+    pingInterval: SOCKET_PING_INTERVAL_MS,
+    pingTimeout: SOCKET_PING_TIMEOUT_MS,
+    connectTimeout: SOCKET_CONNECT_TIMEOUT_MS,
   });
 
   ioInstance = io; // 👈 LƯU LẠI ĐỂ FILE KHÁC LẤY
@@ -1829,6 +1901,13 @@ export function initSocket(
     // heartbeat từ client (app/web gửi mỗi 10s)
     socket.on("presence:ping", async () => {
       try {
+        if (
+          !allowSocketEvent(socket, "presence:ping", {
+            minIntervalMs: 5000,
+          })
+        ) {
+          return;
+        }
         await refreshHeartbeat(socket.id);
       } catch (e) {
         console.error("[socket] presence:ping error:", e);
@@ -2239,6 +2318,14 @@ export function initSocket(
 
     socket.on("match:snapshot:request", async ({ matchId, userMatch } = {}) => {
       try {
+        const normalizedMatchId = String(matchId || "").trim();
+        if (
+          !allowSocketEvent(socket, `match:snapshot:${normalizedMatchId}`, {
+            minIntervalMs: 500,
+          })
+        ) {
+          return;
+        }
         await emitMatchSnapshotToSocket(socket, matchId, userMatch);
         return;
       } catch (e) {
@@ -2606,6 +2693,7 @@ export function initSocket(
             return;
           }
 
+          await invalidateMatchSnapshotCache(matchId);
           io.to(`match:${String(matchId)}`).emit("match:patched", {
             matchId: String(matchId),
             payload: { isBreak: result.body?.isBreak || null },
@@ -2797,6 +2885,7 @@ export function initSocket(
             return;
           }
 
+          await invalidateMatchSnapshotCache(matchId);
           io.to(`match:${String(matchId)}`).emit("match:patched", {
             matchId: String(matchId),
             payload: {
@@ -2949,6 +3038,8 @@ export function initSocket(
             m.liveVersion = (m.liveVersion || 0) + 1;
 
             await m.save(); // pre('save') sẽ chạy và sync mọi thứ chuẩn chỉ
+
+            await invalidateMatchSnapshotCache(matchId);
 
             // broadcast
             io.to(`match:${matchId}`).emit("match:patched", {
@@ -3447,6 +3538,8 @@ export function initSocket(
           delta: nextPTW - prevPTW,
         });
 
+        await invalidateMatchSnapshotCache(matchId);
+
         // Broadcast patch
         io.to(`match:${matchId}`).emit("match:patched", {
           matchId: String(matchId),
@@ -3775,6 +3868,16 @@ export function initSocket(
       "scheduler:requestState",
       ({ tournamentId, bracket, cluster = "Main" }) => {
         if (!tournamentId) return;
+        const clusterKey = resolveClusterKey(bracket, cluster);
+        if (
+          !allowSocketEvent(
+            socket,
+            `scheduler:requestState:${tournamentId}:${clusterKey}`,
+            { minIntervalMs: 1000 }
+          )
+        ) {
+          return;
+        }
         broadcastState(io, tournamentId, { bracket, cluster });
       }
     );

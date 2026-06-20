@@ -782,6 +782,120 @@ export const isNewerOrEqualMatchPayload = (current, incoming) => {
   return true;
 };
 
+const realtimeIdOf = (value) => {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return String(value?._id ?? value?.id ?? value?.user?._id ?? value?.user ?? "");
+  }
+  return String(value);
+};
+
+const realtimeTextOf = (value) =>
+  value == null ? "" : String(value).trim();
+
+const compactRealtimeGameScores = (scores) =>
+  (Array.isArray(scores) ? scores : []).map((score) => ({
+    a: Number(score?.a ?? score?.scoreA ?? 0) || 0,
+    b: Number(score?.b ?? score?.scoreB ?? 0) || 0,
+  }));
+
+const compactRealtimePlayer = (player) => {
+  if (!player || typeof player !== "object") return realtimeIdOf(player);
+  return {
+    id: realtimeIdOf(player),
+    displayName: realtimeTextOf(player.displayName),
+    nickname: realtimeTextOf(player.nickname || player.nickName),
+    name: realtimeTextOf(player.fullName || player.name),
+  };
+};
+
+const compactRealtimePair = (pair) => {
+  if (!pair || typeof pair !== "object") return realtimeIdOf(pair);
+  return {
+    id: realtimeIdOf(pair),
+    name: realtimeTextOf(pair.displayName || pair.teamName || pair.name || pair.label),
+    player1: compactRealtimePlayer(pair.player1),
+    player2: compactRealtimePlayer(pair.player2),
+  };
+};
+
+const compactRealtimeTeam = (team) => {
+  if (!team || typeof team !== "object") return realtimeTextOf(team);
+  return {
+    id: realtimeIdOf(team),
+    name: realtimeTextOf(team.name || team.displayName || team.teamName),
+    players: Array.isArray(team.players)
+      ? team.players.map(compactRealtimePlayer)
+      : undefined,
+  };
+};
+
+export const getMatchRealtimeFingerprint = (match) => {
+  const m = normalizeMatchDisplay(match);
+  if (!m || typeof m !== "object") return "";
+
+  const serve = m.serve && typeof m.serve === "object"
+    ? {
+        side: realtimeTextOf(m.serve.side).toUpperCase(),
+        server: Number(m.serve.server ?? m.serve.playerIndex ?? 0) || 0,
+        opening: Boolean(m.serve.opening),
+        serverId: realtimeIdOf(m.serve.serverId),
+        receiverId: realtimeIdOf(m.serve.receiverId),
+      }
+    : null;
+  const slots = m.slots && typeof m.slots === "object"
+    ? {
+        version: m.slots.version ?? null,
+        updatedAt: m.slots.updatedAt ?? null,
+        serverId: realtimeIdOf(m.slots.serverId),
+        receiverId: realtimeIdOf(m.slots.receiverId),
+        base: m.slots.base || null,
+      }
+    : null;
+  const facebookLive = m.facebookLive && typeof m.facebookLive === "object"
+    ? {
+        id: realtimeIdOf(m.facebookLive),
+        liveVideoId: realtimeTextOf(m.facebookLive.liveVideoId),
+        permalinkUrl: realtimeTextOf(
+          m.facebookLive.permalink_url || m.facebookLive.permalinkUrl
+        ),
+        watchUrl: realtimeTextOf(m.facebookLive.watch_url || m.facebookLive.watchUrl),
+      }
+    : null;
+
+  return JSON.stringify({
+    id: realtimeIdOf(m._id || m.matchId),
+    version: m.liveVersion ?? m.version ?? null,
+    updatedAt: m.updatedAt ?? m.liveAt ?? null,
+    status: realtimeTextOf(m.status),
+    winner: realtimeTextOf(m.winner),
+    currentGame: Number(m.currentGame ?? 0) || 0,
+    gameScores: compactRealtimeGameScores(m.gameScores || m.scores),
+    scoreText: realtimeTextOf(m.scoreText),
+    serve,
+    slots,
+    courtId: realtimeIdOf(m.courtId || m.court?._id || m.court),
+    courtName: realtimeTextOf(m.courtName || m.court?.name),
+    courtLabel: realtimeTextOf(m.courtLabel || m.courtStationLabel),
+    courtStationId: realtimeIdOf(m.courtStationId || m.courtStation?._id),
+    courtStationName: realtimeTextOf(m.courtStationName || m.courtStation?.name),
+    queueOrder: m.queueOrder ?? null,
+    assignedAt: m.assignedAt ?? null,
+    scheduledAt: m.scheduledAt ?? null,
+    startedAt: m.startedAt ?? m.startAt ?? null,
+    finishedAt: m.finishedAt ?? null,
+    pairA: compactRealtimePair(m.pairA),
+    pairB: compactRealtimePair(m.pairB),
+    teamA: compactRealtimeTeam(m.teams?.A),
+    teamB: compactRealtimeTeam(m.teams?.B),
+    video: realtimeTextOf(m.video || m.videoUrl),
+    playbackUrl: realtimeTextOf(m.playbackUrl),
+    streamUrl: realtimeTextOf(m.streamUrl),
+    liveUrl: realtimeTextOf(m.liveUrl),
+    facebookLive,
+  });
+};
+
 const mergePlayer = (current, incoming, source) => {
   if (incoming == null) return normalizePlayerDisplay(current, source);
   if (typeof incoming !== "object") return normalizePlayerDisplay(incoming, source);

@@ -16,7 +16,53 @@ const isGroupType = (type) => GROUP_LIKE.has(String(type || "").toLowerCase());
 const resolveClusterKey = (bracket, cluster = "Main") =>
   bracket ? String(bracket) : String(cluster ?? "Main").trim() || "Main";
 
+const envValue = (key) =>
+  typeof process !== "undefined" ? process.env?.[key] : undefined;
+const readPositiveInt = (key, fallback, { max = 1000 } = {}) => {
+  const value = Number(envValue(key));
+  if (!Number.isFinite(value) || value < 0) return fallback;
+  return Math.min(max, Math.trunc(value));
+};
+const SCHEDULER_STATE_FLUSH_MS = readPositiveInt(
+  "SOCKET_SCHEDULER_STATE_FLUSH_MS",
+  1000,
+  { max: 2000 }
+);
+const SCHEDULER_STATE_MAX_WAIT_MS = readPositiveInt(
+  "SOCKET_SCHEDULER_STATE_MAX_WAIT_MS",
+  2000,
+  { max: 5000 }
+);
+const MAX_PENDING_SCHEDULER_STATES = readPositiveInt(
+  "SOCKET_MAX_PENDING_SCHEDULER_STATES",
+  1000,
+  { max: 10000 }
+);
+const SCHEDULER_STATE_FLUSH_CONCURRENCY = readPositiveInt(
+  "SOCKET_SCHEDULER_STATE_FLUSH_CONCURRENCY",
+  2,
+  { max: 10 }
+);
+const pendingSchedulerStates = new Map();
+let schedulerStateFlushTimer = null;
+
 const safeTrim = (value) => (typeof value === "string" ? value.trim() : "");
+
+const nowMs = () => Date.now();
+
+const scheduleTimer = (timerRef, callback, delayMs) =>
+  timerRef || setTimeout(callback, Math.max(0, Number(delayMs) || 0));
+
+const debounceFlushAt = (entry, delayMs, maxWaitMs) => {
+  const now = nowMs();
+  const firstAt = entry?.firstAt || now;
+  const trailingAt = now + Math.max(0, Number(delayMs) || 0);
+  const maxAt = firstAt + Math.max(0, Number(maxWaitMs) || 0);
+  return Math.min(trailingAt, maxAt);
+};
+
+const schedulerStateKey = (tournamentId, clusterKey) =>
+  `${String(tournamentId || "").trim()}:${String(clusterKey || "").trim()}`;
 
 const displayLabelKey = (match, bracketTypeMap) => {
   const bracketId = String(match?.bracket || "");
@@ -209,7 +255,7 @@ export async function buildSchedulerStatePayload(
   };
 }
 
-export async function broadcastState(
+async function emitSchedulerStateNow(
   io,
   tournamentId,
   { bracket = null, cluster = "Main" } = {}
@@ -223,4 +269,106 @@ export async function broadcastState(
     courts: payload.courts,
     matches: payload.matches,
   });
+  return payload;
+}
+
+async function flushSchedulerStateEntry(key, entry = pendingSchedulerStates.get(key)) {
+  if (!entry) return null;
+  pendingSchedulerStates.delete(key);
+  try {
+    return await emitSchedulerStateNow(entry.io, entry.tournamentId, {
+      bracket: entry.bracket,
+      cluster: entry.cluster,
+    });
+  } catch (error) {
+    console.error("[scheduler] broadcastState error:", error?.message || error);
+    return null;
+  }
+}
+
+const scheduleSchedulerStateFlush = () => {
+  if (schedulerStateFlushTimer) return;
+  schedulerStateFlushTimer = scheduleTimer(
+    schedulerStateFlushTimer,
+    flushDueSchedulerStates,
+    SCHEDULER_STATE_FLUSH_MS
+  );
+};
+
+async function flushSchedulerStateEntries(entries) {
+  if (!entries.length) return;
+  let index = 0;
+  const workerCount = Math.min(
+    Math.max(1, SCHEDULER_STATE_FLUSH_CONCURRENCY),
+    entries.length
+  );
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (index < entries.length) {
+      const current = entries[index];
+      index += 1;
+      await flushSchedulerStateEntry(current[0], current[1]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function flushDueSchedulerStates() {
+  schedulerStateFlushTimer = null;
+  const now = nowMs();
+  let nextDelay = null;
+  const due = [];
+
+  for (const [key, entry] of pendingSchedulerStates.entries()) {
+    if (entry.flushAt <= now) {
+      due.push([key, entry]);
+      continue;
+    }
+    const delay = entry.flushAt - now;
+    nextDelay = nextDelay == null ? delay : Math.min(nextDelay, delay);
+  }
+
+  await flushSchedulerStateEntries(due);
+
+  if (pendingSchedulerStates.size > 0) {
+    schedulerStateFlushTimer = scheduleTimer(
+      schedulerStateFlushTimer,
+      flushDueSchedulerStates,
+      nextDelay == null ? SCHEDULER_STATE_FLUSH_MS : nextDelay
+    );
+  }
+}
+
+export async function broadcastState(
+  io,
+  tournamentId,
+  { bracket = null, cluster = "Main" } = {}
+) {
+  if (!io || !tournamentId) return null;
+  const clusterKey = resolveClusterKey(bracket, cluster);
+  const key = schedulerStateKey(tournamentId, clusterKey);
+  const existing = pendingSchedulerStates.get(key);
+  const firstAt = existing?.firstAt || nowMs();
+  const entry = {
+    io,
+    tournamentId,
+    bracket,
+    cluster,
+    firstAt,
+    flushAt: debounceFlushAt(
+      { firstAt },
+      SCHEDULER_STATE_FLUSH_MS,
+      SCHEDULER_STATE_MAX_WAIT_MS
+    ),
+  };
+
+  pendingSchedulerStates.set(key, entry);
+
+  if (pendingSchedulerStates.size > MAX_PENDING_SCHEDULER_STATES) {
+    const [oldestKey, oldestEntry] =
+      pendingSchedulerStates.entries().next().value || [];
+    if (oldestKey) void flushSchedulerStateEntry(oldestKey, oldestEntry);
+  }
+
+  scheduleSchedulerStateFlush();
+  return null;
 }

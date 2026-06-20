@@ -13,6 +13,7 @@ import {
   publishCourtStationRuntimeUpdate,
 } from "./courtStationRuntimeEvents.service.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
+import { invalidateMatchSnapshotCache } from "./matchSnapshotCache.service.js";
 import {
   claimMatchLiveOwner,
   getMatchLiveOwner,
@@ -367,6 +368,13 @@ function applyPointEvent(match, event, actorId) {
     a: toNum(current.a, 0),
     b: toNum(current.b, 0),
   };
+  if (evaluateGameFinish(score.a, score.b, buildNormalizedRules(match)).finished) {
+    return {
+      ok: false,
+      code: "game_already_finished",
+      message: "Current game is already finished",
+    };
+  }
 
   if (team === "A") score.a += step;
   else score.b += step;
@@ -676,6 +684,7 @@ async function emitMatchRealtimeUpdate(io, matchId, type, doc) {
   if (!io || !matchId || !doc) return;
   const dto = await latestSnapshotDto(doc);
   if (!dto) return;
+  await invalidateMatchSnapshotCache(matchId);
   emitTournamentMatchUpdate(io, doc, dto, {
     type,
     matchId: String(matchId),
