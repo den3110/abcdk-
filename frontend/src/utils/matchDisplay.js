@@ -134,6 +134,34 @@ export const getPairDisplayName = (pair, source) => {
 
 const sideKeyOf = (side) => (String(side).toUpperCase() === "B" ? "B" : "A");
 const getSideValue = (match, side, prefix) => match?.[`${prefix}${sideKeyOf(side)}`];
+const isReferenceDisplayName = (value) => {
+  const normalized = trim(value)
+    .replace(/\s+/g, "")
+    .replace(/\([AB]\)$/i, "");
+  if (!normalized) return false;
+  return (
+    /^(?:[WL]-)?V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+$/i.test(normalized) ||
+    /^(?:WB|LB)\d+-T\d+$/i.test(normalized) ||
+    /^GF(?:\d+)?-T\d+$/i.test(normalized)
+  );
+};
+const isUsefulSideDisplayName = (value) => {
+  const text = trim(value);
+  if (!text) return false;
+  if (/^(TBD|Registration|Chưa có đội|Đội A|Đội B|—)$/i.test(text)) return false;
+  return !isReferenceDisplayName(text);
+};
+const getResolvedSideDisplayName = (match, side) => {
+  const normalizedSide = sideKeyOf(side);
+  const candidates = [
+    match?.[`resolvedSideName${normalizedSide}`],
+    match?.[`__side${normalizedSide}`],
+    match?.[`team${normalizedSide}Name`],
+    match?.[`pair${normalizedSide}Name`],
+    match?.[`side${normalizedSide}Name`],
+  ];
+  return candidates.find(isUsefulSideDisplayName) || "";
+};
 const positiveInt = (value) => {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.trunc(number) : null;
@@ -338,6 +366,11 @@ export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
   const seed = getSideValue(match, normalizedSide, "seed");
   const previous = getSideValue(match, normalizedSide, "previous");
   const pairName = getPairDisplayName(pair, match);
+  if (pairName && !isReferenceDisplayName(pairName)) return pairName;
+
+  const resolvedName = getResolvedSideDisplayName(match, normalizedSide);
+  if (resolvedName) return resolvedName;
+
   if (pairName) return pairName;
 
   const seedName = getSeedDisplayName(seed, match);

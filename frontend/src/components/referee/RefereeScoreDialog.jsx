@@ -52,6 +52,7 @@ import {
   getMatchDisplayCode,
   getMatchSideDisplayName,
   getPlayerDisplayName,
+  mergeMatchPayload,
   normalizeMatchDisplay,
 } from "../../utils/matchDisplay";
 
@@ -98,6 +99,11 @@ const sidePairOf = (match, side) => {
 const pairHasDisplayablePlayers = (pair) => {
   if (!pair) return false;
   const players = Array.isArray(pair?.players) ? pair.players : [];
+  const pairLabel =
+    textOf(pair?.displayName) ||
+    textOf(pair?.teamName) ||
+    textOf(pair?.label) ||
+    textOf(pair?.name);
   return Boolean(
     players.length ||
       pair?.player1 ||
@@ -105,10 +111,7 @@ const pairHasDisplayablePlayers = (pair) => {
       pair?.p1 ||
       pair?.p2 ||
       pair?.user ||
-      textOf(pair?.displayName) ||
-      textOf(pair?.teamName) ||
-      textOf(pair?.label) ||
-      textOf(pair?.name),
+      (pairLabel && !isSeedReferenceDisplay(pairLabel)),
   );
 };
 
@@ -693,10 +696,12 @@ export default function RefereeScoreDialog({
     enabled: open && Boolean(matchId),
   });
 
-  const match = useMemo(
-    () => normalizeMatchDisplay(data || initialMatch || null, data || initialMatch || null),
-    [data, initialMatch],
-  );
+  const match = useMemo(() => {
+    if (data && initialMatch) {
+      return mergeMatchPayload(initialMatch, data, initialMatch);
+    }
+    return normalizeMatchDisplay(data || initialMatch || null, initialMatch || data || null);
+  }, [data, initialMatch]);
 
   const ui = useMemo(
     () => ({
