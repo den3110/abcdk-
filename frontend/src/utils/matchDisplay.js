@@ -144,7 +144,6 @@ const referencePrefixFromSeed = (seed) => {
   if (type === "stagematchwinner" || type === "matchwinner") return "W";
   return "";
 };
-const stripReferencePrefix = (value) => trim(value).replace(/^[WL]\s*-\s*/i, "");
 const extractReferenceCodeParts = (value) => {
   const raw = trim(value).toUpperCase();
   if (!raw) return null;
@@ -329,6 +328,18 @@ export const getPreviousMatchDisplayCode = (previous, ownerMatch = null) => {
 
 export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
   const normalizedSide = sideKeyOf(side);
+  const direct =
+    normalizedSide === "A"
+      ? match?.resolvedSideNameA ||
+        match?.teamAName ||
+        match?.pairAName ||
+        match?.sideAName
+      : match?.resolvedSideNameB ||
+        match?.teamBName ||
+        match?.pairBName ||
+        match?.sideBName;
+  if (trim(direct)) return trim(direct);
+
   const pair =
     getSideValue(match, normalizedSide, "pair") ||
     match?.teams?.[normalizedSide] ||
@@ -336,18 +347,11 @@ export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
     match?.[`side${normalizedSide}`] ||
     null;
   const seed = getSideValue(match, normalizedSide, "seed");
-  const previous = getSideValue(match, normalizedSide, "previous");
   const pairName = getPairDisplayName(pair, match);
   if (pairName) return pairName;
 
   const seedName = getSeedDisplayName(seed, match);
   if (seedName) return seedName;
-
-  const previousCode = getPreviousMatchDisplayCode(previous, match);
-  if (previousCode) {
-    const prefix = referencePrefixFromSeed(seed) || "W";
-    return `${prefix}-${stripReferencePrefix(previousCode)}`;
-  }
 
   return fallback;
 };

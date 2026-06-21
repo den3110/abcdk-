@@ -5153,6 +5153,24 @@ export default function TournamentBracket() {
 
       const seed = side === "A" ? m.seedA : m.seedB;
       const pair = side === "A" ? m.pairA : m.pairB;
+      const resolved =
+        side === "A"
+          ? m.resolvedSideNameA || m.teamAName || m.pairAName || m.sideAName
+          : m.resolvedSideNameB || m.teamBName || m.pairBName || m.sideBName;
+
+      if (isUsefulResolvedLabel(resolved, pendingTeamLabel)) {
+        return String(resolved).trim();
+      }
+
+      if (hasResolvedPair(pair)) {
+        return pairLabelWithNick(pair, eventType, displayMode);
+      }
+
+      if (seed?.type) return seedLabel(seed);
+
+      return pendingTeamLabel;
+
+      /*
       const plannedSeed = getPlannedSeedForMatchSide(m, side);
       const seedType = String(seed?.type || "");
       const isEmptyRegistrationSeed =
@@ -5316,17 +5334,12 @@ export default function TournamentBracket() {
       }
 
       return pendingTeamLabel;
+      */
     },
     [
-      findSourceMatchFromSeed,
-      getDisplayCodeForMatch,
-      matchIndex,
       tour?.eventType,
-      isSeedBlockedByUnfinishedGroup,
       pendingTeamLabel,
       displayMode,
-      resolveSeedReferenceLabel,
-      getPlannedSeedForMatchSide,
     ],
   );
   // Prefill rounds for KO

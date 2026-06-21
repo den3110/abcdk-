@@ -1777,9 +1777,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   );
 
   const resolvePendingSideLabel = useCallback(
-    function resolvePendingSideLabelInner(match, side, depth = 0) {
+    function resolvePendingSideLabelInner(match, side) {
       if (!match) return "Chưa có đội";
-      if (depth > 12) return "Chưa có đội";
 
       const seed = side === "A" ? match?.seedA : match?.seedB;
       const pair = side === "A" ? match?.pairA : match?.pairB;
@@ -1790,117 +1789,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       }
 
       if (previewLabel) return previewLabel;
-
-      if (seed && isSeedBlockedByUnfinishedGroup(seed)) {
-        return resolveSeedReferenceLabel(seed, match);
-      }
-
-      const prev = side === "A" ? match?.previousA : match?.previousB;
-      if (prev) {
-        const prevId =
-          typeof prev === "object" && prev?._id ? String(prev._id) : String(prev);
-        const sourceMatch =
-          matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
-        const sourceCode = getDisplayCodeForMatch(sourceMatch);
-        const seedType = String(seed?.type || "");
-        const isLoserSeed =
-          seedType === "stageMatchLoser" || seedType === "matchLoser";
-
-        if (isByeMatchObj(sourceMatch)) {
-          const sourceByeA = isByeSeed(sourceMatch.seedA);
-          const sourceByeB = isByeSeed(sourceMatch.seedB);
-          if (isLoserSeed || (sourceByeA && sourceByeB)) return "BYE";
-
-          const carriedSide = sourceByeA ? "B" : "A";
-          const carried = resolvePendingSideLabelInner(
-            sourceMatch,
-            carriedSide,
-            depth + 1,
-          );
-          if (isUsefulPendingLabel(carried)) return carried;
-        }
-
-        if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
-          const winnerSide = sourceMatch.winner === "A" ? "A" : "B";
-          const winnerPair =
-            winnerSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
-          if (hasResolvedPair(winnerPair)) {
-            return pairLabel(winnerPair, isSingle, displayMode);
-          }
-          const carried = resolvePendingSideLabelInner(
-            sourceMatch,
-            winnerSide,
-            depth + 1,
-          );
-          if (isUsefulPendingLabel(carried)) return carried;
-        }
-
-        if (sourceCode) return `W-${sourceCode}`;
-        return resolveSeedReferenceLabel(seed, match);
-      }
-
-      if (seed && seed.type) {
-        const sourceMatch = findSourceMatchFromSeed(match, seed);
-        const sourceRefLabel = resolveSeedReferenceLabel(seed, match);
-        const isWinnerSeed =
-          seed?.type === "stageMatchWinner" || seed?.type === "matchWinner";
-        const isLoserSeed =
-          seed?.type === "stageMatchLoser" || seed?.type === "matchLoser";
-
-        if (isByeMatchObj(sourceMatch)) {
-          const sourceByeA = isByeSeed(sourceMatch.seedA);
-          const sourceByeB = isByeSeed(sourceMatch.seedB);
-          if (isLoserSeed || (sourceByeA && sourceByeB)) return "BYE";
-
-          const carriedSide = sourceByeA ? "B" : "A";
-          const carried = resolvePendingSideLabelInner(
-            sourceMatch,
-            carriedSide,
-            depth + 1,
-          );
-          if (isUsefulPendingLabel(carried)) return carried;
-        }
-
-        if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
-          const sourceSide = isLoserSeed
-            ? sourceMatch.winner === "A"
-              ? "B"
-              : "A"
-            : sourceMatch.winner === "A"
-              ? "A"
-              : "B";
-          const sourcePair =
-            sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
-
-          if (hasResolvedPair(sourcePair)) {
-            return pairLabel(sourcePair, isSingle, displayMode);
-          }
-          const carried = resolvePendingSideLabelInner(
-            sourceMatch,
-            sourceSide,
-            depth + 1,
-          );
-          if (isUsefulPendingLabel(carried)) return carried;
-        }
-
-        if ((isWinnerSeed || isLoserSeed) && sourceRefLabel) {
-          return sourceRefLabel;
-        }
-
-        return seedLabel(seed);
-      }
+      if (seed?.type) return seedLabel(seed);
 
       return "Chưa có đội";
     },
-    [
-      displayMode,
-      findSourceMatchFromSeed,
-      getDisplayCodeForMatch,
-      isSeedBlockedByUnfinishedGroup,
-      isSingle,
-      matchIndex,
-      resolveSeedReferenceLabel,
-    ],
+    [displayMode, isSingle],
   );
 
   const showSpinner = waiting || resolvingSeedContext;

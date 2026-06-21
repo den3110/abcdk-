@@ -1363,6 +1363,171 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     return pickTrim(pair.teamName) || pickTrim(pair.label) || "";
   };
 
+  const pairId = (pair) => {
+    const raw = pair?._id || pair?.id || pair || "";
+    return raw ? String(raw) : "";
+  };
+
+  const hasDisplayablePair = (pair) =>
+    Boolean(
+      pair &&
+        (pair.player1 ||
+          pair.player2 ||
+          (Array.isArray(pair.players) && pair.players.length > 0) ||
+          pickTrim(pair.displayName) ||
+          pickTrim(pair.teamName) ||
+          pickTrim(pair.label) ||
+          pickTrim(pair.name))
+    );
+
+  const seedTypeOf = (seed) =>
+    String(seed?.type || "")
+      .trim()
+      .toLowerCase();
+
+  const isByeSeed = (seed) =>
+    seedTypeOf(seed) === "bye" || /\bBYE\b/i.test(String(seed?.label || ""));
+
+  const isWinnerSeedType = (type) =>
+    type === "stagematchwinner" || type === "matchwinner";
+
+  const isLoserSeedType = (type) =>
+    type === "stagematchloser" || type === "matchloser";
+
+  const populatePairPaths = [
+    {
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
+        },
+      ],
+    },
+    {
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
+        },
+      ],
+    },
+  ];
+
+  const prepareMatchPairs = (match) => {
+    if (!match) return match;
+    if (match.pairA) {
+      match.pairA.player1 = fillNick(match.pairA.player1);
+      match.pairA.player2 = fillNick(match.pairA.player2);
+    }
+    if (match.pairB) {
+      match.pairB.player1 = fillNick(match.pairB.player1);
+      match.pairB.player2 = fillNick(match.pairB.player2);
+    }
+    return match;
+  };
+
+  const loadRegistrationPair = async (registrationId) => {
+    const idString = pairId(registrationId);
+    if (!mongoose.Types.ObjectId.isValid(idString)) return null;
+    const registration = await Registration.findById(idString)
+      .select("player1 player2 seed label teamName")
+      .populate({
+        path: "player1",
+        select: "fullName name shortName nickname nickName user",
+        populate: { path: "user", select: "fullName name nickname nickName" },
+      })
+      .populate({
+        path: "player2",
+        select: "fullName name shortName nickname nickName user",
+        populate: { path: "user", select: "fullName name nickname nickName" },
+      })
+      .lean();
+    if (!registration) return null;
+    registration.player1 = fillNick(registration.player1);
+    registration.player2 = fillNick(registration.player2);
+    return registration;
+  };
+
+  const sourceMatchSelect = [
+    "_id",
+    "tournament",
+    "bracket",
+    "round",
+    "order",
+    "labelKey",
+    "displayCode",
+    "codeResolved",
+    "code",
+    "matchCode",
+    "meta",
+    "format",
+    "branch",
+    "phase",
+    "status",
+    "winner",
+    "pairA",
+    "pairB",
+    "seedA",
+    "seedB",
+    "previousA",
+    "previousB",
+  ].join(" ");
+
+  const sourceMatchCache = new Map();
+  const sourceCodeCache = new Map();
+
+  const loadSeedSourceMatchById = async (sourceId) => {
+    const idString = pairId(sourceId);
+    if (!mongoose.Types.ObjectId.isValid(idString)) return null;
+    if (sourceMatchCache.has(idString)) return sourceMatchCache.get(idString);
+
+    const sourceMatch = await Match.findById(idString)
+      .select(sourceMatchSelect)
+      .populate(populatePairPaths)
+      .populate({ path: "bracket", select: BRACKET_SELECT })
+      .lean();
+
+    const prepared = prepareMatchPairs(sourceMatch);
+    sourceMatchCache.set(idString, prepared);
+    return prepared;
+  };
+
+  const parseSeedReferenceDisplayCode = (seed) => {
+    const value = String(
+      seed?.label ||
+        seed?.displayName ||
+        seed?.name ||
+        seed?.title ||
+        ""
+    ).trim();
+    if (!value) return "";
+    const match = value.match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-B[A-Z0-9]+)?-T\d+)\b/i);
+    return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
+  };
+
+  const parseDisplayCode = (value) => {
+    const match = String(value || "")
+      .trim()
+      .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-B[A-Z0-9]+)?-T\d+)\b/i);
+    return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
+  };
+
   const normalizeBracketShape = (b) => {
     if (!b) return b;
     const bb = { ...b };
@@ -1475,6 +1640,186 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     }
   };
 
+  const getSourceCodeMaps = async (tournamentId) => {
+    const key = pairId(tournamentId);
+    if (!key) return { offsetMap: new Map(), typeMap: new Map() };
+    if (!sourceCodeCache.has(key)) {
+      sourceCodeCache.set(key, buildOffsets(tournamentId));
+    }
+    return sourceCodeCache.get(key);
+  };
+
+  const sourceSeedMatchIds = (seed) =>
+    [
+      seed?.ref?.matchId,
+      seed?.ref?.match,
+      seed?.matchId,
+      seed?.match,
+      seed?.ref?._id,
+      seed?.ref?.id,
+    ]
+      .map(pairId)
+      .filter((value) => mongoose.Types.ObjectId.isValid(value));
+
+  const findSourceMatchFromSeed = async (ownerMatch, seed) => {
+    if (!ownerMatch || !seed) return null;
+
+    const ownerId = pairId(ownerMatch._id);
+    const ownerTournamentId = pairId(
+      ownerMatch.tournament?._id ||
+        ownerMatch.tournament ||
+        ownerMatch.bracket?.tournament
+    );
+
+    for (const sourceId of sourceSeedMatchIds(seed)) {
+      if (sourceId === ownerId) continue;
+      const direct = await loadSeedSourceMatchById(sourceId);
+      const directTournamentId = pairId(
+        direct?.tournament?._id || direct?.tournament || direct?.bracket?.tournament
+      );
+      if (direct && (!ownerTournamentId || directTournamentId === ownerTournamentId)) {
+        return direct;
+      }
+    }
+
+    if (!ownerTournamentId) return null;
+
+    const labelCode = parseSeedReferenceDisplayCode(seed);
+    const ref = seed?.ref || {};
+    const roundNumber = Number(ref.round ?? seed.round);
+    const orderNumber = Number(ref.order ?? seed.order);
+    const orderCandidates = [];
+    if (Number.isFinite(orderNumber)) {
+      orderCandidates.push(orderNumber, orderNumber - 1);
+    }
+    const query = {
+      tournament: ownerTournamentId,
+      _id: { $ne: ownerMatch._id },
+    };
+    if (!labelCode && Number.isFinite(roundNumber)) {
+      query.round = roundNumber;
+    }
+    if (!labelCode && orderCandidates.length) {
+      query.order = {
+        $in: [...new Set(orderCandidates.filter((value) => value >= 0))],
+      };
+    }
+
+    const candidates = await Match.find(query)
+      .select(sourceMatchSelect)
+      .populate(populatePairPaths)
+      .populate({ path: "bracket", select: BRACKET_SELECT })
+      .lean();
+
+    const preparedCandidates = candidates.map(prepareMatchPairs);
+    for (const candidate of preparedCandidates) {
+      if (candidate?._id) {
+        sourceMatchCache.set(String(candidate._id), candidate);
+      }
+    }
+
+    if (labelCode) {
+      const { offsetMap, typeMap } = await getSourceCodeMaps(ownerTournamentId);
+      const byCode = preparedCandidates.find((candidate) => {
+        const candidateCodes = [
+          parseDisplayCode(candidate.displayCode) ||
+            parseDisplayCode(candidate.code) ||
+            parseDisplayCode(candidate.matchCode),
+          computeCodeDisplay(candidate, offsetMap, typeMap),
+        ].filter(Boolean);
+        return candidateCodes.includes(labelCode);
+      });
+      if (byCode) return byCode;
+    }
+
+    if (!Number.isFinite(roundNumber) || !orderCandidates.length) return null;
+    return preparedCandidates[0] || null;
+  };
+
+  const resolvePairFromSeedSide = async (ownerMatch, side, depth = 0) => {
+    if (!ownerMatch || depth > 10) return null;
+    const sideKey = side === "B" ? "B" : "A";
+    const seed = sideKey === "A" ? ownerMatch.seedA : ownerMatch.seedB;
+    const seedType = seedTypeOf(seed);
+    const currentPair = sideKey === "A" ? ownerMatch.pairA : ownerMatch.pairB;
+
+    if (seedType === "registration") {
+      if (hasDisplayablePair(currentPair)) return currentPair;
+      const registrationId =
+        seed?.ref?.registration || seed?.ref?.reg || seed?.ref?.id || seed?.ref?._id;
+      return loadRegistrationPair(registrationId);
+    }
+
+    if (isByeSeed(seed)) return null;
+
+    const isWinnerSeed = isWinnerSeedType(seedType);
+    const isLoserSeed = isLoserSeedType(seedType);
+    if (!isWinnerSeed && !isLoserSeed) return currentPair || null;
+
+    const previous = sideKey === "A" ? ownerMatch.previousA : ownerMatch.previousB;
+    let sourceMatch = await loadSeedSourceMatchById(
+      previous?._id || previous?.id || previous
+    );
+    if (!sourceMatch) {
+      sourceMatch = await findSourceMatchFromSeed(ownerMatch, seed);
+    }
+    if (!sourceMatch) return currentPair || null;
+
+    const sourceByeA = isByeSeed(sourceMatch.seedA);
+    const sourceByeB = isByeSeed(sourceMatch.seedB);
+    if (sourceByeA || sourceByeB) {
+      if (isLoserSeed || (sourceByeA && sourceByeB)) return null;
+      const carriedSide = sourceByeA ? "B" : "A";
+      const carriedPair = carriedSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+      if (hasDisplayablePair(carriedPair)) return carriedPair;
+      return resolvePairFromSeedSide(sourceMatch, carriedSide, depth + 1);
+    }
+
+    const winnerSide =
+      sourceMatch.winner === "A" || sourceMatch.winner === "B"
+        ? sourceMatch.winner
+        : "";
+    if (!winnerSide) return currentPair || null;
+
+    const sourceSide = isLoserSeed
+      ? winnerSide === "A"
+        ? "B"
+        : "A"
+      : winnerSide;
+    const sourcePair = sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+    if (hasDisplayablePair(sourcePair)) return sourcePair;
+
+    return resolvePairFromSeedSide(sourceMatch, sourceSide, depth + 1);
+  };
+
+  const hydrateResolvedMatchPairs = async (targetMatch) => {
+    if (!targetMatch?._id) return targetMatch;
+
+    const updates = {};
+    for (const side of ["A", "B"]) {
+      const field = side === "A" ? "pairA" : "pairB";
+      const resolvedPair = await resolvePairFromSeedSide(targetMatch, side);
+      const resolvedId = pairId(resolvedPair);
+      if (!resolvedId || !hasDisplayablePair(resolvedPair)) continue;
+
+      if (pairId(targetMatch[field]) !== resolvedId) {
+        updates[field] = resolvedId;
+      }
+      targetMatch[field] = resolvedPair;
+    }
+
+    if (Object.keys(updates).length) {
+      await Match.updateOne(
+        { _id: targetMatch._id },
+        { $set: updates, $inc: { liveVersion: 1, version: 1 } }
+      ).catch(() => {});
+      targetMatch.liveVersion = Number(targetMatch.liveVersion || 0) + 1;
+      targetMatch.version = Number(targetMatch.version || 0) + 1;
+    }
+
+    return prepareMatchPairs(targetMatch);
+  };
+
   // ===== fetch match =====
   const m = await Match.findById(id)
     // Pairs + players
@@ -1579,6 +1924,8 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   }
   if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
+  await hydrateResolvedMatchPairs(m);
+
   const normalizedMatch = normalizeMatchDisplayShape(m);
   m.pairA = normalizedMatch?.pairA || m.pairA;
   m.pairB = normalizedMatch?.pairB || m.pairB;
@@ -1590,6 +1937,12 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   m.bracket = normalizeBracketShape(m.bracket);
   m.pairAName = m.pairA?.displayName || pairName(m.pairA);
   m.pairBName = m.pairB?.displayName || pairName(m.pairB);
+  m.teamAName = m.pairAName;
+  m.teamBName = m.pairBName;
+  m.resolvedSideNameA = m.pairAName;
+  m.resolvedSideNameB = m.pairBName;
+  m.sideAName = m.pairAName;
+  m.sideBName = m.pairBName;
 
   // ===== codeDisplay + labelKeyDisplay =====
   try {

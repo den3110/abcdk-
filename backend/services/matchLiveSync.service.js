@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import IORedis from "ioredis";
+import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Registration from "../models/registrationModel.js";
@@ -16,6 +17,7 @@ import {
 } from "./courtStationRuntimeEvents.service.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { invalidateMatchSnapshotCache } from "./matchSnapshotCache.service.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 import {
   claimMatchLiveOwner,
   getMatchLiveOwner,
@@ -404,6 +406,323 @@ function duplicateError(error) {
 function cloneValue(value) {
   if (value == null) return value;
   return JSON.parse(JSON.stringify(value));
+}
+
+function docId(value) {
+  return String(value?._id || value?.id || value || "").trim();
+}
+
+function hasRegistrationRef(value) {
+  return mongoose.Types.ObjectId.isValid(docId(value));
+}
+
+function seedTypeKey(seed) {
+  return String(seed?.type || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isByeLiveSeed(seed) {
+  return (
+    seedTypeKey(seed) === "bye" ||
+    /\bBYE\b/i.test(String(seed?.label || seed?.displayName || ""))
+  );
+}
+
+function isWinnerSeedType(type) {
+  return type === "stagematchwinner" || type === "matchwinner";
+}
+
+function isLoserSeedType(type) {
+  return type === "stagematchloser" || type === "matchloser";
+}
+
+function parseLiveMatchCode(value) {
+  const match = String(value || "")
+    .trim()
+    .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-B[A-Z0-9]+)?-T\d+)\b/i);
+  return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
+}
+
+function isGroupishLiveBracketType(value) {
+  return ["group", "round_robin", "gsl", "swiss"].includes(
+    String(value || "")
+      .trim()
+      .toLowerCase()
+  );
+}
+
+function ceilPow2Live(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 1) return 1;
+  return 1 << Math.ceil(Math.log2(number));
+}
+
+function countLiveBracketRounds(bracket, maxRoundByBracket) {
+  if (!bracket) return 1;
+  if (isGroupishLiveBracketType(bracket?.type)) return 1;
+
+  const bid = docId(bracket);
+  const fromMatches = Number(maxRoundByBracket.get(bid) || 0);
+  if (fromMatches > 0) return Math.max(1, fromMatches);
+
+  const explicit =
+    Number(bracket?.meta?.maxRounds) || Number(bracket?.drawRounds) || 0;
+  if (explicit > 0) return Math.max(1, explicit);
+
+  const drawSize = Number(bracket?.meta?.drawSize) || 0;
+  if (drawSize >= 2) return Math.ceil(Math.log2(ceilPow2Live(drawSize)));
+
+  return 1;
+}
+
+async function getLiveMatchCodeOptionsForTournament(tournamentId) {
+  const tournamentKey = docId(tournamentId);
+  if (!mongoose.Types.ObjectId.isValid(tournamentKey)) return {};
+
+  const objectId = new mongoose.Types.ObjectId(tournamentKey);
+  const [brackets, roundsAgg] = await Promise.all([
+    Bracket.find({ tournament: objectId })
+      .select("_id type stage order createdAt meta.maxRounds meta.drawSize drawRounds")
+      .sort({ stage: 1, order: 1, createdAt: 1, _id: 1 })
+      .lean(),
+    Match.aggregate([
+      { $match: { tournament: objectId } },
+      { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
+    ]),
+  ]);
+
+  const maxRoundByBracket = new Map(
+    roundsAgg.map((item) => [docId(item?._id), Number(item?.maxRound) || 0])
+  );
+  const sorted = [...brackets].sort((left, right) => {
+    const leftStage = Number(left?.stage ?? 9999);
+    const rightStage = Number(right?.stage ?? 9999);
+    if (leftStage !== rightStage) return leftStage - rightStage;
+    const leftOrder = Number(left?.order ?? 9999);
+    const rightOrder = Number(right?.order ?? 9999);
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    const leftCreated = left?.createdAt ? new Date(left.createdAt).getTime() : 0;
+    const rightCreated = right?.createdAt ? new Date(right.createdAt).getTime() : 0;
+    if (leftCreated !== rightCreated) return leftCreated - rightCreated;
+    return docId(left).localeCompare(docId(right));
+  });
+
+  const baseByBracketId = new Map();
+  let accumulated = 0;
+  for (const bracket of sorted) {
+    const bracketId = docId(bracket);
+    if (bracketId) baseByBracketId.set(bracketId, accumulated);
+    accumulated += countLiveBracketRounds(bracket, maxRoundByBracket);
+  }
+
+  return { baseByBracketId };
+}
+
+const LIVE_RESOLUTION_MATCH_SELECT = [
+  "_id",
+  "tournament",
+  "bracket",
+  "round",
+  "order",
+  "labelKey",
+  "displayCode",
+  "codeResolved",
+  "code",
+  "matchCode",
+  "meta",
+  "format",
+  "branch",
+  "phase",
+  "status",
+  "winner",
+  "pairA",
+  "pairB",
+  "seedA",
+  "seedB",
+  "previousA",
+  "previousB",
+].join(" ");
+
+async function buildLiveMatchResolutionContext(tournamentId) {
+  const tournamentKey = docId(tournamentId);
+  if (!mongoose.Types.ObjectId.isValid(tournamentKey)) return null;
+
+  const [matches, codeOptions] = await Promise.all([
+    Match.find({ tournament: tournamentKey })
+      .select(LIVE_RESOLUTION_MATCH_SELECT)
+      .populate({
+        path: "bracket",
+        select: "_id type stage order createdAt meta.maxRounds meta.drawSize drawRounds",
+      })
+      .lean(),
+    getLiveMatchCodeOptionsForTournament(tournamentKey),
+  ]);
+
+  const byId = new Map();
+  const byCode = new Map();
+  const matchesByBracketId = new Map();
+
+  for (const match of matches) {
+    const id = docId(match);
+    if (id) byId.set(id, match);
+
+    const bracketId = docId(match?.bracket);
+    if (bracketId) {
+      const bucket = matchesByBracketId.get(bracketId) || [];
+      bucket.push(match);
+      matchesByBracketId.set(bracketId, bucket);
+    }
+  }
+
+  for (const match of matches) {
+    const payload = buildMatchCodePayload(match, {
+      ...codeOptions,
+      matchesByBracketId,
+    });
+    const codes = [
+      payload?.displayCode,
+      payload?.code,
+      payload?.globalCode,
+      match?.displayCode,
+      match?.codeResolved,
+      match?.code,
+      match?.matchCode,
+    ]
+      .map(parseLiveMatchCode)
+      .filter(Boolean);
+
+    for (const code of codes) {
+      if (!byCode.has(code)) byCode.set(code, match);
+    }
+  }
+
+  return { byId, byCode };
+}
+
+function sourceMatchIdsForSeed(seed) {
+  return [
+    seed?.ref?.matchId,
+    seed?.ref?.match,
+    seed?.matchId,
+    seed?.match,
+    seed?.ref?._id,
+    seed?.ref?.id,
+  ]
+    .map(docId)
+    .filter((id) => mongoose.Types.ObjectId.isValid(id));
+}
+
+function findLiveSourceMatch(ownerMatch, seed, side, context) {
+  const ownerId = docId(ownerMatch);
+  const previous = side === "A" ? ownerMatch?.previousA : ownerMatch?.previousB;
+  const previousId = docId(previous);
+  if (previousId && context.byId.has(previousId) && previousId !== ownerId) {
+    return context.byId.get(previousId);
+  }
+
+  for (const sourceId of sourceMatchIdsForSeed(seed)) {
+    if (sourceId && sourceId !== ownerId && context.byId.has(sourceId)) {
+      return context.byId.get(sourceId);
+    }
+  }
+
+  const labelCode = parseLiveMatchCode(
+    seed?.label || seed?.displayName || seed?.name || seed?.title
+  );
+  if (labelCode && context.byCode.has(labelCode)) return context.byCode.get(labelCode);
+
+  return null;
+}
+
+function resolveLivePairFromSeedSide(ownerMatch, side, context, depth = 0) {
+  if (!ownerMatch || !context || depth > 10) return null;
+  const sideKey = side === "B" ? "B" : "A";
+  const pair = sideKey === "A" ? ownerMatch.pairA : ownerMatch.pairB;
+  if (hasRegistrationRef(pair)) return pair;
+
+  const seed = sideKey === "A" ? ownerMatch.seedA : ownerMatch.seedB;
+  const seedType = seedTypeKey(seed);
+  if (seedType === "registration") {
+    return (
+      seed?.ref?.registration ||
+      seed?.ref?.reg ||
+      seed?.ref?.id ||
+      seed?.ref?._id ||
+      null
+    );
+  }
+  if (isByeLiveSeed(seed)) return null;
+
+  const isWinnerSeed = isWinnerSeedType(seedType);
+  const isLoserSeed = isLoserSeedType(seedType);
+  if (!isWinnerSeed && !isLoserSeed) return null;
+
+  const sourceMatch = findLiveSourceMatch(ownerMatch, seed, sideKey, context);
+  if (!sourceMatch) return null;
+
+  const sourceByeA = isByeLiveSeed(sourceMatch.seedA);
+  const sourceByeB = isByeLiveSeed(sourceMatch.seedB);
+  if (sourceByeA || sourceByeB) {
+    if (isLoserSeed || (sourceByeA && sourceByeB)) return null;
+    const carriedSide = sourceByeA ? "B" : "A";
+    const carriedPair = carriedSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+    if (hasRegistrationRef(carriedPair)) return carriedPair;
+    return resolveLivePairFromSeedSide(sourceMatch, carriedSide, context, depth + 1);
+  }
+
+  const winnerSide =
+    sourceMatch.winner === "A" || sourceMatch.winner === "B"
+      ? sourceMatch.winner
+      : "";
+  if (!winnerSide) return null;
+
+  const sourceSide = isLoserSeed
+    ? winnerSide === "A"
+      ? "B"
+      : "A"
+    : winnerSide;
+  const sourcePair = sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+  if (hasRegistrationRef(sourcePair)) return sourcePair;
+  return resolveLivePairFromSeedSide(sourceMatch, sourceSide, context, depth + 1);
+}
+
+async function hydrateResolvedMatchPairsForLive(match) {
+  if (!match?._id || !match?.tournament) return false;
+  if (hasRegistrationRef(match.pairA) && hasRegistrationRef(match.pairB)) {
+    return false;
+  }
+
+  const context = await buildLiveMatchResolutionContext(match.tournament);
+  if (!context) return false;
+
+  let changed = false;
+  for (const side of ["A", "B"]) {
+    const field = side === "A" ? "pairA" : "pairB";
+    const resolved = resolveLivePairFromSeedSide(match, side, context);
+    const resolvedId = docId(resolved);
+    if (!mongoose.Types.ObjectId.isValid(resolvedId)) continue;
+    if (docId(match[field]) === resolvedId) continue;
+
+    match.set(field, new mongoose.Types.ObjectId(resolvedId));
+    changed = true;
+  }
+
+  if (changed) {
+    match.liveVersion = toNum(match.liveVersion, 0) + 1;
+    match.version = toNum(match.version, 0) + 1;
+  }
+  return changed;
+}
+
+function liveEventRequiresResolvedTeams(type) {
+  return ["start", "point", "serve", "slots", "finish", "forfeit"].includes(
+    String(type || "").trim().toLowerCase()
+  );
+}
+
+function hasResolvedLiveTeams(match) {
+  return hasRegistrationRef(match?.pairA) && hasRegistrationRef(match?.pairB);
 }
 
 function normalizeRefereeLayout(layout) {
@@ -1169,6 +1488,8 @@ async function syncMatchLiveEventsLocked({
     };
   }
 
+  await hydrateResolvedMatchPairsForLive(match);
+
   const needsRosterContext = normalizedEvents.some((rawEvent) => {
     const type = String(rawEvent?.type || "").trim().toLowerCase();
     return type === "serve" || type === "slots";
@@ -1226,6 +1547,21 @@ async function syncMatchLiveEventsLocked({
     if (existing) {
       ackedClientEventIds.push(clientEventId);
       continue;
+    }
+
+    if (
+      liveEventRequiresResolvedTeams(normalized.event.type) &&
+      !hasResolvedLiveTeams(match)
+    ) {
+      const remaining = normalizedEvents.slice(index);
+      rejectedEvents.push(
+        ...buildRejected(
+          remaining,
+          "teams_not_resolved",
+          "Match teams are not resolved yet"
+        )
+      );
+      break;
     }
 
     const applyResult = applyLiveSyncEvent(match, normalized.event, actorId);

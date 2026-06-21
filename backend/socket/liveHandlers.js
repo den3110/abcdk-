@@ -725,6 +725,12 @@ export const toDTO = (matchDoc) => {
     globalCode: codePayload.globalCode || m.globalCode || undefined,
     teamAName,
     teamBName,
+    pairAName: teamAName || "",
+    pairBName: teamBName || "",
+    resolvedSideNameA: teamAName || "",
+    resolvedSideNameB: teamBName || "",
+    sideAName: teamAName || "",
+    sideBName: teamBName || "",
 
     status: m.status,
     winner: m.winner,

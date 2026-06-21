@@ -1808,10 +1808,22 @@ export default function TournamentManagePage() {
     // Resolve tên đội ĐÚNG NHƯ SƠ ĐỒ (đệ quy có kiểm soát cho BYE-carry):
     const resolveName = (m, side, depth = 0) => {
       if (!m || depth > 12) return "";
+      const direct =
+        side === "A"
+          ? m.resolvedSideNameA || m.teamAName || m.pairAName || m.sideAName
+          : m.resolvedSideNameB || m.teamBName || m.pairBName || m.sideBName;
+      if (isConcreteTeamLabel(direct) || isByeLabel(direct)) return direct;
+
       const pair = side === "A" ? m.pairA : m.pairB;
       if (hasResolvedPair(pair)) return pairLabel(pair, evType, displayMode);
 
       const rawSeed = side === "A" ? m.seedA : m.seedB;
+      const seedFallback = getMatchSideDisplayName(m, side, "");
+      if (seedFallback) return seedFallback;
+      if (rawSeed?.type) return seedLabel(rawSeed);
+      return "";
+
+      /*
       const plannedSeed = getPlannedSeed(m, side);
       const rawSeedType = String(rawSeed?.type || "");
       const isEmptyRegistrationSeed =
@@ -1879,6 +1891,7 @@ export default function TournamentManagePage() {
           }
         : m;
       return getMatchSideDisplayName(matchWithSeed, side, "");
+      */
     };
 
     return rawList.map((m) => {
