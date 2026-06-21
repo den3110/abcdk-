@@ -161,6 +161,8 @@ const normalizeLayout = (layout) =>
 const preStartRightSlotForSide = (side, layout) =>
   normalizeLayout(layout).left === side ? 2 : 1;
 
+const oppositeSlot = (slot) => (Number(slot) === 1 ? 2 : 1);
+
 const breakTypeFromNote = (note) => {
   const prefix = textOf(note).split(":")[0].trim().toLowerCase();
   return prefix === "medical" || prefix === "timeout" ? prefix : "";
@@ -701,6 +703,7 @@ export default function RefereeScoreDialog({
   const scoreGuardRef = useRef({ a: null, b: null, until: 0 });
   const lastServerUidRef = useRef("");
   const openingServerRef = useRef({ gameIndex: -1, side: "", uid: "" });
+  const openingServeInitRef = useRef({});
   const forcedServerRef = useRef({
     uid: "",
     until: 0,
@@ -868,6 +871,7 @@ export default function RefereeScoreDialog({
   useEffect(() => {
     lastServerUidRef.current = "";
     openingServerRef.current = { gameIndex: -1, side: "", uid: "" };
+    openingServeInitRef.current = {};
     forcedServerRef.current = {
       uid: "",
       until: 0,
@@ -896,6 +900,25 @@ export default function RefereeScoreDialog({
     },
     [currentBase, currentScore],
   );
+
+  const openingRightServerUid = useMemo(() => {
+    if (!isDouble || !isPreStartOrOpening) return "";
+    const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
+    return (
+      findUidAtCurrentSlot(activeSide, rightSlot) ||
+      findUidAtCurrentSlot(activeSide, oppositeSlot(rightSlot)) ||
+      firstPlayerIdOfSide(match, activeSide, eventType) ||
+      ""
+    );
+  }, [
+    activeSide,
+    currentLayout,
+    eventType,
+    findUidAtCurrentSlot,
+    isDouble,
+    isPreStartOrOpening,
+    match,
+  ]);
 
   const serverUidShow = useMemo(() => {
     const pinnedOpeningServer =
@@ -935,13 +958,19 @@ export default function RefereeScoreDialog({
     const staleLastServerUid = isPreStartOrOpening
       ? ""
       : lastServerUidRef.current || "";
+    const openingCorrectedUid =
+      isDouble && isPreStartOrOpening && openingRightServerUid
+        ? openingRightServerUid
+        : "";
     const baseUid = serveSideScored
       ? stablePreviousUid ||
+        openingCorrectedUid ||
         rawServerUid ||
         (isOpeningServe ? pinnedOpeningServer : "") ||
         fallback ||
         ""
-      : rawServerUid ||
+      : openingCorrectedUid ||
+        rawServerUid ||
         (isOpeningServe ? pinnedOpeningServer : "") ||
         fallback ||
         staleLastServerUid ||
@@ -956,8 +985,77 @@ export default function RefereeScoreDialog({
     currentScore.b,
     findUidAtCurrentSlot,
     isOpeningServe,
+    isDouble,
     isPreStartOrOpening,
     match?.serve?.serverId,
+    openingRightServerUid,
+  ]);
+
+  useEffect(() => {
+    if (!match?._id) return;
+    if (!isDouble || !isPreStartOrOpening) return;
+    if (Number(currentScore.a) !== 0 || Number(currentScore.b) !== 0) return;
+    if (!openingRightServerUid) return;
+
+    const initKey = `${match._id}:${currentGame}:${activeSide}:${openingRightServerUid}`;
+    const currentServerId = textOf(match?.serve?.serverId);
+    const currentServerNum =
+      Number(match?.serve?.order ?? match?.serve?.server ?? 1) === 2 ? 2 : 1;
+    const serveAlreadyCorrect =
+      currentServerId === openingRightServerUid &&
+      currentServerNum === OPENING_DOUBLES_SERVER &&
+      Boolean(match?.serve?.opening);
+
+    if (serveAlreadyCorrect) {
+      openingServeInitRef.current[initKey] = true;
+      openingServerRef.current = {
+        gameIndex: currentGame,
+        side: activeSide,
+        uid: openingRightServerUid,
+      };
+      lastServerUidRef.current = openingRightServerUid;
+      return;
+    }
+
+    if (openingServeInitRef.current[initKey]) return;
+    openingServeInitRef.current[initKey] = true;
+    openingServerRef.current = {
+      gameIndex: currentGame,
+      side: activeSide,
+      uid: openingRightServerUid,
+    };
+    lastServerUidRef.current = openingRightServerUid;
+    forcedServerRef.current = {
+      uid: openingRightServerUid,
+      until: Date.now() + SCORE_RENDER_GUARD_MS,
+      gameIndex: currentGame,
+      side: activeSide,
+      serverNum: OPENING_DOUBLES_SERVER,
+    };
+
+    if (!isInteractionLocked) {
+      api.setServe({
+        side: activeSide,
+        server: OPENING_DOUBLES_SERVER,
+        serverId: openingRightServerUid,
+        opening: true,
+      });
+    }
+  }, [
+    activeSide,
+    api,
+    currentGame,
+    currentScore.a,
+    currentScore.b,
+    isDouble,
+    isInteractionLocked,
+    isPreStartOrOpening,
+    match?._id,
+    match?.serve?.opening,
+    match?.serve?.order,
+    match?.serve?.server,
+    match?.serve?.serverId,
+    openingRightServerUid,
   ]);
 
   useEffect(() => {
@@ -965,9 +1063,10 @@ export default function RefereeScoreDialog({
     if (!isZeroZero || !isOpeningServe) return;
     const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
     const uid =
+      openingRightServerUid ||
       textOf(match?.serve?.serverId) ||
       findUidAtCurrentSlot(activeSide, rightSlot) ||
-      findUidAtCurrentSlot(activeSide, rightSlot === 1 ? 2 : 1) ||
+      findUidAtCurrentSlot(activeSide, oppositeSlot(rightSlot)) ||
       "";
     if (!uid) return;
     openingServerRef.current = { gameIndex: currentGame, side: activeSide, uid };
@@ -981,6 +1080,7 @@ export default function RefereeScoreDialog({
     findUidAtCurrentSlot,
     isOpeningServe,
     match?.serve?.serverId,
+    openingRightServerUid,
   ]);
 
   useEffect(() => {
@@ -1403,10 +1503,11 @@ export default function RefereeScoreDialog({
       if (isDouble && Number(currentScore.a) === 0 && Number(currentScore.b) === 0) {
         const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
         const serverId =
+          openingRightServerUid ||
           textOf(match?.serve?.serverId) ||
           findUidAtCurrentSlot(activeSide, rightSlot) ||
           serverUidShow ||
-          findUidAtCurrentSlot(activeSide, rightSlot === 1 ? 2 : 1) ||
+          findUidAtCurrentSlot(activeSide, oppositeSlot(rightSlot)) ||
           firstPlayerIdOfSide(match, activeSide, eventType) ||
           "";
         if (serverId && textOf(match?.serve?.serverId) !== serverId) {
@@ -1446,6 +1547,7 @@ export default function RefereeScoreDialog({
     findUidAtCurrentSlot,
     isDouble,
     match,
+    openingRightServerUid,
     runProtectedBusy,
     serverUidShow,
   ]);
