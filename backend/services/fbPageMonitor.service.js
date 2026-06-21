@@ -7,7 +7,7 @@ import { listScheduledFacebookPageReleases } from "./facebookPagePool.service.js
 import { getFbPageMonitorMeta } from "./fbPageMonitorEvents.service.js";
 import { buildMatchDisplayContextsFromMatches } from "./courtCluster.service.js";
 
-const NORMALIZED_MATCH_CODE_RE = /^V\d+(?:-B\d+)?-T\d+$/i;
+const NORMALIZED_MATCH_CODE_RE = /^V\d+(?:-(?:B\d+|NT))?-T\d+$/i;
 
 function trimText(value) {
   return String(value || "").trim();

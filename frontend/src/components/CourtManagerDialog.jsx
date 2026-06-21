@@ -134,7 +134,7 @@ const poolBoardLabel = (m) => {
 /* ---------- Build mã trận (V/B/T) ---------- */
 
 const isGlobalCodeString = (s) =>
-  typeof s === "string" && /^V\d+(?:-B\d+)?-T\d+$/.test(s);
+  typeof s === "string" && /^V\d+(?:-(?:B\d+|NT))?-T\d+$/.test(s);
 
 const codeFromLabelKeyish = (lk) => {
   const s = String(lk || "").trim();

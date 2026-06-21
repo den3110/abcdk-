@@ -130,7 +130,7 @@ const isSeedReferenceDisplay = (value) => {
     .replace(/\([AB]\)$/i, "");
   if (!normalized) return false;
   return (
-    /^(?:[WL]-)?V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+$/i.test(normalized) ||
+    /^(?:[WL]-)?V\d+(?:-(?:[A-Z0-9]+|NT))?-T\d+$/i.test(normalized) ||
     /^(?:W|L)-/i.test(normalized)
   );
 };
