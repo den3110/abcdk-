@@ -45,6 +45,8 @@ const pulseKeyframes = {
   },
 };
 
+const preloadCommandPalette = () => import("./GlobalCommandPalette");
+
 function normalizeRole(role) {
   return String(role || "")
     .trim()
@@ -79,6 +81,13 @@ export default function Header() {
   const { toggleTheme, isDark } = useThemeMode();
   const { t } = useLanguage();
   const { openPalette } = useCommandPalette();
+  const warmCommandPalette = () => {
+    void preloadCommandPalette();
+  };
+  const openCommandPalette = () => {
+    warmCommandPalette();
+    openPalette();
+  };
 
   const navLinks = useMemo(
     () => [
@@ -591,7 +600,9 @@ export default function Header() {
           >
             <Tooltip title={t("commandPalette.triggerAria")}>
               <IconButton
-                onClick={openPalette}
+                onClick={openCommandPalette}
+                onPointerEnter={warmCommandPalette}
+                onFocus={warmCommandPalette}
                 size="small"
                 aria-label={t("commandPalette.triggerAria")}
                 sx={{
@@ -615,7 +626,9 @@ export default function Header() {
           >
             <Tooltip title={t("commandPalette.triggerAria")}>
               <Button
-                onClick={openPalette}
+                onClick={openCommandPalette}
+                onPointerEnter={warmCommandPalette}
+                onFocus={warmCommandPalette}
                 variant="text"
                 aria-label={t("commandPalette.triggerAria")}
                 sx={{
@@ -670,7 +683,7 @@ export default function Header() {
                   sx={{
                     display: { md: "none", xl: "inline" },
                     fontWeight: 600,
-                    letterSpacing: "-0.01em",
+                    letterSpacing: 0,
                     whiteSpace: "nowrap",
                   }}
                 >

@@ -24,7 +24,7 @@ const LogoAnimationMorph = memo(function LogoAnimationMorph({
     const text = "PickleTour";
     const pChar = text[0];
     const fontSize = isMobile ? "1.35rem" : "1.5rem";
-    const letterSpacing = "-0.5px";
+    const letterSpacing = "0px";
 
     const canvasW = 28;
     const canvasH = 50;
@@ -172,10 +172,9 @@ const LogoAnimationMorph = memo(function LogoAnimationMorph({
     logoWrapper.appendChild(lettersWrapper);
     container.appendChild(logoWrapper);
 
-    gsap.set(logoWrapper, { x: ickleTourWidth / 2, force3D: true });
+    gsap.set(logoWrapper, { x: 0, force3D: true });
 
     const masterTl = gsap.timeline();
-    let floatingTween = null;
 
     const addMorphStep = (shape, duration) => {
       masterTl.to(morphPath, {
@@ -226,13 +225,6 @@ const LogoAnimationMorph = memo(function LogoAnimationMorph({
 
     masterTl.to({}, { duration: 0.35 });
 
-    masterTl.to(logoWrapper, {
-      x: 0,
-      duration: 0.6,
-      ease: "power2.out",
-      force3D: true,
-    });
-
     masterTl.to(
       lettersWrapper,
       {
@@ -262,44 +254,19 @@ const LogoAnimationMorph = memo(function LogoAnimationMorph({
       "-=0.4",
     );
 
-    masterTl
-      .to(remainingSpans, {
-        y: -5,
-        duration: 0.2,
-        stagger: 0.03,
-        ease: "power2.out",
-        force3D: true,
-      })
-      .to(remainingSpans, {
-        y: 0,
-        duration: 0.3,
-        stagger: 0.03,
-        ease: "bounce.out",
-        force3D: true,
-      });
-
     masterTl.call(() => {
-      if (floatingTween) floatingTween.kill();
-      floatingTween = gsap.to([pSpan, ...remainingSpans], {
-        y: "+=2",
-        duration: 2,
-        ease: "sine.inOut",
-        stagger: 0.08,
-        yoyo: true,
-        repeat: -1,
-        force3D: true,
+      gsap.set([logoWrapper, pSpan, lettersWrapper, ...remainingSpans], {
+        clearProps: "willChange",
       });
     });
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
         masterTl.pause();
-        if (floatingTween) floatingTween.pause();
         return;
       }
 
       masterTl.resume();
-      if (floatingTween) floatingTween.resume();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -307,7 +274,6 @@ const LogoAnimationMorph = memo(function LogoAnimationMorph({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       masterTl.kill();
-      if (floatingTween) floatingTween.kill();
       gsap.killTweensOf([
         logoWrapper,
         pSpan,
@@ -327,7 +293,10 @@ const LogoAnimationMorph = memo(function LogoAnimationMorph({
         textDecoration: "none",
         flexGrow: isMobile ? 1 : 0,
         textAlign: isMobile ? "center" : "left",
-        display: "block",
+        display: "inline-flex",
+        alignItems: "center",
+        flexShrink: 0,
+        width: isMobile ? "140px" : "150px",
       }}
       onClick={() => window.scrollTo(0, 0)}
     >
@@ -338,6 +307,9 @@ const LogoAnimationMorph = memo(function LogoAnimationMorph({
           alignItems: "center",
           justifyContent: isMobile ? "center" : "flex-start",
           height: "50px",
+          width: "100%",
+          minWidth: 0,
+          overflow: "hidden",
           mr: isMobile && showBackButton ? 4 : 0,
           ml: isMobile && showBackButton ? 4 : 0,
           cursor: "pointer",

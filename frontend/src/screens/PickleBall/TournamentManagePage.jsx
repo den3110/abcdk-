@@ -11,7 +11,7 @@ import React, {
   useTransition,
 } from "react";
 import { skipToken } from "@reduxjs/toolkit/query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
   Alert,
@@ -1332,6 +1332,7 @@ export default function TournamentManagePage() {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const me = useSelector((s) => s.auth?.userInfo || null);
 
   // Queries
@@ -1509,12 +1510,54 @@ export default function TournamentManagePage() {
     return Array.from(uniq.values()).sort((a, b) => a.weight - b.weight);
   }, [brackets, t, typeOrderWeight]);
 
-  const [tab, setTab] = useState(typesAvailable[0]?.type || "group");
+  const normalizeTabValue = useCallback((value) => {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw) return "";
+    if (raw === "ko") return "knockout";
+    if (raw === "round-elim" || raw === "round_elim") return "roundelim";
+    return raw;
+  }, []);
+
+  const [tab, setTab] = useState(() => {
+    if (typeof window === "undefined") return "group";
+    const initial = new URLSearchParams(window.location.search).get("tab");
+    return normalizeTabValue(initial) || "group";
+  });
+
+  const selectTab = useCallback(
+    (nextValue, options = {}) => {
+      const fallback = typesAvailable[0]?.type || "group";
+      const normalized = normalizeTabValue(nextValue) || fallback;
+      setTab(normalized);
+
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", normalized);
+      setSearchParams(next, { replace: Boolean(options.replace) });
+    },
+    [normalizeTabValue, searchParams, setSearchParams, typesAvailable],
+  );
+
   useEffect(() => {
-    if (!typesAvailable.find((t) => t.type === tab))
-      setTab(typesAvailable[0]?.type || "group");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [typesAvailable]);
+    if (brLoading) return;
+
+    const urlTab = normalizeTabValue(searchParams.get("tab"));
+    const urlTabExists = typesAvailable.some((item) => item.type === urlTab);
+    if (urlTabExists) {
+      if (tab !== urlTab) setTab(urlTab);
+      return;
+    }
+
+    if (!typesAvailable.find((item) => item.type === tab)) {
+      selectTab(typesAvailable[0]?.type || "group", { replace: true });
+    }
+  }, [
+    brLoading,
+    normalizeTabValue,
+    searchParams,
+    selectTab,
+    tab,
+    typesAvailable,
+  ]);
 
   const bracketsOfTab = useMemo(() => {
     const list = (brackets || []).filter(
@@ -2963,7 +3006,7 @@ export default function TournamentManagePage() {
         setQ(String(nextValue || ""));
       },
       tab: (nextValue) => {
-        setTab(String(nextValue || typesAvailable[0]?.type || "group"));
+        selectTab(nextValue || typesAvailable[0]?.type || "group");
       },
       sortKey: (nextValue) => {
         setSortKey(String(nextValue || "round"));
@@ -2984,7 +3027,7 @@ export default function TournamentManagePage() {
         setCourtFilter(nextValues);
       },
     }),
-    [typesAvailable],
+    [selectTab, typesAvailable],
   );
 
   useRegisterChatBotPageContext({
@@ -3727,7 +3770,7 @@ export default function TournamentManagePage() {
         <Paper variant="outlined" sx={{ mt: 1 }}>
           <Tabs
             value={tab}
-            onChange={(_, v) => setTab(v)}
+            onChange={(_, v) => selectTab(v)}
             variant="scrollable"
             scrollButtons="auto"
             sx={{ px: 1 }}

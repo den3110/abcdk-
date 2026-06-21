@@ -1,5 +1,6 @@
 import { Container } from "react-bootstrap";
 import Box from "@mui/material/Box";
+import CircularProgress from "@mui/material/CircularProgress";
 import { Outlet, useLocation } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -29,9 +30,27 @@ import useFrontendUiVersion from "./hook/useFrontendUiVersion.js";
 import Clarity from "@microsoft/clarity";
 
 const ChatBotDrawer = lazy(() => import("./components/ChatBotDrawer"));
-const GlobalCommandPalette = lazy(() =>
-  import("./components/GlobalCommandPalette"),
-);
+const loadGlobalCommandPalette = () => import("./components/GlobalCommandPalette");
+const GlobalCommandPalette = lazy(loadGlobalCommandPalette);
+
+function CommandPaletteFallback() {
+  return (
+    <Box
+      sx={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1600,
+        display: "grid",
+        placeItems: "center",
+        bgcolor: "rgba(0,0,0,0.32)",
+        backdropFilter: "blur(3px)",
+        WebkitBackdropFilter: "blur(3px)",
+      }}
+    >
+      <CircularProgress size={32} />
+    </Box>
+  );
+}
 
 function shouldEnableClarity() {
   if (typeof window === "undefined") return false;
@@ -285,6 +304,22 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const preload = () => {
+      void loadGlobalCommandPalette();
+    };
+
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(preload, { timeout: 2500 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+
+    const timer = window.setTimeout(preload, 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     // Track mỗi lần đổi page (GA)
     logPageView(location.pathname + location.search, document.title);
 
@@ -340,7 +375,7 @@ const App = () => {
         </Suspense>
       )}
       {commandPaletteOpen ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<CommandPaletteFallback />}>
           <GlobalCommandPalette />
         </Suspense>
       ) : null}

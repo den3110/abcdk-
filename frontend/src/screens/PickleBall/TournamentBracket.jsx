@@ -59,6 +59,7 @@ import {
   ZoomIn as ZoomInIcon,
   ZoomOut as ZoomOutIcon,
   RestartAlt as ResetZoomIcon,
+  Fullscreen as FullscreenIcon,
   FilterList as FilterListIcon,
   ViewAgenda as ViewAgendaIcon,
   TableRows as TableRowsIcon,
@@ -4439,6 +4440,7 @@ export default function TournamentBracket() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [zoom, setZoom] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [bracketFullscreenOpen, setBracketFullscreenOpen] = useState(false);
   const zoomIn = useCallback(
     () =>
       setZoom((z) => clamp(parseFloat((z + Z_STEP).toFixed(2)), Z_MIN, Z_MAX)),
@@ -4737,6 +4739,10 @@ export default function TournamentBracket() {
   const [groupViewMode, setGroupViewMode] = useState(() =>
     readStoredGroupViewMode(),
   );
+
+  useEffect(() => {
+    setBracketFullscreenOpen(false);
+  }, [current?._id]);
 
   // NEW: danh sách key tất cả bảng ở stage hiện tại
   const bracketSectionLabel =
@@ -5889,6 +5895,8 @@ export default function TournamentBracket() {
     onZoomIn,
     onZoomOut,
     onReset,
+    onFullscreen,
+    fullscreen = false,
     mobileFixed = true,
     mobileBottomGap = 80, // px: nhích lên khỏi bottom menu
   }) {
@@ -5898,14 +5906,16 @@ export default function TournamentBracket() {
         sx={{
           // Mobile: fixed góc dưới-phải; Desktop: absolute góc trên-phải
           position: { xs: mobileFixed ? "fixed" : "absolute", sm: "absolute" },
-          right: { xs: 12, sm: 8 },
+          right: fullscreen ? { xs: 64, sm: 64 } : { xs: 12, sm: 8 },
           bottom: {
             xs: mobileFixed
               ? `calc(env(safe-area-inset-bottom) + ${mobileBottomGap}px)`
               : "auto",
             sm: "auto",
           },
-          top: { xs: mobileFixed ? "auto" : -50, sm: -50 },
+          top: fullscreen
+            ? { xs: 12, sm: 12 }
+            : { xs: mobileFixed ? "auto" : -50, sm: -50 },
           zIndex: 1000, // nổi trên bottom nav
           borderRadius: 2,
           display: "inline-flex",
@@ -5946,9 +5956,98 @@ export default function TournamentBracket() {
             <ResetZoomIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+        {onFullscreen ? (
+          <Tooltip title={t("common.fullscreen", undefined, "Mở rộng sơ đồ")}>
+            <IconButton size="small" onClick={onFullscreen}>
+              <FullscreenIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ) : null}
       </Paper>
     );
   }
+
+  const renderDiagramShell = (children) => (
+      <>
+        <Box sx={{ position: "relative" }}>
+          <ZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onReset={zoomReset}
+            onFullscreen={() => setBracketFullscreenOpen(true)}
+            mobileFixed
+            mobileBottomGap={80}
+          />
+          {children}
+        </Box>
+
+        <Dialog
+          fullScreen
+          open={bracketFullscreenOpen}
+          onClose={() => setBracketFullscreenOpen(false)}
+          PaperProps={{
+            sx: {
+              bgcolor: "background.default",
+              backgroundImage: "none",
+              overflow: "hidden",
+            },
+          }}
+        >
+          <Box
+            sx={{
+              width: "100vw",
+              height: "100dvh",
+              overflow: "hidden",
+              bgcolor: "background.default",
+            }}
+          >
+            <Tooltip title={t("common.actions.close", undefined, "Đóng")}>
+              <IconButton
+                onClick={() => setBracketFullscreenOpen(false)}
+                sx={{
+                  position: "absolute",
+                  top: 12,
+                  right: 12,
+                  zIndex: 3,
+                  bgcolor: (muiTheme) =>
+                    alpha(muiTheme.palette.background.paper, 0.88),
+                  border: "1px solid",
+                  borderColor: "divider",
+                  boxShadow: 2,
+                  "&:hover": {
+                    bgcolor: "background.paper",
+                  },
+                }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Box
+              sx={{
+                position: "relative",
+                width: "100%",
+                height: "100%",
+                overflow: "auto",
+                p: { xs: 1, md: 2 },
+                pt: { xs: 7, sm: 7 },
+              }}
+            >
+              <ZoomControls
+                zoom={zoom}
+                onZoomIn={zoomIn}
+                onZoomOut={zoomOut}
+                onReset={zoomReset}
+                fullscreen
+                mobileFixed={false}
+              />
+              <Box sx={{ minWidth: "max-content" }}>{children}</Box>
+            </Box>
+          </Box>
+        </Dialog>
+      </>
+    );
 
   if (loading) {
     return (
@@ -7728,15 +7827,7 @@ export default function TournamentBracket() {
                     },
                   }}
                 />
-                <Box sx={{ position: "relative" }}>
-                  <ZoomControls
-                    zoom={zoom}
-                    onZoomIn={zoomIn}
-                    onZoomOut={zoomOut}
-                    onReset={zoomReset}
-                    mobileFixed
-                    mobileBottomGap={80}
-                  />
+                {renderDiagramShell(
                   <Box
                     sx={{
                       overflow: "auto",
@@ -7762,8 +7853,8 @@ export default function TournamentBracket() {
                         breakpoint={0}
                       />
                     </Box>
-                  </Box>
-                </Box>
+                  </Box>,
+                )}
                 {!currentMatches.length && (
                   <Typography variant="caption" color="text.secondary">
                     {t("tournaments.bracket.emptyRoundElimHint")}
@@ -7902,15 +7993,7 @@ export default function TournamentBracket() {
                   </Alert>
                 )}
 
-                <Box sx={{ position: "relative" }}>
-                  <ZoomControls
-                    zoom={zoom}
-                    onZoomIn={zoomIn}
-                    onZoomOut={zoomOut}
-                    onReset={zoomReset}
-                    mobileFixed
-                    mobileBottomGap={80}
-                  />
+                {renderDiagramShell(
                   <DoubleElimBracketLayout
                     winnersRounds={winnersRounds}
                     losersRounds={losersRounds}
@@ -7921,8 +8004,8 @@ export default function TournamentBracket() {
                     resolveMatchCode={getDisplayCodeForMatch}
                     baseRoundStart={baseRoundStartForCurrent}
                     zoom={zoom}
-                  />
-                </Box>
+                  />,
+                )}
               </>
             );
           })()}
@@ -8043,15 +8126,7 @@ export default function TournamentBracket() {
                   </Alert>
                 )}
 
-                <Box sx={{ position: "relative" }}>
-                  <ZoomControls
-                    zoom={zoom}
-                    onZoomIn={zoomIn}
-                    onZoomOut={zoomOut}
-                    onReset={zoomReset}
-                    mobileFixed
-                    mobileBottomGap={80}
-                  />
+                {renderDiagramShell(
                   <Box
                     sx={{
                       overflow: "auto",
@@ -8068,8 +8143,8 @@ export default function TournamentBracket() {
                       baseRoundStart={baseRoundStartForCurrent}
                       zoom={zoom}
                     />
-                  </Box>
-                </Box>
+                  </Box>,
+                )}
 
                 {thirdPlaceMatches.length > 0 && (
                   <Box sx={{ mt: 3 }}>
