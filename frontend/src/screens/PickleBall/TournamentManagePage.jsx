@@ -1008,7 +1008,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
           </Typography>
         </Tooltip>
       </TableCell>
-      <TableCell sx={{ width: 68, whiteSpace: "nowrap, py: 0.5" }}>
+      <TableCell sx={{ width: 68, whiteSpace: "nowrap", py: 0.5 }}>
         {Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—"}
       </TableCell>
       <TableCell sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}>
@@ -3442,6 +3442,8 @@ export default function TournamentManagePage() {
     gap: 0.75,
     p: 0.75,
     minHeight: 48,
+    minWidth: 0,
+    maxWidth: "100%",
     border: "1px solid",
     borderColor: "divider",
     borderRadius: 1.5,
@@ -3449,6 +3451,10 @@ export default function TournamentManagePage() {
     "& .MuiButton-root": {
       minHeight: 34,
       whiteSpace: "nowrap",
+      flexShrink: 0,
+    },
+    "& .MuiFormControl-root": {
+      minWidth: 0,
     },
   };
   const manageV2DividerColor = (muiTheme) =>
@@ -3460,14 +3466,16 @@ export default function TournamentManagePage() {
   return (
     <Box
       sx={{
-        px: { xs: 2, md: 3 },
+        px: { xs: 1, sm: 1.5, md: 2.5, lg: 3 },
         pt: { xs: 0.75, md: 1 },
         pb: { xs: 2, md: 3 },
+        minWidth: 0,
+        overflowX: "hidden",
         mx: {
           xs: 0,
-          md: -4,
-          lg: -6,
-          xl: -8,
+          md: -3,
+          lg: -5,
+          xl: -7,
         },
       }}
     >
@@ -3587,9 +3595,18 @@ export default function TournamentManagePage() {
       </Dialog>
 
       {/* Header */}
-      <Stack spacing={1.25} mb={2} sx={{ mt: { xs: 1.5, md: 2.5 } }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
-          <Typography variant="h5" noWrap sx={{ lineHeight: 1.15, minWidth: 0 }}>
+      <Stack spacing={{ xs: 1, md: 1.25 }} mb={{ xs: 1.5, md: 2 }} sx={{ mt: { xs: 1.25, md: 2.5 } }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1.5} flexWrap="wrap">
+          <Typography
+            variant="h5"
+            sx={{
+              lineHeight: 1.15,
+              minWidth: 0,
+              flex: "1 1 260px",
+              fontSize: { xs: 24, sm: 28, md: 30 },
+              overflowWrap: "anywhere",
+            }}
+          >
             {t("tournaments.manage.pageTitle", {
               name: tour?.name || t("tournaments.manage.fallbackName"),
             })}
@@ -3652,10 +3669,16 @@ export default function TournamentManagePage() {
               alignItems: "stretch",
               maxWidth: "100%",
               width: "100%",
-              justifyContent: "flex-end",
+              justifyContent: { md: "flex-start", lg: "flex-end" },
             }}
           >
-            <Box sx={{ ...manageActionGroupSx, flex: "0 1 auto" }}>
+            <Box
+              sx={{
+                ...manageActionGroupSx,
+                flex: { md: "1 1 100%", lg: "0 1 auto" },
+                justifyContent: { md: "flex-start", lg: "flex-end" },
+              }}
+            >
             {canManageManagers ? (
               <Button
                 variant="outlined"
@@ -3702,8 +3725,8 @@ export default function TournamentManagePage() {
             <Box
               sx={{
                 ...manageActionGroupSx,
-                flex: "1 1 680px",
-                justifyContent: "flex-end",
+                flex: { md: "1 1 100%", lg: "1 1 620px", xl: "1 1 680px" },
+                justifyContent: { md: "flex-start", xl: "flex-end" },
               }}
             >
             <Box
@@ -3722,9 +3745,13 @@ export default function TournamentManagePage() {
               sx={{
                 display: "flex",
                 alignItems: "center",
+                flexWrap: "wrap",
                 gap: 1,
                 px: 1,
                 py: 0.5,
+                flex: { md: "1 1 360px", xl: "0 1 auto" },
+                minWidth: { md: 280 },
+                maxWidth: "100%",
                 minHeight: 40,
                 border: "1px dashed",
                 borderColor: posterTemplateDragging
@@ -3794,7 +3821,7 @@ export default function TournamentManagePage() {
               value={posterNameFontFamily}
               onChange={(event) => setPosterNameFontFamily(event.target.value)}
               disabled={!canManage || posterTemplateBusy}
-              sx={{ minWidth: 150 }}
+              sx={{ flex: "0 1 180px", minWidth: 150, maxWidth: 220 }}
             >
               {POSTER_NAME_FONT_OPTIONS.map((option) => (
                 <MenuItem key={option.value || "ai"} value={option.value}>
@@ -3811,7 +3838,7 @@ export default function TournamentManagePage() {
               onChange={(event) => setPosterAiExtraPrompt(event.target.value)}
               disabled={!canManage || posterTemplateBusy}
               inputProps={{ maxLength: 1200 }}
-              sx={{ minWidth: 260, maxWidth: 360 }}
+              sx={{ flex: "1 1 260px", minWidth: 220, maxWidth: { md: "100%", xl: 360 } }}
             />
 
             <Button
@@ -3833,7 +3860,13 @@ export default function TournamentManagePage() {
             </Box>
 
             {/* Export menu (desktop) */}
-            <Box sx={{ ...manageActionGroupSx, flex: "0 1 auto" }}>
+            <Box
+              sx={{
+                ...manageActionGroupSx,
+                flex: { md: "1 1 100%", lg: "0 1 auto" },
+                justifyContent: { md: "flex-start", lg: "flex-end" },
+              }}
+            >
             <Button
               variant="outlined"
               size="small"
@@ -3906,12 +3939,17 @@ export default function TournamentManagePage() {
 
           {/* Mobile actions */}
           <Box sx={{ display: { xs: "block", md: "none" }, width: "100%" }}>
-            <Stack direction="row" justifyContent="flex-end">
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              alignItems={{ xs: "stretch", sm: "center" }}
+              justifyContent="flex-end"
+            >
               <Button
                 variant="outlined"
                 size="small"
                 onClick={openActionMenu}
                 startIcon={<MovieIcon />}
+                sx={{ width: { xs: "100%", sm: "auto" } }}
               >
                 {t("tournaments.manage.actions")}
               </Button>
@@ -4105,8 +4143,9 @@ export default function TournamentManagePage() {
               overflow: "hidden",
               borderColor: manageV2DividerColor,
               height: {
-                xs: "min(680px, calc(100dvh - 180px))",
-                md: "min(720px, calc(100dvh - 220px))",
+                xs: "calc(100dvh - 170px)",
+                sm: "min(720px, calc(100dvh - 190px))",
+                md: "min(760px, calc(100dvh - 220px))",
               },
             }}
           >
@@ -4117,7 +4156,12 @@ export default function TournamentManagePage() {
                 display: "grid",
                 gridTemplateColumns: {
                   xs: "1fr",
-                  md: "280px minmax(0, 1fr)",
+                  md: "300px minmax(0, 1fr)",
+                  lg: "320px minmax(0, 1fr)",
+                },
+                gridTemplateRows: {
+                  xs: "auto minmax(0, 1fr)",
+                  md: "1fr",
                 },
               }}
             >
@@ -4134,7 +4178,7 @@ export default function TournamentManagePage() {
                   p: { xs: 1, md: 2 },
                   minWidth: 0,
                   minHeight: 0,
-                  overflow: "auto",
+                  overflow: { xs: "hidden", md: "auto" },
                 })}
               >
                 <Stack
@@ -4167,6 +4211,7 @@ export default function TournamentManagePage() {
                     display: { xs: "flex", md: "block" },
                     gap: { xs: 1, md: 0 },
                     overflowX: { xs: "auto", md: "visible" },
+                    scrollbarWidth: "thin",
                     pb: { xs: 0.5, md: 0 },
                   }}
                 >
@@ -4206,17 +4251,22 @@ export default function TournamentManagePage() {
 
         {/* Filter bar */}
         {hideManageMatchContent ? null : (
-        <Paper variant="outlined">
+        <Paper variant="outlined" sx={{ overflow: "hidden" }}>
           <Box
-            p={2}
+            p={{ xs: 1, sm: 1.25, md: 1.5 }}
             display="grid"
             sx={{
               gap: 1,
               gridTemplateColumns: {
                 xs: "1fr",
-                md: "minmax(260px, 420px) 200px 140px minmax(200px, 320px) 200px auto",
+                sm: "repeat(2, minmax(0, 1fr))",
+                md: "minmax(240px, 1.35fr) minmax(170px, 0.85fr) minmax(130px, 0.65fr)",
+                lg: "minmax(260px, 420px) 200px 140px minmax(200px, 320px) 190px auto",
               },
               alignItems: "center",
+              "& .MuiFormControl-root, & .MuiAutocomplete-root": {
+                minWidth: 0,
+              },
             }}
           >
             <TextField
@@ -4296,6 +4346,10 @@ export default function TournamentManagePage() {
 
             {/* NEW: Hiện trận BYE */}
             <FormControlLabel
+              sx={{
+                minWidth: 0,
+                gridColumn: { xs: "1", sm: "1 / span 1", lg: "auto" },
+              }}
               control={
                 <Checkbox
                   size="small"
@@ -4308,7 +4362,8 @@ export default function TournamentManagePage() {
 
             <Stack
               direction="row"
-              justifyContent={{ xs: "flex-start", md: "flex-end" }}
+              justifyContent={{ xs: "flex-start", lg: "flex-end" }}
+              sx={{ gridColumn: { xs: "1", sm: "2", md: "3", lg: "auto" } }}
             >
               <Chip
                 size="small"
@@ -4325,13 +4380,21 @@ export default function TournamentManagePage() {
 
         {/* Tabs */}
         {hideManageMatchContent ? null : (
-          <Paper variant="outlined" sx={{ mt: 1 }}>
+          <Paper variant="outlined" sx={{ mt: 1, overflow: "hidden" }}>
             <Tabs
               value={tab}
               onChange={(_, v) => selectTab(v)}
               variant="scrollable"
               scrollButtons="auto"
-              sx={{ px: 1 }}
+              sx={{
+                px: { xs: 0.5, sm: 1 },
+                minHeight: { xs: 42, sm: 48 },
+                "& .MuiTab-root": {
+                  minHeight: { xs: 42, sm: 48 },
+                  px: { xs: 1.25, sm: 2 },
+                  fontSize: { xs: 13, sm: 14 },
+                },
+              }}
             >
               {typesAvailable.map((typeItem) => (
                 <Tab
@@ -4356,6 +4419,7 @@ export default function TournamentManagePage() {
                 transform: "translateX(-50%)",
                 top: { xs: 72, md: 86 },
                 zIndex: 1300,
+                width: "min(920px, calc(100vw - 24px))",
               }}
             >
               <Paper
@@ -4367,6 +4431,8 @@ export default function TournamentManagePage() {
                   display: "flex",
                   alignItems: "center",
                   gap: 1,
+                  flexWrap: "wrap",
+                  justifyContent: "center",
                 }}
               >
                 <Chip
@@ -4420,10 +4486,7 @@ export default function TournamentManagePage() {
                 pb: "calc(env(safe-area-inset-bottom, 0px) + 8px)",
               }}
             >
-              <Paper
-                elevation={8}
-                sx={{ borderRadius: "16px 16px 0 0", px: 2, py: 1.25 }}
-              >
+              <Paper elevation={8} sx={{ borderRadius: 3, px: 1.5, py: 1.25 }}>
                 <Stack spacing={1}>
                   <Stack direction="row" alignItems="center" spacing={1}>
                     <Chip
@@ -4437,7 +4500,7 @@ export default function TournamentManagePage() {
                     <Box sx={{ flexGrow: 1 }} />
                   </Stack>
 
-                  <Stack direction="row" spacing={1}>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                     <Button
                       variant="contained"
                       fullWidth
@@ -4482,18 +4545,26 @@ export default function TournamentManagePage() {
               variant="outlined"
               sx={{
                 mb: 2,
+                overflow: "hidden",
                 contentVisibility: "auto",
                 containIntrinsicSize: "520px",
               }}
             >
-              <Box p={2} pb={0}>
+              <Box p={{ xs: 1.25, sm: 1.5, md: 2 }} pb={0}>
                 <Stack
                   direction="row"
                   alignItems="center"
                   spacing={1}
                   flexWrap="wrap"
                 >
-                  <Typography variant="h6" noWrap>
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      minWidth: 0,
+                      flex: { xs: "1 1 100%", sm: "1 1 auto" },
+                      overflowWrap: "anywhere",
+                    }}
+                  >
                     {b?.name || "Bracket"}
                   </Typography>
 
@@ -4523,11 +4594,12 @@ export default function TournamentManagePage() {
               {/* Desktop table — fixed layout */}
               {!isMobile && (
                 <Box>
-                  <TableContainer>
+                  <TableContainer sx={{ overflowX: "auto" }}>
                     <Table
                       size="small"
                       sx={{
                         tableLayout: "fixed",
+                        minWidth: 1080,
                         "& th, & td": {
                           whiteSpace: "nowrap",
                           overflow: "hidden",
@@ -4622,7 +4694,7 @@ export default function TournamentManagePage() {
               {/* Mobile cards */}
               {isMobile && (
                 <Box>
-                  <Box p={2} pt={1}>
+                  <Box p={{ xs: 1.25, sm: 1.5 }} pt={1}>
                     {mLoading ? (
                       <Grid container spacing={1.2}>
                         {Array.from({ length: 6 }).map((_, k) => (
