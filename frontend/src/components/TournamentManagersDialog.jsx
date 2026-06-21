@@ -55,6 +55,7 @@ export default function TournamentManagersDialog({
   tournamentId,
   onClose,
   onChanged,
+  inline = false,
 }) {
   const { t } = useLanguage();
   const [searchText, setSearchText] = useState("");
@@ -194,6 +195,7 @@ export default function TournamentManagersDialog({
     <ResponsiveModal
       open={open}
       onClose={onClose}
+      inline={inline}
       maxWidth="md"
       icon={<GroupIcon fontSize="small" />}
       title={t(
@@ -456,4 +458,5 @@ TournamentManagersDialog.propTypes = {
   tournamentId: PropTypes.string,
   onClose: PropTypes.func.isRequired,
   onChanged: PropTypes.func,
+  inline: PropTypes.bool,
 };

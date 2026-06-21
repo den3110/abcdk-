@@ -55,10 +55,14 @@ import {
   DialogActions,
   Slide,
   FormControlLabel,
+  List,
+  ListItemButton,
 } from "@mui/material";
 import {
+  Close as CloseIcon,
   OpenInNew as OpenInNewIcon,
   Search as SearchIcon,
+  Settings as SettingsIcon,
   Sort as SortIcon,
   Sports as SportsIcon,
   FileDownload as FileDownloadIcon,
@@ -1333,6 +1337,10 @@ export default function TournamentManagePage() {
 
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  const manageUiVersion = String(
+    searchParams.get("ui") || searchParams.get("manageUi") || "",
+  ).toLowerCase();
+  const isManageV2 = manageUiVersion === "v2" || manageUiVersion === "2";
   const me = useSelector((s) => s.auth?.userInfo || null);
 
   // Queries
@@ -2915,6 +2923,9 @@ export default function TournamentManagePage() {
   const [actionAnchor, setActionAnchor] = useState(null);
   const openActionMenu = (e) => setActionAnchor(e.currentTarget);
   const closeActionMenu = () => setActionAnchor(null);
+  const [v2SettingsOpen, setV2SettingsOpen] = useState(false);
+  const [v2SettingsSection, setV2SettingsSection] = useState("courts");
+  const closeV2Settings = useCallback(() => setV2SettingsOpen(false), []);
   const onMobileExportPDF = async () => {
     closeActionMenu();
     await handleExportPDF();
@@ -2922,6 +2933,290 @@ export default function TournamentManagePage() {
   const onMobileExportWord = async () => {
     closeActionMenu();
     await handleExportWord();
+  };
+
+  const v2SettingsItems = [
+    ...(canManageManagers
+      ? [
+          {
+            value: "managers",
+            label: "Người quản lý",
+            icon: <ManagersIcon fontSize="small" />,
+          },
+        ]
+      : []),
+    {
+      value: "referees",
+      label: "Trọng tài",
+      icon: <RefereeIcon fontSize="small" />,
+    },
+    {
+      value: "courts",
+      label: "Sân",
+      icon: <StadiumIcon fontSize="small" />,
+    },
+    {
+      value: "live",
+      label: "Live",
+      icon: <MovieIcon fontSize="small" />,
+    },
+    {
+      value: "poster",
+      label: "Poster",
+      icon: <AutoAwesomeIcon fontSize="small" />,
+    },
+    {
+      value: "export",
+      label: "Xuất file",
+      icon: <FileDownloadIcon fontSize="small" />,
+    },
+    {
+      value: "links",
+      label: "Điều hướng",
+      icon: <OpenInNewIcon fontSize="small" />,
+    },
+  ];
+
+  const renderV2SettingsContent = () => {
+    if (v2SettingsSection === "managers" && canManageManagers) {
+      return (
+        <TournamentManagersDialog
+          inline
+          open
+          tournamentId={id}
+          onClose={closeV2Settings}
+          onChanged={() => {
+            refetchTour?.();
+          }}
+        />
+      );
+    }
+
+    if (v2SettingsSection === "referees") {
+      return (
+        <ManageRefereesDialog
+          inline
+          open
+          tournamentId={id}
+          onClose={closeV2Settings}
+          onChanged={() => {
+            refetchMatches?.();
+            refetchBrackets?.();
+          }}
+        />
+      );
+    }
+
+    if (v2SettingsSection === "courts") {
+      return (
+        <TournamentCourtClusterDialog
+          inline
+          open
+          onClose={closeV2Settings}
+          tournament={tour}
+          canOverride={isAdmin}
+          onUpdated={handleCourtClustersUpdated}
+        />
+      );
+    }
+
+    if (v2SettingsSection === "live") {
+      return (
+        <LiveSetupDialog
+          inline
+          open
+          onClose={closeV2Settings}
+          tournamentId={id}
+          bracketId={liveSetup.bracketId}
+          allowedClusters={tour?.allowedCourtClusters || []}
+        />
+      );
+    }
+
+    if (v2SettingsSection === "poster") {
+      return (
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="h6">Poster giải đấu</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Tải mẫu, dán link và chạy AI poster bằng đúng cấu hình hiện tại.
+            </Typography>
+          </Box>
+
+          <Paper
+            variant="outlined"
+            onDragOver={(event) => {
+              event.preventDefault();
+              if (!posterTemplateBusy) setPosterTemplateDragging(true);
+            }}
+            onDragLeave={() => setPosterTemplateDragging(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setPosterTemplateDragging(false);
+              if (!posterTemplateBusy) {
+                handlePosterTemplateFile(event.dataTransfer.files?.[0]);
+              }
+            }}
+            sx={{
+              p: 2,
+              borderStyle: "dashed",
+              borderColor: posterTemplateDragging ? "primary.main" : "divider",
+              bgcolor: posterTemplateDragging ? "action.hover" : "transparent",
+            }}
+          >
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Button
+                variant={posterTemplateUrl ? "outlined" : "contained"}
+                startIcon={
+                  uploadingPosterTemplate ? (
+                    <CircularProgress size={16} />
+                  ) : (
+                    <CloudUploadIcon />
+                  )
+                }
+                onClick={() => posterTemplateInputRef.current?.click()}
+                disabled={posterTemplateBusy}
+              >
+                {posterTemplateUrl ? "Đổi mẫu poster" : "Tải mẫu poster"}
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<InsertLinkIcon />}
+                onClick={openPosterUrlDialog}
+                disabled={posterTemplateBusy}
+              >
+                Dán link
+              </Button>
+              {posterTemplateUrl ? (
+                <Chip size="small" color="success" label="Đã có mẫu" />
+              ) : null}
+              {posterAiRunning ? (
+                <Chip size="small" color="warning" label="AI đang chạy" />
+              ) : posterAiStale ? (
+                <Chip size="small" color="error" label="AI kẹt" />
+              ) : posterAiJob?.status === "failed" ? (
+                <Chip size="small" color="error" label="AI lỗi" />
+              ) : null}
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              Có thể kéo thả ảnh mẫu vào vùng này.
+            </Typography>
+          </Paper>
+
+          <TextField
+            select
+            size="small"
+            label="Font tên"
+            value={posterNameFontFamily}
+            onChange={(event) => setPosterNameFontFamily(event.target.value)}
+            disabled={!canManage || posterTemplateBusy}
+            fullWidth
+          >
+            {POSTER_NAME_FONT_OPTIONS.map((option) => (
+              <MenuItem key={option.value || "ai"} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <TextField
+            size="small"
+            label="Prompt bổ sung"
+            placeholder="VD: thay đúng chữ HỌ TÊN, giữ nguyên VĐV"
+            value={posterAiExtraPrompt}
+            onChange={(event) => setPosterAiExtraPrompt(event.target.value)}
+            disabled={!canManage || posterTemplateBusy}
+            inputProps={{ maxLength: 1200 }}
+            multiline
+            minRows={3}
+            fullWidth
+          />
+
+          <Button
+            variant="contained"
+            startIcon={
+              analyzingPoster ? (
+                <CircularProgress size={16} />
+              ) : (
+                <AutoAwesomeIcon />
+              )
+            }
+            onClick={handleAnalyzeRegistrationPoster}
+            disabled={!canManage || posterTemplateBusy}
+          >
+            {posterAiRunning || posterAiStale ? "Chạy lại AI" : "AI poster"}
+          </Button>
+        </Stack>
+      );
+    }
+
+    if (v2SettingsSection === "export") {
+      return (
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="h6">Xuất file</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Xuất dữ liệu theo tab bracket đang mở.
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<PictureAsPdfIcon />}
+            onClick={handleExportPDF}
+            disabled={exporting || bracketsOfTab.length === 0}
+          >
+            {exporting
+              ? t("tournaments.manage.exportPdfLoading")
+              : t("tournaments.manage.exportPdf")}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<DescriptionIcon />}
+            onClick={handleExportWord}
+            disabled={exporting || bracketsOfTab.length === 0}
+          >
+            {exporting
+              ? t("tournaments.manage.exportWordLoading")
+              : t("tournaments.manage.exportWord")}
+          </Button>
+        </Stack>
+      );
+    }
+
+    if (v2SettingsSection === "links") {
+      return (
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="h6">Điều hướng</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Mở các màn hình liên quan của giải đấu.
+            </Typography>
+          </Box>
+          <Button
+            component={Link}
+            to={`/tournament/${id}`}
+            variant="outlined"
+            onClick={closeV2Settings}
+          >
+            {t("tournaments.manage.overview")}
+          </Button>
+          {canOpenRefereeCenter ? (
+            <Button
+              component={Link}
+              to={`/tournament/${id}/referee`}
+              variant="contained"
+              color="warning"
+              startIcon={<SportsIcon />}
+              onClick={closeV2Settings}
+            >
+              Trọng tài
+            </Button>
+          ) : null}
+        </Stack>
+      );
+    }
+
+    return null;
   };
 
   const visibleMatchCount = useMemo(
@@ -3082,7 +3377,7 @@ export default function TournamentManagePage() {
     <Box
       sx={{
         px: { xs: 2, md: 3 },
-        pt: { xs: 0.5, md: 0 },
+        pt: { xs: 2, md: 2 },
         pb: { xs: 2, md: 3 },
       }}
     >
@@ -3200,11 +3495,12 @@ export default function TournamentManagePage() {
           </Button>
         </DialogActions>
       </Dialog>
+
       {/* Header */}
       <Stack spacing={1.5} mb={2}>
         <Stack
           direction={{ xs: "column", md: "row" }}
-          alignItems={{ xs: "flex-start", md: "center" }}
+          alignItems="flex-start"
           justifyContent="space-between"
           sx={{ gap: 1 }}
         >
@@ -3214,6 +3510,24 @@ export default function TournamentManagePage() {
             })}
           </Typography>
 
+          {isManageV2 ? (
+            <Tooltip title="Mở cài đặt quản lý" arrow>
+              <IconButton
+                color="primary"
+                aria-label="Mở cài đặt quản lý"
+                onClick={() => setV2SettingsOpen((open) => !open)}
+                sx={{
+                  border: 1,
+                  borderColor: "divider",
+                  bgcolor: v2SettingsOpen ? "action.selected" : "transparent",
+                  alignSelf: { xs: "flex-end", md: "center" },
+                }}
+              >
+                <SettingsIcon />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <>
           {/* Desktop actions */}
           <Stack
             direction="row"
@@ -3653,7 +3967,97 @@ export default function TournamentManagePage() {
               </Menu>
             </Stack>
           </Box>
+            </>
+          )}
         </Stack>
+
+        {isManageV2 && v2SettingsOpen ? (
+          <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  md: "220px minmax(0, 1fr)",
+                },
+                minHeight: { md: 320 },
+              }}
+            >
+              <Box
+                sx={{
+                  borderRight: { md: 1 },
+                  borderBottom: { xs: 1, md: 0 },
+                  borderColor: "divider",
+                  bgcolor: "background.default",
+                  p: { xs: 1, md: 2 },
+                  minWidth: 0,
+                }}
+              >
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  spacing={1}
+                  mb={{ xs: 1, md: 2 }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="subtitle1" fontWeight={700} noWrap>
+                      Cài đặt
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      Quản lý giải v2
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    aria-label="Đóng cài đặt"
+                    onClick={closeV2Settings}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+
+                <List
+                  disablePadding
+                  sx={{
+                    display: { xs: "flex", md: "block" },
+                    gap: { xs: 1, md: 0 },
+                    overflowX: { xs: "auto", md: "visible" },
+                    pb: { xs: 0.5, md: 0 },
+                  }}
+                >
+                  {v2SettingsItems.map((item) => (
+                    <ListItemButton
+                      key={item.value}
+                      selected={v2SettingsSection === item.value}
+                      onClick={() => setV2SettingsSection(item.value)}
+                      sx={{
+                        borderRadius: 1,
+                        flexShrink: 0,
+                        minWidth: { xs: 150, md: "auto" },
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 36 }}>
+                        {item.icon}
+                      </ListItemIcon>
+                      <ListItemText primary={item.label} />
+                    </ListItemButton>
+                  ))}
+                </List>
+              </Box>
+
+              <Box
+                sx={{
+                  p: { xs: 1.5, md: 2.5 },
+                  minWidth: 0,
+                  overflow: "auto",
+                }}
+              >
+                {renderV2SettingsContent()}
+              </Box>
+            </Box>
+          </Paper>
+        ) : null}
 
         {/* Filter bar */}
         <Paper variant="outlined">

@@ -15,11 +15,10 @@ import {
   TextField,
   Tooltip,
   Typography,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import { useEffect } from "react";
 import { useState } from "react";
+import PropTypes from "prop-types";
 import {
   useListTournamentRefereesQuery,
   useUpsertTournamentRefereesMutation,
@@ -48,9 +47,8 @@ export default function ManageRefereesDialog({
   tournamentId,
   onClose,
   onChanged,
+  inline = false,
 }) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   useEffect(() => {
@@ -104,6 +102,7 @@ export default function ManageRefereesDialog({
     <ResponsiveModal
       open={open}
       onClose={onClose}
+      inline={inline}
       maxWidth="md"
       icon={<RefereeIcon fontSize="small" />}
       title={
@@ -259,3 +258,11 @@ export default function ManageRefereesDialog({
     </ResponsiveModal>
   );
 }
+
+ManageRefereesDialog.propTypes = {
+  open: PropTypes.bool.isRequired,
+  tournamentId: PropTypes.string,
+  onClose: PropTypes.func.isRequired,
+  onChanged: PropTypes.func,
+  inline: PropTypes.bool,
+};

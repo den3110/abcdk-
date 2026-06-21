@@ -152,6 +152,7 @@ export default function LiveSetupDialog({
   bracketId,
   buildCourtLiveUrl,
   allowedClusters = [],
+  inline = false,
 }) {
   const clusterOptions = React.useMemo(
     () => normalizeAllowedClusters(allowedClusters),
@@ -514,6 +515,7 @@ export default function LiveSetupDialog({
     <ResponsiveModal
       open={open}
       onClose={onClose}
+      inline={inline}
       maxWidth="xl"
       icon={<MovieIcon />}
       title="Thiết lập LIVE — Toàn giải"

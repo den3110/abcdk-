@@ -56,11 +56,122 @@ export default function ResponsiveModal({
   contentProps = {},
   actionsProps = {},
   zIndex,
+  inline = false,
+  inlineSx,
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down(mobileBreakpoint));
   const rootZIndex =
     typeof zIndex === "number" ? zIndex : (theme.zIndex?.modal ?? 1300) + 10;
+
+  if (inline) {
+    if (!open && !keepMounted) return null;
+    const inlineHeaderProps = { ...(headerProps || {}) };
+    const inlineHeaderSx = inlineHeaderProps.sx;
+    delete inlineHeaderProps.sx;
+    const inlineContentProps = { ...(contentProps || {}) };
+    const inlineContentSx = inlineContentProps.sx;
+    delete inlineContentProps.sx;
+    const inlineActionsProps = { ...(actionsProps || {}) };
+    const inlineActionsSx = inlineActionsProps.sx;
+    delete inlineActionsProps.sx;
+
+    return (
+      <Box
+        sx={{
+          display: open ? "block" : "none",
+          minWidth: 0,
+          ...inlineSx,
+        }}
+      >
+        {(title || subtitle || showCloseIcon) && (
+          <Box
+            sx={{
+              pb: 1.5,
+              mb: 1.5,
+              borderBottom: 1,
+              borderColor: "divider",
+              ...inlineHeaderSx,
+            }}
+            {...inlineHeaderProps}
+          >
+            <Stack direction="row" alignItems="center" spacing={1.25}>
+              {icon ? (
+                <Box sx={{ display: "flex", alignItems: "center" }}>
+                  {icon}
+                </Box>
+              ) : null}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                {typeof title === "string" ? (
+                  <Typography variant="h6" noWrap title={title}>
+                    {title}
+                  </Typography>
+                ) : (
+                  title
+                )}
+                {subtitle ? (
+                  typeof subtitle === "string" ? (
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      noWrap
+                      title={subtitle}
+                    >
+                      {subtitle}
+                    </Typography>
+                  ) : (
+                    subtitle
+                  )
+                ) : null}
+              </Box>
+              {showCloseIcon && onClose ? (
+                <IconButton edge="end" onClick={onClose} aria-label="close">
+                  <CloseIcon />
+                </IconButton>
+              ) : null}
+            </Stack>
+          </Box>
+        )}
+
+        <Box
+          sx={{
+            minWidth: 0,
+            ...inlineContentSx,
+          }}
+          {...inlineContentProps}
+        >
+          {children}
+        </Box>
+
+        {actions ? (
+          <Box
+            sx={{
+              pt: 1.5,
+              mt: 1.5,
+              borderTop: 1,
+              borderColor: "divider",
+              ...inlineActionsSx,
+            }}
+            {...inlineActionsProps}
+          >
+            <Stack
+              direction="row"
+              spacing={1}
+              justifyContent="flex-end"
+              alignItems="center"
+              flexWrap="wrap"
+              useFlexGap
+            >
+              {React.Children.toArray(
+                Array.isArray(actions) ? actions : [actions],
+              )}
+            </Stack>
+          </Box>
+        ) : null}
+      </Box>
+    );
+  }
+
   if (isMobile) {
     // MOBILE — Drawer
     const drawerPaperSx = {
@@ -288,4 +399,6 @@ ResponsiveModal.propTypes = {
   contentProps: PropTypes.object,
   actionsProps: PropTypes.object,
   zIndex: PropTypes.number,
+  inline: PropTypes.bool,
+  inlineSx: PropTypes.object,
 };

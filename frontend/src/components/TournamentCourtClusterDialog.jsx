@@ -339,6 +339,7 @@ function TournamentCourtClusterDialog({
   canOverride = false,
   onClose,
   onUpdated,
+  inline = false,
 }) {
   const socket = useSocket();
   const tournamentId = sid(tournament?._id || tournament?.id);
@@ -905,6 +906,7 @@ function TournamentCourtClusterDialog({
       <ResponsiveModal
         open={open}
         onClose={onClose}
+        inline={inline}
         maxWidth={false}
         anchor="right"
         icon={<StadiumIcon fontSize="small" />}
@@ -2303,6 +2305,7 @@ TournamentCourtClusterDialog.propTypes = {
   canOverride: PropTypes.bool,
   onClose: PropTypes.func,
   onUpdated: PropTypes.func,
+  inline: PropTypes.bool,
 };
 
 export default memo(TournamentCourtClusterDialog);
