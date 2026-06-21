@@ -4568,7 +4568,7 @@ export default function TournamentBracket() {
   };
 
   const openMatch = (m) => {
-    if (!m || isByeMatchObj(m)) return; // chặn mở nếu BYE
+    if (!m?._id) return;
     const resolvedSideNameA = resolveSideLabel(m, "A");
     const resolvedSideNameB = resolveSideLabel(m, "B");
     setActiveMatchId(m._id);

@@ -1042,20 +1042,32 @@ function mergeCanonicalStreamLists(existing, incoming) {
   return Array.from(merged.values());
 }
 /* ====================== PlayerLink & team helpers ====================== */
-function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
-  if (!person) return null;
-  const uid =
+const profileIdOfPerson = (person) => {
+  if (!person || typeof person !== "object") return null;
+  return (
     person?.user?._id ||
     person?.user?.id ||
-    person?.user ||
+    (typeof person?.user === "string" ? person.user : null) ||
+    person?.userId ||
+    person?.uid ||
     person?._id ||
     person?.id ||
-    null;
+    null
+  );
+};
+
+function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
+  if (!person) return null;
+  const uid = profileIdOfPerson(person);
+  const label =
+    typeof person === "string" ? person : nameWithNick(person, displayMode);
 
   const handleClick = () => {
     if (!uid) return;
     onOpen?.(uid);
   };
+
+  if (!uid) return <>{label}</>;
 
   return (
     <MuiLink
@@ -1070,12 +1082,25 @@ function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
         cursor: "pointer",
         "&:hover": { textDecorationColor: "inherit" },
       }}
-      title={nameWithNick(person, displayMode)}
+      title={label}
     >
-      {nameWithNick(person, displayMode)}
+      {label}
     </MuiLink>
   );
 }
+
+function playersOfPair(pair, isSingle = false) {
+  if (!pair || typeof pair !== "object") return [];
+  const players =
+    Array.isArray(pair.players) && pair.players.length
+      ? pair.players
+      : [pair.player1, pair.player2, pair.p1, pair.p2].filter(Boolean);
+  return players.filter(Boolean).slice(0, isSingle ? 1 : 2);
+}
+
+const playerLinkKey = (player, index) =>
+  String(profileIdOfPerson(player) || (typeof player === "string" ? player : index));
+
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
 function pairLabel(reg, isSingle, displayMode = "nickname") {
   return getTournamentPairName(
@@ -2770,24 +2795,18 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {hasResolvedPair(mm?.pairA) && !blockA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                {mm.pairA?.player1 || mm.pairA?.player2 ? (
+                {playersOfPair(mm.pairA, isSingle).length ? (
                   <>
-                    <PlayerLink
-                      person={mm.pairA?.player1}
-                      onOpen={openProfile}
-                      displayMode={displayMode}
-                    />
-                    {!isSingle && mm.pairA?.player2 && (
-                      <>
-                        {" "}
-                        &{" "}
+                    {playersOfPair(mm.pairA, isSingle).map((player, index) => (
+                      <span key={playerLinkKey(player, index)}>
+                        {index > 0 ? " & " : ""}
                         <PlayerLink
-                          person={mm.pairA.player2}
+                          person={player}
                           onOpen={openProfile}
                           displayMode={displayMode}
                         />
-                      </>
-                    )}
+                      </span>
+                    ))}
                   </>
                 ) : (
                   pairLabel(mm.pairA, isSingle, displayMode)
@@ -2826,24 +2845,18 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {hasResolvedPair(mm?.pairB) && !blockB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                {mm.pairB?.player1 || mm.pairB?.player2 ? (
+                {playersOfPair(mm.pairB, isSingle).length ? (
                   <>
-                    <PlayerLink
-                      person={mm.pairB?.player1}
-                      onOpen={openProfile}
-                      displayMode={displayMode}
-                    />
-                    {!isSingle && mm.pairB?.player2 && (
-                      <>
-                        {" "}
-                        &{" "}
+                    {playersOfPair(mm.pairB, isSingle).map((player, index) => (
+                      <span key={playerLinkKey(player, index)}>
+                        {index > 0 ? " & " : ""}
                         <PlayerLink
-                          person={mm.pairB.player2}
+                          person={player}
                           onOpen={openProfile}
                           displayMode={displayMode}
                         />
-                      </>
-                    )}
+                      </span>
+                    ))}
                   </>
                 ) : (
                   pairLabel(mm.pairB, isSingle, displayMode)
