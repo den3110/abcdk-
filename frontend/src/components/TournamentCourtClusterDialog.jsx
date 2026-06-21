@@ -65,6 +65,10 @@ const sid = (value) => {
   return String(value);
 };
 
+const EMPTY_ARRAY = [];
+const EMPTY_SET = new Set();
+const EMPTY_MAP = new Map();
+
 const text = (value) => String(value || "").trim();
 
 const matchCode = (match) =>
@@ -353,6 +357,7 @@ function TournamentCourtClusterDialog({
   const [viewerMatch, setViewerMatch] = useState(null);
   const [sharedTournamentsOpen, setSharedTournamentsOpen] = useState(false);
   const [queuePickerOpenByStation, setQueuePickerOpenByStation] = useState({});
+  const [queueEditorOpenByStation, setQueueEditorOpenByStation] = useState({});
   const openTraceRef = useRef("");
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -464,6 +469,27 @@ function TournamentCourtClusterDialog({
     });
   }, []);
 
+  const setQueueEditorOpen = useCallback((stationId, isOpen) => {
+    const normalizedStationId = sid(stationId);
+    if (!normalizedStationId) return;
+
+    setQueueEditorOpenByStation((current) => {
+      const alreadyOpen = Boolean(current[normalizedStationId]);
+      if (alreadyOpen === isOpen) return current;
+
+      if (isOpen) {
+        return {
+          ...current,
+          [normalizedStationId]: true,
+        };
+      }
+
+      const next = { ...current };
+      delete next[normalizedStationId];
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const hasOpenQueuePicker =
       Object.keys(queuePickerOpenByStation || {}).length > 0;
@@ -555,6 +581,7 @@ function TournamentCourtClusterDialog({
       setViewerMatch(null);
       openTraceRef.current = "";
       setQueuePickerOpenByStation({});
+      setQueueEditorOpenByStation({});
       queuePickerOpenRef.current = false;
       pendingRuntimeRefreshRef.current = false;
     }
@@ -635,6 +662,14 @@ function TournamentCourtClusterDialog({
     () => [...(runtime?.availableMatches || [])].sort(compareSelectorMatches),
     [runtime?.availableMatches],
   );
+  const availableMatchMap = useMemo(() => {
+    const map = new Map();
+    availableMatches.forEach((match) => {
+      const matchId = sid(match?._id);
+      if (matchId) map.set(matchId, match);
+    });
+    return map;
+  }, [availableMatches]);
   const reservedByOther = useMemo(() => {
     const next = new Map();
     stations.forEach((station) => {
@@ -652,6 +687,15 @@ function TournamentCourtClusterDialog({
     });
     return next;
   }, [stations]);
+  const reservedMatchUsage = useMemo(() => {
+    const usage = new Map();
+    reservedByOther.forEach((ids) => {
+      ids.forEach((matchId) => {
+        usage.set(matchId, (usage.get(matchId) || 0) + 1);
+      });
+    });
+    return usage;
+  }, [reservedByOther]);
   const stats = useMemo(
     () => ({
       total: stations.length,
@@ -736,14 +780,8 @@ function TournamentCourtClusterDialog({
       );
       if (!additions.length) return { ...draft, pickerMatchIds: [] };
 
-      // Map IDs to full match objects to sort them properly
-      const matchMap = new Map();
-      availableMatches.forEach((match) => {
-        if (match?._id) matchMap.set(sid(match._id), match);
-      });
-
       const sortedAdditions = additions
-        .map((id) => matchMap.get(id))
+        .map((id) => availableMatchMap.get(id))
         .filter(Boolean)
         .sort(compareSelectorMatches)
         .map((match) => sid(match._id));
@@ -867,7 +905,8 @@ function TournamentCourtClusterDialog({
       <ResponsiveModal
         open={open}
         onClose={onClose}
-        maxWidth="lg"
+        maxWidth={false}
+        anchor="right"
         icon={<StadiumIcon fontSize="small" />}
         title={
           <Typography
@@ -894,7 +933,32 @@ function TournamentCourtClusterDialog({
             <strong>{tournament?.name || "giải đấu"}</strong> được phép dùng.
           </Typography>
         }
-        contentProps={{ sx: { pt: 2 } }}
+        dialogProps={{ fullScreen: true }}
+        drawerProps={{
+          PaperProps: {
+            sx: {
+              width: "100vw",
+              maxWidth: "100vw",
+              height: "100dvh",
+              maxHeight: "100dvh",
+              borderRadius: 0,
+            },
+          },
+        }}
+        paperSx={{
+          m: 0,
+          width: "100vw",
+          maxWidth: "100vw",
+          height: "100dvh",
+          maxHeight: "100dvh",
+          borderRadius: 0,
+        }}
+        contentProps={{
+          sx: {
+            px: { xs: 1.5, md: 3 },
+            py: 2,
+          },
+        }}
       >
         <Box sx={{ display: "none", pb: 1.5 }}>
           <Stack spacing={0.75}>
@@ -1076,7 +1140,18 @@ function TournamentCourtClusterDialog({
                       Cụm sân này chưa có sân vật lý nào.
                     </Alert>
                   ) : (
-                    <Stack spacing={1.25}>
+                    <Box
+                      sx={{
+                        display: "grid",
+                        gridTemplateColumns: {
+                          xs: "1fr",
+                          md: "repeat(2, minmax(0, 1fr))",
+                          lg: "repeat(3, minmax(0, 1fr))",
+                        },
+                        gap: 1.25,
+                        alignItems: "stretch",
+                      }}
+                    >
                       {stations.map((station) => {
                         const stationId = sid(station?._id);
                         const draft =
@@ -1109,13 +1184,15 @@ function TournamentCourtClusterDialog({
                         const occupiedByAnotherTournament =
                           occupiedTournamentId &&
                           occupiedTournamentId !== tournamentId;
+                        const queueEditorOpen =
+                          assignmentMode === "queue" &&
+                          (Boolean(queueEditorOpenByStation[stationId]) ||
+                            Boolean(queuePickerOpenByStation[stationId]) ||
+                            draft.pickerMatchIds.length > 0);
 
-                        const matchMap = new Map();
-                        availableMatches.forEach((match) =>
-                          matchMap.set(sid(match?._id), match),
-                        );
+                        const stationMatchMap = new Map();
                         if (station?.currentMatch?._id) {
-                          matchMap.set(
+                          stationMatchMap.set(
                             sid(station.currentMatch._id),
                             station.currentMatch,
                           );
@@ -1126,7 +1203,7 @@ function TournamentCourtClusterDialog({
                         ).forEach((item) => {
                           const match = item?.match;
                           if (match?._id) {
-                            matchMap.set(sid(match._id), match);
+                            stationMatchMap.set(sid(match._id), match);
                           }
                         });
 
@@ -1135,66 +1212,76 @@ function TournamentCourtClusterDialog({
                         );
 
                         const queueMatches = displayQueueMatchIds
-                          .map((matchId) => matchMap.get(matchId))
+                          .map(
+                            (matchId) =>
+                              stationMatchMap.get(matchId) ||
+                              availableMatchMap.get(matchId),
+                          )
                           .filter(Boolean);
 
-                        const elsewhere = new Set();
-                        reservedByOther.forEach((ids, otherStationId) => {
-                          if (otherStationId === stationId) return;
-                          ids.forEach((matchId) => elsewhere.add(matchId));
-                        });
+                        const ownReservedIds =
+                          reservedByOther.get(stationId) || EMPTY_SET;
+                        const queuedMatchIds = queueEditorOpen
+                          ? new Set(draft.queueMatchIds)
+                          : EMPTY_SET;
+                        const availableForStation = queueEditorOpen
+                          ? availableMatches.filter((match) => {
+                              const matchId = sid(match?._id);
+                              if (
+                                !matchId ||
+                                queuedMatchIds.has(matchId) ||
+                                liveCurrentMatchId === matchId
+                              ) {
+                                return false;
+                              }
 
-                        const availableForStation = availableMatches
-                          .filter((match) => {
-                            const matchId = sid(match?._id);
-                            return (
-                              matchId &&
-                              !draft.queueMatchIds.includes(matchId) &&
-                              !elsewhere.has(matchId) &&
-                              liveCurrentMatchId !== matchId
-                            );
-                          })
-                          .sort(compareSelectorMatches);
+                              const reservedElsewhere =
+                                (reservedMatchUsage.get(matchId) || 0) -
+                                  (ownReservedIds.has(matchId) ? 1 : 0) >
+                                0;
+                              return !reservedElsewhere;
+                            })
+                          : EMPTY_ARRAY;
 
-                        const selectorOptions = availableForStation.map(
-                          (match) => {
-                            const group = isGroupBracket(match);
-                            const bracketKey =
-                              sid(match?.bracket?._id) ||
-                              `${text(match?.bracket?.name)}-${text(match?.bracket?.type)}`;
-                            const poolKey = group
-                              ? poolLabel(match) || "?"
-                              : "all";
-                            return {
-                              ...match,
-                              __groupKey: `${bracketKey}::${poolKey}`,
-                              __bracketTitle: bracketTitle(match),
-                              __poolTitle: group ? poolTitle(match) : "",
-                              __poolSelectable: group,
-                            };
-                          },
-                        );
+                        const selectorOptions = queueEditorOpen
+                          ? availableForStation.map((match) => {
+                              const group = isGroupBracket(match);
+                              const bracketKey =
+                                sid(match?.bracket?._id) ||
+                                `${text(match?.bracket?.name)}-${text(match?.bracket?.type)}`;
+                              const poolKey = group
+                                ? poolLabel(match) || "?"
+                                : "all";
+                              return {
+                                ...match,
+                                __groupKey: `${bracketKey}::${poolKey}`,
+                                __bracketTitle: bracketTitle(match),
+                                __poolTitle: group ? poolTitle(match) : "",
+                                __poolSelectable: group,
+                              };
+                            })
+                          : EMPTY_ARRAY;
 
-                        const groupMetaByKey = selectorOptions.reduce(
-                          (map, match) => {
-                            const current = map.get(match.__groupKey) || {
-                              key: match.__groupKey,
-                              bracketTitle: match.__bracketTitle,
-                              poolTitle: match.__poolTitle,
-                              poolSelectable: match.__poolSelectable,
-                              matchIds: [],
-                            };
-                            current.matchIds.push(sid(match?._id));
-                            map.set(match.__groupKey, current);
-                            return map;
-                          },
-                          new Map(),
-                        );
+                        const groupMetaByKey = queueEditorOpen
+                          ? selectorOptions.reduce((map, match) => {
+                              const current = map.get(match.__groupKey) || {
+                                key: match.__groupKey,
+                                bracketTitle: match.__bracketTitle,
+                                poolTitle: match.__poolTitle,
+                                poolSelectable: match.__poolSelectable,
+                                matchIds: [],
+                              };
+                              current.matchIds.push(sid(match?._id));
+                              map.set(match.__groupKey, current);
+                              return map;
+                            }, new Map())
+                          : EMPTY_MAP;
 
-                        const selectedPickerMatches = selectorOptions.filter(
-                          (match) =>
-                            draft.pickerMatchIds.includes(sid(match?._id)),
-                        );
+                        const selectedPickerMatches = queueEditorOpen
+                          ? selectorOptions.filter((match) =>
+                              draft.pickerMatchIds.includes(sid(match?._id)),
+                            )
+                          : EMPTY_ARRAY;
 
                         return (
                           <Paper
@@ -1202,13 +1289,17 @@ function TournamentCourtClusterDialog({
                             variant="outlined"
                             sx={{
                               p: 1.75,
+                              minWidth: 0,
+                              height: "100%",
+                              display: "flex",
+                              flexDirection: "column",
                               borderRadius: 2.5,
                               borderColor: station?.currentMatch
                                 ? "warning.light"
                                 : "divider",
                             }}
                           >
-                            <Stack spacing={1.5}>
+                            <Stack spacing={1.5} sx={{ height: "100%" }}>
                               <Stack spacing={1.25}>
                                 <Stack
                                   spacing={1}
@@ -1356,7 +1447,7 @@ function TournamentCourtClusterDialog({
 
                                 <Stack spacing={1}>
                                   <Stack
-                                    direction={{ xs: "column", lg: "row" }}
+                                    direction="column"
                                     spacing={1}
                                     alignItems="stretch"
                                   >
@@ -1371,8 +1462,8 @@ function TournamentCourtClusterDialog({
                                     sx={{
                                       bgcolor: "background.paper",
                                       borderRadius: 1,
-                                      minWidth: { lg: 280 },
-                                      flex: { lg: "0 0 300px" },
+                                      minWidth: 0,
+                                      width: "100%",
                                     }}
                                     value={assignmentMode}
                                     onChange={(event) => {
@@ -1439,14 +1530,19 @@ function TournamentCourtClusterDialog({
                                         }}
                                       />
                                     )}
-                                    sx={{ flex: 1 }}
+                                    sx={{ width: "100%" }}
                                   />
                                   </Stack>
 
                                   <Stack
-                                    direction={{ xs: "column", md: "row" }}
+                                    direction="column"
                                     spacing={1}
                                     justifyContent="flex-end"
+                                    sx={{
+                                      "& .MuiButton-root": {
+                                        alignSelf: "stretch",
+                                      },
+                                    }}
                                   >
                                     {liveCurrentMatch && (
                                       <Button
@@ -1494,6 +1590,7 @@ function TournamentCourtClusterDialog({
                                       spacing={1}
                                       flexWrap="wrap"
                                       useFlexGap
+                                      alignItems="center"
                                     >
                                       <Chip
                                         size="small"
@@ -1508,8 +1605,31 @@ function TournamentCourtClusterDialog({
                                           label="Đang đồng bộ"
                                         />
                                       )}
+                                      <Button
+                                        size="small"
+                                        variant={
+                                          queueEditorOpen ? "text" : "outlined"
+                                        }
+                                        disabled={clusterInteractionDisabled}
+                                        onClick={() => {
+                                          const nextOpen = !queueEditorOpen;
+                                          setQueueEditorOpen(
+                                            stationId,
+                                            nextOpen,
+                                          );
+                                          if (!nextOpen) {
+                                            setQueuePickerOpen(stationId, false);
+                                          }
+                                        }}
+                                      >
+                                        {queueEditorOpen
+                                          ? "Ẩn chọn trận"
+                                          : "Thêm trận"}
+                                      </Button>
                                     </Stack>
 
+                                    {queueEditorOpen && (
+                                      <>
                                     <Autocomplete
                                       open={Boolean(
                                         queuePickerOpenByStation[stationId],
@@ -1862,6 +1982,8 @@ function TournamentCourtClusterDialog({
                                           : "Thêm"}
                                       </Button>
                                     </Stack>
+                                      </>
+                                    )}
 
                                     {!queueMatches.length ? (
                                       <Alert severity="info">
@@ -2091,7 +2213,7 @@ function TournamentCourtClusterDialog({
                           </Paper>
                         );
                       })}
-                    </Stack>
+                    </Box>
                   )}
                 </Stack>
               </Paper>

@@ -138,8 +138,20 @@ const statusChip = (st, tFn) => {
       size="small"
       label={v.label}
       sx={{
-        bgcolor: v.bg,
-        color: v.text,
+        bgcolor: (theme) => {
+          if (theme.palette.mode !== "dark") return v.bg;
+          if (st === "live") return theme.palette.warning.main;
+          if (st === "assigned") return alpha(theme.palette.warning.main, 0.18);
+          if (st === "finished") return alpha(theme.palette.success.main, 0.18);
+          return alpha(theme.palette.text.primary, 0.1);
+        },
+        color: (theme) => {
+          if (theme.palette.mode !== "dark") return v.text;
+          if (st === "live") return theme.palette.warning.contrastText;
+          if (st === "assigned") return theme.palette.warning.light;
+          if (st === "finished") return theme.palette.success.light;
+          return theme.palette.text.secondary;
+        },
         fontWeight: 700,
         border: "none",
         fontSize: "0.7rem",
@@ -351,6 +363,7 @@ const MatchListItem = ({ m, onOpen, t, locale }) => {
         borderRadius: 3,
         border: "1px solid",
         borderColor: "divider",
+        bgcolor: "background.paper",
         cursor: "pointer",
         transition: "all 0.2s",
         "&:hover": {
@@ -1439,8 +1452,11 @@ export default function TournamentOverviewPage() {
                 display: "flex",
                 flexDirection: "column",
                 width: "100%",
-                background:
-                  "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,255,0.98))",
+                bgcolor: "background.paper",
+                backgroundImage: (theme) =>
+                  theme.palette.mode === "dark"
+                    ? `linear-gradient(180deg, ${alpha(theme.palette.primary.main, 0.08)}, ${alpha(theme.palette.background.paper, 0)})`
+                    : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,255,0.98))",
               }}
             >
               <Box sx={{ px: { xs: 2, md: 3 }, pt: { xs: 2, md: 2.5 } }}>
@@ -1471,7 +1487,11 @@ export default function TournamentOverviewPage() {
                   borderColor: "divider",
                   px: { xs: 1.5, md: 2.5 },
                   py: 0.5,
-                  bgcolor: alpha(theme.palette.primary.main, 0.03),
+                  bgcolor: (theme) =>
+                    alpha(
+                      theme.palette.primary.main,
+                      theme.palette.mode === "dark" ? 0.08 : 0.03,
+                    ),
                 }}
               >
                 <Tabs
@@ -1557,7 +1577,11 @@ export default function TournamentOverviewPage() {
                         sx={{
                           mt: 1,
                           py: 1.5,
-                          bgcolor: alpha(theme.palette.primary.main, 0.04),
+                          bgcolor: (theme) =>
+                            alpha(
+                              theme.palette.primary.main,
+                              theme.palette.mode === "dark" ? 0.1 : 0.04,
+                            ),
                           border: "1px dashed",
                           borderColor: "divider",
                         }}
@@ -1590,8 +1614,11 @@ export default function TournamentOverviewPage() {
                 p: 3,
                 height: "100%",
                 width: "100%",
-                background:
-                  "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
+                bgcolor: "background.paper",
+                backgroundImage: (theme) =>
+                  theme.palette.mode === "dark"
+                    ? `linear-gradient(180deg, ${alpha(theme.palette.primary.main, 0.08)}, ${alpha(theme.palette.background.paper, 0)})`
+                    : "linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.98))",
               }}
             >
               <OverviewSectionHeader
@@ -1665,12 +1692,15 @@ export default function TournamentOverviewPage() {
                         sx={{
                           p: 2,
                           borderRadius: 3,
-                          bgcolor: alpha(theme.palette.common.white, 0.84),
+                          bgcolor: "background.default",
                           border: "1px solid",
                           borderColor: "divider",
                           width: "100%",
                           boxSizing: "border-box",
-                          boxShadow: "0 10px 24px rgba(15,23,42,0.04)",
+                          boxShadow: (theme) =>
+                            theme.palette.mode === "dark"
+                              ? "none"
+                              : "0 10px 24px rgba(15,23,42,0.04)",
                         }}
                       >
                         <Stack

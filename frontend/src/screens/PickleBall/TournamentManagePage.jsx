@@ -3079,7 +3079,13 @@ export default function TournamentManagePage() {
 
   /* ---------- UI ---------- */
   return (
-    <Box p={{ xs: 2, md: 3 }}>
+    <Box
+      sx={{
+        px: { xs: 2, md: 3 },
+        pt: { xs: 0.5, md: 0 },
+        pb: { xs: 2, md: 3 },
+      }}
+    >
       <SEOHead
         title={t("tournaments.manage.seoTitle", {
           name: tour?.name || t("tournaments.manage.fallbackName"),

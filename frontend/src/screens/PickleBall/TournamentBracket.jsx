@@ -53,7 +53,6 @@ import {
   AccessTime as AccessTimeIcon,
   OndemandVideo as VideoIcon, // ⟵ NEW: icon video
   Group as GroupIcon,
-  CheckCircle as CheckIcon,
   Place as PlaceIcon,
   Info as InfoIcon,
   ZoomIn as ZoomInIcon,
@@ -3089,8 +3088,8 @@ RoundElimBracketLayout.propTypes = {
 
 const SYMMETRIC_KO_CARD_W = SEED_CARD_W;
 const SYMMETRIC_KO_COL_GAP = 84;
-const SYMMETRIC_KO_ROW_GAP = 34;
-const SYMMETRIC_KO_HEADER_H = 26;
+const SYMMETRIC_KO_ROW_GAP = 28;
+const SYMMETRIC_KO_HEADER_H = 20;
 const SYMMETRIC_KO_LINE = "rgba(25, 118, 210, 0.42)";
 
 function buildSymmetricSlotCounts(rounds = []) {
@@ -3544,7 +3543,9 @@ function SymmetricKnockoutBracket({
                 justifyContent: "center",
                 gap: `${SYMMETRIC_KO_COL_GAP}px`,
                 width: "max-content",
-                p: { xs: 1, md: 2 },
+                px: { xs: 1, md: 2 },
+                pt: 0.5,
+                pb: { xs: 1, md: 2 },
                 transform: `scale(${renderScale})`,
                 transformOrigin: "0 0",
               }}
@@ -3591,6 +3592,7 @@ function SymmetricKnockoutBracket({
                 sx={{
                   width: SYMMETRIC_KO_CARD_W,
                   flex: `0 0 ${SYMMETRIC_KO_CARD_W}px`,
+                  position: "relative",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "stretch",
@@ -3604,10 +3606,13 @@ function SymmetricKnockoutBracket({
                     sx={{
                       fontWeight: 700,
                       color: "text.secondary",
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
                       textAlign: "center",
                       textTransform: "uppercase",
                       letterSpacing: 0,
-                      mb: 2,
                     }}
                   >
                     {finalRound.title}
@@ -5905,17 +5910,19 @@ export default function TournamentBracket() {
         elevation={2}
         sx={{
           // Mobile: fixed góc dưới-phải; Desktop: absolute góc trên-phải
-          position: { xs: mobileFixed ? "fixed" : "absolute", sm: "absolute" },
-          right: fullscreen ? { xs: 64, sm: 64 } : { xs: 12, sm: 8 },
+          position: fullscreen
+            ? "fixed"
+            : { xs: mobileFixed ? "fixed" : "absolute", sm: "absolute" },
+          right: fullscreen ? { xs: 12, sm: 20 } : { xs: 12, sm: 8 },
           bottom: {
-            xs: mobileFixed
-              ? `calc(env(safe-area-inset-bottom) + ${mobileBottomGap}px)`
-              : "auto",
-            sm: "auto",
+            xs: fullscreen
+              ? "calc(env(safe-area-inset-bottom) + 16px)"
+              : mobileFixed
+                ? `calc(env(safe-area-inset-bottom) + ${mobileBottomGap}px)`
+                : "auto",
+            sm: fullscreen ? 20 : "auto",
           },
-          top: fullscreen
-            ? { xs: 12, sm: 12 }
-            : { xs: mobileFixed ? "auto" : -50, sm: -50 },
+          top: fullscreen ? "auto" : { xs: mobileFixed ? "auto" : -50, sm: -50 },
           zIndex: 1000, // nổi trên bottom nav
           borderRadius: 2,
           display: "inline-flex",
@@ -7390,14 +7397,6 @@ export default function TournamentBracket() {
               icon={<GroupIcon sx={{ fontSize: 18 }} />}
               label={t("tournaments.bracket.metaTeams", {
                 count: metaBar.totalTeams,
-              })}
-              size="small"
-              variant="outlined"
-            />
-            <Chip
-              icon={<CheckIcon sx={{ fontSize: 18 }} />}
-              label={t("tournaments.bracket.metaCheckin", {
-                count: metaBar.checkinLabel,
               })}
               size="small"
               variant="outlined"
