@@ -57,6 +57,7 @@ import {
   useGetLiveFeedQuery,
   useGetLiveFeedSearchQuery,
 } from "../../slices/liveApiSlice";
+import { getMatchSideDisplayName } from "../../utils/matchDisplay";
 
 const FEED_LIMIT = 8;
 const PTR_THRESHOLD = 80;
@@ -374,8 +375,8 @@ function buildInitials(value) {
 }
 
 function getFeedTitle(item) {
-  const teamA = asTrimmed(item?.teamAName || item?.pairA?.name || "Đội A");
-  const teamB = asTrimmed(item?.teamBName || item?.pairB?.name || "Đội B");
+  const teamA = asTrimmed(getMatchSideDisplayName(item, "A", "Đội A"));
+  const teamB = asTrimmed(getMatchSideDisplayName(item, "B", "Đội B"));
   return `${teamA} vs ${teamB}`;
 }
 

@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 import Court from "../models/courtModel.js";
 import Match from "../models/matchModel.js";
+import {
+  attachResolvedSideNamesToMatch,
+  attachResolvedSideNamesToMatches,
+  buildMatchSideDisplayContext,
+} from "../utils/matchSideDisplay.js";
 
 export const MANUAL_ASSIGNMENT_PENDING = "pending";
 export const MANUAL_ASSIGNMENT_DONE = "done";
@@ -13,7 +18,8 @@ export const MANUAL_ASSIGNMENT_ITEM_STATES = [
 
 export const MATCH_LITE_SELECT =
   "_id tournament bracket format type status queueOrder " +
-  "court courtLabel pool rrRound round order code labelKey " +
+  "court courtLabel pool rrRound round globalRound order code roundCode displayCode codeResolved globalCode labelKey " +
+  "seedA seedB previousA previousB winner " +
   "scheduledAt startedAt finishedAt assignedAt createdAt";
 
 export const PAIR_SELECT =
@@ -113,8 +119,14 @@ export const getNextManualAssignmentItem = (court, options = {}) =>
 
 export const toMatchLite = (match) => {
   if (!match) return null;
-  const pairAName = nameOfPair(match.pairA);
-  const pairBName = nameOfPair(match.pairB);
+  const resolvedPairAName =
+    match.resolvedSideKindA === "team"
+      ? match.pairAName || match.teamAName || nameOfPair(match.pairA)
+      : "";
+  const resolvedPairBName =
+    match.resolvedSideKindB === "team"
+      ? match.pairBName || match.teamBName || nameOfPair(match.pairB)
+      : "";
   return {
     _id: match._id,
     tournament: match.tournament,
@@ -136,10 +148,22 @@ export const toMatchLite = (match) => {
     startedAt: match.startedAt,
     finishedAt: match.finishedAt,
     createdAt: match.createdAt,
-    pairA: match.pairA || null,
-    pairB: match.pairB || null,
-    pairAName,
-    pairBName,
+    pairA: match.resolvedSideKindA === "team" ? match.pairA || null : null,
+    pairB: match.resolvedSideKindB === "team" ? match.pairB || null : null,
+    resolvedSideNameA: match.resolvedSideNameA || match.sideAName || "",
+    resolvedSideNameB: match.resolvedSideNameB || match.sideBName || "",
+    sideAName: match.sideAName || match.resolvedSideNameA || "",
+    sideBName: match.sideBName || match.resolvedSideNameB || "",
+    teamAName:
+      match.resolvedSideKindA === "team" ? match.teamAName || resolvedPairAName : "",
+    teamBName:
+      match.resolvedSideKindB === "team" ? match.teamBName || resolvedPairBName : "",
+    pairAName: resolvedPairAName,
+    pairBName: resolvedPairBName,
+    resolvedSideKindA: match.resolvedSideKindA || "",
+    resolvedSideKindB: match.resolvedSideKindB || "",
+    resolvedSideSourceA: match.resolvedSideSourceA || "",
+    resolvedSideSourceB: match.resolvedSideSourceB || "",
   };
 };
 
@@ -152,11 +176,31 @@ export async function fetchMatchLiteMapByIds(matchIds = [], { session } = {}) {
   const matches = await withSession(
     Match.find({ _id: { $in: ids } })
       .select(MATCH_LITE_SELECT)
+      .populate({ path: "bracket", select: "name type stage order meta tournament" })
       .populate({ path: "pairA", select: PAIR_SELECT })
       .populate({ path: "pairB", select: PAIR_SELECT }),
     session
   ).lean();
 
+  const tournamentIds = [
+    ...new Set(matches.map((match) => toIdString(match?.tournament)).filter(Boolean)),
+  ].filter(mongoose.Types.ObjectId.isValid);
+
+  if (tournamentIds.length) {
+    const contextMatches = await withSession(
+      Match.find({ tournament: { $in: tournamentIds } })
+        .select(MATCH_LITE_SELECT)
+        .populate({ path: "bracket", select: "name type stage order meta tournament" })
+        .populate({ path: "pairA", select: PAIR_SELECT })
+        .populate({ path: "pairB", select: PAIR_SELECT }),
+      session
+    ).lean();
+    attachResolvedSideNamesToMatches(contextMatches);
+    const context = buildMatchSideDisplayContext(contextMatches);
+    matches.forEach((match) => attachResolvedSideNamesToMatch(match, context));
+  } else {
+    attachResolvedSideNamesToMatches(matches);
+  }
   return new Map(matches.map((match) => [toIdString(match._id), toMatchLite(match)]));
 }
 

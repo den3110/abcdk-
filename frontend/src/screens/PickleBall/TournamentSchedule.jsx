@@ -303,31 +303,8 @@ const isByeMatchObj = (m) => {
 
 function resolveScheduleSides(rawList, eventType, displayMode) {
   const sideName = (m, side) => {
-    const direct =
-      side === "A"
-        ? m?.resolvedSideNameA || m?.teamAName || m?.pairAName || m?.sideAName
-        : m?.resolvedSideNameB || m?.teamBName || m?.pairBName || m?.sideBName;
-    if (
-      isConcreteTeamLabel(direct) ||
-      isByeLabel(direct) ||
-      isReferenceTeamLabel(direct)
-    ) {
-      return direct;
-    }
-
-    const pair = side === "A" ? m?.pairA : m?.pairB;
-    const pairName = pairToName(pair, eventType, displayMode);
-    if (isConcreteTeamLabel(pairName)) return pairName;
-
-    const seed = side === "A" ? m?.seedA : m?.seedB;
-    const seedName = seedToName(seed);
-    if (
-      isUsefulTeamLabel(seedName) ||
-      isByeLabel(seedName) ||
-      isReferenceTeamLabel(seedName)
-    ) {
-      return seedName;
-    }
+    const backendLabel = getMatchSideDisplayName(m, side, "");
+    if (backendLabel) return backendLabel;
     return "";
   };
 
@@ -343,48 +320,15 @@ function teamNameFrom(
   side,
   eventTypeOrFallback = "double",
   displayModeOrFallback = "nickname",
-  fallback = "TBD",
+  fallback = "Chưa có đội",
 ) {
   if (!m) return fallback;
   const normalizedEventType = String(eventTypeOrFallback || "").toLowerCase();
-  const eventType =
-    normalizedEventType === "single" || normalizedEventType === "double"
-      ? normalizedEventType
-      : String(m?.tournament?.eventType || m?.eventType || "double")
-            .toLowerCase()
-            .includes("single")
-        ? "single"
-        : "double";
-  const displayMode =
-    displayModeOrFallback === "fullName" || displayModeOrFallback === "nickname"
-      ? displayModeOrFallback
-      : getTournamentNameDisplayMode(m?.tournament);
   const resolvedFallback =
     normalizedEventType === "single" || normalizedEventType === "double"
       ? fallback
       : eventTypeOrFallback;
-  const pair = side === "A" ? m.pairA : m.pairB;
-  const seed = side === "A" ? m.seedA : m.seedB;
-  const resolved =
-    side === "A"
-      ? m.__sideA || m.resolvedSideNameA || m.teamAName || m.sideAName
-      : m.__sideB || m.resolvedSideNameB || m.teamBName || m.sideBName;
-  const resolvedText = labelText(resolved);
-  const seedText = seedToName(seed);
-  return (
-    (isUsefulTeamLabel(resolvedText) ||
-    isByeLabel(resolvedText) ||
-    isReferenceTeamLabel(resolvedText)
-      ? resolvedText
-      : "") ||
-    pairToName(pair, eventType, displayMode) ||
-    (isUsefulTeamLabel(seedText) ||
-    isByeLabel(seedText) ||
-    isReferenceTeamLabel(seedText)
-      ? seedText
-      : "") ||
-    resolvedFallback
-  );
+  return getMatchSideDisplayName(m, side, resolvedFallback);
 }
 function scoreText(m) {
   if (typeof m?.scoreText === "string" && m.scoreText.trim())

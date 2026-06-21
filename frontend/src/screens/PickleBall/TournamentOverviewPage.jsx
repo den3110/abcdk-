@@ -64,10 +64,6 @@ import {
 } from "../../i18n/format";
 import SEOHead from "../../components/SEOHead";
 import {
-  getTournamentNameDisplayMode,
-  getTournamentPairName,
-} from "../../utils/tournamentName";
-import {
   getMatchSideDisplayName,
   isNewerOrEqualMatchPayload,
   mergeMatchPayload,
@@ -87,31 +83,12 @@ const TYPE_LABEL = (t, tFn) => {
     return tFn("tournaments.overview.types.doubleElim");
   return t || tFn("tournaments.overview.typeFallback");
 };
-const playerName = (p) => p?.fullName || p?.name || p?.nickName || "—";
-const pairLabel = (
-  pair,
-  tFn,
-  eventType = "double",
-  displayMode = "nickname",
-) => {
-  if (!pair) return tFn("tournaments.overview.pairFallback");
-  const resolved = getTournamentPairName(pair, eventType, displayMode, {
-    separator: " / ",
-  });
-  if (resolved) return resolved;
-  if (pair.name) return pair.name;
-  const ps = [pair.player1, pair.player2].filter(Boolean).map(playerName);
-  return ps.join(" / ") || tFn("tournaments.overview.pairFallback");
-};
 const matchSideLabel = (
   match,
   side,
   tFn,
-  eventType = "double",
-  displayMode = "nickname",
 ) =>
-  getMatchSideDisplayName(match, side, "") ||
-  pairLabel(side === "A" ? match?.pairA : match?.pairB, tFn, eventType, displayMode);
+  getMatchSideDisplayName(match, side, tFn("tournaments.overview.pairFallback"));
 const matchCode = (m) =>
   m?.code || `R${m?.round ?? "?"}#${(m?.order ?? 0) + 1}`;
 const statusChip = (st, tFn) => {
@@ -361,8 +338,6 @@ const OverviewSectionHeader = ({
 );
 
 const MatchListItem = ({ m, onOpen, t, locale }) => {
-  const eventType = m?.tournament?.eventType || "double";
-  const displayMode = getTournamentNameDisplayMode(m?.tournament);
   return (
     <Card
       elevation={0}
@@ -441,9 +416,9 @@ const MatchListItem = ({ m, onOpen, t, locale }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={matchSideLabel(m, "A", t, eventType, displayMode)}
+                title={matchSideLabel(m, "A", t)}
               >
-                {matchSideLabel(m, "A", t, eventType, displayMode)}
+                {matchSideLabel(m, "A", t)}
               </Typography>
 
               <Divider sx={{ borderStyle: "dashed", my: 0.5 }} />
@@ -452,9 +427,9 @@ const MatchListItem = ({ m, onOpen, t, locale }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={matchSideLabel(m, "B", t, eventType, displayMode)}
+                title={matchSideLabel(m, "B", t)}
               >
-                {matchSideLabel(m, "B", t, eventType, displayMode)}
+                {matchSideLabel(m, "B", t)}
               </Typography>
             </Stack>
             <Typography

@@ -639,8 +639,6 @@ function resolveLivePairFromSeedSide(ownerMatch, side, context, depth = 0) {
   if (!ownerMatch || !context || depth > 10) return null;
   const sideKey = side === "B" ? "B" : "A";
   const pair = sideKey === "A" ? ownerMatch.pairA : ownerMatch.pairB;
-  if (hasRegistrationRef(pair)) return pair;
-
   const seed = sideKey === "A" ? ownerMatch.seedA : ownerMatch.seedB;
   const seedType = seedTypeKey(seed);
   if (seedType === "registration") {
@@ -649,6 +647,7 @@ function resolveLivePairFromSeedSide(ownerMatch, side, context, depth = 0) {
       seed?.ref?.reg ||
       seed?.ref?.id ||
       seed?.ref?._id ||
+      (hasRegistrationRef(pair) ? pair : null) ||
       null
     );
   }
@@ -656,7 +655,9 @@ function resolveLivePairFromSeedSide(ownerMatch, side, context, depth = 0) {
 
   const isWinnerSeed = isWinnerSeedType(seedType);
   const isLoserSeed = isLoserSeedType(seedType);
-  if (!isWinnerSeed && !isLoserSeed) return null;
+  if (!isWinnerSeed && !isLoserSeed) {
+    return hasRegistrationRef(pair) ? pair : null;
+  }
 
   const sourceMatch = findLiveSourceMatch(ownerMatch, seed, sideKey, context);
   if (!sourceMatch) return null;
@@ -689,9 +690,6 @@ function resolveLivePairFromSeedSide(ownerMatch, side, context, depth = 0) {
 
 async function hydrateResolvedMatchPairsForLive(match) {
   if (!match?._id || !match?.tournament) return false;
-  if (hasRegistrationRef(match.pairA) && hasRegistrationRef(match.pairB)) {
-    return false;
-  }
 
   const context = await buildLiveMatchResolutionContext(match.tournament);
   if (!context) return false;
@@ -699,9 +697,21 @@ async function hydrateResolvedMatchPairsForLive(match) {
   let changed = false;
   for (const side of ["A", "B"]) {
     const field = side === "A" ? "pairA" : "pairB";
+    const seed = side === "A" ? match.seedA : match.seedB;
+    const seedType = seedTypeKey(seed);
+    const shouldClearPair =
+      isByeLiveSeed(seed) ||
+      isWinnerSeedType(seedType) ||
+      isLoserSeedType(seedType);
     const resolved = resolveLivePairFromSeedSide(match, side, context);
     const resolvedId = docId(resolved);
-    if (!mongoose.Types.ObjectId.isValid(resolvedId)) continue;
+    if (!mongoose.Types.ObjectId.isValid(resolvedId)) {
+      if (shouldClearPair && docId(match[field])) {
+        match.set(field, null);
+        changed = true;
+      }
+      continue;
+    }
     if (docId(match[field]) === resolvedId) continue;
 
     match.set(field, new mongoose.Types.ObjectId(resolvedId));

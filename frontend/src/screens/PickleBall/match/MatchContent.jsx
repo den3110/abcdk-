@@ -63,6 +63,7 @@ import {
   getTournamentPairName,
 } from "../../../utils/tournamentName";
 import {
+  getMatchSideDisplayName,
   isNewerOrEqualMatchPayload,
   mergeMatchPayload,
   normalizeMatchDisplay,
@@ -173,21 +174,23 @@ function isMatchEqual(a, b) {
   const paB = b.pairA?._id ?? b.pairA ?? null;
   const pbA = a.pairB?._id ?? a.pairB ?? null;
   const pbB = b.pairB?._id ?? b.pairB ?? null;
+  const raA = a.resolvedSideNameA || a.sideAName || a.__sideA || "";
+  const raB = b.resolvedSideNameA || b.sideAName || b.__sideA || "";
+  const rbA = a.resolvedSideNameB || a.sideBName || a.__sideB || "";
+  const rbB = b.resolvedSideNameB || b.sideBName || b.__sideB || "";
+  const rka = `${a.resolvedSideKindA || ""}|${a.resolvedSideKindB || ""}`;
+  const rkb = `${b.resolvedSideKindA || ""}|${b.resolvedSideKindB || ""}`;
 
-  return saA === saB && sbA === sbB && paA === paB && pbA === pbB;
-}
-
-const hasResolvedPair = (pair) =>
-  Boolean(
-    pair &&
-    (pair?.player1 ||
-      pair?.player2 ||
-      (Array.isArray(pair?.players) && pair.players.length) ||
-      pair?.name ||
-      pair?.teamName ||
-      pair?.label ||
-      pair?.displayName),
+  return (
+    saA === saB &&
+    sbA === sbB &&
+    paA === paB &&
+    pbA === pbB &&
+    raA === raB &&
+    rbA === rbB &&
+    rka === rkb
   );
+}
 
 const isUsefulPendingLabel = (value) => {
   const text = String(value || "").trim();
@@ -197,18 +200,7 @@ const isUsefulPendingLabel = (value) => {
 };
 
 const previewSideLabel = (match, side) => {
-  const key = side === "A" ? "resolvedSideNameA" : "resolvedSideNameB";
-  const altKey = side === "A" ? "teamAName" : "teamBName";
-  const internalKey = side === "A" ? "__sideA" : "__sideB";
-  const pairNameKey = side === "A" ? "pairAName" : "pairBName";
-  const sideNameKey = side === "A" ? "sideAName" : "sideBName";
-  const value =
-    match?.[key] ||
-    match?.[internalKey] ||
-    match?.[altKey] ||
-    match?.[pairNameKey] ||
-    match?.[sideNameKey] ||
-    "";
+  const value = getMatchSideDisplayName(match, side, "");
   return isUsefulPendingLabel(value) ? String(value).trim() : "";
 };
 
@@ -218,231 +210,6 @@ const isByeSeed = (seed) =>
 
 const isByeMatchObj = (match) =>
   Boolean(match && (isByeSeed(match.seedA) || isByeSeed(match.seedB)));
-
-function extractDisplayCodeText(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  const match = text.match(
-    /\b(?:V\d+(?:-(?:B[^-\s]+|NT))?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
-  );
-  return match ? match[0].toUpperCase() : "";
-}
-
-const ceilPow2Local = (n) =>
-  Math.pow(2, Math.ceil(Math.log2(Math.max(1, Number(n) || 1))));
-
-function readBracketScaleLocal(bracket) {
-  const teamsFromRoundKey = (key) => {
-    if (!key) return 0;
-    const upper = String(key).toUpperCase();
-    if (upper === "F") return 2;
-    if (upper === "SF") return 4;
-    if (upper === "QF") return 8;
-    if (/^R\d+$/i.test(upper)) return parseInt(upper.slice(1), 10);
-    return 0;
-  };
-
-  const candidates = [
-    teamsFromRoundKey(bracket?.ko?.startKey),
-    teamsFromRoundKey(bracket?.prefill?.roundKey),
-    Array.isArray(bracket?.prefill?.pairs)
-      ? bracket.prefill.pairs.length * 2
-      : 0,
-    Array.isArray(bracket?.prefill?.seeds)
-      ? bracket.prefill.seeds.length * 2
-      : 0,
-    bracket?.drawScale,
-    bracket?.targetScale,
-    bracket?.maxSlots,
-    bracket?.capacity,
-    bracket?.size,
-    bracket?.scale,
-    bracket?.meta?.drawSize,
-    bracket?.meta?.scale,
-  ]
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value >= 2);
-
-  if (!candidates.length) return 0;
-  return ceilPow2Local(Math.max(...candidates));
-}
-
-function roundsCountForBracketLocal(bracket, matchesOfThis = []) {
-  const type = String(bracket?.type || "").toLowerCase();
-  if (type === "group") return 1;
-
-  if (type === "roundelim") {
-    let maxRounds =
-      Number(bracket?.meta?.maxRounds) ||
-      Number(bracket?.config?.roundElim?.maxRounds) ||
-      0;
-    if (!maxRounds) {
-      const maxRoundFromMatches =
-        Math.max(
-          0,
-          ...(matchesOfThis || []).map((match) => Number(match?.round || 1)),
-        ) || 1;
-      maxRounds = Math.max(1, maxRoundFromMatches);
-    }
-    return maxRounds;
-  }
-
-  const roundsFromMatches = (() => {
-    const rounds = (matchesOfThis || []).map((match) =>
-      Number(match?.round || 1),
-    );
-    if (!rounds.length) return 0;
-    return Math.max(1, Math.max(...rounds) - Math.min(...rounds) + 1);
-  })();
-
-  if (roundsFromMatches) return roundsFromMatches;
-
-  const firstPairs =
-    (Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length) ||
-    (Array.isArray(bracket?.prefill?.pairs) && bracket.prefill.pairs.length) ||
-    0;
-  if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
-
-  const scale = readBracketScaleLocal(bracket);
-  if (scale) return Math.ceil(Math.log2(scale));
-
-  return 1;
-}
-
-function normalizeDoubleElimBranchLocal(match) {
-  const branch = String(match?.branch || "").trim().toLowerCase();
-  const phase = String(match?.phase || "").trim().toLowerCase();
-  if (branch === "gf" || phase === "grand_final") return "gf";
-  if (branch === "lb" || phase === "losers") return "lb";
-  return "wb";
-}
-
-const winnerRoundMatchCodePreviewLocal = (baseRound, roundIndex, order = 1) =>
-  `V${baseRound + roundIndex - 1}-T${order}`;
-
-const loserRoundMatchCodePreviewLocal = (baseRound, roundIndex, order = 1) =>
-  `V${baseRound + roundIndex - 1}-NT-T${order}`;
-
-function buildDoubleElimDisplayCodeMapLocal(
-  matches,
-  baseRoundStart = 1,
-  configuredScale = 0,
-) {
-  const activeMatches = (matches || [])
-    .slice()
-    .sort(
-      (a, b) =>
-        Number(a?.round || 1) - Number(b?.round || 1) ||
-        Number(a?.order || 0) - Number(b?.order || 0),
-    );
-
-  const winnersMatches = activeMatches.filter(
-    (match) => normalizeDoubleElimBranchLocal(match) === "wb",
-  );
-  const losersMatches = activeMatches.filter(
-    (match) => normalizeDoubleElimBranchLocal(match) === "lb",
-  );
-  const grandFinalMatches = activeMatches.filter(
-    (match) => normalizeDoubleElimBranchLocal(match) === "gf",
-  );
-
-  const uniqueWinnerRounds = Array.from(
-    new Set(
-      winnersMatches
-        .map((match) => Number(match?.round || 1))
-        .filter(Number.isFinite),
-    ),
-  ).sort((a, b) => a - b);
-  const uniqueLoserRounds = Array.from(
-    new Set(
-      losersMatches
-        .map((match) => Number(match?.round || 1))
-        .filter(Number.isFinite),
-    ),
-  ).sort((a, b) => a - b);
-  const uniqueGrandFinalRounds = Array.from(
-    new Set(
-      grandFinalMatches
-        .map((match) => Number(match?.round || 1))
-        .filter(Number.isFinite),
-    ),
-  ).sort((a, b) => a - b);
-
-  const winnerRoundMap = new Map(
-    uniqueWinnerRounds.map((roundNo, index) => [roundNo, index + 1]),
-  );
-  const loserRoundMap = new Map(
-    uniqueLoserRounds.map((roundNo, index) => [roundNo, index + 1]),
-  );
-  const grandFinalRoundMap = new Map(
-    uniqueGrandFinalRounds.map((roundNo, index) => [roundNo, index + 1]),
-  );
-
-  const firstWinnerPairs = uniqueWinnerRounds.length
-    ? winnersMatches.filter(
-        (match) => Number(match?.round || 1) === uniqueWinnerRounds[0],
-      ).length
-    : 0;
-  const firstLoserPairs = uniqueLoserRounds.length
-    ? losersMatches.filter(
-        (match) => Number(match?.round || 1) === uniqueLoserRounds[0],
-      ).length
-    : 0;
-  const scaleForDoubleElim =
-    configuredScale ||
-    firstWinnerPairs * 2 ||
-    Math.max(4, firstLoserPairs * 4) ||
-    4;
-  const startDrawSize = Math.max(4, firstLoserPairs * 4 || 4);
-  const startWinnersRoundIndex = Math.max(
-    1,
-    Math.round(Math.log2(scaleForDoubleElim / startDrawSize)) + 1,
-  );
-  const losersBaseRound = baseRoundStart + startWinnersRoundIndex - 1;
-  const grandFinalBaseRound =
-    losersBaseRound + Math.max(1, uniqueLoserRounds.length);
-  const codeByMatchId = new Map();
-
-  for (const match of winnersMatches) {
-    const id = String(match?._id || "");
-    const localRound = winnerRoundMap.get(Number(match?.round || 1)) || 1;
-    if (!id) continue;
-    codeByMatchId.set(
-      id,
-      winnerRoundMatchCodePreviewLocal(
-        baseRoundStart,
-        localRound,
-        Number(match?.order || 0) + 1,
-      ),
-    );
-  }
-
-  for (const match of losersMatches) {
-    const id = String(match?._id || "");
-    const localRound = loserRoundMap.get(Number(match?.round || 1)) || 1;
-    if (!id) continue;
-    codeByMatchId.set(
-      id,
-      loserRoundMatchCodePreviewLocal(
-        losersBaseRound,
-        localRound,
-        Number(match?.order || 0) + 1,
-      ),
-    );
-  }
-
-  for (const match of grandFinalMatches) {
-    const id = String(match?._id || "");
-    const localRound = grandFinalRoundMap.get(Number(match?.round || 1)) || 1;
-    if (!id) continue;
-    codeByMatchId.set(
-      id,
-      `V${grandFinalBaseRound + localRound - 1}-T${Number(match?.order || 0) + 1}`,
-    );
-  }
-
-  return codeByMatchId;
-}
 
 /* ====================== Group completion helpers (KO gating) ====================== */
 const _norm = (s) =>
@@ -1388,32 +1155,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     String(tour?.eventType || m?.tournament?.eventType || "").toLowerCase() ===
     "single";
 
-  const needsSeedContextResolution = useMemo(() => {
-    const unresolvedSideNeedsContext = (pair, previous, seed) =>
-      !hasResolvedPair(pair) &&
-      Boolean(
-        previous ||
-          [
-            "groupRank",
-            "stageMatchWinner",
-            "stageMatchLoser",
-            "matchWinner",
-            "matchLoser",
-          ].includes(String(seed?.type || "")),
-      );
-
-    return (
-      unresolvedSideNeedsContext(m?.pairA, m?.previousA, m?.seedA) ||
-      unresolvedSideNeedsContext(m?.pairB, m?.previousB, m?.seedB)
-    );
-  }, [
-    m?.pairA,
-    m?.pairB,
-    m?.previousA,
-    m?.previousB,
-    m?.seedA,
-    m?.seedB,
-  ]);
+  const needsSeedContextResolution = false;
 
   const { data: brackets = [], isFetching: fetchingBrackets } =
     useListTournamentBracketsQuery(
@@ -1436,15 +1178,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     return m;
   }, [brackets, allMatchesFetched]);
 
-  const bracketsById = useMemo(() => {
-    const map = new Map();
-    (brackets || []).forEach((bracket) => {
-      const bracketId = String(bracket?._id || "");
-      if (bracketId) map.set(bracketId, bracket);
-    });
-    return map;
-  }, [brackets]);
-
   const matchIndex = useMemo(() => {
     const map = new Map();
     (allMatchesFetched || []).forEach((match) => {
@@ -1453,90 +1186,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     });
     return map;
   }, [allMatchesFetched]);
-
-  const matchRefIndex = useMemo(() => {
-    const byId = new Map();
-    const byBracketRoundOrder = new Map();
-    const byStageRoundOrder = new Map();
-
-    for (const match of allMatchesFetched || []) {
-      const matchId = String(match?._id || "");
-      const bracketId = String(match?.bracket?._id || match?.bracket || "");
-      const stageNum = Number(
-        match?.bracket?.stage ?? bracketsById.get(bracketId)?.stage,
-      );
-      const roundNum = Number(match?.round);
-      const orderNum = Number(match?.order);
-
-      if (matchId) byId.set(matchId, match);
-
-      if (
-        bracketId &&
-        Number.isFinite(roundNum) &&
-        Number.isFinite(orderNum)
-      ) {
-        byBracketRoundOrder.set(`${bracketId}:${roundNum}:${orderNum}`, match);
-      }
-
-      if (Number.isFinite(stageNum) && Number.isFinite(roundNum) && Number.isFinite(orderNum)) {
-        byStageRoundOrder.set(`${stageNum}:${roundNum}:${orderNum}`, match);
-      }
-    }
-
-    return { byId, byBracketRoundOrder, byStageRoundOrder };
-  }, [allMatchesFetched, bracketsById]);
-
-  const baseRoundStartByBracketId = useMemo(() => {
-    const map = new Map();
-    let accumulatedRounds = 0;
-
-    for (const bracket of brackets || []) {
-      const bracketId = String(bracket?._id || "");
-      if (!bracketId) continue;
-      map.set(bracketId, accumulatedRounds + 1);
-      accumulatedRounds += roundsCountForBracketLocal(
-        bracket,
-        byBracket?.[bracket._id] || [],
-      );
-    }
-
-    return map;
-  }, [brackets, byBracket]);
-
-  const firstBracketIdByStage = useMemo(() => {
-    const map = new Map();
-
-    for (const bracket of brackets || []) {
-      const bracketId = String(bracket?._id || "");
-      const stageNum = Number(bracket?.stage);
-      if (!bracketId || !Number.isFinite(stageNum) || map.has(stageNum)) continue;
-      map.set(stageNum, bracketId);
-    }
-
-    return map;
-  }, [brackets]);
-
-  const doubleElimDisplayCodeByMatchId = useMemo(() => {
-    const map = new Map();
-
-    for (const bracket of brackets || []) {
-      if (String(bracket?.type || "").toLowerCase() !== "double_elim") continue;
-      const bracketId = String(bracket?._id || "");
-      if (!bracketId) continue;
-
-      const localized = buildDoubleElimDisplayCodeMapLocal(
-        byBracket?.[bracket._id] || [],
-        baseRoundStartByBracketId.get(bracketId) || 1,
-        readBracketScaleLocal(bracket),
-      );
-
-      for (const [matchId, code] of localized.entries()) {
-        map.set(matchId, code);
-      }
-    }
-
-    return map;
-  }, [brackets, byBracket, baseRoundStartByBracketId]);
 
   const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
     userInfo?.token && tournamentId ? tournamentId : skipToken,
@@ -1642,158 +1291,16 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     [groupDoneByStage, mm?.bracket?.stage, mm?.stage],
   );
 
-  const findSourceMatchFromSeed = useCallback(
-    (ownerMatch, seed) => {
-      if (!seed) return null;
-
-      const matchId = String(seed?.ref?.matchId || "");
-      if (matchId && matchRefIndex.byId.has(matchId)) {
-        return matchRefIndex.byId.get(matchId);
-      }
-
-      const roundNum = Number(seed?.ref?.round);
-      const orderNum = Number(seed?.ref?.order);
-      if (!Number.isFinite(roundNum) || !Number.isFinite(orderNum)) return null;
-
-      const stageNum = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
-      if (Number.isFinite(stageNum)) {
-        const byStage = matchRefIndex.byStageRoundOrder.get(
-          `${stageNum}:${roundNum}:${orderNum}`,
-        );
-        if (byStage) return byStage;
-      }
-
-      const bracketId = String(ownerMatch?.bracket?._id || ownerMatch?.bracket || "");
-      if (bracketId) {
-        return (
-          matchRefIndex.byBracketRoundOrder.get(
-            `${bracketId}:${roundNum}:${orderNum}`,
-          ) || null
-        );
-      }
-
-      return null;
-    },
-    [matchRefIndex],
-  );
-
-  const getDisplayCodeForMatch = useCallback(
-    (sourceMatch) => {
-      if (!sourceMatch) return "";
-
-      const matchId = String(sourceMatch?._id || "");
-      if (matchId) {
-        const localizedDoubleElimCode =
-          doubleElimDisplayCodeByMatchId.get(matchId);
-        if (localizedDoubleElimCode) return localizedDoubleElimCode;
-      }
-
-      const candidates = [
-        sourceMatch?.displayCode,
-        sourceMatch?.code,
-        sourceMatch?.matchCode,
-        sourceMatch?.slotCode,
-        sourceMatch?.bracketCode,
-        sourceMatch?.labelKey,
-        sourceMatch?.meta?.code,
-        sourceMatch?.meta?.label,
-      ];
-      for (const candidate of candidates) {
-        const hit = extractDisplayCodeText(candidate);
-        if (hit) return hit;
-      }
-
-      const bracketId = String(
-        sourceMatch?.bracket?._id || sourceMatch?.bracket || "",
-      );
-      const baseRoundStart = baseRoundStartByBracketId.get(bracketId);
-      const roundNum = Number(sourceMatch?.round);
-      const orderNum = Number(sourceMatch?.order);
-      const branch = String(
-        sourceMatch?.branch || sourceMatch?.phase || "",
-      ).toLowerCase();
-      const isLosersBranch = branch === "lb" || branch === "losers";
-
-      if (
-        Number.isFinite(baseRoundStart) &&
-        Number.isFinite(roundNum) &&
-        Number.isFinite(orderNum)
-      ) {
-        const prefix = `V${baseRoundStart + roundNum - 1}`;
-        return isLosersBranch
-          ? `${prefix}-NT-T${orderNum + 1}`
-          : `${prefix}-T${orderNum + 1}`;
-      }
-
-      return "";
-    },
-    [baseRoundStartByBracketId, doubleElimDisplayCodeByMatchId],
-  );
-
-  const resolveSeedReferenceLabel = useCallback(
-    (seed, ownerMatch = null) => {
-      if (!seed || !seed.type) return seedLabel(seed);
-
-      const type = String(seed?.type || "");
-      const isWinnerSeed =
-        type === "stageMatchWinner" || type === "matchWinner";
-      const isLoserSeed =
-        type === "stageMatchLoser" || type === "matchLoser";
-
-      if (!isWinnerSeed && !isLoserSeed) return seedLabel(seed);
-
-      const prefix = isLoserSeed ? "L" : "W";
-      const sourceMatch = findSourceMatchFromSeed(ownerMatch, seed);
-      const sourceCode = getDisplayCodeForMatch(sourceMatch);
-      if (sourceCode) return `${prefix}-${sourceCode}`;
-
-      const stageNum = Number(seed?.ref?.stageIndex ?? seed?.ref?.stage);
-      const roundNum = Number(seed?.ref?.round);
-      const orderNum = Number(seed?.ref?.order);
-      const bracketId = firstBracketIdByStage.get(stageNum);
-      const baseRoundStart = bracketId
-        ? baseRoundStartByBracketId.get(bracketId)
-        : null;
-
-      if (
-        Number.isFinite(baseRoundStart) &&
-        Number.isFinite(roundNum) &&
-        Number.isFinite(orderNum)
-      ) {
-        return `${prefix}-V${baseRoundStart + roundNum - 1}-T${orderNum + 1}`;
-      }
-
-      const rawCode = extractDisplayCodeText(seed?.label);
-      if (rawCode) return `${prefix}-${rawCode}`;
-
-      return seedLabel({ ...seed, label: "" });
-    },
-    [
-      findSourceMatchFromSeed,
-      getDisplayCodeForMatch,
-      firstBracketIdByStage,
-      baseRoundStartByBracketId,
-    ],
-  );
-
   const resolvePendingSideLabel = useCallback(
     function resolvePendingSideLabelInner(match, side) {
       if (!match) return "Chưa có đội";
 
-      const seed = side === "A" ? match?.seedA : match?.seedB;
-      const pair = side === "A" ? match?.pairA : match?.pairB;
-      const previewLabel = previewSideLabel(match, side);
-
-      if (hasResolvedPair(pair)) {
-        return pairLabel(pair, isSingle, displayMode);
-      }
-
-      if (previewLabel) return previewLabel;
-      if (seed?.type) return seedLabel(seed);
+      const backendLabel = getMatchSideDisplayName(match, side, "");
+      if (backendLabel) return backendLabel;
 
       return "Chưa có đội";
     },
-    [displayMode, isSingle],
+    [],
   );
 
   const showSpinner = waiting || resolvingSeedContext;
@@ -1948,10 +1455,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       ? `Kết thúc: ${formatClock(finishedAt)}`
       : null;
 
-  const blockA =
-    !hasResolvedPair(mm?.pairA) && isSeedBlockedByUnfinishedGroup(mm?.seedA);
-  const blockB =
-    !hasResolvedPair(mm?.pairB) && isSeedBlockedByUnfinishedGroup(mm?.seedB);
   const currentGameScore = Array.isArray(shownGameScores)
     ? shownGameScores[shownGameScores.length - 1] || null
     : null;
@@ -2686,30 +2189,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Typography variant="body2" color="text.secondary">
               Đội A
             </Typography>
-            {hasResolvedPair(mm?.pairA) && !blockA ? (
-              <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                {playersOfPair(mm.pairA, isSingle).length ? (
-                  <>
-                    {playersOfPair(mm.pairA, isSingle).map((player, index) => (
-                      <span key={playerLinkKey(player, index)}>
-                        {index > 0 ? " & " : ""}
-                        <PlayerLink
-                          person={player}
-                          onOpen={openProfile}
-                          displayMode={displayMode}
-                        />
-                      </span>
-                    ))}
-                  </>
-                ) : (
-                  pairLabel(mm.pairA, isSingle, displayMode)
-                )}
-              </Typography>
-            ) : (
-              <Typography variant="h6">
-                {resolvePendingSideLabel(mm, "A")}
-              </Typography>
-            )}
+            <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
+              {resolvePendingSideLabel(mm, "A")}
+            </Typography>
           </Box>
 
           {/* Điểm hiện tại */}
@@ -2736,30 +2218,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Typography variant="body2" color="text.secondary">
               Đội B
             </Typography>
-            {hasResolvedPair(mm?.pairB) && !blockB ? (
-              <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                {playersOfPair(mm.pairB, isSingle).length ? (
-                  <>
-                    {playersOfPair(mm.pairB, isSingle).map((player, index) => (
-                      <span key={playerLinkKey(player, index)}>
-                        {index > 0 ? " & " : ""}
-                        <PlayerLink
-                          person={player}
-                          onOpen={openProfile}
-                          displayMode={displayMode}
-                        />
-                      </span>
-                    ))}
-                  </>
-                ) : (
-                  pairLabel(mm.pairB, isSingle, displayMode)
-                )}
-              </Typography>
-            ) : (
-              <Typography variant="h6">
-                {resolvePendingSideLabel(mm, "B")}
-              </Typography>
-            )}
+            <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
+              {resolvePendingSideLabel(mm, "B")}
+            </Typography>
           </Box>
         </Stack>
 

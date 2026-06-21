@@ -29,6 +29,7 @@ import {
   useAdminAssignMatchToCourtMutation,
   useAdminClearMatchCourtMutation,
 } from "../slices/tournamentsApiSlice";
+import { getMatchSideDisplayName } from "../utils/matchDisplay";
 
 /** Helper: hiển thị mã trận */
 const matchCode = (m) => {
@@ -91,7 +92,10 @@ const getMatchTeamKeys = (m) => {
 };
 
 /** Lấy tên hiển thị đội từ side */
-const buildSideName = (side) => {
+const buildSideName = (match, slot, side) => {
+  const backendName = getMatchSideDisplayName(match, slot, "");
+  if (backendName) return backendName;
+
   if (!side) return "Đội này";
 
   const label = side.label || side.teamName || side.name || side.code;
@@ -175,17 +179,18 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
 
       const teamNames = [];
 
-      const collectIfOverlap = (side) => {
+      const collectIfOverlap = (slot, side) => {
         if (!side) return;
         const key = getSideKey(side);
         if (!key || !currentMatchTeamKeys.has(key)) return;
-        const name = buildSideName(side);
+        const name = buildSideName(cm, slot, side);
         if (!teamNames.includes(name)) {
           teamNames.push(name);
         }
       };
 
       collectIfOverlap(
+        "A",
         cm.pairA ||
           cm.teamA ||
           cm.sideA ||
@@ -195,6 +200,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
           cm.team1,
       );
       collectIfOverlap(
+        "B",
         cm.pairB ||
           cm.teamB ||
           cm.sideB ||

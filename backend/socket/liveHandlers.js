@@ -715,15 +715,15 @@ export const toDTO = (matchDoc) => {
     teamBName,
     pairAName: teamAName || "",
     pairBName: teamBName || "",
-    resolvedSideNameA: teamAName || m?.resolvedSideNameA || "",
-    resolvedSideNameB: teamBName || m?.resolvedSideNameB || "",
+    resolvedSideNameA: m?.resolvedSideNameA || "",
+    resolvedSideNameB: m?.resolvedSideNameB || "",
   };
   const sideAResolved = resolveMatchSideDisplay(sideDisplaySource, "A");
   const sideBResolved = resolveMatchSideDisplay(sideDisplaySource, "B");
   const resolvedTeamAName =
-    sideAResolved.kind === "team" ? sideAResolved.name : teamAName;
+    sideAResolved.kind === "team" ? sideAResolved.name : "";
   const resolvedTeamBName =
-    sideBResolved.kind === "team" ? sideBResolved.name : teamBName;
+    sideBResolved.kind === "team" ? sideBResolved.name : "";
 
   // ================= Build DTO =================
   return {
@@ -791,8 +791,8 @@ export const toDTO = (matchDoc) => {
     gameScores: Array.isArray(m.gameScores) ? m.gameScores : [],
     slots,
 
-    pairA: m.pairA || null,
-    pairB: m.pairB || null,
+    pairA: sideAResolved.kind === "team" ? m.pairA || null : null,
+    pairB: sideBResolved.kind === "team" ? m.pairB || null : null,
     seedA: m.seedA || null,
     seedB: m.seedB || null,
     previousA: m.previousA || null,

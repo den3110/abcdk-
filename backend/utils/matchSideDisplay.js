@@ -36,6 +36,11 @@ const labelText = (value) => {
   return "";
 };
 
+const stripSideSuffix = (value) =>
+  trim(value).replace(/\s*\([AB]\)\s*$/i, "");
+
+const referenceText = (value) => stripSideSuffix(labelText(value)).replace(/\s+/g, "");
+
 const sideKeyOf = (side) => (String(side).toUpperCase() === "B" ? "B" : "A");
 const sideField = (side, prefix) => `${prefix}${sideKeyOf(side)}`;
 
@@ -66,8 +71,8 @@ export const isPendingSideLabel = (value) => {
 };
 
 export const isReferenceSideLabel = (value) =>
-  /^[WL]\s*-\s*(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
-    labelText(value)
+  /^[WL]-(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
+    referenceText(value)
   );
 
 const isDisplayableTeamLabel = (value) => {
@@ -167,6 +172,48 @@ const codeFromLabelKeyish = (value) => {
   return `V${v}-T${t}`;
 };
 
+const addNormalizedCode = (codes, value) => {
+  const normalized =
+    normalizeMatchCodeCandidate(value) || codeFromLabelKeyish(value);
+  if (normalized) codes.push(normalized.toUpperCase());
+};
+
+const inferMatchDisplayCodeFromShape = (match) => {
+  const localRound = positiveInt(match?.round) || 1;
+  const bracketStage = positiveInt(match?.bracket?.stage);
+  const round =
+    positiveInt(match?.globalRound) ||
+    positiveInt(match?.stageIndex) ||
+    (bracketStage ? bracketStage + localRound - 1 : null) ||
+    localRound ||
+    1;
+  const order = positiveInt(match?.tIndex) || positiveInt(match?.order) || 0;
+  return `V${round}-T${order + 1}`;
+};
+
+const getMatchDisplayCodeAliases = (match, context = {}) => {
+  if (!match || typeof match !== "object") return [];
+  const codes = [];
+  const custom = context.codeOf?.(match);
+  addNormalizedCode(codes, custom);
+
+  [
+    match.displayCode,
+    match.codeResolved,
+    match.roundCode,
+    match.codeDisplay,
+    match.globalCodeV,
+    match.globalCode,
+    match.matchCode,
+    match.code,
+    match.labelKeyDisplay,
+    match.labelKey,
+    inferMatchDisplayCodeFromShape(match),
+  ].forEach((candidate) => addNormalizedCode(codes, candidate));
+
+  return [...new Set(codes)];
+};
+
 export const getMatchDisplayCodeForSide = (match, context = {}) => {
   if (!match || typeof match !== "object") return "";
   const custom = context.codeOf?.(match);
@@ -190,17 +237,11 @@ export const getMatchDisplayCodeForSide = (match, context = {}) => {
     if (normalized) return normalized;
   }
 
-  const round =
-    positiveInt(match.globalRound) ||
-    positiveInt(match.stageIndex) ||
-    positiveInt(match.round) ||
-    1;
-  const order = positiveInt(match.tIndex) || positiveInt(match.order) || 0;
-  return `V${round}-T${order + 1}`;
+  return inferMatchDisplayCodeFromShape(match);
 };
 
 const extractReferenceParts = (value) => {
-  const raw = trim(value).toUpperCase();
+  const raw = referenceText(value).toUpperCase();
   if (!raw) return null;
   const prefixed = raw.match(/^([WL])\s*-\s*(.+)$/i);
   const prefix = prefixed?.[1]?.toUpperCase() || "";
@@ -215,6 +256,11 @@ const extractReferenceParts = (value) => {
     round: Number(parsed[1]),
     order: Number(parsed[2]),
   };
+};
+
+const normalizedReferenceLabel = (value) => {
+  const parts = extractReferenceParts(value);
+  return parts?.prefix && parts?.code ? `${parts.prefix}-${parts.code}` : "";
 };
 
 const currentDisplayRound = (match) => {
@@ -236,6 +282,9 @@ const currentDisplayRound = (match) => {
   return (
     positiveInt(match?.globalRound) ||
     positiveInt(match?.stageIndex) ||
+    (positiveInt(match?.bracket?.stage)
+      ? positiveInt(match?.bracket?.stage) + (positiveInt(match?.round) || 1) - 1
+      : null) ||
     positiveInt(match?.round)
   );
 };
@@ -255,6 +304,14 @@ const displayOrderFromSeed = (seed) => {
   return null;
 };
 
+const stageFromSeed = (seed) => {
+  const ref = seed?.ref || {};
+  return positiveInt(ref.stageIndex ?? seed?.stageIndex ?? ref.stage ?? seed?.stage);
+};
+
+const stageFromMatch = (match) =>
+  positiveInt(match?.bracket?.stage ?? match?.stageIndex ?? match?.stage);
+
 const referencePrefixFromSeed = (seed) => {
   const type = seedType(seed);
   if (isWinnerSeedType(type)) return "W";
@@ -268,7 +325,9 @@ export const getSeedReferenceLabel = (seed, ownerMatch = null, context = {}) => 
   const direct = labelText(
     seed.label || seed.displayName || seed.teamName || seed.name || seed.title
   );
-  if (isReferenceSideLabel(direct) || isByeSideLabel(direct)) return direct;
+  const directReference = normalizedReferenceLabel(direct);
+  if (directReference) return directReference;
+  if (isByeSideLabel(direct)) return "BYE";
   if (isDisplayableTeamLabel(direct) && !isPendingSideLabel(direct)) return direct;
 
   const type = seedType(seed);
@@ -342,16 +401,27 @@ export const findSourceMatchFromSeed = (ownerMatch, seed, context = {}) => {
   const order = displayOrderFromSeed(seed);
   if (!round || !order) return null;
 
+  const targetStage = stageFromSeed(seed);
+  let fallback = null;
   for (const candidate of byId.values()) {
     if (docId(candidate) === ownerId) continue;
     const candidateRound = positiveInt(candidate.round);
-    const candidateOrderBase = positiveInt(candidate.order);
+    const candidateOrderBase = Number(candidate.order);
     const candidateOrder =
       positiveInt(candidate.tIndex) ||
-      (candidateOrderBase ? candidateOrderBase + 1 : null);
-    if (candidateRound === round && candidateOrder === order) return candidate;
+      (Number.isFinite(candidateOrderBase) && candidateOrderBase >= 0
+        ? Math.trunc(candidateOrderBase) + 1
+        : null);
+    if (candidateRound !== round || candidateOrder !== order) continue;
+
+    const candidateStage = stageFromMatch(candidate);
+    if (targetStage && candidateStage) {
+      if (candidateStage === targetStage) return candidate;
+      continue;
+    }
+    if (!fallback) fallback = candidate;
   }
-  return null;
+  return fallback;
 };
 
 const sourceFromPrevious = (ownerMatch, side, context) => {
@@ -372,41 +442,9 @@ export const resolveMatchSideDisplay = (
   }
 
   const normalizedSide = sideKeyOf(side);
-  const pair = sidePair(match, normalizedSide);
-  const pairName = getPairDisplayNameForMatch(pair, match);
-  if (isDisplayableTeamLabel(pairName) && !isReferenceSideLabel(pairName)) {
-    return { name: pairName, kind: "team", source: docId(pair) };
-  }
-
   const seed = sideSeed(match, normalizedSide);
   const type = seedType(seed);
   if (isByeSeed(seed)) return { name: "BYE", kind: "bye", source: "bye" };
-
-  const direct = labelText(
-    normalizedSide === "A"
-      ? match.resolvedSideNameA || match.teamAName || match.pairAName || match.sideAName
-      : match.resolvedSideNameB || match.teamBName || match.pairBName || match.sideBName
-  );
-  const directIsReference = isReferenceSideLabel(direct);
-  if ((isDisplayableTeamLabel(direct) && !directIsReference) || isByeSideLabel(direct)) {
-    return {
-      name: isByeSideLabel(direct) ? "BYE" : direct,
-      kind: "team",
-      source: "",
-    };
-  }
-
-  if (type === "registration") {
-    const seedLabel = getSeedReferenceLabel(seed, match, context);
-    if (isDisplayableTeamLabel(seedLabel) || isByeSideLabel(seedLabel)) {
-      return {
-        name: isByeSideLabel(seedLabel) ? "BYE" : seedLabel,
-        kind: "seed",
-        source: "",
-      };
-    }
-    return { name: "Chưa có đội", kind: "pending", source: "" };
-  }
 
   const isWinnerSeed = isWinnerSeedType(type);
   const isLoserSeed = isLoserSeedType(type);
@@ -464,6 +502,59 @@ export const resolveMatchSideDisplay = (
         source: "",
       };
     }
+    return { name: "Chưa có đội", kind: "pending", source: "" };
+  }
+
+  const pair = sidePair(match, normalizedSide);
+  const pairName = getPairDisplayNameForMatch(pair, match);
+  if (isDisplayableTeamLabel(pairName) && !isReferenceSideLabel(pairName)) {
+    return { name: pairName, kind: "team", source: docId(pair) };
+  }
+
+  const direct = labelText(
+    normalizedSide === "A"
+      ? match.resolvedSideNameA ||
+          match.sideAName ||
+          match.teamAName ||
+          match.pairAName
+      : match.resolvedSideNameB ||
+          match.sideBName ||
+          match.teamBName ||
+          match.pairBName
+  );
+  const directReference = normalizedReferenceLabel(direct);
+  const directIsReference = Boolean(directReference);
+  if ((isDisplayableTeamLabel(direct) && !directIsReference) || isByeSideLabel(direct)) {
+    const directIsBye = isByeSideLabel(direct);
+    return {
+      name: directIsBye ? "BYE" : direct,
+      kind: directIsBye ? "bye" : "team",
+      source: "",
+    };
+  }
+
+  const sourceSeedLabel = getSeedReferenceLabel(seed, match, context);
+  if (type && type !== "registration") {
+    if (sourceSeedLabel) {
+      return {
+        name: sourceSeedLabel,
+        kind: isReferenceSideLabel(sourceSeedLabel) ? "source" : "seed",
+        source: "",
+      };
+    }
+    return { name: "Chưa có đội", kind: "pending", source: "" };
+  }
+
+  if (type === "registration") {
+    const seedLabel = getSeedReferenceLabel(seed, match, context);
+    if (isDisplayableTeamLabel(seedLabel) || isByeSideLabel(seedLabel)) {
+      return {
+        name: isByeSideLabel(seedLabel) ? "BYE" : seedLabel,
+        kind: "seed",
+        source: "",
+      };
+    }
+    return { name: "Chưa có đội", kind: "pending", source: "" };
   }
 
   const fallbackSeed = getSeedReferenceLabel(seed, match, context);
@@ -476,7 +567,7 @@ export const resolveMatchSideDisplay = (
   }
 
   if (directIsReference) {
-    return { name: direct, kind: "source", source: "" };
+    return { name: directReference, kind: "source", source: "" };
   }
 
   return { name: "Chưa có đội", kind: "pending", source: "" };
@@ -491,8 +582,9 @@ export const buildMatchSideDisplayContext = (matches = [], options = {}) => {
     if (id) byId.set(id, match);
   }
   for (const match of byId.values()) {
-    const code = getMatchDisplayCodeForSide(match, { codeOf });
-    if (code) byCode.set(code.toUpperCase(), match);
+    for (const code of getMatchDisplayCodeAliases(match, { codeOf })) {
+      if (!byCode.has(code)) byCode.set(code, match);
+    }
   }
   return { ...options, byId, byCode };
 };

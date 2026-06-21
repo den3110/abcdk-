@@ -1769,7 +1769,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     if (!sourceMatch) {
       sourceMatch = await findSourceMatchFromSeed(ownerMatch, seed);
     }
-    if (!sourceMatch) return currentPair || null;
+    if (!sourceMatch) return null;
 
     const sourceByeA = isByeSeed(sourceMatch.seedA);
     const sourceByeB = isByeSeed(sourceMatch.seedB);
@@ -1785,7 +1785,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
       sourceMatch.winner === "A" || sourceMatch.winner === "B"
         ? sourceMatch.winner
         : "";
-    if (!winnerSide) return currentPair || null;
+    if (!winnerSide) return null;
 
     const sourceSide = isLoserSeed
       ? winnerSide === "A"
@@ -1804,9 +1804,19 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     const updates = {};
     for (const side of ["A", "B"]) {
       const field = side === "A" ? "pairA" : "pairB";
+      const seed = side === "A" ? targetMatch.seedA : targetMatch.seedB;
+      const type = seedTypeOf(seed);
+      const shouldClearPair =
+        isByeSeed(seed) || isWinnerSeedType(type) || isLoserSeedType(type);
       const resolvedPair = await resolvePairFromSeedSide(targetMatch, side);
       const resolvedId = pairId(resolvedPair);
-      if (!resolvedId || !hasDisplayablePair(resolvedPair)) continue;
+      if (!resolvedId || !hasDisplayablePair(resolvedPair)) {
+        if (shouldClearPair && pairId(targetMatch[field])) {
+          updates[field] = null;
+          targetMatch[field] = null;
+        }
+        continue;
+      }
 
       if (pairId(targetMatch[field]) !== resolvedId) {
         updates[field] = resolvedId;
@@ -2007,14 +2017,53 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   m.version = normalizedMatch?.version ?? m.version ?? 0;
 
   m.bracket = normalizeBracketShape(m.bracket);
-  m.pairAName = m.pairA?.displayName || pairName(m.pairA);
-  m.pairBName = m.pairB?.displayName || pairName(m.pairB);
+  const pairANameFromPair = m.pairA?.displayName || pairName(m.pairA);
+  const pairBNameFromPair = m.pairB?.displayName || pairName(m.pairB);
+  const sideUsesDeferredSeed = (seed) => {
+    const type = seedTypeOf(seed);
+    return isByeSeed(seed) || isWinnerSeedType(type) || isLoserSeedType(type);
+  };
+  const sideAAllowsPairFallback = !sideUsesDeferredSeed(m.seedA);
+  const sideBAllowsPairFallback = !sideUsesDeferredSeed(m.seedB);
+  const sideNameLooksTeam = (value) => {
+    const text = pickTrim(value);
+    if (!text || /^[WL]\s*-/i.test(text) || /^bye$/i.test(text)) return false;
+    const normalized = text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+    return !["tbd", "registration", "chua co doi", "-", "--", "—"].includes(
+      normalized
+    );
+  };
+  const resolvedSideNameA =
+    pickTrim(m.resolvedSideNameA) ||
+    pickTrim(m.sideAName) ||
+    (sideAAllowsPairFallback ? pairANameFromPair : "");
+  const resolvedSideNameB =
+    pickTrim(m.resolvedSideNameB) ||
+    pickTrim(m.sideBName) ||
+    (sideBAllowsPairFallback ? pairBNameFromPair : "");
+  const sideAKind = pickTrim(m.resolvedSideKindA).toLowerCase();
+  const sideBKind = pickTrim(m.resolvedSideKindB).toLowerCase();
+  const sideAIsTeam =
+    sideAKind === "team" ||
+    (!sideAKind &&
+      sideAAllowsPairFallback &&
+      sideNameLooksTeam(resolvedSideNameA || pairANameFromPair));
+  const sideBIsTeam =
+    sideBKind === "team" ||
+    (!sideBKind &&
+      sideBAllowsPairFallback &&
+      sideNameLooksTeam(resolvedSideNameB || pairBNameFromPair));
+  m.resolvedSideNameA = resolvedSideNameA || "";
+  m.resolvedSideNameB = resolvedSideNameB || "";
+  m.sideAName = resolvedSideNameA || "";
+  m.sideBName = resolvedSideNameB || "";
+  m.pairAName = sideAIsTeam ? resolvedSideNameA || pairANameFromPair : "";
+  m.pairBName = sideBIsTeam ? resolvedSideNameB || pairBNameFromPair : "";
   m.teamAName = m.pairAName;
   m.teamBName = m.pairBName;
-  m.resolvedSideNameA = m.pairAName;
-  m.resolvedSideNameB = m.pairBName;
-  m.sideAName = m.pairAName;
-  m.sideBName = m.pairBName;
 
   // ===== codeDisplay + labelKeyDisplay =====
   try {
@@ -2069,6 +2118,14 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   }
 
   // ===== prevBracket (giữ như cũ) =====
+  const canonicalDisplayCode = String(m.codeDisplay || "").trim();
+  if (canonicalDisplayCode) {
+    m.displayCode = canonicalDisplayCode;
+    m.codeResolved = canonicalDisplayCode;
+    m.roundCode = canonicalDisplayCode;
+    m.code = canonicalDisplayCode;
+  }
+
   try {
     const sideDisplayContext = await buildSideDisplayContextForMatch(m);
     attachBackendResolvedSideNamesToMatch(m, sideDisplayContext);
@@ -2078,6 +2135,12 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
       error?.message || error
     );
     attachBackendResolvedSideNamesToMatch(m);
+  }
+  if (String(m.resolvedSideKindA || "").trim().toLowerCase() !== "team") {
+    m.pairA = null;
+  }
+  if (String(m.resolvedSideKindB || "").trim().toLowerCase() !== "team") {
+    m.pairB = null;
   }
   m.prevBracket = null;
   m.prevBrackets = [];

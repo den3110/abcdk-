@@ -3,13 +3,7 @@ import { Box, Card, Typography, Stack, Chip, Divider } from "@mui/material";
 import { useParams } from "react-router-dom";
 import { useGetMatchQuery } from "../slices/tournamentsApiSlice"; // nếu bạn có API này
 import { useLiveMatch } from "../../hook/useLiveMatch";
-
-function pairName(p) {
-  if (!p) return "—";
-  const a = p.player1?.fullName || "N/A";
-  const b = p.player2?.fullName || "N/A";
-  return `${a} & ${b}`;
-}
+import { getMatchSideDisplayName } from "../../utils/matchDisplay";
 
 export default function LiveWatch() {
   const { matchId } = useParams(); // route: /live/:matchId
@@ -17,6 +11,8 @@ export default function LiveWatch() {
   const { loading, data: m } = useLiveMatch(matchId);
 
   const youtubeId = mmeta?.youtubeLiveId || ""; // hoặc lưu trên tournament
+  const teamAName = getMatchSideDisplayName(m, "A", "Đội A");
+  const teamBName = getMatchSideDisplayName(m, "B", "Đội B");
 
   return (
     <Box
@@ -68,7 +64,7 @@ export default function LiveWatch() {
               justifyContent="space-between"
               alignItems="center"
             >
-              <Typography>{pairName(m.pairA)}</Typography>
+              <Typography>{teamAName}</Typography>
               <Chip
                 size="small"
                 label={
@@ -86,7 +82,7 @@ export default function LiveWatch() {
                       : "default"
                 }
               />
-              <Typography>{pairName(m.pairB)}</Typography>
+              <Typography>{teamBName}</Typography>
             </Stack>
 
             <Divider sx={{ my: 1 }} />
@@ -119,7 +115,7 @@ export default function LiveWatch() {
             {m.status === "finished" && m.winner && (
               <Typography mt={2} align="center">
                 <b>Thắng:</b>{" "}
-                {m.winner === "A" ? pairName(m.pairA) : pairName(m.pairB)}
+                {m.winner === "A" ? teamAName : teamBName}
               </Typography>
             )}
           </>

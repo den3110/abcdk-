@@ -51,7 +51,8 @@ const textOf = (value) => (value && String(value).trim()) || "";
 const normalizeId = (value) => textOf(value?._id || value?.id || value);
 
 const playerName = (player, source) => getPlayerDisplayName(player, source) || "";
-const sideLabel = (match, side) => getMatchSideDisplayName(match, side, "TBD");
+const sideLabel = (match, side) =>
+  getMatchSideDisplayName(match, side, "Chưa có đội");
 
 const matchCode = (match) =>
   getMatchDisplayCode(match) ||

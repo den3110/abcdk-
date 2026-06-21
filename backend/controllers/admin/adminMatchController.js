@@ -13,6 +13,11 @@ import {
 } from "../../services/notifications/notificationHub.js";
 import { clearMatchPresentationCaches } from "../../services/cacheInvalidation.service.js";
 import { emitTournamentMatchUpdate } from "../../socket/tournamentRealtime.js";
+import {
+  attachResolvedSideNamesToMatch,
+  attachResolvedSideNamesToMatches,
+  buildMatchSideDisplayContext,
+} from "../../utils/matchSideDisplay.js";
 
 /** Chuẩn hoá DTO match (đủ dữ liệu để render) */
 const toDTO = (m) => ({
@@ -41,6 +46,22 @@ const toDTO = (m) => ({
   labelKey: m.labelKey,
   pairA: m.pairA,
   pairB: m.pairB,
+  seedA: m.seedA,
+  seedB: m.seedB,
+  previousA: m.previousA,
+  previousB: m.previousB,
+  resolvedSideNameA: m.resolvedSideNameA,
+  resolvedSideNameB: m.resolvedSideNameB,
+  sideAName: m.sideAName,
+  sideBName: m.sideBName,
+  teamAName: m.teamAName,
+  teamBName: m.teamBName,
+  pairAName: m.pairAName,
+  pairBName: m.pairBName,
+  resolvedSideKindA: m.resolvedSideKindA,
+  resolvedSideKindB: m.resolvedSideKindB,
+  resolvedSideSourceA: m.resolvedSideSourceA,
+  resolvedSideSourceB: m.resolvedSideSourceB,
   rules: m.rules,
   gameScores: m.gameScores,
   status: m.status,
@@ -56,6 +77,42 @@ const toDTO = (m) => ({
   ratingAppliedAt: m.ratingAppliedAt,
   liveVersion: m.liveVersion ?? 0,
 });
+
+const pairSidePopulate = {
+  path: "pairA pairB",
+  select: "player1 player2 seed label teamName displayName name",
+  populate: [
+    {
+      path: "player1",
+      select: "fullName name shortName nickname nickName user",
+      populate: { path: "user", select: "nickname nickName" },
+    },
+    {
+      path: "player2",
+      select: "fullName name shortName nickname nickName user",
+      populate: { path: "user", select: "nickname nickName" },
+    },
+  ],
+};
+
+const hydrateResolvedSidesForTournamentMatch = async (match, tournamentId) => {
+  if (!match?._id || !mongoose.Types.ObjectId.isValid(tournamentId)) return match;
+  const sideContextMatches = await Match.find({ tournament: tournamentId })
+    .select(
+      "_id tournament bracket labelKey code roundCode displayCode codeResolved " +
+        "format type pool rrRound swissRound round globalRound order tIndex " +
+        "seedA seedB previousA previousB winner pairA pairB"
+    )
+    .populate({
+      path: "bracket",
+      select: "name type stage order meta tournament",
+    })
+    .populate(pairSidePopulate)
+    .lean();
+  attachResolvedSideNamesToMatches(sideContextMatches);
+  const sideContext = buildMatchSideDisplayContext(sideContextMatches);
+  return attachResolvedSideNamesToMatch(match, sideContext);
+};
 
 const ACTIVE_COURT_MATCH_STATUSES = ["scheduled", "queued", "assigned", "live"];
 const OPENING_DOUBLES_SERVER = 2;
@@ -156,7 +213,26 @@ export const getMatchAdmin = asyncHandler(async (req, res) => {
   }
 
   // DTO gốc rồi ghi đè code + thêm thông tin phụ trợ
-  const dto = toDTO(m);
+  const resolvedSource = typeof m.toObject === "function" ? m.toObject() : m;
+  if (tId) {
+    const sideContextMatches = await Match.find({ tournament: tId })
+      .select(
+        "_id tournament bracket format type pool rrRound swissRound round globalRound order code roundCode displayCode codeResolved globalCode pairA pairB seedA seedB previousA previousB winner status"
+      )
+      .populate({ path: "bracket", select: "name type stage order meta tournament" })
+      .populate({ path: "pairA", select: "player1 player2" })
+      .populate({ path: "pairB", select: "player1 player2" })
+      .lean();
+    attachResolvedSideNamesToMatches(sideContextMatches);
+    attachResolvedSideNamesToMatch(
+      resolvedSource,
+      buildMatchSideDisplayContext(sideContextMatches)
+    );
+  } else {
+    attachResolvedSideNamesToMatch(resolvedSource);
+  }
+
+  const dto = toDTO(resolvedSource);
   dto.code = codeR; // ghi đè mã theo R toàn giải
   dto.globalCode = codeR; // nếu muốn dùng song song
   dto.globalRound =
@@ -651,6 +727,8 @@ export async function assignMatchToCourt(req, res) {
       m.displayCode = displayCode;
       m.roundCode = code;
 
+      await hydrateResolvedSidesForTournamentMatch(m, tid);
+
       emitTournamentMatchUpdate(io, m, toDTO(m), {
         type: "snapshot",
         emitMatchSnapshot: true,
@@ -1014,6 +1092,7 @@ export async function clearMatchCourt(req, res) {
       }
 
       // Emit snapshot với mã trận chuẩn
+      await hydrateResolvedSidesForTournamentMatch(m, tid);
       emitTournamentMatchUpdate(io, m, toDTO(m), {
         type: "snapshot",
         emitMatchSnapshot: true,

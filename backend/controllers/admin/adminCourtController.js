@@ -19,6 +19,11 @@ import { getCourtLivePresenceSummaryMap } from "../../services/courtLivePresence
 import { clearCourtPresentationCaches } from "../../services/cacheInvalidation.service.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
 import {
+  attachResolvedSideNamesToMatch,
+  attachResolvedSideNamesToMatches,
+  buildMatchSideDisplayContext,
+} from "../../utils/matchSideDisplay.js";
+import {
   MATCH_LITE_SELECT,
   PAIR_SELECT,
   enrichCourtsWithManualAssignment,
@@ -577,6 +582,7 @@ export async function fetchSchedulerMatchesLite({
 
   let matches = await Match.find(baseFilter)
     .select(MATCH_LITE_SELECT)
+    .populate({ path: "bracket", select: "name type stage order meta tournament" })
     .populate({ path: "pairA", select: PAIR_SELECT })
     .populate({ path: "pairB", select: PAIR_SELECT })
     .sort({ status: 1, queueOrder: 1 })
@@ -588,12 +594,22 @@ export async function fetchSchedulerMatchesLite({
   if (missingIds.length) {
     const extra = await Match.find({ _id: { $in: missingIds } })
       .select(MATCH_LITE_SELECT)
+      .populate({ path: "bracket", select: "name type stage order meta tournament" })
       .populate({ path: "pairA", select: PAIR_SELECT })
       .populate({ path: "pairB", select: PAIR_SELECT })
       .lean();
     matches = matches.concat(extra);
   }
 
+  const contextMatches = await Match.find({ tournament: tournamentId })
+    .select(MATCH_LITE_SELECT)
+    .populate({ path: "bracket", select: "name type stage order meta tournament" })
+    .populate({ path: "pairA", select: PAIR_SELECT })
+    .populate({ path: "pairB", select: PAIR_SELECT })
+    .lean();
+  attachResolvedSideNamesToMatches(contextMatches);
+  const sideDisplayContext = buildMatchSideDisplayContext(contextMatches);
+  matches.forEach((match) => attachResolvedSideNamesToMatch(match, sideDisplayContext));
   const reservationMap = await getManualReservationMap({
     tournamentId,
     bracketId: bracket || null,
@@ -741,7 +757,13 @@ function makeCodes(match, bracket) {
   }
 
   // KO / default
-  const v = firstFinite(match?.globalRound, match?.round);
+  const bracketStage = Number(bracket?.stage);
+  const localRound = Number(match?.round);
+  const stagedRound =
+    Number.isFinite(bracketStage) && bracketStage > 0
+      ? bracketStage + (Number.isFinite(localRound) && localRound > 0 ? localRound : 1) - 1
+      : undefined;
+  const v = firstFinite(match?.globalRound, stagedRound, match?.round);
   if (Number.isFinite(v)) segs.push(`V${v}`);
   if (Number.isFinite(ord1)) segs.push(`T${ord1}`);
   const out = segs.join("-");
@@ -813,8 +835,12 @@ export async function listCourtsByTournament(req, res) {
         model: "Match",
         // 👇 THÊM pairA, pairB, participants để FE detect trùng đội
         select:
-          "_id code labelKey status format type pool rrRound swissRound round order globalRound pairA pairB participants",
+          "_id tournament bracket code roundCode displayCode labelKey status format type pool rrRound swissRound round order globalRound seedA seedB previousA previousB winner pairA pairB participants",
         populate: [
+          {
+            path: "bracket",
+            select: "name type stage order meta tournament",
+          },
           {
             path: "pairA",
             select: "player1 player2 teamName label",
@@ -913,9 +939,19 @@ export async function listCourtsByTournament(req, res) {
         return { code, displayCode: code };
       } else {
         // KO/Elim: dùng globalRound nếu có, fallback round, mặc định 1
+        const localRound =
+          Number.isFinite(Number(m?.round)) && Number(m.round) > 0
+            ? Number(m.round)
+            : 1;
+        const bracketStage =
+          Number.isFinite(Number(m?.bracket?.stage)) &&
+          Number(m.bracket.stage) > 0
+            ? Number(m.bracket.stage)
+            : null;
         const r =
           (Number.isFinite(Number(m?.globalRound)) && Number(m.globalRound)) ||
-          (Number.isFinite(Number(m?.round)) && Number(m.round)) ||
+          (bracketStage ? bracketStage + localRound - 1 : null) ||
+          localRound ||
           1;
         const code = `V${r}-T${T}`;
         return { code, displayCode: code };
@@ -928,6 +964,26 @@ export async function listCourtsByTournament(req, res) {
         const { code, displayCode } = computeDisplayCode(c.currentMatch);
         c.currentMatch.code = code;
         c.currentMatch.displayCode = displayCode;
+      }
+    }
+
+    const hasCurrentMatch = docs.some((c) => c.currentMatch?._id);
+    if (hasCurrentMatch) {
+      const contextMatches = await Match.find({ tournament: tid })
+        .select(MATCH_LITE_SELECT)
+        .populate({
+          path: "bracket",
+          select: "name type stage order meta tournament",
+        })
+        .populate({ path: "pairA", select: PAIR_SELECT })
+        .populate({ path: "pairB", select: PAIR_SELECT })
+        .lean();
+      attachResolvedSideNamesToMatches(contextMatches);
+      const sideDisplayContext = buildMatchSideDisplayContext(contextMatches);
+      for (const c of docs) {
+        if (c.currentMatch?._id) {
+          attachResolvedSideNamesToMatch(c.currentMatch, sideDisplayContext);
+        }
       }
     }
 

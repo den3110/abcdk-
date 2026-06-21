@@ -10,6 +10,8 @@ const textValue = (value) => {
   }
   if (typeof value === "object") {
     return (
+      trim(value?.displayName) ||
+      trim(value?.teamName) ||
       trim(value?.name) ||
       trim(value?.label) ||
       trim(value?.title) ||
@@ -133,7 +135,18 @@ export const getPairDisplayName = (pair, source) => {
 };
 
 const sideKeyOf = (side) => (String(side).toUpperCase() === "B" ? "B" : "A");
-const getSideValue = (match, side, prefix) => match?.[`${prefix}${sideKeyOf(side)}`];
+const sideKindOf = (match, side) =>
+  String(
+    sideKeyOf(side) === "A"
+      ? match?.resolvedSideKindA
+      : match?.resolvedSideKindB
+  )
+    .trim()
+    .toLowerCase();
+const shouldKeepPairForSide = (match, side) => {
+  const kind = sideKindOf(match, side);
+  return !kind || kind === "team";
+};
 const normalizedLabelText = (value) =>
   textValue(value)
     .normalize("NFD")
@@ -143,6 +156,8 @@ const normalizedLabelText = (value) =>
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+const referenceLabelText = (value) =>
+  textValue(value).replace(/\s*\([AB]\)\s*$/i, "").replace(/\s+/g, "");
 export const isByeMatchLabel = (value) => normalizedLabelText(value) === "bye";
 export const isPendingMatchTeamLabel = (value) => {
   const text = normalizedLabelText(value);
@@ -162,8 +177,8 @@ export const isPendingMatchTeamLabel = (value) => {
   );
 };
 export const isReferenceTeamLabel = (value) =>
-  /^[WL]\s*-\s*(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
-    textValue(value)
+  /^[WL]-(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
+    referenceLabelText(value)
   );
 export const isUsefulMatchTeamLabel = (value) => {
   const text = textValue(value);
@@ -173,222 +188,13 @@ export const isConcreteMatchTeamLabel = (value) =>
   isUsefulMatchTeamLabel(value) &&
   !isByeMatchLabel(value) &&
   !isReferenceTeamLabel(value);
-const positiveInt = (value) => {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? Math.trunc(number) : null;
-};
-const referencePrefixFromSeed = (seed) => {
-  const type = trim(seed?.type).toLowerCase();
-  if (type === "stagematchloser" || type === "matchloser") return "L";
-  if (type === "stagematchwinner" || type === "matchwinner") return "W";
-  return "";
-};
-const extractReferenceCodeParts = (value) => {
-  const raw = trim(value).toUpperCase();
-  if (!raw) return null;
-
-  const prefixed = raw.match(/^([WL])\s*-\s*(.+)$/i);
-  const prefix = prefixed?.[1]?.toUpperCase() || "";
-  const base = prefixed?.[2] || raw;
-  const normalized = normalizeMatchCodeCandidate(base) || codeFromLabelKeyish(base);
-  if (!normalized) return null;
-
-  const parsed = normalized.match(/^V(\d+)(?:-(?:B[A-Z0-9]+|NT))?-T(\d+)$/i);
-  if (!parsed) return null;
-
-  return {
-    prefix,
-    code: normalized.toUpperCase(),
-    round: Number(parsed[1]),
-    order: Number(parsed[2]),
-  };
-};
-const extractCurrentDisplayRound = (match = {}) => {
-  if (!match || typeof match !== "object") return null;
-
-  const tryValues = [
-    match?.displayCode,
-    match?.codeDisplay,
-    match?.codeResolved,
-    match?.codeGroup,
-    match?.globalCodeV,
-    match?.globalCode,
-    match?.matchCode,
-    match?.code,
-    match?.slotCode,
-    match?.bracketCode,
-    match?.name,
-    match?.label,
-    match?.displayName,
-    match?.bracketLabel,
-    match?.labelKeyDisplay,
-    match?.labelKey,
-    match?.meta?.code,
-    match?.meta?.label,
-  ];
-
-  for (const value of tryValues) {
-    const parts = extractReferenceCodeParts(value);
-    if (parts?.round) return parts.round;
-  }
-
-  const numericValues = [
-    match?.globalRound,
-    match?.vIndex,
-    match?.v,
-    match?.V,
-    match?.roundV,
-    match?.meta?.v,
-  ]
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value > 0);
-
-  return numericValues.length ? Math.trunc(numericValues[0]) : null;
-};
-const resolveDependentDisplayRound = (match, fallbackRound) => {
-  const currentRound = extractCurrentDisplayRound(match);
-  if (currentRound != null) return Math.max(1, currentRound - 1);
-
-  const normalizedFallback = positiveInt(fallbackRound);
-  if (!normalizedFallback) return null;
-
-  const previousBracketType = trim(match?.prevBracket?.type).toLowerCase();
-  return previousBracketType === "group"
-    ? normalizedFallback + 1
-    : normalizedFallback + 2;
-};
-const toDisplayMatchOrder = (directValue, zeroBasedValue) => {
-  const direct = positiveInt(directValue);
-  if (direct) return direct;
-
-  const zeroBased = Number(zeroBasedValue);
-  if (Number.isFinite(zeroBased) && zeroBased >= 0) {
-    return Math.trunc(zeroBased) + 1;
-  }
-
-  return null;
-};
-
-export const getSeedDisplayName = (seed, ownerMatch = null) => {
-  if (!seed) return "";
-
-  const direct =
-    trim(seed?.label) ||
-    trim(seed?.displayName) ||
-    trim(seed?.teamName) ||
-    trim(seed?.name) ||
-    trim(seed?.title);
-  if (
-    direct &&
-    (isUsefulMatchTeamLabel(direct) ||
-      isByeMatchLabel(direct) ||
-      isReferenceTeamLabel(direct))
-  ) {
-    return direct;
-  }
-
-  const type = trim(seed?.type).toLowerCase();
-  const ref = seed?.ref || {};
-
-  if (type === "bye") return "BYE";
-
-  if (type === "grouprank") {
-    if (direct) return direct;
-
-    const stage = positiveInt(ref?.stage ?? seed?.stage);
-    const groupCode = trim(
-      ref?.groupCode || ref?.group?.name || ref?.group?.code || seed?.groupCode
-    );
-    const rank = positiveInt(ref?.rank ?? seed?.rank);
-    if (stage && groupCode && rank) return `V${stage}-B${groupCode}-T${rank}`;
-  }
-
-  const prefix = referencePrefixFromSeed(seed);
-  if (prefix) {
-    const directParts = extractReferenceCodeParts(direct);
-    const fallbackRound =
-      directParts?.round ||
-      positiveInt(
-        ref?.round ??
-          seed?.round ??
-          ref?.stageIndex ??
-          seed?.stageIndex ??
-          ref?.stage ??
-          seed?.stage
-      );
-    const round = ownerMatch
-      ? resolveDependentDisplayRound(ownerMatch, fallbackRound)
-      : fallbackRound;
-    const order =
-      directParts?.order ||
-      toDisplayMatchOrder(ref?.tIndex ?? seed?.tIndex, ref?.order ?? seed?.order);
-
-    if (round && order) return `${prefix}-V${round}-T${order}`;
-  }
-
-  const fallback = textValue(seed);
-  return isUsefulMatchTeamLabel(fallback) ||
-    isByeMatchLabel(fallback) ||
-    isReferenceTeamLabel(fallback)
-    ? fallback
-    : "";
-};
-
-export const getPreviousMatchDisplayCode = (previous, ownerMatch = null) => {
-  if (!previous) return "";
-
-  const directCandidates = [
-    previous?.codeResolved,
-    previous?.globalCode,
-    previous?.codeDisplay,
-    previous?.codeGroup,
-    previous?.code,
-    previous?.label,
-    previous?.displayCode,
-  ];
-
-  let directParts = null;
-  for (const candidate of directCandidates) {
-    directParts = extractReferenceCodeParts(candidate);
-    if (directParts) break;
-  }
-
-  const fallbackRound =
-    directParts?.round ||
-    positiveInt(
-      previous?.vIndex ??
-        previous?.globalRound ??
-        previous?.round ??
-        previous?.rrRound ??
-        previous?.ref?.round
-    );
-  const round = ownerMatch
-    ? resolveDependentDisplayRound(ownerMatch, fallbackRound)
-    : fallbackRound;
-  const order =
-    directParts?.order ||
-    toDisplayMatchOrder(
-      previous?.tIndex ?? previous?.ref?.tIndex,
-      previous?.order ?? previous?.idx ?? previous?.ref?.order
-    );
-  if (directParts?.code && directParts.order === order) return directParts.code;
-  if (round && order) return `V${round}-T${order}`;
-
-  return "";
-};
 
 export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
   const normalizedSide = sideKeyOf(side);
   const direct =
     normalizedSide === "A"
-      ? match?.resolvedSideNameA ||
-        match?.teamAName ||
-        match?.pairAName ||
-        match?.sideAName
-      : match?.resolvedSideNameB ||
-        match?.teamBName ||
-        match?.pairBName ||
-        match?.sideBName;
+      ? match?.resolvedSideNameA || match?.sideAName || match?.__sideA
+      : match?.resolvedSideNameB || match?.sideBName || match?.__sideB;
   const directText = textValue(direct);
   if (
     isUsefulMatchTeamLabel(directText) ||
@@ -396,25 +202,6 @@ export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
     isReferenceTeamLabel(directText)
   ) {
     return directText;
-  }
-
-  const pair =
-    getSideValue(match, normalizedSide, "pair") ||
-    match?.teams?.[normalizedSide] ||
-    match?.[`team${normalizedSide}`] ||
-    match?.[`side${normalizedSide}`] ||
-    null;
-  const seed = getSideValue(match, normalizedSide, "seed");
-  const pairName = getPairDisplayName(pair, match);
-  if (isConcreteMatchTeamLabel(pairName)) return pairName;
-
-  const seedName = getSeedDisplayName(seed, match);
-  if (
-    isUsefulMatchTeamLabel(seedName) ||
-    isByeMatchLabel(seedName) ||
-    isReferenceTeamLabel(seedName)
-  ) {
-    return seedName;
   }
 
   return fallback;
@@ -721,8 +508,12 @@ export const normalizeMatchDisplay = (match, fallbackSource = null) => {
         }
       : match?.tournament;
 
-  const pairA = normalizePairDisplay(match?.pairA, match);
-  const pairB = normalizePairDisplay(match?.pairB, match);
+  const pairA = shouldKeepPairForSide(match, "A")
+    ? normalizePairDisplay(match?.pairA, match)
+    : null;
+  const pairB = shouldKeepPairForSide(match, "B")
+    ? normalizePairDisplay(match?.pairB, match)
+    : null;
 
   const next = {
     ...match,
@@ -1008,6 +799,12 @@ export const getMatchRealtimeFingerprint = (match) => {
     scheduledAt: m.scheduledAt ?? null,
     startedAt: m.startedAt ?? m.startAt ?? null,
     finishedAt: m.finishedAt ?? null,
+    sideAName: realtimeTextOf(m.resolvedSideNameA || m.sideAName || m.__sideA),
+    sideBName: realtimeTextOf(m.resolvedSideNameB || m.sideBName || m.__sideB),
+    sideAKind: realtimeTextOf(m.resolvedSideKindA),
+    sideBKind: realtimeTextOf(m.resolvedSideKindB),
+    sideASource: realtimeTextOf(m.resolvedSideSourceA),
+    sideBSource: realtimeTextOf(m.resolvedSideSourceB),
     pairA: compactRealtimePair(m.pairA),
     pairB: compactRealtimePair(m.pairB),
     teamA: compactRealtimeTeam(m.teams?.A),
@@ -1045,6 +842,8 @@ export const mergeMatchPayload = (current, raw, fallbackSource = null) => {
   if (!incomingRaw || typeof incomingRaw !== "object") return current || null;
   const incoming = normalizeMatchDisplay(incomingRaw, fallbackSource || current);
   if (!current) return incoming;
+  const hasIncomingPairA = Object.prototype.hasOwnProperty.call(incomingRaw, "pairA");
+  const hasIncomingPairB = Object.prototype.hasOwnProperty.call(incomingRaw, "pairB");
 
   const merged = {
     ...current,
@@ -1073,8 +872,14 @@ export const mergeMatchPayload = (current, raw, fallbackSource = null) => {
       incoming?.nextMatch && typeof incoming.nextMatch === "object"
         ? { ...(current?.nextMatch || {}), ...incoming.nextMatch }
         : incoming?.nextMatch ?? current?.nextMatch,
-    pairA: mergePair(current?.pairA, incoming?.pairA, incoming),
-    pairB: mergePair(current?.pairB, incoming?.pairB, incoming),
+    pairA:
+      hasIncomingPairA || !shouldKeepPairForSide(incoming, "A")
+        ? incoming?.pairA ?? null
+        : mergePair(current?.pairA, incoming?.pairA, incoming),
+    pairB:
+      hasIncomingPairB || !shouldKeepPairForSide(incoming, "B")
+        ? incoming?.pairB ?? null
+        : mergePair(current?.pairB, incoming?.pairB, incoming),
     teams:
       incoming?.teams && typeof incoming.teams === "object"
         ? {

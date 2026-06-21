@@ -56,6 +56,7 @@ import { useLanguage } from "../context/LanguageContext.jsx";
 import { useRegisterChatBotPageContext } from "../context/ChatBotPageContext.jsx";
 import { formatDate, formatDateTime } from "../i18n/format.js";
 import {
+  getMatchSideDisplayName,
   isNewerOrEqualMatchPayload,
   mergeMatchPayload,
   normalizeMatchDisplay,
@@ -89,24 +90,8 @@ const stripVN = (s = "") =>
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .trim();
-const nameWithNick = (p) => {
-  if (!p) return "—";
-  const nick = p.nickName || p.nickname || p.nick || p.alias;
-  return nick?.trim() || p.fullName || p.name || "—";
-};
-const teamLabel = (team, eventType) => {
-  if (!team) return "—";
-  if (team.name) return team.name;
-  const players =
-    team.players ||
-    team.members ||
-    [team.player1, team.player2].filter(Boolean) ||
-    [];
-  if (!players.length) return "—";
-  if (eventType === "single") return nameWithNick(players[0]);
-  if (players.length === 1) return nameWithNick(players[0]);
-  return `${nameWithNick(players[0])} & ${nameWithNick(players[1])}`;
-};
+const matchSideLabel = (match, side) =>
+  getMatchSideDisplayName(match, side, "—") || "—";
 function roundText(m, translate) {
   if (m.roundName) return m.roundName;
   if (m.phase) return m.phase;
@@ -380,8 +365,8 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
           {summaryMatches.length > 0 ? (
             <Stack spacing={1}>
               {summaryMatches.map((m) => {
-                const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
-                const b = m.teamB || m.away || m.teams?.[1] || m.pairB;
+                const sideA = matchSideLabel(m, "A");
+                const sideB = matchSideLabel(m, "B");
                 const status =
                   m.status || (m.winner ? "finished" : "scheduled");
                 const accent =
@@ -422,7 +407,7 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
                       sx={{ minWidth: 0, flex: 1 }}
                       noWrap
                     >
-                      {teamLabel(a, t.eventType)} vs {teamLabel(b, t.eventType)}
+                      {sideA} vs {sideB}
                     </Typography>
                     <SmallMeta
                       icon={ScheduleIcon}
@@ -490,7 +475,6 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
                   key={m._id}
                   m={m}
                   onOpen={onOpen}
-                  eventType={t.eventType}
                   translate={translate}
                   locale={locale}
                 />
@@ -503,9 +487,9 @@ function TournamentListRow({ t, onOpenMatch, translate, locale }) {
   );
 }
 
-function MatchRow({ m, onOpen, eventType, translate, locale }) {
-  const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
-  const b = m.teamB || m.away || m.teams?.[1] || m.pairB;
+function MatchRow({ m, onOpen, translate, locale }) {
+  const sideA = matchSideLabel(m, "A");
+  const sideB = matchSideLabel(m, "B");
   const status = m.status || (m.winner ? "finished" : "scheduled");
   const court = m.courtName || m.court || "";
   const when = m.scheduledAt || m.startTime || m.time;
@@ -530,12 +514,12 @@ function MatchRow({ m, onOpen, eventType, translate, locale }) {
               sx={{ minWidth: 0 }}
             >
               <Typography noWrap fontWeight={600}>
-                {teamLabel(a, eventType)}
+                {sideA}
               </Typography>
               <StatusChipWithIcon status={status} translate={translate} />
             </Stack>
             <Typography noWrap fontWeight={600}>
-              {teamLabel(b, eventType)}
+              {sideB}
             </Typography>
             <ScoreBadge m={m} />
             <Stack
@@ -700,11 +684,9 @@ function TournamentCard({ t, onOpenMatch, translate, locale }) {
       const status = m.status || (m.winner ? "finished" : "scheduled");
       if (!statusFilter.has(status)) return false;
       if (!q) return true;
-      const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
-      const b = m.teamB || m.away || m.teams?.[1] || m.pairB;
       const hay = [
-        teamLabel(a, t.eventType),
-        teamLabel(b, t.eventType),
+        matchSideLabel(m, "A"),
+        matchSideLabel(m, "B"),
         roundText(m, translate),
         m.courtName || m.court || "",
       ]

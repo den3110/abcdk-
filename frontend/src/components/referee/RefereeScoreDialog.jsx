@@ -834,11 +834,11 @@ export default function RefereeScoreDialog({
   const rightSide = currentLayout.right;
   const isDouble = eventType !== "single";
   const leftTeamDisplayLabel = useMemo(
-    () => getMatchSideDisplayName(match, leftSide, "TBD"),
+    () => getMatchSideDisplayName(match, leftSide, "Chưa có đội"),
     [leftSide, match],
   );
   const rightTeamDisplayLabel = useMemo(
-    () => getMatchSideDisplayName(match, rightSide, "TBD"),
+    () => getMatchSideDisplayName(match, rightSide, "Chưa có đội"),
     [rightSide, match],
   );
   const leftSeedLabelPending = useMemo(
