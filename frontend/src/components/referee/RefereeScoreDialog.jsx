@@ -70,6 +70,71 @@ const SEED_REFERENCE_TYPES = new Set([
 ]);
 
 const textOf = (value) => (value && String(value).trim()) || "";
+const safeIdentityTextOf = (value) => {
+  const text = textOf(value);
+  return text === "[object Object]" ? "" : text;
+};
+
+const identityTextOf = (value) => {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return (
+      identityTextOf(value?._id) ||
+      identityTextOf(value?.id) ||
+      identityTextOf(value?.uid) ||
+      identityTextOf(value?.fullName) ||
+      identityTextOf(value?.name) ||
+      identityTextOf(value?.displayName) ||
+      identityTextOf(value?.shortName) ||
+      identityTextOf(value?.nickName) ||
+      identityTextOf(value?.nickname) ||
+      safeIdentityTextOf(value)
+    );
+  }
+  return safeIdentityTextOf(value);
+};
+
+const personIdentityCandidatesOf = (person) => {
+  if (person == null) return [];
+  if (typeof person !== "object") return [identityTextOf(person)].filter(Boolean);
+
+  const nestedUser = person?.user;
+  const nestedProfile = person?.profile;
+  const candidates = [
+    nestedUser?._id,
+    nestedUser?.id,
+    nestedUser?.uid,
+    nestedUser,
+    person?._id,
+    person?.id,
+    person?.uid,
+    nestedProfile?._id,
+    nestedProfile?.id,
+    nestedProfile?.uid,
+    person?.fullName,
+    person?.name,
+    person?.displayName,
+    person?.shortName,
+    person?.nickName,
+    person?.nickname,
+    nestedUser?.fullName,
+    nestedUser?.name,
+    nestedUser?.displayName,
+    nestedUser?.shortName,
+    nestedUser?.nickName,
+    nestedUser?.nickname,
+    nestedProfile?.fullName,
+    nestedProfile?.name,
+    nestedProfile?.displayName,
+    nestedProfile?.shortName,
+    nestedProfile?.nickName,
+    nestedProfile?.nickname,
+  ]
+    .map((value) => identityTextOf(value))
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+};
 
 const playerLabel = (player, source) => getPlayerDisplayName(player, source) || "";
 
@@ -266,34 +331,11 @@ const normalizeBreakState = (rawBreak) => {
 };
 
 const userIdOf = (user) => {
-  const raw = user?.user?._id || user?.user || user?._id || user?.id || user?.uid;
-  if (raw) return String(raw);
-  return (
-    textOf(user?.fullName) ||
-    textOf(user?.name) ||
-    textOf(user?.displayName) ||
-    textOf(user?.nickName) ||
-    ""
-  );
+  return personIdentityCandidatesOf(user)[0] || "";
 };
 
 const playerIdCandidatesOf = (player) => {
-  const candidates = [
-    player?.user?._id,
-    player?.user,
-    player?._id,
-    player?.id,
-    player?.uid,
-    player?.fullName,
-    player?.name,
-    player?.displayName,
-    player?.nickName,
-    player?.nickname,
-  ]
-    .map((value) => textOf(value))
-    .filter(Boolean);
-
-  return [...new Set(candidates)];
+  return personIdentityCandidatesOf(player);
 };
 
 const resolveBaseSlotForPlayer = (player, teamBase = {}) => {

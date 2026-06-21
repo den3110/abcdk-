@@ -1042,18 +1042,47 @@ function mergeCanonicalStreamLists(existing, incoming) {
   return Array.from(merged.values());
 }
 /* ====================== PlayerLink & team helpers ====================== */
+const profileIdTextOf = (value) => {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return profileIdTextOf(
+      value?._id ??
+        value?.id ??
+        value?.userId ??
+        value?.user_id ??
+        value?.uid ??
+        value?.user,
+    );
+  }
+  const text = String(value).trim();
+  return text === "[object Object]" ? "" : text;
+};
+
 const profileIdOfPerson = (person) => {
-  if (!person || typeof person !== "object") return null;
-  return (
-    person?.user?._id ||
-    person?.user?.id ||
-    (typeof person?.user === "string" ? person.user : null) ||
-    person?.userId ||
-    person?.uid ||
-    person?._id ||
-    person?.id ||
-    null
-  );
+  if (!person) return null;
+  if (typeof person !== "object") {
+    const value = profileIdTextOf(person);
+    return /^[a-f\d]{24}$/i.test(value) ? value : null;
+  }
+
+  const candidates = [
+    person?.user,
+    person?.user?._id,
+    person?.user?.id,
+    person?.userId,
+    person?.user_id,
+    person?.userID,
+    person?.uid,
+    person?.profile,
+    person?.profile?._id,
+    person?.profile?.id,
+    person?._id,
+    person?.id,
+  ]
+    .map((value) => profileIdTextOf(value))
+    .filter(Boolean);
+
+  return candidates[0] || null;
 };
 
 function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
@@ -1097,6 +1126,9 @@ function playersOfPair(pair, isSingle = false) {
       : [pair.player1, pair.player2, pair.p1, pair.p2].filter(Boolean);
   return players.filter(Boolean).slice(0, isSingle ? 1 : 2);
 }
+
+const pairHasProfilePlayers = (pair, isSingle = false) =>
+  playersOfPair(pair, isSingle).some((player) => profileIdOfPerson(player));
 
 const playerLinkKey = (player, index) =>
   String(profileIdOfPerson(player) || (typeof player === "string" ? player : index));
@@ -1390,7 +1422,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   const needsSeedContextResolution = useMemo(() => {
     const unresolvedSideNeedsContext = (pair, previous, seed) =>
-      !hasResolvedPair(pair) &&
+      !pairHasProfilePlayers(pair, isSingle) &&
       Boolean(
         previous ||
           [
@@ -1413,6 +1445,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     m?.previousB,
     m?.seedA,
     m?.seedB,
+    isSingle,
   ]);
 
   const { data: brackets = [], isFetching: fetchingBrackets } =
@@ -1903,6 +1936,80 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     ],
   );
 
+  const resolveProfileSidePair = useCallback(
+    function resolveProfileSidePairInner(match, side, depth = 0) {
+      if (!match || depth > 12) return null;
+
+      const normalizedSide = side === "B" ? "B" : "A";
+      const pair = normalizedSide === "A" ? match?.pairA : match?.pairB;
+      if (pairHasProfilePlayers(pair, isSingle)) return pair;
+
+      const seed = normalizedSide === "A" ? match?.seedA : match?.seedB;
+      if (!hasResolvedPair(pair) && seed && isSeedBlockedByUnfinishedGroup(seed)) {
+        return null;
+      }
+
+      const resolveFromSourceMatch = (sourceMatch, isLoserSeed) => {
+        if (!sourceMatch) return null;
+
+        if (isByeMatchObj(sourceMatch)) {
+          const sourceByeA = isByeSeed(sourceMatch.seedA);
+          const sourceByeB = isByeSeed(sourceMatch.seedB);
+          if (isLoserSeed || (sourceByeA && sourceByeB)) return null;
+
+          const carriedSide = sourceByeA ? "B" : "A";
+          return resolveProfileSidePairInner(sourceMatch, carriedSide, depth + 1);
+        }
+
+        if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
+          const winnerSide = sourceMatch.winner === "A" ? "A" : "B";
+          const sourceSide = isLoserSeed
+            ? winnerSide === "A"
+              ? "B"
+              : "A"
+            : winnerSide;
+          return resolveProfileSidePairInner(sourceMatch, sourceSide, depth + 1);
+        }
+
+        return null;
+      };
+
+      const prev = normalizedSide === "A" ? match?.previousA : match?.previousB;
+      if (prev) {
+        const prevId =
+          typeof prev === "object" && prev?._id ? String(prev._id) : String(prev);
+        const sourceMatch =
+          matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
+        const seedType = String(seed?.type || "");
+        const isLoserSeed =
+          seedType === "stageMatchLoser" || seedType === "matchLoser";
+        const resolved = resolveFromSourceMatch(sourceMatch, isLoserSeed);
+        if (resolved) return resolved;
+      }
+
+      if (seed && seed.type) {
+        const seedType = String(seed.type || "");
+        const isWinnerSeed =
+          seedType === "stageMatchWinner" || seedType === "matchWinner";
+        const isLoserSeed =
+          seedType === "stageMatchLoser" || seedType === "matchLoser";
+        if (isWinnerSeed || isLoserSeed) {
+          const sourceMatch = findSourceMatchFromSeed(match, seed);
+          const resolved = resolveFromSourceMatch(sourceMatch, isLoserSeed);
+          if (resolved) return resolved;
+        }
+      }
+
+      return null;
+    },
+    [
+      findSourceMatchFromSeed,
+      isSeedBlockedByUnfinishedGroup,
+      isSingle,
+      matchIndex,
+    ],
+  );
+
   const showSpinner = waiting || resolvingSeedContext;
   const showError = !waiting && !mm;
 
@@ -2059,6 +2166,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     !hasResolvedPair(mm?.pairA) && isSeedBlockedByUnfinishedGroup(mm?.seedA);
   const blockB =
     !hasResolvedPair(mm?.pairB) && isSeedBlockedByUnfinishedGroup(mm?.seedB);
+  const scorePairA =
+    resolveProfileSidePair(mm, "A") ||
+    (!blockA && hasResolvedPair(mm?.pairA) ? mm.pairA : null);
+  const scorePairB =
+    resolveProfileSidePair(mm, "B") ||
+    (!blockB && hasResolvedPair(mm?.pairB) ? mm.pairB : null);
+  const scorePlayersA = playersOfPair(scorePairA, isSingle);
+  const scorePlayersB = playersOfPair(scorePairB, isSingle);
   const currentGameScore = Array.isArray(shownGameScores)
     ? shownGameScores[shownGameScores.length - 1] || null
     : null;
@@ -2793,11 +2908,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Typography variant="body2" color="text.secondary">
               Đội A
             </Typography>
-            {hasResolvedPair(mm?.pairA) && !blockA ? (
+            {scorePairA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                {playersOfPair(mm.pairA, isSingle).length ? (
+                {scorePlayersA.length ? (
                   <>
-                    {playersOfPair(mm.pairA, isSingle).map((player, index) => (
+                    {scorePlayersA.map((player, index) => (
                       <span key={playerLinkKey(player, index)}>
                         {index > 0 ? " & " : ""}
                         <PlayerLink
@@ -2809,7 +2924,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     ))}
                   </>
                 ) : (
-                  pairLabel(mm.pairA, isSingle, displayMode)
+                  pairLabel(scorePairA, isSingle, displayMode)
                 )}
               </Typography>
             ) : (
@@ -2843,11 +2958,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Typography variant="body2" color="text.secondary">
               Đội B
             </Typography>
-            {hasResolvedPair(mm?.pairB) && !blockB ? (
+            {scorePairB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                {playersOfPair(mm.pairB, isSingle).length ? (
+                {scorePlayersB.length ? (
                   <>
-                    {playersOfPair(mm.pairB, isSingle).map((player, index) => (
+                    {scorePlayersB.map((player, index) => (
                       <span key={playerLinkKey(player, index)}>
                         {index > 0 ? " & " : ""}
                         <PlayerLink
@@ -2859,7 +2974,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     ))}
                   </>
                 ) : (
-                  pairLabel(mm.pairB, isSingle, displayMode)
+                  pairLabel(scorePairB, isSingle, displayMode)
                 )}
               </Typography>
             ) : (

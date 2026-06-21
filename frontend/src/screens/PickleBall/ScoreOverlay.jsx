@@ -16,8 +16,13 @@ import {
   getTournamentTeamName,
 } from "../../utils/tournamentName";
 import {
+  extractMatchPatchPayload,
+  extractMatchPayload,
   getMatchCourtStationName,
+  getMatchPayloadId,
+  getMatchSideDisplayName,
   getPairDisplayName,
+  isLightweightMatchPayload,
   isNewerOrEqualMatchPayload,
 } from "../../utils/matchDisplay";
 
@@ -35,8 +40,37 @@ const readStr = (...cands) => {
   return "";
 };
 
+const isPlaceholderName = (value) => {
+  const text = readStr(value);
+  if (!text) return true;
+  const lower = text.toLowerCase();
+  return [
+    "-",
+    "—",
+    "â€”",
+    "n/a",
+    "na",
+    "tbd",
+    "team a",
+    "team b",
+    "đội a",
+    "đội b",
+    "chưa có đội",
+    "chua co doi",
+    "registration",
+  ].includes(lower);
+};
+
+const usefulName = (...values) => {
+  for (const value of values) {
+    const text = readStr(value);
+    if (text && !isPlaceholderName(text)) return text;
+  }
+  return "";
+};
+
 const pairDisplayName = (reg, evType, displayMode = "nickname") => {
-  if (!reg) return "-";
+  if (!reg) return "";
   return (
     getPairDisplayName(reg, {
       eventType: evType,
@@ -45,7 +79,29 @@ const pairDisplayName = (reg, evType, displayMode = "nickname") => {
         eventType: evType,
         nameDisplayMode: displayMode,
       },
-    }) || "N/A"
+    }) || ""
+  );
+};
+
+const sideDisplayName = (payload, side, evType, displayMode) => {
+  const key = String(side).toUpperCase() === "B" ? "B" : "A";
+  const team = payload?.teams?.[key] || {};
+  const pair = payload?.[`pair${key}`];
+  return usefulName(
+    getMatchSideDisplayName(payload, key, ""),
+    payload?.[`resolvedSideName${key}`],
+    payload?.[`__side${key}`],
+    payload?.[`team${key}Name`],
+    payload?.[`pair${key}Name`],
+    payload?.[`side${key}Name`],
+    team?.displayName,
+    team?.teamName,
+    team?.label,
+    team?.name,
+    pair?.displayName,
+    pair?.teamName,
+    pair?.label,
+    pairDisplayName(pair, evType, displayMode),
   );
 };
 
@@ -140,15 +196,6 @@ const phaseLabelFromData = (data) => {
   }
   return roundLabel || "";
 };
-
-const preferFull = (p) =>
-  readStr(
-    p?.fullName,
-    p?.name,
-    p?.displayName,
-    p?.user?.fullName,
-    p?.user?.name,
-  );
 
 function normalizePayload(p) {
   if (!p) return null;
@@ -267,43 +314,43 @@ function normalizePayload(p) {
     };
   }
 
-  const teamAFallbackName =
-    readStr(
-      p?.teams?.A?.teamName,
-      p?.teams?.A?.label,
-      p?.pairA?.teamName,
-      p?.pairA?.label,
-      p?.teams?.A?.name,
-    ) || pairDisplayName(p?.pairA, eventType, displayMode);
-  const teamBFallbackName =
-    readStr(
-      p?.teams?.B?.teamName,
-      p?.teams?.B?.label,
-      p?.pairB?.teamName,
-      p?.pairB?.label,
-      p?.teams?.B?.name,
-    ) || pairDisplayName(p?.pairB, eventType, displayMode);
+  const teamAFallbackName = sideDisplayName(p, "A", eventType, displayMode);
+  const teamBFallbackName = sideDisplayName(p, "B", eventType, displayMode);
 
   teams = {
     A: {
       ...teams.A,
-      name: teamAFallbackName,
+      name: teamAFallbackName || usefulName(teams.A?.name),
       teamName: readStr(
         teams.A?.teamName,
+        p?.teamAName,
         p?.teams?.A?.teamName,
         p?.pairA?.teamName,
       ),
-      label: readStr(teams.A?.label, p?.teams?.A?.label, p?.pairA?.label),
+      label: readStr(
+        teams.A?.label,
+        p?.resolvedSideNameA,
+        p?.__sideA,
+        p?.teams?.A?.label,
+        p?.pairA?.label,
+      ),
     },
     B: {
       ...teams.B,
-      name: teamBFallbackName,
+      name: teamBFallbackName || usefulName(teams.B?.name),
       teamName: readStr(
         teams.B?.teamName,
+        p?.teamBName,
         p?.teams?.B?.teamName,
         p?.pairB?.teamName,
       ),
-      label: readStr(teams.B?.label, p?.teams?.B?.label, p?.pairB?.label),
+      label: readStr(
+        teams.B?.label,
+        p?.resolvedSideNameB,
+        p?.__sideB,
+        p?.teams?.B?.label,
+        p?.pairB?.label,
+      ),
     },
   };
 
@@ -412,7 +459,9 @@ const pickOverlay = (obj) => {
 
 // merge helpers
 const hasVal = (v) =>
-  v !== null && v !== undefined && (typeof v !== "string" || v.trim() !== "");
+  v !== null &&
+  v !== undefined &&
+  (typeof v !== "string" || !isPlaceholderName(v));
 const keep = (prev, next) => (hasVal(next) ? next : prev);
 
 const mergeTournament = (prev = {}, next = {}) => ({
@@ -740,7 +789,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const isActiveBreakQP =
     parseQPBool(q.get("isActiveBreak")) === true || q.get("isactivebreak") == 1;
 
-  const { data: snapRaw } = useGetOverlaySnapshotQuery(matchId, {
+  const { data: snapRaw, refetch: refetchOverlaySnapshot } =
+    useGetOverlaySnapshotQuery(matchId, {
     skip: !matchId,
     refetchOnMountOrArgChange: !replay,
     refetchOnFocus: !replay,
@@ -860,29 +910,122 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   // socket live updates (merge) — disabled when replay
   useEffect(() => {
     if (!matchId || !socket || replay) return;
-    socket.emit("match:join", { matchId });
+    const requestSnapshot = () => {
+      socket.emit?.("match:snapshot:request", { matchId });
+      if (typeof refetchOverlaySnapshot === "function") {
+        refetchOverlaySnapshot();
+      }
+    };
+
+    const isForThisMatch = (payload) => {
+      const got = getMatchPayloadId(payload);
+      return Boolean(got) && String(got) === String(matchId);
+    };
+
+    const hasOwn = (obj, key) =>
+      obj && Object.prototype.hasOwnProperty.call(obj, key);
+
+    const hydratePatchSource = (prev, dto) => {
+      if (!prev || !dto || typeof dto !== "object") return dto;
+      return {
+        ...prev,
+        ...dto,
+        tournament: hasOwn(dto, "tournament") ? dto.tournament : prev.tournament,
+        teams: hasOwn(dto, "teams") ? dto.teams : prev.teams,
+        pairA: hasOwn(dto, "pairA") ? dto.pairA : prev.pairA,
+        pairB: hasOwn(dto, "pairB") ? dto.pairB : prev.pairB,
+        rules: hasOwn(dto, "rules") ? dto.rules : prev.rules,
+        gameScores: hasOwn(dto, "gameScores") ? dto.gameScores : prev.gameScores,
+        currentGame: hasOwn(dto, "currentGame")
+          ? dto.currentGame
+          : prev.currentGame,
+        status: hasOwn(dto, "status") ? dto.status : prev.status,
+        winner: hasOwn(dto, "winner") ? dto.winner : prev.winner,
+        liveVersion: hasOwn(dto, "liveVersion")
+          ? dto.liveVersion
+          : prev.liveVersion,
+        version: hasOwn(dto, "version") ? dto.version : prev.version,
+        updatedAt: hasOwn(dto, "updatedAt") ? dto.updatedAt : prev.updatedAt,
+      };
+    };
+
+    const applyDto = (dto, { patch = false } = {}) => {
+      if (!dto) return;
+      setData((prev) => {
+        const source = patch ? hydratePatchSource(prev, dto) : dto;
+        const n = normalizePayload(source);
+        return mergeNormalized(prev, n);
+      });
+      const o = pickOverlay(dto);
+      if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
+    };
 
     const onSnapshot = (dto) => {
-      const n = normalizePayload(dto);
-      setData((prev) => mergeNormalized(prev, n));
-      const o = pickOverlay(dto);
-      if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
+      if (!isForThisMatch(dto)) return;
+      applyDto(extractMatchPayload(dto));
     };
     const onUpdate = (payload) => {
-      const dto = payload?.data || payload;
-      const n = normalizePayload(dto);
-      setData((prev) => mergeNormalized(prev, n));
-      const o = pickOverlay(dto);
-      if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
+      if (!isForThisMatch(payload)) return;
+      if (isLightweightMatchPayload(payload)) {
+        requestSnapshot();
+        return;
+      }
+      applyDto(extractMatchPayload(payload));
+    };
+    const onPatched = (payload) => {
+      if (!isForThisMatch(payload)) return;
+      const patch = extractMatchPatchPayload(payload);
+      if (!patch) {
+        requestSnapshot();
+        return;
+      }
+      applyDto(patch, { patch: true });
+    };
+    const onConnect = () => {
+      socket.emit("match:join", { matchId });
+      requestSnapshot();
     };
 
+    socket.emit("match:join", { matchId });
+    requestSnapshot();
+    socket.on("connect", onConnect);
     socket.on("match:snapshot", onSnapshot);
     socket.on("match:update", onUpdate);
+    socket.on("score:updated", onUpdate);
+    socket.on("score:added", onUpdate);
+    socket.on("score:undone", onUpdate);
+    socket.on("score:reset", onUpdate);
+    socket.on("match:started", onUpdate);
+    socket.on("match:finished", onUpdate);
+    socket.on("match:forfeited", onUpdate);
+    socket.on("status:updated", onUpdate);
+    socket.on("winner:updated", onUpdate);
+    socket.on("match:patched", onPatched);
+    socket.on("score:patched", onPatched);
+    socket.on("video:set", onPatched);
+    socket.on("stream:updated", onPatched);
+    socket.on("match:teamsUpdated", onPatched);
     return () => {
+      socket.emit("match:leave", { matchId });
+      socket.off("connect", onConnect);
       socket.off("match:snapshot", onSnapshot);
       socket.off("match:update", onUpdate);
+      socket.off("score:updated", onUpdate);
+      socket.off("score:added", onUpdate);
+      socket.off("score:undone", onUpdate);
+      socket.off("score:reset", onUpdate);
+      socket.off("match:started", onUpdate);
+      socket.off("match:finished", onUpdate);
+      socket.off("match:forfeited", onUpdate);
+      socket.off("status:updated", onUpdate);
+      socket.off("winner:updated", onUpdate);
+      socket.off("match:patched", onPatched);
+      socket.off("score:patched", onPatched);
+      socket.off("video:set", onPatched);
+      socket.off("stream:updated", onPatched);
+      socket.off("match:teamsUpdated", onPatched);
     };
-  }, [matchId, socket, replay]);
+  }, [matchId, socket, replay, refetchOverlaySnapshot]);
 
   /* ---------- Merge: BE overlay > QP > default ---------- */
   const effective = useMemo(() => {
@@ -1055,23 +1198,23 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   };
   const maxSets = Math.max(1, Number(rules.bestOf) || 3);
 
-  const setWinner = (g) => {
-    if (!g) return "";
-    if (gameWon(g?.a ?? 0, g?.b ?? 0, rules.pointsToWin, rules.winByTwo))
-      return "A";
-    if (gameWon(g?.b ?? 0, g?.a ?? 0, rules.pointsToWin, rules.winByTwo))
-      return "B";
-    return "";
-  };
-
   const setSummary = useMemo(() => {
+    const getWinner = (g) => {
+      if (!g) return "";
+      if (gameWon(g?.a ?? 0, g?.b ?? 0, rules.pointsToWin, rules.winByTwo))
+        return "A";
+      if (gameWon(g?.b ?? 0, g?.a ?? 0, rules.pointsToWin, rules.winByTwo))
+        return "B";
+      return "";
+    };
+
     return Array.from({ length: maxSets }).map((_, i) => {
       const g = (data?.gameScores || [])[i];
       return {
         index: i + 1,
         a: Number.isFinite(+g?.a) ? +g.a : null,
         b: Number.isFinite(+g?.b) ? +g.b : null,
-        winner: setWinner(g),
+        winner: getWinner(g),
       };
     });
   }, [data?.gameScores, maxSets, rules.pointsToWin, rules.winByTwo]);
