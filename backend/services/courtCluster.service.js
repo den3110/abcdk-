@@ -191,10 +191,43 @@ async function validateTournamentRefereeIds(refereeIds = [], tournamentId = null
     .lean();
 
   if (validRefs.length !== normalizedIds.length) {
+    const validIdSet = new Set(validRefs.map((ref) => toIdString(ref._id)));
+    const invalidRefereeIds = normalizedIds.filter((id) => !validIdSet.has(id));
+    const users = await User.find({ _id: { $in: invalidRefereeIds } })
+      .select("_id name fullName nickname nickName email phone role isDeleted referee.tournaments")
+      .lean();
+    const userMap = new Map(users.map((user) => [toIdString(user._id), user]));
+    const tournamentIdText = String(tournamentId);
+    const details = invalidRefereeIds.map((id) => {
+      const user = userMap.get(id);
+      const label = safeText(
+        user?.nickname ||
+          user?.nickName ||
+          user?.fullName ||
+          user?.name ||
+          user?.email ||
+          user?.phone,
+        id
+      );
+      if (!user) return `Không tìm thấy người dùng ${id}.`;
+      if (user.isDeleted) return `${label} đã bị xoá.`;
+      if (user.role !== "referee") {
+        return `${label} đang có role "${safeText(user.role, "không rõ")}", chưa phải referee.`;
+      }
+      const tournamentIds = Array.isArray(user?.referee?.tournaments)
+        ? user.referee.tournaments.map((value) => toIdString(value))
+        : [];
+      if (!tournamentIds.includes(tournamentIdText)) {
+        return `${label} chưa được thêm vào danh sách trọng tài của giải này.`;
+      }
+      return `${label} không đủ điều kiện gán làm trọng tài đứng sân.`;
+    });
     const error = new Error(
       "Có trọng tài không tồn tại, không phải referee, hoặc không thuộc giải hiện tại."
     );
     error.status = 400;
+    error.details = details;
+    error.invalidRefereeIds = invalidRefereeIds;
     throw error;
   }
 

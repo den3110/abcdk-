@@ -17,12 +17,14 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogActions,
 } from "@mui/material";
 import StadiumIcon from "@mui/icons-material/Stadium";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CloseIcon from "@mui/icons-material/Close";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import {
@@ -70,6 +72,15 @@ const EMPTY_SET = new Set();
 const EMPTY_MAP = new Map();
 
 const text = (value) => String(value || "").trim();
+
+const formatApiErrorDetail = (error, fallback) => {
+  const message = text(error?.data?.message || error?.message || fallback);
+  const details = Array.isArray(error?.data?.details)
+    ? error.data.details.map(text).filter(Boolean)
+    : [];
+  if (!details.length) return message || fallback;
+  return [message, ...details.map((item) => `- ${item}`)].join("\n");
+};
 
 const matchCode = (match) =>
   text(match?.displayCode) ||
@@ -333,6 +344,203 @@ StatCard.propTypes = {
   tone: PropTypes.oneOf(["default", "success", "warning", "info"]),
 };
 
+function QueueMatchPickerDialog({
+  open,
+  stationName,
+  options,
+  groupMetaByKey,
+  selectedIds,
+  disabled,
+  onClose,
+  onToggleMatch,
+  onToggleGroup,
+  onAdd,
+}) {
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (open) setQuery("");
+  }, [open]);
+
+  const selectedSet = useMemo(() => new Set(selectedIds || []), [selectedIds]);
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return options;
+    return options.filter((match) =>
+      selectorLabel(match).toLowerCase().includes(normalizedQuery),
+    );
+  }, [options, query]);
+  const groupedOptions = useMemo(() => {
+    const map = new Map();
+    filteredOptions.forEach((match) => {
+      const key = match.__groupKey || "matches";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(match);
+    });
+    return Array.from(map.entries());
+  }, [filteredOptions]);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="md"
+      PaperProps={{
+        sx: {
+          height: { xs: "100dvh", sm: "82vh" },
+          maxHeight: { xs: "100dvh", sm: "82vh" },
+        },
+      }}
+    >
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+          <StadiumIcon fontSize="small" />
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" fontWeight={800} noWrap>
+              Thêm trận vào danh sách sân
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {stationName || "Sân"}
+            </Typography>
+          </Box>
+        </Stack>
+      </DialogTitle>
+      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+        <TextField
+          size="small"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Tìm mã trận, đội, bracket..."
+          fullWidth
+        />
+        <Box sx={{ overflowY: "auto", pr: 0.5, flex: 1, minHeight: 0 }}>
+          {!groupedOptions.length ? (
+            <Alert severity="info">
+              Không còn trận phù hợp để thêm vào danh sách.
+            </Alert>
+          ) : (
+            <Stack spacing={1.25}>
+              {groupedOptions.map(([groupKey, matches]) => {
+                const groupMeta = groupMetaByKey.get(groupKey);
+                const groupIds = matches.map((match) => sid(match?._id)).filter(Boolean);
+                const allSelected =
+                  groupIds.length > 0 && groupIds.every((id) => selectedSet.has(id));
+                const partiallySelected =
+                  !allSelected && groupIds.some((id) => selectedSet.has(id));
+
+                return (
+                  <Paper key={groupKey} variant="outlined" sx={{ p: 1.25, borderRadius: 1.5 }}>
+                    <Stack spacing={1}>
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        justifyContent="space-between"
+                        spacing={1}
+                        flexWrap="wrap"
+                        useFlexGap
+                      >
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {groupMeta?.bracketTitle || "Bracket"}
+                          </Typography>
+                          <Typography variant="body2" fontWeight={800}>
+                            {groupMeta?.poolTitle || "Danh sách trận"}
+                          </Typography>
+                        </Box>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={disabled || !groupIds.length}
+                          onClick={() => onToggleGroup(groupIds)}
+                          startIcon={
+                            <Checkbox
+                              size="small"
+                              checked={allSelected}
+                              indeterminate={partiallySelected}
+                              sx={{ p: 0 }}
+                            />
+                          }
+                        >
+                          {allSelected ? "Bỏ chọn nhóm" : "Chọn nhóm"}
+                        </Button>
+                      </Stack>
+                      <Stack spacing={0.75}>
+                        {matches.map((match) => {
+                          const matchId = sid(match?._id);
+                          const checked = selectedSet.has(matchId);
+                          return (
+                            <Paper
+                              key={matchId}
+                              variant="outlined"
+                              onClick={() => !disabled && onToggleMatch(matchId)}
+                              sx={{
+                                p: 1,
+                                borderRadius: 1.25,
+                                cursor: disabled ? "default" : "pointer",
+                                bgcolor: checked ? "action.selected" : "background.paper",
+                              }}
+                            >
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Checkbox
+                                  size="small"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onChange={() => onToggleMatch(matchId)}
+                                  onClick={(event) => event.stopPropagation()}
+                                />
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography variant="body2" fontWeight={800}>
+                                    {matchCode(match)}
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    sx={{ wordBreak: "break-word" }}
+                                  >
+                                    {teamLine(match)}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            </Paper>
+                          );
+                        })}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Đóng</Button>
+        <Button
+          variant="contained"
+          disabled={disabled || !selectedIds?.length}
+          onClick={onAdd}
+        >
+          {selectedIds?.length ? `Thêm ${selectedIds.length} trận` : "Thêm"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+QueueMatchPickerDialog.propTypes = {
+  open: PropTypes.bool.isRequired,
+  stationName: PropTypes.string,
+  options: PropTypes.array.isRequired,
+  groupMetaByKey: PropTypes.instanceOf(Map).isRequired,
+  selectedIds: PropTypes.array.isRequired,
+  disabled: PropTypes.bool,
+  onClose: PropTypes.func.isRequired,
+  onToggleMatch: PropTypes.func.isRequired,
+  onToggleGroup: PropTypes.func.isRequired,
+  onAdd: PropTypes.func.isRequired,
+};
+
 function TournamentCourtClusterDialog({
   open,
   tournament,
@@ -364,7 +572,11 @@ function TournamentCourtClusterDialog({
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
 
-  const { data: optionsData, isFetching: loadingOptions } =
+  const {
+    data: optionsData,
+    isFetching: loadingOptions,
+    refetch: refetchClusterOptions,
+  } =
     useGetTournamentCourtClusterOptionsQuery(tournamentId, {
       skip: !open || !tournamentId,
       refetchOnMountOrArgChange: true,
@@ -612,11 +824,30 @@ function TournamentCourtClusterDialog({
     useUpdateTournamentCourtStationAssignmentConfigMutation();
   const [freeStation, { isLoading: freeing }] =
     useFreeTournamentCourtStationMutation();
-  const { data: tournamentRefereesData, isLoading: loadingReferees } =
+  const {
+    data: tournamentRefereesData,
+    isLoading: loadingReferees,
+    refetch: refetchTournamentReferees,
+  } =
     useListTournamentRefereesQuery(
       { tid: tournamentId, q: "" },
       { skip: !open || !tournamentId },
     );
+
+  const handleRefreshStatus = useCallback(async () => {
+    const tasks = [];
+    if (refetchRuntime) tasks.push(refetchRuntime());
+    if (refetchTournamentReferees) tasks.push(refetchTournamentReferees());
+    if (refetchClusterOptions) tasks.push(refetchClusterOptions());
+    if (!tasks.length) return;
+
+    try {
+      await Promise.allSettled(tasks);
+      toast.success("Đã làm mới trạng thái sân");
+    } catch {
+      toast.error("Làm mới trạng thái sân thất bại");
+    }
+  }, [refetchClusterOptions, refetchRuntime, refetchTournamentReferees]);
 
   const stations = useMemo(() => runtime?.stations || [], [runtime?.stations]);
   const tournamentReferees = useMemo(() => {
@@ -826,6 +1057,29 @@ function TournamentCourtClusterDialog({
     );
   };
 
+  const togglePickerMatch = (stationId, matchId) => {
+    if (!matchId) return;
+    setDraft(
+      stationId,
+      (draft) => {
+        const selected = new Set(draft.pickerMatchIds || []);
+        if (selected.has(matchId)) selected.delete(matchId);
+        else selected.add(matchId);
+        return {
+          ...draft,
+          pickerMatchIds: Array.from(selected),
+        };
+      },
+      { markDirty: false },
+    );
+  };
+
+  const closeQueueEditor = (stationId) => {
+    setQueuePickerOpen(stationId, false);
+    setQueueEditorOpen(stationId, false);
+    setDraft(stationId, { pickerMatchIds: [] }, { markDirty: false });
+  };
+
   const removeQueueMatch = (stationId, matchId) => {
     addBusinessBreadcrumb("court_station.queue.remove", {
       tournamentId,
@@ -873,6 +1127,12 @@ function TournamentCourtClusterDialog({
       await refetchRuntime();
       onUpdated?.();
     } catch (error) {
+      if (error && typeof error === "object") {
+        error.data = {
+          ...(error.data || {}),
+          message: formatApiErrorDetail(error, "Lưu cấu hình sân thất bại"),
+        };
+      }
       toast.error(
         error?.data?.message || error?.message || "Lưu cấu hình sân thất bại",
       );
@@ -927,6 +1187,23 @@ function TournamentCourtClusterDialog({
                 sx={{ fontWeight: "normal", height: 24, fontSize: "0.75rem" }}
               />
             )}
+            <Tooltip title="Làm mới trạng thái sân" arrow>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={handleRefreshStatus}
+                  disabled={
+                    loadingOptions ||
+                    loadingReferees ||
+                    isLoadingRuntime ||
+                    isFetchingRuntime
+                  }
+                  sx={{ color: "text.secondary" }}
+                >
+                  <RefreshIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
           </Typography>
         }
         subtitle={
@@ -1340,7 +1617,11 @@ function TournamentCourtClusterDialog({
                                     <Chip
                                       size="small"
                                       variant="outlined"
-                                      label={station?.code || "—"}
+                                      label={
+                                        station?.code
+                                          ? `Mã sân: ${station.code}`
+                                          : "Mã sân: —"
+                                      }
                                     />
                                     <Tooltip
                                       title={
@@ -1609,28 +1890,18 @@ function TournamentCourtClusterDialog({
                                       )}
                                       <Button
                                         size="small"
-                                        variant={
-                                          queueEditorOpen ? "text" : "outlined"
-                                        }
+                                        variant="outlined"
                                         disabled={clusterInteractionDisabled}
                                         onClick={() => {
-                                          const nextOpen = !queueEditorOpen;
-                                          setQueueEditorOpen(
-                                            stationId,
-                                            nextOpen,
-                                          );
-                                          if (!nextOpen) {
-                                            setQueuePickerOpen(stationId, false);
-                                          }
+                                          setQueueEditorOpen(stationId, true);
+                                          setQueuePickerOpen(stationId, true);
                                         }}
                                       >
-                                        {queueEditorOpen
-                                          ? "Ẩn chọn trận"
-                                          : "Thêm trận"}
+                                        Thêm trận
                                       </Button>
                                     </Stack>
 
-                                    {queueEditorOpen && (
+                                    {false && queueEditorOpen && (
                                       <>
                                     <Autocomplete
                                       open={Boolean(
@@ -1986,6 +2257,27 @@ function TournamentCourtClusterDialog({
                                     </Stack>
                                       </>
                                     )}
+
+                                    <QueueMatchPickerDialog
+                                      open={queueEditorOpen}
+                                      stationName={station?.name}
+                                      options={selectorOptions}
+                                      groupMetaByKey={groupMetaByKey}
+                                      selectedIds={draft.pickerMatchIds || []}
+                                      disabled={clusterInteractionDisabled}
+                                      onClose={() => closeQueueEditor(stationId)}
+                                      onToggleMatch={(matchId) =>
+                                        togglePickerMatch(stationId, matchId)
+                                      }
+                                      onToggleGroup={(matchIds) =>
+                                        toggleGroupPicker(stationId, matchIds)
+                                      }
+                                      onAdd={() => {
+                                        addQueueMatches(stationId);
+                                        setQueuePickerOpen(stationId, false);
+                                        setQueueEditorOpen(stationId, false);
+                                      }}
+                                    />
 
                                     {!queueMatches.length ? (
                                       <Alert severity="info">

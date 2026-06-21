@@ -9,6 +9,8 @@ const errorHandler = (err, req, res, next) => {
   let statusCode =
     typeof err.statusCode === "number"
       ? err.statusCode
+      : typeof err.status === "number"
+      ? err.status
       : res.statusCode === 200
       ? 500
       : res.statusCode;
@@ -33,6 +35,14 @@ const errorHandler = (err, req, res, next) => {
 
   if (typeof err.remainingTime === "number") {
     payload.remainingTime = err.remainingTime;
+  }
+
+  if (Array.isArray(err.details) && err.details.length) {
+    payload.details = err.details;
+  }
+
+  if (Array.isArray(err.invalidRefereeIds) && err.invalidRefereeIds.length) {
+    payload.invalidRefereeIds = err.invalidRefereeIds;
   }
 
   res.status(statusCode).json(payload);

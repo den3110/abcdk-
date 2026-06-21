@@ -1271,8 +1271,6 @@ const DOUBLE_ELIM_CUSTOM_CARD_TEAM_B_CENTER_Y =
   DOUBLE_ELIM_CUSTOM_CARD_TEAM_A_CENTER_Y +
   DOUBLE_ELIM_CUSTOM_CARD_TEAM_HEIGHT +
   DOUBLE_ELIM_CUSTOM_CARD_TEAM_GAP;
-const DOUBLE_ELIM_GF_HEADER_HEIGHT = 54;
-
 function getNodeOffsetWithinRoot(root, node) {
   let left = 0;
   let top = 0;
@@ -2047,8 +2045,12 @@ function DoubleElimBracketLayout({
             sx={{
               position: "absolute",
               left: layout?.left || 0,
-              top: layout ? Math.max(0, layout.top - DOUBLE_ELIM_GF_HEADER_HEIGHT) : 0,
+              top: 0,
               width: DOUBLE_ELIM_CUSTOM_CARD_WIDTH,
+              height: DOUBLE_ELIM_CUSTOM_HEADER_HEIGHT,
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "center",
               visibility: layout ? "visible" : "hidden",
               zIndex: 1,
             }}

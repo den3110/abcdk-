@@ -10,7 +10,9 @@ import {
   Chip,
   CircularProgress,
   Dialog,
+  DialogActions,
   DialogContent,
+  DialogTitle,
   FormControl,
   IconButton,
   InputLabel,
@@ -575,6 +577,28 @@ function TeamPanel({
   );
 }
 
+function PaperLine({ label, value, ui }) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 1.5,
+        p: 1.25,
+        borderRadius: 3,
+        bgcolor: alpha("#ffffff", 0.03),
+        border: "1px solid",
+        borderColor: ui.border,
+      }}
+    >
+      <Typography sx={{ color: ui.muted, fontWeight: 800 }}>{label}</Typography>
+      <Typography sx={{ color: ui.text, fontWeight: 900, textAlign: "right" }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
 export default function RefereeScoreDialog({
   open,
   matchId,
@@ -819,6 +843,8 @@ export default function RefereeScoreDialog({
   const [actionError, setActionError] = useState("");
   const [toolsOpen, setToolsOpen] = useState(false);
   const [courtDialogOpen, setCourtDialogOpen] = useState(false);
+  const [drawDialogOpen, setDrawDialogOpen] = useState(false);
+  const [drawPreview, setDrawPreview] = useState(null);
   const [toast, setToast] = useState({
     open: false,
     message: "",
@@ -838,6 +864,26 @@ export default function RefereeScoreDialog({
   useEffect(() => {
     setSelectedCourtId(currentCourtId);
   }, [currentCourtId]);
+
+  useEffect(() => {
+    lastServerUidRef.current = "";
+    openingServerRef.current = { gameIndex: -1, side: "", uid: "" };
+    forcedServerRef.current = {
+      uid: "",
+      until: 0,
+      gameIndex: -1,
+      side: "",
+      serverNum: 0,
+    };
+    prevServeSnapRef.current = {
+      gameIndex: -1,
+      scoreA: 0,
+      scoreB: 0,
+      activeSide: "A",
+      activeServerNum: 1,
+      serverUidShow: "",
+    };
+  }, [match?._id]);
 
   const findUidAtCurrentSlot = useCallback(
     (side, slot, base = currentBase, score = currentScore) => {
@@ -879,11 +925,16 @@ export default function RefereeScoreDialog({
         : Number(currentScore.b) === Number(previous.scoreB) + 1 &&
           Number(currentScore.a) === Number(previous.scoreA));
     const stablePreviousUid =
-      textOf(previous.serverUidShow) || lastServerUidRef.current || "";
+      textOf(previous.serverUidShow) ||
+      (isPreStartOrOpening ? "" : lastServerUidRef.current) ||
+      "";
     const fallbackSlot = isPreStartOrOpening
       ? preStartRightSlotForSide(activeSide, currentLayout)
       : activeServerNum;
     const fallback = findUidAtCurrentSlot(activeSide, fallbackSlot);
+    const staleLastServerUid = isPreStartOrOpening
+      ? ""
+      : lastServerUidRef.current || "";
     const baseUid = serveSideScored
       ? stablePreviousUid ||
         rawServerUid ||
@@ -893,7 +944,7 @@ export default function RefereeScoreDialog({
       : rawServerUid ||
         (isOpeningServe ? pinnedOpeningServer : "") ||
         fallback ||
-        lastServerUidRef.current ||
+        staleLastServerUid ||
         "";
     return forcedUid || baseUid || "";
   }, [
@@ -915,7 +966,6 @@ export default function RefereeScoreDialog({
     const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
     const uid =
       textOf(match?.serve?.serverId) ||
-      lastServerUidRef.current ||
       findUidAtCurrentSlot(activeSide, rightSlot) ||
       findUidAtCurrentSlot(activeSide, rightSlot === 1 ? 2 : 1) ||
       "";
@@ -963,6 +1013,12 @@ export default function RefereeScoreDialog({
 
   const preStartServeSideLabel =
     activeSide === leftSide ? "Đội bên trái" : "Đội bên phải";
+  const drawSideLabel = useCallback(
+    (side) =>
+      getMatchSideDisplayName(match, side, side === "A" ? "Đội A" : "Đội B") ||
+      (side === "A" ? "Đội A" : "Đội B"),
+    [match],
+  );
   const serveNotation = useMemo(() => {
     const servingScore = activeSide === "A" ? currentScore.a : currentScore.b;
     const receivingScore = activeSide === "A" ? currentScore.b : currentScore.a;
@@ -1224,8 +1280,7 @@ export default function RefereeScoreDialog({
     runLiveControlBusy,
   ]);
 
-  const handleRandomDraw = useCallback(async () => {
-    if (!ensureInteractionAllowed()) return;
+  const buildRandomDrawResult = useCallback(() => {
     const nextLayout = Math.random() > 0.5 ? { left: "A", right: "B" } : { left: "B", right: "A" };
     const nextSide = Math.random() > 0.5 ? "A" : "B";
     const preferredSlot = isDouble
@@ -1235,15 +1290,30 @@ export default function RefereeScoreDialog({
       findUidAtCurrentSlot(nextSide, preferredSlot, currentBase, { a: 0, b: 0 }) ||
       firstPlayerIdOfSide(match, nextSide, eventType) ||
       null;
+    return {
+      nextLayout,
+      nextSide,
+      preferredSlot,
+      serverId,
+    };
+  }, [
+    currentBase,
+    eventType,
+    findUidAtCurrentSlot,
+    isDouble,
+    match,
+  ]);
 
+  const applyDrawResult = useCallback(async (result) => {
+    if (!result) return;
     await runProtectedBusy("draw", () =>
       api.setSlotsBase({
         base: currentBase,
-        layout: nextLayout,
+        layout: result.nextLayout,
         serve: {
-          side: nextSide,
+          side: result.nextSide,
           server: isDouble ? OPENING_DOUBLES_SERVER : 1,
-          serverId,
+          serverId: result.serverId,
           opening: isDouble,
         },
       }),
@@ -1251,13 +1321,28 @@ export default function RefereeScoreDialog({
   }, [
     api,
     currentBase,
-    ensureInteractionAllowed,
-    eventType,
-    findUidAtCurrentSlot,
     isDouble,
-    match,
     runProtectedBusy,
   ]);
+
+  const handleRandomDraw = useCallback(() => {
+    if (!ensureInteractionAllowed()) return;
+    setDrawPreview(buildRandomDrawResult());
+    setDrawDialogOpen(true);
+  }, [
+    buildRandomDrawResult,
+    ensureInteractionAllowed,
+  ]);
+
+  const rerollDrawPreview = useCallback(() => {
+    setDrawPreview(buildRandomDrawResult());
+  }, [buildRandomDrawResult]);
+
+  const confirmRandomDraw = useCallback(async () => {
+    const result = drawPreview || buildRandomDrawResult();
+    await applyDrawResult(result);
+    setDrawDialogOpen(false);
+  }, [applyDrawResult, buildRandomDrawResult, drawPreview]);
 
   const handleBreak = useCallback(
     async (type, side) => {
@@ -1318,8 +1403,9 @@ export default function RefereeScoreDialog({
       if (isDouble && Number(currentScore.a) === 0 && Number(currentScore.b) === 0) {
         const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
         const serverId =
-          serverUidShow ||
+          textOf(match?.serve?.serverId) ||
           findUidAtCurrentSlot(activeSide, rightSlot) ||
+          serverUidShow ||
           findUidAtCurrentSlot(activeSide, rightSlot === 1 ? 2 : 1) ||
           firstPlayerIdOfSide(match, activeSide, eventType) ||
           "";
@@ -2806,6 +2892,94 @@ export default function RefereeScoreDialog({
             </Stack>
           </Stack>
         </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={drawDialogOpen}
+        onClose={() => !busy && setDrawDialogOpen(false)}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: ui.paper,
+            color: ui.text,
+            border: "1px solid",
+            borderColor: ui.border,
+            boxShadow: "0 24px 80px rgba(0,0,0,0.42)",
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+              <CasinoIcon sx={{ color: ui.accent }} />
+              <Typography sx={{ fontSize: 20, fontWeight: 900 }} noWrap>
+                Bốc thăm giao trước
+              </Typography>
+            </Stack>
+            <IconButton
+              onClick={() => setDrawDialogOpen(false)}
+              disabled={Boolean(busy)}
+              sx={{ color: ui.text }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: ui.border }}>
+          <Stack spacing={2} alignItems="center" textAlign="center">
+            <Box
+              sx={{
+                width: 84,
+                height: 84,
+                borderRadius: 4,
+                display: "grid",
+                placeItems: "center",
+                bgcolor: alpha(ui.accent, 0.14),
+                color: ui.accent,
+                border: "1px solid",
+                borderColor: alpha(ui.accent, 0.35),
+              }}
+            >
+              <CasinoIcon sx={{ fontSize: 48 }} />
+            </Box>
+            <Typography sx={{ color: ui.muted, fontWeight: 700 }}>
+              Xem kết quả trước khi áp dụng cho trận.
+            </Typography>
+            <Stack spacing={1} sx={{ width: "100%" }}>
+              <PaperLine
+                label="Bên trái"
+                value={drawPreview?.nextLayout?.left === "B" ? drawSideLabel("B") : drawSideLabel("A")}
+                ui={ui}
+              />
+              <PaperLine
+                label="Giao trước"
+                value={drawPreview?.nextSide ? drawSideLabel(drawPreview.nextSide) : "—"}
+                ui={ui}
+              />
+            </Stack>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<CasinoIcon />}
+            onClick={rerollDrawPreview}
+            disabled={Boolean(busy)}
+            sx={{ borderRadius: 999, fontWeight: 800 }}
+          >
+            Bốc lại
+          </Button>
+          <Button
+            variant="contained"
+            onClick={confirmRandomDraw}
+            disabled={Boolean(busy)}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
+            Áp dụng
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog

@@ -145,6 +145,200 @@ const buildStationItems = (runtime) =>
 const getItemMatches = (item, matchesByItemId) =>
   Array.isArray(matchesByItemId.get(item._id)) ? matchesByItemId.get(item._id) : [];
 
+const DEFAULT_FORM_VALUES = Object.freeze({ enabled: false, videoUrl: "" });
+
+const LiveSetupDesktopRow = React.memo(function LiveSetupDesktopRow({
+  item,
+  counts,
+  sampleUrl,
+  values,
+  isBusy,
+  savingAny,
+  liveUrl,
+  hasClusterMode,
+  onToggleEnabled,
+  onChangeItemField,
+}) {
+  const handleToggle = React.useCallback(
+    (event) => {
+      onToggleEnabled(item._id, event.target.checked);
+    },
+    [item._id, onToggleEnabled],
+  );
+
+  const handleUrlChange = React.useCallback(
+    (event) => {
+      onChangeItemField(item._id, { videoUrl: event.target.value });
+    },
+    [item._id, onChangeItemField],
+  );
+
+  return (
+    <TableRow>
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Chip size="small" icon={<StadiumIcon />} label={item.displayLabel} />
+          {item?.code && (
+            <Chip size="small" variant="outlined" label={`Mã sân: ${item.code}`} />
+          )}
+        </Stack>
+      </TableCell>
+
+      <TableCell sx={{ whiteSpace: "nowrap" }}>
+        {counts.total} / {counts.live} / {counts.notFinished}
+      </TableCell>
+
+      <TableCell sx={{ maxWidth: 320 }}>
+        {sampleUrl ? (
+          <Tooltip title={sampleUrl} arrow>
+            <Typography variant="body2" noWrap>
+              {sampleUrl}
+            </Typography>
+          </Tooltip>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            (chưa có)
+          </Typography>
+        )}
+      </TableCell>
+
+      <TableCell sx={{ width: 80 }}>
+        <Checkbox
+          size="small"
+          checked={!!values.enabled}
+          sx={{ mx: 0.5 }}
+          disabled={isBusy || savingAny}
+          onChange={handleToggle}
+        />
+      </TableCell>
+
+      <TableCell sx={{ minWidth: 320 }}>
+        <TextField
+          size="small"
+          fullWidth
+          placeholder="https://... để trống nếu muốn tắt/xóa"
+          value={values.videoUrl}
+          onChange={handleUrlChange}
+        />
+      </TableCell>
+
+      <TableCell align="right">
+        <Stack direction="row" spacing={1} justifyContent="flex-end">
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            component={RouterLink}
+            to={liveUrl}
+            target="_blank"
+            rel="noopener"
+          >
+            {hasClusterMode ? "Mở LIVE" : "Mở studio LIVE"}
+          </Button>
+        </Stack>
+      </TableCell>
+    </TableRow>
+  );
+});
+
+const LiveSetupMobileCard = React.memo(function LiveSetupMobileCard({
+  item,
+  counts,
+  sampleUrl,
+  values,
+  isBusy,
+  savingAny,
+  liveUrl,
+  hasClusterMode,
+  onToggleEnabled,
+  onChangeItemField,
+}) {
+  const handleToggle = React.useCallback(
+    (event) => {
+      onToggleEnabled(item._id, event.target.checked);
+    },
+    [item._id, onToggleEnabled],
+  );
+
+  const handleUrlChange = React.useCallback(
+    (event) => {
+      onChangeItemField(item._id, { videoUrl: event.target.value });
+    },
+    [item._id, onChangeItemField],
+  );
+
+  return (
+    <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+      <Stack spacing={1.25}>
+        <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+          <Chip size="small" icon={<StadiumIcon />} label={item.displayLabel} />
+          <Typography variant="body2" color="text.secondary">
+            {counts.total} / {counts.live} / {counts.notFinished}
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <Typography variant="caption">Bật</Typography>
+            <Checkbox
+              size="small"
+              checked={!!values.enabled}
+              sx={{ p: 0.5 }}
+              disabled={isBusy || savingAny}
+              onChange={handleToggle}
+            />
+          </Stack>
+        </Stack>
+
+        <Typography variant="caption" color="text.secondary">
+          Tích bật/tắt sẽ lưu ngay. Đổi URL rồi bấm “Lưu tất cả sân”.
+        </Typography>
+
+        <Box>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block", mb: 0.5 }}
+          >
+            URL mẫu từ trận
+          </Typography>
+          {sampleUrl ? (
+            <Tooltip title={sampleUrl} arrow>
+              <Typography variant="body2" noWrap>
+                {sampleUrl}
+              </Typography>
+            </Tooltip>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              (chưa có)
+            </Typography>
+          )}
+        </Box>
+
+        <TextField
+          size="small"
+          fullWidth
+          placeholder="URL LIVE mặc định https://..."
+          value={values.videoUrl}
+          onChange={handleUrlChange}
+        />
+
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            component={RouterLink}
+            to={liveUrl}
+            target="_blank"
+            rel="noopener"
+          >
+            {hasClusterMode ? "Mở LIVE" : "Mở studio LIVE"}
+          </Button>
+        </Stack>
+      </Stack>
+    </Paper>
+  );
+});
+
 export default function LiveSetupDialog({
   open,
   onClose,
@@ -191,7 +385,10 @@ export default function LiveSetupDialog({
     refetch: refetchCourts,
   } = useAdminListCourtsByTournamentQuery(
     { tid: tournamentId },
-    { skip: !open || !tournamentId || hasClusterMode },
+    {
+      skip: !open || !tournamentId || hasClusterMode,
+      refetchOnMountOrArgChange: true,
+    },
   );
 
   const {
@@ -204,35 +401,20 @@ export default function LiveSetupDialog({
     { tournamentId, clusterId: selectedClusterId },
     {
       skip: !open || !tournamentId || !selectedClusterId || !hasClusterMode,
+      refetchOnMountOrArgChange: true,
     },
   );
 
   const {
     data: matchPage,
     isLoading: matchesLoading,
-    refetch: refetchMatches,
   } = useAdminListMatchesByTournamentQuery(
     { tid: tournamentId, page: 1, pageSize: 1000 },
-    { skip: !open || !tournamentId },
+    {
+      skip: !open || !tournamentId,
+      refetchOnMountOrArgChange: true,
+    },
   );
-
-  React.useEffect(() => {
-    if (!open || !tournamentId) return;
-    refetchMatches?.();
-    if (hasClusterMode) {
-      if (selectedClusterId) refetchRuntime?.();
-      return;
-    }
-    refetchCourts?.();
-  }, [
-    open,
-    tournamentId,
-    hasClusterMode,
-    selectedClusterId,
-    refetchMatches,
-    refetchRuntime,
-    refetchCourts,
-  ]);
 
   const items = React.useMemo(
     () =>
@@ -263,10 +445,36 @@ export default function LiveSetupDialog({
     return map;
   }, [items, matchesAll, hasClusterMode]);
 
+  const itemsById = React.useMemo(() => {
+    const map = new Map();
+    items.forEach((item) => map.set(item._id, item));
+    return map;
+  }, [items]);
+
+  const itemMetaById = React.useMemo(() => {
+    const map = new Map();
+    items.forEach((item) => {
+      const matches = getItemMatches(item, matchesByItemId);
+      map.set(item._id, {
+        counts: matches.length ? countByStatus(matches) : fallbackStationCounts(item),
+        sampleUrl:
+          mostCommonUrl(matches) ||
+          String(item?.currentMatch?.video || "").trim() ||
+          String(item?.liveConfig?.videoUrl || "").trim(),
+      });
+    });
+    return map;
+  }, [items, matchesByItemId]);
+
   const [form, setForm] = React.useState({});
   const [overrideExisting, setOverrideExisting] = React.useState(false);
   const [busy, setBusy] = React.useState(new Set());
   const initialFormRef = React.useRef({});
+  const formRef = React.useRef(form);
+
+  React.useEffect(() => {
+    formRef.current = form;
+  }, [form]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -342,12 +550,9 @@ export default function LiveSetupDialog({
         showSuccessToast = true,
         rollbackValues = null,
       } = options;
-      const item = items.find((entry) => entry._id === itemId);
+      const item = itemsById.get(itemId);
       if (!item) return;
-      const values = valuesOverride || form[itemId] || {
-        enabled: false,
-        videoUrl: "",
-      };
+      const values = valuesOverride || formRef.current[itemId] || DEFAULT_FORM_VALUES;
 
       setItemBusy(itemId, true);
       try {
@@ -379,8 +584,7 @@ export default function LiveSetupDialog({
       }
     },
     [
-      items,
-      form,
+      itemsById,
       hasClusterMode,
       saveStationLiveConfig,
       saveLegacyCourtLiveConfig,
@@ -390,10 +594,7 @@ export default function LiveSetupDialog({
 
   const handleToggleEnabled = React.useCallback(
     async (itemId, checked) => {
-      const previousValues = form[itemId] || {
-        enabled: false,
-        videoUrl: "",
-      };
+      const previousValues = formRef.current[itemId] || DEFAULT_FORM_VALUES;
       const nextValues = {
         ...previousValues,
         enabled: checked,
@@ -404,7 +605,7 @@ export default function LiveSetupDialog({
         rollbackValues: previousValues,
       });
     },
-    [form, onChangeItemField, saveItem],
+    [onChangeItemField, saveItem],
   );
 
   const saveAll = React.useCallback(async () => {
@@ -491,41 +692,21 @@ export default function LiveSetupDialog({
     (hasClusterMode ? runtimeLoading || runtimeFetching : courtsLoading);
   const savingAny = savingLegacy || bulkSavingLegacy || savingStation;
 
-  const renderItemCounts = React.useCallback(
-    (item) => {
-      const matches = getItemMatches(item, matchesByItemId);
-      return matches.length ? countByStatus(matches) : fallbackStationCounts(item);
-    },
-    [matchesByItemId],
-  );
-
-  const renderItemSampleUrl = React.useCallback(
-    (item) => {
-      const matches = getItemMatches(item, matchesByItemId);
-      return (
-        mostCommonUrl(matches) ||
-        String(item?.currentMatch?.video || "").trim() ||
-        String(item?.liveConfig?.videoUrl || "").trim()
-      );
-    },
-    [matchesByItemId],
-  );
-
   return (
     <ResponsiveModal
       open={open}
       onClose={onClose}
       inline={inline}
       showCloseIcon={!inline}
-      maxWidth="xl"
+      maxWidth={false}
       icon={<MovieIcon />}
       title="Thiết lập LIVE — Toàn giải"
       paperSx={{
-        width: { xs: "100%", sm: "96vw" },
-        maxWidth: 1500,
-        height: { xs: "100%", md: "90vh" },
+        width: { xs: "100%", md: "96vw" },
+        maxWidth: "none",
+        height: { xs: "100%", md: "92vh" },
       }}
-      contentProps={{ sx: { pt: 1 } }}
+      contentProps={{ sx: { pt: 1, overflowY: "auto" } }}
       actions={
         <>
           <Button onClick={onClose}>Đóng</Button>
@@ -641,88 +822,21 @@ export default function LiveSetupDialog({
                 </TableHead>
                 <TableBody>
                   {items.map((item) => {
-                    const counts = renderItemCounts(item);
-                    const sampleUrl = renderItemSampleUrl(item);
-                    const values = form[item._id] || {
-                      enabled: false,
-                      videoUrl: "",
-                    };
-                    const isBusy = busy.has(item._id);
+                    const meta = itemMetaById.get(item._id);
                     return (
-                      <TableRow key={item._id}>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Chip
-                              size="small"
-                              icon={<StadiumIcon />}
-                              label={item.displayLabel}
-                            />
-                            {item?.code && (
-                              <Chip size="small" variant="outlined" label={item.code} />
-                            )}
-                          </Stack>
-                        </TableCell>
-
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          {counts.total} / {counts.live} / {counts.notFinished}
-                        </TableCell>
-
-                        <TableCell sx={{ maxWidth: 320 }}>
-                          {sampleUrl ? (
-                            <Tooltip title={sampleUrl} arrow>
-                              <Typography variant="body2" noWrap>
-                                {sampleUrl}
-                              </Typography>
-                            </Tooltip>
-                          ) : (
-                            <Typography variant="body2" color="text.secondary">
-                              (chưa có)
-                            </Typography>
-                          )}
-                        </TableCell>
-
-                        <TableCell sx={{ width: 80 }}>
-                          <Checkbox
-                            size="small"
-                            checked={!!values.enabled}
-                            sx={{ mx: 0.5 }}
-                            disabled={isBusy || savingAny}
-                            onChange={(event) =>
-                              handleToggleEnabled(item._id, event.target.checked)
-                            }
-                          />
-                        </TableCell>
-
-                        <TableCell sx={{ minWidth: 320 }}>
-                          <TextField
-                            size="small"
-                            fullWidth
-                            placeholder="https://... để trống nếu muốn tắt/xóa"
-                            value={values.videoUrl}
-                            onChange={(event) =>
-                              onChangeItemField(item._id, {
-                                videoUrl: event.target.value,
-                              })
-                            }
-                          />
-                        </TableCell>
-
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} justifyContent="flex-end">
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<OpenInNewIcon />}
-                              component={RouterLink}
-                              to={buildLiveUrl(tournamentId, bracketId ?? null, item)}
-                              target="_blank"
-                              rel="noopener"
-                            >
-                              {hasClusterMode ? "Mở LIVE" : "Mở studio LIVE"}
-                            </Button>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
+                      <LiveSetupDesktopRow
+                        key={item._id}
+                        item={item}
+                        counts={meta?.counts || fallbackStationCounts(item)}
+                        sampleUrl={meta?.sampleUrl || ""}
+                        values={form[item._id] || DEFAULT_FORM_VALUES}
+                        isBusy={busy.has(item._id)}
+                        savingAny={savingAny}
+                        liveUrl={buildLiveUrl(tournamentId, bracketId ?? null, item)}
+                        hasClusterMode={hasClusterMode}
+                        onToggleEnabled={handleToggleEnabled}
+                        onChangeItemField={onChangeItemField}
+                      />
                     );
                   })}
                 </TableBody>
@@ -731,102 +845,22 @@ export default function LiveSetupDialog({
 
             <Stack spacing={1} sx={{ display: { xs: "flex", md: "none" } }}>
               {items.map((item) => {
-                const counts = renderItemCounts(item);
-                const sampleUrl = renderItemSampleUrl(item);
-                const values = form[item._id] || {
-                  enabled: false,
-                  videoUrl: "",
-                };
-                const isBusy = busy.has(item._id);
+                const meta = itemMetaById.get(item._id);
 
                 return (
-                  <Paper
+                  <LiveSetupMobileCard
                     key={item._id}
-                    variant="outlined"
-                    sx={{ p: 1.25, borderRadius: 2 }}
-                  >
-                    <Stack spacing={1.25}>
-                      <Stack
-                        direction="row"
-                        alignItems="center"
-                        spacing={1}
-                        flexWrap="wrap"
-                      >
-                        <Chip
-                          size="small"
-                          icon={<StadiumIcon />}
-                          label={item.displayLabel}
-                        />
-                        <Typography variant="body2" color="text.secondary">
-                          {counts.total} / {counts.live} / {counts.notFinished}
-                        </Typography>
-                        <Box sx={{ flex: 1 }} />
-                        <Stack direction="row" alignItems="center" spacing={0.5}>
-                          <Typography variant="caption">Bật</Typography>
-                          <Checkbox
-                            size="small"
-                            checked={!!values.enabled}
-                            sx={{ p: 0.5 }}
-                            disabled={isBusy || savingAny}
-                            onChange={(event) =>
-                              handleToggleEnabled(item._id, event.target.checked)
-                            }
-                          />
-                        </Stack>
-                      </Stack>
-
-                      <Typography variant="caption" color="text.secondary">
-                        Tích bật/tắt sẽ lưu ngay. Đổi URL rồi bấm “Lưu tất cả sân”.
-                      </Typography>
-
-                      <Box>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ display: "block", mb: 0.5 }}
-                        >
-                          URL mẫu từ trận
-                        </Typography>
-                        {sampleUrl ? (
-                          <Tooltip title={sampleUrl} arrow>
-                            <Typography variant="body2" noWrap>
-                              {sampleUrl}
-                            </Typography>
-                          </Tooltip>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            (chưa có)
-                          </Typography>
-                        )}
-                      </Box>
-
-                      <TextField
-                        size="small"
-                        fullWidth
-                        placeholder="URL LIVE mặc định https://..."
-                        value={values.videoUrl}
-                        onChange={(event) =>
-                          onChangeItemField(item._id, {
-                            videoUrl: event.target.value,
-                          })
-                        }
-                      />
-
-                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<OpenInNewIcon />}
-                          component={RouterLink}
-                          to={buildLiveUrl(tournamentId, bracketId ?? null, item)}
-                          target="_blank"
-                          rel="noopener"
-                        >
-                          {hasClusterMode ? "Mở LIVE" : "Mở studio LIVE"}
-                        </Button>
-                      </Stack>
-                    </Stack>
-                  </Paper>
+                    item={item}
+                    counts={meta?.counts || fallbackStationCounts(item)}
+                    sampleUrl={meta?.sampleUrl || ""}
+                    values={form[item._id] || DEFAULT_FORM_VALUES}
+                    isBusy={busy.has(item._id)}
+                    savingAny={savingAny}
+                    liveUrl={buildLiveUrl(tournamentId, bracketId ?? null, item)}
+                    hasClusterMode={hasClusterMode}
+                    onToggleEnabled={handleToggleEnabled}
+                    onChangeItemField={onChangeItemField}
+                  />
                 );
               })}
             </Stack>

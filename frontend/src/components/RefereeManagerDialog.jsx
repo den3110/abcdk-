@@ -103,12 +103,28 @@ export default function ManageRefereesDialog({
       open={open}
       onClose={onClose}
       inline={inline}
-      maxWidth="md"
+      maxWidth={false}
       icon={<RefereeIcon fontSize="small" />}
       title={
         <Stack direction="row" alignItems="center" spacing={1}>
           <span>Quản lý trọng tài của giải</span>
         </Stack>
+      }
+      paperSx={
+        inline
+          ? undefined
+          : {
+              width: { xs: "100%", md: "96vw" },
+              maxWidth: "none",
+              height: { xs: "100%", md: "92vh" },
+            }
+      }
+      contentProps={
+        inline
+          ? undefined
+          : {
+              sx: { overflowY: "auto" },
+            }
       }
       actions={<Button onClick={onClose}>Đóng</Button>}
     >

@@ -952,6 +952,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   const { t, locale } = useLanguage();
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
+  const mergedCourtLabel = courtLabel(merged);
 
   const MainRow = (
     <TableRow
@@ -989,8 +990,23 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
           {teamLabel(merged, "B")}
         </Typography>
       </TableCell>
-      <TableCell sx={{ width: 96, whiteSpace: "nowrap", py: 0.5 }}>
-        {courtLabel(merged)}
+      <TableCell
+        sx={{
+          width: 96,
+          maxWidth: 96,
+          whiteSpace: "nowrap",
+          py: 0.5,
+        }}
+      >
+        <Tooltip
+          title={mergedCourtLabel || ""}
+          arrow
+          disableHoverListener={!mergedCourtLabel || mergedCourtLabel === "—"}
+        >
+          <Typography component="span" noWrap sx={{ display: "block" }}>
+            {mergedCourtLabel}
+          </Typography>
+        </Tooltip>
       </TableCell>
       <TableCell sx={{ width: 68, whiteSpace: "nowrap, py: 0.5" }}>
         {Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—"}
@@ -3437,8 +3453,8 @@ export default function TournamentManagePage() {
   };
   const manageV2DividerColor = (muiTheme) =>
     muiTheme.palette.mode === "dark"
-      ? "rgba(255,255,255,0.07)"
-      : "rgba(0,0,0,0.12)";
+      ? "rgba(148, 163, 184, 0.16)"
+      : "rgba(15, 23, 42, 0.14)";
   const hideManageMatchContent = isManageV2 && v2SettingsOpen;
 
   return (
@@ -4106,16 +4122,20 @@ export default function TournamentManagePage() {
               }}
             >
               <Box
-                sx={{
-                  borderRight: { md: "1px solid" },
-                  borderBottom: { xs: "1px solid", md: 0 },
-                  borderColor: manageV2DividerColor,
+                sx={(muiTheme) => ({
+                  borderRight: {
+                    md: `1px solid ${manageV2DividerColor(muiTheme)}`,
+                  },
+                  borderBottom: {
+                    xs: `1px solid ${manageV2DividerColor(muiTheme)}`,
+                    md: 0,
+                  },
                   bgcolor: "background.default",
                   p: { xs: 1, md: 2 },
                   minWidth: 0,
                   minHeight: 0,
                   overflow: "auto",
-                }}
+                })}
               >
                 <Stack
                   direction="row"

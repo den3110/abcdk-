@@ -58,7 +58,6 @@ import {
   useListTournamentMatchesQuery,
 } from "../../../slices/tournamentsApiSlice";
 import { useSocket } from "../../../context/SocketContext";
-import MatchRowActions from "../../../components/MatchRowActions";
 import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
@@ -2749,11 +2748,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             >
               Dán link vào OBS/StreamYard (Browser Source) để hiển thị tỉ số.
             </Typography>
-
-            <Divider sx={{ my: 0.5 }} />
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-              <MatchRowActions match={m} />
-            </Box>
           </Stack>
         </Paper>
       )}

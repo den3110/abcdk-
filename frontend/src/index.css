@@ -19,10 +19,13 @@
   color: var(--seed-fg);
   font-weight: 700;
   line-height: 1.1;
+  min-width: 0;
+  overflow: hidden;
 }
 .seed-code {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 .seed-meta {
   margin-left: auto;
@@ -30,12 +33,17 @@
   align-items: center;
   gap: 10px;
   flex-wrap: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  overflow: hidden;
 }
 .meta-item {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  overflow: hidden;
 }
 .meta-icon {
   font-size: 16px !important;
@@ -43,7 +51,7 @@
 }
 .meta-text {
   display: inline-block;
-  max-width: 24ch;
+  max-width: 12ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -197,13 +197,31 @@ export default function TournamentManagersDialog({
       onClose={onClose}
       inline={inline}
       showCloseIcon={!inline}
-      maxWidth="md"
+      maxWidth={false}
       icon={<GroupIcon fontSize="small" />}
       title={t(
         "tournaments.manage.managerDialogTitle",
         undefined,
         "Manage tournament managers",
       )}
+      paperSx={
+        inline
+          ? undefined
+          : {
+              width: { xs: "100%", md: "96vw" },
+              maxWidth: "none",
+              height: { xs: "100%", md: "92vh" },
+            }
+      }
+      contentProps={
+        inline
+          ? undefined
+          : {
+              sx: {
+                overflowY: "auto",
+              },
+            }
+      }
       actions={
         inline ? null : (
           <Button onClick={onClose}>
