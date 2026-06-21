@@ -248,6 +248,10 @@ const SystemSettingsSchema = new mongoose.Schema(
       },
     },
 
+    pikora: {
+      enabled: { type: Boolean, default: true },
+    },
+
     azure: {
       enabled: { type: Boolean, default: false },
       accounts: { type: [azureAccountSchema], default: [] },

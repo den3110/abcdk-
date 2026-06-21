@@ -1,7 +1,11 @@
 // src/pages/TournamentSchedule.jsx
 /* eslint-disable react/prop-types, no-unused-vars */
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import { useParams, Link as RouterLink } from "react-router-dom";
+import {
+  useParams,
+  Link as RouterLink,
+  useSearchParams,
+} from "react-router-dom";
 import {
   Box,
   Container,
@@ -18,6 +22,7 @@ import {
   Avatar,
   Paper,
   IconButton,
+  MenuItem,
   Skeleton,
   useMediaQuery,
   useTheme,
@@ -29,6 +34,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import LocalFireDepartmentIcon from "@mui/icons-material/LocalFireDepartment";
 
 import {
   useGetTournamentQuery,
@@ -144,6 +150,18 @@ const isScheduled = (m) =>
     "assigning",
     "assigned",
   ].includes(String(m?.status || "").toLowerCase());
+
+const SCHEDULE_STATUS_TABS = new Set([
+  "all",
+  "live",
+  "upcoming",
+  "finished",
+]);
+
+const normalizeScheduleStatus = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return SCHEDULE_STATUS_TABS.has(normalized) ? normalized : "";
+};
 
 function orderKey(m) {
   const bo = m?.bracket?.order ?? 9999;
@@ -639,6 +657,34 @@ function roundsCountForBracket(bracket, matchesOfThis = []) {
   if (scale) return Math.ceil(Math.log2(scale));
   return 1;
 }
+
+const isEliminationBracketType = (bracket) => {
+  const type = String(bracket?.type || "").toLowerCase();
+  return (
+    type.includes("knockout") ||
+    type === "ko" ||
+    type.includes("playoff") ||
+    type.includes("elim")
+  );
+};
+
+const scheduleRoundLabel = (match, matchesOfBracket = []) => {
+  const round = Number(match?.round ?? matchRoundNumber(match) ?? 1) || 1;
+  const bracket = match?.bracket && typeof match.bracket === "object"
+    ? match.bracket
+    : null;
+  if (!isEliminationBracketType(bracket)) return `Vòng ${round}`;
+
+  const totalRounds = roundsCountForBracket(bracket, matchesOfBracket);
+  const remainingRounds = Math.max(1, totalRounds - round + 1);
+  const drawSize = 2 ** remainingRounds;
+
+  if (drawSize === 2) return "Chung kết";
+  if (drawSize === 4) return "Bán kết";
+  if (drawSize === 8) return "Tứ kết";
+  if (drawSize >= 16) return `Vòng 1/${drawSize}`;
+  return `Vòng ${round}`;
+};
 
 function _computeBaseRoundStart(brackets, byBracket, current) {
   let sum = 0;

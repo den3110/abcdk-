@@ -3419,6 +3419,28 @@ export default function TournamentManagePage() {
   }
 
   /* ---------- UI ---------- */
+  const manageActionGroupSx = {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 0.75,
+    p: 0.75,
+    minHeight: 48,
+    border: "1px solid",
+    borderColor: "divider",
+    borderRadius: 1.5,
+    bgcolor: "background.paper",
+    "& .MuiButton-root": {
+      minHeight: 34,
+      whiteSpace: "nowrap",
+    },
+  };
+  const manageV2DividerColor = (muiTheme) =>
+    muiTheme.palette.mode === "dark"
+      ? "rgba(255,255,255,0.07)"
+      : "rgba(0,0,0,0.12)";
+  const hideManageMatchContent = isManageV2 && v2SettingsOpen;
+
   return (
     <Box
       sx={{
@@ -3549,18 +3571,41 @@ export default function TournamentManagePage() {
       </Dialog>
 
       {/* Header */}
-      <Stack spacing={1.25} mb={2}>
-        <Typography variant="h5" noWrap sx={{ lineHeight: 1.15 }}>
-          {t("tournaments.manage.pageTitle", {
-            name: tour?.name || t("tournaments.manage.fallbackName"),
-          })}
-        </Typography>
+      <Stack spacing={1.25} mb={2} sx={{ mt: { xs: 1.5, md: 2.5 } }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
+          <Typography variant="h5" noWrap sx={{ lineHeight: 1.15, minWidth: 0 }}>
+            {t("tournaments.manage.pageTitle", {
+              name: tour?.name || t("tournaments.manage.fallbackName"),
+            })}
+          </Typography>
+          {isManageV2 ? (
+            <Tooltip title="Mở cài đặt quản lý" arrow>
+              <IconButton
+                color="primary"
+                aria-label="Mở cài đặt quản lý"
+                onClick={toggleV2Settings}
+                sx={{
+                  border: 1,
+                  borderColor: "divider",
+                  bgcolor: v2SettingsOpen ? "action.selected" : "transparent",
+                  flexShrink: 0,
+                }}
+              >
+                <SettingsIcon />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+        </Stack>
 
         <Stack
           direction={{ xs: "column", md: "row" }}
           alignItems="flex-start"
           justifyContent="flex-end"
-          sx={{ gap: 1, width: "100%" }}
+          sx={{
+            gap: 1,
+            width: "100%",
+            display: isManageV2 ? "none" : undefined,
+          }}
         >
           {isManageV2 ? (
             <Tooltip title="Mở cài đặt quản lý" arrow>
@@ -3583,16 +3628,18 @@ export default function TournamentManagePage() {
           {/* Desktop actions */}
           <Stack
             direction="row"
-            spacing={1}
             useFlexGap
             flexWrap="wrap"
             sx={{
               display: { xs: "none", md: "flex" },
-              "& > *": { flexShrink: 0 },
+              gap: 1,
+              alignItems: "stretch",
               maxWidth: "100%",
+              width: "100%",
               justifyContent: "flex-end",
             }}
           >
+            <Box sx={{ ...manageActionGroupSx, flex: "0 1 auto" }}>
             {canManageManagers ? (
               <Button
                 variant="outlined"
@@ -3634,7 +3681,15 @@ export default function TournamentManagePage() {
                 {t("tournaments.manage.liveSetup")}
               </Button>
             </Tooltip>
+            </Box>
 
+            <Box
+              sx={{
+                ...manageActionGroupSx,
+                flex: "1 1 680px",
+                justifyContent: "flex-end",
+              }}
+            >
             <Box
               onDragOver={(event) => {
                 event.preventDefault();
@@ -3759,7 +3814,10 @@ export default function TournamentManagePage() {
               {posterAiRunning || posterAiStale ? "Chạy lại AI" : "AI poster"}
             </Button>
 
+            </Box>
+
             {/* Export menu (desktop) */}
+            <Box sx={{ ...manageActionGroupSx, flex: "0 1 auto" }}>
             <Button
               variant="outlined"
               size="small"
@@ -3827,6 +3885,7 @@ export default function TournamentManagePage() {
                 Trọng tài
               </Button>
             ) : null}
+            </Box>
           </Stack>
 
           {/* Mobile actions */}
@@ -4028,10 +4087,7 @@ export default function TournamentManagePage() {
             variant="outlined"
             sx={{
               overflow: "hidden",
-              borderColor: (muiTheme) =>
-                muiTheme.palette.mode === "dark"
-                  ? "rgba(255,255,255,0.10)"
-                  : "rgba(0,0,0,0.10)",
+              borderColor: manageV2DividerColor,
               height: {
                 xs: "min(680px, calc(100dvh - 180px))",
                 md: "min(720px, calc(100dvh - 220px))",
@@ -4051,12 +4107,9 @@ export default function TournamentManagePage() {
             >
               <Box
                 sx={{
-                  borderRight: { md: 1 },
-                  borderBottom: { xs: 1, md: 0 },
-                  borderColor: (muiTheme) =>
-                    muiTheme.palette.mode === "dark"
-                      ? "rgba(255,255,255,0.10)"
-                      : "rgba(0,0,0,0.10)",
+                  borderRight: { md: "1px solid" },
+                  borderBottom: { xs: "1px solid", md: 0 },
+                  borderColor: manageV2DividerColor,
                   bgcolor: "background.default",
                   p: { xs: 1, md: 2 },
                   minWidth: 0,
@@ -4132,7 +4185,7 @@ export default function TournamentManagePage() {
         ) : null}
 
         {/* Filter bar */}
-        {isManageV2 && v2SettingsOpen ? null : (
+        {hideManageMatchContent ? null : (
         <Paper variant="outlined">
           <Box
             p={2}
@@ -4251,27 +4304,29 @@ export default function TournamentManagePage() {
         )}
 
         {/* Tabs */}
-        <Paper variant="outlined" sx={{ mt: 1 }}>
-          <Tabs
-            value={tab}
-            onChange={(_, v) => selectTab(v)}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{ px: 1 }}
-          >
-            {typesAvailable.map((typeItem) => (
-              <Tab
-                key={typeItem.type}
-                label={getTypeLabel(t, typeItem.type)}
-                value={typeItem.type}
-              />
-            ))}
-          </Tabs>
-        </Paper>
+        {hideManageMatchContent ? null : (
+          <Paper variant="outlined" sx={{ mt: 1 }}>
+            <Tabs
+              value={tab}
+              onChange={(_, v) => selectTab(v)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{ px: 1 }}
+            >
+              {typesAvailable.map((typeItem) => (
+                <Tab
+                  key={typeItem.type}
+                  label={getTypeLabel(t, typeItem.type)}
+                  value={typeItem.type}
+                />
+              ))}
+            </Tabs>
+          </Paper>
+        )}
       </Stack>
 
       {/* === Floating Action Bar (hiện khi có chọn) === */}
-      {selectedMatchIds.size > 0 && (
+      {!hideManageMatchContent && selectedMatchIds.size > 0 && (
         <>
           <Box sx={{ display: { xs: "none", md: "block" } }}>
             <Box
@@ -4391,7 +4446,7 @@ export default function TournamentManagePage() {
       )}
 
       {/* Bracket list */}
-      {bracketsOfTab.length === 0 ? (
+      {!hideManageMatchContent && (bracketsOfTab.length === 0 ? (
         <Alert severity="info">
           {t("tournaments.manage.emptyType", { type: getTypeLabel(t, tab) })}
         </Alert>
@@ -4631,7 +4686,7 @@ export default function TournamentManagePage() {
             </Paper>
           );
         })
-      )}
+      ))}
 
       {/* Dialog gán link video */}
       <VideoDialog

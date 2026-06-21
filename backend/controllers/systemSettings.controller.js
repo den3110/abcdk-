@@ -121,6 +121,16 @@ function sanitizeSettingsPatch(patch = {}) {
     }
   }
 
+  if (next.pikora && typeof next.pikora === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.pikora, "enabled")) {
+      next.pikora.enabled = next.pikora.enabled !== false;
+    }
+
+    if (!Object.keys(next.pikora).length) {
+      delete next.pikora;
+    }
+  }
+
   if (next.captcha && typeof next.captcha === "object") {
     if (Object.prototype.hasOwnProperty.call(next.captcha, "enabled")) {
       next.captcha.enabled = next.captcha.enabled !== false;

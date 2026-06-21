@@ -264,7 +264,7 @@ const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
   const { open: commandPaletteOpen } = useCommandPalette();
-  const { isModernVersion } = useFrontendUiVersion();
+  const { isModernVersion, pikoraEnabled } = useFrontendUiVersion();
 
   // Define routes that should have a full-screen layout (no header/footer)
   const isAuthPage = [
@@ -277,6 +277,8 @@ const App = () => {
   const isImmersiveLiveFeedPage = location.pathname === "/live";
   const isModernHomeRoute = isModernVersion && location.pathname === "/";
   const hideMobileBottomNav = isModernHomeRoute;
+  const shouldShowPikora =
+    pikoraEnabled && !isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute;
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -369,7 +371,7 @@ const App = () => {
         </Container>
       )}
 
-      {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (
+      {shouldShowPikora && (
         <Suspense fallback={null}>
           <ChatBotDrawer />
         </Suspense>

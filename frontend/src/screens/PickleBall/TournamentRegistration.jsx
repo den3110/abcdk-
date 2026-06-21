@@ -2581,21 +2581,6 @@ export default function TournamentRegistration() {
                 >
                   {t("tournaments.registration.actions.bracket")}
                 </Button>
-
-                <Button
-                  startIcon={<CheckCircle />}
-                  component={Link}
-                  to={`/tournament/${id}/checkin`}
-                  fullWidth
-                  variant="outlined"
-                  sx={{
-                    borderRadius: 2,
-                    justifyContent: "center", // cho đẹp đồng bộ luôn
-                    textTransform: "none",
-                  }}
-                >
-                  {t("tournaments.registration.actions.checkin")}
-                </Button>
               </Stack>
             </Paper>
           </Grid>

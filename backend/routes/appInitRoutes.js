@@ -21,12 +21,14 @@ async function buildPublicUiPayload() {
         ? frontendVersion
         : "v1",
       captchaEnabled: settings?.captcha?.enabled !== false,
+      pikoraEnabled: settings?.pikora?.enabled !== false,
     };
   } catch (error) {
     console.error("[appInit] Cannot load frontend UI settings:", error);
     return {
       frontendVersion: "v1",
       captchaEnabled: true,
+      pikoraEnabled: true,
     };
   }
 }

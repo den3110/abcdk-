@@ -68,6 +68,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   frontendUi: {
     version: "v1",
   },
+  pikora: {
+    enabled: true,
+  },
   ota: {
     enabled: true,
     forceUpdateEnabled: false,
@@ -196,6 +199,10 @@ export function normalizeSystemSettings(doc = {}) {
     frontendUi: {
       ...DEFAULT_SYSTEM_SETTINGS.frontendUi,
       ...(source.frontendUi || {}),
+    },
+    pikora: {
+      ...DEFAULT_SYSTEM_SETTINGS.pikora,
+      ...(source.pikora || {}),
     },
     ota: {
       ...DEFAULT_SYSTEM_SETTINGS.ota,
