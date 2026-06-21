@@ -35,6 +35,118 @@ function isFacebookVideoUrl(url) {
   return value.includes("facebook.com") || value.includes("fb.watch");
 }
 
+const SIDE_DISPLAY_PLAYER_SELECT = "fullName name shortName nickname nickName user";
+const SIDE_DISPLAY_USER_SELECT = "fullName name nickname nickName";
+const SIDE_DISPLAY_PAIR_SELECT =
+  "player1 player2 seed label teamName displayName name";
+const SIDE_DISPLAY_MATCH_SELECT = [
+  "_id",
+  "tournament",
+  "bracket",
+  "round",
+  "rrRound",
+  "order",
+  "tIndex",
+  "stage",
+  "stageIndex",
+  "globalRound",
+  "labelKey",
+  "labelKeyDisplay",
+  "displayCode",
+  "codeDisplay",
+  "codeResolved",
+  "roundCode",
+  "globalCode",
+  "matchCode",
+  "code",
+  "seedA",
+  "seedB",
+  "previousA",
+  "previousB",
+  "pairA",
+  "pairB",
+  "winner",
+  "status",
+  "resolvedSideNameA",
+  "resolvedSideNameB",
+  "sideAName",
+  "sideBName",
+].join(" ");
+
+const SIDE_DISPLAY_PAIR_POPULATE = [
+  {
+    path: "pairA",
+    select: SIDE_DISPLAY_PAIR_SELECT,
+    populate: [
+      {
+        path: "player1",
+        select: SIDE_DISPLAY_PLAYER_SELECT,
+        populate: { path: "user", select: SIDE_DISPLAY_USER_SELECT },
+      },
+      {
+        path: "player2",
+        select: SIDE_DISPLAY_PLAYER_SELECT,
+        populate: { path: "user", select: SIDE_DISPLAY_USER_SELECT },
+      },
+    ],
+  },
+  {
+    path: "pairB",
+    select: SIDE_DISPLAY_PAIR_SELECT,
+    populate: [
+      {
+        path: "player1",
+        select: SIDE_DISPLAY_PLAYER_SELECT,
+        populate: { path: "user", select: SIDE_DISPLAY_USER_SELECT },
+      },
+      {
+        path: "player2",
+        select: SIDE_DISPLAY_PLAYER_SELECT,
+        populate: { path: "user", select: SIDE_DISPLAY_USER_SELECT },
+      },
+    ],
+  },
+  { path: "bracket", select: "name stage type tournament" },
+];
+
+async function attachSideDisplayContextToSingleMatch(match) {
+  if (!match || typeof match !== "object") return match;
+  const tournamentId = String(
+    match?.tournament?._id ||
+      match?.tournament ||
+      match?.bracket?.tournament ||
+      ""
+  );
+  if (!mongoose.Types.ObjectId.isValid(tournamentId)) {
+    attachBackendResolvedSideNamesToMatch(match);
+    return match;
+  }
+
+  const contextMatches = await Match.find({ tournament: tournamentId })
+    .select(SIDE_DISPLAY_MATCH_SELECT)
+    .populate(SIDE_DISPLAY_PAIR_POPULATE)
+    .lean();
+  const matchId = String(match?._id || "");
+  const index = contextMatches.findIndex(
+    (item) => String(item?._id || "") === matchId
+  );
+  if (index >= 0) {
+    contextMatches[index] = { ...contextMatches[index], ...match };
+  } else if (matchId) {
+    contextMatches.push(match);
+  }
+
+  const sideDisplayContext = buildMatchSideDisplayContext(contextMatches);
+  attachBackendResolvedSideNamesToMatch(match, sideDisplayContext);
+  if (String(match.resolvedSideKindA || "").trim().toLowerCase() !== "team") {
+    match.pairA = null;
+  }
+  if (String(match.resolvedSideKindB || "").trim().toLowerCase() !== "team") {
+    match.pairB = null;
+  }
+  return match;
+}
+
 async function publishFbVodMonitorMatchUpdate(matchId, reason) {
   const normalizedMatchId = String(matchId || "").trim();
   if (!normalizedMatchId) return;
@@ -2383,6 +2495,8 @@ export const getMatchById = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Match not found");
   }
+
+  await attachSideDisplayContextToSingleMatch(match);
 
   res.json(match);
 });
