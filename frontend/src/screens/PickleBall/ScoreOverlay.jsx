@@ -40,9 +40,23 @@ const readStr = (...cands) => {
   return "";
 };
 
+const isReferenceSideName = (value) => {
+  const normalized = readStr(value)
+    .replace(/\s+/g, "")
+    .replace(/\([AB]\)$/i, "")
+    .toUpperCase();
+  if (!normalized) return false;
+  return (
+    /^(?:[WL]-)?V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+$/.test(normalized) ||
+    /^(?:WB|LB)\d+-T\d+$/.test(normalized) ||
+    /^GF(?:\d+)?-T\d+$/.test(normalized)
+  );
+};
+
 const isPlaceholderName = (value) => {
   const text = readStr(value);
   if (!text) return true;
+  if (isReferenceSideName(text)) return true;
   const lower = text.toLowerCase();
   return [
     "-",
@@ -380,6 +394,16 @@ function normalizePayload(p) {
           : "double",
     },
     teams,
+    pairA: p?.pairA || null,
+    pairB: p?.pairB || null,
+    seedA: p?.seedA || p?.seeds?.A || null,
+    seedB: p?.seedB || p?.seeds?.B || null,
+    seeds: {
+      A: p?.seeds?.A || p?.seedA || null,
+      B: p?.seeds?.B || p?.seedB || null,
+    },
+    previousA: p?.previousA || null,
+    previousB: p?.previousB || null,
     rules,
     serve:
       p?.serve ||
@@ -487,6 +511,16 @@ const mergeNormalized = (prev, next) => {
     ...prev,
     ...next,
     tournament: mergeTournament(prev.tournament, next.tournament),
+    pairA: next?.pairA ?? prev?.pairA ?? null,
+    pairB: next?.pairB ?? prev?.pairB ?? null,
+    seedA: next?.seedA ?? next?.seeds?.A ?? prev?.seedA ?? prev?.seeds?.A ?? null,
+    seedB: next?.seedB ?? next?.seeds?.B ?? prev?.seedB ?? prev?.seeds?.B ?? null,
+    seeds: {
+      A: next?.seeds?.A ?? next?.seedA ?? prev?.seeds?.A ?? prev?.seedA ?? null,
+      B: next?.seeds?.B ?? next?.seedB ?? prev?.seeds?.B ?? prev?.seedB ?? null,
+    },
+    previousA: next?.previousA ?? prev?.previousA ?? null,
+    previousB: next?.previousB ?? prev?.previousB ?? null,
     teams: {
       A: mergeTeam(prev?.teams?.A, next?.teams?.A),
       B: mergeTeam(prev?.teams?.B, next?.teams?.B),
@@ -517,6 +551,76 @@ const teamNameFull = (team, eventType = "double", displayMode = "nickname") => {
   }
   return readStr(team?.name, "—");
 */
+};
+
+const sideKeyOf = (side) => (String(side).toUpperCase() === "B" ? "B" : "A");
+
+const idTextOf = (value) => {
+  if (!value) return "";
+  if (typeof value === "object") {
+    return readStr(value.id, value._id, value.matchId, value.value);
+  }
+  return readStr(value);
+};
+
+const seedForSide = (match, side) => {
+  const key = sideKeyOf(side);
+  return key === "B"
+    ? match?.seedB || match?.seeds?.B || null
+    : match?.seedA || match?.seeds?.A || null;
+};
+
+const previousForSide = (match, side) =>
+  sideKeyOf(side) === "B" ? match?.previousB : match?.previousA;
+
+const isDependentSeed = (seed) => {
+  const type = readStr(seed?.type).toLowerCase();
+  return [
+    "stagematchwinner",
+    "stagematchloser",
+    "matchwinner",
+    "matchloser",
+  ].includes(type);
+};
+
+const wantsLoserSeed = (seed, currentName) => {
+  const type = readStr(seed?.type).toLowerCase();
+  return (
+    type === "stagematchloser" ||
+    type === "matchloser" ||
+    /^L\s*-/i.test(readStr(currentName))
+  );
+};
+
+const statusTextOf = (match) => readStr(match?.status).toLowerCase();
+
+const sourceSideForSeed = (source, seed, currentName) => {
+  if (statusTextOf(source) !== "finished") return "";
+  const winner = String(source?.winner || "").toUpperCase();
+  if (winner !== "A" && winner !== "B") return "";
+  if (!wantsLoserSeed(seed, currentName)) return winner;
+  return winner === "A" ? "B" : "A";
+};
+
+const teamDisplayNameFromMatch = (
+  match,
+  side,
+  fallbackEventType,
+  fallbackMode,
+) => {
+  const key = sideKeyOf(side);
+  const eventType = match?.tournament?.eventType || fallbackEventType;
+  const displayMode = match?.tournament?.nameDisplayMode || fallbackMode;
+  return teamNameFull(match?.teams?.[key], eventType, displayMode);
+};
+
+const needsSeedHydration = (match, side, currentName) => {
+  const previousId = idTextOf(previousForSide(match, side));
+  if (!previousId) return false;
+  if (isReferenceSideName(currentName) || isPlaceholderName(currentName)) {
+    return true;
+  }
+  return isDependentSeed(seedForSide(match, side)) && !readStr(currentName);
 };
 
 const knockoutRoundLabel = (data) => {
@@ -802,6 +906,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   const [data, setData] = useState(null);
   const [overlayBE, setOverlayBE] = useState(null);
+  const seedHydrationInFlightRef = useRef(new Set());
   const displayMode = getTournamentNameDisplayMode(data?.tournament);
   const eventType =
     String(
@@ -871,6 +976,116 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     if (snapOverlay) setOverlayBE((p) => ({ ...(p || {}), ...snapOverlay }));
   }, [snapRaw, replay]);
 
+  useEffect(() => {
+    if (!data || replay) return;
+
+    const sides = ["A", "B"]
+      .map((side) => {
+        const currentName = teamDisplayNameFromMatch(
+          data,
+          side,
+          eventType,
+          displayMode,
+        );
+        if (!needsSeedHydration(data, side, currentName)) return null;
+        const previousId = idTextOf(previousForSide(data, side));
+        if (!previousId) return null;
+        return {
+          side,
+          currentName,
+          previousId,
+          seed: seedForSide(data, side),
+        };
+      })
+      .filter(Boolean);
+
+    if (!sides.length) return;
+
+    let cancelled = false;
+
+    const hydrateSides = async () => {
+      const patches = [];
+
+      await Promise.all(
+        sides.map(async ({ side, currentName, previousId, seed }) => {
+          const key = [
+            data?.matchId || matchId,
+            side,
+            previousId,
+            readStr(seed?.type),
+            currentName,
+          ].join(":");
+
+          if (seedHydrationInFlightRef.current.has(key)) return;
+          seedHydrationInFlightRef.current.add(key);
+
+          try {
+            const response = await fetch(
+              `/api/overlay/match/${encodeURIComponent(previousId)}`,
+              { cache: "no-store" },
+            );
+            if (!response.ok) return;
+
+            const raw = await response.json();
+            const source = normalizePayload(raw);
+            const sourceSide = sourceSideForSeed(source, seed, currentName);
+            if (!sourceSide) return;
+
+            const sourceTeam = source?.teams?.[sourceSide];
+            const resolvedName = teamDisplayNameFromMatch(
+              source,
+              sourceSide,
+              eventType,
+              displayMode,
+            );
+            if (!resolvedName || isPlaceholderName(resolvedName)) return;
+
+            patches.push({
+              side,
+              team: {
+                ...sourceTeam,
+                name: resolvedName,
+                teamName: resolvedName,
+                label: resolvedName,
+              },
+            });
+          } catch {
+            // Ignore transient overlay fetch errors; the normal poll will retry.
+          } finally {
+            seedHydrationInFlightRef.current.delete(key);
+          }
+        }),
+      );
+
+      if (cancelled || !patches.length) return;
+
+      setData((prev) => {
+        if (!prev) return prev;
+        const nextTeams = { ...(prev.teams || {}) };
+        let changed = false;
+        patches.forEach(({ side, team }) => {
+          const key = sideKeyOf(side);
+          const currentName = teamDisplayNameFromMatch(
+            prev,
+            key,
+            eventType,
+            displayMode,
+          );
+          if (!needsSeedHydration(prev, key, currentName)) return;
+          nextTeams[key] = { ...(nextTeams[key] || {}), ...team };
+          changed = true;
+        });
+        return changed ? { ...prev, teams: nextTeams } : prev;
+      });
+    };
+
+    hydrateSides();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data, displayMode, eventType, matchId, replay]);
+
   // fetch tournament overlay + name/image
   useEffect(() => {
     const tId = data?.tournament?.id;
@@ -934,6 +1149,11 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         teams: hasOwn(dto, "teams") ? dto.teams : prev.teams,
         pairA: hasOwn(dto, "pairA") ? dto.pairA : prev.pairA,
         pairB: hasOwn(dto, "pairB") ? dto.pairB : prev.pairB,
+        seedA: hasOwn(dto, "seedA") ? dto.seedA : prev.seedA,
+        seedB: hasOwn(dto, "seedB") ? dto.seedB : prev.seedB,
+        seeds: hasOwn(dto, "seeds") ? dto.seeds : prev.seeds,
+        previousA: hasOwn(dto, "previousA") ? dto.previousA : prev.previousA,
+        previousB: hasOwn(dto, "previousB") ? dto.previousB : prev.previousB,
         rules: hasOwn(dto, "rules") ? dto.rules : prev.rules,
         gameScores: hasOwn(dto, "gameScores") ? dto.gameScores : prev.gameScores,
         currentGame: hasOwn(dto, "currentGame")
