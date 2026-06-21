@@ -75,6 +75,22 @@ export default function ResponsiveModal({
     const inlineActionsProps = { ...(actionsProps || {}) };
     const inlineActionsSx = inlineActionsProps.sx;
     delete inlineActionsProps.sx;
+    const inlineActions = React.Children.toArray(
+      Array.isArray(actions) ? actions : [actions],
+    )
+      .flatMap((action) =>
+        React.isValidElement(action) && action.type === React.Fragment
+          ? React.Children.toArray(action.props.children)
+          : [action],
+      )
+      .filter(
+        (action) =>
+          !(
+            React.isValidElement(action) &&
+            action.props?.onClick === onClose &&
+            !action.props?.variant
+          ),
+      );
 
     return (
       <Box
@@ -124,7 +140,7 @@ export default function ResponsiveModal({
                   )
                 ) : null}
               </Box>
-              {showCloseIcon && onClose ? (
+              {showCloseIcon && onClose && !inline ? (
                 <IconButton edge="end" onClick={onClose} aria-label="close">
                   <CloseIcon />
                 </IconButton>
@@ -143,7 +159,7 @@ export default function ResponsiveModal({
           {children}
         </Box>
 
-        {actions ? (
+        {inlineActions.length ? (
           <Box
             sx={{
               pt: 1.5,
@@ -162,9 +178,7 @@ export default function ResponsiveModal({
               flexWrap="wrap"
               useFlexGap
             >
-              {React.Children.toArray(
-                Array.isArray(actions) ? actions : [actions],
-              )}
+              {inlineActions}
             </Stack>
           </Box>
         ) : null}

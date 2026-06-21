@@ -196,6 +196,7 @@ export default function TournamentManagersDialog({
       open={open}
       onClose={onClose}
       inline={inline}
+      showCloseIcon={!inline}
       maxWidth="md"
       icon={<GroupIcon fontSize="small" />}
       title={t(
@@ -204,9 +205,11 @@ export default function TournamentManagersDialog({
         "Manage tournament managers",
       )}
       actions={
-        <Button onClick={onClose}>
-          {t("common.close", undefined, "Close")}
-        </Button>
+        inline ? null : (
+          <Button onClick={onClose}>
+            {t("common.close", undefined, "Close")}
+          </Button>
+        )
       }
     >
       <Stack spacing={2}>

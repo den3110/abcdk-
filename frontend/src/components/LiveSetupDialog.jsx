@@ -516,6 +516,7 @@ export default function LiveSetupDialog({
       open={open}
       onClose={onClose}
       inline={inline}
+      showCloseIcon={!inline}
       maxWidth="xl"
       icon={<MovieIcon />}
       title="Thiết lập LIVE — Toàn giải"

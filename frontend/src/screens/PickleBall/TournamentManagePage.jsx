@@ -2923,9 +2923,55 @@ export default function TournamentManagePage() {
   const [actionAnchor, setActionAnchor] = useState(null);
   const openActionMenu = (e) => setActionAnchor(e.currentTarget);
   const closeActionMenu = () => setActionAnchor(null);
-  const [v2SettingsOpen, setV2SettingsOpen] = useState(false);
-  const [v2SettingsSection, setV2SettingsSection] = useState("courts");
-  const closeV2Settings = useCallback(() => setV2SettingsOpen(false), []);
+  const [v2SettingsOpen, setV2SettingsOpen] = useState(() => {
+    const raw = String(searchParams.get("settings") || "").toLowerCase();
+    return isManageV2 && ["1", "true", "open"].includes(raw);
+  });
+  const [v2SettingsSection, setV2SettingsSection] = useState(
+    () => String(searchParams.get("settingsTab") || "courts") || "courts",
+  );
+  const updateV2SettingsUrl = useCallback(
+    (open, section = v2SettingsSection) => {
+      const next = new URLSearchParams(searchParams);
+      if (open) {
+        next.set("settings", "1");
+        next.set("settingsTab", section || "courts");
+      } else {
+        next.delete("settings");
+        next.delete("settingsTab");
+      }
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams, v2SettingsSection],
+  );
+  const closeV2Settings = useCallback(() => {
+    setV2SettingsOpen(false);
+    updateV2SettingsUrl(false);
+  }, [updateV2SettingsUrl]);
+  const toggleV2Settings = useCallback(() => {
+    setV2SettingsOpen((open) => {
+      const nextOpen = !open;
+      updateV2SettingsUrl(nextOpen, v2SettingsSection);
+      return nextOpen;
+    });
+  }, [updateV2SettingsUrl, v2SettingsSection]);
+  const selectV2SettingsSection = useCallback(
+    (section) => {
+      setV2SettingsSection(section);
+      if (v2SettingsOpen) updateV2SettingsUrl(true, section);
+    },
+    [updateV2SettingsUrl, v2SettingsOpen],
+  );
+  useEffect(() => {
+    if (!isManageV2) return;
+    const rawOpen = String(searchParams.get("settings") || "").toLowerCase();
+    const nextOpen = ["1", "true", "open"].includes(rawOpen);
+    const nextSection = String(searchParams.get("settingsTab") || "").trim();
+    if (v2SettingsOpen !== nextOpen) setV2SettingsOpen(nextOpen);
+    if (nextOpen && nextSection && nextSection !== v2SettingsSection) {
+      setV2SettingsSection(nextSection);
+    }
+  }, [isManageV2, searchParams, v2SettingsOpen, v2SettingsSection]);
   const onMobileExportPDF = async () => {
     closeActionMenu();
     await handleExportPDF();
@@ -3377,8 +3423,14 @@ export default function TournamentManagePage() {
     <Box
       sx={{
         px: { xs: 2, md: 3 },
-        pt: { xs: 2, md: 2 },
+        pt: { xs: 0.75, md: 1 },
         pb: { xs: 2, md: 3 },
+        mx: {
+          xs: 0,
+          md: -4,
+          lg: -6,
+          xl: -8,
+        },
       }}
     >
       <SEOHead
@@ -3497,25 +3549,25 @@ export default function TournamentManagePage() {
       </Dialog>
 
       {/* Header */}
-      <Stack spacing={1.5} mb={2}>
+      <Stack spacing={1.25} mb={2}>
+        <Typography variant="h5" noWrap sx={{ lineHeight: 1.15 }}>
+          {t("tournaments.manage.pageTitle", {
+            name: tour?.name || t("tournaments.manage.fallbackName"),
+          })}
+        </Typography>
+
         <Stack
           direction={{ xs: "column", md: "row" }}
           alignItems="flex-start"
-          justifyContent="space-between"
-          sx={{ gap: 1 }}
+          justifyContent="flex-end"
+          sx={{ gap: 1, width: "100%" }}
         >
-          <Typography variant="h5" noWrap>
-            {t("tournaments.manage.pageTitle", {
-              name: tour?.name || t("tournaments.manage.fallbackName"),
-            })}
-          </Typography>
-
           {isManageV2 ? (
             <Tooltip title="Mở cài đặt quản lý" arrow>
               <IconButton
                 color="primary"
                 aria-label="Mở cài đặt quản lý"
-                onClick={() => setV2SettingsOpen((open) => !open)}
+                onClick={toggleV2Settings}
                 sx={{
                   border: 1,
                   borderColor: "divider",
@@ -3972,25 +4024,44 @@ export default function TournamentManagePage() {
         </Stack>
 
         {isManageV2 && v2SettingsOpen ? (
-          <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              overflow: "hidden",
+              borderColor: (muiTheme) =>
+                muiTheme.palette.mode === "dark"
+                  ? "rgba(255,255,255,0.10)"
+                  : "rgba(0,0,0,0.10)",
+              height: {
+                xs: "min(680px, calc(100dvh - 180px))",
+                md: "min(720px, calc(100dvh - 220px))",
+              },
+            }}
+          >
             <Box
               sx={{
+                height: "100%",
+                minHeight: 0,
                 display: "grid",
                 gridTemplateColumns: {
                   xs: "1fr",
-                  md: "220px minmax(0, 1fr)",
+                  md: "280px minmax(0, 1fr)",
                 },
-                minHeight: { md: 320 },
               }}
             >
               <Box
                 sx={{
                   borderRight: { md: 1 },
                   borderBottom: { xs: 1, md: 0 },
-                  borderColor: "divider",
+                  borderColor: (muiTheme) =>
+                    muiTheme.palette.mode === "dark"
+                      ? "rgba(255,255,255,0.10)"
+                      : "rgba(0,0,0,0.10)",
                   bgcolor: "background.default",
                   p: { xs: 1, md: 2 },
                   minWidth: 0,
+                  minHeight: 0,
+                  overflow: "auto",
                 }}
               >
                 <Stack
@@ -4030,7 +4101,7 @@ export default function TournamentManagePage() {
                     <ListItemButton
                       key={item.value}
                       selected={v2SettingsSection === item.value}
-                      onClick={() => setV2SettingsSection(item.value)}
+                      onClick={() => selectV2SettingsSection(item.value)}
                       sx={{
                         borderRadius: 1,
                         flexShrink: 0,
@@ -4050,6 +4121,7 @@ export default function TournamentManagePage() {
                 sx={{
                   p: { xs: 1.5, md: 2.5 },
                   minWidth: 0,
+                  minHeight: 0,
                   overflow: "auto",
                 }}
               >
@@ -4060,6 +4132,7 @@ export default function TournamentManagePage() {
         ) : null}
 
         {/* Filter bar */}
+        {isManageV2 && v2SettingsOpen ? null : (
         <Paper variant="outlined">
           <Box
             p={2}
@@ -4175,6 +4248,7 @@ export default function TournamentManagePage() {
             </Stack>
           </Box>
         </Paper>
+        )}
 
         {/* Tabs */}
         <Paper variant="outlined" sx={{ mt: 1 }}>
