@@ -440,7 +440,7 @@ function isLoserSeedType(type) {
 function parseLiveMatchCode(value) {
   const match = String(value || "")
     .trim()
-    .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-B[A-Z0-9]+)?-T\d+)\b/i);
+    .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+)\b/i);
   return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
 }
 
@@ -741,6 +741,155 @@ function getTeamPlayerIds(match, team) {
   return [pair?.player1, pair?.player2].map(userIdOfPlayer).filter(Boolean);
 }
 
+function currentGameScoreOf(match) {
+  const scores = Array.isArray(match?.gameScores) ? match.gameScores : [];
+  const index = Number.isInteger(match?.currentGame)
+    ? Math.max(0, match.currentGame)
+    : Math.max(0, scores.length - 1);
+  const score = scores[index] || {};
+  return {
+    a: toNum(score.a, 0),
+    b: toNum(score.b, 0),
+  };
+}
+
+function currentSlotFromBaseSlot(baseSlot, teamScore) {
+  const base = Number(baseSlot) === 2 ? 2 : 1;
+  return Number(teamScore || 0) % 2 === 0 ? base : base === 1 ? 2 : 1;
+}
+
+function oppositeSlot(slot) {
+  return Number(slot) === 1 ? 2 : 1;
+}
+
+function preStartRightSlotForSide(side, layout) {
+  return normalizeRefereeLayout(layout).left === side ? 2 : 1;
+}
+
+function normalizedSlotsBaseForMatch(match, inputBase = null) {
+  const rawBase =
+    inputBase && typeof inputBase === "object"
+      ? inputBase
+      : match?.slots?.base || match?.meta?.slots?.base || {};
+  const base = {
+    A: { ...(rawBase?.A || {}) },
+    B: { ...(rawBase?.B || {}) },
+  };
+
+  for (const team of ["A", "B"]) {
+    const ids = getTeamPlayerIds(match, team);
+    if (ids[0] && ![1, 2].includes(Number(base[team][ids[0]]))) {
+      base[team][ids[0]] = 1;
+    }
+    if (ids[1] && ![1, 2].includes(Number(base[team][ids[1]]))) {
+      base[team][ids[1]] = 2;
+    }
+  }
+
+  return base;
+}
+
+function findPlayerIdByBaseSlot(match, side, slot, base = null) {
+  const normalizedBase = base || normalizedSlotsBaseForMatch(match);
+  return (
+    Object.entries(normalizedBase?.[side] || {}).find(
+      ([, value]) => Number(value) === Number(slot)
+    )?.[0] || ""
+  );
+}
+
+function findPlayerIdByCurrentSlot(match, side, slot, base = null, score = null) {
+  const normalizedBase = base || normalizedSlotsBaseForMatch(match);
+  const currentScore = score || currentGameScoreOf(match);
+  const teamScore = side === "A" ? currentScore.a : currentScore.b;
+  return (
+    Object.entries(normalizedBase?.[side] || {}).find(
+      ([, value]) => currentSlotFromBaseSlot(value, teamScore) === Number(slot)
+    )?.[0] || ""
+  );
+}
+
+function isServeServerIdValid(match, side, serverId) {
+  const normalizedId = String(serverId || "").trim();
+  if (!normalizedId) return false;
+  return new Set(getTeamPlayerIds(match, side)).has(normalizedId);
+}
+
+function resolveReceiverIdForServe(match, serve, base, score) {
+  const serverId = String(serve?.serverId || "").trim();
+  if (!serverId) return null;
+  const side = validSide(serve?.side);
+  const otherSide = side === "A" ? "B" : "A";
+  const currentScore = score || currentGameScoreOf(match);
+  const serverBaseSlot = Number(base?.[side]?.[serverId] || serve?.server || 1);
+  const serverTeamScore = side === "A" ? currentScore.a : currentScore.b;
+  const serverCurrentSlot = currentSlotFromBaseSlot(serverBaseSlot, serverTeamScore);
+  return findPlayerIdByCurrentSlot(match, otherSide, serverCurrentSlot, base, currentScore) || null;
+}
+
+function normalizeServeForMatch(match, serve = {}, options = {}) {
+  const side = validSide(serve?.side);
+  let server = validServer(Number(serve?.server));
+  const opening = Boolean(serve?.opening);
+  const base = normalizedSlotsBaseForMatch(match, options.base);
+  const score = currentGameScoreOf(match);
+  const teamIds = getTeamPlayerIds(match, side);
+  let serverId = String(serve?.serverId || "").trim();
+  const isOpeningDoubles = isDoublesMatch(match) && opening;
+  if (isOpeningDoubles) {
+    server = OPENING_DOUBLES_SERVER;
+  }
+
+  if (serverId && !isServeServerIdValid(match, side, serverId)) {
+    serverId = "";
+  }
+  const existingServerId = String(match?.serve?.serverId || "").trim();
+  const canKeepExistingServer =
+    !serverId &&
+    existingServerId &&
+    match?.serve?.side === side &&
+    validServer(match?.serve?.server) === server &&
+    Boolean(match?.serve?.opening) === opening &&
+    isServeServerIdValid(match, side, existingServerId);
+
+  if (
+    isOpeningDoubles &&
+    opening &&
+    toNum(score.a, 0) === 0 &&
+    toNum(score.b, 0) === 0
+  ) {
+    server = OPENING_DOUBLES_SERVER;
+    const rightSlot = preStartRightSlotForSide(side, match?.meta?.refereeLayout);
+    serverId =
+      findPlayerIdByCurrentSlot(match, side, rightSlot, base, score) ||
+      findPlayerIdByCurrentSlot(match, side, oppositeSlot(rightSlot), base, score) ||
+      serverId ||
+      teamIds[0] ||
+      "";
+  } else if (canKeepExistingServer) {
+    serverId = existingServerId;
+  } else if (!serverId) {
+    serverId =
+      (options.preferCurrentSlot
+        ? findPlayerIdByCurrentSlot(match, side, server, base, score)
+        : "") ||
+      findPlayerIdByBaseSlot(match, side, server, base) ||
+      findPlayerIdByCurrentSlot(match, side, server, base, score) ||
+      teamIds[0] ||
+      "";
+  }
+
+  const normalized = {
+    side,
+    server,
+    serverId: serverId || null,
+    receiverId: null,
+    opening,
+  };
+  normalized.receiverId = resolveReceiverIdForServe(match, normalized, base, score);
+  return normalized;
+}
+
 function validateSlotsBaseForMatch(match, inputBase = {}) {
   const normalizeTeam = (team) => {
     const validIds = new Set(getTeamPlayerIds(match, team));
@@ -785,48 +934,35 @@ function validateSlotsBaseForMatch(match, inputBase = {}) {
   };
 }
 
-function validateServeForMatch(match, inputServe = {}) {
+function validateServeForMatch(match, inputServe = {}, options = {}) {
   const sideInput = String(inputServe?.side || "").trim().toUpperCase();
   const side = sideInput === "B" ? "B" : "A";
   const server = Number(inputServe?.server) === 1 ? 1 : 2;
   const rawServerId = String(inputServe?.serverId || "").trim();
   const opening = Boolean(inputServe?.opening);
-  const validIds = new Set(getTeamPlayerIds(match, side));
-
-  if (rawServerId && !validIds.has(rawServerId)) {
-    return {
-      ok: false,
-      code: "invalid_transition",
-      message: `serverId not in team ${side}`,
-    };
-  }
 
   return {
     ok: true,
-    value: {
+    value: normalizeServeForMatch(match, {
       side,
       server,
       serverId: rawServerId || null,
       opening,
-    },
+    }, options),
   };
 }
 
 function applyServeState(match, serve, options = {}) {
   const bumpSlotsVersion = options.bumpSlotsVersion !== false;
-  const server = validServer(serve?.server);
-  match.serve = {
-    side: validSide(serve?.side),
-    server,
-    serverId: serve?.serverId || null,
-    opening: Boolean(serve?.opening),
-  };
+  const normalizedServe = normalizeServeForMatch(match, serve, options);
+  match.serve = normalizedServe;
 
   if (match.serve.serverId) {
     match.set("slots.serverId", match.serve.serverId, { strict: false });
   } else {
     match.set("slots.serverId", null, { strict: false });
   }
+  match.set("slots.receiverId", match.serve.receiverId || null, { strict: false });
   match.set("slots.updatedAt", new Date(), { strict: false });
   if (bumpSlotsVersion) {
     const version = Number(match?.slots?.version || 0);
@@ -888,12 +1024,12 @@ function applyStartEvent(match, event, actorId) {
     match.gameScores = [{ a: 0, b: 0 }];
     match.currentGame = 0;
   }
-  match.serve = {
+  applyServeState(match, {
     side: validSide(match.serve?.side),
     server: opening ? OPENING_DOUBLES_SERVER : 1,
     serverId: match.serve?.serverId || null,
     opening,
-  };
+  }, { bumpSlotsVersion: false });
 
   match.liveBy = actorId || match.liveBy || null;
   ensureLiveLog(match);
@@ -933,10 +1069,6 @@ function applyPointEvent(match, event, actorId) {
     };
   }
 
-  if (team === "A") score.a += step;
-  else score.b += step;
-  match.gameScores[gameIndex] = score;
-
   const prevServe = {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
@@ -946,19 +1078,18 @@ function applyPointEvent(match, event, actorId) {
 
   const servingTeam = prevServe.side;
   if (team !== servingTeam) {
-    match.serve = onLostRallyNextServe(prevServe);
-
-    const base = match?.slots?.base || match?.meta?.slots?.base;
-    if (base && base[match.serve.side]) {
-      const wanted = Number(match.serve.server);
-      const entry = Object.entries(base[match.serve.side]).find(
-        ([, slot]) => Number(slot) === wanted
-      );
-      match.serve.serverId = entry ? entry[0] : null;
-    } else if (match.serve?.serverId) {
-      match.serve.serverId = undefined;
-    }
+    return {
+      ok: false,
+      code: "invalid_transition",
+      message: "Only the serving side can score in pickleball",
+    };
   }
+
+  if (team === "A") score.a += step;
+  else score.b += step;
+  match.gameScores[gameIndex] = score;
+
+  applyServeState(match, prevServe, { bumpSlotsVersion: false });
 
   match.liveBy = actorId || match.liveBy || null;
   ensureLiveLog(match);
@@ -977,15 +1108,19 @@ function applyServeEvent(match, event, actorId) {
     return { ok: false, code: "match_closed", message: "Match already finished" };
   }
 
-  const nextServe = validateServeForMatch(match, event.payload);
-  if (!nextServe.ok) return nextServe;
-
   const prevServe = {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
     serverId: match.serve?.serverId || null,
     opening: Boolean(match.serve?.opening),
   };
+
+  const nextServe = validateServeForMatch(match, event.payload, {
+    preferCurrentSlot:
+      !event.payload?.serverId &&
+      validSide(event.payload?.side) !== prevServe.side,
+  });
+  if (!nextServe.ok) return nextServe;
 
   applyServeState(match, nextServe.value);
   match.liveBy = actorId || match.liveBy || null;
@@ -1014,7 +1149,9 @@ function applySlotsEvent(match, event, actorId) {
   const nextLayout = normalizeRefereeLayout(event.payload?.layout);
   const hasLayout = Boolean(event.payload?.layout);
   const nextServe = event.payload?.serve
-    ? validateServeForMatch(match, event.payload.serve)
+    ? validateServeForMatch(match, event.payload.serve, {
+        base: nextBase.value,
+      })
     : null;
   if (nextServe && !nextServe.ok) return nextServe;
 

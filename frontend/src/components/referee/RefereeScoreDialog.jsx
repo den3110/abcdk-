@@ -1155,23 +1155,12 @@ export default function RefereeScoreDialog({
       side: activeSide,
       serverNum: OPENING_DOUBLES_SERVER,
     };
-
-    if (!isInteractionLocked) {
-      api.setServe({
-        side: activeSide,
-        server: OPENING_DOUBLES_SERVER,
-        serverId: openingRightServerUid,
-        opening: true,
-      });
-    }
   }, [
     activeSide,
-    api,
     currentGame,
     currentScore.a,
     currentScore.b,
     isDouble,
-    isInteractionLocked,
     isPreStartOrOpening,
     match?._id,
     match?.serve?.opening,
@@ -1478,7 +1467,7 @@ export default function RefereeScoreDialog({
     const opening = isDouble && needsStartAction;
     const preferredSlot = opening
       ? preStartRightSlotForSide(nextSide, currentLayout)
-      : 1;
+      : currentSlotFromBase(1, nextSide === "A" ? currentScore.a : currentScore.b);
     let serverId = findUidAtCurrentSlot(nextSide, preferredSlot);
     if (!serverId) {
       serverId = firstPlayerIdOfSide(match, nextSide, eventType);
@@ -1495,6 +1484,8 @@ export default function RefereeScoreDialog({
     activeSide,
     api,
     currentLayout,
+    currentScore.a,
+    currentScore.b,
     eventType,
     findUidAtCurrentSlot,
     isDouble,

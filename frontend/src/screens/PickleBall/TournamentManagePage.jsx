@@ -213,6 +213,13 @@ const isConcreteTeamLabel = (value) => {
   return !/^[WL]\s*-/i.test(text);
 };
 
+const isByeLabel = (value) => /^bye$/i.test(String(value || "").trim());
+
+const isReferenceTeamLabel = (value) =>
+  /^[WL]\s*-\s*(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
+    String(value || "").trim(),
+  );
+
 /* Tên đội hiển thị: ưu tiên tên đã resolve sẵn (__sideA/__sideB, tính như sơ đồ),
    nếu không có thì dùng resolver chung (đội thật → seed → "W-V…" → "—"). */
 const teamLabel = (match, side) => {
@@ -1812,7 +1819,13 @@ export default function TournamentManagePage() {
         side === "A"
           ? m.resolvedSideNameA || m.teamAName || m.pairAName || m.sideAName
           : m.resolvedSideNameB || m.teamBName || m.pairBName || m.sideBName;
-      if (isConcreteTeamLabel(direct) || isByeLabel(direct)) return direct;
+      if (
+        isConcreteTeamLabel(direct) ||
+        isByeLabel(direct) ||
+        isReferenceTeamLabel(direct)
+      ) {
+        return direct;
+      }
 
       const pair = side === "A" ? m.pairA : m.pairB;
       if (hasResolvedPair(pair)) return pairLabel(pair, evType, displayMode);

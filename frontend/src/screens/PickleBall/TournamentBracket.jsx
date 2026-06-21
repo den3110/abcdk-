@@ -304,11 +304,13 @@ const normalizeTeamLabel = (value) =>
     .toLowerCase();
 
 const isReferenceLabel = (value) =>
-  /^[WL]\s*-\s*V\d+(?:-[^-]+)?-T\d+$/i.test(String(value || "").trim());
+  /^[WL]\s*-\s*(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
+    String(value || "").trim(),
+  );
 
 const isUsefulResolvedLabel = (value, pendingLabel = "") => {
   const text = String(value || "").trim();
-  if (!text || isReferenceLabel(text)) return false;
+  if (!text) return false;
   const normalized = normalizeTeamLabel(text);
   const normalizedPending = normalizeTeamLabel(pendingLabel);
   return !(
@@ -366,7 +368,7 @@ const extractDisplayCodeText = (value) => {
   const text = String(value || "").trim();
   if (!text) return "";
   const match = text.match(
-    /\b(?:V\d+(?:-B[^-\s]+)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
+    /\b(?:V\d+(?:-(?:B[^-\s]+|NT))?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
   );
   return match ? match[0].toUpperCase() : "";
 };
@@ -5166,7 +5168,111 @@ export default function TournamentBracket() {
         return pairLabelWithNick(pair, eventType, displayMode);
       }
 
-      if (seed?.type) return seedLabel(seed);
+      const plannedSeed = getPlannedSeedForMatchSide(m, side);
+      const seedType = String(seed?.type || "");
+      const isEmptyRegistrationSeed =
+        seedType === "registration" &&
+        !seed?.label &&
+        !seed?.ref?.registration &&
+        !seed?.ref?.reg &&
+        !seed?.ref?.id &&
+        !seed?.ref?._id;
+      const effectiveSeed =
+        seed?.type && !isEmptyRegistrationSeed ? seed : plannedSeed || seed;
+      const effectiveSeedType = String(effectiveSeed?.type || "");
+      const isWinnerSeed =
+        effectiveSeedType === "stageMatchWinner" ||
+        effectiveSeedType === "matchWinner";
+      const isLoserSeed =
+        effectiveSeedType === "stageMatchLoser" ||
+        effectiveSeedType === "matchLoser";
+
+      if (effectiveSeed && isSeedBlockedByUnfinishedGroup(effectiveSeed)) {
+        return resolveSeedReferenceLabel(effectiveSeed, m);
+      }
+
+      const prev = side === "A" ? m.previousA : m.previousB;
+      if (prev) {
+        const prevId =
+          typeof prev === "object" && prev?._id ? String(prev._id) : String(prev);
+        const pm = matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
+
+        if (pm && isByeMatchObj(pm)) {
+          if (isLoserSeed) return "BYE";
+          const byeA =
+            pm?.seedA?.type === "bye" ||
+            (typeof pm?.seedA?.label === "string" && /\bBYE\b/i.test(pm.seedA.label));
+          const byeB =
+            pm?.seedB?.type === "bye" ||
+            (typeof pm?.seedB?.label === "string" && /\bBYE\b/i.test(pm.seedB.label));
+          const winSide = byeA && byeB ? null : byeA ? "B" : byeB ? "A" : null;
+          if (!winSide) return "BYE";
+          const carried = resolveSideLabel(pm, winSide);
+          if (isUsefulResolvedLabel(carried, pendingTeamLabel)) return carried;
+          const carriedCode = getDisplayCodeForMatch(pm);
+          if (carriedCode) return `W-${carriedCode}`;
+        }
+
+        if (pm && pm.status === "finished" && pm.winner) {
+          const sourceSide = isLoserSeed
+            ? pm.winner === "A"
+              ? "B"
+              : "A"
+            : pm.winner === "A"
+              ? "A"
+              : "B";
+          const sourcePair = sourceSide === "A" ? pm.pairA : pm.pairB;
+          if (hasResolvedPair(sourcePair)) {
+            return pairLabelWithNick(sourcePair, eventType, displayMode);
+          }
+          const carried = resolveSideLabel(pm, sourceSide);
+          if (isUsefulResolvedLabel(carried, pendingTeamLabel)) return carried;
+        }
+
+        const carriedCode = getDisplayCodeForMatch(pm);
+        if (carriedCode) return `${isLoserSeed ? "L" : "W"}-${carriedCode}`;
+      }
+
+      if (effectiveSeed?.type) {
+        const sourceMatch = findSourceMatchFromSeed(m, effectiveSeed);
+
+        if (sourceMatch && (isWinnerSeed || isLoserSeed)) {
+          if (isByeMatchObj(sourceMatch)) {
+            const byeA =
+              sourceMatch?.seedA?.type === "bye" ||
+              (typeof sourceMatch?.seedA?.label === "string" &&
+                /\bBYE\b/i.test(sourceMatch.seedA.label));
+            const byeB =
+              sourceMatch?.seedB?.type === "bye" ||
+              (typeof sourceMatch?.seedB?.label === "string" &&
+                /\bBYE\b/i.test(sourceMatch.seedB.label));
+            if (isLoserSeed || (byeA && byeB)) return "BYE";
+            const winSide = byeA ? "B" : byeB ? "A" : null;
+            if (winSide) {
+              const carried = resolveSideLabel(sourceMatch, winSide);
+              if (isUsefulResolvedLabel(carried, pendingTeamLabel)) return carried;
+            }
+          }
+
+          if (sourceMatch.status === "finished" && sourceMatch.winner) {
+            const sourceSide = isLoserSeed
+              ? sourceMatch.winner === "A"
+                ? "B"
+                : "A"
+              : sourceMatch.winner === "A"
+                ? "A"
+                : "B";
+            const sourcePair = sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+            if (hasResolvedPair(sourcePair)) {
+              return pairLabelWithNick(sourcePair, eventType, displayMode);
+            }
+            const carried = resolveSideLabel(sourceMatch, sourceSide);
+            if (isUsefulResolvedLabel(carried, pendingTeamLabel)) return carried;
+          }
+        }
+
+        return resolveSeedReferenceLabel(effectiveSeed, m);
+      }
 
       return pendingTeamLabel;
 
@@ -5340,6 +5446,13 @@ export default function TournamentBracket() {
       tour?.eventType,
       pendingTeamLabel,
       displayMode,
+      getPlannedSeedForMatchSide,
+      isSeedBlockedByUnfinishedGroup,
+      resolveSeedReferenceLabel,
+      matchIndex,
+      isByeMatchObj,
+      getDisplayCodeForMatch,
+      findSourceMatchFromSeed,
     ],
   );
   // Prefill rounds for KO

@@ -257,7 +257,18 @@ const matchSchema = new Schema(
       side: { type: String, enum: ["A", "B"], default: "A" },
       server: { type: Number, enum: [1, 2], default: 1 },
       serverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+      receiverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
       opening: { type: Boolean, default: false },
+    },
+    slots: {
+      type: Schema.Types.Mixed,
+      default: () => ({
+        base: { A: {}, B: {} },
+        serverId: null,
+        receiverId: null,
+        version: 0,
+        updatedAt: null,
+      }),
     },
 
     // 👇 QUAN TRỌNG: Mixed để nhận cả dữ liệu cũ (boolean) lẫn mới (object)

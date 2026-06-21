@@ -87,6 +87,47 @@ const getOpeningServeServer = (match) =>
   String(match?.tournament?.eventType || match?.eventType || "").toLowerCase() === "single"
     ? 1
     : OPENING_DOUBLES_SERVER;
+const normalizeRefereeLayoutForServe = (layout) =>
+  layout && typeof layout === "object" && (layout.left === "B" || layout.right === "A")
+    ? { left: "B", right: "A" }
+    : { left: "A", right: "B" };
+const preStartRightSlotForSide = (side, layout) =>
+  normalizeRefereeLayoutForServe(layout).left === side ? 2 : 1;
+const currentSlotFromBaseSlot = (baseSlot, teamScore) => {
+  const base = Number(baseSlot) === 2 ? 2 : 1;
+  return Number(teamScore || 0) % 2 === 0 ? base : base === 1 ? 2 : 1;
+};
+const currentGameScoreForServe = (match) => {
+  const scores = Array.isArray(match?.gameScores) ? match.gameScores : [];
+  const index = Number.isInteger(match?.currentGame)
+    ? Math.max(0, match.currentGame)
+    : Math.max(0, scores.length - 1);
+  const score = scores[index] || {};
+  return {
+    a: Number(score?.a || 0) || 0,
+    b: Number(score?.b || 0) || 0,
+  };
+};
+const inferServerIdByCurrentSlot = ({
+  players = [],
+  getId,
+  getFallbackBaseSlot,
+  slotsBase = {},
+  targetSlot,
+  teamScore,
+}) => {
+  for (const [index, player] of players.entries()) {
+    const uid = String(getId(player) || "");
+    if (!uid) continue;
+    const rawBase = Number(slotsBase?.[uid]);
+    const fallbackBase = Number(getFallbackBaseSlot?.(player, index) || index + 1);
+    const baseSlot = rawBase === 1 || rawBase === 2 ? rawBase : fallbackBase === 2 ? 2 : 1;
+    if (currentSlotFromBaseSlot(baseSlot, teamScore) === Number(targetSlot)) {
+      return uid;
+    }
+  }
+  return "";
+};
 import { registerCourtStationRuntimePublishers } from "../services/courtStationRuntimeEvents.service.js";
 import {
   claimMatchLiveOwner,
@@ -2973,12 +3014,16 @@ export function initSocket(
               opening !== undefined
                 ? Boolean(opening)
                 : Boolean(m.serve?.opening);
+            const effectiveServer =
+              wantOpening && getOpeningServeServer(m) === OPENING_DOUBLES_SERVER
+                ? OPENING_DOUBLES_SERVER
+                : wantServer;
 
             // validate serverId thuộc team tương ứng
-            let validServerId = null;
-            if (serverId) {
-              const parts = Array.isArray(m.participants) ? m.participants : [];
-
+            const parts = Array.isArray(m.participants) ? m.participants : [];
+            const isServerIdOnWantedSide = (candidateId) => {
+              const sid = String(candidateId || "");
+              if (!sid) return false;
               const aSet = new Set(
                 parts
                   .filter((p) => String(p.side || "").toUpperCase() === "A")
@@ -2992,11 +3037,54 @@ export function initSocket(
                   .filter(Boolean)
               );
 
-              const sid = String(serverId);
-              const okOnSide =
+              return (
                 (wantSide === "A" && aSet.has(sid)) ||
-                (wantSide === "B" && bSet.has(sid));
-              validServerId = okOnSide ? sid : null;
+                (wantSide === "B" && bSet.has(sid))
+              );
+            };
+            const currentScore = currentGameScoreForServe(m);
+            const isOpeningZeroZero =
+              wantOpening &&
+              getOpeningServeServer(m) === OPENING_DOUBLES_SERVER &&
+              currentScore.a === 0 &&
+              currentScore.b === 0;
+            const targetSlot = isOpeningZeroZero
+              ? preStartRightSlotForSide(wantSide, m?.meta?.refereeLayout)
+              : effectiveServer;
+            const inferredServerId = inferServerIdByCurrentSlot({
+              players: parts.filter((p) => String(p.side || "").toUpperCase() === wantSide),
+              getId: toId,
+              getFallbackBaseSlot: (player) => player?.order,
+              slotsBase:
+                wantSide === "A"
+                  ? m?.slots?.base?.A || m?.meta?.slots?.base?.A || {}
+                  : m?.slots?.base?.B || m?.meta?.slots?.base?.B || {},
+              targetSlot,
+              teamScore: wantSide === "A" ? currentScore.a : currentScore.b,
+            });
+
+            const existingServerId = String(m?.serve?.serverId || "").trim();
+            const existingSameServeId =
+              !isOpeningZeroZero &&
+              existingServerId &&
+              m?.serve?.side === wantSide &&
+              Number(m?.serve?.server) === effectiveServer &&
+              Boolean(m?.serve?.opening) === wantOpening &&
+              isServerIdOnWantedSide(existingServerId)
+                ? existingServerId
+                : null;
+
+            let validServerId = null;
+            if (serverId) {
+              const sid = String(serverId);
+              validServerId = isServerIdOnWantedSide(sid) ? sid : null;
+            } else if (existingSameServeId) {
+              validServerId = existingSameServeId;
+            } else if (inferredServerId) {
+              validServerId = inferredServerId;
+            } else if (m?.serve?.serverId) {
+              const sid = String(m.serve.serverId);
+              validServerId = isServerIdOnWantedSide(sid) ? sid : null;
             }
 
             const prevServe =
@@ -3009,19 +3097,17 @@ export function initSocket(
             // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
             m.serve = {
               side: wantSide,
-              server: wantServer,
+              server: effectiveServer,
               serverId: validServerId, // <-- Fix lỗi ở đây
               opening: wantOpening,
             };
 
             // Sync vào slots (để tương thích ngược nếu cần)
-            if (validServerId) {
-              m.set("slots.serverId", validServerId, { strict: false });
-              m.set("slots.updatedAt", new Date(), { strict: false });
-              const ver = Number(m?.slots?.version || 0);
-              m.set("slots.version", ver + 1, { strict: false });
-              m.markModified("slots");
-            }
+            m.set("slots.serverId", validServerId || null, { strict: false });
+            m.set("slots.updatedAt", new Date(), { strict: false });
+            const ver = Number(m?.slots?.version || 0);
+            m.set("slots.version", ver + 1, { strict: false });
+            m.markModified("slots");
 
             // log
             m.liveLog = m.liveLog || [];
@@ -3093,14 +3179,19 @@ export function initSocket(
             opening !== undefined
               ? Boolean(opening)
               : Boolean(m.serve?.opening);
+          const effectiveServer =
+            wantOpening && getOpeningServeServer(m) === OPENING_DOUBLES_SERVER
+              ? OPENING_DOUBLES_SERVER
+              : wantServer;
 
           // validate serverId
           // Với Match giải đấu, toId chỉ lấy _id thật
           const toIdMatch = (u) =>
             String(u?.user?._id || u?.user || u?._id || u?.id || "");
 
-          let validServerId = null;
-          if (serverId) {
+          const isServerIdOnWantedSide = (candidateId) => {
+            const sid = String(candidateId || "");
+            if (!sid) return false;
             const aSet = new Set(
               [m?.pairA?.player1, m?.pairA?.player2]
                 .filter(Boolean)
@@ -3113,11 +3204,58 @@ export function initSocket(
                 .map(toIdMatch)
                 .filter(Boolean)
             );
-            const sid = String(serverId);
-            const okOnSide =
+            return (
               (wantSide === "A" && aSet.has(sid)) ||
-              (wantSide === "B" && bSet.has(sid));
-            validServerId = okOnSide ? sid : null;
+              (wantSide === "B" && bSet.has(sid))
+            );
+          };
+          const currentScore = currentGameScoreForServe(m);
+          const isOpeningZeroZero =
+            wantOpening &&
+            getOpeningServeServer(m) === OPENING_DOUBLES_SERVER &&
+            currentScore.a === 0 &&
+            currentScore.b === 0;
+          const targetSlot = isOpeningZeroZero
+            ? preStartRightSlotForSide(wantSide, m?.meta?.refereeLayout)
+            : effectiveServer;
+          const teamPlayers =
+            wantSide === "A"
+              ? [m?.pairA?.player1, m?.pairA?.player2].filter(Boolean)
+              : [m?.pairB?.player1, m?.pairB?.player2].filter(Boolean);
+          const inferredServerId = inferServerIdByCurrentSlot({
+            players: teamPlayers,
+            getId: toIdMatch,
+            getFallbackBaseSlot: (_player, index) => index + 1,
+            slotsBase:
+              wantSide === "A"
+                ? m?.slots?.base?.A || m?.meta?.slots?.base?.A || {}
+                : m?.slots?.base?.B || m?.meta?.slots?.base?.B || {},
+            targetSlot,
+            teamScore: wantSide === "A" ? currentScore.a : currentScore.b,
+          });
+
+          const existingServerId = String(m?.serve?.serverId || "").trim();
+          const existingSameServeId =
+            !isOpeningZeroZero &&
+            existingServerId &&
+            m?.serve?.side === wantSide &&
+            Number(m?.serve?.server) === effectiveServer &&
+            Boolean(m?.serve?.opening) === wantOpening &&
+            isServerIdOnWantedSide(existingServerId)
+              ? existingServerId
+              : null;
+
+          let validServerId = null;
+          if (serverId) {
+            const sid = String(serverId);
+            validServerId = isServerIdOnWantedSide(sid) ? sid : null;
+          } else if (existingSameServeId) {
+            validServerId = existingSameServeId;
+          } else if (inferredServerId) {
+            validServerId = inferredServerId;
+          } else if (m?.serve?.serverId) {
+            const sid = String(m.serve.serverId);
+            validServerId = isServerIdOnWantedSide(sid) ? sid : null;
           }
 
           const prevServe =
@@ -3130,19 +3268,17 @@ export function initSocket(
           // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
           m.serve = {
             side: wantSide,
-            server: wantServer,
+            server: effectiveServer,
             serverId: validServerId, // <-- Fix lỗi ở đây
             opening: wantOpening,
           };
 
           // lưu serverId động vào slots
-          if (validServerId) {
-            m.set("slots.serverId", validServerId, { strict: false });
-            m.set("slots.updatedAt", new Date(), { strict: false });
-            const ver = Number(m?.slots?.version || 0);
-            m.set("slots.version", ver + 1, { strict: false });
-            m.markModified("slots");
-          }
+          m.set("slots.serverId", validServerId || null, { strict: false });
+          m.set("slots.updatedAt", new Date(), { strict: false });
+          const ver = Number(m?.slots?.version || 0);
+          m.set("slots.version", ver + 1, { strict: false });
+          m.markModified("slots");
 
           // live log
           m.liveLog = m.liveLog || [];

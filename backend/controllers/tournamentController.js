@@ -23,6 +23,9 @@ import {
   buildTeamStandings,
 } from "../services/teamTournament.service.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+import {
+  attachResolvedSideNamesToMatches as attachBackendResolvedSideNamesToMatches,
+} from "../utils/matchSideDisplay.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const POSTER_BASE_W = 960;
@@ -106,7 +109,7 @@ const hasResolvedPairForMatchList = (pair) =>
 const parseMatchListCode = (value) => {
   const match = String(value || "")
     .trim()
-    .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-B[A-Z0-9]+)?-T\d+)\b/i);
+    .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+)\b/i);
   return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
 };
 
@@ -241,28 +244,6 @@ const hydrateResolvedPairsInMatchList = async (
 
   if (ops.length) await Match.bulkWrite(ops, { ordered: false }).catch(() => {});
   return matches;
-};
-
-const pairDisplayNameForMatchPayload = (pair) =>
-  String(
-    pair?.displayName || pair?.teamName || pair?.label || pair?.title || pair?.name || ""
-  ).trim();
-
-const attachResolvedSideNamesToMatch = (match) => {
-  if (!match || typeof match !== "object") return match;
-  const sideAName = pairDisplayNameForMatchPayload(match.pairA);
-  const sideBName = pairDisplayNameForMatchPayload(match.pairB);
-
-  match.pairAName = sideAName;
-  match.pairBName = sideBName;
-  match.teamAName = sideAName;
-  match.teamBName = sideBName;
-  match.resolvedSideNameA = sideAName;
-  match.resolvedSideNameB = sideBName;
-  match.sideAName = sideAName;
-  match.sideBName = sideBName;
-
-  return match;
 };
 
 function escapeXml(value = "") {
@@ -2652,9 +2633,8 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
     baseByBracketId,
     matchesByBracketId,
   });
-  normalizedList.forEach(attachResolvedSideNamesToMatch);
 
-  return normalizedList.map((match) => {
+  const enrichedList = normalizedList.map((match) => {
     const bracket = match.bracket || {};
     const bracketId = String(bracket?._id || "");
     const groupStage = isGroupish(bracket?.type);
@@ -2698,6 +2678,8 @@ const enrichBracketMatchList = async (tournamentId, listRaw) => {
       latestRecordingsByMatchId.get(String(match?._id || ""))
     );
   });
+  attachBackendResolvedSideNamesToMatches(enrichedList);
+  return enrichedList;
 };
 
 const listTournamentMatchesBracketView = async (req, res) => {
@@ -4107,7 +4089,6 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       baseByBracketId,
       matchesByBracketId,
     });
-    normalizedList.forEach(attachResolvedSideNamesToMatch);
 
     // ---- flatten + FINAL CODE ----
     const list = normalizedList.map((m) => {
@@ -4175,6 +4156,7 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         roundCode: displayCode,
       };
     });
+    attachBackendResolvedSideNamesToMatches(list);
 
     setNoStoreHeaders(res);
     res.json({ total, page: pg, limit: lim, list });

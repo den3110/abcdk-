@@ -24,6 +24,10 @@ import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+import {
+  attachResolvedSideNamesToMatch as attachBackendResolvedSideNamesToMatch,
+  buildMatchSideDisplayContext,
+} from "../utils/matchSideDisplay.js";
 // controllers/matchController.js
 
 function isFacebookVideoUrl(url) {
@@ -1517,14 +1521,16 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
         ""
     ).trim();
     if (!value) return "";
-    const match = value.match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-B[A-Z0-9]+)?-T\d+)\b/i);
+    const match = value.match(
+      /\b(?:[WL]\s*-\s*)?(V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+)\b/i
+    );
     return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
   };
 
   const parseDisplayCode = (value) => {
     const match = String(value || "")
       .trim()
-      .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-B[A-Z0-9]+)?-T\d+)\b/i);
+      .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+)\b/i);
     return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
   };
 
@@ -1820,6 +1826,72 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     return prepareMatchPairs(targetMatch);
   };
 
+  const buildSideDisplayContextForMatch = async (targetMatch) => {
+    const tournamentId = pairId(
+      targetMatch?.tournament?._id ||
+        targetMatch?.tournament ||
+        targetMatch?.bracket?.tournament
+    );
+    if (!mongoose.Types.ObjectId.isValid(tournamentId)) return {};
+
+    const contextRaw = await Match.find({ tournament: tournamentId })
+      .select(sourceMatchSelect)
+      .populate(populatePairPaths)
+      .populate({ path: "bracket", select: BRACKET_SELECT })
+      .lean();
+
+    const normalizedContext = contextRaw.map((item) =>
+      normalizeMatchDisplayShape(prepareMatchPairs(item))
+    );
+    const { offsetMap, typeMap } = await buildOffsets(tournamentId);
+    const matchesByBracketId = new Map();
+    for (const item of normalizedContext) {
+      const bracketId = String(item?.bracket?._id || item?.bracket || "");
+      if (!bracketId) continue;
+      if (!matchesByBracketId.has(bracketId)) matchesByBracketId.set(bracketId, []);
+      matchesByBracketId.get(bracketId).push(item);
+    }
+
+    for (const item of normalizedContext) {
+      try {
+        const codePayload = buildMatchCodePayload(item, {
+          baseByBracketId: offsetMap,
+          matchesByBracketId,
+        });
+        const displayCode =
+          String(codePayload?.displayCode || "").trim() ||
+          computeCodeDisplay(item, offsetMap, typeMap);
+        item.codeDisplay = displayCode;
+        item.displayCode = displayCode;
+        item.codeResolved = displayCode;
+        item.code = displayCode;
+      } catch {
+        const displayCode = computeCodeDisplay(item, offsetMap, typeMap);
+        item.codeDisplay = displayCode;
+        item.displayCode = displayCode;
+        item.codeResolved = displayCode;
+        item.code = displayCode;
+      }
+    }
+
+    const targetId = pairId(targetMatch?._id);
+    if (targetId) {
+      const index = normalizedContext.findIndex(
+        (item) => pairId(item?._id) === targetId
+      );
+      if (index >= 0) {
+        normalizedContext[index] = {
+          ...normalizedContext[index],
+          ...targetMatch,
+        };
+      } else {
+        normalizedContext.push(targetMatch);
+      }
+    }
+
+    return buildMatchSideDisplayContext(normalizedContext);
+  };
+
   // ===== fetch match =====
   const m = await Match.findById(id)
     // Pairs + players
@@ -1997,6 +2069,16 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   }
 
   // ===== prevBracket (giữ như cũ) =====
+  try {
+    const sideDisplayContext = await buildSideDisplayContextForMatch(m);
+    attachBackendResolvedSideNamesToMatch(m, sideDisplayContext);
+  } catch (error) {
+    console.error(
+      "[getMatchPublic] side display context error:",
+      error?.message || error
+    );
+    attachBackendResolvedSideNamesToMatch(m);
+  }
   m.prevBracket = null;
   m.prevBrackets = [];
   try {

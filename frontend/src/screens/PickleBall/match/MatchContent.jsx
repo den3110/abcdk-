@@ -193,7 +193,7 @@ const isUsefulPendingLabel = (value) => {
   const text = String(value || "").trim();
   if (!text) return false;
   if (/^(BYE|TBD|Registration|Chưa có đội|—)$/i.test(text)) return false;
-  return !/^(?:[WL]\s*-|V\d+(?:-|$))/i.test(text);
+  return true;
 };
 
 const previewSideLabel = (match, side) => {
@@ -223,7 +223,7 @@ function extractDisplayCodeText(value) {
   const text = String(value || "").trim();
   if (!text) return "";
   const match = text.match(
-    /\b(?:V\d+(?:-B[^-\s]+)?(?:-NT)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
+    /\b(?:V\d+(?:-(?:B[^-\s]+|NT))?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
   );
   return match ? match[0].toUpperCase() : "";
 }

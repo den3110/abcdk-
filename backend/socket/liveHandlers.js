@@ -23,6 +23,7 @@ import {
 } from "../services/publicStreams.service.js";
 import { resolveMatchCourtStationFields } from "../services/courtCluster.service.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+import { resolveMatchSideDisplay } from "../utils/matchSideDisplay.js";
 import {
   applyLegacyLiveAction,
 } from "../services/matchLiveSync.service.js";
@@ -708,6 +709,21 @@ export const toDTO = (matchDoc) => {
       : undefined;
   const teamAName = teams?.A?.name || teamNameFromReg(m?.pairA) || undefined;
   const teamBName = teams?.B?.name || teamNameFromReg(m?.pairB) || undefined;
+  const sideDisplaySource = {
+    ...m,
+    teamAName,
+    teamBName,
+    pairAName: teamAName || "",
+    pairBName: teamBName || "",
+    resolvedSideNameA: teamAName || m?.resolvedSideNameA || "",
+    resolvedSideNameB: teamBName || m?.resolvedSideNameB || "",
+  };
+  const sideAResolved = resolveMatchSideDisplay(sideDisplaySource, "A");
+  const sideBResolved = resolveMatchSideDisplay(sideDisplaySource, "B");
+  const resolvedTeamAName =
+    sideAResolved.kind === "team" ? sideAResolved.name : teamAName;
+  const resolvedTeamBName =
+    sideBResolved.kind === "team" ? sideBResolved.name : teamBName;
 
   // ================= Build DTO =================
   return {
@@ -723,14 +739,18 @@ export const toDTO = (matchDoc) => {
       m.code ||
       undefined,
     globalCode: codePayload.globalCode || m.globalCode || undefined,
-    teamAName,
-    teamBName,
-    pairAName: teamAName || "",
-    pairBName: teamBName || "",
-    resolvedSideNameA: teamAName || "",
-    resolvedSideNameB: teamBName || "",
-    sideAName: teamAName || "",
-    sideBName: teamBName || "",
+    teamAName: resolvedTeamAName,
+    teamBName: resolvedTeamBName,
+    pairAName: resolvedTeamAName || "",
+    pairBName: resolvedTeamBName || "",
+    resolvedSideNameA: sideAResolved.name || resolvedTeamAName || "",
+    resolvedSideNameB: sideBResolved.name || resolvedTeamBName || "",
+    resolvedSideKindA: sideAResolved.kind || undefined,
+    resolvedSideKindB: sideBResolved.kind || undefined,
+    resolvedSideSourceA: sideAResolved.source || undefined,
+    resolvedSideSourceB: sideBResolved.source || undefined,
+    sideAName: sideAResolved.name || resolvedTeamAName || "",
+    sideBName: sideBResolved.name || resolvedTeamBName || "",
 
     status: m.status,
     winner: m.winner,
@@ -1139,6 +1159,9 @@ export async function setServe(matchId, side, server, serverId, by, io, opening 
   const gi = Math.max(0, gs.length - 1);
   const curA = Number(gs[gi]?.a || 0);
   const curB = Number(gs[gi]?.b || 0);
+  const isDoubles = playersA.length > 1 || playersB.length > 1;
+  const wantOpening = Boolean(opening ?? m?.serve?.opening);
+  const effectiveSrvNum = wantOpening && isDoubles ? 2 : srvNum;
 
   // --- base map (từ slots.base), fallback p1=1, p2=2 nếu thiếu ---
   const baseA = (m?.slots?.base?.A && { ...m.slots.base.A }) || {};
@@ -1156,14 +1179,40 @@ export async function setServe(matchId, side, server, serverId, by, io, opening 
   const flip = (n) => (n === 1 ? 2 : 1);
   const slotNow = (baseSlot, teamScore) =>
     teamScore % 2 === 0 ? baseSlot : flip(baseSlot);
+  const layout =
+    m?.meta?.refereeLayout &&
+    typeof m.meta.refereeLayout === "object" &&
+    (m.meta.refereeLayout.left === "B" || m.meta.refereeLayout.right === "A")
+      ? { left: "B", right: "A" }
+      : { left: "A", right: "B" };
+  const preStartRightSlot = layout.left === sideU ? 2 : 1;
+  const isOpeningZeroZero = wantOpening && isDoubles && curA === 0 && curB === 0;
+  const targetServerSlot = isOpeningZeroZero ? preStartRightSlot : effectiveSrvNum;
 
   // --- chọn serverId nếu client không gửi: ưu tiên người có baseSlot=1 ---
-  let serverUid = serverId ? String(serverId) : "";
+  const teamForServe = sideU === "A" ? playersA : playersB;
+  const existingServerUid = String(m?.serve?.serverId || "").trim();
+  const canKeepExistingServer =
+    !isOpeningZeroZero &&
+    existingServerUid &&
+    teamForServe.includes(existingServerUid) &&
+    m?.serve?.side === sideU &&
+    Number(m?.serve?.server) === effectiveSrvNum &&
+    Boolean(m?.serve?.opening) === wantOpening;
+  let serverUid = serverId
+    ? String(serverId)
+    : canKeepExistingServer
+    ? existingServerUid
+    : "";
   if (!serverUid) {
-    const teamList = sideU === "A" ? playersA : playersB;
+    const teamList = teamForServe;
     const teamBase = sideU === "A" ? baseA : baseB;
+    const teamScore = sideU === "A" ? curA : curB;
     serverUid =
-      teamList.find((u) => Number(teamBase[u]) === 1) || teamList[0] || "";
+      teamList.find((u) => slotNow(Number(teamBase[u] || 1), teamScore) === targetServerSlot) ||
+      teamList.find((u) => Number(teamBase[u]) === targetServerSlot) ||
+      teamList[0] ||
+      "";
   }
 
   // --- slot hiện tại của người giao ---
@@ -1201,10 +1250,8 @@ export async function setServe(matchId, side, server, serverId, by, io, opening 
       opening:
         String(m?.tournament?.eventType || m?.eventType || "").toLowerCase() !== "single",
     };
-  const wantOpening = Boolean(opening ?? m?.serve?.opening);
-
   m.set("serve.side", sideU, { strict: false });
-  m.set("serve.server", srvNum, { strict: false });
+  m.set("serve.server", effectiveSrvNum, { strict: false });
   m.set("serve.opening", wantOpening, { strict: false });
   if (serverUid) m.set("serve.serverId", serverUid, { strict: false });
   if (receiverUid) m.set("serve.receiverId", receiverUid, { strict: false });
@@ -1226,7 +1273,7 @@ export async function setServe(matchId, side, server, serverId, by, io, opening 
       prev: prevServe,
       next: {
         side: sideU,
-        server: srvNum,
+        server: effectiveSrvNum,
         opening: wantOpening,
         serverId: serverUid || null,
         receiverId: receiverUid || null,

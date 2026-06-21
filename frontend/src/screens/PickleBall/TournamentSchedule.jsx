@@ -216,7 +216,9 @@ const normalizedLabelText = (value) =>
 const isByeLabel = (value) => normalizedLabelText(value) === "bye";
 
 const isReferenceTeamLabel = (value) =>
-  /^[WL]\s*-\s*V\d+(?:-[^-]+)?-T\d+$/i.test(labelText(value));
+  /^[WL]\s*-\s*(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
+    labelText(value),
+  );
 
 const isUsefulTeamLabel = (value) => {
   const text = labelText(value);
@@ -225,7 +227,7 @@ const isUsefulTeamLabel = (value) => {
   return !(
     ["bye", "tbd", "registration", "chua co doi", "-", "--", "—"].includes(
       normalized,
-    ) || /^doi\s+\d+$/.test(normalized)
+    )
   );
 };
 
@@ -305,7 +307,13 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
       side === "A"
         ? m?.resolvedSideNameA || m?.teamAName || m?.pairAName || m?.sideAName
         : m?.resolvedSideNameB || m?.teamBName || m?.pairBName || m?.sideBName;
-    if (isConcreteTeamLabel(direct) || isByeLabel(direct)) return direct;
+    if (
+      isConcreteTeamLabel(direct) ||
+      isByeLabel(direct) ||
+      isReferenceTeamLabel(direct)
+    ) {
+      return direct;
+    }
 
     const pair = side === "A" ? m?.pairA : m?.pairB;
     const pairName = pairToName(pair, eventType, displayMode);
@@ -313,7 +321,13 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
 
     const seed = side === "A" ? m?.seedA : m?.seedB;
     const seedName = seedToName(seed);
-    if (isUsefulTeamLabel(seedName) || isByeLabel(seedName)) return seedName;
+    if (
+      isUsefulTeamLabel(seedName) ||
+      isByeLabel(seedName) ||
+      isReferenceTeamLabel(seedName)
+    ) {
+      return seedName;
+    }
     return "";
   };
 
@@ -358,11 +372,17 @@ function teamNameFrom(
   const resolvedText = labelText(resolved);
   const seedText = seedToName(seed);
   return (
-    (isUsefulTeamLabel(resolvedText) || isByeLabel(resolvedText)
+    (isUsefulTeamLabel(resolvedText) ||
+    isByeLabel(resolvedText) ||
+    isReferenceTeamLabel(resolvedText)
       ? resolvedText
       : "") ||
     pairToName(pair, eventType, displayMode) ||
-    (isUsefulTeamLabel(seedText) || isByeLabel(seedText) ? seedText : "") ||
+    (isUsefulTeamLabel(seedText) ||
+    isByeLabel(seedText) ||
+    isReferenceTeamLabel(seedText)
+      ? seedText
+      : "") ||
     resolvedFallback
   );
 }

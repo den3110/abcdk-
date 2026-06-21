@@ -134,6 +134,45 @@ export const getPairDisplayName = (pair, source) => {
 
 const sideKeyOf = (side) => (String(side).toUpperCase() === "B" ? "B" : "A");
 const getSideValue = (match, side, prefix) => match?.[`${prefix}${sideKeyOf(side)}`];
+const normalizedLabelText = (value) =>
+  textValue(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0111/g, "d")
+    .replace(/\u0110/g, "D")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+export const isByeMatchLabel = (value) => normalizedLabelText(value) === "bye";
+export const isPendingMatchTeamLabel = (value) => {
+  const text = normalizedLabelText(value);
+  return (
+    !text ||
+    [
+      "tbd",
+      "registration",
+      "chua co doi",
+      "doi",
+      "doi a",
+      "doi b",
+      "-",
+      "--",
+      "—",
+    ].includes(text)
+  );
+};
+export const isReferenceTeamLabel = (value) =>
+  /^[WL]\s*-\s*(?:V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+|NT-T\d+)$/i.test(
+    textValue(value)
+  );
+export const isUsefulMatchTeamLabel = (value) => {
+  const text = textValue(value);
+  return Boolean(text) && !isPendingMatchTeamLabel(text);
+};
+export const isConcreteMatchTeamLabel = (value) =>
+  isUsefulMatchTeamLabel(value) &&
+  !isByeMatchLabel(value) &&
+  !isReferenceTeamLabel(value);
 const positiveInt = (value) => {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.trunc(number) : null;
@@ -154,11 +193,12 @@ const extractReferenceCodeParts = (value) => {
   const normalized = normalizeMatchCodeCandidate(base) || codeFromLabelKeyish(base);
   if (!normalized) return null;
 
-  const parsed = normalized.match(/^V(\d+)(?:-B[A-Z0-9]+)?-T(\d+)$/i);
+  const parsed = normalized.match(/^V(\d+)(?:-(?:B[A-Z0-9]+|NT))?-T(\d+)$/i);
   if (!parsed) return null;
 
   return {
     prefix,
+    code: normalized.toUpperCase(),
     round: Number(parsed[1]),
     order: Number(parsed[2]),
   };
@@ -238,7 +278,14 @@ export const getSeedDisplayName = (seed, ownerMatch = null) => {
     trim(seed?.teamName) ||
     trim(seed?.name) ||
     trim(seed?.title);
-  if (direct) return direct;
+  if (
+    direct &&
+    (isUsefulMatchTeamLabel(direct) ||
+      isByeMatchLabel(direct) ||
+      isReferenceTeamLabel(direct))
+  ) {
+    return direct;
+  }
 
   const type = trim(seed?.type).toLowerCase();
   const ref = seed?.ref || {};
@@ -279,9 +326,12 @@ export const getSeedDisplayName = (seed, ownerMatch = null) => {
     if (round && order) return `${prefix}-V${round}-T${order}`;
   }
 
-  if (direct) return direct;
-
-  return textValue(seed);
+  const fallback = textValue(seed);
+  return isUsefulMatchTeamLabel(fallback) ||
+    isByeMatchLabel(fallback) ||
+    isReferenceTeamLabel(fallback)
+    ? fallback
+    : "";
 };
 
 export const getPreviousMatchDisplayCode = (previous, ownerMatch = null) => {
@@ -321,6 +371,7 @@ export const getPreviousMatchDisplayCode = (previous, ownerMatch = null) => {
       previous?.tIndex ?? previous?.ref?.tIndex,
       previous?.order ?? previous?.idx ?? previous?.ref?.order
     );
+  if (directParts?.code && directParts.order === order) return directParts.code;
   if (round && order) return `V${round}-T${order}`;
 
   return "";
@@ -338,7 +389,14 @@ export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
         match?.teamBName ||
         match?.pairBName ||
         match?.sideBName;
-  if (trim(direct)) return trim(direct);
+  const directText = textValue(direct);
+  if (
+    isUsefulMatchTeamLabel(directText) ||
+    isByeMatchLabel(directText) ||
+    isReferenceTeamLabel(directText)
+  ) {
+    return directText;
+  }
 
   const pair =
     getSideValue(match, normalizedSide, "pair") ||
@@ -348,10 +406,16 @@ export const getMatchSideDisplayName = (match, side, fallback = "TBD") => {
     null;
   const seed = getSideValue(match, normalizedSide, "seed");
   const pairName = getPairDisplayName(pair, match);
-  if (pairName) return pairName;
+  if (isConcreteMatchTeamLabel(pairName)) return pairName;
 
   const seedName = getSeedDisplayName(seed, match);
-  if (seedName) return seedName;
+  if (
+    isUsefulMatchTeamLabel(seedName) ||
+    isByeMatchLabel(seedName) ||
+    isReferenceTeamLabel(seedName)
+  ) {
+    return seedName;
+  }
 
   return fallback;
 };
@@ -502,7 +566,7 @@ const letterToIndex = (value) => {
   return null;
 };
 const isGlobalDisplayCode = (value) =>
-  /^V\d+(?:-B[A-Z0-9]+)?-T\d+$/i.test(trim(value));
+  /^V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+$/i.test(trim(value));
 const normalizeMatchCodeCandidate = (value) => {
   const raw = trim(value).toUpperCase();
   if (!raw) return "";
@@ -516,11 +580,16 @@ const normalizeMatchCodeCandidate = (value) => {
   const knockout = raw.match(/^V(\d+)\s*-\s*T(\d+)$/i);
   if (knockout) return `V${knockout[1]}-T${knockout[2]}`;
 
+  const nt = raw.match(/^V(\d+)\s*-\s*NT\s*-\s*T(\d+)$/i);
+  if (nt) return `V${nt[1]}-NT-T${nt[2]}`;
+
   return "";
 };
 const codeFromLabelKeyish = (value) => {
   const raw = trim(value).toUpperCase();
   if (!raw) return "";
+  const nt = raw.match(/V(\d+).*NT.*?(\d+)\s*$/i);
+  if (nt) return `V${nt[1]}-NT-T${nt[2]}`;
   const nums = raw.match(/\d+/g);
   if (!nums || nums.length < 2) return "";
   const v = Number(nums[0]);

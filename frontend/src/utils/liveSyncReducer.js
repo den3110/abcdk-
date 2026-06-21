@@ -109,18 +109,178 @@ function normalizeRefereeLayout(layout) {
   return { left: "A", right: "B" };
 }
 
-function applyServeState(snapshot, serve) {
-  const server = validServer(serve?.server);
-  snapshot.serve = {
-    side: validSide(serve?.side),
+function userIdOfPlayer(player) {
+  return String(player?.user?._id || player?.user || player?._id || player?.id || "").trim();
+}
+
+function getTeamPlayerIds(snapshot, team) {
+  const pair = team === "B" ? snapshot?.pairB : snapshot?.pairA;
+  return [pair?.player1, pair?.player2].map(userIdOfPlayer).filter(Boolean);
+}
+
+function currentGameScoreOf(snapshot) {
+  const scores = Array.isArray(snapshot?.gameScores) ? snapshot.gameScores : [];
+  const index = Number.isInteger(snapshot?.currentGame)
+    ? Math.max(0, snapshot.currentGame)
+    : Math.max(0, scores.length - 1);
+  const score = scores[index] || {};
+  return {
+    a: toNum(score.a, 0),
+    b: toNum(score.b, 0),
+  };
+}
+
+function currentSlotFromBaseSlot(baseSlot, teamScore) {
+  const base = Number(baseSlot) === 2 ? 2 : 1;
+  return Number(teamScore || 0) % 2 === 0 ? base : base === 1 ? 2 : 1;
+}
+
+function oppositeSlot(slot) {
+  return Number(slot) === 1 ? 2 : 1;
+}
+
+function preStartRightSlotForSide(side, layout) {
+  return normalizeRefereeLayout(layout).left === side ? 2 : 1;
+}
+
+function normalizedSlotsBaseForSnapshot(snapshot, inputBase = null) {
+  const rawBase =
+    inputBase && typeof inputBase === "object"
+      ? inputBase
+      : snapshot?.slots?.base || snapshot?.meta?.slots?.base || {};
+  const base = {
+    A: { ...(rawBase?.A || {}) },
+    B: { ...(rawBase?.B || {}) },
+  };
+
+  for (const team of ["A", "B"]) {
+    const ids = getTeamPlayerIds(snapshot, team);
+    if (ids[0] && ![1, 2].includes(Number(base[team][ids[0]]))) {
+      base[team][ids[0]] = 1;
+    }
+    if (ids[1] && ![1, 2].includes(Number(base[team][ids[1]]))) {
+      base[team][ids[1]] = 2;
+    }
+  }
+
+  return base;
+}
+
+function findPlayerIdByBaseSlot(snapshot, side, slot, base = null) {
+  const normalizedBase = base || normalizedSlotsBaseForSnapshot(snapshot);
+  return (
+    Object.entries(normalizedBase?.[side] || {}).find(
+      ([, value]) => Number(value) === Number(slot),
+    )?.[0] || ""
+  );
+}
+
+function findPlayerIdByCurrentSlot(snapshot, side, slot, base = null, score = null) {
+  const normalizedBase = base || normalizedSlotsBaseForSnapshot(snapshot);
+  const currentScore = score || currentGameScoreOf(snapshot);
+  const teamScore = side === "A" ? currentScore.a : currentScore.b;
+  return (
+    Object.entries(normalizedBase?.[side] || {}).find(
+      ([, value]) => currentSlotFromBaseSlot(value, teamScore) === Number(slot),
+    )?.[0] || ""
+  );
+}
+
+function isServeServerIdValid(snapshot, side, serverId) {
+  const normalizedId = String(serverId || "").trim();
+  if (!normalizedId) return false;
+  return new Set(getTeamPlayerIds(snapshot, side)).has(normalizedId);
+}
+
+function resolveReceiverIdForServe(snapshot, serve, base, score) {
+  const serverId = String(serve?.serverId || "").trim();
+  if (!serverId) return null;
+  const side = validSide(serve?.side);
+  const otherSide = side === "A" ? "B" : "A";
+  const currentScore = score || currentGameScoreOf(snapshot);
+  const serverBaseSlot = Number(base?.[side]?.[serverId] || serve?.server || 1);
+  const serverTeamScore = side === "A" ? currentScore.a : currentScore.b;
+  const serverCurrentSlot = currentSlotFromBaseSlot(serverBaseSlot, serverTeamScore);
+  return findPlayerIdByCurrentSlot(snapshot, otherSide, serverCurrentSlot, base, currentScore) || null;
+}
+
+function normalizeServeForSnapshot(snapshot, serve = {}, options = {}) {
+  const side = validSide(serve?.side);
+  let server = validServer(Number(serve?.server));
+  const opening = Boolean(serve?.opening);
+  const base = normalizedSlotsBaseForSnapshot(snapshot, options.base);
+  const score = currentGameScoreOf(snapshot);
+  const teamIds = getTeamPlayerIds(snapshot, side);
+  let serverId = String(serve?.serverId || "").trim();
+  const isOpeningDoubles = isDoublesSnapshot(snapshot) && opening;
+  if (isOpeningDoubles) {
+    server = OPENING_DOUBLES_SERVER;
+  }
+
+  if (serverId && !isServeServerIdValid(snapshot, side, serverId)) {
+    serverId = "";
+  }
+  const existingServerId = String(snapshot?.serve?.serverId || "").trim();
+  const canKeepExistingServer =
+    !serverId &&
+    existingServerId &&
+    snapshot?.serve?.side === side &&
+    validServer(snapshot?.serve?.server) === server &&
+    Boolean(snapshot?.serve?.opening) === opening &&
+    isServeServerIdValid(snapshot, side, existingServerId);
+
+  if (
+    isOpeningDoubles &&
+    opening &&
+    toNum(score.a, 0) === 0 &&
+    toNum(score.b, 0) === 0
+  ) {
+    server = OPENING_DOUBLES_SERVER;
+    const rightSlot = preStartRightSlotForSide(side, snapshot?.meta?.refereeLayout);
+    serverId =
+      findPlayerIdByCurrentSlot(snapshot, side, rightSlot, base, score) ||
+      findPlayerIdByCurrentSlot(snapshot, side, oppositeSlot(rightSlot), base, score) ||
+      serverId ||
+      teamIds[0] ||
+      "";
+  } else if (canKeepExistingServer) {
+    serverId = existingServerId;
+  } else if (!serverId) {
+    serverId =
+      (options.preferCurrentSlot
+        ? findPlayerIdByCurrentSlot(snapshot, side, server, base, score)
+        : "") ||
+      findPlayerIdByBaseSlot(snapshot, side, server, base) ||
+      findPlayerIdByCurrentSlot(snapshot, side, server, base, score) ||
+      teamIds[0] ||
+      "";
+  }
+
+  const normalized = {
+    side,
     server,
-    serverId: serve?.serverId || null,
-    opening: Boolean(serve?.opening),
+    serverId: serverId || null,
+    receiverId: null,
+    opening,
+  };
+  normalized.receiverId = resolveReceiverIdForServe(snapshot, normalized, base, score);
+  return normalized;
+}
+
+function applyServeState(snapshot, serve, options = {}) {
+  const normalizedServe = normalizeServeForSnapshot(snapshot, serve, options);
+  snapshot.serve = {
+    side: normalizedServe.side,
+    server: normalizedServe.server,
+    serverId: normalizedServe.serverId || null,
+    receiverId: normalizedServe.receiverId || null,
+    opening: normalizedServe.opening,
   };
   if (!snapshot.slots || typeof snapshot.slots !== "object") {
     snapshot.slots = {};
   }
   snapshot.slots.serverId = snapshot.serve.serverId || null;
+  snapshot.slots.receiverId = snapshot.serve.receiverId || null;
 }
 
 function findUndoableLiveLogEntry(snapshot) {
@@ -172,12 +332,12 @@ export function applyLiveSyncEventLocally(snapshot, input) {
       next.gameScores = [{ a: 0, b: 0 }];
       next.currentGame = 0;
     }
-    next.serve = {
+    applyServeState(next, {
       side: validSide(next.serve?.side),
       server: opening ? OPENING_DOUBLES_SERVER : 1,
       serverId: next.serve?.serverId || null,
       opening,
-    };
+    });
     ensureLiveLog(next);
     next.liveLog.push({ type: "start", at: new Date().toISOString() });
     next.liveVersion = toNum(next.liveVersion, 0) + 1;
@@ -207,28 +367,18 @@ export function applyLiveSyncEventLocally(snapshot, input) {
       return next;
     }
 
-    if (team === "A") score.a += step;
-    else score.b += step;
-    next.gameScores[gameIndex] = score;
-
     const prevServe = {
       side: validSide(next.serve?.side),
       server: validServer(next.serve?.server),
       serverId: next.serve?.serverId || null,
       opening: Boolean(next.serve?.opening),
     };
-    if (team !== prevServe.side) {
-      next.serve = onLostRallyNextServe(prevServe);
-      const base = next?.meta?.slots?.base || next?.slots?.base;
-      if (base && base[next.serve.side]) {
-        const entry = Object.entries(base[next.serve.side]).find(
-          ([, slot]) => Number(slot) === Number(next.serve.server)
-        );
-        next.serve.serverId = entry ? entry[0] : null;
-      }
-    } else if (!next.serve) {
-      next.serve = prevServe;
-    }
+    if (team !== prevServe.side) return next;
+
+    if (team === "A") score.a += step;
+    else score.b += step;
+    next.gameScores[gameIndex] = score;
+    applyServeState(next, prevServe);
 
     ensureLiveLog(next);
     next.liveLog.push({

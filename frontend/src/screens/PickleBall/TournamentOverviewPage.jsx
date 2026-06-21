@@ -68,6 +68,7 @@ import {
   getTournamentPairName,
 } from "../../utils/tournamentName";
 import {
+  getMatchSideDisplayName,
   isNewerOrEqualMatchPayload,
   mergeMatchPayload,
   normalizeMatchDisplay,
@@ -102,6 +103,15 @@ const pairLabel = (
   const ps = [pair.player1, pair.player2].filter(Boolean).map(playerName);
   return ps.join(" / ") || tFn("tournaments.overview.pairFallback");
 };
+const matchSideLabel = (
+  match,
+  side,
+  tFn,
+  eventType = "double",
+  displayMode = "nickname",
+) =>
+  getMatchSideDisplayName(match, side, "") ||
+  pairLabel(side === "A" ? match?.pairA : match?.pairB, tFn, eventType, displayMode);
 const matchCode = (m) =>
   m?.code || `R${m?.round ?? "?"}#${(m?.order ?? 0) + 1}`;
 const statusChip = (st, tFn) => {
@@ -431,9 +441,9 @@ const MatchListItem = ({ m, onOpen, t, locale }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={pairLabel(m?.pairA, t, eventType, displayMode)}
+                title={matchSideLabel(m, "A", t, eventType, displayMode)}
               >
-                {pairLabel(m?.pairA, t, eventType, displayMode)}
+                {matchSideLabel(m, "A", t, eventType, displayMode)}
               </Typography>
 
               <Divider sx={{ borderStyle: "dashed", my: 0.5 }} />
@@ -442,9 +452,9 @@ const MatchListItem = ({ m, onOpen, t, locale }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={pairLabel(m?.pairB, t, eventType, displayMode)}
+                title={matchSideLabel(m, "B", t, eventType, displayMode)}
               >
-                {pairLabel(m?.pairB, t, eventType, displayMode)}
+                {matchSideLabel(m, "B", t, eventType, displayMode)}
               </Typography>
             </Stack>
             <Typography
