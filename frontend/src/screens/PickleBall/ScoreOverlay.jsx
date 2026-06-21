@@ -88,7 +88,6 @@ const sideDisplayName = (payload, side, evType, displayMode) => {
   const team = payload?.teams?.[key] || {};
   const pair = payload?.[`pair${key}`];
   return usefulName(
-    getMatchSideDisplayName(payload, key, ""),
     payload?.[`resolvedSideName${key}`],
     payload?.[`__side${key}`],
     payload?.[`team${key}Name`],
@@ -102,6 +101,7 @@ const sideDisplayName = (payload, side, evType, displayMode) => {
     pair?.teamName,
     pair?.label,
     pairDisplayName(pair, evType, displayMode),
+    getMatchSideDisplayName(payload, key, ""),
   );
 };
 

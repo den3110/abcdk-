@@ -56,9 +56,20 @@ class NetworkMonitor(context: Context) {
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
             connectivityManager.registerNetworkCallback(request, callback)
-            checkWifi()
+            refreshNetworkState()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register network callback", e)
+        }
+    }
+
+    private fun refreshNetworkState() {
+        try {
+            val active = connectivityManager.activeNetwork
+            val caps = connectivityManager.getNetworkCapabilities(active)
+            _isConnected.value = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            _isWifi.value = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        } catch (e: Exception) {
+            Log.e(TAG, "refreshNetworkState error", e)
         }
     }
 

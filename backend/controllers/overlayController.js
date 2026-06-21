@@ -207,6 +207,29 @@ async function loadOverlayUserMatch(matchId) {
     .lean();
 }
 
+const overlayPairPopulate = (path) => ({
+  path,
+  select: "player1 player2 seed label teamName",
+  populate: [
+    {
+      path: "player1",
+      select: "fullName name shortName nickname nickName user",
+      populate: { path: "user", select: "nickname nickName" },
+    },
+    {
+      path: "player2",
+      select: "fullName name shortName nickname nickName user",
+      populate: { path: "user", select: "nickname nickName" },
+    },
+  ],
+});
+
+const overlayPreviousMatchPopulate = (path) => ({
+  path,
+  select: "_id round order code status winner seedA seedB pairA pairB previousA previousB",
+  populate: [overlayPairPopulate("pairA"), overlayPairPopulate("pairB")],
+});
+
 async function loadOverlayTournamentMatch(matchId) {
   return Match.findById(matchId)
     .populate({
@@ -218,38 +241,8 @@ async function loadOverlayTournamentMatch(matchId) {
       select:
         "type name order stage overlay config meta drawRounds drawStatus slotPlan groups noRankDelta",
     })
-    .populate({
-      path: "pairA",
-      select: "player1 player2 seed label teamName",
-      populate: [
-        {
-          path: "player1",
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-        {
-          path: "player2",
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-      ],
-    })
-    .populate({
-      path: "pairB",
-      select: "player1 player2 seed label teamName",
-      populate: [
-        {
-          path: "player1",
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-        {
-          path: "player2",
-          select: "fullName name shortName nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-      ],
-    })
+    .populate(overlayPairPopulate("pairA"))
+    .populate(overlayPairPopulate("pairB"))
     .populate({
       path: "referee",
       select: "name fullName nickname nickName",
@@ -258,8 +251,8 @@ async function loadOverlayTournamentMatch(matchId) {
       path: "liveBy",
       select: "name fullName nickname nickName",
     })
-    .populate({ path: "previousA", select: "round order code" })
-    .populate({ path: "previousB", select: "round order code" })
+    .populate(overlayPreviousMatchPopulate("previousA"))
+    .populate(overlayPreviousMatchPopulate("previousB"))
     .populate({ path: "nextMatch", select: "_id round order code" })
     .populate({
       path: "court",
@@ -482,38 +475,8 @@ export async function getOverlayMatch(req, res) {
           select:
             "type name order stage overlay config meta drawRounds drawStatus slotPlan groups noRankDelta",
         })
-        .populate({
-          path: "pairA",
-          select: "player1 player2 seed label teamName",
-          populate: [
-            {
-              path: "player1",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-          ],
-        })
-        .populate({
-          path: "pairB",
-          select: "player1 player2 seed label teamName",
-          populate: [
-            {
-              path: "player1",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-          ],
-        })
+        .populate(overlayPairPopulate("pairA"))
+        .populate(overlayPairPopulate("pairB"))
         .populate({
           path: "referee",
           select: "name fullName nickname nickName",
@@ -522,8 +485,8 @@ export async function getOverlayMatch(req, res) {
           path: "liveBy",
           select: "name fullName nickname nickName",
         })
-        .populate({ path: "previousA", select: "round order code" })
-        .populate({ path: "previousB", select: "round order code" })
+        .populate(overlayPreviousMatchPopulate("previousA"))
+        .populate(overlayPreviousMatchPopulate("previousB"))
         .populate({ path: "nextMatch", select: "_id round order code" })
         .populate({
           path: "court",
@@ -776,6 +739,54 @@ export async function getOverlayMatch(req, res) {
         regName(reg)
       );
     };
+
+    const hasDisplayableReg = (reg) =>
+      Boolean(
+        reg &&
+          typeof reg === "object" &&
+          (reg.player1 ||
+            reg.player2 ||
+            pick(reg.teamName) ||
+            pick(reg.label) ||
+            pick(reg.title) ||
+            pick(reg.displayName) ||
+            pick(reg.name))
+      );
+
+    const sourceSideFromFinishedMatch = (sourceMatch, seed) => {
+      if (!sourceMatch) return "";
+      if (
+        String(sourceMatch.status || "").toLowerCase() !== "finished" ||
+        !sourceMatch.winner
+      ) {
+        return "";
+      }
+      const winnerSide = sourceMatch.winner === "B" ? "B" : "A";
+      const seedType = String(seed?.type || "");
+      const wantsLoser =
+        seedType === "stageMatchLoser" || seedType === "matchLoser";
+      if (!wantsLoser) return winnerSide;
+      return winnerSide === "A" ? "B" : "A";
+    };
+
+    const resolvedPairForSide = (side) => {
+      const normalizedSide = side === "B" ? "B" : "A";
+      const pair = normalizedSide === "A" ? m?.pairA : m?.pairB;
+      if (hasDisplayableReg(pair)) return pair;
+
+      const sourceMatch = normalizedSide === "A" ? m?.previousA : m?.previousB;
+      const seed = normalizedSide === "A" ? m?.seedA : m?.seedB;
+      const sourceSide = sourceSideFromFinishedMatch(sourceMatch, seed);
+      if (!sourceSide) return null;
+
+      const sourcePair = sourceSide === "A" ? sourceMatch?.pairA : sourceMatch?.pairB;
+      return hasDisplayableReg(sourcePair) ? sourcePair : null;
+    };
+
+    const displayPairA = resolvedPairForSide("A");
+    const displayPairB = resolvedPairForSide("B");
+    const displayTeamNameA = teamName(displayPairA) || teamName(m?.pairA);
+    const displayTeamNameB = teamName(displayPairB) || teamName(m?.pairB);
 
     /* ==========================
      * Serve
@@ -1191,24 +1202,29 @@ export async function getOverlayMatch(req, res) {
 
       teams: {
         A: {
-          name: teamName(m.pairA),
-          displayName: teamName(m.pairA),
+          name: displayTeamNameA,
+          displayName: displayTeamNameA,
           displayNameMode: displayMode,
-          players: playersFromReg(m.pairA),
-          seed: m?.pairA?.seed ?? undefined,
-          label: m?.pairA?.label ?? undefined,
-          teamName: m?.pairA?.teamName ?? undefined,
+          players: playersFromReg(displayPairA),
+          seed: displayPairA?.seed ?? m?.pairA?.seed ?? undefined,
+          label: displayPairA?.label ?? m?.pairA?.label ?? undefined,
+          teamName: displayPairA?.teamName ?? m?.pairA?.teamName ?? undefined,
         },
         B: {
-          name: teamName(m.pairB),
-          displayName: teamName(m.pairB),
+          name: displayTeamNameB,
+          displayName: displayTeamNameB,
           displayNameMode: displayMode,
-          players: playersFromReg(m.pairB),
-          seed: m?.pairB?.seed ?? undefined,
-          label: m?.pairB?.label ?? undefined,
-          teamName: m?.pairB?.teamName ?? undefined,
+          players: playersFromReg(displayPairB),
+          seed: displayPairB?.seed ?? m?.pairB?.seed ?? undefined,
+          label: displayPairB?.label ?? m?.pairB?.label ?? undefined,
+          teamName: displayPairB?.teamName ?? m?.pairB?.teamName ?? undefined,
         },
       },
+
+      teamAName: displayTeamNameA || undefined,
+      teamBName: displayTeamNameB || undefined,
+      resolvedSideNameA: displayTeamNameA || undefined,
+      resolvedSideNameB: displayTeamNameB || undefined,
 
       pairA: m?.pairA
         ? {

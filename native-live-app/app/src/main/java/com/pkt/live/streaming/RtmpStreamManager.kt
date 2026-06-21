@@ -2359,15 +2359,16 @@ class RtmpStreamManager(
         if (isReleased) return
         Log.d(TAG, "Disconnected")
         if (desiredStreaming.get() && !isReleased) {
-            if (!isReconnecting.get()) {
-                isReconnecting.set(true)
-                if (reconnectAttempt <= 0) reconnectAttempt = 1
+            if (!isReconnecting.getAndSet(true)) {
+                val nextAttempt = (reconnectAttempt + 1)
+                    .coerceAtLeast(1)
+                    .coerceAtMost(MAX_RECONNECT_ATTEMPTS)
                 reconnectingAtMs = System.currentTimeMillis()
                 updateRecoveryState(
                     stage = RecoveryStage.SOCKET_SELF_HEAL,
                     severity = RecoverySeverity.WARNING,
                     summary = "RTMP vừa ngắt, app đang giữ live và tự nối lại.",
-                    detail = "Camera/overlay vẫn được giữ để tránh reset toàn bộ phiên nếu reconnect ngắn.",
+                    detail = "Camera/overlay vẫn được giữ. Nếu RTMP SDK không bắn failure callback, app sẽ chủ động kick reconnect.",
                     activeMitigations = listOf(
                         "Giữ camera/overlay",
                         "Reconnect RTMP",
@@ -2375,7 +2376,8 @@ class RtmpStreamManager(
                     ),
                     lastFatalReason = "disconnect",
                 )
-                _state.value = StreamState.Reconnecting(reconnectAttempt, MAX_RECONNECT_ATTEMPTS)
+                _state.value = StreamState.Reconnecting(nextAttempt, MAX_RECONNECT_ATTEMPTS)
+                scheduleDisconnectReconnectKick()
             }
             return
         }
@@ -2386,6 +2388,43 @@ class RtmpStreamManager(
             setupOverlayFilterIfPossible(forceRecreate = false, reason = "disconnect_preview")
         } else if (_state.value is StreamState.Previewing) {
             markOverlayIssue("RTMP đã ngắt và overlay bitmap chưa sẵn để gắn lại.")
+        }
+    }
+
+    private fun scheduleDisconnectReconnectKick() {
+        scope.launch {
+            delay(1_000L)
+            var shouldKickReconnect = false
+            cameraMutex.withLock {
+                val state = _state.value
+                val streaming = rtmpCamera?.isStreaming == true
+                val waitingForReconnect =
+                    state is StreamState.Reconnecting &&
+                        desiredStreaming.get() &&
+                        networkAvailable &&
+                        isLifecycleForeground &&
+                        isSurfaceValid &&
+                        !currentUrl.isNullOrBlank() &&
+                        !streaming
+
+                if (waitingForReconnect) {
+                    isReconnecting.set(false)
+                    shouldKickReconnect = true
+                } else if (
+                    state !is StreamState.Reconnecting ||
+                    streaming ||
+                    !desiredStreaming.get() ||
+                    !networkAvailable ||
+                    !isLifecycleForeground ||
+                    !isSurfaceValid
+                ) {
+                    isReconnecting.set(false)
+                }
+            }
+
+            if (shouldKickReconnect) {
+                onConnectionFailed("disconnect")
+            }
         }
     }
 
