@@ -303,6 +303,49 @@ const normalizeTeamLabel = (value) =>
     .trim()
     .toLowerCase();
 
+const pairIdTextOf = (value) => {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return pairIdTextOf(
+      value?._id ??
+        value?.id ??
+        value?.value ??
+        value?.registrationId ??
+        value?.registration ??
+        value?.pair,
+    );
+  }
+  const text = String(value).trim();
+  return text === "[object Object]" ? "" : text;
+};
+
+const pairRawId = (pair) =>
+  pairIdTextOf(
+    pair?._id ??
+      pair?.id ??
+      pair?.value ??
+      pair?.registrationId ??
+      pair?.registration ??
+      pair?.pair,
+  );
+
+const pairHighlightId = (pair, eventType = "double", displayMode = "nickname") => {
+  const rawId = pairRawId(pair);
+  if (rawId) return `pair:${rawId}`;
+
+  const label = normalizeTeamLabel(
+    pairLabelWithNick(pair, eventType, displayMode) ||
+      pair?.teamName ||
+      pair?.label ||
+      pair?.displayName ||
+      pair?.name,
+  );
+  if (!label || ["bye", "tbd", "registration", "chua co doi", "-", "--", "â€”"].includes(label)) {
+    return "";
+  }
+  return `label:${label}`;
+};
+
 const isReferenceLabel = (value) =>
   /^[WL]\s*-\s*V\d+(?:-[^-]+)?-T\d+$/i.test(String(value || "").trim());
 
@@ -766,6 +809,7 @@ const CustomSeed = ({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  resolveSideHighlightId,
   baseRoundStart = 1,
   nodeKey,
 }) => {
@@ -802,8 +846,12 @@ const CustomSeed = ({
     String(m._id) === String(championMatchId) &&
     (winA || winB);
 
-  const aId = m?.pairA?._id ? String(m.pairA._id) : null;
-  const bId = m?.pairB?._id ? String(m.pairB._id) : null;
+  const aId =
+    resolveSideHighlightId?.(m, "A") ||
+    (m?.pairA ? pairHighlightId(m.pairA) : "");
+  const bId =
+    resolveSideHighlightId?.(m, "B") ||
+    (m?.pairB ? pairHighlightId(m.pairB) : "");
   const isHoverA = !!(hovered && aId && hovered === aId);
   const isHoverB = !!(hovered && bId && hovered === bId);
   const containsHovered = !!(hovered && (hovered === aId || hovered === bId));
@@ -1103,6 +1151,7 @@ CustomSeed.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  resolveSideHighlightId: PropTypes.func,
   baseRoundStart: PropTypes.number,
   nodeKey: PropTypes.string,
 };
@@ -2841,6 +2890,7 @@ function RoundElimBracketLayout({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  resolveSideHighlightId,
   baseRoundStart,
   breakpoint = 0,
 }) {
@@ -2920,6 +2970,7 @@ function RoundElimBracketLayout({
                     onOpen={onOpen}
                     championMatchId={championMatchId}
                     resolveSideLabel={resolveSideLabel}
+                    resolveSideHighlightId={resolveSideHighlightId}
                     baseRoundStart={baseRoundStart}
                   />
                 </Box>
@@ -2942,6 +2993,7 @@ RoundElimBracketLayout.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  resolveSideHighlightId: PropTypes.func,
   baseRoundStart: PropTypes.number,
   breakpoint: PropTypes.number,
 };
@@ -3038,6 +3090,7 @@ function SymmetricBranch({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  resolveSideHighlightId,
   baseRoundStart,
 }) {
   const sync = useContext(HeightSyncContext);
@@ -3145,6 +3198,7 @@ function SymmetricBranch({
                   onOpen={onOpen}
                   championMatchId={championMatchId}
                   resolveSideLabel={resolveSideLabel}
+                  resolveSideHighlightId={resolveSideHighlightId}
                   baseRoundStart={baseRoundStart}
                   nodeKey={nodeKey}
                 />
@@ -3168,6 +3222,7 @@ SymmetricBranch.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  resolveSideHighlightId: PropTypes.func,
   baseRoundStart: PropTypes.number,
 };
 
@@ -3177,6 +3232,7 @@ function SymmetricKnockoutBracket({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  resolveSideHighlightId,
   baseRoundStart,
   zoom,
 }) {
@@ -3365,6 +3421,7 @@ function SymmetricKnockoutBracket({
                 onOpen={onOpen}
                 championMatchId={championMatchId}
                 resolveSideLabel={resolveSideLabel}
+                resolveSideHighlightId={resolveSideHighlightId}
                 baseRoundStart={baseRoundStart}
               />
             )}
@@ -3445,6 +3502,7 @@ function SymmetricKnockoutBracket({
                 onOpen={onOpen}
                 championMatchId={championMatchId}
                 resolveSideLabel={resolveSideLabel}
+                resolveSideHighlightId={resolveSideHighlightId}
                 baseRoundStart={baseRoundStart}
               />
 
@@ -3487,6 +3545,7 @@ function SymmetricKnockoutBracket({
                       onOpen={onOpen}
                       championMatchId={championMatchId}
                       resolveSideLabel={resolveSideLabel}
+                      resolveSideHighlightId={resolveSideHighlightId}
                       baseRoundStart={baseRoundStart}
                       nodeKey="final"
                     />
@@ -3500,6 +3559,7 @@ function SymmetricKnockoutBracket({
                 onOpen={onOpen}
                 championMatchId={championMatchId}
                 resolveSideLabel={resolveSideLabel}
+                resolveSideHighlightId={resolveSideHighlightId}
                 baseRoundStart={baseRoundStart}
               />
             </Box>
@@ -3521,6 +3581,7 @@ SymmetricKnockoutBracket.propTypes = {
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
+  resolveSideHighlightId: PropTypes.func,
   baseRoundStart: PropTypes.number,
   zoom: PropTypes.number.isRequired,
 };
@@ -5327,6 +5388,107 @@ export default function TournamentBracket() {
       displayMode,
       resolveSeedReferenceLabel,
       getPlannedSeedForMatchSide,
+    ],
+  );
+
+  const resolveSideHighlightId = useCallback(
+    function resolveSideHighlightIdInner(m, side, depth = 0) {
+      const eventType = tour?.eventType;
+      if (!m || depth > 12) return "";
+
+      const normalizedSide = side === "B" ? "B" : "A";
+      const pair = normalizedSide === "A" ? m.pairA : m.pairB;
+      const directId = pairRawId(pair);
+      if (directId) return `pair:${directId}`;
+
+      const seed = normalizedSide === "A" ? m.seedA : m.seedB;
+      const plannedSeed = getPlannedSeedForMatchSide(m, normalizedSide);
+      const seedType = String(seed?.type || "");
+      const isEmptyRegistrationSeed =
+        seedType === "registration" &&
+        !seed?.label &&
+        !seed?.ref?.registration &&
+        !seed?.ref?.reg &&
+        !seed?.ref?.id &&
+        !seed?.ref?._id;
+      const effectiveSeed =
+        seed?.type && !isEmptyRegistrationSeed ? seed : plannedSeed || seed;
+
+      if (effectiveSeed && isSeedBlockedByUnfinishedGroup(effectiveSeed)) {
+        return "";
+      }
+
+      const resolveFromSourceMatch = (sourceMatch, isLoserSeed) => {
+        if (!sourceMatch) return "";
+
+        if (isByeMatchObj(sourceMatch)) {
+          if (isLoserSeed) return "";
+          const byeA =
+            sourceMatch?.seedA?.type === "bye" ||
+            (typeof sourceMatch?.seedA?.label === "string" &&
+              /\bBYE\b/i.test(sourceMatch.seedA.label));
+          const byeB =
+            sourceMatch?.seedB?.type === "bye" ||
+            (typeof sourceMatch?.seedB?.label === "string" &&
+              /\bBYE\b/i.test(sourceMatch.seedB.label));
+          if (byeA && byeB) return "";
+          const carriedSide = byeA ? "B" : byeB ? "A" : "";
+          return carriedSide
+            ? resolveSideHighlightIdInner(sourceMatch, carriedSide, depth + 1)
+            : "";
+        }
+
+        if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
+          const winnerSide = sourceMatch.winner === "A" ? "A" : "B";
+          const sourceSide = isLoserSeed
+            ? winnerSide === "A"
+              ? "B"
+              : "A"
+            : winnerSide;
+          return resolveSideHighlightIdInner(sourceMatch, sourceSide, depth + 1);
+        }
+
+        return "";
+      };
+
+      const prev = normalizedSide === "A" ? m.previousA : m.previousB;
+      if (prev) {
+        const prevId =
+          typeof prev === "object" && prev?._id
+            ? String(prev._id)
+            : String(prev);
+        const pm =
+          matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
+        const isLoserSeed =
+          effectiveSeed?.type === "stageMatchLoser" ||
+          effectiveSeed?.type === "matchLoser";
+        const resolved = resolveFromSourceMatch(pm, isLoserSeed);
+        if (resolved) return resolved;
+      }
+
+      if (effectiveSeed && effectiveSeed.type) {
+        const sourceMatch = findSourceMatchFromSeed(m, effectiveSeed);
+        const isWinnerSeed =
+          effectiveSeed?.type === "stageMatchWinner" ||
+          effectiveSeed?.type === "matchWinner";
+        const isLoserSeed =
+          effectiveSeed?.type === "stageMatchLoser" ||
+          effectiveSeed?.type === "matchLoser";
+        if (isWinnerSeed || isLoserSeed) {
+          const resolved = resolveFromSourceMatch(sourceMatch, isLoserSeed);
+          if (resolved) return resolved;
+        }
+      }
+
+      return pairHighlightId(pair, eventType, displayMode);
+    },
+    [
+      displayMode,
+      findSourceMatchFromSeed,
+      getPlannedSeedForMatchSide,
+      isSeedBlockedByUnfinishedGroup,
+      matchIndex,
+      tour?.eventType,
     ],
   );
   // Prefill rounds for KO
@@ -7709,6 +7871,7 @@ export default function TournamentBracket() {
                         onOpen={openMatchModal}
                         championMatchId={null}
                         resolveSideLabel={resolveSideLabel}
+                        resolveSideHighlightId={resolveSideHighlightId}
                         baseRoundStart={baseRoundStartForCurrent}
                         breakpoint={0}
                       />
@@ -8000,6 +8163,7 @@ export default function TournamentBracket() {
                       onOpen={openMatchModal}
                       championMatchId={finalMatchId}
                       resolveSideLabel={resolveSideLabel}
+                      resolveSideHighlightId={resolveSideHighlightId}
                       baseRoundStart={baseRoundStartForCurrent}
                       zoom={zoom}
                     />
@@ -8043,6 +8207,7 @@ export default function TournamentBracket() {
                                 onOpen={openMatchModal}
                                 championMatchId={null}
                                 resolveSideLabel={resolveSideLabel}
+                                resolveSideHighlightId={resolveSideHighlightId}
                                 baseRoundStart={baseRoundStartForCurrent}
                               />
                             </Box>
