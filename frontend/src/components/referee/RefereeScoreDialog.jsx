@@ -138,6 +138,27 @@ const isSeedReferenceDisplay = (value) => {
   );
 };
 
+const hasResolvedTeamDisplayLabel = (value) => {
+  const label = textOf(value);
+  if (!label) return false;
+  if (/^(TBD|Registration|Chưa có đội|Đội A|Đội B|—)$/i.test(label)) {
+    return false;
+  }
+  return !isSeedReferenceDisplay(label);
+};
+
+const fallbackPlayerLabelsFromTeamLabel = (value) => {
+  const label = textOf(value);
+  if (!hasResolvedTeamDisplayLabel(label)) return [];
+
+  const parts = label
+    .split(/\s*\/\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length ? parts : [label];
+};
+
 const currentGameIndexOf = (match) => {
   const value = Number(match?.currentGame);
   return Number.isInteger(value) && value >= 0 ? value : 0;
@@ -528,6 +549,7 @@ function TeamPanel({
   loading = false,
 }) {
   const alignedText = align === "right" ? "right" : "left";
+  const fallbackPlayerLabels = fallbackPlayerLabelsFromTeamLabel(teamLabel);
 
   return (
     <Box
@@ -641,6 +663,19 @@ function TeamPanel({
               />
             );
           })
+        ) : fallbackPlayerLabels.length ? (
+          fallbackPlayerLabels.map((label, index) => (
+            <PlayerRow
+              key={`${label}-${index}`}
+              label={label}
+              isServer={false}
+              muted={muted}
+              borderColor={borderColor}
+              accentColor={accentColor}
+              textColor={textColor}
+              rowBg={surfaceStrongBg}
+            />
+          ))
         ) : (
           <PlayerRow
             label="Chưa đủ VĐV"
@@ -693,6 +728,8 @@ export default function RefereeScoreDialog({
   const token = userInfo?.token || "";
   const { data, error, api, sync, loading: liveMatchLoading } = useLiveMatch(matchId, token, {
     offlineSync: true,
+    optimisticUpdates: false,
+    persistCache: false,
     enabled: open && Boolean(matchId),
   });
 
