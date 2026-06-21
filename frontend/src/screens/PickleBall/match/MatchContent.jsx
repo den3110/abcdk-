@@ -1386,8 +1386,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     m?.pairB,
     m?.previousA,
     m?.previousB,
-    m?.seedA?.type,
-    m?.seedB?.type,
+    m?.seedA,
+    m?.seedB,
   ]);
 
   const { data: brackets = [], isFetching: fetchingBrackets } =
@@ -1531,10 +1531,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const socket = socketCtx?.socket || socketCtx;
 
   const loading = Boolean(isLoading || liveLoading);
-  const globalLoading = Boolean(
-    loading ||
-    (needsSeedContextResolution && (fetchingBrackets || fetchingMatches)),
+  const resolvingSeedContext = Boolean(
+    needsSeedContextResolution && (fetchingBrackets || fetchingMatches),
   );
+  const globalLoading = Boolean(loading || resolvingSeedContext);
 
   const {
     lockedId,
@@ -1878,7 +1878,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     ],
   );
 
-  const showSpinner = waiting;
+  const showSpinner = waiting || resolvingSeedContext;
   const showError = !waiting && !mm;
 
   const [localPatch, setLocalPatch] = useState(null);

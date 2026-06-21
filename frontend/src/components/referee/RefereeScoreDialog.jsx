@@ -59,6 +59,14 @@ const OPENING_DOUBLES_SERVER = 2;
 const SCORE_TAP_GUARD_MS = 120;
 const SCORE_RENDER_GUARD_MS = 1500;
 const SERVER_UID_PIN_MS = 800;
+const SEED_PLACEHOLDER_GRACE_MS = 260;
+const SEED_REFERENCE_TYPES = new Set([
+  "grouprank",
+  "stagematchwinner",
+  "stagematchloser",
+  "matchwinner",
+  "matchloser",
+]);
 
 const textOf = (value) => (value && String(value).trim()) || "";
 
@@ -85,6 +93,46 @@ const sidePairOf = (match, side) => {
     return match?.pairA || match?.teams?.A || match?.teamA || match?.sideA || null;
   }
   return match?.pairB || match?.teams?.B || match?.teamB || match?.sideB || null;
+};
+
+const pairHasDisplayablePlayers = (pair) => {
+  if (!pair) return false;
+  const players = Array.isArray(pair?.players) ? pair.players : [];
+  return Boolean(
+    players.length ||
+      pair?.player1 ||
+      pair?.player2 ||
+      pair?.p1 ||
+      pair?.p2 ||
+      pair?.user ||
+      textOf(pair?.displayName) ||
+      textOf(pair?.teamName) ||
+      textOf(pair?.label) ||
+      textOf(pair?.name),
+  );
+};
+
+const sideNeedsSeedResolution = (match, side) => {
+  const normalizedSide = side === "B" ? "B" : "A";
+  if (pairHasDisplayablePlayers(sidePairOf(match, normalizedSide))) return false;
+
+  const seed = normalizedSide === "A" ? match?.seedA : match?.seedB;
+  const previous = normalizedSide === "A" ? match?.previousA : match?.previousB;
+  return Boolean(
+    previous ||
+      SEED_REFERENCE_TYPES.has(textOf(seed?.type).replace(/\s+/g, "").toLowerCase()),
+  );
+};
+
+const isSeedReferenceDisplay = (value) => {
+  const normalized = textOf(value)
+    .replace(/\s+/g, "")
+    .replace(/\([AB]\)$/i, "");
+  if (!normalized) return false;
+  return (
+    /^(?:[WL]-)?V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+$/i.test(normalized) ||
+    /^(?:W|L)-/i.test(normalized)
+  );
 };
 
 const currentGameIndexOf = (match) => {
@@ -474,6 +522,7 @@ function TeamPanel({
   surfaceStrongBg,
   align = "left",
   swapDisabled = false,
+  loading = false,
 }) {
   const alignedText = align === "right" ? "right" : "left";
 
@@ -546,7 +595,34 @@ function TeamPanel({
       </Box>
 
       <Stack spacing={1}>
-        {players.length ? (
+        {loading ? (
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={1}
+            sx={{
+              px: 1.25,
+              py: 0.9,
+              borderRadius: 999,
+              border: "1px solid",
+              borderColor,
+              bgcolor: surfaceStrongBg,
+              minHeight: 40,
+            }}
+          >
+            <CircularProgress size={16} thickness={5} sx={{ color: accentColor }} />
+            <Typography
+              sx={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: muted,
+                lineHeight: 1.2,
+              }}
+            >
+              Đang đồng bộ đội...
+            </Typography>
+          </Stack>
+        ) : players.length ? (
           players.map((player) => {
             const uid = userIdOf(player);
             return (
@@ -612,7 +688,7 @@ export default function RefereeScoreDialog({
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userInfo } = useSelector((state) => state.auth || {});
   const token = userInfo?.token || "";
-  const { data, error, api, sync } = useLiveMatch(matchId, token, {
+  const { data, error, api, sync, loading: liveMatchLoading } = useLiveMatch(matchId, token, {
     offlineSync: true,
     enabled: open && Boolean(matchId),
   });
@@ -757,6 +833,53 @@ export default function RefereeScoreDialog({
   const leftSide = currentLayout.left;
   const rightSide = currentLayout.right;
   const isDouble = eventType !== "single";
+  const leftTeamDisplayLabel = useMemo(
+    () => getMatchSideDisplayName(match, leftSide, "TBD"),
+    [leftSide, match],
+  );
+  const rightTeamDisplayLabel = useMemo(
+    () => getMatchSideDisplayName(match, rightSide, "TBD"),
+    [rightSide, match],
+  );
+  const leftSeedLabelPending = useMemo(
+    () =>
+      sideNeedsSeedResolution(match, leftSide) &&
+      isSeedReferenceDisplay(leftTeamDisplayLabel),
+    [leftSide, leftTeamDisplayLabel, match],
+  );
+  const rightSeedLabelPending = useMemo(
+    () =>
+      sideNeedsSeedResolution(match, rightSide) &&
+      isSeedReferenceDisplay(rightTeamDisplayLabel),
+    [match, rightSide, rightTeamDisplayLabel],
+  );
+  const hasSeedLabelFlash = leftSeedLabelPending || rightSeedLabelPending;
+  const [holdingSeedLabels, setHoldingSeedLabels] = useState(false);
+  useEffect(() => {
+    if (!open || !match?._id || !hasSeedLabelFlash) {
+      setHoldingSeedLabels(false);
+      return undefined;
+    }
+
+    setHoldingSeedLabels(true);
+    const timer = window.setTimeout(
+      () => setHoldingSeedLabels(false),
+      SEED_PLACEHOLDER_GRACE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hasSeedLabelFlash, match?._id, open]);
+
+  const showSeedLabelLoading =
+    hasSeedLabelFlash && (holdingSeedLabels || liveMatchLoading);
+  const loadingTeamLabel = "Đang nạp đội thi đấu...";
+  const leftPanelLoading = showSeedLabelLoading && leftSeedLabelPending;
+  const rightPanelLoading = showSeedLabelLoading && rightSeedLabelPending;
+  const leftPanelTeamLabel = leftPanelLoading
+    ? loadingTeamLabel
+    : leftTeamDisplayLabel;
+  const rightPanelTeamLabel = rightPanelLoading
+    ? loadingTeamLabel
+    : rightTeamDisplayLabel;
   const playersA = useMemo(() => playersOf(sidePairOf(match, "A"), eventType), [eventType, match]);
   const playersB = useMemo(() => playersOf(sidePairOf(match, "B"), eventType), [eventType, match]);
   const pairPlayers = useMemo(() => ({ A: playersA, B: playersB }), [playersA, playersB]);
@@ -1983,13 +2106,14 @@ export default function RefereeScoreDialog({
             >
               <TeamPanel
                 title="Đội bên trái"
-                teamLabel={getMatchSideDisplayName(match, leftSide, "TBD")}
-                players={displayedPlayers.left}
+                teamLabel={leftPanelTeamLabel}
+                players={leftPanelLoading ? [] : displayedPlayers.left}
                 isServing={activeSide === leftSide}
                 isActiveSide={activeSide === leftSide}
                 serverUid={serverUidShow}
                 onSwapSlots={() => flipTeamSlots(leftSide)}
                 swapDisabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
+                loading={leftPanelLoading}
                 match={match}
                 muted={ui.muted}
                 borderColor={ui.softBorder}
@@ -2240,13 +2364,14 @@ export default function RefereeScoreDialog({
 
               <TeamPanel
                 title="Đội bên phải"
-                teamLabel={getMatchSideDisplayName(match, rightSide, "TBD")}
-                players={displayedPlayers.right}
+                teamLabel={rightPanelTeamLabel}
+                players={rightPanelLoading ? [] : displayedPlayers.right}
                 isServing={activeSide === rightSide}
                 isActiveSide={activeSide === rightSide}
                 serverUid={serverUidShow}
                 onSwapSlots={() => flipTeamSlots(rightSide)}
                 swapDisabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
+                loading={rightPanelLoading}
                 match={match}
                 muted={ui.muted}
                 borderColor={ui.softBorder}
