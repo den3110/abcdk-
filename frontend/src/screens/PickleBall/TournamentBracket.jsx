@@ -3457,6 +3457,7 @@ function SymmetricKnockoutBracket({
                   flexDirection: "column",
                   alignItems: "stretch",
                   justifyContent: "center",
+                  alignSelf: "stretch",
                   minHeight: 220,
                 }}
               >
