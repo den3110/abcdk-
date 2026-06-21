@@ -35,7 +35,7 @@ import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import { toast } from "react-toastify";
 import { useSocket } from "../context/SocketContext";
-import { getMatchSideDisplayName, getPairDisplayName } from "../utils/matchDisplay";
+import { getPairDisplayName } from "../utils/matchDisplay";
 import {
   useUpsertCourtsMutation,
   useBuildGroupsQueueMutation,
@@ -134,7 +134,7 @@ const poolBoardLabel = (m) => {
 /* ---------- Build mã trận (V/B/T) ---------- */
 
 const isGlobalCodeString = (s) =>
-  typeof s === "string" && /^V\d+(?:-(?:B\d+|NT))?-T\d+$/.test(s);
+  typeof s === "string" && /^V\d+(?:-B\d+)?-T\d+$/.test(s);
 
 const codeFromLabelKeyish = (lk) => {
   const s = String(lk || "").trim();
@@ -305,8 +305,8 @@ function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
   const optionLabel = useCallback((m) => {
     if (!m) return "";
     const code = buildMatchCode(m);
-    const A = getMatchSideDisplayName(m, "A", "Đội A");
-    const B = getMatchSideDisplayName(m, "B", "Đội B");
+    const A = (m.pairA ? pairName(m.pairA, m) : "") || m.pairAName || "Đội A";
+    const B = (m.pairB ? pairName(m.pairB, m) : "") || m.pairBName || "Đội B";
     const st = viMatchStatus(m.status);
     return `${code} · ${A} vs ${B} · ${st}`;
   }, []);
@@ -603,8 +603,8 @@ export default function CourtManagerDialog({
   const getTeamsForCourt = (c) => {
     const m = getMatchForCourt(c);
     if (!m) return { A: "", B: "" };
-    const A = getMatchSideDisplayName(m, "A", "");
-    const B = getMatchSideDisplayName(m, "B", "");
+    const A = (m.pairA ? pairName(m.pairA, m) : "") || m.pairAName || "";
+    const B = (m.pairB ? pairName(m.pairB, m) : "") || m.pairBName || "";
     return { A, B };
   };
 

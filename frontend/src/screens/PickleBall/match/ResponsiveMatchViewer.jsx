@@ -136,7 +136,7 @@ const extractDisplayCodeText = (value) => {
   const text = String(value || "").trim();
   if (!text) return "";
   const match = text.match(
-    /\b(?:V\d+(?:-(?:B[^-\s]+|NT))?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
+    /\b(?:V\d+(?:-B[^-\s]+)?(?:-NT)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i,
   );
   return match ? match[0].toUpperCase() : "";
 };
@@ -167,27 +167,12 @@ const mergeNestedObject = (previous, incoming) => {
     return { ...previous, ...incoming };
   }
   if (isPlainObject(incoming)) return incoming;
-  if (incoming === null) return null;
   return previous ?? incoming ?? null;
-};
-
-const hasOwn = (obj, key) =>
-  Boolean(obj) && Object.prototype.hasOwnProperty.call(obj, key);
-
-const sideKindOf = (match, side) =>
-  String(side === "B" ? match?.resolvedSideKindB : match?.resolvedSideKindA)
-    .trim()
-    .toLowerCase();
-
-const shouldKeepPairForSide = (match, side) => {
-  const kind = sideKindOf(match, side);
-  return !kind || kind === "team";
 };
 
 function mergeLockedMatchPayload(previous, incoming) {
   if (!incoming) return previous || null;
   if (!previous) return incoming;
-  const sideState = { ...previous, ...incoming };
 
   return {
     ...previous,
@@ -251,14 +236,8 @@ function mergeLockedMatchPayload(previous, incoming) {
     bracket: mergeNestedObject(previous.bracket, incoming.bracket),
     pool: mergeNestedObject(previous.pool, incoming.pool),
     rules: mergeNestedObject(previous.rules, incoming.rules),
-    pairA:
-      hasOwn(incoming, "pairA") || !shouldKeepPairForSide(sideState, "A")
-        ? incoming.pairA ?? null
-        : mergeNestedObject(previous.pairA, incoming.pairA),
-    pairB:
-      hasOwn(incoming, "pairB") || !shouldKeepPairForSide(sideState, "B")
-        ? incoming.pairB ?? null
-        : mergeNestedObject(previous.pairB, incoming.pairB),
+    pairA: mergeNestedObject(previous.pairA, incoming.pairA),
+    pairB: mergeNestedObject(previous.pairB, incoming.pairB),
     liveBy: mergeNestedObject(previous.liveBy, incoming.liveBy),
     previousA: mergeNestedObject(previous.previousA, incoming.previousA),
     previousB: mergeNestedObject(previous.previousB, incoming.previousB),

@@ -13,11 +13,6 @@ import { scheduleMatchStartSoon } from "../../utils/scheduleNotifications.js";
 import { decorateServeAndSlots } from "../../utils/liveServeUtils.js";
 import UserMatch from "../../models/userMatchModel.js";
 import { buildMatchCodePayload } from "../../utils/matchDisplayCode.js";
-import {
-  attachResolvedSideNamesToMatch,
-  attachResolvedSideNamesToMatches,
-  buildMatchSideDisplayContext,
-} from "../../utils/matchSideDisplay.js";
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
 
@@ -708,17 +703,6 @@ export const getMatchesByBracket = expressAsyncHandler(async (req, res) => {
     return { ...m, code: `V${V}-T${T}` };
   });
 
-  const sideContextMatches = await Match.find({ tournament: br.tournament })
-    .select(
-      "_id tournament bracket format type pool rrRound swissRound round globalRound order code roundCode displayCode codeResolved globalCode pairA pairB seedA seedB previousA previousB winner status"
-    )
-    .populate({ path: "bracket", select: "name type stage order meta tournament" })
-    .populate({ path: "pairA", select: "player1 player2" })
-    .populate({ path: "pairB", select: "player1 player2" })
-    .lean();
-  attachResolvedSideNamesToMatches(sideContextMatches);
-  const sideDisplayContext = buildMatchSideDisplayContext(sideContextMatches);
-  withCode.forEach((match) => attachResolvedSideNamesToMatch(match, sideDisplayContext));
   return res.json(withCode);
 });
 
@@ -985,32 +969,6 @@ export const adminGetAllMatchesPagination = expressAsyncHandler(
     }
 
     // Map kết quả + TRẢ VỀ code = V…-T… (đồng thời giữ rawCode)
-    const sideDisplayCodeOf = (match) => {
-      const payload = buildMatchCodePayload(match, {
-        baseByBracketId: offsetByBracket,
-      });
-      return (
-        String(payload?.displayCode || "").trim() ||
-        String(payload?.code || "").trim() ||
-        String(match?.displayCode || "").trim() ||
-        String(match?.code || "").trim()
-      );
-    };
-    const sideContextMatches = await Match.find({ tournament: { $in: tourIds } })
-      .select(
-        "_id tournament bracket format type pool rrRound swissRound round globalRound order code roundCode displayCode codeResolved globalCode pairA pairB seedA seedB previousA previousB winner status"
-      )
-      .populate({ path: "bracket", select: "name type stage order meta tournament" })
-      .populate({ path: "pairA", select: "player1 player2" })
-      .populate({ path: "pairB", select: "player1 player2" })
-      .lean();
-    attachResolvedSideNamesToMatches(sideContextMatches, {
-      codeOf: sideDisplayCodeOf,
-    });
-    const sideDisplayContext = buildMatchSideDisplayContext(sideContextMatches, {
-      codeOf: sideDisplayCodeOf,
-    });
-
     const list = listRaw.map((m) => {
       const br = m.bracket || {};
       const bid = String(br?._id || "");
@@ -1028,14 +986,12 @@ export const adminGetAllMatchesPagination = expressAsyncHandler(
         String(m?.code || "").trim();
       const globalCode = displayCode;
 
-      const row = {
+      return {
         ...m,
-        rawCode: m.code || "",
-        code: globalCode,
-        globalRound,
+        rawCode: m.code || "", // giữ mã gốc (nếu có)
+        code: globalCode, // TRẢ code theo V/T
+        globalRound, // tiện dụng cho FE
       };
-      attachResolvedSideNamesToMatch(row, sideDisplayContext);
-      return row;
     });
 
     res.json({ total, page: pg, limit: lm, list });
@@ -1247,22 +1203,6 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
       previousB: prevWithCodes(m.previousB, m.bracket),
     };
   });
-
-  if (tournamentId) {
-    const sideContextMatches = await Match.find({ tournament: tournamentId })
-      .select(
-        "_id tournament bracket format type pool rrRound swissRound round globalRound order code roundCode displayCode codeResolved globalCode pairA pairB seedA seedB previousA previousB winner status"
-      )
-      .populate({ path: "bracket", select: "name type stage order meta tournament" })
-      .populate({ path: "pairA", select: "player1 player2" })
-      .populate({ path: "pairB", select: "player1 player2" })
-      .lean();
-    attachResolvedSideNamesToMatches(sideContextMatches);
-    const sideDisplayContext = buildMatchSideDisplayContext(sideContextMatches);
-    matches.forEach((match) => attachResolvedSideNamesToMatch(match, sideDisplayContext));
-  } else {
-    attachResolvedSideNamesToMatches(matches);
-  }
 
   res.json(matches);
 });
@@ -1797,42 +1737,9 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
         })
       : match;
 
-  let resolvedSideFields = {};
-  if (tournamentId) {
-    const sideContextMatches = await Match.find({ tournament: tournamentId })
-      .select(
-        "_id tournament bracket format type pool rrRound swissRound round globalRound order code roundCode displayCode codeResolved globalCode pairA pairB seedA seedB previousA previousB winner status"
-      )
-      .populate({ path: "bracket", select: "name type stage order meta tournament" })
-      .populate({ path: "pairA", select: "player1 player2" })
-      .populate({ path: "pairB", select: "player1 player2" })
-      .lean();
-    attachResolvedSideNamesToMatches(sideContextMatches);
-    const resolvedMatch = { ...match, pairA, pairB };
-    attachResolvedSideNamesToMatch(
-      resolvedMatch,
-      buildMatchSideDisplayContext(sideContextMatches)
-    );
-    resolvedSideFields = {
-      resolvedSideNameA: resolvedMatch.resolvedSideNameA,
-      resolvedSideNameB: resolvedMatch.resolvedSideNameB,
-      sideAName: resolvedMatch.sideAName,
-      sideBName: resolvedMatch.sideBName,
-      teamAName: resolvedMatch.teamAName,
-      teamBName: resolvedMatch.teamBName,
-      pairAName: resolvedMatch.pairAName,
-      pairBName: resolvedMatch.pairBName,
-      resolvedSideKindA: resolvedMatch.resolvedSideKindA,
-      resolvedSideKindB: resolvedMatch.resolvedSideKindB,
-      resolvedSideSourceA: resolvedMatch.resolvedSideSourceA,
-      resolvedSideSourceB: resolvedMatch.resolvedSideSourceB,
-    };
-  }
-
   // ✅ Trả về kèm mã hiển thị mới
   return res.json({
     ...enriched,
-    ...resolvedSideFields,
     pairA,
     pairB,
     rules: mergedRules,

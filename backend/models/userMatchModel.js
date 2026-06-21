@@ -380,7 +380,6 @@ const userMatchSchema = new Schema(
       side: { type: String, enum: ["A", "B"], default: "A" },
       server: { type: Number, enum: [1, 2], default: 1 },
       serverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
-      receiverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
       opening: { type: Boolean, default: false },
     },
 
@@ -400,7 +399,6 @@ const userMatchSchema = new Schema(
       default: () => ({
         base: { A: {}, B: {} },
         serverId: null,
-        receiverId: null,
         version: 0,
         updatedAt: null,
       }),

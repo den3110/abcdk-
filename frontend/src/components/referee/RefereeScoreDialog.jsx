@@ -130,7 +130,7 @@ const isSeedReferenceDisplay = (value) => {
     .replace(/\([AB]\)$/i, "");
   if (!normalized) return false;
   return (
-    /^(?:[WL]-)?V\d+(?:-(?:[A-Z0-9]+|NT))?-T\d+$/i.test(normalized) ||
+    /^(?:[WL]-)?V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+$/i.test(normalized) ||
     /^(?:W|L)-/i.test(normalized)
   );
 };
@@ -834,11 +834,11 @@ export default function RefereeScoreDialog({
   const rightSide = currentLayout.right;
   const isDouble = eventType !== "single";
   const leftTeamDisplayLabel = useMemo(
-    () => getMatchSideDisplayName(match, leftSide, "Chưa có đội"),
+    () => getMatchSideDisplayName(match, leftSide, "TBD"),
     [leftSide, match],
   );
   const rightTeamDisplayLabel = useMemo(
-    () => getMatchSideDisplayName(match, rightSide, "Chưa có đội"),
+    () => getMatchSideDisplayName(match, rightSide, "TBD"),
     [rightSide, match],
   );
   const leftSeedLabelPending = useMemo(
@@ -1155,12 +1155,23 @@ export default function RefereeScoreDialog({
       side: activeSide,
       serverNum: OPENING_DOUBLES_SERVER,
     };
+
+    if (!isInteractionLocked) {
+      api.setServe({
+        side: activeSide,
+        server: OPENING_DOUBLES_SERVER,
+        serverId: openingRightServerUid,
+        opening: true,
+      });
+    }
   }, [
     activeSide,
+    api,
     currentGame,
     currentScore.a,
     currentScore.b,
     isDouble,
+    isInteractionLocked,
     isPreStartOrOpening,
     match?._id,
     match?.serve?.opening,
@@ -1467,7 +1478,7 @@ export default function RefereeScoreDialog({
     const opening = isDouble && needsStartAction;
     const preferredSlot = opening
       ? preStartRightSlotForSide(nextSide, currentLayout)
-      : currentSlotFromBase(1, nextSide === "A" ? currentScore.a : currentScore.b);
+      : 1;
     let serverId = findUidAtCurrentSlot(nextSide, preferredSlot);
     if (!serverId) {
       serverId = firstPlayerIdOfSide(match, nextSide, eventType);
@@ -1484,8 +1495,6 @@ export default function RefereeScoreDialog({
     activeSide,
     api,
     currentLayout,
-    currentScore.a,
-    currentScore.b,
     eventType,
     findUidAtCurrentSlot,
     isDouble,

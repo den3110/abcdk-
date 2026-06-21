@@ -22,10 +22,6 @@ import {
   buildCourtStationRuntimeLookup,
   resolveLiveMatchStationId,
 } from "../utils/courtStationRuntimeLookup.js";
-import {
-  buildMatchSideDisplayContext,
-  resolveMatchSideDisplay,
-} from "../utils/matchSideDisplay.js";
 
 const ACTIVE_MATCH_STATUSES = ["scheduled", "queued", "assigned", "live"];
 const COURT_OCCUPYING_MATCH_STATUSES = ["assigned", "live"];
@@ -546,7 +542,7 @@ async function buildMatchDisplayContextsByTournamentIds(tournamentIds = []) {
     .map((id) => new mongoose.Types.ObjectId(id));
   if (!objectIds.length) return new Map();
 
-  const [brackets, roundsAgg, sourceMatches] = await Promise.all([
+  const [brackets, roundsAgg] = await Promise.all([
     Bracket.find({ tournament: { $in: objectIds } })
       .select("_id tournament name type stage order groups prefill ko meta config drawRounds")
       .lean(),
@@ -559,10 +555,6 @@ async function buildMatchDisplayContextsByTournamentIds(tournamentIds = []) {
         },
       },
     ]),
-    Match.find({ tournament: { $in: objectIds } })
-      .select(MATCH_SUMMARY_SELECT)
-      .populate(MATCH_REF_POPULATE)
-      .lean(),
   ]);
 
   const bracketsByTournamentId = new Map();
@@ -584,28 +576,16 @@ async function buildMatchDisplayContextsByTournamentIds(tournamentIds = []) {
     maxRoundByTournamentId.set(tournamentId, bucket);
   });
 
-  const matchesByTournamentId = new Map();
-  sourceMatches.forEach((match) => {
-    const tournamentId = extractTournamentIdFromMatch(match);
-    if (!tournamentId) return;
-    const bucket = matchesByTournamentId.get(tournamentId) || [];
-    bucket.push(match);
-    matchesByTournamentId.set(tournamentId, bucket);
-  });
-
   return new Map(
-    ids.map((tournamentId) => {
-      const baseByBracketId = buildBracketBaseByBracketId(
-        bracketsByTournamentId.get(tournamentId) || [],
-        maxRoundByTournamentId.get(tournamentId) || new Map()
-      );
-      return [
-        tournamentId,
-        buildMatchSideDisplayContext(matchesByTournamentId.get(tournamentId) || [], {
-          baseByBracketId,
-        }),
-      ];
-    })
+    ids.map((tournamentId) => [
+      tournamentId,
+      {
+        baseByBracketId: buildBracketBaseByBracketId(
+          bracketsByTournamentId.get(tournamentId) || [],
+          maxRoundByTournamentId.get(tournamentId) || new Map()
+        ),
+      },
+    ])
   );
 }
 
@@ -619,8 +599,9 @@ function getMatchDisplayOptions(match, options = {}) {
   if (!(contexts instanceof Map)) return {};
   const tournamentId = extractTournamentIdFromMatch(match);
   const context = tournamentId ? contexts.get(tournamentId) : null;
-  if (!context || typeof context !== "object") return {};
-  return context;
+  return context?.baseByBracketId instanceof Map
+    ? { baseByBracketId: context.baseByBracketId }
+    : {};
 }
 
 function compareMatchesForDisplay(a, b, options = {}) {
@@ -690,24 +671,18 @@ function buildRuntimeTournamentSummary(tournament) {
 
 export function buildMatchSummary(match, options = {}) {
   if (!match) return null;
-  const matchDisplayOptions = getMatchDisplayOptions(match, options);
-  const displayMeta = buildMatchDisplayMeta(match, matchDisplayOptions);
+  const displayMeta = buildMatchDisplayMeta(
+    match,
+    getMatchDisplayOptions(match, options)
+  );
   const resolvedCourt = resolveMatchCourtStationFields(match);
   const tournamentSummary = buildRuntimeTournamentSummary(match.tournament);
   const displayMode = tournamentSummary?.nameDisplayMode || "nickname";
   const eventType = tournamentSummary?.eventType || "double";
   const { code, displayCode, globalCode } = buildMatchCodePayload(
     match,
-    matchDisplayOptions
+    getMatchDisplayOptions(match, options)
   );
-  const resolvedSideA = resolveMatchSideDisplay(match, "A", matchDisplayOptions);
-  const resolvedSideB = resolveMatchSideDisplay(match, "B", matchDisplayOptions);
-  const resolvedSideNameA = safeText(resolvedSideA?.name);
-  const resolvedSideNameB = safeText(resolvedSideB?.name);
-  const resolvedPairAName =
-    resolvedSideA?.kind === "team" ? resolvedSideNameA : "";
-  const resolvedPairBName =
-    resolvedSideB?.kind === "team" ? resolvedSideNameB : "";
   return {
     _id: toIdString(match._id),
     status: safeText(match.status),
@@ -728,7 +703,7 @@ export function buildMatchSummary(match, options = {}) {
     tournament: tournamentSummary,
     bracket: buildBracketSummary(match.bracket, displayMeta),
     pool: buildPoolSummary(match, displayMeta),
-    pairA: resolvedSideA?.kind === "team" && match.pairA
+    pairA: match.pairA
       ? {
           _id: toIdString(match.pairA._id || match.pairA),
           name: teamNameFromReg(match.pairA, { displayMode, eventType }),
@@ -736,7 +711,7 @@ export function buildMatchSummary(match, options = {}) {
           player2: buildRegistrationPlayerSummary(match.pairA.player2),
         }
       : null,
-    pairB: resolvedSideB?.kind === "team" && match.pairB
+    pairB: match.pairB
       ? {
           _id: toIdString(match.pairB._id || match.pairB),
           name: teamNameFromReg(match.pairB, { displayMode, eventType }),
@@ -744,18 +719,12 @@ export function buildMatchSummary(match, options = {}) {
           player2: buildRegistrationPlayerSummary(match.pairB.player2),
         }
       : null,
-    resolvedSideNameA,
-    resolvedSideNameB,
-    sideAName: resolvedSideNameA,
-    sideBName: resolvedSideNameB,
-    resolvedSideKindA: safeText(resolvedSideA?.kind),
-    resolvedSideKindB: safeText(resolvedSideB?.kind),
-    resolvedSideSourceA: safeText(resolvedSideA?.source),
-    resolvedSideSourceB: safeText(resolvedSideB?.source),
-    teamAName: resolvedPairAName,
-    teamBName: resolvedPairBName,
-    pairAName: resolvedPairAName,
-    pairBName: resolvedPairBName,
+    teamAName: match.pairA
+      ? teamNameFromReg(match.pairA, { displayMode, eventType })
+      : "",
+    teamBName: match.pairB
+      ? teamNameFromReg(match.pairB, { displayMode, eventType })
+      : "",
     score: Array.isArray(match.gameScores) && match.gameScores.length
       ? match.gameScores[match.gameScores.length - 1]
       : null,

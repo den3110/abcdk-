@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import IORedis from "ioredis";
-import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Registration from "../models/registrationModel.js";
@@ -17,7 +16,6 @@ import {
 } from "./courtStationRuntimeEvents.service.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { invalidateMatchSnapshotCache } from "./matchSnapshotCache.service.js";
-import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 import {
   claimMatchLiveOwner,
   getMatchLiveOwner,
@@ -408,333 +406,6 @@ function cloneValue(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function docId(value) {
-  return String(value?._id || value?.id || value || "").trim();
-}
-
-function hasRegistrationRef(value) {
-  return mongoose.Types.ObjectId.isValid(docId(value));
-}
-
-function seedTypeKey(seed) {
-  return String(seed?.type || "")
-    .trim()
-    .toLowerCase();
-}
-
-function isByeLiveSeed(seed) {
-  return (
-    seedTypeKey(seed) === "bye" ||
-    /\bBYE\b/i.test(String(seed?.label || seed?.displayName || ""))
-  );
-}
-
-function isWinnerSeedType(type) {
-  return type === "stagematchwinner" || type === "matchwinner";
-}
-
-function isLoserSeedType(type) {
-  return type === "stagematchloser" || type === "matchloser";
-}
-
-function parseLiveMatchCode(value) {
-  const match = String(value || "")
-    .trim()
-    .match(/\b(?:[WL]\s*-\s*)?(V\d+(?:-(?:B[A-Z0-9]+|NT))?-T\d+)\b/i);
-  return match?.[1] ? match[1].toUpperCase().replace(/\s+/g, "") : "";
-}
-
-function isGroupishLiveBracketType(value) {
-  return ["group", "round_robin", "gsl", "swiss"].includes(
-    String(value || "")
-      .trim()
-      .toLowerCase()
-  );
-}
-
-function ceilPow2Live(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number <= 1) return 1;
-  return 1 << Math.ceil(Math.log2(number));
-}
-
-function countLiveBracketRounds(bracket, maxRoundByBracket) {
-  if (!bracket) return 1;
-  if (isGroupishLiveBracketType(bracket?.type)) return 1;
-
-  const bid = docId(bracket);
-  const fromMatches = Number(maxRoundByBracket.get(bid) || 0);
-  if (fromMatches > 0) return Math.max(1, fromMatches);
-
-  const explicit =
-    Number(bracket?.meta?.maxRounds) || Number(bracket?.drawRounds) || 0;
-  if (explicit > 0) return Math.max(1, explicit);
-
-  const drawSize = Number(bracket?.meta?.drawSize) || 0;
-  if (drawSize >= 2) return Math.ceil(Math.log2(ceilPow2Live(drawSize)));
-
-  return 1;
-}
-
-async function getLiveMatchCodeOptionsForTournament(tournamentId) {
-  const tournamentKey = docId(tournamentId);
-  if (!mongoose.Types.ObjectId.isValid(tournamentKey)) return {};
-
-  const objectId = new mongoose.Types.ObjectId(tournamentKey);
-  const [brackets, roundsAgg] = await Promise.all([
-    Bracket.find({ tournament: objectId })
-      .select("_id type stage order createdAt meta.maxRounds meta.drawSize drawRounds")
-      .sort({ stage: 1, order: 1, createdAt: 1, _id: 1 })
-      .lean(),
-    Match.aggregate([
-      { $match: { tournament: objectId } },
-      { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
-    ]),
-  ]);
-
-  const maxRoundByBracket = new Map(
-    roundsAgg.map((item) => [docId(item?._id), Number(item?.maxRound) || 0])
-  );
-  const sorted = [...brackets].sort((left, right) => {
-    const leftStage = Number(left?.stage ?? 9999);
-    const rightStage = Number(right?.stage ?? 9999);
-    if (leftStage !== rightStage) return leftStage - rightStage;
-    const leftOrder = Number(left?.order ?? 9999);
-    const rightOrder = Number(right?.order ?? 9999);
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    const leftCreated = left?.createdAt ? new Date(left.createdAt).getTime() : 0;
-    const rightCreated = right?.createdAt ? new Date(right.createdAt).getTime() : 0;
-    if (leftCreated !== rightCreated) return leftCreated - rightCreated;
-    return docId(left).localeCompare(docId(right));
-  });
-
-  const baseByBracketId = new Map();
-  let accumulated = 0;
-  for (const bracket of sorted) {
-    const bracketId = docId(bracket);
-    if (bracketId) baseByBracketId.set(bracketId, accumulated);
-    accumulated += countLiveBracketRounds(bracket, maxRoundByBracket);
-  }
-
-  return { baseByBracketId };
-}
-
-const LIVE_RESOLUTION_MATCH_SELECT = [
-  "_id",
-  "tournament",
-  "bracket",
-  "round",
-  "order",
-  "labelKey",
-  "displayCode",
-  "codeResolved",
-  "code",
-  "matchCode",
-  "meta",
-  "format",
-  "branch",
-  "phase",
-  "status",
-  "winner",
-  "pairA",
-  "pairB",
-  "seedA",
-  "seedB",
-  "previousA",
-  "previousB",
-].join(" ");
-
-async function buildLiveMatchResolutionContext(tournamentId) {
-  const tournamentKey = docId(tournamentId);
-  if (!mongoose.Types.ObjectId.isValid(tournamentKey)) return null;
-
-  const [matches, codeOptions] = await Promise.all([
-    Match.find({ tournament: tournamentKey })
-      .select(LIVE_RESOLUTION_MATCH_SELECT)
-      .populate({
-        path: "bracket",
-        select: "_id type stage order createdAt meta.maxRounds meta.drawSize drawRounds",
-      })
-      .lean(),
-    getLiveMatchCodeOptionsForTournament(tournamentKey),
-  ]);
-
-  const byId = new Map();
-  const byCode = new Map();
-  const matchesByBracketId = new Map();
-
-  for (const match of matches) {
-    const id = docId(match);
-    if (id) byId.set(id, match);
-
-    const bracketId = docId(match?.bracket);
-    if (bracketId) {
-      const bucket = matchesByBracketId.get(bracketId) || [];
-      bucket.push(match);
-      matchesByBracketId.set(bracketId, bucket);
-    }
-  }
-
-  for (const match of matches) {
-    const payload = buildMatchCodePayload(match, {
-      ...codeOptions,
-      matchesByBracketId,
-    });
-    const codes = [
-      payload?.displayCode,
-      payload?.code,
-      payload?.globalCode,
-      match?.displayCode,
-      match?.codeResolved,
-      match?.code,
-      match?.matchCode,
-    ]
-      .map(parseLiveMatchCode)
-      .filter(Boolean);
-
-    for (const code of codes) {
-      if (!byCode.has(code)) byCode.set(code, match);
-    }
-  }
-
-  return { byId, byCode };
-}
-
-function sourceMatchIdsForSeed(seed) {
-  return [
-    seed?.ref?.matchId,
-    seed?.ref?.match,
-    seed?.matchId,
-    seed?.match,
-    seed?.ref?._id,
-    seed?.ref?.id,
-  ]
-    .map(docId)
-    .filter((id) => mongoose.Types.ObjectId.isValid(id));
-}
-
-function findLiveSourceMatch(ownerMatch, seed, side, context) {
-  const ownerId = docId(ownerMatch);
-  const previous = side === "A" ? ownerMatch?.previousA : ownerMatch?.previousB;
-  const previousId = docId(previous);
-  if (previousId && context.byId.has(previousId) && previousId !== ownerId) {
-    return context.byId.get(previousId);
-  }
-
-  for (const sourceId of sourceMatchIdsForSeed(seed)) {
-    if (sourceId && sourceId !== ownerId && context.byId.has(sourceId)) {
-      return context.byId.get(sourceId);
-    }
-  }
-
-  const labelCode = parseLiveMatchCode(
-    seed?.label || seed?.displayName || seed?.name || seed?.title
-  );
-  if (labelCode && context.byCode.has(labelCode)) return context.byCode.get(labelCode);
-
-  return null;
-}
-
-function resolveLivePairFromSeedSide(ownerMatch, side, context, depth = 0) {
-  if (!ownerMatch || !context || depth > 10) return null;
-  const sideKey = side === "B" ? "B" : "A";
-  const pair = sideKey === "A" ? ownerMatch.pairA : ownerMatch.pairB;
-  const seed = sideKey === "A" ? ownerMatch.seedA : ownerMatch.seedB;
-  const seedType = seedTypeKey(seed);
-  if (seedType === "registration") {
-    return (
-      seed?.ref?.registration ||
-      seed?.ref?.reg ||
-      seed?.ref?.id ||
-      seed?.ref?._id ||
-      (hasRegistrationRef(pair) ? pair : null) ||
-      null
-    );
-  }
-  if (isByeLiveSeed(seed)) return null;
-
-  const isWinnerSeed = isWinnerSeedType(seedType);
-  const isLoserSeed = isLoserSeedType(seedType);
-  if (!isWinnerSeed && !isLoserSeed) {
-    return hasRegistrationRef(pair) ? pair : null;
-  }
-
-  const sourceMatch = findLiveSourceMatch(ownerMatch, seed, sideKey, context);
-  if (!sourceMatch) return null;
-
-  const sourceByeA = isByeLiveSeed(sourceMatch.seedA);
-  const sourceByeB = isByeLiveSeed(sourceMatch.seedB);
-  if (sourceByeA || sourceByeB) {
-    if (isLoserSeed || (sourceByeA && sourceByeB)) return null;
-    const carriedSide = sourceByeA ? "B" : "A";
-    const carriedPair = carriedSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
-    if (hasRegistrationRef(carriedPair)) return carriedPair;
-    return resolveLivePairFromSeedSide(sourceMatch, carriedSide, context, depth + 1);
-  }
-
-  const winnerSide =
-    sourceMatch.winner === "A" || sourceMatch.winner === "B"
-      ? sourceMatch.winner
-      : "";
-  if (!winnerSide) return null;
-
-  const sourceSide = isLoserSeed
-    ? winnerSide === "A"
-      ? "B"
-      : "A"
-    : winnerSide;
-  const sourcePair = sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
-  if (hasRegistrationRef(sourcePair)) return sourcePair;
-  return resolveLivePairFromSeedSide(sourceMatch, sourceSide, context, depth + 1);
-}
-
-async function hydrateResolvedMatchPairsForLive(match) {
-  if (!match?._id || !match?.tournament) return false;
-
-  const context = await buildLiveMatchResolutionContext(match.tournament);
-  if (!context) return false;
-
-  let changed = false;
-  for (const side of ["A", "B"]) {
-    const field = side === "A" ? "pairA" : "pairB";
-    const seed = side === "A" ? match.seedA : match.seedB;
-    const seedType = seedTypeKey(seed);
-    const shouldClearPair =
-      isByeLiveSeed(seed) ||
-      isWinnerSeedType(seedType) ||
-      isLoserSeedType(seedType);
-    const resolved = resolveLivePairFromSeedSide(match, side, context);
-    const resolvedId = docId(resolved);
-    if (!mongoose.Types.ObjectId.isValid(resolvedId)) {
-      if (shouldClearPair && docId(match[field])) {
-        match.set(field, null);
-        changed = true;
-      }
-      continue;
-    }
-    if (docId(match[field]) === resolvedId) continue;
-
-    match.set(field, new mongoose.Types.ObjectId(resolvedId));
-    changed = true;
-  }
-
-  if (changed) {
-    match.liveVersion = toNum(match.liveVersion, 0) + 1;
-    match.version = toNum(match.version, 0) + 1;
-  }
-  return changed;
-}
-
-function liveEventRequiresResolvedTeams(type) {
-  return ["start", "point", "serve", "slots", "finish", "forfeit"].includes(
-    String(type || "").trim().toLowerCase()
-  );
-}
-
-function hasResolvedLiveTeams(match) {
-  return hasRegistrationRef(match?.pairA) && hasRegistrationRef(match?.pairB);
-}
-
 function normalizeRefereeLayout(layout) {
   if (layout?.left === "B" || layout?.right === "A") {
     return { left: "B", right: "A" };
@@ -749,155 +420,6 @@ function userIdOfPlayer(player) {
 function getTeamPlayerIds(match, team) {
   const pair = team === "B" ? match?.pairB : match?.pairA;
   return [pair?.player1, pair?.player2].map(userIdOfPlayer).filter(Boolean);
-}
-
-function currentGameScoreOf(match) {
-  const scores = Array.isArray(match?.gameScores) ? match.gameScores : [];
-  const index = Number.isInteger(match?.currentGame)
-    ? Math.max(0, match.currentGame)
-    : Math.max(0, scores.length - 1);
-  const score = scores[index] || {};
-  return {
-    a: toNum(score.a, 0),
-    b: toNum(score.b, 0),
-  };
-}
-
-function currentSlotFromBaseSlot(baseSlot, teamScore) {
-  const base = Number(baseSlot) === 2 ? 2 : 1;
-  return Number(teamScore || 0) % 2 === 0 ? base : base === 1 ? 2 : 1;
-}
-
-function oppositeSlot(slot) {
-  return Number(slot) === 1 ? 2 : 1;
-}
-
-function preStartRightSlotForSide(side, layout) {
-  return normalizeRefereeLayout(layout).left === side ? 2 : 1;
-}
-
-function normalizedSlotsBaseForMatch(match, inputBase = null) {
-  const rawBase =
-    inputBase && typeof inputBase === "object"
-      ? inputBase
-      : match?.slots?.base || match?.meta?.slots?.base || {};
-  const base = {
-    A: { ...(rawBase?.A || {}) },
-    B: { ...(rawBase?.B || {}) },
-  };
-
-  for (const team of ["A", "B"]) {
-    const ids = getTeamPlayerIds(match, team);
-    if (ids[0] && ![1, 2].includes(Number(base[team][ids[0]]))) {
-      base[team][ids[0]] = 1;
-    }
-    if (ids[1] && ![1, 2].includes(Number(base[team][ids[1]]))) {
-      base[team][ids[1]] = 2;
-    }
-  }
-
-  return base;
-}
-
-function findPlayerIdByBaseSlot(match, side, slot, base = null) {
-  const normalizedBase = base || normalizedSlotsBaseForMatch(match);
-  return (
-    Object.entries(normalizedBase?.[side] || {}).find(
-      ([, value]) => Number(value) === Number(slot)
-    )?.[0] || ""
-  );
-}
-
-function findPlayerIdByCurrentSlot(match, side, slot, base = null, score = null) {
-  const normalizedBase = base || normalizedSlotsBaseForMatch(match);
-  const currentScore = score || currentGameScoreOf(match);
-  const teamScore = side === "A" ? currentScore.a : currentScore.b;
-  return (
-    Object.entries(normalizedBase?.[side] || {}).find(
-      ([, value]) => currentSlotFromBaseSlot(value, teamScore) === Number(slot)
-    )?.[0] || ""
-  );
-}
-
-function isServeServerIdValid(match, side, serverId) {
-  const normalizedId = String(serverId || "").trim();
-  if (!normalizedId) return false;
-  return new Set(getTeamPlayerIds(match, side)).has(normalizedId);
-}
-
-function resolveReceiverIdForServe(match, serve, base, score) {
-  const serverId = String(serve?.serverId || "").trim();
-  if (!serverId) return null;
-  const side = validSide(serve?.side);
-  const otherSide = side === "A" ? "B" : "A";
-  const currentScore = score || currentGameScoreOf(match);
-  const serverBaseSlot = Number(base?.[side]?.[serverId] || serve?.server || 1);
-  const serverTeamScore = side === "A" ? currentScore.a : currentScore.b;
-  const serverCurrentSlot = currentSlotFromBaseSlot(serverBaseSlot, serverTeamScore);
-  return findPlayerIdByCurrentSlot(match, otherSide, serverCurrentSlot, base, currentScore) || null;
-}
-
-function normalizeServeForMatch(match, serve = {}, options = {}) {
-  const side = validSide(serve?.side);
-  let server = validServer(Number(serve?.server));
-  const opening = Boolean(serve?.opening);
-  const base = normalizedSlotsBaseForMatch(match, options.base);
-  const score = currentGameScoreOf(match);
-  const teamIds = getTeamPlayerIds(match, side);
-  let serverId = String(serve?.serverId || "").trim();
-  const isOpeningDoubles = isDoublesMatch(match) && opening;
-  if (isOpeningDoubles) {
-    server = OPENING_DOUBLES_SERVER;
-  }
-
-  if (serverId && !isServeServerIdValid(match, side, serverId)) {
-    serverId = "";
-  }
-  const existingServerId = String(match?.serve?.serverId || "").trim();
-  const canKeepExistingServer =
-    !serverId &&
-    existingServerId &&
-    match?.serve?.side === side &&
-    validServer(match?.serve?.server) === server &&
-    Boolean(match?.serve?.opening) === opening &&
-    isServeServerIdValid(match, side, existingServerId);
-
-  if (
-    isOpeningDoubles &&
-    opening &&
-    toNum(score.a, 0) === 0 &&
-    toNum(score.b, 0) === 0
-  ) {
-    server = OPENING_DOUBLES_SERVER;
-    const rightSlot = preStartRightSlotForSide(side, match?.meta?.refereeLayout);
-    serverId =
-      findPlayerIdByCurrentSlot(match, side, rightSlot, base, score) ||
-      findPlayerIdByCurrentSlot(match, side, oppositeSlot(rightSlot), base, score) ||
-      serverId ||
-      teamIds[0] ||
-      "";
-  } else if (canKeepExistingServer) {
-    serverId = existingServerId;
-  } else if (!serverId) {
-    serverId =
-      (options.preferCurrentSlot
-        ? findPlayerIdByCurrentSlot(match, side, server, base, score)
-        : "") ||
-      findPlayerIdByBaseSlot(match, side, server, base) ||
-      findPlayerIdByCurrentSlot(match, side, server, base, score) ||
-      teamIds[0] ||
-      "";
-  }
-
-  const normalized = {
-    side,
-    server,
-    serverId: serverId || null,
-    receiverId: null,
-    opening,
-  };
-  normalized.receiverId = resolveReceiverIdForServe(match, normalized, base, score);
-  return normalized;
 }
 
 function validateSlotsBaseForMatch(match, inputBase = {}) {
@@ -944,35 +466,48 @@ function validateSlotsBaseForMatch(match, inputBase = {}) {
   };
 }
 
-function validateServeForMatch(match, inputServe = {}, options = {}) {
+function validateServeForMatch(match, inputServe = {}) {
   const sideInput = String(inputServe?.side || "").trim().toUpperCase();
   const side = sideInput === "B" ? "B" : "A";
   const server = Number(inputServe?.server) === 1 ? 1 : 2;
   const rawServerId = String(inputServe?.serverId || "").trim();
   const opening = Boolean(inputServe?.opening);
+  const validIds = new Set(getTeamPlayerIds(match, side));
+
+  if (rawServerId && !validIds.has(rawServerId)) {
+    return {
+      ok: false,
+      code: "invalid_transition",
+      message: `serverId not in team ${side}`,
+    };
+  }
 
   return {
     ok: true,
-    value: normalizeServeForMatch(match, {
+    value: {
       side,
       server,
       serverId: rawServerId || null,
       opening,
-    }, options),
+    },
   };
 }
 
 function applyServeState(match, serve, options = {}) {
   const bumpSlotsVersion = options.bumpSlotsVersion !== false;
-  const normalizedServe = normalizeServeForMatch(match, serve, options);
-  match.serve = normalizedServe;
+  const server = validServer(serve?.server);
+  match.serve = {
+    side: validSide(serve?.side),
+    server,
+    serverId: serve?.serverId || null,
+    opening: Boolean(serve?.opening),
+  };
 
   if (match.serve.serverId) {
     match.set("slots.serverId", match.serve.serverId, { strict: false });
   } else {
     match.set("slots.serverId", null, { strict: false });
   }
-  match.set("slots.receiverId", match.serve.receiverId || null, { strict: false });
   match.set("slots.updatedAt", new Date(), { strict: false });
   if (bumpSlotsVersion) {
     const version = Number(match?.slots?.version || 0);
@@ -1034,12 +569,12 @@ function applyStartEvent(match, event, actorId) {
     match.gameScores = [{ a: 0, b: 0 }];
     match.currentGame = 0;
   }
-  applyServeState(match, {
+  match.serve = {
     side: validSide(match.serve?.side),
     server: opening ? OPENING_DOUBLES_SERVER : 1,
     serverId: match.serve?.serverId || null,
     opening,
-  }, { bumpSlotsVersion: false });
+  };
 
   match.liveBy = actorId || match.liveBy || null;
   ensureLiveLog(match);
@@ -1079,6 +614,10 @@ function applyPointEvent(match, event, actorId) {
     };
   }
 
+  if (team === "A") score.a += step;
+  else score.b += step;
+  match.gameScores[gameIndex] = score;
+
   const prevServe = {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
@@ -1088,18 +627,19 @@ function applyPointEvent(match, event, actorId) {
 
   const servingTeam = prevServe.side;
   if (team !== servingTeam) {
-    return {
-      ok: false,
-      code: "invalid_transition",
-      message: "Only the serving side can score in pickleball",
-    };
+    match.serve = onLostRallyNextServe(prevServe);
+
+    const base = match?.slots?.base || match?.meta?.slots?.base;
+    if (base && base[match.serve.side]) {
+      const wanted = Number(match.serve.server);
+      const entry = Object.entries(base[match.serve.side]).find(
+        ([, slot]) => Number(slot) === wanted
+      );
+      match.serve.serverId = entry ? entry[0] : null;
+    } else if (match.serve?.serverId) {
+      match.serve.serverId = undefined;
+    }
   }
-
-  if (team === "A") score.a += step;
-  else score.b += step;
-  match.gameScores[gameIndex] = score;
-
-  applyServeState(match, prevServe, { bumpSlotsVersion: false });
 
   match.liveBy = actorId || match.liveBy || null;
   ensureLiveLog(match);
@@ -1118,19 +658,15 @@ function applyServeEvent(match, event, actorId) {
     return { ok: false, code: "match_closed", message: "Match already finished" };
   }
 
+  const nextServe = validateServeForMatch(match, event.payload);
+  if (!nextServe.ok) return nextServe;
+
   const prevServe = {
     side: validSide(match.serve?.side),
     server: validServer(match.serve?.server),
     serverId: match.serve?.serverId || null,
     opening: Boolean(match.serve?.opening),
   };
-
-  const nextServe = validateServeForMatch(match, event.payload, {
-    preferCurrentSlot:
-      !event.payload?.serverId &&
-      validSide(event.payload?.side) !== prevServe.side,
-  });
-  if (!nextServe.ok) return nextServe;
 
   applyServeState(match, nextServe.value);
   match.liveBy = actorId || match.liveBy || null;
@@ -1159,9 +695,7 @@ function applySlotsEvent(match, event, actorId) {
   const nextLayout = normalizeRefereeLayout(event.payload?.layout);
   const hasLayout = Boolean(event.payload?.layout);
   const nextServe = event.payload?.serve
-    ? validateServeForMatch(match, event.payload.serve, {
-        base: nextBase.value,
-      })
+    ? validateServeForMatch(match, event.payload.serve)
     : null;
   if (nextServe && !nextServe.ok) return nextServe;
 
@@ -1635,8 +1169,6 @@ async function syncMatchLiveEventsLocked({
     };
   }
 
-  await hydrateResolvedMatchPairsForLive(match);
-
   const needsRosterContext = normalizedEvents.some((rawEvent) => {
     const type = String(rawEvent?.type || "").trim().toLowerCase();
     return type === "serve" || type === "slots";
@@ -1694,21 +1226,6 @@ async function syncMatchLiveEventsLocked({
     if (existing) {
       ackedClientEventIds.push(clientEventId);
       continue;
-    }
-
-    if (
-      liveEventRequiresResolvedTeams(normalized.event.type) &&
-      !hasResolvedLiveTeams(match)
-    ) {
-      const remaining = normalizedEvents.slice(index);
-      rejectedEvents.push(
-        ...buildRejected(
-          remaining,
-          "teams_not_resolved",
-          "Match teams are not resolved yet"
-        )
-      );
-      break;
     }
 
     const applyResult = applyLiveSyncEvent(match, normalized.event, actorId);

@@ -1,4 +1,4 @@
-const NORMALIZED_MATCH_CODE_RE = /^V\d+(?:-(?:B\d+|NT))?-T\d+$/i;
+const NORMALIZED_MATCH_CODE_RE = /^V\d+(?:-B\d+)?-T\d+$/i;
 const GROUPISH_TYPES = new Set(["group", "round_robin", "gsl"]);
 const DOUBLE_ELIM_TYPES = new Set([
   "double_elim",

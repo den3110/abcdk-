@@ -38,7 +38,10 @@ import {
 import { useListTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
 import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
-import { getMatchSideDisplayName } from "../utils/matchDisplay";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPairName,
+} from "../utils/tournamentName";
 import { addBusinessBreadcrumb } from "../utils/sentry";
 import ResponsiveModal from "./ResponsiveModal";
 import ResponsiveMatchViewer from "../screens/PickleBall/match/ResponsiveMatchViewer";
@@ -124,11 +127,36 @@ const matchCode = (match) =>
   text(match?.labelKey) ||
   "—";
 
-const teamSlotLabel = (match, side) =>
-  text(getMatchSideDisplayName(match, side, "")) || `Chưa có đội ${side}`;
+const matchEventType = (match) =>
+  String(
+    match?.tournament?.eventType || match?.eventType || "",
+  ).toLowerCase() === "single"
+    ? "single"
+    : "double";
+
+const matchDisplayMode = (match) => getTournamentNameDisplayMode(match);
+
+const teamSlotLabel = (match, team, slot) =>
+  text(
+    getTournamentPairName(
+      team,
+      matchEventType(match),
+      matchDisplayMode(match),
+      {
+        separator: " / ",
+        fallback: "",
+      },
+    ),
+  ) ||
+  text(team?.name) ||
+  `Chưa có đội ${slot}`;
 
 const teamLine = (match) =>
-  `${teamSlotLabel(match, "A")} vs ${teamSlotLabel(match, "B")}`;
+  `${teamSlotLabel(match, match?.pairA, "A")} vs ${teamSlotLabel(
+    match,
+    match?.pairB,
+    "B",
+  )}`;
 
 const tournamentTitle = (match) =>
   text(match?.tournament?.name) || "Giải không xác định";
