@@ -9,6 +9,58 @@ import mongoose from "mongoose";
 import { extractBearerToken } from "../utils/authToken.js";
 
 const isValidId = (v) => !!v && mongoose.isValidObjectId(String(v));
+const LIVE_APP_USER_CACHE_TTL_MS = getNonNegativeIntEnv(
+  "LIVE_APP_AUTH_USER_CACHE_TTL_MS",
+  30_000
+);
+const LIVE_APP_USER_CACHE_MAX = Math.max(
+  1,
+  getNonNegativeIntEnv("LIVE_APP_AUTH_USER_CACHE_MAX", 500)
+);
+const liveAppUserCache = new Map();
+
+function getNonNegativeIntEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+function getCachedLiveAppUser(userId) {
+  if (LIVE_APP_USER_CACHE_TTL_MS <= 0) return null;
+  const key = String(userId || "").trim();
+  if (!key) return null;
+  const cached = liveAppUserCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    liveAppUserCache.delete(key);
+    return null;
+  }
+  liveAppUserCache.delete(key);
+  liveAppUserCache.set(key, cached);
+  return cached.user;
+}
+
+function setCachedLiveAppUser(userId, user) {
+  if (LIVE_APP_USER_CACHE_TTL_MS <= 0 || !user) return;
+  const key = String(userId || "").trim();
+  if (!key) return;
+  if (!liveAppUserCache.has(key) && liveAppUserCache.size >= LIVE_APP_USER_CACHE_MAX) {
+    const oldestKey = liveAppUserCache.keys().next().value;
+    if (oldestKey) liveAppUserCache.delete(oldestKey);
+  }
+  liveAppUserCache.set(key, {
+    user,
+    expiresAt: Date.now() + LIVE_APP_USER_CACHE_TTL_MS,
+  });
+}
+
+export function clearLiveAppUserAuthCache(userId = null) {
+  const key = String(userId || "").trim();
+  if (key) {
+    liveAppUserCache.delete(key);
+    return;
+  }
+  liveAppUserCache.clear();
+}
 
 /* ----------------------------------------------------------
  | Tiện ích lấy JWT:
@@ -82,6 +134,40 @@ export const protect = asyncHandler(async (req, res, next) => {
     console.error("JWT verify failed:", err.message);
     res.status(401);
     throw new Error("Not authorized – token invalid/expired");
+  }
+});
+
+export const protectLiveApp = asyncHandler(async (req, res, next) => {
+  const token = extractToken(req);
+
+  if (!token) {
+    res.status(403);
+    throw new Error("Not authorized - no token");
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded?.userId || decoded?.id || decoded?._id;
+
+    const cachedUser = getCachedLiveAppUser(userId);
+    if (cachedUser) {
+      req.user = cachedUser;
+      return next();
+    }
+
+    const user = await User.findById(userId).select("-password");
+    if (!user) {
+      res.status(401);
+      throw new Error("Not authorized - user not found");
+    }
+
+    setCachedLiveAppUser(userId, user);
+    req.user = user;
+    return next();
+  } catch (err) {
+    console.error("Live app JWT verify failed:", err.message);
+    res.status(401);
+    throw new Error("Not authorized - token invalid/expired");
   }
 });
 

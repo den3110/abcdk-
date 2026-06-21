@@ -56,7 +56,6 @@ const isReferenceSideName = (value) => {
 const isPlaceholderName = (value) => {
   const text = readStr(value);
   if (!text) return true;
-  if (isReferenceSideName(text)) return true;
   const lower = text.toLowerCase();
   return [
     "-",
@@ -623,6 +622,106 @@ const needsSeedHydration = (match, side, currentName) => {
   return isDependentSeed(seedForSide(match, side)) && !readStr(currentName);
 };
 
+const needsTournamentContextHydration = (match, side, currentName) =>
+  isReferenceSideName(currentName) ||
+  isPlaceholderName(currentName) ||
+  (isDependentSeed(seedForSide(match, side)) && !readStr(currentName));
+
+const matchIdTextOf = (match) => idTextOf(match?._id || match?.id || match);
+
+const normalizeMatchRows = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.list)) return payload.list;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.matches)) return payload.matches;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
+};
+
+const buildMatchIndex = (matches) => {
+  const byId = new Map();
+  (matches || []).forEach((match) => {
+    const id = matchIdTextOf(match);
+    if (id) byId.set(id, match);
+  });
+  return byId;
+};
+
+const numberOrNull = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const seedRefMatchId = (seed) =>
+  idTextOf(
+    seed?.ref?.matchId,
+    seed?.ref?.match,
+    seed?.ref?.sourceMatchId,
+    seed?.ref?.sourceMatch,
+    seed?.ref?.previousMatchId,
+    seed?.ref?.previousMatch,
+    seed?.matchId,
+    seed?.sourceMatchId,
+  );
+
+const sameBracketOrStage = (match, owner, seed) => {
+  const seedBracket = idTextOf(seed?.ref?.bracket, seed?.ref?.bracketId);
+  const ownerBracket = idTextOf(owner?.bracket?._id, owner?.bracket);
+  const matchBracket = idTextOf(match?.bracket?._id, match?.bracket);
+  if (seedBracket && matchBracket) return seedBracket === matchBracket;
+  if (ownerBracket && matchBracket) return ownerBracket === matchBracket;
+
+  const seedStage = numberOrNull(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+  const ownerStage = numberOrNull(owner?.bracket?.stage ?? owner?.stage);
+  const matchStage = numberOrNull(match?.bracket?.stage ?? match?.stage);
+  if (seedStage != null && matchStage != null) return seedStage === matchStage;
+  if (ownerStage != null && matchStage != null) return ownerStage === matchStage;
+  return true;
+};
+
+const matchOrderMatchesRef = (matchOrder, refOrder) => {
+  if (matchOrder == null || refOrder == null) return false;
+  return matchOrder === refOrder || matchOrder === refOrder + 1;
+};
+
+const findSourceMatchFromSeedInList = (owner, seed, matches) => {
+  if (!isDependentSeed(seed)) return null;
+
+  const refId = seedRefMatchId(seed);
+  if (refId) {
+    const byId = buildMatchIndex(matches);
+    const byRef = byId.get(refId);
+    if (byRef) return byRef;
+  }
+
+  const refRound = numberOrNull(seed?.ref?.round);
+  const refOrder = numberOrNull(seed?.ref?.order);
+  if (refRound == null || refOrder == null) return null;
+
+  const candidates = (matches || []).filter((match) => {
+    if (!sameBracketOrStage(match, owner, seed)) return false;
+    const round = numberOrNull(match?.round);
+    const order = numberOrNull(match?.order);
+    return (
+      (round === refRound || round === refRound + 1) &&
+      matchOrderMatchesRef(order, refOrder)
+    );
+  });
+
+  return candidates.length === 1 ? candidates[0] : null;
+};
+
+const findSourceMatchInList = (owner, side, matchIndex, matches) => {
+  const previous = previousForSide(owner, side);
+  const previousId = idTextOf(previous);
+  if (previousId && matchIndex?.has(previousId)) return matchIndex.get(previousId);
+  if (previous && typeof previous === "object" && statusTextOf(previous)) {
+    return previous;
+  }
+
+  return findSourceMatchFromSeedInList(owner, seedForSide(owner, side), matches);
+};
+
 const knockoutRoundLabel = (data) => {
   const t = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
   if (!t || t === "group") return "";
@@ -907,6 +1006,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const [data, setData] = useState(null);
   const [overlayBE, setOverlayBE] = useState(null);
   const seedHydrationInFlightRef = useRef(new Set());
+  const tournamentHydrationInFlightRef = useRef(new Set());
   const displayMode = getTournamentNameDisplayMode(data?.tournament);
   const eventType =
     String(
@@ -1038,7 +1138,12 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
               eventType,
               displayMode,
             );
-            if (!resolvedName || isPlaceholderName(resolvedName)) return;
+            if (
+              !resolvedName ||
+              isPlaceholderName(resolvedName) ||
+              isReferenceSideName(resolvedName)
+            )
+              return;
 
             patches.push({
               side,
@@ -1083,6 +1188,143 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
     return () => {
       cancelled = true;
+    };
+  }, [data, displayMode, eventType, matchId, replay]);
+
+  useEffect(() => {
+    if (!data || replay) return;
+
+    const unresolvedSides = ["A", "B"]
+      .map((side) => {
+        const currentName = teamDisplayNameFromMatch(
+          data,
+          side,
+          eventType,
+          displayMode,
+        );
+        if (!needsTournamentContextHydration(data, side, currentName)) {
+          return null;
+        }
+        return { side, currentName };
+      })
+      .filter(Boolean);
+
+    const tournamentId = idTextOf(data?.tournament?.id);
+    if (!tournamentId || !unresolvedSides.length) return;
+
+    const key = [
+      data?.matchId || matchId,
+      tournamentId,
+      unresolvedSides.map((item) => `${item.side}:${item.currentName}`).join("|"),
+    ].join(":");
+
+    if (tournamentHydrationInFlightRef.current.has(key)) return;
+    tournamentHydrationInFlightRef.current.add(key);
+
+    let cancelled = false;
+
+    const hydrateFromTournamentMatches = async () => {
+      try {
+        const response = await fetch(
+          `/api/tournaments/${encodeURIComponent(tournamentId)}/matches?view=bracket`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        const matches = normalizeMatchRows(payload);
+        const matchIndex = buildMatchIndex(matches);
+        const current =
+          matchIndex.get(idTextOf(data?.matchId)) ||
+          matchIndex.get(idTextOf(matchId)) ||
+          data;
+
+        const patches = [];
+
+        unresolvedSides.forEach(({ side, currentName }) => {
+          const owner = {
+            ...data,
+            ...current,
+            tournament: data?.tournament || current?.tournament,
+            seedA: current?.seedA ?? data?.seedA,
+            seedB: current?.seedB ?? data?.seedB,
+            seeds: current?.seeds ?? data?.seeds,
+            previousA: current?.previousA ?? data?.previousA,
+            previousB: current?.previousB ?? data?.previousB,
+          };
+          const sourceMatch = findSourceMatchInList(
+            owner,
+            side,
+            matchIndex,
+            matches,
+          );
+          if (!sourceMatch) return;
+
+          const seed = seedForSide(owner, side);
+          const source = normalizePayload({
+            ...sourceMatch,
+            tournament: data?.tournament || sourceMatch?.tournament,
+          });
+          const sourceSide = sourceSideForSeed(source, seed, currentName);
+          if (!sourceSide) return;
+
+          const sourceTeam = source?.teams?.[sourceSide];
+          const resolvedName = teamDisplayNameFromMatch(
+            source,
+            sourceSide,
+            eventType,
+            displayMode,
+          );
+          if (
+            !resolvedName ||
+            isPlaceholderName(resolvedName) ||
+            isReferenceSideName(resolvedName)
+          )
+            return;
+
+          patches.push({
+            side,
+            team: {
+              ...sourceTeam,
+              name: resolvedName,
+              teamName: resolvedName,
+              label: resolvedName,
+            },
+          });
+        });
+
+        if (cancelled || !patches.length) return;
+
+        setData((prev) => {
+          if (!prev) return prev;
+          const nextTeams = { ...(prev.teams || {}) };
+          let changed = false;
+          patches.forEach(({ side, team }) => {
+            const key = sideKeyOf(side);
+            const currentName = teamDisplayNameFromMatch(
+              prev,
+              key,
+              eventType,
+              displayMode,
+            );
+            if (!needsTournamentContextHydration(prev, key, currentName)) return;
+            nextTeams[key] = { ...(nextTeams[key] || {}), ...team };
+            changed = true;
+          });
+          return changed ? { ...prev, teams: nextTeams } : prev;
+        });
+      } catch {
+        // The normal overlay polling still keeps the score current.
+      } finally {
+        tournamentHydrationInFlightRef.current.delete(key);
+      }
+    };
+
+    hydrateFromTournamentMatches();
+
+    return () => {
+      cancelled = true;
+      tournamentHydrationInFlightRef.current.delete(key);
     };
   }, [data, displayMode, eventType, matchId, replay]);
 

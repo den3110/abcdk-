@@ -4,7 +4,7 @@ import {
   getCourtRuntimeForLiveApp,
   getMatchRuntimeForLiveApp,
 } from "../controllers/liveAppController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { protectLiveApp } from "../middleware/authMiddleware.js";
 import { getLiveAppBootstrap } from "../controllers/liveAppAuthController.js";
 import {
   endCourtPresenceController,
@@ -21,24 +21,24 @@ import {
 
 const router = express.Router();
 
-router.post("/matches/:matchId/live/create", protect, createLiveSessionForLiveApp);
-router.get("/bootstrap", protect, getLiveAppBootstrap);
-router.get("/clusters", protect, listLiveAppCourtClusters);
-router.get("/clusters/:clusterId/courts", protect, listLiveAppCourtStations);
-router.get("/tournaments/:tournamentId/courts", protect, listLiveAppTournamentCourtStations);
+router.post("/matches/:matchId/live/create", protectLiveApp, createLiveSessionForLiveApp);
+router.get("/bootstrap", protectLiveApp, getLiveAppBootstrap);
+router.get("/clusters", protectLiveApp, listLiveAppCourtClusters);
+router.get("/clusters/:clusterId/courts", protectLiveApp, listLiveAppCourtStations);
+router.get("/tournaments/:tournamentId/courts", protectLiveApp, listLiveAppTournamentCourtStations);
 router.get(
   "/court-stations/:courtStationId/current-match",
-  protect,
+  protectLiveApp,
   getLiveAppCourtStationCurrentMatch
 );
-router.get("/courts/:courtId/runtime", protect, getCourtRuntimeForLiveApp);
-router.get("/matches/:matchId/runtime", protect, getMatchRuntimeForLiveApp);
-router.post("/courts/:courtId/presence/start", protect, startCourtPresence);
-router.post("/courts/:courtId/presence/heartbeat", protect, heartbeatCourtPresenceController);
-router.post("/courts/:courtId/presence/end", protect, endCourtPresenceController);
+router.get("/courts/:courtId/runtime", protectLiveApp, getCourtRuntimeForLiveApp);
+router.get("/matches/:matchId/runtime", protectLiveApp, getMatchRuntimeForLiveApp);
+router.post("/courts/:courtId/presence/start", protectLiveApp, startCourtPresence);
+router.post("/courts/:courtId/presence/heartbeat", protectLiveApp, heartbeatCourtPresenceController);
+router.post("/courts/:courtId/presence/end", protectLiveApp, endCourtPresenceController);
 router.post(
   "/courts/:courtId/presence/extend-preview",
-  protect,
+  protectLiveApp,
   extendCourtPreviewPresenceController
 );
 

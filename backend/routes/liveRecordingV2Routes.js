@@ -1,6 +1,5 @@
 import express from "express";
-import { authorize } from "../middleware/authMiddleware.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { authorize, protect, protectLiveApp } from "../middleware/authMiddleware.js";
 import {
   abortMultipartLiveRecordingSegmentV2,
   bulkTrashLiveRecordingDriveAssetV2,
@@ -47,41 +46,41 @@ import {
 
 const router = express.Router();
 
-router.post("/start", protect, startLiveRecordingV2);
+router.post("/start", protectLiveApp, startLiveRecordingV2);
 router.post(
   "/segments/presign-batch",
-  protect,
+  protectLiveApp,
   presignLiveRecordingSegmentBatchV2
 );
-router.post("/segments/presign", protect, presignLiveRecordingSegmentV2);
-router.post("/live-manifest/presign", protect, presignLiveRecordingManifestV2);
-router.post("/segments/complete", protect, completeLiveRecordingSegmentV2);
+router.post("/segments/presign", protectLiveApp, presignLiveRecordingSegmentV2);
+router.post("/live-manifest/presign", protectLiveApp, presignLiveRecordingManifestV2);
+router.post("/segments/complete", protectLiveApp, completeLiveRecordingSegmentV2);
 router.post(
   "/segments/multipart/start",
-  protect,
+  protectLiveApp,
   startMultipartLiveRecordingSegmentV2
 );
 router.post(
   "/segments/multipart/part-url",
-  protect,
+  protectLiveApp,
   presignMultipartLiveRecordingSegmentPartV2
 );
 router.post(
   "/segments/multipart/progress",
-  protect,
+  protectLiveApp,
   reportMultipartLiveRecordingSegmentProgressV2
 );
 router.post(
   "/segments/multipart/complete",
-  protect,
+  protectLiveApp,
   completeMultipartLiveRecordingSegmentV2
 );
 router.post(
   "/segments/multipart/abort",
-  protect,
+  protectLiveApp,
   abortMultipartLiveRecordingSegmentV2
 );
-router.post("/finalize", protect, finalizeLiveRecordingV2);
+router.post("/finalize", protectLiveApp, finalizeLiveRecordingV2);
 router.get(
   "/admin/monitor",
   protect,

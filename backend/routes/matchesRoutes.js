@@ -11,6 +11,7 @@ import {
   authorize,
   isManagerTournament,
   protect,
+  protectLiveApp,
 } from "../middleware/authMiddleware.js";
 import { createFacebookLiveForMatch } from "../controllers/adminMatchLiveController.js";
 
@@ -23,9 +24,9 @@ router.patch("/:id/admin", protect, isManagerTournament, adminPatchMatch);
 router.post("/:matchId/live/facebook", createFacebookLiveForMatch);
 router.post("/:matchId/live/create", createFacebookLiveForMatch);
 
-router.post("/:id/live/start", protect, notifyStreamStarted);
-router.post("/:id/live/heartbeat", protect, notifyStreamHeartbeat);
-router.post("/:id/live/end", protect, notifyStreamEnded);
+router.post("/:id/live/start", protectLiveApp, notifyStreamStarted);
+router.post("/:id/live/heartbeat", protectLiveApp, notifyStreamHeartbeat);
+router.post("/:id/live/end", protectLiveApp, notifyStreamEnded);
 
 router.patch('/:matchId/update', updateMatchSettings);
 
