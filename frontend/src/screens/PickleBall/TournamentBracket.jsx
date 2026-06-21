@@ -601,10 +601,6 @@ function useResizeHeight(ref, onHeight) {
 
 /* ===================== LIVE helpers + Seed render ===================== */
 const RED = "#F44336";
-const LIVE_ORANGE = "#ff8a00";
-const LIVE_DOT_SIZE = 10;
-
-const clampUnit = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
 function scoreEntryValueLocal(entry, key) {
   return Number(entry?.[key] ?? entry?.[key.toUpperCase()] ?? 0);
@@ -640,10 +636,6 @@ function resolveMatchRulesLocal(match) {
   };
 }
 
-function needWinsLocal(bestOf = 1) {
-  return Math.floor(Math.max(1, Number(bestOf || 1)) / 2) + 1;
-}
-
 function isGameWinLocal(a = 0, b = 0, pointsToWin = 11, winByTwo = true) {
   const scoreA = Number(a || 0);
   const scoreB = Number(b || 0);
@@ -676,58 +668,6 @@ function currentGameScoreLocal(match) {
   }
   const index = currentGameIndexLocal(match);
   return scores[index] || scores[scores.length - 1] || { a: 0, b: 0 };
-}
-
-function sideGameProgressLocal(match, side) {
-  const { pointsToWin, winByTwo } = resolveMatchRulesLocal(match);
-  const current = currentGameScoreLocal(match);
-  const mine = Number(side === "A" ? current?.a : current?.b);
-  const opp = Number(side === "A" ? current?.b : current?.a);
-  const target = winByTwo
-    ? Math.max(pointsToWin, opp + 2)
-    : Math.max(pointsToWin, opp + 1);
-  if (target <= 0) return 0;
-  return clampUnit(mine / target);
-}
-
-function liveBranchProgressLocal(match) {
-  if (!match) return { leader: null, progress: 0, progressA: 0, progressB: 0 };
-
-  const rules = resolveMatchRulesLocal(match);
-  const wins = countCompletedGamesWonLocal(match);
-  const neededWins = needWinsLocal(rules.bestOf);
-  const progressA = clampUnit(
-    (wins.A + sideGameProgressLocal(match, "A")) / neededWins,
-  );
-  const progressB = clampUnit(
-    (wins.B + sideGameProgressLocal(match, "B")) / neededWins,
-  );
-  const current = currentGameScoreLocal(match);
-
-  let leader = null;
-  if (match?.winner === "A" || match?.winner === "B") {
-    leader = match.winner;
-  } else if (progressA > progressB + 0.001) {
-    leader = "A";
-  } else if (progressB > progressA + 0.001) {
-    leader = "B";
-  } else if ((current?.a ?? 0) > (current?.b ?? 0)) {
-    leader = "A";
-  } else if ((current?.b ?? 0) > (current?.a ?? 0)) {
-    leader = "B";
-  }
-
-  return {
-    leader,
-    progressA,
-    progressB,
-    progress:
-      leader === "A"
-        ? progressA
-        : leader === "B"
-          ? progressB
-          : Math.max(progressA, progressB),
-  };
 }
 
 function scoreForSide(m, side) {
@@ -877,81 +817,12 @@ const CustomSeed = ({
   const wrapRef = useRef(null);
   const seedRef = useRef(null);
   const itemRef = useRef(null);
-  const teamARef = useRef(null);
-  const teamBRef = useRef(null);
   const sync = useContext(HeightSyncContext);
   useResizeHeight(wrapRef, (h) =>
     sync.report(roundNo, Math.max(h, SEED_MIN_H)),
   );
   const syncedMinH = Math.max(SEED_MIN_H, sync.get(roundNo));
-  const liveBranch = useMemo(() => liveBranchProgressLocal(m), [m]);
-  const [liveDotPosition, setLiveDotPosition] = useState(null);
-
-  useLayoutEffect(() => {
-    const isLive = String(m?.status || "").toLowerCase() === "live";
-    if (!isLive) {
-      setLiveDotPosition((prev) => (prev ? null : prev));
-      return;
-    }
-
-    const root = seedRef.current;
-    const item = itemRef.current;
-    const rowA = teamARef.current;
-    const rowB = teamBRef.current;
-    if (!root || !item || !rowA || !rowB) return;
-
-    const updateDotPosition = () => {
-      const rootRect = root.getBoundingClientRect();
-      const itemRect = item.getBoundingClientRect();
-      const rowARect = rowA.getBoundingClientRect();
-      const rowBRect = rowB.getBoundingClientRect();
-      if (!rootRect.width || !itemRect.width) return;
-
-      const aCenterY = rowARect.top - rootRect.top + rowARect.height / 2;
-      const bCenterY = rowBRect.top - rootRect.top + rowBRect.height / 2;
-      const junctionY = (aCenterY + bCenterY) / 2;
-      const branchStartY =
-        liveBranch.leader === "A"
-          ? aCenterY
-          : liveBranch.leader === "B"
-            ? bCenterY
-            : junctionY;
-
-      const cardRight = itemRect.right - rootRect.left;
-      const gutter = Math.max(rootRect.width - cardRight, 0);
-      // Giữ chấm nằm đúng giữa vùng connector để không bị lệch ra ngoài đường.
-      const connectorCenterX = cardRight + gutter * 0.5;
-      const progress = clampUnit(liveBranch.progress);
-      const nextPosition = {
-        left: connectorCenterX,
-        top: branchStartY + (junctionY - branchStartY) * progress,
-      };
-
-      setLiveDotPosition((prev) => {
-        if (
-          prev &&
-          Math.abs(prev.left - nextPosition.left) < 0.5 &&
-          Math.abs(prev.top - nextPosition.top) < 0.5
-        ) {
-          return prev;
-        }
-        return nextPosition;
-      });
-    };
-
-    updateDotPosition();
-    const resizeObserver = new ResizeObserver(updateDotPosition);
-    resizeObserver.observe(root);
-    resizeObserver.observe(item);
-    resizeObserver.observe(rowA);
-    resizeObserver.observe(rowB);
-    window.addEventListener("resize", updateDotPosition);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", updateDotPosition);
-    };
-  }, [m, liveBranch.leader, liveBranch.progress, seed?.__lastCol, syncedMinH]);
+  const isLiveMatch = String(m?.status || "").toLowerCase() === "live";
 
   const RightTick = (props) => (
     <span
@@ -1076,6 +947,33 @@ const CustomSeed = ({
     ? { bg: "#9e9e9e", fg: "#fff", key: "bye" }
     : statusColors(m);
   const clickable = !!m;
+  const resultText = isByeMatch
+    ? ""
+    : m
+      ? resultLabel(m)
+          .replace(
+            "Đang diễn ra",
+            tLang("tournaments.bracket.result.live"),
+          )
+          .replace(
+            "Đội A thắng",
+            tLang("tournaments.bracket.result.teamAWin"),
+          )
+          .replace(
+            "Đội B thắng",
+            tLang("tournaments.bracket.result.teamBWin"),
+          )
+          .replace(
+            "Hoà/Không xác định",
+            tLang("tournaments.bracket.result.draw"),
+          )
+          .replace(
+            "Chưa diễn ra",
+            tLang("tournaments.bracket.result.pending"),
+          )
+      : isPlaceholder
+        ? tLang("tournaments.bracket.pendingTeam")
+        : tLang("tournaments.bracket.result.pending");
   return (
     <Seed
       mobileBreakpoint={breakpoint}
@@ -1132,19 +1030,19 @@ const CustomSeed = ({
 
               <span className="seed-meta">
                 {t && (
-                  <span className="meta-item" title={String(t)}>
+                  <span className="meta-item meta-item--time" title={String(t)}>
                     <AccessTimeIcon className="meta-icon" />
                     <span className="meta-text">{t}</span>
                   </span>
                 )}
                 {c && (
-                  <span className="meta-item" title={String(c)}>
+                  <span className="meta-item meta-item--court" title={String(c)}>
                     <StadiumIcon className="meta-icon" />
                     <span className="meta-text">{c}</span>
                   </span>
                 )}
                 {vid && (
-                  <span className="meta-item">
+                  <span className="meta-item meta-item--video">
                     <VideoIcon className="meta-icon" />
                   </span>
                 )}
@@ -1154,7 +1052,6 @@ const CustomSeed = ({
 
           {/* Hàng đội A */}
           <SeedTeam
-            ref={teamARef}
             style={lineStyle(winA, isHoverA)}
             onMouseEnter={() => aId && setHovered(aId)}
             onMouseLeave={() => setHovered(null)}
@@ -1165,7 +1062,6 @@ const CustomSeed = ({
 
           {/* Hàng đội B */}
           <SeedTeam
-            ref={teamBRef}
             style={lineStyle(winB, isHoverB)}
             onMouseEnter={() => bId && setHovered(bId)}
             onMouseLeave={() => setHovered(null)}
@@ -1174,58 +1070,20 @@ const CustomSeed = ({
             <span style={scoreStyle}>{sB}</span>
           </SeedTeam>
 
-          <div style={{ fontSize: 11, opacity: 0.75 }}>
-            {isByeMatch
-              ? ""
-              : m
-                ? resultLabel(m)
-                    .replace(
-                      "Đang diễn ra",
-                      tLang("tournaments.bracket.result.live"),
-                    )
-                    .replace(
-                      "Đội A thắng",
-                      tLang("tournaments.bracket.result.teamAWin"),
-                    )
-                    .replace(
-                      "Đội B thắng",
-                      tLang("tournaments.bracket.result.teamBWin"),
-                    )
-                    .replace(
-                      "Hoà/Không xác định",
-                      tLang("tournaments.bracket.result.draw"),
-                    )
-                    .replace(
-                      "Chưa diễn ra",
-                      tLang("tournaments.bracket.result.pending"),
-                    )
-                : isPlaceholder
-                  ? tLang("tournaments.bracket.pendingTeam")
-                  : tLang("tournaments.bracket.result.pending")}
+          <div
+            className="seed-result-row"
+            style={{ fontSize: 11, opacity: 0.75 }}
+          >
+            {isLiveMatch && (
+              <span
+                className="bracket-live-dot-inline"
+                title={tLang("tournaments.bracket.result.live")}
+              />
+            )}
+            <span>{resultText}</span>
           </div>
         </div>
       </SeedItem>
-
-      {m?.status === "live" && liveDotPosition && (
-        <span
-          title={tLang("tournaments.bracket.result.live")}
-          style={{
-            position: "absolute",
-            left: liveDotPosition.left - LIVE_DOT_SIZE / 2,
-            top: liveDotPosition.top - LIVE_DOT_SIZE / 2,
-            width: LIVE_DOT_SIZE,
-            height: LIVE_DOT_SIZE,
-            borderRadius: "50%",
-            background: `radial-gradient(circle at 30% 30%, #ffd08a 0%, ${LIVE_ORANGE} 62%, #ff6a00 100%)`,
-            boxShadow:
-              "0 0 0 3px rgba(255,138,0,0.15), 0 0 18px rgba(255,138,0,0.45)",
-            animation: "pulse 1.2s infinite",
-            transition: "left .2s ease, top .2s ease, box-shadow .2s ease",
-            pointerEvents: "none",
-            zIndex: 4,
-          }}
-        />
-      )}
 
       <style>
         {`@keyframes pulse{0%{transform:scale(0.85);opacity:.75}50%{transform:scale(1);opacity:1}100%{transform:scale(0.85);opacity:.75}}`}
@@ -2857,9 +2715,9 @@ function buildRoundElimRounds(
 }
 
 const ROUND_ELIM_CARD_W = SEED_CARD_W + 48;
-const ROUND_ELIM_CARD_H = 144;
+const ROUND_ELIM_CARD_H = 166;
 const ROUND_ELIM_COL_GAP = 8;
-const ROUND_ELIM_ROW_GAP = 34;
+const ROUND_ELIM_ROW_GAP = 40;
 const ROUND_ELIM_HEADER_H = 34;
 const ROUND_ELIM_SEED_PAD_X = 24;
 const ROUND_ELIM_CONNECTOR_COLOR = "#707070";

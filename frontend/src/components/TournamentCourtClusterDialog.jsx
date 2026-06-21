@@ -73,13 +73,51 @@ const EMPTY_MAP = new Map();
 
 const text = (value) => String(value || "").trim();
 
-const formatApiErrorDetail = (error, fallback) => {
-  const message = text(error?.data?.message || error?.message || fallback);
-  const details = Array.isArray(error?.data?.details)
-    ? error.data.details.map(text).filter(Boolean)
-    : [];
-  if (!details.length) return message || fallback;
-  return [message, ...details.map((item) => `- ${item}`)].join("\n");
+const getApiErrorParts = (error, fallback) => {
+  const data = error?.data || {};
+  const message = text(data.message || error?.message || fallback);
+  const detailLines = [];
+
+  if (Array.isArray(data.details)) {
+    detailLines.push(...data.details.map(text).filter(Boolean));
+  } else if (data.details) {
+    detailLines.push(text(data.details));
+  }
+
+  if (Array.isArray(data.invalidRefereeIds) && data.invalidRefereeIds.length) {
+    detailLines.push(
+      `ID trọng tài lỗi: ${data.invalidRefereeIds.map(text).filter(Boolean).join(", ")}`,
+    );
+  }
+
+  if (Array.isArray(data.invalidMatchIds) && data.invalidMatchIds.length) {
+    detailLines.push(
+      `ID trận lỗi: ${data.invalidMatchIds.map(text).filter(Boolean).join(", ")}`,
+    );
+  }
+
+  const uniqueDetails = Array.from(new Set(detailLines.filter(Boolean)));
+  return { message: message || fallback, details: uniqueDetails };
+};
+
+const renderApiErrorToast = (error, fallback) => {
+  const { message, details } = getApiErrorParts(error, fallback);
+  return (
+    <Box sx={{ maxWidth: 460 }}>
+      <Typography variant="subtitle2" fontWeight={800} sx={{ mb: details.length ? 0.75 : 0 }}>
+        {message || fallback}
+      </Typography>
+      {details.length > 0 && (
+        <Stack component="ul" spacing={0.5} sx={{ m: 0, pl: 2.25 }}>
+          {details.map((item) => (
+            <Typography component="li" variant="body2" key={item} sx={{ lineHeight: 1.35 }}>
+              {item}
+            </Typography>
+          ))}
+        </Stack>
+      )}
+    </Box>
+  );
 };
 
 const matchCode = (match) =>
@@ -1127,15 +1165,10 @@ function TournamentCourtClusterDialog({
       await refetchRuntime();
       onUpdated?.();
     } catch (error) {
-      if (error && typeof error === "object") {
-        error.data = {
-          ...(error.data || {}),
-          message: formatApiErrorDetail(error, "Lưu cấu hình sân thất bại"),
-        };
-      }
-      toast.error(
-        error?.data?.message || error?.message || "Lưu cấu hình sân thất bại",
-      );
+      toast.error(renderApiErrorToast(error, "Lưu cấu hình sân thất bại"), {
+        autoClose: 9000,
+        closeOnClick: false,
+      });
     }
   };
 
