@@ -472,12 +472,79 @@ export default function AssignCourtStationDialog({
       <ResponsiveModal
         open={open}
         onClose={onClose}
-        maxWidth="md"
+        maxWidth={false}
         icon={<StadiumIcon fontSize="small" />}
         title={`Gán sân — ${matchCode(match)}`}
         subtitle={teamLine(match)}
+        paperSx={{
+          width: "100vw",
+          maxWidth: "100vw",
+          height: "100vh",
+          maxHeight: "100vh",
+          m: 0,
+          borderRadius: 0,
+          display: "flex",
+          flexDirection: "column",
+        }}
+        dialogProps={{ fullScreen: true }}
+        drawerProps={{
+          PaperProps: {
+            sx: {
+              height: "100vh",
+              maxHeight: "100vh",
+              borderTopLeftRadius: 0,
+              borderTopRightRadius: 0,
+            },
+          },
+        }}
+        contentProps={{
+          sx: {
+            px: { xs: 2, md: 3 },
+            py: { xs: 2, md: 2.5 },
+            overflow: "auto",
+            flex: 1,
+            minHeight: 0,
+            bgcolor: "background.default",
+          },
+        }}
       >
-        <Stack spacing={2.5}>
+        <Stack spacing={2.5} sx={{ maxWidth: 1440, width: "100%", mx: "auto" }}>
+          <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 1 }}>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1.5}
+              justifyContent="space-between"
+              alignItems={{ xs: "flex-start", md: "center" }}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                  Trận cần gán
+                </Typography>
+                <Typography variant="h6" sx={{ mt: 0.25 }}>
+                  {matchCode(match)}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {teamLine(match)}
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {currentStationId ? (
+                  <Chip color="warning" label={`Đang gán: ${currentStation?.name || "—"}`} />
+                ) : queuedStationId ? (
+                  <Chip color="info" label={`Trong danh sách: ${queuedStation?.name || "—"}`} />
+                ) : (
+                  <Chip variant="outlined" label="Chưa gán sân" />
+                )}
+                {(currentStation || queuedStation)?.code ? (
+                  <Chip
+                    variant="outlined"
+                    label={(currentStation || queuedStation)?.code}
+                  />
+                ) : null}
+              </Stack>
+            </Stack>
+          </Paper>
+
           {!allowedClusterOptions.length && !isFetchingClusterOptions ? (
             <Alert severity="warning">
               Giải này chưa có cụm sân được phép dùng trong cấu hình giải.
@@ -489,7 +556,7 @@ export default function AssignCourtStationDialog({
           ) : (
             <>
               {(currentStationId || queuedStationId) && (
-                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 1 }}>
                   <Stack
                     direction={{ xs: "column", sm: "row" }}
                     justifyContent="space-between"
@@ -497,13 +564,16 @@ export default function AssignCourtStationDialog({
                     alignItems={{ xs: "flex-start", sm: "center" }}
                   >
                     <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                        Trạng thái gán sân
+                      </Typography>
                       <Typography variant="subtitle2" fontWeight={700}>
                         {currentStationId
-                          ? `Đang gán tại ${currentStation?.name}`
-                          : `Đã có trong danh sách sân ${queuedStation?.name}`}
+                          ? `Đang gán tại ${currentStation?.name || "—"}`
+                          : `Đã có trong danh sách sân ${queuedStation?.name || "—"}`}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {(currentStation || queuedStation)?.code || "—"}
+                        Mã sân: {(currentStation || queuedStation)?.code || "—"}
                       </Typography>
                     </Box>
                     {currentStationId ? (
@@ -555,7 +625,16 @@ export default function AssignCourtStationDialog({
                     "Không tải được runtime cụm sân."}
                 </Alert>
               ) : (
-                <Stack spacing={1.5}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      lg: "repeat(2, minmax(0, 1fr))",
+                    },
+                    gap: 1.5,
+                  }}
+                >
                   {stations.map((station) => {
                     const stationId = sid(station?._id);
                     const isCurrent = currentStationId === stationId;
@@ -594,10 +673,11 @@ export default function AssignCourtStationDialog({
                         key={stationId}
                         variant="outlined"
                         sx={{
-                          p: 1.5,
-                          borderRadius: 2,
+                          p: { xs: 1.5, md: 2 },
+                          borderRadius: 1,
                           borderColor:
                             isCurrent || isQueued ? "primary.main" : "divider",
+                          bgcolor: "background.paper",
                         }}
                       >
                         <Stack spacing={1.25}>
@@ -607,25 +687,26 @@ export default function AssignCourtStationDialog({
                             spacing={1}
                             alignItems={{ xs: "flex-start", sm: "center" }}
                           >
-                            <Box>
+                            <Box sx={{ minWidth: 0 }}>
                               <Stack
                                 direction="row"
                                 spacing={1}
                                 alignItems="center"
                               >
                                 <StadiumIcon fontSize="small" />
-                                <Typography
-                                  variant="subtitle1"
-                                  fontWeight={700}
-                                >
-                                  {station?.name}
+                              <Typography
+                                variant="subtitle1"
+                                fontWeight={700}
+                                sx={{ overflowWrap: "anywhere" }}
+                              >
+                                  {station?.name || "Sân chưa đặt tên"}
                                 </Typography>
                               </Stack>
                               <Typography
                                 variant="body2"
                                 color="text.secondary"
                               >
-                                {station?.code || "—"}
+                                Mã sân: {station?.code || "—"}
                               </Typography>
                             </Box>
 
@@ -669,7 +750,16 @@ export default function AssignCourtStationDialog({
                           </Stack>
 
                           {station?.currentMatch ? (
-                            <Box>
+                            <Box
+                              sx={{
+                                p: 1.25,
+                                borderRadius: 1,
+                                bgcolor: "action.hover",
+                              }}
+                            >
+                              <Typography variant="caption" color="text.secondary">
+                                Trận đang trên sân
+                              </Typography>
                               <Typography variant="body2" fontWeight={700}>
                                 {teamLine(station.currentMatch)}
                               </Typography>
@@ -682,9 +772,20 @@ export default function AssignCourtStationDialog({
                               </Typography>
                             </Box>
                           ) : (
-                            <Typography variant="body2" color="text.secondary">
-                              Chưa có trận nào đang live trên sân.
-                            </Typography>
+                            <Box
+                              sx={{
+                                p: 1.25,
+                                borderRadius: 1,
+                                bgcolor: "action.hover",
+                              }}
+                            >
+                              <Typography variant="caption" color="text.secondary">
+                                Trận đang trên sân
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                Chưa có trận nào đang live trên sân.
+                              </Typography>
+                            </Box>
                           )}
 
                           {occupiedByAnotherTournament && (
@@ -695,7 +796,11 @@ export default function AssignCourtStationDialog({
                             </Typography>
                           )}
 
-                          <Stack direction="row" justifyContent="flex-end" spacing={1}>
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            justifyContent="flex-end"
+                            spacing={1}
+                          >
                             {assignmentMode === "queue" && isQueued && (
                               <Button
                                 variant="contained"
@@ -709,6 +814,7 @@ export default function AssignCourtStationDialog({
                               variant={
                                 isCurrent || isQueued ? "outlined" : "contained"
                               }
+                              fullWidth={false}
                               onClick={() => handleQueueConfirmCheck(station)}
                               disabled={disabled}
                             >
@@ -730,7 +836,7 @@ export default function AssignCourtStationDialog({
                       Cụm sân này chưa có sân vật lý nào.
                     </Alert>
                   )}
-                </Stack>
+                </Box>
               )}
             </>
           )}

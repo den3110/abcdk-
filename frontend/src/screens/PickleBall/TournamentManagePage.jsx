@@ -274,16 +274,24 @@ const getManageStatusMeta = (t, status) => {
   return map[key] || { color: "default", label: status || "—" };
 };
 
-const statusChipLocalized = (t, status) => {
+const statusChipLocalized = (t, status, onClick) => {
   const meta = getManageStatusMeta(t, status);
   const rawStatus = String(status || "").toLowerCase();
+  const clickableProps = onClick ? { onClick, clickable: true } : {};
+  const clickableSx = onClick ? { cursor: "pointer" } : {};
 
   if (["live", "ongoing", "playing", "inprogress"].includes(rawStatus)) {
     return (
       <Chip
         size="small"
         label={meta.label}
-        sx={{ bgcolor: "#f57c00", color: "#fff", fontWeight: 600 }}
+        sx={{
+          bgcolor: "#f57c00",
+          color: "#fff",
+          fontWeight: 600,
+          ...clickableSx,
+        }}
+        {...clickableProps}
       />
     );
   }
@@ -292,12 +300,26 @@ const statusChipLocalized = (t, status) => {
       <Chip
         size="small"
         label={meta.label}
-        sx={{ bgcolor: "#fbc02d", color: "#000", fontWeight: 600 }}
+        sx={{
+          bgcolor: "#fbc02d",
+          color: "#000",
+          fontWeight: 600,
+          ...clickableSx,
+        }}
+        {...clickableProps}
       />
     );
   }
 
-  return <Chip size="small" color={meta.color} label={meta.label} />;
+  return (
+    <Chip
+      size="small"
+      color={meta.color}
+      label={meta.label}
+      sx={clickableSx}
+      {...clickableProps}
+    />
+  );
 };
 
 const refereeNames = (m) => {
@@ -619,6 +641,135 @@ const scoreSummary = (m) => {
     : "";
   return detail ? `${main} ${detail}` : main;
 };
+
+const detailValue = (value) => {
+  const output = String(value ?? "").trim();
+  return output || "—";
+};
+
+const formatOptionalDateTime = (value, locale) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return formatDateTime(date, locale);
+};
+
+const statusWinnerLabel = (match) => {
+  const winner = String(match?.winner || "").toUpperCase();
+  if (winner === "A") return teamLabel(match, "A");
+  if (winner === "B") return teamLabel(match, "B");
+  return "—";
+};
+
+function StatusDetailItem({ label, children }) {
+  return (
+    <Box
+      sx={{
+        minWidth: 0,
+        p: 1.25,
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+      }}
+    >
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography component="div" variant="body2" sx={{ mt: 0.35, fontWeight: 600 }}>
+        {children}
+      </Typography>
+    </Box>
+  );
+}
+
+function MatchStatusDialog({ open, match, onClose, t, locale }) {
+  const videoUrl = detailValue(match?.video);
+  const hasVideo = videoUrl !== "—";
+  const statusText = getManageStatusMeta(t, match?.status).label;
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>
+        <Stack direction="row" spacing={1.25} alignItems="center">
+          <SportsIcon fontSize="small" />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h6" noWrap>
+              Chi tiết trạng thái
+            </Typography>
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {matchCode(match)} · {statusText}
+            </Typography>
+          </Box>
+          {statusChipLocalized(t, match?.status)}
+        </Stack>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+            <Typography variant="subtitle1" fontWeight={700}>
+              {matchCode(match)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {teamLabel(match, "A")} vs {teamLabel(match, "B")}
+            </Typography>
+          </Paper>
+
+          <Box
+            sx={{
+              display: "grid",
+              gap: 1,
+              gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+            }}
+          >
+            <StatusDetailItem label="Trạng thái">
+              {statusChipLocalized(t, match?.status)}
+            </StatusDetailItem>
+            <StatusDetailItem label="Sân">{courtLabel(match)}</StatusDetailItem>
+            <StatusDetailItem label="Thứ tự">
+              {Number.isFinite(match?.order) ? `T${match.order + 1}` : "—"}
+            </StatusDetailItem>
+            <StatusDetailItem label="Tỉ số">{scoreSummary(match)}</StatusDetailItem>
+            <StatusDetailItem label="Cặp A">{teamLabel(match, "A")}</StatusDetailItem>
+            <StatusDetailItem label="Cặp B">{teamLabel(match, "B")}</StatusDetailItem>
+            <StatusDetailItem label="Đội thắng">{statusWinnerLabel(match)}</StatusDetailItem>
+            <StatusDetailItem label="Trọng tài">
+              {detailValue(refereeNames(match))}
+            </StatusDetailItem>
+            <StatusDetailItem label="Video">
+              {hasVideo ? (
+                <Button
+                  size="small"
+                  component="a"
+                  href={videoUrl}
+                  target="_blank"
+                  rel="noopener"
+                  endIcon={<OpenInNewIcon fontSize="small" />}
+                  sx={{ px: 0, minWidth: 0 }}
+                >
+                  Mở video
+                </Button>
+              ) : (
+                "—"
+              )}
+            </StatusDetailItem>
+            <StatusDetailItem label="Cập nhật">
+              {formatOptionalDateTime(match?.updatedAt, locale)}
+            </StatusDetailItem>
+            <StatusDetailItem label="Bắt đầu">
+              {formatOptionalDateTime(match?.startedAt || match?.startAt, locale)}
+            </StatusDetailItem>
+            <StatusDetailItem label="Kết thúc">
+              {formatOptionalDateTime(match?.finishedAt || match?.endAt, locale)}
+            </StatusDetailItem>
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Đóng</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
 const extractRealtimeMatchPayload = (payload) =>
   payload?.data ?? payload?.snapshot ?? payload?.match ?? payload ?? null;
@@ -947,6 +1098,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   onAssignCourt,
   onAssignRef,
   onExportRefNote,
+  onOpenStatus,
   onStartReferee,
   checked = false,
   onToggleSelect,
@@ -1016,8 +1168,14 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
       <TableCell sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}>
         {scoreSummary(merged)}
       </TableCell>
-      <TableCell sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}>
-        {statusChipLocalized(t, merged?.status)}
+      <TableCell
+        sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {statusChipLocalized(t, merged?.status, (event) => {
+          event.stopPropagation();
+          onOpenStatus?.(merged);
+        })}
       </TableCell>
       <TableCell
         onClick={(e) => e.stopPropagation()}
@@ -1081,6 +1239,7 @@ const MatchCard = React.memo(function MatchCard({
   onAssignCourt,
   onAssignRef,
   onExportRefNote,
+  onOpenStatus,
   onStartReferee,
   checked = false,
   onToggleSelect,
@@ -1136,7 +1295,10 @@ const MatchCard = React.memo(function MatchCard({
             <Typography variant="subtitle2" noWrap>
               {code}
             </Typography>
-            {statusChipLocalized(t, merged?.status)}
+            {statusChipLocalized(t, merged?.status, (event) => {
+              event.stopPropagation();
+              onOpenStatus?.(merged);
+            })}
           </Stack>
         }
         subheader={
@@ -2066,6 +2228,11 @@ export default function TournamentManagePage() {
 
   const [courtDlg, setCourtDlg] = useState({ open: false, match: null });
   const [refDlg, setRefDlg] = useState({ open: false, match: null });
+  const [statusDlg, setStatusDlg] = useState({
+    open: false,
+    matchId: "",
+    match: null,
+  });
   const openAssignCourt = useCallback(
     (m) => setCourtDlg({ open: true, match: m }),
     [],
@@ -2080,6 +2247,17 @@ export default function TournamentManagePage() {
   );
   const closeAssignRef = useCallback(
     () => setRefDlg({ open: false, match: null }),
+    [],
+  );
+  const openStatusDetail = useCallback((m) => {
+    setStatusDlg({
+      open: true,
+      matchId: String(m?._id || m?.id || ""),
+      match: m || null,
+    });
+  }, []);
+  const closeStatusDetail = useCallback(
+    () => setStatusDlg({ open: false, matchId: "", match: null }),
     [],
   );
 
@@ -2211,6 +2389,20 @@ export default function TournamentManagePage() {
     if (!baseMatch) return null;
     return { ...baseMatch, ...(liveStore.get(matchId) || {}) };
   }, [allMatchesBase, liveStore, orderVersion, viewer.matchId]);
+
+  const statusDetailMatch = useMemo(() => {
+    void orderVersion;
+    const matchId = String(statusDlg.matchId || "");
+    if (!matchId) return statusDlg.match;
+    const baseMatch =
+      allMatchesBase.find((match) => String(match?._id || match?.id || "") === matchId) ||
+      null;
+    return {
+      ...(baseMatch || {}),
+      ...(statusDlg.match || {}),
+      ...(liveStore.get(matchId) || {}),
+    };
+  }, [allMatchesBase, liveStore, orderVersion, statusDlg.match, statusDlg.matchId]);
 
   const handleExportRefNote = useCallback(
     (m) => {
@@ -4758,6 +4950,7 @@ export default function TournamentManagePage() {
                                 onAssignCourt={openAssignCourt}
                                 onAssignRef={openAssignRef}
                                 onExportRefNote={handleExportRefNote}
+                                onOpenStatus={openStatusDetail}
                                 onStartReferee={openRefereeMatch}
                                 checked={selectedMatchIds.has(String(m._id))}
                                 onToggleSelect={toggleSelectMatch}
@@ -4843,6 +5036,7 @@ export default function TournamentManagePage() {
                                 onAssignCourt={openAssignCourt}
                                 onAssignRef={openAssignRef}
                                 onExportRefNote={handleExportRefNote}
+                                onOpenStatus={openStatusDetail}
                                 onStartReferee={openRefereeMatch}
                                 checked={selectedMatchIds.has(String(m._id))}
                                 onToggleSelect={toggleSelectMatch}
@@ -4859,6 +5053,14 @@ export default function TournamentManagePage() {
           );
         })
       ))}
+
+      <MatchStatusDialog
+        open={statusDlg.open}
+        match={statusDetailMatch}
+        onClose={closeStatusDetail}
+        t={t}
+        locale={locale}
+      />
 
       {/* Dialog gán link video */}
       <VideoDialog
