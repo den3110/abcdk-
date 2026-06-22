@@ -638,12 +638,61 @@ const normalizeMatchRows = (payload) => {
   return [];
 };
 
+const extractDisplayCodeText = (value) => {
+  const text = readStr(value)
+    .replace(/^[WL]\s*-\s*/i, "")
+    .toUpperCase();
+  const match = text.match(/V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+/);
+  return match?.[0] || "";
+};
+
 const buildMatchIndex = (matches) => {
   const byId = new Map();
+  const byDisplayCode = new Map();
+  const byBracketRoundOrder = new Map();
+  const byStageRoundOrder = new Map();
+
+  const addDisplayCode = (match, value) => {
+    const code = extractDisplayCodeText(value);
+    if (code) byDisplayCode.set(code, match);
+  };
+
   (matches || []).forEach((match) => {
     const id = matchIdTextOf(match);
     if (id) byId.set(id, match);
+
+    addDisplayCode(match, match?.displayCode);
+    addDisplayCode(match, match?.codeResolved);
+    addDisplayCode(match, match?.code);
+    addDisplayCode(match, match?.roundCode);
+    addDisplayCode(match, match?.matchCode);
+    addDisplayCode(match, match?.slotCode);
+    addDisplayCode(match, match?.bracketCode);
+    addDisplayCode(match, match?.labelKey);
+    addDisplayCode(match, match?.meta?.code);
+    addDisplayCode(match, match?.meta?.label);
+
+    const globalRound = numberOrNull(match?.globalRound);
+    const order = numberOrNull(match?.order);
+    if (globalRound != null && order != null) {
+      addDisplayCode(match, `V${globalRound}-T${order + 1}`);
+    }
+
+    const bracketId = idTextOf(match?.bracket?._id, match?.bracket);
+    const round = numberOrNull(match?.round);
+    if (bracketId && round != null && order != null) {
+      byBracketRoundOrder.set(`${bracketId}:${round}:${order}`, match);
+    }
+
+    const stage = numberOrNull(match?.bracket?.stage ?? match?.stage);
+    if (stage != null && round != null && order != null) {
+      byStageRoundOrder.set(`${stage}:${round}:${order}`, match);
+    }
   });
+
+  byId.byDisplayCode = byDisplayCode;
+  byId.byBracketRoundOrder = byBracketRoundOrder;
+  byId.byStageRoundOrder = byStageRoundOrder;
   return byId;
 };
 
@@ -684,19 +733,40 @@ const matchOrderMatchesRef = (matchOrder, refOrder) => {
   return matchOrder === refOrder || matchOrder === refOrder + 1;
 };
 
-const findSourceMatchFromSeedInList = (owner, seed, matches) => {
+const findSourceMatchFromSeedInList = (owner, seed, matchIndex, matches) => {
   if (!isDependentSeed(seed)) return null;
 
   const refId = seedRefMatchId(seed);
   if (refId) {
-    const byId = buildMatchIndex(matches);
-    const byRef = byId.get(refId);
+    const byRef = matchIndex?.get(refId);
     if (byRef) return byRef;
+  }
+
+  const labelCode = extractDisplayCodeText(seed?.label);
+  if (labelCode) {
+    const labelHit = matchIndex?.byDisplayCode?.get(labelCode);
+    if (labelHit) return labelHit;
   }
 
   const refRound = numberOrNull(seed?.ref?.round);
   const refOrder = numberOrNull(seed?.ref?.order);
   if (refRound == null || refOrder == null) return null;
+
+  const stageNum = numberOrNull(seed?.ref?.stageIndex ?? seed?.ref?.stage);
+  if (stageNum != null) {
+    const stageHit = matchIndex?.byStageRoundOrder?.get(
+      `${stageNum}:${refRound}:${refOrder}`,
+    );
+    if (stageHit) return stageHit;
+  }
+
+  const bracketId = idTextOf(owner?.bracket?._id, owner?.bracket);
+  if (bracketId) {
+    const bracketHit = matchIndex?.byBracketRoundOrder?.get(
+      `${bracketId}:${refRound}:${refOrder}`,
+    );
+    if (bracketHit) return bracketHit;
+  }
 
   const candidates = (matches || []).filter((match) => {
     if (!sameBracketOrStage(match, owner, seed)) return false;
@@ -719,7 +789,12 @@ const findSourceMatchInList = (owner, side, matchIndex, matches) => {
     return previous;
   }
 
-  return findSourceMatchFromSeedInList(owner, seedForSide(owner, side), matches);
+  return findSourceMatchFromSeedInList(
+    owner,
+    seedForSide(owner, side),
+    matchIndex,
+    matches,
+  );
 };
 
 const knockoutRoundLabel = (data) => {
