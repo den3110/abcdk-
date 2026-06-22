@@ -965,6 +965,53 @@ function MatchCardSkeleton() {
   );
 }
 
+const FinishedMatchesDividerRow = React.memo(function FinishedMatchesDividerRow({
+  colSpan = 9,
+}) {
+  return (
+    <TableRow>
+      <TableCell
+        colSpan={colSpan}
+        sx={{
+          py: 0.9,
+          borderBottom: "none !important",
+          overflow: "visible !important",
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1.25}>
+          <Divider sx={{ flex: 1, borderColor: "success.main", opacity: 0.5 }} />
+          <Chip
+            size="small"
+            color="success"
+            variant="outlined"
+            label="Trận đã kết thúc"
+            sx={{ fontWeight: 600 }}
+          />
+          <Divider sx={{ flex: 1, borderColor: "success.main", opacity: 0.5 }} />
+        </Stack>
+      </TableCell>
+    </TableRow>
+  );
+});
+
+const FinishedMatchesDividerBlock = React.memo(
+  function FinishedMatchesDividerBlock() {
+    return (
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ my: 0.5 }}>
+        <Divider sx={{ flex: 1, borderColor: "success.main", opacity: 0.5 }} />
+        <Chip
+          size="small"
+          color="success"
+          variant="outlined"
+          label="Trận đã kết thúc"
+          sx={{ fontWeight: 600 }}
+        />
+        <Divider sx={{ flex: 1, borderColor: "success.main", opacity: 0.5 }} />
+      </Stack>
+    );
+  },
+);
+
 /* ===== pick realtime fields ===== */
 const pickRealtimeFields = (src = {}) => {
   const keys = [
@@ -4878,6 +4925,10 @@ export default function TournamentManagePage() {
           const bid = String(b?._id);
           const list = groupedLists.get(bid) || [];
           const allSelected = isAllSelectedIn(list);
+          const firstFinishedIndex = list.findIndex(
+            (m) => String(getLiveStatus(m) || "").toLowerCase() === "finished",
+          );
+          const showFinishedDivider = firstFinishedIndex > 0;
 
           return (
             <Paper
@@ -5004,25 +5055,30 @@ export default function TournamentManagePage() {
                               </TableCell>
                             </TableRow>
                           ) : (
-                            list.map((m) => (
-                              <MatchDesktopRows
-                                key={m._id}
-                                match={m}
-                                liveStore={liveStore}
-                                eventType={tour?.eventType || "double"}
-                                displayMode={displayMode}
-                                canStartReferee={canStartRefereeMatch(m)}
-                                onRowClick={openMatch}
-                                onOpenVideo={openVideoDlg}
-                                onDeleteVideo={deleteVideoDlg}
-                                onAssignCourt={openAssignCourt}
-                                onAssignRef={openAssignRef}
-                                onExportRefNote={handleExportRefNote}
-                                onOpenStatus={openStatusDetail}
-                                onStartReferee={openRefereeMatch}
-                                checked={selectedMatchIds.has(String(m._id))}
-                                onToggleSelect={toggleSelectMatch}
-                              />
+                            list.map((m, index) => (
+                              <React.Fragment key={m._id}>
+                                {showFinishedDivider &&
+                                  index === firstFinishedIndex && (
+                                    <FinishedMatchesDividerRow colSpan={9} />
+                                  )}
+                                <MatchDesktopRows
+                                  match={m}
+                                  liveStore={liveStore}
+                                  eventType={tour?.eventType || "double"}
+                                  displayMode={displayMode}
+                                  canStartReferee={canStartRefereeMatch(m)}
+                                  onRowClick={openMatch}
+                                  onOpenVideo={openVideoDlg}
+                                  onDeleteVideo={deleteVideoDlg}
+                                  onAssignCourt={openAssignCourt}
+                                  onAssignRef={openAssignRef}
+                                  onExportRefNote={handleExportRefNote}
+                                  onOpenStatus={openStatusDetail}
+                                  onStartReferee={openRefereeMatch}
+                                  checked={selectedMatchIds.has(String(m._id))}
+                                  onToggleSelect={toggleSelectMatch}
+                                />
+                              </React.Fragment>
                             ))
                           )}
                         </TableBody>
@@ -5090,26 +5146,34 @@ export default function TournamentManagePage() {
                         </Stack>
 
                         <Grid container spacing={1.2}>
-                          {list.map((m) => (
-                            <Grid key={m._id} item size={{ xs: 12, sm: 6 }}>
-                              <MatchCard
-                                match={m}
-                                liveStore={liveStore}
-                                eventType={tour?.eventType || "double"}
-                                displayMode={displayMode}
-                                canStartReferee={canStartRefereeMatch(m)}
-                                onCardClick={openMatch}
-                                onOpenVideo={openVideoDlg}
-                                onDeleteVideo={deleteVideoDlg}
-                                onAssignCourt={openAssignCourt}
-                                onAssignRef={openAssignRef}
-                                onExportRefNote={handleExportRefNote}
-                                onOpenStatus={openStatusDetail}
-                                onStartReferee={openRefereeMatch}
-                                checked={selectedMatchIds.has(String(m._id))}
-                                onToggleSelect={toggleSelectMatch}
-                              />
-                            </Grid>
+                          {list.map((m, index) => (
+                            <React.Fragment key={m._id}>
+                              {showFinishedDivider &&
+                                index === firstFinishedIndex && (
+                                  <Grid item size={{ xs: 12 }}>
+                                    <FinishedMatchesDividerBlock />
+                                  </Grid>
+                                )}
+                              <Grid item size={{ xs: 12, sm: 6 }}>
+                                <MatchCard
+                                  match={m}
+                                  liveStore={liveStore}
+                                  eventType={tour?.eventType || "double"}
+                                  displayMode={displayMode}
+                                  canStartReferee={canStartRefereeMatch(m)}
+                                  onCardClick={openMatch}
+                                  onOpenVideo={openVideoDlg}
+                                  onDeleteVideo={deleteVideoDlg}
+                                  onAssignCourt={openAssignCourt}
+                                  onAssignRef={openAssignRef}
+                                  onExportRefNote={handleExportRefNote}
+                                  onOpenStatus={openStatusDetail}
+                                  onStartReferee={openRefereeMatch}
+                                  checked={selectedMatchIds.has(String(m._id))}
+                                  onToggleSelect={toggleSelectMatch}
+                                />
+                              </Grid>
+                            </React.Fragment>
                           ))}
                         </Grid>
                       </>
