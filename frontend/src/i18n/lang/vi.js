@@ -1869,6 +1869,9 @@ export default {
       virtualPrefill: "Prefill ảo",
       sourceFrom: "Nguồn: {value}",
       champion: "Vô địch:",
+      championBannerTitle: "Nhà vô địch",
+      championBannerSubtitle:
+        "Chúc mừng đội đã hoàn thành hành trình và giành chiến thắng chung cuộc.",
       stateTip: {
         live: "Đang diễn ra",
         done: "Đã kết thúc",

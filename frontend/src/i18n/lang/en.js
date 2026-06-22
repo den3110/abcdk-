@@ -1871,6 +1871,9 @@ export default {
       virtualPrefill: "Virtual prefill",
       sourceFrom: "Source: {value}",
       champion: "Champion:",
+      championBannerTitle: "Champion",
+      championBannerSubtitle:
+        "Congratulations on completing the run and winning the bracket.",
       stateTip: {
         live: "Live",
         done: "Finished",

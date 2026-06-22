@@ -601,6 +601,178 @@ function computeChampionGate(allMatches) {
   return { allowed: true, matchId: fm._id || null, pair: champion };
 }
 
+const CHAMPION_FIREWORKS = [
+  { left: "9%", top: "32%", color: "#60a5fa", delay: "0s", scale: 0.9 },
+  { left: "22%", top: "18%", color: "#f97316", delay: "0.18s", scale: 0.72 },
+  { left: "76%", top: "22%", color: "#facc15", delay: "0.08s", scale: 0.86 },
+  { left: "90%", top: "42%", color: "#22c55e", delay: "0.28s", scale: 0.68 },
+  { left: "64%", top: "72%", color: "#fb7185", delay: "0.36s", scale: 0.58 },
+];
+const CHAMPION_FIREWORK_RAYS = [0, 45, 90, 135, 180, 225, 270, 315];
+
+function ChampionFireworks() {
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        position: "absolute",
+        inset: 0,
+        overflow: "hidden",
+        pointerEvents: "none",
+        "@media (prefers-reduced-motion: reduce)": {
+          display: "none",
+        },
+      }}
+    >
+      {CHAMPION_FIREWORKS.map((firework, index) => (
+        <Box
+          key={`${firework.left}-${firework.top}-${index}`}
+          component="span"
+          sx={{
+            position: "absolute",
+            left: firework.left,
+            top: firework.top,
+            width: 6,
+            height: 6,
+            color: firework.color,
+            transform: `scale(${firework.scale})`,
+          }}
+        >
+          {CHAMPION_FIREWORK_RAYS.map((angle) => (
+            <Box
+              key={angle}
+              component="span"
+              style={{
+                "--champion-ray-angle": `${angle}deg`,
+                animationDelay: firework.delay,
+              }}
+              sx={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: 4,
+                height: 18,
+                borderRadius: 999,
+                bgcolor: "currentColor",
+                boxShadow: "0 0 12px currentColor",
+                opacity: 0,
+                transformOrigin: "2px 36px",
+                animation: "championFireworkRay 1.9s ease-out 2 both",
+              }}
+            />
+          ))}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function ChampionCelebrationBanner({ championName, t }) {
+  return (
+    <Box
+      sx={(theme) => ({
+        position: "relative",
+        overflow: "hidden",
+        mb: 1.5,
+        px: { xs: 1.5, sm: 2 },
+        py: { xs: 1.5, sm: 1.75 },
+        borderRadius: 2,
+        border: `1px solid ${alpha(theme.palette.warning.main, 0.45)}`,
+        bgcolor: alpha(theme.palette.warning.main, 0.1),
+        background: `linear-gradient(135deg, ${alpha(
+          theme.palette.warning.main,
+          0.2,
+        )} 0%, ${alpha(theme.palette.success.main, 0.12)} 56%, ${alpha(
+          theme.palette.info.main,
+          0.14,
+        )} 100%)`,
+        boxShadow: `0 14px 40px ${alpha(theme.palette.warning.main, 0.16)}`,
+        animation: "championBannerIn 420ms ease-out both",
+        "@keyframes championBannerIn": {
+          from: { opacity: 0, transform: "translateY(-8px) scale(0.985)" },
+          to: { opacity: 1, transform: "translateY(0) scale(1)" },
+        },
+        "@keyframes championFireworkRay": {
+          "0%": {
+            opacity: 0,
+            transform:
+              "rotate(var(--champion-ray-angle)) translateY(0) scaleY(0.15)",
+          },
+          "16%": { opacity: 1 },
+          "100%": {
+            opacity: 0,
+            transform:
+              "rotate(var(--champion-ray-angle)) translateY(-34px) scaleY(1)",
+          },
+        },
+        "@media (prefers-reduced-motion: reduce)": {
+          animation: "none",
+        },
+      })}
+    >
+      <ChampionFireworks />
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1.25}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        sx={{ position: "relative", zIndex: 1 }}
+      >
+        <Box
+          sx={(theme) => ({
+            width: 48,
+            height: 48,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            flex: "0 0 auto",
+            bgcolor: alpha(theme.palette.warning.main, 0.22),
+            color: theme.palette.warning.dark,
+            border: `1px solid ${alpha(theme.palette.warning.main, 0.5)}`,
+          })}
+        >
+          <TrophyIcon sx={{ fontSize: 30 }} />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            variant="overline"
+            sx={{
+              display: "block",
+              lineHeight: 1.1,
+              fontWeight: 900,
+              letterSpacing: 0.8,
+              color: "warning.dark",
+            }}
+          >
+            {t("tournaments.bracket.championBannerTitle")}
+          </Typography>
+          <Typography
+            variant="h5"
+            sx={{
+              fontWeight: 900,
+              lineHeight: 1.2,
+              color: "text.primary",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {championName}
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{ color: "text.secondary", mt: 0.25, fontWeight: 600 }}
+          >
+            {t("tournaments.bracket.championBannerSubtitle")}
+          </Typography>
+        </Box>
+      </Stack>
+    </Box>
+  );
+}
+
+ChampionCelebrationBanner.propTypes = {
+  championName: PropTypes.string.isRequired,
+  t: PropTypes.func.isRequired,
+};
+
 /* ===================== Height sync (bracket seeds) ===================== */
 const SEED_MIN_H = 96; // ↑ chút để chứa thanh tiêu đề
 const SEED_CARD_W = 225;
@@ -846,12 +1018,19 @@ const CustomSeed = ({
     String(m._id) === String(championMatchId) &&
     (winA || winB);
 
-  const aId =
+  const rawAId =
     resolveSideHighlightId?.(m, "A") ||
     (m?.pairA ? pairHighlightId(m.pairA) : "");
-  const bId =
+  const rawBId =
     resolveSideHighlightId?.(m, "B") ||
     (m?.pairB ? pairHighlightId(m.pairB) : "");
+  const canHighlightSide = (name, id) =>
+    !!id &&
+    isUsefulResolvedLabel(name, tLang("tournaments.bracket.pendingTeam")) &&
+    !isReferenceLabel(name) &&
+    !/\bBYE\b/i.test(String(name || ""));
+  const aId = canHighlightSide(nameA, rawAId) ? rawAId : "";
+  const bId = canHighlightSide(nameB, rawBId) ? rawBId : "";
   const isHoverA = !!(hovered && aId && hovered === aId);
   const isHoverB = !!(hovered && bId && hovered === bId);
   const containsHovered = !!(hovered && (hovered === aId || hovered === bId));
@@ -7824,6 +8003,14 @@ export default function TournamentBracket() {
               resolveSideLabel,
               pendingTeamLabel,
             );
+            const roundElimMatches = (currentMatches || []).filter(
+              (m) => !isThirdPlaceMatch(m),
+            );
+            const championGate = computeChampionGate(roundElimMatches);
+            const championPair = championGate.allowed ? championGate.pair : null;
+            const championMatchId = championGate.allowed
+              ? championGate.matchId
+              : null;
 
             return (
               <>
@@ -7849,6 +8036,16 @@ export default function TournamentBracket() {
                     },
                   }}
                 />
+                {championPair && (
+                  <ChampionCelebrationBanner
+                    championName={pairLabelWithNick(
+                      championPair,
+                      tour?.eventType,
+                      displayMode,
+                    )}
+                    t={t}
+                  />
+                )}
                 {renderDiagramShell(
                   <Box
                     sx={{
@@ -7869,7 +8066,7 @@ export default function TournamentBracket() {
                       <RoundElimBracketLayout
                         rounds={reRounds}
                         onOpen={openMatchModal}
-                        championMatchId={null}
+                        championMatchId={championMatchId}
                         resolveSideLabel={resolveSideLabel}
                         resolveSideHighlightId={resolveSideHighlightId}
                         baseRoundStart={baseRoundStartForCurrent}
@@ -8008,12 +8205,14 @@ export default function TournamentBracket() {
                 </Stack>
 
                 {championPair && (
-                  <Alert severity="success" sx={{ mb: 1 }}>
-                    {t("tournaments.bracket.champion")}{" "}
-                    <b>
-                      {pairLabelWithNick(championPair, tour?.eventType, displayMode)}
-                    </b>
-                  </Alert>
+                  <ChampionCelebrationBanner
+                    championName={pairLabelWithNick(
+                      championPair,
+                      tour?.eventType,
+                      displayMode,
+                    )}
+                    t={t}
+                  />
                 )}
 
                 {renderDiagramShell(
@@ -8137,16 +8336,14 @@ export default function TournamentBracket() {
                 </Stack>
 
                 {championPair && (
-                  <Alert severity="success" sx={{ mb: 1 }}>
-                    {t("tournaments.bracket.champion")}{" "}
-                    <b>
-                      {pairLabelWithNick(
-                        championPair,
-                        tour?.eventType,
-                        displayMode,
-                      )}
-                    </b>
-                  </Alert>
+                  <ChampionCelebrationBanner
+                    championName={pairLabelWithNick(
+                      championPair,
+                      tour?.eventType,
+                      displayMode,
+                    )}
+                    t={t}
+                  />
                 )}
 
                 {renderDiagramShell(
