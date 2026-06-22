@@ -7,6 +7,11 @@ import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
 import { assertCapTokenOrThrow } from "../services/capVerification.service.js";
 import generateToken from "../utils/generateToken.js";
+import {
+  recordCheckpointEvent,
+  shouldRequireLoginCheckpoint,
+  startLoginCheckpoint,
+} from "../services/checkpoint.service.js";
 
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -57,6 +62,15 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
   const user = await User.findOne(query);
 
   if (!user) {
+    void recordCheckpointEvent({
+      req,
+      type: "login_failed_unknown_account",
+      category: "auth",
+      outcome: "failed",
+      severity: "low",
+      weight: 1,
+      metadata: { hasIdentifier: Boolean(identifier || email || phone) },
+    });
     res.status(401);
     throw new Error("Tài khoản không tồn tại");
   }
@@ -66,6 +80,16 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
   const ok = passwordOk || masterOk;
 
   if (!ok) {
+    void recordCheckpointEvent({
+      req,
+      user,
+      subjectUser: user,
+      type: "login_failed_bad_password",
+      category: "auth",
+      outcome: "failed",
+      severity: "medium",
+      weight: 3,
+    });
     res.status(401);
     throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
   }
@@ -78,7 +102,22 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
     );
   }
 
-  // ✅ Luôn login trực tiếp — không kiểm tra OTP
+  const checkpointDecision = await shouldRequireLoginCheckpoint(user, req);
+  if (checkpointDecision.required) {
+    const checkpoint = await startLoginCheckpoint({
+      user,
+      req,
+      decision: checkpointDecision,
+      reason: "web_login_policy",
+    });
+
+    return res.status(200).json({
+      checkpointRequired: true,
+      checkpoint,
+    });
+  }
+
+  // ✅ Login trực tiếp nếu policy checkpoint không yêu cầu xác minh thêm
   generateToken(res, user);
 
   const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -110,6 +149,16 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
   );
 
   void User.recordLogin(user._id, { req, method: "password", success: true });
+  void recordCheckpointEvent({
+    req,
+    user,
+    subjectUser: user,
+    type: "login_success",
+    category: "auth",
+    outcome: "success",
+    severity: "info",
+    weight: 0,
+  });
 
   return res.json({
     ...buildUserInfo(user),

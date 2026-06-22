@@ -4,6 +4,7 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { protect } from "../middleware/authMiddleware.js";
+import { requireCheckpointForRisk } from "../middleware/checkpointGate.js";
 import { cccdUpload } from "../middleware/cccdUpload.js";
 import { uploadCccd } from "../controllers/uploadController.js";
 import { processAvatarWithLogoAlways } from "../services/avatarProcessor.js"; // ✅ dùng service
@@ -346,7 +347,17 @@ router.post("/register-cccd", (req, res) => {
   });
 });
 
-router.post("/cccd", protect, cccdUpload, uploadCccd);
+router.post(
+  "/cccd",
+  protect,
+  requireCheckpointForRisk({
+    intent: "cccd_upload",
+    minLevel: 2,
+    routeGroup: "upload",
+  }),
+  cccdUpload,
+  uploadCccd
+);
 
 router.post("/:id", (req, res) => {
   perIdUpload.single("image")(req, res, (err) => {

@@ -355,6 +355,29 @@ export default function LoginScreen() {
         capToken,
       }).unwrap();
 
+      if (res?.checkpointRequired && res?.checkpoint?.token) {
+        const checkpointPayload = {
+          checkpoint: res.checkpoint,
+          returnTo,
+          createdAt: Date.now(),
+        };
+        try {
+          sessionStorage.setItem(
+            "pickletour_checkpoint",
+            JSON.stringify(checkpointPayload),
+          );
+        } catch {
+          // ignore storage failures; URL token is still enough to continue
+        }
+        navigate(
+          `/checkpoint?token=${encodeURIComponent(
+            res.checkpoint.token,
+          )}&returnTo=${encodeURIComponent(returnTo)}`,
+          { replace: true },
+        );
+        return;
+      }
+
       dispatch(setCredentials({ ...res }));
       dispatch(apiSlice.util.resetApiState());
       navigate(returnTo, { replace: true });

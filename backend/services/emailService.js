@@ -311,3 +311,62 @@ Nếu không phải bạn thực hiện, hãy bỏ qua email này.`,
     return { ok: false, error };
   }
 }
+
+export async function sendCheckpointOtpEmail({
+  to,
+  otp,
+  expiresInSec = 300,
+}) {
+  const mins = Math.max(1, Math.round(expiresInSec / 60));
+
+  const otpHtmlBlock = `
+    <div style="
+      display:inline-block;
+      margin:12px 0 4px 0;
+      padding:12px 18px;
+      border:1px dashed ${BORDER_COLOR};
+      border-radius:12px;
+      background:#f1f5f9;
+      font-size:28px;
+      line-height:1;
+      letter-spacing:10px;
+      font-weight:800;
+      color:${TEXT_COLOR};
+    ">
+      ${String(otp).replace(/\D/g, "").split("").join(" ")}
+    </div>
+  `;
+
+  const html = renderEmail({
+    previewText: `Mã checkpoint PickleTour của bạn là ${otp}. Hết hạn sau ${mins} phút.`,
+    heading: "Mã xác minh checkpoint",
+    bodyHtml: `
+      <p>PickleTour cần xác minh thêm trước khi tiếp tục đăng nhập tài khoản <b>${to}</b>.</p>
+      <p>Nhập mã gồm <b>6 chữ số</b> dưới đây để hoàn tất checkpoint (hết hạn sau <b>${mins} phút</b>):</p>
+      ${otpHtmlBlock}
+      <p style="margin-top:8px">Vì lý do bảo mật, <b>không chia sẻ</b> mã này cho bất kỳ ai.</p>
+    `,
+    secondaryHtml: "Nếu bạn không yêu cầu thao tác này, hãy đổi mật khẩu và liên hệ hỗ trợ.",
+  });
+
+  const msg = {
+    to,
+    from: { name: FROM_OBJ.name, address: "support@pickletour.vn" },
+    replyTo: FROM_OBJ.email,
+    subject: `[${APP_NAME}] Mã xác minh checkpoint (${mins} phút)`,
+    text: `PickleTour cần xác minh thêm trước khi tiếp tục đăng nhập tài khoản ${to}.
+Mã checkpoint của bạn là: ${otp}
+Mã sẽ hết hạn sau ${mins} phút. Không chia sẻ mã này cho bất kỳ ai.
+
+Nếu không phải bạn thực hiện, hãy đổi mật khẩu và liên hệ hỗ trợ.`,
+    html,
+  };
+
+  try {
+    await transporter.sendMail(msg);
+    return { ok: true };
+  } catch (error) {
+    console.error("Error sending checkpoint OTP email:", error);
+    return { ok: false, error };
+  }
+}

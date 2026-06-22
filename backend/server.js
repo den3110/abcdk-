@@ -109,8 +109,10 @@ import commandPaletteRoutes from "./routes/commandPaletteRoutes.js";
 import voiceRoutes from "./routes/voiceRoutes.js";
 import observerRoutes from "./routes/observerRoutes.js";
 import identitySecurityRoutes from "./routes/identitySecurityRoutes.js";
+import checkpointRoutes from "./routes/checkpointRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
+import { checkpointObserver } from "./middleware/checkpointObserver.js";
 import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
 import { loadLiveRecordingStorageTargetsConfig } from "./services/liveRecordingStorageTargetsConfig.service.js";
 import { getSystemSettingsRuntime } from "./services/systemSettingsRuntime.service.js";
@@ -200,6 +202,7 @@ app.use("/admin/agendash", Agendash(agenda, { middleware: "express" }));
 
 app.use(loadSettings);
 app.use(attachJwtIfPresent);
+app.use(checkpointObserver);
 app.use(maintainanceTrigger);
 app.use(versionGate);
 
@@ -223,6 +226,7 @@ app.use(
   }),
 );
 app.use("/api/users", userRoutes);
+app.use("/api/checkpoints", checkpointRoutes);
 app.use("/api/tournaments", tournamentRoute);
 app.use("/api/brackets", bracketRoutes);
 app.use("/api/registrations", registrationRoutes);

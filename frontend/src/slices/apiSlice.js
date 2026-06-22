@@ -100,7 +100,9 @@ const rawBaseQuery = fetchBaseQuery({
 
 const BUSINESS_MUTATION_MAP = {
   login: ({ args, result, state }) => ({
-    name: "auth.login.success",
+    name: result?.checkpointRequired
+      ? "auth.login.checkpoint_required"
+      : "auth.login.success",
     data: {
       identifierTail: String(args?.identifier || args?.phone || "")
         .trim()
@@ -250,6 +252,7 @@ const baseQuery = async (args, api, extraOptions) => {
     const url = typeof args === "string" ? args : args?.url || "";
     const isAuthEndpoint =
       url.includes("/auth") ||
+      url.includes("/checkpoints") ||
       (url.includes("/users") && !url.includes("/profile"));
 
     if (!isAuthEndpoint) {

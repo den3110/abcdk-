@@ -272,6 +272,7 @@ const App = () => {
     "/register",
     "/forgot-password",
     "/reset-password",
+    "/checkpoint",
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
   const isImmersiveLiveFeedPage = location.pathname === "/live";

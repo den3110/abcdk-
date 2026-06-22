@@ -49,6 +49,9 @@ function lazyRoute(importer) {
 
 const HomeScreen = lazyRoute(() => import("./screens/HomeScreen"));
 const LoginScreen = lazyRoute(() => import("./screens/LoginScreen.jsx"));
+const CheckpointScreen = lazyRoute(() =>
+  import("./screens/CheckpointScreen.jsx"),
+);
 const RegisterScreen = lazyRoute(() => import("./screens/RegisterScreen.jsx"));
 const ProfileScreen = lazyRoute(() => import("./screens/ProfileScreen.jsx"));
 const TournamentDashboard = lazyRoute(() =>
@@ -223,6 +226,7 @@ const router = sentryCreateBrowserRouter(
       <Route path="/" element={<App />}>
         <Route index={true} path="/" element={<HomeScreen />} />
         <Route path="/login" element={<LoginScreen />} />
+        <Route path="/checkpoint" element={<CheckpointScreen />} />
         <Route path="/oauth/authorize" element={<OAuthAuthorizeScreen />} />
         {/* OTP tạm tắt */}
         {/* <Route path="/verify-otp" element={<VerifyOtpScreen />} /> */}
