@@ -8,7 +8,9 @@ import { Sponsor } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
 import UserMatch from "../models/userMatchModel.js";
 import Tournament from "../models/tournamentModel.js";
+import Bracket from "../models/bracketModel.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
+import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 import { getManualAssignmentItems } from "../services/courtManualAssignment.service.js";
 const setNoStoreHeaders = (res) => {
   res.setHeader(
@@ -101,6 +103,92 @@ function regName(reg, evType) {
 
 /* ===== helpers nhỏ ===== */
 const pick = (v) => (v && String(v).trim()) || "";
+
+const isReferenceSideName = (value) => {
+  const normalized = pick(value)
+    .replace(/\s+/g, "")
+    .replace(/\([AB]\)$/i, "")
+    .toUpperCase();
+  if (!normalized) return false;
+  return (
+    /^(?:[WL]-)?V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+$/.test(normalized) ||
+    /^(?:WB|LB)\d+-T\d+$/.test(normalized) ||
+    /^GF(?:\d+)?-T\d+$/.test(normalized)
+  );
+};
+
+const extractReferenceDisplayCode = (value) => {
+  const text = pick(value)
+    .replace(/^[WL]\s*-\s*/i, "")
+    .toUpperCase();
+  const match = text.match(/V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+/);
+  return match?.[0] || "";
+};
+
+const toIdText = (value) => {
+  if (!value) return "";
+  if (typeof value === "object") {
+    return pick(value._id) || pick(value.id) || pick(value.matchId);
+  }
+  return pick(value);
+};
+
+const isGroupishBracketType = (value) =>
+  ["group", "round_robin", "gsl"].includes(
+    String(value || "")
+      .trim()
+      .toLowerCase()
+  );
+
+const roundsCountForOverlayBracket = (bracket, matches = []) => {
+  if (isGroupishBracketType(bracket?.type)) return 1;
+
+  const rounds = (matches || [])
+    .map((match) => Number(match?.round || 1))
+    .filter(Number.isFinite);
+  if (rounds.length) return Math.max(1, Math.max(...rounds));
+
+  const configured =
+    Number(bracket?.meta?.maxRounds) ||
+    Number(bracket?.config?.roundElim?.maxRounds) ||
+    Number(bracket?.rounds) ||
+    0;
+  if (Number.isFinite(configured) && configured > 0) return configured;
+
+  const drawSize =
+    Number(bracket?.meta?.drawSize) ||
+    Number(bracket?.config?.roundElim?.drawSize) ||
+    Number(bracket?.config?.doubleElim?.drawSize) ||
+    Number(bracket?.drawSize) ||
+    0;
+  if (Number.isFinite(drawSize) && drawSize > 1) {
+    return Math.max(1, Math.ceil(Math.log2(drawSize)));
+  }
+
+  return 1;
+};
+
+const buildOverlayBaseByBracketId = (brackets = [], matchesByBracketId = new Map()) => {
+  const sorted = [...(brackets || [])].sort(
+    (a, b) =>
+      Number(a?.stage || 0) - Number(b?.stage || 0) ||
+      Number(a?.order || 0) - Number(b?.order || 0) ||
+      String(a?._id || "").localeCompare(String(b?._id || ""))
+  );
+
+  const baseByBracketId = new Map();
+  let accumulated = 0;
+  for (const bracket of sorted) {
+    const bracketId = toIdText(bracket);
+    if (!bracketId) continue;
+    baseByBracketId.set(bracketId, accumulated);
+    accumulated += roundsCountForOverlayBracket(
+      bracket,
+      matchesByBracketId.get(bracketId) || []
+    );
+  }
+  return baseByBracketId;
+};
 
 function gameWinner(g, rules) {
   if (!g) return null;
@@ -229,6 +317,76 @@ const overlayPreviousMatchPopulate = (path) => ({
   select: "_id round order code status winner seedA seedB pairA pairB previousA previousB",
   populate: [overlayPairPopulate("pairA"), overlayPairPopulate("pairB")],
 });
+
+async function buildOverlayMatchReferenceIndex(tournamentId) {
+  if (!mongoose.Types.ObjectId.isValid(String(tournamentId || ""))) {
+    return { byId: new Map(), byDisplayCode: new Map() };
+  }
+
+  const tournamentObjectId = new mongoose.Types.ObjectId(String(tournamentId));
+  const [brackets, matches] = await Promise.all([
+    Bracket.find({ tournament: tournamentObjectId })
+      .select("_id type stage order groups prefill meta config drawSize rounds")
+      .lean(),
+    Match.find({ tournament: tournamentObjectId })
+      .select(
+        "_id tournament bracket round order code displayCode codeResolved roundCode matchCode slotCode bracketCode labelKey meta status winner seedA seedB pairA pairB previousA previousB branch phase format pool groupCode groupNo groupIndex"
+      )
+      .populate({
+        path: "bracket",
+        select: "_id type stage order groups prefill meta config drawSize rounds",
+      })
+      .populate(overlayPairPopulate("pairA"))
+      .populate(overlayPairPopulate("pairB"))
+      .lean(),
+  ]);
+
+  const matchesByBracketId = new Map();
+  for (const match of matches) {
+    const bracketId = toIdText(match?.bracket);
+    if (!bracketId) continue;
+    if (!matchesByBracketId.has(bracketId)) matchesByBracketId.set(bracketId, []);
+    matchesByBracketId.get(bracketId).push(match);
+  }
+
+  const baseByBracketId = buildOverlayBaseByBracketId(
+    brackets,
+    matchesByBracketId
+  );
+
+  const byId = new Map();
+  const byDisplayCode = new Map();
+
+  const addCode = (match, value) => {
+    const code = extractReferenceDisplayCode(value);
+    if (code && !byDisplayCode.has(code)) byDisplayCode.set(code, match);
+  };
+
+  for (const match of matches) {
+    const id = toIdText(match);
+    if (id) byId.set(id, match);
+
+    const codePayload = buildMatchCodePayload(match, {
+      baseByBracketId,
+      matchesByBracketId,
+    });
+
+    addCode(match, codePayload?.displayCode);
+    addCode(match, codePayload?.code);
+    addCode(match, match?.displayCode);
+    addCode(match, match?.codeResolved);
+    addCode(match, match?.roundCode);
+    addCode(match, match?.code);
+    addCode(match, match?.matchCode);
+    addCode(match, match?.slotCode);
+    addCode(match, match?.bracketCode);
+    addCode(match, match?.labelKey);
+    addCode(match, match?.meta?.code);
+    addCode(match, match?.meta?.label);
+  }
+
+  return { byId, byDisplayCode };
+}
 
 async function loadOverlayTournamentMatch(matchId) {
   return Match.findById(matchId)
@@ -740,18 +898,22 @@ export async function getOverlayMatch(req, res) {
       );
     };
 
-    const hasDisplayableReg = (reg) =>
-      Boolean(
-        reg &&
-          typeof reg === "object" &&
-          (reg.player1 ||
-            reg.player2 ||
-            pick(reg.teamName) ||
-            pick(reg.label) ||
-            pick(reg.title) ||
-            pick(reg.displayName) ||
-            pick(reg.name))
+    const hasDisplayableReg = (reg) => {
+      if (!reg || typeof reg !== "object") return false;
+      if (reg.player1 || reg.player2) return true;
+      return Boolean(
+        [
+          reg.teamName,
+          reg.label,
+          reg.title,
+          reg.displayName,
+          reg.name,
+        ].some((value) => {
+          const text = pick(value);
+          return text && !isReferenceSideName(text);
+        })
       );
+    };
 
     const sourceSideFromFinishedMatch = (sourceMatch, seed) => {
       if (!sourceMatch) return "";
@@ -769,22 +931,69 @@ export async function getOverlayMatch(req, res) {
       return winnerSide === "A" ? "B" : "A";
     };
 
-    const resolvedPairForSide = (side) => {
+    let referenceIndexPromise = null;
+    const getReferenceIndex = () => {
+      if (!referenceIndexPromise) {
+        const tournamentId = m?.tournament?._id || m?.tournament || m?.tournamentId;
+        referenceIndexPromise = buildOverlayMatchReferenceIndex(tournamentId);
+      }
+      return referenceIndexPromise;
+    };
+
+    const findSourceMatchFromSeed = async (seed) => {
+      if (!seed) return null;
+      const type = String(seed?.type || "");
+      if (
+        type !== "stageMatchWinner" &&
+        type !== "stageMatchLoser" &&
+        type !== "matchWinner" &&
+        type !== "matchLoser"
+      ) {
+        return null;
+      }
+
+      const index = await getReferenceIndex();
+      const refId =
+        toIdText(seed?.ref?.matchId) ||
+        toIdText(seed?.ref?.match) ||
+        toIdText(seed?.ref?.sourceMatchId) ||
+        toIdText(seed?.matchId) ||
+        toIdText(seed?.sourceMatchId);
+      if (refId && index.byId.has(refId)) return index.byId.get(refId);
+
+      const refCode =
+        extractReferenceDisplayCode(seed?.label) ||
+        extractReferenceDisplayCode(seed?.ref?.label) ||
+        extractReferenceDisplayCode(seed?.ref?.code);
+      if (refCode && index.byDisplayCode.has(refCode)) {
+        return index.byDisplayCode.get(refCode);
+      }
+
+      return null;
+    };
+
+    const resolvedPairForSide = async (side) => {
       const normalizedSide = side === "B" ? "B" : "A";
       const pair = normalizedSide === "A" ? m?.pairA : m?.pairB;
       if (hasDisplayableReg(pair)) return pair;
 
-      const sourceMatch = normalizedSide === "A" ? m?.previousA : m?.previousB;
       const seed = normalizedSide === "A" ? m?.seedA : m?.seedB;
-      const sourceSide = sourceSideFromFinishedMatch(sourceMatch, seed);
+      let sourceMatch = normalizedSide === "A" ? m?.previousA : m?.previousB;
+      let sourceSide = sourceSideFromFinishedMatch(sourceMatch, seed);
+
+      if (!sourceSide) {
+        sourceMatch = await findSourceMatchFromSeed(seed);
+        sourceSide = sourceSideFromFinishedMatch(sourceMatch, seed);
+      }
+
       if (!sourceSide) return null;
 
       const sourcePair = sourceSide === "A" ? sourceMatch?.pairA : sourceMatch?.pairB;
       return hasDisplayableReg(sourcePair) ? sourcePair : null;
     };
 
-    const displayPairA = resolvedPairForSide("A");
-    const displayPairB = resolvedPairForSide("B");
+    const displayPairA = await resolvedPairForSide("A");
+    const displayPairB = await resolvedPairForSide("B");
     const displayTeamNameA = teamName(displayPairA) || teamName(m?.pairA);
     const displayTeamNameB = teamName(displayPairB) || teamName(m?.pairB);
 
