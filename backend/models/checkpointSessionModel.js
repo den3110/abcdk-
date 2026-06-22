@@ -118,6 +118,7 @@ const checkpointSessionSchema = new mongoose.Schema(
       counters: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
     tokenHash: { type: String, required: true, unique: true, index: true },
+    publicToken: { type: String, default: "", index: true },
     codeHash: { type: String, default: "" },
     delivery: {
       method: {

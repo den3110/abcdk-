@@ -6,6 +6,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
 import MobileBottomNav from "./components/MenuMobile";
+import CheckpointRealtimeGate from "./components/CheckpointRealtimeGate.jsx";
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { initGA, logPageView } from "./utils/analytics";
@@ -339,6 +340,7 @@ const App = () => {
   return (
     <>
       <AuthSessionSync />
+      <CheckpointRealtimeGate />
       <SentryRuntimeSync />
       <NativeWebViewAuthBridge />
       {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (

@@ -219,7 +219,7 @@ export async function getCheckpointPolicySummary() {
 const buildFactorState = (level, primaryFactorKey) =>
   getRequiredFactorsForLevel(level, primaryFactorKey).map((key) => ({
     key,
-    status: key === primaryFactorKey ? "sent" : "required",
+    status: "required",
   }));
 
 const buildRoles = (user) => {
@@ -860,6 +860,118 @@ export async function shouldRequireActionCheckpoint({
     : decision;
 }
 
+export async function getActiveCheckpointSessionForUser(userId) {
+  const uid = userId?._id || userId?.id || userId;
+  if (!uid) return null;
+
+  const now = new Date();
+  await CheckpointSession.updateMany(
+    {
+      user: uid,
+      status: "pending",
+      expiresAt: { $lte: now },
+    },
+    {
+      $set: {
+        status: "expired",
+        failedAt: now,
+      },
+    }
+  );
+
+  return CheckpointSession.findOne({
+    user: uid,
+    type: "login",
+    channel: "web",
+    status: { $in: ["pending", "review_required"] },
+    expiresAt: { $gt: now },
+  }).sort({ createdAt: -1 });
+}
+
+export async function getCurrentCheckpointRequirementForUser({
+  user,
+  req,
+  createSession = false,
+  includeRisk = false,
+} = {}) {
+  const existing = await getActiveCheckpointSessionForUser(user?._id || user?.id);
+  if (existing?.publicToken) {
+    return {
+      required: true,
+      level: Number(existing.level || 1),
+      reason: existing.risk?.reasons?.[0] || "",
+      checkpoint: publicSessionPayload(existing, existing.publicToken),
+      mandateId: existing.mandate ? String(existing.mandate) : "",
+    };
+  }
+
+  const decision = await shouldRequireManualLoginCheckpoint(user);
+  if (!decision.required) {
+    if (includeRisk && createSession) {
+      const riskDecision = await shouldRequireActionCheckpoint({
+        user,
+        req,
+        intent: "ongoing_api_activity",
+        minLevel: 1,
+      });
+
+      if (riskDecision.required) {
+        const checkpoint = await startLoginCheckpoint({
+          user,
+          req,
+          decision: riskDecision,
+          reason: "ongoing_api_activity_policy",
+        });
+
+        return {
+          required: true,
+          level: Number(riskDecision.level || 1),
+          reason: riskDecision.reasons?.[0] || "",
+          checkpoint,
+          mandate: null,
+          mandateId: "",
+        };
+      }
+    }
+
+    return {
+      required: false,
+      level: 0,
+      reason: "",
+      checkpoint: null,
+      mandate: null,
+    };
+  }
+
+  if (!createSession) {
+    return {
+      required: true,
+      level: Number(decision.level || 1),
+      reason: decision.reasons?.[0] || "",
+      checkpoint: null,
+      mandate: decision.mandate || null,
+      mandateId: decision.mandateId || "",
+    };
+  }
+
+  const checkpoint = await startLoginCheckpoint({
+    user,
+    req,
+    decision,
+    mandate: decision.mandate,
+    reason: "manual_admin_realtime",
+  });
+
+  return {
+    required: true,
+    level: Number(decision.level || 1),
+    reason: decision.reasons?.[0] || "",
+    checkpoint,
+    mandate: decision.mandate || null,
+    mandateId: decision.mandateId || "",
+  };
+}
+
 function publicSessionPayload(session, token = "") {
   const now = Date.now();
   const resendAt = session?.resendAvailableAt
@@ -886,6 +998,13 @@ function publicSessionPayload(session, token = "") {
     })),
     deliveryMethod: session.delivery?.method || "zalo_otp",
     targetMasked: session.delivery?.targetMasked || "",
+    started: Number(session.delivery?.sendCount || 0) > 0,
+    delivery: {
+      method: session.delivery?.method || "zalo_otp",
+      targetMasked: session.delivery?.targetMasked || "",
+      sendCount: Number(session.delivery?.sendCount || 0),
+      lastSentAt: session.delivery?.lastSentAt?.toISOString?.() || null,
+    },
     expiresAt: session.expiresAt?.toISOString?.() || null,
     codeExpiresAt: session.codeExpiresAt?.toISOString?.() || null,
     resendAvailableAt: session.resendAvailableAt?.toISOString?.() || null,
@@ -953,6 +1072,12 @@ function markFactorPassed(session, key) {
 
 function allFactorsPassed(session) {
   return (session.factors || []).every((factor) => factor.status === "passed");
+}
+
+function getNextActionFactor(session) {
+  return (session.factors || []).find(
+    (factor) => !["passed", "submitted"].includes(factor.status)
+  );
 }
 
 async function completeSessionIfReady(session, { req, res, token }) {
@@ -1027,7 +1152,6 @@ export async function startLoginCheckpoint({
   }
   const now = Date.now();
   const token = makeCheckpointToken();
-  const otp = makeOtp(6);
   const ctx = getClientContext(req);
 
   const session = new CheckpointSession({
@@ -1050,28 +1174,26 @@ export async function startLoginCheckpoint({
       mandateId: mandateId ? String(mandateId) : "",
     },
     tokenHash: hashToken(token),
-    codeHash: await bcrypt.hash(otp, await bcrypt.genSalt(10)),
+    publicToken: token,
+    codeHash: "",
     delivery: {
       method: primaryFactor.method,
       targetMasked: primaryFactor.targetMasked,
       phone: primaryFactor.target,
-      lastSentAt: new Date(now),
-      sendCount: 1,
+      lastSentAt: null,
+      sendCount: 0,
     },
     attempts: 0,
     maxAttempts: maxAttempts(settings),
     expiresAt: new Date(now + sessionTtlMs(settings)),
-    codeExpiresAt: new Date(now + codeTtlMs(settings)),
-    resendAvailableAt: new Date(now + resendCooldownMs(settings)),
+    codeExpiresAt: null,
+    resendAvailableAt: null,
     request: {
       ...ctx,
       reason,
     },
   });
 
-  const zns = await sendOtpToSession(session, otp, settings);
-  session.delivery.tranId = String(zns?.tranId || "");
-  session.delivery.cost = Number(zns?.cost || 0);
   await session.save();
 
   void recordCheckpointEvent({
@@ -1137,6 +1259,19 @@ export async function resendCheckpointCode({ token, req }) {
     throw error;
   }
 
+  const otpFactor =
+    getFactor(session, "phone_otp") || getFactor(session, "email_otp");
+  const expectedFactor = getNextActionFactor(session);
+  if (
+    !otpFactor ||
+    otpFactor.status === "passed" ||
+    !["phone_otp", "email_otp"].includes(expectedFactor?.key)
+  ) {
+    const error = new Error("Bước OTP đã hoàn tất hoặc không còn là bước hiện tại.");
+    error.statusCode = 400;
+    throw error;
+  }
+
   const resendAt = session.resendAvailableAt
     ? new Date(session.resendAvailableAt).getTime()
     : 0;
@@ -1158,6 +1293,9 @@ export async function resendCheckpointCode({ token, req }) {
   session.delivery.sendCount = Number(session.delivery.sendCount || 0) + 1;
   session.delivery.tranId = String(zns?.tranId || "");
   session.delivery.cost = Number(zns?.cost || 0);
+  if (otpFactor && otpFactor.status === "required") {
+    otpFactor.status = "sent";
+  }
   await session.save();
 
   void recordCheckpointEvent({
@@ -1171,6 +1309,10 @@ export async function resendCheckpointCode({ token, req }) {
   });
 
   return publicSessionPayload(session, token);
+}
+
+export async function startCheckpointVerification({ token, req }) {
+  return resendCheckpointCode({ token, req });
 }
 
 export async function verifyPhoneOtpFactor({ token, code, req, res }) {
@@ -1198,8 +1340,21 @@ export async function verifyPhoneOtpFactor({ token, code, req, res }) {
     throw error;
   }
 
+  const expectedFactor = getNextActionFactor(session);
+  if (!["phone_otp", "email_otp"].includes(expectedFactor?.key)) {
+    const error = new Error("Bước OTP đã hoàn tất hoặc không còn là bước hiện tại.");
+    error.statusCode = 400;
+    throw error;
+  }
+
   if (session.codeExpiresAt && session.codeExpiresAt <= new Date(now)) {
     const error = new Error("Mã checkpoint đã hết hạn. Vui lòng gửi lại mã.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!session.codeHash) {
+    const error = new Error("Vui lòng bắt đầu xác minh để nhận mã checkpoint.");
     error.statusCode = 400;
     throw error;
   }
@@ -1254,7 +1409,6 @@ export async function submitCheckpointEvidence({
   req,
   res,
 }) {
-  const settings = await getCheckpointSettings();
   const session = await getCheckpointSessionByToken(token);
   if (session.status !== "pending") {
     const error = new Error("Checkpoint này không còn hiệu lực.");
@@ -1265,6 +1419,13 @@ export async function submitCheckpointEvidence({
   const factorDoc = getFactor(session, factor);
   if (!factorDoc) {
     const error = new Error("Factor checkpoint không hợp lệ.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const expectedFactor = getNextActionFactor(session);
+  if (!expectedFactor || expectedFactor.key !== factor) {
+    const error = new Error("Vui lòng hoàn tất các bước checkpoint theo đúng thứ tự.");
     error.statusCode = 400;
     throw error;
   }
@@ -1280,11 +1441,12 @@ export async function submitCheckpointEvidence({
   factorDoc.status = "submitted";
   factorDoc.submittedAt = new Date();
 
-  const requiresManualReview =
-    Number(session.level || 1) >= manualReviewLevel(settings) &&
-    (factor === "face_video" || !getFactor(session, "face_video"));
+  const level = Number(session.level || 1);
+  const shouldEnterReview =
+    (level === 2 && factor === "cccd_upload") ||
+    (level >= 3 && factor === "face_video");
 
-  if (requiresManualReview) {
+  if (shouldEnterReview) {
     session.status = "review_required";
     await session.save();
     void recordCheckpointEvent({

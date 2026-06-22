@@ -9,6 +9,7 @@ import {
   getAdminCheckpointSessionDetail,
   getAdminCheckpointSettings,
   getAdminCheckpointSubjectInsight,
+  getCurrentCheckpointRequirement,
   getCheckpointPolicy,
   getCheckpointStatus,
   listAdminCheckpointMandates,
@@ -17,6 +18,9 @@ import {
   recordClientCheckpointEvent,
   resendCheckpointOtp,
   resolveAdminCheckpointSession,
+  searchAdminCheckpointUsers,
+  startCurrentCheckpoint,
+  startCheckpointOtp,
   simulateAdminCheckpointRisk,
   updateAdminCheckpointSettings,
   uploadCheckpointEvidence,
@@ -82,10 +86,13 @@ const upload = multer({
 });
 
 router.post("/events", recordClientCheckpointEvent);
+router.get("/me/active", protect, getCurrentCheckpointRequirement);
+router.post("/me/start", protect, startCurrentCheckpoint);
 router.get("/admin/overview", protect, authorize("admin"), getAdminCheckpointOverview);
 router.get("/admin/sessions", protect, authorize("admin"), listAdminCheckpointSessions);
 router.get("/admin/sessions/:id", protect, authorize("admin"), getAdminCheckpointSessionDetail);
 router.get("/admin/events", protect, authorize("admin"), listAdminCheckpointEvents);
+router.get("/admin/users/search", protect, authorize("admin"), searchAdminCheckpointUsers);
 router.get("/admin/mandates", protect, authorize("admin"), listAdminCheckpointMandates);
 router.post("/admin/mandates", protect, authorize("admin"), createAdminCheckpointMandate);
 router.post("/admin/mandates/:id/cancel", protect, authorize("admin"), cancelAdminCheckpointMandate);
@@ -101,6 +108,7 @@ router.post(
 );
 router.get("/policy/summary", protect, authorize("admin"), getCheckpointPolicy);
 router.get("/:token", getCheckpointStatus);
+router.post("/:token/start", startCheckpointOtp);
 router.post("/:token/resend", resendCheckpointOtp);
 router.post("/:token/phone", verifyCheckpointPhone);
 router.post(

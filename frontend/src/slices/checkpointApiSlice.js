@@ -4,6 +4,23 @@ const CHECKPOINT_URL = "/api/checkpoints";
 
 export const checkpointApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    getActiveCheckpointRequirement: builder.query({
+      query: () => `${CHECKPOINT_URL}/me/active`,
+      extraOptions: {
+        skip404Redirect: true,
+        skipSentryCapture: true,
+      },
+    }),
+    startActiveCheckpoint: builder.mutation({
+      query: () => ({
+        url: `${CHECKPOINT_URL}/me/start`,
+        method: "POST",
+      }),
+      extraOptions: {
+        skip404Redirect: true,
+        skipSentryCapture: true,
+      },
+    }),
     getCheckpoint: builder.query({
       query: (token) => `${CHECKPOINT_URL}/${encodeURIComponent(token)}`,
       extraOptions: { skip404Redirect: true, skipSentryCapture: true },
@@ -11,6 +28,13 @@ export const checkpointApiSlice = apiSlice.injectEndpoints({
     resendCheckpoint: builder.mutation({
       query: (token) => ({
         url: `${CHECKPOINT_URL}/${encodeURIComponent(token)}/resend`,
+        method: "POST",
+      }),
+      extraOptions: { skip404Redirect: true },
+    }),
+    startCheckpointOtp: builder.mutation({
+      query: (token) => ({
+        url: `${CHECKPOINT_URL}/${encodeURIComponent(token)}/start`,
         method: "POST",
       }),
       extraOptions: { skip404Redirect: true },
@@ -50,8 +74,11 @@ export const checkpointApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
+  useGetActiveCheckpointRequirementQuery,
+  useStartActiveCheckpointMutation,
   useGetCheckpointQuery,
   useResendCheckpointMutation,
+  useStartCheckpointOtpMutation,
   useVerifyCheckpointOtpMutation,
   useUploadCheckpointEvidenceMutation,
   useRecordCheckpointEventMutation,

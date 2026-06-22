@@ -242,6 +242,45 @@ function redirectTo503() {
   }
 }
 
+function redirectToCheckpoint(checkpoint) {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname.startsWith("/checkpoint")) return;
+
+  const current =
+    window.location.pathname + window.location.search + window.location.hash;
+  const returnTo =
+    current.startsWith("/") && !current.startsWith("/checkpoint")
+      ? current
+      : "/";
+  const token = checkpoint?.token ? String(checkpoint.token) : "";
+  const target = token
+    ? `/checkpoint?token=${encodeURIComponent(token)}&returnTo=${encodeURIComponent(
+        returnTo,
+      )}`
+    : `/checkpoint?returnTo=${encodeURIComponent(returnTo)}`;
+
+  try {
+    sessionStorage.setItem(
+      "pickletour_checkpoint",
+      JSON.stringify({
+        checkpoint: checkpoint || null,
+        returnTo,
+        createdAt: Date.now(),
+        source: "api_lock",
+      }),
+    );
+  } catch (e) {
+    console.log(e);
+  }
+
+  try {
+    window.history.pushState({}, "", target);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  } catch {
+    window.location.assign(target);
+  }
+}
+
 const baseQuery = async (args, api, extraOptions) => {
   const endpointName = api?.endpoint;
   const result = await rawBaseQuery(args, api, extraOptions);
@@ -277,6 +316,11 @@ const baseQuery = async (args, api, extraOptions) => {
       console.log(e);
     }
     if (typeof window !== "undefined") window.location.href = "/login";
+    return result;
+  }
+
+  if (status === 423 && result?.error?.data?.checkpointRequired) {
+    redirectToCheckpoint(result.error.data.checkpoint);
     return result;
   }
 

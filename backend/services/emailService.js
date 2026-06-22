@@ -370,3 +370,63 @@ Nếu không phải bạn thực hiện, hãy đổi mật khẩu và liên hệ
     return { ok: false, error };
   }
 }
+
+export async function sendCheckpointReviewDecisionEmail({
+  to,
+  approved = false,
+  note = "",
+}) {
+  if (!to) return { ok: false, error: new Error("Missing recipient") };
+
+  const heading = approved
+    ? "Checkpoint của bạn đã được duyệt"
+    : "Checkpoint của bạn chưa được duyệt";
+  const previewText = approved
+    ? "Tài khoản PickleTour của bạn đã được gỡ hạn chế checkpoint."
+    : "Checkpoint của bạn chưa được duyệt. Vui lòng kiểm tra lại thông tin xác minh.";
+  const bodyHtml = approved
+    ? `
+      <p>Chúng tôi đã kiểm tra thông tin xác minh và gỡ hạn chế checkpoint cho tài khoản của bạn.</p>
+      <p>Bạn có thể quay lại PickleTour và tiếp tục sử dụng tài khoản.</p>
+    `
+    : `
+      <p>Chúng tôi đã kiểm tra thông tin xác minh nhưng hiện chưa thể gỡ hạn chế checkpoint cho tài khoản của bạn.</p>
+      <p>Vui lòng thử xác minh lại với thông tin rõ ràng, chính xác hơn hoặc liên hệ hỗ trợ nếu bạn cho rằng đây là nhầm lẫn.</p>
+    `;
+  const noteHtml = note
+    ? `<p><b>Ghi chú từ đội ngũ kiểm duyệt:</b> ${String(note)
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")}</p>`
+    : "";
+
+  const html = renderEmail({
+    previewText,
+    heading,
+    bodyHtml: `${bodyHtml}${noteHtml}`,
+    ctaText: "Mở PickleTour",
+    ctaUrl: FRONTEND_URL,
+    secondaryHtml:
+      "Email này được gửi sau khi đội ngũ PickleTour xử lý yêu cầu checkpoint của bạn.",
+  });
+
+  const msg = {
+    to,
+    from: { name: FROM_OBJ.name, address: process.env.SMTP_USER || FROM_OBJ.email },
+    replyTo: FROM_OBJ.email,
+    subject: approved
+      ? `[${APP_NAME}] Checkpoint đã được duyệt`
+      : `[${APP_NAME}] Checkpoint chưa được duyệt`,
+    text: approved
+      ? `Checkpoint của bạn đã được duyệt. Tài khoản đã được gỡ hạn chế.${note ? `\nGhi chú: ${note}` : ""}`
+      : `Checkpoint của bạn chưa được duyệt. Vui lòng thử xác minh lại hoặc liên hệ hỗ trợ.${note ? `\nGhi chú: ${note}` : ""}`,
+    html,
+  };
+
+  try {
+    await transporter.sendMail(msg);
+    return { ok: true };
+  } catch (error) {
+    console.error("Error sending checkpoint review decision email:", error);
+    return { ok: false, error };
+  }
+}

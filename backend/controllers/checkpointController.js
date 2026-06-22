@@ -5,11 +5,13 @@ import CheckpointSession from "../models/checkpointSessionModel.js";
 import User from "../models/userModel.js";
 import {
   buildCheckpointAuthPayload,
+  getCurrentCheckpointRequirementForUser,
   getCheckpointPolicySummary,
   getCheckpointSessionByToken,
   getPublicCheckpointSession,
   recordCheckpointEvent,
   resendCheckpointCode,
+  startCheckpointVerification,
   simulateCheckpointRiskDecision,
   submitCheckpointEvidence,
   verifyPhoneOtpFactor,
@@ -28,6 +30,7 @@ import {
 } from "../services/checkpointMandate.service.js";
 import generateToken from "../utils/generateToken.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
+import { sendCheckpointReviewDecisionEmail } from "../services/emailService.js";
 
 const cleanToken = (req) =>
   String(req.params?.token || req.body?.token || req.query?.token || "").trim();
@@ -154,6 +157,17 @@ const normalizeEventForAdmin = (event = {}) => ({
   updatedAt: event.updatedAt || null,
 });
 
+const normalizeCurrentMandateForClient = (mandate = {}) => {
+  if (!mandate) return null;
+  return {
+    id: String(mandate._id || mandate.id || ""),
+    level: Number(mandate.level || 1),
+    reason: mandate.reason || "",
+    expiresAt: mandate.expiresAt || null,
+    createdAt: mandate.createdAt || null,
+  };
+};
+
 const findUserIdsByKeyword = async (keyword) => {
   const q = String(keyword || "").trim();
   if (!q) return [];
@@ -247,6 +261,16 @@ export const resendCheckpointOtp = asyncHandler(async (req, res) => {
   res.json(await resendCheckpointCode({ token, req }));
 });
 
+export const startCheckpointOtp = asyncHandler(async (req, res) => {
+  const token = cleanToken(req);
+  if (!token) {
+    res.status(400);
+    throw new Error("Thiếu checkpoint token.");
+  }
+
+  res.json(await startCheckpointVerification({ token, req }));
+});
+
 export const verifyCheckpointPhone = asyncHandler(async (req, res) => {
   const token = cleanToken(req);
   const code = req.body?.code || req.body?.otp;
@@ -318,6 +342,32 @@ export const recordClientCheckpointEvent = asyncHandler(async (req, res) => {
   });
 
   res.json({ ok: true });
+});
+
+export const getCurrentCheckpointRequirement = asyncHandler(async (req, res) => {
+  const result = await getCurrentCheckpointRequirementForUser({
+    user: req.user,
+    req,
+    createSession: false,
+  });
+
+  res.json({
+    ...result,
+    mandate: normalizeCurrentMandateForClient(result.mandate),
+  });
+});
+
+export const startCurrentCheckpoint = asyncHandler(async (req, res) => {
+  const result = await getCurrentCheckpointRequirementForUser({
+    user: req.user,
+    req,
+    createSession: true,
+  });
+
+  res.status(result.required ? 201 : 200).json({
+    ...result,
+    mandate: normalizeCurrentMandateForClient(result.mandate),
+  });
 });
 
 export const getCheckpointPolicy = asyncHandler(async (req, res) => {
@@ -667,6 +717,49 @@ export const cancelAdminCheckpointMandate = asyncHandler(async (req, res) => {
   });
 });
 
+export const searchAdminCheckpointUsers = asyncHandler(async (req, res) => {
+  const q = String(req.query.q || req.query.keyword || "").trim();
+  const limit = clampInt(req.query.limit, 12, 1, 30);
+  if (!q) {
+    res.json({ users: [] });
+    return;
+  }
+
+  const projection = "name nickname email phone avatar role isSuperUser isSuperAdmin";
+  const exactId = mongoose.isValidObjectId(q) ? q : "";
+  const rx = new RegExp(escapeRegex(q), "i");
+  const filters = [
+    { name: rx },
+    { nickname: rx },
+    { email: rx },
+    { phone: rx },
+  ];
+  if (exactId) {
+    filters.unshift({ _id: new mongoose.Types.ObjectId(exactId) });
+  }
+
+  const users = await User.find({
+    isDeleted: { $ne: true },
+    $or: filters,
+  })
+    .select(projection)
+    .limit(limit)
+    .lean();
+
+  users.sort((a, b) => {
+    const aExact = exactId && String(a._id) === exactId ? 1 : 0;
+    const bExact = exactId && String(b._id) === exactId ? 1 : 0;
+    if (aExact !== bExact) return bExact - aExact;
+    const aName = String(a.nickname || a.name || a.email || "");
+    const bName = String(b.nickname || b.name || b.email || "");
+    return aName.localeCompare(bName, "vi");
+  });
+
+  res.json({
+    users: users.map(normalizeUserForAdmin),
+  });
+});
+
 export const getAdminCheckpointSettings = asyncHandler(async (req, res) => {
   const settings = await getCheckpointSettings();
   res.json({
@@ -935,6 +1028,19 @@ export const resolveAdminCheckpointSession = asyncHandler(async (req, res) => {
       note,
     },
   });
+
+  if (["approve", "reject"].includes(action)) {
+    const reviewedUser = await User.findById(session.user).select("email").lean();
+    if (reviewedUser?.email) {
+      void sendCheckpointReviewDecisionEmail({
+        to: reviewedUser.email,
+        approved: action === "approve",
+        note,
+      }).catch((error) => {
+        console.error("[checkpoint] review decision email failed:", error?.message || error);
+      });
+    }
+  }
 
   const fresh = await CheckpointSession.findById(session._id)
     .populate("user", "name nickname email phone avatar role isSuperUser isSuperAdmin")

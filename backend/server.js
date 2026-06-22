@@ -113,6 +113,7 @@ import checkpointRoutes from "./routes/checkpointRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 import { checkpointObserver } from "./middleware/checkpointObserver.js";
+import { checkpointRestriction } from "./middleware/checkpointRestriction.js";
 import { loadLiveMultiSourceConfig } from "./services/liveMultiSourceConfig.service.js";
 import { loadLiveRecordingStorageTargetsConfig } from "./services/liveRecordingStorageTargetsConfig.service.js";
 import { getSystemSettingsRuntime } from "./services/systemSettingsRuntime.service.js";
@@ -202,6 +203,7 @@ app.use("/admin/agendash", Agendash(agenda, { middleware: "express" }));
 
 app.use(loadSettings);
 app.use(attachJwtIfPresent);
+app.use(checkpointRestriction);
 app.use(checkpointObserver);
 app.use(maintainanceTrigger);
 app.use(versionGate);
