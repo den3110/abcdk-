@@ -9,6 +9,7 @@ import { assertCapTokenOrThrow } from "../services/capVerification.service.js";
 import generateToken from "../utils/generateToken.js";
 import {
   recordCheckpointEvent,
+  shouldRequireManualLoginCheckpoint,
   shouldRequireLoginCheckpoint,
   startLoginCheckpoint,
 } from "../services/checkpoint.service.js";
@@ -100,6 +101,22 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
         user.phone || "-"
       } email=${user.email || "-"}`
     );
+  }
+
+  const manualCheckpointDecision = await shouldRequireManualLoginCheckpoint(user);
+  if (manualCheckpointDecision.required) {
+    const checkpoint = await startLoginCheckpoint({
+      user,
+      req,
+      decision: manualCheckpointDecision,
+      mandate: manualCheckpointDecision.mandate,
+      reason: "manual_admin_mandate",
+    });
+
+    return res.status(200).json({
+      checkpointRequired: true,
+      checkpoint,
+    });
   }
 
   const checkpointDecision = await shouldRequireLoginCheckpoint(user, req);

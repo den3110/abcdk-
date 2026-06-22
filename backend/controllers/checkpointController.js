@@ -10,9 +10,22 @@ import {
   getPublicCheckpointSession,
   recordCheckpointEvent,
   resendCheckpointCode,
+  simulateCheckpointRiskDecision,
   submitCheckpointEvidence,
   verifyPhoneOtpFactor,
 } from "../services/checkpoint.service.js";
+import {
+  getCheckpointSettings,
+  getDefaultCheckpointSettings,
+  updateCheckpointSettings,
+} from "../services/checkpointSettings.service.js";
+import {
+  cancelCheckpointMandate,
+  consumeCheckpointMandate,
+  createCheckpointMandate,
+  listCheckpointMandates,
+  normalizeCheckpointMandateForAdmin,
+} from "../services/checkpointMandate.service.js";
 import generateToken from "../utils/generateToken.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 
@@ -47,7 +60,6 @@ const EVENT_OUTCOMES = new Set([
   "observed",
 ]);
 const EVENT_SEVERITIES = new Set(["info", "low", "medium", "high", "critical"]);
-const DEFAULT_TRUST_MS = 15 * 24 * 60 * 60 * 1000;
 
 const clampInt = (value, fallback, min, max) => {
   const n = Number.parseInt(value, 10);
@@ -62,11 +74,6 @@ const dateFromQuery = (value) => {
   if (!value) return null;
   const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date : null;
-};
-
-const trustMsForAdminReview = () => {
-  const value = Number(process.env.CHECKPOINT_TRUST_MS);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_TRUST_MS;
 };
 
 const normalizeUserForAdmin = (user) => {
@@ -90,6 +97,7 @@ const normalizeUserForAdmin = (user) => {
 const normalizeSessionForAdmin = (session = {}) => ({
   _id: String(session._id || ""),
   user: normalizeUserForAdmin(session.user),
+  mandate: session.mandate ? String(session.mandate._id || session.mandate) : "",
   type: session.type || "login",
   channel: session.channel || "unknown",
   status: session.status || "pending",
@@ -313,7 +321,7 @@ export const recordClientCheckpointEvent = asyncHandler(async (req, res) => {
 });
 
 export const getCheckpointPolicy = asyncHandler(async (req, res) => {
-  res.json(getCheckpointPolicySummary());
+  res.json(await getCheckpointPolicySummary());
 });
 
 export const getAdminCheckpointOverview = asyncHandler(async (req, res) => {
@@ -424,6 +432,7 @@ export const getAdminCheckpointOverview = asyncHandler(async (req, res) => {
   const topSignals = Array.from(signalCounts.values())
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
+  const policy = await getCheckpointPolicySummary();
 
   res.json({
     window: {
@@ -457,7 +466,7 @@ export const getAdminCheckpointOverview = asyncHandler(async (req, res) => {
     topSignals,
     latestReviewSessions: latestReviewSessions.map(normalizeSessionForAdmin),
     recentEvents: recentEvents.map(normalizeEventForAdmin),
-    policy: getCheckpointPolicySummary(),
+    policy,
   });
 });
 
@@ -587,6 +596,256 @@ export const listAdminCheckpointEvents = asyncHandler(async (req, res) => {
   });
 });
 
+export const listAdminCheckpointMandates = asyncHandler(async (req, res) => {
+  const result = await listCheckpointMandates({
+    page: req.query.page,
+    pageSize: req.query.pageSize || req.query.limit,
+    status: String(req.query.status || "").trim(),
+    level: String(req.query.level || "").trim(),
+    q: String(req.query.q || req.query.keyword || "").trim(),
+  });
+  res.json(result);
+});
+
+export const createAdminCheckpointMandate = asyncHandler(async (req, res) => {
+  const mandate = await createCheckpointMandate({
+    userId: req.body?.userId,
+    identifier: req.body?.identifier,
+    level: req.body?.level,
+    reason: req.body?.reason,
+    note: req.body?.note,
+    expiresInHours: req.body?.expiresInHours,
+    expiresAt: req.body?.expiresAt,
+    createdBy: req.user?._id || null,
+  });
+
+  void recordCheckpointEvent({
+    req,
+    user: req.user || null,
+    subjectUser: mandate?.user || null,
+    type: "checkpoint_manual_mandate_created",
+    category: "checkpoint",
+    outcome: "blocked",
+    severity: Number(mandate?.level || 1) >= 3 ? "high" : "medium",
+    target: { type: "checkpoint_mandate", id: String(mandate?._id || "") },
+    metadata: {
+      level: mandate?.level,
+      reason: mandate?.reason,
+      expiresAt: mandate?.expiresAt,
+    },
+  });
+
+  res.status(201).json({
+    mandate: normalizeCheckpointMandateForAdmin(mandate),
+  });
+});
+
+export const cancelAdminCheckpointMandate = asyncHandler(async (req, res) => {
+  const mandate = await cancelCheckpointMandate({
+    id: req.params.id,
+    actorId: req.user?._id || null,
+    note: String(req.body?.note || "").trim(),
+  });
+
+  void recordCheckpointEvent({
+    req,
+    user: req.user || null,
+    subjectUser: mandate?.user || null,
+    type: "checkpoint_manual_mandate_cancelled",
+    category: "checkpoint",
+    outcome: "observed",
+    severity: "info",
+    target: { type: "checkpoint_mandate", id: String(mandate?._id || "") },
+    metadata: {
+      level: mandate?.level,
+      note: req.body?.note || "",
+    },
+  });
+
+  res.json({
+    mandate: normalizeCheckpointMandateForAdmin(mandate),
+  });
+});
+
+export const getAdminCheckpointSettings = asyncHandler(async (req, res) => {
+  const settings = await getCheckpointSettings();
+  res.json({
+    settings,
+    defaults: getDefaultCheckpointSettings(),
+  });
+});
+
+export const updateAdminCheckpointSettings = asyncHandler(async (req, res) => {
+  const settings = await updateCheckpointSettings(req.body || {}, req.user?._id || null);
+  void recordCheckpointEvent({
+    req,
+    user: req.user || null,
+    subjectUser: null,
+    type: "checkpoint_settings_updated",
+    category: "checkpoint",
+    outcome: "observed",
+    severity: "info",
+    target: { type: "checkpoint_settings", id: "checkpoint-engine" },
+    metadata: {
+      keys: Object.keys(req.body || {}),
+    },
+  });
+  res.json({
+    settings,
+    defaults: getDefaultCheckpointSettings(),
+  });
+});
+
+export const simulateAdminCheckpointRisk = asyncHandler(async (req, res) => {
+  const counters = req.body?.counters || {};
+  const user = req.body?.user || {};
+  const intent = String(req.body?.intent || "login").trim() || "login";
+  const decision = await simulateCheckpointRiskDecision({
+    counters,
+    user,
+    intent,
+  });
+  res.json({
+    decision,
+    simulatedAt: new Date(),
+  });
+});
+
+export const getAdminCheckpointSessionDetail = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(String(id || ""))) {
+    res.status(400);
+    throw new Error("Checkpoint session id không hợp lệ.");
+  }
+
+  const session = await CheckpointSession.findById(id)
+    .populate("user", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+    .populate("review.reviewedBy", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+    .lean();
+  if (!session) {
+    res.status(404);
+    throw new Error("Không tìm thấy checkpoint session.");
+  }
+
+  const related = [];
+  if (session.user?._id || session.user) {
+    const uid = session.user?._id || session.user;
+    related.push({ user: uid }, { subjectUser: uid });
+  }
+  if (session.request?.deviceId) related.push({ deviceId: session.request.deviceId });
+  if (session.request?.ip) related.push({ ip: session.request.ip });
+
+  const events = related.length
+    ? await CheckpointEvent.find({ $or: related })
+        .sort({ createdAt: -1 })
+        .limit(120)
+        .populate("user", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+        .populate("subjectUser", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+        .lean()
+    : [];
+
+  res.json({
+    session: normalizeSessionForAdmin(session),
+    events: events.map(normalizeEventForAdmin),
+  });
+});
+
+export const getAdminCheckpointSubjectInsight = asyncHandler(async (req, res) => {
+  const days = clampInt(req.query.days, 30, 1, 180);
+  const userId = String(req.query.userId || "").trim();
+  const ip = String(req.query.ip || "").trim();
+  const deviceId = String(req.query.deviceId || "").trim();
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const scope = [];
+
+  if (userId) {
+    if (!mongoose.isValidObjectId(userId)) {
+      res.status(400);
+      throw new Error("userId không hợp lệ.");
+    }
+    const oid = new mongoose.Types.ObjectId(userId);
+    scope.push({ user: oid }, { subjectUser: oid });
+  }
+  if (ip) scope.push({ ip });
+  if (deviceId) scope.push({ deviceId });
+  if (!scope.length) {
+    res.status(400);
+    throw new Error("Cần truyền userId, ip hoặc deviceId.");
+  }
+
+  const eventFilter = { $or: scope, createdAt: { $gte: since } };
+  const sessionOr = [];
+  if (userId) sessionOr.push({ user: new mongoose.Types.ObjectId(userId) });
+  if (ip) sessionOr.push({ "request.ip": ip });
+  if (deviceId) sessionOr.push({ "request.deviceId": deviceId });
+  const sessionFilter = { $or: sessionOr, createdAt: { $gte: since } };
+
+  const [events, sessions, categoryRows, outcomeRows, severityRows] = await Promise.all([
+    CheckpointEvent.find(eventFilter)
+      .sort({ createdAt: -1 })
+      .limit(160)
+      .populate("user", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+      .populate("subjectUser", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+      .lean(),
+    CheckpointSession.find(sessionFilter)
+      .sort({ createdAt: -1 })
+      .limit(80)
+      .populate("user", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+      .populate("review.reviewedBy", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+      .lean(),
+    CheckpointEvent.aggregate([
+      { $match: eventFilter },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+    CheckpointEvent.aggregate([
+      { $match: eventFilter },
+      { $group: { _id: "$outcome", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+    CheckpointEvent.aggregate([
+      { $match: eventFilter },
+      { $group: { _id: "$severity", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+  ]);
+
+  const signalCounts = new Map();
+  sessions.forEach((session) => {
+    (session.risk?.signals || []).forEach((signal) => {
+      const key = signal.key || signal.reason || "unknown";
+      const current = signalCounts.get(key) || {
+        key,
+        reason: signal.reason || key,
+        category: signal.category || "system",
+        count: 0,
+      };
+      current.count += 1;
+      signalCounts.set(key, current);
+    });
+  });
+
+  res.json({
+    window: { days, since, until: new Date() },
+    scope: { userId, ip, deviceId },
+    summary: {
+      events: events.length,
+      sessions: sessions.length,
+      reviewRequired: sessions.filter((item) => item.status === "review_required").length,
+      passed: sessions.filter((item) => item.status === "passed").length,
+      failed: sessions.filter((item) => ["failed", "expired", "cancelled"].includes(item.status)).length,
+    },
+    categoryCounts: countMap(categoryRows),
+    outcomeCounts: countMap(outcomeRows),
+    severityCounts: countMap(severityRows),
+    topSignals: Array.from(signalCounts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 12),
+    sessions: sessions.map(normalizeSessionForAdmin),
+    events: events.map(normalizeEventForAdmin),
+  });
+});
+
 export const resolveAdminCheckpointSession = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(String(id || ""))) {
@@ -599,6 +858,11 @@ export const resolveAdminCheckpointSession = asyncHandler(async (req, res) => {
   if (!["approve", "reject", "cancel"].includes(action)) {
     res.status(400);
     throw new Error("Hành động checkpoint không hợp lệ.");
+  }
+  const settings = await getCheckpointSettings();
+  if (action === "reject" && settings.review?.requireNoteOnReject !== false && !note) {
+    res.status(400);
+    throw new Error("Vui lòng nhập ghi chú khi từ chối checkpoint.");
   }
 
   const session = await CheckpointSession.findById(id);
@@ -625,10 +889,12 @@ export const resolveAdminCheckpointSession = asyncHandler(async (req, res) => {
     session.status = "passed";
     session.passedAt = now;
     session.failedAt = null;
-    session.trustExpiresAt = new Date(Date.now() + trustMsForAdminReview());
+    session.trustExpiresAt = new Date(
+      Date.now() + Number(settings.trustDays || 15) * 24 * 60 * 60 * 1000
+    );
     session.expiresAt = new Date(Math.max(
       session.expiresAt ? new Date(session.expiresAt).getTime() : 0,
-      Date.now() + 10 * 60 * 1000
+      Date.now() + Number(settings.review?.extendPendingMinutesOnApprove || 10) * 60 * 1000
     ));
     session.factors.forEach((factor) => {
       if (factor.status !== "passed") {
@@ -636,6 +902,12 @@ export const resolveAdminCheckpointSession = asyncHandler(async (req, res) => {
         factor.passedAt = now;
       }
     });
+    if (session.mandate) {
+      await consumeCheckpointMandate({
+        id: session.mandate,
+        sessionId: session._id,
+      });
+    }
   } else if (action === "reject") {
     session.status = "failed";
     session.failedAt = now;

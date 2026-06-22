@@ -68,6 +68,12 @@ const checkpointSessionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    mandate: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CheckpointMandate",
+      default: null,
+      index: true,
+    },
     type: {
       type: String,
       enum: ["login"],

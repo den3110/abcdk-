@@ -3,14 +3,22 @@ import fs from "fs";
 import multer from "multer";
 import path from "path";
 import {
+  cancelAdminCheckpointMandate,
+  createAdminCheckpointMandate,
   getAdminCheckpointOverview,
+  getAdminCheckpointSessionDetail,
+  getAdminCheckpointSettings,
+  getAdminCheckpointSubjectInsight,
   getCheckpointPolicy,
   getCheckpointStatus,
+  listAdminCheckpointMandates,
   listAdminCheckpointEvents,
   listAdminCheckpointSessions,
   recordClientCheckpointEvent,
   resendCheckpointOtp,
   resolveAdminCheckpointSession,
+  simulateAdminCheckpointRisk,
+  updateAdminCheckpointSettings,
   uploadCheckpointEvidence,
   verifyCheckpointPhone,
 } from "../controllers/checkpointController.js";
@@ -76,7 +84,15 @@ const upload = multer({
 router.post("/events", recordClientCheckpointEvent);
 router.get("/admin/overview", protect, authorize("admin"), getAdminCheckpointOverview);
 router.get("/admin/sessions", protect, authorize("admin"), listAdminCheckpointSessions);
+router.get("/admin/sessions/:id", protect, authorize("admin"), getAdminCheckpointSessionDetail);
 router.get("/admin/events", protect, authorize("admin"), listAdminCheckpointEvents);
+router.get("/admin/mandates", protect, authorize("admin"), listAdminCheckpointMandates);
+router.post("/admin/mandates", protect, authorize("admin"), createAdminCheckpointMandate);
+router.post("/admin/mandates/:id/cancel", protect, authorize("admin"), cancelAdminCheckpointMandate);
+router.get("/admin/settings", protect, authorize("admin"), getAdminCheckpointSettings);
+router.put("/admin/settings", protect, authorize("admin"), updateAdminCheckpointSettings);
+router.post("/admin/simulate", protect, authorize("admin"), simulateAdminCheckpointRisk);
+router.get("/admin/subjects/insight", protect, authorize("admin"), getAdminCheckpointSubjectInsight);
 router.post(
   "/admin/sessions/:id/resolve",
   protect,

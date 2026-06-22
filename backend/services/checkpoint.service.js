@@ -5,6 +5,14 @@ import CheckpointEvent from "../models/checkpointEventModel.js";
 import CheckpointSession from "../models/checkpointSessionModel.js";
 import User from "../models/userModel.js";
 import generateToken from "../utils/generateToken.js";
+import {
+  findCheckpointAllowlistMatch,
+  getCheckpointSettings,
+} from "./checkpointSettings.service.js";
+import {
+  consumeCheckpointMandate,
+  getActiveCheckpointMandateForUser,
+} from "./checkpointMandate.service.js";
 import { sendCheckpointOtpEmail } from "./emailService.js";
 import { sendTingTingOtp } from "./tingtingZns.service.js";
 
@@ -28,16 +36,26 @@ const intEnv = (name, fallback) => {
 
 const checkpointEnabled = () => boolEnv("CHECKPOINT_ENGINE_ENABLED", true);
 const roleBypassEnabled = () => boolEnv("CHECKPOINT_ROLE_BYPASS", true);
-const sessionTtlMs = () =>
-  intEnv("CHECKPOINT_SESSION_TTL_MS", DEFAULT_SESSION_TTL_MS);
-const codeTtlMs = () =>
-  intEnv("CHECKPOINT_CODE_TTL_MS", DEFAULT_CODE_TTL_MS);
-const resendCooldownMs = () =>
-  intEnv("CHECKPOINT_RESEND_COOLDOWN_MS", DEFAULT_RESEND_COOLDOWN_MS);
-const trustMs = () => intEnv("CHECKPOINT_TRUST_MS", DEFAULT_TRUST_MS);
-const maxAttempts = () =>
-  intEnv("CHECKPOINT_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS);
-const manualReviewLevel = () =>
+const sessionTtlMs = (settings = null) =>
+  settings?.sessionTtlMinutes
+    ? Number(settings.sessionTtlMinutes) * 60 * 1000
+    : intEnv("CHECKPOINT_SESSION_TTL_MS", DEFAULT_SESSION_TTL_MS);
+const codeTtlMs = (settings = null) =>
+  settings?.codeTtlMinutes
+    ? Number(settings.codeTtlMinutes) * 60 * 1000
+    : intEnv("CHECKPOINT_CODE_TTL_MS", DEFAULT_CODE_TTL_MS);
+const resendCooldownMs = (settings = null) =>
+  settings?.resendCooldownSeconds
+    ? Number(settings.resendCooldownSeconds) * 1000
+    : intEnv("CHECKPOINT_RESEND_COOLDOWN_MS", DEFAULT_RESEND_COOLDOWN_MS);
+const trustMs = (settings = null) =>
+  settings?.trustDays
+    ? Number(settings.trustDays) * 24 * 60 * 60 * 1000
+    : intEnv("CHECKPOINT_TRUST_MS", DEFAULT_TRUST_MS);
+const maxAttempts = (settings = null) =>
+  settings?.maxAttempts || intEnv("CHECKPOINT_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS);
+const manualReviewLevel = (settings = null) =>
+  settings?.manualReviewLevel ||
   intEnv("CHECKPOINT_MANUAL_REVIEW_LEVEL", DEFAULT_MANUAL_REVIEW_LEVEL);
 
 const hashToken = (token) =>
@@ -108,8 +126,8 @@ const maskEmail = (email = "") => {
   return `${name.slice(0, 2)}***@${domain}`;
 };
 
-const getPrimaryOtpFactor = (user) => {
-  if (user?.email) {
+const buildOtpFactor = (user, factorKey) => {
+  if (factorKey === "email_otp" && user?.email) {
     return {
       key: "email_otp",
       method: "email_otp",
@@ -117,7 +135,7 @@ const getPrimaryOtpFactor = (user) => {
       target: user.email,
     };
   }
-  if (isValidPhoneVN(user?.phone || "")) {
+  if (factorKey === "phone_otp" && isValidPhoneVN(user?.phone || "")) {
     return {
       key: "phone_otp",
       method: "zalo_otp",
@@ -128,17 +146,29 @@ const getPrimaryOtpFactor = (user) => {
   return null;
 };
 
+const getPrimaryOtpFactor = (user, settings = null) => {
+  const priority = Array.isArray(settings?.primaryContactPriority)
+    ? settings.primaryContactPriority
+    : ["email_otp", "phone_otp"];
+  for (const key of priority) {
+    const factor = buildOtpFactor(user, key);
+    if (factor) return factor;
+  }
+  return buildOtpFactor(user, "email_otp") || buildOtpFactor(user, "phone_otp");
+};
+
 const getRequiredFactorsForLevel = (level, primaryFactorKey = "phone_otp") => {
   if (level >= 3) return [primaryFactorKey, "cccd_upload", "face_video"];
   if (level >= 2) return [primaryFactorKey, "cccd_upload"];
   return [primaryFactorKey];
 };
 
-export function getCheckpointPolicySummary() {
+export async function getCheckpointPolicySummary() {
+  const settings = await getCheckpointSettings();
   return {
-    enabled: checkpointEnabled(),
-    roleBypassEnabled: roleBypassEnabled(),
-    primaryContactPriority: ["email_otp", "phone_otp"],
+    enabled: settings.enabled !== false && checkpointEnabled(),
+    roleBypassEnabled: settings.roleBypassEnabled !== false && roleBypassEnabled(),
+    primaryContactPriority: settings.primaryContactPriority || ["email_otp", "phone_otp"],
     levels: [
       {
         level: 1,
@@ -151,7 +181,7 @@ export function getCheckpointPolicySummary() {
       {
         level: 3,
         factors: ["email_otp_or_phone_otp", "cccd_upload", "face_video"],
-        reviewRequired: manualReviewLevel() <= 3,
+        reviewRequired: manualReviewLevel(settings) <= 3,
       },
     ],
     observedCategories: [
@@ -167,7 +197,21 @@ export function getCheckpointPolicySummary() {
       windows: ["1h", "24h", "7d", "30d"],
       usesDampeners: true,
       requiresMultipleSignalsForLowRiskActions: true,
-      trustedDeviceWindowMs: trustMs(),
+      trustedDeviceWindowMs: trustMs(settings),
+    },
+    thresholds: settings.thresholds,
+    hardSignals: settings.hardSignals,
+    rules: settings.rules,
+    dampeners: settings.dampeners,
+    allowlist: {
+      enabled: settings.allowlist?.enabled !== false,
+      counts: {
+        users: settings.allowlist?.users?.length || 0,
+        emails: settings.allowlist?.emails?.length || 0,
+        phones: settings.allowlist?.phones?.length || 0,
+        deviceIds: settings.allowlist?.deviceIds?.length || 0,
+        ips: settings.allowlist?.ips?.length || 0,
+      },
     },
   };
 }
@@ -432,11 +476,15 @@ function accountAgeDays(user) {
   return Math.max(0, Math.floor((Date.now() - createdAt) / 86400000));
 }
 
-function buildRiskDecision({ counters, user, intent }) {
+function buildRiskDecision({ counters, user, intent, settings = null }) {
   let rawScore = 0;
   const signals = [];
   const dampeners = [];
   const categories = new Set();
+  const rules = settings?.rules || {};
+  const settingsDampeners = settings?.dampeners || {};
+  const thresholds = settings?.thresholds || {};
+  const hardSignals = settings?.hardSignals || {};
 
   const addSignal = (condition, signal) => {
     if (!condition) return;
@@ -463,146 +511,88 @@ function buildRiskDecision({ counters, user, intent }) {
     });
   };
 
-  addSignal(counters.authFailedDay >= 5, {
-    key: "auth_failed_day",
-    category: "auth",
-    points: 25,
-    levelHint: 1,
-    count: counters.authFailedDay,
-    window: "24h",
-    reason: "Nhiều lần đăng nhập sai trong 24 giờ",
-  });
-  addSignal(counters.authFailedDay >= 12, {
-    key: "auth_failed_day_burst",
-    category: "auth",
-    points: 25,
-    levelHint: 2,
-    count: counters.authFailedDay,
-    window: "24h",
-    reason: "Burst đăng nhập sai trong ngày",
-  });
-  addSignal(counters.authFailedWeek >= 25, {
-    key: "auth_failed_week",
-    category: "auth",
-    points: 25,
-    levelHint: 2,
-    count: counters.authFailedWeek,
-    window: "7d",
-    reason: "Đăng nhập sai lặp lại nhiều ngày",
-  });
-  addSignal(counters.adminDeniedDay >= 6, {
-    key: "admin_denied_day",
-    category: "admin_route",
-    points: 20,
-    levelHint: 1,
-    count: counters.adminDeniedDay,
-    window: "24h",
-    reason: "Truy cập route quản trị bị từ chối nhiều lần",
-  });
-  addSignal(counters.adminDeniedWeek >= 18, {
-    key: "admin_denied_week",
-    category: "admin_route",
-    points: 25,
-    levelHint: 2,
-    count: counters.adminDeniedWeek,
-    window: "7d",
-    reason: "Thử route quản trị lặp lại nhiều ngày",
-  });
-  addSignal(counters.spamHour >= 25, {
-    key: "spam_hour",
-    category: "spam",
-    points: 20,
-    levelHint: 1,
-    count: counters.spamHour,
-    window: "1h",
-    reason: "Tần suất thao tác ghi bất thường trong 1 giờ",
-  });
-  addSignal(counters.spamDay >= 80, {
-    key: "spam_day",
-    category: "spam",
-    points: 25,
-    levelHint: 2,
-    count: counters.spamDay,
-    window: "24h",
-    reason: "Tần suất thao tác ghi bất thường trong ngày",
-  });
-  addSignal(counters.rateLimitedDay >= 4, {
-    key: "rate_limited_day",
-    category: "rate_limit",
-    points: 25,
-    levelHint: 2,
-    count: counters.rateLimitedDay,
-    window: "24h",
-    reason: "Bị rate limit nhiều lần",
-  });
-  addSignal(counters.checkpointFailedWeek >= 3, {
-    key: "checkpoint_failed_week",
-    category: "checkpoint",
-    points: 30,
-    levelHint: counters.checkpointFailedWeek >= 8 ? 3 : 2,
-    count: counters.checkpointFailedWeek,
-    window: "7d",
-    reason: "Nhập sai checkpoint nhiều lần",
-  });
-  addSignal(counters.abuseWeek >= 2, {
-    key: "abuse_week",
-    category: "abuse",
-    points: 35,
-    levelHint: 2,
-    count: counters.abuseWeek,
-    window: "7d",
-    reason: "Có tín hiệu abuse đã bị chặn",
-  });
-  addSignal(counters.clientSuspiciousDay >= 10, {
-    key: "client_suspicious_day",
-    category: "client_signal",
-    points: 20,
-    levelHint: 1,
-    count: counters.clientSuspiciousDay,
-    window: "24h",
-    reason: "Tín hiệu client bất thường lặp lại",
-  });
-  addSignal(counters.criticalMonth >= 1, {
-    key: "critical_month",
-    category: "critical",
-    points: 35,
-    levelHint: 3,
-    count: counters.criticalMonth,
-    window: "30d",
-    reason: "Có tín hiệu rủi ro cao gần đây",
-  });
+  const addRuleSignal = (ruleKey, counterKey, { key, levelHint } = {}) => {
+    const rule = rules[ruleKey] || {};
+    if (rule.enabled === false) return;
+    const count = Number(counters[counterKey] || 0);
+    const threshold = Number(rule.threshold || 0);
+    addSignal(count >= threshold, {
+      key: key || ruleKey,
+      category: rule.category || "system",
+      points: Number(rule.points || 0),
+      levelHint: Number(levelHint || rule.levelHint || 1),
+      count,
+      window: rule.window || "",
+      reason: rule.reason || ruleKey,
+    });
+  };
 
-  addDampener(counters.authSuccessWeek >= 3, {
-    key: "recent_successful_logins",
-    points: -10,
-    reason: "Có đăng nhập thành công gần đây",
+  const addConfiguredDampener = (dampenerKey, condition, key) => {
+    const dampener = settingsDampeners[dampenerKey] || {};
+    if (dampener.enabled === false) return;
+    addDampener(condition, {
+      key,
+      points: Number(dampener.points || 0),
+      reason: dampener.reason || dampenerKey,
+    });
+  };
+
+  addRuleSignal("authFailedDay", "authFailedDay", { key: "auth_failed_day" });
+  addRuleSignal("authFailedDayBurst", "authFailedDay", {
+    key: "auth_failed_day_burst",
   });
-  addDampener(counters.checkpointPassedMonth >= 1, {
-    key: "recent_checkpoint_pass",
-    points: -12,
-    reason: "Đã vượt checkpoint gần đây",
+  addRuleSignal("authFailedWeek", "authFailedWeek", { key: "auth_failed_week" });
+  addRuleSignal("adminDeniedDay", "adminDeniedDay", { key: "admin_denied_day" });
+  addRuleSignal("adminDeniedWeek", "adminDeniedWeek", { key: "admin_denied_week" });
+  addRuleSignal("spamHour", "spamHour", { key: "spam_hour" });
+  addRuleSignal("spamDay", "spamDay", { key: "spam_day" });
+  addRuleSignal("rateLimitedDay", "rateLimitedDay", { key: "rate_limited_day" });
+  addRuleSignal("checkpointFailedWeek", "checkpointFailedWeek", {
+    key: "checkpoint_failed_week",
+    levelHint:
+      Number(counters.checkpointFailedWeek || 0) >=
+      Number(hardSignals.checkpointFailedWeek || 8)
+        ? 3
+        : undefined,
   });
-  addDampener(user?.cccdStatus === "verified", {
-    key: "verified_identity",
-    points: -8,
-    reason: "Tài khoản đã xác minh CCCD",
+  addRuleSignal("abuseWeek", "abuseWeek", { key: "abuse_week" });
+  addRuleSignal("clientSuspiciousDay", "clientSuspiciousDay", {
+    key: "client_suspicious_day",
   });
-  addDampener(accountAgeDays(user) >= 30, {
-    key: "aged_account",
-    points: -6,
-    reason: "Tài khoản đã hoạt động trên 30 ngày",
-  });
+  addRuleSignal("criticalMonth", "criticalMonth", { key: "critical_month" });
+
+  addConfiguredDampener(
+    "authSuccessWeek",
+    counters.authSuccessWeek >= Number(settingsDampeners.authSuccessWeek?.threshold || 3),
+    "recent_successful_logins"
+  );
+  addConfiguredDampener(
+    "checkpointPassedMonth",
+    counters.checkpointPassedMonth >=
+      Number(settingsDampeners.checkpointPassedMonth?.threshold || 1),
+    "recent_checkpoint_pass"
+  );
+  addConfiguredDampener(
+    "verifiedIdentity",
+    user?.cccdStatus === "verified",
+    "verified_identity"
+  );
+  addConfiguredDampener(
+    "agedAccount",
+    accountAgeDays(user) >= Number(settingsDampeners.agedAccount?.threshold || 30),
+    "aged_account"
+  );
 
   const dampenerTotal = dampeners.reduce(
     (sum, item) => sum + Number(item.points || 0),
     0
   );
   const hasHardSignal =
-    counters.checkpointFailedWeek >= 8 ||
-    counters.abuseWeek >= 2 ||
-    counters.criticalMonth >= 1 ||
-    counters.authFailedDay >= 20 ||
-    counters.rateLimitedDay >= 8;
+    counters.checkpointFailedWeek >= Number(hardSignals.checkpointFailedWeek || 8) ||
+    counters.abuseWeek >= Number(hardSignals.abuseWeek || 2) ||
+    counters.criticalMonth >= Number(hardSignals.criticalMonth || 1) ||
+    counters.authFailedDay >= Number(hardSignals.authFailedDay || 20) ||
+    counters.rateLimitedDay >= Number(hardSignals.rateLimitedDay || 8);
   const categoryCount = categories.size;
   const score = Math.max(0, rawScore + dampenerTotal);
   const maxLevelHint = signals.reduce(
@@ -611,18 +601,28 @@ function buildRiskDecision({ counters, user, intent }) {
   );
 
   let level = 0;
-  if (score >= 85 && (hasHardSignal || categoryCount >= 3 || maxLevelHint >= 3)) {
+  if (
+    score >= Number(thresholds.level3Score || 85) &&
+    (hasHardSignal ||
+      categoryCount >= Number(thresholds.minCategoriesForLevel3 || 3) ||
+      maxLevelHint >= 3)
+  ) {
     level = 3;
   } else if (
-    score >= 55 &&
-    (hasHardSignal || categoryCount >= 2 || maxLevelHint >= 2)
+    score >= Number(thresholds.level2Score || 55) &&
+    (hasHardSignal ||
+      categoryCount >= Number(thresholds.minCategoriesForLevel2 || 2) ||
+      maxLevelHint >= 2)
   ) {
     level = 2;
-  } else if (score >= 25 && (signals.length >= 2 || hasHardSignal)) {
+  } else if (
+    score >= Number(thresholds.level1Score || 25) &&
+    (signals.length >= Number(thresholds.minSignalsForLevel1 || 2) || hasHardSignal)
+  ) {
     level = 1;
   }
 
-  if (intent === "login" && level > 0 && !getPrimaryOtpFactor(user)) {
+  if (intent === "login" && level > 0 && !getPrimaryOtpFactor(user, settings)) {
     return {
       required: false,
       level: 0,
@@ -659,7 +659,10 @@ function buildRiskDecision({ counters, user, intent }) {
 }
 
 export async function evaluateCheckpointRisk({ user, req, intent = "login" }) {
-  if (!checkpointEnabled()) {
+  const settings = await getCheckpointSettings();
+  const ctx = getClientContext(req);
+
+  if (!checkpointEnabled() || settings.enabled === false) {
     return {
       required: false,
       level: 0,
@@ -673,7 +676,31 @@ export async function evaluateCheckpointRisk({ user, req, intent = "login" }) {
     };
   }
 
-  if (roleBypassEnabled() && isPrivilegedUser(user)) {
+  const allowlistMatch = findCheckpointAllowlistMatch({
+    settings,
+    user,
+    context: ctx,
+  });
+  if (allowlistMatch) {
+    return {
+      required: false,
+      level: 0,
+      score: 0,
+      rawScore: 0,
+      confidence: "allowlisted",
+      reasons: [allowlistMatch.reason || "Checkpoint allowlist còn hiệu lực"],
+      signals: [],
+      dampeners: [],
+      counters: {},
+      allowlist: {
+        value: allowlistMatch.value,
+        reason: allowlistMatch.reason || "",
+        expiresAt: allowlistMatch.expiresAt || null,
+      },
+    };
+  }
+
+  if (settings.roleBypassEnabled !== false && roleBypassEnabled() && isPrivilegedUser(user)) {
     return {
       required: false,
       level: 0,
@@ -702,7 +729,41 @@ export async function evaluateCheckpointRisk({ user, req, intent = "login" }) {
     };
   }
 
-  return buildRiskDecision({ counters, user, intent });
+  return buildRiskDecision({ counters, user, intent, settings });
+}
+
+export async function simulateCheckpointRiskDecision({
+  counters = {},
+  user = {},
+  intent = "login",
+} = {}) {
+  const settings = await getCheckpointSettings();
+  const normalizedCounters = {
+    authFailedDay: 0,
+    authFailedWeek: 0,
+    authSuccessWeek: 0,
+    adminDeniedDay: 0,
+    adminDeniedWeek: 0,
+    spamHour: 0,
+    spamDay: 0,
+    rateLimitedDay: 0,
+    checkpointFailedWeek: 0,
+    checkpointPassedMonth: 0,
+    abuseWeek: 0,
+    clientSuspiciousDay: 0,
+    criticalMonth: 0,
+    ...Object.entries(counters || {}).reduce((acc, [key, value]) => {
+      const n = Number(value);
+      acc[key] = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+      return acc;
+    }, {}),
+  };
+  return buildRiskDecision({
+    counters: normalizedCounters,
+    user,
+    intent,
+    settings,
+  });
 }
 
 async function hasTrustedLoginCheckpoint(user, req, minLevel = 1) {
@@ -734,6 +795,48 @@ export async function shouldRequireLoginCheckpoint(user, req) {
         confidence: "trusted_device",
       }
     : decision;
+}
+
+export async function shouldRequireManualLoginCheckpoint(user) {
+  const mandate = await getActiveCheckpointMandateForUser(user?._id || user?.id);
+  if (!mandate) {
+    return {
+      required: false,
+      level: 0,
+      score: 0,
+      rawScore: 0,
+      confidence: "no_manual_mandate",
+      reasons: [],
+      signals: [],
+      dampeners: [],
+      counters: {},
+    };
+  }
+
+  const level = Math.max(1, Math.min(3, Number(mandate.level || 1)));
+  return {
+    required: true,
+    level,
+    score: 100,
+    rawScore: 100,
+    confidence: "manual_admin",
+    reasons: [mandate.reason || `Admin yêu cầu checkpoint level ${level}`],
+    signals: [
+      {
+        key: "admin_manual_checkpoint",
+        category: "checkpoint",
+        points: 100,
+        levelHint: level,
+        count: 1,
+        window: "manual",
+        reason: mandate.reason || `Admin yêu cầu checkpoint level ${level}`,
+      },
+    ],
+    dampeners: [],
+    counters: {},
+    mandateId: String(mandate._id),
+    mandate,
+  };
 }
 
 export async function shouldRequireActionCheckpoint({
@@ -805,13 +908,13 @@ function publicSessionPayload(session, token = "") {
   };
 }
 
-async function sendOtpToSession(session, otp) {
+async function sendOtpToSession(session, otp, settings = null) {
   try {
     if (session.delivery.method === "email_otp") {
       const result = await sendCheckpointOtpEmail({
         to: session.delivery.phone,
         otp,
-        expiresInSec: Math.ceil(codeTtlMs() / 1000),
+        expiresInSec: Math.ceil(codeTtlMs(settings) / 1000),
       });
       if (!result?.ok) {
         throw result?.error || new Error("Email checkpoint failed");
@@ -861,6 +964,7 @@ async function completeSessionIfReady(session, { req, res, token }) {
     };
   }
 
+  const settings = await getCheckpointSettings();
   const user = await User.findById(session.user);
   if (!user || user.isDeleted) {
     const error = new Error("Tài khoản không tồn tại hoặc đã bị khoá.");
@@ -870,9 +974,15 @@ async function completeSessionIfReady(session, { req, res, token }) {
 
   session.status = "passed";
   session.passedAt = new Date();
-  session.trustExpiresAt = new Date(Date.now() + trustMs());
+  session.trustExpiresAt = new Date(Date.now() + trustMs(settings));
   session.codeHash = "";
   await session.save();
+  if (session.mandate) {
+    await consumeCheckpointMandate({
+      id: session.mandate,
+      sessionId: session._id,
+    });
+  }
 
   generateToken(res, user);
   void User.recordLogin(user._id, { req, method: "otp", success: true });
@@ -902,11 +1012,14 @@ export async function startLoginCheckpoint({
   req,
   decision,
   reason = "login_risk",
+  mandate = null,
 }) {
+  const settings = await getCheckpointSettings();
   const risk =
     decision || (await shouldRequireLoginCheckpoint(user, req));
   const level = Math.max(1, Math.min(3, Number(risk.level || 1)));
-  const primaryFactor = getPrimaryOtpFactor(user);
+  const mandateId = mandate?._id || risk.mandateId || risk.mandate?._id || null;
+  const primaryFactor = getPrimaryOtpFactor(user, settings);
   if (!primaryFactor) {
     const error = new Error("Tài khoản chưa có số điện thoại hoặc email để checkpoint.");
     error.statusCode = 400;
@@ -919,6 +1032,7 @@ export async function startLoginCheckpoint({
 
   const session = new CheckpointSession({
     user: user._id,
+    mandate: mandateId || null,
     type: "login",
     channel: "web",
     status: "pending",
@@ -933,6 +1047,7 @@ export async function startLoginCheckpoint({
       signals: risk.signals || [],
       dampeners: risk.dampeners || [],
       counters: risk.counters || {},
+      mandateId: mandateId ? String(mandateId) : "",
     },
     tokenHash: hashToken(token),
     codeHash: await bcrypt.hash(otp, await bcrypt.genSalt(10)),
@@ -944,17 +1059,17 @@ export async function startLoginCheckpoint({
       sendCount: 1,
     },
     attempts: 0,
-    maxAttempts: maxAttempts(),
-    expiresAt: new Date(now + sessionTtlMs()),
-    codeExpiresAt: new Date(now + codeTtlMs()),
-    resendAvailableAt: new Date(now + resendCooldownMs()),
+    maxAttempts: maxAttempts(settings),
+    expiresAt: new Date(now + sessionTtlMs(settings)),
+    codeExpiresAt: new Date(now + codeTtlMs(settings)),
+    resendAvailableAt: new Date(now + resendCooldownMs(settings)),
     request: {
       ...ctx,
       reason,
     },
   });
 
-  const zns = await sendOtpToSession(session, otp);
+  const zns = await sendOtpToSession(session, otp, settings);
   session.delivery.tranId = String(zns?.tranId || "");
   session.delivery.cost = Number(zns?.cost || 0);
   await session.save();
@@ -972,6 +1087,7 @@ export async function startLoginCheckpoint({
       score: risk.score || 0,
       confidence: risk.confidence || "low",
       reasons: risk.reasons || [],
+      mandateId: mandateId ? String(mandateId) : "",
     },
   });
 
@@ -1003,6 +1119,7 @@ export async function getPublicCheckpointSession(token) {
 }
 
 export async function resendCheckpointCode({ token, req }) {
+  const settings = await getCheckpointSettings();
   const session = await getCheckpointSessionByToken(token);
   const now = Date.now();
 
@@ -1032,11 +1149,11 @@ export async function resendCheckpointCode({ token, req }) {
   }
 
   const otp = makeOtp(6);
-  const zns = await sendOtpToSession(session, otp);
+  const zns = await sendOtpToSession(session, otp, settings);
 
   session.codeHash = await bcrypt.hash(otp, await bcrypt.genSalt(10));
-  session.codeExpiresAt = new Date(now + codeTtlMs());
-  session.resendAvailableAt = new Date(now + resendCooldownMs());
+  session.codeExpiresAt = new Date(now + codeTtlMs(settings));
+  session.resendAvailableAt = new Date(now + resendCooldownMs(settings));
   session.delivery.lastSentAt = new Date(now);
   session.delivery.sendCount = Number(session.delivery.sendCount || 0) + 1;
   session.delivery.tranId = String(zns?.tranId || "");
@@ -1137,6 +1254,7 @@ export async function submitCheckpointEvidence({
   req,
   res,
 }) {
+  const settings = await getCheckpointSettings();
   const session = await getCheckpointSessionByToken(token);
   if (session.status !== "pending") {
     const error = new Error("Checkpoint này không còn hiệu lực.");
@@ -1163,7 +1281,7 @@ export async function submitCheckpointEvidence({
   factorDoc.submittedAt = new Date();
 
   const requiresManualReview =
-    Number(session.level || 1) >= manualReviewLevel() &&
+    Number(session.level || 1) >= manualReviewLevel(settings) &&
     (factor === "face_video" || !getFactor(session, "face_video"));
 
   if (requiresManualReview) {
