@@ -501,6 +501,8 @@ export const toDTO = (matchDoc) => {
     : [];
 
   const liveBy = m.liveBy ? normUserLite(m.liveBy) : null;
+  const startedBy = m.startedBy ? normUserLite(m.startedBy) : null;
+  const finishedBy = m.finishedBy ? normUserLite(m.finishedBy) : null;
 
   // ================= Court (lite + fallback) =================
   const courtObj = m.court
@@ -777,6 +779,8 @@ export const toDTO = (matchDoc) => {
 
     referees,
     liveBy,
+    startedBy,
+    finishedBy,
 
     scheduledAt: m.scheduledAt || null,
     startAt: m.startAt || undefined,

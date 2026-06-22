@@ -268,6 +268,8 @@ const matchSchema = new Schema(
 
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
+    startedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    finishedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     liveBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     liveVersion: { type: Number, default: 0 },
     video: {
@@ -489,6 +491,14 @@ async function emitMatchRefereeSnapshot(matchIds = []) {
         path: "liveBy",
         select: "name fullName nickname nickName",
       })
+      .populate({
+        path: "startedBy",
+        select: "name fullName nickname nickName",
+      })
+      .populate({
+        path: "finishedBy",
+        select: "name fullName nickname nickName",
+      })
       .select(
         "label managers court courtLabel courtCluster " +
           "scheduledAt startAt startedAt finishedAt status " +
@@ -497,7 +507,7 @@ async function emitMatchRefereeSnapshot(matchIds = []) {
           "seedA seedB previousA previousB nextMatch winner serve overlay " +
           "video videoUrl stream streams meta " +
           "format rrRound pool " +
-          "liveBy liveVersion"
+          "liveBy startedBy finishedBy liveVersion"
       )
       .lean();
 

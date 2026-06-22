@@ -6,6 +6,7 @@ import path from "path";
 import sharp from "sharp";
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
+import User from "../models/userModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import Registration from "../models/registrationModel.js";
 import DrawSession from "../models/drawSessionModel.js";
@@ -3623,6 +3624,9 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
         .populate({ path: "referee", select: "name nickname" })
+        .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+        .populate({ path: "startedBy", select: "name fullName nickname nickName" })
+        .populate({ path: "finishedBy", select: "name fullName nickname nickName" })
         .populate({
           path: "court",
           select: "name cluster status bracket order",
@@ -3631,6 +3635,7 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
           path: "courtStation",
           select: "name code status order clusterId",
         })
+        .select("-liveLog")
         .sort(sortSpec)
         .skip(lim ? skip : 0)
         .limit(lim || 0)
@@ -3639,6 +3644,83 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     ]);
 
     // ---- stage buckets: Group = V1 cho toàn giải ----
+    const matchIds = listRaw.map((match) => match?._id).filter(Boolean);
+    const liveAuditRows = matchIds.length
+      ? await Match.aggregate([
+          { $match: { _id: { $in: matchIds } } },
+          {
+            $project: {
+              startedBy: 1,
+              finishedBy: 1,
+              liveEvents: {
+                $filter: {
+                  input: { $ifNull: ["$liveLog", []] },
+                  as: "entry",
+                  cond: {
+                    $in: ["$$entry.type", ["start", "finish", "forfeit"]],
+                  },
+                },
+              },
+            },
+          },
+        ])
+      : [];
+
+    const actorIdSet = new Set();
+    for (const row of liveAuditRows) {
+      const collectActor = (value) => {
+        const actorId = String(value?._id || value || "").trim();
+        if (actorId && isId(actorId)) actorIdSet.add(actorId);
+      };
+      collectActor(row?.startedBy);
+      collectActor(row?.finishedBy);
+      for (const entry of row?.liveEvents || []) collectActor(entry?.by);
+    }
+
+    const actorObjectIds = Array.from(actorIdSet).map(
+      (actorId) => new mongoose.Types.ObjectId(actorId)
+    );
+    const actorRows = actorObjectIds.length
+      ? await User.find({ _id: { $in: actorObjectIds } })
+          .select("name fullName nickname nickName")
+          .lean()
+      : [];
+    const actorById = new Map(
+      actorRows.map((actor) => [String(actor._id), actor])
+    );
+    const actorLite = (value) => {
+      const actorId = String(value?._id || value || "").trim();
+      return actorById.get(actorId) || null;
+    };
+    const liveAuditByMatchId = new Map(
+      liveAuditRows.map((row) => {
+        const liveEvents = (row?.liveEvents || []).map((entry) => ({
+          type: entry?.type || "",
+          at: entry?.at || null,
+          by: actorLite(entry?.by),
+          payload: entry?.payload || undefined,
+        }));
+        const startEntry = liveEvents.find(
+          (entry) => String(entry?.type || "").toLowerCase() === "start"
+        );
+        const finishEntry = [...liveEvents]
+          .reverse()
+          .find((entry) =>
+            ["finish", "forfeit"].includes(
+              String(entry?.type || "").toLowerCase()
+            )
+          );
+        return [
+          String(row?._id || ""),
+          {
+            liveEvents,
+            startedBy: actorLite(row?.startedBy) || startEntry?.by || null,
+            finishedBy: actorLite(row?.finishedBy) || finishEntry?.by || null,
+          },
+        ];
+      })
+    );
+
     const allBrackets = await Bracket.find({ tournament: id })
       .select("_id type stage order prefill ko meta config drawRounds")
       .lean();
@@ -3867,9 +3949,15 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       return ord + 1;
     };
 
-    const normalizedList = listRaw.map((rawMatch) =>
-      normalizeMatchDisplayShape(rawMatch),
-    );
+    const normalizedList = listRaw.map((rawMatch) => {
+      const liveAudit = liveAuditByMatchId.get(String(rawMatch?._id || ""));
+      return normalizeMatchDisplayShape({
+        ...rawMatch,
+        liveEvents: liveAudit?.liveEvents || [],
+        startedBy: rawMatch?.startedBy || liveAudit?.startedBy || null,
+        finishedBy: rawMatch?.finishedBy || liveAudit?.finishedBy || null,
+      });
+    });
     const matchesByBracketId = new Map();
     for (const match of normalizedList) {
       const bracketId = String(match?.bracket?._id || match?.bracket || "");

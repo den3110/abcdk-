@@ -55,6 +55,8 @@ export async function loadMatchLiveSnapshot(matchId) {
       select: "name fullName nickname nickName",
     })
     .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+    .populate({ path: "startedBy", select: "name fullName nickname nickName" })
+    .populate({ path: "finishedBy", select: "name fullName nickname nickName" })
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })

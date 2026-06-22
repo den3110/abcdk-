@@ -577,6 +577,7 @@ function applyStartEvent(match, event, actorId) {
   };
 
   match.liveBy = actorId || match.liveBy || null;
+  if (actorId && !match.startedBy) match.startedBy = actorId;
   ensureLiveLog(match);
   match.liveLog.push({ type: "start", by: actorId || null, at: new Date() });
   match.liveVersion = toNum(match.liveVersion, 0) + 1;
@@ -870,6 +871,7 @@ function applyFinishEvent(match, event, actorId, { isForfeit = false } = {}) {
     match.note = `[${event.payload.reason}] ${match.note || ""}`.trim();
   }
   match.liveBy = actorId || match.liveBy || null;
+  if (actorId) match.finishedBy = actorId;
 
   ensureLiveLog(match);
   match.liveLog.push({

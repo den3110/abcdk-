@@ -36,6 +36,9 @@ import { addBusinessBreadcrumb } from "../utils/sentry";
 import ResponsiveModal from "./ResponsiveModal";
 import ResponsiveMatchViewer from "../screens/PickleBall/match/ResponsiveMatchViewer";
 
+const ASSIGN_CONNECTOR_COLOR = "#29b6f6";
+const ASSIGN_CONNECTOR_HOVER_COLOR = "#4fc3f7";
+
 const sid = (value) => {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -120,7 +123,12 @@ export default function AssignCourtStationDialog({
   const [queueDetailStationId, setQueueDetailStationId] = useState("");
   const [confirmQueueStationId, setConfirmQueueStationId] = useState("");
   const [confirmRemoveType, setConfirmRemoveType] = useState(null);
+  const [connectorPath, setConnectorPath] = useState(null);
+  const [connectorHighlighted, setConnectorHighlighted] = useState(false);
   const openTraceRef = useRef("");
+  const connectorRootRef = useRef(null);
+  const assignmentSummaryRef = useRef(null);
+  const stationCardRefsRef = useRef(new Map());
 
   const {
     data: clusterOptionsData,
@@ -285,7 +293,13 @@ export default function AssignCourtStationDialog({
 
   const currentStationId = sid(currentStation?._id);
   const queuedStationId = sid(queuedStation?._id);
+  const connectorStationId = currentStationId || queuedStationId;
   const matchId = sid(match?._id);
+  const setStationCardRef = (stationId, node) => {
+    if (!stationId) return;
+    if (node) stationCardRefsRef.current.set(stationId, node);
+    else stationCardRefsRef.current.delete(stationId);
+  };
   const queueDetailStation = useMemo(
     () =>
       stations.find((station) => sid(station?._id) === queueDetailStationId) ||
@@ -308,9 +322,78 @@ export default function AssignCourtStationDialog({
       setViewerMatch(null);
       setQueueDetailStationId("");
       setConfirmRemoveType(null);
+      setConnectorPath(null);
+      setConnectorHighlighted(false);
       openTraceRef.current = "";
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !connectorStationId) {
+      setConnectorPath(null);
+      return undefined;
+    }
+
+    let frameId = 0;
+    const updateConnector = () => {
+      const root = connectorRootRef.current;
+      const summary = assignmentSummaryRef.current;
+      const station = stationCardRefsRef.current.get(connectorStationId);
+      if (!root || !summary || !station) {
+        setConnectorPath(null);
+        return;
+      }
+
+      const rootRect = root.getBoundingClientRect();
+      const summaryRect = summary.getBoundingClientRect();
+      const stationRect = station.getBoundingClientRect();
+      const rootWidth = Math.max(root.scrollWidth, root.clientWidth);
+      const rootHeight = Math.max(root.scrollHeight, root.clientHeight);
+      const sourceY = Math.max(0, summaryRect.bottom - rootRect.top - 6);
+      const targetY =
+        stationRect.top -
+        rootRect.top +
+        Math.min(Math.max(stationRect.height * 0.5, 48), 118);
+      const targetX = Math.max(20, stationRect.left - rootRect.left);
+      const connectorX = Math.max(
+        8,
+        Math.min(summaryRect.left, stationRect.left) - rootRect.left - 12,
+      );
+
+      setConnectorPath({
+        d: `M ${connectorX} ${sourceY} L ${connectorX} ${targetY} L ${targetX} ${targetY}`,
+        width: rootWidth,
+        height: rootHeight,
+      });
+    };
+    const scheduleConnectorUpdate = () => {
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updateConnector);
+    };
+
+    scheduleConnectorUpdate();
+    window.addEventListener("resize", scheduleConnectorUpdate);
+
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleConnectorUpdate);
+    if (observer) {
+      [
+        connectorRootRef.current,
+        assignmentSummaryRef.current,
+        stationCardRefsRef.current.get(connectorStationId),
+      ]
+        .filter(Boolean)
+        .forEach((element) => observer.observe(element));
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", scheduleConnectorUpdate);
+      observer?.disconnect();
+    };
+  }, [connectorStationId, open, stations]);
 
   useEffect(() => {
     if (!queueDetailStationId) return;
@@ -487,9 +570,78 @@ export default function AssignCourtStationDialog({
               Thiếu tournamentId, chưa thể gán sân theo cụm.
             </Alert>
           ) : (
-            <>
+            <Box
+              ref={connectorRootRef}
+              sx={{
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                gap: 1.5,
+                pl: connectorStationId ? { xs: 0, sm: 2.5 } : 0,
+              }}
+            >
+              {connectorPath && (
+                <Box
+                  component="svg"
+                  viewBox={`0 0 ${connectorPath.width} ${connectorPath.height}`}
+                  preserveAspectRatio="none"
+                  sx={{
+                    display: { xs: "none", sm: "block" },
+                    position: "absolute",
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    overflow: "visible",
+                    pointerEvents: "none",
+                    zIndex: 0,
+                  }}
+                >
+                  <path
+                    d={connectorPath.d}
+                    fill="none"
+                    stroke="transparent"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={18}
+                    pointerEvents="stroke"
+                    onMouseEnter={() => setConnectorHighlighted(true)}
+                    onMouseLeave={() => setConnectorHighlighted(false)}
+                  />
+                  <path
+                    d={connectorPath.d}
+                    fill="none"
+                    stroke={
+                      connectorHighlighted
+                        ? ASSIGN_CONNECTOR_HOVER_COLOR
+                        : ASSIGN_CONNECTOR_COLOR
+                    }
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={connectorHighlighted ? 4 : 3}
+                    opacity={connectorHighlighted ? 1 : 0.78}
+                    style={{
+                      filter: connectorHighlighted
+                        ? "drop-shadow(0 0 8px rgba(79, 195, 247, 0.85))"
+                        : "none",
+                      transition:
+                        "stroke 160ms ease, stroke-width 160ms ease, opacity 160ms ease, filter 160ms ease",
+                    }}
+                  />
+                </Box>
+              )}
               {(currentStationId || queuedStationId) && (
-                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Paper
+                  ref={assignmentSummaryRef}
+                  variant="outlined"
+                  onMouseEnter={() => setConnectorHighlighted(true)}
+                  onMouseLeave={() => setConnectorHighlighted(false)}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    position: "relative",
+                    zIndex: 1,
+                  }}
+                >
                   <Stack
                     direction={{ xs: "column", sm: "row" }}
                     justifyContent="space-between"
@@ -555,7 +707,7 @@ export default function AssignCourtStationDialog({
                     "Không tải được runtime cụm sân."}
                 </Alert>
               ) : (
-                <Stack spacing={1.5}>
+                <Stack spacing={1.5} sx={{ position: "relative", zIndex: 1 }}>
                   {stations.map((station) => {
                     const stationId = sid(station?._id);
                     const isCurrent = currentStationId === stationId;
@@ -592,12 +744,36 @@ export default function AssignCourtStationDialog({
                     return (
                       <Paper
                         key={stationId}
+                        ref={(node) => setStationCardRef(stationId, node)}
                         variant="outlined"
+                        onMouseEnter={() => {
+                          if (isCurrent || isQueued) {
+                            setConnectorHighlighted(true);
+                          }
+                        }}
+                        onMouseLeave={() => {
+                          if (isCurrent || isQueued) {
+                            setConnectorHighlighted(false);
+                          }
+                        }}
                         sx={{
                           p: 1.5,
                           borderRadius: 2,
+                          position: "relative",
                           borderColor:
-                            isCurrent || isQueued ? "primary.main" : "divider",
+                            isCurrent || isQueued
+                              ? ASSIGN_CONNECTOR_COLOR
+                              : "divider",
+                          transition:
+                            "border-color 160ms ease, box-shadow 160ms ease",
+                          "&:hover":
+                            isCurrent || isQueued
+                              ? {
+                                  borderColor: ASSIGN_CONNECTOR_HOVER_COLOR,
+                                  boxShadow:
+                                    "0 0 0 1px rgba(79, 195, 247, 0.5)",
+                                }
+                              : undefined,
                         }}
                       >
                         <Stack spacing={1.25}>
@@ -732,7 +908,7 @@ export default function AssignCourtStationDialog({
                   )}
                 </Stack>
               )}
-            </>
+            </Box>
           )}
         </Stack>
       </ResponsiveModal>

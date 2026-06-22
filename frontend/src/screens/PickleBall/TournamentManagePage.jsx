@@ -654,6 +654,59 @@ const formatOptionalDateTime = (value, locale) => {
   return formatDateTime(date, locale);
 };
 
+const liveLogEntries = (match) =>
+  Array.isArray(match?.liveEvents)
+    ? match.liveEvents
+    : Array.isArray(match?.liveLog)
+      ? match.liveLog
+      : [];
+
+const findLiveLogEntry = (match, types, { fromEnd = false } = {}) => {
+  const typeSet = new Set(types.map((type) => String(type).toLowerCase()));
+  const entries = liveLogEntries(match);
+
+  if (fromEnd) {
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (typeSet.has(String(entry?.type || "").toLowerCase())) return entry;
+    }
+    return null;
+  }
+
+  for (const entry of entries) {
+    if (typeSet.has(String(entry?.type || "").toLowerCase())) return entry;
+  }
+  return null;
+};
+
+const liveActorName = (actor) => {
+  if (!actor || typeof actor !== "object") return "";
+  const name = personNickname(actor);
+  return name && name !== "\u2014" ? name : "";
+};
+
+const matchStartedAt = (match) =>
+  match?.startedAt || findLiveLogEntry(match, ["start"])?.at || "";
+
+const matchFinishedAt = (match) =>
+  match?.finishedAt ||
+  findLiveLogEntry(match, ["finish", "forfeit"], { fromEnd: true })?.at ||
+  "";
+
+const matchStarterName = (match) => {
+  const startEntry = findLiveLogEntry(match, ["start"]);
+  const status = String(match?.status || "").toLowerCase();
+  const liveByCanRepresentStart =
+    status === "live" && Boolean(match?.startedAt || startEntry?.at);
+  return (
+    liveActorName(startEntry?.by) ||
+    liveActorName(match?.startedBy) ||
+    liveActorName(match?.startBy) ||
+    (liveByCanRepresentStart ? liveActorName(match?.liveBy) : "") ||
+    refereeNames(match)
+  );
+};
+
 const statusWinnerLabel = (match) => {
   const winner = String(match?.winner || "").toUpperCase();
   if (winner === "A") return teamLabel(match, "A");
@@ -661,7 +714,7 @@ const statusWinnerLabel = (match) => {
   return "—";
 };
 
-function StatusDetailItem({ label, children }) {
+const StatusDetailItem = React.memo(function StatusDetailItem({ label, children }) {
   return (
     <Box
       sx={{
@@ -680,9 +733,15 @@ function StatusDetailItem({ label, children }) {
       </Typography>
     </Box>
   );
-}
+});
 
-function MatchStatusDialog({ open, match, onClose, t, locale }) {
+const MatchStatusDialog = React.memo(function MatchStatusDialog({
+  open,
+  match,
+  onClose,
+  t,
+  locale,
+}) {
   const videoUrl = detailValue(match?.video);
   const hasVideo = videoUrl !== "—";
   const statusText = getManageStatusMeta(t, match?.status).label;
@@ -733,7 +792,7 @@ function MatchStatusDialog({ open, match, onClose, t, locale }) {
             <StatusDetailItem label="Cặp B">{teamLabel(match, "B")}</StatusDetailItem>
             <StatusDetailItem label="Đội thắng">{statusWinnerLabel(match)}</StatusDetailItem>
             <StatusDetailItem label="Trọng tài">
-              {detailValue(refereeNames(match))}
+              {detailValue(matchStarterName(match))}
             </StatusDetailItem>
             <StatusDetailItem label="Video">
               {hasVideo ? (
@@ -756,10 +815,10 @@ function MatchStatusDialog({ open, match, onClose, t, locale }) {
               {formatOptionalDateTime(match?.updatedAt, locale)}
             </StatusDetailItem>
             <StatusDetailItem label="Bắt đầu">
-              {formatOptionalDateTime(match?.startedAt || match?.startAt, locale)}
+              {formatOptionalDateTime(matchStartedAt(match), locale)}
             </StatusDetailItem>
             <StatusDetailItem label="Kết thúc">
-              {formatOptionalDateTime(match?.finishedAt || match?.endAt, locale)}
+              {formatOptionalDateTime(matchFinishedAt(match), locale)}
             </StatusDetailItem>
           </Box>
         </Stack>
@@ -769,7 +828,7 @@ function MatchStatusDialog({ open, match, onClose, t, locale }) {
       </DialogActions>
     </Dialog>
   );
-}
+});
 
 const extractRealtimeMatchPayload = (payload) =>
   payload?.data ?? payload?.snapshot ?? payload?.match ?? payload ?? null;
@@ -787,6 +846,8 @@ const LIST_AFFECTING_LIVE_FIELDS = new Set([
   "courtStationId",
   "courtStationLabel",
   "courtStationName",
+  "startedAt",
+  "finishedAt",
 ]);
 
 const sameLiveValue = (left, right) => {
@@ -845,13 +906,15 @@ function createLiveStore() {
   };
 }
 function useLiveMatch(liveStore, matchId) {
+  const liveMatchId = String(matchId || "");
   const subscribe = useCallback(
-    (onStoreChange) => liveStore.subscribe(matchId, onStoreChange),
-    [liveStore, matchId],
+    (onStoreChange) =>
+      liveMatchId ? liveStore.subscribe(liveMatchId, onStoreChange) : () => {},
+    [liveStore, liveMatchId],
   );
   const getSnapshot = useCallback(
-    () => liveStore.get(matchId),
-    [liveStore, matchId],
+    () => (liveMatchId ? liveStore.get(liveMatchId) : null),
+    [liveStore, liveMatchId],
   );
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
@@ -929,11 +992,20 @@ const pickRealtimeFields = (src = {}) => {
     "courtStationLabel",
     "courtStationName",
     "video",
+    "startedAt",
+    "finishedAt",
+    "startedBy",
+    "finishedBy",
+    "liveEvents",
+    "liveLog",
   ];
   const out = {};
   keys.forEach((k) => {
     if (k in src) out[k] = src[k];
   });
+  if ("liveBy" in src && String(src.status || "").toLowerCase() !== "finished") {
+    out.liveBy = src.liveBy;
+  }
   return out;
 };
 
@@ -2379,6 +2451,7 @@ export default function TournamentManagePage() {
   const liveStore = useMemo(() => createLiveStore(), []);
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
+  const statusLiveMatch = useLiveMatch(liveStore, statusDlg.matchId);
   const viewerInitialMatch = useMemo(() => {
     void orderVersion;
     const matchId = String(viewer.matchId || "");
@@ -2391,7 +2464,6 @@ export default function TournamentManagePage() {
   }, [allMatchesBase, liveStore, orderVersion, viewer.matchId]);
 
   const statusDetailMatch = useMemo(() => {
-    void orderVersion;
     const matchId = String(statusDlg.matchId || "");
     if (!matchId) return statusDlg.match;
     const baseMatch =
@@ -2400,9 +2472,9 @@ export default function TournamentManagePage() {
     return {
       ...(baseMatch || {}),
       ...(statusDlg.match || {}),
-      ...(liveStore.get(matchId) || {}),
+      ...(statusLiveMatch || {}),
     };
-  }, [allMatchesBase, liveStore, orderVersion, statusDlg.match, statusDlg.matchId]);
+  }, [allMatchesBase, statusDlg.match, statusDlg.matchId, statusLiveMatch]);
 
   const handleExportRefNote = useCallback(
     (m) => {
@@ -2451,6 +2523,7 @@ export default function TournamentManagePage() {
 
   // ======= NHÓM & LỌC =======
   const groupedLists = useMemo(() => {
+    void orderVersion;
     const norm = (s) =>
       String(s || "")
         .toLowerCase()
@@ -2515,12 +2588,6 @@ export default function TournamentManagePage() {
     }
 
     // console.log("🎯 Group Status Map:", Array.from(groupStatusMap.entries()));
-
-    // ✅ Chuyển sang boolean: done = (total === finished && total > 0)
-    const groupDoneMap = new Map();
-    for (const [key, stats] of groupStatusMap.entries()) {
-      groupDoneMap.set(key, stats.total > 0 && stats.total === stats.finished);
-    }
 
     // ✅ Hàm kiểm tra trận KO có thể hiện không
     const canShowKOMatch = (m, bracket) => {
@@ -2660,6 +2727,7 @@ export default function TournamentManagePage() {
     showBye,
     brackets,
     t,
+    orderVersion,
   ]);
 
   // LIVE Setup — TOÀN GIẢI
@@ -4944,7 +5012,7 @@ export default function TournamentManagePage() {
                                 eventType={tour?.eventType || "double"}
                                 displayMode={displayMode}
                                 canStartReferee={canStartRefereeMatch(m)}
-                                onRowClick={(mid) => openMatch(mid)}
+                                onRowClick={openMatch}
                                 onOpenVideo={openVideoDlg}
                                 onDeleteVideo={deleteVideoDlg}
                                 onAssignCourt={openAssignCourt}
@@ -5030,7 +5098,7 @@ export default function TournamentManagePage() {
                                 eventType={tour?.eventType || "double"}
                                 displayMode={displayMode}
                                 canStartReferee={canStartRefereeMatch(m)}
-                                onCardClick={(mid) => openMatch(mid)}
+                                onCardClick={openMatch}
                                 onOpenVideo={openVideoDlg}
                                 onDeleteVideo={deleteVideoDlg}
                                 onAssignCourt={openAssignCourt}
