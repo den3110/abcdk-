@@ -349,19 +349,21 @@ export default function AssignCourtStationDialog({
       const stationRect = station.getBoundingClientRect();
       const rootWidth = Math.max(root.scrollWidth, root.clientWidth);
       const rootHeight = Math.max(root.scrollHeight, root.clientHeight);
-      const sourceY = Math.max(0, summaryRect.bottom - rootRect.top - 6);
+      const sourceX = Math.max(20, summaryRect.left - rootRect.left);
+      const sourceY =
+        summaryRect.top - rootRect.top + Math.max(summaryRect.height * 0.5, 28);
       const targetY =
         stationRect.top -
         rootRect.top +
         Math.min(Math.max(stationRect.height * 0.5, 48), 118);
-      const targetX = Math.max(20, stationRect.left - rootRect.left);
+      const targetX = Math.max(20, stationRect.left - rootRect.left - 1);
       const connectorX = Math.max(
         8,
         Math.min(summaryRect.left, stationRect.left) - rootRect.left - 12,
       );
 
       setConnectorPath({
-        d: `M ${connectorX} ${sourceY} L ${connectorX} ${targetY} L ${targetX} ${targetY}`,
+        d: `M ${sourceX} ${sourceY} L ${connectorX} ${sourceY} L ${connectorX} ${targetY} L ${targetX} ${targetY}`,
         width: rootWidth,
         height: rootHeight,
       });
@@ -593,7 +595,7 @@ export default function AssignCourtStationDialog({
                     height: "100%",
                     overflow: "visible",
                     pointerEvents: "none",
-                    zIndex: 0,
+                    zIndex: 2,
                   }}
                 >
                   <path
