@@ -10,6 +10,7 @@ import {
   getCheckpointSettings,
 } from "./checkpointSettings.service.js";
 import {
+  cancelActiveCheckpointMandatesForUser,
   consumeCheckpointMandate,
   getActiveCheckpointMandateForUser,
 } from "./checkpointMandate.service.js";
@@ -865,10 +866,11 @@ export async function getActiveCheckpointSessionForUser(userId) {
   if (!uid) return null;
 
   const now = new Date();
+  const activeStatuses = ["pending", "review_required"];
   await CheckpointSession.updateMany(
     {
       user: uid,
-      status: "pending",
+      status: { $in: activeStatuses },
       expiresAt: { $lte: now },
     },
     {
@@ -879,13 +881,35 @@ export async function getActiveCheckpointSessionForUser(userId) {
     }
   );
 
-  return CheckpointSession.findOne({
+  const session = await CheckpointSession.findOne({
     user: uid,
     type: "login",
     channel: "web",
-    status: { $in: ["pending", "review_required"] },
+    status: { $in: activeStatuses },
     expiresAt: { $gt: now },
   }).sort({ createdAt: -1 });
+
+  if (session?._id) {
+    await CheckpointSession.updateMany(
+      {
+        _id: { $ne: session._id },
+        user: uid,
+        type: "login",
+        channel: "web",
+        status: { $in: activeStatuses },
+      },
+      {
+        $set: {
+          status: "cancelled",
+          "review.decision": "cancelled",
+          "review.note": "Được đóng tự động vì user đã có một phiên checkpoint active mới hơn.",
+          "review.reviewedAt": now,
+        },
+      }
+    );
+  }
+
+  return session;
 }
 
 export async function getCurrentCheckpointRequirementForUser({
@@ -895,12 +919,15 @@ export async function getCurrentCheckpointRequirementForUser({
   includeRisk = false,
 } = {}) {
   const existing = await getActiveCheckpointSessionForUser(user?._id || user?.id);
-  if (existing?.publicToken) {
+  if (existing) {
+    const manualDecision = await syncSessionWithManualMandate(existing);
+    const existingToken = await ensureSessionPublicToken(existing);
     return {
       required: true,
       level: Number(existing.level || 1),
       reason: existing.risk?.reasons?.[0] || "",
-      checkpoint: publicSessionPayload(existing, existing.publicToken),
+      checkpoint: publicSessionPayload(existing, existingToken),
+      mandate: manualDecision?.mandate || null,
       mandateId: existing.mandate ? String(existing.mandate) : "",
     };
   }
@@ -1080,6 +1107,84 @@ function getNextActionFactor(session) {
   );
 }
 
+function getSessionOtpFactorKey(session, fallback = "phone_otp") {
+  return (
+    getFactor(session, "email_otp")?.key ||
+    getFactor(session, "phone_otp")?.key ||
+    fallback
+  );
+}
+
+function ensureRequiredFactors(session, level, primaryFactorKey) {
+  const requiredKeys = getRequiredFactorsForLevel(level, primaryFactorKey);
+  requiredKeys.forEach((key) => {
+    if (!getFactor(session, key)) {
+      session.factors.push({ key, status: "required" });
+    }
+  });
+}
+
+async function ensureSessionPublicToken(session) {
+  if (session.publicToken) return session.publicToken;
+  const token = makeCheckpointToken();
+  session.publicToken = token;
+  session.tokenHash = hashToken(token);
+  await session.save();
+  return token;
+}
+
+async function syncSessionWithManualMandate(session) {
+  if (!session || !["pending", "review_required"].includes(session.status)) {
+    return null;
+  }
+
+  const decision = await shouldRequireManualLoginCheckpoint({ _id: session.user });
+  if (!decision.required) return null;
+
+  const mandateId = decision.mandate?._id || decision.mandateId || null;
+  const targetLevel = Math.max(
+    Number(session.level || 1),
+    Math.max(1, Math.min(3, Number(decision.level || 1)))
+  );
+  let changed = false;
+
+  if (session.status === "pending" && targetLevel > Number(session.level || 1)) {
+    session.level = targetLevel;
+    ensureRequiredFactors(
+      session,
+      targetLevel,
+      getSessionOtpFactorKey(session, "phone_otp")
+    );
+    changed = true;
+  }
+
+  if (mandateId && String(session.mandate || "") !== String(mandateId)) {
+    session.mandate = mandateId;
+    changed = true;
+  }
+
+  const shouldRefreshRisk =
+    targetLevel > Number(session.risk?.level || session.level || 1) ||
+    (mandateId && String(session.risk?.mandateId || "") !== String(mandateId));
+  if (shouldRefreshRisk) {
+    session.risk = {
+      score: decision.score || 100,
+      rawScore: decision.rawScore || decision.score || 100,
+      level: targetLevel,
+      confidence: decision.confidence || "manual_admin",
+      reasons: decision.reasons || [],
+      signals: decision.signals || [],
+      dampeners: decision.dampeners || [],
+      counters: decision.counters || {},
+      mandateId: mandateId ? String(mandateId) : "",
+    };
+    changed = true;
+  }
+
+  if (changed) await session.save();
+  return decision;
+}
+
 async function completeSessionIfReady(session, { req, res, token }) {
   if (!allFactorsPassed(session)) {
     await session.save();
@@ -1108,6 +1213,10 @@ async function completeSessionIfReady(session, { req, res, token }) {
       sessionId: session._id,
     });
   }
+  await cancelActiveCheckpointMandatesForUser({
+    userId: user._id,
+    note: "User đã hoàn tất checkpoint.",
+  });
 
   generateToken(res, user);
   void User.recordLogin(user._id, { req, method: "otp", success: true });
@@ -1150,6 +1259,76 @@ export async function startLoginCheckpoint({
     error.statusCode = 400;
     throw error;
   }
+
+  const existing = await getActiveCheckpointSessionForUser(user._id);
+  if (existing) {
+    const existingToken = await ensureSessionPublicToken(existing);
+    const nowDate = new Date();
+    const targetLevel = Math.max(Number(existing.level || 1), level);
+    let changed = false;
+
+    if (existing.status === "pending" && targetLevel > Number(existing.level || 1)) {
+      existing.level = targetLevel;
+      ensureRequiredFactors(
+        existing,
+        targetLevel,
+        getSessionOtpFactorKey(existing, primaryFactor.key)
+      );
+      changed = true;
+    }
+
+    if (mandateId && String(existing.mandate || "") !== String(mandateId)) {
+      existing.mandate = mandateId;
+      changed = true;
+    }
+
+    const shouldRefreshRisk =
+      targetLevel > Number(existing.risk?.level || existing.level || 1) ||
+      Number(risk.score || 0) > Number(existing.risk?.score || 0) ||
+      (mandateId && String(existing.risk?.mandateId || "") !== String(mandateId));
+    if (shouldRefreshRisk) {
+      existing.risk = {
+        score: risk.score || 0,
+        rawScore: risk.rawScore || risk.score || 0,
+        level: targetLevel,
+        confidence: risk.confidence || "low",
+        reasons: risk.reasons || [],
+        signals: risk.signals || [],
+        dampeners: risk.dampeners || [],
+        counters: risk.counters || {},
+        mandateId: mandateId ? String(mandateId) : existing.risk?.mandateId || "",
+      };
+      changed = true;
+    }
+
+    if (!existing.request?.reason && reason) {
+      existing.request.reason = reason;
+      changed = true;
+    }
+
+    if (changed) await existing.save();
+
+    void recordCheckpointEvent({
+      req,
+      user,
+      subjectUser: user,
+      type: "checkpoint_session_reused",
+      category: "checkpoint",
+      outcome: "blocked",
+      severity: targetLevel >= 3 ? "high" : targetLevel >= 2 ? "medium" : "low",
+      metadata: {
+        level: targetLevel,
+        score: risk.score || existing.risk?.score || 0,
+        reason,
+        mandateId: mandateId ? String(mandateId) : "",
+        sessionId: String(existing._id || ""),
+        reusedAt: nowDate,
+      },
+    });
+
+    return publicSessionPayload(existing, existingToken);
+  }
+
   const now = Date.now();
   const token = makeCheckpointToken();
   const ctx = getClientContext(req);
@@ -1237,12 +1416,18 @@ export async function getCheckpointSessionByToken(token) {
 
 export async function getPublicCheckpointSession(token) {
   const session = await getCheckpointSessionByToken(token);
-  return publicSessionPayload(session, token);
+  if (!session.publicToken) {
+    session.publicToken = token;
+    await session.save();
+  }
+  await syncSessionWithManualMandate(session);
+  return publicSessionPayload(session, session.publicToken || token);
 }
 
 export async function resendCheckpointCode({ token, req }) {
   const settings = await getCheckpointSettings();
   const session = await getCheckpointSessionByToken(token);
+  await syncSessionWithManualMandate(session);
   const now = Date.now();
 
   if (session.status !== "pending") {
@@ -1324,6 +1509,7 @@ export async function verifyPhoneOtpFactor({ token, code, req, res }) {
   }
 
   const session = await getCheckpointSessionByToken(token);
+  await syncSessionWithManualMandate(session);
   const now = Date.now();
 
   if (session.status !== "pending") {
@@ -1410,6 +1596,7 @@ export async function submitCheckpointEvidence({
   res,
 }) {
   const session = await getCheckpointSessionByToken(token);
+  await syncSessionWithManualMandate(session);
   if (session.status !== "pending") {
     const error = new Error("Checkpoint này không còn hiệu lực.");
     error.statusCode = 400;

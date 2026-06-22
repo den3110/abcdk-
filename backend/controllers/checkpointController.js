@@ -5,6 +5,7 @@ import CheckpointSession from "../models/checkpointSessionModel.js";
 import User from "../models/userModel.js";
 import {
   buildCheckpointAuthPayload,
+  getActiveCheckpointSessionForUser,
   getCurrentCheckpointRequirementForUser,
   getCheckpointPolicySummary,
   getCheckpointSessionByToken,
@@ -22,11 +23,13 @@ import {
   updateCheckpointSettings,
 } from "../services/checkpointSettings.service.js";
 import {
+  cancelActiveCheckpointMandatesForUser,
   cancelCheckpointMandate,
   consumeCheckpointMandate,
   createCheckpointMandate,
   listCheckpointMandates,
   normalizeCheckpointMandateForAdmin,
+  resolveMandateUser,
 } from "../services/checkpointMandate.service.js";
 import generateToken from "../utils/generateToken.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
@@ -717,6 +720,105 @@ export const cancelAdminCheckpointMandate = asyncHandler(async (req, res) => {
   });
 });
 
+export const unlockAdminCheckpointSubject = asyncHandler(async (req, res) => {
+  const note = String(req.body?.note || "").trim().slice(0, 1000);
+  const user = await resolveMandateUser({
+    userId: req.body?.userId,
+    identifier: req.body?.identifier,
+  });
+
+  if (!user || user.isDeleted) {
+    res.status(404);
+    throw new Error("Không tìm thấy user để mở checkpoint.");
+  }
+
+  const settings = await getCheckpointSettings();
+  const now = new Date();
+  const session = await getActiveCheckpointSessionForUser(user._id);
+  let freshSession = null;
+
+  if (session) {
+    session.status = "passed";
+    session.passedAt = now;
+    session.failedAt = null;
+    session.codeHash = "";
+    session.trustExpiresAt = new Date(
+      Date.now() + Number(settings.trustDays || 15) * 24 * 60 * 60 * 1000
+    );
+    session.expiresAt = new Date(
+      Math.max(
+        session.expiresAt ? new Date(session.expiresAt).getTime() : 0,
+        Date.now() + Number(settings.review?.extendPendingMinutesOnApprove || 10) * 60 * 1000
+      )
+    );
+    session.review = {
+      decision: "approved",
+      note: note || "Admin mở checkpoint thủ công.",
+      reviewedBy: req.user?._id || null,
+      reviewedAt: now,
+    };
+    session.factors.forEach((factor) => {
+      factor.status = "passed";
+      factor.passedAt = now;
+    });
+    await session.save();
+
+    if (session.mandate) {
+      await consumeCheckpointMandate({
+        id: session.mandate,
+        sessionId: session._id,
+      });
+    }
+
+    freshSession = await CheckpointSession.findById(session._id)
+      .populate("user", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+      .populate("review.reviewedBy", "name nickname email phone avatar role isSuperUser isSuperAdmin")
+      .lean();
+  }
+
+  const mandateResult = await cancelActiveCheckpointMandatesForUser({
+    userId: user._id,
+    actorId: req.user?._id || null,
+    note: note || "Admin mở checkpoint cho user.",
+  });
+
+  void recordCheckpointEvent({
+    req,
+    user: req.user || null,
+    subjectUser: user,
+    type: "checkpoint_admin_unlock_user",
+    category: "checkpoint",
+    outcome: "success",
+    severity: "info",
+    target: { type: "user", id: String(user._id || "") },
+    metadata: {
+      sessionId: freshSession?._id ? String(freshSession._id) : "",
+      cancelledMandates: Number(mandateResult?.modifiedCount || 0),
+      note,
+    },
+  });
+
+  const unlocked = Boolean(freshSession || Number(mandateResult?.modifiedCount || 0) > 0);
+
+  if (unlocked && user.email) {
+    void sendCheckpointReviewDecisionEmail({
+      to: user.email,
+      approved: true,
+      note,
+    }).catch((error) => {
+      console.error("[checkpoint] unlock email failed:", error?.message || error);
+    });
+  }
+
+  res.json({
+    ok: true,
+    unlocked,
+    user: normalizeUserForAdmin(user),
+    session: freshSession ? normalizeSessionForAdmin(freshSession) : null,
+    cancelledMandates: Number(mandateResult?.modifiedCount || 0),
+  });
+});
+
 export const searchAdminCheckpointUsers = asyncHandler(async (req, res) => {
   const q = String(req.query.q || req.query.keyword || "").trim();
   const limit = clampInt(req.query.limit, 12, 1, 30);
@@ -1001,6 +1103,11 @@ export const resolveAdminCheckpointSession = asyncHandler(async (req, res) => {
         sessionId: session._id,
       });
     }
+    await cancelActiveCheckpointMandatesForUser({
+      userId: session.user,
+      actorId: req.user?._id || null,
+      note: note || "Admin mở checkpoint session.",
+    });
   } else if (action === "reject") {
     session.status = "failed";
     session.failedAt = now;

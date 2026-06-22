@@ -245,6 +245,31 @@ export async function cancelCheckpointMandate({ id, actorId = null, note = "" } 
     .lean();
 }
 
+export async function cancelActiveCheckpointMandatesForUser({
+  userId,
+  actorId = null,
+  note = "",
+} = {}) {
+  if (!mongoose.isValidObjectId(String(userId || ""))) {
+    return { matchedCount: 0, modifiedCount: 0 };
+  }
+
+  return CheckpointMandate.updateMany(
+    {
+      user: userId,
+      status: "active",
+    },
+    {
+      $set: {
+        status: "cancelled",
+        cancelledBy: actorId || null,
+        cancelledAt: new Date(),
+        note: String(note || "").trim() || "Admin mở checkpoint cho user.",
+      },
+    }
+  );
+}
+
 export async function consumeCheckpointMandate({ id, sessionId = null } = {}) {
   if (!mongoose.isValidObjectId(String(id || ""))) return null;
   return CheckpointMandate.findOneAndUpdate(

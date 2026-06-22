@@ -22,6 +22,7 @@ import {
   startCurrentCheckpoint,
   startCheckpointOtp,
   simulateAdminCheckpointRisk,
+  unlockAdminCheckpointSubject,
   updateAdminCheckpointSettings,
   uploadCheckpointEvidence,
   verifyCheckpointPhone,
@@ -93,6 +94,7 @@ router.get("/admin/sessions", protect, authorize("admin"), listAdminCheckpointSe
 router.get("/admin/sessions/:id", protect, authorize("admin"), getAdminCheckpointSessionDetail);
 router.get("/admin/events", protect, authorize("admin"), listAdminCheckpointEvents);
 router.get("/admin/users/search", protect, authorize("admin"), searchAdminCheckpointUsers);
+router.post("/admin/unlock", protect, authorize("admin"), unlockAdminCheckpointSubject);
 router.get("/admin/mandates", protect, authorize("admin"), listAdminCheckpointMandates);
 router.post("/admin/mandates", protect, authorize("admin"), createAdminCheckpointMandate);
 router.post("/admin/mandates/:id/cancel", protect, authorize("admin"), cancelAdminCheckpointMandate);

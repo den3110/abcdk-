@@ -55,6 +55,7 @@ import {
   DialogActions,
   Slide,
   FormControlLabel,
+  Switch,
   List,
   ListItemButton,
 } from "@mui/material";
@@ -133,6 +134,7 @@ const POSTER_NAME_FONT_OPTIONS = [
   { value: "Montserrat, Arial, sans-serif", label: "Montserrat" },
 ];
 const POSTER_AI_RUNNING_TIMEOUT_MS = 10 * 60 * 1000;
+const MANAGE_UI_VERSION_STORAGE_KEY = "pickletour.manage.uiVersion";
 
 /* ---------------- helpers ---------------- */
 // ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
@@ -1357,6 +1359,53 @@ export default function TournamentManagePage() {
     searchParams.get("ui") || searchParams.get("manageUi") || "",
   ).toLowerCase();
   const isManageV2 = manageUiVersion === "v2" || manageUiVersion === "2";
+  useEffect(() => {
+    const hasUrlVersion = searchParams.has("ui") || searchParams.has("manageUi");
+    if (hasUrlVersion) {
+      try {
+        window.localStorage.setItem(
+          MANAGE_UI_VERSION_STORAGE_KEY,
+          isManageV2 ? "v2" : "v1",
+        );
+      } catch {}
+      return;
+    }
+
+    let storedVersion = "";
+    try {
+      storedVersion = String(
+        window.localStorage.getItem(MANAGE_UI_VERSION_STORAGE_KEY) || "",
+      ).toLowerCase();
+    } catch {}
+    if (!["v2", "2", "1", "true"].includes(storedVersion)) return;
+
+    const next = new URLSearchParams(searchParams);
+    next.set("ui", "v2");
+    setSearchParams(next, { replace: true });
+  }, [isManageV2, searchParams, setSearchParams]);
+  const handleManageV2Switch = useCallback(
+    (event) => {
+      const enabled = Boolean(event.target.checked);
+      try {
+        window.localStorage.setItem(
+          MANAGE_UI_VERSION_STORAGE_KEY,
+          enabled ? "v2" : "v1",
+        );
+      } catch {}
+
+      const next = new URLSearchParams(searchParams);
+      if (enabled) {
+        next.set("ui", "v2");
+      } else {
+        next.delete("ui");
+        next.delete("manageUi");
+        next.delete("settings");
+        next.delete("settingsTab");
+      }
+      setSearchParams(next);
+    },
+    [searchParams, setSearchParams],
+  );
   const me = useSelector((s) => s.auth?.userInfo || null);
 
   // Queries
@@ -3597,20 +3646,51 @@ export default function TournamentManagePage() {
       {/* Header */}
       <Stack spacing={{ xs: 1, md: 1.25 }} mb={{ xs: 1.5, md: 2 }} sx={{ mt: { xs: 1.25, md: 2.5 } }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1.5} flexWrap="wrap">
-          <Typography
-            variant="h5"
-            sx={{
-              lineHeight: 1.15,
-              minWidth: 0,
-              flex: "1 1 260px",
-              fontSize: { xs: 24, sm: 28, md: 30 },
-              overflowWrap: "anywhere",
-            }}
+          <Stack
+            direction="row"
+            alignItems="center"
+            gap={1}
+            flexWrap="wrap"
+            sx={{ minWidth: 0, flex: "1 1 260px" }}
           >
-            {t("tournaments.manage.pageTitle", {
-              name: tour?.name || t("tournaments.manage.fallbackName"),
-            })}
-          </Typography>
+            <Typography
+              variant="h5"
+              sx={{
+                lineHeight: 1.15,
+                minWidth: 0,
+                fontSize: { xs: 24, sm: 28, md: 30 },
+                overflowWrap: "anywhere",
+              }}
+            >
+              {t("tournaments.manage.pageTitle", {
+                name: tour?.name || t("tournaments.manage.fallbackName"),
+              })}
+            </Typography>
+            <Tooltip title={isManageV2 ? "Đang dùng giao diện v2" : "Chuyển sang giao diện v2"} arrow>
+              <FormControlLabel
+                label="V2"
+                labelPlacement="start"
+                sx={{
+                  m: 0,
+                  gap: 0.25,
+                  flexShrink: 0,
+                  "& .MuiFormControlLabel-label": {
+                    color: "text.secondary",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  },
+                }}
+                control={
+                  <Switch
+                    size="small"
+                    checked={isManageV2}
+                    onChange={handleManageV2Switch}
+                    inputProps={{ "aria-label": "Chuyển giao diện v2" }}
+                  />
+                }
+              />
+            </Tooltip>
+          </Stack>
           {isManageV2 ? (
             <Tooltip title="Mở cài đặt quản lý" arrow>
               <IconButton
