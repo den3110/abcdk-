@@ -918,7 +918,6 @@ function ChampionCelebrationBanner({ championName, t }) {
         },
       })}
     >
-      <ChampionPageFireworks triggerKey={championName} />
       <ChampionFireworks />
       <Stack
         direction={{ xs: "column", sm: "row" }}
@@ -8279,14 +8278,23 @@ export default function TournamentBracket() {
                   }}
                 />
                 {championPair && (
-                  <ChampionCelebrationBanner
-                    championName={pairLabelWithNick(
-                      championPair,
-                      tour?.eventType,
-                      displayMode,
-                    )}
-                    t={t}
-                  />
+                  <>
+                    <ChampionPageFireworks
+                      triggerKey={pairLabelWithNick(
+                        championPair,
+                        tour?.eventType,
+                        displayMode,
+                      )}
+                    />
+                    <ChampionCelebrationBanner
+                      championName={pairLabelWithNick(
+                        championPair,
+                        tour?.eventType,
+                        displayMode,
+                      )}
+                      t={t}
+                    />
+                  </>
                 )}
                 {renderDiagramShell(
                   <Box
@@ -8448,14 +8456,23 @@ export default function TournamentBracket() {
                 </Stack>
 
                 {championPair && (
-                  <ChampionCelebrationBanner
-                    championName={pairLabelWithNick(
-                      championPair,
-                      tour?.eventType,
-                      displayMode,
-                    )}
-                    t={t}
-                  />
+                  <>
+                    <ChampionPageFireworks
+                      triggerKey={pairLabelWithNick(
+                        championPair,
+                        tour?.eventType,
+                        displayMode,
+                      )}
+                    />
+                    <ChampionCelebrationBanner
+                      championName={pairLabelWithNick(
+                        championPair,
+                        tour?.eventType,
+                        displayMode,
+                      )}
+                      t={t}
+                    />
+                  </>
                 )}
 
                 {renderDiagramShell(
@@ -8580,14 +8597,23 @@ export default function TournamentBracket() {
                 </Stack>
 
                 {championPair && (
-                  <ChampionCelebrationBanner
-                    championName={pairLabelWithNick(
-                      championPair,
-                      tour?.eventType,
-                      displayMode,
-                    )}
-                    t={t}
-                  />
+                  <>
+                    <ChampionPageFireworks
+                      triggerKey={pairLabelWithNick(
+                        championPair,
+                        tour?.eventType,
+                        displayMode,
+                      )}
+                    />
+                    <ChampionCelebrationBanner
+                      championName={pairLabelWithNick(
+                        championPair,
+                        tour?.eventType,
+                        displayMode,
+                      )}
+                      t={t}
+                    />
+                  </>
                 )}
 
                 {renderDiagramShell(
