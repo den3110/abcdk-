@@ -609,6 +609,36 @@ const CHAMPION_FIREWORKS = [
   { left: "64%", top: "72%", color: "#fb7185", delay: "0.36s", scale: 0.58 },
 ];
 const CHAMPION_FIREWORK_RAYS = [0, 45, 90, 135, 180, 225, 270, 315];
+const CHAMPION_PAGE_FIREWORKS = [
+  { left: "11%", top: "24%", color: "#60a5fa", delay: "0s", scale: 1.08 },
+  { left: "28%", top: "15%", color: "#facc15", delay: "0.38s", scale: 0.86 },
+  { left: "51%", top: "22%", color: "#fb7185", delay: "0.72s", scale: 1 },
+  { left: "72%", top: "17%", color: "#22c55e", delay: "0.18s", scale: 0.92 },
+  { left: "88%", top: "31%", color: "#f97316", delay: "0.58s", scale: 0.78 },
+  { left: "18%", top: "68%", color: "#a78bfa", delay: "1.16s", scale: 0.76 },
+  { left: "63%", top: "72%", color: "#38bdf8", delay: "1.42s", scale: 0.82 },
+  { left: "83%", top: "62%", color: "#facc15", delay: "1.9s", scale: 0.68 },
+];
+const CHAMPION_PAGE_FIREWORK_RAYS = Array.from(
+  { length: 16 },
+  (_, index) => index * 22.5,
+);
+const CHAMPION_CONFETTI_COLORS = [
+  "#facc15",
+  "#60a5fa",
+  "#22c55e",
+  "#fb7185",
+  "#f97316",
+  "#a78bfa",
+];
+const CHAMPION_PAGE_CONFETTI = Array.from({ length: 44 }, (_, index) => ({
+  left: `${(index * 19 + 7) % 100}%`,
+  delay: `${(index % 14) * 0.14}s`,
+  duration: `${3.1 + (index % 6) * 0.22}s`,
+  drift: `${((index % 9) - 4) * 12}px`,
+  rotate: `${(index * 47) % 360}deg`,
+  color: CHAMPION_CONFETTI_COLORS[index % CHAMPION_CONFETTI_COLORS.length],
+}));
 
 function ChampionFireworks() {
   return (
@@ -667,6 +697,184 @@ function ChampionFireworks() {
   );
 }
 
+function ChampionPageFireworks({ triggerKey }) {
+  const [visible, setVisible] = useState(Boolean(triggerKey));
+
+  useEffect(() => {
+    if (!triggerKey) {
+      setVisible(false);
+      return undefined;
+    }
+    setVisible(true);
+    const timer = window.setTimeout(() => setVisible(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [triggerKey]);
+
+  if (!triggerKey || !visible) return null;
+
+  return (
+    <Box
+      aria-hidden
+      sx={(theme) => ({
+        position: "fixed",
+        inset: 0,
+        zIndex: theme.zIndex.modal + 2,
+        overflow: "hidden",
+        pointerEvents: "none",
+        "@media (prefers-reduced-motion: reduce)": {
+          display: "none",
+        },
+        "@keyframes championPageFade": {
+          "0%": { opacity: 0 },
+          "8%": { opacity: 1 },
+          "82%": { opacity: 1 },
+          "100%": { opacity: 0 },
+        },
+        "@keyframes championPageGlow": {
+          "0%, 100%": { opacity: 0 },
+          "18%, 70%": { opacity: 1 },
+        },
+        "@keyframes championPageRay": {
+          "0%": {
+            opacity: 0,
+            transform:
+              "rotate(var(--champion-page-angle)) translateY(0) scaleY(0.16)",
+          },
+          "12%": { opacity: 1 },
+          "100%": {
+            opacity: 0,
+            transform:
+              "rotate(var(--champion-page-angle)) translateY(var(--champion-page-distance)) scaleY(1)",
+          },
+        },
+        "@keyframes championPageCore": {
+          "0%, 100%": { opacity: 0, transform: "scale(0.2)" },
+          "12%": { opacity: 1, transform: "scale(1)" },
+          "34%": { opacity: 0.2, transform: "scale(1.9)" },
+        },
+        "@keyframes championConfettiFall": {
+          "0%": {
+            opacity: 0,
+            transform:
+              "translate3d(0, -28px, 0) rotate(var(--champion-confetti-rotate))",
+          },
+          "12%": { opacity: 1 },
+          "100%": {
+            opacity: 0,
+            transform:
+              "translate3d(var(--champion-confetti-drift), 108vh, 0) rotate(calc(var(--champion-confetti-rotate) + 520deg))",
+          },
+        },
+      })}
+    >
+      <Box
+        sx={(theme) => ({
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(circle at 50% 18%, ${alpha(
+            theme.palette.warning.main,
+            0.2,
+          )}, transparent 34%), radial-gradient(circle at 14% 64%, ${alpha(
+            theme.palette.info.main,
+            0.18,
+          )}, transparent 30%), radial-gradient(circle at 86% 52%, ${alpha(
+            theme.palette.success.main,
+            0.18,
+          )}, transparent 32%)`,
+          animation: "championPageGlow 5s ease-out both",
+        })}
+      />
+
+      {CHAMPION_PAGE_CONFETTI.map((piece, index) => (
+        <Box
+          key={`${piece.left}-${index}`}
+          component="span"
+          style={{
+            "--champion-confetti-drift": piece.drift,
+            "--champion-confetti-rotate": piece.rotate,
+            animationDelay: piece.delay,
+            animationDuration: piece.duration,
+          }}
+          sx={{
+            position: "absolute",
+            left: piece.left,
+            top: -24,
+            width: index % 3 === 0 ? 5 : 4,
+            height: index % 4 === 0 ? 16 : 11,
+            borderRadius: 0.75,
+            bgcolor: piece.color,
+            boxShadow: "0 0 10px currentColor",
+            color: piece.color,
+            animationName: "championConfettiFall",
+            animationTimingFunction: "linear",
+            animationFillMode: "both",
+          }}
+        />
+      ))}
+
+      {CHAMPION_PAGE_FIREWORKS.map((firework, index) => (
+        <Box
+          key={`${firework.left}-${firework.top}-${index}`}
+          component="span"
+          sx={{
+            position: "absolute",
+            left: firework.left,
+            top: firework.top,
+            width: 8,
+            height: 8,
+            color: firework.color,
+            transform: `scale(${firework.scale})`,
+            animation: "championPageFade 5s ease-out both",
+          }}
+        >
+          <Box
+            component="span"
+            style={{ animationDelay: firework.delay }}
+            sx={{
+              position: "absolute",
+              inset: -4,
+              borderRadius: "50%",
+              bgcolor: "currentColor",
+              boxShadow: "0 0 22px currentColor",
+              animation: "championPageCore 1.6s ease-out 2 both",
+            }}
+          />
+          {CHAMPION_PAGE_FIREWORK_RAYS.map((angle, rayIndex) => (
+            <Box
+              key={angle}
+              component="span"
+              style={{
+                "--champion-page-angle": `${angle}deg`,
+                "--champion-page-distance": `-${44 + (rayIndex % 4) * 9}px`,
+                animationDelay: `calc(${firework.delay} + ${
+                  (rayIndex % 3) * 38
+                }ms)`,
+              }}
+              sx={{
+                position: "absolute",
+                left: 2,
+                top: 2,
+                width: rayIndex % 2 === 0 ? 4 : 3,
+                height: 28 + (rayIndex % 4) * 3,
+                borderRadius: 999,
+                bgcolor: "currentColor",
+                boxShadow: "0 0 16px currentColor",
+                opacity: 0,
+                transformOrigin: "50% 100%",
+                animation: "championPageRay 1.65s ease-out 2 both",
+              }}
+            />
+          ))}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+ChampionPageFireworks.propTypes = {
+  triggerKey: PropTypes.string,
+};
+
 function ChampionCelebrationBanner({ championName, t }) {
   return (
     <Box
@@ -710,6 +918,7 @@ function ChampionCelebrationBanner({ championName, t }) {
         },
       })}
     >
+      <ChampionPageFireworks triggerKey={championName} />
       <ChampionFireworks />
       <Stack
         direction={{ xs: "column", sm: "row" }}
@@ -6105,6 +6314,8 @@ export default function TournamentBracket() {
     onFullscreen,
     fullscreen = false,
     mobileFixed = true,
+    inline = false,
+    desktopTop = -50,
     mobileBottomGap = 80, // px: nhích lên khỏi bottom menu
   }) {
     return (
@@ -6112,24 +6323,43 @@ export default function TournamentBracket() {
         elevation={2}
         sx={{
           // Mobile: fixed góc dưới-phải; Desktop: absolute góc trên-phải
-          position: fullscreen
-            ? "fixed"
-            : { xs: mobileFixed ? "fixed" : "absolute", sm: "absolute" },
-          right: fullscreen ? { xs: 12, sm: 20 } : { xs: 12, sm: 8 },
-          bottom: {
-            xs: fullscreen
-              ? "calc(env(safe-area-inset-bottom) + 16px)"
-              : mobileFixed
-                ? `calc(env(safe-area-inset-bottom) + ${mobileBottomGap}px)`
-                : "auto",
-            sm: fullscreen ? 20 : "auto",
-          },
-          top: fullscreen ? "auto" : { xs: mobileFixed ? "auto" : -50, sm: -50 },
+          position: inline
+            ? { xs: mobileFixed ? "fixed" : "absolute", sm: "static" }
+            : fullscreen
+              ? "fixed"
+              : { xs: mobileFixed ? "fixed" : "absolute", sm: "absolute" },
+          right: inline
+            ? { xs: 12, sm: "auto" }
+            : fullscreen
+              ? { xs: 12, sm: 20 }
+              : { xs: 12, sm: 8 },
+          bottom: inline
+            ? {
+                xs: mobileFixed
+                  ? `calc(env(safe-area-inset-bottom) + ${mobileBottomGap}px)`
+                  : "auto",
+                sm: "auto",
+              }
+            : {
+                xs: fullscreen
+                  ? "calc(env(safe-area-inset-bottom) + 16px)"
+                  : mobileFixed
+                    ? `calc(env(safe-area-inset-bottom) + ${mobileBottomGap}px)`
+                    : "auto",
+                sm: fullscreen ? 20 : "auto",
+              },
+          top: inline
+            ? { xs: mobileFixed ? "auto" : desktopTop, sm: "auto" }
+            : fullscreen
+              ? "auto"
+              : { xs: mobileFixed ? "auto" : desktopTop, sm: desktopTop },
           zIndex: 1000, // nổi trên bottom nav
           borderRadius: 2,
           display: "inline-flex",
           alignItems: "center",
           gap: 0.5,
+          ml: inline ? "auto" : 0,
+          mb: inline ? { xs: 0, sm: 1 } : 0,
         }}
       >
         <Tooltip title={t("common.zoomOut", undefined, "Thu nhỏ (−)")}>
@@ -6176,18 +6406,29 @@ export default function TournamentBracket() {
     );
   }
 
-  const renderDiagramShell = (children) => (
+  const renderDiagramShell = (children, options = {}) => {
+    const { controlsInline = false } = options;
+    return (
       <>
         <Box sx={{ position: "relative" }}>
-          <ZoomControls
-            zoom={zoom}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onReset={zoomReset}
-            onFullscreen={() => setBracketFullscreenOpen(true)}
-            mobileFixed
-            mobileBottomGap={80}
-          />
+          <Box
+            sx={
+              controlsInline
+                ? { display: { xs: "block", sm: "flex" }, justifyContent: "flex-end" }
+                : undefined
+            }
+          >
+            <ZoomControls
+              zoom={zoom}
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onReset={zoomReset}
+              onFullscreen={() => setBracketFullscreenOpen(true)}
+              mobileFixed
+              mobileBottomGap={80}
+              inline={controlsInline}
+            />
+          </Box>
           {children}
         </Box>
 
@@ -6257,6 +6498,7 @@ export default function TournamentBracket() {
         </Dialog>
       </>
     );
+  };
 
   if (loading) {
     return (
@@ -8074,6 +8316,7 @@ export default function TournamentBracket() {
                       />
                     </Box>
                   </Box>,
+                  { controlsInline: Boolean(championPair) },
                 )}
                 {!currentMatches.length && (
                   <Typography variant="caption" color="text.secondary">
@@ -8227,6 +8470,7 @@ export default function TournamentBracket() {
                     baseRoundStart={baseRoundStartForCurrent}
                     zoom={zoom}
                   />,
+                  { controlsInline: Boolean(championPair) },
                 )}
               </>
             );
@@ -8365,6 +8609,7 @@ export default function TournamentBracket() {
                       zoom={zoom}
                     />
                   </Box>,
+                  { controlsInline: Boolean(championPair) },
                 )}
 
                 {thirdPlaceMatches.length > 0 && (
