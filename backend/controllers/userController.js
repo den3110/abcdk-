@@ -193,6 +193,114 @@ const authUser = asyncHandler(async (req, res) => {
     );
   }
 
+  const fastMobileLoginEnabled = !["0", "false", "off"].includes(
+    String(process.env.MOBILE_LOGIN_FAST_RANK ?? "1").toLowerCase()
+  );
+
+  if (fastMobileLoginEnabled) {
+    const pickFiniteNumber = (...values) => {
+      for (const value of values) {
+        const n = Number(value);
+        if (Number.isFinite(n)) return n;
+      }
+      return 0;
+    };
+
+    const rankDoc = await Ranking.findOne({ user: user._id })
+      .select(
+        "single double mix points updatedAt tierLabel tierColor colorRank reputation totalFinishedTours"
+      )
+      .lean();
+
+    const ratingSingle = pickFiniteNumber(
+      rankDoc?.single,
+      user.ratingSingle,
+      user.localRatings?.singles
+    );
+    const ratingDouble = pickFiniteNumber(
+      rankDoc?.double,
+      user.ratingDouble,
+      user.localRatings?.doubles
+    );
+
+    const rank = rankDoc
+      ? {
+          user: user._id,
+          single: pickFiniteNumber(rankDoc.single),
+          double: pickFiniteNumber(rankDoc.double),
+          mix: pickFiniteNumber(rankDoc.mix),
+          points: pickFiniteNumber(rankDoc.points),
+          updatedAt: rankDoc.updatedAt || null,
+          tierLabel: rankDoc.tierLabel || "Chưa có điểm",
+          tierColor: rankDoc.tierColor || "grey",
+          colorRank: pickFiniteNumber(rankDoc.colorRank, 3),
+          totalTours: pickFiniteNumber(rankDoc.totalFinishedTours),
+          reputation: pickFiniteNumber(rankDoc.reputation),
+        }
+      : {
+          user: user._id,
+          single: 0,
+          double: 0,
+          mix: 0,
+          points: 0,
+          updatedAt: null,
+          tierLabel: "Chưa có điểm",
+          tierColor: "grey",
+          colorRank: 3,
+          totalTours: 0,
+          reputation: 0,
+        };
+
+    generateToken(res, user);
+
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        name: user.name,
+        nickname: user.nickname,
+        phone: user.phone,
+        email: user.email,
+        avatar: user.avatar,
+        province: user.province,
+        dob: user.dob,
+        verified: user.verified,
+        cccdStatus: user.cccdStatus,
+        ratingSingle,
+        ratingDouble,
+        createdAt: user.createdAt,
+        cccd: user.cccd,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    void User.recordLogin(user._id, { req, method: "password", success: true });
+
+    return res.json({
+      _id: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      phone: user.phone,
+      email: user.email,
+      avatar: user.avatar,
+      province: user.province,
+      dob: user.dob,
+      verified: user.verified,
+      cccdStatus: user.cccdStatus,
+      ratingSingle,
+      ratingDouble,
+      createdAt: user.createdAt,
+      cccd: user.cccd,
+      role: user.role,
+      rank,
+      rankNo: null,
+      rankTotal: null,
+      rankDeferred: true,
+      token,
+    });
+  }
+
   /* ---------- RANK + RANKNO (chuẩn getRankings, có fallback) ---------- */
   const uid = new mongoose.Types.ObjectId(user._id);
 
