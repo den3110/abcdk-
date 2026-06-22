@@ -618,6 +618,13 @@ const isByeMatch = (m) => {
   return !(aOK && bOK);
 };
 
+const isManageFinishedMatch = (m, status) =>
+  String(status ?? m?.status ?? "").toLowerCase() === "finished" ||
+  isByeMatch(m);
+
+const manageDisplayStatus = (m, status) =>
+  isManageFinishedMatch(m, status) ? "finished" : (status ?? m?.status);
+
 const scoreSummary = (m) => {
   if (isByeMatch(m)) return "BYE";
   const raw =
@@ -1230,6 +1237,9 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
   const mergedCourtLabel = courtLabel(merged);
+  const displayStatus = manageDisplayStatus(merged, merged?.status);
+  const displayMatch =
+    displayStatus === merged?.status ? merged : { ...merged, status: displayStatus };
 
   const MainRow = (
     <TableRow
@@ -1295,9 +1305,9 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
         sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}
         onClick={(e) => e.stopPropagation()}
       >
-        {statusChipLocalized(t, merged?.status, (event) => {
+        {statusChipLocalized(t, displayStatus, (event) => {
           event.stopPropagation();
-          onOpenStatus?.(merged);
+          onOpenStatus?.(displayMatch);
         })}
       </TableCell>
       <TableCell
@@ -1371,6 +1381,9 @@ const MatchCard = React.memo(function MatchCard({
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
   const code = matchCode(merged);
+  const displayStatus = manageDisplayStatus(merged, merged?.status);
+  const displayMatch =
+    displayStatus === merged?.status ? merged : { ...merged, status: displayStatus };
 
   return (
     <Card
@@ -1418,9 +1431,9 @@ const MatchCard = React.memo(function MatchCard({
             <Typography variant="subtitle2" noWrap>
               {code}
             </Typography>
-            {statusChipLocalized(t, merged?.status, (event) => {
+            {statusChipLocalized(t, displayStatus, (event) => {
               event.stopPropagation();
-              onOpenStatus?.(merged);
+              onOpenStatus?.(displayMatch);
             })}
           </Stack>
         }
@@ -2290,7 +2303,7 @@ export default function TournamentManagePage() {
   const canStartRefereeMatch = useCallback(
     (match) => {
       const status = String(match?.status || "").toLowerCase();
-      if (!match?._id || status === "finished") return false;
+      if (!match?._id || status === "finished" || isByeMatch(match)) return false;
       return isAdmin || isUserRefereeOfMatch(match, me);
     },
     [isAdmin, me],
@@ -2520,11 +2533,15 @@ export default function TournamentManagePage() {
     const baseMatch =
       allMatchesBase.find((match) => String(match?._id || match?.id || "") === matchId) ||
       null;
-    return {
+    const mergedMatch = {
       ...(baseMatch || {}),
       ...(statusDlg.match || {}),
       ...(statusLiveMatch || {}),
     };
+    const displayStatus = manageDisplayStatus(mergedMatch, mergedMatch?.status);
+    return displayStatus === mergedMatch?.status
+      ? mergedMatch
+      : { ...mergedMatch, status: displayStatus };
   }, [allMatchesBase, statusDlg.match, statusDlg.matchId, statusLiveMatch]);
 
   const handleExportRefNote = useCallback(
@@ -2711,7 +2728,7 @@ export default function TournamentManagePage() {
             teamLabel(merged, "A"),
             teamLabel(merged, "B"),
             courtLabel(merged),
-            merged?.status,
+            manageDisplayStatus(merged, merged?.status),
             merged?.video,
             scoreSummary(merged),
           ].join(" "),
@@ -2735,8 +2752,8 @@ export default function TournamentManagePage() {
     }
 
     const sorter = (a, b) => {
-      const pa = statusPriority(getLiveStatus(a));
-      const pb = statusPriority(getLiveStatus(b));
+      const pa = statusPriority(manageDisplayStatus(a, getLiveStatus(a)));
+      const pb = statusPriority(manageDisplayStatus(b, getLiveStatus(b)));
       if (pa !== pb) return pa - pb;
 
       const dir = sortDir === "asc" ? 1 : -1;
@@ -4930,10 +4947,10 @@ export default function TournamentManagePage() {
           const list = groupedLists.get(bid) || [];
           const allSelected = isAllSelectedIn(list);
           const activeMatches = list.filter(
-            (m) => String(getLiveStatus(m) || "").toLowerCase() !== "finished",
+            (m) => !isManageFinishedMatch(m, getLiveStatus(m)),
           );
           const finishedMatches = list.filter(
-            (m) => String(getLiveStatus(m) || "").toLowerCase() === "finished",
+            (m) => isManageFinishedMatch(m, getLiveStatus(m)),
           );
           const splitFinishedMatches =
             activeMatches.length > 0 && finishedMatches.length > 0;
