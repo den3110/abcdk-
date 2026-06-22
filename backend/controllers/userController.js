@@ -679,6 +679,141 @@ const authUser = asyncHandler(async (req, res) => {
   });
 });
 
+export const getMyRank = asyncHandler(async (req, res) => {
+  if (!req?.user?._id) {
+    res.status(401);
+    throw new Error("Không xác thực được người dùng");
+  }
+
+  const uid = new mongoose.Types.ObjectId(String(req.user._id));
+
+  const baseStages = [
+    {
+      $match: {
+        isHiddenFromRankings: { $ne: true },
+        user: { $type: "objectId" },
+      },
+    },
+    {
+      $addFields: {
+        points: { $ifNull: ["$points", 0] },
+        single: { $ifNull: ["$single", 0] },
+        double: { $ifNull: ["$double", 0] },
+        mix: { $ifNull: ["$mix", 0] },
+        reputation: { $ifNull: ["$reputation", 0] },
+        totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+        colorRank: { $ifNull: ["$colorRank", 3] },
+        tierColor: { $ifNull: ["$tierColor", "grey"] },
+        tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
+      },
+    },
+    {
+      $addFields: {
+        tierSortRank: {
+          $switch: {
+            branches: [
+              {
+                case: {
+                  $in: [
+                    { $ifNull: ["$tierColor", ""] },
+                    ["blue", "green", "yellow"],
+                  ],
+                },
+                then: 0,
+              },
+              { case: { $eq: ["$tierColor", "red"] }, then: 1 },
+              {
+                case: {
+                  $in: [{ $ifNull: ["$tierColor", ""] }, ["grey", "gray"]],
+                },
+                then: 2,
+              },
+              { case: { $in: [{ $ifNull: ["$colorRank", 3] }, [0, 1]] }, then: 0 },
+              { case: { $eq: ["$colorRank", 2] }, then: 1 },
+            ],
+            default: 2,
+          },
+        },
+      },
+    },
+  ];
+
+  const [rankRows, totalRows] = await Promise.all([
+    Ranking.aggregate([
+      ...baseStages,
+      { $match: { user: uid } },
+      { $limit: 1 },
+      {
+        $project: {
+          _id: 0,
+          user: 1,
+          single: 1,
+          double: 1,
+          mix: 1,
+          points: 1,
+          updatedAt: 1,
+          tierLabel: 1,
+          tierColor: 1,
+          colorRank: 1,
+          totalTours: 1,
+          reputation: 1,
+        },
+      },
+    ]),
+    Ranking.aggregate([...baseStages, { $count: "n" }]),
+  ]);
+
+  let rankedRows = [];
+  try {
+    rankedRows = await Ranking.aggregate(
+      [
+        ...baseStages,
+        {
+          $setWindowFields: {
+            sortBy: {
+              tierSortRank: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              reputation: -1,
+              updatedAt: -1,
+              lastUpdated: -1,
+              _id: 1,
+            },
+            output: { rankNo: { $rank: {} } },
+          },
+        },
+        { $match: { user: uid } },
+        { $limit: 1 },
+        { $project: { _id: 0, rankNo: 1 } },
+      ],
+      { allowDiskUse: true }
+    );
+  } catch {
+    rankedRows = [];
+  }
+
+  const rank = rankRows?.[0] || null;
+  const rankNo = rankedRows?.[0]?.rankNo ?? null;
+  const rankTotal = totalRows?.[0]?.n ?? 0;
+
+  const ratingSingle =
+    (rank?.single ?? req.user.ratingSingle ?? req.user.localRatings?.singles) ||
+    0;
+  const ratingDouble =
+    (rank?.double ?? req.user.ratingDouble ?? req.user.localRatings?.doubles) ||
+    0;
+
+  res.json({
+    rank,
+    rankNo,
+    rankTotal,
+    ratingSingle,
+    ratingDouble,
+    rankDeferred: false,
+  });
+});
+
 const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_COOLDOWN_SEC = 60;
 

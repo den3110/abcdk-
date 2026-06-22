@@ -15,6 +15,7 @@ import {
   getMeWithScore,
   issueOsAuthToken,
   reauthUser,
+  getMyRank,
   syncWebViewSession,
   getKycCheckData,
   updateKycStatus,
@@ -68,6 +69,7 @@ router.post("/", authLog({ action: "register" }), registerUserNotOTP);
 // router.post("/login-otp/verify", verifyLoginOtp);
 
 router.get("/reauth", protect, reauthUser);
+router.get("/me/rank", protect, getMyRank);
 router.post("/webview/session", protect, syncWebViewSession);
 router.post("/auth", authLog({ action: "login", channel: "mobile" }), authUser); // mobile
 router.post("/auth/web", authLog({ action: "login", channel: "web" }), authUserWebNoOtp); // web — OTP tạm tắt (cũ: authUserWeb)
