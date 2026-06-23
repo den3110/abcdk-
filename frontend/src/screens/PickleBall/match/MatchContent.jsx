@@ -69,6 +69,8 @@ import {
 } from "../../../utils/matchDisplay";
 
 /* ====================== utils ====================== */
+const EMPTY_GAME_SCORES = [];
+
 const sid = (x) => {
   if (!x) return "";
   const v = x?._id ?? x?.id ?? x;
@@ -2044,7 +2046,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [lockedId]);
 
   const status = localPatch?.status || mm?.status || "scheduled";
-  const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
+  const shownGameScores =
+    localPatch?.gameScores ?? mm?.gameScores ?? EMPTY_GAME_SCORES;
 
   // Streams
   const normalizedStreams = useMemo(
@@ -2262,6 +2265,15 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       primaryOpenUrl: activeStreamOpenUrl,
       useNativeControls: Boolean(activeStream?.meta?.useNativeControls),
       preferredObjectFit,
+      scoreboard: {
+        teamA: resolvePendingSideLabel(mm, "A"),
+        teamB: resolvePendingSideLabel(mm, "B"),
+        gameScores: shownGameScores,
+        currentGame: Number(mm?.currentGame) || shownGameScores.length || 1,
+        winner: mm?.winner || "",
+        startLabel,
+        endLabel,
+      },
     };
   }, [
     activeStream?.kind,
@@ -2272,6 +2284,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     lockedId,
     mm,
     resolvePendingSideLabel,
+    shownGameScores,
+    startLabel,
+    endLabel,
     status,
   ]);
 

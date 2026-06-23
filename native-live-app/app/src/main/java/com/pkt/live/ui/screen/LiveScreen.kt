@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.pkt.live.BuildConfig
+import com.pkt.live.data.model.MatchData
 import com.pkt.live.data.model.StreamMode
 import com.pkt.live.streaming.Quality
 import com.pkt.live.streaming.RecoverySeverity
@@ -129,6 +130,7 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
     var showWarnings by rememberSaveable { mutableStateOf(false) }
     var showSignals by rememberSaveable { mutableStateOf(false) }
     var showDeviceInfo by rememberSaveable { mutableStateOf(false) }
+    var showErrorDetails by rememberSaveable { mutableStateOf(false) }
     var endingOverlayHidden by rememberSaveable { mutableStateOf(false) }
     var pendingModeSelection by rememberSaveable(showModeSelector, streamMode) {
         mutableStateOf(streamMode ?: StreamMode.STREAM_AND_RECORD)
@@ -900,6 +902,17 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
                             fontSize = 13.sp,
                             modifier = Modifier.weight(1f),
                         )
+                        TextButton(
+                            onClick = { showErrorDetails = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Text(
+                                text = "Chi tiết lỗi",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                         IconButton(onClick = { viewModel.dismissError() }) {
                             Icon(
                                 imageVector = Icons.Default.Close,
@@ -910,6 +923,34 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
                     }
                 }
             }
+        }
+
+        if (showErrorDetails && visibleIssue != null) {
+            LiveErrorDetailsDialog(
+                message = visibleIssue,
+                currentMatch = matchInfo,
+                streamMode = streamMode,
+                streamState = streamState,
+                loading = loading,
+                goLiveArmed = goLiveArmed,
+                recordOnlyArmed = recordOnlyArmed,
+                waitingForCourt = waitingForCourt,
+                waitingForMatchLive = waitingForMatchLive,
+                waitingForNextMatch = waitingForNextMatch,
+                networkConnected = networkConnected,
+                isWifi = isWifi,
+                socketConnected = socketConnected,
+                socketActiveMatchId = socketActiveMatchId,
+                socketPayloadAgeSec = socketPayloadAgeSec,
+                socketRoomMismatch = socketRoomMismatch,
+                socketPayloadStale = socketPayloadStale,
+                lastSocketError = lastSocketError,
+                rtmpReady = !rtmpUrl.isNullOrBlank(),
+                rtmpLastMessage = rtmpLastMessage,
+                facebookLive = facebookLive,
+                liveUrl = facebookLive.watchUrl ?: facebookLive.permalinkUrl ?: matchInfo?.video,
+                onDismiss = { showErrorDetails = false },
+            )
         }
 
         goLiveCountdownSeconds?.let { seconds ->
@@ -1529,6 +1570,8 @@ private fun TopStatusLeftCluster(
         streamState is StreamState.Previewing -> {
             if (recoveringLiveSession) {
                 RecoveringBadge()
+            } else if (!showRecordOnlyBadgeAsPrimary && streamMode != StreamMode.RECORD_ONLY && goLiveArmed && loading) {
+                ArmedBadge(label = armedBadgeLabel)
             } else if (showRecordOnlyBadgeAsPrimary) {
                 RecordingStateChip(
                     isRecording = recordingEngineState.isRecording,
@@ -1957,6 +2000,126 @@ private fun HintBanner(item: HintItem) {
         }
     }
 }
+
+@Composable
+private fun LiveErrorDetailsDialog(
+    message: String,
+    currentMatch: MatchData?,
+    streamMode: StreamMode?,
+    streamState: StreamState,
+    loading: Boolean,
+    goLiveArmed: Boolean,
+    recordOnlyArmed: Boolean,
+    waitingForCourt: Boolean,
+    waitingForMatchLive: Boolean,
+    waitingForNextMatch: Boolean,
+    networkConnected: Boolean,
+    isWifi: Boolean,
+    socketConnected: Boolean,
+    socketActiveMatchId: String?,
+    socketPayloadAgeSec: Int?,
+    socketRoomMismatch: Boolean,
+    socketPayloadStale: Boolean,
+    lastSocketError: String?,
+    rtmpReady: Boolean,
+    rtmpLastMessage: String?,
+    facebookLive: com.pkt.live.data.model.FacebookLive,
+    liveUrl: String?,
+    onDismiss: () -> Unit,
+) {
+    val retryState =
+        when {
+            waitingForNextMatch -> "Đang chờ trận kế tiếp"
+            waitingForCourt -> "Đang chờ sân có trận"
+            waitingForMatchLive -> "Đang chờ trận LIVE"
+            goLiveArmed && loading && !rtmpReady -> "Đang tự thử lại live session"
+            recordOnlyArmed && loading -> "Đang tự thử lại recording"
+            goLiveArmed || recordOnlyArmed -> "Đã armed"
+            else -> "Không armed"
+        }
+    val socketStatus =
+        when {
+            socketRoomMismatch -> "Đã kết nối, đang chờ room trận mới"
+            socketPayloadStale -> "Đã kết nối, payload stale ${socketPayloadAgeSec ?: 0}s"
+            socketConnected -> "Đã kết nối"
+            else -> "Mất kết nối"
+        }
+    val payloadStatus =
+        when {
+            socketRoomMismatch -> "Đang chờ payload của room mới"
+            socketPayloadAgeSec == null -> "Chưa nhận payload"
+            else -> "${socketPayloadAgeSec}s trước"
+        }
+    val rtmpStatus =
+        when {
+            rtmpReady -> "Đã có URL"
+            goLiveArmed && loading -> "Đang xin live session"
+            loading -> "Đang tạo"
+            else -> "Chưa có URL"
+        }
+    val pageLabel =
+        listOfNotNull(facebookLive.pageName, facebookLive.pageId)
+            .firstOrNull { it.isNotBlank() }
+            ?: "-"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Xong", color = LiveColors.AccentGreen)
+            }
+        },
+        title = { Text("Chi tiết lỗi", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 500.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                DeviceInfoRow("Lỗi", message)
+                DeviceInfoRow("Trạng thái tự động", retryState)
+                DeviceInfoRow("Stream", streamStateLabel(streamState))
+                DeviceInfoRow("Mode", streamMode?.label ?: "Chưa chọn")
+                DeviceInfoRow("Mạng", if (!networkConnected) "OFFLINE" else if (isWifi) "Wi-Fi" else "4G/5G")
+                DeviceInfoRow("Socket", socketStatus)
+                DeviceInfoRow("Room match active", socketActiveMatchId ?: "Chưa join room")
+                DeviceInfoRow("Payload socket", payloadStatus)
+                DeviceInfoRow("Match ID", currentMatch?.id?.takeIf { it.isNotBlank() } ?: "-")
+                DeviceInfoRow("Mã trận", matchCodeForErrorDetails(currentMatch))
+                DeviceInfoRow("Cặp đấu", matchPairForErrorDetails(currentMatch))
+                DeviceInfoRow("Trạng thái trận", currentMatch?.status?.takeIf { it.isNotBlank() } ?: "-")
+                DeviceInfoRow("Sân", currentMatch?.courtName?.takeIf { it.isNotBlank() } ?: currentMatch?.court?.name?.takeIf { it.isNotBlank() } ?: "-")
+                DeviceInfoRow("RTMP", rtmpStatus)
+                DeviceInfoRow("Facebook page", pageLabel)
+                liveUrl?.takeIf { it.isNotBlank() }?.let {
+                    DeviceInfoRow("Live URL", it)
+                }
+                rtmpLastMessage?.takeIf { it.isNotBlank() }?.let {
+                    DeviceInfoRow("RTMP gần nhất", it)
+                }
+                lastSocketError?.takeIf { it.isNotBlank() }?.let {
+                    DeviceInfoRow("Socket lỗi gần nhất", it)
+                }
+                DeviceInfoRow("App build", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            }
+        },
+        containerColor = LiveColors.SurfaceDark,
+    )
+}
+
+private fun matchCodeForErrorDetails(match: MatchData?): String =
+    firstNonBlank(match?.displayCode, match?.code, match?.roundLabel) ?: "-"
+
+private fun matchPairForErrorDetails(match: MatchData?): String {
+    val sideA = match?.teamAName?.trim().orEmpty().ifBlank { "Đội A chưa rõ" }
+    val sideB = match?.teamBName?.trim().orEmpty().ifBlank { "Đội B chưa rõ" }
+    return "$sideA vs $sideB"
+}
+
+private fun firstNonBlank(vararg values: String?): String? =
+    values.firstOrNull { !it.isNullOrBlank() }?.trim()
 
 private fun parseIsoMillis(raw: String?): Long? {
     val value = raw?.trim().orEmpty()

@@ -104,6 +104,7 @@ export const createLiveSessionForLiveApp = async (req, res) => {
 
   let statusCode = 200;
   let payload = null;
+  let runnerError = null;
   const runner = (async () => {
     const requestedUserMatch =
       String(req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"] || "")
@@ -171,14 +172,39 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       },
     };
     await createFacebookLiveForMatch(req, captureRes);
-  })();
+  })().catch((error) => {
+    runnerError = error;
+    const candidateStatus = Number(error?.statusCode || error?.status || 500);
+    statusCode =
+      Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus < 600
+        ? candidateStatus
+        : 500;
+    payload = {
+      message: error?.message || "Create live failed",
+      detail: {
+        matchId,
+        source: "live-app/create-session",
+      },
+    };
+    console.error("[live-app] create live session failed", {
+      matchId,
+      statusCode,
+      error: error?.stack || error,
+    });
+  });
 
   pendingByMatchId.set(matchId, runner);
   await runner.finally(() => pendingByMatchId.delete(matchId));
   if (releaseLock) await releaseLock();
 
   if (!payload) {
-    return res.status(500).json({ message: "Create live failed" });
+    return res.status(500).json({
+      message: runnerError?.message || "Create live failed",
+      detail: {
+        matchId,
+        source: "live-app/create-session",
+      },
+    });
   }
   if (statusCode !== 200) {
     return res.status(statusCode).json(payload);

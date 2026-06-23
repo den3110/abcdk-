@@ -383,17 +383,21 @@ function buildBaseByBracketId(matches = []) {
 
 export function resolveMatchDisplayCode(match, options = {}) {
   if (!match) return "";
+  const explicitCode = firstText(
+    match?.displayCode,
+    match?.codeResolved,
+    match?.code,
+    match?.matchCode
+  );
+  if (explicitCode) return explicitCode;
+
   const payload = buildMatchCodePayload(match, {
     baseByBracketId: options.baseByBracketId,
-    preferComputed: true,
   });
   return firstText(
     payload?.displayCode,
     payload?.code,
-    match?.displayCode,
-    match?.codeResolved,
     match?.globalCode,
-    match?.code,
     match?.labelKey
   );
 }

@@ -147,7 +147,7 @@ const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
   {
     path: "match",
     select:
-      "code displayCode labelKey globalRound stageIndex courtLabel pairA pairB teamFactionAName teamFactionBName seedA seedB previousA previousB court bracket tournament status round order format pool rrRound",
+      "code displayCode codeResolved globalCode matchCode labelKey globalRound stageIndex courtLabel pairA pairB teamFactionAName teamFactionBName seedA seedB previousA previousB court bracket tournament status round order format pool rrRound",
     populate: [
       {
         path: "pairA",
@@ -193,8 +193,8 @@ const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
           },
         ],
       },
-      { path: "previousA", select: "code displayCode round order winner pairA pairB" },
-      { path: "previousB", select: "code displayCode round order winner pairA pairB" },
+      { path: "previousA", select: "code displayCode codeResolved globalCode matchCode round order winner pairA pairB" },
+      { path: "previousB", select: "code displayCode codeResolved globalCode matchCode round order winner pairA pairB" },
       { path: "court", select: "name label number" },
       { path: "bracket", select: "name stage type" },
       { path: "tournament", select: "name status" },
@@ -579,14 +579,22 @@ function buildModeLabel(mode) {
 }
 
 function buildMatchCode(match, context = {}) {
+  const explicitCode = pickFirstText(
+    match?.displayCode,
+    match?.codeResolved,
+    match?.code,
+    match?.matchCode
+  );
+  if (explicitCode) return explicitCode;
+
   const resolvedCode = resolveMatchDisplayCode(match, context);
   if (resolvedCode) return resolvedCode;
   const codePayload = buildMatchCodePayload(match);
   return (
     String(codePayload?.displayCode || "").trim() ||
     String(codePayload?.code || "").trim() ||
-    String(match?.displayCode || "").trim() ||
-    String(match?.code || "").trim()
+    String(match?.globalCode || "").trim() ||
+    String(match?.labelKey || "").trim()
   );
 }
 
@@ -1398,6 +1406,71 @@ function paginateRows(items = [], page = 1, limit = 50) {
   };
 }
 
+function buildRecordingSiblingKey(row) {
+  return [
+    String(row?.matchId || "").trim(),
+    String(row?.mode || "").trim(),
+    String(row?.courtLabel || "").trim(),
+  ].join("|");
+}
+
+function recordingRowWeight(row) {
+  return {
+    segments: toNumber(row?.segmentSummary?.totalSegments),
+    uploadedSegments: toNumber(row?.segmentSummary?.uploadedSegments),
+    sizeBytes: toNumber(row?.sizeBytes),
+    durationSeconds: toNumber(row?.durationSeconds),
+  };
+}
+
+function isTinyShadowRecordingCandidate(row) {
+  if (!["recording", "uploading"].includes(String(row?.status || ""))) {
+    return false;
+  }
+  if (row?.error || hasDriveLinks(row)) return false;
+
+  const weight = recordingRowWeight(row);
+  return (
+    weight.segments <= 1 &&
+    weight.uploadedSegments <= 1 &&
+    weight.sizeBytes <= 256 * 1024 &&
+    weight.durationSeconds <= 20
+  );
+}
+
+function filterShadowRecordingRows(rows = []) {
+  const strongestByKey = new Map();
+  for (const row of rows) {
+    const key = buildRecordingSiblingKey(row);
+    if (!key || key.startsWith("|")) continue;
+    const weight = recordingRowWeight(row);
+    const current = strongestByKey.get(key);
+    const currentWeight = current ? recordingRowWeight(current) : null;
+    if (
+      !current ||
+      weight.segments > currentWeight.segments ||
+      weight.sizeBytes > currentWeight.sizeBytes ||
+      weight.durationSeconds > currentWeight.durationSeconds
+    ) {
+      strongestByKey.set(key, row);
+    }
+  }
+
+  return rows.filter((row) => {
+    if (!isTinyShadowRecordingCandidate(row)) return true;
+    const key = buildRecordingSiblingKey(row);
+    const strongest = strongestByKey.get(key);
+    if (!strongest || strongest.recordingId === row.recordingId) return true;
+    const currentWeight = recordingRowWeight(row);
+    const strongestWeight = recordingRowWeight(strongest);
+    return !(
+      strongestWeight.segments >= 2 ||
+      strongestWeight.sizeBytes > currentWeight.sizeBytes + 256 * 1024 ||
+      strongestWeight.durationSeconds > currentWeight.durationSeconds + 20
+    );
+  });
+}
+
 function buildTournamentFacets(rows = []) {
   const map = new Map();
   for (const row of rows) {
@@ -1557,6 +1630,10 @@ function canUseFastMonitorRowsPath({
   view = "all",
   q = "",
 } = {}) {
+  // Duplicate-shadow filtering needs the full row set for each match.
+  // Keep the monitor on the snapshot path so tiny accidental sessions do not
+  // dominate the paged result before we can compare sibling recordings.
+  return false;
   return (
     FAST_MONITOR_ROW_SECTIONS.has(section) &&
     FAST_MONITOR_ROW_STATUSES.has(status) &&
@@ -2129,15 +2206,21 @@ async function buildLiveRecordingMonitorSnapshotUncached({
   );
 
   const rows = sortRows(
-    recordings.map((recording) =>
-      buildRow(recording, {
-        workerHealth,
-        queueSnapshot,
-        currentDriveMode: currentDriveSettings.mode,
-        matchSideDisplayContext,
-      }, {
-        includeDetailedSegments: false,
-      })
+    filterShadowRecordingRows(
+      recordings.map((recording) =>
+        buildRow(
+          recording,
+          {
+            workerHealth,
+            queueSnapshot,
+            currentDriveMode: currentDriveSettings.mode,
+            matchSideDisplayContext,
+          },
+          {
+            includeDetailedSegments: false,
+          }
+        )
+      )
     )
   );
   const summary = rows.reduce(
@@ -2484,18 +2567,20 @@ export async function buildLiveRecordingMonitorExportQueueSnapshot() {
 
   return {
     rows: sortRows(
-      recordings.map((recording) =>
-        buildRow(
-          recording,
-          {
-            workerHealth,
-            queueSnapshot,
-            currentDriveMode: currentDriveSettings.mode,
-            matchSideDisplayContext,
-          },
-          {
-            includeDetailedSegments: false,
-          }
+      filterShadowRecordingRows(
+        recordings.map((recording) =>
+          buildRow(
+            recording,
+            {
+              workerHealth,
+              queueSnapshot,
+              currentDriveMode: currentDriveSettings.mode,
+              matchSideDisplayContext,
+            },
+            {
+              includeDetailedSegments: false,
+            }
+          )
         )
       )
     ),

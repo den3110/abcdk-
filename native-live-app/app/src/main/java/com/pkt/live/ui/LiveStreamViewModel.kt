@@ -48,6 +48,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.Locale
@@ -117,6 +119,7 @@ class LiveStreamViewModel(
     private var backgroundExitJob: Job? = null
     private var primaryStartRetryJob: Job? = null
     private var armedStartWatchdogJob: Job? = null
+    private val recordingStartMutex = Mutex()
     private var primaryStartRetryAttempt: Int = 0
     private var lastNextCourtFallbackProbeMs: Long = 0L
     private var liveDeviceTelemetryJob: Job? = null
@@ -742,12 +745,12 @@ class LiveStreamViewModel(
         }
 
         if (mode.includesLivestream && hasActiveLivestreamState()) {
-            if (mode.includesRecording && !recordingEngineState.value.isRecording) {
+            if (mode.includesRecording && !isRecordingActiveOrStartingForMatch(currentMatchId)) {
                 maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
             }
             return
         }
-        if (!mode.includesLivestream && mode.includesRecording && recordingEngineState.value.isRecording) {
+        if (!mode.includesLivestream && mode.includesRecording && isRecordingActiveOrStartingForMatch(currentMatchId)) {
             return
         }
         if (goLiveCountdownJob?.isActive == true) return
@@ -798,7 +801,7 @@ class LiveStreamViewModel(
         if (!armed || matchId.isBlank() || freshEntryRequired || _matchTransitioning.value) return
         if (waitMatchLiveJob?.isActive == true || primaryStartRetryJob?.isActive == true) return
         if (mode.includesLivestream && hasActiveLivestreamState()) return
-        if (!mode.includesLivestream && mode.includesRecording && recordingEngineState.value.isRecording) return
+        if (!mode.includesLivestream && mode.includesRecording && isRecordingActiveOrStartingForMatch(matchId)) return
         Log.d(TAG, "Kick armed court start: $reason matchId=$matchId mode=${mode.name}")
         goLive()
     }
@@ -851,7 +854,7 @@ class LiveStreamViewModel(
                 if (
                     currentMode.includesRecording &&
                     (state is StreamState.Live || state is StreamState.Connecting || state is StreamState.Reconnecting) &&
-                    !recordingEngineState.value.isRecording
+                    !isRecordingActiveOrStartingForMatch(matchId)
                 ) {
                     maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
                     return@launchGuarded
@@ -869,6 +872,19 @@ class LiveStreamViewModel(
         primaryStartRetryJob = null
         primaryStartRetryAttempt = 0
         schedulePrimaryStartRetry(reason)
+    }
+
+    private fun shouldKeepRequestingLiveSession(targetMatchId: String): Boolean {
+        val mode = primaryMode() ?: return false
+        if (!mode.includesLivestream || !autoGoLive) return false
+        if (!liveScreenForeground || backgroundExitJob?.isActive == true || freshEntryRequired) return false
+        if (targetMatchId.isBlank() || matchId != targetMatchId) return false
+        if (_matchTransitioning.value || isWaitingForActivation()) return false
+        val matchIsLive = _matchInfo.value?.status?.trim()?.equals("live", ignoreCase = true) == true
+        if (!matchIsLive) return false
+        val state = streamManager.state.value
+        if (state is StreamState.Live || state is StreamState.Connecting || state is StreamState.Reconnecting) return false
+        return _rtmpUrl.value.isNullOrBlank()
     }
 
     fun confirmStreamMode(mode: StreamMode) {
@@ -900,10 +916,37 @@ class LiveStreamViewModel(
     private fun primaryMode(): StreamMode? = streamMode.value
 
     private fun currentSessionHasRecording(): Boolean =
-        primaryMode()?.includesRecording == true || recordingEngineState.value.isRecording
+        primaryMode()?.includesRecording == true ||
+            recordingEngineState.value.isRecording ||
+            recordingEngineState.value.pendingResume
 
     private fun currentSessionHasLivestream(): Boolean =
         primaryMode()?.includesLivestream == true || hasActiveLivestreamState()
+
+    private fun isRecordingActiveOrStartingForMatch(targetMatchId: String): Boolean {
+        val normalizedMatchId = targetMatchId.trim()
+        if (normalizedMatchId.isBlank()) return false
+
+        val engine = recordingEngineState.value
+        if (
+            engine.matchId == normalizedMatchId &&
+            (engine.isRecording || engine.pendingResume)
+        ) {
+            return true
+        }
+
+        val ui = recordingUiState.value
+        val uiStatus = ui.status.trim().lowercase(Locale.ROOT)
+        if (
+            ui.activeMatchId == normalizedMatchId &&
+            !ui.activeRecordingId.isNullOrBlank() &&
+            (ui.isRecording || uiStatus == "preparing" || uiStatus == "recording")
+        ) {
+            return true
+        }
+
+        return false
+    }
 
     private fun canAutoRestartPreviewWhileWaiting(): Boolean =
         liveScreenForeground &&
@@ -912,6 +955,13 @@ class LiveStreamViewModel(
             primaryMode() != null
 
     private suspend fun maybeStartRecordingForCurrentMatch(
+        allowSoftFailureForLivestream: Boolean,
+    ): Boolean =
+        recordingStartMutex.withLock {
+            maybeStartRecordingForCurrentMatchLocked(allowSoftFailureForLivestream)
+        }
+
+    private suspend fun maybeStartRecordingForCurrentMatchLocked(
         allowSoftFailureForLivestream: Boolean,
     ): Boolean {
         val mode = primaryMode() ?: run {
@@ -928,8 +978,10 @@ class LiveStreamViewModel(
         }
 
         val currentRecording = recordingEngineState.value
-        if (currentRecording.isRecording && currentRecording.matchId == targetMatchId) {
-            recordingCoordinator.markRecordingStarted()
+        if (isRecordingActiveOrStartingForMatch(targetMatchId)) {
+            if (currentRecording.isRecording && currentRecording.matchId == targetMatchId) {
+                recordingCoordinator.markRecordingStarted()
+            }
             cancelPrimaryStartRetry()
             return true
         }
@@ -994,7 +1046,7 @@ class LiveStreamViewModel(
     private suspend fun stopRecordingIfNeeded(
         reason: String,
         softMessage: String? = null,
-    ) {
+    ) = recordingStartMutex.withLock {
         if (!recordingEngineState.value.isRecording && !currentSessionHasRecording()) return
         streamManager.stopMatchRecording(finalize = true, reason = reason)
             .onFailure {
@@ -1015,6 +1067,9 @@ class LiveStreamViewModel(
         }
         val targetMatchId = matchId.takeIf { it.isNotBlank() } ?: run {
             _errorMessage.value = "Chưa có trận để ghi hình."
+            return
+        }
+        if (isRecordingActiveOrStartingForMatch(targetMatchId)) {
             return
         }
         recordingCoordinator.setLiveCriticalPathBusy(true)
@@ -2648,6 +2703,7 @@ class LiveStreamViewModel(
             name = "startStreamWithLiveSession",
             onErrorMessage = "Không tạo được live session.",
         ) {
+            var keepRequestingLiveSession = false
             recordingCoordinator.setLiveCriticalPathBusy(true)
             repository.createLiveSession(targetMatchId, targetPageId, forceNew = false).onSuccess { session ->
                 if (!isSessionCurrent(sessionEpoch) || this@LiveStreamViewModel.matchId != targetMatchId) return@onSuccess
@@ -2666,17 +2722,23 @@ class LiveStreamViewModel(
                         cancelPrimaryStartRetry()
                     }
                 } else {
+                    keepRequestingLiveSession = shouldKeepRequestingLiveSession(targetMatchId)
                     schedulePrimaryStartRetry("missing_rtmp_url")
+                    _loading.value = keepRequestingLiveSession
                     _errorMessage.value = "Không nhận được RTMP URL từ server"
                 }
             }.onFailure { e ->
                 if (isSessionCurrent(sessionEpoch) && this@LiveStreamViewModel.matchId == targetMatchId) {
+                    keepRequestingLiveSession = shouldKeepRequestingLiveSession(targetMatchId)
                     schedulePrimaryStartRetry("create_live_session_failed")
+                    _loading.value = keepRequestingLiveSession
                     _errorMessage.value = "Tạo live session thất bại: ${e.message}"
                 }
             }.also {
                 if (isSessionCurrent(sessionEpoch) && this@LiveStreamViewModel.matchId == targetMatchId) {
-                    _loading.value = false
+                    if (!keepRequestingLiveSession) {
+                        _loading.value = false
+                    }
                 }
                 recordingCoordinator.setLiveCriticalPathBusy(false)
             }
