@@ -292,7 +292,18 @@ export default function FeedStylePlayerDialog({
           }}
         />
 
-        <Box sx={{ position: "absolute", inset: 0 }}>
+        <Box
+          sx={{
+            position: "absolute",
+            top: { xs: 88, sm: 112, md: 132, lg: 148 },
+            left: { xs: 0, sm: "6vw", md: "12vw", lg: "13.5vw" },
+            right: { xs: 0, sm: "6vw", md: "12vw", lg: "12.5vw" },
+            bottom: { xs: 116, sm: 108, md: 116, lg: 124 },
+            zIndex: 1,
+            overflow: "hidden",
+            bgcolor: "rgba(0,0,0,0.28)",
+          }}
+        >
           {usesVidstack ? (
             <VidstackVideoPlayer
               source={resolvedSource}
