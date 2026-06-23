@@ -2,6 +2,7 @@
 // DrawPage.jsx — add Card-Deck draw mode (Classic/Card), deal & flip animations, KO=flip 2 to pair; Group=flip 1 and auto-seat per cursor. Pool still disappears immediately after drawNext; Group board reads board.groups[*].slots (fallback groupsMeta+reveals).
 import { useEffect, useMemo, useState, useRef, useCallback, memo } from "react";
 import {
+  alpha,
   Box,
   Stack,
   Typography,
@@ -404,6 +405,49 @@ const getMatchSideName = (
   return t("draw.teamPending");
 };
 
+function getDrawListItemSx(theme) {
+  const dark = theme.palette.mode === "dark";
+  return {
+    p: 1,
+    border: `1px dashed ${alpha(theme.palette.divider, dark ? 0.9 : 1)}`,
+    borderRadius: 1,
+    bgcolor: dark ? alpha(theme.palette.common.white, 0.04) : "action.hover",
+    color: "text.primary",
+    transition: "background-color .2s ease, transform .28s ease",
+    "&:hover": {
+      bgcolor: dark
+        ? alpha(theme.palette.primary.main, 0.12)
+        : theme.palette.action.hover,
+      transform: "translateY(-1px)",
+    },
+  };
+}
+
+function getDrawSlotSx(theme, filled, isHit) {
+  const dark = theme.palette.mode === "dark";
+  return {
+    p: 1,
+    border: `1px dashed ${
+      isHit
+        ? alpha(theme.palette.success.main, dark ? 0.75 : 0.45)
+        : alpha(theme.palette.divider, dark ? 0.9 : 1)
+    }`,
+    borderRadius: 1,
+    backgroundColor: filled
+      ? isHit
+        ? alpha(theme.palette.success.main, dark ? 0.24 : 0.12)
+        : dark
+          ? alpha(theme.palette.primary.main, 0.14)
+          : "#f8fbff"
+      : dark
+        ? alpha(theme.palette.common.white, 0.04)
+        : theme.palette.action.hover,
+    color: filled ? "text.primary" : "text.secondary",
+    position: "relative",
+    overflow: "hidden",
+  };
+}
+
 const PoolPanel = memo(function PoolPanel({
   title,
   eventType,
@@ -511,14 +555,7 @@ const PoolPanel = memo(function PoolPanel({
                 timeout={{ enter: 180, exit: 420 }}
               >
                 <Box
-                  sx={{
-                    p: 1,
-                    border: "1px dashed #e5e7eb",
-                    borderRadius: 1,
-                    bgcolor: "action.hover",
-                    transition: "transform .28s ease",
-                    "&:hover": { transform: "translateY(-1px)" },
-                  }}
+                  sx={(theme) => getDrawListItemSx(theme)}
                 >
                   <Typography variant="body2">{it.label}</Typography>
                 </Box>
@@ -632,18 +669,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                     return (
                       <Box
                         key={`${code}-${si}`}
-                        sx={{
-                          p: 1,
-                          border: "1px dashed #ddd",
-                          borderRadius: 1,
-                          backgroundColor: regId
-                            ? isHit
-                              ? "#f0fff4"
-                              : "#f8fbff"
-                            : "action.hover",
-                          position: "relative",
-                          overflow: "hidden",
-                        }}
+                        sx={(theme) => getDrawSlotSx(theme, Boolean(regId), isHit)}
                       >
                         {isHit && (
                           <Box
@@ -693,18 +719,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                 return (
                   <Box
                     key={idx}
-                    sx={{
-                      p: 1,
-                      border: "1px dashed #ddd",
-                      borderRadius: 1,
-                      backgroundColor: val
-                        ? isHit
-                          ? "#f0fff4"
-                          : "#f8fbff"
-                        : "action.hover",
-                      position: "relative",
-                      overflow: "hidden",
-                    }}
+                    sx={(theme) => getDrawSlotSx(theme, Boolean(val), isHit)}
                   >
                     {isHit && (
                       <Box
