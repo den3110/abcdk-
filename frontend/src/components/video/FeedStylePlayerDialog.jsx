@@ -14,6 +14,7 @@ import {
   VolumeOffRounded as VolumeOffRoundedIcon,
   VolumeUpRounded as VolumeUpRoundedIcon,
 } from "@mui/icons-material";
+import { resolveAspectRatio } from "./AspectMediaFrame";
 import UnifiedStreamPlayer from "./UnifiedStreamPlayer";
 import VidstackVideoPlayer, {
   supportsVidstackSource,
@@ -206,9 +207,11 @@ export default function FeedStylePlayerDialog({
     resolvedSource &&
       isNativeKind(resolvedSource.kind, resolvedSource.key || activeStreamKey),
   );
+  const playerAspectRatio = resolveAspectRatio(resolvedSource?.aspect);
   const playerObjectFit =
     asTrimmed(item?.preferredObjectFit).toLowerCase() === "contain" ||
-    hasNativeMute
+    hasNativeMute ||
+    usesInteractiveIframe
       ? "contain"
       : "cover";
   const closeButtonRight = usesVidstack
@@ -265,23 +268,6 @@ export default function FeedStylePlayerDialog({
           background: buildGradientSeed(item),
         }}
       >
-        {posterUrl ? (
-          <Box
-            component="img"
-            src={posterUrl}
-            alt=""
-            sx={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              transform: "scale(1.03)",
-              filter: "saturate(1.06)",
-            }}
-          />
-        ) : null}
-
         <Box
           sx={{
             position: "absolute",
@@ -295,38 +281,57 @@ export default function FeedStylePlayerDialog({
         <Box
           sx={{
             position: "absolute",
-            top: { xs: 88, sm: 112, md: 132, lg: 148 },
-            left: { xs: 0, sm: "6vw", md: "12vw", lg: "13.5vw" },
-            right: { xs: 0, sm: "6vw", md: "12vw", lg: "12.5vw" },
-            bottom: { xs: 116, sm: 108, md: 116, lg: 124 },
+            inset: 0,
             zIndex: 1,
-            overflow: "hidden",
-            bgcolor: "rgba(0,0,0,0.28)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            px: { xs: 1.5, sm: "5vw", md: "8vw", lg: "10vw" },
+            pt: { xs: 10, sm: 12, md: 13, lg: 14 },
+            pb: { xs: 14, sm: 13, md: 13, lg: 14 },
+            "--player-max-height": {
+              xs: "calc(100dvh - 192px)",
+              sm: "calc(100dvh - 212px)",
+              md: "calc(100dvh - 224px)",
+              lg: "calc(100dvh - 244px)",
+            },
           }}
         >
-          {usesVidstack ? (
-            <VidstackVideoPlayer
-              source={resolvedSource}
-              title={title}
-              status={item?.status}
-              poster={posterUrl}
-              autoplay
-              muted={muted}
-              onMutedChange={onMutedChange}
-              objectFit={playerObjectFit}
-            />
-          ) : (
-            <UnifiedStreamPlayer
-              source={resolvedSource}
-              autoplay
-              useNativeControls={useNativeControls}
-              muted={muted}
-              onMutedChange={onMutedChange}
-              chromeMode="minimal"
-              fillContainer
-              objectFit={playerObjectFit}
-            />
-          )}
+          <Box
+            sx={{
+              width: "auto",
+              maxWidth: "100%",
+              height: "var(--player-max-height)",
+              maxHeight: "var(--player-max-height)",
+              aspectRatio: `${playerAspectRatio}`,
+              overflow: "hidden",
+              bgcolor: "#000",
+            }}
+          >
+            {usesVidstack ? (
+              <VidstackVideoPlayer
+                source={resolvedSource}
+                title={title}
+                status={item?.status}
+                poster={posterUrl}
+                autoplay
+                muted={muted}
+                onMutedChange={onMutedChange}
+                objectFit={playerObjectFit}
+              />
+            ) : (
+              <UnifiedStreamPlayer
+                source={resolvedSource}
+                autoplay
+                useNativeControls={useNativeControls}
+                muted={muted}
+                onMutedChange={onMutedChange}
+                chromeMode="minimal"
+                fillContainer
+                objectFit={playerObjectFit}
+              />
+            )}
+          </Box>
         </Box>
 
         <Box

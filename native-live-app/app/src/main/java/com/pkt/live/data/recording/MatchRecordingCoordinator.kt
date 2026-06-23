@@ -52,6 +52,7 @@ private data class ActiveRecordingSession(
     val storageTargetId: String? = null,
     val storageBucketName: String? = null,
     val latestStorageFailover: RecordingStorageFailoverEntry? = null,
+    val isProvisional: Boolean = false,
 )
 
 private data class PendingRecordingSegment(
@@ -73,6 +74,7 @@ private data class PendingRecordingSegment(
     val partSizeBytes: Long? = null,
     val completedParts: List<PendingRecordingPart>? = null,
     val nextByteOffset: Long? = null,
+    val isProvisional: Boolean = false,
     val retryCount: Int = 0,
     val nextRetryAtMs: Long = 0L,
 )
@@ -86,6 +88,10 @@ private data class PendingRecordingPart(
 private data class PendingFinalizeRecording(
     val recordingId: String,
     val matchId: String,
+    val recordingSessionId: String? = null,
+    val courtId: String? = null,
+    val mode: String? = null,
+    val qualityLabel: String? = null,
     val retryCount: Int = 0,
     val nextRetryAtMs: Long = 0L,
 )
@@ -153,6 +159,7 @@ class MatchRecordingCoordinator(
         private const val OFFLINE_UPLOAD_RECHECK_DELAY_MS = 5_000L
         private const val RECONNECT_UPLOAD_COOLDOWN_MS = 8_000L
         private const val UPLOAD_SEGMENT_SPACING_MS = 2_500L
+        private const val LOCAL_RECORDING_ID_PREFIX = "local_"
     }
 
     private val coordinatorExceptionHandler =
@@ -248,6 +255,47 @@ class MatchRecordingCoordinator(
 
     fun currentMode(): StreamMode? = _selectedMode.value
 
+    private fun newLocalRecordingId(): String =
+        "$LOCAL_RECORDING_ID_PREFIX${UUID.randomUUID().toString().replace("-", "")}"
+
+    private fun isProvisionalRecordingId(recordingId: String?): Boolean =
+        recordingId?.startsWith(LOCAL_RECORDING_ID_PREFIX) == true
+
+    private fun modeFromName(value: String?): StreamMode {
+        val normalized = value?.trim().orEmpty()
+        return StreamMode.values().firstOrNull {
+            it.name.equals(normalized, ignoreCase = true) ||
+                it.label.equals(normalized, ignoreCase = true)
+        } ?: _selectedMode.value ?: StreamMode.STREAM_AND_RECORD
+    }
+
+    private fun qualityFromLabel(value: String?): Quality {
+        val normalized = value?.trim().orEmpty()
+        return Quality.values().firstOrNull {
+            it.label.equals(normalized, ignoreCase = true) ||
+                it.name.equals(normalized, ignoreCase = true)
+        } ?: Quality.DEFAULT
+    }
+
+    private fun shouldStartLocalRecordingAfterPrepareFailure(error: Throwable): Boolean {
+        val message = error.message?.lowercase(Locale.US).orEmpty()
+        val terminalClientErrors =
+            listOf(
+                " 400",
+                ": 400",
+                " 401",
+                ": 401",
+                " 403",
+                ": 403",
+                " 404",
+                ": 404",
+                "match not found",
+                "matchid is required",
+                "mode is invalid",
+            )
+        return terminalClientErrors.none { message.contains(it) }
+    }
+
     suspend fun prepareForMatchRecording(
         matchId: String,
         courtId: String?,
@@ -279,8 +327,42 @@ class MatchRecordingCoordinator(
                 quality = quality,
                 recordingSessionId = recordingSessionId,
             ).getOrElse { error ->
-                updateUiState(status = "error", errorMessage = error.message)
-                return Result.failure(error)
+                if (!shouldStartLocalRecordingAfterPrepareFailure(error)) {
+                    updateUiState(status = "error", errorMessage = error.message)
+                    return Result.failure(error)
+                }
+                val localRecordingId = newLocalRecordingId()
+                activeSession =
+                    ActiveRecordingSession(
+                        recordingId = localRecordingId,
+                        recordingSessionId = recordingSessionId,
+                        matchId = matchId,
+                        courtId = courtId,
+                        mode = mode,
+                        quality = quality,
+                        isProvisional = true,
+                    )
+                updateUiState(
+                    status = "preparing",
+                    activeMatchId = matchId,
+                    activeRecordingId = localRecordingId,
+                    activeRecordingSessionId = recordingSessionId,
+                    activeStorageTargetId = null,
+                    activeStorageBucketName = null,
+                    latestStorageFailover = null,
+                    errorMessage = null,
+                )
+                return Result.success(
+                    MatchRecording(
+                        id = localRecordingId,
+                        matchId = matchId,
+                        courtId = courtId,
+                        mode = mode.name,
+                        quality = quality.label,
+                        status = "local_pending",
+                        recordingSessionId = recordingSessionId,
+                    )
+                )
             }
 
         val recording = response.recording
@@ -298,6 +380,7 @@ class MatchRecordingCoordinator(
                 storageTargetId = recording.r2TargetId,
                 storageBucketName = recording.r2BucketName,
                 latestStorageFailover = resolveLatestStorageFailover(recording),
+                isProvisional = false,
             )
         clearSinglePutPresignCache(recording.id)
         clearLiveManifestPresignCache(recording.id)
@@ -318,7 +401,9 @@ class MatchRecordingCoordinator(
 
     fun markRecordingStarted() {
         val session = activeSession ?: return
-        startRecordingHeartbeatLoop()
+        if (!session.isProvisional) {
+            startRecordingHeartbeatLoop()
+        }
         updateUiState(
             status = "recording",
             isRecording = true,
@@ -538,7 +623,32 @@ class MatchRecordingCoordinator(
 
     private suspend fun handleSegmentCompleted(segment: RecordingSegmentClosed) {
         val currentSession = activeSession
-        val quality = currentSession?.quality
+        val sessionMatchesCurrent =
+            currentSession != null &&
+                currentSession.recordingSessionId.isNotBlank() &&
+                currentSession.recordingSessionId == segment.recordingSessionId
+        val effectiveRecordingId =
+            if (sessionMatchesCurrent && currentSession?.isProvisional == false) {
+                currentSession.recordingId
+            } else {
+                segment.recordingId
+            }
+        val effectiveCourtId = if (sessionMatchesCurrent) currentSession?.courtId else null
+        val effectiveMode = if (sessionMatchesCurrent) currentSession?.mode else _selectedMode.value
+        val quality = if (sessionMatchesCurrent) currentSession?.quality else null
+        val segmentIsProvisional =
+            (sessionMatchesCurrent && currentSession?.isProvisional == true) ||
+                isProvisionalRecordingId(effectiveRecordingId)
+        fun pendingFinalize(): PendingFinalizeRecording =
+            PendingFinalizeRecording(
+                recordingId = effectiveRecordingId,
+                matchId = segment.matchId,
+                recordingSessionId = segment.recordingSessionId,
+                courtId = effectiveCourtId,
+                mode = effectiveMode?.name,
+                qualityLabel = quality?.label,
+            )
+
         val segmentFile = File(segment.path)
         val actualSizeBytes =
             segmentFile.takeIf { it.exists() }?.length()?.coerceAtLeast(0L)
@@ -554,13 +664,13 @@ class MatchRecordingCoordinator(
                     manifest =
                         manifest.copy(
                             pendingFinalizations =
-                                (manifest.pendingFinalizations + PendingFinalizeRecording(segment.recordingId, segment.matchId))
+                                (manifest.pendingFinalizations + pendingFinalize())
                                     .distinctBy { it.recordingId },
                         )
                     persistManifestLocked()
                 }
             }
-            if (segment.isFinal && activeSession?.recordingId == segment.recordingId) {
+            if (segment.isFinal && (sessionMatchesCurrent || activeSession?.recordingId == effectiveRecordingId)) {
                 activeSession = null
                 stopRecordingHeartbeatLoop()
                 updateUiState(
@@ -586,11 +696,11 @@ class MatchRecordingCoordinator(
             }
         val segmentEntry =
             PendingRecordingSegment(
-                recordingId = segment.recordingId,
+                recordingId = effectiveRecordingId,
                 recordingSessionId = segment.recordingSessionId,
                 matchId = segment.matchId,
-                courtId = currentSession?.courtId,
-                mode = currentSession?.mode?.name ?: (_selectedMode.value?.name ?: StreamMode.STREAM_AND_RECORD.name),
+                courtId = effectiveCourtId,
+                mode = effectiveMode?.name ?: StreamMode.STREAM_AND_RECORD.name,
                 qualityLabel = quality?.label ?: "",
                 localPath = segment.path,
                 segmentIndex = segment.segmentIndex,
@@ -599,6 +709,7 @@ class MatchRecordingCoordinator(
                 sizeBytes = actualSizeBytes,
                 isFinal = segment.isFinal,
                 uploadMode = uploadMode,
+                isProvisional = segmentIsProvisional,
             )
 
         manifestMutex.withLock {
@@ -607,7 +718,7 @@ class MatchRecordingCoordinator(
             } + segmentEntry
             val finalizations =
                 if (segment.isFinal) {
-                    (manifest.pendingFinalizations + PendingFinalizeRecording(segment.recordingId, segment.matchId))
+                    (manifest.pendingFinalizations + pendingFinalize())
                         .distinctBy { it.recordingId }
                 } else {
                     manifest.pendingFinalizations
@@ -619,7 +730,7 @@ class MatchRecordingCoordinator(
             persistManifestLocked()
         }
 
-        if (segment.isFinal && activeSession?.recordingId == segment.recordingId) {
+        if (segment.isFinal && (sessionMatchesCurrent || activeSession?.recordingId == effectiveRecordingId)) {
             activeSession = null
             stopRecordingHeartbeatLoop()
             updateUiState(
@@ -658,6 +769,7 @@ class MatchRecordingCoordinator(
 
     private suspend fun sendRecordingHeartbeatOnce(reason: String) {
         val session = activeSession ?: return
+        if (session.isProvisional) return
         val pendingSegments =
             manifestMutex.withLock {
                 manifest.pendingSegments.filter { it.recordingId == session.recordingId }
@@ -866,6 +978,282 @@ class MatchRecordingCoordinator(
                     }
             )
             persistManifestLocked()
+        }
+    }
+
+    private suspend fun scheduleProvisionalBindRetry(
+        recordingId: String,
+        recordingSessionId: String,
+        retryCountHint: Int,
+        error: Throwable,
+    ) {
+        val delayMs = computeRetryDelayMs(retryCountHint + 1)
+        val nextRetryAtMs = System.currentTimeMillis() + delayMs
+        var pendingUploads = 0
+        manifestMutex.withLock {
+            manifest =
+                manifest.copy(
+                    pendingSegments =
+                        manifest.pendingSegments.map { segment ->
+                            if (
+                                segment.recordingId == recordingId &&
+                                segment.recordingSessionId == recordingSessionId
+                            ) {
+                                segment.copy(
+                                    retryCount = segment.retryCount + 1,
+                                    nextRetryAtMs = nextRetryAtMs,
+                                )
+                            } else {
+                                segment
+                            }
+                        },
+                    pendingFinalizations =
+                        manifest.pendingFinalizations.map { finalize ->
+                            if (
+                                finalize.recordingId == recordingId &&
+                                finalize.recordingSessionId == recordingSessionId
+                            ) {
+                                finalize.copy(
+                                    retryCount = finalize.retryCount + 1,
+                                    nextRetryAtMs = nextRetryAtMs,
+                                )
+                            } else {
+                                finalize
+                            }
+                        },
+                )
+            pendingUploads = manifest.pendingSegments.size
+            persistManifestLocked()
+        }
+        Log.w(TAG, "Bind provisional recording failed; will retry recordingId=$recordingId", error)
+        updateUiState(
+            pendingUploads = pendingUploads,
+            status = if (_recordingUiState.value.isRecording) "recording" else "uploading",
+            errorMessage = null,
+        )
+    }
+
+    private suspend fun bindProvisionalRecordingForSegment(
+        segment: PendingRecordingSegment,
+    ): PendingRecordingSegment? {
+        if (!segment.isProvisional && !isProvisionalRecordingId(segment.recordingId)) {
+            return segment
+        }
+        val recordingSessionId = segment.recordingSessionId.trim()
+        if (recordingSessionId.isBlank()) {
+            scheduleProvisionalBindRetry(
+                recordingId = segment.recordingId,
+                recordingSessionId = segment.recordingSessionId,
+                retryCountHint = segment.retryCount,
+                error = IllegalStateException("Missing provisional recordingSessionId"),
+            )
+            return null
+        }
+
+        val mode = modeFromName(segment.mode)
+        val quality = qualityFromLabel(segment.qualityLabel)
+        val response =
+            repository.startMatchRecordingSession(
+                matchId = segment.matchId,
+                courtId = segment.courtId,
+                mode = mode,
+                quality = quality,
+                recordingSessionId = recordingSessionId,
+            ).getOrElse { error ->
+                scheduleProvisionalBindRetry(
+                    recordingId = segment.recordingId,
+                    recordingSessionId = recordingSessionId,
+                    retryCountHint = segment.retryCount,
+                    error = error,
+                )
+                return null
+            }
+
+        val recording = response.recording
+            ?: run {
+                scheduleProvisionalBindRetry(
+                    recordingId = segment.recordingId,
+                    recordingSessionId = recordingSessionId,
+                    retryCountHint = segment.retryCount,
+                    error = IllegalStateException("Server did not return recording for provisional bind"),
+                )
+                return null
+            }
+        val serverRecordingId = recording.id.trim()
+        if (serverRecordingId.isBlank() || isProvisionalRecordingId(serverRecordingId)) {
+            scheduleProvisionalBindRetry(
+                recordingId = segment.recordingId,
+                recordingSessionId = recordingSessionId,
+                retryCountHint = segment.retryCount,
+                error = IllegalStateException("Server returned invalid recording id for provisional bind"),
+            )
+            return null
+        }
+
+        val oldRecordingId = segment.recordingId
+        var reboundSegment: PendingRecordingSegment? = null
+        var pendingUploads = 0
+        manifestMutex.withLock {
+            val nextSegments =
+                manifest.pendingSegments.map { pending ->
+                    if (
+                        pending.recordingId == oldRecordingId &&
+                        pending.recordingSessionId == recordingSessionId
+                    ) {
+                        pending.copy(
+                            recordingId = serverRecordingId,
+                            isProvisional = false,
+                            uploadId = null,
+                            objectKey = null,
+                            partSizeBytes = null,
+                            completedParts = null,
+                            nextByteOffset = null,
+                            retryCount = 0,
+                            nextRetryAtMs = 0L,
+                        ).also {
+                            if (pending.segmentIndex == segment.segmentIndex) {
+                                reboundSegment = it
+                            }
+                        }
+                    } else {
+                        pending
+                    }
+                }
+            val nextFinalizations =
+                manifest.pendingFinalizations.map { finalize ->
+                    if (
+                        finalize.recordingId == oldRecordingId &&
+                        finalize.recordingSessionId == recordingSessionId
+                    ) {
+                        finalize.copy(
+                            recordingId = serverRecordingId,
+                            retryCount = 0,
+                            nextRetryAtMs = 0L,
+                        )
+                    } else {
+                        finalize
+                    }
+                }
+            manifest =
+                manifest.copy(
+                    pendingSegments = nextSegments,
+                    pendingFinalizations = nextFinalizations,
+                )
+            pendingUploads = manifest.pendingSegments.size
+            persistManifestLocked()
+        }
+
+        clearSinglePutPresignCache(oldRecordingId)
+        clearLiveManifestPresignCache(oldRecordingId)
+        clearSinglePutPresignCache(serverRecordingId)
+        clearLiveManifestPresignCache(serverRecordingId)
+
+        val currentSession = activeSession
+        if (
+            currentSession != null &&
+            (
+                currentSession.recordingId == oldRecordingId ||
+                    currentSession.recordingSessionId == recordingSessionId
+                )
+        ) {
+            activeSession =
+                currentSession.copy(
+                    recordingId = serverRecordingId,
+                    recordingSessionId = recording.recordingSessionId.ifBlank { recordingSessionId },
+                    matchId = recording.matchId.ifBlank { currentSession.matchId },
+                    courtId = recording.courtId ?: currentSession.courtId,
+                    playbackUrl = recording.playbackUrl ?: currentSession.playbackUrl,
+                    storageTargetId = recording.r2TargetId ?: currentSession.storageTargetId,
+                    storageBucketName = recording.r2BucketName ?: currentSession.storageBucketName,
+                    latestStorageFailover =
+                        resolveLatestStorageFailover(recording) ?: currentSession.latestStorageFailover,
+                    isProvisional = false,
+                )
+            updateUiState(
+                activeMatchId = activeSession?.matchId,
+                activeRecordingId = serverRecordingId,
+                activeRecordingSessionId = activeSession?.recordingSessionId,
+                playbackUrl = activeSession?.playbackUrl,
+                activeStorageTargetId = activeSession?.storageTargetId,
+                activeStorageBucketName = activeSession?.storageBucketName,
+                latestStorageFailover = activeSession?.latestStorageFailover,
+                pendingUploads = pendingUploads,
+                errorMessage = null,
+            )
+            if (_recordingUiState.value.isRecording) {
+                startRecordingHeartbeatLoop()
+            }
+        }
+
+        syncRecordingRuntimeState(recording)
+        return reboundSegment
+            ?: segment.copy(
+                recordingId = serverRecordingId,
+                isProvisional = false,
+                uploadId = null,
+                objectKey = null,
+                partSizeBytes = null,
+                completedParts = null,
+                nextByteOffset = null,
+                retryCount = 0,
+                nextRetryAtMs = 0L,
+            )
+    }
+
+    private suspend fun bindProvisionalRecordingForFinalize(
+        finalize: PendingFinalizeRecording,
+    ): PendingFinalizeRecording? {
+        if (!isProvisionalRecordingId(finalize.recordingId)) return finalize
+        val recordingSessionId = finalize.recordingSessionId?.trim().orEmpty()
+        if (recordingSessionId.isBlank()) {
+            val delayMs = computeRetryDelayMs(finalize.retryCount + 1)
+            manifestMutex.withLock {
+                manifest =
+                    manifest.copy(
+                        pendingFinalizations =
+                            manifest.pendingFinalizations.map {
+                                if (it.recordingId == finalize.recordingId) {
+                                    it.copy(
+                                        retryCount = it.retryCount + 1,
+                                        nextRetryAtMs = System.currentTimeMillis() + delayMs,
+                                    )
+                                } else {
+                                    it
+                                }
+                            }
+                    )
+                persistManifestLocked()
+            }
+            return null
+        }
+
+        val bound =
+            bindProvisionalRecordingForSegment(
+                PendingRecordingSegment(
+                    recordingId = finalize.recordingId,
+                    recordingSessionId = recordingSessionId,
+                    matchId = finalize.matchId,
+                    courtId = finalize.courtId,
+                    mode = finalize.mode ?: StreamMode.STREAM_AND_RECORD.name,
+                    qualityLabel = finalize.qualityLabel ?: Quality.DEFAULT.label,
+                    localPath = "",
+                    segmentIndex = -1,
+                    durationSeconds = 0.0,
+                    sizeBytes = 0L,
+                    isFinal = true,
+                    isProvisional = true,
+                )
+            ) ?: return null
+
+        return manifestMutex.withLock {
+            manifest.pendingFinalizations.firstOrNull {
+                it.recordingId == bound.recordingId &&
+                    it.recordingSessionId == recordingSessionId
+            } ?: finalize.copy(
+                recordingId = bound.recordingId,
+                retryCount = 0,
+                nextRetryAtMs = 0L,
+            )
         }
     }
 
@@ -1570,21 +1958,22 @@ class MatchRecordingCoordinator(
     }
 
     private suspend fun uploadPendingSegment(segment: PendingRecordingSegment): Boolean {
-        val file = File(segment.localPath)
+        val uploadSegment = bindProvisionalRecordingForSegment(segment) ?: return false
+        val file = File(uploadSegment.localPath)
         if (!file.exists()) {
-            if (!segment.uploadId.isNullOrBlank()) {
+            if (!uploadSegment.uploadId.isNullOrBlank()) {
                 repository.abortMultipartRecordingSegment(
-                    recordingId = segment.recordingId,
-                    segmentIndex = segment.segmentIndex,
+                    recordingId = uploadSegment.recordingId,
+                    segmentIndex = uploadSegment.segmentIndex,
                 )
             }
             manifestMutex.withLock {
                 manifest = manifest.copy(
                     pendingSegments = manifest.pendingSegments.filterNot {
-                        it.recordingId == segment.recordingId && it.segmentIndex == segment.segmentIndex
+                        it.recordingId == uploadSegment.recordingId && it.segmentIndex == uploadSegment.segmentIndex
                     },
                     pendingFinalizations = manifest.pendingFinalizations.filterNot {
-                        it.recordingId == segment.recordingId
+                        it.recordingId == uploadSegment.recordingId
                     },
                 )
                 persistManifestLocked()
@@ -1600,18 +1989,26 @@ class MatchRecordingCoordinator(
         if (actualSizeBytes <= 0L) {
             Log.w(
                 TAG,
-                "Discarding empty pending recording segment recordingId=${segment.recordingId} segmentIndex=${segment.segmentIndex} isFinal=${segment.isFinal}",
+                "Discarding empty pending recording segment recordingId=${uploadSegment.recordingId} segmentIndex=${uploadSegment.segmentIndex} isFinal=${uploadSegment.isFinal}",
             )
             runCatching { file.delete() }
             manifestMutex.withLock {
                 manifest =
                     manifest.copy(
                         pendingSegments = manifest.pendingSegments.filterNot {
-                            it.recordingId == segment.recordingId && it.segmentIndex == segment.segmentIndex
+                            it.recordingId == uploadSegment.recordingId && it.segmentIndex == uploadSegment.segmentIndex
                         },
                         pendingFinalizations =
-                            if (segment.isFinal) {
-                                (manifest.pendingFinalizations + PendingFinalizeRecording(segment.recordingId, segment.matchId))
+                            if (uploadSegment.isFinal) {
+                                (manifest.pendingFinalizations +
+                                    PendingFinalizeRecording(
+                                        recordingId = uploadSegment.recordingId,
+                                        matchId = uploadSegment.matchId,
+                                        recordingSessionId = uploadSegment.recordingSessionId,
+                                        courtId = uploadSegment.courtId,
+                                        mode = uploadSegment.mode,
+                                        qualityLabel = uploadSegment.qualityLabel,
+                                    ))
                                     .distinctBy { it.recordingId }
                             } else {
                                 manifest.pendingFinalizations
@@ -1628,12 +2025,12 @@ class MatchRecordingCoordinator(
         }
 
         val pendingSegment =
-            if (segment.sizeBytes != actualSizeBytes) {
-                val updated = segment.copy(sizeBytes = actualSizeBytes)
+            if (uploadSegment.sizeBytes != actualSizeBytes) {
+                val updated = uploadSegment.copy(sizeBytes = actualSizeBytes)
                 replacePendingSegment(updated)
                 updated
             } else {
-                segment
+                uploadSegment
             }
 
         if (pendingSegment.uploadMode.equals("legacy_single_put", ignoreCase = true)) {
@@ -1705,7 +2102,8 @@ class MatchRecordingCoordinator(
 
     private suspend fun finalizeIfReady(finalizations: List<PendingFinalizeRecording>): Boolean {
         var attempted = false
-        for (finalize in finalizations) {
+        for (candidateFinalize in finalizations) {
+            val finalize = bindProvisionalRecordingForFinalize(candidateFinalize) ?: continue
             val hasPendingSegments =
                 manifestMutex.withLock {
                     manifest.pendingSegments.any { it.recordingId == finalize.recordingId }
