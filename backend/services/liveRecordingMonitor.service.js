@@ -36,6 +36,11 @@ import {
   summarizeSegments,
 } from "./liveRecordingMonitor.helpers.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+import {
+  buildMatchSideDisplayContextFromMatches,
+  resolveMatchDisplayCode,
+  resolveMatchSideDisplayName,
+} from "./matchSideDisplay.service.js";
 
 export {
   getLatestLiveAppHeartbeatActivityDate,
@@ -573,7 +578,9 @@ function buildModeLabel(mode) {
   }
 }
 
-function buildMatchCode(match) {
+function buildMatchCode(match, context = {}) {
+  const resolvedCode = resolveMatchDisplayCode(match, context);
+  if (resolvedCode) return resolvedCode;
   const codePayload = buildMatchCodePayload(match);
   return (
     String(codePayload?.displayCode || "").trim() ||
@@ -1097,8 +1104,15 @@ function buildRow(
   { includeDetailedSegments = true } = {}
 ) {
   const match = recording.match || {};
-  const teamALabel = buildSideLabel(match, "A");
-  const teamBLabel = buildSideLabel(match, "B");
+  const matchSideDisplayContext = context.matchSideDisplayContext || {};
+  const teamALabel = resolveMatchSideDisplayName(match, "A", {
+    ...matchSideDisplayContext,
+    fallback: "Đội A chưa rõ",
+  });
+  const teamBLabel = resolveMatchSideDisplayName(match, "B", {
+    ...matchSideDisplayContext,
+    fallback: "Đội B chưa rõ",
+  });
   const participantsLabel =
     teamALabel && teamBLabel
       ? `${teamALabel} vs ${teamBLabel}`
@@ -1133,7 +1147,7 @@ function buildRow(
     modeLabel: buildModeLabel(recording.mode),
     quality: recording.quality || "",
     matchId: match?._id ? String(match._id) : String(recording.match || ""),
-    matchCode: buildMatchCode(match),
+    matchCode: buildMatchCode(match, matchSideDisplayContext),
     teamALabel,
     teamBLabel,
     participantsLabel: participantsLabel || "Unknown match",
@@ -1713,6 +1727,9 @@ async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
   const recordingsById = new Map(
     recordings.map((recording) => [String(recording._id), recording])
   );
+  const matchSideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+    recordings.map((recording) => recording.match).filter(Boolean)
+  );
   const rows = pagedIds
     .map((recordingId) => recordingsById.get(recordingId))
     .filter(Boolean)
@@ -1723,6 +1740,7 @@ async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
           workerHealth,
           queueSnapshot,
           currentDriveMode: currentDriveSettings.mode,
+          matchSideDisplayContext,
         },
         {
           includeDetailedSegments: false,
@@ -2106,6 +2124,9 @@ async function buildLiveRecordingMonitorSnapshotUncached({
       .select(LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT)
       .sort({ updatedAt: -1, createdAt: -1 })
   ).lean();
+  const matchSideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+    recordings.map((recording) => recording.match).filter(Boolean)
+  );
 
   const rows = sortRows(
     recordings.map((recording) =>
@@ -2113,6 +2134,7 @@ async function buildLiveRecordingMonitorSnapshotUncached({
         workerHealth,
         queueSnapshot,
         currentDriveMode: currentDriveSettings.mode,
+        matchSideDisplayContext,
       }, {
         includeDetailedSegments: false,
       })
@@ -2456,6 +2478,9 @@ export async function buildLiveRecordingMonitorExportQueueSnapshot() {
           .sort({ updatedAt: -1, createdAt: -1 })
       ).lean(),
     ]);
+  const matchSideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+    recordings.map((recording) => recording.match).filter(Boolean)
+  );
 
   return {
     rows: sortRows(
@@ -2466,6 +2491,7 @@ export async function buildLiveRecordingMonitorExportQueueSnapshot() {
             workerHealth,
             queueSnapshot,
             currentDriveMode: currentDriveSettings.mode,
+            matchSideDisplayContext,
           },
           {
             includeDetailedSegments: false,
@@ -2537,6 +2563,9 @@ export async function getLiveRecordingMonitorRowsByIds(
   const recordingsById = new Map(
     recordings.map((recording) => [String(recording?._id || ""), recording])
   );
+  const matchSideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+    recordings.map((recording) => recording.match).filter(Boolean)
+  );
   const rows = [];
   const missingRecordingIds = [];
 
@@ -2554,6 +2583,7 @@ export async function getLiveRecordingMonitorRowsByIds(
           workerHealth,
           queueSnapshot,
           currentDriveMode: currentDriveSettings.mode,
+          matchSideDisplayContext,
         },
         {
           includeDetailedSegments,
@@ -2587,6 +2617,9 @@ export async function getLiveRecordingMonitorRow(recordingId) {
     ]);
 
   if (!recording) return null;
+  const matchSideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+    recording.match ? [recording.match] : []
+  );
 
   return buildRow(
     recording,
@@ -2594,6 +2627,7 @@ export async function getLiveRecordingMonitorRow(recordingId) {
       workerHealth,
       queueSnapshot,
       currentDriveMode: currentDriveSettings.mode,
+      matchSideDisplayContext,
     },
     {
       includeDetailedSegments: true,

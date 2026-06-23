@@ -866,7 +866,7 @@ class LiveRepository(
                     ?.toIntOrNull()
                 when {
                     size == null -> normalized
-                    size >= 16 -> "Vòng $size đội"
+                    size >= 16 -> "Vòng 1/${size / 2}"
                     size == 8 -> "Tứ kết"
                     size == 4 -> "Bán kết"
                     size == 2 -> "Chung kết"

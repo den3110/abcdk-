@@ -137,11 +137,11 @@ const codeToRoundLabel = (code) => {
   const m = rc.match(/^R(\d+)$/);
   if (m) {
     const size = +m[1];
-    if (size === 8) return "Tứ kết";
-    if (size === 4) return "Bán kết";
-    if (size === 2) return "Chung kết";
-    const denom = Math.max(2, size / 2);
-    return `1/${denom}`;
+  if (size === 8) return "Tứ kết";
+  if (size === 4) return "Bán kết";
+  if (size === 2) return "Chung kết";
+  const denom = Math.max(2, size / 2);
+  return `Vòng 1/${denom}`;
   }
   return rc;
 };
@@ -156,7 +156,7 @@ const parseRoundSize = (roundCode) => {
 
 const labelForRoundSize = (size) => {
   if (!size) return "";
-  if (size >= 16) return `Vòng ${size} đội`;
+  if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
   if (size === 8) return "Tứ kết";
   if (size === 4) return "Bán kết";
   if (size === 2) return "Chung kết";

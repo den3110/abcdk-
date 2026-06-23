@@ -569,7 +569,7 @@ export const toDTO = (matchDoc) => {
     const matched = normalized.match(/^R(\d+)$/);
     if (!matched) return normalized;
     const size = Number(matched[1]);
-    if (size >= 16) return `Vòng ${size} đội`;
+    if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
     if (size === 8) return "Tứ kết";
     if (size === 4) return "Bán kết";
     if (size === 2) return "Chung kết";
@@ -655,7 +655,7 @@ export const toDTO = (matchDoc) => {
       const matched = normalized.match(/^R(\d+)$/);
       if (!matched) return "";
       const size = Number(matched[1]);
-      if (size >= 16) return `Vòng ${size} đội`;
+      if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
       if (size === 8) return "Tứ kết";
       if (size === 4) return "Bán kết";
       if (size === 2) return "Chung kết";

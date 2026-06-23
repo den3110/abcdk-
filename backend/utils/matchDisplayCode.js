@@ -408,7 +408,9 @@ export function buildMatchDisplayMeta(match, options = {}) {
         ""
     ).trim() || "";
 
-  const displayCode = explicit || computedDisplayCode || fallback;
+  const displayCode = options?.preferComputed
+    ? computedDisplayCode || explicit || fallback
+    : explicit || computedDisplayCode || fallback;
   const code = displayCode || fallback;
   const globalCode = globalRound ? `V${globalRound}` : "";
 

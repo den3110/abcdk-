@@ -1191,9 +1191,7 @@ export async function getOverlayMatch(req, res) {
         stageName = "Tranh hạng 3/4";
       } else if (isKnockoutLike) {
         stageType = "playoff";
-        if (roundSize >= 64) stageName = "Vòng 64 đội";
-        else if (roundSize >= 32) stageName = "Vòng 32 đội";
-        else if (roundSize >= 16) stageName = "Vòng 16 đội";
+        if (roundSize >= 16) stageName = `Vòng 1/${Math.max(2, roundSize / 2)}`;
         else if (roundSize === 8) stageName = "Tứ kết";
         else if (roundSize === 4) stageName = "Bán kết";
         else if (roundSize === 2) {

@@ -9,6 +9,11 @@ import { getCourtStationPresenceSummaryMap } from "./courtStationPresence.servic
 import { getLiveLeaseConfig } from "./liveSessionLease.service.js";
 import { resolveMatchCourtStationFields } from "./courtCluster.service.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+import {
+  buildMatchSideDisplayContextFromMatches,
+  resolveMatchDisplayCode,
+  resolveMatchSideDisplayName,
+} from "./matchSideDisplay.service.js";
 
 const COURT_RUNTIME_WAIT_POLL_MS = Math.max(
   3000,
@@ -277,7 +282,8 @@ function codeToRoundLabel(code) {
   if (size === 8) return "Tứ kết";
   if (size === 4) return "Bán kết";
   if (size === 2) return "Chung kết";
-  if (size > 2) return `1/${Math.max(2, size / 2)}`;
+  if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
+  if (size > 2) return `Vòng ${size}`;
   return normalized;
 }
 
@@ -377,7 +383,7 @@ function buildRuntimePhaseText(match) {
     const matched = normalized.match(/^R(\d+)$/);
     if (!matched) return "";
     const size = Number(matched[1]);
-    if (size >= 16) return `Vòng ${size} đội`;
+    if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
     if (size === 8) return "Tứ kết";
     if (size === 4) return "Bán kết";
     if (size === 2) return "Chung kết";
@@ -792,14 +798,26 @@ function buildCourtStationRuntimePayload({
   };
 }
 
-function buildMatchRuntimePayload(match) {
+function buildMatchRuntimePayload(match, sideDisplayContext = {}) {
   const displayMode = resolveDisplayMode(match);
-  const { code, displayCode } = buildMatchCodePayload(match);
+  const fallbackCodePayload = buildMatchCodePayload(match);
+  const resolvedMatchCode =
+    resolveMatchDisplayCode(match, sideDisplayContext) ||
+    pick(fallbackCodePayload?.displayCode) ||
+    pick(fallbackCodePayload?.code);
+  const code = resolvedMatchCode || fallbackCodePayload?.code;
+  const displayCode = resolvedMatchCode || fallbackCodePayload?.displayCode;
   const roundCode = inferRoundCode(match);
   const roundLabel = buildRuntimeRoundLabel(match, roundCode);
   const phaseText = buildRuntimePhaseText(match);
-  const teamAName = matchSideDisplayName(match, "A", "Đội A chưa rõ");
-  const teamBName = matchSideDisplayName(match, "B", "Đội B chưa rõ");
+  const teamAName = resolveMatchSideDisplayName(match, "A", {
+    ...sideDisplayContext,
+    fallback: "Đội A chưa rõ",
+  });
+  const teamBName = resolveMatchSideDisplayName(match, "B", {
+    ...sideDisplayContext,
+    fallback: "Đội B chưa rõ",
+  });
   const gameScores = buildGameScores(match);
   const { scoreA, scoreB } = buildCurrentScore(gameScores);
   const serveSide = pick(match?.serve?.side).toUpperCase() === "B" ? "B" : "A";
@@ -1008,7 +1026,12 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
   }
 
   const match = await loadMatch();
-  if (match) return buildMatchRuntimePayload(match);
+  if (match) {
+    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
+      match,
+    ]);
+    return buildMatchRuntimePayload(match, sideDisplayContext);
+  }
 
   const userMatch = await loadUserMatch();
   if (!userMatch) return null;

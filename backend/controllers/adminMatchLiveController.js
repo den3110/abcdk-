@@ -23,6 +23,10 @@ import {
 } from "../services/facebookPagePool.service.js";
 import FacebookPageConnection from "../models/facebookPageConnectionModel.js";
 import UserMatch from "../models/userMatchModel.js";
+import {
+  buildMatchSideDisplayContextFromMatches,
+  resolveMatchSideDisplayName,
+} from "../services/matchSideDisplay.service.js";
 
 const matchCourtNameOf = (match, fallbackCourt = null) =>
   String(
@@ -1552,11 +1556,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
       const pairAName = sideA.length
         ? sideA.map(getParticipantName).join(" / ")
-        : "VĐV A";
+        : "Đội A chưa rõ";
 
       const pairBName = sideB.length
         ? sideB.map(getParticipantName).join(" / ")
-        : "VĐV B";
+        : "Đội B chưa rõ";
 
       const displayCode =
         userMatch.labelKey ||
@@ -1960,8 +1964,21 @@ export const createFacebookLiveForMatch = async (req, res) => {
       return n1 || n2 || fallbackDouble;
     };
 
-    const pairAName = buildPairName(match.pairA, "VĐV A", "Đội A");
-    const pairBName = buildPairName(match.pairB, "VĐV B", "Đội B");
+    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
+      match,
+    ]);
+    const pairAName = resolveMatchSideDisplayName(match, "A", {
+      ...sideDisplayContext,
+      fallback:
+        buildPairName(match.pairA, "Đội A chưa rõ", "Đội A chưa rõ") ||
+        "Đội A chưa rõ",
+    });
+    const pairBName = resolveMatchSideDisplayName(match, "B", {
+      ...sideDisplayContext,
+      fallback:
+        buildPairName(match.pairB, "Đội B chưa rõ", "Đội B chưa rõ") ||
+        "Đội B chưa rõ",
+    });
     const matchCode = displayCode;
     const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
     const courtName = matchCourtNameOf(match);
