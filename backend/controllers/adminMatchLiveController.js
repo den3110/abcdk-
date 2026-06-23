@@ -1964,9 +1964,10 @@ export const createFacebookLiveForMatch = async (req, res) => {
       return n1 || n2 || fallbackDouble;
     };
 
-    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
-      match,
-    ]);
+    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+      [match],
+      { includeScope: true }
+    );
     const pairAName = resolveMatchSideDisplayName(match, "A", {
       ...sideDisplayContext,
       fallback:

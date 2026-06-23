@@ -798,7 +798,7 @@ async function queryMatchesByScope(matchesById) {
   return [];
 }
 
-export async function buildMatchSideDisplayContextFromMatches(matches = []) {
+export async function buildMatchSideDisplayContextFromMatches(matches = [], options = {}) {
   const matchesById = new Map();
   for (const match of Array.isArray(matches) ? matches : []) {
     addMatchToMap(matchesById, match);
@@ -815,9 +815,11 @@ export async function buildMatchSideDisplayContextFromMatches(matches = []) {
     rows.forEach((row) => addMatchToMap(matchesById, row));
   }
 
-  const scopeNeeded = Array.from(matchesById.values()).some((match) =>
-    needsTournamentScope(match, matchesById)
-  );
+  const scopeNeeded =
+    Boolean(options?.includeScope) ||
+    Array.from(matchesById.values()).some((match) =>
+      needsTournamentScope(match, matchesById)
+    );
   if (scopeNeeded) {
     const scopedRows = await queryMatchesByScope(matchesById);
     scopedRows.forEach((row) => addMatchToMap(matchesById, row));

@@ -915,9 +915,10 @@ export async function toRealtimePublicMatchDTO(matchDoc) {
 
     if (!matchDoc?.isUserMatch) {
       try {
-        const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
-          decorated,
-        ]);
+        const sideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+          [decorated],
+          { includeScope: true }
+        );
         const teamAName = resolveMatchSideDisplayName(decorated, "A", {
           ...sideDisplayContext,
           fallback: dto?.teamAName || "",

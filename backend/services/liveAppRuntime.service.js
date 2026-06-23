@@ -1040,9 +1040,10 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
 
   const match = await loadMatch();
   if (match) {
-    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
-      match,
-    ]);
+    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+      [match],
+      { includeScope: true }
+    );
     return buildMatchRuntimePayload(match, sideDisplayContext);
   }
 

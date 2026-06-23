@@ -996,9 +996,10 @@ export async function getOverlayMatch(req, res) {
       return hasDisplayableReg(sourcePair) ? sourcePair : null;
     };
 
-    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
-      m,
-    ]);
+    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+      [m],
+      { includeScope: true }
+    );
     const displayPairA = await resolvedPairForSide("A");
     const displayPairB = await resolvedPairForSide("B");
     const displayTeamNameA = resolveMatchSideDisplayName(m, "A", {
