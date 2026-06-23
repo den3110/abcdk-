@@ -57,6 +57,7 @@ export const createTicket = async (req, res) => {
         attachmentsCount: Array.isArray(msg?.attachments)
           ? msg.attachments.length
           : cleanAttachments.length,
+        attachments: msg?.attachments || cleanAttachments,
       });
     } catch (e) {
       console.warn("[support:createTicket] notify telegram failed:", e?.message);
@@ -140,6 +141,7 @@ export const addMyMessage = async (req, res) => {
         attachmentsCount: Array.isArray(msg?.attachments)
           ? msg.attachments.length
           : cleanAttachments.length,
+        attachments: msg?.attachments || cleanAttachments,
       });
     } catch (e) {
       console.warn("[support:addMyMessage] notify telegram failed:", e?.message);

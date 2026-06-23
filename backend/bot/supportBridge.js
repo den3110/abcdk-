@@ -950,29 +950,60 @@ export async function notifySupportToTelegram({
   fromUserLabel,
   text,
   attachmentsCount = 0,
+  attachments = [],
 }) {
   try {
     if (!BOT_TOKEN) return;
-    if (!TELE_SUPPORT_CHAT_IDS.length) return;
+    const cleanAttachments = Array.isArray(attachments)
+      ? attachments.map(normalizeSupportAttachment).filter(Boolean)
+      : [];
+    const effectiveAttachmentsCount =
+      cleanAttachments.length || Number(attachmentsCount || 0) || 0;
 
     const tId = String(ticketId || "");
     const subject = title ? String(title) : "Hỗ trợ / Góp ý";
     const from = fromUserLabel ? String(fromUserLabel) : "User";
+    const isCrashTicket = isCrashSupportPayload({
+      title: subject,
+      text,
+      attachments: cleanAttachments,
+    });
+    const targetChatIds =
+      isCrashTicket && TELE_CRASH_CHAT_IDS.length
+        ? TELE_CRASH_CHAT_IDS
+        : TELE_SUPPORT_CHAT_IDS;
+
+    if (!targetChatIds.length) return;
 
     const bodyText = String(text || "").trim()
       ? String(text).trim()
-      : attachmentsCount
+      : effectiveAttachmentsCount
       ? "[Ảnh đính kèm]"
       : "—";
 
+    const attachmentLines = cleanAttachments.length
+      ? "\n\n<b>Đính kèm:</b>\n" +
+        cleanAttachments
+          .slice(0, 10)
+          .map(
+            (a, i) =>
+              `${i + 1}. <a href="${escHtml(a.url)}">${escHtml(a.name)}</a>`
+          )
+          .join("\n")
+      : effectiveAttachmentsCount
+      ? `\n\n<b>Đính kèm:</b> ${effectiveAttachmentsCount} file`
+      : "";
+
     const msg =
-      `<b>📩 SUPPORT</b>\n` +
+      `<b>${isCrashTicket ? "🚨 PICKLETOUR CRASH" : "📩 SUPPORT"}</b>\n` +
       `<b>Ticket:</b> <code>${escHtml(tId)}</code> (#${escHtml(
         shortId(tId)
       )})\n` +
       `<b>Chủ đề:</b> ${escHtml(subject)}\n` +
       `<b>Từ:</b> ${escHtml(from)}\n\n` +
       `<b>Nội dung:</b>\n${escHtml(bodyText)}`;
+
+    const finalMsg = msg + attachmentLines;
 
     const keyboard = {
       inline_keyboard: [
@@ -981,15 +1012,22 @@ export async function notifySupportToTelegram({
       ],
     };
 
-    for (const chatId of TELE_SUPPORT_CHAT_IDS) {
+    for (const chatId of targetChatIds) {
       try {
         await tgSendMessageChunked({
           chatId,
-          text: msg,
+          text: finalMsg,
           parse_mode: "HTML",
           disable_web_page_preview: true,
           reply_markup: keyboard,
         });
+        for (const [index, attachment] of cleanAttachments.entries()) {
+          await tgSendSupportAttachment({
+            chatId,
+            attachment,
+            index: index + 1,
+          });
+        }
       } catch (e) {
         console.warn(
           "[notifySupportToTelegram] REST sendMessage failed:",
