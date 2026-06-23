@@ -78,6 +78,8 @@ class LiveStreamViewModel(
         private const val OBSERVER_BOOTSTRAP_RETRY_MS = 60_000L
         private const val PRIMARY_START_RETRY_BASE_MS = 5_000L
         private const val PRIMARY_START_RETRY_MAX_MS = 60_000L
+        private const val ARMED_START_WATCHDOG_INTERVAL_MS = 8_000L
+        private const val NEXT_COURT_FALLBACK_PROBE_INTERVAL_MS = 15_000L
     }
 
     // ===== Params from deeplink =====
@@ -112,7 +114,9 @@ class LiveStreamViewModel(
     private var endingLiveDismissJob: Job? = null
     private var backgroundExitJob: Job? = null
     private var primaryStartRetryJob: Job? = null
+    private var armedStartWatchdogJob: Job? = null
     private var primaryStartRetryAttempt: Int = 0
+    private var lastNextCourtFallbackProbeMs: Long = 0L
     private var liveDeviceTelemetryJob: Job? = null
     private var observerBootstrapJob: Job? = null
     private var observerBootstrapToken: String = ""
@@ -325,6 +329,14 @@ class LiveStreamViewModel(
         if (runtime == null) return
         val currentCourtMatchId = runtime.currentMatchId?.trim().takeIf { !it.isNullOrBlank() }
         val currentKnownMatchId = this.matchId.takeIf { it.isNotBlank() }
+        val pendingMatchId = pendingSwitchMatchId?.trim().takeIf { !it.isNullOrBlank() }
+
+        if (
+            _matchTransitioning.value &&
+            (currentCourtMatchId.isNullOrBlank() || currentCourtMatchId != pendingMatchId)
+        ) {
+            return
+        }
 
         // No match on court
         if (currentCourtMatchId.isNullOrBlank()) {
@@ -353,6 +365,7 @@ class LiveStreamViewModel(
             }
             _waitingForCourt.value = false
             _waitingForNextMatch.value = false
+            kickArmedCourtStartIfNeeded("court_runtime_same_match")
             return
         }
 
@@ -384,7 +397,45 @@ class LiveStreamViewModel(
         pageId: String?,
         runtime: LiveAppCourtRuntimeResponse?,
     ) {
-        return
+        if (!hasArmedStartIntent() && !_waitingForNextMatch.value) return
+        if (_matchTransitioning.value || freshEntryRequired) return
+        if (!networkMonitor.isConnected.value) return
+        if (!runtime?.currentMatchId.isNullOrBlank()) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastNextCourtFallbackProbeMs < NEXT_COURT_FALLBACK_PROBE_INTERVAL_MS) return
+        lastNextCourtFallbackProbeMs = now
+
+        val currentKnownMatchId = matchId.trim().takeIf { it.isNotBlank() }
+        val runtimeNextMatchId = runtime?.nextMatchId?.trim()?.takeIf { it.isNotBlank() }
+        val candidateMatchId =
+            runtimeNextMatchId
+                ?: withContext(Dispatchers.IO) {
+                    repository.getNextMatchByCourt(courtId, currentKnownMatchId).getOrNull()
+                }?.trim()?.takeIf { it.isNotBlank() }
+
+        if (
+            candidateMatchId.isNullOrBlank() ||
+            candidateMatchId == currentKnownMatchId ||
+            candidateMatchId == pendingSwitchMatchId ||
+            candidateMatchId == handledTerminalStatusMatchId
+        ) {
+            return
+        }
+
+        val candidateMatch =
+            withContext(Dispatchers.IO) {
+                repository.getMatchInfo(candidateMatchId).getOrNull()
+            } ?: return
+
+        if (isTerminalMatchStatus(candidateMatch.status)) {
+            handledTerminalStatusMatchId = candidateMatchId
+            return
+        }
+        if (!isLiveMatch(candidateMatch)) return
+
+        Log.d(TAG, "Fallback switching to live court match: $candidateMatchId")
+        switchToMatch(candidateMatchId, token, pageId)
     }
 
     private fun isTerminalMatchStatus(status: String): Boolean =
@@ -590,9 +641,160 @@ class LiveStreamViewModel(
     private fun setAutoGoLive(value: Boolean) {
         autoGoLive = value
         _goLiveArmed.value = value
-        if (!value) {
+        if (value) {
+            ensureArmedStartWatchdog("auto_go_live")
+        } else {
             cancelPrimaryStartRetry()
+            if (!_recordOnlyArmed.value) {
+                cancelArmedStartWatchdog()
+            }
         }
+    }
+
+    private fun hasArmedStartIntent(): Boolean {
+        val mode = primaryMode() ?: return false
+        return if (mode == StreamMode.RECORD_ONLY) {
+            _recordOnlyArmed.value || autoGoLive
+        } else {
+            autoGoLive
+        }
+    }
+
+    private fun shouldRunArmedStartWatchdog(): Boolean =
+        hasArmedStartIntent() &&
+            liveScreenForeground &&
+            backgroundExitJob?.isActive != true &&
+            !freshEntryRequired
+
+    private fun clearWaitingForResolvedMatch() {
+        _waitingForCourt.value = false
+        _waitingForMatchLive.value = false
+        _waitingForNextMatch.value = false
+        _loading.value = false
+    }
+
+    private fun ensureArmedStartWatchdog(reason: String) {
+        if (armedStartWatchdogJob?.isActive == true) return
+        armedStartWatchdogJob =
+            launchGuarded(name = "armedStartWatchdog") {
+                Log.d(TAG, "Armed start watchdog started: $reason")
+                val currentJob = coroutineContext[Job]
+                try {
+                    while (isActive) {
+                        delay(ARMED_START_WATCHDOG_INTERVAL_MS)
+                        if (!shouldRunArmedStartWatchdog()) break
+                        recoverArmedStartIfNeeded("watchdog")
+                    }
+                } finally {
+                    if (armedStartWatchdogJob === currentJob) {
+                        armedStartWatchdogJob = null
+                    }
+                }
+            }
+    }
+
+    private fun cancelArmedStartWatchdog() {
+        armedStartWatchdogJob?.cancel()
+        armedStartWatchdogJob = null
+    }
+
+    private fun wakeArmedStartRecovery(reason: String) {
+        if (!shouldRunArmedStartWatchdog()) return
+        ensureArmedStartWatchdog(reason)
+        launchGuarded(name = "wakeArmedStartRecovery") {
+            recoverArmedStartIfNeeded(reason)
+        }
+    }
+
+    private suspend fun recoverArmedStartIfNeeded(reason: String) {
+        val mode = primaryMode() ?: return
+        if (!shouldRunArmedStartWatchdog()) return
+        if (!networkMonitor.isConnected.value) return
+        if (_matchTransitioning.value) return
+
+        val currentMatchId = matchId.trim()
+        if (currentMatchId.isBlank() || _waitingForCourt.value || _waitingForNextMatch.value) {
+            val targetCourtId = courtId.trim()
+            if (targetCourtId.isBlank()) return
+            val runtime =
+                withContext(Dispatchers.IO) {
+                    repository.getCourtRuntime(targetCourtId).getOrNull()
+                }
+            if (runtime != null) {
+                applyCourtRuntimeSnapshot(runtime, token, pageId)
+                trySwitchToNextCourtMatchFallback(targetCourtId, token, pageId, runtime)
+            }
+            if (
+                currentMatchId.isBlank() ||
+                this.matchId != currentMatchId ||
+                _matchTransitioning.value ||
+                _waitingForCourt.value ||
+                _waitingForNextMatch.value
+            ) {
+                return
+            }
+        }
+
+        if (mode.includesLivestream && hasActiveLivestreamState()) {
+            if (mode.includesRecording && !recordingEngineState.value.isRecording) {
+                maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
+            }
+            return
+        }
+        if (!mode.includesLivestream && mode.includesRecording && recordingEngineState.value.isRecording) {
+            return
+        }
+        if (goLiveCountdownJob?.isActive == true) return
+
+        val match =
+            withContext(Dispatchers.IO) {
+                repository.getMatchInfo(currentMatchId).getOrNull()
+            } ?: run {
+                if (waitMatchLiveJob?.isActive != true && primaryStartRetryJob?.isActive != true) {
+                    schedulePrimaryStartRetry("${reason}_match_probe_failed")
+                }
+                return
+            }
+
+        if (this.matchId != currentMatchId) return
+        _matchInfo.value = match
+        seedOverlayFromMatch(match)
+
+        if (isTerminalMatchStatus(match.status)) {
+            handledTerminalStatusMatchId = currentMatchId
+            if (courtId.isNotBlank()) {
+                enterWaitingForNextMatch()
+            } else {
+                showLiveIssue("Trận đã kết thúc. App đang đóng phiên hiện tại của trận này.")
+            }
+            return
+        }
+
+        if (isLiveMatch(match)) {
+            clearWaitingForResolvedMatch()
+            kickArmedCourtStartIfNeeded(reason)
+            return
+        }
+
+        if (waitMatchLiveJob?.isActive != true) {
+            _waitingForCourt.value = false
+            _waitingForNextMatch.value = false
+            _waitingForMatchLive.value = true
+            goLive()
+        }
+    }
+
+    private fun kickArmedCourtStartIfNeeded(reason: String) {
+        val mode = primaryMode() ?: return
+        val armed =
+            if (mode == StreamMode.RECORD_ONLY) _recordOnlyArmed.value
+            else autoGoLive
+        if (!armed || matchId.isBlank() || freshEntryRequired || _matchTransitioning.value) return
+        if (waitMatchLiveJob?.isActive == true || primaryStartRetryJob?.isActive == true) return
+        if (mode.includesLivestream && hasActiveLivestreamState()) return
+        if (!mode.includesLivestream && mode.includesRecording && recordingEngineState.value.isRecording) return
+        Log.d(TAG, "Kick armed court start: $reason matchId=$matchId mode=${mode.name}")
+        goLive()
     }
 
     private fun cancelPrimaryStartRetry() {
@@ -1079,8 +1281,10 @@ class LiveStreamViewModel(
      */
     fun init(matchId: String, token: String, pageId: String? = null) {
         if (!freshEntryRequired && this.matchId == matchId && this.token == token && this.pageId == pageId) return
+        _recordOnlyArmed.value = false
         setAutoGoLive(false)
         freshEntryRequired = false
+        lastNextCourtFallbackProbeMs = 0L
         recordingCoordinator.clearModeSelection()
         recordingCoordinator.refreshStorageStatusAsync(_quality.value)
         _showModeSelector.value = true
@@ -1187,6 +1391,7 @@ class LiveStreamViewModel(
         nextSessionEpoch()
         val courtWatchEpoch = nextCourtWatchEpoch()
         freshEntryRequired = false
+        lastNextCourtFallbackProbeMs = 0L
         recordingCoordinator.clearModeSelection()
         recordingCoordinator.refreshStorageStatusAsync(_quality.value)
         _showModeSelector.value = true
@@ -1241,11 +1446,31 @@ class LiveStreamViewModel(
         liveScreenForeground = true
         if (freshEntryRequired) return
         if (courtId.isBlank()) return
+        if (hasArmedStartIntent()) {
+            ensureArmedStartWatchdog("host_resumed")
+        }
+        if (
+            hasArmedStartIntent() &&
+            (_waitingForCourt.value || _waitingForMatchLive.value || _waitingForNextMatch.value)
+        ) {
+            wakeArmedStartRecovery("resume_armed_waiting")
+            launchGuarded(name = "resumeCourtPresence") {
+                if (!startCourtPresenceIfNeeded()) return@launchGuarded
+                startCourtPresenceHeartbeatLoop()
+            }
+            return
+        }
         if (matchId.isNotBlank() && _matchInfo.value == null && token.isNotBlank() && initJob?.isActive != true) {
             init(matchId, token, pageId)
             return
         }
         if (matchId.isBlank() && token.isNotBlank() && waitCourtJob?.isActive != true) {
+            if (hasArmedStartIntent()) {
+                _waitingForCourt.value = true
+                _loading.value = false
+                wakeArmedStartRecovery("resume_wait_court")
+                return
+            }
             initByCourt(courtId, token, pageId)
             return
         }
@@ -1321,8 +1546,7 @@ class LiveStreamViewModel(
             val targetMatchId = matchId
             val currentIsLive = _matchInfo.value?.status?.trim()?.equals("live", ignoreCase = true) == true
             if (currentIsLive) {
-                _loading.value = false
-                _waitingForMatchLive.value = false
+                clearWaitingForResolvedMatch()
                 launchGuarded(name = "startRecordOnlyLiveMatch") {
                     startRecordOnly()
                 }
@@ -1355,7 +1579,7 @@ class LiveStreamViewModel(
                         delay(MATCH_LIVE_WAIT_POLL_INTERVAL_MS)
                     }
                     if (!isSessionCurrent(sessionEpoch) || this@LiveStreamViewModel.matchId != targetMatchId) return@launchGuarded
-                    _waitingForMatchLive.value = false
+                    clearWaitingForResolvedMatch()
                     startRecordOnly()
                 }
             return
@@ -1381,6 +1605,7 @@ class LiveStreamViewModel(
         val targetMatchId = matchId
         val currentIsLive = _matchInfo.value?.status?.trim()?.equals("live", ignoreCase = true) == true
         if (currentIsLive) {
+            clearWaitingForResolvedMatch()
             startStreamWithLiveSession()
             return
         }
@@ -1411,8 +1636,7 @@ class LiveStreamViewModel(
 
             val isLiveNow = _matchInfo.value?.status?.trim()?.equals("live", ignoreCase = true) == true
             if (isLiveNow) {
-                _loading.value = false
-                _waitingForMatchLive.value = false
+                clearWaitingForResolvedMatch()
                 startStreamWithLiveSession()
                 return@goLiveGuarded
             }
@@ -1442,8 +1666,7 @@ class LiveStreamViewModel(
                     delay(MATCH_LIVE_WAIT_POLL_INTERVAL_MS)
                 }
                 if (!isSessionCurrent(sessionEpoch) || this@LiveStreamViewModel.matchId != targetMatchId) return@launchGuarded
-                _waitingForMatchLive.value = false
-                _loading.value = false
+                clearWaitingForResolvedMatch()
                 startStreamWithLiveSession()
             }
         }
@@ -1595,10 +1818,10 @@ class LiveStreamViewModel(
     }
 
     fun cancelGoLiveCountdown() {
-        setAutoGoLive(false)
         if (primaryMode() == StreamMode.RECORD_ONLY) {
             _recordOnlyArmed.value = false
         }
+        setAutoGoLive(false)
         goLiveCountdownJob?.cancel()
         goLiveCountdownJob = null
         _goLiveCountdownSeconds.value = null
@@ -1633,6 +1856,8 @@ class LiveStreamViewModel(
         endingLiveDismissJob = null
         waitMatchLiveJob?.cancel()
         waitMatchLiveJob = null
+        armedStartWatchdogJob?.cancel()
+        armedStartWatchdogJob = null
         initJob?.cancel()
         initJob = null
         waitCourtJob?.cancel()
@@ -1753,6 +1978,7 @@ class LiveStreamViewModel(
         }
         _loading.value = false
         _errorMessage.value = null
+        wakeArmedStartRecovery("armed_waiting_for_court")
     }
 
     private fun shouldMaintainActiveLiveStopCountdown(): Boolean {
@@ -1825,9 +2051,12 @@ class LiveStreamViewModel(
 
         launchGuarded(name = "observeCourtRuntimeSocketRecovery") {
             repository.courtRuntimeSocketConnected.collect { connected ->
+                if (!connected) return@collect
                 val currentError = _lastSocketError.value
-                if (!connected || !isCourtRuntimeSocketError(currentError)) return@collect
-                _lastSocketError.value = null
+                if (isCourtRuntimeSocketError(currentError)) {
+                    _lastSocketError.value = null
+                }
+                wakeArmedStartRecovery("court_runtime_socket_connected")
             }
         }
 
@@ -1837,6 +2066,7 @@ class LiveStreamViewModel(
                 if (connected) {
                     recordingCoordinator.retryPendingWorkNow("network_connected")
                     wakePrimaryStartRetry("network_connected")
+                    wakeArmedStartRecovery("network_connected")
                 }
             }
         }
