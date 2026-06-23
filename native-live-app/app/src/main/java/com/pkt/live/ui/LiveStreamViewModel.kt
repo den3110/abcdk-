@@ -600,6 +600,8 @@ class LiveStreamViewModel(
         return when {
             stopLiveCountdownJob?.isActive == true || _endingLive.value -> "ending_live"
             goLiveCountdownJob?.isActive == true -> "starting_countdown"
+            hasArmedStartIntent() && waitingForNextMatch.value -> "armed_waiting_for_next_match"
+            hasArmedStartIntent() && (waitingForCourt.value || waitingForMatchLive.value) -> "armed_waiting_for_court"
             waitingForNextMatch.value -> "waiting_for_next_match"
             waitingForCourt.value || waitingForMatchLive.value -> "waiting_for_court"
             state is StreamState.Live -> "live"

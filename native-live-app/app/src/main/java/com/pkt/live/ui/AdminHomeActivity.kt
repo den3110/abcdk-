@@ -1153,6 +1153,7 @@ private fun presenceChipLabel(presence: CourtLiveScreenPresence?): String {
     val screenState = presence?.screenState?.trim()?.lowercase().orEmpty()
     return when (screenState) {
         "live" -> "Đang live"
+        "armed_waiting_for_court", "armed_waiting_for_next_match" -> "Đã Start"
         "preview", "preview_unknown" -> "Đang preview"
         "waiting_for_court", "waiting_for_next_match", "idle" -> "Đang giữ"
         else -> "Đang bận"
@@ -1169,6 +1170,8 @@ private fun buildOccupiedCourtMessage(
     val stateText =
         when (presence.screenState?.trim()?.lowercase()) {
             "live" -> "Thiết bị khác đang LIVE trên sân này."
+            "armed_waiting_for_court", "armed_waiting_for_next_match" ->
+                "Thiết bị khác đã bấm Start và đang chờ trận LIVE trên sân này."
             "connecting", "reconnecting", "starting_countdown" ->
                 "Thiết bị khác đang chuẩn bị phát hoặc đang kết nối stream."
             else -> "Thiết bị khác đang ở màn live/preview của sân này."

@@ -324,7 +324,8 @@ export default function Header() {
         top: { xs: 0, md: 24 },
         mt: { xs: 0, md: 3 },
         mx: "auto",
-        width: { xs: "100%", md: "94%", lg: "1320px" },
+        width: { xs: "100%", md: "94%", lg: "88%" },
+        maxWidth: { lg: "1680px" },
         border: isDark
           ? "1px solid rgba(255, 255, 255, 0.08)"
           : "1px solid rgba(255, 255, 255, 0.4)",

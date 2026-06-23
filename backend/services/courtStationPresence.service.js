@@ -18,6 +18,8 @@ const LIVE_LIKE_STATES = new Set([
   "connecting",
   "reconnecting",
   "starting_countdown",
+  "armed_waiting_for_court",
+  "armed_waiting_for_next_match",
   "ending_live",
   "ending_countdown",
 ]);

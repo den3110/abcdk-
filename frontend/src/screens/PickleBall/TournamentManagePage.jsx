@@ -1279,9 +1279,14 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
       </TableCell>
       <TableCell
         sx={{
-          width: 96,
-          maxWidth: 96,
-          whiteSpace: "nowrap",
+          width: 150,
+          maxWidth: 150,
+          whiteSpace: "normal !important",
+          overflow: "visible !important",
+          textOverflow: "clip !important",
+          overflowWrap: "anywhere",
+          wordBreak: "break-word",
+          lineHeight: 1.35,
           py: 0.5,
         }}
       >
@@ -1290,7 +1295,16 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
           arrow
           disableHoverListener={!mergedCourtLabel || mergedCourtLabel === "—"}
         >
-          <Typography component="span" noWrap sx={{ display: "block" }}>
+          <Typography
+            component="span"
+            sx={{
+              display: "block",
+              whiteSpace: "normal",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
+              lineHeight: 1.35,
+            }}
+          >
             {mergedCourtLabel}
           </Typography>
         </Tooltip>
@@ -5015,7 +5029,7 @@ export default function TournamentManagePage() {
                       size="small"
                       sx={{
                         tableLayout: "fixed",
-                        minWidth: 1080,
+                        minWidth: 1130,
                         "& th, & td": {
                           whiteSpace: "nowrap",
                           overflow: "hidden",
@@ -5053,7 +5067,7 @@ export default function TournamentManagePage() {
                           <TableCell sx={{ width: 220 }}>
                             {t("tournaments.manage.exportHeaders.pairB")}
                           </TableCell>
-                          <TableCell sx={{ width: 96 }}>
+                          <TableCell sx={{ width: 150 }}>
                             {t("tournaments.manage.exportHeaders.court")}
                           </TableCell>
                           <TableCell sx={{ width: 68 }}>Thứ tự</TableCell>

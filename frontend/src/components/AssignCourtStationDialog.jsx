@@ -107,6 +107,28 @@ const assignmentModeLabel = (mode) =>
     ? "Danh sách"
     : "Gán tay";
 
+const stationStatusChipProps = (status) => {
+  switch (String(status || "").toLowerCase()) {
+    case "idle":
+      return { color: "success", variant: "filled", sx: { fontWeight: 700 } };
+    case "live":
+      return {
+        color: "warning",
+        variant: "filled",
+        sx: { bgcolor: "#f57c00", color: "#fff", fontWeight: 700 },
+      };
+    case "maintenance":
+      return { color: "error", variant: "outlined", sx: { fontWeight: 700 } };
+    default:
+      return { color: "default", variant: "outlined" };
+  }
+};
+
+const assignmentModeChipProps = (mode) =>
+  String(mode || "").toLowerCase() === "queue"
+    ? { color: "info", variant: "outlined", sx: { fontWeight: 700 } }
+    : { color: "primary", variant: "outlined", sx: { fontWeight: 700 } };
+
 export default function AssignCourtStationDialog({
   open,
   match,
@@ -816,12 +838,13 @@ export default function AssignCourtStationDialog({
                               {stationStatusLabel(station?.status) ? (
                                 <Chip
                                   size="small"
+                                  {...stationStatusChipProps(station?.status)}
                                   label={stationStatusLabel(station?.status)}
                                 />
                               ) : null}
                               <Chip
                                 size="small"
-                                variant="outlined"
+                                {...assignmentModeChipProps(assignmentMode)}
                                 icon={
                                   assignmentMode === "queue" ? (
                                     <SmartToyOutlinedIcon />
