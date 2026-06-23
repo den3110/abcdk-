@@ -258,6 +258,14 @@ function pickFirstText(...values) {
   return "";
 }
 
+function normalizedPublicMatchCode(value) {
+  const text = String(value || "").trim().toUpperCase();
+  const match = text.match(
+    /\b(?:V\d+(?:-B[^-\s]+)?(?:-NT)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i
+  );
+  return match ? match[0].toUpperCase() : "";
+}
+
 function buildPairLabel(pair) {
   if (!pair) return "";
   const teamLabel = pickFirstText(
@@ -579,22 +587,14 @@ function buildModeLabel(mode) {
 }
 
 function buildMatchCode(match, context = {}) {
-  const explicitCode = pickFirstText(
-    match?.displayCode,
-    match?.codeResolved,
-    match?.code,
-    match?.matchCode
-  );
-  if (explicitCode) return explicitCode;
-
   const resolvedCode = resolveMatchDisplayCode(match, context);
   if (resolvedCode) return resolvedCode;
-  const codePayload = buildMatchCodePayload(match);
-  return (
-    String(codePayload?.displayCode || "").trim() ||
-    String(codePayload?.code || "").trim() ||
-    String(match?.globalCode || "").trim() ||
-    String(match?.labelKey || "").trim()
+  const codePayload = buildMatchCodePayload(match, {
+    baseByBracketId: context?.baseByBracketId,
+  });
+  return pickFirstText(
+    normalizedPublicMatchCode(codePayload?.displayCode),
+    normalizedPublicMatchCode(codePayload?.code)
   );
 }
 

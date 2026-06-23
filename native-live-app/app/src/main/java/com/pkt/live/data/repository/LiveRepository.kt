@@ -615,7 +615,11 @@ class LiveRepository(
         val labelKey = obj.getStr("labelKey") ?: obj.getStr("labelKeyDisplay") ?: ""
         val rawCode = obj.getStr("code") ?: ""
         val resolvedDisplayCode = resolveMatchDisplayCode(obj, labelKey)
-        val code = resolvedDisplayCode ?: rawCode.takeIf { it.isNotBlank() } ?: labelKey
+        val code =
+            resolvedDisplayCode
+                ?: normalizeMatchCodeCandidate(rawCode)
+                ?: normalizeMatchCodeCandidate(labelKey)
+                ?: computeDisplayCode(obj, labelKey)
         val status = obj.getStr("status") ?: ""
         val displayNameMode = resolveMatchDisplayMode(obj)
         val liveVersion = obj.getLong("liveVersion") ?: obj.getLong("version")
@@ -794,7 +798,11 @@ class LiveRepository(
     }
 
     private fun normalizeMatchNames(match: MatchData): MatchData {
+        val displayCode = normalizeMatchCodeCandidate(match.displayCode)
+        val code = displayCode ?: normalizeMatchCodeCandidate(match.code)
         return match.copy(
+            code = code,
+            displayCode = displayCode ?: code,
             teamAName = normalizeTeamName(match.teamAName),
             teamBName = normalizeTeamName(match.teamBName),
         )
@@ -816,14 +824,10 @@ class LiveRepository(
     private fun normalizeMatchCodeCandidate(value: String?): String? {
         val text = value?.trim()?.uppercase().orEmpty()
         if (text.isBlank()) return null
-        return if (
-            Regex("^V\\d+(?:-B\\d+)?(?:-NT)?-T\\d+$", RegexOption.IGNORE_CASE)
-                .matches(text)
-        ) {
-            text
-        } else {
-            null
-        }
+        return Regex("\\b(?:V\\d+(?:-B[^-\\s]+)?(?:-NT)?-T\\d+|WB\\d+-T\\d+|LB\\d+-T\\d+|GF(?:\\d+)?-T\\d+)\\b", RegexOption.IGNORE_CASE)
+            .find(text)
+            ?.value
+            ?.uppercase()
     }
 
     private fun resolveMatchDisplayCode(obj: JsonObject, labelKey: String): String? {
@@ -947,7 +951,14 @@ class LiveRepository(
         val groupLike = isGroupType(type) || isGroupType(bracketType) || isGroupType(format) || hasNonEmptyPool(obj)
 
         val order = obj.getInt("order")
-        val t = if (order != null && order >= 0) order + 1 else extractTFromLabelKey(labelKey)
+        val labelSource =
+            firstText(
+                labelKey,
+                obj.getStr("labelKeyDisplay"),
+                obj.getStr("code"),
+                obj.getStr("matchCode"),
+            ).orEmpty()
+        val t = if (order != null && order >= 0) order + 1 else extractTFromLabelKey(labelSource)
         if (t <= 0) return null
 
         return if (groupLike) {

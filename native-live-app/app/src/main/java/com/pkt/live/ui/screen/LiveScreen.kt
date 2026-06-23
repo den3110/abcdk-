@@ -2109,8 +2109,20 @@ private fun LiveErrorDetailsDialog(
     )
 }
 
+private fun publicMatchCodeForErrorDetails(value: String?): String? {
+    val text = value?.trim()?.uppercase().orEmpty()
+    if (text.isBlank()) return null
+    return Regex("\\b(?:V\\d+(?:-B[^-\\s]+)?(?:-NT)?-T\\d+|WB\\d+-T\\d+|LB\\d+-T\\d+|GF(?:\\d+)?-T\\d+)\\b", RegexOption.IGNORE_CASE)
+        .find(text)
+        ?.value
+        ?.uppercase()
+}
+
 private fun matchCodeForErrorDetails(match: MatchData?): String =
-    firstNonBlank(match?.displayCode, match?.code, match?.roundLabel) ?: "-"
+    firstNonBlank(
+        publicMatchCodeForErrorDetails(match?.displayCode),
+        publicMatchCodeForErrorDetails(match?.code),
+    ) ?: "-"
 
 private fun matchPairForErrorDetails(match: MatchData?): String {
     val sideA = match?.teamAName?.trim().orEmpty().ifBlank { "Đội A chưa rõ" }

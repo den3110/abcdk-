@@ -1311,12 +1311,20 @@ private fun RecordingRequestDetailsDialog(
     )
 }
 
+private fun publicMatchCode(value: String?): String? {
+    val text = value?.trim()?.uppercase().orEmpty()
+    if (text.isBlank()) return null
+    return Regex("\\b(?:V\\d+(?:-B[^-\\s]+)?(?:-NT)?-T\\d+|WB\\d+-T\\d+|LB\\d+-T\\d+|GF(?:\\d+)?-T\\d+)\\b", RegexOption.IGNORE_CASE)
+        .find(text)
+        ?.value
+        ?.uppercase()
+}
+
 private fun matchDisplayCode(match: MatchData): String =
     listOfNotNull(
-        match.displayCode,
-        match.code,
-        match.roundLabel,
-    ).firstOrNull { it.isNotBlank() }.orEmpty()
+        publicMatchCode(match.displayCode),
+        publicMatchCode(match.code),
+    ).firstOrNull().orEmpty()
 
 private fun matchStageLabel(match: MatchData): String =
     listOfNotNull(

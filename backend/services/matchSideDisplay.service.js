@@ -381,24 +381,34 @@ function buildBaseByBracketId(matches = []) {
   return baseByBracketId;
 }
 
+function normalizedPublicMatchCode(value) {
+  const text = String(value || "").trim().toUpperCase();
+  const match = text.match(
+    /\b(?:V\d+(?:-B[^-\s]+)?(?:-NT)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i
+  );
+  return match ? match[0].toUpperCase() : "";
+}
+
 export function resolveMatchDisplayCode(match, options = {}) {
   if (!match) return "";
   const explicitCode = firstText(
-    match?.displayCode,
-    match?.codeResolved,
-    match?.code,
-    match?.matchCode
+    normalizedPublicMatchCode(match?.displayCode),
+    normalizedPublicMatchCode(match?.codeResolved),
+    normalizedPublicMatchCode(match?.matchCode)
   );
   if (explicitCode) return explicitCode;
+
+  const publicCode = normalizedPublicMatchCode(match?.code);
+  if (publicCode) return publicCode;
 
   const payload = buildMatchCodePayload(match, {
     baseByBracketId: options.baseByBracketId,
   });
   return firstText(
-    payload?.displayCode,
-    payload?.code,
-    match?.globalCode,
-    match?.labelKey
+    normalizedPublicMatchCode(payload?.displayCode),
+    normalizedPublicMatchCode(payload?.code),
+    normalizedPublicMatchCode(match?.globalCode),
+    normalizedPublicMatchCode(match?.labelKey)
   );
 }
 

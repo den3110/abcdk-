@@ -3000,9 +3000,7 @@ class LiveStreamViewModel(
             match =
                 LiveDeviceTelemetryMatchInfo(
                     id = activeMatch?.id?.trim()?.takeIf { it.isNotBlank() },
-                    code =
-                        activeMatch?.displayCode?.trim()?.takeIf { it.isNotBlank() }
-                            ?: activeMatch?.code?.trim()?.takeIf { it.isNotBlank() },
+                    code = liveDevicePublicMatchCode(activeMatch),
                     status = activeMatch?.status?.trim()?.takeIf { it.isNotBlank() },
                     tournamentName =
                         activeMatch?.tournamentName?.trim()?.takeIf { it.isNotBlank() }
@@ -3080,6 +3078,14 @@ class LiveStreamViewModel(
             warnings = buildTelemetryWarnings(),
             diagnostics = diagnostics,
         )
+    }
+
+    private fun liveDevicePublicMatchCode(match: MatchData?): String? {
+        val pattern =
+            Regex("\\b(?:V\\d+(?:-B[^-\\s]+)?(?:-NT)?-T\\d+|WB\\d+-T\\d+|LB\\d+-T\\d+|GF(?:\\d+)?-T\\d+)\\b", RegexOption.IGNORE_CASE)
+        return listOf(match?.displayCode, match?.code).firstNotNullOfOrNull { value ->
+            pattern.find(value?.trim()?.uppercase().orEmpty())?.value?.uppercase()
+        }
     }
 
     private fun buildTelemetryWarnings(): List<String> {

@@ -26,3 +26,15 @@ test("resolveMatchDisplayCode computes only when no explicit display code exists
 
   assert.equal(resolveMatchDisplayCode(match), "V9-T2");
 });
+
+test("resolveMatchDisplayCode ignores internal raw match code", () => {
+  const match = {
+    code: "R1#2",
+    globalRound: 5,
+    round: 1,
+    order: 1,
+    bracket: { type: "knockout" },
+  };
+
+  assert.equal(resolveMatchDisplayCode(match), "V5-T2");
+});

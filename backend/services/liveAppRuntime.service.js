@@ -798,15 +798,28 @@ function buildCourtStationRuntimePayload({
   };
 }
 
+function extractDisplayCodeText(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(
+    /\b(?:V\d+(?:-B[^-\s]+)?(?:-NT)?-T\d+|WB\d+-T\d+|LB\d+-T\d+|GF(?:\d+)?-T\d+)\b/i
+  );
+  return match ? match[0].toUpperCase() : "";
+}
+
 function buildMatchRuntimePayload(match, sideDisplayContext = {}) {
   const displayMode = resolveDisplayMode(match);
-  const fallbackCodePayload = buildMatchCodePayload(match);
+  const matchDisplayOptions =
+    sideDisplayContext?.baseByBracketId instanceof Map
+      ? { baseByBracketId: sideDisplayContext.baseByBracketId }
+      : {};
+  const fallbackCodePayload = buildMatchCodePayload(match, matchDisplayOptions);
   const resolvedMatchCode =
-    resolveMatchDisplayCode(match, sideDisplayContext) ||
-    pick(fallbackCodePayload?.displayCode) ||
-    pick(fallbackCodePayload?.code);
-  const code = resolvedMatchCode || fallbackCodePayload?.code;
-  const displayCode = resolvedMatchCode || fallbackCodePayload?.displayCode;
+    extractDisplayCodeText(resolveMatchDisplayCode(match, sideDisplayContext)) ||
+    extractDisplayCodeText(fallbackCodePayload?.displayCode) ||
+    extractDisplayCodeText(fallbackCodePayload?.code);
+  const code = resolvedMatchCode || null;
+  const displayCode = resolvedMatchCode || null;
   const roundCode = inferRoundCode(match);
   const roundLabel = buildRuntimeRoundLabel(match, roundCode);
   const phaseText = buildRuntimePhaseText(match);
