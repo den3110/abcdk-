@@ -194,8 +194,8 @@ const SystemSettingsSchema = new mongoose.Schema(
     liveRecording: {
       autoExportNoSegmentMinutes: {
         type: Number,
-        default: 15,
-        min: 1,
+        default: 60,
+        min: 60,
         max: 1440,
       },
       aiCommentary: {

@@ -44,7 +44,7 @@ export {
   summarizeSegments,
 } from "./liveRecordingMonitor.helpers.js";
 
-const DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES = 15;
+const DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES = 60;
 const AUTO_EXPORT_SWEEP_INTERVAL_MS = Math.max(
   30_000,
   Number(process.env.LIVE_RECORDING_AUTO_EXPORT_SWEEP_MS) || 60_000
@@ -322,7 +322,10 @@ async function getAutoExportNoSegmentMinutes() {
       .lean();
     const configured = Number(doc?.liveRecording?.autoExportNoSegmentMinutes);
     if (Number.isFinite(configured) && configured >= 1) {
-      return Math.floor(configured);
+      return Math.max(
+        DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES,
+        Math.floor(configured)
+      );
     }
   } catch (_) {}
   return DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES;

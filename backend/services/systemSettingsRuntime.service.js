@@ -90,7 +90,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     sharedDriveId: "",
   },
   liveRecording: {
-    autoExportNoSegmentMinutes: 15,
+    autoExportNoSegmentMinutes: 60,
     aiCommentary: {
       enabled: false,
       autoGenerateAfterDriveUpload: true,

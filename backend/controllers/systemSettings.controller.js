@@ -287,7 +287,7 @@ function sanitizeSettingsPatch(patch = {}) {
     const rawMinutes = Number(next.liveRecording.autoExportNoSegmentMinutes);
     if (Number.isFinite(rawMinutes)) {
       next.liveRecording.autoExportNoSegmentMinutes = Math.max(
-        1,
+        60,
         Math.min(1440, Math.round(rawMinutes))
       );
     } else {
