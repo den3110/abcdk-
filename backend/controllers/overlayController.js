@@ -12,6 +12,10 @@ import Bracket from "../models/bracketModel.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 import { getManualAssignmentItems } from "../services/courtManualAssignment.service.js";
+import {
+  buildMatchSideDisplayContextFromMatches,
+  resolveMatchSideDisplayName,
+} from "../services/matchSideDisplay.service.js";
 const setNoStoreHeaders = (res) => {
   res.setHeader(
     "Cache-Control",
@@ -992,10 +996,19 @@ export async function getOverlayMatch(req, res) {
       return hasDisplayableReg(sourcePair) ? sourcePair : null;
     };
 
+    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
+      m,
+    ]);
     const displayPairA = await resolvedPairForSide("A");
     const displayPairB = await resolvedPairForSide("B");
-    const displayTeamNameA = teamName(displayPairA) || teamName(m?.pairA);
-    const displayTeamNameB = teamName(displayPairB) || teamName(m?.pairB);
+    const displayTeamNameA = resolveMatchSideDisplayName(m, "A", {
+      ...sideDisplayContext,
+      fallback: teamName(displayPairA) || teamName(m?.pairA) || "",
+    });
+    const displayTeamNameB = resolveMatchSideDisplayName(m, "B", {
+      ...sideDisplayContext,
+      fallback: teamName(displayPairB) || teamName(m?.pairB) || "",
+    });
 
     /* ==========================
      * Serve

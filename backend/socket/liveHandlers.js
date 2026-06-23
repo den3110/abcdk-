@@ -28,6 +28,10 @@ import {
 } from "../services/matchLiveSync.service.js";
 import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js";
 import { invalidateMatchSnapshotCache } from "../services/matchSnapshotCache.service.js";
+import {
+  buildMatchSideDisplayContextFromMatches,
+  resolveMatchSideDisplayName,
+} from "../services/matchSideDisplay.service.js";
 
 const MATCH_CODE_OFFSET_CACHE_TTL_MS = 10000;
 const MATCH_CODE_GROUPISH_TYPES = new Set(["group", "round_robin", "gsl"]);
@@ -907,6 +911,48 @@ export async function toRealtimePublicMatchDTO(matchDoc) {
         "[socket realtime dto] match code resolve error:",
         error?.message || error
       );
+    }
+
+    if (!matchDoc?.isUserMatch) {
+      try {
+        const sideDisplayContext = await buildMatchSideDisplayContextFromMatches([
+          decorated,
+        ]);
+        const teamAName = resolveMatchSideDisplayName(decorated, "A", {
+          ...sideDisplayContext,
+          fallback: dto?.teamAName || "",
+        });
+        const teamBName = resolveMatchSideDisplayName(decorated, "B", {
+          ...sideDisplayContext,
+          fallback: dto?.teamBName || "",
+        });
+
+        if (teamAName) {
+          dto.teamAName = teamAName;
+          dto.resolvedSideNameA = teamAName;
+          dto.teams = dto.teams || {};
+          dto.teams.A = {
+            ...(dto.teams.A || {}),
+            name: teamAName,
+            displayName: teamAName,
+          };
+        }
+        if (teamBName) {
+          dto.teamBName = teamBName;
+          dto.resolvedSideNameB = teamBName;
+          dto.teams = dto.teams || {};
+          dto.teams.B = {
+            ...(dto.teams.B || {}),
+            name: teamBName,
+            displayName: teamBName,
+          };
+        }
+      } catch (error) {
+        console.error(
+          "[socket realtime dto] match side resolve error:",
+          error?.message || error
+        );
+      }
     }
   }
 

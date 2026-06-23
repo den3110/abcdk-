@@ -191,20 +191,10 @@ fun resolveSideDisplayName(
             seed.safeStr("name"),
             seed.safeStr("title"),
             seed.safeStr("code"),
-        )?.let { return it }
+        )?.takeIf(::isUsefulSideDisplayName)?.let { return it }
     }
 
-    val previousKey = if (normalizedSide == "A") "previousA" else "previousB"
-    match.safeObj(previousKey)?.let { previous ->
-        firstNotBlank(
-            previous.safeStr("displayCode"),
-            previous.safeStr("codeResolved"),
-            previous.safeStr("code"),
-            previous.safeStr("label"),
-        )?.takeIf { it.isNotBlank() }?.let { return "W-$it" }
-    }
-
-    return rawCandidates.firstOrNull { !it.isNullOrBlank() }?.trim()
+    return null
 }
 
 fun hasMatchIdentityData(match: JsonObject?): Boolean =

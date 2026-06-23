@@ -683,6 +683,7 @@ class MatchSocketManager(
     private fun isMissingTeamName(value: String?, side: String): Boolean {
         val normalized = value?.trim().orEmpty()
         if (normalized.isBlank()) return true
+        if (isReferenceTeamName(normalized)) return true
         val upper = normalized.uppercase()
         val sideLabel = if (side == "B") "B" else "A"
         return upper == "TEAM $sideLabel" ||
@@ -690,6 +691,18 @@ class MatchSocketManager(
             upper == "ĐỘI $sideLabel CHƯA RÕ" ||
             upper == "TBD" ||
             upper == "-"
+    }
+
+    private fun isReferenceTeamName(value: String): Boolean {
+        val normalized =
+            value
+                .trim()
+                .replace(Regex("\\s+"), "")
+                .replace(Regex("\\([AB]\\)$", RegexOption.IGNORE_CASE), "")
+        return Regex("^(?:[WL]-)?V\\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\\d+$", RegexOption.IGNORE_CASE)
+            .matches(normalized) ||
+            Regex("^(?:WB|LB)\\d+-T\\d+$", RegexOption.IGNORE_CASE).matches(normalized) ||
+            Regex("^GF(?:\\d+)?-T\\d+$", RegexOption.IGNORE_CASE).matches(normalized)
     }
 
     private fun normalizeTeamName(raw: String?): String {
