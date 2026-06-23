@@ -34,10 +34,10 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
       ],
     }),
     assignTournamentMatchToCourtStation: builder.mutation({
-      query: ({ tournamentId, stationId, matchId }) => ({
+      query: ({ tournamentId, stationId, matchId, force = false }) => ({
         url: `/api/admin/tournaments/${tournamentId}/court-stations/${stationId}/assign-match`,
         method: "POST",
-        body: { matchId },
+        body: { matchId, force },
       }),
       invalidatesTags: (result, error, { tournamentId, stationId }) => [
         { type: "TournamentCourtClusters", id: tournamentId },

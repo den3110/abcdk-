@@ -144,6 +144,7 @@ export default function AssignCourtStationDialog({
   const [viewerMatch, setViewerMatch] = useState(null);
   const [queueDetailStationId, setQueueDetailStationId] = useState("");
   const [confirmQueueStationId, setConfirmQueueStationId] = useState("");
+  const [confirmForceStationId, setConfirmForceStationId] = useState("");
   const [confirmRemoveType, setConfirmRemoveType] = useState(null);
   const [connectorPath, setConnectorPath] = useState(null);
   const [connectorHighlighted, setConnectorHighlighted] = useState(false);
@@ -328,6 +329,12 @@ export default function AssignCourtStationDialog({
       null,
     [queueDetailStationId, stations],
   );
+  const forceAssignStation = useMemo(
+    () =>
+      stations.find((station) => sid(station?._id) === confirmForceStationId) ||
+      null,
+    [confirmForceStationId, stations],
+  );
   const queueDetailMatches = useMemo(
     () =>
       (Array.isArray(queueDetailStation?.queueItems)
@@ -343,6 +350,8 @@ export default function AssignCourtStationDialog({
     if (!open) {
       setViewerMatch(null);
       setQueueDetailStationId("");
+      setConfirmQueueStationId("");
+      setConfirmForceStationId("");
       setConfirmRemoveType(null);
       setConnectorPath(null);
       setConnectorHighlighted(false);
@@ -472,7 +481,7 @@ export default function AssignCourtStationDialog({
     });
   };
 
-  const handleAction = async (station) => {
+  const handleAction = async (station, { force = false } = {}) => {
     const stationId = sid(station?._id);
     if (!stationId || !matchId) return;
     const assignmentMode = String(
@@ -485,6 +494,7 @@ export default function AssignCourtStationDialog({
       courtStationId: stationId,
       courtStationCode: station?.code,
       assignmentMode,
+      force,
     });
     try {
       if (assignmentMode === "queue") {
@@ -498,6 +508,7 @@ export default function AssignCourtStationDialog({
           tournamentId: normalizedTournamentId,
           stationId,
           matchId,
+          force,
         }).unwrap();
       }
       onAssigned?.();
@@ -520,6 +531,18 @@ export default function AssignCourtStationDialog({
     } else {
       handleAction(station);
     }
+  };
+
+  const handleForceConfirmCheck = (station) => {
+    const stationId = sid(station?._id);
+    if (!stationId) return;
+    setConfirmForceStationId(stationId);
+    addBusinessBreadcrumb("court_station.assignment.force_confirm_open", {
+      tournamentId: normalizedTournamentId,
+      matchId,
+      courtStationId: stationId,
+      courtStationCode: station?.code,
+    });
   };
 
   const handleRemoveQueue = async () => {
@@ -739,6 +762,14 @@ export default function AssignCourtStationDialog({
                     const assignmentMode = String(
                       station?.assignmentMode || "manual",
                     ).toLowerCase();
+                    const stationCurrentMatchId = sid(
+                      station?.currentMatch?._id || station?.currentMatch,
+                    );
+                    const canForceAssign =
+                      canOverride &&
+                      assignmentMode === "manual" &&
+                      stationCurrentMatchId &&
+                      stationCurrentMatchId !== matchId;
                     const occupiedTournamentId = sid(
                       station?.currentMatch?.tournament?._id ||
                         station?.currentTournament?._id ||
@@ -906,6 +937,16 @@ export default function AssignCourtStationDialog({
                                 Xem danh sách
                               </Button>
                             )}
+                            {canForceAssign && (
+                              <Button
+                                variant="outlined"
+                                color="warning"
+                                onClick={() => handleForceConfirmCheck(station)}
+                                disabled={assigning || !matchId}
+                              >
+                                Ép gán sân này
+                              </Button>
+                            )}
                             <Button
                               variant={
                                 isCurrent || isQueued ? "outlined" : "contained"
@@ -964,6 +1005,50 @@ export default function AssignCourtStationDialog({
             }}
           >
             Chắc chắn
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(confirmForceStationId)}
+        onClose={() => setConfirmForceStationId("")}
+        maxWidth="xs"
+        fullWidth
+        sx={{ zIndex: (theme) => Math.max(theme.zIndex.modal, 1300) + 50 }}
+      >
+        <DialogTitle>Xác nhận ép gán sân</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.25}>
+            <Typography>
+              Khi ép gán vào <strong>{forceAssignStation?.name || "sân này"}</strong>,
+              trận đang gán trên sân này sẽ bị gỡ khỏi sân.
+            </Typography>
+            {forceAssignStation?.currentMatch ? (
+              <Typography variant="body2" color="text.secondary">
+                Trận hiện tại: {teamLine(forceAssignStation.currentMatch)} ·{" "}
+                {matchCode(forceAssignStation.currentMatch)}
+              </Typography>
+            ) : null}
+            <Alert severity="warning">
+              Bạn vẫn muốn tiếp tục ép gán trận {matchCode(match)} vào sân này?
+            </Alert>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmForceStationId("")}>Hủy</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={assigning}
+            onClick={async () => {
+              const station = forceAssignStation;
+              setConfirmForceStationId("");
+              if (station) {
+                await handleAction(station, { force: true });
+              }
+            }}
+          >
+            Vẫn tiếp tục
           </Button>
         </DialogActions>
       </Dialog>

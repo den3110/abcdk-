@@ -733,12 +733,21 @@ export const removeTournamentCourtStationQueueItemHttp = asyncHandler(
 export const assignMatchToCourtStationHttp = asyncHandler(async (req, res) => {
   ensureValidObjectId(req.params.id, "stationId");
   ensureValidObjectId(req.body?.matchId, "matchId");
+  const force = req.body?.force === true || req.body?.force === "true";
+  if (force && !isAdminLike(req.user)) {
+    res.status(403);
+    throw new Error("Chỉ admin mới được ép gán sân.");
+  }
   const previousStation = await CourtStation.findById(req.params.id)
     .select(
       "_id clusterId currentMatch currentTournament assignmentQueue.items.matchId"
     )
     .lean();
-  const payload = await assignMatchToCourtStation(req.params.id, req.body.matchId);
+  const payload = await assignMatchToCourtStation(
+    req.params.id,
+    req.body.matchId,
+    { force }
+  );
   await emitClusterRuntime(
     payload?.station?.clusterId,
     "station_match_assigned",
@@ -747,7 +756,7 @@ export const assignMatchToCourtStationHttp = asyncHandler(async (req, res) => {
   await emitTournamentInvalidatesForStations(req, {
     reason: "court_station_match_assigned",
     snapshots: [previousStation, payload],
-    extraMatchIds: [req.body.matchId],
+    extraMatchIds: [req.body.matchId, payload?.replacedMatchId].filter(Boolean),
   });
   res.json(payload);
 });
@@ -786,6 +795,11 @@ export const assignTournamentMatchToCourtStationHttp = asyncHandler(
     );
 
     const isAdmin = isAdminLike(req.user);
+    const force = req.body?.force === true || req.body?.force === "true";
+    if (force && !isAdmin) {
+      res.status(403);
+      throw new Error("Chỉ admin mới được ép gán sân.");
+    }
     if (!isAdmin) {
       const canManageMatchTournament = await canManageTournament(
         req.user,
@@ -809,7 +823,8 @@ export const assignTournamentMatchToCourtStationHttp = asyncHandler(
 
     const payload = await assignMatchToCourtStation(
       req.params.stationId,
-      req.body.matchId
+      req.body.matchId,
+      { force }
     );
     await emitClusterRuntime(
       payload?.station?.clusterId,
@@ -820,7 +835,9 @@ export const assignTournamentMatchToCourtStationHttp = asyncHandler(
       reason: "court_station_match_assigned",
       fallbackTournamentIds: [req.params.tournamentId],
       snapshots: [station, payload],
-      extraMatchIds: [req.body.matchId],
+      extraMatchIds: [req.body.matchId, payload?.replacedMatchId].filter(
+        Boolean
+      ),
     });
     res.json(payload);
   }

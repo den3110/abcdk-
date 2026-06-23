@@ -2099,6 +2099,7 @@ export async function assignMatchToCourtStation(
   matchId,
   options = {}
 ) {
+  const force = options.force === true;
   const station = await CourtStation.findById(stationId)
     .populate("clusterId", "name slug description venueName notes color order isActive")
     .lean();
@@ -2179,7 +2180,7 @@ export async function assignMatchToCourtStation(
     const replacingMatch = await Match.findById(replacingMatchId)
       .select("_id status")
       .lean();
-    if (safeText(replacingMatch?.status).toLowerCase() === "live") {
+    if (safeText(replacingMatch?.status).toLowerCase() === "live" && !force) {
       const error = new Error("Sân này đang có trận live, không thể gán đè.");
       error.status = 409;
       throw error;
@@ -2198,7 +2199,7 @@ export async function assignMatchToCourtStation(
     .lean();
 
   for (const staleMatch of staleDirectMatches) {
-    if (safeText(staleMatch?.status).toLowerCase() === "live") {
+    if (safeText(staleMatch?.status).toLowerCase() === "live" && !force) {
       const error = new Error("Sân này đang có trận live, không thể gán đè.");
       error.status = 409;
       throw error;
