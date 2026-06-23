@@ -149,6 +149,7 @@ class MatchRecordingCoordinator(
         private const val MIN_STANDARD_START_BYTES = 768L * 1024L * 1024L
         private const val MIN_HARD_BLOCK_BYTES = 512L * 1024L * 1024L
         private const val LIVE_MANIFEST_MAX_SEGMENTS = 180
+        private const val RECORDING_HEARTBEAT_INTERVAL_MS = 30_000L
     }
 
     private val coordinatorExceptionHandler =
@@ -172,6 +173,7 @@ class MatchRecordingCoordinator(
     private val singlePutPresignCache = linkedMapOf<String, MutableMap<Int, CachedSinglePutPresign>>()
     private val liveManifestPresignCache = linkedMapOf<String, CachedLiveManifestPresign>()
     private var uploadJob: Job? = null
+    private var recordingHeartbeatJob: Job? = null
     private var activeSession: ActiveRecordingSession? = null
     @Volatile
     private var liveCriticalPathBusy: Boolean = false
@@ -307,6 +309,7 @@ class MatchRecordingCoordinator(
 
     fun markRecordingStarted() {
         val session = activeSession ?: return
+        startRecordingHeartbeatLoop()
         updateUiState(
             status = "recording",
             isRecording = true,
@@ -322,6 +325,9 @@ class MatchRecordingCoordinator(
     }
 
     fun markRecordingStoppedSoft(reason: String? = null) {
+        if (activeSession == null) {
+            stopRecordingHeartbeatLoop()
+        }
         updateUiState(
             status =
                 if (manifest.pendingSegments.isNotEmpty() || manifest.pendingFinalizations.isNotEmpty()) {
@@ -376,6 +382,7 @@ class MatchRecordingCoordinator(
                 }
             }
             restartUploadLoopIfNeeded()
+            sendRecordingHeartbeatOnce("retry_$reason")
         }
     }
 
@@ -490,6 +497,7 @@ class MatchRecordingCoordinator(
             }
             if (segment.isFinal && activeSession?.recordingId == segment.recordingId) {
                 activeSession = null
+                stopRecordingHeartbeatLoop()
                 updateUiState(
                     status = "uploading",
                     isRecording = false,
@@ -548,6 +556,7 @@ class MatchRecordingCoordinator(
 
         if (segment.isFinal && activeSession?.recordingId == segment.recordingId) {
             activeSession = null
+            stopRecordingHeartbeatLoop()
             updateUiState(
                 status = "uploading",
                 isRecording = false,
@@ -563,6 +572,45 @@ class MatchRecordingCoordinator(
         }
 
         ensureUploadLoop()
+    }
+
+    private fun startRecordingHeartbeatLoop() {
+        if (recordingHeartbeatJob?.isActive == true) return
+        recordingHeartbeatJob =
+            scope.launch {
+                while (true) {
+                    activeSession ?: break
+                    sendRecordingHeartbeatOnce("periodic")
+                    delay(RECORDING_HEARTBEAT_INTERVAL_MS)
+                }
+            }
+    }
+
+    private fun stopRecordingHeartbeatLoop() {
+        recordingHeartbeatJob?.cancel()
+        recordingHeartbeatJob = null
+    }
+
+    private suspend fun sendRecordingHeartbeatOnce(reason: String) {
+        val session = activeSession ?: return
+        val pendingSegments =
+            manifestMutex.withLock {
+                manifest.pendingSegments.filter { it.recordingId == session.recordingId }
+            }
+        repository.heartbeatRecording(
+            recordingId = session.recordingId,
+            recordingSessionId = session.recordingSessionId,
+            matchId = session.matchId,
+            isRecording = _recordingUiState.value.isRecording,
+            pendingUploads = pendingSegments.size,
+            segmentIndex = pendingSegments.maxOfOrNull { it.segmentIndex },
+            clientStatus = _recordingUiState.value.status,
+            reason = reason,
+        ).onSuccess { payload ->
+            syncRecordingRuntimeState(payload.recording)
+        }.onFailure { error ->
+            Log.w(TAG, "recording heartbeat failed softly: ${error.message}")
+        }
     }
 
     private fun ensureUploadLoop() {

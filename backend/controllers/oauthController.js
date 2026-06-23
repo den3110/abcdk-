@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import User from "../models/userModel.js";
 import OAuthAuthorizationCode from "../models/oauthAuthorizationCodeModel.js";
 import { buildLiveAppBootstrapForUser } from "../services/liveAppAccess.service.js";
+import { extractBearerToken } from "../utils/authToken.js";
 
 const OAUTH_LIVE_CLIENT_ID =
   process.env.OAUTH_LIVE_CLIENT_ID || "pickletour-live-app";
@@ -211,6 +212,69 @@ async function exchangeRefreshToken(req, res) {
   }
 
   return res.json(buildTokenResponse(user, decoded.scope || "openid profile"));
+}
+
+async function exchangeLiveSessionToken(req, res) {
+  const clientId = normalizeText(req.body?.client_id || req.body?.clientId);
+  const accessToken = normalizeText(
+    req.body?.access_token ||
+      req.body?.accessToken ||
+      extractBearerToken(req.headers?.authorization)
+  );
+
+  if (clientId !== OAUTH_LIVE_CLIENT_ID) {
+    return res.status(400).json({
+      error: "invalid_client",
+      error_description: "OAuth client is invalid.",
+    });
+  }
+
+  if (!accessToken) {
+    return res.status(400).json({
+      error: "invalid_request",
+      error_description: "Missing access token.",
+    });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(accessToken, process.env.JWT_SECRET);
+  } catch {
+    return res.status(400).json({
+      error: "invalid_grant",
+      error_description: "Access token is invalid or expired.",
+    });
+  }
+
+  const userId = decoded?.userId || decoded?.id || decoded?._id;
+  if (!userId) {
+    return res.status(400).json({
+      error: "invalid_grant",
+      error_description: "Access token is missing user id.",
+    });
+  }
+
+  const user = await User.findById(userId)
+    .select("_id name nickname email phone role avatar")
+    .lean();
+  if (!user) {
+    return res.status(400).json({
+      error: "invalid_grant",
+      error_description: "User not found.",
+    });
+  }
+
+  const bootstrap = await buildLiveAppBootstrapForUser(user);
+  if (!bootstrap.canUseLiveApp) {
+    return res.status(403).json({
+      error: "access_denied",
+      error_description:
+        bootstrap.message ||
+        "This user can no longer use PickleTour Live.",
+    });
+  }
+
+  return res.json(buildTokenResponse(user));
 }
 
 /**
@@ -425,10 +489,18 @@ export const exchangeAuthorizeCode = asyncHandler(async (req, res) => {
     return exchangeRefreshToken(req, res);
   }
 
+  if (
+    grantType === "urn:pickletour:grant-type:live-session" ||
+    grantType === "live_session"
+  ) {
+    return exchangeLiveSessionToken(req, res);
+  }
+
   if (grantType !== "authorization_code") {
     return res.status(400).json({
       error: "unsupported_grant_type",
-      error_description: "Only authorization_code and refresh_token are supported.",
+      error_description:
+        "Only authorization_code, refresh_token, and live_session are supported.",
     });
   }
 

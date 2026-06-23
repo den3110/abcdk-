@@ -637,6 +637,89 @@ function shouldPreserveExportState(recording) {
   );
 }
 
+function getPlainMeta(value) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...value }
+    : {};
+}
+
+function isAutoClosedByNoSegmentTimeout(recording) {
+  const meta = getPlainMeta(recording?.meta);
+  const exportPipeline = getPlainMeta(meta.exportPipeline);
+  const monitorState = getPlainMeta(meta.monitorState);
+  return Boolean(
+    meta.autoExportOnNoSegment ||
+      exportPipeline.forceReason === "segment_timeout" ||
+      monitorState.inactiveReason === "recording_timeout_without_uploaded_segments"
+  );
+}
+
+async function reopenAutoClosedRecordingIfLiveAppActive(recording, reason) {
+  const status = String(recording?.status || "").toLowerCase();
+  if (!["pending_export_window", "exporting", "failed"].includes(status)) {
+    return false;
+  }
+  if (!isAutoClosedByNoSegmentTimeout(recording)) return false;
+
+  await removeLiveRecordingExportJobs(recording._id).catch((error) => {
+    console.warn(
+      `[live-recording-v2] remove export jobs during live-app reopen failed for ${String(
+        recording._id
+      )}:`,
+      error?.message || error
+    );
+  });
+
+  const now = new Date();
+  const meta = getPlainMeta(recording.meta);
+  const exportPipeline = getPlainMeta(meta.exportPipeline);
+  meta.exportPipeline = {
+    ...exportPipeline,
+    stage: "reopened_live_app_active",
+    label: "Live app active again",
+    reopenedAt: now,
+    reopenedReason: reason,
+    updatedAt: now,
+    error: null,
+  };
+  meta.liveAppRecovery = {
+    ...getPlainMeta(meta.liveAppRecovery),
+    reopenedAt: now,
+    reason,
+  };
+  recording.meta = meta;
+  recording.status = getUploadedRecordingSegments(recording).length
+    ? "uploading"
+    : "recording";
+  recording.finalizedAt = null;
+  recording.scheduledExportAt = null;
+  recording.readyAt = null;
+  recording.error = null;
+  return true;
+}
+
+function touchLiveAppRecordingHeartbeat(recording, payload = {}) {
+  const now = new Date();
+  const meta = getPlainMeta(recording.meta);
+  const previous = getPlainMeta(meta.liveAppHeartbeat);
+  meta.liveAppHeartbeat = {
+    ...previous,
+    lastSeenAt: now,
+    lastHeartbeatAt: now,
+    reason: asTrimmed(payload.reason) || previous.reason || "heartbeat",
+    clientStatus: asTrimmed(payload.clientStatus) || null,
+    isRecording: Boolean(payload.isRecording),
+    active: payload.active !== false,
+    pendingUploads: Math.max(0, Number(payload.pendingUploads) || 0),
+    segmentIndex:
+      Number.isFinite(Number(payload.segmentIndex)) &&
+      Number(payload.segmentIndex) >= 0
+        ? Math.floor(Number(payload.segmentIndex))
+        : previous.segmentIndex ?? null,
+  };
+  recording.meta = meta;
+}
+
 function buildRecordingLinks(recordingId) {
   const id = String(recordingId || "").trim();
   if (!id) {
@@ -1321,6 +1404,62 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
   });
 });
 
+export const heartbeatLiveRecordingV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+  const recordingSessionId = asTrimmed(req.body?.recordingSessionId);
+  const matchId = asTrimmed(req.body?.matchId);
+  const active = req.body?.active !== false;
+
+  if (!recordingId && !recordingSessionId) {
+    return res
+      .status(400)
+      .json({ message: "recordingId or recordingSessionId is required" });
+  }
+
+  const query = recordingId
+    ? { _id: recordingId }
+    : { recordingSessionId };
+  if (recordingId && !isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findOne(query);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+  if (recordingSessionId && recording.recordingSessionId !== recordingSessionId) {
+    return res.status(409).json({ message: "Recording session mismatch" });
+  }
+  if (matchId && String(recording.match) !== matchId) {
+    return res.status(409).json({ message: "Recording match mismatch" });
+  }
+
+  touchLiveAppRecordingHeartbeat(recording, {
+    ...req.body,
+    active,
+  });
+
+  let reopened = false;
+  if (active) {
+    reopened = await reopenAutoClosedRecordingIfLiveAppActive(
+      recording,
+      "live_app_heartbeat"
+    );
+  }
+
+  await recording.save();
+  await publishRecordingMonitor(
+    recording,
+    reopened ? "recording_reopened_live_app_heartbeat" : "recording_heartbeat"
+  );
+
+  return res.json({
+    ok: true,
+    reopened,
+    recording: serializeRecording(recording),
+  });
+});
+
 export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   const recordingId = asTrimmed(req.body?.recordingId);
   const segmentIndex = Number(req.body?.segmentIndex);
@@ -1499,6 +1638,10 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(
     if (!recording) {
       return res.status(404).json({ message: "Recording not found" });
     }
+    await reopenAutoClosedRecordingIfLiveAppActive(
+      recording,
+      "multipart_segment_start"
+    );
 
     const activeStorageTarget =
       (await ensureRecordingStorageTargetForWrite(recording, {
@@ -1637,6 +1780,10 @@ export const presignMultipartLiveRecordingSegmentPartV2 = asyncHandler(
     if (!recording) {
       return res.status(404).json({ message: "Recording not found" });
     }
+    await reopenAutoClosedRecordingIfLiveAppActive(
+      recording,
+      "multipart_part_url"
+    );
 
     const segment = findRecordingSegment(recording, segmentIndex);
     if (!segment) {
@@ -1705,6 +1852,10 @@ export const reportMultipartLiveRecordingSegmentProgressV2 = asyncHandler(
     if (!recording) {
       return res.status(404).json({ message: "Recording not found" });
     }
+    await reopenAutoClosedRecordingIfLiveAppActive(
+      recording,
+      "multipart_segment_progress"
+    );
 
     const segment = findRecordingSegment(recording, segmentIndex);
     if (!segment) {
@@ -1797,6 +1948,10 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
     if (!recording) {
       return res.status(404).json({ message: "Recording not found" });
     }
+    await reopenAutoClosedRecordingIfLiveAppActive(
+      recording,
+      "multipart_segment_complete"
+    );
 
     const segment = findRecordingSegment(recording, segmentIndex);
     if (!segment) {
@@ -1973,6 +2128,10 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   if (!recording) {
     return res.status(404).json({ message: "Recording not found" });
   }
+  await reopenAutoClosedRecordingIfLiveAppActive(
+    recording,
+    "single_segment_complete"
+  );
 
   const existing = recording.segments.find(
     (segment) => segment.index === segmentIndex

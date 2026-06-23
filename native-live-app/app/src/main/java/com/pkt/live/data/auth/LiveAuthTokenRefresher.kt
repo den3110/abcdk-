@@ -74,6 +74,34 @@ class LiveAuthTokenRefresher(
             Result.success(refreshed)
         }
 
+    suspend fun upgradeLegacySessionIfNeeded(
+        reason: String = "legacy_session_upgrade",
+    ): Result<AuthSession> =
+        refreshMutex.withLock {
+            val current = tokenStore.getSessionOrNull()
+                ?: return@withLock Result.failure(IllegalStateException("No saved auth session to upgrade."))
+            if (!current.refreshToken.isNullOrBlank()) {
+                return@withLock Result.success(current)
+            }
+
+            val accessToken = current.accessToken.trim()
+            if (accessToken.isBlank()) {
+                return@withLock Result.failure(IllegalStateException("Saved auth session has no access token."))
+            }
+
+            val upgraded =
+                withContext(Dispatchers.IO) {
+                    requestLiveSessionUpgrade(current, accessToken, reason)
+                }.getOrElse { error ->
+                    return@withLock Result.failure(error)
+                }
+
+            tokenStore.saveSession(upgraded)
+            authInterceptor.token = upgraded.accessToken
+            _tokenUpdates.tryEmit(upgraded)
+            Result.success(upgraded)
+        }
+
     fun refreshBlocking(staleAccessToken: String?): AuthSession? =
         runBlocking {
             refreshIfNeeded(staleAccessToken = staleAccessToken, reason = "okhttp_authenticator")
@@ -129,6 +157,57 @@ class LiveAuthTokenRefresher(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Refresh token error", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun requestLiveSessionUpgrade(
+        current: AuthSession,
+        accessToken: String,
+        reason: String,
+    ): Result<AuthSession> {
+        val body =
+            FormBody.Builder()
+                .add("grant_type", "urn:pickletour:grant-type:live-session")
+                .add("client_id", BuildConfig.OAUTH_CLIENT_ID)
+                .build()
+        val request =
+            Request.Builder()
+                .url(BuildConfig.OAUTH_TOKEN_ENDPOINT)
+                .header("Accept", "application/json")
+                .header("Authorization", "Bearer $accessToken")
+                .post(body)
+                .build()
+
+        return try {
+            refreshClient.newCall(request).execute().use { response ->
+                val raw = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Legacy session upgrade failed (${response.code}) reason=$reason body=${raw.take(180)}")
+                    return Result.failure(IllegalStateException("Legacy auth session upgrade failed (${response.code})."))
+                }
+
+                val json = gson.fromJson(raw, JsonObject::class.java)
+                val nextAccessToken = json.get("access_token")?.asString?.trim().orEmpty()
+                val nextRefreshToken = json.get("refresh_token")?.asString?.trim().orEmpty()
+                if (nextAccessToken.isBlank() || nextRefreshToken.isBlank()) {
+                    return Result.failure(IllegalStateException("Server did not return upgraded live auth tokens."))
+                }
+                val nextIdToken =
+                    json.get("id_token")?.asString?.trim()?.takeIf { it.isNotBlank() }
+                        ?: current.idToken
+
+                Log.i(TAG, "Legacy live auth session upgraded reason=$reason")
+                Result.success(
+                    current.copy(
+                        accessToken = nextAccessToken,
+                        refreshToken = nextRefreshToken,
+                        idToken = nextIdToken,
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Legacy session upgrade error", e)
             Result.failure(e)
         }
     }

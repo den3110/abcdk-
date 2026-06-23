@@ -34,6 +34,21 @@ function getLatestSegmentActivityMs(recording, { includeStartedAt = true } = {})
   return latestMs;
 }
 
+function getLatestLiveAppHeartbeatActivityMs(recording) {
+  const meta = sanitizeSegmentMeta(recording?.meta);
+  const heartbeat = sanitizeSegmentMeta(meta.liveAppHeartbeat);
+  return Math.max(
+    toActivityMs(heartbeat.lastSeenAt),
+    toActivityMs(heartbeat.lastHeartbeatAt),
+    toActivityMs(heartbeat.updatedAt)
+  );
+}
+
+export function getLatestLiveAppHeartbeatActivityDate(recording) {
+  const latestMs = getLatestLiveAppHeartbeatActivityMs(recording);
+  return latestMs > 0 ? new Date(latestMs) : null;
+}
+
 export function getLatestSegmentActivityDate(
   recording,
   { includeStartedAt = true } = {}
@@ -55,6 +70,7 @@ export function getLatestRecordingActivityDate(
   if (includeLifecycleTimestamps) {
     latestMs = Math.max(
       latestMs,
+      getLatestLiveAppHeartbeatActivityMs(recording),
       toActivityMs(recording?.updatedAt),
       toActivityMs(recording?.createdAt)
     );

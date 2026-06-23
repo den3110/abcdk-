@@ -26,6 +26,7 @@ import com.pkt.live.data.model.RecordingMultipartStartRequest
 import com.pkt.live.data.model.RecordingMultipartStartResponse
 import com.pkt.live.data.model.RecordingLiveManifestPresignRequest
 import com.pkt.live.data.model.RecordingLiveManifestPresignResponse
+import com.pkt.live.data.model.RecordingHeartbeatRequest
 import com.pkt.live.data.model.RecordingSegmentPresignBatchRequest
 import com.pkt.live.data.model.RecordingSegmentPresignBatchResponse
 import com.pkt.live.data.model.RecordingSegmentCompleteRequest
@@ -148,6 +149,11 @@ interface PickleTourApi {
     @POST("api/live/recordings/v2/start")
     suspend fun startMatchRecording(
         @Body body: StartMatchRecordingRequest,
+    ): Response<MatchRecordingResponse>
+
+    @POST("api/live/recordings/v2/heartbeat")
+    suspend fun heartbeatRecording(
+        @Body body: RecordingHeartbeatRequest,
     ): Response<MatchRecordingResponse>
 
     @POST("api/live/recordings/v2/segments/presign")

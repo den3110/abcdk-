@@ -29,6 +29,7 @@ import { autoScheduleFacebookVodFallbackRecordings } from "./liveRecordingFacebo
 import { buildRecordingSourceSummary } from "./liveRecordingFacebookVodShared.service.js";
 import { buildAiCommentarySummary } from "./liveRecordingAiCommentary.service.js";
 import {
+  getLatestLiveAppHeartbeatActivityDate,
   getLatestRecordingActivityDate,
   getLatestSegmentActivityDate,
   isPlaceholderSegment,
@@ -37,6 +38,7 @@ import {
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
 export {
+  getLatestLiveAppHeartbeatActivityDate,
   getLatestRecordingActivityDate,
   getLatestSegmentActivityDate,
   summarizeSegments,
@@ -56,6 +58,15 @@ let liveRecordingMonitorSnapshotCache = {
   signature: "",
   promise: null,
 };
+
+function maxDateOrNull(...values) {
+  const latestMs = values.reduce((maxMs, value) => {
+    if (!value) return maxMs;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? Math.max(maxMs, ms) : maxMs;
+  }, 0);
+  return latestMs > 0 ? new Date(latestMs) : null;
+}
 
 const LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT = [
   "_id",
@@ -873,13 +884,15 @@ export async function autoExportInactiveLiveRecordings() {
     const latestSegmentActivityAt = getLatestSegmentActivityDate(recording, {
       includeStartedAt: true,
     });
+    const latestLiveAppHeartbeatAt =
+      getLatestLiveAppHeartbeatActivityDate(recording);
     const latestRecordingActivityAt = getLatestRecordingActivityDate(recording, {
       includeStartedAt: true,
       includeLifecycleTimestamps: true,
     });
     const latestActivityAt = uploadedSegments.length
-      ? latestSegmentActivityAt
-      : latestRecordingActivityAt;
+      ? maxDateOrNull(latestSegmentActivityAt, latestLiveAppHeartbeatAt)
+      : maxDateOrNull(latestRecordingActivityAt, latestLiveAppHeartbeatAt);
 
     if (!latestActivityAt) {
       skippedRecordingIds.push(String(recording._id));

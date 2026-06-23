@@ -633,6 +633,18 @@ data class FinalizeMatchRecordingRequest(
     val recordingId: String,
 )
 
+data class RecordingHeartbeatRequest(
+    val recordingId: String,
+    val recordingSessionId: String,
+    val matchId: String,
+    val active: Boolean = true,
+    val isRecording: Boolean = true,
+    val pendingUploads: Int = 0,
+    val segmentIndex: Int? = null,
+    val clientStatus: String? = null,
+    val reason: String? = null,
+)
+
 data class RecordingStorageStatus(
     val availableBytes: Long = 0L,
     val pendingQueueBytes: Long = 0L,

@@ -861,6 +861,42 @@ class LiveRepository(
         }
     }
 
+    suspend fun heartbeatRecording(
+        recordingId: String,
+        recordingSessionId: String,
+        matchId: String,
+        isRecording: Boolean,
+        pendingUploads: Int,
+        segmentIndex: Int?,
+        clientStatus: String,
+        reason: String,
+    ): Result<MatchRecordingResponse> {
+        return try {
+            val resp =
+                api.heartbeatRecording(
+                    RecordingHeartbeatRequest(
+                        recordingId = recordingId,
+                        recordingSessionId = recordingSessionId,
+                        matchId = matchId,
+                        active = true,
+                        isRecording = isRecording,
+                        pendingUploads = pendingUploads,
+                        segmentIndex = segmentIndex,
+                        clientStatus = clientStatus,
+                        reason = reason,
+                    )
+                )
+            if (resp.isSuccessful && resp.body() != null) {
+                Result.success(resp.body()!!)
+            } else {
+                Result.failure(Exception("Recording heartbeat failed: ${resp.code()}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "heartbeatRecording error", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun presignRecordingSegment(
         recordingId: String,
         segmentIndex: Int,

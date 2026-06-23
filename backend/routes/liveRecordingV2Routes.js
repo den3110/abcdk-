@@ -19,6 +19,7 @@ import {
   getLiveRecordingMonitorSummaryV2,
   getLiveRecordingMonitorTournamentsV2,
   getLiveRecordingWorkerHealthV2,
+  heartbeatLiveRecordingV2,
   getLiveRecordingByMatchV2,
   moveLiveRecordingDriveAssetV2,
   playLiveRecordingAiCommentaryV2,
@@ -47,6 +48,7 @@ import {
 const router = express.Router();
 
 router.post("/start", protectLiveApp, startLiveRecordingV2);
+router.post("/heartbeat", protectLiveApp, heartbeatLiveRecordingV2);
 router.post(
   "/segments/presign-batch",
   protectLiveApp,

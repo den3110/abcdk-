@@ -1314,6 +1314,7 @@ class LiveStreamViewModel(
         refreshObserverBootstrapForTelemetry(token)
 
         ensureObservers()
+        ensureRefreshTokenForLongRunningSession("init_match")
         overlayRenderer.start()
 
         initJob?.cancel()
@@ -1422,6 +1423,7 @@ class LiveStreamViewModel(
         repository.disconnectSocket()
 
         ensureObservers()
+        ensureRefreshTokenForLongRunningSession("init_court")
         overlayRenderer.start()
         streamManager.startPreview(_quality.value)
         _loading.value = false
@@ -2704,6 +2706,18 @@ class LiveStreamViewModel(
             wakeArmedStartRecovery("token_refreshed_$reason")
         } else if (_waitingForMatchLive.value && currentMatchId.isNotBlank()) {
             goLive()
+        }
+    }
+
+    private fun ensureRefreshTokenForLongRunningSession(reason: String) {
+        val session = tokenStore.getSessionOrNull() ?: return
+        if (session.accessToken.isBlank() || !session.refreshToken.isNullOrBlank()) return
+
+        launchGuarded(name = "upgradeLegacyAuthSession") {
+            tokenRefresher.upgradeLegacySessionIfNeeded(reason = reason)
+                .onFailure { error ->
+                    Log.w(TAG, "Legacy auth session upgrade skipped: ${error.message}")
+                }
         }
     }
 
