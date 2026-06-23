@@ -36,6 +36,15 @@ const TELE_SUPPORT_CHAT_IDS = String(
   .map((s) => s.trim())
   .filter(Boolean);
 
+const TELE_CRASH_CHAT_IDS = String(
+  process.env.TELEGRAM_SUPPORT_CRASH_CHAT_IDS ||
+    process.env.TELEGRAM_CHAT_CRASH_ID ||
+    ""
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const SUPPORT_CTX_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 const supportCtx = new Map(); // chatId -> { ticketId, at }
 
@@ -106,6 +115,45 @@ function absUrl(p) {
   } catch {
     return String(p || "");
   }
+}
+
+function isCrashSupportPayload({ title, text, attachments = [] } = {}) {
+  const haystack = [
+    title,
+    text,
+    ...attachments.flatMap((a) => [a?.url, a?.name, a?.mime]),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  return (
+    haystack.includes("báo lỗi app bị văng") ||
+    haystack.includes("app bị văng") ||
+    haystack.includes("crash") ||
+    haystack.includes("support-crash") ||
+    haystack.includes("thông tin lỗi tự động")
+  );
+}
+
+function normalizeSupportAttachment(a) {
+  const url = absUrl(a?.url || "");
+  if (!url) return null;
+  return {
+    url,
+    name: String(a?.name || url.split("/").pop() || "attachment").trim(),
+    mime: String(a?.mime || "").trim(),
+    size: Number(a?.size || 0) || 0,
+  };
+}
+
+function isTelegramPhotoAttachment(att) {
+  const mime = String(att?.mime || "").toLowerCase();
+  const url = String(att?.url || "").toLowerCase();
+  return (
+    mime.startsWith("image/") ||
+    /\.(jpe?g|png|webp)(?:\?|#|$)/i.test(url)
+  );
 }
 
 async function ensureDir(dir) {
@@ -233,6 +281,47 @@ async function tgSendMessageChunked({
     });
   }
   return last;
+}
+
+async function tgSendSupportAttachment({ chatId, attachment, index }) {
+  const att = normalizeSupportAttachment(attachment);
+  if (!att) return null;
+
+  const caption = `Đính kèm ${index}: ${escHtml(att.name)}`;
+
+  try {
+    if (isTelegramPhotoAttachment(att)) {
+      return await tgCall("sendPhoto", {
+        chat_id: chatId,
+        photo: att.url,
+        caption,
+        parse_mode: "HTML",
+      });
+    }
+
+    return await tgCall("sendDocument", {
+      chat_id: chatId,
+      document: att.url,
+      caption,
+      parse_mode: "HTML",
+    });
+  } catch (e) {
+    console.warn(
+      "[notifySupportToTelegram] send attachment failed:",
+      chatId,
+      att.url,
+      e?.message || e
+    );
+
+    return tgSendMessageChunked({
+      chatId,
+      text: `<b>Đính kèm ${index}:</b> <a href="${escHtml(att.url)}">${escHtml(
+        att.name
+      )}</a>`,
+      parse_mode: "HTML",
+      disable_web_page_preview: false,
+    });
+  }
 }
 
 /* ======================= Telegram file -> uploads ======================= */
