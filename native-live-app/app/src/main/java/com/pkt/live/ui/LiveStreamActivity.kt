@@ -7,6 +7,8 @@ import android.content.res.Configuration
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.result.contract.ActivityResultContracts
@@ -153,6 +155,20 @@ class LiveStreamActivity : AppCompatActivity() {
         setIntent(intent)
         Log.d(TAG, "onNewIntent: action=${intent.action}, data=${intent.data}")
         applyIntentPayload(savedInstanceState = null, sourceIntent = intent, reinitialize = contentReady)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            viewModel.noteBatterySaverUserActivity()
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            viewModel.noteBatterySaverUserActivity()
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

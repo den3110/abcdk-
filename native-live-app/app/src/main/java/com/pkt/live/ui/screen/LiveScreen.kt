@@ -56,9 +56,12 @@ import com.pkt.live.ui.controls.pinchToZoom
 import com.pkt.live.ui.theme.LiveColors
 import com.pkt.live.util.OrientationMode
 import com.pkt.live.util.lockOrientation
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private const val AUTO_BATTERY_SAVER_IDLE_MS = 5 * 60 * 1000L
 
 /**
  * Main live stream screen composable.
@@ -79,6 +82,8 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
     val waitingForMatchLive by viewModel.waitingForMatchLive.collectAsState()
     val waitingForNextMatch by viewModel.waitingForNextMatch.collectAsState()
     val batterySaver by viewModel.batterySaver.collectAsState()
+    val batterySaverManual by viewModel.batterySaverManual.collectAsState()
+    val batterySaverActivityTick by viewModel.batterySaverActivityTick.collectAsState()
     val liveStartTime by viewModel.liveStartTime.collectAsState()
     val stats by viewModel.streamStats.collectAsState()
     val bitrateUpdatedAtMs by viewModel.bitrateUpdatedAtMs.collectAsState()
@@ -216,6 +221,12 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
             goLiveCountdownVisible ||
             stopLiveCountdownVisible ||
             endingLive
+    val autoBatterySaverAllowed =
+        (streamIntentActive || recordingUiState.isRecording) &&
+            !showOrientationSelector &&
+            !showModeSelector &&
+            !suppressPreparationUi &&
+            visibleIssue == null
     val matchSwapLoading =
         loading &&
             !suppressPreparationUi &&
@@ -257,6 +268,16 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
                 previousBrightness = null
             }
         }
+    }
+    LaunchedEffect(autoBatterySaverAllowed) {
+        if (!autoBatterySaverAllowed) {
+            viewModel.exitAutoBatterySaverForUserActivity()
+        }
+    }
+    LaunchedEffect(autoBatterySaverAllowed, batterySaver, batterySaverManual, batterySaverActivityTick) {
+        if (!autoBatterySaverAllowed || batterySaver || batterySaverManual) return@LaunchedEffect
+        delay(AUTO_BATTERY_SAVER_IDLE_MS)
+        viewModel.enableAutoBatterySaver()
     }
 
     DisposableEffect(activity) {
@@ -607,34 +628,7 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
             )
         }
 
-        // Battery saver overlay (black screen, stream continues)
-        if (batterySaver) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.BatterySaver,
-                        contentDescription = "Battery Saver",
-                        tint = LiveColors.AccentGreen,
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Battery Saver - Stream vẫn đang chạy",
-                        color = LiveColors.TextSecondary,
-                        fontSize = 14.sp,
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    TextButton(onClick = { viewModel.toggleBatterySaver() }) {
-                        Text("Tắt Battery Saver", color = LiveColors.AccentGreen)
-                    }
-                }
-            }
-        }
+        if (!batterySaver) {
 
         // ---- Top bar: LIVE badge + timer + network stats ----
         Column(
@@ -1426,6 +1420,37 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
                     }
                 },
             )
+        }
+
+        }
+
+        // Battery saver overlay (black screen, stream continues)
+        if (batterySaver) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.BatterySaver,
+                        contentDescription = "Battery Saver",
+                        tint = LiveColors.AccentGreen,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Battery Saver - Stream vẫn đang chạy",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 14.sp,
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    TextButton(onClick = { viewModel.toggleBatterySaver() }) {
+                        Text("Tắt Battery Saver", color = LiveColors.AccentGreen)
+                    }
+                }
+            }
         }
 
 

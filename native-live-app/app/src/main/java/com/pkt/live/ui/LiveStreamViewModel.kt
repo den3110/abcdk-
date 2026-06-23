@@ -221,6 +221,10 @@ class LiveStreamViewModel(
 
     private val _batterySaver = MutableStateFlow(false)
     val batterySaver: StateFlow<Boolean> = _batterySaver.asStateFlow()
+    private val _batterySaverManual = MutableStateFlow(false)
+    val batterySaverManual: StateFlow<Boolean> = _batterySaverManual.asStateFlow()
+    private val _batterySaverActivityTick = MutableStateFlow(System.currentTimeMillis())
+    val batterySaverActivityTick: StateFlow<Long> = _batterySaverActivityTick.asStateFlow()
 
     private val _orientationMode = MutableStateFlow(OrientationMode.AUTO)
     val orientationMode: StateFlow<OrientationMode> = _orientationMode.asStateFlow()
@@ -1860,7 +1864,25 @@ class LiveStreamViewModel(
     }
 
     fun toggleBatterySaver() {
-        _batterySaver.value = !_batterySaver.value
+        val next = !_batterySaver.value
+        _batterySaver.value = next
+        _batterySaverManual.value = next
+    }
+
+    fun noteBatterySaverUserActivity() {
+        _batterySaverActivityTick.value = System.currentTimeMillis()
+        exitAutoBatterySaverForUserActivity()
+    }
+
+    fun enableAutoBatterySaver() {
+        if (_batterySaverManual.value || _batterySaver.value) return
+        _batterySaver.value = true
+    }
+
+    fun exitAutoBatterySaverForUserActivity() {
+        if (_batterySaver.value && !_batterySaverManual.value) {
+            _batterySaver.value = false
+        }
     }
 
     fun setFallbackColorArgb(argb: Int?) {
