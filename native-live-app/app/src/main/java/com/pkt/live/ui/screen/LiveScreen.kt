@@ -53,6 +53,8 @@ import com.pkt.live.ui.LiveStreamViewModel
 import com.pkt.live.ui.controls.StreamControls
 import com.pkt.live.ui.controls.pinchToZoom
 import com.pkt.live.ui.theme.LiveColors
+import com.pkt.live.util.OrientationMode
+import com.pkt.live.util.lockOrientation
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -108,6 +110,7 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
     val recordingUiState by viewModel.recordingUiState.collectAsState()
     val recordingStorageStatus by viewModel.recordingStorageStatus.collectAsState()
     val recordingEngineState by viewModel.recordingEngineState.collectAsState()
+    val showOrientationSelector by viewModel.showOrientationSelector.collectAsState()
     val showModeSelector by viewModel.showModeSelector.collectAsState()
     val visibleIssue =
         errorMessage ?: (streamState as? StreamState.Error)
@@ -1025,7 +1028,14 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
             }
         }
 
-        if (showModeSelector) {
+        if (showOrientationSelector) {
+            CaptureOrientationSelectorOverlay(
+                onSelect = { mode ->
+                    activity?.lockOrientation(mode)
+                    viewModel.confirmCaptureOrientation(mode)
+                },
+            )
+        } else if (showModeSelector) {
             ModeSelectorOverlay(
                 selectedMode = pendingModeSelection,
                 storageStatus = recordingStorageStatus,
@@ -2289,6 +2299,120 @@ private fun RecordingStateChip(
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
         )
+    }
+}
+
+@Composable
+private fun CaptureOrientationSelectorOverlay(
+    onSelect: (OrientationMode) -> Unit,
+) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val optionContainerModifier = Modifier
+        .widthIn(max = 720.dp)
+        .fillMaxWidth()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.86f))
+            .systemBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 760.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.ScreenRotation,
+                contentDescription = null,
+                tint = LiveColors.AccentGreen,
+                modifier = Modifier.size(40.dp),
+            )
+            Text(
+                text = "Hãy chọn chế độ quay",
+                color = Color.White,
+                fontSize = if (isLandscape) 28.sp else 24.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            if (isLandscape) {
+                Row(
+                    modifier = optionContainerModifier,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    CaptureOrientationOption(
+                        label = "Quay dọc",
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSelect(OrientationMode.PORTRAIT) },
+                    )
+                    CaptureOrientationOption(
+                        label = "Quay ngang (đề xuất)",
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSelect(OrientationMode.LANDSCAPE) },
+                    )
+                }
+            } else {
+                Column(
+                    modifier = optionContainerModifier,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CaptureOrientationOption(
+                        label = "Quay dọc",
+                        onClick = { onSelect(OrientationMode.PORTRAIT) },
+                    )
+                    CaptureOrientationOption(
+                        label = "Quay ngang (đề xuất)",
+                        onClick = { onSelect(OrientationMode.LANDSCAPE) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureOrientationOption(
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 72.dp)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.08f)),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = Color.White.copy(alpha = 0.16f),
+        ),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 72.dp)
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.ScreenRotation,
+                contentDescription = null,
+                tint = LiveColors.AccentGreen,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
     }
 }
 

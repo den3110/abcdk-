@@ -604,23 +604,46 @@ const statusPriority = (st) => {
   }
 };
 
-/** Trận BYE: có cờ isBye/bye hoặc thiếu 1 cặp đấu hợp lệ */
-const isByeMatch = (m) => {
-  if (m?.isBye || m?.bye) return true;
-  const aOK = !!(
-    hasResolvedPair(m?.pairA) ||
-    isConcreteTeamLabel(m?.__sideA || m?.resolvedSideNameA || m?.teamAName)
-  );
-  const bOK = !!(
-    hasResolvedPair(m?.pairB) ||
-    isConcreteTeamLabel(m?.__sideB || m?.resolvedSideNameB || m?.teamBName)
-  );
-  return !(aOK && bOK);
+const isByeLabel = (value) => {
+  const label = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return label === "bye";
 };
 
-const isManageFinishedMatch = (m, status) =>
-  String(status ?? m?.status ?? "").toLowerCase() === "finished" ||
-  isByeMatch(m);
+const isByeSeed = (seed) => seed?.type === "bye" || isByeLabel(seed?.label);
+
+const isByePair = (pair) =>
+  isByeLabel(pair?.name) ||
+  isByeLabel(pair?.teamName) ||
+  isByeLabel(pair?.label) ||
+  isByeLabel(pair?.displayName);
+
+/** Trận BYE: chỉ khi seed/cặp/nhãn đội thật sự là BYE. */
+const isByeMatch = (m) => {
+  if (!m) return false;
+  return Boolean(
+    m?.isBye ||
+      m?.bye ||
+      isByeSeed(m?.seedA) ||
+      isByeSeed(m?.seedB) ||
+      isByePair(m?.pairA) ||
+      isByePair(m?.pairB) ||
+      isByeLabel(m?.__sideA) ||
+      isByeLabel(m?.__sideB) ||
+      isByeLabel(m?.resolvedSideNameA) ||
+      isByeLabel(m?.resolvedSideNameB) ||
+      isByeLabel(m?.teamAName) ||
+      isByeLabel(m?.teamBName),
+  );
+};
+
+const isManageFinishedMatch = (m) => isByeMatch(m);
 
 const manageDisplayStatus = (m, status) =>
   isManageFinishedMatch(m, status) ? "finished" : (status ?? m?.status);

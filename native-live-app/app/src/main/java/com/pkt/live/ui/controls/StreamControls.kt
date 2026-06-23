@@ -857,12 +857,10 @@ fun LiveSettingsDialog(
                 else -> "Idle"
             }
         }
-    val matchCode =
-        currentMatch?.displayCode
-            ?: currentMatch?.code
-            ?: currentMatch?.id?.takeLast(6)
-            ?: ""
+    val matchCode = currentMatch?.let(::matchDisplayCode).orEmpty()
+    val matchPairLabel = currentMatch?.let(::matchPairLabel)
     val competitionLabel = listOfNotNull(
+        currentMatch?.stageName?.takeIf { it.isNotBlank() },
         currentMatch?.tournamentName?.takeIf { it.isNotBlank() },
         currentMatch?.phaseText?.takeIf { it.isNotBlank() },
         currentMatch?.roundLabel?.takeIf { it.isNotBlank() },
@@ -960,7 +958,7 @@ fun LiveSettingsDialog(
                             )
                         }
                         Text(
-                            text = "${currentMatch.teamAName} vs ${currentMatch.teamBName}",
+                            text = matchPairLabel ?: "Chưa rõ cặp đấu",
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold
@@ -1275,7 +1273,8 @@ private fun RecordingRequestDetailsDialog(
                 RequestDetailRow("RTMP", if (rtmpReady) "Đã có URL" else "Chưa có URL")
                 RequestDetailRow("Quality", currentQuality.label)
                 RequestDetailRow("Match ID", recordingUiState.activeMatchId ?: currentMatch?.id.orEmpty().ifBlank { "-" })
-                RequestDetailRow("Mã trận", currentMatch?.displayCode ?: currentMatch?.code ?: "-")
+                RequestDetailRow("Mã trận", currentMatch?.let(::matchDisplayCode)?.ifBlank { "-" } ?: "-")
+                RequestDetailRow("Loại vòng", currentMatch?.let(::matchStageLabel)?.ifBlank { "-" } ?: "-")
                 RequestDetailRow("Recording ID", recordingUiState.activeRecordingId ?: "-")
                 RequestDetailRow("Recording session", recordingUiState.activeRecordingSessionId ?: "-")
                 storageTargetLabel?.let {
@@ -1284,7 +1283,7 @@ private fun RecordingRequestDetailsDialog(
                 latestFailoverLabel?.let {
                     RequestDetailRow("Failover gần nhất", it)
                 }
-                RequestDetailRow("Tên cặp đấu", currentMatch?.let { "${it.teamAName} vs ${it.teamBName}" } ?: "-")
+                RequestDetailRow("Tên cặp đấu", currentMatch?.let(::matchPairLabel) ?: "-")
                 RequestDetailRow("Đang ghi", if (recordingUiState.isRecording) "Có" else "Không")
                 RequestDetailRow("Đang chờ tải", "${recordingUiState.pendingUploads} đoạn")
                 RequestDetailRow("Segment mode", if (recordingStorageStatus.lowStorageOptimized) "Tự tối ưu ${recordingStorageStatus.segmentDurationSeconds}s" else "Chuẩn ${recordingStorageStatus.segmentDurationSeconds}s")
@@ -1310,6 +1309,39 @@ private fun RecordingRequestDetailsDialog(
         },
         containerColor = LiveColors.SurfaceDark,
     )
+}
+
+private fun matchDisplayCode(match: MatchData): String =
+    listOfNotNull(
+        match.displayCode,
+        match.code,
+        match.roundLabel,
+    ).firstOrNull { it.isNotBlank() }.orEmpty()
+
+private fun matchStageLabel(match: MatchData): String =
+    listOfNotNull(
+        match.stageName,
+        match.phaseText,
+        match.roundLabel,
+    ).firstOrNull { it.isNotBlank() }.orEmpty()
+
+private fun matchPairLabel(match: MatchData): String? {
+    val sideA = match.teamAName.trim().takeUnless { isMissingMatchSideLabel(it, "A") }
+    val sideB = match.teamBName.trim().takeUnless { isMissingMatchSideLabel(it, "B") }
+    if (sideA.isNullOrBlank() && sideB.isNullOrBlank()) return null
+    return "${sideA ?: "Đội A chưa rõ"} vs ${sideB ?: "Đội B chưa rõ"}"
+}
+
+private fun isMissingMatchSideLabel(value: String, side: String): Boolean {
+    val normalized = value.trim()
+    if (normalized.isBlank()) return true
+    val upper = normalized.uppercase()
+    val sideLabel = if (side == "B") "B" else "A"
+    return upper == "TEAM $sideLabel" ||
+        upper == "ĐỘI $sideLabel" ||
+        upper == "ĐỘI $sideLabel CHƯA RÕ" ||
+        upper == "TBD" ||
+        upper == "-"
 }
 
 @Composable

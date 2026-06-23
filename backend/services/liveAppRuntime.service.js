@@ -65,7 +65,12 @@ function fullNameOf(person) {
 }
 
 function resolveDisplayMode(match) {
-  return match?.tournament?.nameDisplayMode === "fullName"
+  const raw =
+    pick(match?.displayNameMode) ||
+    pick(match?.nameDisplayMode) ||
+    pick(match?.tournament?.displayNameMode) ||
+    pick(match?.tournament?.nameDisplayMode);
+  return raw === "fullName"
     ? "fullName"
     : "nickname";
 }
@@ -79,19 +84,110 @@ function playerDisplayName(person, displayMode = "nickname") {
 
 function teamDisplayName(registration, displayMode = "nickname") {
   if (!registration) return "";
-  const explicit =
-    pick(registration?.teamName) ||
-    pick(registration?.displayName) ||
-    pick(registration?.name) ||
-    pick(registration?.label);
-  if (explicit) return explicit;
-
   const players = [registration?.player1, registration?.player2].filter(Boolean);
-  if (!players.length) return "";
-  return players
+  const joinedPlayers = players
     .map((person) => playerDisplayName(person, displayMode))
     .filter(Boolean)
     .join(" / ");
+  if (joinedPlayers) return joinedPlayers;
+
+  return (
+    pick(registration?.displayName) ||
+    pick(registration?.teamName) ||
+    pick(registration?.teamFactionName) ||
+    pick(registration?.label) ||
+    pick(registration?.title) ||
+    pick(registration?.name)
+  );
+}
+
+function isReferenceDisplayName(value) {
+  const normalized = pick(value)
+    .replace(/\s+/g, "")
+    .replace(/\([AB]\)$/i, "");
+  if (!normalized) return false;
+  return (
+    /^(?:[WL]-)?V\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\d+$/i.test(normalized) ||
+    /^(?:WB|LB)\d+-T\d+$/i.test(normalized) ||
+    /^GF(?:\d+)?-T\d+$/i.test(normalized)
+  );
+}
+
+function isUsefulSideDisplayName(value) {
+  const text = pick(value);
+  if (!text) return false;
+  if (/^(TBD|Registration|Chưa có đội|Đội A|Đội B|Team A|Team B|—|-)$/i.test(text)) {
+    return false;
+  }
+  return !isReferenceDisplayName(text);
+}
+
+function sideKey(side) {
+  return String(side || "").toUpperCase() === "B" ? "B" : "A";
+}
+
+function getSeedDisplayName(seed) {
+  if (!seed) return "";
+  const direct =
+    pick(seed?.label) ||
+    pick(seed?.displayName) ||
+    pick(seed?.teamName) ||
+    pick(seed?.name) ||
+    pick(seed?.title) ||
+    pick(seed?.code);
+  if (direct) return direct;
+  if (pick(seed?.type).toLowerCase() === "bye") return "BYE";
+  return "";
+}
+
+function getPreviousMatchDisplayCode(previous) {
+  if (!previous) return "";
+  const codePayload = buildMatchCodePayload(previous);
+  return (
+    pick(codePayload?.displayCode) ||
+    pick(previous?.displayCode) ||
+    pick(previous?.codeResolved) ||
+    pick(previous?.code)
+  );
+}
+
+function matchSideDisplayName(match, side, fallback = "") {
+  const normalizedSide = sideKey(side);
+  const pair = normalizedSide === "B" ? match?.pairB : match?.pairA;
+  const displayMode = resolveDisplayMode(match);
+  const pairName = teamDisplayName(pair, displayMode);
+  if (pairName && !isReferenceDisplayName(pairName)) return pairName;
+
+  const resolvedName =
+    normalizedSide === "B"
+      ? firstText(
+          match?.resolvedSideNameB,
+          match?.__sideB,
+          match?.teamBName,
+          match?.pairBName,
+          match?.sideBName,
+          match?.teamFactionBName
+        )
+      : firstText(
+          match?.resolvedSideNameA,
+          match?.__sideA,
+          match?.teamAName,
+          match?.pairAName,
+          match?.sideAName,
+          match?.teamFactionAName
+        );
+  if (isUsefulSideDisplayName(resolvedName)) return resolvedName;
+  if (pairName) return pairName;
+
+  const seed = normalizedSide === "B" ? match?.seedB : match?.seedA;
+  const seedName = getSeedDisplayName(seed);
+  if (seedName) return seedName;
+
+  const previous = normalizedSide === "B" ? match?.previousB : match?.previousA;
+  const previousCode = getPreviousMatchDisplayCode(previous);
+  if (previousCode) return `W-${previousCode.replace(/^[WL]\s*-\s*/i, "")}`;
+
+  return fallback;
 }
 
 function normalizeBreakPayload(value) {
@@ -702,8 +798,8 @@ function buildMatchRuntimePayload(match) {
   const roundCode = inferRoundCode(match);
   const roundLabel = buildRuntimeRoundLabel(match, roundCode);
   const phaseText = buildRuntimePhaseText(match);
-  const teamAName = teamDisplayName(match?.pairA, displayMode);
-  const teamBName = teamDisplayName(match?.pairB, displayMode);
+  const teamAName = matchSideDisplayName(match, "A", "Đội A chưa rõ");
+  const teamBName = matchSideDisplayName(match, "B", "Đội B chưa rõ");
   const gameScores = buildGameScores(match);
   const { scoreA, scoreB } = buildCurrentScore(gameScores);
   const serveSide = pick(match?.serve?.side).toUpperCase() === "B" ? "B" : "A";
@@ -825,7 +921,7 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
   const loadMatch = async () =>
     Match.findById(normalizedMatchId)
     .select(
-      "_id code displayCode globalCode labelKey liveVersion status format branch phase pool group groupNo groupIndex rrRound round roundCode roundName order matchNo index stageIndex isThirdPlace rules gameScores currentGame serve isBreak meta tournament bracket pairA pairB court courtStation courtStationLabel courtClusterId courtClusterLabel"
+      "_id code displayCode codeResolved globalCode labelKey liveVersion status format branch phase pool group groupNo groupIndex rrRound round roundCode roundName order matchNo index stageIndex isThirdPlace rules gameScores currentGame serve isBreak meta tournament bracket pairA pairB pairAName pairBName teamAName teamBName teamFactionAName teamFactionBName seedA seedB previousA previousB court courtStation courtStationLabel courtClusterId courtClusterLabel"
     )
     .populate({
       path: "tournament",
@@ -849,7 +945,7 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
     })
     .populate({
       path: "pairA",
-      select: "player1 player2 seed label teamName displayName name",
+      select: "player1 player2 seed label teamName teamFactionName displayName name",
       populate: [
         {
           path: "player1",
@@ -865,7 +961,7 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
     })
     .populate({
       path: "pairB",
-      select: "player1 player2 seed label teamName displayName name",
+      select: "player1 player2 seed label teamName teamFactionName displayName name",
       populate: [
         {
           path: "player1",
@@ -878,6 +974,22 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
           populate: { path: "user", select: "nickname nickName" },
         },
       ],
+    })
+    .populate({
+      path: "previousA",
+      select: "code displayCode codeResolved globalCode labelKey round order globalRound format pool bracket",
+      populate: {
+        path: "bracket",
+        select: "name type drawRounds meta config.roundElim",
+      },
+    })
+    .populate({
+      path: "previousB",
+      select: "code displayCode codeResolved globalCode labelKey round order globalRound format pool bracket",
+      populate: {
+        path: "bracket",
+        select: "name type drawRounds meta config.roundElim",
+      },
     })
     .lean();
 

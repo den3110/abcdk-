@@ -498,6 +498,81 @@ export default function AssignCourtStationDialog({
     });
   };
 
+  const openConflictViewer = (conflict) => {
+    const conflictMatchId = sid(conflict?.matchId || conflict?.match?._id);
+    if (!conflictMatchId) return;
+    setViewerMatch(
+      sid(conflict?.match?._id)
+        ? conflict.match
+        : {
+            _id: conflictMatchId,
+            displayCode: conflict?.matchCode,
+            code: conflict?.matchCode,
+            tournament: conflict?.tournamentName
+              ? {
+                  _id: conflict?.tournamentId,
+                  name: conflict.tournamentName,
+                }
+              : null,
+          },
+    );
+  };
+
+  const showAssignError = (error) => {
+    const conflict = error?.data?.conflict;
+    if (error?.data?.code === "PLAYER_BUSY_IN_CLUSTER" && conflict) {
+      const playerLabel =
+        text(conflict?.playerName) ||
+        text(conflict?.playerNickname) ||
+        "Vận động viên";
+      const stationLabel = text(conflict?.stationName) || "sân khác";
+      const codeLabel = text(conflict?.matchCode);
+      const tournamentLabel = text(conflict?.tournamentName);
+
+      toast.error(
+        <Stack spacing={0.75} sx={{ minWidth: 280 }}>
+          <Typography variant="body2" fontWeight={700}>
+            {playerLabel} đang thi đấu ở {stationLabel}
+            {codeLabel ? ` (${codeLabel})` : ""}
+          </Typography>
+          {tournamentLabel ? (
+            <Typography variant="caption">Giải: {tournamentLabel}</Typography>
+          ) : null}
+          {sid(conflict?.matchId || conflict?.match?._id) ? (
+            <Box>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openConflictViewer(conflict);
+                }}
+                sx={{
+                  mt: 0.25,
+                  minHeight: 28,
+                  color: "inherit",
+                  borderColor: "currentColor",
+                  "&:hover": {
+                    borderColor: "currentColor",
+                    backgroundColor: "rgba(255,255,255,0.08)",
+                  },
+                }}
+              >
+                Chi tiết
+              </Button>
+            </Box>
+          ) : null}
+        </Stack>,
+        { autoClose: 9000 },
+      );
+      return;
+    }
+
+    toast.error(
+      error?.data?.message || error?.message || "Cập nhật sân thất bại",
+    );
+  };
+
   const handleAction = async (station, { force = false } = {}) => {
     const stationId = sid(station?._id);
     if (!stationId || !matchId) return;
@@ -531,9 +606,7 @@ export default function AssignCourtStationDialog({
       onAssigned?.();
       onClose?.();
     } catch (error) {
-      toast.error(
-        error?.data?.message || error?.message || "Cập nhật sân thất bại",
-      );
+      showAssignError(error);
     }
   };
 

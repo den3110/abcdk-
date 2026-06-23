@@ -1476,6 +1476,10 @@ export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   if (!recording) {
     return res.status(404).json({ message: "Recording not found" });
   }
+  await reopenAutoClosedRecordingIfLiveAppActive(
+    recording,
+    "single_segment_presign"
+  );
 
   const [entry] = await presignRecordingSegmentEntries({
     recording,
@@ -1527,6 +1531,10 @@ export const presignLiveRecordingSegmentBatchV2 = asyncHandler(
     if (!recording) {
       return res.status(404).json({ message: "Recording not found" });
     }
+    await reopenAutoClosedRecordingIfLiveAppActive(
+      recording,
+      "single_segment_presign_batch"
+    );
 
     const segments = await presignRecordingSegmentEntries({
       recording,

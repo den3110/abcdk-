@@ -612,17 +612,10 @@ class LiveRepository(
         val obj = if (root.isJsonObject) root.asJsonObject else return null
 
         val id = obj.getStr("_id") ?: obj.getStr("id") ?: ""
-        val labelKey = obj.getStr("labelKey") ?: ""
+        val labelKey = obj.getStr("labelKey") ?: obj.getStr("labelKeyDisplay") ?: ""
         val rawCode = obj.getStr("code") ?: ""
-        val serverDisplayCode =
-            obj.getStr("displayCode")
-                ?: obj.getStr("codeResolved")
-                ?: obj.getStr("roundCode")
-        val resolvedDisplayCode = serverDisplayCode ?: computeDisplayCode(obj, labelKey)
-        val code =
-            rawCode.ifBlank {
-                resolvedDisplayCode ?: labelKey
-            }
+        val resolvedDisplayCode = resolveMatchDisplayCode(obj, labelKey)
+        val code = resolvedDisplayCode ?: rawCode.takeIf { it.isNotBlank() } ?: labelKey
         val status = obj.getStr("status") ?: ""
         val displayNameMode = resolveMatchDisplayMode(obj)
         val liveVersion = obj.getLong("liveVersion") ?: obj.getLong("version")
@@ -636,8 +629,7 @@ class LiveRepository(
                 ?: resolvePairDisplayName(pairAObj, displayNameMode)
                 ?: resolveTeamDisplayName(teamsObj?.getObj("A"), displayNameMode)
                 ?: extractPlayers(pairAObj, displayNameMode)
-                ?: obj.getStr("teamAName")
-                ?: "Team A"
+                ?: "Đội A chưa rõ"
         )
 
         val teamBName = normalizeTeamName(
@@ -645,8 +637,7 @@ class LiveRepository(
                 ?: resolvePairDisplayName(pairBObj, displayNameMode)
                 ?: resolveTeamDisplayName(teamsObj?.getObj("B"), displayNameMode)
                 ?: extractPlayers(pairBObj, displayNameMode)
-                ?: obj.getStr("teamBName")
-                ?: "Team B"
+                ?: "Đội B chưa rõ"
         )
 
         val seedA = obj.getInt("seedA") ?: teamsObj?.getObj("A")?.getInt("seed")
@@ -685,9 +676,16 @@ class LiveRepository(
             ?: courtObj?.getStr("label")
             ?: ""
 
-        val roundLabel = obj.getStr("roundLabel") ?: obj.getStr("roundCode") ?: ""
-        val stageName = obj.getStr("stageName") ?: obj.getStr("stageLabel") ?: ""
-        val phaseText = obj.getStr("phaseText") ?: ""
+        val roundCode = inferRoundCode(obj)
+        val roundLabel = buildRuntimeRoundLabel(obj, roundCode)
+        val phaseText = buildRuntimePhaseText(obj, roundCode)
+        val stageName =
+            firstText(
+                obj.getStr("stageName"),
+                obj.getStr("stageLabel"),
+                roundLabel,
+                phaseText,
+            ) ?: ""
 
         val currentGame = obj.getInt("currentGame")
 
@@ -810,6 +808,135 @@ class LiveRepository(
             .replace(Regex("\\s*/\\s*"), " / ")
             .replace(Regex("\\s{2,}"), " ")
             .trim()
+    }
+
+    private fun firstText(vararg values: String?): String? =
+        values.firstOrNull { !it.isNullOrBlank() }?.trim()
+
+    private fun normalizeMatchCodeCandidate(value: String?): String? {
+        val text = value?.trim()?.uppercase().orEmpty()
+        if (text.isBlank()) return null
+        return if (
+            Regex("^V\\d+(?:-B\\d+)?(?:-NT)?-T\\d+$", RegexOption.IGNORE_CASE)
+                .matches(text)
+        ) {
+            text
+        } else {
+            null
+        }
+    }
+
+    private fun resolveMatchDisplayCode(obj: JsonObject, labelKey: String): String? {
+        val direct =
+            listOf(
+                obj.getStr("displayCode"),
+                obj.getStr("codeDisplay"),
+                obj.getStr("codeResolved"),
+                obj.getStr("codeGroup"),
+                obj.getStr("globalCodeV"),
+                obj.getStr("globalCode"),
+                obj.getStr("matchCode"),
+                obj.getStr("code"),
+                obj.getStr("slotCode"),
+                obj.getStr("bracketCode"),
+                obj.getStr("roundCode"),
+            ).firstNotNullOfOrNull(::normalizeMatchCodeCandidate)
+        if (!direct.isNullOrBlank()) return direct
+
+        val labelCandidate =
+            normalizeMatchCodeCandidate(obj.getStr("labelKeyDisplay"))
+                ?: normalizeMatchCodeCandidate(labelKey)
+        if (!labelCandidate.isNullOrBlank()) return labelCandidate
+
+        return computeDisplayCode(obj, labelKey)
+    }
+
+    private fun codeToRoundLabel(roundCode: String?): String {
+        val normalized = roundCode?.trim()?.uppercase().orEmpty()
+        if (normalized.isBlank()) return ""
+        return when (normalized) {
+            "QF" -> "Tứ kết"
+            "SF" -> "Bán kết"
+            "F", "GF" -> "Chung kết"
+            else -> {
+                val size = Regex("^R(\\d+)$", RegexOption.IGNORE_CASE)
+                    .find(normalized)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                when {
+                    size == null -> normalized
+                    size >= 16 -> "Vòng $size đội"
+                    size == 8 -> "Tứ kết"
+                    size == 4 -> "Bán kết"
+                    size == 2 -> "Chung kết"
+                    size > 0 -> "Vòng $size"
+                    else -> ""
+                }
+            }
+        }
+    }
+
+    private fun inferRoundCode(obj: JsonObject): String {
+        val explicit = firstText(obj.getStr("roundCode"), obj.getStr("roundName"))
+        if (!explicit.isNullOrBlank()) return explicit.uppercase()
+
+        val drawSize =
+            listOfNotNull(
+                obj.getObj("bracket")?.getObj("meta")?.getInt("drawSize"),
+                obj.getObj("bracket")?.getObj("config")?.getObj("roundElim")?.getInt("drawSize"),
+                obj.getObj("bracket")?.getObj("meta")?.getInt("expectedFirstRoundMatches")?.let { it * 2 },
+                obj.getObj("bracket")?.getInt("drawRounds")?.let { 1 shl it },
+            ).filter { it > 1 }.maxOrNull()
+        val round = obj.getInt("round")
+        if (drawSize == null || round == null || round <= 0) return ""
+
+        val divisor = 1 shl (round - 1).coerceAtLeast(0)
+        val size = (drawSize / divisor).coerceAtLeast(2)
+        return "R$size"
+    }
+
+    private fun buildRuntimeRoundLabel(obj: JsonObject, roundCode: String): String {
+        val bracketType = (
+            obj.getObj("bracket")?.getStr("type")
+                ?: obj.getStr("bracketType")
+                ?: obj.getStr("format")
+        )?.trim()?.lowercase().orEmpty()
+        if (bracketType.isBlank() || isGroupType(bracketType)) return ""
+        return firstText(obj.getStr("roundLabel"), obj.getStr("roundName"), codeToRoundLabel(roundCode)) ?: ""
+    }
+
+    private fun buildRuntimePhaseText(obj: JsonObject, roundCode: String): String {
+        val bracketType = (
+            obj.getObj("bracket")?.getStr("type")
+                ?: obj.getStr("bracketType")
+                ?: obj.getStr("format")
+        )?.trim()?.lowercase().orEmpty()
+        if (isGroupType(bracketType)) return "Vòng bảng"
+
+        val roundLabel =
+            firstText(obj.getStr("phaseText"), obj.getStr("roundName"), codeToRoundLabel(roundCode))
+                ?: ""
+        if (
+            bracketType in setOf(
+                "po",
+                "playoff",
+                "play-offs",
+                "knockout",
+                "ko",
+                "single",
+                "singleelimination",
+                "single_elimination",
+                "double",
+                "doubleelimination",
+                "double_elimination",
+                "double_elim",
+                "roundelim",
+            )
+        ) {
+            return roundLabel.ifBlank { "Vòng loại trực tiếp" }
+        }
+        return roundLabel
     }
 
     private fun computeDisplayCode(obj: JsonObject, labelKey: String): String? {
@@ -1146,7 +1273,17 @@ class LiveRepository(
             if (resp.isSuccessful && resp.body() != null) {
                 Result.success(resp.body()!!)
             } else {
-                Result.failure(Exception("Finalize recording failed: ${resp.code()}"))
+                val message = parseErrorMessage(resp.errorBody()?.string())
+                val detail =
+                    when (resp.code()) {
+                        409 ->
+                            message?.let { "Recording chưa sẵn sàng finalize: $it" }
+                                ?: "Recording chưa sẵn sàng finalize, app sẽ tự thử lại (${resp.code()})."
+                        else ->
+                            message?.let { "Finalize recording failed: $it (${resp.code()})" }
+                                ?: "Finalize recording failed: ${resp.code()}"
+                    }
+                Result.failure(Exception(detail))
             }
         } catch (e: Exception) {
             Log.e(TAG, "finalizeRecording error", e)
@@ -1199,25 +1336,42 @@ class LiveRepository(
     }
 
     private fun hasNonEmptyPool(obj: JsonObject): Boolean {
+        val direct = firstText(
+            obj.getStr("poolName"),
+            obj.getStr("poolKey"),
+            obj.getStr("group"),
+            obj.getStr("groupCode"),
+            obj.getStr("groupNo"),
+        )
+        if (!direct.isNullOrBlank()) return true
         if (!obj.has("pool")) return false
         val p = obj.get("pool") ?: return false
         if (p.isJsonObject) {
             val po = p.asJsonObject
-            return !po.getStr("name").isNullOrBlank() || !po.getStr("key").isNullOrBlank() || !po.getStr("code").isNullOrBlank()
+            return !po.getStr("name").isNullOrBlank() ||
+                !po.getStr("key").isNullOrBlank() ||
+                !po.getStr("code").isNullOrBlank() ||
+                po.getInt("index") != null
         }
         return false
     }
 
     private fun resolvePoolIndex(obj: JsonObject): Int? {
-        val poolEl = obj.get("pool") ?: return null
-        if (!poolEl.isJsonObject) return null
-        val pool = poolEl.asJsonObject
-        val cand = (
-            pool.getStr("index")
-                ?: pool.getStr("idx")
-                ?: pool.getStr("code")
-                ?: pool.getStr("key")
-                ?: pool.getStr("name")
+        val pool = obj.getObj("pool")
+        val cand = firstText(
+            pool?.getStr("index"),
+            pool?.getStr("idx"),
+            pool?.getStr("no"),
+            pool?.getStr("order"),
+            pool?.getStr("code"),
+            pool?.getStr("key"),
+            pool?.getStr("name"),
+            obj.getStr("poolName"),
+            obj.getStr("poolKey"),
+            obj.getStr("group"),
+            obj.getStr("groupCode"),
+            obj.getStr("groupNo"),
+            obj.getInt("groupIndex")?.let { (it + 1).toString() },
         )?.trim().orEmpty()
         if (cand.isBlank()) return null
 

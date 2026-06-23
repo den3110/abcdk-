@@ -515,10 +515,8 @@ class MatchSocketManager(
             val lightweightPayload = isLightweightMatchPayload(obj, match)
             val missingIdentity = !hasMatchIdentityData(match)
             val needsIdentitySnapshot =
-                current.teamAName.isBlank() ||
-                    current.teamAName == "Team A" ||
-                    current.teamBName.isBlank() ||
-                    current.teamBName == "Team B"
+                isMissingTeamName(current.teamAName, "A") ||
+                    isMissingTeamName(current.teamBName, "B")
 
             val currentScore = extractCurrentScore(match)
             val serve = extractServe(match)
@@ -533,21 +531,24 @@ class MatchSocketManager(
                 requestSnapshotForCurrentMatch()
             }
 
-            val nextTeamAName = if (!missingIdentity) extractTeamName(match, "A") else null
-            val nextTeamBName = if (!missingIdentity) extractTeamName(match, "B") else null
+            val nextTeamAName = extractTeamName(match, "A")
+            val nextTeamBName = extractTeamName(match, "B")
+            val nextRoundLabel = extractRoundLabel(match)
+            val nextPhaseText = extractPhaseText(match)
+            val nextStageName = extractStageName(match, nextRoundLabel, nextPhaseText)
 
             val updated = current.copy(
-                teamAName = normalizeTeamName(nextTeamAName ?: current.teamAName),
-                teamBName = normalizeTeamName(nextTeamBName ?: current.teamBName),
+                teamAName = chooseTeamName(nextTeamAName, current.teamAName, "A"),
+                teamBName = chooseTeamName(nextTeamBName, current.teamBName, "B"),
                 scoreA = currentScore?.first ?: match.getInt("scoreA") ?: current.scoreA,
                 scoreB = currentScore?.second ?: match.getInt("scoreB") ?: current.scoreB,
                 serveSide = serve?.first ?: match.getStr("serveSide") ?: current.serveSide,
                 serveCount = serve?.second ?: match.getInt("serveCount") ?: current.serveCount,
                 isBreak = match.getBool("isBreak") ?: current.isBreak,
                 breakNote = match.getStr("breakNote") ?: current.breakNote,
-                stageName = match.getStr("stageName") ?: current.stageName,
-                phaseText = match.getStr("phaseText") ?: current.phaseText,
-                roundLabel = match.getStr("roundLabel") ?: current.roundLabel,
+                stageName = nextStageName ?: current.stageName,
+                phaseText = nextPhaseText ?: current.phaseText,
+                roundLabel = nextRoundLabel ?: current.roundLabel,
                 tournamentName = extractTournamentName(match) ?: current.tournamentName,
                 courtName = extractCourtName(match) ?: current.courtName,
                 sets = extractSets(match) ?: current.sets,
@@ -668,8 +669,27 @@ class MatchSocketManager(
     }
 
     private fun extractTeamName(obj: JsonObject, side: String): String? {
-        val resolved = resolveSideDisplayName(obj, side, allowRawFallback = false)
+        val resolved = resolveSideDisplayName(obj, side, allowRawFallback = true)
         return resolved?.let(::normalizeTeamName)
+    }
+
+    private fun chooseTeamName(next: String?, current: String, side: String): String {
+        val normalizedNext = normalizeTeamName(next)
+        if (!isMissingTeamName(normalizedNext, side)) return normalizedNext
+        if (!isMissingTeamName(current, side)) return normalizeTeamName(current)
+        return if (side == "B") "Đội B chưa rõ" else "Đội A chưa rõ"
+    }
+
+    private fun isMissingTeamName(value: String?, side: String): Boolean {
+        val normalized = value?.trim().orEmpty()
+        if (normalized.isBlank()) return true
+        val upper = normalized.uppercase()
+        val sideLabel = if (side == "B") "B" else "A"
+        return upper == "TEAM $sideLabel" ||
+            upper == "ĐỘI $sideLabel" ||
+            upper == "ĐỘI $sideLabel CHƯA RÕ" ||
+            upper == "TBD" ||
+            upper == "-"
     }
 
     private fun normalizeTeamName(raw: String?): String {
@@ -680,6 +700,82 @@ class MatchSocketManager(
             .replace(Regex("\\s*/\\s*"), " / ")
             .replace(Regex("\\s{2,}"), " ")
             .trim()
+    }
+
+    private fun firstText(vararg values: String?): String? =
+        values.firstOrNull { !it.isNullOrBlank() }?.trim()
+
+    private fun extractRoundLabel(obj: JsonObject): String? =
+        firstText(
+            obj.getStr("roundLabel"),
+            obj.getStr("roundName"),
+            obj.getStr("roundCode")?.let(::codeToRoundLabel),
+        )
+
+    private fun extractPhaseText(obj: JsonObject): String? {
+        firstText(obj.getStr("phaseText"))?.let { return it }
+        val type = (
+            obj.getObj("bracket")?.getStr("type")
+                ?: obj.getStr("bracketType")
+                ?: obj.getStr("format")
+        )?.trim()?.lowercase().orEmpty()
+        if (type == "group" || type == "round_robin" || type == "gsl" || type == "groups" || type == "rr") {
+            return "Vòng bảng"
+        }
+        val roundLabel = extractRoundLabel(obj)
+        return if (
+            type in setOf(
+                "po",
+                "playoff",
+                "play-offs",
+                "knockout",
+                "ko",
+                "single",
+                "singleelimination",
+                "single_elimination",
+                "double",
+                "doubleelimination",
+                "double_elimination",
+                "double_elim",
+                "roundelim",
+            )
+        ) {
+            roundLabel ?: "Vòng loại trực tiếp"
+        } else {
+            roundLabel
+        }
+    }
+
+    private fun extractStageName(
+        obj: JsonObject,
+        roundLabel: String?,
+        phaseText: String?,
+    ): String? =
+        firstText(obj.getStr("stageName"), obj.getStr("stageLabel"), roundLabel, phaseText)
+
+    private fun codeToRoundLabel(roundCode: String): String {
+        val normalized = roundCode.trim().uppercase()
+        return when (normalized) {
+            "QF" -> "Tứ kết"
+            "SF" -> "Bán kết"
+            "F", "GF" -> "Chung kết"
+            else -> {
+                val size = Regex("^R(\\d+)$", RegexOption.IGNORE_CASE)
+                    .find(normalized)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.toIntOrNull()
+                when {
+                    size == null -> normalized
+                    size >= 16 -> "Vòng $size đội"
+                    size == 8 -> "Tứ kết"
+                    size == 4 -> "Bán kết"
+                    size == 2 -> "Chung kết"
+                    size > 0 -> "Vòng $size"
+                    else -> ""
+                }
+            }
+        }
     }
 
     private fun extractCurrentScore(obj: JsonObject): Pair<Int, Int>? {

@@ -142,11 +142,11 @@ const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
   {
     path: "match",
     select:
-      "code displayCode labelKey globalRound stageIndex courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
+      "code displayCode labelKey globalRound stageIndex courtLabel pairA pairB teamFactionAName teamFactionBName seedA seedB previousA previousB court bracket tournament status round order format pool rrRound",
     populate: [
       {
         path: "pairA",
-        select: "player1 player2 teamName label",
+        select: "player1 player2 teamName teamFactionName label code",
         populate: [
           {
             path: "player1",
@@ -168,7 +168,7 @@ const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
       },
       {
         path: "pairB",
-        select: "player1 player2 teamName label",
+        select: "player1 player2 teamName teamFactionName label code",
         populate: [
           {
             path: "player1",
@@ -188,6 +188,8 @@ const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
           },
         ],
       },
+      { path: "previousA", select: "code displayCode round order winner pairA pairB" },
+      { path: "previousB", select: "code displayCode round order winner pairA pairB" },
       { path: "court", select: "name label number" },
       { path: "bracket", select: "name stage type" },
       { path: "tournament", select: "name status" },
@@ -243,18 +245,75 @@ function pickPersonName(person) {
   );
 }
 
+function pickFirstText(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function buildPairLabel(pair) {
   if (!pair) return "";
-  if (pair.teamName) return pair.teamName;
+  const teamLabel = pickFirstText(
+    pair.teamName,
+    pair.teamFactionName,
+    pair.label
+  );
+  if (teamLabel) return teamLabel;
   const p1 = pickPersonName(pair.player1?.user || pair.player1);
   const p2 = pickPersonName(pair.player2?.user || pair.player2);
-  return [p1, p2].filter(Boolean).join(" / ") || pair.label || "";
+  return [p1, p2].filter(Boolean).join(" / ") || "";
+}
+
+function buildSeedSideLabel(seed, side) {
+  const label = pickFirstText(seed?.label, seed?.name, seed?.code);
+  if (label) return label;
+  const type = String(seed?.type || "").trim();
+  if (
+    type === "stageMatchWinner" ||
+    type === "stageMatchLoser" ||
+    type === "matchWinner" ||
+    type === "matchLoser"
+  ) {
+    return side === "B" ? "Đội B chờ xác định" : "Đội A chờ xác định";
+  }
+  if (type.toLowerCase() === "bye") return "BYE";
+  return "";
+}
+
+function buildPreviousMatchSideLabel(match, side) {
+  const previous = side === "B" ? match?.previousB : match?.previousA;
+  const code = buildMatchCode(previous);
+  if (!code) return "";
+  return `Thắng ${code}`;
+}
+
+function buildSideLabel(match, side) {
+  if (side === "B") {
+    return pickFirstText(
+      buildPairLabel(match?.pairB),
+      match?.teamFactionBName,
+      buildSeedSideLabel(match?.seedB, "B"),
+      buildPreviousMatchSideLabel(match, "B")
+    );
+  }
+  return pickFirstText(
+    buildPairLabel(match?.pairA),
+    match?.teamFactionAName,
+    buildSeedSideLabel(match?.seedA, "A"),
+    buildPreviousMatchSideLabel(match, "A")
+  );
 }
 
 function buildParticipantsLabel(match) {
-  const sideA = buildPairLabel(match?.pairA);
-  const sideB = buildPairLabel(match?.pairB);
-  return [sideA, sideB].filter(Boolean).join(" vs ");
+  const sideA = buildSideLabel(match, "A");
+  const sideB = buildSideLabel(match, "B");
+  if (sideA && sideB) return `${sideA} vs ${sideB}`;
+  if (sideA || sideB) {
+    return `${sideA || "Đội A chưa rõ"} vs ${sideB || "Đội B chưa rõ"}`;
+  }
+  return "";
 }
 
 function buildCourtLabel(match, recording) {
@@ -1038,7 +1097,12 @@ function buildRow(
   { includeDetailedSegments = true } = {}
 ) {
   const match = recording.match || {};
-  const participantsLabel = buildParticipantsLabel(match);
+  const teamALabel = buildSideLabel(match, "A");
+  const teamBLabel = buildSideLabel(match, "B");
+  const participantsLabel =
+    teamALabel && teamBLabel
+      ? `${teamALabel} vs ${teamBLabel}`
+      : buildParticipantsLabel(match);
   const tournamentName = match?.tournament?.name || "";
   const bracketName = match?.bracket?.name || "";
   const bracketStage = match?.bracket?.stage || "";
@@ -1070,6 +1134,8 @@ function buildRow(
     quality: recording.quality || "",
     matchId: match?._id ? String(match._id) : String(recording.match || ""),
     matchCode: buildMatchCode(match),
+    teamALabel,
+    teamBLabel,
     participantsLabel: participantsLabel || "Unknown match",
     tournamentName: tournamentName || "",
     tournamentStatus: match?.tournament?.status || "",

@@ -19,6 +19,34 @@ private fun JsonObject?.safeArr(key: String): JsonArray? =
 private fun firstNotBlank(vararg values: String?): String? =
     values.firstOrNull { !it.isNullOrBlank() }?.trim()
 
+private fun isReferenceDisplayName(value: String?): Boolean {
+    val normalized =
+        value
+            ?.trim()
+            ?.replace(Regex("\\s+"), "")
+            ?.replace(Regex("\\([AB]\\)$", RegexOption.IGNORE_CASE), "")
+            .orEmpty()
+    if (normalized.isBlank()) return false
+    return Regex("^(?:[WL]-)?V\\d+(?:-[A-Z0-9]+)?(?:-NT)?-T\\d+$", RegexOption.IGNORE_CASE)
+        .matches(normalized) ||
+        Regex("^(?:WB|LB)\\d+-T\\d+$", RegexOption.IGNORE_CASE).matches(normalized) ||
+        Regex("^GF(?:\\d+)?-T\\d+$", RegexOption.IGNORE_CASE).matches(normalized)
+}
+
+private fun isUsefulSideDisplayName(value: String?): Boolean {
+    val text = value?.trim().orEmpty()
+    if (text.isBlank()) return false
+    if (
+        Regex("^(TBD|Registration|Chưa có đội|Đội A|Đội B|Team A|Team B|—|-)$", RegexOption.IGNORE_CASE)
+            .matches(text)
+    ) {
+        return false
+    }
+    return !isReferenceDisplayName(text)
+}
+
+private fun sideKeyOf(side: String): String = if (side.uppercase() == "B") "B" else "A"
+
 fun resolveMatchDisplayMode(match: JsonObject?): String {
     val raw =
         firstNotBlank(
@@ -68,9 +96,6 @@ fun resolvePairDisplayName(
     pair: JsonObject?,
     displayMode: String = "nickname",
 ): String? {
-    val explicit = pair.safeStr("displayName")
-    if (!explicit.isNullOrBlank()) return explicit
-
     val joinedPlayers =
         listOf(
             resolvePlayerDisplayName(pair.safeObj("player1"), displayMode),
@@ -82,7 +107,9 @@ fun resolvePairDisplayName(
     }
 
     return firstNotBlank(
+        pair.safeStr("displayName"),
         pair.safeStr("teamName"),
+        pair.safeStr("teamFactionName"),
         pair.safeStr("label"),
         pair.safeStr("title"),
         pair.safeStr("name"),
@@ -110,8 +137,10 @@ fun resolveTeamDisplayName(
     if (players.isNotEmpty()) return players.joinToString(" / ")
 
     return firstNotBlank(
-        team.safeStr("name"),
         team.safeStr("teamName"),
+        team.safeStr("teamFactionName"),
+        team.safeStr("label"),
+        team.safeStr("name"),
     )
 }
 
@@ -121,11 +150,61 @@ fun resolveSideDisplayName(
     allowRawFallback: Boolean = true,
 ): String? {
     val displayMode = resolveMatchDisplayMode(match)
-    val pairKey = if (side == "A") "pairA" else "pairB"
-    resolvePairDisplayName(match.safeObj(pairKey), displayMode)?.let { return it }
-    resolveTeamDisplayName(match.safeObj("teams").safeObj(side), displayMode)?.let { return it }
+    val normalizedSide = sideKeyOf(side)
+    val pairKey = "pair$normalizedSide"
+    resolvePairDisplayName(match.safeObj(pairKey), displayMode)
+        ?.takeIf(::isUsefulSideDisplayName)
+        ?.let { return it }
+    resolveTeamDisplayName(match.safeObj("teams").safeObj(normalizedSide), displayMode)
+        ?.takeIf(::isUsefulSideDisplayName)
+        ?.let { return it }
     if (!allowRawFallback) return null
-    return if (side == "A") match.safeStr("teamAName") else match.safeStr("teamBName")
+
+    val rawCandidates =
+        if (normalizedSide == "A") {
+            listOf(
+                match.safeStr("resolvedSideNameA"),
+                match.safeStr("__sideA"),
+                match.safeStr("teamAName"),
+                match.safeStr("pairAName"),
+                match.safeStr("sideAName"),
+                match.safeStr("teamFactionAName"),
+            )
+        } else {
+            listOf(
+                match.safeStr("resolvedSideNameB"),
+                match.safeStr("__sideB"),
+                match.safeStr("teamBName"),
+                match.safeStr("pairBName"),
+                match.safeStr("sideBName"),
+                match.safeStr("teamFactionBName"),
+            )
+        }
+    rawCandidates.firstOrNull(::isUsefulSideDisplayName)?.let { return it }
+
+    val seedKey = if (normalizedSide == "A") "seedA" else "seedB"
+    match.safeObj(seedKey)?.let { seed ->
+        firstNotBlank(
+            seed.safeStr("label"),
+            seed.safeStr("displayName"),
+            seed.safeStr("teamName"),
+            seed.safeStr("name"),
+            seed.safeStr("title"),
+            seed.safeStr("code"),
+        )?.let { return it }
+    }
+
+    val previousKey = if (normalizedSide == "A") "previousA" else "previousB"
+    match.safeObj(previousKey)?.let { previous ->
+        firstNotBlank(
+            previous.safeStr("displayCode"),
+            previous.safeStr("codeResolved"),
+            previous.safeStr("code"),
+            previous.safeStr("label"),
+        )?.takeIf { it.isNotBlank() }?.let { return "W-$it" }
+    }
+
+    return rawCandidates.firstOrNull { !it.isNullOrBlank() }?.trim()
 }
 
 fun hasMatchIdentityData(match: JsonObject?): Boolean =

@@ -54,6 +54,15 @@ private data class ActiveRecordingSession(
     val latestStorageFailover: RecordingStorageFailoverEntry? = null,
 )
 
+private data class RecordingHeartbeatTarget(
+    val recordingId: String,
+    val recordingSessionId: String,
+    val matchId: String,
+    val isRecording: Boolean,
+    val pendingUploads: Int,
+    val segmentIndex: Int?,
+)
+
 private data class PendingRecordingSegment(
     val recordingId: String,
     val recordingSessionId: String,
@@ -150,6 +159,9 @@ class MatchRecordingCoordinator(
         private const val MIN_HARD_BLOCK_BYTES = 512L * 1024L * 1024L
         private const val LIVE_MANIFEST_MAX_SEGMENTS = 180
         private const val RECORDING_HEARTBEAT_INTERVAL_MS = 30_000L
+        private const val OFFLINE_UPLOAD_RECHECK_DELAY_MS = 5_000L
+        private const val RECONNECT_UPLOAD_COOLDOWN_MS = 8_000L
+        private const val UPLOAD_SEGMENT_SPACING_MS = 2_500L
     }
 
     private val coordinatorExceptionHandler =
@@ -175,6 +187,12 @@ class MatchRecordingCoordinator(
     private var uploadJob: Job? = null
     private var recordingHeartbeatJob: Job? = null
     private var activeSession: ActiveRecordingSession? = null
+    @Volatile
+    private var activeUploadCall: okhttp3.Call? = null
+    @Volatile
+    private var networkAvailableForUploads: Boolean = true
+    @Volatile
+    private var nextUploadAllowedAtMs: Long = 0L
     @Volatile
     private var liveCriticalPathBusy: Boolean = false
     @Volatile
@@ -349,9 +367,57 @@ class MatchRecordingCoordinator(
         updateUiState(errorMessage = null)
     }
 
-    fun retryPendingWorkNow(reason: String = "manual") {
+    fun onNetworkLost(reason: String = "network_lost") {
+        networkAvailableForUploads = false
+        nextUploadAllowedAtMs = 0L
+        val call = activeUploadCall
+        if (call != null && !call.isCanceled()) {
+            Log.i(TAG, "Cancel active recording upload call: $reason")
+            call.cancel()
+        }
         scope.launch {
+            val pendingUploads = manifestMutex.withLock { manifest.pendingSegments.size }
+            if (pendingUploads > 0) {
+                updateUiState(
+                    status = "uploading",
+                    pendingUploads = pendingUploads,
+                    errorMessage = null,
+                )
+            }
+        }
+    }
+
+    fun onNetworkAvailable(reason: String = "network_connected") {
+        networkAvailableForUploads = true
+        nextUploadAllowedAtMs = maxOf(
+            nextUploadAllowedAtMs,
+            System.currentTimeMillis() + RECONNECT_UPLOAD_COOLDOWN_MS,
+        )
+        retryPendingWorkNow(reason, forceRestartActiveUpload = true)
+    }
+
+    fun retryPendingWorkNow(
+        reason: String = "manual",
+        forceRestartActiveUpload: Boolean = false,
+    ) {
+        scope.launch {
+            if (forceRestartActiveUpload) {
+                activeUploadCall?.let { call ->
+                    if (!call.isCanceled()) {
+                        Log.i(TAG, "Cancel stale recording upload call before retry: $reason")
+                        call.cancel()
+                    }
+                }
+                clearSinglePutPresignCache()
+                clearLiveManifestPresignCache()
+                uploadJob?.takeIf { it.isActive }?.let { job ->
+                    Log.i(TAG, "Restart recording upload loop: $reason")
+                    job.cancel(CancellationException("Restart recording upload loop: $reason"))
+                    uploadJob = null
+                }
+            }
             var changed = false
+            var pendingUploads = 0
             manifestMutex.withLock {
                 val nextSegments =
                     manifest.pendingSegments.map { segment ->
@@ -371,6 +437,7 @@ class MatchRecordingCoordinator(
                             finalize
                         }
                     }
+                pendingUploads = nextSegments.size
                 if (changed) {
                     Log.i(TAG, "Wake pending recording queue: $reason")
                     manifest =
@@ -380,6 +447,13 @@ class MatchRecordingCoordinator(
                         )
                     persistManifestLocked()
                 }
+            }
+            if (pendingUploads > 0) {
+                updateUiState(
+                    status = "uploading",
+                    pendingUploads = pendingUploads,
+                    errorMessage = null,
+                )
             }
             restartUploadLoopIfNeeded()
             sendRecordingHeartbeatOnce("retry_$reason")
@@ -592,18 +666,44 @@ class MatchRecordingCoordinator(
     }
 
     private suspend fun sendRecordingHeartbeatOnce(reason: String) {
-        val session = activeSession ?: return
-        val pendingSegments =
+        val session = activeSession
+        val target =
             manifestMutex.withLock {
-                manifest.pendingSegments.filter { it.recordingId == session.recordingId }
-            }
+                if (session != null) {
+                    val pendingSegments =
+                        manifest.pendingSegments.filter { it.recordingId == session.recordingId }
+                    RecordingHeartbeatTarget(
+                        recordingId = session.recordingId,
+                        recordingSessionId = session.recordingSessionId,
+                        matchId = session.matchId,
+                        isRecording = _recordingUiState.value.isRecording,
+                        pendingUploads = pendingSegments.size,
+                        segmentIndex = pendingSegments.maxOfOrNull { it.segmentIndex },
+                    )
+                } else {
+                    val firstPending =
+                        manifest.pendingSegments.minWithOrNull(
+                            compareBy<PendingRecordingSegment> { it.recordingId }.thenBy { it.segmentIndex }
+                        ) ?: return@withLock null
+                    val pendingSegments =
+                        manifest.pendingSegments.filter { it.recordingId == firstPending.recordingId }
+                    RecordingHeartbeatTarget(
+                        recordingId = firstPending.recordingId,
+                        recordingSessionId = firstPending.recordingSessionId,
+                        matchId = firstPending.matchId,
+                        isRecording = false,
+                        pendingUploads = pendingSegments.size,
+                        segmentIndex = pendingSegments.maxOfOrNull { it.segmentIndex },
+                    )
+                }
+            } ?: return
         repository.heartbeatRecording(
-            recordingId = session.recordingId,
-            recordingSessionId = session.recordingSessionId,
-            matchId = session.matchId,
-            isRecording = _recordingUiState.value.isRecording,
-            pendingUploads = pendingSegments.size,
-            segmentIndex = pendingSegments.maxOfOrNull { it.segmentIndex },
+            recordingId = target.recordingId,
+            recordingSessionId = target.recordingSessionId,
+            matchId = target.matchId,
+            isRecording = target.isRecording,
+            pendingUploads = target.pendingUploads,
+            segmentIndex = target.segmentIndex,
             clientStatus = _recordingUiState.value.status,
             reason = reason,
         ).onSuccess { payload ->
@@ -618,7 +718,34 @@ class MatchRecordingCoordinator(
         val currentJob =
             scope.launch {
                 while (true) {
+                    if (!networkAvailableForUploads) {
+                        val queueState =
+                            manifestMutex.withLock {
+                                Pair(
+                                    manifest.pendingSegments.size,
+                                    manifest.pendingSegments.isNotEmpty() || manifest.pendingFinalizations.isNotEmpty(),
+                                )
+                            }
+                        val pendingUploads = queueState.first
+                        val hasPendingWork = queueState.second
+                        if (!hasPendingWork) break
+                        if (pendingUploads > 0) {
+                            updateUiState(
+                                status = "uploading",
+                                pendingUploads = pendingUploads,
+                            )
+                        }
+                        delay(OFFLINE_UPLOAD_RECHECK_DELAY_MS)
+                        continue
+                    }
+
                     val now = System.currentTimeMillis()
+                    val uploadWaitMs = nextUploadAllowedAtMs - now
+                    if (uploadWaitMs > 0L) {
+                        delay(uploadWaitMs.coerceIn(500L, OFFLINE_UPLOAD_RECHECK_DELAY_MS))
+                        continue
+                    }
+
                     val nextSegment = manifestMutex.withLock {
                         manifest.pendingSegments
                             .filter { it.nextRetryAtMs <= now }
@@ -663,10 +790,18 @@ class MatchRecordingCoordinator(
                     if (shouldYieldForLiveCriticalPath()) {
                         delay(1_500L)
                     }
+                    if (!networkAvailableForUploads) {
+                        continue
+                    }
 
                     val success = uploadPendingSegment(nextSegment)
                     if (!success) {
                         delay(2_000L)
+                    } else {
+                        nextUploadAllowedAtMs = maxOf(
+                            nextUploadAllowedAtMs,
+                            System.currentTimeMillis() + UPLOAD_SEGMENT_SPACING_MS,
+                        )
                     }
                 }
             }
@@ -1112,6 +1247,18 @@ class MatchRecordingCoordinator(
         }
     }
 
+    private fun executeTrackedUploadCall(request: Request): okhttp3.Response {
+        val call = okHttpClient.newCall(request)
+        activeUploadCall = call
+        return try {
+            call.execute()
+        } finally {
+            if (activeUploadCall === call) {
+                activeUploadCall = null
+            }
+        }
+    }
+
     private suspend fun uploadLiveManifestBody(
         upload: RecordingPresignedUpload,
         body: RequestBody,
@@ -1124,7 +1271,7 @@ class MatchRecordingCoordinator(
         upload.headers?.forEach { (key, value) ->
             requestBuilder.header(key, value)
         }
-        val response = okHttpClient.newCall(requestBuilder.build()).execute()
+        val response = executeTrackedUploadCall(requestBuilder.build())
         response.use { resp ->
             if (!resp.isSuccessful) {
                 throw IllegalStateException("$failureMessage (${resp.code})")
@@ -1318,7 +1465,7 @@ class MatchRecordingCoordinator(
             upload.headers?.forEach { (key, value) ->
                 requestBuilder.header(key, value)
             }
-            val response = okHttpClient.newCall(requestBuilder.build()).execute()
+            val response = executeTrackedUploadCall(requestBuilder.build())
             response.use { resp ->
                 if (!resp.isSuccessful) {
                     val responseBodySnippet = abbreviateErrorBody(resp.body?.string())
@@ -1416,7 +1563,7 @@ class MatchRecordingCoordinator(
             requestBuilder.header(key, value)
         }
 
-        val response = okHttpClient.newCall(requestBuilder.build()).execute()
+        val response = executeTrackedUploadCall(requestBuilder.build())
         response.use { resp ->
             if (!resp.isSuccessful) {
                 throw IllegalStateException("Upload segment thất bại (${resp.code})")

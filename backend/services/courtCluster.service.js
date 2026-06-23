@@ -1286,6 +1286,9 @@ async function buildClusterBusyParticipantMap(
       populate: MATCH_REF_POPULATE,
     })
     .lean();
+  const matchDisplayContexts = await buildMatchDisplayContextsFromMatches(
+    stations.map((station) => station?.currentMatch).filter(Boolean)
+  );
 
   const busyMap = new Map();
   stations.forEach((station) => {
@@ -1295,6 +1298,10 @@ async function buildClusterBusyParticipantMap(
     if (!isCourtOccupyingMatchStatus(currentMatch?.status)) return;
 
     const stationName = safeText(station?.name, "Sân");
+    const matchSummary = buildMatchSummary(currentMatch, {
+      matchDisplayContexts,
+    });
+    const tournamentName = safeText(matchSummary?.tournament?.name);
     collectMatchParticipantEntries(currentMatch).forEach(({ keys }) => {
       keys.forEach((key) => {
         if (busyMap.has(key)) return;
@@ -1303,10 +1310,13 @@ async function buildClusterBusyParticipantMap(
           stationName,
           matchId: currentMatchId,
           matchCode: safeText(
-            currentMatch?.displayCode ||
-              currentMatch?.code ||
-              currentMatch?.globalCode
+            matchSummary?.displayCode ||
+              matchSummary?.code ||
+              matchSummary?.globalCode
           ),
+          tournamentId: toIdString(matchSummary?.tournament?._id),
+          tournamentName,
+          match: matchSummary,
         });
       });
     });
@@ -1331,9 +1341,9 @@ async function findClusterBusyParticipantConflict(
     return {
       ...conflict,
       playerName:
-        playerNameForDisplay(entry.player, "fullName") ||
-        playerNameForDisplay(entry.player, "nickname") ||
-        "Vận động viên",
+        playerNameForDisplay(entry.player, "nickname") || "Vận động viên",
+      playerNickname: playerNameForDisplay(entry.player, "nickname"),
+      playerFullName: playerNameForDisplay(entry.player, "fullName"),
     };
   }
 
@@ -1355,7 +1365,7 @@ async function ensureMatchPlayersAvailableOnCluster(
   const error = new Error(
     `${conflict.playerName} đang thi đấu ở ${conflict.stationName}${
       conflict.matchCode ? ` (${conflict.matchCode})` : ""
-    }.`
+    }${conflict.tournamentName ? `, giải ${conflict.tournamentName}` : ""}.`
   );
   error.status = 409;
   error.code = "PLAYER_BUSY_IN_CLUSTER";

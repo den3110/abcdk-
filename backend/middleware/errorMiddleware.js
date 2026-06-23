@@ -41,6 +41,14 @@ const errorHandler = (err, req, res, next) => {
     payload.details = err.details;
   }
 
+  if (err.code) {
+    payload.code = err.code;
+  }
+
+  if (err.conflict) {
+    payload.conflict = err.conflict;
+  }
+
   if (Array.isArray(err.invalidRefereeIds) && err.invalidRefereeIds.length) {
     payload.invalidRefereeIds = err.invalidRefereeIds;
   }

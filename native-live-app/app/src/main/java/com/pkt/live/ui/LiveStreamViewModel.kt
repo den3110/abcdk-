@@ -226,6 +226,8 @@ class LiveStreamViewModel(
     val fallbackColorArgb: StateFlow<Int?> = _fallbackColorArgb.asStateFlow()
     private val _courtPresence = MutableStateFlow<CourtPresenceResponse?>(null)
     val courtPresence: StateFlow<CourtPresenceResponse?> = _courtPresence.asStateFlow()
+    private val _showOrientationSelector = MutableStateFlow(false)
+    val showOrientationSelector: StateFlow<Boolean> = _showOrientationSelector.asStateFlow()
     private val _showModeSelector = MutableStateFlow(true)
     val showModeSelector: StateFlow<Boolean> = _showModeSelector.asStateFlow()
     private val _recordOnlyArmed = MutableStateFlow(false)
@@ -884,6 +886,13 @@ class LiveStreamViewModel(
         }
     }
 
+    fun confirmCaptureOrientation(mode: OrientationMode) {
+        _orientationMode.value = mode
+        _showOrientationSelector.value = false
+        _showModeSelector.value = true
+        _errorMessage.value = null
+    }
+
     fun reopenModeSelector() {
         _showModeSelector.value = true
     }
@@ -1291,6 +1300,7 @@ class LiveStreamViewModel(
         lastNextCourtFallbackProbeMs = 0L
         recordingCoordinator.clearModeSelection()
         recordingCoordinator.refreshStorageStatusAsync(_quality.value)
+        _showOrientationSelector.value = false
         _showModeSelector.value = true
         val sessionEpoch = nextSessionEpoch()
         nextCourtWatchEpoch()
@@ -1399,6 +1409,7 @@ class LiveStreamViewModel(
         lastNextCourtFallbackProbeMs = 0L
         recordingCoordinator.clearModeSelection()
         recordingCoordinator.refreshStorageStatusAsync(_quality.value)
+        _showOrientationSelector.value = true
         _showModeSelector.value = true
         _recordOnlyArmed.value = false
         setAutoGoLive(false)
@@ -1879,6 +1890,7 @@ class LiveStreamViewModel(
         _preflightDialog.value = null
         _lastSocketError.value = null
         _errorMessage.value = null
+        _showOrientationSelector.value = false
     }
 
     private fun performBackgroundExitAsync() {
@@ -1939,6 +1951,7 @@ class LiveStreamViewModel(
         _waitingForCourt.value = false
         _waitingForMatchLive.value = false
         _waitingForNextMatch.value = false
+        _showOrientationSelector.value = false
         _errorMessage.value = message
     }
 
@@ -2067,13 +2080,19 @@ class LiveStreamViewModel(
         }
 
         launchGuarded(name = "observeNetwork") {
+            var wasConnected = networkMonitor.isConnected.value
             networkMonitor.isConnected.collect { connected ->
                 streamManager.onNetworkAvailabilityChanged(connected)
                 if (connected) {
-                    recordingCoordinator.retryPendingWorkNow("network_connected")
+                    recordingCoordinator.onNetworkAvailable(
+                        if (wasConnected) "network_connected" else "network_recovered"
+                    )
                     wakePrimaryStartRetry("network_connected")
                     wakeArmedStartRecovery("network_connected")
+                } else {
+                    recordingCoordinator.onNetworkLost("network_lost")
                 }
+                wasConnected = connected
             }
         }
 
@@ -2415,13 +2434,18 @@ class LiveStreamViewModel(
     private fun seedOverlayFromMatch(match: MatchData) {
         val current = repository.overlayData.value
         val needsSeed =
-            current.teamAName == "Team A" ||
-                current.teamBName == "Team B" ||
-                (current.teamAName.isBlank() && current.teamBName.isBlank())
+            isMissingOverlayTeamName(current.teamAName, "A") ||
+                isMissingOverlayTeamName(current.teamBName, "B")
         if (!needsSeed) return
         val seeded = current.copy(
-            teamAName = match.teamAName.takeIf { it.isNotBlank() } ?: current.teamAName,
-            teamBName = match.teamBName.takeIf { it.isNotBlank() } ?: current.teamBName,
+            teamAName =
+                match.teamAName
+                    .takeIf { !isMissingOverlayTeamName(it, "A") }
+                    ?: current.teamAName,
+            teamBName =
+                match.teamBName
+                    .takeIf { !isMissingOverlayTeamName(it, "B") }
+                    ?: current.teamBName,
             scoreA = match.scoreA,
             scoreB = match.scoreB,
             serveSide = match.serveSide.takeIf { it.isNotBlank() } ?: current.serveSide,
@@ -2441,6 +2465,19 @@ class LiveStreamViewModel(
         )
         repository.seedOverlayData(seeded)
     }
+
+    private fun isMissingOverlayTeamName(value: String?, side: String): Boolean {
+        val normalized = value?.trim().orEmpty()
+        if (normalized.isBlank()) return true
+        val upper = normalized.uppercase()
+        val sideLabel = if (side == "B") "B" else "A"
+        return upper == "TEAM $sideLabel" ||
+            upper == "ĐỘI $sideLabel" ||
+            upper == "ĐỘI $sideLabel CHƯA RÕ" ||
+            upper == "TBD" ||
+            upper == "-"
+    }
+
     private fun mergeOverlayForRenderer(
         data: OverlayData,
         cfg: OverlayConfig?,
