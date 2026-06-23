@@ -1414,6 +1414,40 @@ function buildRecordingSiblingKey(row) {
   ].join("|");
 }
 
+const SHADOW_DISPLAY_SIBLING_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+function normalizeShadowKeyText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function buildRecordingDisplaySiblingKey(row) {
+  const teamA = normalizeShadowKeyText(row?.teamALabel);
+  const teamB = normalizeShadowKeyText(row?.teamBLabel);
+  if (!teamA || !teamB || teamA.includes("chua ro") || teamB.includes("chua ro")) {
+    return "";
+  }
+  const parts = [
+    normalizeShadowKeyText(row?.tournamentName),
+    normalizeShadowKeyText(row?.courtLabel),
+    normalizeShadowKeyText(row?.mode),
+    teamA,
+    teamB,
+  ];
+  return parts.every(Boolean) ? parts.join("|") : "";
+}
+
+function rowActivityMs(row) {
+  return Math.max(
+    row?.updatedAt ? new Date(row.updatedAt).getTime() : 0,
+    row?.createdAt ? new Date(row.createdAt).getTime() : 0
+  );
+}
+
 function recordingRowWeight(row) {
   return {
     segments: toNumber(row?.segmentSummary?.totalSegments),
@@ -1438,10 +1472,10 @@ function isTinyShadowRecordingCandidate(row) {
   );
 }
 
-function filterShadowRecordingRows(rows = []) {
+function buildStrongestRecordingMap(rows, buildKey) {
   const strongestByKey = new Map();
   for (const row of rows) {
-    const key = buildRecordingSiblingKey(row);
+    const key = buildKey(row);
     if (!key || key.startsWith("|")) continue;
     const weight = recordingRowWeight(row);
     const current = strongestByKey.get(key);
@@ -1455,18 +1489,46 @@ function filterShadowRecordingRows(rows = []) {
       strongestByKey.set(key, row);
     }
   }
+  return strongestByKey;
+}
 
+function hasStrongerShadowSibling(row, strongest) {
+  if (!strongest || strongest.recordingId === row.recordingId) return false;
+  const currentWeight = recordingRowWeight(row);
+  const strongestWeight = recordingRowWeight(strongest);
+  return (
+    strongestWeight.segments >= 2 ||
+    strongestWeight.sizeBytes > currentWeight.sizeBytes + 256 * 1024 ||
+    strongestWeight.durationSeconds > currentWeight.durationSeconds + 20
+  );
+}
+
+function isNearDisplaySibling(row, strongest) {
+  const rowMs = rowActivityMs(row);
+  const strongestMs = rowActivityMs(strongest);
+  if (!rowMs || !strongestMs) return true;
+  return Math.abs(strongestMs - rowMs) <= SHADOW_DISPLAY_SIBLING_WINDOW_MS;
+}
+
+function filterShadowRecordingRows(rows = []) {
+  const strongestByMatchKey = buildStrongestRecordingMap(
+    rows,
+    buildRecordingSiblingKey
+  );
+  const strongestByDisplayKey = buildStrongestRecordingMap(
+    rows,
+    buildRecordingDisplaySiblingKey
+  );
   return rows.filter((row) => {
     if (!isTinyShadowRecordingCandidate(row)) return true;
-    const key = buildRecordingSiblingKey(row);
-    const strongest = strongestByKey.get(key);
-    if (!strongest || strongest.recordingId === row.recordingId) return true;
-    const currentWeight = recordingRowWeight(row);
-    const strongestWeight = recordingRowWeight(strongest);
+    const matchStrongest = strongestByMatchKey.get(buildRecordingSiblingKey(row));
+    if (hasStrongerShadowSibling(row, matchStrongest)) return false;
+    const displayStrongest = strongestByDisplayKey.get(
+      buildRecordingDisplaySiblingKey(row)
+    );
     return !(
-      strongestWeight.segments >= 2 ||
-      strongestWeight.sizeBytes > currentWeight.sizeBytes + 256 * 1024 ||
-      strongestWeight.durationSeconds > currentWeight.durationSeconds + 20
+      isNearDisplaySibling(row, displayStrongest) &&
+      hasStrongerShadowSibling(row, displayStrongest)
     );
   });
 }

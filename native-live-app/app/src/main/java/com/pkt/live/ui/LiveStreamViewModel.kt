@@ -349,7 +349,7 @@ class LiveStreamViewModel(
         if (currentCourtMatchId.isNullOrBlank()) {
             val shouldPreserveActiveSession =
                 !currentKnownMatchId.isNullOrBlank() &&
-                    (hasActiveLivestreamState() || recordingEngineState.value.isRecording)
+                    (hasActiveLivestreamState() || recordingEngineIsActiveOrResuming())
             if (shouldPreserveActiveSession) {
                 return
             }
@@ -915,10 +915,12 @@ class LiveStreamViewModel(
 
     private fun primaryMode(): StreamMode? = streamMode.value
 
+    private fun recordingEngineIsActiveOrResuming(): Boolean =
+        recordingEngineState.value.let { it.isRecording || it.pendingResume }
+
     private fun currentSessionHasRecording(): Boolean =
         primaryMode()?.includesRecording == true ||
-            recordingEngineState.value.isRecording ||
-            recordingEngineState.value.pendingResume
+            recordingEngineIsActiveOrResuming()
 
     private fun currentSessionHasLivestream(): Boolean =
         primaryMode()?.includesLivestream == true || hasActiveLivestreamState()
@@ -1047,7 +1049,7 @@ class LiveStreamViewModel(
         reason: String,
         softMessage: String? = null,
     ) = recordingStartMutex.withLock {
-        if (!recordingEngineState.value.isRecording && !currentSessionHasRecording()) return
+        if (!recordingEngineIsActiveOrResuming() && !currentSessionHasRecording()) return
         streamManager.stopMatchRecording(finalize = true, reason = reason)
             .onFailure {
                 val message = it.message ?: "Không kết thúc được ghi hình."
@@ -1058,7 +1060,7 @@ class LiveStreamViewModel(
     }
 
     private suspend fun startRecordOnly() {
-        if (recordingEngineState.value.isRecording || recordingUiState.value.status == "preparing") {
+        if (recordingEngineIsActiveOrResuming() || recordingUiState.value.status == "preparing") {
             return
         }
         if (_matchTransitioning.value) {
@@ -1087,7 +1089,7 @@ class LiveStreamViewModel(
 
     private suspend fun completeStopPrimarySession() {
         val mode = primaryMode()
-        val stopRecording = mode?.includesRecording == true || recordingEngineState.value.isRecording
+        val stopRecording = mode?.includesRecording == true || recordingEngineIsActiveOrResuming()
         val stopLivestream = mode?.includesLivestream == true || hasActiveLivestreamState()
 
         if (stopRecording) {
@@ -1826,7 +1828,7 @@ class LiveStreamViewModel(
         initJob?.cancel()
         leaseHeartbeatJob?.cancel()
         leaseHeartbeatJob = null
-        val shouldCountdownStop = hasActiveLivestreamState() || recordingEngineState.value.isRecording
+        val shouldCountdownStop = hasActiveLivestreamState() || recordingEngineIsActiveOrResuming()
         if (shouldCountdownStop) {
             beginStopLiveCountdown()
             return
@@ -1967,7 +1969,7 @@ class LiveStreamViewModel(
                         _liveStartTime.value != null ||
                         streamManager.wantsToKeepStreaming()
 
-                if (recordingEngineState.value.isRecording) {
+                if (recordingEngineIsActiveOrResuming()) {
                     stopRecordingIfNeeded(
                         reason = "background_exit",
                         softMessage = "Đã dừng ghi hình khi rời màn live.",
@@ -2056,7 +2058,7 @@ class LiveStreamViewModel(
     }
 
     private fun shouldMaintainActiveLiveStopCountdown(): Boolean {
-        return hasActiveLivestreamState() || recordingEngineState.value.isRecording
+        return hasActiveLivestreamState() || recordingEngineIsActiveOrResuming()
     }
 
     private fun beginStopLiveCountdown() {
@@ -2176,7 +2178,7 @@ class LiveStreamViewModel(
             launchGuarded(name = "onRecordingStorageExhausted") {
                 val message =
                     storage.message ?: "Đã dừng ghi hình do sắp hết bộ nhớ."
-                if (recordingEngineState.value.isRecording) {
+                if (recordingEngineIsActiveOrResuming()) {
                     streamManager.stopMatchRecording(
                         finalize = true,
                         reason = "storage_exhausted",
@@ -2370,7 +2372,7 @@ class LiveStreamViewModel(
                 }
                 val liveMatchId = activeLiveMatchId ?: matchId.takeIf { it.isNotBlank() } ?: return@collect
                 val isArmed = autoGoLive || _recordOnlyArmed.value
-                if (_liveStartTime.value == null && !recordingEngineState.value.isRecording && !isArmed) return@collect
+                if (_liveStartTime.value == null && !recordingEngineIsActiveOrResuming() && !isArmed) return@collect
                 if (!isTerminalMatchStatus(normalized)) return@collect
                 if (handledTerminalStatusMatchId == liveMatchId) return@collect
                 handledTerminalStatusMatchId = liveMatchId
@@ -2380,7 +2382,7 @@ class LiveStreamViewModel(
                     showLiveIssue("Trận đã kết thúc. App đang đóng phiên hiện tại của trận này.")
                 }
                 launchGuarded(name = "stopPrimarySessionOnMatchEnd") {
-                    if (recordingEngineState.value.isRecording) {
+                    if (recordingEngineIsActiveOrResuming()) {
                         stopRecordingIfNeeded(reason = "match_finished")
                     }
                     // Must call clearActiveLiveSession BEFORE stopStream because
@@ -2602,7 +2604,7 @@ class LiveStreamViewModel(
         ) {
             try {
                 _waitingForNextMatch.value = false
-                if (recordingEngineState.value.isRecording) {
+                if (recordingEngineIsActiveOrResuming()) {
                     stopRecordingIfNeeded(reason = "switch_match")
                 }
                 val s = streamManager.state.value

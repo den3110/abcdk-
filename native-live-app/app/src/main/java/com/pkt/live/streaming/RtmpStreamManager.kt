@@ -729,7 +729,12 @@ class RtmpStreamManager(
     ): Result<Unit> = withContext(Dispatchers.Main.immediate) {
         cameraMutex.withLock {
             try {
-                if (!_recordingState.value.isRecording) return@withLock Result.success(Unit)
+                if (!_recordingState.value.isRecording) {
+                    if (_recordingState.value.pendingResume || pendingRecordingResume != null) {
+                        clearRecordingStateLocked()
+                    }
+                    return@withLock Result.success(Unit)
+                }
                 stopCurrentRecordingLocked(
                     isFinal = finalize,
                     reason = reason,
