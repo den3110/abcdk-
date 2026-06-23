@@ -14,6 +14,11 @@ const OAUTH_CODE_TTL_MS = Math.max(
   Number(process.env.OAUTH_LIVE_CODE_TTL_MS || 120_000)
 );
 const ACCESS_TOKEN_TTL = process.env.OAUTH_LIVE_ACCESS_TOKEN_TTL || "30d";
+const REFRESH_TOKEN_TTL = process.env.OAUTH_LIVE_REFRESH_TOKEN_TTL || "180d";
+const ACCESS_TOKEN_EXPIRES_IN_SECONDS = Math.max(
+  60,
+  Number(process.env.OAUTH_LIVE_ACCESS_TOKEN_EXPIRES_IN_SECONDS || 30 * 24 * 60 * 60)
+);
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -123,6 +128,89 @@ function issueLiveAccessToken(user) {
     process.env.JWT_SECRET,
     { expiresIn: ACCESS_TOKEN_TTL }
   );
+}
+
+function issueLiveRefreshToken(user, scope = "openid profile") {
+  return jwt.sign(
+    {
+      kind: "live-refresh",
+      userId: user._id,
+      role: user.role,
+      scope,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: REFRESH_TOKEN_TTL }
+  );
+}
+
+function buildTokenResponse(user, scope = "openid profile") {
+  return {
+    access_token: issueLiveAccessToken(user),
+    refresh_token: issueLiveRefreshToken(user, scope),
+    token_type: "Bearer",
+    expires_in: ACCESS_TOKEN_EXPIRES_IN_SECONDS,
+    scope,
+  };
+}
+
+async function exchangeRefreshToken(req, res) {
+  const clientId = normalizeText(req.body?.client_id || req.body?.clientId);
+  const refreshToken = normalizeText(
+    req.body?.refresh_token || req.body?.refreshToken
+  );
+
+  if (clientId !== OAUTH_LIVE_CLIENT_ID) {
+    return res.status(400).json({
+      error: "invalid_client",
+      error_description: "OAuth client is invalid.",
+    });
+  }
+
+  if (!refreshToken) {
+    return res.status(400).json({
+      error: "invalid_request",
+      error_description: "Missing refresh_token.",
+    });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+  } catch {
+    return res.status(400).json({
+      error: "invalid_grant",
+      error_description: "Refresh token is invalid or expired.",
+    });
+  }
+
+  if (decoded?.kind !== "live-refresh" || !decoded?.userId) {
+    return res.status(400).json({
+      error: "invalid_grant",
+      error_description: "Refresh token is not valid for PickleTour Live.",
+    });
+  }
+
+  const user = await User.findById(decoded.userId)
+    .select("_id name nickname email phone role avatar")
+    .lean();
+  if (!user) {
+    return res.status(400).json({
+      error: "invalid_grant",
+      error_description: "User not found.",
+    });
+  }
+
+  const bootstrap = await buildLiveAppBootstrapForUser(user);
+  if (!bootstrap.canUseLiveApp) {
+    return res.status(403).json({
+      error: "access_denied",
+      error_description:
+        bootstrap.message ||
+        "Tài khoản này không còn quyền dùng PickleTour Live.",
+    });
+  }
+
+  return res.json(buildTokenResponse(user, decoded.scope || "openid profile"));
 }
 
 /**
@@ -333,10 +421,14 @@ export const exchangeAuthorizeCode = asyncHandler(async (req, res) => {
     req.body?.code_verifier || req.body?.codeVerifier
   );
 
+  if (grantType === "refresh_token") {
+    return exchangeRefreshToken(req, res);
+  }
+
   if (grantType !== "authorization_code") {
     return res.status(400).json({
       error: "unsupported_grant_type",
-      error_description: "Only authorization_code is supported.",
+      error_description: "Only authorization_code and refresh_token are supported.",
     });
   }
 
@@ -414,11 +506,5 @@ export const exchangeAuthorizeCode = asyncHandler(async (req, res) => {
     });
   }
 
-  const accessToken = issueLiveAccessToken(user);
-  return res.json({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: 30 * 24 * 60 * 60,
-    scope: authCode.scope || "openid profile",
-  });
+  return res.json(buildTokenResponse(user, authCode.scope || "openid profile"));
 });

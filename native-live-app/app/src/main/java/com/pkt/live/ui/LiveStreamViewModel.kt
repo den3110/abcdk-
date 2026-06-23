@@ -17,6 +17,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonPrimitive
 import com.pkt.live.data.api.AuthInterceptor
+import com.pkt.live.data.auth.LiveAuthTokenRefresher
 import com.pkt.live.data.auth.TokenStore
 import com.pkt.live.data.observer.ObserverTelemetryClient
 import com.pkt.live.data.observer.ObserverTelemetryConnectionState
@@ -64,6 +65,7 @@ class LiveStreamViewModel(
     val streamManager: RtmpStreamManager,
     private val authInterceptor: AuthInterceptor,
     private val tokenStore: TokenStore,
+    private val tokenRefresher: LiveAuthTokenRefresher,
     val overlayRenderer: OverlayBitmapRenderer,
     private val networkMonitor: NetworkMonitor,
     private val appContext: Context,
@@ -2073,6 +2075,13 @@ class LiveStreamViewModel(
             }
         }
 
+        launchGuarded(name = "observeAuthTokenRefresh") {
+            tokenRefresher.tokenUpdates.collect { session ->
+                if (freshEntryRequired) return@collect
+                applyRefreshedAuthSession(session, reason = "token_update")
+            }
+        }
+
         launchGuarded(name = "observeRecordingStorageStatus") {
             recordingCoordinator.storageStatus.collect { status ->
                 streamManager.setRecordingSegmentDurationMs(status.segmentDurationSeconds * 1000L)
@@ -2673,6 +2682,29 @@ class LiveStreamViewModel(
                         Log.w(TAG, "Observer bootstrap refresh failed: ${error.message}")
                     }
             }
+    }
+
+    private fun applyRefreshedAuthSession(session: com.pkt.live.data.auth.AuthSession, reason: String) {
+        val nextToken = session.accessToken.trim()
+        if (nextToken.isBlank() || nextToken == token) return
+        token = nextToken
+        authInterceptor.token = nextToken
+        refreshObserverBootstrapForTelemetry(nextToken)
+
+        val currentMatchId = matchId.trim()
+        if (currentMatchId.isNotBlank()) {
+            repository.connectSocket(nextToken, currentMatchId)
+        } else {
+            repository.connectSocketSession(nextToken)
+        }
+        courtId.trim().takeIf { it.isNotBlank() }?.let { watchCourtStationRuntime(it) }
+
+        recordingCoordinator.retryPendingWorkNow("token_refreshed")
+        if (hasArmedStartIntent()) {
+            wakeArmedStartRecovery("token_refreshed_$reason")
+        } else if (_waitingForMatchLive.value && currentMatchId.isNotBlank()) {
+            goLive()
+        }
     }
 
     private val liveDeviceTelemetrySourceName: String

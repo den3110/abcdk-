@@ -6,6 +6,8 @@ import com.pkt.live.BuildConfig
 import com.pkt.live.data.api.AuthInterceptor
 import com.pkt.live.data.api.RetryInterceptor
 import com.pkt.live.data.api.PickleTourApi
+import com.pkt.live.data.api.RefreshTokenAuthenticator
+import com.pkt.live.data.auth.LiveAuthTokenRefresher
 import com.pkt.live.data.auth.TokenStore
 import com.pkt.live.data.observer.ObserverTelemetryClient
 import com.pkt.live.data.recording.MatchRecordingCoordinator
@@ -43,11 +45,27 @@ val appModule = module {
         TokenStore(context = androidContext())
     }
 
+    single {
+        LiveAuthTokenRefresher(
+            tokenStore = get(),
+            authInterceptor = get(),
+            gson = get(),
+        )
+    }
+
+    single {
+        RefreshTokenAuthenticator(
+            authInterceptor = get(),
+            tokenRefresher = get(),
+        )
+    }
+
     // OkHttp client
     single {
         OkHttpClient.Builder()
             .addInterceptor(get<AuthInterceptor>())
             .addInterceptor(RetryInterceptor(maxRetries = 3, initialDelayMs = 1000))
+            .authenticator(get<RefreshTokenAuthenticator>())
             .apply {
                 if (BuildConfig.DEBUG) {
                     addInterceptor(HttpLoggingInterceptor().apply {
@@ -170,6 +188,7 @@ val appModule = module {
             streamManager = get(),
             authInterceptor = get(),
             tokenStore = get(),
+            tokenRefresher = get(),
             overlayRenderer = get(),
             networkMonitor = get(),
             appContext = androidContext(),
