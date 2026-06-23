@@ -54,15 +54,6 @@ private data class ActiveRecordingSession(
     val latestStorageFailover: RecordingStorageFailoverEntry? = null,
 )
 
-private data class RecordingHeartbeatTarget(
-    val recordingId: String,
-    val recordingSessionId: String,
-    val matchId: String,
-    val isRecording: Boolean,
-    val pendingUploads: Int,
-    val segmentIndex: Int?,
-)
-
 private data class PendingRecordingSegment(
     val recordingId: String,
     val recordingSessionId: String,
@@ -666,44 +657,18 @@ class MatchRecordingCoordinator(
     }
 
     private suspend fun sendRecordingHeartbeatOnce(reason: String) {
-        val session = activeSession
-        val target =
+        val session = activeSession ?: return
+        val pendingSegments =
             manifestMutex.withLock {
-                if (session != null) {
-                    val pendingSegments =
-                        manifest.pendingSegments.filter { it.recordingId == session.recordingId }
-                    RecordingHeartbeatTarget(
-                        recordingId = session.recordingId,
-                        recordingSessionId = session.recordingSessionId,
-                        matchId = session.matchId,
-                        isRecording = _recordingUiState.value.isRecording,
-                        pendingUploads = pendingSegments.size,
-                        segmentIndex = pendingSegments.maxOfOrNull { it.segmentIndex },
-                    )
-                } else {
-                    val firstPending =
-                        manifest.pendingSegments.minWithOrNull(
-                            compareBy<PendingRecordingSegment> { it.recordingId }.thenBy { it.segmentIndex }
-                        ) ?: return@withLock null
-                    val pendingSegments =
-                        manifest.pendingSegments.filter { it.recordingId == firstPending.recordingId }
-                    RecordingHeartbeatTarget(
-                        recordingId = firstPending.recordingId,
-                        recordingSessionId = firstPending.recordingSessionId,
-                        matchId = firstPending.matchId,
-                        isRecording = false,
-                        pendingUploads = pendingSegments.size,
-                        segmentIndex = pendingSegments.maxOfOrNull { it.segmentIndex },
-                    )
-                }
-            } ?: return
+                manifest.pendingSegments.filter { it.recordingId == session.recordingId }
+            }
         repository.heartbeatRecording(
-            recordingId = target.recordingId,
-            recordingSessionId = target.recordingSessionId,
-            matchId = target.matchId,
-            isRecording = target.isRecording,
-            pendingUploads = target.pendingUploads,
-            segmentIndex = target.segmentIndex,
+            recordingId = session.recordingId,
+            recordingSessionId = session.recordingSessionId,
+            matchId = session.matchId,
+            isRecording = _recordingUiState.value.isRecording,
+            pendingUploads = pendingSegments.size,
+            segmentIndex = pendingSegments.maxOfOrNull { it.segmentIndex },
             clientStatus = _recordingUiState.value.status,
             reason = reason,
         ).onSuccess { payload ->

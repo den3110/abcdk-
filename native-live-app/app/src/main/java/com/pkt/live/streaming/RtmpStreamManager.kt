@@ -814,7 +814,18 @@ class RtmpStreamManager(
         onRecordingError?.invoke(message)
     }
 
-    private fun emitRecordingSegmentClosed(segment: RecordingSegmentClosed) {
+    private fun emitRecordingSegmentClosed(
+        segment: RecordingSegmentClosed,
+        dispatchAsync: Boolean = true,
+    ) {
+        if (!dispatchAsync) {
+            runCatching {
+                onRecordingSegmentClosed?.invoke(segment)
+            }.onFailure {
+                Log.e(TAG, "emitRecordingSegmentClosed failed", it)
+            }
+            return
+        }
         scope.launch(Dispatchers.IO) {
             runCatching {
                 onRecordingSegmentClosed?.invoke(segment)
@@ -842,13 +853,17 @@ class RtmpStreamManager(
             )
     }
 
-    private fun finalizeRecordingForTeardownLocked(reason: String) {
+    private fun finalizeRecordingForTeardownLocked(
+        reason: String,
+        dispatchSegmentAsync: Boolean = true,
+    ) {
         when {
             _recordingState.value.isRecording -> {
                 stopCurrentRecordingLocked(
                     isFinal = true,
                     reason = reason,
                     resumeAfter = false,
+                    dispatchSegmentAsync = dispatchSegmentAsync,
                 )
             }
             pendingRecordingResume != null -> {
@@ -919,6 +934,7 @@ class RtmpStreamManager(
         isFinal: Boolean,
         reason: String,
         resumeAfter: Boolean,
+        dispatchSegmentAsync: Boolean = true,
     ) {
         if (!_recordingState.value.isRecording) return
         val cam = rtmpCamera ?: run {
@@ -954,7 +970,8 @@ class RtmpStreamManager(
                     sizeBytes = file.takeIf { it.exists() }?.length() ?: 0L,
                     isFinal = isFinal,
                     boundaryReason = reason,
-                )
+                ),
+                dispatchAsync = dispatchSegmentAsync,
             )
         }
 
@@ -2490,6 +2507,10 @@ class RtmpStreamManager(
         releaseWakeLock()
         if (cameraMutex.tryLock()) {
             try {
+                finalizeRecordingForTeardownLocked(
+                    reason = "release",
+                    dispatchSegmentAsync = false,
+                )
                 resetOverlayFiltersLocked(clearGlFilters = true)
             } finally {
                 cameraMutex.unlock()
