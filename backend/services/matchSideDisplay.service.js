@@ -59,7 +59,7 @@ const MATCH_SIDE_DISPLAY_SELECT = [
 const PAIR_POPULATE = (path) => ({
   path,
   select:
-    "player1 player2 players seed label teamName teamFactionName displayName displayNameMode name title",
+    "player1 player2 seed label teamName teamFactionName displayName displayNameMode name title",
   populate: [
     {
       path: "player1",
@@ -71,14 +71,6 @@ const PAIR_POPULATE = (path) => ({
     },
     {
       path: "player2",
-      select: "fullName name shortName nickname nickName nick user displayName displayNameMode",
-      populate: {
-        path: "user",
-        select: "name fullName nickname nickName nick",
-      },
-    },
-    {
-      path: "players",
       select: "fullName name shortName nickname nickName nick user displayName displayNameMode",
       populate: {
         path: "user",
