@@ -1012,8 +1012,13 @@ function buildStationSummary(station, options = {}) {
     : [];
   const rawStatus = safeText(station.status, "idle");
   const normalizedStatus = rawStatus.toLowerCase();
+  const currentMatchStatus = safeText(
+    preferredMatches.currentMatch?.status,
+  ).toLowerCase();
   const derivedStatus = preferredMatches.currentMatch
-    ? "live"
+    ? currentMatchStatus === "live"
+      ? "live"
+      : "assigned"
     : queueItems.length && ["", "idle", "assigned", "live"].includes(normalizedStatus)
       ? "assigned"
       : rawStatus;

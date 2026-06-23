@@ -93,6 +93,8 @@ const stationStatusLabel = (status) => {
   switch (String(status || "").toLowerCase()) {
     case "idle":
       return "Sẵn sàng";
+    case "assigned":
+      return "Đã gán sân";
     case "live":
       return "Đang live";
     case "maintenance":
@@ -111,6 +113,12 @@ const stationStatusChipProps = (status) => {
   switch (String(status || "").toLowerCase()) {
     case "idle":
       return { color: "success", variant: "filled", sx: { fontWeight: 700 } };
+    case "assigned":
+      return {
+        color: "warning",
+        variant: "filled",
+        sx: { bgcolor: "#fbc02d", color: "#111", fontWeight: 700 },
+      };
     case "live":
       return {
         color: "warning",
@@ -128,6 +136,15 @@ const assignmentModeChipProps = (mode) =>
   String(mode || "").toLowerCase() === "queue"
     ? { color: "info", variant: "outlined", sx: { fontWeight: 700 } }
     : { color: "primary", variant: "outlined", sx: { fontWeight: 700 } };
+
+const stationDisplayStatus = (station) => {
+  const currentMatchStatus = String(
+    station?.currentMatch?.status || "",
+  ).toLowerCase();
+  if (currentMatchStatus === "live") return "live";
+  if (station?.currentMatch) return "assigned";
+  return station?.status;
+};
 
 export default function AssignCourtStationDialog({
   open,
@@ -770,6 +787,7 @@ export default function AssignCourtStationDialog({
                       assignmentMode === "manual" &&
                       stationCurrentMatchId &&
                       stationCurrentMatchId !== matchId;
+                    const displayStatus = stationDisplayStatus(station);
                     const occupiedTournamentId = sid(
                       station?.currentMatch?.tournament?._id ||
                         station?.currentTournament?._id ||
@@ -866,11 +884,11 @@ export default function AssignCourtStationDialog({
                               flexWrap="wrap"
                               useFlexGap
                             >
-                              {stationStatusLabel(station?.status) ? (
+                              {stationStatusLabel(displayStatus) ? (
                                 <Chip
                                   size="small"
-                                  {...stationStatusChipProps(station?.status)}
-                                  label={stationStatusLabel(station?.status)}
+                                  {...stationStatusChipProps(displayStatus)}
+                                  label={stationStatusLabel(displayStatus)}
                                 />
                               ) : null}
                               <Chip
@@ -915,7 +933,7 @@ export default function AssignCourtStationDialog({
                             </Box>
                           ) : (
                             <Typography variant="body2" color="text.secondary">
-                              Chưa có trận nào đang live trên sân.
+                              Chưa có trận nào đang gán trên sân.
                             </Typography>
                           )}
 
