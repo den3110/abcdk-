@@ -23,6 +23,25 @@ function asTrimmed(value) {
   return String(value || "").trim();
 }
 
+const INTERACTIVE_IFRAME_KINDS = new Set([
+  "facebook",
+  "iframe",
+  "iframe_html",
+  "twitch",
+  "vimeo",
+  "yt",
+  "youtube",
+]);
+
+function isInteractiveIframeSource(source) {
+  const kind = asTrimmed(source?.kind).toLowerCase();
+  const provider = asTrimmed(source?.provider).toLowerCase();
+  return (
+    INTERACTIVE_IFRAME_KINDS.has(kind) ||
+    INTERACTIVE_IFRAME_KINDS.has(provider)
+  );
+}
+
 function isNativeKind(kind, key = "") {
   if (asTrimmed(key).toLowerCase() === "server2") return true;
   return ["file", "hls", "delayed_manifest"].includes(
@@ -182,6 +201,7 @@ export default function FeedStylePlayerDialog({
     item?.useNativeControls || resolvedSource?.meta?.useNativeControls,
   );
   const usesVidstack = supportsVidstackSource(resolvedSource);
+  const usesInteractiveIframe = isInteractiveIframeSource(resolvedSource);
   const hasNativeMute = Boolean(
     resolvedSource &&
       isNativeKind(resolvedSource.kind, resolvedSource.key || activeStreamKey),
@@ -304,7 +324,9 @@ export default function FeedStylePlayerDialog({
             inset: 0,
             zIndex: 2,
             pointerEvents:
-              usesVidstack || useNativeControls ? "none" : "auto",
+              usesVidstack || useNativeControls || usesInteractiveIframe
+                ? "none"
+                : "auto",
           }}
         />
 
