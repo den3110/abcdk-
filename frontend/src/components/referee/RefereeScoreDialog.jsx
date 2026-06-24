@@ -18,6 +18,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Skeleton,
   Snackbar,
   Stack,
   TextField,
@@ -433,6 +434,13 @@ const normalizeSlotsBaseForPlayers = (players, rawTeamBase = {}) => {
   return teamBase;
 };
 
+const hasCompleteSlotsBaseForPlayers = (players, rawTeamBase = {}) => {
+  const list = (Array.isArray(players) ? players : []).filter(Boolean).slice(0, 2);
+  if (list.length < 2) return true;
+  const slots = list.map((player) => resolveBaseSlotForPlayer(player, rawTeamBase));
+  return slots.every((slot) => slot === 1 || slot === 2) && new Set(slots).size === slots.length;
+};
+
 const playerMatchesId = (player, value) => {
   const target = textOf(value);
   if (!target) return false;
@@ -663,6 +671,7 @@ const TeamPanel = memo(function TeamPanel({
   align = "left",
   swapDisabled = false,
   loading = false,
+  loadingRows = 2,
 }) {
   const alignedText = align === "right" ? "right" : "left";
   const fallbackPlayerLabels = fallbackPlayerLabelsFromTeamLabel(teamLabel);
@@ -737,32 +746,19 @@ const TeamPanel = memo(function TeamPanel({
 
       <Stack spacing={1}>
         {loading ? (
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={1}
-            sx={{
-              px: 1.25,
-              py: 0.9,
-              borderRadius: 999,
-              border: "1px solid",
-              borderColor,
-              bgcolor: surfaceStrongBg,
-              minHeight: 40,
-            }}
-          >
-            <CircularProgress size={16} thickness={5} sx={{ color: accentColor }} />
-            <Typography
+          Array.from({ length: Math.max(1, Number(loadingRows) || 2) }).map((_, index) => (
+            <Skeleton
+              key={`player-order-skeleton-${index}`}
+              variant="rounded"
               sx={{
-                fontSize: 14,
-                fontWeight: 700,
-                color: muted,
-                lineHeight: 1.2,
+                height: 40,
+                borderRadius: 999,
+                bgcolor: alpha(muted, 0.14),
+                border: "1px solid",
+                borderColor,
               }}
-            >
-              Đang đồng bộ đội...
-            </Typography>
-          </Stack>
+            />
+          ))
         ) : players.length ? (
           players.map((player) => {
             const uid = userIdOf(player);
@@ -1031,10 +1027,11 @@ export default function RefereeScoreDialog({
   const localBaseRef = useRef(null);
   const localLayoutRef = useRef(null);
   const localServeRef = useRef(null);
-  const serverBase = useMemo(
-    () => match?.slots?.base || match?.meta?.slots?.base || { A: {}, B: {} },
+  const serverBaseSource = useMemo(
+    () => match?.slots?.base || match?.meta?.slots?.base || null,
     [match?.meta?.slots?.base, match?.slots?.base],
   );
+  const serverBase = useMemo(() => serverBaseSource || { A: {}, B: {} }, [serverBaseSource]);
   const rawBase = localBaseOverride || localBaseRef.current || serverBase;
   const serveState = useMemo(
     () => localServeOverride || localServeRef.current || match?.serve || {},
@@ -1090,12 +1087,12 @@ export default function RefereeScoreDialog({
   const showSeedLabelLoading =
     hasSeedLabelFlash && (holdingSeedLabels || liveMatchLoading);
   const loadingTeamLabel = "Đang nạp đội thi đấu...";
-  const leftPanelLoading = showSeedLabelLoading && leftSeedLabelPending;
-  const rightPanelLoading = showSeedLabelLoading && rightSeedLabelPending;
-  const leftPanelTeamLabel = leftPanelLoading
+  const leftTeamLabelLoading = showSeedLabelLoading && leftSeedLabelPending;
+  const rightTeamLabelLoading = showSeedLabelLoading && rightSeedLabelPending;
+  const leftPanelTeamLabel = leftTeamLabelLoading
     ? loadingTeamLabel
     : leftTeamDisplayLabel;
-  const rightPanelTeamLabel = rightPanelLoading
+  const rightPanelTeamLabel = rightTeamLabelLoading
     ? loadingTeamLabel
     : rightTeamDisplayLabel;
   const playersA = useMemo(() => playersOf(sidePairOf(match, "A"), eventType), [eventType, match]);
@@ -1302,6 +1299,25 @@ export default function RefereeScoreDialog({
     message: "",
     severity: "info",
   });
+  const playerOrderBaseSource = localBaseOverride || localBaseRef.current || serverBaseSource || {};
+  const playerOrderHydrating =
+    open && isDouble && (liveMatchLoading || liveSyncBusy || busy === "start");
+  const leftPlayerOrderLoading =
+    playerOrderHydrating &&
+    !hasCompleteSlotsBaseForPlayers(
+      pairPlayers[leftSide] || [],
+      playerOrderBaseSource?.[leftSide] || {},
+    );
+  const rightPlayerOrderLoading =
+    playerOrderHydrating &&
+    !hasCompleteSlotsBaseForPlayers(
+      pairPlayers[rightSide] || [],
+      playerOrderBaseSource?.[rightSide] || {},
+    );
+  const leftPanelLoading = leftTeamLabelLoading || leftPlayerOrderLoading;
+  const rightPanelLoading = rightTeamLabelLoading || rightPlayerOrderLoading;
+  const leftPanelLoadingRows = Math.max(1, Math.min(2, (pairPlayers[leftSide] || []).length || 2));
+  const rightPanelLoadingRows = Math.max(1, Math.min(2, (pairPlayers[rightSide] || []).length || 2));
 
   const currentCourtStationId = idOf(
     match?.courtStationId || match?.courtStation?._id || match?.courtStation,
@@ -2839,6 +2855,7 @@ export default function RefereeScoreDialog({
                 onSwapSlots={handleSwapLeftSlots}
                 swapDisabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
                 loading={leftPanelLoading}
+                loadingRows={leftPanelLoadingRows}
                 displayMode={playerDisplayMode}
                 muted={ui.muted}
                 borderColor={ui.softBorder}
@@ -3097,6 +3114,7 @@ export default function RefereeScoreDialog({
                 onSwapSlots={handleSwapRightSlots}
                 swapDisabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
                 loading={rightPanelLoading}
+                loadingRows={rightPanelLoadingRows}
                 displayMode={playerDisplayMode}
                 muted={ui.muted}
                 borderColor={ui.softBorder}
