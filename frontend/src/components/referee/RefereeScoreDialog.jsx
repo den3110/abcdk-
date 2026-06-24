@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -25,7 +25,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, createTheme, ThemeProvider } from "@mui/material/styles";
 import {
   Add as AddIcon,
   Cached as CachedIcon,
@@ -62,11 +62,12 @@ import {
   getPlayerDisplayName,
   mergeMatchPayload,
   normalizeMatchDisplay,
+  resolveDisplayMode,
 } from "../../utils/matchDisplay";
 
 const OPENING_DOUBLES_SERVER = 2;
 const SCORE_TAP_GUARD_MS = 120;
-const SCORE_RENDER_GUARD_MS = 1500;
+const SCORE_RENDER_GUARD_MS = 2500;
 const SERVER_UID_PIN_MS = 800;
 const SEED_PLACEHOLDER_GRACE_MS = 260;
 const SEED_REFERENCE_TYPES = new Set([
@@ -336,6 +337,22 @@ const preStartRightSlotForSide = (side, layout) =>
 
 const oppositeSlot = (slot) => (Number(slot) === 1 ? 2 : 1);
 
+const sameSlotBase = (left = {}, right = {}) => {
+  const leftKeys = Object.keys(left || {});
+  const rightKeys = Object.keys(right || {});
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => Number(left?.[key]) === Number(right?.[key]));
+};
+
+const sameSlotsBase = (left = {}, right = {}) =>
+  sameSlotBase(left?.A, right?.A) && sameSlotBase(left?.B, right?.B);
+
+const sameLayout = (left = {}, right = {}) => {
+  const leftLayout = normalizeLayout(left);
+  const rightLayout = normalizeLayout(right);
+  return leftLayout.left === rightLayout.left && leftLayout.right === rightLayout.right;
+};
+
 const breakTypeFromNote = (note) => {
   const prefix = textOf(note).split(":")[0].trim().toLowerCase();
   return prefix === "medical" || prefix === "timeout" ? prefix : "";
@@ -487,7 +504,7 @@ const stableButtonIconSx = {
   },
 };
 
-function BreakCountdown({ endTime, color = "#ef4444" }) {
+const BreakCountdown = memo(function BreakCountdown({ endTime, color = "#ef4444" }) {
   const [text, setText] = useState("00:00");
 
   useEffect(() => {
@@ -526,9 +543,9 @@ function BreakCountdown({ endTime, color = "#ef4444" }) {
       {text}
     </Typography>
   );
-}
+});
 
-function LiveClock({ color = "inherit" }) {
+const LiveClock = memo(function LiveClock({ color = "inherit" }) {
   const [text, setText] = useState(() =>
     new Date().toLocaleTimeString("vi-VN", { hour12: false }),
   );
@@ -554,9 +571,9 @@ function LiveClock({ color = "inherit" }) {
       {text}
     </Typography>
   );
-}
+});
 
-function PlayerRow({
+const PlayerRow = memo(function PlayerRow({
   label,
   isServer,
   muted,
@@ -605,9 +622,9 @@ function PlayerRow({
       </Stack>
     </Stack>
   );
-}
+});
 
-function TeamPanel({
+const TeamPanel = memo(function TeamPanel({
   title,
   teamLabel,
   players,
@@ -615,7 +632,7 @@ function TeamPanel({
   isActiveSide,
   serverUid,
   onSwapSlots,
-  match,
+  displayMode,
   muted,
   borderColor,
   accentColor,
@@ -730,8 +747,8 @@ function TeamPanel({
             const uid = userIdOf(player);
             return (
               <PlayerRow
-                key={uid || playerLabel(player, match)}
-                label={playerLabel(player, match)}
+                key={uid || playerLabel(player, displayMode)}
+                label={playerLabel(player, displayMode)}
                 isServer={playerMatchesId(player, serverUid)}
                 muted={muted}
                 borderColor={borderColor}
@@ -769,9 +786,9 @@ function TeamPanel({
       </Stack>
     </Box>
   );
-}
+});
 
-function PaperLine({ label, value, ui }) {
+const PaperLine = memo(function PaperLine({ label, value, ui }) {
   return (
     <Box
       sx={{
@@ -791,7 +808,7 @@ function PaperLine({ label, value, ui }) {
       </Typography>
     </Box>
   );
-}
+});
 
 export default function RefereeScoreDialog({
   open,
@@ -802,6 +819,20 @@ export default function RefereeScoreDialog({
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("md"));
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const fastInteractionTheme = useMemo(
+    () =>
+      createTheme(theme, {
+        components: {
+          MuiButtonBase: {
+            defaultProps: {
+              disableRipple: true,
+              disableTouchRipple: true,
+            },
+          },
+        },
+      }),
+    [theme],
+  );
   const { userInfo } = useSelector((state) => state.auth || {});
   const socket = useSocket();
   const token = userInfo?.token || "";
@@ -827,6 +858,23 @@ export default function RefereeScoreDialog({
   }, [data, initialMatch]);
   const normalizedMatchId = idOf(match?._id || match?.id || matchId);
   const normalizedTournamentId = idOf(match?.tournament?._id || match?.tournament);
+  const playerDisplayMode = useMemo(
+    () =>
+      resolveDisplayMode({
+        displayNameMode: match?.displayNameMode,
+        nameDisplayMode: match?.nameDisplayMode,
+        tournament: {
+          displayNameMode: match?.tournament?.displayNameMode,
+          nameDisplayMode: match?.tournament?.nameDisplayMode,
+        },
+      }),
+    [
+      match?.displayNameMode,
+      match?.nameDisplayMode,
+      match?.tournament?.displayNameMode,
+      match?.tournament?.nameDisplayMode,
+    ],
+  );
 
   const ui = useMemo(
     () => ({
@@ -950,16 +998,26 @@ export default function RefereeScoreDialog({
     () => normalizeBreakState(match?.isBreak || match?.break || match?.pause),
     [match?.break, match?.isBreak, match?.pause],
   );
-  const rawBase = useMemo(
+  const [localBaseOverride, setLocalBaseOverride] = useState(null);
+  const [localLayoutOverride, setLocalLayoutOverride] = useState(null);
+  const [localServeOverride, setLocalServeOverride] = useState(null);
+  const serverBase = useMemo(
     () => match?.slots?.base || match?.meta?.slots?.base || { A: {}, B: {} },
     [match?.meta?.slots?.base, match?.slots?.base],
   );
-  const currentLayout = useMemo(
+  const rawBase = localBaseOverride || serverBase;
+  const serveState = useMemo(
+    () => localServeOverride || match?.serve || {},
+    [localServeOverride, match?.serve],
+  );
+  const serverLayout = useMemo(
     () => normalizeLayout(match?.meta?.refereeLayout),
     [match?.meta?.refereeLayout],
   );
-  const activeSide = match?.serve?.side === "B" ? "B" : "A";
-  const rawServerNum = Number(match?.serve?.server ?? 1) === 2 ? 2 : 1;
+  const currentLayout = localLayoutOverride || serverLayout;
+  const activeSide = serveState?.side === "B" ? "B" : "A";
+  const rawServerNum =
+    Number(serveState?.order ?? serveState?.server ?? 1) === 2 ? 2 : 1;
   const leftSide = currentLayout.left;
   const rightSide = currentLayout.right;
   const isDouble = eventType !== "single";
@@ -1036,6 +1094,68 @@ export default function RefereeScoreDialog({
     [currentBase, currentScore, leftSide, pairPlayers, rightSide],
   );
 
+  useEffect(() => {
+    if (!localBaseOverride) return;
+    if (sameSlotsBase(localBaseOverride, serverBase)) {
+      setLocalBaseOverride(null);
+    }
+  }, [localBaseOverride, serverBase]);
+
+  useEffect(() => {
+    if (!localBaseOverride) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setLocalBaseOverride(null);
+    }, SCORE_RENDER_GUARD_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [localBaseOverride]);
+
+  useEffect(() => {
+    if (!localLayoutOverride) return;
+    if (sameLayout(localLayoutOverride, serverLayout)) {
+      setLocalLayoutOverride(null);
+    }
+  }, [localLayoutOverride, serverLayout]);
+
+  useEffect(() => {
+    if (!localLayoutOverride) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setLocalLayoutOverride(null);
+    }, SCORE_RENDER_GUARD_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [localLayoutOverride]);
+
+  useEffect(() => {
+    if (!localServeOverride) return;
+    const serverSide = match?.serve?.side === "B" ? "B" : "A";
+    const serverNum =
+      Number(match?.serve?.order ?? match?.serve?.server ?? 1) === 2 ? 2 : 1;
+    const serverId = textOf(match?.serve?.serverId);
+    const serverOpening = Boolean(match?.serve?.opening);
+    if (
+      serverSide === localServeOverride.side &&
+      serverNum === localServeOverride.server &&
+      serverId === textOf(localServeOverride.serverId) &&
+      serverOpening === Boolean(localServeOverride.opening)
+    ) {
+      setLocalServeOverride(null);
+    }
+  }, [
+    localServeOverride,
+    match?.serve?.opening,
+    match?.serve?.order,
+    match?.serve?.server,
+    match?.serve?.serverId,
+    match?.serve?.side,
+  ]);
+
+  useEffect(() => {
+    if (!localServeOverride) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setLocalServeOverride(null);
+    }, SCORE_RENDER_GUARD_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [localServeOverride]);
+
   const wins = useMemo(() => {
     return gameScores.reduce(
       (acc, score) => {
@@ -1075,7 +1195,7 @@ export default function RefereeScoreDialog({
     ((match?.status !== "live" && match?.status !== "finished") || waitingNextGameStart);
   const activeServerNum =
     needsStartAction && isDouble ? OPENING_DOUBLES_SERVER : rawServerNum;
-  const isOpeningServe = isDouble && Boolean(match?.serve?.opening);
+  const isOpeningServe = isDouble && Boolean(serveState?.opening);
   const isPreStartOrOpening =
     needsStartAction ||
     (Number(currentScore.a) === 0 && Number(currentScore.b) === 0 && isOpeningServe);
@@ -1272,6 +1392,9 @@ export default function RefereeScoreDialog({
   }, [courtDialogOpen, courts, selectedCourtId]);
 
   useEffect(() => {
+    setLocalBaseOverride(null);
+    setLocalLayoutOverride(null);
+    setLocalServeOverride(null);
     lastServerUidRef.current = "";
     openingServerRef.current = { gameIndex: -1, side: "", uid: "" };
     openingServeInitRef.current = {};
@@ -1329,7 +1452,7 @@ export default function RefereeScoreDialog({
       openingServerRef.current.side === activeSide
         ? openingServerRef.current.uid
         : "";
-    const rawServerUid = textOf(match?.serve?.serverId);
+    const rawServerUid = textOf(serveState?.serverId);
     const forcedUid =
       forcedServerRef.current.uid &&
       Date.now() < Number(forcedServerRef.current.until || 0) &&
@@ -1390,7 +1513,7 @@ export default function RefereeScoreDialog({
     isOpeningServe,
     isDouble,
     isPreStartOrOpening,
-    match?.serve?.serverId,
+    serveState?.serverId,
     openingRightServerUid,
   ]);
 
@@ -1437,12 +1560,14 @@ export default function RefereeScoreDialog({
     };
 
     if (!isInteractionLocked) {
-      api.setServe({
+      const nextServe = {
         side: activeSide,
         server: OPENING_DOUBLES_SERVER,
         serverId: openingRightServerUid,
         opening: true,
-      });
+      };
+      setLocalServeOverride(nextServe);
+      api.setServe(nextServe);
     }
   }, [
     activeSide,
@@ -1578,13 +1703,17 @@ export default function RefereeScoreDialog({
   const runBusy = useCallback(
     async (key, task) => {
       setActionError("");
-      setBusy(key);
+      startTransition(() => {
+        setBusy(key);
+      });
       try {
         await task();
       } catch (nextError) {
         handleError(nextError);
       } finally {
-        setBusy("");
+        startTransition(() => {
+          setBusy("");
+        });
       }
     },
     [handleError],
@@ -1604,6 +1733,21 @@ export default function RefereeScoreDialog({
       await runBusy(key, task);
     },
     [ensureLiveControlsAllowed, runBusy],
+  );
+
+  const runLiveControlFast = useCallback(
+    async (task) => {
+      if (!ensureLiveControlsAllowed()) return false;
+      setActionError("");
+      try {
+        await task();
+        return true;
+      } catch (nextError) {
+        handleError(nextError);
+        return false;
+      }
+    },
+    [ensureLiveControlsAllowed, handleError],
   );
 
   const loadCourts = useCallback(async () => {
@@ -1638,7 +1782,7 @@ export default function RefereeScoreDialog({
     };
     const nextLayout =
       currentLayout.left === "B" ? { left: "A", right: "B" } : { left: "B", right: "A" };
-    let nextServe = match?.serve || null;
+    let nextServe = serveState || null;
     if (isPreStartOrOpening) {
       const targetSlot = preStartRightSlotForSide(activeSide, nextLayout);
       const serverId =
@@ -1652,13 +1796,16 @@ export default function RefereeScoreDialog({
         opening: isDouble,
       };
     }
-    await runLiveControlBusy("swap-sides", () =>
-      api.setSlotsBase({
+    await runLiveControlBusy("swap-sides", () => {
+      setLocalBaseOverride(nextBase);
+      setLocalLayoutOverride(nextLayout);
+      if (nextServe) setLocalServeOverride(nextServe);
+      return api.setSlotsBase({
         base: nextBase,
         layout: nextLayout,
         serve: nextServe,
-      }),
-    );
+      });
+    });
   }, [
     activeSide,
     api,
@@ -1670,6 +1817,7 @@ export default function RefereeScoreDialog({
     isPreStartOrOpening,
     match,
     runLiveControlBusy,
+    serveState,
   ]);
 
   const flipTeamSlots = useCallback(
@@ -1678,7 +1826,7 @@ export default function RefereeScoreDialog({
         ...currentBase,
         [side]: flipSlotNumbers(currentBase?.[side] || {}),
       };
-      let nextServe = match?.serve || null;
+      let nextServe = serveState || null;
       if (isPreStartOrOpening && side === activeSide) {
         const targetSlot = preStartRightSlotForSide(side, currentLayout);
         const serverId =
@@ -1692,13 +1840,15 @@ export default function RefereeScoreDialog({
           opening: isDouble,
         };
       }
-      await runLiveControlBusy(`swap-${side}`, () =>
-        api.setSlotsBase({
+      await runLiveControlBusy(`swap-${side}`, () => {
+        setLocalBaseOverride(nextBase);
+        if (nextServe) setLocalServeOverride(nextServe);
+        return api.setSlotsBase({
           base: nextBase,
           layout: currentLayout,
           serve: nextServe,
-        }),
-      );
+        });
+      });
     },
     [
       activeSide,
@@ -1711,7 +1861,16 @@ export default function RefereeScoreDialog({
       isPreStartOrOpening,
       match,
       runLiveControlBusy,
+      serveState,
     ],
+  );
+  const handleSwapLeftSlots = useCallback(
+    () => flipTeamSlots(leftSide),
+    [flipTeamSlots, leftSide],
+  );
+  const handleSwapRightSlots = useCallback(
+    () => flipTeamSlots(rightSide),
+    [flipTeamSlots, rightSide],
   );
 
   const toggleServerNum = useCallback(async () => {
@@ -1732,29 +1891,42 @@ export default function RefereeScoreDialog({
       serverId =
         teamPlayers
           .map((player) => userIdOf(player))
-          .find((uid) => uid && uid !== textOf(match?.serve?.serverId)) || "";
+          .find((uid) => uid && uid !== textOf(serveState?.serverId)) || "";
     }
-    await runLiveControlBusy("toggle-server-num", () =>
-      api.setServe({
-        side: activeSide,
-        server: nextServer,
-        serverId: serverId || null,
-        opening: preStartOpening,
-      }),
-    );
+    const nextServe = {
+      side: activeSide,
+      server: nextServer,
+      serverId: serverId || null,
+      opening: preStartOpening,
+    };
+    await runLiveControlBusy("toggle-server-num", () => {
+      if (serverId) {
+        lastServerUidRef.current = serverId;
+        forcedServerRef.current = {
+          uid: serverId,
+          until: Date.now() + SERVER_UID_PIN_MS,
+          gameIndex: currentGame,
+          side: activeSide,
+          serverNum: nextServer,
+        };
+      }
+      setLocalServeOverride(nextServe);
+      return api.setServe(nextServe);
+    });
   }, [
     activeServerNum,
     activeSide,
     api,
+    currentGame,
     currentLayout,
     findUidAtCurrentSlot,
     isDouble,
     isOpeningServeLocked,
     isPreStartOrOpening,
     match?._id,
-    match?.serve?.serverId,
     pairPlayers,
     runLiveControlBusy,
+    serveState?.serverId,
   ]);
 
   const toggleServeSide = useCallback(async () => {
@@ -1768,17 +1940,30 @@ export default function RefereeScoreDialog({
     if (!serverId) {
       serverId = firstPlayerIdOfSide(match, nextSide, eventType);
     }
-    await runLiveControlBusy("toggle-serve-side", () =>
-      api.setServe({
-        side: nextSide,
-        server: opening ? OPENING_DOUBLES_SERVER : 1,
-        serverId: serverId || null,
-        opening,
-      }),
-    );
+    const nextServe = {
+      side: nextSide,
+      server: opening ? OPENING_DOUBLES_SERVER : 1,
+      serverId: serverId || null,
+      opening,
+    };
+    await runLiveControlBusy("toggle-serve-side", () => {
+      if (serverId) {
+        lastServerUidRef.current = serverId;
+        forcedServerRef.current = {
+          uid: serverId,
+          until: Date.now() + SERVER_UID_PIN_MS,
+          gameIndex: currentGame,
+          side: nextSide,
+          serverNum: nextServe.server,
+        };
+      }
+      setLocalServeOverride(nextServe);
+      return api.setServe(nextServe);
+    });
   }, [
     activeSide,
     api,
+    currentGame,
     currentLayout,
     eventType,
     findUidAtCurrentSlot,
@@ -1814,18 +1999,21 @@ export default function RefereeScoreDialog({
 
   const applyDrawResult = useCallback(async (result) => {
     if (!result) return;
-    await runProtectedBusy("draw", () =>
-      api.setSlotsBase({
+    const nextServe = {
+      side: result.nextSide,
+      server: isDouble ? OPENING_DOUBLES_SERVER : 1,
+      serverId: result.serverId,
+      opening: isDouble,
+    };
+    await runProtectedBusy("draw", () => {
+      setLocalLayoutOverride(result.nextLayout);
+      setLocalServeOverride(nextServe);
+      return api.setSlotsBase({
         base: currentBase,
         layout: result.nextLayout,
-        serve: {
-          side: result.nextSide,
-          server: isDouble ? OPENING_DOUBLES_SERVER : 1,
-          serverId: result.serverId,
-          opening: isDouble,
-        },
-      }),
-    );
+        serve: nextServe,
+      });
+    });
   }, [
     api,
     currentBase,
@@ -1868,6 +2056,22 @@ export default function RefereeScoreDialog({
       );
     },
     [api, currentGame, ensureInteractionAllowed, match?.timeoutMinutes, runProtectedBusy],
+  );
+  const handleTimeoutLeft = useCallback(
+    () => handleBreak("timeout", leftSide),
+    [handleBreak, leftSide],
+  );
+  const handleMedicalLeft = useCallback(
+    () => handleBreak("medical", leftSide),
+    [handleBreak, leftSide],
+  );
+  const handleTimeoutRight = useCallback(
+    () => handleBreak("timeout", rightSide),
+    [handleBreak, rightSide],
+  );
+  const handleMedicalRight = useCallback(
+    () => handleBreak("medical", rightSide),
+    [handleBreak, rightSide],
   );
 
   const handleContinue = useCallback(async () => {
@@ -1959,18 +2163,20 @@ export default function RefereeScoreDialog({
           firstPlayerIdOfSide(match, activeSide, eventType) ||
           "";
         if (serverId && textOf(match?.serve?.serverId) !== serverId) {
+          const nextServe = {
+            side: activeSide,
+            server: OPENING_DOUBLES_SERVER,
+            serverId,
+            opening: true,
+          };
           lastServerUidRef.current = serverId;
           openingServerRef.current = {
             gameIndex: currentGame,
             side: activeSide,
             uid: serverId,
           };
-          await api.setServe({
-            side: activeSide,
-            server: OPENING_DOUBLES_SERVER,
-            serverId,
-            opening: true,
-          });
+          setLocalServeOverride(nextServe);
+          await api.setServe(nextServe);
         }
       }
       await api.start();
@@ -2016,7 +2222,7 @@ export default function RefereeScoreDialog({
       if (side !== activeSide) return;
       if (!canScoreByMatchState || currentGameFinished || matchDecided) return;
       if (isInteractionLocked) {
-        await runLiveControlBusy(key, async () => {});
+        await runLiveControlFast(async () => {});
         return;
       }
 
@@ -2056,7 +2262,7 @@ export default function RefereeScoreDialog({
         until: now + SCORE_RENDER_GUARD_MS,
       };
 
-      await runLiveControlBusy(key, () =>
+      await runLiveControlFast(() =>
         api[side === "A" ? "pointA" : "pointB"](1),
       );
 
@@ -2075,9 +2281,17 @@ export default function RefereeScoreDialog({
       currentScore.b,
       isInteractionLocked,
       matchDecided,
-      runLiveControlBusy,
+      runLiveControlFast,
       serverUidShow,
     ],
+  );
+  const handlePointLeft = useCallback(
+    () => handlePoint("point-left", leftSide),
+    [handlePoint, leftSide],
+  );
+  const handlePointRight = useCallback(
+    () => handlePoint("point-right", rightSide),
+    [handlePoint, rightSide],
   );
 
   const cta = useMemo(() => {
@@ -2137,7 +2351,8 @@ export default function RefereeScoreDialog({
   const leftEnabled = scoreControlsEnabled && activeSide === leftSide;
   const rightEnabled = scoreControlsEnabled && activeSide === rightSide;
   return (
-    <>
+    <ThemeProvider theme={fastInteractionTheme}>
+      <>
       <Dialog
         open={open}
         onClose={onClose}
@@ -2441,10 +2656,10 @@ export default function RefereeScoreDialog({
                 isServing={activeSide === leftSide}
                 isActiveSide={activeSide === leftSide}
                 serverUid={serverUidShow}
-                onSwapSlots={() => flipTeamSlots(leftSide)}
+                onSwapSlots={handleSwapLeftSlots}
                 swapDisabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
                 loading={leftPanelLoading}
-                match={match}
+                displayMode={playerDisplayMode}
                 muted={ui.muted}
                 borderColor={ui.softBorder}
                 accentColor={ui.accent}
@@ -2529,7 +2744,7 @@ export default function RefereeScoreDialog({
                         size="small"
                         variant="outlined"
                         startIcon={<PauseCircleOutlineIcon />}
-                        onClick={() => handleBreak("timeout", leftSide)}
+                        onClick={handleTimeoutLeft}
                         disabled={!canScoreByMatchState || Boolean(busy)}
                         sx={{
                           borderRadius: 999,
@@ -2545,7 +2760,7 @@ export default function RefereeScoreDialog({
                         size="small"
                         variant="outlined"
                         startIcon={<HealingIcon />}
-                        onClick={() => handleBreak("medical", leftSide)}
+                        onClick={handleMedicalLeft}
                         disabled={!canScoreByMatchState || Boolean(busy)}
                         sx={{
                           borderRadius: 999,
@@ -2561,7 +2776,7 @@ export default function RefereeScoreDialog({
                         size="small"
                         variant="outlined"
                         startIcon={<PauseCircleOutlineIcon />}
-                        onClick={() => handleBreak("timeout", rightSide)}
+                        onClick={handleTimeoutRight}
                         disabled={!canScoreByMatchState || Boolean(busy)}
                         sx={{
                           borderRadius: 999,
@@ -2577,7 +2792,7 @@ export default function RefereeScoreDialog({
                         size="small"
                         variant="outlined"
                         startIcon={<HealingIcon />}
-                        onClick={() => handleBreak("medical", rightSide)}
+                        onClick={handleMedicalRight}
                         disabled={!canScoreByMatchState || Boolean(busy)}
                         sx={{
                           borderRadius: 999,
@@ -2699,10 +2914,10 @@ export default function RefereeScoreDialog({
                 isServing={activeSide === rightSide}
                 isActiveSide={activeSide === rightSide}
                 serverUid={serverUidShow}
-                onSwapSlots={() => flipTeamSlots(rightSide)}
+                onSwapSlots={handleSwapRightSlots}
                 swapDisabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
                 loading={rightPanelLoading}
-                match={match}
+                displayMode={playerDisplayMode}
                 muted={ui.muted}
                 borderColor={ui.softBorder}
                 accentColor={ui.accent}
@@ -2870,7 +3085,7 @@ export default function RefereeScoreDialog({
                 >
                   <Button
                     variant="outlined"
-                    onClick={() => handlePoint("point-left", leftSide)}
+                    onClick={handlePointLeft}
                     disabled={!leftEnabled}
                     startIcon={busy === "point-left" ? <CircularProgress size={14} /> : <AddIcon />}
                     sx={{
@@ -2912,7 +3127,7 @@ export default function RefereeScoreDialog({
 
                   <Button
                     variant="outlined"
-                    onClick={() => handlePoint("point-right", rightSide)}
+                    onClick={handlePointRight}
                     disabled={!rightEnabled}
                     startIcon={busy === "point-right" ? <CircularProgress size={14} /> : <AddIcon />}
                     sx={{
@@ -3035,175 +3250,7 @@ export default function RefereeScoreDialog({
                 </Stack>
               </Stack>
             </AccordionSummary>
-            <AccordionDetails sx={{ display: "none" }}>
-              <Stack spacing={2}>
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={2}
-                  alignItems={{ xs: "stretch", md: "center" }}
-                >
-                  <Stack spacing={0.8} flex={1}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
-                      Điểm set
-                    </Typography>
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
-                      <TextField
-                        type="number"
-                        size="small"
-                        label="Points to win"
-                        value={pointsToWin}
-                        onChange={(event) => setPointsToWin(event.target.value)}
-                        sx={{
-                          maxWidth: 180,
-                          "& .MuiOutlinedInput-root": {
-                            borderRadius: 3,
-                            bgcolor: alpha("#ffffff", 0.02),
-                          },
-                        }}
-                      />
-                      <Button
-                        variant="contained"
-                        onClick={handleUpdateSettings}
-                        disabled={busy === "settings" || !match?._id}
-                        sx={{
-                          minHeight: 42,
-                          borderRadius: 999,
-                          fontWeight: 800,
-                          alignSelf: { xs: "stretch", sm: "center" },
-                        }}
-                      >
-                        Lưu cấu hình
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Stack>
-
-                <Stack spacing={0.8}>
-                  <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
-                    Điều khiển tay giao
-                  </Typography>
-                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                    {["A-1", "A-2", "B-1", "B-2"].map((item) => {
-                      const [side, server] = item.split("-");
-                      return (
-                        <Button
-                          key={item}
-                          variant="outlined"
-                          onClick={() =>
-                            runLiveControlBusy(item, () =>
-                              api.setServe({
-                                side,
-                                server: Number(server),
-                                opening:
-                                  Number(server) === OPENING_DOUBLES_SERVER &&
-                                  isDouble &&
-                                  isPreStartOrOpening,
-                              }),
-                            )
-                          }
-                          disabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
-                          sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                        >
-                          {item}
-                        </Button>
-                      );
-                    })}
-                  </Stack>
-                </Stack>
-
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={2}
-                  alignItems={{ xs: "stretch", md: "center" }}
-                >
-                  <Stack spacing={0.8} flex={1}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
-                      Đồng bộ quyền chấm
-                    </Typography>
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                      <Button
-                        variant="outlined"
-                        startIcon={<SyncIcon />}
-                        onClick={() => sync?.syncNow?.()}
-                        disabled={!sync?.pendingCount || sync?.syncing}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        Sync ngay
-                      </Button>
-                      {featureEnabled ? (
-                        <Button
-                          variant="outlined"
-                          startIcon={<CachedIcon />}
-                          onClick={() => sync?.claim?.()}
-                          disabled={sync?.claiming}
-                          sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                        >
-                          Claim
-                        </Button>
-                      ) : null}
-                      {featureEnabled ? (
-                        <Button
-                          variant="outlined"
-                          color="warning"
-                          onClick={() => sync?.takeover?.()}
-                          sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                        >
-                          Take over
-                        </Button>
-                      ) : null}
-                    </Stack>
-                  </Stack>
-
-                  <Stack spacing={0.8} flex={1}>
-                    <Typography sx={{ fontSize: 14, fontWeight: 800, color: ui.muted }}>
-                      Kết thúc trận
-                    </Typography>
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                      <Button
-                        variant="contained"
-                        color="success"
-                        onClick={() =>
-                          runProtectedBusy("finish-a", () => api.finish("A", "finish"))
-                        }
-                        disabled={!match?._id || Boolean(busy)}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        Finish A
-                      </Button>
-                      <Button
-                        variant="contained"
-                        color="success"
-                        onClick={() =>
-                          runProtectedBusy("finish-b", () => api.finish("B", "finish"))
-                        }
-                        disabled={!match?._id || Boolean(busy)}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        Finish B
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        onClick={() => handleForfeitSide("A")}
-                        disabled={!match?._id || Boolean(busy)}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        A bỏ trận
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        onClick={() => handleForfeitSide("B")}
-                        disabled={!match?._id || Boolean(busy)}
-                        sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
-                      >
-                        B bỏ trận
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Stack>
-              </Stack>
-            </AccordionDetails>
+            <AccordionDetails sx={{ display: "none" }} />
           </Accordion>
           </Stack>
         </Box>
@@ -3333,18 +3380,27 @@ export default function RefereeScoreDialog({
                       <Button
                         key={item}
                         variant="outlined"
-                        onClick={() =>
-                          runLiveControlBusy(item, () =>
-                            api.setServe({
+                        onClick={() => {
+                          const nextServe = {
+                            side,
+                            server: Number(server),
+                            opening:
+                              Number(server) === OPENING_DOUBLES_SERVER &&
+                              isDouble &&
+                              isPreStartOrOpening,
+                          };
+                          runLiveControlBusy(item, () => {
+                            setLocalServeOverride(nextServe);
+                            return api.setServe({
                               side,
                               server: Number(server),
                               opening:
                                 Number(server) === OPENING_DOUBLES_SERVER &&
                                 isDouble &&
                                 isPreStartOrOpening,
-                            }),
-                          )
-                        }
+                            });
+                          });
+                        }}
                         disabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
                         sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                       >
@@ -3672,6 +3728,7 @@ export default function RefereeScoreDialog({
           {toast.message}
         </Alert>
       </Snackbar>
-    </>
+      </>
+    </ThemeProvider>
   );
 }

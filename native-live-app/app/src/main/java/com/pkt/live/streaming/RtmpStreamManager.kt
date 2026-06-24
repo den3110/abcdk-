@@ -163,6 +163,7 @@ class RtmpStreamManager(
     private var orientationReconfigureJob: Job? = null
     private var overlayAttachJob: Job? = null
     private var overlayPostTransitionJob: Job? = null
+    private var overlayPostRecordJob: Job? = null
     private var overlayRecoveryBurstJob: Job? = null
     private var recordingRotateJob: Job? = null
     private var hardRestartWindowStartMs: Long = 0L
@@ -843,6 +844,8 @@ class RtmpStreamManager(
     private fun clearRecordingStateLocked(errorMessage: String? = null) {
         recordingRotateJob?.cancel()
         recordingRotateJob = null
+        overlayPostRecordJob?.cancel()
+        overlayPostRecordJob = null
         activeRecordingMatchId = null
         activeRecordingId = null
         activeRecordingSessionId = null
@@ -889,6 +892,8 @@ class RtmpStreamManager(
         overlayAttachJob = null
         overlayPostTransitionJob?.cancel()
         overlayPostTransitionJob = null
+        overlayPostRecordJob?.cancel()
+        overlayPostRecordJob = null
         overlayRecoveryBurstJob?.cancel()
         overlayRecoveryBurstJob = null
 
@@ -1101,6 +1106,9 @@ class RtmpStreamManager(
                 )
                 if (!retryPrepared) throw error
                 cam.startRecord(outputPath)
+            }
+            .onSuccess {
+                scheduleOverlayRebindAfterRecordStart(reason)
             }
     }
 
@@ -1488,6 +1496,32 @@ class RtmpStreamManager(
                 setupOverlayFilterIfPossible(
                     forceRecreate = nextAction,
                     reason = if (nextAction) "${reason}_stabilize" else "${reason}_refresh",
+                )
+            }
+        }
+    }
+
+    private fun scheduleOverlayRebindAfterRecordStart(reason: String) {
+        if (isReleased) return
+        overlayPostRecordJob?.cancel()
+        overlayPostRecordJob = scope.launch {
+            listOf(300L, 900L, 1_800L).forEachIndexed { index, delayMs ->
+                delay(delayMs)
+                if (isReleased) return@launch
+                val shouldRebind = cameraMutex.withLock {
+                    if (isReleased || !isSurfaceValid) {
+                        false
+                    } else {
+                        val cam = rtmpCamera
+                        val activeRecordOnlyPreview = cam != null && cam.isOnPreview && !cam.isStreaming
+                        val hasOverlayBitmap = overlayBitmap?.isRecycled == false
+                        activeRecordOnlyPreview && hasOverlayBitmap
+                    }
+                }
+                if (!shouldRebind) return@launch
+                setupOverlayFilterIfPossible(
+                    forceRecreate = true,
+                    reason = "${reason}_record_stabilize_${index + 1}",
                 )
             }
         }
