@@ -16,6 +16,7 @@ import { scheduleFacebookVodFallbackForMatch } from "./liveRecordingFacebookVodF
 
 const HEARTBEAT_INTERVAL_DEFAULT_MS = 15_000;
 const LEASE_TIMEOUT_DEFAULT_MS = 120_000;
+const LEASE_EXPIRY_GRACE_DEFAULT_MS = 180_000;
 const HEARTBEAT_INTERVAL_MIN_MS = 5_000;
 const LEASE_TIMEOUT_MIN_MS = 30_000;
 const LEASE_TIMEOUT_MULTIPLIER = 4;
@@ -24,11 +25,13 @@ const EXPIRE_SWEEP_CRON = "*/10 * * * * *";
 const CFG_KEYS = {
   heartbeatIntervalMs: "LIVE_FB_LEASE_HEARTBEAT_MS",
   leaseTimeoutMs: "LIVE_FB_LEASE_TIMEOUT_MS",
+  leaseExpiryGraceMs: "LIVE_FB_LEASE_EXPIRY_GRACE_MS",
 };
 
 export const LIVE_SESSION_LEASE_CONFIG = {
   HEARTBEAT_INTERVAL_DEFAULT_MS,
   LEASE_TIMEOUT_DEFAULT_MS,
+  LEASE_EXPIRY_GRACE_DEFAULT_MS,
 };
 
 let _leaseCronStarted = false;
@@ -57,6 +60,11 @@ function normalizeLeaseTimeoutMs(value, heartbeatIntervalMs) {
   return raw >= floor ? raw : Math.max(LEASE_TIMEOUT_DEFAULT_MS, floor);
 }
 
+function normalizeLeaseExpiryGraceMs(value) {
+  if (!Number.isFinite(value)) return LEASE_EXPIRY_GRACE_DEFAULT_MS;
+  return Math.max(0, Math.round(value));
+}
+
 export async function getLiveLeaseConfig() {
   const rawHeartbeatIntervalMs = await getCfgInt(
     CFG_KEYS.heartbeatIntervalMs,
@@ -73,10 +81,16 @@ export async function getLiveLeaseConfig() {
     rawLeaseTimeoutMs,
     heartbeatIntervalMs
   );
+  const rawLeaseExpiryGraceMs = await getCfgInt(
+    CFG_KEYS.leaseExpiryGraceMs,
+    LEASE_EXPIRY_GRACE_DEFAULT_MS
+  );
+  const leaseExpiryGraceMs = normalizeLeaseExpiryGraceMs(rawLeaseExpiryGraceMs);
 
   return {
     heartbeatIntervalMs,
     leaseTimeoutMs,
+    leaseExpiryGraceMs,
   };
 }
 
@@ -531,6 +545,7 @@ function withLeaseConfig(lease, config) {
     ...serialized,
     heartbeatIntervalMs: config.heartbeatIntervalMs,
     leaseTimeoutMs: config.leaseTimeoutMs,
+    leaseExpiryGraceMs: config.leaseExpiryGraceMs,
   };
 }
 
@@ -775,6 +790,32 @@ export async function endLease({
 
 async function expireLeaseById(leaseId) {
   const now = new Date();
+  const config = await getLiveLeaseConfig();
+  const staleLease = await LiveSessionLease.findOne({
+    _id: leaseId,
+    status: "active",
+    expiresAt: { $lte: now },
+  });
+
+  if (!staleLease) return null;
+
+  if (
+    staleLease.platform === "facebook" &&
+    config.leaseExpiryGraceMs > 0 &&
+    staleLease.expireReason !== "heartbeat_grace"
+  ) {
+    staleLease.expireReason = "heartbeat_grace";
+    staleLease.expiresAt = new Date(now.getTime() + config.leaseExpiryGraceMs);
+    await staleLease.save();
+
+    await publishFbPageMonitorUpdate({
+      reason: `lease_expiry_grace:${staleLease.platform}`,
+      pageIds: [staleLease.pageId],
+    });
+
+    return { lease: staleLease, skipped: true, reason: "heartbeat_grace" };
+  }
+
   const lease = await LiveSessionLease.findOneAndUpdate(
     {
       _id: leaseId,

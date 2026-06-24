@@ -61,6 +61,7 @@ fun StreamControls(
     val loading by viewModel.loading.collectAsState()
     val rtmpUrl by viewModel.rtmpUrl.collectAsState()
     val batterySaver by viewModel.batterySaver.collectAsState()
+    val autoBatterySaverEnabled by viewModel.autoBatterySaverEnabled.collectAsState()
     val orientationMode by viewModel.orientationMode.collectAsState()
     val zoomLevel by viewModel.zoomLevel.collectAsState()
     val fallbackColorArgb by viewModel.fallbackColorArgb.collectAsState()
@@ -387,7 +388,9 @@ fun StreamControls(
             recordingUiState = recordingUiState,
             recordingStorageStatus = recordingStorageStatus,
             observerConnectionState = observerConnectionState,
+            autoBatterySaverEnabled = autoBatterySaverEnabled,
             onSetFallbackColorArgb = { viewModel.setFallbackColorArgb(it) },
+            onSetAutoBatterySaverEnabled = { viewModel.setAutoBatterySaverEnabled(it) },
             onDismiss = { showSettings = false },
         )
     }
@@ -841,7 +844,9 @@ fun LiveSettingsDialog(
     recordingUiState: com.pkt.live.data.model.RecordingUiState,
     recordingStorageStatus: com.pkt.live.data.model.RecordingStorageStatus,
     observerConnectionState: ObserverTelemetryConnectionState,
+    autoBatterySaverEnabled: Boolean,
     onSetFallbackColorArgb: (Int?) -> Unit,
+    onSetAutoBatterySaverEnabled: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val waitingForActivation = waitingForCourt || waitingForMatchLive || waitingForNextMatch
@@ -994,6 +999,33 @@ fun LiveSettingsDialog(
                             fontSize = 11.sp
                         )
                     }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = "Tự bật Battery Saver",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Mặc định tắt. Khi bật, app chỉ tự hạ sáng sau một thời gian không thao tác.",
+                            color = LiveColors.TextSecondary,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    Switch(
+                        checked = autoBatterySaverEnabled,
+                        onCheckedChange = onSetAutoBatterySaverEnabled,
+                    )
                 }
 
                 Divider(color = Color.White.copy(alpha = 0.08f))

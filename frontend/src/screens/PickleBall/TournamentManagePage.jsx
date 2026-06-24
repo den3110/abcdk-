@@ -643,7 +643,10 @@ const isByeMatch = (m) => {
   );
 };
 
-const isManageFinishedMatch = (m) => isByeMatch(m);
+const isManageFinishedMatch = (m, status) => {
+  const matchStatus = String(status ?? m?.status ?? "").toLowerCase();
+  return matchStatus === "finished" || isByeMatch(m);
+};
 
 const manageDisplayStatus = (m, status) =>
   isManageFinishedMatch(m, status) ? "finished" : (status ?? m?.status);

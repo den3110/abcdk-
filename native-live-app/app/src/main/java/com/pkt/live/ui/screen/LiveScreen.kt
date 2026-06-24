@@ -83,6 +83,7 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
     val waitingForNextMatch by viewModel.waitingForNextMatch.collectAsState()
     val batterySaver by viewModel.batterySaver.collectAsState()
     val batterySaverManual by viewModel.batterySaverManual.collectAsState()
+    val autoBatterySaverEnabled by viewModel.autoBatterySaverEnabled.collectAsState()
     val batterySaverActivityTick by viewModel.batterySaverActivityTick.collectAsState()
     val liveStartTime by viewModel.liveStartTime.collectAsState()
     val stats by viewModel.streamStats.collectAsState()
@@ -222,7 +223,8 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
             stopLiveCountdownVisible ||
             endingLive
     val autoBatterySaverAllowed =
-        (streamIntentActive || recordingUiState.isRecording) &&
+        autoBatterySaverEnabled &&
+            (streamIntentActive || recordingUiState.isRecording) &&
             !showOrientationSelector &&
             !showModeSelector &&
             !suppressPreparationUi &&

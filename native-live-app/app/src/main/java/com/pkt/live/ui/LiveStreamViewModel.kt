@@ -223,6 +223,8 @@ class LiveStreamViewModel(
     val batterySaver: StateFlow<Boolean> = _batterySaver.asStateFlow()
     private val _batterySaverManual = MutableStateFlow(false)
     val batterySaverManual: StateFlow<Boolean> = _batterySaverManual.asStateFlow()
+    private val _autoBatterySaverEnabled = MutableStateFlow(false)
+    val autoBatterySaverEnabled: StateFlow<Boolean> = _autoBatterySaverEnabled.asStateFlow()
     private val _batterySaverActivityTick = MutableStateFlow(System.currentTimeMillis())
     val batterySaverActivityTick: StateFlow<Long> = _batterySaverActivityTick.asStateFlow()
 
@@ -1867,6 +1869,13 @@ class LiveStreamViewModel(
         val next = !_batterySaver.value
         _batterySaver.value = next
         _batterySaverManual.value = next
+    }
+
+    fun setAutoBatterySaverEnabled(enabled: Boolean) {
+        _autoBatterySaverEnabled.value = enabled
+        if (!enabled) {
+            exitAutoBatterySaverForUserActivity()
+        }
     }
 
     fun noteBatterySaverUserActivity() {

@@ -46,7 +46,15 @@ import {
   Undo as UndoIcon,
 } from "@mui/icons-material";
 import { useSelector } from "react-redux";
+import { useSocket } from "../../context/SocketContext";
+import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLiveMatch } from "../../hook/useLiveMatch";
+import {
+  useAssignTournamentMatchToCourtStationMutation,
+  useFreeTournamentCourtStationMutation,
+  useGetTournamentCourtClusterOptionsQuery,
+  useGetTournamentCourtClusterRuntimeQuery,
+} from "../../slices/courtClustersAdminApiSlice";
 import {
   getMatchCourtStationName,
   getMatchDisplayCode,
@@ -70,6 +78,14 @@ const SEED_REFERENCE_TYPES = new Set([
 ]);
 
 const textOf = (value) => (value && String(value).trim()) || "";
+const idOf = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "object") {
+    return textOf(value?._id || value?.id || value?.uid);
+  }
+  return textOf(value);
+};
 const safeIdentityTextOf = (value) => {
   const text = textOf(value);
   return text === "[object Object]" ? "" : text;
@@ -137,6 +153,26 @@ const personIdentityCandidatesOf = (person) => {
 };
 
 const playerLabel = (player, source) => getPlayerDisplayName(player, source) || "";
+
+const isIdleCourtStation = (station) => {
+  if (!station || station.isActive === false) return false;
+  if (String(station?.assignmentMode || "manual").toLowerCase() !== "manual") {
+    return false;
+  }
+  const status = String(station?.status || "idle").toLowerCase();
+  if (status !== "idle") return false;
+  const currentMatchId = idOf(
+    station?.currentMatchId || station?.currentMatch?._id || station?.currentMatch,
+  );
+  if (currentMatchId) return false;
+  if (Number(station?.queueCount || 0) > 0) return false;
+  return true;
+};
+
+const courtStationLabel = (station) =>
+  [textOf(station?.name), textOf(station?.code)]
+    .filter(Boolean)
+    .join(" · ") || "Sân";
 
 const matchCode = (match) =>
   getMatchDisplayCode(match) ||
@@ -767,8 +803,16 @@ export default function RefereeScoreDialog({
   const fullScreen = useMediaQuery(theme.breakpoints.down("md"));
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { userInfo } = useSelector((state) => state.auth || {});
+  const socket = useSocket();
   const token = userInfo?.token || "";
-  const { data, error, api, sync, loading: liveMatchLoading } = useLiveMatch(matchId, token, {
+  const {
+    data,
+    error,
+    api,
+    sync,
+    loading: liveMatchLoading,
+    refetch: refetchLiveMatch,
+  } = useLiveMatch(matchId, token, {
     offlineSync: true,
     optimisticUpdates: false,
     persistCache: false,
@@ -781,6 +825,8 @@ export default function RefereeScoreDialog({
     }
     return normalizeMatchDisplay(data || initialMatch || null, initialMatch || data || null);
   }, [data, initialMatch]);
+  const normalizedMatchId = idOf(match?._id || match?.id || matchId);
+  const normalizedTournamentId = idOf(match?.tournament?._id || match?.tournament);
 
   const ui = useMemo(
     () => ({
@@ -1047,8 +1093,7 @@ export default function RefereeScoreDialog({
 
   const [pointsToWin, setPointsToWin] = useState("");
   const [selectedCourtId, setSelectedCourtId] = useState("");
-  const [courts, setCourts] = useState([]);
-  const [courtsLoading, setCourtsLoading] = useState(false);
+  const [selectedClusterId, setSelectedClusterId] = useState("");
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -1061,9 +1106,143 @@ export default function RefereeScoreDialog({
     severity: "info",
   });
 
-  const currentCourtId = textOf(match?.court?._id || match?.courtId || match?.courtStationId);
+  const currentCourtStationId = idOf(
+    match?.courtStationId || match?.courtStation?._id || match?.courtStation,
+  );
+  const currentCourtId = textOf(match?.court?._id || match?.courtId || currentCourtStationId);
   const currentCourtLabel = courtLabelOf(match || {});
   const isInteractionLocked = Boolean(match?._id) && featureEnabled && !isOwner;
+
+  const {
+    data: clusterOptionsData,
+    isLoading: isLoadingClusterOptions,
+    isFetching: isFetchingClusterOptions,
+    refetch: refetchClusterOptions,
+  } = useGetTournamentCourtClusterOptionsQuery(normalizedTournamentId, {
+    skip: !open || !courtDialogOpen || !normalizedTournamentId,
+    refetchOnMountOrArgChange: true,
+  });
+
+  const allowedClusterOptions = useMemo(() => {
+    const selectedIds = Array.isArray(clusterOptionsData?.selectedIds)
+      ? clusterOptionsData.selectedIds.map(idOf).filter(Boolean)
+      : [];
+    const items = Array.isArray(clusterOptionsData?.items)
+      ? clusterOptionsData.items
+      : [];
+    const selectedItems = items.filter((cluster) =>
+      selectedIds.includes(idOf(cluster?._id || cluster?.id)),
+    );
+    return selectedItems.length ? selectedItems : items;
+  }, [clusterOptionsData?.items, clusterOptionsData?.selectedIds]);
+
+  useEffect(() => {
+    if (!courtDialogOpen) return;
+    const allowedIds = allowedClusterOptions
+      .map((cluster) => idOf(cluster?._id || cluster?.id))
+      .filter(Boolean);
+    if (selectedClusterId && allowedIds.includes(selectedClusterId)) return;
+
+    const currentClusterId = idOf(
+      match?.courtClusterId ||
+        match?.courtStation?.clusterId ||
+        match?.courtCluster?._id,
+    );
+    setSelectedClusterId(
+      (currentClusterId && allowedIds.includes(currentClusterId)
+        ? currentClusterId
+        : allowedIds[0]) || "",
+    );
+  }, [
+    allowedClusterOptions,
+    courtDialogOpen,
+    match?.courtCluster?._id,
+    match?.courtClusterId,
+    match?.courtStation?.clusterId,
+    selectedClusterId,
+  ]);
+
+  const {
+    data: courtRuntime,
+    isLoading: isLoadingCourtRuntime,
+    isFetching: isFetchingCourtRuntime,
+    error: courtRuntimeError,
+    refetch: refetchCourtRuntime,
+  } = useGetTournamentCourtClusterRuntimeQuery(
+    {
+      tournamentId: normalizedTournamentId,
+      clusterId: selectedClusterId,
+    },
+    {
+      skip:
+        !open ||
+        !courtDialogOpen ||
+        !normalizedTournamentId ||
+        !selectedClusterId,
+      refetchOnMountOrArgChange: true,
+    },
+  );
+
+  const courtClusterRoomIds = useMemo(
+    () => (courtDialogOpen && selectedClusterId ? [selectedClusterId] : []),
+    [courtDialogOpen, selectedClusterId],
+  );
+
+  useSocketRoomSet(socket, courtClusterRoomIds, {
+    subscribeEvent: "court-cluster:watch",
+    unsubscribeEvent: "court-cluster:unwatch",
+    payloadKey: "clusterId",
+    onResync: () => {
+      refetchCourtRuntime?.();
+    },
+  });
+
+  useEffect(() => {
+    if (!socket || !courtDialogOpen || !selectedClusterId) return undefined;
+
+    const handleRuntimeUpdate = (payload) => {
+      const payloadClusterId = idOf(
+        payload?.cluster?._id ||
+          payload?.clusterId ||
+          payload?.station?.clusterId,
+      );
+      if (payloadClusterId !== selectedClusterId) return;
+      refetchCourtRuntime?.();
+    };
+
+    socket.on("court-cluster:update", handleRuntimeUpdate);
+    socket.on("court-station:update", handleRuntimeUpdate);
+    return () => {
+      socket.off("court-cluster:update", handleRuntimeUpdate);
+      socket.off("court-station:update", handleRuntimeUpdate);
+    };
+  }, [courtDialogOpen, refetchCourtRuntime, selectedClusterId, socket]);
+
+  const courts = useMemo(
+    () =>
+      (Array.isArray(courtRuntime?.stations) ? courtRuntime.stations : [])
+        .filter(isIdleCourtStation)
+        .sort((a, b) => {
+          const orderDiff = Number(a?.order || 0) - Number(b?.order || 0);
+          if (orderDiff) return orderDiff;
+          return courtStationLabel(a).localeCompare(courtStationLabel(b), "vi", {
+            numeric: true,
+            sensitivity: "base",
+          });
+        }),
+    [courtRuntime?.stations],
+  );
+
+  const courtsLoading =
+    isLoadingClusterOptions ||
+    isFetchingClusterOptions ||
+    isLoadingCourtRuntime ||
+    isFetchingCourtRuntime;
+
+  const [assignMatchToCourtStation, { isLoading: assigningCourtStation }] =
+    useAssignTournamentMatchToCourtStationMutation();
+  const [freeCourtStation, { isLoading: freeingCourtStation }] =
+    useFreeTournamentCourtStationMutation();
 
   useEffect(() => {
     setPointsToWin(
@@ -1072,8 +1251,18 @@ export default function RefereeScoreDialog({
   }, [match?.rules?.pointsToWin]);
 
   useEffect(() => {
-    setSelectedCourtId(currentCourtId);
-  }, [currentCourtId]);
+    if (!courtDialogOpen) {
+      setSelectedCourtId("");
+    }
+  }, [courtDialogOpen]);
+
+  useEffect(() => {
+    if (!courtDialogOpen || !selectedCourtId) return;
+    const stillIdle = courts.some((court) => idOf(court?._id || court?.id) === selectedCourtId);
+    if (!stillIdle) {
+      setSelectedCourtId("");
+    }
+  }, [courtDialogOpen, courts, selectedCourtId]);
 
   useEffect(() => {
     lastServerUidRef.current = "";
@@ -1411,26 +1600,29 @@ export default function RefereeScoreDialog({
   );
 
   const loadCourts = useCallback(async () => {
-    setCourtsLoading(true);
     await runBusy("courts", async () => {
-      const result = await api.listCourts({ includeBusy: true });
-      const items = Array.isArray(result?.items)
-        ? result.items
-        : Array.isArray(result)
-          ? result
-          : [];
-      setCourts(items);
+      const tasks = [];
+      if (courtDialogOpen && normalizedTournamentId) {
+        tasks.push(refetchClusterOptions?.());
+      }
+      if (courtDialogOpen && normalizedTournamentId && selectedClusterId) {
+        tasks.push(refetchCourtRuntime?.());
+      }
+      await Promise.all(tasks.filter(Boolean));
     });
-    setCourtsLoading(false);
-  }, [api, runBusy]);
+  }, [
+    courtDialogOpen,
+    normalizedTournamentId,
+    refetchClusterOptions,
+    refetchCourtRuntime,
+    runBusy,
+    selectedClusterId,
+  ]);
 
-  const openCourtDialog = useCallback(async () => {
+  const openCourtDialog = useCallback(() => {
     if (!ensureInteractionAllowed()) return;
     setCourtDialogOpen(true);
-    if (!courts.length && !courtsLoading) {
-      await loadCourts();
-    }
-  }, [courts.length, courtsLoading, ensureInteractionAllowed, loadCourts]);
+  }, [ensureInteractionAllowed]);
 
   const flipWholeMatch = useCallback(async () => {
     const nextBase = {
@@ -1691,18 +1883,58 @@ export default function RefereeScoreDialog({
 
   const handleAssignCourt = useCallback(async () => {
     if (!selectedCourtId) return;
+    if (!normalizedTournamentId || !normalizedMatchId) return;
     if (!ensureInteractionAllowed()) return;
-    await runProtectedBusy("assign-court", () => api.assignCourt({ courtId: selectedCourtId }));
+    await runProtectedBusy("assign-court", () =>
+      assignMatchToCourtStation({
+        tournamentId: normalizedTournamentId,
+        stationId: selectedCourtId,
+        matchId: normalizedMatchId,
+      }).unwrap(),
+    );
+    await refetchLiveMatch?.();
+    await refetchCourtRuntime?.();
     setCourtDialogOpen(false);
     pushToast("Đã gán sân.", "success");
-  }, [api, ensureInteractionAllowed, pushToast, runProtectedBusy, selectedCourtId]);
+  }, [
+    assignMatchToCourtStation,
+    ensureInteractionAllowed,
+    normalizedMatchId,
+    normalizedTournamentId,
+    pushToast,
+    refetchCourtRuntime,
+    refetchLiveMatch,
+    runProtectedBusy,
+    selectedCourtId,
+  ]);
 
   const handleUnassignCourt = useCallback(async () => {
     if (!ensureInteractionAllowed()) return;
-    await runProtectedBusy("unassign-court", () => api.unassignCourt({ toStatus: "queued" }));
+    await runProtectedBusy("unassign-court", async () => {
+      if (currentCourtStationId && normalizedTournamentId) {
+        await freeCourtStation({
+          tournamentId: normalizedTournamentId,
+          stationId: currentCourtStationId,
+        }).unwrap();
+        return;
+      }
+      await api.unassignCourt({ toStatus: "queued" });
+    });
+    await refetchLiveMatch?.();
+    await refetchCourtRuntime?.();
     setCourtDialogOpen(false);
     pushToast("Đã bỏ gán sân.", "success");
-  }, [api, ensureInteractionAllowed, pushToast, runProtectedBusy]);
+  }, [
+    api,
+    currentCourtStationId,
+    ensureInteractionAllowed,
+    freeCourtStation,
+    normalizedTournamentId,
+    pushToast,
+    refetchCourtRuntime,
+    refetchLiveMatch,
+    runProtectedBusy,
+  ]);
 
   const handleStart = useCallback(async () => {
     if (!ensureInteractionAllowed()) return;
@@ -3345,7 +3577,7 @@ export default function RefereeScoreDialog({
                 Tải sân
               </Button>
 
-              <FormControl size="small" fullWidth>
+              <FormControl size="small" fullWidth disabled={courtsLoading || !selectedClusterId || Boolean(courtRuntimeError)}>
                 <InputLabel id="referee-court-dialog-select-label">Sân</InputLabel>
                 <Select
                   labelId="referee-court-dialog-select-label"
@@ -3357,20 +3589,47 @@ export default function RefereeScoreDialog({
                     bgcolor: alpha("#ffffff", 0.02),
                   }}
                 >
+                  <MenuItem value="" disabled>
+                    {courtsLoading
+                      ? "Đang tải sân..."
+                      : selectedClusterId
+                        ? "Chọn sân rảnh"
+                        : "Chưa có cụm sân"}
+                  </MenuItem>
                   {courts.map((court) => (
-                    <MenuItem key={court?._id || court?.id} value={court?._id || court?.id}>
-                      {textOf(court?.name) || textOf(court?.label) || textOf(court?.code)}
+                    <MenuItem
+                      key={idOf(court?._id || court?.id)}
+                      value={idOf(court?._id || court?.id)}
+                    >
+                      {courtStationLabel(court)}
                     </MenuItem>
                   ))}
+                  {!courtsLoading && selectedClusterId && courts.length === 0 ? (
+                    <MenuItem value="" disabled>
+                      Không có sân rảnh
+                    </MenuItem>
+                  ) : null}
                 </Select>
               </FormControl>
+
+              {courtRuntimeError ? (
+                <Alert severity="warning">
+                  Không tải được danh sách sân rảnh. Bấm tải sân để thử lại.
+                </Alert>
+              ) : null}
             </Stack>
 
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
               <Button
                 variant="contained"
                 onClick={handleAssignCourt}
-                disabled={!selectedCourtId}
+                disabled={
+                  !selectedCourtId ||
+                  !normalizedTournamentId ||
+                  !normalizedMatchId ||
+                  Boolean(busy) ||
+                  assigningCourtStation
+                }
                 sx={{ minHeight: 44, borderRadius: 999, fontWeight: 800, flex: 1 }}
               >
                 Gán sân
@@ -3379,7 +3638,7 @@ export default function RefereeScoreDialog({
                 variant="outlined"
                 color="warning"
                 onClick={handleUnassignCourt}
-                disabled={!currentCourtId}
+                disabled={!currentCourtId || Boolean(busy) || freeingCourtStation}
                 sx={{ minHeight: 44, borderRadius: 999, fontWeight: 800, flex: 1 }}
               >
                 Bỏ gán

@@ -2273,10 +2273,26 @@ const emitSocket = (req, matchId, payload) => {
   } catch {}
 };
 
+const getRequestedMatchKind = (req) =>
+  String(req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"] || "")
+    .trim();
+
 const resolveRequestMatchKind = (req) =>
-  normalizeMatchKind(
-    req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"]
-  );
+  normalizeMatchKind(getRequestedMatchKind(req));
+
+async function resolveRequestMatchKindForId(req, id) {
+  const requested = getRequestedMatchKind(req);
+  if (requested) return normalizeMatchKind(requested);
+
+  const [matchExists, userMatchExists] = await Promise.all([
+    Match.exists({ _id: id }),
+    UserMatch.exists({ _id: id }),
+  ]);
+
+  if (matchExists) return "match";
+  if (userMatchExists) return "userMatch";
+  return "match";
+}
 
 async function getCurrentLiveState(matchId, matchKind) {
   const doc = await getLiveTargetDoc(matchId, matchKind);
@@ -2329,7 +2345,7 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
   }
 
   const platform = normPlatform(req.body?.platform);
-  const matchKind = resolveRequestMatchKind(req);
+  const matchKind = await resolveRequestMatchKindForId(req, id);
   const result = await startOrRenewLease({
     matchId: id,
     matchKind,
@@ -2376,7 +2392,7 @@ export const notifyStreamHeartbeat = asyncHandler(async (req, res) => {
   }
 
   const platform = normPlatform(req.body?.platform);
-  const matchKind = resolveRequestMatchKind(req);
+  const matchKind = await resolveRequestMatchKindForId(req, id);
   const result = await heartbeatLease({
     matchId: id,
     matchKind,
@@ -2407,7 +2423,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
 
   const platform = normPlatform(req.body?.platform);
   const leasePlatform = platform === "all" ? "facebook" : platform;
-  const matchKind = resolveRequestMatchKind(req);
+  const matchKind = await resolveRequestMatchKindForId(req, id);
   const result = await endLease({
     matchId: id,
     matchKind,
