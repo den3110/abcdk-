@@ -186,6 +186,11 @@ const MATCH_SNAPSHOT_DEDUPE_MS = 750;
 const truthyEnv = (value) =>
   ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
 
+const LOG_SOCKET_CONNECTIONS = truthyEnv(process.env.SOCKET_LOG_CONNECTIONS);
+const LOG_SOCKET_SWEEP_CLEANUP = truthyEnv(
+  process.env.SOCKET_LOG_SWEEP_CLEANUP
+);
+
 const readSocketInt = (key, fallback, { min = 0, max = 10_000_000 } = {}) => {
   const value = Number(process.env[key]);
   if (!Number.isFinite(value)) return fallback;
@@ -1637,11 +1642,11 @@ export function initSocket(
   io.on("connection", async (socket) => {
     const userId = String(socket?.data?.userId || socket?.user?._id || "");
     const client = socket?.data?.client || guessClientType(socket);
-    if (!userId) {
+    if (!userId && LOG_SOCKET_CONNECTIONS) {
       console.warn(
         "[socket] connected nhưng không có userId -> presence sẽ không tăng"
       );
-    } else {
+    } else if (LOG_SOCKET_CONNECTIONS) {
       console.log(
         "[socket] connected:",
         socket.id,
@@ -4410,7 +4415,9 @@ export function initSocket(
     try {
       const cleaned = await sweepStaleSockets({ batch: 500 });
       if (cleaned > 0) {
-        console.log(`[socket] sweep cleaned ${cleaned} stale socket(s)`);
+        if (LOG_SOCKET_SWEEP_CLEANUP) {
+          console.log(`[socket] sweep cleaned ${cleaned} stale socket(s)`);
+        }
         await emitSummary(io);
       }
     } catch (e) {
