@@ -960,7 +960,7 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
     })
     .populate({
       path: "bracket",
-      select: "name type drawRounds meta config.roundElim",
+      select: "tournament name type stage order drawRounds meta config prefill",
     })
     .populate({
       path: "court",
@@ -1011,7 +1011,7 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
       select: "code displayCode codeResolved globalCode labelKey round order globalRound format pool bracket",
       populate: {
         path: "bracket",
-        select: "name type drawRounds meta config.roundElim",
+        select: "tournament name type stage order drawRounds meta config prefill",
       },
     })
     .populate({
@@ -1019,7 +1019,7 @@ export async function buildLiveAppMatchRuntime(matchId, options = {}) {
       select: "code displayCode codeResolved globalCode labelKey round order globalRound format pool bracket",
       populate: {
         path: "bracket",
-        select: "name type drawRounds meta config.roundElim",
+        select: "tournament name type stage order drawRounds meta config prefill",
       },
     })
     .lean();

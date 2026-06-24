@@ -196,7 +196,7 @@ const LIVE_RECORDING_MONITOR_RECORDING_POPULATE = [
       { path: "previousA", select: "code displayCode codeResolved globalCode matchCode round order winner pairA pairB" },
       { path: "previousB", select: "code displayCode codeResolved globalCode matchCode round order winner pairA pairB" },
       { path: "court", select: "name label number" },
-      { path: "bracket", select: "name type stage order drawRounds meta config prefill" },
+      { path: "bracket", select: "tournament name type stage order drawRounds meta config prefill" },
       { path: "tournament", select: "name status" },
     ],
   },

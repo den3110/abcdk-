@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 
@@ -84,7 +85,7 @@ const MATCH_SIDE_DISPLAY_POPULATE = [
   { path: "tournament", select: "name eventType type displayNameMode nameDisplayMode" },
   {
     path: "bracket",
-    select: "name type stage order drawRounds meta config prefill",
+    select: "tournament name type stage order drawRounds meta config prefill",
   },
   PAIR_POPULATE("pairA"),
   PAIR_POPULATE("pairB"),
@@ -343,12 +344,18 @@ function effectiveBracketRounds(bracket, matchesOfBracket = []) {
 }
 
 function buildBaseByBracketId(matches = []) {
-  const bracketRows = new Map();
+  const bracketRowsByTournament = new Map();
   for (const match of matches) {
     const bracketId = toIdString(match?.bracket);
     if (!bracketId) continue;
+    const bracket = match?.bracket && typeof match.bracket === "object" ? match.bracket : {};
+    const tournamentId =
+      toIdString(bracket?.tournament) || toIdString(match?.tournament) || "__unknown__";
+    if (!bracketRowsByTournament.has(tournamentId)) {
+      bracketRowsByTournament.set(tournamentId, new Map());
+    }
+    const bracketRows = bracketRowsByTournament.get(tournamentId);
     if (!bracketRows.has(bracketId)) {
-      const bracket = match?.bracket && typeof match.bracket === "object" ? match.bracket : {};
       bracketRows.set(bracketId, {
         bracketId,
         bracket,
@@ -358,25 +365,30 @@ function buildBaseByBracketId(matches = []) {
     bracketRows.get(bracketId).matches.push(match);
   }
 
-  const rows = Array.from(bracketRows.values()).sort((a, b) => {
-    const stageA = Number(a.bracket?.stage);
-    const stageB = Number(b.bracket?.stage);
-    if (Number.isFinite(stageA) && Number.isFinite(stageB) && stageA !== stageB) {
-      return stageA - stageB;
-    }
-    const orderA = Number(a.bracket?.order);
-    const orderB = Number(b.bracket?.order);
-    if (Number.isFinite(orderA) && Number.isFinite(orderB) && orderA !== orderB) {
-      return orderA - orderB;
-    }
-    return a.bracketId.localeCompare(b.bracketId);
-  });
-
   const baseByBracketId = new Map();
-  let offset = 0;
-  for (const row of rows) {
-    baseByBracketId.set(row.bracketId, offset);
-    offset += effectiveBracketRounds(row.bracket, row.matches);
+  for (const bracketRows of bracketRowsByTournament.values()) {
+    const rows = Array.from(bracketRows.values()).sort((a, b) => {
+      const stageA = Number(a.bracket?.stage);
+      const stageB = Number(b.bracket?.stage);
+      if (Number.isFinite(stageA) && Number.isFinite(stageB) && stageA !== stageB) {
+        return stageA - stageB;
+      }
+      const orderA = Number(a.bracket?.order);
+      const orderB = Number(b.bracket?.order);
+      if (Number.isFinite(orderA) && Number.isFinite(orderB) && orderA !== orderB) {
+        return orderA - orderB;
+      }
+      const createdA = Number(new Date(a.bracket?.createdAt || 0));
+      const createdB = Number(new Date(b.bracket?.createdAt || 0));
+      if (createdA !== createdB) return createdA - createdB;
+      return a.bracketId.localeCompare(b.bracketId);
+    });
+
+    let offset = 0;
+    for (const row of rows) {
+      baseByBracketId.set(row.bracketId, offset);
+      offset += effectiveBracketRounds(row.bracket, row.matches);
+    }
   }
   return baseByBracketId;
 }
@@ -782,10 +794,28 @@ async function queryMatchesByScope(matchesById) {
   );
 
   if (tournamentIds.length) {
-    return Match.find({ tournament: { $in: tournamentIds } })
+    const bracketRows = await Bracket.find({ tournament: { $in: tournamentIds } })
+      .sort({ stage: 1, order: 1, createdAt: 1 })
+      .select("_id tournament name type stage order drawRounds meta config prefill")
+      .lean();
+    const bracketIds = bracketRows.map((bracket) => bracket?._id).filter(Boolean);
+    if (!bracketIds.length) return [];
+
+    const rows = await Match.find({
+      tournament: { $in: tournamentIds },
+      bracket: { $in: bracketIds },
+    })
       .select(MATCH_SIDE_DISPLAY_SELECT)
       .populate(MATCH_SIDE_DISPLAY_POPULATE)
       .lean();
+    const bracketById = new Map(
+      bracketRows.map((bracket) => [toIdString(bracket), bracket])
+    );
+    return rows.map((row) => {
+      const bracketId = toIdString(row?.bracket);
+      const bracket = bracketById.get(bracketId);
+      return bracket ? { ...row, bracket } : row;
+    });
   }
 
   if (bracketIds.length) {
