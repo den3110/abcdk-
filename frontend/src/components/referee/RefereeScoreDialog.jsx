@@ -80,6 +80,15 @@ const SEED_REFERENCE_TYPES = new Set([
 ]);
 
 const textOf = (value) => (value && String(value).trim()) || "";
+const normalizeServeOverride = (serve) => {
+  if (!serve) return null;
+  return {
+    side: serve?.side === "B" ? "B" : "A",
+    server: Number(serve?.order ?? serve?.server ?? 1) === 2 ? 2 : 1,
+    serverId: serve?.serverId || null,
+    opening: Boolean(serve?.opening),
+  };
+};
 const idOf = (value) => {
   if (!value) return "";
   if (typeof value === "string") return value.trim();
@@ -1019,20 +1028,23 @@ export default function RefereeScoreDialog({
   const [localBaseOverride, setLocalBaseOverride] = useState(null);
   const [localLayoutOverride, setLocalLayoutOverride] = useState(null);
   const [localServeOverride, setLocalServeOverride] = useState(null);
+  const localBaseRef = useRef(null);
+  const localLayoutRef = useRef(null);
+  const localServeRef = useRef(null);
   const serverBase = useMemo(
     () => match?.slots?.base || match?.meta?.slots?.base || { A: {}, B: {} },
     [match?.meta?.slots?.base, match?.slots?.base],
   );
-  const rawBase = localBaseOverride || serverBase;
+  const rawBase = localBaseOverride || localBaseRef.current || serverBase;
   const serveState = useMemo(
-    () => localServeOverride || match?.serve || {},
+    () => localServeOverride || localServeRef.current || match?.serve || {},
     [localServeOverride, match?.serve],
   );
   const serverLayout = useMemo(
     () => normalizeLayout(match?.meta?.refereeLayout),
     [match?.meta?.refereeLayout],
   );
-  const currentLayout = localLayoutOverride || serverLayout;
+  const currentLayout = localLayoutOverride || localLayoutRef.current || serverLayout;
   const activeSide = serveState?.side === "B" ? "B" : "A";
   const rawServerNum =
     Number(serveState?.order ?? serveState?.server ?? 1) === 2 ? 2 : 1;
@@ -1117,6 +1129,7 @@ export default function RefereeScoreDialog({
     if (!localBaseOverride) return;
     if (liveSyncBusy) return;
     if (sameSlotsBase(localBaseOverride, serverBase)) {
+      localBaseRef.current = null;
       setLocalBaseOverride(null);
     }
   }, [liveSyncBusy, localBaseOverride, serverBase]);
@@ -1125,6 +1138,7 @@ export default function RefereeScoreDialog({
     if (!localBaseOverride) return undefined;
     if (liveSyncBusy) return undefined;
     const timeoutId = window.setTimeout(() => {
+      localBaseRef.current = null;
       setLocalBaseOverride(null);
     }, SCORE_RENDER_GUARD_MS);
     return () => window.clearTimeout(timeoutId);
@@ -1134,6 +1148,7 @@ export default function RefereeScoreDialog({
     if (!localLayoutOverride) return;
     if (liveSyncBusy) return;
     if (sameLayout(localLayoutOverride, serverLayout)) {
+      localLayoutRef.current = null;
       setLocalLayoutOverride(null);
     }
   }, [liveSyncBusy, localLayoutOverride, serverLayout]);
@@ -1142,6 +1157,7 @@ export default function RefereeScoreDialog({
     if (!localLayoutOverride) return undefined;
     if (liveSyncBusy) return undefined;
     const timeoutId = window.setTimeout(() => {
+      localLayoutRef.current = null;
       setLocalLayoutOverride(null);
     }, SCORE_RENDER_GUARD_MS);
     return () => window.clearTimeout(timeoutId);
@@ -1161,6 +1177,7 @@ export default function RefereeScoreDialog({
       serverId === textOf(localServeOverride.serverId) &&
       serverOpening === Boolean(localServeOverride.opening)
     ) {
+      localServeRef.current = null;
       setLocalServeOverride(null);
     }
   }, [
@@ -1177,6 +1194,7 @@ export default function RefereeScoreDialog({
     if (!localServeOverride) return undefined;
     if (liveSyncBusy) return undefined;
     const timeoutId = window.setTimeout(() => {
+      localServeRef.current = null;
       setLocalServeOverride(null);
     }, SCORE_RENDER_GUARD_MS);
     return () => window.clearTimeout(timeoutId);
@@ -1423,9 +1441,15 @@ export default function RefereeScoreDialog({
   }, [courtDialogOpen, courts, selectedCourtId]);
 
   useEffect(() => {
+    localBaseRef.current = null;
+    localLayoutRef.current = null;
+    localServeRef.current = null;
     setLocalBaseOverride(null);
     setLocalLayoutOverride(null);
     setLocalServeOverride(null);
+    scoreTapGuardRef.current = { side: "", until: 0 };
+    undoTapGuardUntilRef.current = 0;
+    scoreGuardRef.current = { a: null, b: null, until: 0, mode: "max" };
     lastServerUidRef.current = "";
     openingServerRef.current = { gameIndex: -1, side: "", uid: "" };
     openingServeInitRef.current = {};
@@ -1444,7 +1468,7 @@ export default function RefereeScoreDialog({
       activeServerNum: 1,
       serverUidShow: "",
     };
-  }, [match?._id]);
+  }, [match?._id, open]);
 
   const findUidAtCurrentSlot = useCallback(
     (side, slot, base = currentBase, score = currentScore) => {
@@ -1550,6 +1574,7 @@ export default function RefereeScoreDialog({
 
   useEffect(() => {
     if (!match?._id) return;
+    if (liveMatchLoading && !data) return;
     if (!isDouble || !isPreStartOrOpening) return;
     if (Number(currentScore.a) !== 0 || Number(currentScore.b) !== 0) return;
     if (!openingRightServerUid) return;
@@ -1597,18 +1622,21 @@ export default function RefereeScoreDialog({
         serverId: openingRightServerUid,
         opening: true,
       };
+      localServeRef.current = nextServe;
       setLocalServeOverride(nextServe);
       api.setServe(nextServe);
     }
   }, [
     activeSide,
     api,
+    data,
     currentGame,
     currentScore.a,
     currentScore.b,
     isDouble,
     isInteractionLocked,
     isPreStartOrOpening,
+    liveMatchLoading,
     match?._id,
     match?.serve?.opening,
     match?.serve?.order,
@@ -1807,13 +1835,15 @@ export default function RefereeScoreDialog({
   }, [ensureInteractionAllowed]);
 
   const flipWholeMatch = useCallback(async () => {
+    const baseForSwap = localBaseRef.current || currentBase;
+    const layoutForSwap = localLayoutRef.current || currentLayout;
     const nextBase = {
-      A: flipSlotNumbers(currentBase?.A || {}),
-      B: flipSlotNumbers(currentBase?.B || {}),
+      A: flipSlotNumbers(baseForSwap?.A || {}),
+      B: flipSlotNumbers(baseForSwap?.B || {}),
     };
     const nextLayout =
-      currentLayout.left === "B" ? { left: "A", right: "B" } : { left: "B", right: "A" };
-    let nextServe = serveState || null;
+      layoutForSwap.left === "B" ? { left: "A", right: "B" } : { left: "B", right: "A" };
+    let nextServe = localServeRef.current || serveState || null;
     if (isPreStartOrOpening) {
       const targetSlot = preStartRightSlotForSide(activeSide, nextLayout);
       const serverId =
@@ -1828,9 +1858,14 @@ export default function RefereeScoreDialog({
       };
     }
     await runLiveControlBusy("swap-sides", () => {
+      localBaseRef.current = nextBase;
+      localLayoutRef.current = nextLayout;
       setLocalBaseOverride(nextBase);
       setLocalLayoutOverride(nextLayout);
-      if (nextServe) setLocalServeOverride(nextServe);
+      if (nextServe) {
+        localServeRef.current = nextServe;
+        setLocalServeOverride(nextServe);
+      }
       return api.setSlotsBase({
         base: nextBase,
         layout: nextLayout,
@@ -1853,13 +1888,15 @@ export default function RefereeScoreDialog({
 
   const flipTeamSlots = useCallback(
     async (side) => {
+      const baseForSwap = localBaseRef.current || currentBase;
+      const layoutForSwap = localLayoutRef.current || currentLayout;
       const nextBase = {
-        ...currentBase,
-        [side]: flipSlotNumbers(currentBase?.[side] || {}),
+        ...baseForSwap,
+        [side]: flipSlotNumbers(baseForSwap?.[side] || {}),
       };
-      let nextServe = serveState || null;
+      let nextServe = localServeRef.current || serveState || null;
       if (isPreStartOrOpening && side === activeSide) {
-        const targetSlot = preStartRightSlotForSide(side, currentLayout);
+        const targetSlot = preStartRightSlotForSide(side, layoutForSwap);
         const serverId =
           findUidAtCurrentSlot(side, targetSlot, nextBase, { a: 0, b: 0 }) ||
           firstPlayerIdOfSide(match, side, eventType) ||
@@ -1872,11 +1909,15 @@ export default function RefereeScoreDialog({
         };
       }
       await runLiveControlBusy(`swap-${side}`, () => {
+        localBaseRef.current = nextBase;
         setLocalBaseOverride(nextBase);
-        if (nextServe) setLocalServeOverride(nextServe);
+        if (nextServe) {
+          localServeRef.current = nextServe;
+          setLocalServeOverride(nextServe);
+        }
         return api.setSlotsBase({
           base: nextBase,
-          layout: currentLayout,
+          layout: layoutForSwap,
           serve: nextServe,
         });
       });
@@ -1908,24 +1949,35 @@ export default function RefereeScoreDialog({
     if (!match?._id) return;
     if (isOpeningServeLocked) return;
     const preStartOpening = isDouble && isPreStartOrOpening;
+    const currentServe = localServeRef.current || serveState || {};
+    const baseForLookup = localBaseRef.current || currentBase;
+    const layoutForServe = localLayoutRef.current || currentLayout;
+    const effectiveSide =
+      currentServe?.side === "A" || currentServe?.side === "B"
+        ? currentServe.side
+        : activeSide;
+    const effectiveServerNum =
+      Number(currentServe?.order ?? currentServe?.server ?? activeServerNum ?? 1) === 2
+        ? 2
+        : 1;
     const nextServer = preStartOpening
       ? OPENING_DOUBLES_SERVER
-      : activeServerNum === 1
+      : effectiveServerNum === 1
         ? 2
         : 1;
     const nextSlot = preStartOpening
-      ? preStartRightSlotForSide(activeSide, currentLayout)
+      ? preStartRightSlotForSide(effectiveSide, layoutForServe)
       : nextServer;
-    let serverId = findUidAtCurrentSlot(activeSide, nextSlot);
+    let serverId = findUidAtCurrentSlot(effectiveSide, nextSlot, baseForLookup);
     if (!serverId) {
-      const teamPlayers = pairPlayers[activeSide] || [];
+      const teamPlayers = pairPlayers[effectiveSide] || [];
       serverId =
         teamPlayers
           .map((player) => userIdOf(player))
-          .find((uid) => uid && uid !== textOf(serveState?.serverId)) || "";
+          .find((uid) => uid && uid !== textOf(currentServe?.serverId)) || "";
     }
     const nextServe = {
-      side: activeSide,
+      side: effectiveSide,
       server: nextServer,
       serverId: serverId || null,
       opening: preStartOpening,
@@ -1937,10 +1989,11 @@ export default function RefereeScoreDialog({
           uid: serverId,
           until: Date.now() + SERVER_UID_PIN_MS,
           gameIndex: currentGame,
-          side: activeSide,
+          side: effectiveSide,
           serverNum: nextServer,
         };
       }
+      localServeRef.current = nextServe;
       setLocalServeOverride(nextServe);
       return api.setServe(nextServe);
     });
@@ -1948,6 +2001,7 @@ export default function RefereeScoreDialog({
     activeServerNum,
     activeSide,
     api,
+    currentBase,
     currentGame,
     currentLayout,
     findUidAtCurrentSlot,
@@ -1957,17 +2011,24 @@ export default function RefereeScoreDialog({
     match?._id,
     pairPlayers,
     runLiveControlBusy,
-    serveState?.serverId,
+    serveState,
   ]);
 
   const toggleServeSide = useCallback(async () => {
     if (!match?._id) return;
-    const nextSide = activeSide === "A" ? "B" : "A";
+    const currentServe = localServeRef.current || serveState || {};
+    const baseForLookup = localBaseRef.current || currentBase;
+    const layoutForServe = localLayoutRef.current || currentLayout;
+    const currentSide =
+      currentServe?.side === "A" || currentServe?.side === "B"
+        ? currentServe.side
+        : activeSide;
+    const nextSide = currentSide === "A" ? "B" : "A";
     const opening = isDouble && needsStartAction;
     const preferredSlot = opening
-      ? preStartRightSlotForSide(nextSide, currentLayout)
+      ? preStartRightSlotForSide(nextSide, layoutForServe)
       : 1;
-    let serverId = findUidAtCurrentSlot(nextSide, preferredSlot);
+    let serverId = findUidAtCurrentSlot(nextSide, preferredSlot, baseForLookup);
     if (!serverId) {
       serverId = firstPlayerIdOfSide(match, nextSide, eventType);
     }
@@ -1988,12 +2049,14 @@ export default function RefereeScoreDialog({
           serverNum: nextServe.server,
         };
       }
+      localServeRef.current = nextServe;
       setLocalServeOverride(nextServe);
       return api.setServe(nextServe);
     });
   }, [
     activeSide,
     api,
+    currentBase,
     currentGame,
     currentLayout,
     eventType,
@@ -2002,6 +2065,7 @@ export default function RefereeScoreDialog({
     match,
     needsStartAction,
     runLiveControlBusy,
+    serveState,
   ]);
 
   const buildRandomDrawResult = useCallback(() => {
@@ -2030,6 +2094,7 @@ export default function RefereeScoreDialog({
 
   const applyDrawResult = useCallback(async (result) => {
     if (!result) return;
+    const baseForDraw = localBaseRef.current || currentBase;
     const nextServe = {
       side: result.nextSide,
       server: isDouble ? OPENING_DOUBLES_SERVER : 1,
@@ -2037,10 +2102,12 @@ export default function RefereeScoreDialog({
       opening: isDouble,
     };
     await runProtectedBusy("draw", () => {
+      localLayoutRef.current = result.nextLayout;
+      localServeRef.current = nextServe;
       setLocalLayoutOverride(result.nextLayout);
       setLocalServeOverride(nextServe);
       return api.setSlotsBase({
-        base: currentBase,
+        base: baseForDraw,
         layout: result.nextLayout,
         serve: nextServe,
       });
@@ -2184,13 +2251,15 @@ export default function RefereeScoreDialog({
     if (!ensureInteractionAllowed()) return;
     await runProtectedBusy("start", async () => {
       if (isDouble && Number(currentScore.a) === 0 && Number(currentScore.b) === 0) {
-        const rightSlot = preStartRightSlotForSide(activeSide, currentLayout);
+        const baseForStart = localBaseRef.current || currentBase;
+        const layoutForStart = localLayoutRef.current || currentLayout;
+        const rightSlot = preStartRightSlotForSide(activeSide, layoutForStart);
         const serverId =
           openingRightServerUid ||
           textOf(match?.serve?.serverId) ||
-          findUidAtCurrentSlot(activeSide, rightSlot) ||
+          findUidAtCurrentSlot(activeSide, rightSlot, baseForStart) ||
           serverUidShow ||
-          findUidAtCurrentSlot(activeSide, oppositeSlot(rightSlot)) ||
+          findUidAtCurrentSlot(activeSide, oppositeSlot(rightSlot), baseForStart) ||
           firstPlayerIdOfSide(match, activeSide, eventType) ||
           "";
         if (serverId && textOf(match?.serve?.serverId) !== serverId) {
@@ -2206,6 +2275,7 @@ export default function RefereeScoreDialog({
             side: activeSide,
             uid: serverId,
           };
+          localServeRef.current = nextServe;
           setLocalServeOverride(nextServe);
           await api.setServe(nextServe);
         }
@@ -2223,6 +2293,7 @@ export default function RefereeScoreDialog({
     activeSide,
     api,
     breakState?.active,
+    currentBase,
     currentGame,
     currentLayout,
     currentScore.a,
@@ -2266,40 +2337,29 @@ export default function RefereeScoreDialog({
         mode: "replace",
       };
       if (payload?.prevServe) {
-        setLocalServeOverride({
-          side: payload.prevServe?.side === "B" ? "B" : "A",
-          server:
-            Number(payload.prevServe?.order ?? payload.prevServe?.server ?? 1) === 2
-              ? 2
-              : 1,
-          serverId: payload.prevServe?.serverId || null,
-          opening: Boolean(payload.prevServe?.opening),
-        });
+        const prevServe = normalizeServeOverride(payload.prevServe);
+        localServeRef.current = prevServe;
+        setLocalServeOverride(prevServe);
       }
       forceOptimisticRender((value) => value + 1);
     } else if (undoType === "serve" && payload?.prevServe) {
-      setLocalServeOverride({
-        side: payload.prevServe?.side === "B" ? "B" : "A",
-        server:
-          Number(payload.prevServe?.order ?? payload.prevServe?.server ?? 1) === 2
-            ? 2
-            : 1,
-        serverId: payload.prevServe?.serverId || null,
-        opening: Boolean(payload.prevServe?.opening),
-      });
+      const prevServe = normalizeServeOverride(payload.prevServe);
+      localServeRef.current = prevServe;
+      setLocalServeOverride(prevServe);
     } else if (undoType === "slots") {
-      if (payload?.prevBase) setLocalBaseOverride(payload.prevBase);
-      if (payload?.prevLayout) setLocalLayoutOverride(normalizeLayout(payload.prevLayout));
+      if (payload?.prevBase) {
+        localBaseRef.current = payload.prevBase;
+        setLocalBaseOverride(payload.prevBase);
+      }
+      if (payload?.prevLayout) {
+        const prevLayout = normalizeLayout(payload.prevLayout);
+        localLayoutRef.current = prevLayout;
+        setLocalLayoutOverride(prevLayout);
+      }
       if (payload?.prevServe) {
-        setLocalServeOverride({
-          side: payload.prevServe?.side === "B" ? "B" : "A",
-          server:
-            Number(payload.prevServe?.order ?? payload.prevServe?.server ?? 1) === 2
-              ? 2
-              : 1,
-          serverId: payload.prevServe?.serverId || null,
-          opening: Boolean(payload.prevServe?.opening),
-        });
+        const prevServe = normalizeServeOverride(payload.prevServe);
+        localServeRef.current = prevServe;
+        setLocalServeOverride(prevServe);
       }
     }
 
@@ -3488,6 +3548,7 @@ export default function RefereeScoreDialog({
                               isPreStartOrOpening,
                           };
                           runLiveControlBusy(item, () => {
+                            localServeRef.current = nextServe;
                             setLocalServeOverride(nextServe);
                             return api.setServe({
                               side,

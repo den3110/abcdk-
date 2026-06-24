@@ -84,6 +84,7 @@ class LiveStreamViewModel(
         private const val PRIMARY_START_RETRY_MAX_MS = 60_000L
         private const val ARMED_START_WATCHDOG_INTERVAL_MS = 8_000L
         private const val NEXT_COURT_FALLBACK_PROBE_INTERVAL_MS = 15_000L
+        private const val RECORD_ONLY_OVERLAY_FORCE_REFRESH_MS = 1_500L
     }
 
     // ===== Params from deeplink =====
@@ -2246,6 +2247,23 @@ class LiveStreamViewModel(
                 overlayRenderer.refresh()
                 streamManager.nudgeOverlayFromFreshData("payload_refresh")
             }
+        }
+
+        launchGuarded(name = "observeRecordOnlyOverlayKeepAlive") {
+            combine(streamMode, recordingEngineState) { mode, engine ->
+                mode == StreamMode.RECORD_ONLY && (engine.isRecording || engine.pendingResume)
+            }
+                .distinctUntilChanged()
+                .collectLatest { active ->
+                    if (!active) return@collectLatest
+                    while (true) {
+                        if (!freshEntryRequired) {
+                            overlayRenderer.forceRefresh()
+                            streamManager.nudgeOverlayFromFreshData("record_only_force_refresh")
+                        }
+                        delay(RECORD_ONLY_OVERLAY_FORCE_REFRESH_MS)
+                    }
+                }
         }
 
         launchGuarded(name = "observeMatchInfoForWaitingState") {

@@ -59,6 +59,11 @@ class RtmpStreamManager(
         FAILED,
     }
 
+    private enum class RecordOnlyOverlayKeepAliveAction {
+        HANDLED,
+        FORCE_REARM,
+    }
+
     companion object {
         private const val TAG = "RtmpStream"
         private const val MAX_RECONNECT_ATTEMPTS = 3
@@ -69,8 +74,10 @@ class RtmpStreamManager(
         private const val AUTO_QUALITY_CONSECUTIVE_LOW_READINGS = 7
         private const val EMULATOR_AUTO_QUALITY_CONSECUTIVE_LOW_READINGS = 10
         private const val ORIENTATION_RECONFIGURE_DELAY_MS = 500L  // Fix #2: increased from 300ms for slow devices
-        private const val OVERLAY_ATTACH_RETRY_COUNT = 6
-        private const val OVERLAY_ATTACH_RETRY_DELAY_MS = 120L
+        // Chu kỳ attach dài hơn (~2s) để "cưỡi qua" lúc GL tạm dừng khi xoay segment /
+        // start record, tránh tính thành lỗi rồi rơi vào fail-soft -> giữ overlay ổn định.
+        private const val OVERLAY_ATTACH_RETRY_COUNT = 10
+        private const val OVERLAY_ATTACH_RETRY_DELAY_MS = 200L
         private const val OVERLAY_HEALTHCHECK_INTERVAL_MS = 1_000L
         private const val OVERLAY_RECOVERY_BURST_COOLDOWN_MS = 1_500L
         private const val LIVE_BITRATE_STALL_RESTART_MS = 50_000L
@@ -80,6 +87,9 @@ class RtmpStreamManager(
         private const val MIN_RECORDING_SEGMENT_DURATION_MS = 6_000L
         private const val OVERLAY_ATTACHED_STABLE_COOLDOWN_MS = 1_200L
         private const val RECORD_ONLY_OVERLAY_FAIL_SOFT_THRESHOLD = 2
+        // Fail-soft chỉ tạm ẩn NGẮN rồi tự thử gắn lại — để overlay hồi phục nhanh
+        // (uptime cao), thay vì tắt 60s gây "mất overlay" cả phút.
+        private const val RECORD_ONLY_OVERLAY_SUSPEND_MS = 8_000L
         private const val WAKE_LOCK_TIMEOUT_MS = 10 * 60_000L
         private const val WAKE_LOCK_RENEW_BEFORE_MS = 60_000L
         private const val RECOVERY_BUDGET_WINDOW_MS = 15 * 60_000L
@@ -149,10 +159,14 @@ class RtmpStreamManager(
             _isCharging.value = charging
 
             val now = System.currentTimeMillis()
-            if (tempC != null && tempC >= 45f && desiredStreaming.get() && now - lastThermalDowngradeAtMs >= 5 * 60_000L) {
+            // KHÔNG suspend overlay theo nhiệt: overlay chỉ là bitmap tĩnh, gần như không
+            // tác động nhiệt. Mitigation nhiệt thật là hạ độ phân giải/bitrate ở dưới.
+            if (tempC != null && tempC >= 45f && now - lastThermalDowngradeAtMs >= 5 * 60_000L) {
                 lastThermalDowngradeAtMs = now
                 _lastThermalEvent.value = ThermalEvent(tempC = tempC, atMs = now)
-                maybeDowngradeForStability("thermal")
+                if (desiredStreaming.get()) {
+                    maybeDowngradeForStability("thermal")
+                }
                 if (_torchOn.value) {
                     scope.launch { toggleTorch() }
                 }
@@ -181,6 +195,7 @@ class RtmpStreamManager(
     private var pendingRecordingResume: PendingRecordingResume? = null
     private var recordOnlyOverlayDisabled = false
     private var recordOnlyOverlayFailureCount = 0
+    private var recordOnlyOverlayDisabledUntilMs: Long = 0L
 
     // Mutex to prevent concurrent camera operations (anti-crash #3)
     private val cameraMutex = Mutex()
@@ -212,7 +227,6 @@ class RtmpStreamManager(
     private var lastOverlayPayloadNudgeAtMs: Long = 0L
     @Volatile
     private var lastOverlayRecoveryBurstAtMs: Long = 0L
-    @Volatile
     private var recoveryBudgetWindowStartMs: Long = 0L
     @Volatile
     private var recoveryAttemptsInWindow: Int = 0
@@ -678,11 +692,7 @@ class RtmpStreamManager(
                     stopCurrentRecordingLocked(isFinal = true, reason = "start_new_recording", resumeAfter = false)
                 }
 
-                if (cam.isStreaming) {
-                    resetRecordOnlyOverlayFailSoftLocked()
-                } else {
-                    disableRecordOnlyOverlayLocked("record_only_start")
-                }
+                resetRecordOnlyOverlayFailSoftLocked()
 
                 if (!cam.isStreaming && !cam.isOnPreview) {
                     autoPreviewAllowed = true
@@ -725,6 +735,7 @@ class RtmpStreamManager(
                         segmentIndex = 0,
                         segmentStartedAtMs = recordingSegmentStartedAtMs,
                     )
+                maybeSuspendRecordOnlyOverlayForCurrentPressureLocked(cam)
                 scheduleRecordingRotationLocked()
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -1025,7 +1036,7 @@ class RtmpStreamManager(
     private fun maybeResumeRecordingAfterBoundaryLocked(reason: String) {
         val pending = pendingRecordingResume ?: return
         val cam = rtmpCamera ?: return
-        if (!cam.isStreaming) {
+        if (!cam.isStreaming && !cam.isOnPreview) {
             val prepared = prepareStreamPipelineLocked(
                 cam = cam,
                 quality = currentQuality,
@@ -1098,12 +1109,14 @@ class RtmpStreamManager(
         outputPath: String,
         reason: String,
     ): Result<Unit> {
-        val prepared = prepareRecordingPipelineLocked(
-            cam = cam,
-            reason = "${reason}_prepare",
-        )
-        if (!prepared) {
-            return Result.failure(IllegalStateException("Không chuẩn bị được encoder để ghi hình."))
+        if (!cam.isStreaming && !cam.isOnPreview) {
+            val prepared = prepareRecordingPipelineLocked(
+                cam = cam,
+                reason = "${reason}_prepare",
+            )
+            if (!prepared) {
+                return Result.failure(IllegalStateException("Không chuẩn bị được encoder để ghi hình."))
+            }
         }
 
         return runCatching { cam.startRecord(outputPath) }
@@ -1303,10 +1316,20 @@ class RtmpStreamManager(
     private fun resetRecordOnlyOverlayFailSoftLocked() {
         recordOnlyOverlayDisabled = false
         recordOnlyOverlayFailureCount = 0
+        recordOnlyOverlayDisabledUntilMs = 0L
     }
 
     private fun isRecordOnlyOverlayFailSoftActiveLocked(cam: RtmpCamera2? = rtmpCamera): Boolean {
-        return recordOnlyOverlayDisabled && cam != null && cam.isOnPreview && !cam.isStreaming
+        if (!recordOnlyOverlayDisabled) return false
+        val activeRecordOnlyPreview = cam != null && cam.isOnPreview && !cam.isStreaming
+        if (!activeRecordOnlyPreview) return false
+        val now = System.currentTimeMillis()
+        if (recordOnlyOverlayDisabledUntilMs > 0L && now >= recordOnlyOverlayDisabledUntilMs) {
+            Log.d(TAG, "Record-only overlay suspend expired, re-enabling overlay")
+            resetRecordOnlyOverlayFailSoftLocked()
+            return false
+        }
+        return true
     }
 
     private fun isRecordOnlyOverlayAttachContextLocked(): Boolean {
@@ -1331,6 +1354,7 @@ class RtmpStreamManager(
         val now = System.currentTimeMillis()
         recordOnlyOverlayDisabled = true
         recordOnlyOverlayFailureCount = RECORD_ONLY_OVERLAY_FAIL_SOFT_THRESHOLD
+        recordOnlyOverlayDisabledUntilMs = now + RECORD_ONLY_OVERLAY_SUSPEND_MS
         overlayPostRecordJob?.cancel()
         overlayPostRecordJob = null
         overlayRecoveryBurstJob?.cancel()
@@ -1349,16 +1373,44 @@ class RtmpStreamManager(
         updateRecoveryState(
             stage = RecoveryStage.FAIL_SOFT_GUARD,
             severity = RecoverySeverity.INFO,
-            summary = "Record-only tạm tắt overlay để giữ ghi hình ổn định.",
-            detail = "App dừng attach/rebind overlay trong phiên ghi hiện tại vì overlay record-only không ổn định. Ghi hình vẫn tiếp tục.",
+            summary = "Record-only tạm ẩn overlay để giữ ghi hình ổn định.",
+            detail = "App tạm dừng attach/rebind overlay khi thiết bị hoặc filter có dấu hiệu không ổn. Khi hết cooldown, overlay sẽ được gắn lại nếu recorder ổn định.",
             activeMitigations = listOf(
-                "Tạm tắt overlay record-only",
+                "Tạm ẩn overlay record-only",
                 "Giữ recorder đang chạy",
-                "Không rebuild camera nếu chưa cần",
+                "Tự thử gắn lại sau cooldown",
             ),
             lastFatalReason = reason,
         )
-        Log.w(TAG, "Record-only overlay disabled for stability: $reason")
+        Log.w(TAG, "Record-only overlay suspended for stability: $reason")
+    }
+
+    private fun suspendRecordOnlyOverlayForStability(reason: String) {
+        if (isReleased) return
+        scope.launch {
+            cameraMutex.withLock {
+                if (isReleased) return@withLock
+                val cam = rtmpCamera ?: return@withLock
+                if (!cam.isOnPreview || cam.isStreaming || !_recordingState.value.isRecording) {
+                    return@withLock
+                }
+                disableRecordOnlyOverlayLocked(reason)
+            }
+        }
+    }
+
+    private fun maybeSuspendRecordOnlyOverlayForCurrentPressureLocked(cam: RtmpCamera2) {
+        if (!cam.isOnPreview || cam.isStreaming || !_recordingState.value.isRecording) return
+        val now = System.currentTimeMillis()
+        // Chỉ tạm ẩn overlay khi RAM tới hạn (hiếm) — KHÔNG vì nhiệt.
+        val recentMemoryPressure =
+            _lastMemoryPressure.value?.let {
+                it.level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL &&
+                    now - it.atMs <= RECORD_ONLY_OVERLAY_SUSPEND_MS
+            } == true
+        if (recentMemoryPressure) {
+            disableRecordOnlyOverlayLocked("recent_memory_pressure")
+        }
     }
 
     private fun setupOverlayFilterIfPossible(
@@ -1597,26 +1649,34 @@ class RtmpStreamManager(
         if (isReleased) return
         overlayPostRecordJob?.cancel()
         overlayPostRecordJob = scope.launch {
-            listOf(300L, 900L, 1_800L).forEachIndexed { index, delayMs ->
+            // Gắn lại SỚM sau mỗi lần startRecord (record-only re-init GL mỗi đoạn) để
+            // thu hẹp khoảng overlay mất khi xoay segment. Dừng ngay khi gắn lại thành công.
+            listOf(60L, 200L, 450L, 900L, 1_800L).forEachIndexed { index, delayMs ->
                 delay(delayMs)
                 if (isReleased) return@launch
-                val shouldRebind = cameraMutex.withLock {
+                val shouldAttach = cameraMutex.withLock {
                     if (isReleased || !isSurfaceValid) {
                         false
                     } else {
-                        val cam = rtmpCamera
-                        val activeRecordOnlyPreview =
-                            cam != null &&
-                                cam.isOnPreview &&
-                                !cam.isStreaming &&
-                                !isRecordOnlyOverlayFailSoftActiveLocked(cam)
-                        val hasOverlayBitmap = overlayBitmap?.isRecycled == false
-                        activeRecordOnlyPreview && hasOverlayBitmap
+                        val cam = rtmpCamera ?: return@withLock false
+                        if (!cam.isOnPreview || cam.isStreaming || isRecordOnlyOverlayFailSoftActiveLocked(cam)) {
+                            return@withLock false
+                        }
+                        val bitmap = overlayBitmap?.takeIf { !it.isRecycled } ?: return@withLock false
+                        val filter = overlayFilter
+                        if (filter != null && overlayFilterOwner === cam && canApplyOverlayBitmapLocked(cam)) {
+                            if (applyOverlayBitmapToFilterLocked(filter, bitmap)) {
+                                markOverlayAttached("${reason}_record_refresh_${index + 1}")
+                                return@withLock false
+                            }
+                            resetOverlayFiltersLocked(clearGlFilters = false)
+                        }
+                        true
                     }
                 }
-                if (!shouldRebind) return@launch
+                if (!shouldAttach) return@launch
                 setupOverlayFilterIfPossible(
-                    forceRecreate = true,
+                    forceRecreate = false,
                     reason = "${reason}_record_stabilize_${index + 1}",
                 )
             }
@@ -1637,7 +1697,10 @@ class RtmpStreamManager(
             lastEvent = reason,
         )
         Log.d(TAG, "overlay_attach_succeeded reason=$reason")
-        if (_recoveryState.value.stage == RecoveryStage.OVERLAY_REBUILD) {
+        if (
+            _recoveryState.value.stage == RecoveryStage.OVERLAY_REBUILD ||
+            _recoveryState.value.stage == RecoveryStage.FAIL_SOFT_GUARD
+        ) {
             clearRecoveryState()
         }
     }
@@ -1811,6 +1874,40 @@ class RtmpStreamManager(
         if (state is StreamState.Connecting || state is StreamState.Reconnecting) return false
         val gl = runCatching { cam.glInterface }.getOrNull() ?: return false
         return gl.isRunning() && (cam.isOnPreview || cam.isStreaming)
+    }
+
+    private fun recordOnlyOverlayKeepAliveLocked(
+        cam: RtmpCamera2?,
+    ): RecordOnlyOverlayKeepAliveAction? {
+        if (
+            cam == null ||
+            cam.isStreaming ||
+            !cam.isOnPreview ||
+            !_recordingState.value.isRecording
+        ) {
+            return null
+        }
+        if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) {
+            return RecordOnlyOverlayKeepAliveAction.HANDLED
+        }
+        val bitmap = overlayBitmap?.takeIf { !it.isRecycled }
+            ?: return RecordOnlyOverlayKeepAliveAction.HANDLED
+
+        val filter = overlayFilter
+        if (filter != null && overlayFilterOwner === cam && canApplyOverlayBitmapLocked(cam)) {
+            if (applyOverlayBitmapToFilterLocked(filter, bitmap)) {
+                if (!_overlayHealth.value.attached) {
+                    markOverlayAttached("record_keep_alive")
+                }
+                return RecordOnlyOverlayKeepAliveAction.HANDLED
+            }
+            resetOverlayFiltersLocked(clearGlFilters = false)
+        }
+
+        if (overlayAttachJob?.isActive == true) {
+            return RecordOnlyOverlayKeepAliveAction.HANDLED
+        }
+        return RecordOnlyOverlayKeepAliveAction.FORCE_REARM
     }
 
     private fun isPortrait(): Boolean {
@@ -2071,6 +2168,9 @@ class RtmpStreamManager(
         if (!isLifecycleForeground) return
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             _lastMemoryPressure.value = MemoryPressureEvent(level = level, atMs = System.currentTimeMillis())
+            if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+                suspendRecordOnlyOverlayForStability("memory_pressure_level_$level")
+            }
             val shouldReconfigureNow =
                 desiredStreaming.get() ||
                     _recordingState.value.isRecording ||
@@ -2791,19 +2891,24 @@ class RtmpStreamManager(
                             val cam = rtmpCamera
                             val active = cam != null && (cam.isOnPreview || cam.isStreaming)
                             val hasBitmap = overlayBitmap?.isRecycled == false
-                            val health = _overlayHealth.value
                             val attachInFlight = overlayAttachJob?.isActive == true
                             val attachedRecently = wasOverlayAttachedRecently(now)
-                            if (!active || !hasBitmap) {
-                                Triple(false, false, false)
-                            } else if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) {
-                                Triple(false, false, false)
-                            } else if (attachInFlight || attachedRecently) {
-                                Triple(false, false, true)
-                            } else {
-                                val hasFilterForCamera = overlayFilter != null && overlayFilterOwner === cam
-                                val forceRebind = !hasFilterForCamera
-                                Triple(true, forceRebind, false)
+                            when (recordOnlyOverlayKeepAliveLocked(cam)) {
+                                RecordOnlyOverlayKeepAliveAction.FORCE_REARM -> Triple(true, true, false)
+                                RecordOnlyOverlayKeepAliveAction.HANDLED -> Triple(false, false, false)
+                                null -> {
+                                    if (!active || !hasBitmap) {
+                                        Triple(false, false, false)
+                                    } else if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) {
+                                        Triple(false, false, false)
+                                    } else if (attachInFlight || attachedRecently) {
+                                        Triple(false, false, true)
+                                    } else {
+                                        val hasFilterForCamera = overlayFilter != null && overlayFilterOwner === cam
+                                        val forceRebind = !hasFilterForCamera
+                                        Triple(true, forceRebind, false)
+                                    }
+                                }
                             }
                         }
                     }

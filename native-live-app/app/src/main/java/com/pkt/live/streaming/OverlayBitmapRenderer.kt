@@ -165,6 +165,12 @@ class OverlayBitmapRenderer(
         scheduleRender()
     }
 
+    fun forceRefresh() {
+        lastRenderedData.set(null)
+        lastRenderedBrandingKey.set("")
+        scheduleRender()
+    }
+
     private fun buildBrandingFingerprint(data: OverlayData): String {
         val logoOk = synchronized(bitmapLock) { logoBitmap?.isRecycled == false }
         val sponsorOk = synchronized(bitmapLock) { sponsorBarBitmap?.isRecycled == false }
