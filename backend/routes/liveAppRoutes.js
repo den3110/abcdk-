@@ -4,6 +4,7 @@ import {
   getCourtRuntimeForLiveApp,
   getMatchRuntimeForLiveApp,
 } from "../controllers/liveAppController.js";
+import { getLiveAppVersion } from "../controllers/appVersion.controller.js";
 import { protectLiveApp } from "../middleware/authMiddleware.js";
 import { getLiveAppBootstrap } from "../controllers/liveAppAuthController.js";
 import {
@@ -21,6 +22,7 @@ import {
 
 const router = express.Router();
 
+router.get("/version", getLiveAppVersion);
 router.post("/matches/:matchId/live/create", protectLiveApp, createLiveSessionForLiveApp);
 router.get("/bootstrap", protectLiveApp, getLiveAppBootstrap);
 router.get("/clusters", protectLiveApp, listLiveAppCourtClusters);

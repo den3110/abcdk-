@@ -50,6 +50,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonPrimitive
@@ -92,13 +93,29 @@ class AdminHomeActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        setContent {
+            PickletourLiveTheme {
+                LiveAppUpdateCheckingScreen()
+            }
+        }
+
+        lifecycleScope.launch {
+            val requiredUpdate = LiveAppUpdateGate.requiredUpdateOrNull(repository)
+            if (requiredUpdate != null) {
+                LiveAppUpdateGate.showRequiredUpdate(this@AdminHomeActivity, requiredUpdate)
+                return@launch
+            }
+            showAdminHomeScreen()
+        }
+    }
+
+    private fun showAdminHomeScreen() {
         val saved = tokenStore.getSessionOrNull()?.accessToken.orEmpty()
         tokenState.value = saved
         if (saved.isNotBlank()) {
             authInterceptor.token = saved
             repository.connectSocketSession(saved)
         }
-
         setContent {
             PickletourLiveTheme {
                 AdminHomeScreen(
@@ -126,7 +143,6 @@ class AdminHomeActivity : AppCompatActivity() {
             }
         }
     }
-
 }
 
 private const val CLUSTER_LIST_REFRESH_INTERVAL_MS = 10_000L

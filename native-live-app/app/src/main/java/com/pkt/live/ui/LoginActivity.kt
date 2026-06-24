@@ -118,6 +118,36 @@ class LoginActivity : AppCompatActivity() {
 
         setContent {
             PickletourLiveTheme {
+                LiveAppUpdateCheckingScreen()
+            }
+        }
+
+        lifecycleScope.launch {
+            val requiredUpdate = LiveAppUpdateGate.requiredUpdateOrNull(repository)
+            if (requiredUpdate != null) {
+                LiveAppUpdateGate.showRequiredUpdate(this@LoginActivity, requiredUpdate)
+                return@launch
+            }
+            showLoginScreen(saved)
+            handleAppHandoffIntent(intent)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAppHandoffIntent(intent)
+    }
+
+    override fun onDestroy() {
+        authService?.dispose()
+        authService = null
+        super.onDestroy()
+    }
+
+    private fun showLoginScreen(saved: AuthSession?) {
+        setContent {
+            PickletourLiveTheme {
                 LoginScreen(
                     initialSession = saved,
                     isAuthFlowLoading = isAuthFlowLoading,
@@ -133,20 +163,6 @@ class LoginActivity : AppCompatActivity() {
                 )
             }
         }
-
-        handleAppHandoffIntent(intent)
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleAppHandoffIntent(intent)
-    }
-
-    override fun onDestroy() {
-        authService?.dispose()
-        authService = null
-        super.onDestroy()
     }
 
     private suspend fun refreshProfile() {

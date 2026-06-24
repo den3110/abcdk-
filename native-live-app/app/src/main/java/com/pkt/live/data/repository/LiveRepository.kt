@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.pkt.live.BuildConfig
 import com.pkt.live.data.api.PickleTourApi
 import com.pkt.live.data.observer.LiveObserverConfig
 import com.pkt.live.data.model.*
@@ -140,6 +141,24 @@ class LiveRepository(
             }
         } catch (e: Exception) {
             Log.e(TAG, "getLiveAppBootstrap error", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun checkLiveAppVersion(): Result<LiveAppVersionResponse> {
+        return try {
+            val resp =
+                api.getLiveAppVersion(
+                    versionCode = BuildConfig.VERSION_CODE,
+                    versionName = BuildConfig.VERSION_NAME,
+                )
+            if (resp.isSuccessful && resp.body() != null) {
+                Result.success(resp.body()!!)
+            } else {
+                Result.failure(Exception("Check live app version failed: ${resp.code()}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "checkLiveAppVersion error", e)
             Result.failure(e)
         }
     }

@@ -107,6 +107,29 @@ data class LiveAppCourtRuntimeResponse(
     val leaseHints: RuntimeLeaseHints? = null,
 )
 
+data class LiveAppVersionResponse(
+    val ok: Boolean = false,
+    val configured: Boolean = false,
+    val platform: String = "live-android",
+    val currentBuild: Int = 0,
+    val currentVersion: String? = null,
+    val latestVersion: String? = null,
+    val latestBuild: Int = 0,
+    val minSupportedBuild: Int = 0,
+    val forceUpdate: Boolean = false,
+    val updateAvailable: Boolean = false,
+    val blocked: Boolean = false,
+    val downloadUrl: String? = null,
+    val storeUrl: String? = null,
+    val changelog: String = "",
+    val message: String = "",
+) {
+    fun updateUrl(): String? =
+        listOf(downloadUrl, storeUrl)
+            .firstOrNull { !it.isNullOrBlank() }
+            ?.trim()
+}
+
 /* ===================== Tournament / Admin ===================== */
 
 data class TournamentData(

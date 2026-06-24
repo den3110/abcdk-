@@ -5,7 +5,7 @@ const schema = new mongoose.Schema(
   {
     platform: {
       type: String,
-      enum: ["all", "ios", "android"],
+      enum: ["all", "ios", "android", "live-android", "live-ios"],
       default: "all",
       unique: true,
     },

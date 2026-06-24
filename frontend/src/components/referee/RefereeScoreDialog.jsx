@@ -1365,8 +1365,10 @@ export default function RefereeScoreDialog({
     severity: "info",
   });
   const playerOrderBaseSource = localBaseOverride || localBaseRef.current || serverBaseSource || {};
+  const waitingInitialLiveSnapshot =
+    open && Boolean(matchId) && !data && !error;
   const playerOrderHydrating =
-    open && isDouble && (liveMatchLoading || liveSyncBusy || busy === "start");
+    open && isDouble && waitingInitialLiveSnapshot;
   const currentServeForHydration = localServeOverride || localServeRef.current || match?.serve || {};
   const serveOrderLoading =
     playerOrderHydrating && !textOf(currentServeForHydration?.serverId);
@@ -1387,11 +1389,11 @@ export default function RefereeScoreDialog({
   const leftPanelLoadingRows = Math.max(1, Math.min(2, (pairPlayers[leftSide] || []).length || 2));
   const rightPanelLoadingRows = Math.max(1, Math.min(2, (pairPlayers[rightSide] || []).length || 2));
   const scoreAreaLoading =
-    playerOrderHydrating &&
-    (busy === "start" ||
-      serveOrderLoading ||
+    waitingInitialLiveSnapshot ||
+    (playerOrderHydrating &&
+      (serveOrderLoading ||
       leftPlayerOrderLoading ||
-      rightPlayerOrderLoading);
+      rightPlayerOrderLoading));
 
   const currentCourtStationId = idOf(
     match?.courtStationId || match?.courtStation?._id || match?.courtStation,

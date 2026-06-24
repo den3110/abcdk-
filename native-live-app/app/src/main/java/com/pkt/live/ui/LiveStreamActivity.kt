@@ -18,11 +18,14 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
 import com.pedro.library.view.OpenGlView
 import com.pkt.live.R
 import com.pkt.live.data.auth.TokenStore
+import com.pkt.live.data.repository.LiveRepository
 import com.pkt.live.ui.screen.LiveScreen
 import com.pkt.live.ui.theme.PickletourLiveTheme
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -48,6 +51,7 @@ class LiveStreamActivity : AppCompatActivity() {
 
     private val viewModel: LiveStreamViewModel by viewModel()
     private val tokenStore: TokenStore by inject()
+    private val repository: LiveRepository by inject()
 
     private var pendingMatchId: String = ""
     private var pendingPageId: String? = null
@@ -115,6 +119,18 @@ class LiveStreamActivity : AppCompatActivity() {
         // Parse deeplink (keep this very light to avoid blocking transition)
         applyIntentPayload(savedInstanceState = savedInstanceState, sourceIntent = intent, reinitialize = false)
 
+        lifecycleScope.launch {
+            val requiredUpdate = LiveAppUpdateGate.requiredUpdateOrNull(repository)
+            if (requiredUpdate != null) {
+                LiveAppUpdateGate.showRequiredUpdate(this@LiveStreamActivity, requiredUpdate)
+                return@launch
+            }
+            initializeLiveContent()
+        }
+    }
+
+    private fun initializeLiveContent() {
+        if (contentReady) return
         setContentView(R.layout.activity_live)
 
         // Attach camera surface

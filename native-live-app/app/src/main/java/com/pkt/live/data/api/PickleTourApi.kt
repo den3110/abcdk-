@@ -14,6 +14,7 @@ import com.pkt.live.data.model.LoginResponse
 import com.pkt.live.data.model.MatchData
 import com.pkt.live.data.model.NextCourtMatchResponse
 import com.pkt.live.data.model.OverlayConfig
+import com.pkt.live.data.model.LiveAppVersionResponse
 import com.pkt.live.data.model.FinalizeMatchRecordingRequest
 import com.pkt.live.data.model.LiveAppCourtRuntimeResponse
 import com.pkt.live.data.model.MatchRecordingResponse
@@ -69,6 +70,13 @@ interface PickleTourApi {
 
     @GET("api/live-app/bootstrap")
     suspend fun getLiveAppBootstrap(): Response<LiveAppBootstrapResponse>
+
+    @GET("api/live-app/version")
+    suspend fun getLiveAppVersion(
+        @Query("platform") platform: String = "live-android",
+        @Query("versionCode") versionCode: Int,
+        @Query("versionName") versionName: String,
+    ): Response<LiveAppVersionResponse>
 
     @GET("api/live-app/clusters")
     suspend fun listLiveAppCourtClusters(): Response<CourtClusterListResponse>
