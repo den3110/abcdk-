@@ -79,6 +79,7 @@ class RtmpStreamManager(
         private const val DEFAULT_RECORDING_SEGMENT_DURATION_MS = 6_000L
         private const val MIN_RECORDING_SEGMENT_DURATION_MS = 6_000L
         private const val OVERLAY_ATTACHED_STABLE_COOLDOWN_MS = 1_200L
+        private const val RECORD_ONLY_OVERLAY_FAIL_SOFT_THRESHOLD = 2
         private const val WAKE_LOCK_TIMEOUT_MS = 10 * 60_000L
         private const val WAKE_LOCK_RENEW_BEFORE_MS = 60_000L
         private const val RECOVERY_BUDGET_WINDOW_MS = 15 * 60_000L
@@ -178,6 +179,8 @@ class RtmpStreamManager(
     private var recordingSegmentStartedAtMs: Long = 0L
     private var recordingSegmentDurationMs: Long = DEFAULT_RECORDING_SEGMENT_DURATION_MS
     private var pendingRecordingResume: PendingRecordingResume? = null
+    private var recordOnlyOverlayDisabled = false
+    private var recordOnlyOverlayFailureCount = 0
 
     // Mutex to prevent concurrent camera operations (anti-crash #3)
     private val cameraMutex = Mutex()
@@ -854,6 +857,7 @@ class RtmpStreamManager(
         recordingSegmentStartedAtMs = 0L
         recordingSegmentDurationMs = DEFAULT_RECORDING_SEGMENT_DURATION_MS
         pendingRecordingResume = null
+        resetRecordOnlyOverlayFailSoftLocked()
         _recordingState.value =
             RecordingEngineState(
                 isRecording = false,
@@ -1171,6 +1175,10 @@ class RtmpStreamManager(
 
                 val filter = overlayFilter
                 val cam = rtmpCamera
+                if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) {
+                    Log.w(TAG, "Skip overlay bitmap apply because record-only fail-soft is active")
+                    return@withLock
+                }
                 val canApplyDirectly = canApplyOverlayBitmapLocked(cam)
                 if (filter != null && cam != null && overlayFilterOwner === cam && canApplyDirectly) {
                     if (applyOverlayBitmapToFilterLocked(filter, copy)) {
@@ -1201,6 +1209,7 @@ class RtmpStreamManager(
                     val cam = rtmpCamera ?: return@withLock null
                     val active = cam.isOnPreview || cam.isStreaming
                     val hasBitmap = overlayBitmap?.isRecycled == false
+                    if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) return@withLock null
                     if (!active || !hasBitmap) return@withLock null
                     if (overlayAttachJob?.isActive == true) return@withLock Pair(false, false)
 
@@ -1284,6 +1293,67 @@ class RtmpStreamManager(
         )
     }
 
+    private fun resetRecordOnlyOverlayFailSoftLocked() {
+        recordOnlyOverlayDisabled = false
+        recordOnlyOverlayFailureCount = 0
+    }
+
+    private fun isRecordOnlyOverlayFailSoftActiveLocked(cam: RtmpCamera2? = rtmpCamera): Boolean {
+        return recordOnlyOverlayDisabled && cam != null && cam.isOnPreview && !cam.isStreaming
+    }
+
+    private fun isRecordOnlyOverlayAttachContextLocked(): Boolean {
+        val cam = rtmpCamera ?: return false
+        return cam.isOnPreview && !cam.isStreaming && _recordingState.value.isRecording
+    }
+
+    private fun markRecordOnlyOverlayAttachFailedLocked(reason: String): Boolean {
+        if (!isRecordOnlyOverlayAttachContextLocked()) return false
+        recordOnlyOverlayFailureCount += 1
+        Log.w(
+            TAG,
+            "record_only_overlay_attach_failed count=$recordOnlyOverlayFailureCount " +
+                "threshold=$RECORD_ONLY_OVERLAY_FAIL_SOFT_THRESHOLD reason=$reason",
+        )
+        if (recordOnlyOverlayFailureCount < RECORD_ONLY_OVERLAY_FAIL_SOFT_THRESHOLD) return false
+        disableRecordOnlyOverlayLocked(reason)
+        return true
+    }
+
+    private fun disableRecordOnlyOverlayLocked(reason: String) {
+        val now = System.currentTimeMillis()
+        recordOnlyOverlayDisabled = true
+        recordOnlyOverlayFailureCount = RECORD_ONLY_OVERLAY_FAIL_SOFT_THRESHOLD
+        overlayPostRecordJob?.cancel()
+        overlayPostRecordJob = null
+        overlayRecoveryBurstJob?.cancel()
+        overlayRecoveryBurstJob = null
+        resetOverlayFiltersLocked(clearGlFilters = true)
+        _overlayHealth.value = _overlayHealth.value.copy(
+            attached = false,
+            reattaching = false,
+            lastIssue = reason,
+            lastIssueAtMs = now,
+            lastEvent = reason,
+        )
+        runCatching {
+            FirebaseCrashlytics.getInstance().log("record_only_overlay_fail_soft reason=${reason.take(120)}")
+        }
+        updateRecoveryState(
+            stage = RecoveryStage.FAIL_SOFT_GUARD,
+            severity = RecoverySeverity.INFO,
+            summary = "Record-only tạm tắt overlay để giữ ghi hình ổn định.",
+            detail = "App dừng attach/rebind overlay trong phiên ghi hiện tại vì overlay record-only không ổn định. Ghi hình vẫn tiếp tục.",
+            activeMitigations = listOf(
+                "Tạm tắt overlay record-only",
+                "Giữ recorder đang chạy",
+                "Không rebuild camera nếu chưa cần",
+            ),
+            lastFatalReason = reason,
+        )
+        Log.w(TAG, "Record-only overlay disabled for stability: $reason")
+    }
+
     private fun setupOverlayFilterIfPossible(
         forceRecreate: Boolean = false,
         reason: String = "unknown",
@@ -1299,6 +1369,13 @@ class RtmpStreamManager(
         logOverlayAttachStarted(reason, forceRecreate, now)
         overlayAttachJob?.cancel()
         overlayAttachJob = scope.launch {
+            val failSoftActive = cameraMutex.withLock {
+                isRecordOnlyOverlayFailSoftActiveLocked()
+            }
+            if (failSoftActive) {
+                Log.w(TAG, "Skip overlay attach because record-only fail-soft is active: $reason")
+                return@launch
+            }
             val shouldMarkReattaching = cameraMutex.withLock {
                 forceRecreate || overlayFilter == null || !_overlayHealth.value.attached
             }
@@ -1324,7 +1401,12 @@ class RtmpStreamManager(
                 delay(OVERLAY_ATTACH_RETRY_DELAY_MS)
             }
             Log.w(TAG, "Overlay filter not ready after retries: $reason")
-            markOverlayIssue("Overlay bị rơi khỏi encoder trong lúc `$reason`.")
+            val failSoftActivated = cameraMutex.withLock {
+                markRecordOnlyOverlayAttachFailedLocked(reason)
+            }
+            if (!failSoftActivated) {
+                markOverlayIssue("Overlay bị rơi khỏi encoder trong lúc `$reason`.")
+            }
         }
     }
 
@@ -1347,6 +1429,7 @@ class RtmpStreamManager(
                     val health = _overlayHealth.value
                     val nowMs = System.currentTimeMillis()
                     when {
+                        isRecordOnlyOverlayFailSoftActiveLocked(cam) -> "disabled"
                         !active || !hasBitmap -> "stop"
                         health.attached || wasOverlayAttachedRecently(nowMs) -> "stable"
                         overlayAttachJob?.isActive == true -> "in_flight"
@@ -1383,6 +1466,7 @@ class RtmpStreamManager(
     private fun tryAttachOverlayFilterLocked(forceRecreate: Boolean): OverlayAttachResult {
         if (isReleased) return OverlayAttachResult.FAILED
         val cam = rtmpCamera ?: return OverlayAttachResult.FAILED
+        if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) return OverlayAttachResult.FAILED
         if (!cam.isOnPreview && !cam.isStreaming) return OverlayAttachResult.FAILED
         val gl = runCatching { cam.glInterface }.getOrNull() ?: return OverlayAttachResult.FAILED
         if (!gl.isRunning()) return OverlayAttachResult.FAILED
@@ -1488,6 +1572,7 @@ class RtmpStreamManager(
                     val hasOverlayBitmap = overlayBitmap?.isRecycled == false
                     val active = cam != null && (cam.isOnPreview || cam.isStreaming) && hasOverlayBitmap
                     if (!active) return@withLock null
+                    if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) return@withLock null
                     val hasFilterForCamera = overlayFilter != null && overlayFilterOwner === cam
                     val forceRecreate = !hasFilterForCamera
                     forceRecreate
@@ -1513,7 +1598,11 @@ class RtmpStreamManager(
                         false
                     } else {
                         val cam = rtmpCamera
-                        val activeRecordOnlyPreview = cam != null && cam.isOnPreview && !cam.isStreaming
+                        val activeRecordOnlyPreview =
+                            cam != null &&
+                                cam.isOnPreview &&
+                                !cam.isStreaming &&
+                                !isRecordOnlyOverlayFailSoftActiveLocked(cam)
                         val hasOverlayBitmap = overlayBitmap?.isRecycled == false
                         activeRecordOnlyPreview && hasOverlayBitmap
                     }
@@ -1529,6 +1618,7 @@ class RtmpStreamManager(
 
     private fun markOverlayAttached(reason: String) {
         val now = System.currentTimeMillis()
+        recordOnlyOverlayFailureCount = 0
         lastOverlayAttachedAtMs = now
         overlayRecoveryBurstJob?.cancel()
         _overlayHealth.value = _overlayHealth.value.copy(
@@ -1709,6 +1799,7 @@ class RtmpStreamManager(
 
     private fun canApplyOverlayBitmapLocked(cam: RtmpCamera2?): Boolean {
         if (isReleased || cam == null) return false
+        if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) return false
         val state = _state.value
         if (state is StreamState.Connecting || state is StreamState.Reconnecting) return false
         val gl = runCatching { cam.glInterface }.getOrNull() ?: return false
@@ -2538,6 +2629,7 @@ class RtmpStreamManager(
         orientationReconfigureJob = null
         overlayAttachJob = null
         overlayPostTransitionJob = null
+        overlayPostRecordJob = null
         brandingJob = null
         recordingRotateJob = null
         connectingAtMs = 0L
@@ -2696,6 +2788,8 @@ class RtmpStreamManager(
                             val attachInFlight = overlayAttachJob?.isActive == true
                             val attachedRecently = wasOverlayAttachedRecently(now)
                             if (!active || !hasBitmap) {
+                                Triple(false, false, false)
+                            } else if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) {
                                 Triple(false, false, false)
                             } else if (attachInFlight || attachedRecently) {
                                 Triple(false, false, true)

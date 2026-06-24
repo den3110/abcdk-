@@ -68,7 +68,8 @@ import {
 const OPENING_DOUBLES_SERVER = 2;
 const SCORE_TAP_GUARD_MS = 120;
 const SCORE_RENDER_GUARD_MS = 2500;
-const SERVER_UID_PIN_MS = 800;
+const SERVER_UID_PIN_MS = 1800;
+const UNDO_TAP_GUARD_MS = 220;
 const SEED_PLACEHOLDER_GRACE_MS = 260;
 const SEED_REFERENCE_TYPES = new Set([
   "grouprank",
@@ -379,6 +380,17 @@ const normalizeBreakState = (rawBreak) => {
   const normalized = String(rawBreak).toLowerCase();
   if (normalized === "1" || normalized === "true") {
     return { active: true, note: "", expectedResumeAt: null, type: "timeout" };
+  }
+  return null;
+};
+
+const findUndoableLiveLogEntry = (liveLog) => {
+  if (!Array.isArray(liveLog)) return null;
+  for (let index = liveLog.length - 1; index >= 0; index -= 1) {
+    const entry = liveLog[index];
+    const type = textOf(entry?.type).toLowerCase();
+    if (["finish", "forfeit", "start"].includes(type)) return null;
+    if (["point", "serve", "slots"].includes(type)) return entry;
   }
   return null;
 };
@@ -954,7 +966,8 @@ export default function RefereeScoreDialog({
   const currentGame = currentGameIndexOf(match || {});
   const rawCurrentScore = useMemo(() => currentScoreOf(match || {}), [match]);
   const scoreTapGuardRef = useRef({ side: "", until: 0 });
-  const scoreGuardRef = useRef({ a: null, b: null, until: 0 });
+  const undoTapGuardUntilRef = useRef(0);
+  const scoreGuardRef = useRef({ a: null, b: null, until: 0, mode: "max" });
   const lastServerUidRef = useRef("");
   const openingServerRef = useRef({ gameIndex: -1, side: "", uid: "" });
   const openingServeInitRef = useRef({});
@@ -979,11 +992,15 @@ export default function RefereeScoreDialog({
     () => ({
       a:
         scoreGuardOn && typeof scoreGuard?.a === "number"
-          ? Math.max(rawCurrentScore.a, scoreGuard.a)
+          ? scoreGuard?.mode === "replace"
+            ? scoreGuard.a
+            : Math.max(rawCurrentScore.a, scoreGuard.a)
           : rawCurrentScore.a,
       b:
         scoreGuardOn && typeof scoreGuard?.b === "number"
-          ? Math.max(rawCurrentScore.b, scoreGuard.b)
+          ? scoreGuard?.mode === "replace"
+            ? scoreGuard.b
+            : Math.max(rawCurrentScore.b, scoreGuard.b)
           : rawCurrentScore.b,
     }),
     [
@@ -991,6 +1008,7 @@ export default function RefereeScoreDialog({
       rawCurrentScore.b,
       scoreGuard?.a,
       scoreGuard?.b,
+      scoreGuard?.mode,
       scoreGuardOn,
     ],
   );
@@ -1093,39 +1111,45 @@ export default function RefereeScoreDialog({
     }),
     [currentBase, currentScore, leftSide, pairPlayers, rightSide],
   );
+  const liveSyncBusy = Boolean(sync?.pendingCount || sync?.syncing);
 
   useEffect(() => {
     if (!localBaseOverride) return;
+    if (liveSyncBusy) return;
     if (sameSlotsBase(localBaseOverride, serverBase)) {
       setLocalBaseOverride(null);
     }
-  }, [localBaseOverride, serverBase]);
+  }, [liveSyncBusy, localBaseOverride, serverBase]);
 
   useEffect(() => {
     if (!localBaseOverride) return undefined;
+    if (liveSyncBusy) return undefined;
     const timeoutId = window.setTimeout(() => {
       setLocalBaseOverride(null);
     }, SCORE_RENDER_GUARD_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [localBaseOverride]);
+  }, [liveSyncBusy, localBaseOverride]);
 
   useEffect(() => {
     if (!localLayoutOverride) return;
+    if (liveSyncBusy) return;
     if (sameLayout(localLayoutOverride, serverLayout)) {
       setLocalLayoutOverride(null);
     }
-  }, [localLayoutOverride, serverLayout]);
+  }, [liveSyncBusy, localLayoutOverride, serverLayout]);
 
   useEffect(() => {
     if (!localLayoutOverride) return undefined;
+    if (liveSyncBusy) return undefined;
     const timeoutId = window.setTimeout(() => {
       setLocalLayoutOverride(null);
     }, SCORE_RENDER_GUARD_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [localLayoutOverride]);
+  }, [liveSyncBusy, localLayoutOverride]);
 
   useEffect(() => {
     if (!localServeOverride) return;
+    if (liveSyncBusy) return;
     const serverSide = match?.serve?.side === "B" ? "B" : "A";
     const serverNum =
       Number(match?.serve?.order ?? match?.serve?.server ?? 1) === 2 ? 2 : 1;
@@ -1140,6 +1164,7 @@ export default function RefereeScoreDialog({
       setLocalServeOverride(null);
     }
   }, [
+    liveSyncBusy,
     localServeOverride,
     match?.serve?.opening,
     match?.serve?.order,
@@ -1150,11 +1175,12 @@ export default function RefereeScoreDialog({
 
   useEffect(() => {
     if (!localServeOverride) return undefined;
+    if (liveSyncBusy) return undefined;
     const timeoutId = window.setTimeout(() => {
       setLocalServeOverride(null);
     }, SCORE_RENDER_GUARD_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [localServeOverride]);
+  }, [liveSyncBusy, localServeOverride]);
 
   const wins = useMemo(() => {
     return gameScores.reduce(
@@ -1215,6 +1241,10 @@ export default function RefereeScoreDialog({
     Boolean(match?._id) &&
     match?.status === "live" &&
     !breakLocksLiveControls;
+  const lastUndoableEntry = useMemo(
+    () => findUndoableLiveLogEntry(match?.liveLog),
+    [match?.liveLog],
+  );
   const canUndo =
     Boolean(match?._id) && match?.status === "live" && !breakLocksLiveControls;
 
@@ -1222,6 +1252,7 @@ export default function RefereeScoreDialog({
   const [selectedCourtId, setSelectedCourtId] = useState("");
   const [selectedClusterId, setSelectedClusterId] = useState("");
   const [busy, setBusy] = useState("");
+  const [, forceOptimisticRender] = useState(0);
   const [actionError, setActionError] = useState("");
   const [toolsOpen, setToolsOpen] = useState(false);
   const [courtDialogOpen, setCourtDialogOpen] = useState(false);
@@ -2217,6 +2248,71 @@ export default function RefereeScoreDialog({
     [api, runProtectedBusy],
   );
 
+  const handleUndo = useCallback(async () => {
+    if (!canUndo) return;
+    const now = Date.now();
+    if (now < Number(undoTapGuardUntilRef.current || 0)) return;
+    undoTapGuardUntilRef.current = now + UNDO_TAP_GUARD_MS;
+
+    const undoType = textOf(lastUndoableEntry?.type).toLowerCase();
+    const payload = lastUndoableEntry?.payload || {};
+    if (undoType === "point") {
+      const team = textOf(payload?.team).toUpperCase();
+      const step = Math.max(1, Number(payload?.step || 1) || 1);
+      scoreGuardRef.current = {
+        a: team === "A" ? Math.max(0, Number(currentScore.a || 0) - step) : currentScore.a,
+        b: team === "B" ? Math.max(0, Number(currentScore.b || 0) - step) : currentScore.b,
+        until: now + SCORE_RENDER_GUARD_MS,
+        mode: "replace",
+      };
+      if (payload?.prevServe) {
+        setLocalServeOverride({
+          side: payload.prevServe?.side === "B" ? "B" : "A",
+          server:
+            Number(payload.prevServe?.order ?? payload.prevServe?.server ?? 1) === 2
+              ? 2
+              : 1,
+          serverId: payload.prevServe?.serverId || null,
+          opening: Boolean(payload.prevServe?.opening),
+        });
+      }
+      forceOptimisticRender((value) => value + 1);
+    } else if (undoType === "serve" && payload?.prevServe) {
+      setLocalServeOverride({
+        side: payload.prevServe?.side === "B" ? "B" : "A",
+        server:
+          Number(payload.prevServe?.order ?? payload.prevServe?.server ?? 1) === 2
+            ? 2
+            : 1,
+        serverId: payload.prevServe?.serverId || null,
+        opening: Boolean(payload.prevServe?.opening),
+      });
+    } else if (undoType === "slots") {
+      if (payload?.prevBase) setLocalBaseOverride(payload.prevBase);
+      if (payload?.prevLayout) setLocalLayoutOverride(normalizeLayout(payload.prevLayout));
+      if (payload?.prevServe) {
+        setLocalServeOverride({
+          side: payload.prevServe?.side === "B" ? "B" : "A",
+          server:
+            Number(payload.prevServe?.order ?? payload.prevServe?.server ?? 1) === 2
+              ? 2
+              : 1,
+          serverId: payload.prevServe?.serverId || null,
+          opening: Boolean(payload.prevServe?.opening),
+        });
+      }
+    }
+
+    await runLiveControlFast(() => api.undo());
+  }, [
+    api,
+    canUndo,
+    currentScore.a,
+    currentScore.b,
+    lastUndoableEntry,
+    runLiveControlFast,
+  ]);
+
   const handlePoint = useCallback(
     async (key, side) => {
       if (side !== activeSide) return;
@@ -2260,7 +2356,9 @@ export default function RefereeScoreDialog({
         a: side === "A" ? guardedA + 1 : guardedA,
         b: side === "B" ? guardedB + 1 : guardedB,
         until: now + SCORE_RENDER_GUARD_MS,
+        mode: "max",
       };
+      forceOptimisticRender((value) => value + 1);
 
       await runLiveControlFast(() =>
         api[side === "A" ? "pointA" : "pointB"](1),
@@ -2478,9 +2576,9 @@ export default function RefereeScoreDialog({
               >
                 <Button
                   variant="outlined"
-                  onClick={() => runLiveControlBusy("undo", () => api.undo())}
-                  disabled={!canUndo || busy === "undo"}
-                  startIcon={busy === "undo" ? <CircularProgress size={14} /> : <UndoIcon />}
+                  onClick={handleUndo}
+                  disabled={!canUndo}
+                  startIcon={<UndoIcon />}
                   sx={{
                     minHeight: 40,
                     borderRadius: 999,
