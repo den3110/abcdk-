@@ -85,6 +85,7 @@ import { startSeoNewsImageRegenerationWorker } from "./services/seoNewsImageQueu
 import { startSeoNewsPipelineWorker } from "./services/seoNewsPipelineQueue.service.js";
 import { startLiveRecordingAiCommentaryWorker } from "./services/liveRecordingAiCommentaryQueue.service.js";
 import { startLiveRecordingAutoExportSweep } from "./services/liveRecordingMonitor.service.js";
+import { isBackgroundJobLeaderProcess } from "./utils/backgroundJobWindow.js";
 // 🔹 GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
@@ -438,25 +439,32 @@ const startServer = async () => {
     server.listen(port, "0.0.0.0", async () => {
       try {
         console.log(`✅ Server started on port ${port}`);
-        startTournamentCrons();
-        startFbRefreshCron();
-        startFacebookBusyCron();
-        startLiveSessionLeaseCron();
-        startCourtLivePresenceSweep();
-        startLiveRecordingAutoExportSweep();
-        startUserAvatarOptimizationCron();
-        startOptimizedImageCleanupCron();
-        startSeoNewsImageRegenerationWorker();
-        startSeoNewsPipelineWorker();
-        startLiveRecordingAiCommentaryWorker();
+        const backgroundJobLeader = isBackgroundJobLeaderProcess();
+        if (backgroundJobLeader) {
+          startTournamentCrons();
+          startFbRefreshCron();
+          startFacebookBusyCron();
+          startLiveSessionLeaseCron();
+          startCourtLivePresenceSweep();
+          startLiveRecordingAutoExportSweep();
+          startUserAvatarOptimizationCron();
+          startOptimizedImageCleanupCron();
+          startSeoNewsImageRegenerationWorker();
+          startSeoNewsPipelineWorker();
+          startLiveRecordingAiCommentaryWorker();
+        } else {
+          console.log("[background-jobs] skipped on non-leader API process");
+        }
         initEmail();
-        initNewsCron();
-        initSeoNewsCron();
-        await startAgenda(); // ✅ Await agenda start
-        registerAutoHealJobs({ Tournament, Match });
-        startObserverRuntimePublisher();
+        if (backgroundJobLeader) {
+          initNewsCron();
+          initSeoNewsCron();
+          await startAgenda(); // ✅ Await agenda start
+          registerAutoHealJobs({ Tournament, Match });
+          startObserverRuntimePublisher();
+          startSmartLogNightlySync();
+        }
         restartPrimaryLogSink();
-        startSmartLogNightlySync();
       } catch (error) {
         console.error(`❌ Error starting server: ${error.message}`);
       }

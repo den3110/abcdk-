@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 
 const DEFAULT_WINDOW_TZ = "Asia/Ho_Chi_Minh";
-const DEFAULT_WINDOW_START = "00:00";
+const DEFAULT_WINDOW_START = "02:00";
 const DEFAULT_WINDOW_END = "06:00";
 const LOCAL_EXPORT_TZ_ALIASES = new Set([
   "asia/ho_chi_minh",

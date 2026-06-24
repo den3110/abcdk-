@@ -7,6 +7,7 @@ import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
 import { runSeoNewsCrawl } from "./seoNewsCrawlService.js";
 import { generateSeoNewsEvergreenArticles } from "./seoNewsEvergreenService.js";
 import { runSeoNewsPipeline } from "./seoNewsPipelineService.js";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 
 const WORKER_TICK_MS = Math.max(
   5_000,
@@ -555,6 +556,8 @@ async function tickSeoNewsPipelineWorker() {
   tickRunning = true;
 
   try {
+    if (!shouldRunBackgroundJob()) return;
+
     const job = await claimNextDueJob();
     if (!job) return;
     await processClaimedJob(job);

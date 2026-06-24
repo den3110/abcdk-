@@ -2,18 +2,22 @@
 import cron from "node-cron";
 import { runCrawlEngine } from "../services/crawlEngine.js";
 import NewsSettings from "../models/newsSettingsModel.js";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 // import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
 import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";
 
 let started = false;
+const NEWS_DISCOVERY_CRON = process.env.NEWS_DISCOVERY_CRON || "10 2 * * *";
 
 export function initNewsCron() {
   if (started) return;
   started = true;
-  // Chạy mỗi ngày lúc 00:00 theo giờ Asia/Bangkok (GMT+7)
+  // Chạy trong cửa sổ job nền để không tranh tài nguyên với giờ giải.
   cron.schedule(
-    "0 0 * * *",
+    NEWS_DISCOVERY_CRON,
     async () => {
+      if (!shouldRunBackgroundJob()) return;
+
       const settings =
         (await NewsSettings.findOne({ key: "default" })) ||
         (await NewsSettings.create({}));

@@ -9,12 +9,14 @@ import {
   liveRecordingExportConnection,
 } from "../services/liveRecordingV2Queue.service.js";
 import { exportLiveRecordingV2 } from "../services/liveRecordingV2Export.service.js";
+import { getLiveRecordingExportWindowDecision } from "../services/liveRecordingExportWindow.service.js";
 import { loadLiveRecordingStorageTargetsConfig } from "../services/liveRecordingStorageTargetsConfig.service.js";
 import {
   clearLiveRecordingWorkerHeartbeat,
   getLiveRecordingWorkerHeartbeatConfig,
   publishLiveRecordingWorkerHeartbeat,
 } from "../services/liveRecordingWorkerHealth.service.js";
+import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 
 const QUEUE_NAME = getLiveRecordingExportQueueName();
 const WORKER_NAME = "live-recording-export-worker";
@@ -77,6 +79,42 @@ const worker = new Worker(
     if (!recordingId) {
       throw new Error("Missing recordingId");
     }
+
+    const exportWindow = getLiveRecordingExportWindowDecision(new Date());
+    if (exportWindow.enabled && !exportWindow.shouldQueueNow) {
+      await LiveRecordingV2.updateOne(
+        {
+          _id: recordingId,
+          status: { $in: ["exporting", "pending_export_window"] },
+        },
+        {
+          $set: {
+            status: "pending_export_window",
+            scheduledExportAt: exportWindow.scheduledAt || null,
+            "meta.exportPipeline.stage": "delayed_until_window",
+            "meta.exportPipeline.label": "Dang cho khung gio dem",
+            "meta.exportPipeline.scheduledExportAt":
+              exportWindow.scheduledAt || null,
+            "meta.exportPipeline.windowStart": exportWindow.windowStart || null,
+            "meta.exportPipeline.windowEnd": exportWindow.windowEnd || null,
+            "meta.exportPipeline.timezone": exportWindow.timezone || null,
+            "meta.exportPipeline.updatedAt": new Date(),
+          },
+        }
+      ).catch(() => {});
+
+      await enqueueLiveRecordingExportRetry(recordingId, {
+        delayMs: exportWindow.delayMs,
+        retryReason: "outside_export_window",
+      });
+      console.log(
+        "[live-recording-export-worker] deferred outside export window",
+        recordingId,
+        exportWindow.scheduledAtIso || exportWindow.scheduledAt
+      );
+      return { ok: true, recordingId, deferred: true };
+    }
+
     currentJobId = job.id ? String(job.id) : null;
     currentRecordingId = String(recordingId);
     currentJobStartedAt = new Date().toISOString();

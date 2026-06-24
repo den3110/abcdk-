@@ -8,6 +8,7 @@ import {
   checkSeoNewsImageGenerationHealth,
   regenerateSeoNewsArticleImage,
 } from "./seoNewsImageService.js";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 
 const DEFAULT_IMAGE_REGEN_ITEM_INTERVAL_MS = Math.max(
   15_000,
@@ -552,6 +553,8 @@ async function tickSeoNewsImageRegenerationWorker() {
   tickRunning = true;
 
   try {
+    if (!shouldRunBackgroundJob()) return;
+
     const settings = await getSeoNewsImageRegenerationSettings();
     if (isImageRegenerationPaused(settings)) return;
 

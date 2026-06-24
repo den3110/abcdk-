@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { DateTime } from "luxon";
 import { runPendingUserAvatarOptimizationSweep } from "../services/userAvatarOptimization.service.js";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 
 const DEFAULT_TZ = process.env.CRON_TZ || "Asia/Ho_Chi_Minh";
 const CRON_EXPR = process.env.USER_AVATAR_OPTIMIZE_CRON || "40 4 * * *";
@@ -39,6 +40,16 @@ function snapshotStatus() {
 }
 
 async function runSweep(reason) {
+  if (!shouldRunBackgroundJob()) {
+    console.log(`[avatar-optimize][${reason}] skip outside background job window`);
+    return {
+      started: false,
+      reason,
+      skipped: "outside_background_job_window",
+      status: snapshotStatus(),
+    };
+  }
+
   if (running) {
     console.log(`[avatar-optimize][${reason}] skip because a previous sweep is still running`);
     return {

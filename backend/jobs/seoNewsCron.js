@@ -1,5 +1,9 @@
 import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
 import { runSeoNewsPipeline } from "../services/seoNewsPipelineService.js";
+import {
+  getNextBackgroundJobDelayMs,
+  shouldRunBackgroundJob,
+} from "../utils/backgroundJobWindow.js";
 
 let timer = null;
 let started = false;
@@ -59,6 +63,16 @@ async function tick() {
   }
 
   const intervalMs = getIntervalMs(settings);
+
+  if (!shouldRunBackgroundJob()) {
+    await patchCronState({
+      cronRunning: false,
+      cronStatus: "disabled",
+      lastCronError: "outside_background_job_window",
+    });
+    scheduleNext(getNextBackgroundJobDelayMs(Math.min(intervalMs, 60_000)));
+    return;
+  }
 
   if (running) {
     scheduleNext(Math.min(intervalMs, 60_000));

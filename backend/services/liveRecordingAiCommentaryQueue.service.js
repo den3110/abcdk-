@@ -17,6 +17,7 @@ import {
   getAiCommentaryVoicePresets,
 } from "./liveRecordingAiCommentaryGateway.service.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 
 const WORKER_TICK_MS = Math.max(
   5_000,
@@ -942,6 +943,8 @@ async function runWorkerTick() {
   if (tickRunning) return;
   tickRunning = true;
   try {
+    if (!shouldRunBackgroundJob()) return;
+
     await markStaleRunningJobs();
     const job = await claimNextJob();
     if (!job) return;

@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import cron from "node-cron";
 import { DateTime } from "luxon";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 
 const DEFAULT_TZ = process.env.CRON_TZ || "Asia/Ho_Chi_Minh";
 const CLEANUP_CRON = process.env.OPTIMIZED_IMAGE_CLEANUP_CRON || "25 4 * * *";
@@ -140,6 +141,15 @@ export async function cleanupOptimizedImageDirs() {
 }
 
 async function runCleanup(reason) {
+  if (!shouldRunBackgroundJob()) {
+    return {
+      started: false,
+      reason,
+      skipped: "outside_background_job_window",
+      status: snapshotStatus(),
+    };
+  }
+
   if (running) {
     return {
       started: false,
