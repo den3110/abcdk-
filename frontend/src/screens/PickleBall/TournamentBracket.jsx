@@ -6225,7 +6225,7 @@ export default function TournamentBracket() {
                       {r.aName} <b>vs</b> {r.bName}
                     </TableCell>
                     <TableCell>{r.time || ""}</TableCell>
-                    <TableCell>{r.court || ""}</TableCell>
+                    <TableCell>{r.court || "—"}</TableCell>
                     <TableCell>{r.score || "LIVE"}</TableCell>
                   </TableRow>
                 ))}

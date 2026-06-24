@@ -72,6 +72,7 @@ import {
   Group as ManagersIcon,
   Stadium as StadiumIcon,
   HowToReg as RefereeIcon,
+  SportsScore as ScoreboardIcon,
   Movie as MovieIcon,
   Print as PrintIcon,
   AutoAwesome as AutoAwesomeIcon,
@@ -859,6 +860,278 @@ const MatchStatusDialog = React.memo(function MatchStatusDialog({
       <DialogActions>
         <Button onClick={onClose}>Đóng</Button>
       </DialogActions>
+    </Dialog>
+  );
+});
+
+const dashboardGameIndexOf = (match) => {
+  const index = Number(match?.currentGame ?? match?.gameIndex ?? 0);
+  return Number.isFinite(index) && index >= 0 ? Math.floor(index) : 0;
+};
+
+const dashboardCurrentGameScore = (match) => {
+  const list =
+    (Array.isArray(match?.gameScores) && match.gameScores) ||
+    (Array.isArray(match?.scores) && match.scores) ||
+    [];
+  return _normGame(list[dashboardGameIndexOf(match)]) || { a: 0, b: 0 };
+};
+
+const liveActionLabel = (entry, match) => {
+  const type = String(entry?.type || entry?.event || "").toLowerCase();
+  const payload = entry?.payload || entry?.data || {};
+  if (type === "point") {
+    const side = String(payload?.team || entry?.team || "").toUpperCase();
+    return side === "A" || side === "B"
+      ? `Cộng điểm ${teamLabel(match, side)}`
+      : "Cộng điểm";
+  }
+  if (type === "serve") return "Đổi giao";
+  if (type === "slots") return "Đổi tay / vị trí";
+  if (type === "start") return "Bắt đầu trận";
+  if (type === "undo") return "Hoàn tác";
+  if (type === "finish") return "Kết thúc trận";
+  if (type === "forfeit") return "Xử thua";
+  if (type === "break") return "Tạm dừng";
+  if (type === "court") return "Cập nhật sân";
+  if (type === "rules") return "Cập nhật luật";
+  return entry?.label || entry?.message || "Cập nhật";
+};
+
+const compactTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+};
+
+const lastLiveAction = (match) => {
+  return recentLiveActions(match, 1)[0] || null;
+};
+
+const recentLiveActions = (match, limit = 3) => {
+  const entries = liveLogEntries(match);
+  const actions = [];
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry) continue;
+    const label = liveActionLabel(entry, match);
+    const actor =
+      liveActorName(entry?.by) ||
+      liveActorName(entry?.actor) ||
+      liveActorName(entry?.user) ||
+      "";
+    actions.push({
+      label,
+      actor,
+      time: compactTime(entry?.at || entry?.createdAt || entry?.time),
+    });
+    if (actions.length >= limit) break;
+  }
+  return actions;
+};
+
+const serveLabel = (match) => {
+  const side = String(match?.serve?.side || "").toUpperCase();
+  const server = Number(match?.serve?.order ?? match?.serve?.server ?? 0);
+  if (side !== "A" && side !== "B") return "—";
+  return `${teamLabel(match, side)}${server ? ` · tay ${server}` : ""}`;
+};
+
+const RefereeLiveDashboardRow = React.memo(function RefereeLiveDashboardRow({
+  match,
+  liveStore,
+  onOpenRefereeMatch,
+}) {
+  const live = useLiveMatch(liveStore, match?._id || match?.id);
+  const merged = live ? { ...match, ...live } : match;
+  const currentGame = dashboardCurrentGameScore(merged);
+  const actions = recentLiveActions(merged, 3);
+
+  return (
+    <TableRow hover sx={{ "& td": { py: 1, verticalAlign: "top" } }}>
+      <TableCell sx={{ minWidth: 112, fontWeight: 800 }}>
+        {matchCode(merged)}
+      </TableCell>
+      <TableCell sx={{ minWidth: 220 }}>
+        <Stack spacing={0.4}>
+          <Typography sx={{ fontWeight: 800, fontSize: 13.5 }}>
+            {teamLabel(merged, "A")}
+          </Typography>
+          <Typography sx={{ color: "text.secondary", fontSize: 12 }}>vs</Typography>
+          <Typography sx={{ fontWeight: 800, fontSize: 13.5 }}>
+            {teamLabel(merged, "B")}
+          </Typography>
+        </Stack>
+      </TableCell>
+      <TableCell sx={{ minWidth: 104 }}>
+        <Stack spacing={0.5}>
+          <Typography sx={{ fontWeight: 900, fontVariantNumeric: "tabular-nums" }}>
+            {currentGame.a} - {currentGame.b}
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+            {scoreSummary(merged)}
+          </Typography>
+        </Stack>
+      </TableCell>
+      <TableCell sx={{ minWidth: 180 }}>{serveLabel(merged)}</TableCell>
+      <TableCell sx={{ minWidth: 150 }}>{courtLabel(merged)}</TableCell>
+      <TableCell sx={{ minWidth: 180 }}>
+        {refereeNames(merged) || matchStarterName(merged) || "—"}
+      </TableCell>
+      <TableCell sx={{ minWidth: 240 }}>
+        {actions.length ? (
+          <Stack spacing={0.55}>
+            {actions.map((action, index) => (
+              <Box key={`${action.time || "action"}-${index}`}>
+                <Typography sx={{ fontWeight: index === 0 ? 800 : 600, fontSize: 13 }}>
+                  {action.label}
+                </Typography>
+                <Typography sx={{ color: "text.secondary", fontSize: 12 }}>
+                  {[action.time, action.actor].filter(Boolean).join(" · ") || "—"}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        ) : (
+          <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+            Chưa có thao tác
+          </Typography>
+        )}
+      </TableCell>
+      <TableCell align="right" sx={{ minWidth: 126 }}>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => onOpenRefereeMatch?.(merged)}
+          sx={{ whiteSpace: "nowrap" }}
+        >
+          Mở chấm
+        </Button>
+      </TableCell>
+    </TableRow>
+  );
+});
+
+const RefereeLiveDashboardDialog = React.memo(function RefereeLiveDashboardDialog({
+  open,
+  onClose,
+  matches,
+  liveStore,
+  onOpenRefereeMatch,
+}) {
+  const refereeCount = useMemo(() => {
+    const names = new Set();
+    matches.forEach((match) => {
+      refereeNames(match)
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .forEach((name) => names.add(name));
+    });
+    return names.size;
+  }, [matches]);
+
+  const courtCount = useMemo(() => {
+    const courts = new Set();
+    matches.forEach((match) => {
+      const label = courtLabel(match);
+      if (label && label !== "—") courts.add(label);
+    });
+    return courts.size;
+  }, [matches]);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullScreen>
+      <DialogTitle sx={{ py: 1.5 }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1.2}
+          alignItems={{ xs: "stretch", sm: "center" }}
+          justifyContent="space-between"
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <ScoreboardIcon color="primary" />
+            <Box>
+              <Typography sx={{ fontWeight: 900, fontSize: 20 }}>
+                Quản lý toàn bộ chấm trận
+              </Typography>
+              <Typography sx={{ color: "text.secondary", fontSize: 13 }}>
+                Theo dõi các trận đang live và thao tác mới nhất của trọng tài.
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+            <Chip size="small" color="warning" label={`${matches.length} trận live`} />
+            <Chip size="small" variant="outlined" label={`${refereeCount} trọng tài`} />
+            <Chip size="small" variant="outlined" label={`${courtCount} sân`} />
+            <IconButton onClick={onClose} aria-label="Đóng">
+              <CloseIcon />
+            </IconButton>
+          </Stack>
+        </Stack>
+      </DialogTitle>
+      <DialogContent dividers sx={{ p: { xs: 1, md: 1.5 }, bgcolor: "background.default" }}>
+        {matches.length ? (
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{
+              height: "calc(100vh - 112px)",
+              overflow: "auto",
+            }}
+          >
+            <Table stickyHeader size="small" sx={{ minWidth: 1180 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Mã trận</TableCell>
+                  <TableCell>Cặp đấu</TableCell>
+                  <TableCell>Tỉ số</TableCell>
+                  <TableCell>Đội giao</TableCell>
+                  <TableCell>Sân</TableCell>
+                  <TableCell>Trọng tài</TableCell>
+                  <TableCell>Thao tác gần nhất</TableCell>
+                  <TableCell align="right">Mở</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {matches.map((match) => (
+                  <RefereeLiveDashboardRow
+                    key={String(match?._id || match?.id)}
+                    match={match}
+                    liveStore={liveStore}
+                    onOpenRefereeMatch={onOpenRefereeMatch}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        ) : (
+          <Box
+            sx={{
+              minHeight: "calc(100vh - 140px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              textAlign: "center",
+            }}
+          >
+            <Stack spacing={1}>
+              <Typography sx={{ fontWeight: 900, fontSize: 20 }}>
+                Chưa có trận nào đang live
+              </Typography>
+              <Typography sx={{ color: "text.secondary" }}>
+                Khi trọng tài bắt đầu trận, trận đó sẽ xuất hiện ở dashboard này.
+              </Typography>
+            </Stack>
+          </Box>
+        )}
+      </DialogContent>
     </Dialog>
   );
 });
@@ -2319,6 +2592,7 @@ export default function TournamentManagePage() {
     matchId: null,
     initialMatch: null,
   });
+  const [refereeDashboardOpen, setRefereeDashboardOpen] = useState(false);
   const closeRefereeMatch = useCallback(
     () =>
       setRefereeViewer({
@@ -2340,6 +2614,8 @@ export default function TournamentManagePage() {
     },
     [],
   );
+  const openRefereeDashboard = useCallback(() => setRefereeDashboardOpen(true), []);
+  const closeRefereeDashboard = useCallback(() => setRefereeDashboardOpen(false), []);
   const canStartRefereeMatch = useCallback(
     (match) => {
       const status = String(match?.status || "").toLowerCase();
@@ -2583,6 +2859,22 @@ export default function TournamentManagePage() {
       ? mergedMatch
       : { ...mergedMatch, status: displayStatus };
   }, [allMatchesBase, statusDlg.match, statusDlg.matchId, statusLiveMatch]);
+  const refereeDashboardMatches = useMemo(() => {
+    void orderVersion;
+    return allMatchesBase
+      .map((match) => {
+        const matchId = String(match?._id || match?.id || "");
+        return { ...match, ...(liveStore.get(matchId) || {}) };
+      })
+      .filter((match) => String(match?.status || "").toLowerCase() === "live" && !isByeMatch(match))
+      .sort((left, right) => {
+        const leftCourt = courtLabel(left);
+        const rightCourt = courtLabel(right);
+        const courtCompare = naturalCompare(leftCourt, rightCourt);
+        if (courtCompare !== 0) return courtCompare;
+        return naturalCompare(matchCode(left), matchCode(right));
+      });
+  }, [allMatchesBase, liveStore, naturalCompare, orderVersion]);
 
   const handleExportRefNote = useCallback(
     (m) => {
@@ -4147,6 +4439,15 @@ export default function TournamentManagePage() {
               {t("tournaments.manage.manageReferees")}
             </Button>
 
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<ScoreboardIcon />}
+              onClick={openRefereeDashboard}
+            >
+              Quản lý chấm trận ({refereeDashboardMatches.length})
+            </Button>
+
             {/* Quản lý sân TOÀN GIẢI */}
             <Button
               variant="outlined"
@@ -4434,6 +4735,20 @@ export default function TournamentManagePage() {
                   </ListItemIcon>
                   <ListItemText
                     primary={t("tournaments.manage.manageReferees")}
+                  />
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
+                    openRefereeDashboard();
+                  }}
+                >
+                  <ListItemIcon>
+                    <ScoreboardIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={`Quản lý chấm trận (${refereeDashboardMatches.length})`}
                   />
                 </MenuItem>
 
@@ -5404,6 +5719,14 @@ export default function TournamentManagePage() {
         tournamentId={id}
         bracketId={liveSetup.bracketId}
         allowedClusters={tour?.allowedCourtClusters || []}
+      />
+
+      <RefereeLiveDashboardDialog
+        open={refereeDashboardOpen}
+        onClose={closeRefereeDashboard}
+        matches={refereeDashboardMatches}
+        liveStore={liveStore}
+        onOpenRefereeMatch={openRefereeMatch}
       />
 
       {/* Popup xem/tracking trận */}

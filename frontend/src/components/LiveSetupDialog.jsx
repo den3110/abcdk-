@@ -272,6 +272,9 @@ const LiveSetupMobileCard = React.memo(function LiveSetupMobileCard({
       <Stack spacing={1.25}>
         <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
           <Chip size="small" icon={<StadiumIcon />} label={item.displayLabel} />
+          {item?.code && (
+            <Chip size="small" variant="outlined" label={`Mã sân: ${item.code}`} />
+          )}
           <Typography variant="body2" color="text.secondary">
             {counts.total} / {counts.live} / {counts.notFinished}
           </Typography>
@@ -292,7 +295,7 @@ const LiveSetupMobileCard = React.memo(function LiveSetupMobileCard({
           Tích bật/tắt sẽ lưu ngay. Đổi URL rồi bấm “Lưu tất cả sân”.
         </Typography>
 
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Typography
             variant="caption"
             color="text.secondary"
@@ -302,7 +305,7 @@ const LiveSetupMobileCard = React.memo(function LiveSetupMobileCard({
           </Typography>
           {sampleUrl ? (
             <Tooltip title={sampleUrl} arrow>
-              <Typography variant="body2" noWrap>
+              <Typography variant="body2" noWrap sx={{ maxWidth: "100%" }}>
                 {sampleUrl}
               </Typography>
             </Tooltip>
@@ -803,11 +806,16 @@ export default function LiveSetupDialog({
               : "Chưa có sân trong giải này."}
           </Alert>
         ) : (
-          <>
+          <Box sx={{ containerType: "inline-size", minWidth: 0 }}>
             <TableContainer
               component={Paper}
               variant="outlined"
-              sx={{ display: { xs: "none", md: "block" } }}
+              sx={{
+                display: { xs: "none", md: "block" },
+                "@container (max-width: 1280px)": {
+                  display: "none",
+                },
+              }}
             >
               <Table size="small" stickyHeader>
                 <TableHead>
@@ -843,7 +851,15 @@ export default function LiveSetupDialog({
               </Table>
             </TableContainer>
 
-            <Stack spacing={1} sx={{ display: { xs: "flex", md: "none" } }}>
+            <Stack
+              spacing={1}
+              sx={{
+                display: { xs: "flex", md: "none" },
+                "@container (max-width: 1280px)": {
+                  display: "flex",
+                },
+              }}
+            >
               {items.map((item) => {
                 const meta = itemMetaById.get(item._id);
 
@@ -864,7 +880,7 @@ export default function LiveSetupDialog({
                 );
               })}
             </Stack>
-          </>
+          </Box>
         )}
       </Stack>
     </ResponsiveModal>

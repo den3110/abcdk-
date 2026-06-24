@@ -805,6 +805,71 @@ const TeamPanel = memo(function TeamPanel({
   );
 });
 
+const ScoreAreaSkeleton = memo(function ScoreAreaSkeleton({ ui }) {
+  const panelSx = {
+    flex: { xs: "1 1 auto", md: "1 1 0" },
+    minWidth: 0,
+    borderRadius: 4,
+    border: "1px solid",
+    borderColor: ui.softBorder,
+    bgcolor: ui.subtleBg,
+    p: { xs: 1.4, md: 1.8 },
+    minHeight: { xs: 196, md: 224 },
+  };
+
+  const skeletonSx = {
+    bgcolor: alpha(ui.muted, 0.14),
+  };
+  const renderPanelSkeleton = (key) => (
+    <Box key={key} sx={panelSx}>
+      <Stack spacing={1.2}>
+        <Skeleton variant="rounded" width={132} height={28} sx={{ ...skeletonSx, borderRadius: 999 }} />
+        <Skeleton variant="text" width="72%" height={36} sx={skeletonSx} />
+        <Stack spacing={1}>
+          <Skeleton variant="rounded" height={40} sx={{ ...skeletonSx, borderRadius: 999 }} />
+          <Skeleton variant="rounded" height={40} sx={{ ...skeletonSx, borderRadius: 999 }} />
+        </Stack>
+      </Stack>
+    </Box>
+  );
+
+  return (
+    <Stack
+      direction={{ xs: "column", md: "row" }}
+      spacing={{ xs: 1.2, md: 1.4 }}
+      alignItems="stretch"
+    >
+      {renderPanelSkeleton("score-area-panel-left")}
+
+      <Box
+        sx={{
+          width: { xs: "100%", md: 280 },
+          flexShrink: 0,
+          borderRadius: 4,
+          border: "1px solid",
+          borderColor: ui.softBorder,
+          bgcolor: alpha("#ffffff", 0.025),
+          px: { xs: 1.2, md: 1.5 },
+          py: { xs: 1.45, md: 1.7 },
+          minHeight: { xs: 190, md: 224 },
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Stack spacing={1.4} alignItems="center" sx={{ width: "100%" }}>
+          <Skeleton variant="rounded" width="72%" height={26} sx={{ ...skeletonSx, borderRadius: 999 }} />
+          <Skeleton variant="rounded" width="88%" height={56} sx={{ ...skeletonSx, borderRadius: 999 }} />
+          <Skeleton variant="text" width="58%" height={22} sx={skeletonSx} />
+          <Skeleton variant="rounded" width="76%" height={42} sx={{ ...skeletonSx, borderRadius: 999 }} />
+        </Stack>
+      </Box>
+
+      {renderPanelSkeleton("score-area-panel-right")}
+    </Stack>
+  );
+});
+
 const PaperLine = memo(function PaperLine({ label, value, ui }) {
   return (
     <Box
@@ -1302,6 +1367,9 @@ export default function RefereeScoreDialog({
   const playerOrderBaseSource = localBaseOverride || localBaseRef.current || serverBaseSource || {};
   const playerOrderHydrating =
     open && isDouble && (liveMatchLoading || liveSyncBusy || busy === "start");
+  const currentServeForHydration = localServeOverride || localServeRef.current || match?.serve || {};
+  const serveOrderLoading =
+    playerOrderHydrating && !textOf(currentServeForHydration?.serverId);
   const leftPlayerOrderLoading =
     playerOrderHydrating &&
     !hasCompleteSlotsBaseForPlayers(
@@ -1318,6 +1386,12 @@ export default function RefereeScoreDialog({
   const rightPanelLoading = rightTeamLabelLoading || rightPlayerOrderLoading;
   const leftPanelLoadingRows = Math.max(1, Math.min(2, (pairPlayers[leftSide] || []).length || 2));
   const rightPanelLoadingRows = Math.max(1, Math.min(2, (pairPlayers[rightSide] || []).length || 2));
+  const scoreAreaLoading =
+    playerOrderHydrating &&
+    (busy === "start" ||
+      serveOrderLoading ||
+      leftPlayerOrderLoading ||
+      rightPlayerOrderLoading);
 
   const currentCourtStationId = idOf(
     match?.courtStationId || match?.courtStation?._id || match?.courtStation,
@@ -2840,11 +2914,14 @@ export default function RefereeScoreDialog({
               bgcolor: ui.card,
             }}
           >
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={{ xs: 1.2, md: 1.4 }}
-              alignItems="stretch"
-            >
+            {scoreAreaLoading ? (
+              <ScoreAreaSkeleton ui={ui} />
+            ) : (
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={{ xs: 1.2, md: 1.4 }}
+                alignItems="stretch"
+              >
               <TeamPanel
                 title="Đội bên trái"
                 teamLabel={leftPanelTeamLabel}
@@ -3124,7 +3201,8 @@ export default function RefereeScoreDialog({
                 surfaceStrongBg={ui.subtleBgStrong}
                 align="right"
               />
-            </Stack>
+              </Stack>
+            )}
           </Box>
 
           <Box
