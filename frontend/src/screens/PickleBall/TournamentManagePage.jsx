@@ -695,6 +695,23 @@ const liveLogEntries = (match) =>
       ? match.liveLog
       : [];
 
+const LIVE_ACTION_CACHE_LIMIT = 12;
+
+const trimLiveActionCache = (snapshot) => {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  let next = snapshot;
+  ["liveEvents", "liveLog"].forEach((key) => {
+    if (
+      Array.isArray(next?.[key]) &&
+      next[key].length > LIVE_ACTION_CACHE_LIMIT
+    ) {
+      if (next === snapshot) next = { ...snapshot };
+      next[key] = next[key].slice(-LIVE_ACTION_CACHE_LIMIT);
+    }
+  });
+  return next;
+};
+
 const findLiveLogEntry = (match, types, { fromEnd = false } = {}) => {
   const typeSet = new Set(types.map((type) => String(type).toLowerCase()));
   const entries = liveLogEntries(match);
@@ -908,10 +925,6 @@ const compactTime = (value) => {
     second: "2-digit",
     hour12: false,
   });
-};
-
-const lastLiveAction = (match) => {
-  return recentLiveActions(match, 1)[0] || null;
 };
 
 const recentLiveActions = (match, limit = 3) => {
@@ -1186,7 +1199,9 @@ function createLiveStore() {
       const prev = map.get(key) || {};
       if (prev && !isNewerOrEqualMatchPayload(prev, partial)) return false;
       const incoming = normalizeMatchDisplay(partial, prev);
-      const next = mergeMatchPayload(prev, incoming, prev) || incoming || prev;
+      const next = trimLiveActionCache(
+        mergeMatchPayload(prev, incoming, prev) || incoming || prev,
+      );
       map.set(key, next);
       const changedFields = Object.keys(incoming || partial || {}).filter(
         (field) => !sameLiveValue(prev?.[field], next?.[field]),
@@ -1195,6 +1210,17 @@ function createLiveStore() {
       const subs = listeners.get(key);
       if (subs) subs.forEach((fn) => fn());
       return changedFields.some((field) => LIST_AFFECTING_LIVE_FIELDS.has(field));
+    },
+    prune(validIds) {
+      const valid = new Set(
+        Array.from(validIds || [])
+          .map((id) => String(id || ""))
+          .filter(Boolean),
+      );
+      if (!valid.size) return;
+      for (const key of map.keys()) {
+        if (!valid.has(key)) map.delete(key);
+      }
     },
     subscribe(id, cb) {
       const key = String(id);
@@ -2832,6 +2858,12 @@ export default function TournamentManagePage() {
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
   const statusLiveMatch = useLiveMatch(liveStore, statusDlg.matchId);
+  useEffect(() => {
+    if (!allMatchesBase.length) return;
+    liveStore.prune(
+      allMatchesBase.map((match) => match?._id || match?.id).filter(Boolean),
+    );
+  }, [allMatchesBase, liveStore]);
   const viewerInitialMatch = useMemo(() => {
     void orderVersion;
     const matchId = String(viewer.matchId || "");
