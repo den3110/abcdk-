@@ -1216,10 +1216,6 @@ export default function RefereeScoreDialog({
   const rightGameScore = rightSide === "A" ? currentScore.a : currentScore.b;
   const leftSetWins = leftSide === "A" ? wins.a : wins.b;
   const rightSetWins = rightSide === "A" ? wins.a : wins.b;
-  const matchDecided =
-    match?.status === "finished" ||
-    wins.a >= needWins(rules.bestOf) ||
-    wins.b >= needWins(rules.bestOf);
   const currentGameFinished = isGameWin(
     currentScore.a,
     currentScore.b,
@@ -1227,6 +1223,31 @@ export default function RefereeScoreDialog({
     rules.winByTwo,
     rules.cap,
   );
+  const currentGameWinner = currentGameFinished
+    ? Number(currentScore.a || 0) > Number(currentScore.b || 0)
+      ? "A"
+      : "B"
+    : "";
+  const currentGameScoreFromServer = gameScores[currentGame] || {};
+  const currentGameAlreadyCounted = isGameWin(
+    currentGameScoreFromServer?.a,
+    currentGameScoreFromServer?.b,
+    rules.pointsToWin,
+    rules.winByTwo,
+    rules.cap,
+  );
+  const projectedWins = {
+    a:
+      wins.a +
+      (currentGameWinner === "A" && !currentGameAlreadyCounted ? 1 : 0),
+    b:
+      wins.b +
+      (currentGameWinner === "B" && !currentGameAlreadyCounted ? 1 : 0),
+  };
+  const matchDecided =
+    match?.status === "finished" ||
+    projectedWins.a >= needWins(rules.bestOf) ||
+    projectedWins.b >= needWins(rules.bestOf);
   const waitingNextGameStart =
     Boolean(match?._id) &&
     Boolean(breakState?.active) &&
@@ -2463,7 +2484,8 @@ export default function RefereeScoreDialog({
     }
 
     const needed = needWins(rules.bestOf);
-    const decidedWinner = wins.a >= needed ? "A" : wins.b >= needed ? "B" : "";
+    const decidedWinner =
+      projectedWins.a >= needed ? "A" : projectedWins.b >= needed ? "B" : "";
 
     if (matchDecided && decidedWinner) {
       return {
@@ -2493,10 +2515,10 @@ export default function RefereeScoreDialog({
     match?.status,
     matchDecided,
     needsStartAction,
+    projectedWins.a,
+    projectedWins.b,
     rules.bestOf,
     runProtectedBusy,
-    wins.a,
-    wins.b,
   ]);
 
   const midUsesServeToggle =
