@@ -1178,7 +1178,7 @@ export function useRefereeLiveSyncMatch(
       lastAppliedKeyRef.current = nextKey;
       dataRef.current = nextData;
       setDerivedState((prev) => ({ ...prev, loading: false, data: nextData }));
-      await persistState({ snapshot: incoming });
+      await persistState({ snapshot: normalizeMatchDisplay(nextData) });
     };
 
     const onSnapshot = (payload) =>
@@ -1218,7 +1218,7 @@ export function useRefereeLiveSyncMatch(
       if (nextKey && currentKey === nextKey) return;
       lastAppliedKeyRef.current = nextKey;
       dataRef.current = nextData;
-      await persistState({ snapshot: normalizeMatchDisplay(mergedSnapshot) });
+      await persistState({ snapshot: normalizeMatchDisplay(nextData) });
       setDerivedState((prev) => ({
         ...prev,
         loading: false,

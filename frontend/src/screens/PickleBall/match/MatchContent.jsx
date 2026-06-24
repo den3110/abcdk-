@@ -2012,7 +2012,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     ],
   );
 
-  const showSpinner = waiting || resolvingSeedContext;
+  const showSpinner = waiting || (resolvingSeedContext && !mm);
   const showError = !waiting && !mm;
 
   const [localPatch, setLocalPatch] = useState(null);

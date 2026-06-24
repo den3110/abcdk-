@@ -1079,6 +1079,13 @@ export default function RefereeScoreDialog({
   const isPreStartOrOpening =
     needsStartAction ||
     (Number(currentScore.a) === 0 && Number(currentScore.b) === 0 && isOpeningServe);
+  const isOpeningServeLocked =
+    isDouble &&
+    Number(currentScore.a) === 0 &&
+    Number(currentScore.b) === 0 &&
+    (needsStartAction ||
+      isOpeningServe ||
+      activeServerNum === OPENING_DOUBLES_SERVER);
   const isOwner = sync?.isOwner ?? true;
   const featureEnabled = sync?.featureEnabled !== false;
   const isBreakActive = Boolean(breakState?.active);
@@ -1709,6 +1716,7 @@ export default function RefereeScoreDialog({
 
   const toggleServerNum = useCallback(async () => {
     if (!match?._id) return;
+    if (isOpeningServeLocked) return;
     const preStartOpening = isDouble && isPreStartOrOpening;
     const nextServer = preStartOpening
       ? OPENING_DOUBLES_SERVER
@@ -1741,6 +1749,7 @@ export default function RefereeScoreDialog({
     currentLayout,
     findUidAtCurrentSlot,
     isDouble,
+    isOpeningServeLocked,
     isPreStartOrOpening,
     match?._id,
     match?.serve?.serverId,
@@ -2119,7 +2128,7 @@ export default function RefereeScoreDialog({
   ]);
 
   const midUsesServeToggle =
-    !isDouble || isPreStartOrOpening || activeServerNum !== 1;
+    !isDouble || isOpeningServeLocked || isPreStartOrOpening || activeServerNum !== 1;
   const midLabel = midUsesServeToggle ? "Đổi giao" : "Đổi tay";
   const midIcon = midUsesServeToggle ? <SwapCallsIcon /> : <SwapVertIcon />;
   const onMidPress = midUsesServeToggle ? toggleServeSide : toggleServerNum;
@@ -2291,7 +2300,12 @@ export default function RefereeScoreDialog({
                 <Button
                   variant="outlined"
                   onClick={toggleServerNum}
-                  disabled={!match?._id || Boolean(busy) || breakLocksLiveControls}
+                  disabled={
+                    !match?._id ||
+                    Boolean(busy) ||
+                    breakLocksLiveControls ||
+                    isOpeningServeLocked
+                  }
                   sx={{
                     minWidth: 44,
                     minHeight: 40,
