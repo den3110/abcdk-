@@ -553,6 +553,7 @@ class RtmpStreamManager(
                         return@withLock
                     }
 
+                    resetRecordOnlyOverlayFailSoftLocked()
                     val reusingPreview = cam.isOnPreview
                     val prepared = prepareStreamPipelineLocked(
                         cam = cam,
@@ -675,6 +676,12 @@ class RtmpStreamManager(
                         return@withLock Result.success(Unit)
                     }
                     stopCurrentRecordingLocked(isFinal = true, reason = "start_new_recording", resumeAfter = false)
+                }
+
+                if (cam.isStreaming) {
+                    resetRecordOnlyOverlayFailSoftLocked()
+                } else {
+                    disableRecordOnlyOverlayLocked("record_only_start")
                 }
 
                 if (!cam.isStreaming && !cam.isOnPreview) {
