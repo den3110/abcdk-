@@ -8,6 +8,7 @@ import slugify from "slugify";
 
 import SeoNewsArticle from "../models/seoNewsArticleModel.js";
 import SeoNewsSettings from "../models/seoNewsSettingsModel.js";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 
 const OPENVERSE_ENDPOINT =
   process.env.SEO_NEWS_IMAGE_OPENVERSE_ENDPOINT ||
@@ -1470,6 +1471,10 @@ async function processQueuedSeoNewsImageBackfill(settings) {
 }
 
 export function scheduleSeoNewsImageBackfill({ articles = [], settings } = {}) {
+  if (!shouldRunBackgroundJob()) {
+    return backgroundBackfillQueue.size;
+  }
+
   const candidates = Array.isArray(articles) ? articles : [];
 
   for (const article of candidates) {

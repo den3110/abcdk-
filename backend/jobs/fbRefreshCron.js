@@ -4,11 +4,17 @@ import {
   bootstrapFromEnvIfNeeded,
   sweepRefreshAll,
 } from "../services/fbTokenService.js";
+import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
 
 export function startFbRefreshCron({ runOnInit = true } = {}) {
   let running = false;
 
   const run = async () => {
+    if (!shouldRunBackgroundJob()) {
+      console.info("[FB Cron] skip outside background job window");
+      return;
+    }
+
     if (running) {
       console.warn("[FB Cron] a run is already in progress, skipping.");
       return;
