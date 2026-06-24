@@ -414,7 +414,10 @@ const startServer = async () => {
     app.use(notFound);
     app.use(errorHandler);
 
-    if (process.env.TELEGRAM_BOT_TOKEN) {
+    const shouldStartKycBot =
+      process.env.TELEGRAM_BOT_TOKEN && isBackgroundJobLeaderProcess();
+
+    if (shouldStartKycBot) {
       try {
         console.log("✅ Running KYC bot...");
         initKycBot(app)
@@ -434,6 +437,8 @@ const startServer = async () => {
       } catch (error) {
         console.log("❌ Failed to start KYC bot:", error.message);
       }
+    } else if (process.env.TELEGRAM_BOT_TOKEN) {
+      console.log("[kycBot] skipped on non-leader API process");
     }
 
     server.listen(port, "0.0.0.0", async () => {
