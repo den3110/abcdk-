@@ -17,6 +17,9 @@ import {
   getUploadedRecordingSegments,
   resolveLiveRecordingExportSource,
 } from "./liveRecordingFacebookVodShared.service.js";
+import { isMatchEndedForRecordingExport } from "./liveRecordingEndedMatch.service.js";
+
+export { isMatchEndedForRecordingExport } from "./liveRecordingEndedMatch.service.js";
 
 function asMutableMeta(meta) {
   return meta && typeof meta === "object" && !Array.isArray(meta) ? { ...meta } : {};
@@ -24,6 +27,10 @@ function asMutableMeta(meta) {
 
 function asTrimmed(value) {
   return String(value || "").trim();
+}
+
+function typeKey(value) {
+  return asTrimmed(value).toLowerCase();
 }
 
 function getSegmentStorageTargetId(segment, recording) {
@@ -236,4 +243,109 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
   await publishRecordingMonitor(recording, publishReason);
 
   return recording;
+}
+
+export async function queueLiveRecordingExportIfMatchEnded(recordingOrId, options = {}) {
+  const {
+    match: providedMatch = null,
+    publishReason = "recording_export_queued_match_ended",
+    forceReason = "match_ended",
+    ignoreWindow = false,
+  } = options;
+
+  const recording =
+    recordingOrId && typeof recordingOrId.save === "function"
+      ? recordingOrId
+      : await LiveRecordingV2.findById(recordingOrId);
+
+  if (!recording) {
+    return { queued: false, reason: "recording_not_found", recording: null };
+  }
+
+  const status = typeKey(recording.status);
+  if (!["recording", "uploading"].includes(status)) {
+    return { queued: false, reason: "recording_not_active", recording };
+  }
+
+  const match =
+    providedMatch ||
+    (recording.match
+      ? await Match.findById(recording.match)
+          .select("_id status finishedAt endedAt live facebookLive")
+          .lean()
+      : null);
+
+  if (!isMatchEndedForRecordingExport(match)) {
+    return { queued: false, reason: "match_not_ended", recording };
+  }
+
+  const uploadedSegments = getUploadedRecordingSegments(recording);
+  if (!uploadedSegments.length) {
+    return { queued: false, reason: "no_uploaded_segments", recording };
+  }
+
+  const pendingSegments = getPendingRecordingSegments(recording);
+  if (pendingSegments.length) {
+    return {
+      queued: false,
+      reason: "pending_segments",
+      pendingSegments: pendingSegments.length,
+      recording,
+    };
+  }
+
+  const queuedRecording = await queueLiveRecordingExport(recording, {
+    publishReason,
+    forceFromUploading: status === "uploading",
+    forceReason,
+    ignoreWindow,
+  });
+
+  return { queued: true, reason: "queued", recording: queuedRecording };
+}
+
+export async function queueLiveRecordingExportsForEndedMatch(matchOrId, options = {}) {
+  const match =
+    matchOrId && typeof matchOrId === "object" && matchOrId._id
+      ? matchOrId
+      : await Match.findById(matchOrId)
+          .select("_id status finishedAt endedAt live facebookLive")
+          .lean();
+
+  if (!isMatchEndedForRecordingExport(match)) {
+    return { queuedRecordingIds: [], skipped: [] };
+  }
+
+  const recordings = await LiveRecordingV2.find({
+    match: match._id,
+    status: { $in: ["recording", "uploading"] },
+  }).sort({ createdAt: -1 });
+
+  const queuedRecordingIds = [];
+  const skipped = [];
+
+  for (const recording of recordings) {
+    try {
+      const result = await queueLiveRecordingExportIfMatchEnded(recording, {
+        ...options,
+        match,
+      });
+      if (result.queued) {
+        queuedRecordingIds.push(String(recording._id));
+      } else {
+        skipped.push({
+          recordingId: String(recording._id),
+          reason: result.reason,
+          pendingSegments: result.pendingSegments || 0,
+        });
+      }
+    } catch (error) {
+      skipped.push({
+        recordingId: String(recording._id),
+        reason: error?.message || String(error),
+      });
+    }
+  }
+
+  return { queuedRecordingIds, skipped };
 }

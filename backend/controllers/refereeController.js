@@ -22,6 +22,7 @@ import UserMatch from "../models/userMatchModel.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { dispatchMatchLiveActivityUpdate } from "../services/liveActivityApns.service.js";
 import { invalidateMatchSnapshotCache } from "../services/matchSnapshotCache.service.js";
+import { queueLiveRecordingExportsForEndedMatch } from "../services/liveRecordingV2Transition.service.js";
 const OPENING_DOUBLES_SERVER = 2;
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -634,6 +635,15 @@ export const patchScore = asyncHandler(async (req, res) => {
       match.status = "finished";
       if (!match.finishedAt) match.finishedAt = new Date();
       await match.save();
+      await queueLiveRecordingExportsForEndedMatch(match, {
+        publishReason: "recording_export_queued_match_finished",
+        forceReason: "match_finished",
+      }).catch((error) => {
+        console.warn(
+          "[referee] queue finished match recording export failed:",
+          error?.message || error
+        );
+      });
       return true;
     }
     return false;

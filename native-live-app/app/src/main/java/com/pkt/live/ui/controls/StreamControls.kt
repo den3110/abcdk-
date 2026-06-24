@@ -294,10 +294,14 @@ fun StreamControls(
             ControlButtonSmall(
                 icon = Icons.Default.ScreenRotation,
                 label = orientationMode.label,
-                active = orientationMode != com.pkt.live.util.OrientationMode.AUTO,
+                active = orientationMode != OrientationMode.AUTO,
                 onClick = {
-                    val next = viewModel.cycleOrientation()
-                    activity?.lockOrientation(next)
+                    if (!tryAcquireControlWindow()) return@ControlButtonSmall
+                    Toast.makeText(
+                        context,
+                        "Đang ở màn live, không thể chuyển xoay.",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 },
             )
 

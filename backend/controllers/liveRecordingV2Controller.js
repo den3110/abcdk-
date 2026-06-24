@@ -61,6 +61,7 @@ import {
   getRecordingMeta,
   getUploadedRecordingSegments,
   publishRecordingMonitor,
+  queueLiveRecordingExportIfMatchEnded,
   queueLiveRecordingExport,
 } from "../services/liveRecordingV2Transition.service.js";
 import {
@@ -1448,15 +1449,29 @@ export const heartbeatLiveRecordingV2 = asyncHandler(async (req, res) => {
   }
 
   await recording.save();
-  await publishRecordingMonitor(
-    recording,
-    reopened ? "recording_reopened_live_app_heartbeat" : "recording_heartbeat"
-  );
+  const endedMatchExport = !active
+    ? await queueLiveRecordingExportIfMatchEnded(recording, {
+        publishReason: "recording_export_queued_match_ended_heartbeat",
+        forceReason: "match_ended_heartbeat",
+      }).catch((error) => {
+        console.warn(
+          "[live-recording-v2] match-ended export check failed after heartbeat:",
+          error?.message || error
+        );
+        return null;
+      })
+    : null;
+  if (!endedMatchExport?.queued) {
+    await publishRecordingMonitor(
+      recording,
+      reopened ? "recording_reopened_live_app_heartbeat" : "recording_heartbeat"
+    );
+  }
 
   return res.json({
     ok: true,
     reopened,
-    recording: serializeRecording(recording),
+    recording: serializeRecording(endedMatchExport?.recording || recording),
   });
 });
 
@@ -2038,11 +2053,23 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
       0
     );
     await recording.save();
-    await publishRecordingMonitor(recording, "multipart_segment_uploaded");
+    const endedMatchExport = await queueLiveRecordingExportIfMatchEnded(recording, {
+      publishReason: "recording_export_queued_match_ended_after_segment",
+      forceReason: "match_ended_after_segment",
+    }).catch((error) => {
+      console.warn(
+        "[live-recording-v2] match-ended export check failed after multipart segment:",
+        error?.message || error
+      );
+      return null;
+    });
+    if (!endedMatchExport?.queued) {
+      await publishRecordingMonitor(recording, "multipart_segment_uploaded");
+    }
 
     return res.json({
       ok: true,
-      recording: serializeRecording(recording),
+      recording: serializeRecording(endedMatchExport?.recording || recording),
     });
   }
 );
@@ -2197,11 +2224,23 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     0
   );
   await recording.save();
-  await publishRecordingMonitor(recording, "segment_uploaded_legacy");
+  const endedMatchExport = await queueLiveRecordingExportIfMatchEnded(recording, {
+    publishReason: "recording_export_queued_match_ended_after_segment",
+    forceReason: "match_ended_after_segment",
+  }).catch((error) => {
+    console.warn(
+      "[live-recording-v2] match-ended export check failed after single segment:",
+      error?.message || error
+    );
+    return null;
+  });
+  if (!endedMatchExport?.queued) {
+    await publishRecordingMonitor(recording, "segment_uploaded_legacy");
+  }
 
   return res.json({
     ok: true,
-    recording: serializeRecording(recording),
+    recording: serializeRecording(endedMatchExport?.recording || recording),
   });
 });
 

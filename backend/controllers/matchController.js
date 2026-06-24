@@ -20,6 +20,7 @@ import {
 import { publishFbVodDriveMonitorUpdate } from "../services/fbVodDriveMonitorEvents.service.js";
 import { scheduleFacebookVodFallbackForMatch } from "../services/liveRecordingFacebookVodFallback.service.js";
 import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.service.js";
+import { queueLiveRecordingExportsForEndedMatch } from "../services/liveRecordingV2Transition.service.js";
 import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
@@ -2868,7 +2869,9 @@ const legacyNotifyStreamEnded = asyncHandler(async (req, res) => {
 
   // ====================== MATCH BRANCH (LOGIC CŨ) ======================
   // ✅ cần lấy facebookLive để có pageAccessToken + liveVideoId
-  const match = await Match.findById(id).select("live facebookLive").lean();
+  const match = await Match.findById(id)
+    .select("status finishedAt endedAt live facebookLive")
+    .lean();
   if (!match) {
     res.status(404);
     throw new Error("Match không tồn tại");
@@ -2915,6 +2918,26 @@ const legacyNotifyStreamEnded = asyncHandler(async (req, res) => {
     .lean();
 
   // ======= END LIVE FACEBOOK (Match): token lấy từ match.facebookLive.pageAccessToken =======
+  await queueLiveRecordingExportsForEndedMatch(
+    {
+      _id: id,
+      status: match.status,
+      finishedAt: match.finishedAt,
+      endedAt: match.endedAt,
+      live: updated.live,
+      facebookLive: match.facebookLive,
+    },
+    {
+      publishReason: "recording_export_queued_match_live_ended",
+      forceReason: "match_live_ended",
+    }
+  ).catch((error) => {
+    console.warn(
+      "[legacyNotifyStreamEnded] queue ended match recording export failed:",
+      error?.message || error
+    );
+  });
+
   if (platform === "facebook" || platform === "all") {
     const { pageId, liveVideoId, pageAccessToken } = pickFacebookMeta(match);
 

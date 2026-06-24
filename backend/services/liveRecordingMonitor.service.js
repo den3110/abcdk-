@@ -23,6 +23,7 @@ import { getLiveRecordingWorkerHealth } from "./liveRecordingWorkerHealth.servic
 import { getLiveRecordingExportWindowConfig } from "./liveRecordingExportWindow.service.js";
 import {
   getUploadedRecordingSegments,
+  queueLiveRecordingExportIfMatchEnded,
   queueLiveRecordingExport,
 } from "./liveRecordingV2Transition.service.js";
 import { autoScheduleFacebookVodFallbackRecordings } from "./liveRecordingFacebookVodFallback.service.js";
@@ -957,6 +958,24 @@ export async function autoExportInactiveLiveRecordings() {
   };
 
   for (const recording of candidates) {
+    const endedMatchExport = await queueLiveRecordingExportIfMatchEnded(recording, {
+      publishReason: "recording_export_queued_match_ended_sweep",
+      forceFromUploading: recording.status === "uploading",
+      forceReason: "match_ended_sweep",
+    }).catch((error) => {
+      console.warn(
+        `[live-recording-monitor] match-ended export sweep failed for recording ${String(
+          recording._id
+        )}:`,
+        error?.message || error
+      );
+      return null;
+    });
+    if (endedMatchExport?.queued) {
+      queuedRecordingIds.push(String(recording._id));
+      continue;
+    }
+
     const uploadedSegments = getUploadedRecordingSegments(recording);
     const latestSegmentActivityAt = getLatestSegmentActivityDate(recording, {
       includeStartedAt: true,
