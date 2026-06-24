@@ -74,6 +74,48 @@ function maxDateOrNull(...values) {
   return latestMs > 0 ? new Date(latestMs) : null;
 }
 
+function buildRecordingAutoExportInfo(
+  recording,
+  segmentSummary = {},
+  { timeoutMinutes = DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES, now = new Date() } = {}
+) {
+  const status = String(recording?.status || "").trim().toLowerCase();
+  if (!["recording", "uploading"].includes(status)) return null;
+
+  const normalizedTimeoutMinutes =
+    Number.isFinite(Number(timeoutMinutes)) && Number(timeoutMinutes) >= 1
+      ? Math.floor(Number(timeoutMinutes))
+      : DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES;
+  const timeoutMs = normalizedTimeoutMinutes * 60 * 1000;
+  const latestSegmentActivityAt = getLatestSegmentActivityDate(recording, {
+    includeStartedAt: true,
+  });
+  const latestLiveAppHeartbeatAt = getLatestLiveAppHeartbeatActivityDate(recording);
+  const latestRecordingActivityAt = getLatestRecordingActivityDate(recording, {
+    includeStartedAt: true,
+    includeLifecycleTimestamps: true,
+  });
+  const uploadedSegments = toNumber(segmentSummary?.uploadedSegments);
+  const latestActivityAt = uploadedSegments
+    ? maxDateOrNull(latestSegmentActivityAt, latestLiveAppHeartbeatAt)
+    : maxDateOrNull(latestRecordingActivityAt, latestLiveAppHeartbeatAt);
+  if (!latestActivityAt) return null;
+
+  const triggerAt = new Date(latestActivityAt.getTime() + timeoutMs);
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((triggerAt.getTime() - now.getTime()) / 1000)
+  );
+
+  return {
+    timeoutMinutes: normalizedTimeoutMinutes,
+    latestActivityAt,
+    triggerAt,
+    remainingSeconds,
+    source: uploadedSegments ? "segment_or_heartbeat" : "recording_or_heartbeat",
+  };
+}
+
 const LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT = [
   "_id",
   "match",
@@ -109,6 +151,7 @@ const LIVE_RECORDING_MONITOR_SNAPSHOT_RECORDING_SELECT = [
   "meta.source",
   "meta.facebookVod",
   "meta.exportPipeline",
+  "meta.liveAppHeartbeat",
   "meta.sourceCleanup.status",
   "aiCommentary.status",
   "aiCommentary.latestJobId",
@@ -1151,6 +1194,9 @@ function buildRow(
   const segmentSummary = summarizeSegments(recording.segments || [], recording, {
     includeDetailedSegments,
   });
+  const autoExport = buildRecordingAutoExportInfo(recording, segmentSummary, {
+    timeoutMinutes: context.autoExportNoSegmentMinutes,
+  });
   const statusMeta = buildStatusMeta(recording.status);
   const exportPipeline = buildExportPipelineInfo(recording, context);
   const driveAuthMode =
@@ -1216,6 +1262,7 @@ function buildRow(
     aiCommentary: buildAiCommentarySummary(recording),
     exportPipeline,
     error: recording.error || "",
+    autoExport,
     segmentSummary,
   };
 }
@@ -1822,7 +1869,7 @@ async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
     baseQuery.match = { $in: matchIds };
   }
 
-  const [currentDriveSettings, workerHealth, queueSnapshot, total] =
+  const [currentDriveSettings, workerHealth, queueSnapshot, total, autoExportNoSegmentMinutes] =
     await Promise.all([
       getRecordingDriveSettings().catch(() => ({
         mode: "serviceAccount",
@@ -1830,6 +1877,7 @@ async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
       getLiveRecordingWorkerHealth().catch(() => null),
       getLiveRecordingExportQueueSnapshot().catch(() => null),
       LiveRecordingV2.countDocuments(baseQuery),
+      getAutoExportNoSegmentMinutes(),
     ]);
 
   const pages = Math.max(1, Math.ceil(total / limit));
@@ -1900,6 +1948,7 @@ async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
           queueSnapshot,
           currentDriveMode: currentDriveSettings.mode,
           matchSideDisplayContext,
+          autoExportNoSegmentMinutes,
         },
         {
           includeDetailedSegments: false,
@@ -1924,6 +1973,7 @@ async function buildFastLiveRecordingMonitorRowsPage(options = {}) {
         tournament,
       },
       rowSource: "fast_db",
+      autoExportNoSegmentMinutes,
       generatedAt: new Date(),
     },
   };
@@ -2273,10 +2323,14 @@ function filterSectionRows(
 async function buildLiveRecordingMonitorSnapshotUncached({
   workerHealth,
   queueSnapshot,
+  includeStorageSummary = true,
 } = {}) {
-  const currentDriveSettings = await getRecordingDriveSettings().catch(() => ({
-    mode: "serviceAccount",
-  }));
+  const [currentDriveSettings, autoExportNoSegmentMinutes] = await Promise.all([
+    getRecordingDriveSettings().catch(() => ({
+      mode: "serviceAccount",
+    })),
+    getAutoExportNoSegmentMinutes(),
+  ]);
 
   const recordings = await applyLiveRecordingMonitorRecordingPopulate(
     LiveRecordingV2.find({})
@@ -2298,6 +2352,7 @@ async function buildLiveRecordingMonitorSnapshotUncached({
             queueSnapshot,
             currentDriveMode: currentDriveSettings.mode,
             matchSideDisplayContext,
+            autoExportNoSegmentMinutes,
           },
           {
             includeDetailedSegments: false,
@@ -2349,7 +2404,9 @@ async function buildLiveRecordingMonitorSnapshotUncached({
     buildEmptyMonitorSummary()
   );
 
-  summary.r2Storage = await buildR2StorageSummary(recordings);
+  if (includeStorageSummary) {
+    summary.r2Storage = await buildR2StorageSummary(recordings);
+  }
 
   return {
     summary,
@@ -2359,6 +2416,7 @@ async function buildLiveRecordingMonitorSnapshotUncached({
       workerHealth,
       exportQueue: queueSnapshot,
       driveSettings: currentDriveSettings,
+      autoExportNoSegmentMinutes,
       generatedAt: new Date(),
     },
   };
@@ -2366,10 +2424,13 @@ async function buildLiveRecordingMonitorSnapshotUncached({
 
 export async function buildLiveRecordingMonitorSnapshot({
   forceRefresh = false,
+  includeStorageSummary = true,
 } = {}) {
   const { workerHealth, queueSnapshot } =
     await reconcileStaleLiveRecordingExports();
-  const signature = getLiveRecordingMonitorSnapshotSignature();
+  const signature = `${getLiveRecordingMonitorSnapshotSignature()}|storage:${
+    includeStorageSummary ? "1" : "0"
+  }`;
   const now = Date.now();
 
   if (
@@ -2392,6 +2453,7 @@ export async function buildLiveRecordingMonitorSnapshot({
   const snapshotPromise = buildLiveRecordingMonitorSnapshotUncached({
     workerHealth,
     queueSnapshot,
+    includeStorageSummary,
   })
     .then((snapshot) => {
       liveRecordingMonitorSnapshotCache = {
@@ -2421,6 +2483,7 @@ export async function buildLiveRecordingMonitorSnapshot({
 export async function buildLiveRecordingMonitorPage(options = {}) {
   const snapshot = await buildLiveRecordingMonitorSnapshot({
     forceRefresh: Boolean(options.forceRefresh),
+    includeStorageSummary: options.includeStorageSummary !== false,
   });
 
   const section = normalizeMonitorSection(options.section);
@@ -2590,7 +2653,7 @@ export async function buildLiveRecordingMonitorMetaPayload({
   includeWorkerHealth = false,
   includeExportQueue = false,
 } = {}) {
-  const [eventsMeta, driveSettings, workerHealth, exportQueue] =
+  const [eventsMeta, driveSettings, workerHealth, exportQueue, autoExportNoSegmentMinutes] =
     await Promise.all([
     Promise.resolve(getLiveRecordingMonitorMeta()),
     getRecordingDriveSettings().catch(() => ({
@@ -2602,11 +2665,13 @@ export async function buildLiveRecordingMonitorMetaPayload({
     includeExportQueue
       ? getLiveRecordingExportQueueSnapshot().catch(() => null)
       : Promise.resolve(null),
+    getAutoExportNoSegmentMinutes(),
   ]);
 
   return {
     ...(eventsMeta || {}),
     driveSettings,
+    autoExportNoSegmentMinutes,
     ...(includeWorkerHealth ? { workerHealth } : {}),
     ...(includeExportQueue ? { exportQueue } : {}),
     generatedAt: new Date(),
@@ -2629,13 +2694,14 @@ export async function buildLiveRecordingMonitorStorageSummary(options = {}) {
 }
 
 export async function buildLiveRecordingMonitorExportQueueSnapshot() {
-  const [currentDriveSettings, workerHealth, queueSnapshot, recordings] =
+  const [currentDriveSettings, workerHealth, queueSnapshot, autoExportNoSegmentMinutes, recordings] =
     await Promise.all([
       getRecordingDriveSettings().catch(() => ({
         mode: "serviceAccount",
       })),
       getLiveRecordingWorkerHealth().catch(() => null),
       getLiveRecordingExportQueueSnapshot().catch(() => null),
+      getAutoExportNoSegmentMinutes(),
       applyLiveRecordingMonitorRecordingPopulate(
         LiveRecordingV2.find({
           status: { $in: ["pending_export_window", "exporting", "failed"] },
@@ -2660,6 +2726,7 @@ export async function buildLiveRecordingMonitorExportQueueSnapshot() {
               queueSnapshot,
               currentDriveMode: currentDriveSettings.mode,
               matchSideDisplayContext,
+              autoExportNoSegmentMinutes,
             },
             {
               includeDetailedSegments: false,
@@ -2679,7 +2746,10 @@ export async function buildLiveRecordingMonitorRowsPage(options = {}) {
     return fastPage;
   }
 
-  const pageData = await buildLiveRecordingMonitorPage(options);
+  const pageData = await buildLiveRecordingMonitorPage({
+    ...options,
+    includeStorageSummary: false,
+  });
   return {
     rows: pageData.rows || [],
     count: Number(pageData.count || 0),
@@ -2713,13 +2783,14 @@ export async function getLiveRecordingMonitorRowsByIds(
     };
   }
 
-  const [currentDriveSettings, workerHealth, queueSnapshot, recordings] =
+  const [currentDriveSettings, workerHealth, queueSnapshot, autoExportNoSegmentMinutes, recordings] =
     await Promise.all([
       getRecordingDriveSettings().catch(() => ({
         mode: "serviceAccount",
       })),
       getLiveRecordingWorkerHealth().catch(() => null),
       getLiveRecordingExportQueueSnapshot().catch(() => null),
+      getAutoExportNoSegmentMinutes(),
       applyLiveRecordingMonitorRecordingPopulate(
         LiveRecordingV2.find({ _id: { $in: normalizedRecordingIds } }).select(
           includeDetailedSegments
@@ -2754,6 +2825,7 @@ export async function getLiveRecordingMonitorRowsByIds(
           queueSnapshot,
           currentDriveMode: currentDriveSettings.mode,
           matchSideDisplayContext,
+          autoExportNoSegmentMinutes,
         },
         {
           includeDetailedSegments,
@@ -2772,13 +2844,14 @@ export async function getLiveRecordingMonitorRow(recordingId) {
   const normalizedRecordingId = String(recordingId || "").trim();
   if (!normalizedRecordingId) return null;
 
-  const [currentDriveSettings, workerHealth, queueSnapshot, recording] =
+  const [currentDriveSettings, workerHealth, queueSnapshot, autoExportNoSegmentMinutes, recording] =
     await Promise.all([
       getRecordingDriveSettings().catch(() => ({
         mode: "serviceAccount",
       })),
       getLiveRecordingWorkerHealth().catch(() => null),
       getLiveRecordingExportQueueSnapshot().catch(() => null),
+      getAutoExportNoSegmentMinutes(),
       applyLiveRecordingMonitorRecordingPopulate(
         LiveRecordingV2.findById(normalizedRecordingId).select(
           LIVE_RECORDING_MONITOR_DETAIL_RECORDING_SELECT
@@ -2799,6 +2872,7 @@ export async function getLiveRecordingMonitorRow(recordingId) {
       queueSnapshot,
       currentDriveMode: currentDriveSettings.mode,
       matchSideDisplayContext,
+      autoExportNoSegmentMinutes,
     },
     {
       includeDetailedSegments: true,
