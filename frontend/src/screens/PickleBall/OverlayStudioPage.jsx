@@ -25,9 +25,8 @@ import {
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
-import TemplateOverlayRenderer, {
-  overlayTemplateBindingOptions,
-} from "../../components/overlay/TemplateOverlayRenderer.jsx";
+import TemplateOverlayRenderer from "../../components/overlay/TemplateOverlayRenderer.jsx";
+import { overlayTemplateBindingOptions } from "../../utils/overlayTemplateBindings.js";
 import {
   useCloneOverlayTemplateMutation,
   useListOverlayTemplateLibraryQuery,
