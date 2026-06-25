@@ -141,6 +141,20 @@ const fieldGridSx = {
   gap: 1,
 };
 
+const SNAP_THRESHOLD_PX = 8;
+const EMPTY_SNAP_GUIDES = { vertical: [], horizontal: [] };
+const MIN_LAYER_SIZE = 16;
+const RESIZE_HANDLES = [
+  { key: "nw", cursor: "nwse-resize", left: "0%", top: "0%" },
+  { key: "n", cursor: "ns-resize", left: "50%", top: "0%" },
+  { key: "ne", cursor: "nesw-resize", left: "100%", top: "0%" },
+  { key: "e", cursor: "ew-resize", left: "100%", top: "50%" },
+  { key: "se", cursor: "nwse-resize", left: "100%", top: "100%" },
+  { key: "s", cursor: "ns-resize", left: "50%", top: "100%" },
+  { key: "sw", cursor: "nesw-resize", left: "0%", top: "100%" },
+  { key: "w", cursor: "ew-resize", left: "0%", top: "50%" },
+];
+
 const previewValues = {
   "tournament.name": "Test giải 4",
   "tournament.logoUrl": "",
@@ -164,6 +178,155 @@ const previewValues = {
 const numberOr = (value, fallback) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+};
+
+const layerBounds = (layer) => {
+  const x = numberOr(layer?.x, 0);
+  const y = numberOr(layer?.y, 0);
+  const width = Math.max(1, numberOr(layer?.width, 1));
+  const height = Math.max(1, numberOr(layer?.height, 1));
+
+  return {
+    x,
+    y,
+    width,
+    height,
+    right: x + width,
+    bottom: y + height,
+    centerX: x + width / 2,
+    centerY: y + height / 2,
+  };
+};
+
+const makeSnapTargets = (layers, activeLayerIds, canvas) => {
+  const activeIds = new Set(
+    Array.isArray(activeLayerIds) ? activeLayerIds : [activeLayerIds],
+  );
+  const vertical = [0, canvas.width / 2, canvas.width];
+  const horizontal = [0, canvas.height / 2, canvas.height];
+
+  (layers || []).forEach((layer) => {
+    if (!layer || activeIds.has(layer.id) || layer.visible === false) return;
+    const bounds = layerBounds(layer);
+    vertical.push(bounds.x, bounds.centerX, bounds.right);
+    horizontal.push(bounds.y, bounds.centerY, bounds.bottom);
+  });
+
+  return {
+    vertical,
+    horizontal,
+  };
+};
+
+const findSnap = (position, size, targets, threshold) => {
+  const points = [
+    { value: position, offset: 0 },
+    { value: position + size / 2, offset: size / 2 },
+    { value: position + size, offset: size },
+  ];
+  let best = null;
+
+  points.forEach((point) => {
+    targets.forEach((target) => {
+      const distance = Math.abs(point.value - target);
+      if (distance > threshold) return;
+      if (best && distance >= best.distance) return;
+      best = {
+        distance,
+        guide: target,
+        position: target - point.offset,
+      };
+    });
+  });
+
+  return best;
+};
+
+const snapLayerPosition = ({
+  x,
+  y,
+  width,
+  height,
+  targets,
+  thresholdX,
+  thresholdY,
+}) => {
+  const snapX = findSnap(x, width, targets.vertical, thresholdX);
+  const snapY = findSnap(y, height, targets.horizontal, thresholdY);
+
+  return {
+    x: Math.round(snapX ? snapX.position : x),
+    y: Math.round(snapY ? snapY.position : y),
+    guides: {
+      vertical: snapX ? [snapX.guide] : [],
+      horizontal: snapY ? [snapY.guide] : [],
+    },
+  };
+};
+
+const getSelectionBounds = (layers) => {
+  if (!layers.length) return null;
+  const bounds = layers.map(layerBounds);
+  const x = Math.min(...bounds.map((item) => item.x));
+  const y = Math.min(...bounds.map((item) => item.y));
+  const right = Math.max(...bounds.map((item) => item.right));
+  const bottom = Math.max(...bounds.map((item) => item.bottom));
+
+  return {
+    x,
+    y,
+    width: right - x,
+    height: bottom - y,
+    right,
+    bottom,
+    centerX: x + (right - x) / 2,
+    centerY: y + (bottom - y) / 2,
+  };
+};
+
+const resizeBounds = (bounds, handle, dx, dy) => {
+  let x = bounds.x;
+  let y = bounds.y;
+  let right = bounds.right;
+  let bottom = bounds.bottom;
+
+  if (handle.includes("w")) x += dx;
+  if (handle.includes("e")) right += dx;
+  if (handle.includes("n")) y += dy;
+  if (handle.includes("s")) bottom += dy;
+
+  if (right - x < MIN_LAYER_SIZE) {
+    if (handle.includes("w")) x = right - MIN_LAYER_SIZE;
+    else right = x + MIN_LAYER_SIZE;
+  }
+
+  if (bottom - y < MIN_LAYER_SIZE) {
+    if (handle.includes("n")) y = bottom - MIN_LAYER_SIZE;
+    else bottom = y + MIN_LAYER_SIZE;
+  }
+
+  return {
+    x,
+    y,
+    width: right - x,
+    height: bottom - y,
+    right,
+    bottom,
+  };
+};
+
+const resizeLayerFromGroup = (layer, startGroupBounds, nextGroupBounds) => {
+  const bounds = layerBounds(layer);
+  const scaleX = nextGroupBounds.width / Math.max(1, startGroupBounds.width);
+  const scaleY = nextGroupBounds.height / Math.max(1, startGroupBounds.height);
+
+  return {
+    ...layer,
+    x: Math.round(nextGroupBounds.x + (bounds.x - startGroupBounds.x) * scaleX),
+    y: Math.round(nextGroupBounds.y + (bounds.y - startGroupBounds.y) * scaleY),
+    width: Math.max(MIN_LAYER_SIZE, Math.round(bounds.width * scaleX)),
+    height: Math.max(MIN_LAYER_SIZE, Math.round(bounds.height * scaleY)),
+  };
 };
 
 const cloneDocument = (document) => ({
@@ -231,8 +394,84 @@ function makeRectLayer() {
   };
 }
 
+function makeShapeLayer() {
+  return {
+    id: makeLayerId("shape"),
+    type: "rect",
+    label: "Shape",
+    binding: "static",
+    text: "",
+    x: 180,
+    y: 180,
+    width: 280,
+    height: 160,
+    zIndex: 5,
+    visible: true,
+    style: {
+      background: "rgba(37,99,235,0.72)",
+      borderColor: "rgba(255,255,255,0.22)",
+      borderWidth: 1,
+      borderRadius: 28,
+    },
+  };
+}
+
+function makeFrameLayer() {
+  return {
+    id: makeLayerId("frame"),
+    type: "rect",
+    label: "Khung",
+    binding: "static",
+    text: "",
+    x: 160,
+    y: 160,
+    width: 540,
+    height: 260,
+    zIndex: 6,
+    visible: true,
+    style: {
+      background: "transparent",
+      borderColor: "rgba(255,255,255,0.9)",
+      borderWidth: 5,
+      borderRadius: 26,
+    },
+  };
+}
+
+function makeImageLayer() {
+  return {
+    id: makeLayerId("image"),
+    type: "image",
+    label: "Ảnh",
+    binding: "static",
+    text: "",
+    src: "",
+    x: 180,
+    y: 180,
+    width: 360,
+    height: 220,
+    zIndex: 15,
+    visible: true,
+    style: {
+      background: "rgba(15,23,42,0.42)",
+      borderColor: "rgba(255,255,255,0.24)",
+      borderWidth: 1,
+      borderRadius: 18,
+    },
+  };
+}
+
 function getLayer(document, selectedLayerId) {
   return (document?.layers || []).find((layer) => layer.id === selectedLayerId);
+}
+
+function layerTypeLabel(layer) {
+  if (layer?.type === "image") return "Ảnh";
+  if (layer?.type !== "rect") return "Text";
+  const label = String(layer?.label || "").toLowerCase();
+  if (label.includes("khung")) return "Khung";
+  if (label.includes("nền")) return "Nền";
+  return "Shape";
 }
 
 export default function OverlayStudioPage() {
@@ -256,6 +495,8 @@ export default function OverlayStudioPage() {
     layers: [],
   });
   const [selectedLayerId, setSelectedLayerId] = useState("");
+  const [selectedLayerIds, setSelectedLayerIds] = useState([]);
+  const [snapGuides, setSnapGuides] = useState(EMPTY_SNAP_GUIDES);
 
   const {
     data: remoteLibrary = [],
@@ -281,6 +522,39 @@ export default function OverlayStudioPage() {
     () => getLayer(document, selectedLayerId),
     [document, selectedLayerId],
   );
+  const selectedLayers = useMemo(
+    () =>
+      document.layers.filter((layer) => selectedLayerIds.includes(layer.id)),
+    [document.layers, selectedLayerIds],
+  );
+  const selectedBounds = useMemo(
+    () => getSelectionBounds(selectedLayers),
+    [selectedLayers],
+  );
+
+  const setSingleSelection = (layerId) => {
+    setSelectedLayerId(layerId || "");
+    setSelectedLayerIds(layerId ? [layerId] : []);
+  };
+
+  const toggleLayerSelection = (layerId) => {
+    setSelectedLayerIds((prev) => {
+      const exists = prev.includes(layerId);
+      const next = exists
+        ? prev.filter((id) => id !== layerId)
+        : [...prev, layerId];
+      setSelectedLayerId(next[next.length - 1] || "");
+      return next;
+    });
+  };
+
+  const selectLayerForEvent = (layerId, event) => {
+    if (event?.shiftKey || event?.ctrlKey || event?.metaKey) {
+      toggleLayerSelection(layerId);
+      return;
+    }
+    setSingleSelection(layerId);
+  };
 
   useEffect(() => {
     if (document.layers.length || !library.length) return;
@@ -290,7 +564,7 @@ export default function OverlayStudioPage() {
     setName(first.name || "Overlay template");
     setCanvas(first.canvas || DEFAULT_CANVAS);
     setDocument(cloneDocument(first.document));
-    setSelectedLayerId(first.document?.layers?.[0]?.id || "");
+    setSingleSelection(first.document?.layers?.[0]?.id || "");
   }, [document.layers.length, library]);
 
   const applyTemplate = (template, saved = false) => {
@@ -300,7 +574,8 @@ export default function OverlayStudioPage() {
     setCanvas(template.canvas || DEFAULT_CANVAS);
     const nextDocument = cloneDocument(template.document);
     setDocument(nextDocument);
-    setSelectedLayerId(nextDocument.layers?.[0]?.id || "");
+    setSingleSelection(nextDocument.layers?.[0]?.id || "");
+    setSnapGuides(EMPTY_SNAP_GUIDES);
   };
 
   const patchDocument = (updater) => {
@@ -332,72 +607,170 @@ export default function OverlayStudioPage() {
     const layer =
       kind === "rect"
         ? makeRectLayer()
-        : makeTextLayer(kind, kind === "scoreA" ? "Điểm A" : "Text");
+        : kind === "shape"
+          ? makeShapeLayer()
+          : kind === "frame"
+            ? makeFrameLayer()
+            : kind === "image"
+              ? makeImageLayer()
+              : makeTextLayer(kind, kind === "scoreA" ? "Điểm A" : "Text");
     patchDocument((draft) => ({
       ...draft,
       layers: [...draft.layers, layer],
     }));
-    setSelectedLayerId(layer.id);
+    setSingleSelection(layer.id);
   };
 
   const duplicateSelectedLayer = () => {
-    if (!selectedLayer) return;
-    const copy = {
-      ...selectedLayer,
-      id: makeLayerId(selectedLayer.type || "layer"),
-      label: `${selectedLayer.label || "Layer"} copy`,
-      x: numberOr(selectedLayer.x, 0) + 32,
-      y: numberOr(selectedLayer.y, 0) + 32,
-      zIndex: numberOr(selectedLayer.zIndex, 0) + 1,
-      style: { ...(selectedLayer.style || {}) },
-    };
-    patchDocument((draft) => ({ ...draft, layers: [...draft.layers, copy] }));
-    setSelectedLayerId(copy.id);
+    if (!selectedLayers.length) return;
+    const copies = selectedLayers.map((layer) => ({
+      ...layer,
+      id: makeLayerId(layer.type || "layer"),
+      label: `${layer.label || "Layer"} copy`,
+      x: numberOr(layer.x, 0) + 32,
+      y: numberOr(layer.y, 0) + 32,
+      zIndex: numberOr(layer.zIndex, 0) + 1,
+      style: { ...(layer.style || {}) },
+    }));
+    patchDocument((draft) => ({ ...draft, layers: [...draft.layers, ...copies] }));
+    setSelectedLayerIds(copies.map((layer) => layer.id));
+    setSelectedLayerId(copies[copies.length - 1]?.id || "");
   };
 
   const deleteSelectedLayer = () => {
-    if (!selectedLayerId) return;
+    if (!selectedLayerIds.length) return;
+    const selectedIdSet = new Set(selectedLayerIds);
     patchDocument((draft) => ({
       ...draft,
-      layers: draft.layers.filter((layer) => layer.id !== selectedLayerId),
+      layers: draft.layers.filter((layer) => !selectedIdSet.has(layer.id)),
     }));
-    setSelectedLayerId("");
+    setSingleSelection("");
   };
 
   const handleLayerPointerDown = (event, layer) => {
     if (!layer || layer.locked) return;
     event.preventDefault();
     event.stopPropagation();
-    setSelectedLayerId(layer.id);
+
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      toggleLayerSelection(layer.id);
+      return;
+    }
+
+    const rect = canvasWrapRef.current?.getBoundingClientRect();
+    if (!rect?.width || !rect?.height) return;
+
+    const dragLayerIds = selectedLayerIds.includes(layer.id)
+      ? selectedLayerIds
+      : [layer.id];
+    const dragIdSet = new Set(dragLayerIds);
+    if (!selectedLayerIds.includes(layer.id)) {
+      setSingleSelection(layer.id);
+    } else {
+      setSelectedLayerId(layer.id);
+    }
+
+    const dragLayers = document.layers.filter((item) => dragIdSet.has(item.id));
+    const groupBounds = getSelectionBounds(dragLayers);
+    if (!groupBounds) return;
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startLayers = new Map(
+      dragLayers.map((item) => [item.id, layerBounds(item)]),
+    );
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const thresholdX = SNAP_THRESHOLD_PX * scaleX;
+    const thresholdY = SNAP_THRESHOLD_PX * scaleY;
+    const snapTargets = makeSnapTargets(document.layers, dragLayerIds, canvas);
+
+    const move = (moveEvent) => {
+      const nextX = Math.round(
+        groupBounds.x + (moveEvent.clientX - startX) * scaleX,
+      );
+      const nextY = Math.round(
+        groupBounds.y + (moveEvent.clientY - startY) * scaleY,
+      );
+      const snapped = snapLayerPosition({
+        x: nextX,
+        y: nextY,
+        width: groupBounds.width,
+        height: groupBounds.height,
+        targets: snapTargets,
+        thresholdX,
+        thresholdY,
+      });
+      const dx = snapped.x - groupBounds.x;
+      const dy = snapped.y - groupBounds.y;
+      setSnapGuides(snapped.guides);
+      patchDocument((draft) => ({
+        ...draft,
+        layers: draft.layers.map((item) => {
+          const start = startLayers.get(item.id);
+          if (!start) return item;
+          return {
+            ...item,
+            x: Math.round(start.x + dx),
+            y: Math.round(start.y + dy),
+          };
+        }),
+      }));
+    };
+
+    const up = () => {
+      setSnapGuides(EMPTY_SNAP_GUIDES);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
+  const handleSelectionResizePointerDown = (event, handle) => {
+    if (!selectedBounds || !selectedLayers.length) return;
+    event.preventDefault();
+    event.stopPropagation();
 
     const rect = canvasWrapRef.current?.getBoundingClientRect();
     if (!rect?.width || !rect?.height) return;
 
     const startX = event.clientX;
     const startY = event.clientY;
-    const originX = numberOr(layer.x, 0);
-    const originY = numberOr(layer.y, 0);
+    const startBounds = { ...selectedBounds };
+    const startLayers = new Map(
+      selectedLayers.map((layer) => [layer.id, { ...layer, style: { ...(layer.style || {}) } }]),
+    );
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
     const move = (moveEvent) => {
-      const nextX = Math.round(originX + (moveEvent.clientX - startX) * scaleX);
-      const nextY = Math.round(originY + (moveEvent.clientY - startY) * scaleY);
+      const dx = (moveEvent.clientX - startX) * scaleX;
+      const dy = (moveEvent.clientY - startY) * scaleY;
+      const nextBounds = resizeBounds(startBounds, handle, dx, dy);
+
       patchDocument((draft) => ({
         ...draft,
-        layers: draft.layers.map((item) =>
-          item.id === layer.id ? { ...item, x: nextX, y: nextY } : item,
-        ),
+        layers: draft.layers.map((item) => {
+          const startLayer = startLayers.get(item.id);
+          if (!startLayer) return item;
+          return resizeLayerFromGroup(startLayer, startBounds, nextBounds);
+        }),
       }));
     };
 
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
 
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   const saveDraft = async () => {
@@ -715,6 +1088,30 @@ export default function OverlayStudioPage() {
                   >
                     Nền
                   </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addLayer("shape")}
+                  >
+                    Shape
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addLayer("frame")}
+                  >
+                    Khung
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addLayer("image")}
+                  >
+                    Ảnh
+                  </Button>
                 </Stack>
               </Stack>
             </Box>
@@ -731,7 +1128,7 @@ export default function OverlayStudioPage() {
             >
               <Box
                 ref={canvasWrapRef}
-                onPointerDown={() => setSelectedLayerId("")}
+                onPointerDown={() => setSingleSelection("")}
                 sx={(theme) => ({
                   ...canvasSurfaceSx,
                   position: "relative",
@@ -755,9 +1152,8 @@ export default function OverlayStudioPage() {
                     values={previewValues}
                     selectedLayerId={selectedLayerId}
                     onLayerPointerDown={handleLayerPointerDown}
-                    onLayerClick={(event, layer) => {
+                    onLayerClick={(event) => {
                       event.stopPropagation();
-                      setSelectedLayerId(layer.id);
                     }}
                     style={canvasSurfaceSx}
                   />
@@ -777,6 +1173,79 @@ export default function OverlayStudioPage() {
                     <Typography variant="body2">Chưa có layer trong template này.</Typography>
                   </Box>
                 )}
+                {selectedBounds ? (
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      left: `${(selectedBounds.x / canvas.width) * 100}%`,
+                      top: `${(selectedBounds.y / canvas.height) * 100}%`,
+                      width: `${(selectedBounds.width / canvas.width) * 100}%`,
+                      height: `${(selectedBounds.height / canvas.height) * 100}%`,
+                      border: "1px solid #38bdf8",
+                      boxShadow: "0 0 0 1px rgba(56,189,248,0.22)",
+                      pointerEvents: "none",
+                      zIndex: 38,
+                    }}
+                  >
+                    {RESIZE_HANDLES.map((handle) => (
+                      <Box
+                        key={handle.key}
+                        data-resize-handle={handle.key}
+                        onPointerDown={(event) =>
+                          handleSelectionResizePointerDown(event, handle.key)
+                        }
+                        sx={{
+                          position: "absolute",
+                          left: handle.left,
+                          top: handle.top,
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          border: "2px solid #07111f",
+                          bgcolor: "#38bdf8",
+                          transform: "translate(-50%, -50%)",
+                          cursor: handle.cursor,
+                          pointerEvents: "auto",
+                          zIndex: 39,
+                        }}
+                      />
+                    ))}
+                  </Box>
+                ) : null}
+                {snapGuides.vertical.map((guide) => (
+                  <Box
+                    key={`snap-v-${guide}`}
+                    sx={{
+                      position: "absolute",
+                      top: 0,
+                      bottom: 0,
+                      left: `${(guide / canvas.width) * 100}%`,
+                      width: 2,
+                      transform: "translateX(-1px)",
+                      bgcolor: "#38bdf8",
+                      boxShadow: "0 0 0 1px rgba(56,189,248,0.24)",
+                      pointerEvents: "none",
+                      zIndex: 30,
+                    }}
+                  />
+                ))}
+                {snapGuides.horizontal.map((guide) => (
+                  <Box
+                    key={`snap-h-${guide}`}
+                    sx={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: `${(guide / canvas.height) * 100}%`,
+                      height: 2,
+                      transform: "translateY(-1px)",
+                      bgcolor: "#38bdf8",
+                      boxShadow: "0 0 0 1px rgba(56,189,248,0.24)",
+                      pointerEvents: "none",
+                      zIndex: 30,
+                    }}
+                  />
+                ))}
               </Box>
             </Box>
           </Paper>
@@ -792,7 +1261,7 @@ export default function OverlayStudioPage() {
                     <span>
                       <IconButton
                         size="small"
-                        disabled={!selectedLayer}
+                        disabled={!selectedLayerIds.length}
                         onClick={duplicateSelectedLayer}
                       >
                         <ContentCopyIcon fontSize="small" />
@@ -804,7 +1273,7 @@ export default function OverlayStudioPage() {
                       <IconButton
                         size="small"
                         color="error"
-                        disabled={!selectedLayer}
+                        disabled={!selectedLayerIds.length}
                         onClick={deleteSelectedLayer}
                       >
                         <DeleteIcon fontSize="small" />
@@ -824,13 +1293,13 @@ export default function OverlayStudioPage() {
             >
               <Stack spacing={0.75}>
                 {document.layers.map((layer) => {
-                  const active = selectedLayerId === layer.id;
+                  const active = selectedLayerIds.includes(layer.id);
                   return (
                     <Button
                       key={layer.id}
                       variant="text"
                       size="small"
-                      onClick={() => setSelectedLayerId(layer.id)}
+                      onClick={(event) => selectLayerForEvent(layer.id, event)}
                       sx={layerButtonSx(active)}
                     >
                       <Typography variant="body2" fontWeight={800} noWrap>
@@ -838,7 +1307,7 @@ export default function OverlayStudioPage() {
                       </Typography>
                       <Chip
                         size="small"
-                        label={layer.type === "rect" ? "Nền" : "Text"}
+                        label={layerTypeLabel(layer)}
                         variant="outlined"
                       />
                     </Button>
@@ -868,7 +1337,7 @@ export default function OverlayStudioPage() {
                     }
                     fullWidth
                   />
-                  {selectedLayer.type !== "rect" ? (
+                  {selectedLayer.type !== "rect" && selectedLayer.type !== "image" ? (
                     <TextField
                       select
                       size="small"
@@ -886,13 +1355,24 @@ export default function OverlayStudioPage() {
                       ))}
                     </TextField>
                   ) : null}
-                  {selectedLayer.type !== "rect" ? (
+                  {selectedLayer.type !== "rect" && selectedLayer.type !== "image" ? (
                     <TextField
                       size="small"
                       label="Text dự phòng"
                       value={selectedLayer.text || ""}
                       onChange={(event) =>
                         patchSelectedLayer({ text: event.target.value })
+                      }
+                      fullWidth
+                    />
+                  ) : null}
+                  {selectedLayer.type === "image" ? (
+                    <TextField
+                      size="small"
+                      label="URL ảnh"
+                      value={selectedLayer.src || ""}
+                      onChange={(event) =>
+                        patchSelectedLayer({ src: event.target.value })
                       }
                       fullWidth
                     />
@@ -911,7 +1391,7 @@ export default function OverlayStudioPage() {
                       />
                     ))}
                   </Box>
-                  {selectedLayer.type !== "rect" ? (
+                  {selectedLayer.type !== "rect" && selectedLayer.type !== "image" ? (
                     <Box sx={fieldGridSx}>
                       <TextField
                         size="small"
@@ -944,7 +1424,7 @@ export default function OverlayStudioPage() {
                     onChange={(event) =>
                       patchSelectedLayer({ style: { color: event.target.value } })
                     }
-                    disabled={selectedLayer.type === "rect"}
+                    disabled={selectedLayer.type === "rect" || selectedLayer.type === "image"}
                     fullWidth
                   />
                   <TextField
@@ -958,6 +1438,29 @@ export default function OverlayStudioPage() {
                     }
                     fullWidth
                   />
+                  <Box sx={fieldGridSx}>
+                    <TextField
+                      size="small"
+                      label="Màu viền"
+                      value={selectedLayer.style?.borderColor || "transparent"}
+                      onChange={(event) =>
+                        patchSelectedLayer({
+                          style: { borderColor: event.target.value },
+                        })
+                      }
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Độ dày viền"
+                      value={selectedLayer.style?.borderWidth ?? 0}
+                      onChange={(event) =>
+                        patchSelectedLayer({
+                          style: { borderWidth: Number(event.target.value) },
+                        })
+                      }
+                    />
+                  </Box>
                   <TextField
                     size="small"
                     type="number"
@@ -980,7 +1483,7 @@ export default function OverlayStudioPage() {
                         style: { textAlign: event.target.value },
                       })
                     }
-                    disabled={selectedLayer.type === "rect"}
+                    disabled={selectedLayer.type === "rect" || selectedLayer.type === "image"}
                     fullWidth
                   >
                     <MenuItem value="left">Trái</MenuItem>
