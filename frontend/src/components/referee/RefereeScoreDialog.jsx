@@ -897,6 +897,7 @@ export default function RefereeScoreDialog({
   matchId,
   initialMatch = null,
   onClose,
+  onMatchChanged,
 }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("md"));
@@ -940,6 +941,51 @@ export default function RefereeScoreDialog({
   }, [data, initialMatch]);
   const normalizedMatchId = idOf(match?._id || match?.id || matchId);
   const normalizedTournamentId = idOf(match?.tournament?._id || match?.tournament);
+  const parentNotifyKeyRef = useRef("");
+
+  useEffect(() => {
+    if (!open || !onMatchChanged || !data) return;
+    const nextMatchId = idOf(data?._id || data?.id || data?.matchId || matchId);
+    if (!nextMatchId) return;
+
+    let fingerprint = "";
+    try {
+      fingerprint = JSON.stringify({
+        id: nextMatchId,
+        status: data?.status,
+        updatedAt: data?.updatedAt,
+        liveVersion: data?.liveVersion,
+        currentGame: data?.currentGame,
+        scoreA: data?.scoreA,
+        scoreB: data?.scoreB,
+        pointsA: data?.pointsA,
+        pointsB: data?.pointsB,
+        gameScores: data?.gameScores || data?.scores,
+        serve: data?.serve,
+        court: data?.court,
+        courtStation: data?.courtStation,
+        referee: data?.referee,
+        referees: data?.referees,
+      });
+    } catch {
+      fingerprint = `${nextMatchId}:${data?.updatedAt || ""}:${data?.liveVersion || ""}`;
+    }
+
+    if (parentNotifyKeyRef.current === fingerprint) return;
+    parentNotifyKeyRef.current = fingerprint;
+    onMatchChanged({
+      matchId: nextMatchId,
+      tournamentId: normalizedTournamentId,
+      data,
+    });
+  }, [data, matchId, normalizedTournamentId, onMatchChanged, open]);
+
+  useEffect(() => {
+    if (!open) {
+      parentNotifyKeyRef.current = "";
+    }
+  }, [open]);
+
   const playerDisplayMode = useMemo(
     () =>
       resolveDisplayMode({

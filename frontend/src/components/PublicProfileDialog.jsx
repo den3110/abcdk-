@@ -1443,6 +1443,16 @@ function PublicProfileDialog({ open, onClose, userId }) {
           const hasScore =
             Number.isFinite(p?.preScore) || Number.isFinite(p?.postScore) || p?.preScore === null || p?.postScore === null;
           const nick = preferNick(p);
+          const highlightTextColor = highlight
+            ? theme.palette.getContrastText(theme.palette.success.light)
+            : undefined;
+          const trendColor = highlight
+            ? highlightTextColor
+            : up
+              ? "success.main"
+              : down
+                ? "error.main"
+                : "text.primary";
 
           return (
             <Stack
@@ -1471,7 +1481,15 @@ function PublicProfileDialog({ open, onClose, userId }) {
               />
 
               <Stack sx={{ minWidth: 0, flex: 1 }}>
-                <Typography variant="body2" noWrap title={nick}>
+                <Typography
+                  variant="body2"
+                  noWrap
+                  title={nick}
+                  sx={{
+                    color: highlight ? highlightTextColor : "text.primary",
+                    fontWeight: highlight ? 700 : 400,
+                  }}
+                >
                   {nick}
                 </Typography>
 
@@ -1490,8 +1508,11 @@ function PublicProfileDialog({ open, onClose, userId }) {
                   >
                     <Typography
                       variant="caption"
-                      color="text.secondary"
-                      sx={{ lineHeight: 1.2 }}
+                      sx={{
+                        color: highlight ? highlightTextColor : "text.secondary",
+                        opacity: highlight ? 0.72 : 1,
+                        lineHeight: 1.2,
+                      }}
                     >
                       {num(p?.preScore)}
                     </Typography>
@@ -1500,11 +1521,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
                       variant="caption"
                       sx={{
                         fontWeight: 700,
-                        color: up
-                          ? "success.main"
-                          : down
-                            ? "error.main"
-                            : "text.primary",
+                        color: trendColor,
                         lineHeight: 1.2,
                       }}
                     >
@@ -1523,18 +1540,19 @@ function PublicProfileDialog({ open, onClose, userId }) {
                         {p.delta > 0 ? (
                           <ArrowDropUpIcon
                             fontSize="small"
-                            sx={{ color: "success.main", ml: -0.25 }}
+                            sx={{ color: trendColor, ml: -0.25 }}
                           />
                         ) : (
                           <ArrowDropDownIcon
                             fontSize="small"
-                            sx={{ color: "error.main", ml: -0.25 }}
+                            sx={{ color: trendColor, ml: -0.25 }}
                           />
                         )}
                         <Typography
                           variant="caption"
                           sx={{
-                            color: p.delta > 0 ? "success.main" : "error.main",
+                            color: trendColor,
+                            fontWeight: highlight ? 700 : 400,
                           }}
                         >
                           {Math.abs(p.delta).toFixed(3)}

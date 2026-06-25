@@ -20,9 +20,11 @@ import {
   Add as AddIcon,
   ContentCopy as ContentCopyIcon,
   Delete as DeleteIcon,
+  Image as ImageIcon,
   OpenInNew as OpenInNewIcon,
   Save as SaveIcon,
   Send as PublishIcon,
+  UploadFile as UploadFileIcon,
 } from "@mui/icons-material";
 import { alpha } from "@mui/material/styles";
 import { toast } from "react-toastify";
@@ -40,43 +42,203 @@ import {
 
 const DEFAULT_CANVAS = { width: 1920, height: 1080 };
 
-const editorRootSx = {
+const editorRootSx = (theme) => ({
   minHeight: "100vh",
-  bgcolor: (theme) => (theme.palette.mode === "dark" ? "#080b12" : "#f4f6fb"),
-  p: { xs: 1, md: 1.5 },
-};
+  bgcolor: theme.palette.mode === "dark" ? "#0b0d12" : "#f4f5f8",
+  color: "text.primary",
+  overflow: "hidden",
+  "& .MuiButton-root": {
+    boxShadow: "none",
+    letterSpacing: 0,
+    fontWeight: 760,
+  },
+  "& .MuiButton-root:hover": {
+    boxShadow: "none",
+  },
+  "& .MuiChip-root": {
+    height: 22,
+    borderRadius: 999,
+    fontWeight: 760,
+  },
+  "& .MuiInputBase-root": {
+    borderRadius: "8px",
+    bgcolor:
+      theme.palette.mode === "dark"
+        ? alpha("#ffffff", 0.035)
+        : alpha("#ffffff", 0.84),
+  },
+  "& .MuiOutlinedInput-notchedOutline": {
+    borderColor:
+      theme.palette.mode === "dark"
+        ? alpha("#ffffff", 0.1)
+        : alpha("#111827", 0.13),
+  },
+  "& .MuiInputBase-root:hover .MuiOutlinedInput-notchedOutline": {
+    borderColor: alpha(theme.palette.primary.main, 0.55),
+  },
+  "& .MuiInputLabel-root": {
+    fontWeight: 720,
+  },
+});
 
 const topBarSx = (theme) => ({
-  px: { xs: 1.25, md: 1.5 },
-  py: 1.25,
-  borderRadius: 2,
-  border: `1px solid ${alpha(theme.palette.divider, 0.78)}`,
+  minHeight: 54,
+  px: { xs: 1, md: 1.25 },
+  py: { xs: 0.75, md: 0 },
+  borderRadius: 0,
+  borderBottom: `1px solid ${
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.1)
+  }`,
   bgcolor:
     theme.palette.mode === "dark"
-      ? alpha("#111827", 0.96)
-      : alpha(theme.palette.background.paper, 0.96),
+      ? "#10131a"
+      : alpha(theme.palette.background.paper, 0.98),
+  display: "flex",
+  alignItems: "center",
 });
 
 const panelSx = (theme) => ({
-  borderRadius: 2,
-  border: `1px solid ${alpha(theme.palette.divider, 0.82)}`,
+  borderRadius: 0,
+  border: 0,
   bgcolor:
     theme.palette.mode === "dark"
-      ? alpha("#10141d", 0.96)
-      : theme.palette.background.paper,
+      ? "#10131a"
+      : alpha(theme.palette.background.paper, 0.98),
   overflow: "hidden",
+  minHeight: 0,
 });
 
 const panelHeaderSx = {
-  px: 1.5,
-  py: 1.25,
+  px: 1.2,
+  py: 0.8,
+  minHeight: 40,
   borderBottom: "1px solid",
-  borderColor: "divider",
+  borderColor: (theme) =>
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.1),
 };
 
 const panelBodySx = {
-  p: 1.25,
+  p: 0.85,
 };
+
+const workspaceSx = {
+  display: "grid",
+  gridTemplateColumns: { xs: "1fr", lg: "304px minmax(0, 1fr) 352px" },
+  height: { xs: "auto", lg: "calc(100vh - 54px)" },
+  minHeight: 0,
+};
+
+const leftPanelSx = (theme) => ({
+  ...panelSx(theme),
+  borderRight: `1px solid ${
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.1)
+  }`,
+});
+
+const rightPanelSx = (theme) => ({
+  ...panelSx(theme),
+  borderLeft: `1px solid ${
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.1)
+  }`,
+});
+
+const centerPanelSx = (theme) => ({
+  minWidth: 0,
+  minHeight: 0,
+  bgcolor: theme.palette.mode === "dark" ? "#0b0d12" : "#eceef3",
+  display: "grid",
+  gridTemplateRows: "auto minmax(0, 1fr)",
+});
+
+const toolStripSx = (theme) => ({
+  px: 1.1,
+  py: 0.8,
+  borderBottom: `1px solid ${
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.1)
+  }`,
+  bgcolor:
+    theme.palette.mode === "dark"
+      ? "#10131a"
+      : alpha(theme.palette.background.paper, 0.97),
+});
+
+const toolbarButtonSx = (theme) => ({
+  minWidth: 0,
+  borderRadius: 1,
+  px: 1.05,
+  textTransform: "none",
+  border: "1px solid",
+  borderColor:
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.11) : alpha("#111827", 0.12),
+  bgcolor:
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.035) : alpha("#ffffff", 0.7),
+  "&:hover": {
+    borderColor: alpha(theme.palette.primary.main, 0.7),
+    bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.08),
+  },
+});
+
+const canvasViewportSx = (theme) => ({
+  p: { xs: 1.25, md: 2.75 },
+  minHeight: { xs: 360, lg: 0 },
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  overflow: "auto",
+  background:
+    theme.palette.mode === "dark"
+      ? "radial-gradient(circle at 50% 0%, rgba(59,130,246,0.08), transparent 34%), #0b0d12"
+      : "radial-gradient(circle at 50% 0%, rgba(37,99,235,0.08), transparent 34%), #e8eaf0",
+});
+
+const inspectorGroupSx = (theme) => ({
+  border: `1px solid ${
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.1)
+  }`,
+  borderRadius: 1.25,
+  p: 1,
+  bgcolor:
+    theme.palette.mode === "dark"
+      ? alpha("#ffffff", 0.025)
+      : alpha("#ffffff", 0.78),
+});
+
+const imageDropzoneSx = (active) => (theme) => ({
+  border: `1px dashed ${
+    active ? theme.palette.primary.main : alpha(theme.palette.text.primary, 0.26)
+  }`,
+  borderRadius: 1,
+  p: 1,
+  minHeight: 132,
+  display: "grid",
+  placeItems: "center",
+  textAlign: "center",
+  color: active ? "primary.main" : "text.secondary",
+  bgcolor: active
+    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.08)
+    : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.035 : 0.02),
+});
+
+const sectionTitleSx = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 1,
+  mb: 0.75,
+};
+
+const toolClusterSx = (theme) => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 0.75,
+  p: 0.35,
+  border: `1px solid ${
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.1)
+  }`,
+  borderRadius: 1.25,
+  bgcolor:
+    theme.palette.mode === "dark" ? alpha("#ffffff", 0.025) : alpha("#ffffff", 0.62),
+});
 
 const templateButtonSx = (active) => (theme) => ({
   width: "100%",
@@ -84,20 +246,34 @@ const templateButtonSx = (active) => (theme) => ({
   alignItems: "stretch",
   textAlign: "left",
   textTransform: "none",
-  borderRadius: 1.5,
-  p: 1.1,
+  borderRadius: 1.1,
+  p: 0.9,
   color: "text.primary",
-  border: `1px solid ${
-    active
-      ? alpha(theme.palette.primary.main, 0.62)
-      : alpha(theme.palette.divider, 0.85)
-  }`,
+  border: "1px solid transparent",
   bgcolor: active
-    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.1)
-    : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.035 : 0.025),
+    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.1)
+    : "transparent",
+  position: "relative",
+  overflow: "hidden",
+  "&::before": active
+    ? {
+        content: '""',
+        position: "absolute",
+        left: 0,
+        top: 8,
+        bottom: 8,
+        width: 3,
+        borderRadius: 999,
+        bgcolor: "primary.main",
+      }
+    : undefined,
   "&:hover": {
-    borderColor: alpha(theme.palette.primary.main, 0.72),
-    bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.12),
+    borderColor:
+      theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.08),
+    bgcolor:
+      active
+        ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.12)
+        : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.045 : 0.035),
   },
 });
 
@@ -106,21 +282,35 @@ const layerButtonSx = (active) => (theme) => ({
   justifyContent: "space-between",
   textAlign: "left",
   textTransform: "none",
-  borderRadius: 1.5,
-  px: 1,
-  py: 0.75,
+  borderRadius: 1,
+  px: 0.9,
+  py: 0.66,
   color: "text.primary",
-  border: `1px solid ${
-    active
-      ? alpha(theme.palette.primary.main, 0.58)
-      : alpha(theme.palette.divider, 0.75)
-  }`,
+  border: "1px solid transparent",
   bgcolor: active
-    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.1)
+    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.09)
     : "transparent",
+  position: "relative",
+  overflow: "hidden",
+  "&::before": active
+    ? {
+        content: '""',
+        position: "absolute",
+        left: 0,
+        top: 7,
+        bottom: 7,
+        width: 3,
+        borderRadius: 999,
+        bgcolor: "primary.main",
+      }
+    : undefined,
   "&:hover": {
-    borderColor: alpha(theme.palette.primary.main, 0.62),
-    bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
+    borderColor:
+      theme.palette.mode === "dark" ? alpha("#ffffff", 0.08) : alpha("#111827", 0.08),
+    bgcolor:
+      active
+        ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.11)
+        : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.045 : 0.035),
   },
 });
 
@@ -146,6 +336,10 @@ const SNAP_THRESHOLD_PX = 8;
 const EMPTY_SNAP_GUIDES = { vertical: [], horizontal: [] };
 const MIN_LAYER_SIZE = 16;
 const EDITOR_CHROME_Z_INDEX = 10000;
+const MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_EMBEDDED_IMAGE_LENGTH = 1900000;
+const MAX_EMBEDDED_IMAGE_SIDE = 1600;
+const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 const RESIZE_HANDLES = [
   { key: "nw", cursor: "nwse-resize", left: "0%", top: "0%" },
   { key: "n", cursor: "ns-resize", left: "50%", top: "0%" },
@@ -213,7 +407,7 @@ const isEditableEventTarget = (target) => {
   );
 };
 
-const previewValues = {
+const basePreviewValues = {
   "tournament.name": "Test giải 4",
   "tournament.logoUrl": "",
   "match.code": "V1-B1-T4",
@@ -231,12 +425,72 @@ const previewValues = {
   "sets.teamB": "0",
   "sets.summary": "11-7, 8-6",
   "serve.side": "A",
-  "serve.count": 1,
+  "serve.count": 2,
 };
 
 const numberOr = (value, fallback) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+};
+
+const isEmbeddedImageSrc = (value) =>
+  /^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(String(value || ""));
+
+const readFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Không đọc được ảnh"));
+    reader.readAsDataURL(file);
+  });
+
+const loadImageElement = (src) =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Ảnh không hợp lệ"));
+    image.src = src;
+  });
+
+const compressImageDataUrl = async (src) => {
+  const image = await loadImageElement(src);
+  const ratio = Math.min(
+    1,
+    MAX_EMBEDDED_IMAGE_SIDE / Math.max(image.naturalWidth, image.naturalHeight),
+  );
+  const canvas = window.document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
+
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Không xử lý được ảnh");
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  let quality = 0.88;
+  let output = canvas.toDataURL("image/webp", quality);
+  while (output.length > MAX_EMBEDDED_IMAGE_LENGTH && quality > 0.56) {
+    quality -= 0.08;
+    output = canvas.toDataURL("image/webp", quality);
+  }
+  if (output.length > MAX_EMBEDDED_IMAGE_LENGTH) {
+    throw new Error("Ảnh quá lớn, hãy chọn ảnh nhỏ hơn");
+  }
+  return output;
+};
+
+const fileToEmbeddedImageSrc = async (file) => {
+  if (!file || !file.type?.startsWith("image/")) {
+    throw new Error("File được chọn không phải ảnh");
+  }
+  if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error("Ảnh lớn hơn 8MB");
+  }
+
+  const src = await readFileAsDataUrl(file);
+  if (src.length <= MAX_EMBEDDED_IMAGE_LENGTH && isEmbeddedImageSrc(src)) {
+    return src;
+  }
+  return compressImageDataUrl(src);
 };
 
 const layerBounds = (layer) => {
@@ -572,6 +826,8 @@ export default function OverlayStudioPage() {
     (scopeType === "match" ? matchId : tournamentId);
 
   const canvasWrapRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const imageUploadTargetIdRef = useRef("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [savedTemplateId, setSavedTemplateId] = useState("");
   const [name, setName] = useState("Overlay template");
@@ -584,6 +840,9 @@ export default function OverlayStudioPage() {
   const [selectedLayerIds, setSelectedLayerIds] = useState([]);
   const [layerMenu, setLayerMenu] = useState(null);
   const [snapGuides, setSnapGuides] = useState(EMPTY_SNAP_GUIDES);
+  const [imageDropActive, setImageDropActive] = useState(false);
+  const [previewServeSide, setPreviewServeSide] = useState("A");
+  const [previewServeCount, setPreviewServeCount] = useState(2);
   const selectedLayerIdsRef = useRef([]);
 
   const {
@@ -618,6 +877,14 @@ export default function OverlayStudioPage() {
   const selectedBounds = useMemo(
     () => getSelectionBounds(selectedLayers),
     [selectedLayers],
+  );
+  const templatePreviewValues = useMemo(
+    () => ({
+      ...basePreviewValues,
+      "serve.side": previewServeSide,
+      "serve.count": previewServeCount,
+    }),
+    [previewServeCount, previewServeSide],
   );
 
   const setSingleSelection = (layerId) => {
@@ -703,6 +970,23 @@ export default function OverlayStudioPage() {
     }));
   };
 
+  const patchLayerById = (layerId, patcher) => {
+    if (!layerId) return;
+    patchDocument((draft) => ({
+      ...draft,
+      layers: draft.layers.map((layer) => {
+        if (layer.id !== layerId) return layer;
+        const patch =
+          typeof patcher === "function" ? patcher(layer) : patcher || {};
+        return {
+          ...layer,
+          ...patch,
+          style: { ...(layer.style || {}), ...(patch.style || {}) },
+        };
+      }),
+    }));
+  };
+
   const patchSelectedLayers = (patcher, layerIds) => {
     const targetLayerIds = getTargetLayerIds(layerIds);
     if (!targetLayerIds.length) return;
@@ -722,6 +1006,19 @@ export default function OverlayStudioPage() {
     }));
   };
 
+  const addImageLayer = (openPicker = false) => {
+    const layer = makeImageLayer();
+    patchDocument((draft) => ({
+      ...draft,
+      layers: [...draft.layers, layer],
+    }));
+    setSingleSelection(layer.id);
+    if (openPicker) {
+      imageUploadTargetIdRef.current = layer.id;
+      window.setTimeout(() => imageInputRef.current?.click(), 0);
+    }
+  };
+
   const addLayer = (kind) => {
     if (kind === "serve") {
       const layers = [makeServeIndicatorLayer("A"), makeServeIndicatorLayer("B")];
@@ -735,22 +1032,69 @@ export default function OverlayStudioPage() {
       setSelectedLayerId(layers[layers.length - 1]?.id || "");
       return;
     }
+    if (kind === "image") {
+      addImageLayer(true);
+      return;
+    }
 
     const layer =
       kind === "rect"
         ? makeRectLayer()
         : kind === "shape"
-          ? makeShapeLayer()
-          : kind === "frame"
-            ? makeFrameLayer()
-            : kind === "image"
-              ? makeImageLayer()
+            ? makeShapeLayer()
+            : kind === "frame"
+              ? makeFrameLayer()
               : makeTextLayer(kind, kind === "scoreA" ? "Điểm A" : "Text");
     patchDocument((draft) => ({
       ...draft,
       layers: [...draft.layers, layer],
     }));
     setSingleSelection(layer.id);
+  };
+
+  const applyImageFileToLayer = async (file, layerId) => {
+    const targetLayerId = layerId || selectedLayerId;
+    if (!targetLayerId) return;
+    try {
+      const src = await fileToEmbeddedImageSrc(file);
+      const rawName = String(file?.name || "Ảnh").replace(/\.[^.]+$/, "");
+      patchLayerById(targetLayerId, (layer) => ({
+        src,
+        label: layer.label && layer.label !== "Ảnh" ? layer.label : rawName,
+        style: {
+          background: "transparent",
+          borderColor: layer.style?.borderColor || "rgba(255,255,255,0.24)",
+        },
+      }));
+      setSingleSelection(targetLayerId);
+      toast.success("Đã thêm ảnh vào overlay");
+    } catch (error) {
+      toast.error(error?.message || "Không thêm được ảnh");
+    } finally {
+      imageUploadTargetIdRef.current = "";
+    }
+  };
+
+  const handleImageInputChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    await applyImageFileToLayer(file, imageUploadTargetIdRef.current || selectedLayerId);
+  };
+
+  const openImagePicker = (layerId = selectedLayerId) => {
+    if (!layerId) return;
+    imageUploadTargetIdRef.current = layerId;
+    imageInputRef.current?.click();
+  };
+
+  const handleImageDrop = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setImageDropActive(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file || !selectedLayerId) return;
+    await applyImageFileToLayer(file, selectedLayerId);
   };
 
   const duplicateSelectedLayer = (layerIds) => {
@@ -1060,6 +1404,8 @@ export default function OverlayStudioPage() {
     selectedLayer.type !== "rect" &&
     selectedLayer.type !== "image" &&
     selectedLayer.type !== "serveIndicator";
+  const selectedLayerIsImage = selectedLayer?.type === "image";
+  const selectedImageIsEmbedded = selectedLayerIsImage && isEmbeddedImageSrc(selectedLayer.src);
   const selectedLayerUsesColor =
     selectedLayer &&
     selectedLayer.type !== "rect" &&
@@ -1074,20 +1420,28 @@ export default function OverlayStudioPage() {
 
   return (
     <Box sx={editorRootSx}>
-      <Stack spacing={1.5}>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        hidden
+        onChange={handleImageInputChange}
+      />
+      <Stack spacing={0} sx={{ minHeight: "100vh" }}>
         <Paper elevation={0} sx={topBarSx}>
           <Stack
             direction={{ xs: "column", md: "row" }}
             spacing={1.25}
             alignItems={{ xs: "stretch", md: "center" }}
             justifyContent="space-between"
+            sx={{ width: "100%" }}
           >
             <Stack direction="row" spacing={1.25} alignItems="center" minWidth={0}>
               <Box
                 sx={(theme) => ({
                   width: 36,
                   height: 36,
-                  borderRadius: 1.5,
+                  borderRadius: 1,
                   display: "grid",
                   placeItems: "center",
                   fontWeight: 900,
@@ -1096,11 +1450,11 @@ export default function OverlayStudioPage() {
                   border: `1px solid ${alpha(theme.palette.primary.main, 0.24)}`,
                   flex: "0 0 auto",
                 })}
-              >
+            >
                 OS
               </Box>
               <Box minWidth={0}>
-                <Typography variant="h6" fontWeight={900} lineHeight={1.15}>
+                <Typography variant="subtitle1" fontWeight={900} lineHeight={1.1}>
                   Overlay Studio
                 </Typography>
                 <Stack
@@ -1145,18 +1499,20 @@ export default function OverlayStudioPage() {
                   target="_blank"
                   rel="noreferrer"
                   size="small"
-                  variant="outlined"
+                  variant="text"
                   startIcon={<OpenInNewIcon />}
+                  sx={{ textTransform: "none", borderRadius: 1 }}
                 >
                   Preview live
                 </Button>
               ) : null}
               <Button
                 size="small"
-                variant="outlined"
+                variant="text"
                 startIcon={<SaveIcon />}
                 disabled={busy || !tournamentId}
                 onClick={saveDraft}
+                sx={{ textTransform: "none", borderRadius: 1 }}
               >
                 Lưu draft
               </Button>
@@ -1166,6 +1522,7 @@ export default function OverlayStudioPage() {
                 startIcon={<PublishIcon />}
                 disabled={busy || !tournamentId}
                 onClick={publishCurrent}
+                sx={{ textTransform: "none", borderRadius: 1 }}
               >
                 Publish
               </Button>
@@ -1180,28 +1537,35 @@ export default function OverlayStudioPage() {
         ) : null}
 
         <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr", lg: "300px minmax(0,1fr) 344px" },
-            gap: 1.5,
-            alignItems: "stretch",
-          }}
+          sx={workspaceSx}
         >
-          <Paper elevation={0} sx={panelSx}>
+          <Paper elevation={0} sx={leftPanelSx}>
             <Box sx={panelHeaderSx}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="overline" fontWeight={900} color="text.secondary">
-                  Template hệ thống
+                <Typography variant="subtitle2" fontWeight={900}>
+                  Tài nguyên
                 </Typography>
                 <Chip size="small" label={library.length} variant="outlined" />
               </Stack>
             </Box>
-            <Box sx={panelBodySx}>
+            <Box
+              sx={{
+                ...panelBodySx,
+                height: { lg: "calc(100vh - 98px)" },
+                overflowY: "auto",
+              }}
+            >
               {usingLocalLibrary && (loadingLibrary || libraryError) ? (
                 <Alert severity={libraryError ? "warning" : "info"} sx={{ mb: 1.25 }}>
                   Đang dùng template mẫu cục bộ. Nếu không lưu được, hãy khởi động lại backend.
                 </Alert>
               ) : null}
+              <Box sx={sectionTitleSx}>
+                <Typography variant="caption" fontWeight={900} color="text.secondary">
+                  Template hệ thống
+                </Typography>
+                <Chip size="small" label={library.length} variant="outlined" />
+              </Box>
               <Stack spacing={0.9}>
                 {library.map((template) => {
                   const templateId = template.id || template.key;
@@ -1250,12 +1614,12 @@ export default function OverlayStudioPage() {
 
               <Divider sx={{ my: 1.5 }} />
 
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="overline" fontWeight={900} color="text.secondary">
+              <Box sx={sectionTitleSx}>
+                <Typography variant="caption" fontWeight={900} color="text.secondary">
                   Bản đã lưu
                 </Typography>
                 <Chip size="small" label={savedTemplates.length} variant="outlined" />
-              </Stack>
+              </Box>
               <Stack spacing={0.9} sx={{ mt: 0.75 }}>
                 {loadingSaved ? (
                   <Typography variant="body2" color="text.secondary">
@@ -1294,11 +1658,109 @@ export default function OverlayStudioPage() {
                   </Typography>
                 )}
               </Stack>
+
+              <Divider sx={{ my: 1.5 }} />
+
+              <Box sx={sectionTitleSx}>
+                <Typography variant="caption" fontWeight={900} color="text.secondary">
+                  Layers
+                </Typography>
+                <Stack direction="row" spacing={0.5}>
+                  <Tooltip title="Nhân bản layer">
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={!selectedLayerIds.length}
+                        onClick={duplicateSelectedLayer}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Xóa layer">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        disabled={!selectedLayerIds.length}
+                        onClick={deleteSelectedLayer}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
+              </Box>
+              <Stack spacing={0.65} sx={{ mt: 0.75 }}>
+                {document.layers.map((layer) => {
+                  const active = selectedLayerIds.includes(layer.id);
+                  return (
+                    <Button
+                      key={layer.id}
+                      variant="text"
+                      size="small"
+                      onClick={(event) => selectLayerForEvent(layer.id, event)}
+                      onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
+                      sx={layerButtonSx(active)}
+                    >
+                      <Typography variant="body2" fontWeight={800} noWrap>
+                        {layer.label || layer.id}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={layerTypeLabel(layer)}
+                        variant="outlined"
+                      />
+                    </Button>
+                  );
+                })}
+              </Stack>
+              <Menu
+                open={Boolean(layerMenu)}
+                onClose={closeLayerContextMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={
+                  layerMenu
+                    ? { top: layerMenu.mouseY, left: layerMenu.mouseX }
+                    : undefined
+                }
+              >
+                <MenuItem onClick={() => runLayerMenuAction(bringSelectedToFront)}>
+                  Đưa lên trên cùng
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    runLayerMenuAction((layerIds) => shiftSelectedZIndex(1, layerIds))
+                  }
+                >
+                  Đưa lên 1 lớp
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    runLayerMenuAction((layerIds) => shiftSelectedZIndex(-1, layerIds))
+                  }
+                >
+                  Đưa xuống 1 lớp
+                </MenuItem>
+                <MenuItem onClick={() => runLayerMenuAction(sendSelectedToBack)}>
+                  Đưa xuống dưới cùng
+                </MenuItem>
+                <Divider />
+                <MenuItem onClick={() => runLayerMenuAction(duplicateSelectedLayer)}>
+                  Nhân bản
+                </MenuItem>
+                <MenuItem
+                  onClick={() => runLayerMenuAction(deleteSelectedLayer)}
+                  sx={{ color: "error.main" }}
+                >
+                  Xóa
+                </MenuItem>
+              </Menu>
             </Box>
           </Paper>
 
-          <Paper elevation={0} sx={(theme) => ({ ...panelSx(theme), minWidth: 0 })}>
-            <Box sx={panelHeaderSx}>
+          <Paper elevation={0} sx={centerPanelSx}>
+            <Box sx={toolStripSx}>
               <Stack
                 direction={{ xs: "column", md: "row" }}
                 spacing={1}
@@ -1310,61 +1772,96 @@ export default function OverlayStudioPage() {
                   label="Tên template"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  sx={{ minWidth: { xs: "100%", md: 340 }, flex: 1 }}
+                  sx={{ minWidth: { xs: "100%", md: 280 }, maxWidth: { md: 420 }, flex: 1 }}
                 />
-                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                <Stack direction="row" spacing={0.75} sx={toolClusterSx}>
+                  <TextField
+                    select
+                    size="small"
+                    label="Đội giao"
+                    value={previewServeSide}
+                    onChange={(event) =>
+                      setPreviewServeSide(event.target.value === "B" ? "B" : "A")
+                    }
+                    sx={{ width: 104 }}
+                  >
+                    <MenuItem value="A">A</MenuItem>
+                    <MenuItem value="B">B</MenuItem>
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Bóng"
+                    value={previewServeCount}
+                    onChange={(event) =>
+                      setPreviewServeCount(Number(event.target.value) === 2 ? 2 : 1)
+                    }
+                    sx={{ width: 88 }}
+                  >
+                    <MenuItem value={1}>1</MenuItem>
+                    <MenuItem value={2}>2</MenuItem>
+                  </TextField>
+                </Stack>
+                <Stack direction="row" spacing={0.45} flexWrap="wrap" useFlexGap sx={toolClusterSx}>
                   <Button
                     size="small"
-                    variant="outlined"
+                    variant="text"
                     startIcon={<AddIcon />}
+                    sx={toolbarButtonSx}
                     onClick={() => addLayer("teamA.name")}
                   >
                     Text
                   </Button>
                   <Button
                     size="small"
-                    variant="outlined"
+                    variant="text"
                     startIcon={<AddIcon />}
+                    sx={toolbarButtonSx}
                     onClick={() => addLayer("scoreA")}
                   >
                     Điểm
                   </Button>
                   <Button
                     size="small"
-                    variant="outlined"
+                    variant="text"
                     startIcon={<AddIcon />}
+                    sx={toolbarButtonSx}
                     onClick={() => addLayer("rect")}
                   >
                     Nền
                   </Button>
                   <Button
                     size="small"
-                    variant="outlined"
+                    variant="text"
                     startIcon={<AddIcon />}
+                    sx={toolbarButtonSx}
                     onClick={() => addLayer("shape")}
                   >
                     Shape
                   </Button>
                   <Button
                     size="small"
-                    variant="outlined"
+                    variant="text"
                     startIcon={<AddIcon />}
+                    sx={toolbarButtonSx}
                     onClick={() => addLayer("frame")}
                   >
                     Khung
                   </Button>
                   <Button
                     size="small"
-                    variant="outlined"
-                    startIcon={<AddIcon />}
+                    variant="text"
+                    startIcon={<ImageIcon />}
+                    sx={toolbarButtonSx}
                     onClick={() => addLayer("image")}
                   >
                     Ảnh
                   </Button>
                   <Button
                     size="small"
-                    variant="outlined"
+                    variant="text"
                     startIcon={<AddIcon />}
+                    sx={toolbarButtonSx}
                     onClick={() => addLayer("serve")}
                   >
                     Bóng giao
@@ -1374,14 +1871,7 @@ export default function OverlayStudioPage() {
             </Box>
 
             <Box
-              sx={(theme) => ({
-                p: { xs: 1, md: 2 },
-                minHeight: { xs: 320, lg: "calc(100vh - 164px)" },
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                bgcolor: theme.palette.mode === "dark" ? "#090d15" : "#e9edf5",
-              })}
+              sx={canvasViewportSx}
             >
               <Box
                 ref={canvasWrapRef}
@@ -1390,15 +1880,19 @@ export default function OverlayStudioPage() {
                   ...canvasSurfaceSx,
                   position: "relative",
                   width: "100%",
-                  maxWidth: 1280,
+                  maxWidth: 1180,
                   aspectRatio: `${canvas.width} / ${canvas.height}`,
-                  border: `1px solid ${alpha(theme.palette.common.white, 0.14)}`,
-                  borderRadius: 1.5,
+                  border: `1px solid ${
+                    theme.palette.mode === "dark"
+                      ? alpha(theme.palette.common.white, 0.1)
+                      : alpha(theme.palette.common.black, 0.1)
+                  }`,
+                  borderRadius: 1,
                   overflow: "hidden",
                   boxShadow:
                     theme.palette.mode === "dark"
-                      ? `0 24px 72px ${alpha(theme.palette.common.black, 0.48)}`
-                      : `0 18px 48px ${alpha(theme.palette.common.black, 0.16)}`,
+                      ? `0 18px 42px ${alpha(theme.palette.common.black, 0.34)}`
+                      : `0 14px 34px ${alpha(theme.palette.common.black, 0.12)}`,
                 })}
               >
                 {hasLayers ? (
@@ -1406,7 +1900,7 @@ export default function OverlayStudioPage() {
                     mode="editor"
                     document={document}
                     canvas={canvas}
-                    values={previewValues}
+                    values={templatePreviewValues}
                     selectedLayerId={selectedLayerId}
                     onLayerPointerDown={handleLayerPointerDown}
                     onLayerClick={(event) => {
@@ -1518,122 +2012,31 @@ export default function OverlayStudioPage() {
             </Box>
           </Paper>
 
-          <Paper elevation={0} sx={panelSx}>
+          <Paper elevation={0} sx={rightPanelSx}>
             <Box sx={panelHeaderSx}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
                 <Typography variant="overline" fontWeight={900} color="text.secondary">
-                  Layer
+                  Design
                 </Typography>
-                <Stack direction="row" spacing={0.5}>
-                  <Tooltip title="Nhân bản layer">
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={!selectedLayerIds.length}
-                        onClick={duplicateSelectedLayer}
-                      >
-                        <ContentCopyIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Xóa layer">
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        disabled={!selectedLayerIds.length}
-                        onClick={deleteSelectedLayer}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </Stack>
+                {selectedLayer ? (
+                  <Chip size="small" label={layerTypeLabel(selectedLayer)} variant="outlined" />
+                ) : null}
               </Stack>
             </Box>
 
             <Box
               sx={{
                 ...panelBodySx,
-                maxHeight: { lg: "calc(100vh - 112px)" },
+                maxHeight: { lg: "calc(100vh - 98px)" },
                 overflowY: "auto",
               }}
             >
-              <Stack spacing={0.75}>
-                {document.layers.map((layer) => {
-                  const active = selectedLayerIds.includes(layer.id);
-                  return (
-                    <Button
-                      key={layer.id}
-                      variant="text"
-                      size="small"
-                      onClick={(event) => selectLayerForEvent(layer.id, event)}
-                      onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
-                      sx={layerButtonSx(active)}
-                    >
-                      <Typography variant="body2" fontWeight={800} noWrap>
-                        {layer.label || layer.id}
-                      </Typography>
-                      <Chip
-                        size="small"
-                        label={layerTypeLabel(layer)}
-                        variant="outlined"
-                      />
-                    </Button>
-                  );
-                })}
-              </Stack>
-              <Menu
-                open={Boolean(layerMenu)}
-                onClose={closeLayerContextMenu}
-                anchorReference="anchorPosition"
-                anchorPosition={
-                  layerMenu
-                    ? { top: layerMenu.mouseY, left: layerMenu.mouseX }
-                    : undefined
-                }
-              >
-                <MenuItem onClick={() => runLayerMenuAction(bringSelectedToFront)}>
-                  Đưa lên trên cùng
-                </MenuItem>
-                <MenuItem
-                  onClick={() =>
-                    runLayerMenuAction((layerIds) => shiftSelectedZIndex(1, layerIds))
-                  }
-                >
-                  Đưa lên 1 lớp
-                </MenuItem>
-                <MenuItem
-                  onClick={() =>
-                    runLayerMenuAction((layerIds) => shiftSelectedZIndex(-1, layerIds))
-                  }
-                >
-                  Đưa xuống 1 lớp
-                </MenuItem>
-                <MenuItem onClick={() => runLayerMenuAction(sendSelectedToBack)}>
-                  Đưa xuống dưới cùng
-                </MenuItem>
-                <Divider />
-                <MenuItem onClick={() => runLayerMenuAction(duplicateSelectedLayer)}>
-                  Nhân bản
-                </MenuItem>
-                <MenuItem
-                  onClick={() => runLayerMenuAction(deleteSelectedLayer)}
-                  sx={{ color: "error.main" }}
-                >
-                  Xóa
-                </MenuItem>
-              </Menu>
-
-              <Divider sx={{ my: 1.5 }} />
-
               <Typography
-                variant="overline"
+                variant="subtitle2"
                 fontWeight={900}
-                color="text.secondary"
                 sx={{ display: "block", mb: 1 }}
               >
-                Thuộc tính
+                {selectedLayer ? selectedLayer.label || selectedLayer.id : "Chưa chọn layer"}
               </Typography>
 
               {selectedLayer ? (
@@ -1676,234 +2079,327 @@ export default function OverlayStudioPage() {
                       fullWidth
                     />
                   ) : null}
-                  {selectedLayer.type === "image" ? (
-                    <TextField
-                      size="small"
-                      label="URL ảnh"
-                      value={selectedLayer.src || ""}
-                      onChange={(event) =>
-                        patchSelectedLayer({ src: event.target.value })
-                      }
-                      fullWidth
-                    />
-                  ) : null}
-                  <Box sx={fieldGridSx}>
-                    {["x", "y", "width", "height"].map((field) => (
-                      <TextField
-                        key={field}
-                        size="small"
-                        type="number"
-                        label={field}
-                        value={selectedLayer[field] ?? 0}
-                        onChange={(event) =>
-                          patchSelectedLayer({ [field]: Number(event.target.value) })
-                        }
-                      />
-                    ))}
-                  </Box>
-                  <Box sx={fieldGridSx}>
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Z-index"
-                      value={selectedLayer.zIndex ?? 0}
-                      onChange={(event) =>
-                        patchSelectedLayer({
-                          zIndex: clampLayerZIndex(event.target.value),
-                        })
-                      }
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Opacity"
-                      value={selectedLayer.opacity ?? 1}
-                      inputProps={{ step: 0.05, min: 0, max: 1 }}
-                      onChange={(event) =>
-                        patchSelectedLayer({
-                          opacity: Math.min(1, Math.max(0, Number(event.target.value))),
-                        })
-                      }
-                    />
-                  </Box>
-                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={!selectedLayerIds.length}
-                      onClick={sendSelectedToBack}
-                    >
-                      Dưới cùng
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={!selectedLayerIds.length}
-                      onClick={() => shiftSelectedZIndex(-1)}
-                    >
-                      Xuống
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={!selectedLayerIds.length}
-                      onClick={() => shiftSelectedZIndex(1)}
-                    >
-                      Lên
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={!selectedLayerIds.length}
-                      onClick={bringSelectedToFront}
-                    >
-                      Trên cùng
-                    </Button>
-                  </Stack>
-                  {selectedLayerIsText ? (
-                    <TextField
-                      select
-                      size="small"
-                      label="Font chữ"
-                      value={selectedFontFamily}
-                      onChange={(event) =>
-                        patchSelectedLayer({
-                          style: { fontFamily: event.target.value },
-                        })
-                      }
-                      fullWidth
-                    >
-                      {!selectedFontFamilyKnown ? (
-                        <MenuItem
-                          value={selectedFontFamily}
-                          sx={{ fontFamily: selectedFontFamily }}
+                  {selectedLayerIsImage ? (
+                    <Box sx={inspectorGroupSx}>
+                      <Stack spacing={1}>
+                        <Typography variant="caption" fontWeight={900} color="text.secondary">
+                          Ảnh
+                        </Typography>
+                        <Box
+                          onDragEnter={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setImageDropActive(true);
+                          }}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setImageDropActive(true);
+                          }}
+                          onDragLeave={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setImageDropActive(false);
+                          }}
+                          onDrop={handleImageDrop}
+                          sx={imageDropzoneSx(imageDropActive)}
                         >
-                          Font hiện tại
-                        </MenuItem>
-                      ) : null}
-                      {OVERLAY_FONT_OPTIONS.map((option) => (
-                        <MenuItem
-                          key={option.value}
-                          value={option.value}
-                          sx={{ fontFamily: option.value }}
-                        >
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  ) : null}
-                  {selectedLayerIsText ? (
-                    <Box sx={fieldGridSx}>
-                      <TextField
-                        size="small"
-                        type="number"
-                        label="Cỡ chữ"
-                        value={selectedLayer.style?.fontSize ?? 36}
-                        onChange={(event) =>
-                          patchSelectedLayer({
-                            style: { fontSize: Number(event.target.value) },
-                          })
-                        }
-                      />
-                      <TextField
-                        size="small"
-                        type="number"
-                        label="Độ đậm"
-                        value={selectedLayer.style?.fontWeight ?? 700}
-                        onChange={(event) =>
-                          patchSelectedLayer({
-                            style: { fontWeight: Number(event.target.value) },
-                          })
-                        }
-                      />
-                      <TextField
-                        size="small"
-                        type="number"
-                        label="Giãn dòng"
-                        value={selectedLayer.style?.lineHeight ?? 1.18}
-                        inputProps={{ step: 0.02, min: 0.8, max: 2 }}
-                        onChange={(event) =>
-                          patchSelectedLayer({
-                            style: { lineHeight: Number(event.target.value) },
-                          })
-                        }
-                        sx={{ gridColumn: "1 / -1" }}
-                      />
+                          {selectedLayer.src ? (
+                            <Box
+                              component="img"
+                              src={selectedLayer.src}
+                              alt={selectedLayer.label || "Ảnh"}
+                              sx={{
+                                maxWidth: "100%",
+                                maxHeight: 112,
+                                objectFit: "contain",
+                                borderRadius: 0.75,
+                                display: "block",
+                              }}
+                            />
+                          ) : (
+                            <Stack spacing={0.75} alignItems="center">
+                              <ImageIcon fontSize="small" />
+                              <Typography variant="body2" fontWeight={800}>
+                                Kéo thả hoặc chọn ảnh
+                              </Typography>
+                            </Stack>
+                          )}
+                        </Box>
+                        <Stack direction="row" spacing={0.75}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            startIcon={<UploadFileIcon />}
+                            onClick={() => openImagePicker(selectedLayer.id)}
+                            sx={{ flex: 1, textTransform: "none" }}
+                          >
+                            Tải ảnh
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            disabled={!selectedLayer.src}
+                            onClick={() => patchSelectedLayer({ src: "" })}
+                            sx={{ textTransform: "none" }}
+                          >
+                            Xóa
+                          </Button>
+                        </Stack>
+                        <TextField
+                          size="small"
+                          label="URL ảnh"
+                          placeholder={
+                            selectedImageIsEmbedded
+                              ? "Đang dùng ảnh đã upload"
+                              : "https://..."
+                          }
+                          value={selectedImageIsEmbedded ? "" : selectedLayer.src || ""}
+                          onChange={(event) =>
+                            patchSelectedLayer({ src: event.target.value })
+                          }
+                          fullWidth
+                        />
+                      </Stack>
                     </Box>
                   ) : null}
-                  <TextField
-                    size="small"
-                    label={selectedLayer.type === "serveIndicator" ? "Màu bóng" : "Màu chữ"}
-                    value={selectedLayer.style?.color || "#ffffff"}
-                    onChange={(event) =>
-                      patchSelectedLayer({ style: { color: event.target.value } })
-                    }
-                    disabled={!selectedLayerUsesColor}
-                    fullWidth
-                  />
-                  <TextField
-                    size="small"
-                    label="Nền"
-                    value={selectedLayer.style?.background || "transparent"}
-                    onChange={(event) =>
-                      patchSelectedLayer({
-                        style: { background: event.target.value },
-                      })
-                    }
-                    fullWidth
-                  />
-                  <Box sx={fieldGridSx}>
-                    <TextField
-                      size="small"
-                      label="Màu viền"
-                      value={selectedLayer.style?.borderColor || "transparent"}
-                      onChange={(event) =>
-                        patchSelectedLayer({
-                          style: { borderColor: event.target.value },
-                        })
-                      }
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Độ dày viền"
-                      value={selectedLayer.style?.borderWidth ?? 0}
-                      onChange={(event) =>
-                        patchSelectedLayer({
-                          style: { borderWidth: Number(event.target.value) },
-                        })
-                      }
-                    />
+                  <Box sx={inspectorGroupSx}>
+                    <Stack spacing={1}>
+                      <Typography variant="caption" fontWeight={900} color="text.secondary">
+                        Vị trí
+                      </Typography>
+                      <Box sx={fieldGridSx}>
+                        {["x", "y", "width", "height"].map((field) => (
+                          <TextField
+                            key={field}
+                            size="small"
+                            type="number"
+                            label={field}
+                            value={selectedLayer[field] ?? 0}
+                            onChange={(event) =>
+                              patchSelectedLayer({ [field]: Number(event.target.value) })
+                            }
+                          />
+                        ))}
+                      </Box>
+                      <Box sx={fieldGridSx}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Z-index"
+                          value={selectedLayer.zIndex ?? 0}
+                          onChange={(event) =>
+                            patchSelectedLayer({
+                              zIndex: clampLayerZIndex(event.target.value),
+                            })
+                          }
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Opacity"
+                          value={selectedLayer.opacity ?? 1}
+                          inputProps={{ step: 0.05, min: 0, max: 1 }}
+                          onChange={(event) =>
+                            patchSelectedLayer({
+                              opacity: Math.min(1, Math.max(0, Number(event.target.value))),
+                            })
+                          }
+                        />
+                      </Box>
+                      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!selectedLayerIds.length}
+                          onClick={sendSelectedToBack}
+                        >
+                          Dưới cùng
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!selectedLayerIds.length}
+                          onClick={() => shiftSelectedZIndex(-1)}
+                        >
+                          Xuống
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!selectedLayerIds.length}
+                          onClick={() => shiftSelectedZIndex(1)}
+                        >
+                          Lên
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!selectedLayerIds.length}
+                          onClick={bringSelectedToFront}
+                        >
+                          Trên cùng
+                        </Button>
+                      </Stack>
+                    </Stack>
                   </Box>
-                  <TextField
-                    size="small"
-                    type="number"
-                    label="Bo góc"
-                    value={selectedLayer.style?.borderRadius ?? 0}
-                    onChange={(event) =>
-                      patchSelectedLayer({
-                        style: { borderRadius: Number(event.target.value) },
-                      })
-                    }
-                    fullWidth
-                  />
-                  <TextField
-                    select
-                    size="small"
-                    label="Căn chữ"
-                    value={selectedLayer.style?.textAlign || "left"}
-                    onChange={(event) =>
-                      patchSelectedLayer({
-                        style: { textAlign: event.target.value },
-                      })
-                    }
-                    disabled={!selectedLayerIsText}
-                    fullWidth
-                  >
-                    <MenuItem value="left">Trái</MenuItem>
-                    <MenuItem value="center">Giữa</MenuItem>
-                    <MenuItem value="right">Phải</MenuItem>
-                  </TextField>
+                  {selectedLayerIsText ? (
+                    <Box sx={inspectorGroupSx}>
+                      <Stack spacing={1}>
+                        <Typography variant="caption" fontWeight={900} color="text.secondary">
+                          Typography
+                        </Typography>
+                        <TextField
+                          select
+                          size="small"
+                          label="Font chữ"
+                          value={selectedFontFamily}
+                          onChange={(event) =>
+                            patchSelectedLayer({
+                              style: { fontFamily: event.target.value },
+                            })
+                          }
+                          fullWidth
+                        >
+                          {!selectedFontFamilyKnown ? (
+                            <MenuItem
+                              value={selectedFontFamily}
+                              sx={{ fontFamily: selectedFontFamily }}
+                            >
+                              Font hiện tại
+                            </MenuItem>
+                          ) : null}
+                          {OVERLAY_FONT_OPTIONS.map((option) => (
+                            <MenuItem
+                              key={option.value}
+                              value={option.value}
+                              sx={{ fontFamily: option.value }}
+                            >
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                        <Box sx={fieldGridSx}>
+                          <TextField
+                            size="small"
+                            type="number"
+                            label="Cỡ chữ"
+                            value={selectedLayer.style?.fontSize ?? 36}
+                            onChange={(event) =>
+                              patchSelectedLayer({
+                                style: { fontSize: Number(event.target.value) },
+                              })
+                            }
+                          />
+                          <TextField
+                            size="small"
+                            type="number"
+                            label="Độ đậm"
+                            value={selectedLayer.style?.fontWeight ?? 700}
+                            onChange={(event) =>
+                              patchSelectedLayer({
+                                style: { fontWeight: Number(event.target.value) },
+                              })
+                            }
+                          />
+                          <TextField
+                            size="small"
+                            type="number"
+                            label="Giãn dòng"
+                            value={selectedLayer.style?.lineHeight ?? 1.18}
+                            inputProps={{ step: 0.02, min: 0.8, max: 2 }}
+                            onChange={(event) =>
+                              patchSelectedLayer({
+                                style: { lineHeight: Number(event.target.value) },
+                              })
+                            }
+                            sx={{ gridColumn: "1 / -1" }}
+                          />
+                        </Box>
+                      </Stack>
+                    </Box>
+                  ) : null}
+                  <Box sx={inspectorGroupSx}>
+                    <Stack spacing={1}>
+                      <Typography variant="caption" fontWeight={900} color="text.secondary">
+                        Giao diện
+                      </Typography>
+                      <TextField
+                        size="small"
+                        label={selectedLayer.type === "serveIndicator" ? "Màu bóng" : "Màu chữ"}
+                        value={selectedLayer.style?.color || "#ffffff"}
+                        onChange={(event) =>
+                          patchSelectedLayer({ style: { color: event.target.value } })
+                        }
+                        disabled={!selectedLayerUsesColor}
+                        fullWidth
+                      />
+                      <TextField
+                        size="small"
+                        label="Nền"
+                        value={selectedLayer.style?.background || "transparent"}
+                        onChange={(event) =>
+                          patchSelectedLayer({
+                            style: { background: event.target.value },
+                          })
+                        }
+                        fullWidth
+                      />
+                      <Box sx={fieldGridSx}>
+                        <TextField
+                          size="small"
+                          label="Màu viền"
+                          value={selectedLayer.style?.borderColor || "transparent"}
+                          onChange={(event) =>
+                            patchSelectedLayer({
+                              style: { borderColor: event.target.value },
+                            })
+                          }
+                        />
+                        <TextField
+                          size="small"
+                          type="number"
+                          label="Độ dày viền"
+                          value={selectedLayer.style?.borderWidth ?? 0}
+                          onChange={(event) =>
+                            patchSelectedLayer({
+                              style: { borderWidth: Number(event.target.value) },
+                            })
+                          }
+                        />
+                      </Box>
+                      <TextField
+                        size="small"
+                        type="number"
+                        label="Bo góc"
+                        value={selectedLayer.style?.borderRadius ?? 0}
+                        onChange={(event) =>
+                          patchSelectedLayer({
+                            style: { borderRadius: Number(event.target.value) },
+                          })
+                        }
+                        fullWidth
+                      />
+                      <TextField
+                        select
+                        size="small"
+                        label="Căn chữ"
+                        value={selectedLayer.style?.textAlign || "left"}
+                        onChange={(event) =>
+                          patchSelectedLayer({
+                            style: { textAlign: event.target.value },
+                          })
+                        }
+                        disabled={!selectedLayerIsText}
+                        fullWidth
+                      >
+                        <MenuItem value="left">Trái</MenuItem>
+                        <MenuItem value="center">Giữa</MenuItem>
+                        <MenuItem value="right">Phải</MenuItem>
+                      </TextField>
+                    </Stack>
+                  </Box>
                 </Stack>
               ) : (
                 <Typography variant="body2" color="text.secondary">

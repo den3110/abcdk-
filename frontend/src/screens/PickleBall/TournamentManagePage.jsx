@@ -12,7 +12,7 @@ import React, {
 } from "react";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import {
   Alert,
   Autocomplete,
@@ -82,6 +82,7 @@ import {
 import { toast } from "react-toastify";
 
 import {
+  tournamentsApiSlice,
   useGetTournamentQuery,
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,
@@ -1188,6 +1189,10 @@ const LIST_AFFECTING_LIVE_FIELDS = new Set([
   "courtStationId",
   "courtStationLabel",
   "courtStationName",
+  "referee",
+  "referees",
+  "assignedReferees",
+  "mainReferee",
   "startedAt",
   "finishedAt",
 ]);
@@ -1397,6 +1402,10 @@ const pickRealtimeFields = (src = {}) => {
     "courtStationId",
     "courtStationLabel",
     "courtStationName",
+    "referee",
+    "referees",
+    "assignedReferees",
+    "mainReferee",
     "video",
     "startedAt",
     "finishedAt",
@@ -2011,6 +2020,7 @@ const BulkVideoDialogLocalized = React.memo(function BulkVideoDialogLocalized({
 export default function TournamentManagePage() {
   const { t, locale } = useLanguage();
   const theme = useTheme();
+  const dispatch = useDispatch();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const { id } = useParams();
@@ -2082,19 +2092,23 @@ export default function TournamentManagePage() {
     error: brErr,
     refetch: refetchBrackets,
   } = useAdminGetBracketsQuery(id);
+  const matchListQueryArgs = useMemo(
+    () => ({
+      tid: id,
+      page: 1,
+      pageSize: 1000,
+    }),
+    [id],
+  );
   const {
     data: matchPage,
     isLoading: mLoading,
     error: mErr,
     refetch: refetchMatches,
-  } = useAdminListMatchesByTournamentQuery(
-    {
-      tid: id,
-      page: 1,
-      pageSize: 1000,
-    },
-    { refetchOnMountOrArgChange: 30, refetchOnFocus: false },
-  );
+  } = useAdminListMatchesByTournamentQuery(matchListQueryArgs, {
+    refetchOnMountOrArgChange: 30,
+    refetchOnFocus: false,
+  });
   const { data: verifyRefereeRes } = useVerifyRefereeQuery(
     me?._id && id ? id : skipToken,
   );
@@ -2911,6 +2925,35 @@ export default function TournamentManagePage() {
   const liveStore = useMemo(() => createLiveStore(), []);
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
+  const patchAdminMatchCache = useCallback(
+    (matchId, patch) => {
+      const normalizedId = String(matchId || patch?._id || patch?.id || "").trim();
+      if (!normalizedId || !patch || typeof patch !== "object") return;
+
+      dispatch(
+        tournamentsApiSlice.util.updateQueryData(
+          "adminListMatchesByTournament",
+          matchListQueryArgs,
+          (draft) => {
+            const list = Array.isArray(draft?.list) ? draft.list : null;
+            if (!list) return;
+            const index = list.findIndex(
+              (item) => String(item?._id || item?.id || "") === normalizedId,
+            );
+            if (index < 0) return;
+            const current = list[index];
+            const normalizedPatch = normalizeMatchDisplay(patch, current) || patch;
+            list[index] =
+              mergeMatchPayload(current, normalizedPatch, current) || {
+                ...current,
+                ...normalizedPatch,
+              };
+          },
+        ),
+      );
+    },
+    [dispatch, matchListQueryArgs],
+  );
   const statusLiveMatch = useLiveMatch(liveStore, statusDlg.matchId);
   useEffect(() => {
     if (!allMatchesBase.length) return;
@@ -3431,22 +3474,33 @@ export default function TournamentManagePage() {
     }, 800);
   }, [refetchBrackets]);
 
-  const applySnapshot = useCallback(
-    (payload) => {
-      if (!payload) return;
-      const mid =
-        String(payload?.matchId || payload?.id || payload?._id || payload?.data?._id || "") ||
-        String(
-          payload?.match?._id || payload?.match?.id || payload?.matchId || "",
-        );
-      if (!mid) return;
-
+  const applyRealtimeMatchPayload = useCallback(
+    (payload, options = {}) => {
+      if (!payload) return false;
       const data = extractRealtimeMatchPayload(payload);
-      const partial = pickRealtimeFields(data);
-      if (Object.keys(partial).length === 0) return;
+      const mid = String(
+        payload?.matchId ||
+          payload?.id ||
+          payload?._id ||
+          payload?.data?.matchId ||
+          payload?.data?._id ||
+          payload?.snapshot?.matchId ||
+          payload?.snapshot?._id ||
+          payload?.match?._id ||
+          payload?.match?.id ||
+          data?.matchId ||
+          data?._id ||
+          data?.id ||
+          "",
+      ).trim();
+      if (!mid) return false;
 
+      const partial = pickRealtimeFields(data);
+      if (Object.keys(partial).length === 0) return false;
+
+      patchAdminMatchCache(mid, data && typeof data === "object" ? data : partial);
       const listChanged = liveStore.set(mid, partial);
-      if (listChanged) {
+      if (listChanged || options.forceListVersion) {
         startTransition(() => setOrderVersion((v) => v + 1));
         // Khi 1 trận KẾT THÚC, đội thắng mới quyết định đội ở các trận sau.
         // Realtime không kèm `winner`, nên refetch danh sách (debounced) để
@@ -3455,8 +3509,33 @@ export default function TournamentManagePage() {
           scheduleMatchesRefetch();
         }
       }
+      return true;
     },
-    [liveStore, startTransition, scheduleMatchesRefetch],
+    [
+      liveStore,
+      patchAdminMatchCache,
+      scheduleMatchesRefetch,
+      startTransition,
+    ],
+  );
+
+  const applySnapshot = useCallback(
+    (payload) => {
+      applyRealtimeMatchPayload(payload);
+    },
+    [applyRealtimeMatchPayload],
+  );
+
+  const handleRefereeMatchChanged = useCallback(
+    (payload) => {
+      const applied = applyRealtimeMatchPayload(payload, {
+        forceListVersion: true,
+      });
+      if (!applied) {
+        scheduleMatchesRefetch();
+      }
+    },
+    [applyRealtimeMatchPayload, scheduleMatchesRefetch],
   );
 
   useEffect(() => {
@@ -5927,6 +6006,7 @@ export default function TournamentManagePage() {
         matchId={refereeViewer.matchId}
         initialMatch={refereeViewer.initialMatch}
         onClose={closeRefereeMatch}
+        onMatchChanged={handleRefereeMatchChanged}
       />
 
       {/* ===== Dialog gán trọng tài (batch) ===== */}

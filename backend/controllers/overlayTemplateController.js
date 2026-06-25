@@ -11,6 +11,7 @@ const DEFAULT_CANVAS = { width: 1920, height: 1080 };
 const MAX_LAYERS = 60;
 const MAX_TEXT = 220;
 const MAX_URL = 1200;
+const MAX_IMAGE_SRC = 2000000;
 
 const SAFE_BINDINGS = new Set([
   "static",
@@ -36,6 +37,7 @@ const SAFE_BINDINGS = new Set([
 
 const COLOR_RE =
   /^(#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)|transparent)$/i;
+const DATA_IMAGE_RE = /^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=]+$/i;
 
 const clamp = (value, min, max, fallback) => {
   const n = Number(value);
@@ -58,11 +60,16 @@ const cleanFont = (value) =>
     .replace(/[;"'<>]/g, "")
     .trim();
 
-const cleanUrl = (value) => {
-  const text = cleanString(value, MAX_URL).trim();
+const cleanUrl = (value, { allowDataImage = false } = {}) => {
+  const raw = String(value || "");
+  const maxLength = allowDataImage ? MAX_IMAGE_SRC : MAX_URL;
+  if (raw.length > maxLength) return "";
+
+  const text = cleanString(raw, maxLength).trim();
   if (!text) return "";
   if (/^https?:\/\//i.test(text)) return text;
   if (/^\/(?!\/)/.test(text)) return text;
+  if (allowDataImage && DATA_IMAGE_RE.test(text)) return text;
   return "";
 };
 
@@ -681,7 +688,7 @@ const normalizeLayer = (layer = {}, index = 0) => {
     label: cleanString(layer.label || layer.id || `Layer ${index + 1}`, 80),
     binding: cleanBinding(layer.binding),
     text: cleanString(layer.text, MAX_TEXT),
-    src: type === "image" ? cleanUrl(layer.src) : "",
+    src: type === "image" ? cleanUrl(layer.src, { allowDataImage: true }) : "",
     x: clamp(layer.x, -3840, 3840, 80),
     y: clamp(layer.y, -2160, 2160, 80),
     width: clamp(layer.width, 4, 3840, type === "text" ? 360 : 240),

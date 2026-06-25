@@ -28,9 +28,9 @@ function layerPosition(layer) {
   };
 }
 
-function layerConditionMatches(layer, values, mode) {
+function layerConditionMatches(layer, values, mode, selected) {
   if (layer?.visible === false) return false;
-  if (mode === "editor") return true;
+  if (mode === "editor" && selected) return true;
 
   const condition = layer?.visibleWhen;
   if (!condition?.binding) return true;
@@ -62,7 +62,7 @@ function layerBaseStyle(layer, canvas, mode, selected, values) {
     transform: `rotate(${clampNumber(layer?.rotation, 0)}deg)`,
     transformOrigin: "center center",
     zIndex: clampNumber(layer?.zIndex, 0),
-    display: layerConditionMatches(layer, values, mode) ? "flex" : "none",
+    display: layerConditionMatches(layer, values, mode, selected) ? "flex" : "none",
     alignItems: "center",
     justifyContent:
       style.textAlign === "right"
