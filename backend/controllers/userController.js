@@ -3295,6 +3295,12 @@ export async function listMyTournaments(req, res) {
       },
       { $unwind: "$tournament" },
 
+      {
+        $match: {
+          "tournament.isTest": { $ne: true },
+        },
+      },
+
       // 5) Lọc status (nếu có)
       ...(statusFilter
         ? [{ $match: { "tournament.status": { $in: statusFilter } } }]

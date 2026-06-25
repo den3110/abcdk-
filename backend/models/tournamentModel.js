@@ -109,6 +109,7 @@ const tournamentSchema = new mongoose.Schema(
       default: "upcoming",
     },
     finishedAt: { type: Date, default: null },
+    isTest: { type: Boolean, default: false, index: true },
 
     // 🏠 Địa chỉ text hiển thị (giữ nguyên)
     location: { type: String, required: true },

@@ -2713,7 +2713,7 @@ const getTournaments = asyncHandler(async (req, res) => {
     }, {});
   const sortSpecFromQP = hasSortQP ? parseSort(sortQP) : {};
 
-  const pipeline = [];
+  const pipeline = [{ $match: { isTest: { $ne: true } } }];
 
   // ----- Search (keyword / q) -----
   if (rawKeyword) {
@@ -2974,6 +2974,10 @@ const getTournamentById = asyncHandler(async (req, res) => {
     .populate("teamConfig.factions.captainUser", "name nickname avatar phone")
     .lean();
   if (!tour) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+  if (tour.isTest === true) {
     res.status(404);
     throw new Error("Tournament not found");
   }
@@ -4049,7 +4053,7 @@ export async function searchTournaments(req, res, next) {
       String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const tokens = q.split(/\s+/).filter(Boolean).map(escapeRegex);
 
-    const mongoQuery = {};
+    const mongoQuery = { isTest: { $ne: true } };
     if (sportType !== undefined && sportType !== "") {
       const sportTypeNumber = Number(sportType);
       if (Number.isFinite(sportTypeNumber)) {

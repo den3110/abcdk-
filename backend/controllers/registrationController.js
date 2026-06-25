@@ -35,6 +35,10 @@ export const createRegistration = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
+  if (tour.isTest === true && !isAdminUser(req.user)) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
   const teamMode = isTeamTournament(tour);
   const activeFaction = teamMode ? findTeamFaction(tour, teamFactionId) : null;
   if (teamMode && !activeFaction) {
@@ -288,6 +292,16 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     Boolean(req.user?.isAdmin) ||
     req.user?.role === "admin" ||
     (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
+
+  const visibilityTour = await Tournament.findById(tourId).select("_id isTest").lean();
+  if (!visibilityTour) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+  if (visibilityTour.isTest === true && !isAdmin) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
 
   let canSeeFullPhone = false;
   if (isAdmin) {

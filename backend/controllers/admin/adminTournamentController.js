@@ -183,6 +183,7 @@ const FIELD_LABELS = {
   tournamentMode: "Loại giải",
   teamConfig: "Cấu hình phe đấu",
   nameDisplayMode: "Kiểu hiển thị tên VĐV",
+  isTest: "Giải test",
   regOpenDate: "Mở đăng ký",
   registrationDeadline: "Hạn đăng ký",
   startDate: "Ngày bắt đầu",
@@ -460,6 +461,7 @@ const createSchema = Joi.object({
 
   noRankDelta: boolLoose.default(false).label("Không áp dụng điểm trình"),
   allowExceedMaxRating: boolLoose.default(false).label("Cho phép vượt quá điểm trình"),
+  isTest: boolLoose.default(false).label(FIELD_LABELS.isTest),
   requireKyc: boolLoose.default(true).label(FIELD_LABELS.requireKyc),
 
   scoringScope: scoringScopeCreate,
@@ -528,6 +530,7 @@ const updateSchema = Joi.object({
 
   noRankDelta: boolLoose.label("Không áp dụng điểm trình"),
   allowExceedMaxRating: boolLoose.label("Cho phép vượt quá điểm trình"),
+  isTest: boolLoose.label(FIELD_LABELS.isTest),
   requireKyc: boolLoose.label(FIELD_LABELS.requireKyc),
 
   scoringScope: scoringScopeUpdate,

@@ -64,7 +64,7 @@ export const getHomeSummary = async (req, res) => {
             isDeleted: { $ne: true },
             role: { $ne: "admin" },
           }),
-          Tournament.countDocuments({}),
+          Tournament.countDocuments({ isTest: { $ne: true } }),
           Match.countDocuments({ status: "finished" }),
           Club.countDocuments({ visibility: "public" }),
         ]).then(([players, tournaments, matches, clubs]) => ({
