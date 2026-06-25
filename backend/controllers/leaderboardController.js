@@ -6,6 +6,25 @@ import Registration from "../models/registrationModel.js";
 import User from "../models/userModel.js";
 import Bracket from "../models/bracketModel.js";
 import Tournament from "../models/tournamentModel.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+import {
+  buildCacheKey,
+  cacheAndSendJson,
+  sendCachedJson,
+} from "../utils/httpResponseCache.js";
+
+const LEADERBOARD_CACHE_TTL_MS = Math.max(
+  60_000,
+  Number(process.env.LEADERBOARD_CACHE_TTL_MS || 86_400_000),
+);
+
+const leaderboardCache = createShortTtlCache(LEADERBOARD_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.leaderboard,
+  label: "Leaderboard",
+  category: "public",
+  scope: "public",
+});
 
 /**
  * GET /api/leaderboards/featured
@@ -20,6 +39,10 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       50
     );
     const minMatches = Math.max(parseInt(req.query.minMatches ?? "3", 10), 0);
+    const cacheKey = buildCacheKey("leaderboard:featured", { limit, minMatches });
+    if (sendCachedJson(res, leaderboardCache, cacheKey, LEADERBOARD_CACHE_TTL_MS)) {
+      return;
+    }
 
     console.log("🔍 Leaderboard Query (FINISHED ONLY):", { limit, minMatches });
 
@@ -457,13 +480,21 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       };
     });
 
-    return res.json({
+    const payload = {
       success: true,
       scope: "finished_only",
       generatedAt: new Date(),
       count: result.length,
       items: result,
-    });
+    };
+
+    return cacheAndSendJson(
+      res,
+      leaderboardCache,
+      cacheKey,
+      payload,
+      LEADERBOARD_CACHE_TTL_MS,
+    );
   } catch (err) {
     console.error("❌ Leaderboard Error:", err);
     next(err);

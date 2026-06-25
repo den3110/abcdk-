@@ -3,6 +3,7 @@ import cron from "node-cron";
 import { runCrawlEngine } from "../services/crawlEngine.js";
 import NewsSettings from "../models/newsSettingsModel.js";
 import { shouldRunBackgroundJob } from "../utils/backgroundJobWindow.js";
+import { clearNewsPresentationCaches } from "../services/cacheInvalidation.service.js";
 // import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
 import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";
 
@@ -92,6 +93,7 @@ export function initNewsCron() {
       // ✅ Discovery ok rồi mới chạy crawl
       try {
         await runCrawlEngine();
+        await clearNewsPresentationCaches();
         console.log("[NewsCron] Done");
       } catch (e) {
         console.error("[NewsCron] Error in crawl engine:", e);

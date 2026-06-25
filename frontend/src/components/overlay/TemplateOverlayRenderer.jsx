@@ -50,6 +50,8 @@ function layerConditionMatches(layer, values, mode) {
 
 function layerBaseStyle(layer, canvas, mode, selected, values) {
   const style = layer?.style || {};
+  const isTextLayer = layer?.type === "text";
+  const lineHeight = clampNumber(style.lineHeight, isTextLayer ? 1.18 : 1.1);
   const background =
     layer?.type === "rect" ? style.background || "rgba(0,0,0,.7)" : style.background;
 
@@ -68,9 +70,9 @@ function layerBaseStyle(layer, canvas, mode, selected, values) {
         : style.textAlign === "center"
           ? "center"
           : "flex-start",
-    overflow: "hidden",
+    overflow: isTextLayer ? "visible" : "hidden",
     boxSizing: "border-box",
-    padding: layer?.type === "text" ? "0 0.08em" : 0,
+    padding: isTextLayer ? "0 0.08em" : 0,
     color: style.color || "#ffffff",
     background: background || "transparent",
     border:
@@ -82,11 +84,14 @@ function layerBaseStyle(layer, canvas, mode, selected, values) {
     borderRadius: clampNumber(style.borderRadius, 0),
     fontFamily:
       style.fontFamily ||
-      'Montserrat, Inter, system-ui, -apple-system, "Segoe UI", Arial',
+      "Montserrat Variable, Montserrat, Inter, system-ui, -apple-system, Segoe UI, Arial",
     fontSize: `${clampNumber(style.fontSize, 36)}px`,
     fontWeight: clampNumber(style.fontWeight, 700),
-    lineHeight: clampNumber(style.lineHeight, 1.1),
+    lineHeight: isTextLayer ? Math.max(1.12, lineHeight) : lineHeight,
     textAlign: style.textAlign || "left",
+    WebkitFontSmoothing: "antialiased",
+    MozOsxFontSmoothing: "grayscale",
+    textRendering: "geometricPrecision",
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     pointerEvents: mode === "editor" ? "auto" : "none",
@@ -104,6 +109,7 @@ function renderLayer(layer, canvas, values, mode, editorProps = {}) {
     style: layerBaseStyle(layer, canvas, mode, selected, values),
     onPointerDown: (event) => editorProps.onLayerPointerDown?.(event, layer),
     onClick: (event) => editorProps.onLayerClick?.(event, layer),
+    onContextMenu: (event) => editorProps.onLayerContextMenu?.(event, layer),
   };
 
   if (layer?.type === "serveIndicator") {
@@ -187,6 +193,7 @@ export default function TemplateOverlayRenderer({
   selectedLayerId,
   onLayerPointerDown,
   onLayerClick,
+  onLayerContextMenu,
   style,
   className,
 }) {
@@ -276,6 +283,7 @@ export default function TemplateOverlayRenderer({
               selectedLayerId,
               onLayerPointerDown,
               onLayerClick,
+              onLayerContextMenu,
             }),
           )}
       </div>

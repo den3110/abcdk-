@@ -1,5 +1,30 @@
 // models/rankingModel.js
 import mongoose from "mongoose";
+import { clearRankingPresentationCaches } from "../services/cacheInvalidation.service.js";
+
+let rankingCacheClearScheduled = false;
+
+function scheduleRankingCacheClear() {
+  if (rankingCacheClearScheduled) return;
+  rankingCacheClearScheduled = true;
+
+  const run =
+    typeof setImmediate === "function"
+      ? setImmediate
+      : (callback) => setTimeout(callback, 0);
+
+  run(async () => {
+    rankingCacheClearScheduled = false;
+    try {
+      await clearRankingPresentationCaches();
+    } catch (error) {
+      console.warn(
+        "[RankingModel] clear ranking cache failed:",
+        error?.message || error,
+      );
+    }
+  });
+}
 
 const rankingSchema = new mongoose.Schema(
   {
@@ -224,6 +249,7 @@ rankingSchema.statics.bulkRecalculateTiers = async function (userIds = []) {
 
   if (bulkOps.length > 0) {
     await this.bulkWrite(bulkOps);
+    scheduleRankingCacheClear();
   }
 
   return bulkOps.length;
@@ -253,6 +279,12 @@ rankingSchema.pre("save", function (next) {
   }
   next();
 });
+
+rankingSchema.post("save", scheduleRankingCacheClear);
+rankingSchema.post("findOneAndUpdate", scheduleRankingCacheClear);
+rankingSchema.post("updateOne", scheduleRankingCacheClear);
+rankingSchema.post("updateMany", scheduleRankingCacheClear);
+rankingSchema.post("bulkWrite", scheduleRankingCacheClear);
 
 const Ranking = mongoose.model("Ranking", rankingSchema);
 export default Ranking;

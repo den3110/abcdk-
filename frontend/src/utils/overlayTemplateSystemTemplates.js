@@ -1,5 +1,5 @@
 const baseTextStyle = {
-  fontFamily: "Montserrat, Arial, sans-serif",
+  fontFamily: "Montserrat Variable, Montserrat, Arial, sans-serif",
   fontSize: 40,
   fontWeight: 800,
   color: "#ffffff",
@@ -8,7 +8,7 @@ const baseTextStyle = {
   borderWidth: 0,
   borderRadius: 0,
   textAlign: "left",
-  lineHeight: 1.1,
+  lineHeight: 1.18,
 };
 
 const textLayer = ({

@@ -8,6 +8,7 @@ import {
   Chip,
   Divider,
   IconButton,
+  Menu,
   MenuItem,
   Paper,
   Stack,
@@ -144,6 +145,7 @@ const fieldGridSx = {
 const SNAP_THRESHOLD_PX = 8;
 const EMPTY_SNAP_GUIDES = { vertical: [], horizontal: [] };
 const MIN_LAYER_SIZE = 16;
+const EDITOR_CHROME_Z_INDEX = 10000;
 const RESIZE_HANDLES = [
   { key: "nw", cursor: "nwse-resize", left: "0%", top: "0%" },
   { key: "n", cursor: "ns-resize", left: "50%", top: "0%" },
@@ -154,6 +156,62 @@ const RESIZE_HANDLES = [
   { key: "sw", cursor: "nesw-resize", left: "0%", top: "100%" },
   { key: "w", cursor: "ew-resize", left: "0%", top: "50%" },
 ];
+const OVERLAY_FONT_OPTIONS = [
+  { label: "Montserrat", value: "Montserrat Variable, Montserrat, Arial, sans-serif" },
+  { label: "Inter", value: "Inter, Segoe UI, Arial, sans-serif" },
+  { label: "Segoe UI", value: "Segoe UI, Arial, sans-serif" },
+  { label: "Aptos", value: "Aptos, Segoe UI, Arial, sans-serif" },
+  { label: "Aptos Display", value: "Aptos Display, Aptos, Segoe UI, Arial, sans-serif" },
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+  { label: "Roboto", value: "Roboto, Arial, sans-serif" },
+  { label: "Open Sans", value: "Open Sans, Arial, sans-serif" },
+  { label: "Poppins", value: "Poppins, Arial, sans-serif" },
+  { label: "Nunito", value: "Nunito, Arial, sans-serif" },
+  { label: "Lato", value: "Lato, Arial, sans-serif" },
+  { label: "Raleway", value: "Raleway, Arial, sans-serif" },
+  { label: "Manrope", value: "Manrope, Arial, sans-serif" },
+  { label: "DM Sans", value: "DM Sans, Arial, sans-serif" },
+  { label: "IBM Plex Sans", value: "IBM Plex Sans, Arial, sans-serif" },
+  { label: "Noto Sans", value: "Noto Sans, Arial, sans-serif" },
+  { label: "Be Vietnam Pro", value: "Be Vietnam Pro, Arial, sans-serif" },
+  { label: "SVN-Gilroy", value: "SVN-Gilroy, Arial, sans-serif" },
+  { label: "Tahoma", value: "Tahoma, Arial, sans-serif" },
+  { label: "Verdana", value: "Verdana, Arial, sans-serif" },
+  { label: "Trebuchet MS", value: "Trebuchet MS, Arial, sans-serif" },
+  { label: "Calibri", value: "Calibri, Arial, sans-serif" },
+  { label: "Bahnschrift", value: "Bahnschrift, Arial, sans-serif" },
+  { label: "Candara", value: "Candara, Arial, sans-serif" },
+  { label: "Corbel", value: "Corbel, Arial, sans-serif" },
+  { label: "Century Gothic", value: "Century Gothic, Arial, sans-serif" },
+  { label: "Gill Sans", value: "Gill Sans, Calibri, Arial, sans-serif" },
+  { label: "Lucida Sans", value: "Lucida Sans Unicode, Lucida Grande, Arial, sans-serif" },
+  { label: "Microsoft Sans Serif", value: "Microsoft Sans Serif, Arial, sans-serif" },
+  { label: "Franklin Gothic", value: "Franklin Gothic Medium, Arial, sans-serif" },
+  { label: "Impact", value: "Impact, Haettenschweiler, Arial Narrow Bold, sans-serif" },
+  { label: "Georgia", value: "Georgia, serif" },
+  { label: "Cambria", value: "Cambria, Georgia, serif" },
+  { label: "Palatino", value: "Palatino Linotype, Palatino, serif" },
+  { label: "Times New Roman", value: "Times New Roman, Times, serif" },
+  { label: "Courier New", value: "Courier New, Courier, monospace" },
+  { label: "Consolas", value: "Consolas, monospace" },
+  { label: "Source Code Pro", value: "Source Code Pro, Consolas, monospace" },
+];
+const DEFAULT_TEXT_FONT = OVERLAY_FONT_OPTIONS[0].value;
+const normalizeFontFamilyValue = (value) =>
+  String(value || DEFAULT_TEXT_FONT)
+    .replace(/["']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+const clampLayerZIndex = (value) =>
+  Math.min(1000, Math.max(-100, Math.round(numberOr(value, 0))));
+const isEditableEventTarget = (target) => {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      'input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"], [role="spinbutton"]',
+    ),
+  );
+};
 
 const previewValues = {
   "tournament.name": "Test giải 4",
@@ -360,7 +418,7 @@ function makeTextLayer(binding, label) {
     zIndex: 20,
     visible: true,
     style: {
-      fontFamily: "Montserrat, Arial, sans-serif",
+      fontFamily: DEFAULT_TEXT_FONT,
       fontSize: 42,
       fontWeight: 800,
       color: "#ffffff",
@@ -369,7 +427,7 @@ function makeTextLayer(binding, label) {
       borderWidth: 0,
       borderRadius: 0,
       textAlign: "left",
-      lineHeight: 1.1,
+      lineHeight: 1.18,
     },
   };
 }
@@ -524,7 +582,9 @@ export default function OverlayStudioPage() {
   });
   const [selectedLayerId, setSelectedLayerId] = useState("");
   const [selectedLayerIds, setSelectedLayerIds] = useState([]);
+  const [layerMenu, setLayerMenu] = useState(null);
   const [snapGuides, setSnapGuides] = useState(EMPTY_SNAP_GUIDES);
+  const selectedLayerIdsRef = useRef([]);
 
   const {
     data: remoteLibrary = [],
@@ -561,8 +621,10 @@ export default function OverlayStudioPage() {
   );
 
   const setSingleSelection = (layerId) => {
+    const next = layerId ? [layerId] : [];
+    selectedLayerIdsRef.current = next;
     setSelectedLayerId(layerId || "");
-    setSelectedLayerIds(layerId ? [layerId] : []);
+    setSelectedLayerIds(next);
   };
 
   const toggleLayerSelection = (layerId) => {
@@ -571,9 +633,19 @@ export default function OverlayStudioPage() {
       const next = exists
         ? prev.filter((id) => id !== layerId)
         : [...prev, layerId];
+      selectedLayerIdsRef.current = next;
       setSelectedLayerId(next[next.length - 1] || "");
       return next;
     });
+  };
+
+  useEffect(() => {
+    selectedLayerIdsRef.current = selectedLayerIds;
+  }, [selectedLayerIds]);
+
+  const getTargetLayerIds = (layerIds) => {
+    const source = Array.isArray(layerIds) ? layerIds : selectedLayerIdsRef.current;
+    return Array.from(new Set(source.filter(Boolean)));
   };
 
   const selectLayerForEvent = (layerId, event) => {
@@ -631,6 +703,25 @@ export default function OverlayStudioPage() {
     }));
   };
 
+  const patchSelectedLayers = (patcher, layerIds) => {
+    const targetLayerIds = getTargetLayerIds(layerIds);
+    if (!targetLayerIds.length) return;
+    const selectedIdSet = new Set(targetLayerIds);
+    patchDocument((draft) => ({
+      ...draft,
+      layers: draft.layers.map((layer) => {
+        if (!selectedIdSet.has(layer.id)) return layer;
+        const patch =
+          typeof patcher === "function" ? patcher(layer, draft.layers) : patcher || {};
+        return {
+          ...layer,
+          ...patch,
+          style: { ...(layer.style || {}), ...(patch.style || {}) },
+        };
+      }),
+    }));
+  };
+
   const addLayer = (kind) => {
     if (kind === "serve") {
       const layers = [makeServeIndicatorLayer("A"), makeServeIndicatorLayer("B")];
@@ -638,7 +729,9 @@ export default function OverlayStudioPage() {
         ...draft,
         layers: [...draft.layers, ...layers],
       }));
-      setSelectedLayerIds(layers.map((layer) => layer.id));
+      const nextLayerIds = layers.map((layer) => layer.id);
+      selectedLayerIdsRef.current = nextLayerIds;
+      setSelectedLayerIds(nextLayerIds);
       setSelectedLayerId(layers[layers.length - 1]?.id || "");
       return;
     }
@@ -660,9 +753,12 @@ export default function OverlayStudioPage() {
     setSingleSelection(layer.id);
   };
 
-  const duplicateSelectedLayer = () => {
-    if (!selectedLayers.length) return;
-    const copies = selectedLayers.map((layer) => ({
+  const duplicateSelectedLayer = (layerIds) => {
+    const targetLayerIds = getTargetLayerIds(layerIds);
+    const targetIdSet = new Set(targetLayerIds);
+    const sourceLayers = document.layers.filter((layer) => targetIdSet.has(layer.id));
+    if (!sourceLayers.length) return;
+    const copies = sourceLayers.map((layer) => ({
       ...layer,
       id: makeLayerId(layer.type || "layer"),
       label: `${layer.label || "Layer"} copy`,
@@ -673,19 +769,95 @@ export default function OverlayStudioPage() {
       visibleWhen: layer.visibleWhen ? { ...layer.visibleWhen } : undefined,
     }));
     patchDocument((draft) => ({ ...draft, layers: [...draft.layers, ...copies] }));
-    setSelectedLayerIds(copies.map((layer) => layer.id));
+    const nextLayerIds = copies.map((layer) => layer.id);
+    selectedLayerIdsRef.current = nextLayerIds;
+    setSelectedLayerIds(nextLayerIds);
     setSelectedLayerId(copies[copies.length - 1]?.id || "");
   };
 
-  const deleteSelectedLayer = () => {
-    if (!selectedLayerIds.length) return;
-    const selectedIdSet = new Set(selectedLayerIds);
+  const deleteSelectedLayer = (layerIds) => {
+    const targetLayerIds = getTargetLayerIds(layerIds);
+    if (!targetLayerIds.length) return;
+    const selectedIdSet = new Set(targetLayerIds);
     patchDocument((draft) => ({
       ...draft,
       layers: draft.layers.filter((layer) => !selectedIdSet.has(layer.id)),
     }));
     setSingleSelection("");
   };
+
+  const shiftSelectedZIndex = (delta, layerIds) => {
+    patchSelectedLayers((layer) => ({
+      zIndex: clampLayerZIndex(numberOr(layer.zIndex, 0) + delta),
+    }), layerIds);
+  };
+
+  const bringSelectedToFront = (layerIds) => {
+    const targetLayerIds = getTargetLayerIds(layerIds);
+    const maxZ = document.layers.reduce(
+      (max, layer) => Math.max(max, numberOr(layer.zIndex, 0)),
+      0,
+    );
+    patchSelectedLayers((layer) => ({
+      zIndex: clampLayerZIndex(maxZ + targetLayerIds.indexOf(layer.id) + 1),
+    }), targetLayerIds);
+  };
+
+  const sendSelectedToBack = (layerIds) => {
+    const targetLayerIds = getTargetLayerIds(layerIds);
+    const minZ = document.layers.reduce(
+      (min, layer) => Math.min(min, numberOr(layer.zIndex, 0)),
+      0,
+    );
+    patchSelectedLayers((layer) => ({
+      zIndex: clampLayerZIndex(minZ - targetLayerIds.length + targetLayerIds.indexOf(layer.id)),
+    }), targetLayerIds);
+  };
+
+  const openLayerContextMenu = (event, layerId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const currentLayerIds = selectedLayerIdsRef.current;
+    const nextLayerIds = currentLayerIds.includes(layerId)
+      ? currentLayerIds
+      : [layerId];
+    if (currentLayerIds.includes(layerId)) {
+      setSelectedLayerId(layerId);
+    } else {
+      setSingleSelection(layerId);
+    }
+    setLayerMenu({
+      mouseX: event.clientX + 2,
+      mouseY: event.clientY - 6,
+      layerIds: nextLayerIds,
+    });
+  };
+
+  const closeLayerContextMenu = () => {
+    setLayerMenu(null);
+  };
+
+  const runLayerMenuAction = (action) => {
+    const targetLayerIds = getTargetLayerIds(layerMenu?.layerIds);
+    closeLayerContextMenu();
+    action(targetLayerIds);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.defaultPrevented) return;
+      if (event.key !== "Backspace" && event.key !== "Delete") return;
+      if (isEditableEventTarget(event.target)) return;
+      const targetLayerIds = getTargetLayerIds();
+      if (!targetLayerIds.length) return;
+
+      event.preventDefault();
+      deleteSelectedLayer(targetLayerIds);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [deleteSelectedLayer, getTargetLayerIds]);
 
   const startGroupDrag = (event, dragLayerIds) => {
     const dragIds = Array.from(new Set(dragLayerIds || []));
@@ -893,6 +1065,12 @@ export default function OverlayStudioPage() {
     selectedLayer.type !== "rect" &&
     selectedLayer.type !== "image";
   const hasGroupSelection = selectedLayerIds.length > 1;
+  const selectedFontFamily = selectedLayerIsText
+    ? normalizeFontFamilyValue(selectedLayer.style?.fontFamily)
+    : DEFAULT_TEXT_FONT;
+  const selectedFontFamilyKnown = OVERLAY_FONT_OPTIONS.some(
+    (option) => option.value === selectedFontFamily,
+  );
 
   return (
     <Box sx={editorRootSx}>
@@ -1234,6 +1412,9 @@ export default function OverlayStudioPage() {
                     onLayerClick={(event) => {
                       event.stopPropagation();
                     }}
+                    onLayerContextMenu={(event, layer) =>
+                      openLayerContextMenu(event, layer.id)
+                    }
                     style={canvasSurfaceSx}
                   />
                 ) : (
@@ -1268,7 +1449,7 @@ export default function OverlayStudioPage() {
                       boxShadow: "0 0 0 1px rgba(56,189,248,0.22)",
                       cursor: hasGroupSelection ? "move" : "default",
                       pointerEvents: hasGroupSelection ? "auto" : "none",
-                      zIndex: 38,
+                      zIndex: EDITOR_CHROME_Z_INDEX,
                       bgcolor: hasGroupSelection
                         ? "rgba(56,189,248,0.035)"
                         : "transparent",
@@ -1293,7 +1474,7 @@ export default function OverlayStudioPage() {
                           transform: "translate(-50%, -50%)",
                           cursor: handle.cursor,
                           pointerEvents: "auto",
-                          zIndex: 39,
+                          zIndex: EDITOR_CHROME_Z_INDEX + 1,
                         }}
                       />
                     ))}
@@ -1312,7 +1493,7 @@ export default function OverlayStudioPage() {
                       bgcolor: "#38bdf8",
                       boxShadow: "0 0 0 1px rgba(56,189,248,0.24)",
                       pointerEvents: "none",
-                      zIndex: 30,
+                      zIndex: EDITOR_CHROME_Z_INDEX + 2,
                     }}
                   />
                 ))}
@@ -1329,7 +1510,7 @@ export default function OverlayStudioPage() {
                       bgcolor: "#38bdf8",
                       boxShadow: "0 0 0 1px rgba(56,189,248,0.24)",
                       pointerEvents: "none",
-                      zIndex: 30,
+                      zIndex: EDITOR_CHROME_Z_INDEX + 2,
                     }}
                   />
                 ))}
@@ -1387,6 +1568,7 @@ export default function OverlayStudioPage() {
                       variant="text"
                       size="small"
                       onClick={(event) => selectLayerForEvent(layer.id, event)}
+                      onContextMenu={(event) => openLayerContextMenu(event, layer.id)}
                       sx={layerButtonSx(active)}
                     >
                       <Typography variant="body2" fontWeight={800} noWrap>
@@ -1401,6 +1583,47 @@ export default function OverlayStudioPage() {
                   );
                 })}
               </Stack>
+              <Menu
+                open={Boolean(layerMenu)}
+                onClose={closeLayerContextMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={
+                  layerMenu
+                    ? { top: layerMenu.mouseY, left: layerMenu.mouseX }
+                    : undefined
+                }
+              >
+                <MenuItem onClick={() => runLayerMenuAction(bringSelectedToFront)}>
+                  Đưa lên trên cùng
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    runLayerMenuAction((layerIds) => shiftSelectedZIndex(1, layerIds))
+                  }
+                >
+                  Đưa lên 1 lớp
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    runLayerMenuAction((layerIds) => shiftSelectedZIndex(-1, layerIds))
+                  }
+                >
+                  Đưa xuống 1 lớp
+                </MenuItem>
+                <MenuItem onClick={() => runLayerMenuAction(sendSelectedToBack)}>
+                  Đưa xuống dưới cùng
+                </MenuItem>
+                <Divider />
+                <MenuItem onClick={() => runLayerMenuAction(duplicateSelectedLayer)}>
+                  Nhân bản
+                </MenuItem>
+                <MenuItem
+                  onClick={() => runLayerMenuAction(deleteSelectedLayer)}
+                  sx={{ color: "error.main" }}
+                >
+                  Xóa
+                </MenuItem>
+              </Menu>
 
               <Divider sx={{ my: 1.5 }} />
 
@@ -1478,6 +1701,97 @@ export default function OverlayStudioPage() {
                       />
                     ))}
                   </Box>
+                  <Box sx={fieldGridSx}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Z-index"
+                      value={selectedLayer.zIndex ?? 0}
+                      onChange={(event) =>
+                        patchSelectedLayer({
+                          zIndex: clampLayerZIndex(event.target.value),
+                        })
+                      }
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Opacity"
+                      value={selectedLayer.opacity ?? 1}
+                      inputProps={{ step: 0.05, min: 0, max: 1 }}
+                      onChange={(event) =>
+                        patchSelectedLayer({
+                          opacity: Math.min(1, Math.max(0, Number(event.target.value))),
+                        })
+                      }
+                    />
+                  </Box>
+                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={!selectedLayerIds.length}
+                      onClick={sendSelectedToBack}
+                    >
+                      Dưới cùng
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={!selectedLayerIds.length}
+                      onClick={() => shiftSelectedZIndex(-1)}
+                    >
+                      Xuống
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={!selectedLayerIds.length}
+                      onClick={() => shiftSelectedZIndex(1)}
+                    >
+                      Lên
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={!selectedLayerIds.length}
+                      onClick={bringSelectedToFront}
+                    >
+                      Trên cùng
+                    </Button>
+                  </Stack>
+                  {selectedLayerIsText ? (
+                    <TextField
+                      select
+                      size="small"
+                      label="Font chữ"
+                      value={selectedFontFamily}
+                      onChange={(event) =>
+                        patchSelectedLayer({
+                          style: { fontFamily: event.target.value },
+                        })
+                      }
+                      fullWidth
+                    >
+                      {!selectedFontFamilyKnown ? (
+                        <MenuItem
+                          value={selectedFontFamily}
+                          sx={{ fontFamily: selectedFontFamily }}
+                        >
+                          Font hiện tại
+                        </MenuItem>
+                      ) : null}
+                      {OVERLAY_FONT_OPTIONS.map((option) => (
+                        <MenuItem
+                          key={option.value}
+                          value={option.value}
+                          sx={{ fontFamily: option.value }}
+                        >
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  ) : null}
                   {selectedLayerIsText ? (
                     <Box sx={fieldGridSx}>
                       <TextField
@@ -1501,6 +1815,19 @@ export default function OverlayStudioPage() {
                             style: { fontWeight: Number(event.target.value) },
                           })
                         }
+                      />
+                      <TextField
+                        size="small"
+                        type="number"
+                        label="Giãn dòng"
+                        value={selectedLayer.style?.lineHeight ?? 1.18}
+                        inputProps={{ step: 0.02, min: 0.8, max: 2 }}
+                        onChange={(event) =>
+                          patchSelectedLayer({
+                            style: { lineHeight: Number(event.target.value) },
+                          })
+                        }
+                        sx={{ gridColumn: "1 / -1" }}
                       />
                     </Box>
                   ) : null}

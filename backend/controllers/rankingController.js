@@ -16,6 +16,41 @@ import {
   build_vietnamese_regex,
 } from "../utils/vnSearchNormalizer.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
+import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import { createShortTtlCache } from "../utils/shortTtlCache.js";
+import {
+  buildCacheKey,
+  cacheAndSendJson,
+  getRequestUserCacheVary,
+  sendCachedJson,
+} from "../utils/httpResponseCache.js";
+
+const RANKINGS_CACHE_TTL_MS = Math.max(
+  60_000,
+  Number(process.env.RANKINGS_CACHE_TTL_MS || 300_000),
+);
+
+const rankingResponseCache = createShortTtlCache(RANKINGS_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.rankings,
+  label: "Rankings",
+  category: "public",
+  scope: "user-vary",
+});
+
+const rankingPodiumCache = createShortTtlCache(RANKINGS_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.rankingPodiums,
+  label: "Ranking podiums",
+  category: "public",
+  scope: "public",
+});
+
+function buildRankingCacheKey(req, scope, extra = {}) {
+  return buildCacheKey(scope, {
+    query: req.query,
+    user: getRequestUserCacheVary(req),
+    ...extra,
+  });
+}
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
@@ -842,6 +877,16 @@ export const getRankings = asyncHandler(async (req, res) => {
     throw err;
   }
 
+  const rankingCacheKey = keywordRaw
+    ? ""
+    : buildRankingCacheKey(req, "rankings:cursor", { page, limit });
+  if (
+    rankingCacheKey &&
+    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
+  ) {
+    return;
+  }
+
   const isAdminForProjection = isAdmin;
 
   /* ======= keyword filter -> userIds ======= */
@@ -1224,7 +1269,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
     : docsRaw;
 
-  return res.json({
+  const payload = {
     docs,
     totalPages,
     page,
@@ -1232,7 +1277,19 @@ export const getRankings = asyncHandler(async (req, res) => {
     nextCursor,
     hasMore,
     remainingTime,
-  });
+  };
+
+  if (rankingCacheKey) {
+    return cacheAndSendJson(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      payload,
+      RANKINGS_CACHE_TTL_MS,
+    );
+  }
+
+  return res.json(payload);
 });
 
 /** Tạo mật khẩu ngẫu nhiên mạnh */
@@ -1401,6 +1458,15 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
       req.user.roles.some((r) =>
         ["admin", "mod", "moderator"].includes(String(r).toLowerCase()),
       ));
+  const rankingCacheKey = keywordRaw
+    ? ""
+    : buildRankingCacheKey(req, "rankings:v2", { page, limit });
+  if (
+    rankingCacheKey &&
+    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
+  ) {
+    return;
+  }
 
   const baseUserProject = {
     _id: 1,
@@ -1565,12 +1631,24 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
   const totalPages = Math.ceil(first.total / limit);
   const docs = first.docs || [];
 
-  res.json({
+  const payload = {
     docs,
     totalPages,
     total: first.total,
     page,
-  });
+  };
+
+  if (rankingCacheKey) {
+    return cacheAndSendJson(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      payload,
+      RANKINGS_CACHE_TTL_MS,
+    );
+  }
+
+  return res.json(payload);
 });
 
 /**
@@ -1686,6 +1764,16 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   }
 
   // ===== Admin projection =====
+  const rankingCacheKey = keywordRaw
+    ? ""
+    : buildRankingCacheKey(req, "rankings:only:v2", { page, limit });
+  if (
+    rankingCacheKey &&
+    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
+  ) {
+    return;
+  }
+
   const isAdminForProjection = isAdmin;
 
   const baseUserProject = {
@@ -1855,14 +1943,26 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
     : docsRaw;
 
-  return res.json({
+  const payload = {
     docs,
     totalPages,
     page,
     nextCursor,
     hasMore,
     remainingTime,
-  });
+  };
+
+  if (rankingCacheKey) {
+    return cacheAndSendJson(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      payload,
+      RANKINGS_CACHE_TTL_MS,
+    );
+  }
+
+  return res.json(payload);
 });
 
 /* ============================ ✅ NEW: ranking-only (giữ nguyên getRankings, thêm controller mới) ============================ */
@@ -1970,6 +2070,16 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
     err.remainingTime = 0;
     err.remainingResetTime = getRemainingResetTimeSeconds();
     throw err;
+  }
+
+  const rankingCacheKey = keywordRaw
+    ? ""
+    : buildRankingCacheKey(req, "rankings:only", { page, limit });
+  if (
+    rankingCacheKey &&
+    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
+  ) {
+    return;
   }
 
   const isAdminForProjection = isAdmin;
@@ -2322,18 +2432,41 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
     ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
     : docsRaw;
 
-  return res.json({
+  const payload = {
     docs,
     totalPages,
     page,
     nextCursor,
     hasMore,
     remainingTime,
-  });
+  };
+
+  if (rankingCacheKey) {
+    return cacheAndSendJson(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      payload,
+      RANKINGS_CACHE_TTL_MS,
+    );
+  }
+
+  return res.json(payload);
 });
 
 /* ============================ ✅ NEW: podium30d-only ============================ */
 export const getPodium30d = asyncHandler(async (req, res) => {
+  const cacheKey = buildCacheKey("rankings:podium30d", { days: 30 });
+  if (sendCachedJson(res, rankingPodiumCache, cacheKey, RANKINGS_CACHE_TTL_MS)) {
+    return;
+  }
+
   const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
-  return res.json({ podiums30d: podiumMapByUserId });
+  return cacheAndSendJson(
+    res,
+    rankingPodiumCache,
+    cacheKey,
+    { podiums30d: podiumMapByUserId },
+    RANKINGS_CACHE_TTL_MS,
+  );
 });

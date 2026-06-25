@@ -110,12 +110,12 @@ const textLayer = ({
   height,
   zIndex,
   style: {
-    fontFamily: "Montserrat, Arial, sans-serif",
+    fontFamily: "Montserrat Variable, Montserrat, Arial, sans-serif",
     fontSize,
     fontWeight,
     color,
     textAlign,
-    lineHeight: 1.1,
+    lineHeight: 1.18,
   },
 });
 
@@ -655,7 +655,9 @@ const normalizeCanvas = (input = {}) => ({
 });
 
 const normalizeStyle = (style = {}) => ({
-  fontFamily: cleanFont(style.fontFamily) || "Montserrat, Arial, sans-serif",
+  fontFamily:
+    cleanFont(style.fontFamily) ||
+    "Montserrat Variable, Montserrat, Arial, sans-serif",
   fontSize: clamp(style.fontSize, 8, 220, 36),
   fontWeight: clamp(style.fontWeight, 100, 1000, 700),
   color: cleanColor(style.color, "#ffffff"),
@@ -666,7 +668,7 @@ const normalizeStyle = (style = {}) => ({
   textAlign: ["left", "center", "right"].includes(style.textAlign)
     ? style.textAlign
     : "left",
-  lineHeight: clamp(style.lineHeight, 0.8, 2, 1.1),
+  lineHeight: clamp(style.lineHeight, 0.8, 2, 1.18),
 });
 
 const normalizeLayer = (layer = {}, index = 0) => {

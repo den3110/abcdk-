@@ -12,8 +12,11 @@ export async function clearTournamentPresentationCaches() {
     CACHE_GROUP_IDS.tournamentBracketMatches,
     CACHE_GROUP_IDS.tournamentScheduleMatches,
     CACHE_GROUP_IDS.liveMatches,
+    CACHE_GROUP_IDS.liveFeed,
     CACHE_GROUP_IDS.liveAppBootstrap,
     CACHE_GROUP_IDS.overlayMatch,
+    CACHE_GROUP_IDS.tournamentList,
+    CACHE_GROUP_IDS.leaderboard,
     CACHE_GROUP_IDS.publicHome,
     CACHE_GROUP_IDS.publicOverlayConfig,
   ]);
@@ -28,9 +31,11 @@ export async function clearMatchPresentationCaches() {
     CACHE_GROUP_IDS.overlayMatch,
     CACHE_GROUP_IDS.overlayNextCourt,
     CACHE_GROUP_IDS.liveMatches,
+    CACHE_GROUP_IDS.liveFeed,
     CACHE_GROUP_IDS.liveAppCourtRuntime,
     CACHE_GROUP_IDS.liveAppMatchRuntime,
     CACHE_GROUP_IDS.adminTournamentCourts,
+    CACHE_GROUP_IDS.leaderboard,
     CACHE_GROUP_IDS.publicHome,
   ]);
 }
@@ -42,6 +47,7 @@ export async function clearCourtPresentationCaches() {
     CACHE_GROUP_IDS.overlayMatch,
     CACHE_GROUP_IDS.overlayNextCourt,
     CACHE_GROUP_IDS.liveMatches,
+    CACHE_GROUP_IDS.liveFeed,
     CACHE_GROUP_IDS.liveAppCourtRuntime,
     CACHE_GROUP_IDS.liveAppMatchRuntime,
     CACHE_GROUP_IDS.liveAppBootstrap,
@@ -62,6 +68,13 @@ export async function clearNewsPresentationCaches() {
   return clearGroups([
     CACHE_GROUP_IDS.newsList,
     CACHE_GROUP_IDS.newsDetail,
+  ]);
+}
+
+export async function clearRankingPresentationCaches() {
+  return clearGroups([
+    CACHE_GROUP_IDS.rankings,
+    CACHE_GROUP_IDS.rankingPodiums,
   ]);
 }
 
