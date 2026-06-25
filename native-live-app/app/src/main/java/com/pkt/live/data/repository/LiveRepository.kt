@@ -29,6 +29,12 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
+class RetryableRecordingSegmentCompleteException(
+    val statusCode: Int,
+    val serverCode: String?,
+    message: String,
+) : Exception(message)
+
 /**
  * Single source of truth for all live data.
  * Combines REST API + Socket.IO into clean flows.
@@ -625,6 +631,25 @@ class LiveRepository(
             }
         }
         return null
+    }
+
+    private fun parseRetryableSegmentCompleteError(
+        statusCode: Int,
+        raw: String?,
+    ): RetryableRecordingSegmentCompleteException? {
+        if (statusCode != 409 || raw.isNullOrBlank()) return null
+        val obj = runCatching { gson.fromJson(raw, com.google.gson.JsonObject::class.java) }.getOrNull() ?: return null
+        val retryable = obj.getBool("retryable") == true
+        val serverCode = obj.getStr("code")
+        if (!retryable && serverCode != "SEGMENT_MP4_NOT_FINALIZED") return null
+        val message =
+            parseErrorMessage(raw)
+                ?: "Segment MP4 chưa sẵn sàng trên storage, app sẽ tự thử lại."
+        return RetryableRecordingSegmentCompleteException(
+            statusCode = statusCode,
+            serverCode = serverCode,
+            message = message,
+        )
     }
 
     private fun overlayToMatchData(root: JsonElement): MatchData? {
@@ -1230,7 +1255,15 @@ class LiveRepository(
             if (resp.isSuccessful && resp.body() != null) {
                 Result.success(resp.body()!!)
             } else {
-                Result.failure(Exception("Complete multipart recording segment failed: ${resp.code()}"))
+                val raw = runCatching { resp.errorBody()?.string() }.getOrNull()
+                Result.failure(
+                    parseRetryableSegmentCompleteError(resp.code(), raw)
+                        ?: Exception(
+                            parseErrorMessage(raw)
+                                ?.let { "Complete multipart recording segment failed: $it (${resp.code()})" }
+                                ?: "Complete multipart recording segment failed: ${resp.code()}"
+                        )
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "completeMultipartRecordingSegment error", e)
@@ -1290,7 +1323,15 @@ class LiveRepository(
             if (resp.isSuccessful && resp.body() != null) {
                 Result.success(resp.body()!!)
             } else {
-                Result.failure(Exception("Complete recording segment failed: ${resp.code()}"))
+                val raw = runCatching { resp.errorBody()?.string() }.getOrNull()
+                Result.failure(
+                    parseRetryableSegmentCompleteError(resp.code(), raw)
+                        ?: Exception(
+                            parseErrorMessage(raw)
+                                ?.let { "Complete recording segment failed: $it (${resp.code()})" }
+                                ?: "Complete recording segment failed: ${resp.code()}"
+                        )
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "completeRecordingSegment error", e)

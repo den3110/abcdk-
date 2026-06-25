@@ -3051,6 +3051,68 @@ export default function TournamentManagePage() {
   );
 
   // ======= NHÓM & LỌC =======
+  const normalizeBracketTypeKey = useCallback(
+    (value) => normalizeTabValue(value) || String(value || "").toLowerCase(),
+    [normalizeTabValue],
+  );
+
+  const completedBracketTypes = useMemo(() => {
+    void orderVersion;
+    const bracketById = new Map();
+    (brackets || []).forEach((bracket) => {
+      const bracketId = String(bracket?._id || bracket?.id || "");
+      if (bracketId) bracketById.set(bracketId, bracket);
+    });
+
+    const stats = new Map();
+    const ensureStats = (typeKey) => {
+      if (!stats.has(typeKey)) stats.set(typeKey, { total: 0, done: 0 });
+      return stats.get(typeKey);
+    };
+
+    allMatchesBase.forEach((match) => {
+      const bracketId = String(match?.bracket?._id || match?.bracket || "");
+      const bracket = bracketById.get(bracketId);
+      const typeKey = normalizeBracketTypeKey(
+        match?.bracket?.type || bracket?.type || "",
+      );
+      if (!typeKey) return;
+
+      const matchId = String(match?._id || match?.id || "");
+      const merged = {
+        ...match,
+        ...(matchId ? liveStore.get(matchId) || {} : {}),
+      };
+      const item = ensureStats(typeKey);
+      item.total += 1;
+      if (isManageFinishedMatch(merged, merged?.status)) {
+        item.done += 1;
+      }
+    });
+
+    const completed = new Map();
+    stats.forEach((item, typeKey) => {
+      completed.set(typeKey, item.total > 0 && item.done === item.total);
+    });
+    return completed;
+  }, [
+    allMatchesBase,
+    brackets,
+    liveStore,
+    normalizeBracketTypeKey,
+    orderVersion,
+  ]);
+
+  const getBracketTypeTabLabel = useCallback(
+    (type) => {
+      const label = getTypeLabel(t, type);
+      return completedBracketTypes.get(normalizeBracketTypeKey(type))
+        ? `${label} (đã xong)`
+        : label;
+    },
+    [completedBracketTypes, normalizeBracketTypeKey, t],
+  );
+
   const groupedLists = useMemo(() => {
     void orderVersion;
     const norm = (s) =>
@@ -5427,7 +5489,7 @@ export default function TournamentManagePage() {
               {typesAvailable.map((typeItem) => (
                 <Tab
                   key={typeItem.type}
-                  label={getTypeLabel(t, typeItem.type)}
+                  label={getBracketTypeTabLabel(typeItem.type)}
                   value={typeItem.type}
                 />
               ))}

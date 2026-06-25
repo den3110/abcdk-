@@ -13,6 +13,7 @@ import com.pkt.live.data.model.RecordingStorageStatus
 import com.pkt.live.data.model.RecordingUiState
 import com.pkt.live.data.model.StreamMode
 import com.pkt.live.data.repository.LiveRepository
+import com.pkt.live.data.repository.RetryableRecordingSegmentCompleteException
 import com.pkt.live.streaming.Quality
 import com.pkt.live.streaming.RecordingSegmentClosed
 import kotlinx.coroutines.CancellationException
@@ -21,6 +22,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +41,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.RandomAccessFile
 import java.time.Instant
+import java.util.Collections
 import java.util.Locale
 import java.util.UUID
 import kotlin.math.max
@@ -160,6 +165,11 @@ class MatchRecordingCoordinator(
         private const val OFFLINE_UPLOAD_RECHECK_DELAY_MS = 5_000L
         private const val RECONNECT_UPLOAD_COOLDOWN_MS = 8_000L
         private const val UPLOAD_SEGMENT_SPACING_MS = 2_500L
+        private const val UPLOAD_DRAIN_FAST_SPACING_MS = 350L
+        private const val UPLOAD_DRAIN_HIGH_BACKLOG_THRESHOLD = 15
+        private const val UPLOAD_DRAIN_LIVESTREAM_CONCURRENCY = 1
+        private const val UPLOAD_DRAIN_RECORD_ONLY_CONCURRENCY = 2
+        private const val UPLOAD_DRAIN_IDLE_CONCURRENCY = 4
         private const val MP4_READY_CHECK_TIMEOUT_MS = 8_000L
         private const val MP4_READY_CHECK_INTERVAL_MS = 250L
         private const val MP4_NOT_READY_RETRY_MS = 2_000L
@@ -192,8 +202,7 @@ class MatchRecordingCoordinator(
     private var uploadJob: Job? = null
     private var recordingHeartbeatJob: Job? = null
     private var activeSession: ActiveRecordingSession? = null
-    @Volatile
-    private var activeUploadCall: okhttp3.Call? = null
+    private val activeUploadCalls = Collections.synchronizedSet(mutableSetOf<okhttp3.Call>())
     @Volatile
     private var networkAvailableForUploads: Boolean = true
     @Volatile
@@ -257,6 +266,34 @@ class MatchRecordingCoordinator(
     }
 
     private fun shouldYieldForLiveCriticalPath(): Boolean = liveCriticalPathBusy || recoveryBusy
+
+    private fun isLivestreamRecordingActive(): Boolean {
+        val mode = activeSession?.mode ?: _selectedMode.value
+        return _recordingUiState.value.isRecording && mode?.includesLivestream == true
+    }
+
+    private fun computeUploadDrainConcurrency(pendingUploads: Int): Int {
+        if (pendingUploads < UPLOAD_DRAIN_HIGH_BACKLOG_THRESHOLD) return 1
+        if (shouldYieldForLiveCriticalPath()) return 1
+        if (isLivestreamRecordingActive()) return UPLOAD_DRAIN_LIVESTREAM_CONCURRENCY
+        if (_recordingUiState.value.isRecording) return UPLOAD_DRAIN_RECORD_ONLY_CONCURRENCY
+        return UPLOAD_DRAIN_IDLE_CONCURRENCY
+    }
+
+    private fun computeUploadSpacingMs(pendingUploads: Int): Long {
+        if (
+            pendingUploads >= UPLOAD_DRAIN_HIGH_BACKLOG_THRESHOLD &&
+            !shouldYieldForLiveCriticalPath() &&
+            !isLivestreamRecordingActive()
+        ) {
+            return UPLOAD_DRAIN_FAST_SPACING_MS
+        }
+        return UPLOAD_SEGMENT_SPACING_MS
+    }
+
+    private fun PendingRecordingSegment.requiresSerialUpload(): Boolean {
+        return isProvisional || isProvisionalRecordingId(recordingId)
+    }
 
     fun hasActiveRecording(): Boolean = activeSession != null || recordingUiState.value.isRecording
 
@@ -450,14 +487,24 @@ class MatchRecordingCoordinator(
         updateUiState(errorMessage = null)
     }
 
+    private fun snapshotActiveUploadCalls(): List<okhttp3.Call> =
+        synchronized(activeUploadCalls) {
+            activeUploadCalls.toList()
+        }
+
+    private fun cancelActiveUploadCalls(reason: String) {
+        snapshotActiveUploadCalls().forEach { call ->
+            if (!call.isCanceled()) {
+                Log.i(TAG, "Cancel active recording upload call: $reason")
+                call.cancel()
+            }
+        }
+    }
+
     fun onNetworkLost(reason: String = "network_lost") {
         networkAvailableForUploads = false
         nextUploadAllowedAtMs = 0L
-        val call = activeUploadCall
-        if (call != null && !call.isCanceled()) {
-            Log.i(TAG, "Cancel active recording upload call: $reason")
-            call.cancel()
-        }
+        cancelActiveUploadCalls(reason)
         scope.launch {
             val pendingUploads = manifestMutex.withLock { manifest.pendingSegments.size }
             if (pendingUploads > 0) {
@@ -485,12 +532,7 @@ class MatchRecordingCoordinator(
     ) {
         scope.launch {
             if (forceRestartActiveUpload) {
-                activeUploadCall?.let { call ->
-                    if (!call.isCanceled()) {
-                        Log.i(TAG, "Cancel stale recording upload call before retry: $reason")
-                        call.cancel()
-                    }
-                }
+                cancelActiveUploadCalls("retry:$reason")
                 clearSinglePutPresignCache()
                 clearLiveManifestPresignCache()
                 uploadJob?.takeIf { it.isActive }?.let { job ->
@@ -797,6 +839,66 @@ class MatchRecordingCoordinator(
         }
     }
 
+    private suspend fun selectNextUploadBatch(now: Long): List<PendingRecordingSegment> {
+        return manifestMutex.withLock {
+            val readySegments =
+                manifest.pendingSegments
+                    .filter { it.nextRetryAtMs <= now }
+                    .sortedWith(
+                        compareBy<PendingRecordingSegment> { it.retryCount }
+                            .thenBy { it.segmentIndex }
+                    )
+            if (readySegments.isEmpty()) {
+                return@withLock emptyList()
+            }
+
+            val concurrency = computeUploadDrainConcurrency(manifest.pendingSegments.size)
+            val firstSegment = readySegments.first()
+            if (concurrency <= 1 || firstSegment.requiresSerialUpload()) {
+                return@withLock listOf(firstSegment)
+            }
+
+            val selected = mutableListOf<PendingRecordingSegment>()
+            val selectedRecordingIds = mutableSetOf<String>()
+            for (segment in readySegments) {
+                if (segment.requiresSerialUpload()) continue
+                if (!selectedRecordingIds.add(segment.recordingId)) continue
+                selected += segment
+                if (selected.size >= concurrency) break
+            }
+
+            selected.takeIf { it.isNotEmpty() } ?: listOf(firstSegment)
+        }
+    }
+
+    private suspend fun uploadPendingSegmentBatch(
+        segments: List<PendingRecordingSegment>,
+    ): List<Boolean> {
+        if (segments.size <= 1) {
+            return listOf(uploadPendingSegment(segments.first()))
+        }
+
+        return coroutineScope {
+            segments
+                .map { segment ->
+                    async {
+                        try {
+                            uploadPendingSegment(segment)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            Log.e(
+                                TAG,
+                                "uploadPendingSegment batch worker failed recordingId=${segment.recordingId} segmentIndex=${segment.segmentIndex}",
+                                error,
+                            )
+                            false
+                        }
+                    }
+                }.awaitAll()
+        }
+    }
+
     private fun ensureUploadLoop() {
         if (uploadJob?.isActive == true) return
         val currentJob =
@@ -830,13 +932,9 @@ class MatchRecordingCoordinator(
                         continue
                     }
 
-                    val nextSegment = manifestMutex.withLock {
-                        manifest.pendingSegments
-                            .filter { it.nextRetryAtMs <= now }
-                            .minWithOrNull(compareBy<PendingRecordingSegment> { it.retryCount }.thenBy { it.segmentIndex })
-                    }
+                    val nextSegments = selectNextUploadBatch(now)
 
-                    if (nextSegment == null) {
+                    if (nextSegments.isEmpty()) {
                         val queueState =
                             manifestMutex.withLock {
                                 val readyFinalizations =
@@ -878,13 +976,18 @@ class MatchRecordingCoordinator(
                         continue
                     }
 
-                    val success = uploadPendingSegment(nextSegment)
-                    if (!success) {
+                    val results = uploadPendingSegmentBatch(nextSegments)
+                    val successCount = results.count { it }
+                    if (successCount == 0) {
                         delay(2_000L)
                     } else {
+                        val pendingUploads =
+                            manifestMutex.withLock {
+                                manifest.pendingSegments.size
+                            }
                         nextUploadAllowedAtMs = maxOf(
                             nextUploadAllowedAtMs,
-                            System.currentTimeMillis() + UPLOAD_SEGMENT_SPACING_MS,
+                            System.currentTimeMillis() + computeUploadSpacingMs(pendingUploads),
                         )
                     }
                 }
@@ -943,6 +1046,7 @@ class MatchRecordingCoordinator(
 
     private fun shouldResetMultipartSessionAfterFailure(error: Throwable): Boolean {
         if (error is CancellationException) return false
+        if (error is RetryableRecordingSegmentCompleteException) return false
         if (error is MultipartUploadPartHttpException) return true
         val normalized = error.message?.lowercase().orEmpty()
         return (
@@ -1609,13 +1713,11 @@ class MatchRecordingCoordinator(
 
     private fun executeTrackedUploadCall(request: Request): okhttp3.Response {
         val call = okHttpClient.newCall(request)
-        activeUploadCall = call
+        activeUploadCalls.add(call)
         return try {
             call.execute()
         } finally {
-            if (activeUploadCall === call) {
-                activeUploadCall = null
-            }
+            activeUploadCalls.remove(call)
         }
     }
 
@@ -2159,8 +2261,16 @@ class MatchRecordingCoordinator(
             return try {
                 uploadPendingSegmentSinglePut(pendingSegment, file)
             } catch (error: Exception) {
-                Log.e(TAG, "uploadPendingSegmentSinglePut failed", error)
-                clearSinglePutPresignCache(pendingSegment.recordingId)
+                val retryableComplete = error is RetryableRecordingSegmentCompleteException
+                if (retryableComplete) {
+                    Log.i(
+                        TAG,
+                        "Single put segment completion is retryable recordingId=${pendingSegment.recordingId} segmentIndex=${pendingSegment.segmentIndex}: ${error.message}",
+                    )
+                } else {
+                    Log.e(TAG, "uploadPendingSegmentSinglePut failed", error)
+                    clearSinglePutPresignCache(pendingSegment.recordingId)
+                }
                 manifestMutex.withLock {
                     val delayMs = computeRetryDelayMs(pendingSegment.retryCount + 1)
                     manifest = manifest.copy(
@@ -2178,7 +2288,10 @@ class MatchRecordingCoordinator(
                     )
                     persistManifestLocked()
                 }
-                updateUiState(errorMessage = error.message, status = "uploading")
+                updateUiState(
+                    errorMessage = if (retryableComplete) null else error.message,
+                    status = "uploading",
+                )
                 false
             }
         }
@@ -2186,7 +2299,15 @@ class MatchRecordingCoordinator(
         return try {
             uploadPendingSegmentMultipart(pendingSegment, file)
         } catch (error: Exception) {
-            Log.e(TAG, "uploadPendingSegment failed", error)
+            val retryableComplete = error is RetryableRecordingSegmentCompleteException
+            if (retryableComplete) {
+                Log.i(
+                    TAG,
+                    "Multipart segment completion is retryable recordingId=${pendingSegment.recordingId} segmentIndex=${pendingSegment.segmentIndex}: ${error.message}",
+                )
+            } else {
+                Log.e(TAG, "uploadPendingSegment failed", error)
+            }
             val delayMs = computeRetryDelayMs(pendingSegment.retryCount + 1)
             val nextRetryAtMs = System.currentTimeMillis() + delayMs
             if (shouldResetMultipartSessionAfterFailure(error)) {
@@ -2217,7 +2338,10 @@ class MatchRecordingCoordinator(
                     persistManifestLocked()
                 }
             }
-            updateUiState(errorMessage = error.message, status = "uploading")
+            updateUiState(
+                errorMessage = if (retryableComplete) null else error.message,
+                status = "uploading",
+            )
             false
         }
     }

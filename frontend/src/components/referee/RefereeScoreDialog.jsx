@@ -7,6 +7,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -14,6 +15,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
   MenuItem,
@@ -72,6 +74,8 @@ const SCORE_RENDER_GUARD_MS = 2500;
 const SERVER_UID_PIN_MS = 1800;
 const UNDO_TAP_GUARD_MS = 220;
 const SEED_PLACEHOLDER_GRACE_MS = 260;
+const SKIP_UNASSIGNED_COURT_START_CONFIRM_KEY =
+  "pickletour.referee.skipUnassignedCourtStartConfirm";
 const SEED_REFERENCE_TYPES = new Set([
   "grouprank",
   "stagematchwinner",
@@ -81,6 +85,27 @@ const SEED_REFERENCE_TYPES = new Set([
 ]);
 
 const textOf = (value) => (value && String(value).trim()) || "";
+const readSkipUnassignedCourtStartConfirm = () => {
+  try {
+    if (typeof window === "undefined") return false;
+    const value = window.localStorage.getItem(
+      SKIP_UNASSIGNED_COURT_START_CONFIRM_KEY,
+    );
+    return value === "1" || value === "true";
+  } catch {
+    return false;
+  }
+};
+
+const saveSkipUnassignedCourtStartConfirm = () => {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SKIP_UNASSIGNED_COURT_START_CONFIRM_KEY, "1");
+  } catch {
+    // Ignore storage failures; the confirm still works for this session.
+  }
+};
+
 const normalizeServeOverride = (serve) => {
   if (!serve) return null;
   return {
@@ -1405,11 +1430,29 @@ export default function RefereeScoreDialog({
   const [courtDialogOpen, setCourtDialogOpen] = useState(false);
   const [drawDialogOpen, setDrawDialogOpen] = useState(false);
   const [drawPreview, setDrawPreview] = useState(null);
+  const [unassignedCourtConfirmOpen, setUnassignedCourtConfirmOpen] = useState(false);
+  const [skipUnassignedCourtStartConfirm, setSkipUnassignedCourtStartConfirm] =
+    useState(readSkipUnassignedCourtStartConfirm);
+  const [dontShowUnassignedCourtConfirm, setDontShowUnassignedCourtConfirm] =
+    useState(false);
   const [toast, setToast] = useState({
     open: false,
     message: "",
     severity: "info",
   });
+
+  useEffect(() => {
+    if (!open) {
+      setUnassignedCourtConfirmOpen(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!unassignedCourtConfirmOpen) {
+      setDontShowUnassignedCourtConfirm(false);
+    }
+  }, [unassignedCourtConfirmOpen]);
+
   const playerOrderBaseSource = localBaseOverride || localBaseRef.current || serverBaseSource || {};
   const waitingInitialLiveSnapshot =
     open && Boolean(matchId) && !data && !error;
@@ -1444,8 +1487,23 @@ export default function RefereeScoreDialog({
   const currentCourtStationId = idOf(
     match?.courtStationId || match?.courtStation?._id || match?.courtStation,
   );
-  const currentCourtId = textOf(match?.court?._id || match?.courtId || currentCourtStationId);
+  const currentCourtId = idOf(
+    match?.court?._id || match?.courtId || match?.court || currentCourtStationId,
+  );
   const currentCourtLabel = courtLabelOf(match || {});
+  const assignedCourtIdentity = textOf(
+    currentCourtId ||
+      getMatchCourtStationName(match) ||
+      match?.courtStationName ||
+      match?.courtStationLabel ||
+      match?.courtLabel ||
+      match?.court?.name ||
+      match?.court?.label,
+  );
+  const hasAssignedCourt = Boolean(
+    assignedCourtIdentity &&
+      !/^(chưa gán sân|chua gan san|unassigned)$/i.test(assignedCourtIdentity),
+  );
   const isInteractionLocked = Boolean(match?._id) && featureEnabled && !isOwner;
 
   const {
@@ -2403,7 +2461,7 @@ export default function RefereeScoreDialog({
     runProtectedBusy,
   ]);
 
-  const handleStart = useCallback(async () => {
+  const startMatchNow = useCallback(async () => {
     if (!ensureInteractionAllowed()) return;
     await runProtectedBusy("start", async () => {
       if (isDouble && Number(currentScore.a) === 0 && Number(currentScore.b) === 0) {
@@ -2463,6 +2521,38 @@ export default function RefereeScoreDialog({
     runProtectedBusy,
     serverUidShow,
   ]);
+
+  const handleStart = useCallback(async () => {
+    if (!ensureInteractionAllowed()) return;
+    if (!hasAssignedCourt && !skipUnassignedCourtStartConfirm) {
+      setUnassignedCourtConfirmOpen(true);
+      return;
+    }
+    await startMatchNow();
+  }, [
+    ensureInteractionAllowed,
+    hasAssignedCourt,
+    skipUnassignedCourtStartConfirm,
+    startMatchNow,
+  ]);
+
+  const persistUnassignedCourtConfirmPreference = useCallback(() => {
+    if (!dontShowUnassignedCourtConfirm) return;
+    saveSkipUnassignedCourtStartConfirm();
+    setSkipUnassignedCourtStartConfirm(true);
+  }, [dontShowUnassignedCourtConfirm]);
+
+  const confirmStartWithoutCourt = useCallback(async () => {
+    persistUnassignedCourtConfirmPreference();
+    setUnassignedCourtConfirmOpen(false);
+    await startMatchNow();
+  }, [persistUnassignedCourtConfirmPreference, startMatchNow]);
+
+  const cancelStartWithoutCourt = useCallback(() => {
+    persistUnassignedCourtConfirmPreference();
+    setUnassignedCourtConfirmOpen(false);
+    onClose?.();
+  }, [onClose, persistUnassignedCourtConfirmPreference]);
 
   const handleForfeitSide = useCallback(
     (forfeitedSide) => {
@@ -3827,6 +3917,75 @@ export default function RefereeScoreDialog({
             </Stack>
           </Stack>
         </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={unassignedCourtConfirmOpen}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            background: ui.paper,
+            color: ui.text,
+            border: "1px solid",
+            borderColor: ui.border,
+            boxShadow: "0 24px 80px rgba(0,0,0,0.42)",
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography sx={{ fontSize: 20, fontWeight: 900 }} noWrap>
+            Trận chưa được gán sân
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers sx={{ borderColor: ui.border }}>
+          <Stack spacing={1.5}>
+            <Typography sx={{ color: ui.muted, fontWeight: 700 }}>
+              Trận này chưa được gán sân, bạn có muốn tiếp tục không?
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={dontShowUnassignedCourtConfirm}
+                  onChange={(event) =>
+                    setDontShowUnassignedCourtConfirm(event.target.checked)
+                  }
+                  disabled={Boolean(busy)}
+                  sx={{ color: ui.muted }}
+                />
+              }
+              label="Không hiển thị lại lần sau"
+              sx={{
+                m: 0,
+                color: ui.text,
+                "& .MuiFormControlLabel-label": {
+                  fontWeight: 700,
+                  fontSize: 14,
+                },
+              }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            variant="outlined"
+            color="inherit"
+            onClick={cancelStartWithoutCourt}
+            disabled={Boolean(busy)}
+            sx={{ borderRadius: 999, fontWeight: 800 }}
+          >
+            Không
+          </Button>
+          <Button
+            variant="contained"
+            onClick={confirmStartWithoutCourt}
+            disabled={Boolean(busy)}
+            sx={{ borderRadius: 999, fontWeight: 900 }}
+          >
+            Có
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog
