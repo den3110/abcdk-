@@ -28,7 +28,27 @@ function layerPosition(layer) {
   };
 }
 
-function layerBaseStyle(layer, canvas, mode, selected) {
+function layerConditionMatches(layer, values, mode) {
+  if (layer?.visible === false) return false;
+  if (mode === "editor") return true;
+
+  const condition = layer?.visibleWhen;
+  if (!condition?.binding) return true;
+
+  const actual =
+    values?.[condition.binding] ??
+    (condition.binding === "serve.side" ? "A" : undefined);
+  const expected = condition.equals ?? condition.value;
+  if (expected === undefined || expected === null) return true;
+
+  const normalizedActual = String(actual ?? "").trim().toUpperCase();
+  const expectedValues = Array.isArray(expected) ? expected : [expected];
+  return expectedValues.some(
+    (item) => String(item ?? "").trim().toUpperCase() === normalizedActual,
+  );
+}
+
+function layerBaseStyle(layer, canvas, mode, selected, values) {
   const style = layer?.style || {};
   const background =
     layer?.type === "rect" ? style.background || "rgba(0,0,0,.7)" : style.background;
@@ -40,7 +60,7 @@ function layerBaseStyle(layer, canvas, mode, selected) {
     transform: `rotate(${clampNumber(layer?.rotation, 0)}deg)`,
     transformOrigin: "center center",
     zIndex: clampNumber(layer?.zIndex, 0),
-    display: layer?.visible === false ? "none" : "flex",
+    display: layerConditionMatches(layer, values, mode) ? "flex" : "none",
     alignItems: "center",
     justifyContent:
       style.textAlign === "right"
@@ -81,10 +101,49 @@ function renderLayer(layer, canvas, values, mode, editorProps = {}) {
   const layerKey = layer?.id;
   const common = {
     "data-layer-id": layer?.id,
-    style: layerBaseStyle(layer, canvas, mode, selected),
+    style: layerBaseStyle(layer, canvas, mode, selected, values),
     onPointerDown: (event) => editorProps.onLayerPointerDown?.(event, layer),
     onClick: (event) => editorProps.onLayerClick?.(event, layer),
   };
+
+  if (layer?.type === "serveIndicator") {
+    const count = Math.max(
+      1,
+      Math.min(2, Math.round(clampNumber(values?.["serve.count"], layer?.count || 1))),
+    );
+    const dotColor = layer?.style?.color || "#22c55e";
+
+    return (
+      <div key={layerKey} {...common} aria-label={layer?.label || "serve indicator"}>
+        <span
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: count > 1 ? "12%" : 0,
+            pointerEvents: "none",
+          }}
+        >
+          {Array.from({ length: count }).map((_, index) => (
+            <span
+              key={index}
+              style={{
+                height: "72%",
+                maxWidth: count > 1 ? "38%" : "72%",
+                aspectRatio: "1 / 1",
+                borderRadius: 999,
+                background: dotColor,
+                boxShadow: "0 0 0 1px rgba(255,255,255,.35)",
+                display: "block",
+              }}
+            />
+          ))}
+        </span>
+      </div>
+    );
+  }
 
   if (layer?.type === "rect") {
     return <div key={layerKey} {...common} aria-label={layer?.label || "shape"} />;

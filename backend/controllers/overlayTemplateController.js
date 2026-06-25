@@ -31,6 +31,7 @@ const SAFE_BINDINGS = new Set([
   "sets.teamB",
   "sets.summary",
   "serve.side",
+  "serve.count",
 ]);
 
 const COLOR_RE =
@@ -68,6 +69,14 @@ const cleanUrl = (value) => {
 const cleanBinding = (value) => {
   const key = cleanString(value, 80).trim();
   return SAFE_BINDINGS.has(key) ? key : "static";
+};
+
+const cleanVisibleWhen = (value) => {
+  if (!value || typeof value !== "object") return null;
+  const binding = cleanBinding(value.binding);
+  const equals = cleanString(value.equals ?? value.value, 40).trim();
+  if (binding === "static" || !equals) return null;
+  return { binding, equals };
 };
 
 const uid = (prefix) =>
@@ -134,6 +143,41 @@ const rectLayer = ({
   zIndex,
   style: { background, borderColor, borderWidth, borderRadius },
 });
+
+const serveIndicatorLayer = ({
+  id,
+  label,
+  side = "A",
+  x,
+  y,
+  width = 30,
+  height = 30,
+  color = "#22c55e",
+  zIndex = 30,
+}) => {
+  const normalizedSide = String(side).toUpperCase() === "B" ? "B" : "A";
+  return {
+    id,
+    type: "serveIndicator",
+    label,
+    binding: "serve.side",
+    text: "",
+    x,
+    y,
+    width,
+    height,
+    zIndex,
+    visible: true,
+    visibleWhen: { binding: "serve.side", equals: normalizedSide },
+    style: {
+      color,
+      background: "transparent",
+      borderColor: "transparent",
+      borderWidth: 0,
+      borderRadius: 999,
+    },
+  };
+};
 
 const systemTemplate = (key, name, description, layers) => ({
   id: key,
@@ -231,6 +275,24 @@ const SYSTEM_TEMPLATES = [
       textAlign: "center",
       zIndex: 4,
     }),
+    serveIndicatorLayer({
+      id: "serve_a",
+      label: "Bóng giao A",
+      side: "A",
+      x: 558,
+      y: 138,
+      width: 26,
+      height: 26,
+    }),
+    serveIndicatorLayer({
+      id: "serve_b",
+      label: "Bóng giao B",
+      side: "B",
+      x: 558,
+      y: 204,
+      width: 26,
+      height: 26,
+    }),
     textLayer({
       id: "round",
       label: "Vòng đấu",
@@ -308,6 +370,24 @@ const SYSTEM_TEMPLATES = [
       height: 56,
       fontSize: 40,
       fontWeight: 800,
+    }),
+    serveIndicatorLayer({
+      id: "serve_a",
+      label: "Bóng giao A",
+      side: "A",
+      x: 842,
+      y: 898,
+      width: 28,
+      height: 28,
+    }),
+    serveIndicatorLayer({
+      id: "serve_b",
+      label: "Bóng giao B",
+      side: "B",
+      x: 1054,
+      y: 898,
+      width: 28,
+      height: 28,
     }),
     textLayer({
       id: "meta",
@@ -420,6 +500,26 @@ const SYSTEM_TEMPLATES = [
       textAlign: "center",
       zIndex: 3,
     }),
+    serveIndicatorLayer({
+      id: "serve_a",
+      label: "Bóng giao A",
+      side: "A",
+      x: 608,
+      y: 864,
+      width: 26,
+      height: 26,
+      color: "#16a34a",
+    }),
+    serveIndicatorLayer({
+      id: "serve_b",
+      label: "Bóng giao B",
+      side: "B",
+      x: 608,
+      y: 922,
+      width: 26,
+      height: 26,
+      color: "#16a34a",
+    }),
   ]),
   systemTemplate("vertical-live", "Dọc cho live mobile", "Bố cục dọc gọn cho khung quay đứng.", [
     rectLayer({
@@ -499,6 +599,24 @@ const SYSTEM_TEMPLATES = [
       textAlign: "center",
       color: "#93c5fd",
     }),
+    serveIndicatorLayer({
+      id: "serve_a",
+      label: "Bóng giao A",
+      side: "A",
+      x: 448,
+      y: 267,
+      width: 28,
+      height: 28,
+    }),
+    serveIndicatorLayer({
+      id: "serve_b",
+      label: "Bóng giao B",
+      side: "B",
+      x: 448,
+      y: 477,
+      width: 28,
+      height: 28,
+    }),
   ]),
 ];
 
@@ -552,7 +670,9 @@ const normalizeStyle = (style = {}) => ({
 });
 
 const normalizeLayer = (layer = {}, index = 0) => {
-  const type = ["text", "rect", "image"].includes(layer.type) ? layer.type : "text";
+  const type = ["text", "rect", "image", "serveIndicator"].includes(layer.type)
+    ? layer.type
+    : "text";
   const normalized = {
     id: cleanString(layer.id, 80).trim() || uid(type),
     type,
@@ -572,9 +692,17 @@ const normalizeLayer = (layer = {}, index = 0) => {
     style: normalizeStyle(layer.style || {}),
   };
 
+  const visibleWhen = cleanVisibleWhen(layer.visibleWhen);
+  if (visibleWhen) normalized.visibleWhen = visibleWhen;
+
   if (type === "rect") {
     normalized.binding = "static";
     normalized.text = "";
+  }
+  if (type === "serveIndicator") {
+    normalized.binding = "serve.side";
+    normalized.text = "";
+    normalized.src = "";
   }
   return normalized;
 };
@@ -596,7 +724,7 @@ const extractBindings = (document) =>
   Array.from(
     new Set(
       (document?.layers || [])
-        .map((layer) => layer.binding)
+        .flatMap((layer) => [layer.binding, layer.visibleWhen?.binding])
         .filter((binding) => binding && binding !== "static")
     )
   );

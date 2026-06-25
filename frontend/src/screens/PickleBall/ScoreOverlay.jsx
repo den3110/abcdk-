@@ -2073,6 +2073,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       .filter(Boolean)
       .join(", "),
     "serve.side": serveSide,
+    "serve.count": serveCount,
   };
 
   // ✅ GIAO DIỆN BREAK

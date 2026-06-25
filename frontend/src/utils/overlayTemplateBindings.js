@@ -17,6 +17,7 @@ export const overlayTemplateBindingLabels = {
   "sets.teamB": "Set thắng B",
   "sets.summary": "Tóm tắt set",
   "serve.side": "Đội giao bóng",
+  "serve.count": "Số bóng giao",
 };
 
 export const overlayTemplateBindingOptions = Object.entries(

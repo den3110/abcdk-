@@ -78,6 +78,41 @@ const rectLayer = ({
   },
 });
 
+const serveIndicatorLayer = ({
+  id,
+  label,
+  side = "A",
+  x,
+  y,
+  width = 30,
+  height = 30,
+  color = "#22c55e",
+  zIndex = 30,
+}) => {
+  const normalizedSide = String(side).toUpperCase() === "B" ? "B" : "A";
+  return {
+    id,
+    type: "serveIndicator",
+    label,
+    binding: "serve.side",
+    text: "",
+    x,
+    y,
+    width,
+    height,
+    zIndex,
+    visible: true,
+    visibleWhen: { binding: "serve.side", equals: normalizedSide },
+    style: {
+      color,
+      background: "transparent",
+      borderColor: "transparent",
+      borderWidth: 0,
+      borderRadius: 999,
+    },
+  };
+};
+
 export const overlaySystemTemplates = [
   {
     id: "local-corner-pro",
@@ -174,6 +209,24 @@ export const overlaySystemTemplates = [
           textAlign: "center",
           zIndex: 4,
         }),
+        serveIndicatorLayer({
+          id: "serve_a",
+          label: "Bóng giao A",
+          side: "A",
+          x: 678,
+          y: 138,
+          width: 26,
+          height: 26,
+        }),
+        serveIndicatorLayer({
+          id: "serve_b",
+          label: "Bóng giao B",
+          side: "B",
+          x: 678,
+          y: 204,
+          width: 26,
+          height: 26,
+        }),
         textLayer({
           id: "round",
           label: "Vòng đấu",
@@ -258,6 +311,24 @@ export const overlaySystemTemplates = [
           y: 884,
           width: 420,
           height: 56,
+        }),
+        serveIndicatorLayer({
+          id: "serve_a",
+          label: "Bóng giao A",
+          side: "A",
+          x: 842,
+          y: 898,
+          width: 28,
+          height: 28,
+        }),
+        serveIndicatorLayer({
+          id: "serve_b",
+          label: "Bóng giao B",
+          side: "B",
+          x: 1054,
+          y: 898,
+          width: 28,
+          height: 28,
         }),
         textLayer({
           id: "meta",
@@ -362,6 +433,24 @@ export const overlaySystemTemplates = [
           fontWeight: 900,
           color: "#93c5fd",
           textAlign: "center",
+        }),
+        serveIndicatorLayer({
+          id: "serve_a",
+          label: "Bóng giao A",
+          side: "A",
+          x: 448,
+          y: 267,
+          width: 28,
+          height: 28,
+        }),
+        serveIndicatorLayer({
+          id: "serve_b",
+          label: "Bóng giao B",
+          side: "B",
+          x: 448,
+          y: 477,
+          width: 28,
+          height: 28,
         }),
       ],
     },

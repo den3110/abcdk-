@@ -173,6 +173,7 @@ const previewValues = {
   "sets.teamB": "0",
   "sets.summary": "11-7, 8-6",
   "serve.side": "A",
+  "serve.count": 1,
 };
 
 const numberOr = (value, fallback) => {
@@ -335,6 +336,7 @@ const cloneDocument = (document) => ({
     ? document.layers.map((layer) => ({
         ...layer,
         style: { ...(layer.style || {}) },
+        visibleWhen: layer.visibleWhen ? { ...layer.visibleWhen } : undefined,
       }))
     : [],
 });
@@ -461,11 +463,37 @@ function makeImageLayer() {
   };
 }
 
+function makeServeIndicatorLayer(side = "A") {
+  const normalizedSide = String(side).toUpperCase() === "B" ? "B" : "A";
+  return {
+    id: makeLayerId(`serve_${normalizedSide.toLowerCase()}`),
+    type: "serveIndicator",
+    label: `Bóng giao ${normalizedSide}`,
+    binding: "serve.side",
+    text: "",
+    x: normalizedSide === "A" ? 650 : 650,
+    y: normalizedSide === "A" ? 140 : 204,
+    width: 30,
+    height: 30,
+    zIndex: 30,
+    visible: true,
+    visibleWhen: { binding: "serve.side", equals: normalizedSide },
+    style: {
+      color: "#22c55e",
+      background: "transparent",
+      borderColor: "transparent",
+      borderWidth: 0,
+      borderRadius: 999,
+    },
+  };
+}
+
 function getLayer(document, selectedLayerId) {
   return (document?.layers || []).find((layer) => layer.id === selectedLayerId);
 }
 
 function layerTypeLabel(layer) {
+  if (layer?.type === "serveIndicator") return "Bóng giao";
   if (layer?.type === "image") return "Ảnh";
   if (layer?.type !== "rect") return "Text";
   const label = String(layer?.label || "").toLowerCase();
@@ -604,6 +632,17 @@ export default function OverlayStudioPage() {
   };
 
   const addLayer = (kind) => {
+    if (kind === "serve") {
+      const layers = [makeServeIndicatorLayer("A"), makeServeIndicatorLayer("B")];
+      patchDocument((draft) => ({
+        ...draft,
+        layers: [...draft.layers, ...layers],
+      }));
+      setSelectedLayerIds(layers.map((layer) => layer.id));
+      setSelectedLayerId(layers[layers.length - 1]?.id || "");
+      return;
+    }
+
     const layer =
       kind === "rect"
         ? makeRectLayer()
@@ -631,6 +670,7 @@ export default function OverlayStudioPage() {
       y: numberOr(layer.y, 0) + 32,
       zIndex: numberOr(layer.zIndex, 0) + 1,
       style: { ...(layer.style || {}) },
+      visibleWhen: layer.visibleWhen ? { ...layer.visibleWhen } : undefined,
     }));
     patchDocument((draft) => ({ ...draft, layers: [...draft.layers, ...copies] }));
     setSelectedLayerIds(copies.map((layer) => layer.id));
@@ -647,30 +687,20 @@ export default function OverlayStudioPage() {
     setSingleSelection("");
   };
 
-  const handleLayerPointerDown = (event, layer) => {
-    if (!layer || layer.locked) return;
+  const startGroupDrag = (event, dragLayerIds) => {
+    const dragIds = Array.from(new Set(dragLayerIds || []));
+    if (!dragIds.length) return;
+
     event.preventDefault();
     event.stopPropagation();
-
-    if (event.shiftKey || event.ctrlKey || event.metaKey) {
-      toggleLayerSelection(layer.id);
-      return;
-    }
 
     const rect = canvasWrapRef.current?.getBoundingClientRect();
     if (!rect?.width || !rect?.height) return;
 
-    const dragLayerIds = selectedLayerIds.includes(layer.id)
-      ? selectedLayerIds
-      : [layer.id];
-    const dragIdSet = new Set(dragLayerIds);
-    if (!selectedLayerIds.includes(layer.id)) {
-      setSingleSelection(layer.id);
-    } else {
-      setSelectedLayerId(layer.id);
-    }
-
-    const dragLayers = document.layers.filter((item) => dragIdSet.has(item.id));
+    const dragIdSet = new Set(dragIds);
+    const dragLayers = document.layers.filter(
+      (item) => dragIdSet.has(item.id) && !item.locked,
+    );
     const groupBounds = getSelectionBounds(dragLayers);
     if (!groupBounds) return;
 
@@ -683,7 +713,11 @@ export default function OverlayStudioPage() {
     const scaleY = canvas.height / rect.height;
     const thresholdX = SNAP_THRESHOLD_PX * scaleX;
     const thresholdY = SNAP_THRESHOLD_PX * scaleY;
-    const snapTargets = makeSnapTargets(document.layers, dragLayerIds, canvas);
+    const snapTargets = makeSnapTargets(
+      document.layers,
+      dragLayers.map((item) => item.id),
+      canvas,
+    );
 
     const move = (moveEvent) => {
       const nextX = Math.round(
@@ -728,6 +762,33 @@ export default function OverlayStudioPage() {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
+  };
+
+  const handleLayerPointerDown = (event, layer) => {
+    if (!layer || layer.locked) return;
+
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleLayerSelection(layer.id);
+      return;
+    }
+
+    const dragLayerIds = selectedLayerIds.includes(layer.id)
+      ? selectedLayerIds
+      : [layer.id];
+    if (!selectedLayerIds.includes(layer.id)) {
+      setSingleSelection(layer.id);
+    } else {
+      setSelectedLayerId(layer.id);
+    }
+
+    startGroupDrag(event, dragLayerIds);
+  };
+
+  const handleSelectionMovePointerDown = (event) => {
+    if (!selectedLayerIds.length) return;
+    startGroupDrag(event, selectedLayerIds);
   };
 
   const handleSelectionResizePointerDown = (event, handle) => {
@@ -822,6 +883,16 @@ export default function OverlayStudioPage() {
   const livePreviewUrl = matchId
     ? `/overlay/score?matchId=${encodeURIComponent(matchId)}`
     : "";
+  const selectedLayerIsText =
+    selectedLayer &&
+    selectedLayer.type !== "rect" &&
+    selectedLayer.type !== "image" &&
+    selectedLayer.type !== "serveIndicator";
+  const selectedLayerUsesColor =
+    selectedLayer &&
+    selectedLayer.type !== "rect" &&
+    selectedLayer.type !== "image";
+  const hasGroupSelection = selectedLayerIds.length > 1;
 
   return (
     <Box sx={editorRootSx}>
@@ -1112,6 +1183,14 @@ export default function OverlayStudioPage() {
                   >
                     Ảnh
                   </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addLayer("serve")}
+                  >
+                    Bóng giao
+                  </Button>
                 </Stack>
               </Stack>
             </Box>
@@ -1175,6 +1254,10 @@ export default function OverlayStudioPage() {
                 )}
                 {selectedBounds ? (
                   <Box
+                    data-selection-bounds=""
+                    onPointerDown={
+                      hasGroupSelection ? handleSelectionMovePointerDown : undefined
+                    }
                     sx={{
                       position: "absolute",
                       left: `${(selectedBounds.x / canvas.width) * 100}%`,
@@ -1183,8 +1266,12 @@ export default function OverlayStudioPage() {
                       height: `${(selectedBounds.height / canvas.height) * 100}%`,
                       border: "1px solid #38bdf8",
                       boxShadow: "0 0 0 1px rgba(56,189,248,0.22)",
-                      pointerEvents: "none",
+                      cursor: hasGroupSelection ? "move" : "default",
+                      pointerEvents: hasGroupSelection ? "auto" : "none",
                       zIndex: 38,
+                      bgcolor: hasGroupSelection
+                        ? "rgba(56,189,248,0.035)"
+                        : "transparent",
                     }}
                   >
                     {RESIZE_HANDLES.map((handle) => (
@@ -1337,7 +1424,7 @@ export default function OverlayStudioPage() {
                     }
                     fullWidth
                   />
-                  {selectedLayer.type !== "rect" && selectedLayer.type !== "image" ? (
+                  {selectedLayerIsText ? (
                     <TextField
                       select
                       size="small"
@@ -1355,7 +1442,7 @@ export default function OverlayStudioPage() {
                       ))}
                     </TextField>
                   ) : null}
-                  {selectedLayer.type !== "rect" && selectedLayer.type !== "image" ? (
+                  {selectedLayerIsText ? (
                     <TextField
                       size="small"
                       label="Text dự phòng"
@@ -1391,7 +1478,7 @@ export default function OverlayStudioPage() {
                       />
                     ))}
                   </Box>
-                  {selectedLayer.type !== "rect" && selectedLayer.type !== "image" ? (
+                  {selectedLayerIsText ? (
                     <Box sx={fieldGridSx}>
                       <TextField
                         size="small"
@@ -1419,12 +1506,12 @@ export default function OverlayStudioPage() {
                   ) : null}
                   <TextField
                     size="small"
-                    label="Màu chữ"
+                    label={selectedLayer.type === "serveIndicator" ? "Màu bóng" : "Màu chữ"}
                     value={selectedLayer.style?.color || "#ffffff"}
                     onChange={(event) =>
                       patchSelectedLayer({ style: { color: event.target.value } })
                     }
-                    disabled={selectedLayer.type === "rect" || selectedLayer.type === "image"}
+                    disabled={!selectedLayerUsesColor}
                     fullWidth
                   />
                   <TextField
@@ -1483,7 +1570,7 @@ export default function OverlayStudioPage() {
                         style: { textAlign: event.target.value },
                       })
                     }
-                    disabled={selectedLayer.type === "rect" || selectedLayer.type === "image"}
+                    disabled={!selectedLayerIsText}
                     fullWidth
                   >
                     <MenuItem value="left">Trái</MenuItem>
