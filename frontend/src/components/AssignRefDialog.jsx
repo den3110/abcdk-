@@ -4,7 +4,7 @@ import {
   Button,
   Box,
   CircularProgress,
-  Grid,
+  Paper,
   Card,
   CardHeader,
   CardContent,
@@ -31,6 +31,7 @@ import {
   DoneAll as DoneAllIcon,
   ClearAll as ClearAllIcon,
   Send as SendIcon,
+  Refresh as RefreshIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -205,6 +206,9 @@ function AssignRefDialog({
     () => (Array.isArray(assignedForSingle) ? assignedForSingle.length : 0),
     [assignedForSingle],
   );
+  const isBusy = isLoading || isFetching || assignedLoading || assignedFetching;
+  const hasReferees = (referees?.length || 0) > 0;
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   return (
     <ResponsiveModal
@@ -213,131 +217,236 @@ function AssignRefDialog({
       maxWidth="md"
       icon={<RefereeIcon fontSize="small" />}
       title={
-        <Stack
-          direction="row"
-          alignItems="center"
-          spacing={1}
-          sx={{ minWidth: 0 }}
-        >
-          <span>Gán trọng tài — {titleSuffix}</span>
+        <Box sx={{ minWidth: 0, width: "100%" }}>
           <Stack
-            direction="row"
+            direction={{ xs: "column", sm: "row" }}
+            alignItems={{ xs: "flex-start", sm: "center" }}
+            justifyContent="space-between"
             spacing={1}
-            ml="auto"
-            alignItems="center"
-            flexWrap="wrap"
+            sx={{ minWidth: 0 }}
           >
-            {singleMatchId && (
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6" fontWeight={800} noWrap={!isMobile}>
+                Gán trọng tài
+              </Typography>
+              <Typography variant="body2" color="text.secondary" noWrap>
+                {titleSuffix}
+              </Typography>
+            </Box>
+            <Stack
+              direction="row"
+              spacing={0.75}
+              useFlexGap
+              flexWrap="wrap"
+              sx={{ justifyContent: { xs: "flex-start", sm: "flex-end" } }}
+            >
+              {singleMatchId && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Đã gán: ${assignedCount}`}
+                />
+              )}
               <Chip
                 size="small"
-                variant="outlined"
-                label={`Đã gán: ${assignedCount}`}
-              />
-            )}
-            <Chip
-              size="small"
-              label={`Đang chọn: ${selected.length}`}
-              variant="outlined"
-            />
-            {(isLoading ||
-              isFetching ||
-              assignedLoading ||
-              assignedFetching) && (
-              <Chip
-                size="small"
-                label="Đang tải…"
-                icon={<CircularProgress size={12} />}
+                label={`Đang chọn: ${selected.length}`}
                 variant="outlined"
               />
-            )}
+              {isBusy && (
+                <Chip
+                  size="small"
+                  label="Đang tải..."
+                  icon={<CircularProgress size={12} />}
+                  variant="outlined"
+                />
+              )}
+            </Stack>
           </Stack>
-        </Stack>
+        </Box>
       }
+      paperSx={{
+        borderRadius: { xs: "18px 18px 0 0", md: 3 },
+        overflow: "hidden",
+      }}
+      headerProps={{
+        sx: {
+          px: { xs: 2, sm: 3 },
+          py: { xs: 1.5, sm: 2 },
+          bgcolor: "background.paper",
+          borderBottom: 1,
+          borderColor: "divider",
+          position: { xs: "sticky", md: "static" },
+          top: 0,
+          zIndex: 2,
+        },
+      }}
+      contentProps={{
+        sx: {
+          p: 0,
+          bgcolor:
+            theme.palette.mode === "dark"
+              ? "rgba(255,255,255,0.03)"
+              : "grey.50",
+          overflow: "auto",
+          flex: 1,
+          minHeight: 0,
+        },
+      }}
+      actionsProps={{
+        sx: {
+          px: { xs: 2, sm: 3 },
+          py: { xs: 1.5, sm: 2 },
+          borderTop: 1,
+          borderColor: "divider",
+          bgcolor: "background.paper",
+          position: { xs: "sticky", md: "static" },
+          bottom: 0,
+          zIndex: 2,
+        },
+      }}
       actions={
-        <>
-          <Button onClick={onClose}>Đóng</Button>
+        <Stack
+          direction={{ xs: "column-reverse", sm: "row" }}
+          spacing={1}
+          sx={{ width: "100%", justifyContent: "flex-end" }}
+        >
+          <Button onClick={onClose} fullWidth={isMobile}>
+            Đóng
+          </Button>
           <Button
             onClick={handleSubmit}
             variant="contained"
             startIcon={<SendIcon />}
             disabled={!canSubmit || assigning}
+            fullWidth={isMobile}
           >
-            {assigning ? "Đang lưu…" : "Lưu"}
+            {assigning ? "Đang lưu..." : "Lưu"}
           </Button>
-        </>
+        </Stack>
       }
       dialogProps={{}}
       drawerProps={{}}
     >
       {!open ? null : (
-        <Grid container spacing={2}>
-          {/* Tìm kiếm + hành động nhanh */}
-          <Grid item size={12}>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-              <TextField
-                fullWidth
-                placeholder="Nhập tên/nickname/email để tìm…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PersonSearchIcon />
-                    </InputAdornment>
-                  ),
-                }}
-              />
+        <Box sx={{ p: { xs: 2, sm: 3 } }}>
+          <Stack spacing={2}>
+            <Paper
+              variant="outlined"
+              sx={{
+                p: { xs: 1.25, sm: 1.5 },
+                borderRadius: 2,
+                bgcolor: "background.paper",
+              }}
+            >
               <Stack
-                direction="row"
-                spacing={1}
-                justifyContent="flex-end"
-                flexWrap="wrap"
+                direction={{ xs: "column", md: "row" }}
+                spacing={1.25}
+                alignItems={{ xs: "stretch", md: "center" }}
               >
-                <Tooltip title="Chọn tất cả trong trang">
-                  <span>
-                    <Button
-                      onClick={selectAllOnPage}
-                      startIcon={<DoneAllIcon />}
-                      disabled={!referees?.length}
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="Nhập tên/nickname/email để tìm..."
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  sx={{ flex: 1, minWidth: { md: 360 } }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonSearchIcon />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  justifyContent="flex-end"
+                  useFlexGap
+                  flexWrap="wrap"
+                  sx={{ width: { xs: "100%", md: "auto" } }}
+                >
+                  <Tooltip title="Chọn tất cả trong trang">
+                    <Box
+                      component="span"
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
                     >
-                      Chọn tất cả
-                    </Button>
-                  </span>
-                </Tooltip>
-                <Tooltip title="Bỏ chọn tất cả">
-                  <span>
-                    <Button onClick={clearAll} startIcon={<ClearAllIcon />}>
-                      Bỏ chọn
-                    </Button>
-                  </span>
-                </Tooltip>
-                {singleMatchId && (
-                  <Tooltip title="Chỉ lấy theo danh sách đã gán của trận này">
-                    <span>
                       <Button
-                        onClick={() =>
-                          setSelected(
-                            (assignedForSingle || []).map((u) => String(u._id)),
-                          )
-                        }
-                        disabled={assignedLoading || assignedFetching}
+                        onClick={selectAllOnPage}
+                        startIcon={<DoneAllIcon />}
+                        disabled={!hasReferees}
+                        variant="outlined"
+                        fullWidth={isMobile}
                       >
-                        Dùng DS đã gán
+                        Chọn tất cả
                       </Button>
-                    </span>
+                    </Box>
                   </Tooltip>
-                )}
+                  <Tooltip title="Bỏ chọn tất cả">
+                    <Box
+                      component="span"
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
+                    >
+                      <Button
+                        onClick={clearAll}
+                        startIcon={<ClearAllIcon />}
+                        variant="outlined"
+                        fullWidth={isMobile}
+                      >
+                        Bỏ chọn
+                      </Button>
+                    </Box>
+                  </Tooltip>
+                  {singleMatchId && (
+                    <Tooltip title="Chỉ lấy theo danh sách đã gán của trận này">
+                      <Box
+                        component="span"
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
+                      >
+                        <Button
+                          onClick={() =>
+                            setSelected(
+                              (assignedForSingle || []).map((u) =>
+                                String(u._id),
+                              ),
+                            )
+                          }
+                          disabled={assignedLoading || assignedFetching}
+                          fullWidth={isMobile}
+                        >
+                          Dùng DS đã gán
+                        </Button>
+                      </Box>
+                    </Tooltip>
+                  )}
+                </Stack>
               </Stack>
-            </Stack>
-          </Grid>
+            </Paper>
 
-          {/* Danh sách trọng tài */}
-          <Grid item size={12}>
-            <Card variant="outlined">
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 2,
+                overflow: "hidden",
+                bgcolor: "background.paper",
+              }}
+            >
               <CardHeader
+                sx={{
+                  px: { xs: 1.5, sm: 2 },
+                  py: 1.5,
+                  "& .MuiCardHeader-action": {
+                    alignSelf: "center",
+                    mt: 0,
+                  },
+                }}
                 title={
-                  <Stack direction="row" alignItems="center" spacing={1}>
-                    <Typography variant="subtitle1" fontWeight={600}>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    alignItems={{ xs: "flex-start", sm: "center" }}
+                    spacing={1}
+                  >
+                    <Typography variant="subtitle1" fontWeight={700}>
                       Trọng tài trong giải
                     </Typography>
                     <Chip
@@ -348,33 +457,84 @@ function AssignRefDialog({
                   </Stack>
                 }
                 action={
-                  <Button onClick={() => refetch()} size="small">
+                  <Button
+                    onClick={() => refetch()}
+                    size="small"
+                    startIcon={<RefreshIcon />}
+                  >
                     Refresh
                   </Button>
                 }
               />
               <Divider />
-              <CardContent sx={{ pt: 1 }}>
+              <CardContent
+                sx={{
+                  p: { xs: 1, sm: 1.5 },
+                  pt: { xs: 1, sm: 1.25 },
+                  bgcolor:
+                    theme.palette.mode === "dark"
+                      ? "rgba(255,255,255,0.03)"
+                      : "grey.50",
+                  maxHeight: { xs: "44vh", md: "46vh" },
+                  overflowY: "auto",
+                }}
+              >
                 {isLoading ? (
-                  <Box textAlign="center" py={2}>
-                    <CircularProgress size={22} />
+                  <Box textAlign="center" py={4}>
+                    <CircularProgress size={24} />
                   </Box>
                 ) : error ? (
-                  <Alert severity="error">
+                  <Alert severity="error" sx={{ borderRadius: 2 }}>
                     {error?.data?.message || "Không tải được danh sách."}
                   </Alert>
-                ) : (referees?.length || 0) === 0 ? (
-                  <Alert severity="info">Không có kết quả phù hợp.</Alert>
+                ) : !hasReferees ? (
+                  <Box
+                    sx={{
+                      py: { xs: 4, sm: 5 },
+                      px: 2,
+                      textAlign: "center",
+                      color: "text.secondary",
+                    }}
+                  >
+                    <PersonSearchIcon sx={{ fontSize: 36, mb: 1 }} />
+                    <Typography fontWeight={700} color="text.primary">
+                      Không có kết quả phù hợp
+                    </Typography>
+                    <Typography variant="body2">
+                      Thử đổi từ khóa hoặc refresh danh sách.
+                    </Typography>
+                  </Box>
                 ) : (
-                  <List dense>
+                  <List dense disablePadding>
                     {referees.map((u) => {
                       const id = String(u._id);
-                      const checked = selected.includes(id);
+                      const checked = selectedSet.has(id);
+                      const contact = u?.email || u?.phone || "";
                       return (
                         <ListItem
                           key={id}
+                          disableGutters
                           onClick={() => toggle(id)}
-                          sx={{ cursor: "pointer" }}
+                          sx={{
+                            cursor: "pointer",
+                            px: { xs: 1, sm: 1.25 },
+                            py: 1,
+                            pr: 6,
+                            mb: 0.75,
+                            border: 1,
+                            borderColor: checked ? "primary.main" : "divider",
+                            borderRadius: 1.5,
+                            bgcolor: checked
+                              ? "action.selected"
+                              : "background.paper",
+                            transition:
+                              "background-color 120ms ease, border-color 120ms ease",
+                            "&:hover": {
+                              bgcolor: checked
+                                ? "action.selected"
+                                : "action.hover",
+                            },
+                          }}
                           secondaryAction={
                             <Checkbox
                               edge="end"
@@ -385,13 +545,45 @@ function AssignRefDialog({
                           }
                         >
                           <ListItemAvatar>
-                            <Avatar>
+                            <Avatar
+                              sx={{
+                                width: 36,
+                                height: 36,
+                                fontSize: 14,
+                                fontWeight: 800,
+                                bgcolor: checked
+                                  ? "primary.main"
+                                  : "action.selected",
+                                color: checked
+                                  ? "primary.contrastText"
+                                  : "text.primary",
+                              }}
+                            >
                               {(personNickname(u)[0] || "U").toUpperCase()}
                             </Avatar>
                           </ListItemAvatar>
                           <ListItemText
-                            primary={personNickname(u)}
-                            secondary={u?.email || u?.phone || ""}
+                            primary={
+                              <Typography
+                                variant="body2"
+                                fontWeight={700}
+                                noWrap
+                              >
+                                {personNickname(u)}
+                              </Typography>
+                            }
+                            secondary={
+                              contact ? (
+                                <Typography
+                                  component="span"
+                                  variant="body2"
+                                  color="text.secondary"
+                                  noWrap
+                                >
+                                  {contact}
+                                </Typography>
+                              ) : null
+                            }
                           />
                         </ListItem>
                       );
@@ -400,15 +592,13 @@ function AssignRefDialog({
                 )}
               </CardContent>
             </Card>
-          </Grid>
 
-          <Grid item size={12}>
-            <Alert severity="info">
+            <Alert severity="info" sx={{ borderRadius: 2, alignItems: "center" }}>
               Thao tác này sẽ <b>cập nhật (thay thế)</b> danh sách trọng tài cho{" "}
               <b>{effectiveMatchIds.length}</b> trận được chọn.
             </Alert>
-          </Grid>
-        </Grid>
+          </Stack>
+        </Box>
       )}
     </ResponsiveModal>
   );

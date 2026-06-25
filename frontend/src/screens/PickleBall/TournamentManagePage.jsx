@@ -3687,16 +3687,22 @@ export default function TournamentManagePage() {
   const [v2SettingsSection, setV2SettingsSection] = useState(
     () => String(searchParams.get("settingsTab") || "courts") || "courts",
   );
+  const pendingV2SettingsUrlSyncRef = useRef(null);
   const updateV2SettingsUrl = useCallback(
     (open, section = v2SettingsSection) => {
+      const normalizedSection = section || "courts";
       const next = new URLSearchParams(searchParams);
       if (open) {
         next.set("settings", "1");
-        next.set("settingsTab", section || "courts");
+        next.set("settingsTab", normalizedSection);
       } else {
         next.delete("settings");
         next.delete("settingsTab");
       }
+      pendingV2SettingsUrlSyncRef.current = {
+        open: Boolean(open),
+        section: open ? normalizedSection : "",
+      };
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams, v2SettingsSection],
@@ -3724,6 +3730,14 @@ export default function TournamentManagePage() {
     const rawOpen = String(searchParams.get("settings") || "").toLowerCase();
     const nextOpen = ["1", "true", "open"].includes(rawOpen);
     const nextSection = String(searchParams.get("settingsTab") || "").trim();
+    const pendingSync = pendingV2SettingsUrlSyncRef.current;
+    if (pendingSync) {
+      const currentSection = nextOpen ? nextSection || "courts" : "";
+      if (nextOpen !== pendingSync.open || currentSection !== pendingSync.section) {
+        return;
+      }
+      pendingV2SettingsUrlSyncRef.current = null;
+    }
     if (v2SettingsOpen !== nextOpen) setV2SettingsOpen(nextOpen);
     if (nextOpen && nextSection && nextSection !== v2SettingsSection) {
       setV2SettingsSection(nextSection);
