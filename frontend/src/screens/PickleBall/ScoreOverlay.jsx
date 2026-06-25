@@ -7,6 +7,7 @@ import {
   useLazyGetTournamentQuery,
   useLazyGetNextByCourtQuery,
 } from "../../slices/tournamentsApiSlice";
+import { useResolveOverlayTemplateQuery } from "../../slices/overlayTemplateApiSlice";
 import { useGetOverlayConfigQuery } from "../../slices/overlayApiSlice";
 import { useSocket } from "../../context/SocketContext";
 import { useLanguage } from "../../context/LanguageContext";
@@ -25,6 +26,7 @@ import {
   isLightweightMatchPayload,
   isNewerOrEqualMatchPayload,
 } from "../../utils/matchDisplay";
+import TemplateOverlayRenderer from "../../components/overlay/TemplateOverlayRenderer.jsx";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
@@ -1075,6 +1077,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     refetchOnReconnect: !replay,
     pollingInterval: replay ? undefined : 3000,
   });
+  const { data: resolvedOverlayTemplate } = useResolveOverlayTemplateQuery(
+    { matchId },
+    {
+      skip: !matchId || replay,
+      refetchOnMountOrArgChange: true,
+      refetchOnFocus: false,
+      refetchOnReconnect: true,
+      pollingInterval: replay ? undefined : 30000,
+    },
+  );
   const [getTournament] = useLazyGetTournamentQuery();
   const [getNextByCourt] = useLazyGetNextByCourtQuery();
 
@@ -2030,6 +2042,38 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const webLogoUrl = effective.webLogoUrl
     ? toHttpsIfNotLocalhost(effective.webLogoUrl)
     : "";
+  const publishedTemplate = resolvedOverlayTemplate?.template;
+  const canUsePublishedTemplate =
+    !isDefaultDesign &&
+    parseQPBool(q.get("classic")) !== true &&
+    Array.isArray(publishedTemplate?.document?.layers) &&
+    publishedTemplate.document.layers.length > 0;
+  const templateValues = {
+    "tournament.name": tourName || "",
+    "tournament.logoUrl": tourLogoUrl || data?.tournament?.image || "",
+    "match.code": data?.code || data?.labelKey || data?.matchId || "",
+    "match.round": data?.roundNumber || data?.round || "",
+    "match.roundLabel": roundLabel || phaseText || data?.roundName || "",
+    "match.stageName": data?.stageName || phaseText || roundLabel || "",
+    "match.courtName": data?.court?.name || data?.courtName || "",
+    "teamA.name": nameA,
+    "teamB.name": nameB,
+    "teamA.seed": data?.seedA || data?.seeds?.A || "",
+    "teamB.seed": data?.seedB || data?.seeds?.B || "",
+    scoreA,
+    scoreB,
+    "sets.teamA": data?.sets?.A ?? "",
+    "sets.teamB": data?.sets?.B ?? "",
+    "sets.summary": setSummary
+      .map((set) =>
+        Number.isFinite(set.a) && Number.isFinite(set.b)
+          ? `${set.a}-${set.b}`
+          : "",
+      )
+      .filter(Boolean)
+      .join(", "),
+    "serve.side": serveSide,
+  };
 
   // ✅ GIAO DIỆN BREAK
   if (showBreak) {
@@ -2189,6 +2233,24 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   }
 
   // ✅ GIAO DIỆN DEFAULT=1 (theo hình PBTv)
+  if (canUsePublishedTemplate) {
+    return (
+      <>
+        <SEOHead title={t("scoreOverlay.seoTitle")} noIndex={true} />
+        <TemplateOverlayRenderer
+          template={publishedTemplate}
+          values={templateValues}
+          mode="live"
+        />
+        <ClockBox
+          show={showClock}
+          cssVarStyle={cssVarStyle}
+          corner={effective.corner}
+        />
+      </>
+    );
+  }
+
   if (isDefaultDesign) {
     // Title trên cùng (white bar)
     const qpTitle = q.get("title");

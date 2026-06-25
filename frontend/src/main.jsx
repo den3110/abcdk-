@@ -101,6 +101,9 @@ const TournamentSchedule = lazyRoute(() =>
 const TournamentManagePage = lazyRoute(() =>
   import("./screens/PickleBall/TournamentManagePage.jsx"),
 );
+const OverlayStudioPage = lazyRoute(() =>
+  import("./screens/PickleBall/OverlayStudioPage.jsx"),
+);
 const TournamentOverviewPage = lazyRoute(() =>
   import("./screens/PickleBall/TournamentOverviewPage.jsx"),
 );
@@ -281,6 +284,10 @@ const router = sentryCreateBrowserRouter(
           <Route
             path="/tournament/:id/manage"
             element={<TournamentManagePage />}
+          />
+          <Route
+            path="/tournament/:id/overlay-studio"
+            element={<OverlayStudioPage />}
           />
           <Route
             path="/tournament/:id/referee"

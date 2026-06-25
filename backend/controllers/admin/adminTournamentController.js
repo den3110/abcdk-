@@ -40,6 +40,7 @@ import {
   unwrapAdminTournamentImageProxySource,
 } from "../../utils/adminTournamentImageProxy.js";
 import {
+  clearMatchPresentationCaches,
   clearTournamentPresentationCaches,
 } from "../../services/cacheInvalidation.service.js";
 import { analyzeRegistrationPosterLayout } from "../../services/registrationPosterAi.service.js";
@@ -3168,8 +3169,37 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
     if (k in req.body) t.overlay[k] = req.body[k];
   }
   await t.save();
-  await clearTournamentPresentationCaches();
+  await Promise.all([
+    clearTournamentPresentationCaches(),
+    clearMatchPresentationCaches(),
+  ]);
   res.json({ ok: true, overlay: t.overlay });
+
+  const io = req.app.get("io");
+  if (io) {
+    setImmediate(async () => {
+      try {
+        emitTournamentInvalidate(io, {
+          tournamentId: t._id,
+          reason: "tournament_overlay_updated",
+        });
+        const emittedCount = await rebroadcastTournamentMatchSnapshots(
+          io,
+          t._id
+        );
+        console.log("[updateTournamentOverlay] rebroadcast snapshots", {
+          tournamentId: String(t._id),
+          emittedCount,
+        });
+      } catch (e) {
+        console.error(
+          "[updateTournamentOverlay] realtime rebroadcast failed:",
+          e?.message || e,
+          { tournamentId: String(t._id) }
+        );
+      }
+    });
+  }
 });
 
 export const listTournamentRefereesInScope = expressAsyncHandler(

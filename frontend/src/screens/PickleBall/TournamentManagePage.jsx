@@ -3919,6 +3919,17 @@ export default function TournamentManagePage() {
             </Typography>
           </Box>
 
+          <Button
+            component={Link}
+            to={`/tournament/${id}/overlay-studio?tournamentId=${id}`}
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            disabled={!canManage}
+            sx={{ alignSelf: "flex-start" }}
+          >
+            Mở Overlay Studio
+          </Button>
+
           <TextField
             select
             size="small"
@@ -4611,6 +4622,24 @@ export default function TournamentManagePage() {
                 {t("tournaments.manage.liveSetup")}
               </Button>
             </Tooltip>
+
+            <Tooltip title="Kiểu hiển thị tên trên scoreboard app live" arrow>
+              <TextField
+                select
+                size="small"
+                label="Tên overlay"
+                value={overlayNameStyleValue}
+                onChange={handleOverlayNameStyleChange}
+                disabled={!canManage || savingOverlaySettings}
+                sx={{ flex: "0 1 190px", minWidth: 170, maxWidth: 220 }}
+              >
+                {OVERLAY_NAME_STYLE_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Tooltip>
             </Box>
 
             <Box
@@ -4834,7 +4863,24 @@ export default function TournamentManagePage() {
               direction={{ xs: "column", sm: "row" }}
               alignItems={{ xs: "stretch", sm: "center" }}
               justifyContent="flex-end"
+              spacing={1}
             >
+              <TextField
+                select
+                size="small"
+                label="Tên overlay"
+                value={overlayNameStyleValue}
+                onChange={handleOverlayNameStyleChange}
+                disabled={!canManage || savingOverlaySettings}
+                sx={{ minWidth: { sm: 190 } }}
+              >
+                {OVERLAY_NAME_STYLE_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
               <Button
                 variant="outlined"
                 size="small"
