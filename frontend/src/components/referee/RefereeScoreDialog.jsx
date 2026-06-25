@@ -957,16 +957,51 @@ export default function RefereeScoreDialog({
     persistCache: false,
     enabled: open && Boolean(matchId),
   });
+  const [optimisticMatchPatch, setOptimisticMatchPatch] = useState(null);
 
-  const match = useMemo(() => {
+  const baseMatch = useMemo(() => {
     if (data && initialMatch) {
       return mergeMatchPayload(initialMatch, data, initialMatch);
     }
     return normalizeMatchDisplay(data || initialMatch || null, initialMatch || data || null);
   }, [data, initialMatch]);
+
+  const match = useMemo(() => {
+    if (!baseMatch || !optimisticMatchPatch) return baseMatch;
+    const { matchId: patchMatchId, ...patch } = optimisticMatchPatch;
+    const baseMatchId = idOf(baseMatch?._id || baseMatch?.id || matchId);
+    if (patchMatchId && baseMatchId && patchMatchId !== baseMatchId) return baseMatch;
+    return normalizeMatchDisplay(
+      {
+        ...baseMatch,
+        ...patch,
+      },
+      baseMatch,
+    );
+  }, [baseMatch, matchId, optimisticMatchPatch]);
   const normalizedMatchId = idOf(match?._id || match?.id || matchId);
   const normalizedTournamentId = idOf(match?.tournament?._id || match?.tournament);
   const parentNotifyKeyRef = useRef("");
+
+  useEffect(() => {
+    if (!open) {
+      setOptimisticMatchPatch(null);
+      return;
+    }
+    setOptimisticMatchPatch((prev) => {
+      if (!prev) return prev;
+      const baseMatchId = idOf(baseMatch?._id || baseMatch?.id || matchId);
+      if (prev.matchId && baseMatchId && prev.matchId !== baseMatchId) return null;
+      if (
+        prev.status &&
+        baseMatch?.status === prev.status &&
+        (!prev.winner || textOf(baseMatch?.winner) === textOf(prev.winner))
+      ) {
+        return null;
+      }
+      return prev;
+    });
+  }, [baseMatch?._id, baseMatch?.id, baseMatch?.status, baseMatch?.winner, matchId, open]);
 
   useEffect(() => {
     if (!open || !onMatchChanged || !data) return;
@@ -2003,6 +2038,29 @@ export default function RefereeScoreDialog({
     [ensureInteractionAllowed, runBusy],
   );
 
+  const runOptimisticBusy = useCallback(
+    async (key, optimisticPatch, task) => {
+      if (!ensureInteractionAllowed()) return false;
+      setActionError("");
+      setOptimisticMatchPatch({
+        ...optimisticPatch,
+        matchId: normalizedMatchId,
+      });
+      setBusy(key);
+      try {
+        await task();
+        return true;
+      } catch (nextError) {
+        setOptimisticMatchPatch(null);
+        handleError(nextError);
+        return false;
+      } finally {
+        setBusy("");
+      }
+    },
+    [ensureInteractionAllowed, handleError, normalizedMatchId],
+  );
+
   const runLiveControlBusy = useCallback(
     async (key, task) => {
       if (!ensureLiveControlsAllowed()) return;
@@ -2463,46 +2521,58 @@ export default function RefereeScoreDialog({
 
   const startMatchNow = useCallback(async () => {
     if (!ensureInteractionAllowed()) return;
-    await runProtectedBusy("start", async () => {
-      if (isDouble && Number(currentScore.a) === 0 && Number(currentScore.b) === 0) {
-        const baseForStart = localBaseRef.current || currentBase;
-        const layoutForStart = localLayoutRef.current || currentLayout;
-        const rightSlot = preStartRightSlotForSide(activeSide, layoutForStart);
-        const serverId =
-          openingRightServerUid ||
-          textOf(match?.serve?.serverId) ||
-          findUidAtCurrentSlot(activeSide, rightSlot, baseForStart) ||
-          serverUidShow ||
-          findUidAtCurrentSlot(activeSide, oppositeSlot(rightSlot), baseForStart) ||
-          firstPlayerIdOfSide(match, activeSide, eventType) ||
-          "";
-        if (serverId && textOf(match?.serve?.serverId) !== serverId) {
-          const nextServe = {
-            side: activeSide,
-            server: OPENING_DOUBLES_SERVER,
-            serverId,
-            opening: true,
-          };
-          lastServerUidRef.current = serverId;
-          openingServerRef.current = {
-            gameIndex: currentGame,
-            side: activeSide,
-            uid: serverId,
-          };
-          localServeRef.current = nextServe;
-          setLocalServeOverride(nextServe);
-          await api.setServe(nextServe);
+    await runOptimisticBusy(
+      "start",
+      {
+        status: "live",
+        startedAt: match?.startedAt || new Date().toISOString(),
+        finishedAt: null,
+        winner: null,
+        isBreak: { active: false },
+        break: { active: false },
+        pause: { active: false },
+      },
+      async () => {
+        if (isDouble && Number(currentScore.a) === 0 && Number(currentScore.b) === 0) {
+          const baseForStart = localBaseRef.current || currentBase;
+          const layoutForStart = localLayoutRef.current || currentLayout;
+          const rightSlot = preStartRightSlotForSide(activeSide, layoutForStart);
+          const serverId =
+            openingRightServerUid ||
+            textOf(match?.serve?.serverId) ||
+            findUidAtCurrentSlot(activeSide, rightSlot, baseForStart) ||
+            serverUidShow ||
+            findUidAtCurrentSlot(activeSide, oppositeSlot(rightSlot), baseForStart) ||
+            firstPlayerIdOfSide(match, activeSide, eventType) ||
+            "";
+          if (serverId && textOf(match?.serve?.serverId) !== serverId) {
+            const nextServe = {
+              side: activeSide,
+              server: OPENING_DOUBLES_SERVER,
+              serverId,
+              opening: true,
+            };
+            lastServerUidRef.current = serverId;
+            openingServerRef.current = {
+              gameIndex: currentGame,
+              side: activeSide,
+              uid: serverId,
+            };
+            localServeRef.current = nextServe;
+            setLocalServeOverride(nextServe);
+            await api.setServe(nextServe);
+          }
         }
-      }
-      await api.start();
-      if (breakState?.active) {
-        await api.setBreak({
-          active: false,
-          note: "",
-          afterGame: currentGame,
-        });
-      }
-    });
+        await api.start();
+        if (breakState?.active) {
+          await api.setBreak({
+            active: false,
+            note: "",
+            afterGame: currentGame,
+          });
+        }
+      },
+    );
   }, [
     activeSide,
     api,
@@ -2518,7 +2588,7 @@ export default function RefereeScoreDialog({
     isDouble,
     match,
     openingRightServerUid,
-    runProtectedBusy,
+    runOptimisticBusy,
     serverUidShow,
   ]);
 
@@ -2698,6 +2768,22 @@ export default function RefereeScoreDialog({
     [handlePoint, rightSide],
   );
 
+  const finishMatchOptimistic = useCallback(
+    (winner) => {
+      const side = winner === "B" ? "B" : "A";
+      return runOptimisticBusy(
+        `finish-${side.toLowerCase()}`,
+        {
+          status: "finished",
+          winner: side,
+          finishedAt: new Date().toISOString(),
+        },
+        () => api.finish(side, "finish"),
+      );
+    },
+    [api, runOptimisticBusy],
+  );
+
   const cta = useMemo(() => {
     if (match?.status === "finished") return null;
     if (needsStartAction) {
@@ -2716,10 +2802,7 @@ export default function RefereeScoreDialog({
       return {
         label: "Kết thúc trận",
         danger: true,
-        onPress: () =>
-          runProtectedBusy(`finish-${decidedWinner}`, () =>
-            api.finish(decidedWinner, "finish"),
-          ),
+        onPress: () => finishMatchOptimistic(decidedWinner),
       };
     }
 
@@ -2736,6 +2819,7 @@ export default function RefereeScoreDialog({
   }, [
     api,
     currentGameFinished,
+    finishMatchOptimistic,
     handleStart,
     match?.status,
     matchDecided,
@@ -3874,9 +3958,7 @@ export default function RefereeScoreDialog({
                     <Button
                       variant="contained"
                       color="success"
-                      onClick={() =>
-                        runProtectedBusy("finish-a", () => api.finish("A", "finish"))
-                      }
+                      onClick={() => finishMatchOptimistic("A")}
                       disabled={!match?._id || Boolean(busy)}
                       sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                     >
@@ -3885,9 +3967,7 @@ export default function RefereeScoreDialog({
                     <Button
                       variant="contained"
                       color="success"
-                      onClick={() =>
-                        runProtectedBusy("finish-b", () => api.finish("B", "finish"))
-                      }
+                      onClick={() => finishMatchOptimistic("B")}
                       disabled={!match?._id || Boolean(busy)}
                       sx={{ minHeight: 42, borderRadius: 999, fontWeight: 800 }}
                     >
