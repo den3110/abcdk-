@@ -987,6 +987,9 @@ class RtmpStreamManager(
         runCatching { cam.stopRecord() }.onFailure {
             Log.e(TAG, "stopRecord failed", it)
         }
+        if (resumeAfter) {
+            refreshRecordOnlyOverlayInlineLocked("${reason}_after_stop")
+        }
 
         if (!path.isNullOrBlank() && matchId.isNotBlank() && recordingId.isNotBlank() && recordingSessionId.isNotBlank()) {
             val file = File(path)
@@ -1132,6 +1135,7 @@ class RtmpStreamManager(
                 cam.startRecord(outputPath)
             }
             .onSuccess {
+                refreshRecordOnlyOverlayInlineLocked("${reason}_after_start")
                 scheduleOverlayRebindAfterRecordStart(reason)
             }
     }
@@ -1614,6 +1618,24 @@ class RtmpStreamManager(
         overlayFilterOwner = null
         webLogoFilter = null
         sponsorFilter = null
+    }
+
+    private fun refreshRecordOnlyOverlayInlineLocked(reason: String): Boolean {
+        val cam = rtmpCamera ?: return false
+        if (cam.isStreaming || !cam.isOnPreview) return false
+        if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) return false
+
+        val bitmap = overlayBitmap?.takeIf { !it.isRecycled } ?: return false
+        val filter = overlayFilter
+        if (filter != null && overlayFilterOwner === cam && canApplyOverlayBitmapLocked(cam)) {
+            if (applyOverlayBitmapToFilterLocked(filter, bitmap)) {
+                markOverlayAttached("record_only_${reason}_refresh")
+                return true
+            }
+            resetOverlayFiltersLocked(clearGlFilters = false)
+        }
+
+        return false
     }
 
     private fun scheduleOverlayRebindAfterPreview(

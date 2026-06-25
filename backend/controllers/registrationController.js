@@ -288,10 +288,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   const meId = req.user?._id ? String(req.user._id) : "";
 
   // 0) Quyền xem full số: admin hoặc quản lý giải
-  const isAdmin =
-    Boolean(req.user?.isAdmin) ||
-    req.user?.role === "admin" ||
-    (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
+  const isAdmin = isAdminUser(req.user);
 
   const visibilityTour = await Tournament.findById(tourId).select("_id isTest").lean();
   if (!visibilityTour) {
@@ -665,6 +662,8 @@ export const deleteRegistration = asyncHandler(async (req, res) => {
 function isAdminUser(user) {
   return (
     user?.isAdmin === true ||
+    user?.isSuperUser === true ||
+    user?.isSuperAdmin === true ||
     user?.role === "admin" ||
     (Array.isArray(user?.roles) &&
       (user.roles.includes("admin") ||
@@ -1107,10 +1106,7 @@ export const searchRegistrations = async (req, res, next) => {
 
     // ===== Quyền xem số điện thoại đầy đủ (giống getRegistrations) =====
     const meId = req.user?._id ? String(req.user._id) : "";
-    const isAdmin =
-      Boolean(req.user?.isAdmin) ||
-      req.user?.role === "admin" ||
-      (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
+    const isAdmin = isAdminUser(req.user);
 
     let canSeeFullPhone = false;
     if (isAdmin) {

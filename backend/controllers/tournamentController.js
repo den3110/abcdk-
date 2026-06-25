@@ -38,7 +38,7 @@ function isAdminLikeUser(user = {}) {
   if (Array.isArray(user.roles)) {
     return user.roles
       .map((role) => String(role || "").trim().toLowerCase())
-      .includes("admin");
+      .some((role) => ["admin", "superadmin", "superuser"].includes(role));
   }
   return false;
 }
@@ -2713,7 +2713,7 @@ const getTournaments = asyncHandler(async (req, res) => {
     }, {});
   const sortSpecFromQP = hasSortQP ? parseSort(sortQP) : {};
 
-  const pipeline = [{ $match: { isTest: { $ne: true } } }];
+  const pipeline = isAdminLikeUser(req.user) ? [] : [{ $match: { isTest: { $ne: true } } }];
 
   // ----- Search (keyword / q) -----
   if (rawKeyword) {
@@ -2977,7 +2977,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
-  if (tour.isTest === true) {
+  if (tour.isTest === true && !isAdminLikeUser(req.user)) {
     res.status(404);
     throw new Error("Tournament not found");
   }
@@ -4053,7 +4053,7 @@ export async function searchTournaments(req, res, next) {
       String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const tokens = q.split(/\s+/).filter(Boolean).map(escapeRegex);
 
-    const mongoQuery = { isTest: { $ne: true } };
+    const mongoQuery = isAdminLikeUser(req.user) ? {} : { isTest: { $ne: true } };
     if (sportType !== undefined && sportType !== "") {
       const sportTypeNumber = Number(sportType);
       if (Number.isFinite(sportTypeNumber)) {

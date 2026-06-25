@@ -45,8 +45,8 @@ import { createTeamMatch } from "../controllers/teamTournamentController.js";
 
 const router = express.Router();
 
-router.route("/").get(getTournaments);
-router.route("/:id([0-9a-fA-F]{24})").get(getTournamentById); // 💡  chi tiết
+router.route("/").get(optionalAuth, getTournaments);
+router.route("/:id([0-9a-fA-F]{24})").get(optionalAuth, getTournamentById); // 💡  chi tiết
 // sau này thêm POST / PUT / DELETE nếu cần
 router
   .route("/:id/registrations")
@@ -101,6 +101,6 @@ router.post(
 router.get("/:tournamentId/complaints", protect, listComplaints);
 router.get("/:tid/is-manager", protect, verifyTournamentManager);
 router.get("/:tid/is-referee", protect, verifyTournamentReferee);
-router.get("/search", searchTournaments);
+router.get("/search", optionalAuth, searchTournaments);
 
 export default router;

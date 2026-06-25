@@ -3251,6 +3251,16 @@ export async function listMyTournaments(req, res) {
     const statusFilter = parseStatus(req.query.status);
     const withMatches = parseBool(req.query.withMatches, true);
     const matchLimit = clamp(req.query.matchLimit ?? 200, 1, 500);
+    const isAdminViewer = Boolean(
+      req.user?.isAdmin ||
+        req.user?.isSuperUser ||
+        req.user?.isSuperAdmin ||
+        String(req.user?.role || "").trim().toLowerCase() === "admin" ||
+        (Array.isArray(req.user?.roles) &&
+          req.user.roles
+            .map((role) => String(role || "").trim().toLowerCase())
+            .some((role) => ["admin", "superadmin", "superuser"].includes(role)))
+    );
 
     const userIdObj = new mongoose.Types.ObjectId(userId);
 
@@ -3295,11 +3305,15 @@ export async function listMyTournaments(req, res) {
       },
       { $unwind: "$tournament" },
 
-      {
-        $match: {
-          "tournament.isTest": { $ne: true },
-        },
-      },
+      ...(isAdminViewer
+        ? []
+        : [
+            {
+              $match: {
+                "tournament.isTest": { $ne: true },
+              },
+            },
+          ]),
 
       // 5) Lọc status (nếu có)
       ...(statusFilter
