@@ -984,6 +984,9 @@ class RtmpStreamManager(
 
         // Fix #3: Crashlytics breadcrumb before native stop record
         FirebaseCrashlytics.getInstance().log("stopRecord: reason=$reason isFinal=$isFinal")
+        if (resumeAfter) {
+            refreshRecordOnlyOverlayInlineLocked("${reason}_before_stop")
+        }
         runCatching { cam.stopRecord() }.onFailure {
             Log.e(TAG, "stopRecord failed", it)
         }
@@ -1673,9 +1676,10 @@ class RtmpStreamManager(
         overlayPostRecordJob = scope.launch {
             // Gắn lại SỚM sau mỗi lần startRecord (record-only re-init GL mỗi đoạn) để
             // thu hẹp khoảng overlay mất khi xoay segment. Dừng ngay khi gắn lại thành công.
-            listOf(60L, 200L, 450L, 900L, 1_800L).forEachIndexed { index, delayMs ->
+            listOf(16L, 48L, 96L, 180L, 450L, 900L, 1_800L).forEachIndexed { index, delayMs ->
                 delay(delayMs)
                 if (isReleased) return@launch
+                val allowFilterRecreate = index >= 3
                 val shouldAttach = cameraMutex.withLock {
                     if (isReleased || !isSurfaceValid) {
                         false
@@ -1693,10 +1697,10 @@ class RtmpStreamManager(
                             }
                             resetOverlayFiltersLocked(clearGlFilters = false)
                         }
-                        true
+                        allowFilterRecreate
                     }
                 }
-                if (!shouldAttach) return@launch
+                if (!shouldAttach) return@forEachIndexed
                 setupOverlayFilterIfPossible(
                     forceRecreate = false,
                     reason = "${reason}_record_stabilize_${index + 1}",
