@@ -42,6 +42,7 @@ import {
   isRecordingR2Configured,
   listRecordingObjects,
   deleteRecordingObjects,
+  readRecordingObjectBytes,
 } from "../services/liveRecordingV2Storage.service.js";
 import {
   buildLiveRecordingMonitorExportQueueSnapshot,
@@ -117,6 +118,78 @@ function getSegmentMeta(segment) {
 function toNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+const MP4_SEGMENT_SCAN_BYTES = 1024 * 1024;
+const MP4_MOOV_ATOM = Buffer.from("moov", "ascii");
+
+function shouldValidateUploadedMp4Segments() {
+  const raw = String(process.env.LIVE_RECORDING_VALIDATE_MP4_SEGMENTS || "1")
+    .trim()
+    .toLowerCase();
+  return !["0", "false", "no", "off"].includes(raw);
+}
+
+function containsMoovAtom(buffer) {
+  return Buffer.isBuffer(buffer) && buffer.indexOf(MP4_MOOV_ATOM) !== -1;
+}
+
+async function validateUploadedRecordingSegmentObject({
+  objectKey,
+  storageTargetId,
+  sizeBytes,
+}) {
+  if (!shouldValidateUploadedMp4Segments()) return null;
+
+  const objectSizeBytes = Math.max(0, Number(sizeBytes) || 0);
+  if (!objectKey || objectSizeBytes < 8) {
+    return "Recording segment MP4 is not ready for completion";
+  }
+
+  const ranges = [
+    {
+      start: 0,
+      end: Math.min(objectSizeBytes - 1, MP4_SEGMENT_SCAN_BYTES - 1),
+    },
+  ];
+  const tailStart = Math.max(0, objectSizeBytes - MP4_SEGMENT_SCAN_BYTES);
+  if (tailStart > ranges[0].end) {
+    ranges.push({
+      start: tailStart,
+      end: objectSizeBytes - 1,
+    });
+  }
+
+  try {
+    for (const range of ranges) {
+      const chunk = await readRecordingObjectBytes({
+        objectKey,
+        storageTargetId,
+        range: `bytes=${range.start}-${range.end}`,
+        maxBytes: MP4_SEGMENT_SCAN_BYTES + 16,
+      });
+      if (containsMoovAtom(chunk)) {
+        return null;
+      }
+    }
+  } catch (error) {
+    console.warn(
+      "[live-recording-v2] uploaded segment validation failed:",
+      error?.message || error
+    );
+    return "Recording segment object is not readable yet";
+  }
+
+  return "Recording segment MP4 is not finalized yet; retry upload in a moment";
+}
+
+function sendSegmentValidationRetry(res, message) {
+  return res.status(409).json({
+    ok: false,
+    retryable: true,
+    code: "SEGMENT_MP4_NOT_FINALIZED",
+    message,
+  });
 }
 
 function normalizeIsoTimestamp(value) {
@@ -1995,17 +2068,27 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
       });
     }
 
+    const segmentStorageTargetId = getSegmentStorageTargetId(segment, recording);
     await completeRecordingMultipartUpload({
       objectKey: segment.objectKey,
       uploadId,
       parts,
-      storageTargetId: getSegmentStorageTargetId(segment, recording),
+      storageTargetId: segmentStorageTargetId,
     });
+
+    const validationError = await validateUploadedRecordingSegmentObject({
+      objectKey: segment.objectKey,
+      storageTargetId: segmentStorageTargetId,
+      sizeBytes,
+    });
+    if (validationError) {
+      return sendSegmentValidationRetry(res, validationError);
+    }
 
     segment.uploadStatus = "uploaded";
     assignSegmentStorageTarget(
       segment,
-      getRecordingStorageTarget(getSegmentStorageTargetId(segment, recording))
+      getRecordingStorageTarget(segmentStorageTargetId)
     );
     segment.etag = asTrimmed(parts[parts.length - 1]?.etag) || null;
     segment.sizeBytes = sizeBytes;
@@ -2171,6 +2254,26 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   const existing = recording.segments.find(
     (segment) => segment.index === segmentIndex
   );
+  let activeStorageTarget = null;
+  if (!existing) {
+    activeStorageTarget =
+      getRecordingStorageTarget(recording.r2TargetId) ||
+      (await ensureRecordingStorageTargetForWrite(recording, {
+        reason: "segment_single_put_complete",
+      }));
+  }
+  const validationError = await validateUploadedRecordingSegmentObject({
+    objectKey,
+    storageTargetId:
+      getSegmentStorageTargetId(existing, recording) ||
+      activeStorageTarget?.id ||
+      recording.r2TargetId,
+    sizeBytes,
+  });
+  if (validationError) {
+    return sendSegmentValidationRetry(res, validationError);
+  }
+
   if (existing) {
     existing.objectKey = objectKey;
     if (!getSegmentStorageTargetId(existing, recording)) {
@@ -2190,11 +2293,6 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
       ...(startedAt ? { startedAt } : {}),
     };
   } else {
-    const activeStorageTarget =
-      getRecordingStorageTarget(recording.r2TargetId) ||
-      (await ensureRecordingStorageTargetForWrite(recording, {
-        reason: "segment_single_put_complete",
-      }));
     recording.segments.push({
       index: segmentIndex,
       objectKey,

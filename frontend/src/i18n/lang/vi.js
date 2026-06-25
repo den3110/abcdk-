@@ -1795,7 +1795,7 @@ export default {
       legendTitle: "Chú thích:",
       legendBody:
         "R/V: Vòng; T: Trận; B: Bảng; W: Thắng; L: Thua; BYE: Ưu tiên",
-      colorDone: "Xanh: hoàn thành",
+      colorDone: "Xanh: hoàn thành / BYE đi tiếp",
       colorLive: "Cam: đang thi đấu",
       colorReady: "Vàng: chuẩn bị",
       colorPlanned: "Ghi: dự kiến",

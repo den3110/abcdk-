@@ -1009,6 +1009,44 @@ export async function downloadRecordingObjectToFile({
   return targetPath;
 }
 
+export async function readRecordingObjectBytes({
+  objectKey,
+  storageTargetId = null,
+  range = null,
+  maxBytes = 1024 * 1024,
+}) {
+  if (!objectKey) {
+    throw new Error("objectKey is required");
+  }
+
+  const target = requireRecordingStorageTarget(storageTargetId);
+  const client = getRecordingS3Client(target.id);
+  const response = await client.send(
+    new GetObjectCommand({
+      Bucket: target.bucketName,
+      Key: objectKey,
+      Range: range || undefined,
+    })
+  );
+
+  if (!response.Body) {
+    throw new Error(`Recording object ${objectKey} has no body`);
+  }
+
+  const chunks = [];
+  let totalBytes = 0;
+  for await (const chunk of response.Body) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > maxBytes) {
+      throw new Error("Recording object byte read exceeded maxBytes");
+    }
+    chunks.push(buffer);
+  }
+
+  return Buffer.concat(chunks, totalBytes);
+}
+
 export async function deleteRecordingObjects(
   objectKeys = [],
   { storageTargetId = null } = {}

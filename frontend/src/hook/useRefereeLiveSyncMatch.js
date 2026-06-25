@@ -114,7 +114,17 @@ export function useRefereeLiveSyncMatch(
   const netOnlineRef = useRef(
     typeof navigator === "undefined" ? true : navigator.onLine !== false
   );
-  const deviceRef = useRef({ deviceId: "", deviceName: "" });
+  const deviceRef = useRef(null);
+  if (!deviceRef.current) {
+    // Populate synchronously on first render so ownership self-checks
+    // (decorateOwner) never run against an empty deviceId — an empty deviceId
+    // would make the active referee look like a different owner and lock the
+    // controls until the next owner update re-decorates with the real id.
+    deviceRef.current = {
+      deviceId: getDeviceId(),
+      deviceName: getDeviceName(),
+    };
+  }
   const { userInfo } = useSelector((state) => state.auth || {});
   const token = tokenFromArg || userInfo?.token || "";
 
@@ -168,10 +178,13 @@ export function useRefereeLiveSyncMatch(
       const currentDeviceId = trim(deviceRef.current.deviceId);
       const ownerUserId = trim(owner.userId);
       const ownerDeviceId = trim(owner.deviceId);
+      // Owner if it's the same device OR the same referee account (from another
+      // device/tab). Must stay in sync with the server's liveOwnerMatchesIdentity
+      // so the client never thinks it is locked out when the server would accept
+      // its events (and vice-versa).
       const isSelf =
-        ownerDeviceId || currentDeviceId
-          ? Boolean(ownerDeviceId && currentDeviceId && ownerDeviceId === currentDeviceId)
-          : Boolean(ownerUserId && currentUserId && ownerUserId === currentUserId);
+        Boolean(ownerDeviceId && currentDeviceId && ownerDeviceId === currentDeviceId) ||
+        Boolean(ownerUserId && currentUserId && ownerUserId === currentUserId);
       return {
         ...owner,
         isSelf,
@@ -374,12 +387,13 @@ export function useRefereeLiveSyncMatch(
             { timeoutMs }
           );
         } catch (error) {
-          if (
-            error?.code !== "socket_unavailable" &&
-            error?.code !== "socket_timeout"
-          ) {
-            throw error;
-          }
+          // The socket transport failed: disconnect/timeout, or an ok:false ack
+          // (e.g. a transient "Forbidden"/"internal_error"). Instead of surfacing
+          // it as a hard error and dropping the change, fall back to the
+          // authoritative HTTP endpoint. Live-sync events are idempotent by
+          // clientEventId, so re-sending over HTTP is safe and keeps referee
+          // actions (score, serve, slots) reliably in sync.
+          void error;
         }
       }
 

@@ -1796,7 +1796,7 @@ export default {
       legendTitle: "Legend:",
       legendBody:
         "R/V: Round; T: Match; B: Group; W: Winner; L: Loser; BYE: Bye slot",
-      colorDone: "Blue: completed",
+      colorDone: "Green: completed / BYE advance",
       colorLive: "Orange: live",
       colorReady: "Yellow: ready",
       colorPlanned: "Gray: planned",

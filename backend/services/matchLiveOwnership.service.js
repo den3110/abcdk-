@@ -23,10 +23,16 @@ export function liveOwnerMatchesIdentity(
   if (!owner) return false;
   const ownerDeviceId = normalizeIdentityValue(owner.deviceId);
   const currentDeviceId = normalizeIdentityValue(deviceId);
-  if (ownerDeviceId || currentDeviceId) {
-    return Boolean(ownerDeviceId && currentDeviceId && ownerDeviceId === currentDeviceId);
+  // Same physical device is always the owner.
+  if (ownerDeviceId && currentDeviceId && ownerDeviceId === currentDeviceId) {
+    return true;
   }
 
+  // Same referee account also counts as the owner even from another device/tab
+  // (e.g. mobile app + web open at once). This prevents a referee from being
+  // locked out of their own match and rejected with `ownership_conflict` (which
+  // makes serve/score changes silently revert). A genuinely different account
+  // still conflicts and must take over explicitly.
   const ownerUserId = normalizeIdentityValue(owner.userId);
   const currentUserId = normalizeIdentityValue(userId);
   return Boolean(ownerUserId && currentUserId && ownerUserId === currentUserId);

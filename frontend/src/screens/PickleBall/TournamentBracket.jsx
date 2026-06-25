@@ -460,9 +460,22 @@ const hasVideo = (m) =>
   );
 
 // màu trạng thái: xanh (finished) / cam (live) / vàng (chuẩn bị) / xám (dự kiến)
+const isByeText = (value) => /\bBYE\b/i.test(String(value || ""));
+const isByeSeedLike = (seed) =>
+  seed?.type === "bye" || isByeText(seed?.label);
+const isByeAdvanceMatch = (m) =>
+  Boolean(
+    m &&
+      (isByeSeedLike(m?.seedA) ||
+        isByeSeedLike(m?.seedB) ||
+        String(m?.type || "").toLowerCase() === "bye") &&
+      (m?.pairA || m?.pairB || m?.winner === "A" || m?.winner === "B")
+  );
+
 const statusColors = (m) => {
   const st = String(m?.status || "").toLowerCase();
-  if (st === "finished") return { bg: "#2e7d32", fg: "#fff", key: "done" };
+  if (st === "finished" || isByeAdvanceMatch(m))
+    return { bg: "#2e7d32", fg: "#fff", key: "done" };
   if (st === "live") return { bg: "#ef6c00", fg: "#fff", key: "live" };
   // chuẩn bị: đã có cặp & có assignedAt/court/scheduledAt gần
   const ready =
@@ -477,7 +490,7 @@ const matchStateKey = (m) => {
   if (!m) return "planned";
   const st = String(m.status || "").toLowerCase();
   if (st === "live") return "live";
-  if (st === "finished") return "done";
+  if (st === "finished" || isByeAdvanceMatch(m)) return "done";
   // "chuẩn bị" = đã gán sân nhưng chưa thi đấu
   if (courtName(m)) return "ready";
   return "planned";
@@ -1209,7 +1222,7 @@ const CustomSeed = ({
     (m ? "—" : tLang("tournaments.bracket.pendingTeam"));
 
   // ===== BYE detection
-  const isByeWord = (s) => typeof s === "string" && /\bBYE\b/i.test(s);
+  const isByeWord = (s) => isByeText(s);
   const isByeA = isByeWord(nameA) || (m?.seedA && m.seedA.type === "bye");
   const isByeB = isByeWord(nameB) || (m?.seedB && m.seedB.type === "bye");
   const isByeMatch = isByeA || isByeB;
@@ -1378,9 +1391,17 @@ const CustomSeed = ({
   const t = m ? timeShort(kickoffTime(m)) : "";
   const c = m ? courtName(m) : "";
   const vid = m ? hasVideo(m) : false;
-  const color = isByeMatch
-    ? { bg: "#9e9e9e", fg: "#fff", key: "bye" }
-    : statusColors(m);
+  const hasNonByeSide =
+    (isByeA &&
+      !isByeB &&
+      isUsefulResolvedLabel(nameB, tLang("tournaments.bracket.pendingTeam"))) ||
+    (isByeB &&
+      !isByeA &&
+      isUsefulResolvedLabel(nameA, tLang("tournaments.bracket.pendingTeam")));
+  const color =
+    isByeMatch && hasNonByeSide
+      ? { bg: "#2e7d32", fg: "#fff", key: "done" }
+      : statusColors(m);
   const clickable = !!m;
   const resultText = isByeMatch
     ? ""

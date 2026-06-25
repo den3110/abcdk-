@@ -159,7 +159,13 @@ class MatchRecordingCoordinator(
         private const val OFFLINE_UPLOAD_RECHECK_DELAY_MS = 5_000L
         private const val RECONNECT_UPLOAD_COOLDOWN_MS = 8_000L
         private const val UPLOAD_SEGMENT_SPACING_MS = 2_500L
+        private const val MP4_READY_CHECK_TIMEOUT_MS = 8_000L
+        private const val MP4_READY_CHECK_INTERVAL_MS = 250L
+        private const val MP4_NOT_READY_RETRY_MS = 2_000L
+        private const val MP4_ATOM_SCAN_BYTES = 1024 * 1024
         private const val LOCAL_RECORDING_ID_PREFIX = "local_"
+        private val MP4_MOOV_ATOM =
+            byteArrayOf('m'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte())
     }
 
     private val coordinatorExceptionHandler =
@@ -1741,6 +1747,103 @@ class MatchRecordingCoordinator(
         }
     }
 
+    private fun ByteArray.containsSequence(needle: ByteArray): Boolean {
+        if (needle.isEmpty() || size < needle.size) return false
+        for (index in 0..(size - needle.size)) {
+            var matched = true
+            for (needleIndex in needle.indices) {
+                if (this[index + needleIndex] != needle[needleIndex]) {
+                    matched = false
+                    break
+                }
+            }
+            if (matched) return true
+        }
+        return false
+    }
+
+    private fun fileHasMp4MoovAtom(file: File): Boolean {
+        if (!file.exists() || file.length() < 8L) return false
+        return runCatching {
+            val fileSize = file.length()
+            val headBytes = minOf(MP4_ATOM_SCAN_BYTES.toLong(), fileSize).toInt()
+            if (readFilePart(file, 0L, headBytes).containsSequence(MP4_MOOV_ATOM)) {
+                return@runCatching true
+            }
+
+            val tailOffset = (fileSize - MP4_ATOM_SCAN_BYTES).coerceAtLeast(0L)
+            if (tailOffset > 0L) {
+                val tailBytes = (fileSize - tailOffset).coerceAtMost(MP4_ATOM_SCAN_BYTES.toLong()).toInt()
+                readFilePart(file, tailOffset, tailBytes).containsSequence(MP4_MOOV_ATOM)
+            } else {
+                false
+            }
+        }.getOrDefault(false)
+    }
+
+    private suspend fun awaitSegmentReadyForUpload(file: File): Long {
+        val deadline = System.currentTimeMillis() + MP4_READY_CHECK_TIMEOUT_MS
+        var lastSizeBytes = -1L
+        var stableReadCount = 0
+
+        while (true) {
+            val currentSizeBytes = file.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
+            if (currentSizeBytes > 0L) {
+                stableReadCount = if (currentSizeBytes == lastSizeBytes) stableReadCount + 1 else 0
+                if (stableReadCount >= 1 && fileHasMp4MoovAtom(file)) {
+                    return currentSizeBytes
+                }
+            }
+
+            if (System.currentTimeMillis() >= deadline) break
+            lastSizeBytes = currentSizeBytes
+            delay(MP4_READY_CHECK_INTERVAL_MS)
+        }
+
+        val finalSizeBytes = file.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
+        if (finalSizeBytes > 0L && fileHasMp4MoovAtom(file)) {
+            return finalSizeBytes
+        }
+        throw IllegalStateException("Segment MP4 chưa đóng xong, sẽ thử tải lại.")
+    }
+
+    private suspend fun deferPendingSegmentUntilMp4Ready(segment: PendingRecordingSegment) {
+        val nextRetryCount = segment.retryCount + 1
+        val delayMs =
+            if (nextRetryCount <= 3) {
+                MP4_NOT_READY_RETRY_MS
+            } else {
+                computeRetryDelayMs(nextRetryCount)
+            }
+        val nextRetryAtMs = System.currentTimeMillis() + delayMs
+        manifestMutex.withLock {
+            manifest =
+                manifest.copy(
+                    pendingSegments =
+                        manifest.pendingSegments.map {
+                            if (it.recordingId == segment.recordingId && it.segmentIndex == segment.segmentIndex) {
+                                it.copy(
+                                    retryCount = nextRetryCount,
+                                    nextRetryAtMs = nextRetryAtMs,
+                                )
+                            } else {
+                                it
+                            }
+                        }
+                )
+            persistManifestLocked()
+        }
+        Log.w(
+            TAG,
+            "Recording segment is not finalized yet; retry later recordingId=${segment.recordingId} segmentIndex=${segment.segmentIndex}",
+        )
+        updateUiState(
+            pendingUploads = manifest.pendingSegments.size,
+            status = "uploading",
+            errorMessage = null,
+        )
+    }
+
     private suspend fun uploadPendingSegmentMultipart(
         segment: PendingRecordingSegment,
         file: File,
@@ -1985,7 +2088,13 @@ class MatchRecordingCoordinator(
             )
             return true
         }
-        val actualSizeBytes = file.length().coerceAtLeast(0L)
+        val actualSizeBytes =
+            try {
+                awaitSegmentReadyForUpload(file)
+            } catch (error: Exception) {
+                deferPendingSegmentUntilMp4Ready(uploadSegment)
+                return false
+            }
         if (actualSizeBytes <= 0L) {
             Log.w(
                 TAG,
@@ -2025,12 +2134,24 @@ class MatchRecordingCoordinator(
         }
 
         val pendingSegment =
-            if (uploadSegment.sizeBytes != actualSizeBytes) {
-                val updated = uploadSegment.copy(sizeBytes = actualSizeBytes)
-                replacePendingSegment(updated)
-                updated
-            } else {
-                uploadSegment
+            run {
+                val nextUploadMode =
+                    if (actualSizeBytes > 0L && actualSizeBytes < MIN_MULTIPART_OBJECT_SIZE_BYTES) {
+                        "legacy_single_put"
+                    } else {
+                        "multipart"
+                    }
+                if (uploadSegment.sizeBytes != actualSizeBytes || uploadSegment.uploadMode != nextUploadMode) {
+                    val updated =
+                        uploadSegment.copy(
+                            sizeBytes = actualSizeBytes,
+                            uploadMode = nextUploadMode,
+                        )
+                    replacePendingSegment(updated)
+                    updated
+                } else {
+                    uploadSegment
+                }
             }
 
         if (pendingSegment.uploadMode.equals("legacy_single_put", ignoreCase = true)) {
