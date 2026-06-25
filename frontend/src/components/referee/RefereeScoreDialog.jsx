@@ -2063,8 +2063,6 @@ export default function RefereeScoreDialog({
     if (isOpeningServeLocked) return;
     const preStartOpening = isDouble && isPreStartOrOpening;
     const currentServe = localServeRef.current || serveState || {};
-    const baseForLookup = localBaseRef.current || currentBase;
-    const layoutForServe = localLayoutRef.current || currentLayout;
     const effectiveSide =
       currentServe?.side === "A" || currentServe?.side === "B"
         ? currentServe.side
@@ -2078,17 +2076,18 @@ export default function RefereeScoreDialog({
       : effectiveServerNum === 1
         ? 2
         : 1;
-    const nextSlot = preStartOpening
-      ? preStartRightSlotForSide(effectiveSide, layoutForServe)
-      : nextServer;
-    let serverId = findUidAtCurrentSlot(effectiveSide, nextSlot, baseForLookup);
-    if (!serverId) {
-      const teamPlayers = pairPlayers[effectiveSide] || [];
-      serverId =
-        teamPlayers
-          .map((player) => userIdOf(player))
-          .find((uid) => uid && uid !== textOf(currentServe?.serverId)) || "";
-    }
+    // Đổi tay = chuyển giao sang người còn lại trong đội (đối tác của người đang
+    // cầm bóng). Lấy đối tác theo serverUidShow — người đang hiển thị bóng trên
+    // màn — thay vì dò theo slots.base. Base có thể trống/sai nên cách cũ hay trả
+    // về cùng một người, khiến bóng không nhảy và lưu sai (reload vẫn sai).
+    // Khớp với logic màn chấm trận trên app mobile.
+    const teamPlayers = pairPlayers[effectiveSide] || [];
+    const serverId =
+      teamPlayers
+        .map((player) => userIdOf(player))
+        .find((uid) => uid && uid !== serverUidShow) ||
+      serverUidShow ||
+      "";
     const nextServe = {
       side: effectiveSide,
       server: nextServer,
@@ -2114,16 +2113,14 @@ export default function RefereeScoreDialog({
     activeServerNum,
     activeSide,
     api,
-    currentBase,
     currentGame,
-    currentLayout,
-    findUidAtCurrentSlot,
     isDouble,
     isOpeningServeLocked,
     isPreStartOrOpening,
     match?._id,
     pairPlayers,
     runLiveControlBusy,
+    serverUidShow,
     serveState,
   ]);
 
