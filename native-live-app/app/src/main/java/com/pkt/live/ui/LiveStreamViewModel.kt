@@ -121,6 +121,7 @@ class LiveStreamViewModel(
     private var primaryStartRetryJob: Job? = null
     private var armedStartWatchdogJob: Job? = null
     private val recordingStartMutex = Mutex()
+    private var recordOnlyStartMatchId: String? = null
     private var primaryStartRetryAttempt: Int = 0
     private var lastNextCourtFallbackProbeMs: Long = 0L
     private var liveDeviceTelemetryJob: Job? = null
@@ -936,6 +937,10 @@ class LiveStreamViewModel(
         val normalizedMatchId = targetMatchId.trim()
         if (normalizedMatchId.isBlank()) return false
 
+        if (recordOnlyStartMatchId == normalizedMatchId && goLiveCountdownJob?.isActive == true) {
+            return true
+        }
+
         val engine = recordingEngineState.value
         if (
             engine.matchId == normalizedMatchId &&
@@ -1067,7 +1072,17 @@ class LiveStreamViewModel(
     }
 
     private suspend fun startRecordOnly() {
+        val pendingRecordOnlyMatchId = matchId.takeIf { it.isNotBlank() } ?: run {
+            _errorMessage.value = "ChÆ°a cÃ³ tráº­n Ä‘á»ƒ ghi hÃ¬nh."
+            return
+        }
+        if (recordOnlyStartMatchId == pendingRecordOnlyMatchId || goLiveCountdownJob?.isActive == true) {
+            return
+        }
         if (recordingEngineIsActiveOrResuming() || recordingUiState.value.status == "preparing") {
+            if (isRecordingActiveOrStartingForMatch(pendingRecordOnlyMatchId)) {
+                cancelPrimaryStartRetry()
+            }
             return
         }
         if (_matchTransitioning.value) {
@@ -1079,8 +1094,10 @@ class LiveStreamViewModel(
             return
         }
         if (isRecordingActiveOrStartingForMatch(targetMatchId)) {
+            cancelPrimaryStartRetry()
             return
         }
+        recordOnlyStartMatchId = targetMatchId
         recordingCoordinator.setLiveCriticalPathBusy(true)
         try {
             _errorMessage.value = null
@@ -1088,8 +1105,14 @@ class LiveStreamViewModel(
             _waitingForCourt.value = false
             _waitingForMatchLive.value = false
             if (!runGoLiveCountdown(targetMatchId)) return
-            maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = false)
+            val started = maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = false)
+            if (started && isRecordingActiveOrStartingForMatch(targetMatchId)) {
+                cancelPrimaryStartRetry()
+            }
         } finally {
+            if (recordOnlyStartMatchId == targetMatchId) {
+                recordOnlyStartMatchId = null
+            }
             recordingCoordinator.setLiveCriticalPathBusy(false)
         }
     }

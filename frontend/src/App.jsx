@@ -277,10 +277,22 @@ const App = () => {
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
   const isImmersiveLiveFeedPage = location.pathname === "/live";
+  const isOverlayStudioPage = /\/tournament\/[^/]+\/overlay-studio$/.test(
+    location.pathname,
+  );
   const isModernHomeRoute = isModernVersion && location.pathname === "/";
+  const isFullScreenLayout =
+    isAuthPage ||
+    isImmersiveLiveFeedPage ||
+    isModernHomeRoute ||
+    isOverlayStudioPage;
   const hideMobileBottomNav = isModernHomeRoute;
   const shouldShowPikora =
-    pikoraEnabled && !isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute;
+    pikoraEnabled &&
+    !isAuthPage &&
+    !isImmersiveLiveFeedPage &&
+    !isModernHomeRoute &&
+    !isOverlayStudioPage;
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -343,12 +355,10 @@ const App = () => {
       <CheckpointRealtimeGate />
       <SentryRuntimeSync />
       <NativeWebViewAuthBridge />
-      {!isAuthPage && !isImmersiveLiveFeedPage && !isModernHomeRoute && (
-        <Header />
-      )}
+      {!isFullScreenLayout && <Header />}
       <ToastContainer theme={isDark ? "dark" : "light"} />
 
-      {isAuthPage || isImmersiveLiveFeedPage || isModernHomeRoute ? (
+      {isFullScreenLayout ? (
         <Outlet />
       ) : (
         <Container className="app-shell">

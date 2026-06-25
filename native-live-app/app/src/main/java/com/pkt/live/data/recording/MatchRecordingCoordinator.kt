@@ -4,7 +4,8 @@ import android.content.Context
 import android.os.StatFs
 import android.util.Log
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
 import com.pkt.live.data.model.MatchRecording
 import com.pkt.live.data.model.RecordingStorageFailoverEntry
 import com.pkt.live.data.model.RecordingPresignedUpload
@@ -546,8 +547,8 @@ class MatchRecordingCoordinator(
         recording: MatchRecording?,
     ): RecordingStorageFailoverEntry? {
         val latest =
-            recording?.latestStorageFailover
-                ?: recording?.storageFailoverHistory?.lastOrNull()
+            runCatching { recording?.latestStorageFailover }.getOrNull()
+                ?: runCatching { recording?.storageFailoverHistory?.lastOrNull() }.getOrNull()
                 ?: return null
         val hasSignal =
             !latest.fromTargetId.isNullOrBlank() ||
@@ -2432,13 +2433,114 @@ class MatchRecordingCoordinator(
         return try {
             if (!manifestFile.exists()) return RecordingQueueManifest()
             val text = manifestFile.readText()
-            gson.fromJson(text, object : TypeToken<RecordingQueueManifest>() {}.type)
-                ?: RecordingQueueManifest()
+            parseManifestJson(text)
         } catch (error: Exception) {
             Log.e(TAG, "loadManifest failed", error)
             RecordingQueueManifest()
         }
     }
+
+    private fun parseManifestJson(text: String): RecordingQueueManifest {
+        val root =
+            runCatching { gson.fromJson(text, JsonObject::class.java) }
+                .getOrNull()
+                ?: return RecordingQueueManifest()
+        val pendingSegments =
+            root.getArrayElements("pendingSegments")
+                .mapNotNull(::parsePendingRecordingSegment)
+        val pendingFinalizations =
+            root.getArrayElements("pendingFinalizations")
+                .mapNotNull(::parsePendingFinalizeRecording)
+        return RecordingQueueManifest(
+            pendingSegments = pendingSegments,
+            pendingFinalizations = pendingFinalizations,
+        )
+    }
+
+    private fun parsePendingRecordingSegment(el: JsonElement): PendingRecordingSegment? {
+        val obj = el.asObjectOrNull() ?: return null
+        val recordingId = obj.getStringOrNull("recordingId") ?: return null
+        val recordingSessionId = obj.getStringOrNull("recordingSessionId") ?: return null
+        val matchId = obj.getStringOrNull("matchId") ?: return null
+        val localPath = obj.getStringOrNull("localPath") ?: return null
+        return PendingRecordingSegment(
+            recordingId = recordingId,
+            recordingSessionId = recordingSessionId,
+            matchId = matchId,
+            courtId = obj.getStringOrNull("courtId"),
+            mode = obj.getStringOrNull("mode") ?: StreamMode.STREAM_AND_RECORD.name,
+            qualityLabel = obj.getStringOrNull("qualityLabel").orEmpty(),
+            localPath = localPath,
+            segmentIndex = obj.getIntOrNull("segmentIndex") ?: 0,
+            startedAt = obj.getStringOrNull("startedAt"),
+            durationSeconds = obj.getDoubleOrNull("durationSeconds") ?: 0.0,
+            sizeBytes = obj.getLongOrNull("sizeBytes") ?: 0L,
+            isFinal = obj.getBoolOrNull("isFinal") ?: false,
+            uploadMode = obj.getStringOrNull("uploadMode"),
+            uploadId = obj.getStringOrNull("uploadId"),
+            objectKey = obj.getStringOrNull("objectKey"),
+            partSizeBytes = obj.getLongOrNull("partSizeBytes"),
+            completedParts =
+                obj.getArrayElements("completedParts")
+                    .mapNotNull(::parsePendingRecordingPart)
+                    .takeIf { it.isNotEmpty() },
+            nextByteOffset = obj.getLongOrNull("nextByteOffset"),
+            isProvisional = obj.getBoolOrNull("isProvisional") ?: false,
+            retryCount = obj.getIntOrNull("retryCount") ?: 0,
+            nextRetryAtMs = obj.getLongOrNull("nextRetryAtMs") ?: 0L,
+        )
+    }
+
+    private fun parsePendingRecordingPart(el: JsonElement): PendingRecordingPart? {
+        val obj = el.asObjectOrNull() ?: return null
+        val etag = obj.getStringOrNull("etag") ?: return null
+        return PendingRecordingPart(
+            partNumber = obj.getIntOrNull("partNumber") ?: return null,
+            etag = etag,
+            sizeBytes = obj.getLongOrNull("sizeBytes") ?: 0L,
+        )
+    }
+
+    private fun parsePendingFinalizeRecording(el: JsonElement): PendingFinalizeRecording? {
+        val obj = el.asObjectOrNull() ?: return null
+        val recordingId = obj.getStringOrNull("recordingId") ?: return null
+        val matchId = obj.getStringOrNull("matchId") ?: return null
+        return PendingFinalizeRecording(
+            recordingId = recordingId,
+            matchId = matchId,
+            recordingSessionId = obj.getStringOrNull("recordingSessionId"),
+            courtId = obj.getStringOrNull("courtId"),
+            mode = obj.getStringOrNull("mode"),
+            qualityLabel = obj.getStringOrNull("qualityLabel"),
+            retryCount = obj.getIntOrNull("retryCount") ?: 0,
+            nextRetryAtMs = obj.getLongOrNull("nextRetryAtMs") ?: 0L,
+        )
+    }
+
+    private fun JsonObject.getArrayElements(key: String): List<JsonElement> {
+        val value = get(key) ?: return emptyList()
+        return if (!value.isJsonNull && value.isJsonArray) value.asJsonArray.toList() else emptyList()
+    }
+
+    private fun JsonElement.asObjectOrNull(): JsonObject? =
+        if (!isJsonNull && isJsonObject) asJsonObject else null
+
+    private fun JsonObject.getStringOrNull(key: String): String? =
+        get(key)
+            ?.takeIf { !it.isJsonNull }
+            ?.let { runCatching { it.asString.trim().takeIf(String::isNotBlank) }.getOrNull() }
+
+    private fun JsonObject.getIntOrNull(key: String): Int? =
+        get(key)?.takeIf { !it.isJsonNull }?.let { runCatching { it.asInt }.getOrNull() }
+
+    private fun JsonObject.getLongOrNull(key: String): Long? =
+        get(key)?.takeIf { !it.isJsonNull }?.let { runCatching { it.asLong }.getOrNull() }
+
+    private fun JsonObject.getDoubleOrNull(key: String): Double? =
+        get(key)?.takeIf { !it.isJsonNull }?.let { runCatching { it.asDouble }.getOrNull() }
+
+    private fun JsonObject.getBoolOrNull(key: String): Boolean? =
+        get(key)?.takeIf { !it.isJsonNull }?.let { runCatching { it.asBoolean }.getOrNull() }
 
     private fun persistManifestLocked() {
         try {

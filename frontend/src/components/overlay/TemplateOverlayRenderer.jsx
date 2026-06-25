@@ -78,8 +78,8 @@ function layerBaseStyle(layer, canvas, mode, selected) {
 
 function renderLayer(layer, canvas, values, mode, editorProps = {}) {
   const selected = editorProps.selectedLayerId === layer?.id;
+  const layerKey = layer?.id;
   const common = {
-    key: layer?.id,
     "data-layer-id": layer?.id,
     style: layerBaseStyle(layer, canvas, mode, selected),
     onPointerDown: (event) => editorProps.onLayerPointerDown?.(event, layer),
@@ -87,7 +87,7 @@ function renderLayer(layer, canvas, values, mode, editorProps = {}) {
   };
 
   if (layer?.type === "rect") {
-    return <div {...common} aria-label={layer?.label || "shape"} />;
+    return <div key={layerKey} {...common} aria-label={layer?.label || "shape"} />;
   }
 
   if (layer?.type === "image") {
@@ -96,7 +96,7 @@ function renderLayer(layer, canvas, values, mode, editorProps = {}) {
         ? values["tournament.logoUrl"] || layer?.src
         : layer?.src;
     return (
-      <div {...common}>
+      <div key={layerKey} {...common}>
         {src ? (
           <img
             src={src}
@@ -116,7 +116,7 @@ function renderLayer(layer, canvas, values, mode, editorProps = {}) {
     );
   }
 
-  return <div {...common}>{resolveOverlayTemplateValue(layer, values)}</div>;
+  return <div key={layerKey} {...common}>{resolveOverlayTemplateValue(layer, values)}</div>;
 }
 
 export default function TemplateOverlayRenderer({

@@ -23,10 +23,12 @@ import {
   Save as SaveIcon,
   Send as PublishIcon,
 } from "@mui/icons-material";
+import { alpha } from "@mui/material/styles";
 import { toast } from "react-toastify";
 
 import TemplateOverlayRenderer from "../../components/overlay/TemplateOverlayRenderer.jsx";
 import { overlayTemplateBindingOptions } from "../../utils/overlayTemplateBindings.js";
+import { overlaySystemTemplates } from "../../utils/overlayTemplateSystemTemplates.js";
 import {
   useCloneOverlayTemplateMutation,
   useListOverlayTemplateLibraryQuery,
@@ -36,6 +38,108 @@ import {
 } from "../../slices/overlayTemplateApiSlice.js";
 
 const DEFAULT_CANVAS = { width: 1920, height: 1080 };
+
+const editorRootSx = {
+  minHeight: "100vh",
+  bgcolor: (theme) => (theme.palette.mode === "dark" ? "#080b12" : "#f4f6fb"),
+  p: { xs: 1, md: 1.5 },
+};
+
+const topBarSx = (theme) => ({
+  px: { xs: 1.25, md: 1.5 },
+  py: 1.25,
+  borderRadius: 2,
+  border: `1px solid ${alpha(theme.palette.divider, 0.78)}`,
+  bgcolor:
+    theme.palette.mode === "dark"
+      ? alpha("#111827", 0.96)
+      : alpha(theme.palette.background.paper, 0.96),
+});
+
+const panelSx = (theme) => ({
+  borderRadius: 2,
+  border: `1px solid ${alpha(theme.palette.divider, 0.82)}`,
+  bgcolor:
+    theme.palette.mode === "dark"
+      ? alpha("#10141d", 0.96)
+      : theme.palette.background.paper,
+  overflow: "hidden",
+});
+
+const panelHeaderSx = {
+  px: 1.5,
+  py: 1.25,
+  borderBottom: "1px solid",
+  borderColor: "divider",
+};
+
+const panelBodySx = {
+  p: 1.25,
+};
+
+const templateButtonSx = (active) => (theme) => ({
+  width: "100%",
+  justifyContent: "flex-start",
+  alignItems: "stretch",
+  textAlign: "left",
+  textTransform: "none",
+  borderRadius: 1.5,
+  p: 1.1,
+  color: "text.primary",
+  border: `1px solid ${
+    active
+      ? alpha(theme.palette.primary.main, 0.62)
+      : alpha(theme.palette.divider, 0.85)
+  }`,
+  bgcolor: active
+    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.1)
+    : alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.035 : 0.025),
+  "&:hover": {
+    borderColor: alpha(theme.palette.primary.main, 0.72),
+    bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.12),
+  },
+});
+
+const layerButtonSx = (active) => (theme) => ({
+  width: "100%",
+  justifyContent: "space-between",
+  textAlign: "left",
+  textTransform: "none",
+  borderRadius: 1.5,
+  px: 1,
+  py: 0.75,
+  color: "text.primary",
+  border: `1px solid ${
+    active
+      ? alpha(theme.palette.primary.main, 0.58)
+      : alpha(theme.palette.divider, 0.75)
+  }`,
+  bgcolor: active
+    ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.1)
+    : "transparent",
+  "&:hover": {
+    borderColor: alpha(theme.palette.primary.main, 0.62),
+    bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08),
+  },
+});
+
+const canvasSurfaceSx = {
+  backgroundColor: "#111827",
+  backgroundImage: `
+    linear-gradient(45deg, rgba(255,255,255,0.055) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255,255,255,0.055) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.055) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.055) 75%)
+  `,
+  backgroundSize: "32px 32px",
+  backgroundPosition: "0 0, 0 16px, 16px -16px, -16px 0",
+};
+
+const fieldGridSx = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 1,
+};
 
 const previewValues = {
   "tournament.name": "Test giải 4",
@@ -153,8 +257,11 @@ export default function OverlayStudioPage() {
   });
   const [selectedLayerId, setSelectedLayerId] = useState("");
 
-  const { data: library = [], isLoading: loadingLibrary } =
-    useListOverlayTemplateLibraryQuery();
+  const {
+    data: remoteLibrary = [],
+    isLoading: loadingLibrary,
+    isError: libraryError,
+  } = useListOverlayTemplateLibraryQuery();
   const { data: savedTemplates = [], isLoading: loadingSaved } =
     useListOverlayTemplatesQuery(
       { tournamentId },
@@ -167,6 +274,9 @@ export default function OverlayStudioPage() {
     usePublishOverlayTemplateMutation();
 
   const busy = cloning || updating || publishing;
+  const library = remoteLibrary.length ? remoteLibrary : overlaySystemTemplates;
+  const usingLocalLibrary = !remoteLibrary.length;
+  const hasLayers = Array.isArray(document.layers) && document.layers.length > 0;
   const selectedLayer = useMemo(
     () => getLayer(document, selectedLayerId),
     [document, selectedLayerId],
@@ -341,52 +451,105 @@ export default function OverlayStudioPage() {
     : "";
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", p: 2 }}>
-      <Stack spacing={2}>
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={1.5}
-          alignItems={{ xs: "stretch", md: "center" }}
-          justifyContent="space-between"
-        >
-          <Box>
-            <Typography variant="h5" fontWeight={800}>
-              Overlay Studio
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Chọn template có sẵn, chỉnh layer và publish cho live overlay.
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1} flexWrap="wrap">
-            {livePreviewUrl ? (
-              <Button
-                component={Link}
-                to={livePreviewUrl}
-                target="_blank"
-                rel="noreferrer"
-                startIcon={<OpenInNewIcon />}
+    <Box sx={editorRootSx}>
+      <Stack spacing={1.5}>
+        <Paper elevation={0} sx={topBarSx}>
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={1.25}
+            alignItems={{ xs: "stretch", md: "center" }}
+            justifyContent="space-between"
+          >
+            <Stack direction="row" spacing={1.25} alignItems="center" minWidth={0}>
+              <Box
+                sx={(theme) => ({
+                  width: 36,
+                  height: 36,
+                  borderRadius: 1.5,
+                  display: "grid",
+                  placeItems: "center",
+                  fontWeight: 900,
+                  color: theme.palette.primary.main,
+                  bgcolor: alpha(theme.palette.primary.main, 0.14),
+                  border: `1px solid ${alpha(theme.palette.primary.main, 0.24)}`,
+                  flex: "0 0 auto",
+                })}
               >
-                Preview live
+                OS
+              </Box>
+              <Box minWidth={0}>
+                <Typography variant="h6" fontWeight={900} lineHeight={1.15}>
+                  Overlay Studio
+                </Typography>
+                <Stack
+                  direction="row"
+                  spacing={0.75}
+                  alignItems="center"
+                  flexWrap="wrap"
+                  sx={{ mt: 0.5 }}
+                >
+                  <Chip
+                    size="small"
+                    label={
+                      scopeType === "match"
+                        ? "Trận"
+                        : scopeType === "bracket"
+                          ? "Bracket"
+                          : "Giải"
+                    }
+                    variant="outlined"
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    {canvas.width} x {canvas.height}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {document.layers.length} layer
+                  </Typography>
+                </Stack>
+              </Box>
+            </Stack>
+
+            <Stack
+              direction="row"
+              spacing={1}
+              flexWrap="wrap"
+              justifyContent={{ xs: "flex-start", md: "flex-end" }}
+              useFlexGap
+            >
+              {livePreviewUrl ? (
+                <Button
+                  component={Link}
+                  to={livePreviewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  size="small"
+                  variant="outlined"
+                  startIcon={<OpenInNewIcon />}
+                >
+                  Preview live
+                </Button>
+              ) : null}
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<SaveIcon />}
+                disabled={busy || !tournamentId}
+                onClick={saveDraft}
+              >
+                Lưu draft
               </Button>
-            ) : null}
-            <Button
-              variant="outlined"
-              startIcon={<SaveIcon />}
-              disabled={busy || !tournamentId}
-              onClick={saveDraft}
-            >
-              Lưu draft
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<PublishIcon />}
-              disabled={busy || !tournamentId}
-              onClick={publishCurrent}
-            >
-              Publish
-            </Button>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<PublishIcon />}
+                disabled={busy || !tournamentId}
+                onClick={publishCurrent}
+              >
+                Publish
+              </Button>
+            </Stack>
           </Stack>
-        </Stack>
+        </Paper>
 
         {!tournamentId ? (
           <Alert severity="warning">
@@ -397,328 +560,440 @@ export default function OverlayStudioPage() {
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: { xs: "1fr", lg: "280px minmax(0,1fr) 320px" },
-            gap: 2,
-            alignItems: "start",
+            gridTemplateColumns: { xs: "1fr", lg: "300px minmax(0,1fr) 344px" },
+            gap: 1.5,
+            alignItems: "stretch",
           }}
         >
-          <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
-              Template hệ thống
-            </Typography>
-            <Stack spacing={1}>
-              {loadingLibrary ? (
-                <Typography variant="body2" color="text.secondary">
-                  Đang tải template...
+          <Paper elevation={0} sx={panelSx}>
+            <Box sx={panelHeaderSx}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="overline" fontWeight={900} color="text.secondary">
+                  Template hệ thống
                 </Typography>
-              ) : (
-                library.map((template) => (
-                  <Button
-                    key={template.id || template.key}
-                    variant={
-                      selectedTemplateId === (template.id || template.key)
-                        ? "contained"
-                        : "outlined"
-                    }
-                    onClick={() => applyTemplate(template, false)}
-                    sx={{ justifyContent: "flex-start", textAlign: "left" }}
-                  >
-                    {template.name}
-                  </Button>
-                ))
-              )}
-            </Stack>
-
-            <Divider sx={{ my: 2 }} />
-
-            <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
-              Bản đã lưu
-            </Typography>
-            <Stack spacing={1}>
-              {loadingSaved ? (
-                <Typography variant="body2" color="text.secondary">
-                  Đang tải bản đã lưu...
-                </Typography>
-              ) : savedTemplates.length ? (
-                savedTemplates.map((template) => (
-                  <Button
-                    key={template.id}
-                    variant={savedTemplateId === template.id ? "contained" : "outlined"}
-                    color={template.status === "published" ? "success" : "primary"}
-                    onClick={() => applyTemplate(template, true)}
-                    sx={{ justifyContent: "space-between", textAlign: "left" }}
-                  >
-                    <span>{template.name}</span>
-                    {template.status === "published" ? (
-                      <Chip size="small" label="Live" color="success" />
-                    ) : null}
-                  </Button>
-                ))
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  Chưa có draft nào.
-                </Typography>
-              )}
-            </Stack>
-          </Paper>
-
-          <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1}
-              alignItems={{ xs: "stretch", md: "center" }}
-              justifyContent="space-between"
-              sx={{ mb: 1.5 }}
-            >
-              <TextField
-                size="small"
-                label="Tên template"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                sx={{ minWidth: { xs: "100%", md: 320 } }}
-              />
-              <Stack direction="row" spacing={1}>
-                <Button
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={() => addLayer("teamA.name")}
-                >
-                  Text
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={() => addLayer("scoreA")}
-                >
-                  Điểm
-                </Button>
-                <Button
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={() => addLayer("rect")}
-                >
-                  Nền
-                </Button>
+                <Chip size="small" label={library.length} variant="outlined" />
               </Stack>
-            </Stack>
+            </Box>
+            <Box sx={panelBodySx}>
+              {usingLocalLibrary && (loadingLibrary || libraryError) ? (
+                <Alert severity={libraryError ? "warning" : "info"} sx={{ mb: 1.25 }}>
+                  Đang dùng template mẫu cục bộ. Nếu không lưu được, hãy khởi động lại backend.
+                </Alert>
+              ) : null}
+              <Stack spacing={0.9}>
+                {library.map((template) => {
+                  const templateId = template.id || template.key;
+                  const active = selectedTemplateId === templateId;
+                  return (
+                    <Button
+                      key={templateId}
+                      variant="text"
+                      onClick={() => applyTemplate(template, false)}
+                      sx={templateButtonSx(active)}
+                    >
+                      <Stack spacing={0.35} sx={{ width: "100%", minWidth: 0 }}>
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          alignItems="center"
+                          justifyContent="space-between"
+                          sx={{ minWidth: 0 }}
+                        >
+                          <Typography
+                            variant="body2"
+                            fontWeight={800}
+                            noWrap
+                            sx={{ minWidth: 0 }}
+                          >
+                            {template.name}
+                          </Typography>
+                          {active ? (
+                            <Chip size="small" color="primary" label="Chọn" />
+                          ) : null}
+                        </Stack>
+                        {template.description ? (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ whiteSpace: "normal" }}
+                          >
+                            {template.description}
+                          </Typography>
+                        ) : null}
+                      </Stack>
+                    </Button>
+                  );
+                })}
+              </Stack>
 
-            <Box
-              ref={canvasWrapRef}
-              sx={{
-                border: "1px solid",
-                borderColor: "divider",
-                bgcolor: "#0f172a",
-                overflow: "hidden",
-              }}
-            >
-              <TemplateOverlayRenderer
-                mode="editor"
-                document={document}
-                canvas={canvas}
-                values={previewValues}
-                selectedLayerId={selectedLayerId}
-                onLayerPointerDown={handleLayerPointerDown}
-                onLayerClick={(event, layer) => {
-                  event.stopPropagation();
-                  setSelectedLayerId(layer.id);
-                }}
-                style={{ background: "#101827" }}
-              />
+              <Divider sx={{ my: 1.5 }} />
+
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="overline" fontWeight={900} color="text.secondary">
+                  Bản đã lưu
+                </Typography>
+                <Chip size="small" label={savedTemplates.length} variant="outlined" />
+              </Stack>
+              <Stack spacing={0.9} sx={{ mt: 0.75 }}>
+                {loadingSaved ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Đang tải bản đã lưu...
+                  </Typography>
+                ) : savedTemplates.length ? (
+                  savedTemplates.map((template) => {
+                    const active = savedTemplateId === template.id;
+                    return (
+                      <Button
+                        key={template.id}
+                        variant="text"
+                        onClick={() => applyTemplate(template, true)}
+                        sx={templateButtonSx(active)}
+                      >
+                        <Stack
+                          direction="row"
+                          spacing={0.75}
+                          alignItems="center"
+                          justifyContent="space-between"
+                          sx={{ width: "100%", minWidth: 0 }}
+                        >
+                          <Typography variant="body2" fontWeight={800} noWrap>
+                            {template.name}
+                          </Typography>
+                          {template.status === "published" ? (
+                            <Chip size="small" label="Live" color="success" />
+                          ) : null}
+                        </Stack>
+                      </Button>
+                    );
+                  })
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    Chưa có draft nào.
+                  </Typography>
+                )}
+              </Stack>
             </Box>
           </Paper>
 
-          <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{ mb: 1 }}
-            >
-              <Typography variant="subtitle2" fontWeight={800}>
-                Layer
-              </Typography>
-              <Stack direction="row" spacing={0.5}>
-                <Tooltip title="Nhân bản layer">
-                  <span>
-                    <IconButton
-                      size="small"
-                      disabled={!selectedLayer}
-                      onClick={duplicateSelectedLayer}
-                    >
-                      <ContentCopyIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-                <Tooltip title="Xóa layer">
-                  <span>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      disabled={!selectedLayer}
-                      onClick={deleteSelectedLayer}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </Stack>
-            </Stack>
-
-            <Stack spacing={1} sx={{ mb: 2 }}>
-              {document.layers.map((layer) => (
-                <Button
-                  key={layer.id}
-                  variant={selectedLayerId === layer.id ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() => setSelectedLayerId(layer.id)}
-                  sx={{ justifyContent: "flex-start" }}
-                >
-                  {layer.label || layer.id}
-                </Button>
-              ))}
-            </Stack>
-
-            {selectedLayer ? (
-              <Stack spacing={1.25}>
+          <Paper elevation={0} sx={(theme) => ({ ...panelSx(theme), minWidth: 0 })}>
+            <Box sx={panelHeaderSx}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={1}
+                alignItems={{ xs: "stretch", md: "center" }}
+                justifyContent="space-between"
+              >
                 <TextField
                   size="small"
-                  label="Tên layer"
-                  value={selectedLayer.label || ""}
-                  onChange={(event) =>
-                    patchSelectedLayer({ label: event.target.value })
-                  }
+                  label="Tên template"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  sx={{ minWidth: { xs: "100%", md: 340 }, flex: 1 }}
                 />
-                {selectedLayer.type !== "rect" ? (
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addLayer("teamA.name")}
+                  >
+                    Text
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addLayer("scoreA")}
+                  >
+                    Điểm
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addLayer("rect")}
+                  >
+                    Nền
+                  </Button>
+                </Stack>
+              </Stack>
+            </Box>
+
+            <Box
+              sx={(theme) => ({
+                p: { xs: 1, md: 2 },
+                minHeight: { xs: 320, lg: "calc(100vh - 164px)" },
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                bgcolor: theme.palette.mode === "dark" ? "#090d15" : "#e9edf5",
+              })}
+            >
+              <Box
+                ref={canvasWrapRef}
+                onPointerDown={() => setSelectedLayerId("")}
+                sx={(theme) => ({
+                  ...canvasSurfaceSx,
+                  position: "relative",
+                  width: "100%",
+                  maxWidth: 1280,
+                  aspectRatio: `${canvas.width} / ${canvas.height}`,
+                  border: `1px solid ${alpha(theme.palette.common.white, 0.14)}`,
+                  borderRadius: 1.5,
+                  overflow: "hidden",
+                  boxShadow:
+                    theme.palette.mode === "dark"
+                      ? `0 24px 72px ${alpha(theme.palette.common.black, 0.48)}`
+                      : `0 18px 48px ${alpha(theme.palette.common.black, 0.16)}`,
+                })}
+              >
+                {hasLayers ? (
+                  <TemplateOverlayRenderer
+                    mode="editor"
+                    document={document}
+                    canvas={canvas}
+                    values={previewValues}
+                    selectedLayerId={selectedLayerId}
+                    onLayerPointerDown={handleLayerPointerDown}
+                    onLayerClick={(event, layer) => {
+                      event.stopPropagation();
+                      setSelectedLayerId(layer.id);
+                    }}
+                    style={canvasSurfaceSx}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      p: 3,
+                      textAlign: "center",
+                      color: "rgba(255,255,255,0.82)",
+                    }}
+                  >
+                    <Typography variant="body2">Chưa có layer trong template này.</Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          </Paper>
+
+          <Paper elevation={0} sx={panelSx}>
+            <Box sx={panelHeaderSx}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="overline" fontWeight={900} color="text.secondary">
+                  Layer
+                </Typography>
+                <Stack direction="row" spacing={0.5}>
+                  <Tooltip title="Nhân bản layer">
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={!selectedLayer}
+                        onClick={duplicateSelectedLayer}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Xóa layer">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        disabled={!selectedLayer}
+                        onClick={deleteSelectedLayer}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
+              </Stack>
+            </Box>
+
+            <Box
+              sx={{
+                ...panelBodySx,
+                maxHeight: { lg: "calc(100vh - 112px)" },
+                overflowY: "auto",
+              }}
+            >
+              <Stack spacing={0.75}>
+                {document.layers.map((layer) => {
+                  const active = selectedLayerId === layer.id;
+                  return (
+                    <Button
+                      key={layer.id}
+                      variant="text"
+                      size="small"
+                      onClick={() => setSelectedLayerId(layer.id)}
+                      sx={layerButtonSx(active)}
+                    >
+                      <Typography variant="body2" fontWeight={800} noWrap>
+                        {layer.label || layer.id}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={layer.type === "rect" ? "Nền" : "Text"}
+                        variant="outlined"
+                      />
+                    </Button>
+                  );
+                })}
+              </Stack>
+
+              <Divider sx={{ my: 1.5 }} />
+
+              <Typography
+                variant="overline"
+                fontWeight={900}
+                color="text.secondary"
+                sx={{ display: "block", mb: 1 }}
+              >
+                Thuộc tính
+              </Typography>
+
+              {selectedLayer ? (
+                <Stack spacing={1.15}>
+                  <TextField
+                    size="small"
+                    label="Tên layer"
+                    value={selectedLayer.label || ""}
+                    onChange={(event) =>
+                      patchSelectedLayer({ label: event.target.value })
+                    }
+                    fullWidth
+                  />
+                  {selectedLayer.type !== "rect" ? (
+                    <TextField
+                      select
+                      size="small"
+                      label="Dữ liệu"
+                      value={selectedLayer.binding || "static"}
+                      onChange={(event) =>
+                        patchSelectedLayer({ binding: event.target.value })
+                      }
+                      fullWidth
+                    >
+                      {overlayTemplateBindingOptions.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  ) : null}
+                  {selectedLayer.type !== "rect" ? (
+                    <TextField
+                      size="small"
+                      label="Text dự phòng"
+                      value={selectedLayer.text || ""}
+                      onChange={(event) =>
+                        patchSelectedLayer({ text: event.target.value })
+                      }
+                      fullWidth
+                    />
+                  ) : null}
+                  <Box sx={fieldGridSx}>
+                    {["x", "y", "width", "height"].map((field) => (
+                      <TextField
+                        key={field}
+                        size="small"
+                        type="number"
+                        label={field}
+                        value={selectedLayer[field] ?? 0}
+                        onChange={(event) =>
+                          patchSelectedLayer({ [field]: Number(event.target.value) })
+                        }
+                      />
+                    ))}
+                  </Box>
+                  {selectedLayer.type !== "rect" ? (
+                    <Box sx={fieldGridSx}>
+                      <TextField
+                        size="small"
+                        type="number"
+                        label="Cỡ chữ"
+                        value={selectedLayer.style?.fontSize ?? 36}
+                        onChange={(event) =>
+                          patchSelectedLayer({
+                            style: { fontSize: Number(event.target.value) },
+                          })
+                        }
+                      />
+                      <TextField
+                        size="small"
+                        type="number"
+                        label="Độ đậm"
+                        value={selectedLayer.style?.fontWeight ?? 700}
+                        onChange={(event) =>
+                          patchSelectedLayer({
+                            style: { fontWeight: Number(event.target.value) },
+                          })
+                        }
+                      />
+                    </Box>
+                  ) : null}
+                  <TextField
+                    size="small"
+                    label="Màu chữ"
+                    value={selectedLayer.style?.color || "#ffffff"}
+                    onChange={(event) =>
+                      patchSelectedLayer({ style: { color: event.target.value } })
+                    }
+                    disabled={selectedLayer.type === "rect"}
+                    fullWidth
+                  />
+                  <TextField
+                    size="small"
+                    label="Nền"
+                    value={selectedLayer.style?.background || "transparent"}
+                    onChange={(event) =>
+                      patchSelectedLayer({
+                        style: { background: event.target.value },
+                      })
+                    }
+                    fullWidth
+                  />
+                  <TextField
+                    size="small"
+                    type="number"
+                    label="Bo góc"
+                    value={selectedLayer.style?.borderRadius ?? 0}
+                    onChange={(event) =>
+                      patchSelectedLayer({
+                        style: { borderRadius: Number(event.target.value) },
+                      })
+                    }
+                    fullWidth
+                  />
                   <TextField
                     select
                     size="small"
-                    label="Dữ liệu"
-                    value={selectedLayer.binding || "static"}
+                    label="Căn chữ"
+                    value={selectedLayer.style?.textAlign || "left"}
                     onChange={(event) =>
-                      patchSelectedLayer({ binding: event.target.value })
+                      patchSelectedLayer({
+                        style: { textAlign: event.target.value },
+                      })
                     }
+                    disabled={selectedLayer.type === "rect"}
+                    fullWidth
                   >
-                    {overlayTemplateBindingOptions.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
+                    <MenuItem value="left">Trái</MenuItem>
+                    <MenuItem value="center">Giữa</MenuItem>
+                    <MenuItem value="right">Phải</MenuItem>
                   </TextField>
-                ) : null}
-                {selectedLayer.type !== "rect" ? (
-                  <TextField
-                    size="small"
-                    label="Text fallback"
-                    value={selectedLayer.text || ""}
-                    onChange={(event) =>
-                      patchSelectedLayer({ text: event.target.value })
-                    }
-                  />
-                ) : null}
-                <Box
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 1,
-                  }}
-                >
-                  {["x", "y", "width", "height"].map((field) => (
-                    <TextField
-                      key={field}
-                      size="small"
-                      type="number"
-                      label={field}
-                      value={selectedLayer[field] ?? 0}
-                      onChange={(event) =>
-                        patchSelectedLayer({ [field]: Number(event.target.value) })
-                      }
-                    />
-                  ))}
-                </Box>
-                {selectedLayer.type !== "rect" ? (
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 1,
-                    }}
-                  >
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Font size"
-                      value={selectedLayer.style?.fontSize ?? 36}
-                      onChange={(event) =>
-                        patchSelectedLayer({
-                          style: { fontSize: Number(event.target.value) },
-                        })
-                      }
-                    />
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Weight"
-                      value={selectedLayer.style?.fontWeight ?? 700}
-                      onChange={(event) =>
-                        patchSelectedLayer({
-                          style: { fontWeight: Number(event.target.value) },
-                        })
-                      }
-                    />
-                  </Box>
-                ) : null}
-                <TextField
-                  size="small"
-                  label="Màu chữ"
-                  value={selectedLayer.style?.color || "#ffffff"}
-                  onChange={(event) =>
-                    patchSelectedLayer({ style: { color: event.target.value } })
-                  }
-                  disabled={selectedLayer.type === "rect"}
-                />
-                <TextField
-                  size="small"
-                  label="Nền"
-                  value={selectedLayer.style?.background || "transparent"}
-                  onChange={(event) =>
-                    patchSelectedLayer({
-                      style: { background: event.target.value },
-                    })
-                  }
-                />
-                <TextField
-                  size="small"
-                  type="number"
-                  label="Bo góc"
-                  value={selectedLayer.style?.borderRadius ?? 0}
-                  onChange={(event) =>
-                    patchSelectedLayer({
-                      style: { borderRadius: Number(event.target.value) },
-                    })
-                  }
-                />
-                <TextField
-                  select
-                  size="small"
-                  label="Căn chữ"
-                  value={selectedLayer.style?.textAlign || "left"}
-                  onChange={(event) =>
-                    patchSelectedLayer({
-                      style: { textAlign: event.target.value },
-                    })
-                  }
-                  disabled={selectedLayer.type === "rect"}
-                >
-                  <MenuItem value="left">Trái</MenuItem>
-                  <MenuItem value="center">Giữa</MenuItem>
-                  <MenuItem value="right">Phải</MenuItem>
-                </TextField>
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                Chọn một layer trên canvas hoặc danh sách bên trên để chỉnh.
-              </Typography>
-            )}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Chưa chọn layer.
+                </Typography>
+              )}
+            </Box>
           </Paper>
         </Box>
       </Stack>

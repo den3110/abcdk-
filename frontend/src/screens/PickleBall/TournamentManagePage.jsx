@@ -4623,23 +4623,21 @@ export default function TournamentManagePage() {
               </Button>
             </Tooltip>
 
-            <Tooltip title="Kiểu hiển thị tên trên scoreboard app live" arrow>
-              <TextField
-                select
-                size="small"
-                label="Tên overlay"
-                value={overlayNameStyleValue}
-                onChange={handleOverlayNameStyleChange}
-                disabled={!canManage || savingOverlaySettings}
-                sx={{ flex: "0 1 190px", minWidth: 170, maxWidth: 220 }}
-              >
-                {OVERLAY_NAME_STYLE_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Tooltip>
+            <TextField
+              select
+              size="small"
+              label="Tên overlay"
+              value={overlayNameStyleValue}
+              onChange={handleOverlayNameStyleChange}
+              disabled={!canManage || savingOverlaySettings}
+              sx={{ flex: "0 1 190px", minWidth: 170, maxWidth: 220 }}
+            >
+              {OVERLAY_NAME_STYLE_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
             </Box>
 
             <Box
