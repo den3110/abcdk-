@@ -2610,6 +2610,11 @@ class LiveStreamViewModel(
             stageName = data.stageName.ifBlank { match?.stageName.orEmpty() },
             phaseText = data.phaseText.ifBlank { match?.phaseText.orEmpty() },
             roundLabel = data.roundLabel.ifBlank { match?.roundLabel.orEmpty() },
+            overlayNameStyle =
+                data.overlayNameStyle.takeIf { it in setOf("2", "3", "4") }
+                    ?: match?.overlayNameStyle?.takeIf { it in setOf("1", "2", "3", "4") }
+                    ?: data.overlayNameStyle.takeIf { it in setOf("1", "2", "3", "4") }
+                    ?: "1",
             tournamentLogoUrl =
                 cfg?.tournamentImageUrl?.takeIf { it.isNotBlank() }
                     ?: data.tournamentLogoUrl?.takeIf { it.isNotBlank() }

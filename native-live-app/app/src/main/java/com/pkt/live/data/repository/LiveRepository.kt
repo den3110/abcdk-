@@ -641,6 +641,7 @@ class LiveRepository(
                 ?: computeDisplayCode(obj, labelKey)
         val status = obj.getStr("status") ?: ""
         val displayNameMode = resolveMatchDisplayMode(obj)
+        val overlayNameStyle = resolveOverlayNameStyle(obj)
         val liveVersion = obj.getLong("liveVersion") ?: obj.getLong("version")
 
         val teamsObj = obj.getObj("teams")
@@ -684,6 +685,7 @@ class LiveRepository(
                     id = tournamentId.orEmpty(),
                     name = tournamentName,
                     displayNameMode = resolveMatchDisplayMode(tournamentObj ?: obj),
+                    overlayNameStyle = resolveOverlayNameStyle(tournamentObj ?: obj),
                     logoUrl = tournamentObj?.getObj("overlay")?.getStr("logoUrl")
                         ?: tournamentObj?.getStr("logoUrl")
                         ?: tournamentLogoUrl,
@@ -750,6 +752,7 @@ class LiveRepository(
             code = code,
             displayCode = resolvedDisplayCode,
             displayNameMode = displayNameMode,
+            overlayNameStyle = overlayNameStyle,
             liveVersion = liveVersion,
             teamAName = teamAName,
             teamBName = teamBName,
@@ -1357,7 +1360,19 @@ class LiveRepository(
             isBreak = match.isBreak?.let { !it.isJsonNull && runCatching { it.asBoolean }.getOrDefault(false) } ?: false,
             breakNote = match.breakNote,
             sets = match.gameScores ?: emptyList(),
+            overlayNameStyle = match.overlayNameStyle,
         )
+    }
+
+    private fun resolveOverlayNameStyle(obj: JsonObject?): String {
+        val raw =
+            firstText(
+                obj?.getStr("overlayNameStyle"),
+                obj?.getObj("overlay")?.getStr("overlayNameStyle"),
+                obj?.getObj("tournament")?.getStr("overlayNameStyle"),
+                obj?.getObj("tournament")?.getObj("overlay")?.getStr("overlayNameStyle"),
+            )
+        return if (raw in setOf("1", "2", "3", "4")) raw ?: "1" else "1"
     }
 
     private fun isGroupType(raw: String?): Boolean {

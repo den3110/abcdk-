@@ -17,6 +17,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.pkt.live.data.model.OverlayData
+import com.pkt.live.util.normalizeOverlayNameStyle
+import com.pkt.live.util.overlayTeamNameCandidates
 
 /**
  * Scoreboard overlay — faithful replica of old ScoreOverlayView.kt DefaultV2 design.
@@ -88,18 +90,20 @@ fun ScoreboardOverlay(
             ) {
                 // Team A row
                 V2TeamRow(
-                    name = data.teamAName.uppercase(),
+                    name = data.teamAName,
                     seed = data.seedA,
                     isServing = data.serveSide == "A",
                     serveCount = data.serveCount,
+                    overlayNameStyle = data.overlayNameStyle,
                 )
                 Spacer(modifier = Modifier.height(1.dp))
                 // Team B row
                 V2TeamRow(
-                    name = data.teamBName.uppercase(),
+                    name = data.teamBName,
                     seed = data.seedB,
                     isServing = data.serveSide == "B",
                     serveCount = data.serveCount,
+                    overlayNameStyle = data.overlayNameStyle,
                 )
             }
 
@@ -168,6 +172,7 @@ private fun V2TeamRow(
     seed: Int?,
     isServing: Boolean,
     serveCount: Int,
+    overlayNameStyle: String,
 ) {
     Row(
         modifier = Modifier
@@ -186,15 +191,22 @@ private fun V2TeamRow(
         }
 
         // Team name
-        Text(
-            text = name,
-            color = Color.White,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        BoxWithConstraints(modifier = Modifier.weight(1f)) {
+            val fitted = fitComposeTeamName(
+                rawName = name,
+                style = overlayNameStyle,
+                maxWidthDp = maxWidth.value,
+            )
+            Text(
+                text = fitted.text,
+                color = Color.White,
+                fontSize = fitted.fontSizeSp.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Visible,
+            )
+        }
 
         // Serve dots
         Spacer(modifier = Modifier.width(3.dp))
@@ -222,6 +234,49 @@ private fun V2TeamRow(
         }
     }
 }
+
+private fun fitComposeTeamName(
+    rawName: String,
+    style: String,
+    maxWidthDp: Float,
+): ComposeTeamNameFit {
+    val normalizedStyle = normalizeOverlayNameStyle(style)
+    val candidates = overlayTeamNameCandidates(rawName, normalizedStyle)
+    val sizes = if (normalizedStyle == "2") {
+        listOf(12, 11, 10, 9, 8, 7)
+    } else {
+        listOf(12, 11, 10, 9, 8)
+    }
+    for (candidate in candidates) {
+        for (fontSize in sizes) {
+            if (estimatedTextWidthDp(candidate, fontSize) <= maxWidthDp) {
+                return ComposeTeamNameFit(candidate, fontSize)
+            }
+        }
+    }
+    return ComposeTeamNameFit(
+        text = candidates.lastOrNull().orEmpty().ifBlank { rawName.trim() },
+        fontSizeSp = 8,
+    )
+}
+
+private fun estimatedTextWidthDp(text: String, fontSizeSp: Int): Float {
+    val weightedLength =
+        text.sumOf { ch ->
+            when {
+                ch == ' ' -> 0.35
+                ch == '/' -> 0.45
+                ch.code < 128 -> 0.55
+                else -> 0.62
+            }
+        }
+    return (weightedLength * fontSizeSp).toFloat()
+}
+
+private data class ComposeTeamNameFit(
+    val text: String,
+    val fontSizeSp: Int,
+)
 
 @Composable
 private fun BreakCard(

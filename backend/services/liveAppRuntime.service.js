@@ -80,6 +80,14 @@ function resolveDisplayMode(match) {
     : "nickname";
 }
 
+function resolveOverlayNameStyle(match) {
+  const raw =
+    pick(match?.overlay?.overlayNameStyle) ||
+    pick(match?.bracket?.overlay?.overlayNameStyle) ||
+    pick(match?.tournament?.overlay?.overlayNameStyle);
+  return ["1", "2", "3", "4"].includes(raw) ? raw : "1";
+}
+
 function playerDisplayName(person, displayMode = "nickname") {
   if (displayMode === "fullName") {
     return fullNameOf(person) || preferNick(person);
@@ -809,6 +817,7 @@ function extractDisplayCodeText(value) {
 
 function buildMatchRuntimePayload(match, sideDisplayContext = {}) {
   const displayMode = resolveDisplayMode(match);
+  const overlayNameStyle = resolveOverlayNameStyle(match);
   const matchDisplayOptions =
     sideDisplayContext?.baseByBracketId instanceof Map
       ? { baseByBracketId: sideDisplayContext.baseByBracketId }
@@ -843,6 +852,7 @@ function buildMatchRuntimePayload(match, sideDisplayContext = {}) {
     code: pick(code) || null,
     displayCode: pick(displayCode) || null,
     displayNameMode: displayMode,
+    overlayNameStyle,
     liveVersion: Number(match?.liveVersion || 0),
     teamAName,
     teamBName,
@@ -871,6 +881,7 @@ function buildMatchRuntimePayload(match, sideDisplayContext = {}) {
           _id: toIdString(match.tournament._id),
           name: pick(match.tournament.name),
           displayNameMode: displayMode,
+          overlayNameStyle,
           logoUrl: pick(match.tournament.overlay?.logoUrl) || null,
           imageUrl: tournamentLogoUrl || null,
         }

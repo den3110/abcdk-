@@ -14,6 +14,8 @@ import android.os.HandlerThread
 import android.util.Log
 import com.pkt.live.BuildConfig
 import com.pkt.live.data.model.OverlayData
+import com.pkt.live.util.normalizeOverlayNameStyle
+import com.pkt.live.util.overlayTeamNameCandidates
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -740,11 +742,12 @@ class OverlayBitmapRenderer(
             canvas = canvas,
             y = rowAY,
             h = rowH,
-            name = data.teamAName.uppercase(),
+            name = data.teamAName,
             seed = data.seedA,
             isServing = data.serveSide == "A",
             serveCount = data.serveCount,
             nameAreaW = nameAreaW,
+            overlayNameStyle = data.overlayNameStyle,
         )
 
         val rowBY = rowAY + rowH + 4f
@@ -752,11 +755,12 @@ class OverlayBitmapRenderer(
             canvas = canvas,
             y = rowBY,
             h = rowH,
-            name = data.teamBName.uppercase(),
+            name = data.teamBName,
             seed = data.seedB,
             isServing = data.serveSide == "B",
             serveCount = data.serveCount,
             nameAreaW = nameAreaW,
+            overlayNameStyle = data.overlayNameStyle,
         )
 
         val scoreLeft = w - scoreColW
@@ -800,6 +804,7 @@ class OverlayBitmapRenderer(
         isServing: Boolean,
         serveCount: Int,
         nameAreaW: Float,
+        overlayNameStyle: String,
     ) {
         var x = 14f
 
@@ -810,8 +815,15 @@ class OverlayBitmapRenderer(
 
         val dotAreaW = 36f
         val nameMaxW = nameAreaW - x - dotAreaW - 10f
-        val truncated = truncateText(name, namePaint, nameMaxW)
-        canvas.drawText(truncated, x, y + h / 2f + namePaint.textSize / 3f, namePaint)
+        val baseline = y + h / 2f + namePaint.textSize / 3f
+        drawFittedTeamName(
+            canvas = canvas,
+            rawName = name,
+            style = overlayNameStyle,
+            x = x,
+            baseline = baseline,
+            maxWidth = nameMaxW,
+        )
 
         val dotX = nameAreaW - dotAreaW
         val dotCenterY = y + h / 2f
@@ -873,4 +885,70 @@ class OverlayBitmapRenderer(
         }
         return if (end > 0) "${text.substring(0, end)}..." else text
     }
+
+    private fun drawFittedTeamName(
+        canvas: Canvas,
+        rawName: String,
+        style: String,
+        x: Float,
+        baseline: Float,
+        maxWidth: Float,
+    ) {
+        val originalSize = namePaint.textSize
+        val fit = chooseFittedTeamName(rawName, style, maxWidth)
+        namePaint.textSize = fit.textSize
+        val measured = namePaint.measureText(fit.text)
+        val scaleX = if (measured > maxWidth && measured > 0f) {
+            (maxWidth / measured).coerceAtMost(1f)
+        } else {
+            1f
+        }
+
+        if (scaleX < 1f) {
+            canvas.save()
+            canvas.scale(scaleX, 1f, x, baseline)
+            canvas.drawText(fit.text, x, baseline, namePaint)
+            canvas.restore()
+        } else {
+            canvas.drawText(fit.text, x, baseline, namePaint)
+        }
+        namePaint.textSize = originalSize
+    }
+
+    private fun chooseFittedTeamName(
+        rawName: String,
+        style: String,
+        maxWidth: Float,
+    ): FittedTeamName {
+        val normalizedStyle = normalizeOverlayNameStyle(style)
+        val candidates = overlayTeamNameCandidates(rawName, normalizedStyle)
+        val primarySizes = listOf(28f, 26f, 24f, 22f, 20f, 18f)
+        val compactSizes = listOf(26f, 24f, 22f, 20f, 18f, 16f, 14f)
+        val originalSize = namePaint.textSize
+
+        candidates.forEachIndexed { index, candidate ->
+            val sizes =
+                if (normalizedStyle == "2" || index == 0) {
+                    primarySizes
+                } else {
+                    compactSizes
+                }
+            for (size in sizes) {
+                namePaint.textSize = size
+                if (namePaint.measureText(candidate) <= maxWidth) {
+                    namePaint.textSize = originalSize
+                    return FittedTeamName(candidate, size)
+                }
+            }
+        }
+
+        val fallbackText = candidates.lastOrNull().orEmpty().ifBlank { rawName.trim() }
+        namePaint.textSize = originalSize
+        return FittedTeamName(fallbackText, 14f)
+    }
+
+    private data class FittedTeamName(
+        val text: String,
+        val textSize: Float,
+    )
 }

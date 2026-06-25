@@ -151,6 +151,11 @@ const tournamentSchema = new mongoose.Schema(
       fontFamily: { type: String, default: "" },
       nameScale: { type: Number, default: 1 },
       scoreScale: { type: Number, default: 1 },
+      overlayNameStyle: {
+        type: String,
+        enum: ["1", "2", "3", "4"],
+        default: "1",
+      },
       customCss: { type: String, default: "" },
       logoUrl: { type: String, default: "" },
     },

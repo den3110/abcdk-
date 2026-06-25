@@ -91,6 +91,7 @@ import {
   useAnalyzeRegistrationPosterMutation,
   useUploadRegistrationPosterTemplateMutation,
   useSetRegistrationPosterTemplateUrlMutation,
+  useUpdateOverlayMutation,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -136,6 +137,28 @@ const POSTER_NAME_FONT_OPTIONS = [
 ];
 const POSTER_AI_RUNNING_TIMEOUT_MS = 10 * 60 * 1000;
 const MANAGE_UI_VERSION_STORAGE_KEY = "pickletour.manage.uiVersion";
+const OVERLAY_NAME_STYLE_OPTIONS = [
+  {
+    value: "1",
+    label: "1 - Tự động",
+    helper: "App tự cân chữ, giảm font và viết tắt khi tên quá dài.",
+  },
+  {
+    value: "2",
+    label: "2 - Giữ nguyên",
+    helper: "Không viết hoa, ưu tiên giữ nguyên tên và chỉ co chữ.",
+  },
+  {
+    value: "3",
+    label: "3 - Gọn họ",
+    helper: "Ví dụ Nguyễn Văn An thành N Văn An khi cần.",
+  },
+  {
+    value: "4",
+    label: "4 - Gọn tối đa",
+    helper: "Rút gọn mạnh hơn cho tên rất dài.",
+  },
+];
 
 /* ---------------- helpers ---------------- */
 // ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
@@ -2088,6 +2111,8 @@ export default function TournamentManagePage() {
   ] = useUploadRegistrationPosterTemplateMutation();
   const [setPosterTemplateUrl, { isLoading: settingPosterUrl }] =
     useSetRegistrationPosterTemplateUrlMutation();
+  const [updateOverlay, { isLoading: savingOverlaySettings }] =
+    useUpdateOverlayMutation();
   const [posterTemplateDragging, setPosterTemplateDragging] = useState(false);
   const posterTemplateInputRef = useRef(null);
   const [posterUrlDialogOpen, setPosterUrlDialogOpen] = useState(false);
@@ -2113,6 +2138,35 @@ export default function TournamentManagePage() {
   const canManage = isAdmin || isManager;
   const canReferee = !!verifyRefereeRes?.isReferee;
   const canOpenRefereeCenter = isAdmin || canReferee;
+  const overlayNameStyleValue = useMemo(() => {
+    const value = String(tour?.overlay?.overlayNameStyle || "1");
+    return OVERLAY_NAME_STYLE_OPTIONS.some((option) => option.value === value)
+      ? value
+      : "1";
+  }, [tour?.overlay?.overlayNameStyle]);
+  const selectedOverlayNameStyle = useMemo(
+    () =>
+      OVERLAY_NAME_STYLE_OPTIONS.find(
+        (option) => option.value === overlayNameStyleValue,
+      ) || OVERLAY_NAME_STYLE_OPTIONS[0],
+    [overlayNameStyleValue],
+  );
+  const handleOverlayNameStyleChange = useCallback(
+    async (event) => {
+      const next = String(event.target.value || "1");
+      if (next === overlayNameStyleValue) return;
+      try {
+        await updateOverlay({ id, body: { overlayNameStyle: next } }).unwrap();
+        toast.success("Đã lưu kiểu hiển thị tên overlay");
+        refetchTour?.();
+      } catch (error) {
+        toast.error(
+          error?.data?.message || "Không lưu được kiểu hiển thị tên overlay",
+        );
+      }
+    },
+    [id, overlayNameStyleValue, refetchTour, updateOverlay],
+  );
   const posterTemplateUrl = tour?.registrationPosterConfig?.templateUrl || "";
   const posterAiJob = tour?.registrationPosterConfig?.aiJob || null;
   const posterAiStatus = String(posterAiJob?.status || "");
@@ -3778,6 +3832,11 @@ export default function TournamentManagePage() {
       icon: <MovieIcon fontSize="small" />,
     },
     {
+      value: "overlay",
+      label: "Overlay",
+      icon: <ScoreboardIcon fontSize="small" />,
+    },
+    {
       value: "poster",
       label: "Poster",
       icon: <AutoAwesomeIcon fontSize="small" />,
@@ -3847,6 +3906,43 @@ export default function TournamentManagePage() {
           bracketId={liveSetup.bracketId}
           allowedClusters={tour?.allowedCourtClusters || []}
         />
+      );
+    }
+
+    if (v2SettingsSection === "overlay") {
+      return (
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="h6">Overlay tỉ số</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Chọn cách app live tự xử lý tên đội dài trên scoreboard.
+            </Typography>
+          </Box>
+
+          <TextField
+            select
+            size="small"
+            label="Kiểu hiển thị tên"
+            value={overlayNameStyleValue}
+            onChange={handleOverlayNameStyleChange}
+            disabled={!canManage || savingOverlaySettings}
+            fullWidth
+          >
+            {OVERLAY_NAME_STYLE_OPTIONS.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          <Typography variant="body2" color="text.secondary">
+            {selectedOverlayNameStyle.helper}
+          </Typography>
+
+          {savingOverlaySettings ? (
+            <Chip size="small" color="info" label="Đang lưu..." />
+          ) : null}
+        </Stack>
       );
     }
 

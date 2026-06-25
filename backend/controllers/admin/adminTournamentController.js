@@ -3127,6 +3127,22 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
 });
 
 export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const me = req.user;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid tournament id" });
+  }
+
+  const isAdmin =
+    me?.role === "admin" ||
+    me?.isAdmin === true ||
+    (Array.isArray(me?.roles) && me.roles.includes("admin"));
+  const ownerOrMgr = await canManageTournament(me?._id, id);
+  if (!isAdmin && !ownerOrMgr) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
   const t = await Tournament.findById(req.params.id);
   if (!t) {
     res.status(404);
@@ -3143,6 +3159,7 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
     "fontFamily",
     "nameScale",
     "scoreScale",
+    "overlayNameStyle",
     "customCss",
     "logoUrl",
   ];

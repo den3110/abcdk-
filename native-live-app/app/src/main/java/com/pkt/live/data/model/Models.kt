@@ -10,6 +10,7 @@ data class MatchData(
     val code: String? = null,
     val displayCode: String? = null,
     val displayNameMode: String = "nickname",
+    val overlayNameStyle: String = "1",
     val liveVersion: Long? = null,
     val teamAName: String = "Team A",
     val teamBName: String = "Team B",
@@ -52,6 +53,7 @@ data class TournamentInfo(
     @SerializedName("_id") val id: String = "",
     val name: String = "",
     val displayNameMode: String = "nickname",
+    val overlayNameStyle: String = "1",
     val logoUrl: String? = null,
     val imageUrl: String? = null,
 )
@@ -323,6 +325,7 @@ data class OverlayData(
     val shadow: Boolean = true,
     val nameScale: Float = 1f,
     val scoreScale: Float = 1f,
+    val overlayNameStyle: String = "1",
 
     // Match info
     val tournamentName: String = "",

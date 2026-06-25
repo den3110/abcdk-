@@ -209,6 +209,14 @@ export const resolveMatchDisplayMode = (m) => {
   return raw === "fullName" ? "fullName" : "nickname";
 };
 
+const resolveOverlayNameStyle = (m) => {
+  const raw =
+    pickTrim(m?.overlay?.overlayNameStyle) ||
+    pickTrim(m?.bracket?.overlay?.overlayNameStyle) ||
+    pickTrim(m?.tournament?.overlay?.overlayNameStyle);
+  return ["1", "2", "3", "4"].includes(raw) ? raw : "1";
+};
+
 export const resolvePlayerNickname = (p) =>
   pickTrim(p?.nickname) ||
   pickTrim(p?.nickName) ||
@@ -358,6 +366,7 @@ export const toDTO = (matchDoc) => {
   const m = normalizeMatchDisplayShape(matchDoc);
   const pick = pickTrim;
   const displayMode = resolveMatchDisplayMode(m);
+  const overlayNameStyle = resolveOverlayNameStyle(m);
   const refereeLayout =
     m?.meta?.refereeLayout &&
     typeof m.meta.refereeLayout === "object"
@@ -792,6 +801,7 @@ export const toDTO = (matchDoc) => {
     finishedAt: m.finishedAt || null,
 
     displayNameMode: displayMode,
+    overlayNameStyle,
     liveVersion: m.liveVersion ?? m.version ?? 0,
     version: m.liveVersion ?? m.version ?? 0,
 

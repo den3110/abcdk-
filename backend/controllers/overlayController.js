@@ -1123,6 +1123,11 @@ export async function getOverlayMatch(req, res) {
         typeof baseOverlay.nameScale === "number" ? baseOverlay.nameScale : 1,
       scoreScale:
         typeof baseOverlay.scoreScale === "number" ? baseOverlay.scoreScale : 1,
+      overlayNameStyle: ["1", "2", "3", "4"].includes(
+        String(baseOverlay.overlayNameStyle || "")
+      )
+        ? String(baseOverlay.overlayNameStyle)
+        : "1",
       customCss: baseOverlay.customCss || "",
 
       // ✅ đúng yêu cầu
@@ -1446,6 +1451,7 @@ export async function getOverlayMatch(req, res) {
       teamBName: displayTeamNameB || undefined,
       resolvedSideNameA: displayTeamNameA || undefined,
       resolvedSideNameB: displayTeamNameB || undefined,
+      overlayNameStyle: rootOverlay.overlayNameStyle,
 
       pairA: m?.pairA
         ? {

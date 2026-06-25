@@ -42,10 +42,12 @@ import {
   listComplaints,
 } from "../controllers/complaintsController.js";
 import { createTeamMatch } from "../controllers/teamTournamentController.js";
+import { updateTournamentOverlay } from "../controllers/admin/adminTournamentController.js";
 
 const router = express.Router();
 
 router.route("/").get(optionalAuth, getTournaments);
+router.patch("/:id([0-9a-fA-F]{24})/overlay", protect, updateTournamentOverlay);
 router.route("/:id([0-9a-fA-F]{24})").get(optionalAuth, getTournamentById); // 💡  chi tiết
 // sau này thêm POST / PUT / DELETE nếu cần
 router

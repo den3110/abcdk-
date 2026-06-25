@@ -552,6 +552,7 @@ class MatchSocketManager(
                 tournamentName = extractTournamentName(match) ?: current.tournamentName,
                 courtName = extractCourtName(match) ?: current.courtName,
                 sets = extractSets(match) ?: current.sets,
+                overlayNameStyle = extractOverlayNameStyle(match) ?: current.overlayNameStyle,
             )
             if (updated != current) _overlayData.value = updated
             if (!nextStatus.isNullOrBlank() && nextStatus != _matchStatus.value) {
@@ -671,6 +672,17 @@ class MatchSocketManager(
     private fun extractTeamName(obj: JsonObject, side: String): String? {
         val resolved = resolveSideDisplayName(obj, side, allowRawFallback = true)
         return resolved?.let(::normalizeTeamName)
+    }
+
+    private fun extractOverlayNameStyle(obj: JsonObject): String? {
+        val raw =
+            firstText(
+                obj.getStr("overlayNameStyle"),
+                obj.getObj("overlay")?.getStr("overlayNameStyle"),
+                obj.getObj("tournament")?.getStr("overlayNameStyle"),
+                obj.getObj("tournament")?.getObj("overlay")?.getStr("overlayNameStyle"),
+            )
+        return raw?.takeIf { it in setOf("1", "2", "3", "4") }
     }
 
     private fun chooseTeamName(next: String?, current: String, side: String): String {
