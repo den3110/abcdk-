@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { DateTime } from "luxon";
 import DrawSettingsSchema from "./drawSettingsSchema.js";
 import { es, ES_ENABLED, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
+import { clearTournamentPresentationCaches } from "../services/cacheInvalidation.service.js";
 
 /* ------------ Sub-schemas ------------ */
 const TeleSchema = new mongoose.Schema(
@@ -340,6 +341,26 @@ async function deleteTournamentFromES(id) {
 
 
 /* ------------- Hooks ------------- */
+let tournamentCacheClearTimer = null;
+
+function scheduleTournamentPresentationCacheClear() {
+  if (tournamentCacheClearTimer) return;
+  tournamentCacheClearTimer = setTimeout(async () => {
+    tournamentCacheClearTimer = null;
+    try {
+      await clearTournamentPresentationCaches();
+    } catch (error) {
+      console.warn(
+        "[Tournament.cache] Failed to clear presentation caches:",
+        error?.message || error,
+      );
+    }
+  }, 0);
+  if (typeof tournamentCacheClearTimer.unref === "function") {
+    tournamentCacheClearTimer.unref();
+  }
+}
+
 tournamentSchema.pre("save", function (next) {
   if (this.ageRestriction) {
     this.ageRestriction.minAge = clampAge(this.ageRestriction.minAge);
@@ -381,6 +402,7 @@ tournamentSchema.post("findOneAndUpdate", async function (doc, next) {
 
 /* 🔁 NEW: đồng bộ sang Elasticsearch sau mỗi lần save (create / update) */
 tournamentSchema.post("save", async function (doc) {
+  scheduleTournamentPresentationCacheClear();
   // doc ở đây đã là document sau khi save xong
   await indexTournamentToES(doc);
 });
@@ -388,6 +410,7 @@ tournamentSchema.post("save", async function (doc) {
 /* 🔁 NEW: xoá khỏi Elasticsearch khi dùng findOneAndDelete */
 tournamentSchema.post("findOneAndDelete", async function (doc) {
   if (!doc) return;
+  scheduleTournamentPresentationCacheClear();
   await deleteTournamentFromES(doc._id);
 });
 

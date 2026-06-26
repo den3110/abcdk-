@@ -3,8 +3,7 @@ import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import {
   buildCacheKey,
-  cacheAndSendJson,
-  sendCachedJson,
+  sendCachedJsonWithLoader,
 } from "../utils/httpResponseCache.js";
 
 const LIVE_FEED_CACHE_TTL_MS = Math.max(
@@ -37,11 +36,13 @@ export async function getPublicLiveFeed(req, res) {
   try {
     const params = buildLiveFeedParams(req);
     const cacheKey = buildCacheKey("live-feed:list", params);
-    if (sendCachedJson(res, liveFeedCache, cacheKey, LIVE_FEED_CACHE_TTL_MS)) return;
-
-    const payload = await listLiveFeed(params);
-
-    cacheAndSendJson(res, liveFeedCache, cacheKey, payload, LIVE_FEED_CACHE_TTL_MS);
+    await sendCachedJsonWithLoader(
+      res,
+      liveFeedCache,
+      cacheKey,
+      LIVE_FEED_CACHE_TTL_MS,
+      () => listLiveFeed(params),
+    );
   } catch (error) {
     console.error("getPublicLiveFeed error:", error);
     res.status(500).json({ error: error.message });
@@ -52,11 +53,13 @@ export async function searchPublicLiveFeed(req, res) {
   try {
     const params = buildLiveFeedParams(req, { search: true });
     const cacheKey = buildCacheKey("live-feed:search", params);
-    if (sendCachedJson(res, liveFeedCache, cacheKey, LIVE_FEED_CACHE_TTL_MS)) return;
-
-    const payload = await searchLiveFeed(params);
-
-    cacheAndSendJson(res, liveFeedCache, cacheKey, payload, LIVE_FEED_CACHE_TTL_MS);
+    await sendCachedJsonWithLoader(
+      res,
+      liveFeedCache,
+      cacheKey,
+      LIVE_FEED_CACHE_TTL_MS,
+      () => searchLiveFeed(params),
+    );
   } catch (error) {
     console.error("searchPublicLiveFeed error:", error);
     res.status(500).json({ error: error.message });

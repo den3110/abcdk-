@@ -19,10 +19,10 @@ import { toPublicUrl } from "../utils/publicUrl.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import {
+  beginCachedJsonResponse,
   buildCacheKey,
-  cacheAndSendJson,
   getRequestUserCacheVary,
-  sendCachedJson,
+  sendCachedJsonWithLoader,
 } from "../utils/httpResponseCache.js";
 
 const RANKINGS_CACHE_TTL_MS = Math.max(
@@ -880,11 +880,15 @@ export const getRankings = asyncHandler(async (req, res) => {
   const rankingCacheKey = keywordRaw
     ? ""
     : buildRankingCacheKey(req, "rankings:cursor", { page, limit });
-  if (
-    rankingCacheKey &&
-    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
-  ) {
-    return;
+  let rankingCacheSlot = null;
+  if (rankingCacheKey) {
+    rankingCacheSlot = await beginCachedJsonResponse(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      RANKINGS_CACHE_TTL_MS,
+    );
+    if (rankingCacheSlot.handled) return;
   }
 
   const isAdminForProjection = isAdmin;
@@ -1279,15 +1283,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     remainingTime,
   };
 
-  if (rankingCacheKey) {
-    return cacheAndSendJson(
-      res,
-      rankingResponseCache,
-      rankingCacheKey,
-      payload,
-      RANKINGS_CACHE_TTL_MS,
-    );
-  }
+  if (rankingCacheSlot) return rankingCacheSlot.send(payload);
 
   return res.json(payload);
 });
@@ -1461,11 +1457,15 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
   const rankingCacheKey = keywordRaw
     ? ""
     : buildRankingCacheKey(req, "rankings:v2", { page, limit });
-  if (
-    rankingCacheKey &&
-    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
-  ) {
-    return;
+  let rankingCacheSlot = null;
+  if (rankingCacheKey) {
+    rankingCacheSlot = await beginCachedJsonResponse(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      RANKINGS_CACHE_TTL_MS,
+    );
+    if (rankingCacheSlot.handled) return;
   }
 
   const baseUserProject = {
@@ -1638,15 +1638,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     page,
   };
 
-  if (rankingCacheKey) {
-    return cacheAndSendJson(
-      res,
-      rankingResponseCache,
-      rankingCacheKey,
-      payload,
-      RANKINGS_CACHE_TTL_MS,
-    );
-  }
+  if (rankingCacheSlot) return rankingCacheSlot.send(payload);
 
   return res.json(payload);
 });
@@ -1767,11 +1759,15 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   const rankingCacheKey = keywordRaw
     ? ""
     : buildRankingCacheKey(req, "rankings:only:v2", { page, limit });
-  if (
-    rankingCacheKey &&
-    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
-  ) {
-    return;
+  let rankingCacheSlot = null;
+  if (rankingCacheKey) {
+    rankingCacheSlot = await beginCachedJsonResponse(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      RANKINGS_CACHE_TTL_MS,
+    );
+    if (rankingCacheSlot.handled) return;
   }
 
   const isAdminForProjection = isAdmin;
@@ -1952,15 +1948,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     remainingTime,
   };
 
-  if (rankingCacheKey) {
-    return cacheAndSendJson(
-      res,
-      rankingResponseCache,
-      rankingCacheKey,
-      payload,
-      RANKINGS_CACHE_TTL_MS,
-    );
-  }
+  if (rankingCacheSlot) return rankingCacheSlot.send(payload);
 
   return res.json(payload);
 });
@@ -2075,11 +2063,15 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
   const rankingCacheKey = keywordRaw
     ? ""
     : buildRankingCacheKey(req, "rankings:only", { page, limit });
-  if (
-    rankingCacheKey &&
-    sendCachedJson(res, rankingResponseCache, rankingCacheKey, RANKINGS_CACHE_TTL_MS)
-  ) {
-    return;
+  let rankingCacheSlot = null;
+  if (rankingCacheKey) {
+    rankingCacheSlot = await beginCachedJsonResponse(
+      res,
+      rankingResponseCache,
+      rankingCacheKey,
+      RANKINGS_CACHE_TTL_MS,
+    );
+    if (rankingCacheSlot.handled) return;
   }
 
   const isAdminForProjection = isAdmin;
@@ -2441,15 +2433,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
     remainingTime,
   };
 
-  if (rankingCacheKey) {
-    return cacheAndSendJson(
-      res,
-      rankingResponseCache,
-      rankingCacheKey,
-      payload,
-      RANKINGS_CACHE_TTL_MS,
-    );
-  }
+  if (rankingCacheSlot) return rankingCacheSlot.send(payload);
 
   return res.json(payload);
 });
@@ -2457,16 +2441,14 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
 /* ============================ ✅ NEW: podium30d-only ============================ */
 export const getPodium30d = asyncHandler(async (req, res) => {
   const cacheKey = buildCacheKey("rankings:podium30d", { days: 30 });
-  if (sendCachedJson(res, rankingPodiumCache, cacheKey, RANKINGS_CACHE_TTL_MS)) {
-    return;
-  }
-
-  const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
-  return cacheAndSendJson(
+  return sendCachedJsonWithLoader(
     res,
     rankingPodiumCache,
     cacheKey,
-    { podiums30d: podiumMapByUserId },
     RANKINGS_CACHE_TTL_MS,
+    async () => {
+      const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
+      return { podiums30d: podiumMapByUserId };
+    },
   );
 });

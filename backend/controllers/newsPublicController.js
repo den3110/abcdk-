@@ -3,8 +3,8 @@ import NewsArticle from "../models/newsArticlesModel.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import {
-  cacheAndSendJson,
-  sendCachedJson,
+  beginCachedJsonResponse,
+  sendCachedJsonWithLoader,
 } from "../utils/httpResponseCache.js";
 
 const NEWS_LIST_CACHE_TTL_MS = Math.max(
@@ -103,19 +103,23 @@ function normalizeArticleForResponse(article) {
 export const getNewsList = async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 100);
   const cacheKey = `news:list:${limit}`;
-  if (sendCachedJson(res, newsListCache, cacheKey, NEWS_LIST_CACHE_TTL_MS)) return;
+  await sendCachedJsonWithLoader(
+    res,
+    newsListCache,
+    cacheKey,
+    NEWS_LIST_CACHE_TTL_MS,
+    async () => {
+      const items = await NewsArticle.find({ status: "published" })
+        .sort({ originalPublishedAt: -1, createdAt: -1 })
+        .limit(limit)
+        .select(
+          "slug title summary heroImageUrl thumbImageUrl sourceName originalPublishedAt createdAt tags sourceUrl"
+        )
+        .lean();
 
-  const items = await NewsArticle.find({ status: "published" })
-    .sort({ originalPublishedAt: -1, createdAt: -1 })
-    .limit(limit)
-    .select(
-      "slug title summary heroImageUrl thumbImageUrl sourceName originalPublishedAt createdAt tags sourceUrl"
-    )
-    .lean();
-
-  const normalized = items.map((it) => normalizeArticleForResponse(it));
-
-  cacheAndSendJson(res, newsListCache, cacheKey, normalized, NEWS_LIST_CACHE_TTL_MS);
+      return items.map((it) => normalizeArticleForResponse(it));
+    },
+  );
 };
 
 /**
@@ -125,7 +129,13 @@ export const getNewsList = async (req, res) => {
 export const getNewsDetail = async (req, res) => {
   const slug = String(req.params.slug || "").trim();
   const cacheKey = `news:detail:${slug}`;
-  if (sendCachedJson(res, newsDetailCache, cacheKey, NEWS_DETAIL_CACHE_TTL_MS)) return;
+  const cacheSlot = await beginCachedJsonResponse(
+    res,
+    newsDetailCache,
+    cacheKey,
+    NEWS_DETAIL_CACHE_TTL_MS,
+  );
+  if (cacheSlot.handled) return;
 
   const article = await NewsArticle.findOne({
     slug,
@@ -133,15 +143,10 @@ export const getNewsDetail = async (req, res) => {
   }).lean();
 
   if (!article) {
+    cacheSlot.fail(new Error("news detail not found"));
     return res.status(404).json({ message: "Không tìm thấy bài viết" });
   }
 
   const normalized = normalizeArticleForResponse(article);
-  cacheAndSendJson(
-    res,
-    newsDetailCache,
-    cacheKey,
-    normalized,
-    NEWS_DETAIL_CACHE_TTL_MS,
-  );
+  cacheSlot.send(normalized);
 };

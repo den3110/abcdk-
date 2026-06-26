@@ -9,9 +9,8 @@ import Tournament from "../models/tournamentModel.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import {
+  beginCachedJsonResponse,
   buildCacheKey,
-  cacheAndSendJson,
-  sendCachedJson,
 } from "../utils/httpResponseCache.js";
 
 const LEADERBOARD_CACHE_TTL_MS = Math.max(
@@ -33,6 +32,7 @@ const leaderboardCache = createShortTtlCache(LEADERBOARD_CACHE_TTL_MS, {
  * - Không phải trận tranh hạng 3
  */
 export const getFeaturedLeaderboard = async (req, res, next) => {
+  let cacheSlot = null;
   try {
     const limit = Math.min(
       Math.max(parseInt(req.query.limit ?? "10", 10), 1),
@@ -40,9 +40,13 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
     );
     const minMatches = Math.max(parseInt(req.query.minMatches ?? "3", 10), 0);
     const cacheKey = buildCacheKey("leaderboard:featured", { limit, minMatches });
-    if (sendCachedJson(res, leaderboardCache, cacheKey, LEADERBOARD_CACHE_TTL_MS)) {
-      return;
-    }
+    cacheSlot = await beginCachedJsonResponse(
+      res,
+      leaderboardCache,
+      cacheKey,
+      LEADERBOARD_CACHE_TTL_MS,
+    );
+    if (cacheSlot.handled) return;
 
     console.log("🔍 Leaderboard Query (FINISHED ONLY):", { limit, minMatches });
 
@@ -488,14 +492,9 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       items: result,
     };
 
-    return cacheAndSendJson(
-      res,
-      leaderboardCache,
-      cacheKey,
-      payload,
-      LEADERBOARD_CACHE_TTL_MS,
-    );
+    return cacheSlot.send(payload);
   } catch (err) {
+    if (cacheSlot && !cacheSlot.handled) cacheSlot.fail(err);
     console.error("❌ Leaderboard Error:", err);
     next(err);
   }

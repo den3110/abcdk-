@@ -154,6 +154,20 @@ const RECORDING_STREAM_STATUSES = [
   "exporting",
   "ready",
 ];
+const STREAM_RECORDING_MATCH_IDS_CACHE_MS = Math.max(
+  1_000,
+  Number(process.env.LIVE_FEED_RECORDING_IDS_CACHE_MS || 5_000),
+);
+const MATCH_DISPLAY_CONTEXT_CACHE_MS = Math.max(
+  1_000,
+  Number(process.env.LIVE_FEED_DISPLAY_CONTEXT_CACHE_MS || 5_000),
+);
+const recordingMatchIdsCache = {
+  expiresAt: 0,
+  value: [],
+  promise: null,
+};
+const matchDisplayContextCache = new Map();
 
 function ytThumbCandidates(videoId) {
   const normalizedVideoId = asTrimmed(videoId);
@@ -181,6 +195,10 @@ function toIdString(value) {
   if (typeof value === "string") return value;
   if (typeof value === "object" && value._id) return String(value._id);
   return String(value);
+}
+
+function getMatchTournamentId(match) {
+  return toIdString(match?.tournament?._id || match?.tournament);
 }
 
 function parsePositiveInt(
@@ -1131,10 +1149,70 @@ function paginate(items = [], page = 1, limit = DEFAULT_LIMIT) {
 }
 
 async function getStreamRecordingMatchIds() {
-  const ids = await LiveRecordingV2.distinct("match", {
+  const now = Date.now();
+  if (recordingMatchIdsCache.expiresAt > now) {
+    return recordingMatchIdsCache.value;
+  }
+  if (recordingMatchIdsCache.promise) {
+    return recordingMatchIdsCache.promise;
+  }
+
+  recordingMatchIdsCache.promise = LiveRecordingV2.distinct("match", {
     status: { $in: RECORDING_STREAM_STATUSES },
+  })
+    .then((ids) => {
+      const value = ids.map((id) => toIdString(id)).filter(Boolean);
+      recordingMatchIdsCache.value = value;
+      recordingMatchIdsCache.expiresAt =
+        Date.now() + STREAM_RECORDING_MATCH_IDS_CACHE_MS;
+      return value;
+    })
+    .finally(() => {
+      recordingMatchIdsCache.promise = null;
+    });
+
+  return recordingMatchIdsCache.promise;
+}
+
+async function getCachedMatchDisplayContexts(matches = []) {
+  const tournamentIds = [
+    ...new Set(matches.map((match) => getMatchTournamentId(match)).filter(Boolean)),
+  ].sort();
+  if (!tournamentIds.length) return new Map();
+
+  const cacheKey = tournamentIds.join("|");
+  const now = Date.now();
+  const cached = matchDisplayContextCache.get(cacheKey);
+  if (cached?.value && cached.expiresAt > now) return cached.value;
+  if (cached?.promise) return cached.promise;
+
+  const promise = buildMatchDisplayContextsFromMatches(matches)
+    .then((value) => {
+      matchDisplayContextCache.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + MATCH_DISPLAY_CONTEXT_CACHE_MS,
+      });
+      return value;
+    })
+    .catch((error) => {
+      matchDisplayContextCache.delete(cacheKey);
+      throw error;
+    });
+
+  promise.catch(() => {});
+  matchDisplayContextCache.set(cacheKey, {
+    promise,
+    expiresAt: now + MATCH_DISPLAY_CONTEXT_CACHE_MS,
   });
-  return ids.map((id) => toIdString(id)).filter(Boolean);
+
+  if (matchDisplayContextCache.size > 50) {
+    const nowTs = Date.now();
+    for (const [key, entry] of matchDisplayContextCache.entries()) {
+      if (entry.expiresAt <= nowTs) matchDisplayContextCache.delete(key);
+    }
+  }
+
+  return promise;
 }
 
 export async function listLiveFeed({
@@ -1204,7 +1282,7 @@ export async function listLiveFeed({
   }
 
   const latestRecordingsByMatchId = await getLatestRecordingsByMatchIds(matches);
-  const matchDisplayContexts = await buildMatchDisplayContextsFromMatches(matches);
+  const matchDisplayContexts = await getCachedMatchDisplayContexts(matches);
 
   let items = matches
     .map((match) => {

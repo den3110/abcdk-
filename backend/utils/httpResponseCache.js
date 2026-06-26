@@ -73,3 +73,104 @@ export function cacheAndSendJson(
   setJsonCacheHeaders(res, ttlMs, "MISS", visibility);
   return res.json(payload);
 }
+
+export async function beginCachedJsonResponse(
+  res,
+  cache,
+  key,
+  ttlMs,
+  visibility = "public",
+) {
+  if (!cache || typeof cache.beginLoad !== "function") {
+    if (cache && sendCachedJson(res, cache, key, ttlMs, visibility)) {
+      return { handled: true };
+    }
+
+    return {
+      handled: false,
+      send(payload) {
+        return cacheAndSendJson(res, cache, key, payload, ttlMs, visibility);
+      },
+      fail() {},
+    };
+  }
+
+  const slot = cache.beginLoad(key);
+  if (slot.status === "hit") {
+    setJsonCacheHeaders(res, ttlMs, "HIT", visibility);
+    res.json(slot.value);
+    return { handled: true };
+  }
+
+  if (slot.status === "wait") {
+    const value = await slot.promise;
+    setJsonCacheHeaders(res, ttlMs, "WAIT", visibility);
+    res.json(value);
+    return { handled: true };
+  }
+
+  if (slot.status === "bypass") {
+    return {
+      handled: false,
+      send(payload) {
+        setJsonCacheHeaders(res, ttlMs, "BYPASS", visibility);
+        return res.json(payload);
+      },
+      fail() {},
+    };
+  }
+
+  let settled = false;
+  const closeHandler = () => {
+    if (!settled && !res.writableEnded) {
+      settled = true;
+      slot.reject(new Error("response closed before cache load completed"));
+    }
+  };
+  res.once("close", closeHandler);
+
+  const finish = (callback) => {
+    if (settled) return null;
+    settled = true;
+    res.removeListener("close", closeHandler);
+    return callback();
+  };
+
+  return {
+    handled: false,
+    send(payload) {
+      return finish(() => {
+        slot.resolve(payload);
+        setJsonCacheHeaders(res, ttlMs, "MISS", visibility);
+        return res.json(payload);
+      });
+    },
+    fail(error) {
+      return finish(() => {
+        slot.reject(error || new Error("cache load failed"));
+        return null;
+      });
+    },
+  };
+}
+
+export async function sendCachedJsonWithLoader(
+  res,
+  cache,
+  key,
+  ttlMs,
+  loader,
+  visibility = "public",
+) {
+  const slot = await beginCachedJsonResponse(res, cache, key, ttlMs, visibility);
+  if (slot.handled) return true;
+
+  try {
+    const payload = await loader();
+    slot.send(payload);
+    return true;
+  } catch (error) {
+    slot.fail(error);
+    throw error;
+  }
+}

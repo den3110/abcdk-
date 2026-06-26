@@ -27,9 +27,8 @@ import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import {
+  beginCachedJsonResponse,
   buildCacheKey,
-  cacheAndSendJson,
-  sendCachedJson,
 } from "../utils/httpResponseCache.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -2725,17 +2724,14 @@ const getTournaments = asyncHandler(async (req, res) => {
     query: req.query,
     adminLike,
   });
-  if (
-    sendCachedJson(
-      res,
-      tournamentListCache,
-      cacheKey,
-      TOURNAMENT_LIST_CACHE_TTL_MS,
-      cacheVisibility,
-    )
-  ) {
-    return;
-  }
+  const cacheSlot = await beginCachedJsonResponse(
+    res,
+    tournamentListCache,
+    cacheKey,
+    TOURNAMENT_LIST_CACHE_TTL_MS,
+    cacheVisibility,
+  );
+  if (cacheSlot.handled) return;
 
   const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const parseSort = (s) =>
@@ -2994,14 +2990,7 @@ const getTournaments = asyncHandler(async (req, res) => {
     )
   );
   res.status(200);
-  cacheAndSendJson(
-    res,
-    tournamentListCache,
-    cacheKey,
-    tournaments,
-    TOURNAMENT_LIST_CACHE_TTL_MS,
-    cacheVisibility,
-  );
+  cacheSlot.send(tournaments);
 });
 
 const getTournamentById = asyncHandler(async (req, res) => {
