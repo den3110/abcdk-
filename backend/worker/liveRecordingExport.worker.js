@@ -130,11 +130,10 @@ const worker = new Worker(
         );
       });
       const result = await exportLiveRecordingV2(recordingId);
-      if (Number(result?.retryDelayMs) > 0) {
+      if (!ignoreWindow && Number(result?.retryDelayMs) > 0) {
         await enqueueLiveRecordingExportRetry(recordingId, {
           delayMs: Number(result.retryDelayMs),
           retryReason: result?.retryReason || "retry",
-          ignoreWindow,
         });
       }
       lastCompletedAt = new Date().toISOString();

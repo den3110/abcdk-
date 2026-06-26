@@ -392,6 +392,82 @@ async function reencodeConcatToMp4({ concatPath, outputPath }) {
   ]);
 }
 
+async function transmuxSegmentToTs({ inputPath, outputPath }) {
+  await runFfmpeg([
+    "-y",
+    "-i",
+    inputPath,
+    "-map",
+    "0",
+    "-c",
+    "copy",
+    "-f",
+    "mpegts",
+    outputPath,
+  ]);
+}
+
+async function concatTsSegmentsToMp4({ concatPath, outputPath }) {
+  await runFfmpeg([
+    "-y",
+    "-f",
+    "concat",
+    "-safe",
+    "0",
+    "-i",
+    concatPath,
+    "-map",
+    "0",
+    "-c",
+    "copy",
+    "-bsf:a",
+    "aac_adtstoasc",
+    "-movflags",
+    "+faststart",
+    outputPath,
+  ]);
+}
+
+async function concatSegmentsViaTs({ inputPaths, outputPath, workDir }) {
+  const tsPaths = [];
+  for (let index = 0; index < inputPaths.length; index += 1) {
+    const tsPath = path.join(workDir, `segment_${String(index).padStart(5, "0")}.ts`);
+    await transmuxSegmentToTs({
+      inputPath: inputPaths[index],
+      outputPath: tsPath,
+    });
+    tsPaths.push(tsPath);
+  }
+
+  const concatTsPath = path.join(workDir, "concat_ts.txt");
+  const concatTsBody = tsPaths
+    .map((segmentPath) => `file '${segmentPath.replace(/'/g, "'\\''")}'`)
+    .join("\n");
+  await fs.writeFile(concatTsPath, concatTsBody, "utf8");
+
+  await concatTsSegmentsToMp4({
+    concatPath: concatTsPath,
+    outputPath,
+  });
+}
+
+async function probeDurationOrZero(inputPath) {
+  return probeVideoDurationSeconds(inputPath).catch(() => 0);
+}
+
+function isMergedDurationUsable({
+  expectedDurationSeconds,
+  actualDurationSeconds,
+}) {
+  return (
+    Number(actualDurationSeconds) > 0 &&
+    !shouldRejectRecordingExportDuration({
+      expectedDurationSeconds,
+      actualDurationSeconds,
+    })
+  );
+}
+
 async function mergeSegmentsToOutput({
   inputPaths,
   outputPath,
@@ -416,31 +492,49 @@ async function mergeSegmentsToOutput({
         inputPath: concatCopyPath,
         outputPath,
       });
-      const remuxedDurationSeconds = await probeVideoDurationSeconds(
-        outputPath
-      ).catch(() => 0);
-      if (
-        shouldRejectRecordingExportDuration({
-          expectedDurationSeconds,
-          actualDurationSeconds: remuxedDurationSeconds,
-        })
-      ) {
-        await reencodeConcatToMp4({
-          concatPath,
-          outputPath,
-        });
+      const remuxedDurationSeconds = await probeDurationOrZero(outputPath);
+      if (isMergedDurationUsable({ expectedDurationSeconds, actualDurationSeconds: remuxedDurationSeconds })) {
+        return;
       }
     } catch (remuxError) {
+      // Fall through to safer merge paths below.
+    }
+
+    try {
+      await concatSegmentsViaTs({
+        inputPaths,
+        outputPath,
+        workDir,
+      });
+      const tsDurationSeconds = await probeDurationOrZero(outputPath);
+      if (isMergedDurationUsable({ expectedDurationSeconds, actualDurationSeconds: tsDurationSeconds })) {
+        return;
+      }
+    } catch (tsError) {
+      // Fall through to re-encode fallback.
+    }
+
+    await reencodeConcatToMp4({
+      concatPath,
+      outputPath,
+    });
+  } catch (copyError) {
+    try {
+      await concatSegmentsViaTs({
+        inputPaths,
+        outputPath,
+        workDir,
+      });
+      const tsDurationSeconds = await probeDurationOrZero(outputPath);
+      if (isMergedDurationUsable({ expectedDurationSeconds, actualDurationSeconds: tsDurationSeconds })) {
+        return;
+      }
+    } catch (tsError) {
       await reencodeConcatToMp4({
         concatPath,
         outputPath,
       });
     }
-  } catch (copyError) {
-    await reencodeConcatToMp4({
-      concatPath,
-      outputPath,
-    });
   }
 }
 

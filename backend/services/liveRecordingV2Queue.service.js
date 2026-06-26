@@ -195,7 +195,7 @@ export async function enqueueLiveRecordingExport(
     {
       jobId,
       ...(normalizedDelayMs > 0 ? { delay: normalizedDelayMs } : {}),
-      attempts: 5,
+      attempts: ignoreWindow === true ? 1 : 5,
       backoff: {
         type: "exponential",
         delay: 10_000,
@@ -225,7 +225,7 @@ export async function enqueueLiveRecordingExportRetry(
     {
       jobId: buildRetryExportJobId(recordingId),
       ...(normalizedDelayMs > 0 ? { delay: normalizedDelayMs } : {}),
-      attempts: 5,
+      attempts: ignoreWindow === true ? 1 : 5,
       backoff: {
         type: "exponential",
         delay: 10_000,
