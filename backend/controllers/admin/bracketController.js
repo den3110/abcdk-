@@ -108,6 +108,20 @@ function isRealOperationalKoMatch(match) {
   return hasRealMatchSide(match, "A") && hasRealMatchSide(match, "B");
 }
 
+function isTransientMongoWriteConflict(error) {
+  const labels = Array.isArray(error?.errorLabels) ? error.errorLabels : [];
+  return (
+    Number(error?.code) === 112 ||
+    labels.includes("TransientTransactionError") ||
+    labels.includes("UnknownTransactionCommitResult") ||
+    (typeof error?.hasErrorLabel === "function" &&
+      (error.hasErrorLabel("TransientTransactionError") ||
+        error.hasErrorLabel("UnknownTransactionCommitResult")))
+  );
+}
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function pickKoRules({ round, order, rounds, baseRules, semiRules, finalRules }) {
   if (round === rounds && order === 0 && finalRules) return finalRules;
   if (rounds >= 2 && round === rounds - 1 && semiRules) return semiRules;
@@ -401,10 +415,14 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
     throw new Error("drawSize tối đa đang hỗ trợ là 1024");
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  const maxAttempts = 4;
+  let lastTransientError = null;
 
-  try {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
     const br = await Bracket.findOne({
       _id: bracketId,
       tournament: tournamentId,
@@ -555,6 +573,7 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
       );
     }
 
+    const linkOps = [];
     for (let round = 1; round < rounds; round += 1) {
       const current = created[round] || [];
       const next = created[round + 1] || [];
@@ -563,20 +582,30 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
         const left = current[idx * 2];
         const right = current[idx * 2 + 1];
         if (left) {
-          left.nextMatch = nextMatch._id;
-          left.nextSlot = "A";
-          await left.save({ session });
+          linkOps.push({
+            updateOne: {
+              filter: { _id: left._id },
+              update: { $set: { nextMatch: nextMatch._id, nextSlot: "A" } },
+            },
+          });
         }
         if (right) {
-          right.nextMatch = nextMatch._id;
-          right.nextSlot = "B";
-          await right.save({ session });
+          linkOps.push({
+            updateOne: {
+              filter: { _id: right._id },
+              update: { $set: { nextMatch: nextMatch._id, nextSlot: "B" } },
+            },
+          });
         }
       }
     }
+    if (linkOps.length > 0) {
+      await Match.bulkWrite(linkOps, { session, ordered: false });
+    }
 
+    let thirdPlaceCreated = 0;
     if (useThirdPlace && rounds >= 2) {
-      await Match.insertMany(
+      const thirdPlaceMatches = await Match.insertMany(
         [
           {
             tournament: br.tournament,
@@ -609,6 +638,7 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
         ],
         { session }
       );
+      thirdPlaceCreated = thirdPlaceMatches.length;
     }
 
     const realSeedCount = r1Seeds.reduce((count, seed) => {
@@ -642,9 +672,9 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
       seeds: r1Seeds,
     };
     br.teamsCount = realSeedCount;
-    br.matchesCount = await Match.countDocuments({ bracket: br._id }).session(
-      session
-    );
+    br.matchesCount =
+      Object.values(created).reduce((count, matches) => count + matches.length, 0) +
+      thirdPlaceCreated;
     br.drawStatus = realSeedCount > 0 ? "drawn" : "planned";
     br.markModified("config");
     br.markModified("meta");
@@ -664,12 +694,20 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
       preservedSeeds: !!preserveSeeds,
       appliedSeeds: realSeedCount,
     });
-  } catch (error) {
-    await session.abortTransaction();
-    throw error;
-  } finally {
-    session.endSession();
+    } catch (error) {
+      await session.abortTransaction().catch(() => {});
+      if (isTransientMongoWriteConflict(error) && attempt < maxAttempts) {
+        lastTransientError = error;
+        await delay(80 * attempt);
+        continue;
+      }
+      throw error;
+    } finally {
+      session.endSession();
+    }
   }
+
+  throw lastTransientError || new Error("Không thể tạo lại knockout sau nhiều lần thử.");
 });
 
 // ===== DELETE (cascade matches) =====
