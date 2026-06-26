@@ -1899,9 +1899,7 @@ function seedComesFromPreviousSource(seed) {
 
 function isOpeningMatchForTeamOverride(match) {
   if (!match) return false;
-  const round = Number(match.round || 1);
   return (
-    (!Number.isFinite(round) || round <= 1) &&
     !match?.previousA &&
     !match?.previousB &&
     !seedComesFromPreviousSource(match?.seedA) &&
