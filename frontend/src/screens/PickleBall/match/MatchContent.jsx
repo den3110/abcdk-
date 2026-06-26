@@ -1411,11 +1411,19 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       .filter(Boolean)
       .map((x) => String(x).toLowerCase()),
   );
+  const adminRoleKeys = new Set([
+    "admin",
+    "superadmin",
+    "superuser",
+    "super_admin",
+    "super_user",
+  ]);
   const isAdmin = !!(
     userInfo?.isAdmin ||
-    roleStr === "admin" ||
-    roles.has("admin") ||
-    roles.has("superadmin")
+    userInfo?.isSuperAdmin ||
+    userInfo?.isSuperUser ||
+    adminRoleKeys.has(roleStr) ||
+    [...roles].some((role) => adminRoleKeys.has(role))
   );
 
   const { tournamentId: tidParam, id: idParam } = useParams();
@@ -2068,7 +2076,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const teamEditStatus = String(status || "").toLowerCase();
   const openingTeamEditMatch = isOpeningTeamEditMatch(mm);
   const canEditTeams =
-    isAdmin &&
+    canEdit &&
     Boolean(lockedId) &&
     !["live", "finished"].includes(teamEditStatus) &&
     openingTeamEditMatch;
@@ -2427,8 +2435,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   );
   const patchTeams = async (body) => {
     try {
-      if (!isAdmin || !lockedId) {
-        throw new Error("Chỉ admin mới được chỉnh đội trong trận.");
+      if (!canEdit || !lockedId) {
+        throw new Error("Chỉ quản trị viên hoặc quản lý giải mới được chỉnh đội.");
       }
       if (["live", "finished"].includes(teamEditStatus)) {
         throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");

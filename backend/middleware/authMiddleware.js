@@ -341,7 +341,7 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
   }
 
   const actor = await User.findById(rawUid)
-    .select("_id role isDeleted deletedAt")
+    .select("_id roles role isAdmin isSuperUser isSuperAdmin isDeleted deletedAt")
     .lean();
 
   if (!actor) {
@@ -405,7 +405,7 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
   }
 
   // 4) Admin luôn pass (CHỈ dùng role)
-  const isAdmin = actor.role === "admin";
+  const isAdmin = isAdminUser(actor) || isSuperAdminUser(actor);
   if (isAdmin) {
     req.tournament = tournament;
     if (matchDoc) req.match = matchDoc;

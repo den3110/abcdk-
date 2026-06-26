@@ -1869,6 +1869,15 @@ function canAdminEditMatchTeams(user) {
   return r.has("admin") || r.has("superadmin") || r.has("superuser");
 }
 
+function canEditMatchTeamsFromAdminRoute(req) {
+  return Boolean(
+    req?.isAdmin ||
+      req?.tournament ||
+      req?.match ||
+      canAdminEditMatchTeams(req?.user)
+  );
+}
+
 function registrationSeedForMatchTeam(regId) {
   if (!regId) return null;
   return {
@@ -2139,10 +2148,10 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
 
   if (
     (willSetA || willSetB) &&
-    !(req.isAdmin || canAdminEditMatchTeams(req.user))
+    !canEditMatchTeamsFromAdminRoute(req)
   ) {
     res.status(403);
-    throw new Error("Chỉ admin mới được chỉnh đội trong trận.");
+    throw new Error("Chỉ quản trị viên hoặc quản lý giải mới được chỉnh đội.");
   }
   if (
     (willSetA || willSetB) &&
