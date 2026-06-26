@@ -25,6 +25,7 @@ import {
   Autocomplete,
   InputAdornment,
   Skeleton,
+  Tooltip,
 } from "@mui/material";
 import { useSelector } from "react-redux";
 import {
@@ -1136,6 +1137,27 @@ const playerLinkKey = (player, index) =>
   String(profileIdOfPerson(player) || (typeof player === "string" ? player : index));
 
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
+const TEAM_SOURCE_SEED_TYPES = new Set([
+  "groupRank",
+  "stageMatchWinner",
+  "stageMatchLoser",
+  "matchWinner",
+  "matchLoser",
+]);
+const seedComesFromPreviousSource = (seed) =>
+  TEAM_SOURCE_SEED_TYPES.has(String(seed?.type || ""));
+const isOpeningTeamEditMatch = (match) => {
+  if (!match) return false;
+  const round = Number(match.round || 1);
+  return (
+    (!Number.isFinite(round) || round <= 1) &&
+    !match?.previousA &&
+    !match?.previousB &&
+    !seedComesFromPreviousSource(match?.seedA) &&
+    !seedComesFromPreviousSource(match?.seedB)
+  );
+};
+
 function pairLabel(reg, isSingle, displayMode = "nickname") {
   return getTournamentPairName(
     reg,
@@ -2046,6 +2068,13 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [lockedId]);
 
   const status = localPatch?.status || mm?.status || "scheduled";
+  const teamEditStatus = String(status || "").toLowerCase();
+  const openingTeamEditMatch = isOpeningTeamEditMatch(mm);
+  const canEditTeams =
+    isAdmin &&
+    Boolean(lockedId) &&
+    !["live", "finished"].includes(teamEditStatus) &&
+    openingTeamEditMatch;
   const shownGameScores =
     localPatch?.gameScores ?? mm?.gameScores ?? EMPTY_GAME_SCORES;
 
@@ -2392,10 +2421,27 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   // Chỉnh đội
   const [teamsOpen, setTeamsOpen] = useState(false);
+  const openTeamsEditor = useCallback(
+    () => {
+      if (!canEditTeams) return;
+      setTeamsOpen(true);
+    },
+    [canEditTeams],
+  );
   const patchTeams = async (body) => {
     try {
+      if (!isAdmin || !lockedId) {
+        throw new Error("Chỉ admin mới được chỉnh đội trong trận.");
+      }
+      if (["live", "finished"].includes(teamEditStatus)) {
+        throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");
+      }
+      if (!openingTeamEditMatch) {
+        throw new Error("Chỉ được chỉnh đội ở trận đầu của nhánh.");
+      }
       await adminPatchMatch({ id: lockedId, body }).unwrap();
-      toast.success("Đã lưu đội A/B. Reload trang để áp dụng");
+      toast.success("Đã lưu đội A/B.");
+      debouncedRefresh();
     } catch (e) {
       const msg = e?.data?.message || e?.message || "Lỗi không xác định";
       toast.error(`Lưu đội thất bại: ${msg}`);
@@ -2920,8 +2966,27 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         >
           {/* Đội A */}
           <Box flex={1}>
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+            >
               Đội A
+              {canEditTeams && (
+                <Tooltip title="Chỉnh đội A/B">
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label="Chỉnh đội A"
+                      onClick={openTeamsEditor}
+                      disabled={patching || verifyingMgr}
+                      sx={{ p: 0.25 }}
+                    >
+                      <EditIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              )}
             </Typography>
             {scorePairA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
@@ -2970,7 +3035,31 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
           {/* Đội B */}
           <Box flex={1} textAlign={{ xs: "left", sm: "right" }}>
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: { xs: "flex-start", sm: "flex-end" },
+                gap: 0.5,
+              }}
+            >
+              {canEditTeams && (
+                <Tooltip title="Chỉnh đội A/B">
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label="Chỉnh đội B"
+                      onClick={openTeamsEditor}
+                      disabled={patching || verifyingMgr}
+                      sx={{ p: 0.25 }}
+                    >
+                      <EditIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              )}
               Đội B
             </Typography>
             {scorePairB ? (
@@ -3116,7 +3205,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             <Divider sx={{ my: 2 }} />
             <Alert severity="warning" icon={<EditIcon />}>
               Chế độ quản trị: chỉnh sửa tỉ số / đặt đội thắng / đổi trạng thái
-              / <b>chỉnh đội A/B</b>.
+              {canEditTeams ? (
+                <>
+                  {" "}
+                  / <b>chỉnh đội A/B</b>.
+                </>
+              ) : (
+                "."
+              )}
             </Alert>
 
             <Stack
@@ -3225,15 +3321,17 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 Chuyển Finished
               </Button>
 
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<GroupIcon />}
-                onClick={() => setTeamsOpen(true)}
-                disabled={patching || verifyingMgr || !lockedId || !canEdit}
-              >
-                Chỉnh đội A/B
-              </Button>
+              {canEditTeams && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<GroupIcon />}
+                  onClick={openTeamsEditor}
+                  disabled={patching || verifyingMgr || !lockedId}
+                >
+                  Chỉnh đội A/B
+                </Button>
+              )}
             </Stack>
           </>
         )}

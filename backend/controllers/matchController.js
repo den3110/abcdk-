@@ -23,7 +23,10 @@ import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.ser
 import { queueLiveRecordingExportsForEndedMatch } from "../services/liveRecordingV2Transition.service.js";
 import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js";
 import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
-import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
+import {
+  emitTournamentInvalidate,
+  emitTournamentMatchUpdate,
+} from "../socket/tournamentRealtime.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
 // controllers/matchController.js
 
@@ -1847,6 +1850,7 @@ function extractUserRoles(user) {
     ].filter(Boolean)
   );
   if (user?.isAdmin) roles.add("admin");
+  if (user?.isSuperAdmin || user?.isSuperUser) roles.add("superadmin");
   return roles;
 }
 
@@ -1857,6 +1861,158 @@ function canAdminMatch(user /*, match */) {
     r.has("superadmin") ||
     r.has("tournament:admin") ||
     r.has("tournament:manage")
+  );
+}
+
+function canAdminEditMatchTeams(user) {
+  const r = extractUserRoles(user);
+  return r.has("admin") || r.has("superadmin") || r.has("superuser");
+}
+
+function registrationSeedForMatchTeam(regId) {
+  if (!regId) return null;
+  return {
+    type: "registration",
+    ref: { registration: regId },
+    label: "",
+  };
+}
+
+async function unlinkPreviousFeedForMatchSide(matchId, previousId, side) {
+  if (!previousId) return;
+  await Match.updateOne(
+    { _id: previousId, nextMatch: matchId, nextSlot: side },
+    { $set: { nextMatch: null, nextSlot: null } }
+  );
+}
+
+const TEAM_SOURCE_SEED_TYPES = new Set([
+  "groupRank",
+  "stageMatchWinner",
+  "stageMatchLoser",
+  "matchWinner",
+  "matchLoser",
+]);
+
+function seedComesFromPreviousSource(seed) {
+  return TEAM_SOURCE_SEED_TYPES.has(String(seed?.type || ""));
+}
+
+function isOpeningMatchForTeamOverride(match) {
+  if (!match) return false;
+  const round = Number(match.round || 1);
+  return (
+    (!Number.isFinite(round) || round <= 1) &&
+    !match?.previousA &&
+    !match?.previousB &&
+    !seedComesFromPreviousSource(match?.seedA) &&
+    !seedComesFromPreviousSource(match?.seedB)
+  );
+}
+
+function sourceSeedForMatch(match, type, stageIndexOverride = null) {
+  const round = Number(match?.round || 1);
+  const order = Number(match?.order || 0);
+  const stageIndex = Number(stageIndexOverride ?? match?.stageIndex ?? 1);
+  const prefix = type === "stageMatchLoser" ? "L" : "W";
+  return {
+    type,
+    ref: {
+      matchId: match._id,
+      stageIndex,
+      round,
+      order,
+    },
+    label: `${prefix}-V${round}-T${order + 1}`,
+  };
+}
+
+async function restoreDependentSeedRefsForTeamOverride(match) {
+  if (!match?._id) return;
+
+  const bracket = await Bracket.findById(match.bracket)
+    .select("type stage")
+    .lean();
+  const stageIndex = Number(match.stageIndex || bracket?.stage || 1);
+  const winnerSeed = sourceSeedForMatch(
+    match,
+    "stageMatchWinner",
+    stageIndex
+  );
+  const loserSeed = sourceSeedForMatch(match, "stageMatchLoser", stageIndex);
+  const editableStatus = { $nin: ["live", "finished"] };
+
+  if (match.nextMatch && ["A", "B"].includes(String(match.nextSlot || ""))) {
+    const nextSlot = String(match.nextSlot);
+    const previousField = nextSlot === "A" ? "previousA" : "previousB";
+    const seedField = nextSlot === "A" ? "seedA" : "seedB";
+    const pairField = nextSlot === "A" ? "pairA" : "pairB";
+    await Match.updateOne(
+      { _id: match.nextMatch, status: editableStatus },
+      {
+        $set: {
+          [previousField]: match._id,
+          [seedField]: null,
+          [pairField]: null,
+        },
+      }
+    );
+  }
+
+  await Match.updateMany(
+    {
+      tournament: match.tournament,
+      previousA: match._id,
+      status: editableStatus,
+      $or: [
+        { "seedA.type": "bye" },
+        { seedA: null },
+        { "seedA.type": { $exists: false } },
+      ],
+    },
+    { $set: { seedA: winnerSeed, pairA: null } }
+  );
+  await Match.updateMany(
+    {
+      tournament: match.tournament,
+      previousB: match._id,
+      status: editableStatus,
+      $or: [
+        { "seedB.type": "bye" },
+        { seedB: null },
+        { "seedB.type": { $exists: false } },
+      ],
+    },
+    { $set: { seedB: winnerSeed, pairB: null } }
+  );
+
+  const format = String(match.format || bracket?.type || "").toLowerCase();
+  if (format !== "roundelim" && format !== "round_elim") return;
+
+  const sourceRound = Number(match.round || 1);
+  const sourceOrder = Number(match.order || 0);
+  if (!Number.isFinite(sourceRound) || !Number.isFinite(sourceOrder)) return;
+
+  const targetRound = sourceRound + 1;
+  const targetOrder = Math.floor(sourceOrder / 2);
+  const targetSide = sourceOrder % 2 === 0 ? "A" : "B";
+  const seedField = targetSide === "A" ? "seedA" : "seedB";
+  const pairField = targetSide === "A" ? "pairA" : "pairB";
+
+  await Match.updateOne(
+    {
+      tournament: match.tournament,
+      bracket: match.bracket,
+      round: targetRound,
+      order: targetOrder,
+      status: editableStatus,
+      $or: [
+        { [`${seedField}.type`]: "bye" },
+        { [seedField]: null },
+        { [`${seedField}.type`]: { $exists: false } },
+      ],
+    },
+    { $set: { [seedField]: loserSeed, [pairField]: null } }
   );
 }
 
@@ -1984,6 +2140,25 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   const willSetA = A?.provided;
   const willSetB = B?.provided;
 
+  if (
+    (willSetA || willSetB) &&
+    !(req.isAdmin || canAdminEditMatchTeams(req.user))
+  ) {
+    res.status(403);
+    throw new Error("Chỉ admin mới được chỉnh đội trong trận.");
+  }
+  if (
+    (willSetA || willSetB) &&
+    ["live", "finished"].includes(String(match.status || "").toLowerCase())
+  ) {
+    res.status(409);
+    throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");
+  }
+  if ((willSetA || willSetB) && !isOpeningMatchForTeamOverride(match)) {
+    res.status(409);
+    throw new Error("Chỉ được chỉnh đội ở trận đầu của nhánh.");
+  }
+
   const newA = willSetA
     ? A.value === null
       ? null
@@ -1995,13 +2170,37 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
       : new mongoose.Types.ObjectId(B.value)
     : match.pairB;
 
+  if (
+    (willSetA || willSetB) &&
+    newA &&
+    newB &&
+    String(newA) === String(newB)
+  ) {
+    res.status(400);
+    throw new Error("pairA và pairB không được trùng nhau");
+  }
+
   const changedA = willSetA && String(newA ?? "") !== String(match.pairA ?? "");
   const changedB = willSetB && String(newB ?? "") !== String(match.pairB ?? "");
   const teamsChanged = changedA || changedB;
+  const changedToRealTeam = (changedA && newA) || (changedB && newB);
 
   if (teamsChanged) {
-    updates.pairA = newA;
-    updates.pairB = newB;
+    if (changedA) {
+      await unlinkPreviousFeedForMatchSide(match._id, match.previousA, "A");
+      updates.pairA = newA;
+      updates.previousA = null;
+      updates.seedA = registrationSeedForMatchTeam(newA);
+    }
+    if (changedB) {
+      await unlinkPreviousFeedForMatchSide(match._id, match.previousB, "B");
+      updates.pairB = newB;
+      updates.previousB = null;
+      updates.seedB = registrationSeedForMatchTeam(newB);
+    }
+    if (changedToRealTeam) {
+      await restoreDependentSeedRefsForTeamOverride(match);
+    }
     touchLive = true; // bump live
   }
 
@@ -2222,6 +2421,15 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
           type: "snapshot",
           emitMatchSnapshot: true,
         });
+
+        if (teamsChanged) {
+          emitTournamentInvalidate(io, {
+            tournamentId,
+            bracketId: match.bracket,
+            matchId: match._id,
+            reason: "match_teams_updated",
+          });
+        }
       }
     }
   } catch (err) {
