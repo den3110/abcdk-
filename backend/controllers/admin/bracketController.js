@@ -86,6 +86,28 @@ function pairFromKoSeed(seed) {
   return registrationIdFromSeed(seed);
 }
 
+function isByeSeed(seed) {
+  return (
+    String(seed?.type || "").toLowerCase() === "bye" ||
+    String(seed?.label || "").trim().toUpperCase() === "BYE"
+  );
+}
+
+function hasRealMatchSide(match, side) {
+  const pair = side === "A" ? match?.pairA : match?.pairB;
+  const seed = side === "A" ? match?.seedA : match?.seedB;
+  if (pair) return true;
+  if (isByeSeed(seed)) return false;
+  return false;
+}
+
+function isRealOperationalKoMatch(match) {
+  const status = String(match?.status || "").toLowerCase();
+  if (status === "live") return true;
+  if (status !== "finished") return false;
+  return hasRealMatchSide(match, "A") && hasRealMatchSide(match, "B");
+}
+
 function pickKoRules({ round, order, rounds, baseRules, semiRules, finalRules }) {
   if (round === rounds && order === 0 && finalRules) return finalRules;
   if (rounds >= 2 && round === rounds - 1 && semiRules) return semiRules;
@@ -360,6 +382,11 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
   const { tournamentId, bracketId } = req.params;
   const {
     drawSize,
+    seeds,
+    rules,
+    semiRules: incomingSemiRules,
+    finalRules: incomingFinalRules,
+    thirdPlaceRules: incomingThirdPlaceRules,
     preserveSeeds = false,
     thirdPlace,
   } = req.body || {};
@@ -398,18 +425,22 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
       .session(session)
       .lean();
 
-    const lockedCount = existingMatches.filter((m) =>
-      ["live", "finished"].includes(String(m?.status || "").toLowerCase())
-    ).length;
+    const lockedCount = existingMatches.filter(isRealOperationalKoMatch).length;
     if (lockedCount > 0) {
       res.status(409);
       throw new Error(
-        `Không thể tạo lại vì knockout đang có ${lockedCount} trận live/finished`
+        `Không thể tạo lại vì knockout đang có ${lockedCount} trận live/finished thật`
       );
     }
 
     const rounds = Math.round(Math.log2(size));
     const firstPairs = size / 2;
+    const requestedSeeds = new Map(
+      sanitizeSeeds(seeds)
+        .filter((s) => s.pair >= 1 && s.pair <= firstPairs)
+        .map((s) => [Number(s.pair), s])
+    );
+    const hasRequestedSeeds = requestedSeeds.size > 0;
     const oldRound1 = new Map(
       existingMatches
         .filter((m) => Number(m.round || 1) === 1)
@@ -426,29 +457,44 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
       const pairNo = idx + 1;
       const old = oldRound1.get(idx);
       const prefill = prefillSeeds.get(pairNo);
+      const requested = requestedSeeds.get(pairNo);
       return {
         pair: pairNo,
-        A: preserveSeeds
-          ? sanitizeKoSeed(old?.seedA || prefill?.A, old?.pairA)
-          : SEED_BYE,
-        B: preserveSeeds
-          ? sanitizeKoSeed(old?.seedB || prefill?.B, old?.pairB)
-          : SEED_BYE,
+        A: hasRequestedSeeds
+          ? sanitizeKoSeed(requested?.A)
+          : preserveSeeds
+            ? sanitizeKoSeed(old?.seedA || prefill?.A, old?.pairA)
+            : SEED_BYE,
+        B: hasRequestedSeeds
+          ? sanitizeKoSeed(requested?.B)
+          : preserveSeeds
+            ? sanitizeKoSeed(old?.seedB || prefill?.B, old?.pairB)
+            : SEED_BYE,
       };
     });
 
     const baseRules = normalizeRules(
-      br?.config?.blueprint?.rules || br?.config?.rules
+      rules || br?.config?.blueprint?.rules || br?.config?.rules
     );
-    const semiRules = br?.config?.blueprint?.semiRules
-      ? normalizeRules(br.config.blueprint.semiRules, baseRules)
-      : null;
-    const finalRules = br?.config?.blueprint?.finalRules
-      ? normalizeRules(br.config.blueprint.finalRules, baseRules)
-      : null;
-    const thirdPlaceRules = br?.config?.blueprint?.thirdPlaceRules
-      ? normalizeRules(br.config.blueprint.thirdPlaceRules, finalRules || baseRules)
-      : null;
+    const pickOptionalRules = (incoming, fallback, fallbackBase = baseRules) => {
+      if (incoming === null) return null;
+      if (incoming) return normalizeRules(incoming, fallbackBase);
+      if (fallback) return normalizeRules(fallback, fallbackBase);
+      return null;
+    };
+    const semiRules = pickOptionalRules(
+      incomingSemiRules,
+      br?.config?.blueprint?.semiRules
+    );
+    const finalRules = pickOptionalRules(
+      incomingFinalRules,
+      br?.config?.blueprint?.finalRules
+    );
+    const thirdPlaceRules = pickOptionalRules(
+      incomingThirdPlaceRules,
+      br?.config?.blueprint?.thirdPlaceRules,
+      finalRules || baseRules
+    );
     const useThirdPlace =
       typeof thirdPlace === "boolean"
         ? thirdPlace
@@ -616,6 +662,7 @@ export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
       deleted: deleteResult.deletedCount || 0,
       created: br.matchesCount,
       preservedSeeds: !!preserveSeeds,
+      appliedSeeds: realSeedCount,
     });
   } catch (error) {
     await session.abortTransaction();
@@ -647,7 +694,7 @@ const maxPoRoundsFor = (n) => {
 };
 
 // giữ nguyên seed object nếu có; không tự suy luận từ match để tránh sai
-const sanitizeSeeds = (seeds) => {
+function sanitizeSeeds(seeds) {
   if (!Array.isArray(seeds)) return [];
   return seeds
     .map((s) => ({
@@ -656,7 +703,7 @@ const sanitizeSeeds = (seeds) => {
       B: s?.B && s.B.type ? s.B : null,
     }))
     .filter((s) => s.pair > 0);
-};
+}
 
 const normalizeGroupConfig = (cfg = {}) => {
   const groupCount = Number(
