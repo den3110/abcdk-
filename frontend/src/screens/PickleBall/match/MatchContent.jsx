@@ -1137,24 +1137,6 @@ const playerLinkKey = (player, index) =>
   String(profileIdOfPerson(player) || (typeof player === "string" ? player : index));
 
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
-const TEAM_SOURCE_SEED_TYPES = new Set([
-  "stageMatchWinner",
-  "stageMatchLoser",
-  "matchWinner",
-  "matchLoser",
-]);
-const seedComesFromPreviousSource = (seed) =>
-  TEAM_SOURCE_SEED_TYPES.has(String(seed?.type || ""));
-const isOpeningTeamEditMatch = (match) => {
-  if (!match) return false;
-  return (
-    !match?.previousA &&
-    !match?.previousB &&
-    !seedComesFromPreviousSource(match?.seedA) &&
-    !seedComesFromPreviousSource(match?.seedB)
-  );
-};
-
 function pairLabel(reg, isSingle, displayMode = "nickname") {
   return getTournamentPairName(
     reg,
@@ -2074,12 +2056,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   const status = localPatch?.status || mm?.status || "scheduled";
   const teamEditStatus = String(status || "").toLowerCase();
-  const openingTeamEditMatch = isOpeningTeamEditMatch(mm);
   const canEditTeams =
     canEdit &&
     Boolean(lockedId) &&
-    !["live", "finished"].includes(teamEditStatus) &&
-    openingTeamEditMatch;
+    !["live", "finished"].includes(teamEditStatus);
   const shownGameScores =
     localPatch?.gameScores ?? mm?.gameScores ?? EMPTY_GAME_SCORES;
 
@@ -2440,9 +2420,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       }
       if (["live", "finished"].includes(teamEditStatus)) {
         throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");
-      }
-      if (!openingTeamEditMatch) {
-        throw new Error("Chỉ được chỉnh đội ở trận đầu của nhánh.");
       }
       await adminPatchMatch({ id: lockedId, body }).unwrap();
       toast.success("Đã lưu đội A/B.");
