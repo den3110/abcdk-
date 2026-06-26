@@ -67,6 +67,7 @@ import {
 } from "../services/liveRecordingV2Transition.service.js";
 import {
   buildRecordingSourceSummary,
+  hasDriveRecordingOutput,
   RECORDING_SOURCE_FACEBOOK_VOD,
   resolveLiveRecordingExportSource,
 } from "../services/liveRecordingFacebookVodShared.service.js";
@@ -3111,6 +3112,43 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(
     ]);
     const status = String(recording.status || "");
     const stage = String(currentPipeline.stage || "");
+    if (
+      hasDriveRecordingOutput(recording) &&
+      ["pending_export_window", "exporting", "ready"].includes(status)
+    ) {
+      await removeLiveRecordingExportJobs(recording._id).catch((error) => {
+        console.warn(
+          `[live-recording-v2] remove export jobs for ready drive output failed ${String(recording._id)}:`,
+          error?.message || error
+        );
+      });
+      nextMeta.exportPipeline = {
+        ...currentPipeline,
+        stage: "completed",
+        label: "Hoan tat",
+        reconciledAt: new Date(),
+        updatedAt: new Date(),
+        error: null,
+      };
+      recording.meta = nextMeta;
+      recording.status = "ready";
+      recording.scheduledExportAt = null;
+      recording.readyAt = recording.readyAt || new Date();
+      recording.playbackUrl =
+        recording.playbackUrl || buildRecordingPlaybackUrl(recording._id);
+      recording.error = null;
+      await recording.save();
+      await publishRecordingMonitor(
+        recording,
+        "recording_export_force_resolved_ready_with_drive_output"
+      );
+      return res.json({
+        ok: true,
+        queued: false,
+        alreadyReady: true,
+        recording: serializeRecording(recording),
+      });
+    }
     const canForceNow =
       ["uploading", "pending_export_window"].includes(status) ||
       (status === "exporting" && forceableExportingStages.has(stage));

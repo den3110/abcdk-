@@ -3680,12 +3680,18 @@ class LiveStreamViewModel(
         recordingCoordinator.setLiveCriticalPathBusy(false)
         endingLiveDismissJob?.cancel()
         endingLiveDismissJob = null
-        overlayRenderer.onBitmapReady = null
-        overlayRenderer.stop()
-        overlayRenderer.release()
-        repository.disconnectSocket()
-        clearCourtStationRuntimeWatch()
-        streamManager.release()
+        runCatching { overlayRenderer.onBitmapReady = null }
+            .onFailure { Log.w(TAG, "Failed to clear overlay callback", it) }
+        runCatching { overlayRenderer.stop() }
+            .onFailure { Log.w(TAG, "Failed to stop overlay renderer", it) }
+        runCatching { overlayRenderer.release() }
+            .onFailure { Log.w(TAG, "Failed to release overlay renderer", it) }
+        runCatching { repository.disconnectSocket() }
+            .onFailure { Log.w(TAG, "Failed to disconnect socket", it) }
+        runCatching { clearCourtStationRuntimeWatch() }
+            .onFailure { Log.w(TAG, "Failed to clear court runtime watch", it) }
+        runCatching { streamManager.release() }
+            .onFailure { Log.w(TAG, "Failed to release stream manager", it) }
     }
 }
 

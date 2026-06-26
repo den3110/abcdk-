@@ -18,7 +18,10 @@ import {
   getLiveRecordingMonitorMeta,
   publishLiveRecordingMonitorUpdate,
 } from "./liveRecordingMonitorEvents.service.js";
-import { getLiveRecordingExportQueueSnapshot } from "./liveRecordingV2Queue.service.js";
+import {
+  getLiveRecordingExportQueueSnapshot,
+  removeLiveRecordingExportJobs,
+} from "./liveRecordingV2Queue.service.js";
 import { getLiveRecordingWorkerHealth } from "./liveRecordingWorkerHealth.service.js";
 import { getLiveRecordingExportWindowConfig } from "./liveRecordingExportWindow.service.js";
 import {
@@ -27,7 +30,10 @@ import {
   queueLiveRecordingExport,
 } from "./liveRecordingV2Transition.service.js";
 import { autoScheduleFacebookVodFallbackRecordings } from "./liveRecordingFacebookVodFallback.service.js";
-import { buildRecordingSourceSummary } from "./liveRecordingFacebookVodShared.service.js";
+import {
+  buildRecordingSourceSummary,
+  hasDriveRecordingOutput,
+} from "./liveRecordingFacebookVodShared.service.js";
 import { buildAiCommentarySummary } from "./liveRecordingAiCommentary.service.js";
 import {
   getLatestLiveAppHeartbeatActivityDate,
@@ -860,6 +866,60 @@ export async function reconcileStaleLiveRecordingExports({
       workerHealth,
       queueSnapshot,
     });
+    const pipelineStage = String(exportPipeline?.stage || "");
+    const activeExportStages = new Set([
+      "downloading",
+      "downloading_facebook_vod",
+      "merging",
+      "uploading_drive",
+      "cleaning_r2",
+    ]);
+
+    if (
+      hasDriveRecordingOutput(recording) &&
+      !exportPipeline?.inWorker &&
+      !activeExportStages.has(pipelineStage)
+    ) {
+      await removeLiveRecordingExportJobs(recording._id).catch((error) => {
+        console.warn(
+          `[live-recording-monitor] failed to remove stale export jobs for ready recording ${String(recording._id)}:`,
+          error?.message || error
+        );
+      });
+      const nextMeta =
+        recording.meta &&
+        typeof recording.meta === "object" &&
+        !Array.isArray(recording.meta)
+          ? { ...recording.meta }
+          : {};
+      const currentPipeline =
+        nextMeta.exportPipeline &&
+        typeof nextMeta.exportPipeline === "object" &&
+        !Array.isArray(nextMeta.exportPipeline)
+          ? { ...nextMeta.exportPipeline }
+          : {};
+      nextMeta.exportPipeline = {
+        ...currentPipeline,
+        stage: "completed",
+        label: "Hoan tat",
+        reconciledAt: new Date(),
+        updatedAt: new Date(),
+        error: null,
+      };
+      recording.meta = nextMeta;
+      recording.status = "ready";
+      recording.scheduledExportAt = null;
+      recording.readyAt = recording.readyAt || new Date();
+      recording.playbackUrl =
+        recording.playbackUrl || buildRecordingPlaybackUrl(recording._id);
+      recording.error = null;
+      await recording.save();
+      await publishLiveRecordingMonitorUpdate({
+        reason: "recording_export_reconciled_ready_with_drive_output",
+        recordingIds: [String(recording._id)],
+      }).catch(() => {});
+      continue;
+    }
 
     if (!shouldMarkExportAsStale(recording, exportPipeline)) {
       continue;

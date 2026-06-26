@@ -105,10 +105,10 @@ function getSegmentStorageTargetId(segment, recording) {
   );
 }
 
-function buildSourceCleanupObjectKeys(recording) {
+function buildSourceCleanupObjectKeys(recording, segments = null) {
   const objectKeys = new Set();
 
-  for (const segment of recording?.segments || []) {
+  for (const segment of segments || recording?.segments || []) {
     if (segment?.objectKey) {
       objectKeys.add(segment.objectKey);
     }
@@ -135,7 +135,7 @@ function buildSourceCleanupObjectKeys(recording) {
 
 function groupRecordingObjectKeysByTarget(
   recording,
-  { includeManifest = true } = {}
+  { includeManifest = true, segments = null } = {}
 ) {
   const grouped = new Map();
 
@@ -149,7 +149,7 @@ function groupRecordingObjectKeysByTarget(
     grouped.get(normalizedTargetId).add(normalizedObjectKey);
   };
 
-  for (const segment of recording?.segments || []) {
+  for (const segment of segments || recording?.segments || []) {
     pushObjectKey(
       getSegmentStorageTargetId(segment, recording),
       segment?.objectKey
@@ -182,6 +182,29 @@ function shouldDeleteRecordingSourceAfterExport() {
 
   if (!raw) return false;
   return ["1", "true", "yes", "on"].includes(raw);
+}
+
+function buildSegmentExportSnapshot(recording, uploadedSegments) {
+  const allSegments = [...(recording?.segments || [])];
+  const pendingSegments = allSegments.filter(
+    (segment) => segment?.uploadStatus !== "uploaded"
+  );
+  const exportedSegmentIndexes = uploadedSegments
+    .map((segment) => Number(segment?.index))
+    .filter((index) => Number.isInteger(index) && index >= 0)
+    .sort((a, b) => a - b);
+  const hasFinalSegment = uploadedSegments.some((segment) => Boolean(segment?.isFinal));
+  return {
+    type: "segments",
+    exportedAt: new Date(),
+    exportedSegmentCount: exportedSegmentIndexes.length,
+    totalSegmentCount: allSegments.length,
+    pendingSegmentCount: pendingSegments.length,
+    exportedSegmentIndexes,
+    hasPendingSegments: pendingSegments.length > 0,
+    hasFinalSegment,
+    complete: pendingSegments.length === 0 && hasFinalSegment,
+  };
 }
 
 async function updateExportPipelineState(
@@ -810,6 +833,7 @@ function shouldTreatFacebookVodDownloadErrorAsRetryable(error) {
 }
 
 async function exportUploadedSegmentRecording(recording, uploadedSegments) {
+  const exportSnapshot = buildSegmentExportSnapshot(recording, uploadedSegments);
   const manifestKey =
     recording.r2ManifestKey ||
     buildRecordingManifestObjectKey({
@@ -837,6 +861,7 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
       durationSeconds: segment.durationSeconds,
       isFinal: segment.isFinal,
     })),
+    exportSnapshot,
   };
 
   await putRecordingManifest({
@@ -850,6 +875,10 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
   recording.scheduledExportAt = null;
   recording.exportAttempts = (recording.exportAttempts || 0) + 1;
   recording.error = null;
+  recording.meta = {
+    ...asMutableMeta(recording.meta),
+    exportSnapshot,
+  };
   await updateExportPipelineState(
     recording,
     "downloading",
@@ -857,6 +886,7 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
       startedAt: new Date(),
       downloadStartedAt: new Date(),
       label: "Worker dang tai segment tu R2",
+      exportSnapshot,
     },
     "recording_export_started"
   );
@@ -915,7 +945,7 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
       sourceDurationSeconds: totalDurationSeconds,
     });
 
-    if (shouldDeleteRecordingSourceAfterExport()) {
+    if (shouldDeleteRecordingSourceAfterExport() && exportSnapshot.complete) {
       await updateExportPipelineState(
         recording,
         "cleaning_r2",
@@ -930,6 +960,7 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
       try {
         const cleanupResult = await deleteExportedRecordingSegments(recording, {
           includeManifest: true,
+          segments: uploadedSegments,
         });
 
         recording.r2ManifestKey = null;
@@ -940,6 +971,7 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
             deletedObjectCount: cleanupResult.deletedObjectCount,
             deletedManifest: cleanupResult.deletedManifest,
             objectKeys: cleanupResult.objectKeys,
+            exportSnapshot,
           },
           publishReason: "recording_source_cleanup_completed",
         });
@@ -949,6 +981,7 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
             status: "failed",
             attemptedAt: new Date(),
             error: cleanupError?.message || String(cleanupError),
+            exportSnapshot,
           },
           publishReason: "recording_source_cleanup_failed",
         });
@@ -959,12 +992,25 @@ async function exportUploadedSegmentRecording(recording, uploadedSegments) {
           cleanupError
         );
       }
+    } else if (shouldDeleteRecordingSourceAfterExport()) {
+      await markRecordingReady(recording, {
+        sourceCleanup: {
+          status: "retained",
+          retainedAt: new Date(),
+          reason: exportSnapshot.hasPendingSegments
+            ? "partial_export_pending_segments"
+            : "partial_export_missing_final_segment",
+          exportSnapshot,
+        },
+        publishReason: "recording_ready_partial_source_retained",
+      });
     } else {
       await markRecordingReady(recording, {
         sourceCleanup: {
           status: "retained",
           retainedAt: new Date(),
           reason: "config_keep_r2_source",
+          exportSnapshot,
         },
         publishReason: "recording_ready",
       });
@@ -1165,7 +1211,7 @@ export async function exportLiveRecordingV2(recordingId) {
 
 export async function deleteExportedRecordingSegments(
   recordingOrId,
-  { includeManifest = true } = {}
+  { includeManifest = true, segments = null } = {}
 ) {
   const recording =
     recordingOrId && typeof recordingOrId === "object"
@@ -1181,10 +1227,10 @@ export async function deleteExportedRecordingSegments(
   }
 
   const objectKeys = includeManifest
-    ? buildSourceCleanupObjectKeys(recording)
+    ? buildSourceCleanupObjectKeys(recording, segments)
     : [
         ...new Set(
-          (recording.segments || [])
+          (segments || recording.segments || [])
             .map((segment) => segment?.objectKey)
             .filter(Boolean)
         ),
@@ -1200,6 +1246,7 @@ export async function deleteExportedRecordingSegments(
 
   const groupedObjectKeys = groupRecordingObjectKeysByTarget(recording, {
     includeManifest,
+    segments,
   });
   const deletedKeys = [];
   for (const [
