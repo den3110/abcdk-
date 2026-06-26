@@ -158,6 +158,7 @@ export async function enqueueLiveRecordingExport(
     replaceTerminalJob = false,
     delayMs = 0,
     replacePendingJob = false,
+    ignoreWindow = false,
   } = {}
 ) {
   const jobId = buildExportJobId(recordingId);
@@ -187,7 +188,10 @@ export async function enqueueLiveRecordingExport(
 
   return liveRecordingExportQueue.add(
     "export-recording",
-    { recordingId: String(recordingId) },
+    {
+      recordingId: String(recordingId),
+      ignoreWindow: ignoreWindow === true,
+    },
     {
       jobId,
       ...(normalizedDelayMs > 0 ? { delay: normalizedDelayMs } : {}),
@@ -204,7 +208,7 @@ export async function enqueueLiveRecordingExport(
 
 export async function enqueueLiveRecordingExportRetry(
   recordingId,
-  { delayMs = 0, retryReason = "retry" } = {}
+  { delayMs = 0, retryReason = "retry", ignoreWindow = false } = {}
 ) {
   const normalizedDelayMs =
     Number.isFinite(Number(delayMs)) && Number(delayMs) > 0
@@ -216,6 +220,7 @@ export async function enqueueLiveRecordingExportRetry(
     {
       recordingId: String(recordingId),
       retryReason: String(retryReason || "retry"),
+      ignoreWindow: ignoreWindow === true,
     },
     {
       jobId: buildRetryExportJobId(recordingId),

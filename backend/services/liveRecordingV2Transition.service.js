@@ -10,7 +10,10 @@ import {
   putRecordingManifest,
 } from "./liveRecordingV2Storage.service.js";
 import { publishLiveRecordingMonitorUpdate } from "./liveRecordingMonitorEvents.service.js";
-import { enqueueLiveRecordingExport } from "./liveRecordingV2Queue.service.js";
+import {
+  enqueueLiveRecordingExport,
+  removeLiveRecordingExportJobs,
+} from "./liveRecordingV2Queue.service.js";
 import {
   RECORDING_SOURCE_FACEBOOK_VOD,
   getPendingRecordingSegments,
@@ -151,10 +154,20 @@ export async function queueLiveRecordingExport(recordingOrId, options = {}) {
   recording.error = null;
   recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
 
+  if (ignoreWindow) {
+    await removeLiveRecordingExportJobs(recording._id).catch((error) => {
+      console.warn(
+        "[live-recording-v2] failed to cleanup existing export jobs before force export:",
+        error?.message || error
+      );
+    });
+  }
+
   const queuedJob = await enqueueLiveRecordingExport(recording._id, {
     replaceTerminalJob,
     replacePendingJob,
     delayMs: exportWindow.shouldQueueNow ? 0 : exportWindow.delayMs,
+    ignoreWindow,
   });
   const nextMeta = getRecordingMeta(recording);
   const existingPipeline =

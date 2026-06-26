@@ -148,7 +148,10 @@ class MatchRecordingCoordinator(
 
     companion object {
         private const val TAG = "RecordingCoordinator"
-        private const val DEFAULT_SEGMENT_DURATION_SECONDS = 6.0
+        // Segment chuẩn 10s (trước 6s) để giảm số lần finalize mp4 → giảm xác suất
+        // dính segment không finalize được trên máy/encoder khó tính. Phải <=
+        // DEFAULT_RECORDING_SEGMENT_DURATION_MS (trần clamp = 10s). Low-storage giữ 6s.
+        private const val DEFAULT_SEGMENT_DURATION_SECONDS = 10.0
         private const val LOW_STORAGE_SEGMENT_DURATION_SECONDS = 6.0
         private const val MIN_MULTIPART_OBJECT_SIZE_BYTES = 5L * 1024L * 1024L
         private const val DEFAULT_MULTIPART_PART_SIZE_BYTES = 8L * 1024L * 1024L
@@ -174,6 +177,16 @@ class MatchRecordingCoordinator(
         private const val MP4_READY_CHECK_INTERVAL_MS = 250L
         private const val MP4_NOT_READY_RETRY_MS = 2_000L
         private const val MP4_ATOM_SCAN_BYTES = 1024 * 1024
+        // "Luôn có record": nếu 1 segment không thể upload/finalize sau RẤT nhiều lần
+        // (vd encoder máy không đóng được mp4) thì bỏ qua nó để recording vẫn finalize
+        // được từ các segment đã có. Cap rất rộng → máy khoẻ upload trong vài giây nên
+        // KHÔNG bao giờ chạm tới (an toàn, không bỏ nhầm footage tốt).
+        private const val MAX_SEGMENT_UPLOAD_RETRIES = 25
+        // Sau khi đã bỏ segment kẹt, finalize sẽ retry vì backend vẫn báo 409 (segment
+        // còn pending phía server). Sau ngần này lần finalize lỗi → gửi cờ
+        // abandonFailedSegments để backend finalize với segment đã upload. Force này là
+        // no-op nếu backend thực ra đã đủ segment → an toàn cả khi lỗi do mạng thoáng qua.
+        private const val MAX_FINALIZE_RETRIES_BEFORE_FORCE = 3
         private const val LOCAL_RECORDING_ID_PREFIX = "local_"
         private val MP4_MOOV_ATOM =
             byteArrayOf('m'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte())
@@ -841,6 +854,32 @@ class MatchRecordingCoordinator(
 
     private suspend fun selectNextUploadBatch(now: Long): List<PendingRecordingSegment> {
         return manifestMutex.withLock {
+            // Give up on segments stuck after too many retries (encoder/device can't
+            // produce a finalized mp4). Drop them so the recording can still finalize
+            // from the segments that DID upload ("luôn có record"). The cap is generous
+            // → healthy uploads finish in a few tries and never reach it, so good
+            // footage is never dropped on working devices.
+            val abandoned = manifest.pendingSegments.filter {
+                it.retryCount >= MAX_SEGMENT_UPLOAD_RETRIES
+            }
+            if (abandoned.isNotEmpty()) {
+                val abandonedKeys =
+                    abandoned.map { it.recordingId to it.segmentIndex }.toSet()
+                manifest = manifest.copy(
+                    pendingSegments = manifest.pendingSegments.filterNot {
+                        (it.recordingId to it.segmentIndex) in abandonedKeys
+                    }
+                )
+                persistManifestLocked()
+                abandoned.forEach {
+                    Log.w(
+                        TAG,
+                        "Abandoning stuck segment recordingId=${it.recordingId} " +
+                            "index=${it.segmentIndex} after ${it.retryCount} retries; " +
+                            "recording will finalize without it.",
+                    )
+                }
+            }
             val readySegments =
                 manifest.pendingSegments
                     .filter { it.nextRetryAtMs <= now }
@@ -2357,7 +2396,16 @@ class MatchRecordingCoordinator(
             if (hasPendingSegments) continue
 
             attempted = true
-            val result = repository.finalizeRecording(finalize.recordingId)
+            // Nếu ta đã bỏ 1 segment kẹt, backend vẫn 409 (segment còn pending phía
+            // server) nên finalize cứ retry. Sau ngần này lần lỗi → gửi cờ để backend
+            // finalize với các segment đã upload. Force là no-op nếu backend thực ra đã
+            // đủ segment (vd finalize lỗi do mạng thoáng qua) → an toàn.
+            val abandonFailedSegments =
+                finalize.retryCount >= MAX_FINALIZE_RETRIES_BEFORE_FORCE
+            val result = repository.finalizeRecording(
+                finalize.recordingId,
+                abandonFailedSegments = abandonFailedSegments,
+            )
             result.onSuccess { payload ->
                 syncRecordingRuntimeState(
                     payload.recording,

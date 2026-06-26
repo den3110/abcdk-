@@ -205,7 +205,10 @@ class LiveStreamActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        viewModel.onHostStopped(isChangingConfigurations = isChangingConfigurations)
+        viewModel.onHostStopped(
+            isChangingConfigurations = isChangingConfigurations,
+            isFinishing = isFinishing,
+        )
         super.onStop()
     }
 

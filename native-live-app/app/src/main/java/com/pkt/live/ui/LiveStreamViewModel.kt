@@ -926,6 +926,21 @@ class LiveStreamViewModel(
     private fun recordingEngineIsActiveOrResuming(): Boolean =
         recordingEngineState.value.let { it.isRecording || it.pendingResume }
 
+    private fun recordingUiIsActiveOrDraining(): Boolean {
+        val ui = recordingUiState.value
+        val status = ui.status.trim().lowercase(Locale.ROOT)
+        val hasRecording = !ui.activeRecordingId.isNullOrBlank()
+        return ui.isRecording ||
+            (hasRecording && status in setOf("preparing", "recording", "uploading", "exporting")) ||
+            (hasRecording && ui.pendingUploads > 0)
+    }
+
+    private fun shouldPreserveSessionAcrossBackground(): Boolean =
+        hasActiveLivestreamState() ||
+            recordingEngineIsActiveOrResuming() ||
+            recordingUiIsActiveOrDraining() ||
+            hasArmedStartIntent()
+
     private fun currentSessionHasRecording(): Boolean =
         primaryMode()?.includesRecording == true ||
             recordingEngineIsActiveOrResuming()
@@ -1590,11 +1605,15 @@ class LiveStreamViewModel(
         courtPresenceHeartbeatJob = null
     }
 
-    fun onHostStopped(isChangingConfigurations: Boolean) {
+    fun onHostStopped(isChangingConfigurations: Boolean, isFinishing: Boolean) {
         if (isChangingConfigurations) return
         courtPresenceHeartbeatJob?.cancel()
         courtPresenceHeartbeatJob = null
         endCourtPresenceAsync()
+        if (!isFinishing && shouldPreserveSessionAcrossBackground()) {
+            Log.d(TAG, "Host stopped with active live/record session; preserving current mode/session")
+            return
+        }
         performBackgroundExitAsync()
     }
 

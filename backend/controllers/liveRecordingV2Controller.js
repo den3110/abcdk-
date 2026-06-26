@@ -2355,17 +2355,40 @@ export const finalizeLiveRecordingV2 = asyncHandler(async (req, res) => {
 
   const uploadedSegments = getUploadedRecordingSegments(recording);
   const pendingSegments = getPendingRecordingSegments(recording);
+  // Client may give up on segments it can never finalize/upload (e.g. a device
+  // whose encoder won't produce a finalized mp4) and ask to finalize anyway so
+  // there is ALWAYS a record from the segments that did upload. Without this flag
+  // behaviour is unchanged (must wait for all segments).
+  const abandonFailedSegments =
+    req.body?.abandonFailedSegments === true || req.body?.force === true;
 
   if (!uploadedSegments.length) {
     return res.status(400).json({
       message: "Cannot finalize a recording with no uploaded segments",
     });
   }
-  if (pendingSegments.length) {
+  if (pendingSegments.length && !abandonFailedSegments) {
     return res.status(409).json({
       message: "Cannot finalize recording until all segments are uploaded",
       pendingSegments: pendingSegments.length,
     });
+  }
+  if (pendingSegments.length && abandonFailedSegments) {
+    // Mark the segments that never uploaded as aborted so the recording can be
+    // exported from the uploaded ones. Export concatenates ONLY uploaded
+    // segments, so a missing index is just a short gap in the final video.
+    let changed = false;
+    for (const segment of recording.segments || []) {
+      const status = String(segment?.uploadStatus || "");
+      if (status !== "uploaded" && status !== "aborted" && status !== "failed") {
+        segment.uploadStatus = "aborted";
+        changed = true;
+      }
+    }
+    if (changed) {
+      recording.markModified("segments");
+      await recording.save();
+    }
   }
 
   await queueLiveRecordingExport(recording, {
@@ -3028,10 +3051,43 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(
       return res.status(404).json({ message: "Recording not found" });
     }
 
-    if (!["uploading", "pending_export_window"].includes(recording.status)) {
+    const health = await getLiveRecordingWorkerHealth().catch(() => null);
+    const currentWorkerRecordingId = String(
+      health?.worker?.currentRecordingId || ""
+    );
+    if (
+      currentWorkerRecordingId &&
+      currentWorkerRecordingId === String(recording._id)
+    ) {
+      return res
+        .status(409)
+        .json({ message: "Recording is already being exported by worker" });
+    }
+
+    const nextMeta = getRecordingMeta(recording);
+    const currentPipeline =
+      nextMeta.exportPipeline &&
+      typeof nextMeta.exportPipeline === "object" &&
+      !Array.isArray(nextMeta.exportPipeline)
+        ? { ...nextMeta.exportPipeline }
+        : {};
+    const forceableExportingStages = new Set([
+      "queued",
+      "queued_retry",
+      "delayed_until_window",
+      "awaiting_queue_sync",
+      "stale_no_job",
+    ]);
+    const status = String(recording.status || "");
+    const stage = String(currentPipeline.stage || "");
+    const canForceNow =
+      ["uploading", "pending_export_window"].includes(status) ||
+      (status === "exporting" && forceableExportingStages.has(stage));
+
+    if (!canForceNow) {
       return res.status(409).json({
         message:
-          "Only uploading or pending-window recordings can be moved to exporting",
+          "Only uploading, pending-window, or queued retry recordings can be forced to export now",
       });
     }
 
@@ -3048,11 +3104,14 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(
 
     await queueLiveRecordingExport(recording, {
       publishReason:
-        recording.status === "pending_export_window"
+        status === "pending_export_window"
           ? "recording_export_forced_from_pending_window"
+          : status === "exporting"
+          ? "recording_export_forced_from_export_retry"
           : "recording_export_forced_from_uploading",
-      forceFromUploading: recording.status === "uploading",
-      replacePendingJob: recording.status === "pending_export_window",
+      forceFromUploading: status === "uploading",
+      replacePendingJob: true,
+      currentPipeline,
       forceReason: skippedPendingSegments
         ? "manual_force_export_with_pending_segments"
         : "manual_force_export",

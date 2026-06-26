@@ -1341,9 +1341,15 @@ class LiveRepository(
 
     suspend fun finalizeRecording(
         recordingId: String,
+        abandonFailedSegments: Boolean = false,
     ): Result<MatchRecordingResponse> {
         return try {
-            val resp = api.finalizeRecording(FinalizeMatchRecordingRequest(recordingId))
+            val resp = api.finalizeRecording(
+                FinalizeMatchRecordingRequest(
+                    recordingId = recordingId,
+                    abandonFailedSegments = abandonFailedSegments,
+                )
+            )
             if (resp.isSuccessful && resp.body() != null) {
                 Result.success(resp.body()!!)
             } else {

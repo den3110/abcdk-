@@ -80,8 +80,11 @@ const worker = new Worker(
       throw new Error("Missing recordingId");
     }
 
+    const ignoreWindow =
+      job?.data?.ignoreWindow === true ||
+      job?.data?.bypassExportWindow === true;
     const exportWindow = getLiveRecordingExportWindowDecision(new Date());
-    if (exportWindow.enabled && !exportWindow.shouldQueueNow) {
+    if (!ignoreWindow && exportWindow.enabled && !exportWindow.shouldQueueNow) {
       await LiveRecordingV2.updateOne(
         {
           _id: recordingId,
@@ -131,6 +134,7 @@ const worker = new Worker(
         await enqueueLiveRecordingExportRetry(recordingId, {
           delayMs: Number(result.retryDelayMs),
           retryReason: result?.retryReason || "retry",
+          ignoreWindow,
         });
       }
       lastCompletedAt = new Date().toISOString();

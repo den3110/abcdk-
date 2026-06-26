@@ -657,6 +657,10 @@ data class RecordingSegmentCompleteRequest(
 
 data class FinalizeMatchRecordingRequest(
     val recordingId: String,
+    // Khi true: server finalize/export với các segment đã upload, bỏ qua segment
+    // không bao giờ upload được (vd encoder máy không finalize mp4) → "luôn có
+    // record". Mặc định false để giữ nguyên hành vi cũ (chờ đủ segment).
+    val abandonFailedSegments: Boolean = false,
 )
 
 data class RecordingHeartbeatRequest(
@@ -684,7 +688,7 @@ data class RecordingStorageStatus(
     val redWarning: Boolean = false,
     val hardBlock: Boolean = false,
     val lowStorageOptimized: Boolean = false,
-    val segmentDurationSeconds: Int = 6,
+    val segmentDurationSeconds: Int = 10,
     val estimatedRunwayMinutes: Int? = null,
     val message: String? = null,
 )

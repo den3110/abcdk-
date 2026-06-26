@@ -83,7 +83,12 @@ class RtmpStreamManager(
         private const val LIVE_BITRATE_STALL_RESTART_MS = 50_000L
         private const val EMULATOR_LIVE_BITRATE_STALL_RESTART_MS = 75_000L
         private const val BITMAP_SAFE_RECYCLE_DELAY_MS = 2_500L
-        private const val DEFAULT_RECORDING_SEGMENT_DURATION_MS = 6_000L
+        // Segment chuẩn 10s (trước 6s): giảm số lần stop/start (finalize mp4) → giảm
+        // xác suất dính segment không finalize được (moov atom) trên các máy/encoder
+        // khó tính (vd Samsung Ultra). Mỗi segment cũng nhiều data hơn → muxer.stop()
+        // ổn hơn. Low-storage vẫn 6s (xem MIN) để chống mất footage khi bộ nhớ thấp.
+        // Đây cũng là trần clamp của setRecordingSegmentDurationMs.
+        private const val DEFAULT_RECORDING_SEGMENT_DURATION_MS = 10_000L
         private const val MIN_RECORDING_SEGMENT_DURATION_MS = 6_000L
         private const val OVERLAY_ATTACHED_STABLE_COOLDOWN_MS = 1_200L
         private const val RECORD_ONLY_OVERLAY_FAIL_SOFT_THRESHOLD = 2
