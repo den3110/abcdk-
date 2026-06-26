@@ -24,27 +24,10 @@ import {
   buildTeamStandings,
 } from "../services/teamTournament.service.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
-import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
-import { createShortTtlCache } from "../utils/shortTtlCache.js";
-import {
-  beginCachedJsonResponse,
-  buildCacheKey,
-} from "../utils/httpResponseCache.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const POSTER_BASE_W = 960;
 const POSTER_BASE_H = 1280;
-const TOURNAMENT_LIST_CACHE_TTL_MS = Math.max(
-  60_000,
-  Number(process.env.TOURNAMENT_LIST_CACHE_TTL_MS || 600_000),
-);
-
-const tournamentListCache = createShortTtlCache(TOURNAMENT_LIST_CACHE_TTL_MS, {
-  id: CACHE_GROUP_IDS.tournamentList,
-  label: "Tournament list",
-  category: "public",
-  scope: "public",
-});
 
 function isAdminLikeUser(user = {}) {
   if (!user) return false;
@@ -2764,20 +2747,6 @@ const getTournaments = asyncHandler(async (req, res) => {
   const status = (req.query.status || "").toString().toLowerCase(); // upcoming|ongoing|finished (chỉ dùng lọc nếu có)
   const rawKeyword = (req.query.keyword ?? req.query.q ?? "").toString().trim();
   const adminLike = isAdminLikeUser(req.user);
-  const cacheVisibility = adminLike ? "private" : "public";
-  const cacheKey = buildCacheKey("tournaments:list", {
-    query: req.query,
-    adminLike,
-  });
-  const cacheSlot = await beginCachedJsonResponse(
-    res,
-    tournamentListCache,
-    cacheKey,
-    TOURNAMENT_LIST_CACHE_TTL_MS,
-    cacheVisibility,
-  );
-  if (cacheSlot.handled) return;
-
   const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const parseSort = (s) =>
     s.split(",").reduce((acc, token) => {
@@ -3035,7 +3004,8 @@ const getTournaments = asyncHandler(async (req, res) => {
     )
   );
   res.status(200);
-  cacheSlot.send(tournaments);
+  setNoStoreHeaders(res);
+  res.json(tournaments);
 });
 
 const getTournamentById = asyncHandler(async (req, res) => {
