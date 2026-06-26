@@ -3,6 +3,7 @@ import { authorize, protect, protectLiveApp } from "../middleware/authMiddleware
 import {
   abortMultipartLiveRecordingSegmentV2,
   bulkTrashLiveRecordingDriveAssetV2,
+  cleanLiveRecordingR2SourceV2,
   completeLiveRecordingSegmentV2,
   completeMultipartLiveRecordingSegmentV2,
   finalizeLiveRecordingV2,
@@ -184,6 +185,12 @@ router.post(
   protect,
   authorize("admin"),
   trashLiveRecordingR2AssetsV2
+);
+router.post(
+  "/admin/:id/source-r2-clean",
+  protect,
+  authorize("admin"),
+  cleanLiveRecordingR2SourceV2
 );
 router.post(
   "/admin/:id/commentary",

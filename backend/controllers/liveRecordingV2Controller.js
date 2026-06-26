@@ -2919,6 +2919,144 @@ export const trashLiveRecordingR2AssetsV2 = asyncHandler(async (req, res) => {
   });
 });
 
+export const cleanLiveRecordingR2SourceV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.body?.recordingId);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  if (!hasDriveRecordingOutput(recording)) {
+    return res.status(409).json({
+      message: "Chỉ dọn R2 sau khi recording đã có file Drive/playback.",
+      recording: serializeRecording(recording),
+    });
+  }
+
+  const queueCleanup = await removeLiveRecordingExportJobs(recordingId).catch(
+    (error) => ({
+      removedJobIds: [],
+      skippedActiveJobIds: [],
+      errors: [error?.message || String(error)],
+    })
+  );
+
+  if (queueCleanup.skippedActiveJobIds.length) {
+    return res.status(409).json({
+      message: "Recording đang có job export hoạt động, chưa thể dọn R2",
+      activeJobIds: queueCleanup.skippedActiveJobIds,
+      recording: serializeRecording(recording),
+    });
+  }
+
+  if (queueCleanup.errors.length) {
+    return res.status(502).json({
+      message: "Không thể dọn job queue trước khi xóa R2: " + queueCleanup.errors.join(", "),
+      recording: serializeRecording(recording),
+    });
+  }
+
+  const prefix = buildRecordingPrefix({
+    recordingId: recording._id,
+    matchId: recording.match,
+  });
+  const targetIds = new Set();
+  const recordingTargetId = asTrimmed(recording?.r2TargetId);
+  if (recordingTargetId) targetIds.add(recordingTargetId);
+  for (const segment of recording?.segments || []) {
+    const storageTargetId = asTrimmed(segment?.storageTargetId);
+    if (storageTargetId) targetIds.add(storageTargetId);
+  }
+
+  if (targetIds.size === 0) {
+    for (const target of getRecordingStorageTargets() || []) {
+      const targetId = asTrimmed(target?.id);
+      if (targetId) targetIds.add(targetId);
+    }
+  }
+
+  let totalDeleted = 0;
+  let totalListed = 0;
+  const deletedKeys = [];
+  const errors = [];
+  for (const targetId of targetIds) {
+    try {
+      const listRes = await listRecordingObjects({
+        storageTargetId: targetId,
+        prefix,
+      });
+      const keys = (listRes?.objects || [])
+        .map((obj) => asTrimmed(obj?.key))
+        .filter(Boolean);
+      totalListed += keys.length;
+      if (!keys.length) continue;
+
+      const deleteResult = await deleteRecordingObjects(keys, {
+        storageTargetId: targetId,
+      });
+      totalDeleted += Number(deleteResult?.deletedObjectCount || 0);
+      deletedKeys.push(...(deleteResult?.deletedKeys || keys));
+      if (Array.isArray(deleteResult?.errors) && deleteResult.errors.length) {
+        errors.push(...deleteResult.errors);
+      }
+    } catch (error) {
+      errors.push(error?.message || String(error));
+    }
+  }
+
+  const meta = getPlainMeta(recording.meta);
+  const now = new Date();
+  meta.sourceCleanup = {
+    ...getPlainMeta(meta.sourceCleanup),
+    status: errors.length ? "failed" : "completed",
+    manual: true,
+    cleanedAt: errors.length ? null : now,
+    attemptedAt: now,
+    deletedObjectCount: totalDeleted,
+    listedObjectCount: totalListed,
+    objectKeys: deletedKeys,
+    prefix,
+    removedQueueJobs: queueCleanup.removedJobIds,
+    error: errors.length ? errors.join(", ") : null,
+  };
+  recording.meta = meta;
+  if (!errors.length) {
+    recording.r2ManifestKey = null;
+  }
+  await recording.save();
+  await publishRecordingMonitor(
+    recording,
+    errors.length
+      ? "recording_source_r2_cleanup_failed"
+      : "recording_source_r2_cleanup_completed"
+  );
+
+  if (errors.length) {
+    return res.status(502).json({
+      ok: false,
+      message: "Dọn R2 chưa hoàn tất: " + errors.join(", "),
+      deletedObjects: totalDeleted,
+      listedObjects: totalListed,
+      removedQueueJobs: queueCleanup.removedJobIds,
+      recording: serializeRecording(recording),
+    });
+  }
+
+  return res.json({
+    ok: true,
+    message: `Đã dọn ${totalDeleted} file R2 của recording, giữ nguyên Drive và record DB.`,
+    deletedObjects: totalDeleted,
+    listedObjects: totalListed,
+    removedQueueJobs: queueCleanup.removedJobIds,
+    recording: serializeRecording(recording),
+  });
+});
+
 export const bulkTrashLiveRecordingDriveAssetV2 = asyncHandler(async (req, res) => {
   const target = normalizeDriveAssetTarget(req.body?.target);
   const rawRecordingIds = Array.isArray(req.body?.recordingIds)
