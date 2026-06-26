@@ -1239,11 +1239,11 @@ function EditTeamsDialog({
   };
 
   const handleSave = async () => {
-    await patchMatch({
+    const saved = await patchMatch({
       pairA: idOf(selA),
       pairB: idOf(selB),
     });
-    onSaved?.(selA, selB);
+    onSaved?.(saved, selA, selB);
     onClose?.();
   };
 
@@ -2421,34 +2421,47 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       if (["live", "finished"].includes(teamEditStatus)) {
         throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");
       }
-      await adminPatchMatch({ id: lockedId, body }).unwrap();
+      const saved = await adminPatchMatch({ id: lockedId, body }).unwrap();
       toast.success("Đã lưu đội A/B.");
       debouncedRefresh();
+      return saved;
     } catch (e) {
       const msg = e?.data?.message || e?.message || "Lỗi không xác định";
       toast.error(`Lưu đội thất bại: ${msg}`);
       throw e;
     }
   };
-  const handleTeamsSavedLocal = (newA, newB) => {
+  const handleTeamsSavedLocal = (saved, selectedA, selectedB) => {
+    const normalizePair = (serverPair, selectedPair) => {
+      const serverId = idOf(serverPair);
+      if (!serverId) return null;
+      const selectedId = idOf(selectedPair);
+      const source =
+        selectedId && String(selectedId) === String(serverId)
+          ? selectedPair
+          : serverPair;
+      if (source && typeof source === "object") {
+        return {
+          _id: serverId,
+          player1: source.player1,
+          player2: source.player2,
+          code: source.code,
+          label: source.label,
+          teamName: source.teamName,
+        };
+      }
+      return { _id: serverId };
+    };
+
     setLocalPatch((p) => ({
       ...(p || {}),
-      pairA: newA
-        ? {
-            _id: idOf(newA),
-            player1: newA.player1,
-            player2: newA.player2,
-            code: newA.code,
-          }
-        : null,
-      pairB: newB
-        ? {
-            _id: idOf(newB),
-            player1: newB.player1,
-            player2: newB.player2,
-            code: newB.code,
-          }
-        : null,
+      pairA: normalizePair(saved?.pairA, selectedA),
+      pairB: normalizePair(saved?.pairB, selectedB),
+      seedA: saved?.seedA ?? p?.seedA,
+      seedB: saved?.seedB ?? p?.seedB,
+      previousA: saved?.previousA ?? p?.previousA,
+      previousB: saved?.previousB ?? p?.previousB,
+      liveVersion: saved?.liveVersion ?? p?.liveVersion,
     }));
   };
 
@@ -3342,3 +3355,4 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     </Stack>
   );
 }
+

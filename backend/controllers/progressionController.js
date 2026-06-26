@@ -221,7 +221,7 @@ export const commitAdvancement = expressAsyncHandler(async (req, res) => {
     }
 
     // Create Round 1 matches for target using seeding
-    const { matchesCreated } = await createRound1Matches({
+    const { matchesCreated, matchesUpdated } = await createRound1Matches({
       targetBracket: target,
       entrants: seeded,
       pairing,
@@ -230,7 +230,9 @@ export const commitAdvancement = expressAsyncHandler(async (req, res) => {
 
     // Update quick counters
     target.teamsCount = seeded.length;
-    target.matchesCount = (target.matchesCount || 0) + matchesCreated;
+    target.matchesCount = await Match.countDocuments({
+      bracket: target._id,
+    }).session(session);
     await target.save({ session });
 
     await session.commitTransaction();
@@ -239,6 +241,7 @@ export const commitAdvancement = expressAsyncHandler(async (req, res) => {
       committed: true,
       entrants: seeded.length,
       matchesCreated,
+      matchesUpdated,
     });
   } catch (err) {
     await session.abortTransaction();

@@ -1,5 +1,6 @@
 // controllers/bracketController.js
 import expressAsyncHandler from "express-async-handler";
+import mongoose from "mongoose";
 import Bracket from "../../models/bracketModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import Match from "../../models/matchModel.js";
@@ -21,6 +22,75 @@ const countPaidRegs = async (tournamentId) =>
     tournament: tournamentId,
     "payment.status": "Paid",
   });
+
+const SEED_BYE = { type: "bye", ref: null, label: "BYE" };
+const DEFAULT_KO_RULES = {
+  bestOf: 3,
+  pointsToWin: 11,
+  winByTwo: true,
+  cap: { mode: "none", points: null },
+};
+
+function roundTitleByPairs(pairs) {
+  if (pairs === 1) return "F";
+  if (pairs === 2) return "SF";
+  if (pairs === 4) return "QF";
+  return `R${pairs * 2}`;
+}
+
+function normalizeRules(rules, fallback = DEFAULT_KO_RULES) {
+  const src = rules && typeof rules === "object" ? rules : fallback;
+  return {
+    bestOf: [1, 3, 5].includes(Number(src.bestOf))
+      ? Number(src.bestOf)
+      : fallback.bestOf,
+    pointsToWin: [11, 15, 21].includes(Number(src.pointsToWin))
+      ? Number(src.pointsToWin)
+      : fallback.pointsToWin,
+    winByTwo:
+      typeof src.winByTwo === "boolean" ? src.winByTwo : fallback.winByTwo,
+    cap: {
+      mode: ["none", "hard", "soft"].includes(String(src?.cap?.mode || ""))
+        ? String(src.cap.mode)
+        : fallback.cap.mode,
+      points:
+        src?.cap?.points === null || typeof src?.cap?.points === "undefined"
+          ? null
+          : Number(src.cap.points) || null,
+    },
+  };
+}
+
+function registrationIdFromSeed(seed) {
+  if (String(seed?.type || "") !== "registration") return null;
+  const ref = seed?.ref && typeof seed.ref === "object" ? seed.ref : {};
+  return ref.registration || ref.reg || seed.registration || seed.reg || null;
+}
+
+function registrationSeed(regId, label = "") {
+  if (!regId) return null;
+  return { type: "registration", ref: { registration: regId }, label };
+}
+
+function sanitizeKoSeed(seed, pairId = null) {
+  if (seed?.type === "registration") {
+    const regId = registrationIdFromSeed(seed) || pairId;
+    return regId ? registrationSeed(regId, seed.label || "") : SEED_BYE;
+  }
+  if (pairId) return registrationSeed(pairId);
+  if (seed?.type === "bye") return SEED_BYE;
+  return seed?.type ? seed : SEED_BYE;
+}
+
+function pairFromKoSeed(seed) {
+  return registrationIdFromSeed(seed);
+}
+
+function pickKoRules({ round, order, rounds, baseRules, semiRules, finalRules }) {
+  if (round === rounds && order === 0 && finalRules) return finalRules;
+  if (rounds >= 2 && round === rounds - 1 && semiRules) return semiRules;
+  return baseRules;
+}
 
 // ===== CREATE =====
 // adminCreateBracket
@@ -283,6 +353,276 @@ export const adminUpdateBracket = expressAsyncHandler(async (req, res) => {
   await br.save();
   await clearTournamentPresentationCaches();
   res.json(br);
+});
+
+// ===== REBUILD KNOCKOUT TREE (keep bracket, replace matches only) =====
+export const rebuildKnockoutBracket = expressAsyncHandler(async (req, res) => {
+  const { tournamentId, bracketId } = req.params;
+  const {
+    drawSize,
+    preserveSeeds = false,
+    thirdPlace,
+  } = req.body || {};
+
+  const size = Number(drawSize);
+  if (!Number.isInteger(size) || size < 2 || !isPow2(size)) {
+    res.status(400);
+    throw new Error("drawSize phải là lũy thừa của 2 và >= 2");
+  }
+  if (size > 1024) {
+    res.status(400);
+    throw new Error("drawSize tối đa đang hỗ trợ là 1024");
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const br = await Bracket.findOne({
+      _id: bracketId,
+      tournament: tournamentId,
+    }).session(session);
+
+    if (!br) {
+      res.status(404);
+      throw new Error("Bracket not found in this tournament");
+    }
+    if (br.type !== "knockout") {
+      res.status(400);
+      throw new Error("Chỉ tạo lại được bracket loại knockout");
+    }
+
+    const existingMatches = await Match.find({ bracket: br._id })
+      .select("_id round order status pairA pairB seedA seedB")
+      .sort({ round: 1, order: 1 })
+      .session(session)
+      .lean();
+
+    const lockedCount = existingMatches.filter((m) =>
+      ["live", "finished"].includes(String(m?.status || "").toLowerCase())
+    ).length;
+    if (lockedCount > 0) {
+      res.status(409);
+      throw new Error(
+        `Không thể tạo lại vì knockout đang có ${lockedCount} trận live/finished`
+      );
+    }
+
+    const rounds = Math.round(Math.log2(size));
+    const firstPairs = size / 2;
+    const oldRound1 = new Map(
+      existingMatches
+        .filter((m) => Number(m.round || 1) === 1)
+        .map((m) => [Number(m.order || 0), m])
+    );
+    const prefillSeeds = new Map(
+      (Array.isArray(br?.prefill?.seeds) ? br.prefill.seeds : []).map((s) => [
+        Number(s?.pair || 0),
+        s,
+      ])
+    );
+
+    const r1Seeds = Array.from({ length: firstPairs }, (_, idx) => {
+      const pairNo = idx + 1;
+      const old = oldRound1.get(idx);
+      const prefill = prefillSeeds.get(pairNo);
+      return {
+        pair: pairNo,
+        A: preserveSeeds
+          ? sanitizeKoSeed(old?.seedA || prefill?.A, old?.pairA)
+          : SEED_BYE,
+        B: preserveSeeds
+          ? sanitizeKoSeed(old?.seedB || prefill?.B, old?.pairB)
+          : SEED_BYE,
+      };
+    });
+
+    const baseRules = normalizeRules(
+      br?.config?.blueprint?.rules || br?.config?.rules
+    );
+    const semiRules = br?.config?.blueprint?.semiRules
+      ? normalizeRules(br.config.blueprint.semiRules, baseRules)
+      : null;
+    const finalRules = br?.config?.blueprint?.finalRules
+      ? normalizeRules(br.config.blueprint.finalRules, baseRules)
+      : null;
+    const thirdPlaceRules = br?.config?.blueprint?.thirdPlaceRules
+      ? normalizeRules(br.config.blueprint.thirdPlaceRules, finalRules || baseRules)
+      : null;
+    const useThirdPlace =
+      typeof thirdPlace === "boolean"
+        ? thirdPlace
+        : !!br?.config?.blueprint?.thirdPlaceEnabled;
+
+    const deleteResult = await Match.deleteMany({ bracket: br._id }).session(
+      session
+    );
+
+    const created = {};
+    created[1] = await Match.insertMany(
+      r1Seeds.map((seed, idx) => ({
+        tournament: br.tournament,
+        bracket: br._id,
+        format: "knockout",
+        round: 1,
+        order: idx,
+        seedA: seed.A || SEED_BYE,
+        seedB: seed.B || SEED_BYE,
+        pairA: pairFromKoSeed(seed.A),
+        pairB: pairFromKoSeed(seed.B),
+        rules: pickKoRules({
+          round: 1,
+          order: idx,
+          rounds,
+          baseRules,
+          semiRules,
+          finalRules,
+        }),
+        status: "scheduled",
+      })),
+      { session }
+    );
+
+    for (let round = 2; round <= rounds; round += 1) {
+      const previous = created[round - 1] || [];
+      const matchCount = Math.ceil(previous.length / 2);
+      created[round] = await Match.insertMany(
+        Array.from({ length: matchCount }, (_, idx) => ({
+          tournament: br.tournament,
+          bracket: br._id,
+          format: "knockout",
+          round,
+          order: idx,
+          previousA: previous[idx * 2]?._id || null,
+          previousB: previous[idx * 2 + 1]?._id || null,
+          rules: pickKoRules({
+            round,
+            order: idx,
+            rounds,
+            baseRules,
+            semiRules,
+            finalRules,
+          }),
+          status: "scheduled",
+        })),
+        { session }
+      );
+    }
+
+    for (let round = 1; round < rounds; round += 1) {
+      const current = created[round] || [];
+      const next = created[round + 1] || [];
+      for (let idx = 0; idx < next.length; idx += 1) {
+        const nextMatch = next[idx];
+        const left = current[idx * 2];
+        const right = current[idx * 2 + 1];
+        if (left) {
+          left.nextMatch = nextMatch._id;
+          left.nextSlot = "A";
+          await left.save({ session });
+        }
+        if (right) {
+          right.nextMatch = nextMatch._id;
+          right.nextSlot = "B";
+          await right.save({ session });
+        }
+      }
+    }
+
+    if (useThirdPlace && rounds >= 2) {
+      await Match.insertMany(
+        [
+          {
+            tournament: br.tournament,
+            bracket: br._id,
+            format: "knockout",
+            round: rounds,
+            order: created[rounds]?.length || 1,
+            isThirdPlace: true,
+            seedA: {
+              type: "stageMatchLoser",
+              ref: {
+                stageIndex: Number(br.stage || 1),
+                round: rounds - 1,
+                order: 0,
+              },
+              label: `L-V${rounds - 1}-T1`,
+            },
+            seedB: {
+              type: "stageMatchLoser",
+              ref: {
+                stageIndex: Number(br.stage || 1),
+                round: rounds - 1,
+                order: 1,
+              },
+              label: `L-V${rounds - 1}-T2`,
+            },
+            rules: thirdPlaceRules || finalRules || baseRules,
+            status: "scheduled",
+          },
+        ],
+        { session }
+      );
+    }
+
+    const realSeedCount = r1Seeds.reduce((count, seed) => {
+      return count + (pairFromKoSeed(seed.A) ? 1 : 0) + (pairFromKoSeed(seed.B) ? 1 : 0);
+    }, 0);
+
+    br.drawRounds = rounds;
+    br.meta = {
+      ...(br.meta?.toObject?.() || br.meta || {}),
+      drawSize: size,
+      maxRounds: rounds,
+      expectedFirstRoundMatches: firstPairs,
+      knockoutFinalNotified: false,
+    };
+    br.config = {
+      ...(br.config?.toObject?.() || br.config || {}),
+      rules: baseRules,
+      blueprint: {
+        ...(br.config?.blueprint?.toObject?.() || br.config?.blueprint || {}),
+        drawSize: size,
+        seeds: r1Seeds,
+        rules: baseRules,
+        semiRules,
+        finalRules,
+        thirdPlaceEnabled: useThirdPlace,
+        thirdPlaceRules: thirdPlaceRules || null,
+      },
+    };
+    br.prefill = {
+      roundKey: roundTitleByPairs(firstPairs),
+      seeds: r1Seeds,
+    };
+    br.teamsCount = realSeedCount;
+    br.matchesCount = await Match.countDocuments({ bracket: br._id }).session(
+      session
+    );
+    br.drawStatus = realSeedCount > 0 ? "drawn" : "planned";
+    br.markModified("config");
+    br.markModified("meta");
+    br.markModified("prefill");
+    await br.save({ session });
+
+    await session.commitTransaction();
+    await clearTournamentPresentationCaches();
+
+    return res.json({
+      ok: true,
+      bracket: br,
+      drawSize: size,
+      rounds,
+      deleted: deleteResult.deletedCount || 0,
+      created: br.matchesCount,
+      preservedSeeds: !!preserveSeeds,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 });
 
 // ===== DELETE (cascade matches) =====

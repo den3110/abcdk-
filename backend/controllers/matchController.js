@@ -3,6 +3,7 @@ import Match from "../models/matchModel.js";
 import mongoose from "mongoose";
 import Registration from "../models/registrationModel.js";
 import Bracket from "../models/bracketModel.js";
+import DrawSession from "../models/drawSessionModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import UserMatch from "../models/userMatchModel.js";
@@ -1887,6 +1888,113 @@ function registrationSeedForMatchTeam(regId) {
   };
 }
 
+const ROUND_ELIM_MATCH_TYPES = new Set([
+  "roundelim",
+  "round_elim",
+  "round-elim",
+  "po",
+  "playoff",
+]);
+
+const MATCH_BYE_SEED = { type: "bye", ref: null, label: "BYE" };
+
+function seedForRoundElimSource(regId) {
+  return regId ? registrationSeedForMatchTeam(regId) : { ...MATCH_BYE_SEED };
+}
+
+function seedMatchesRegistration(seed, regId) {
+  if (!regId) return !seed || String(seed?.type || "") === "bye";
+  if (String(seed?.type || "") !== "registration") return false;
+  const seedReg =
+    seed?.ref?.registration ||
+    seed?.ref?.registrationId ||
+    seed?.ref?._id ||
+    seed?.ref ||
+    null;
+  return Boolean(seedReg) && String(seedReg) === String(regId);
+}
+
+async function syncRoundElimDrawSourceForTeamOverride(match) {
+  if (!match?._id || !match?.bracket) return;
+
+  const roundNum = Number(match.round || 1);
+  const orderNum = Number(match.order || 0);
+  if (roundNum !== 1 || !Number.isInteger(orderNum) || orderNum < 0) return;
+
+  const bracket = await Bracket.findById(match.bracket)
+    .select("type prefill")
+    .lean(false);
+  const matchType = String(match.format || bracket?.type || "").toLowerCase();
+  if (!ROUND_ELIM_MATCH_TYPES.has(matchType)) return;
+
+  const pairA = match.pairA || null;
+  const pairB = match.pairB || null;
+  const seedA = seedForRoundElimSource(pairA);
+  const seedB = seedForRoundElimSource(pairB);
+
+  const session = await DrawSession.findOne({
+    bracket: match.bracket,
+    mode: "po",
+    status: "committed",
+    "board.type": "roundElim",
+  }).sort({ committedAt: -1, createdAt: -1 });
+
+  if (session) {
+    if (!session.board) session.board = { type: "roundElim", pairs: [] };
+    if (!Array.isArray(session.board.pairs)) session.board.pairs = [];
+
+    let pairIndex = session.board.pairs.findIndex(
+      (pair) => Number(pair?.index) === orderNum
+    );
+    if (pairIndex < 0) pairIndex = orderNum;
+
+    while (session.board.pairs.length <= pairIndex) {
+      session.board.pairs.push({
+        index: session.board.pairs.length,
+        a: null,
+        b: null,
+      });
+    }
+
+    session.board.pairs[pairIndex] = {
+      ...(session.board.pairs[pairIndex]?.toObject?.() ||
+        session.board.pairs[pairIndex] ||
+        {}),
+      index: orderNum,
+      a: pairA,
+      b: pairB,
+    };
+    session.markModified("board.pairs");
+    await session.save();
+  }
+
+  if (bracket) {
+    const prefill =
+      bracket.prefill && typeof bracket.prefill === "object"
+        ? bracket.prefill.toObject?.() || bracket.prefill
+        : {};
+    const seeds = Array.isArray(prefill.seeds) ? [...prefill.seeds] : [];
+
+    while (seeds.length <= orderNum) {
+      seeds.push({
+        pair: seeds.length + 1,
+        A: { ...MATCH_BYE_SEED },
+        B: { ...MATCH_BYE_SEED },
+      });
+    }
+
+    seeds[orderNum] = {
+      ...(seeds[orderNum] || {}),
+      pair: orderNum + 1,
+      A: seedA,
+      B: seedB,
+    };
+    bracket.prefill = { ...prefill, seeds };
+    bracket.markModified("prefill");
+    await bracket.save();
+  }
+}
+
 async function unlinkPreviousFeedForMatchSide(matchId, previousId, side) {
   if (!previousId) return;
   await Match.updateOne(
@@ -2186,8 +2294,14 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     throw new Error("pairA và pairB không được trùng nhau");
   }
 
-  const changedA = willSetA && String(newA ?? "") !== String(match.pairA ?? "");
-  const changedB = willSetB && String(newB ?? "") !== String(match.pairB ?? "");
+  const pairChangedA =
+    willSetA && String(newA ?? "") !== String(match.pairA ?? "");
+  const pairChangedB =
+    willSetB && String(newB ?? "") !== String(match.pairB ?? "");
+  const seedChangedA = willSetA && !seedMatchesRegistration(match.seedA, newA);
+  const seedChangedB = willSetB && !seedMatchesRegistration(match.seedB, newB);
+  const changedA = pairChangedA || seedChangedA;
+  const changedB = pairChangedB || seedChangedB;
   const teamsChanged = changedA || changedB;
   const changedToRealTeam = (changedA && newA) || (changedB && newB);
 
@@ -2274,6 +2388,9 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   // 9) save
   match.set(updates);
   await match.save();
+  if (teamsChanged) {
+    await syncRoundElimDrawSourceForTeamOverride(match);
+  }
 
   // 10) nếu match đã finished + winner hợp lệ -> apply rating
   if (
@@ -2457,6 +2574,11 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     rules: match.rules,
     pairA: match.pairA,
     pairB: match.pairB,
+    seedA: match.seedA,
+    seedB: match.seedB,
+    previousA: match.previousA,
+    previousB: match.previousB,
+    teamsChanged,
     updatedAt: match.updatedAt,
   });
 });

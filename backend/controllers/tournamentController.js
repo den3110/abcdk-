@@ -1911,6 +1911,44 @@ const isRoundElimByeSeed = (seed) =>
 const sameRoundElimSeed = (left, right) =>
   JSON.stringify(left || null) === JSON.stringify(right || null);
 
+const roundElimSeedRegistrationId = (seed) => {
+  if (String(seed?.type || "") !== "registration") return "";
+  const ref = seed?.ref && typeof seed.ref === "object" ? seed.ref : {};
+  return String(
+    ref.registration ||
+      ref.registrationId ||
+      ref.reg ||
+      seed.registration ||
+      seed.reg ||
+      ""
+  ).trim();
+};
+
+const sideHasManualRoundElimTeamOverride = (match, side, expectedRegId) => {
+  const pairField = side === "A" ? "pairA" : "pairB";
+  const seedField = side === "A" ? "seedA" : "seedB";
+  const pairId = String(match?.[pairField] || "").trim();
+  const seedRegId = roundElimSeedRegistrationId(match?.[seedField]);
+  const expectedId = String(expectedRegId || "").trim();
+
+  return Boolean(
+    pairId &&
+      seedRegId &&
+      pairId === seedRegId &&
+      seedRegId !== expectedId
+  );
+};
+
+const shouldPreserveRoundElimManualTeamOverride = (
+  existingMatch,
+  seeds,
+  roundNum
+) =>
+  Number(roundNum) === 1 &&
+  seeds?.hasCommittedPair &&
+  (sideHasManualRoundElimTeamOverride(existingMatch, "A", seeds.pairA) ||
+    sideHasManualRoundElimTeamOverride(existingMatch, "B", seeds.pairB));
+
 const resolveRoundElimLoserSeedSlot = (seed, bracketId, existingByKey) => {
   const type = String(seed?.type || "");
   if (type !== "stageMatchLoser" && type !== "matchLoser") {
@@ -2086,8 +2124,15 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
         const patch = {};
         if (!existingMatch?.seedA?.type && seeds.seedA) patch.seedA = seeds.seedA;
         if (!existingMatch?.seedB?.type && seeds.seedB) patch.seedB = seeds.seedB;
+        const preserveManualTeamOverride =
+          shouldPreserveRoundElimManualTeamOverride(
+            existingMatch,
+            seeds,
+            roundNum
+          );
         if (
           seeds.hasCommittedPair &&
+          !preserveManualTeamOverride &&
           String(existingMatch?.status || "").toLowerCase() !== "finished"
         ) {
           if (String(existingMatch?.pairA || "") !== String(seeds.pairA || "")) {

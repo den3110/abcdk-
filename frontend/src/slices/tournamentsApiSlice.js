@@ -193,6 +193,9 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         if (res?.list && Array.isArray(res.list)) return res.list;
         return [];
       },
+      providesTags: (_res, _err, { tournamentId }) => [
+        { type: "TournamentMatches", id: tournamentId },
+      ],
       keepUnusedDataFor: 45,
     }),
 

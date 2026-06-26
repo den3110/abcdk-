@@ -71,6 +71,7 @@ import {
   deleteBracketCascade,
   getBracketsWithMatches,
   getTournamentBracketsStructure,
+  rebuildKnockoutBracket,
 } from "../controllers/admin/bracketController.js";
 import {
   adminAssignReferee,
@@ -621,6 +622,13 @@ router.patch(
   protect,
   authorize("admin"),
   adminUpdateBracket,
+);
+
+router.post(
+  "/tournaments/:tournamentId/brackets/:bracketId/knockout/rebuild",
+  protect,
+  authorize("admin"),
+  rebuildKnockoutBracket,
 );
 
 router.patch("/matches/:matchId", protect, adminUpdateMatch);

@@ -434,9 +434,52 @@ export async function createRound1Matches({
     winByTwo: true,
   };
 
+  const makeRegId = (value) => new mongoose.Types.ObjectId(String(value));
+  const makeRegSeed = (entrant) => ({
+    type: "registration",
+    ref: { registration: makeRegId(entrant.regId) },
+    label: entrant.seed ? `Seed ${entrant.seed}` : "",
+  });
+
+  const existingRound1 = await Match.find({
+    bracket: targetBracket._id,
+    round: 1,
+  })
+    .sort({ order: 1 })
+    .session(session || null);
+  const existingByOrder = new Map(
+    existingRound1.map((match) => [Number(match.order || 0), match])
+  );
+
   let created = 0;
+  let updated = 0;
   for (let i = 0; i < pairs.length; i++) {
     const [A, B] = pairs[i];
+    const existing = existingByOrder.get(i);
+    if (existing) {
+      if (["live", "finished"].includes(String(existing.status || "").toLowerCase())) {
+        throw new Error(
+          `Cannot update round 1 match #${i + 1}: match is ${existing.status}`
+        );
+      }
+      existing.tournament = targetBracket.tournament;
+      existing.bracket = targetBracket._id;
+      existing.format = targetBracket.type;
+      existing.round = 1;
+      existing.order = i;
+      existing.rules = rules;
+      existing.pairA = makeRegId(A.regId);
+      existing.pairB = makeRegId(B.regId);
+      existing.seedA = makeRegSeed(A);
+      existing.seedB = makeRegSeed(B);
+      existing.previousA = null;
+      existing.previousB = null;
+      existing.status = existing.status || "scheduled";
+      await existing.save({ session });
+      updated++;
+      continue;
+    }
+
     await Match.create(
       [
         {
@@ -447,8 +490,10 @@ export async function createRound1Matches({
           // 🛠 CHANGED: order bắt đầu từ 0 (trước đây là i + 1)
           order: i,
           rules,
-          pairA: new mongoose.Types.ObjectId(String(A.regId)),
-          pairB: new mongoose.Types.ObjectId(String(B.regId)),
+          pairA: makeRegId(A.regId),
+          pairB: makeRegId(B.regId),
+          seedA: makeRegSeed(A),
+          seedB: makeRegSeed(B),
           status: "scheduled",
         },
       ],
@@ -457,7 +502,7 @@ export async function createRound1Matches({
     created++;
   }
 
-  return { matchesCreated: created };
+  return { matchesCreated: created, matchesUpdated: updated };
 }
 
 // ==================
