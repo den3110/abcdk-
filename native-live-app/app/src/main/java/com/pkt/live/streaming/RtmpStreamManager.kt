@@ -1120,7 +1120,7 @@ class RtmpStreamManager(
         outputPath: String,
         reason: String,
     ): Result<Unit> {
-        if (!cam.isStreaming && !cam.isOnPreview) {
+        if (!cam.isStreaming) {
             val prepared = prepareRecordingPipelineLocked(
                 cam = cam,
                 reason = "${reason}_prepare",

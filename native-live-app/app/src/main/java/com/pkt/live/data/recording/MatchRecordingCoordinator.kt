@@ -1,6 +1,7 @@
 package com.pkt.live.data.recording
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.os.StatFs
 import android.util.Log
 import com.google.gson.Gson
@@ -176,7 +177,7 @@ class MatchRecordingCoordinator(
         private const val MP4_READY_CHECK_TIMEOUT_MS = 8_000L
         private const val MP4_READY_CHECK_INTERVAL_MS = 250L
         private const val MP4_NOT_READY_RETRY_MS = 2_000L
-        private const val MP4_ATOM_SCAN_BYTES = 1024 * 1024
+        private const val MP4_HEAD_SCAN_BYTES = 1024 * 1024
         // "Luôn có record": nếu 1 segment không thể upload/finalize sau RẤT nhiều lần
         // (vd encoder máy không đóng được mp4) thì bỏ qua nó để recording vẫn finalize
         // được từ các segment đã có. Cap rất rộng → máy khoẻ upload trong vài giây nên
@@ -188,6 +189,10 @@ class MatchRecordingCoordinator(
         // no-op nếu backend thực ra đã đủ segment → an toàn cả khi lỗi do mạng thoáng qua.
         private const val MAX_FINALIZE_RETRIES_BEFORE_FORCE = 3
         private const val LOCAL_RECORDING_ID_PREFIX = "local_"
+        private val MP4_FTYP_ATOM =
+            byteArrayOf('f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte())
+        private val MP4_MDAT_ATOM =
+            byteArrayOf('m'.code.toByte(), 'd'.code.toByte(), 'a'.code.toByte(), 't'.code.toByte())
         private val MP4_MOOV_ATOM =
             byteArrayOf('m'.code.toByte(), 'o'.code.toByte(), 'o'.code.toByte(), 'v'.code.toByte())
     }
@@ -1904,21 +1909,38 @@ class MatchRecordingCoordinator(
         return false
     }
 
-    private fun fileHasMp4MoovAtom(file: File): Boolean {
-        if (!file.exists() || file.length() < 8L) return false
-        return runCatching {
-            val fileSize = file.length()
-            val headBytes = minOf(MP4_ATOM_SCAN_BYTES.toLong(), fileSize).toInt()
-            if (readFilePart(file, 0L, headBytes).containsSequence(MP4_MOOV_ATOM)) {
-                return@runCatching true
-            }
+    private fun fileHasMp4ContainerHeader(file: File): Boolean =
+        runCatching {
+            val headBytes = minOf(64L, file.length()).toInt()
+            if (headBytes < 12) return@runCatching false
+            val head = readFilePart(file, 0L, headBytes)
+            head.containsSequence(MP4_FTYP_ATOM) || head.containsSequence(MP4_MOOV_ATOM)
+        }.getOrDefault(false)
 
-            val tailOffset = (fileSize - MP4_ATOM_SCAN_BYTES).coerceAtLeast(0L)
-            if (tailOffset > 0L) {
-                val tailBytes = (fileSize - tailOffset).coerceAtMost(MP4_ATOM_SCAN_BYTES.toLong()).toInt()
-                readFilePart(file, tailOffset, tailBytes).containsSequence(MP4_MOOV_ATOM)
-            } else {
-                false
+    private fun fileHasMp4MediaDataAtom(file: File): Boolean =
+        runCatching {
+            val headBytes = minOf(MP4_HEAD_SCAN_BYTES.toLong(), file.length()).toInt()
+            if (headBytes < 12) return@runCatching false
+            readFilePart(file, 0L, headBytes).containsSequence(MP4_MDAT_ATOM)
+        }.getOrDefault(false)
+
+    private fun fileHasReadableMp4Metadata(file: File): Boolean {
+        if (!file.exists() || file.length() < 8L) return false
+        if (!fileHasMp4ContainerHeader(file)) return false
+        if (!fileHasMp4MediaDataAtom(file)) return false
+
+        return runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(file.absolutePath)
+                val durationMs =
+                    retriever
+                        .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull()
+                        ?: 0L
+                durationMs > 0L
+            } finally {
+                runCatching { retriever.release() }
             }
         }.getOrDefault(false)
     }
@@ -1932,7 +1954,7 @@ class MatchRecordingCoordinator(
             val currentSizeBytes = file.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
             if (currentSizeBytes > 0L) {
                 stableReadCount = if (currentSizeBytes == lastSizeBytes) stableReadCount + 1 else 0
-                if (stableReadCount >= 1 && fileHasMp4MoovAtom(file)) {
+                if (stableReadCount >= 1 && fileHasReadableMp4Metadata(file)) {
                     return currentSizeBytes
                 }
             }
@@ -1943,7 +1965,7 @@ class MatchRecordingCoordinator(
         }
 
         val finalSizeBytes = file.takeIf { it.exists() }?.length()?.coerceAtLeast(0L) ?: 0L
-        if (finalSizeBytes > 0L && fileHasMp4MoovAtom(file)) {
+        if (finalSizeBytes > 0L && fileHasReadableMp4Metadata(file)) {
             return finalSizeBytes
         }
         throw IllegalStateException("Segment MP4 chưa đóng xong, sẽ thử tải lại.")

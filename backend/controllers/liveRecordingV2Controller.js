@@ -121,6 +121,8 @@ function toNumber(value) {
 }
 
 const MP4_SEGMENT_SCAN_BYTES = 1024 * 1024;
+const MP4_FTYP_ATOM = Buffer.from("ftyp", "ascii");
+const MP4_MDAT_ATOM = Buffer.from("mdat", "ascii");
 const MP4_MOOV_ATOM = Buffer.from("moov", "ascii");
 
 function shouldValidateUploadedMp4Segments() {
@@ -130,8 +132,17 @@ function shouldValidateUploadedMp4Segments() {
   return !["0", "false", "no", "off"].includes(raw);
 }
 
-function containsMoovAtom(buffer) {
-  return Buffer.isBuffer(buffer) && buffer.indexOf(MP4_MOOV_ATOM) !== -1;
+function containsMp4Atom(buffer, atom) {
+  return Buffer.isBuffer(buffer) && buffer.indexOf(atom) !== -1;
+}
+
+function hasMp4ContainerHeader(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  const header = buffer.subarray(0, Math.min(buffer.length, 64));
+  return (
+    header.indexOf(MP4_FTYP_ATOM) !== -1 ||
+    header.indexOf(MP4_MOOV_ATOM) !== -1
+  );
 }
 
 async function validateUploadedRecordingSegmentObject({
@@ -161,14 +172,31 @@ async function validateUploadedRecordingSegmentObject({
   }
 
   try {
-    for (const range of ranges) {
+    const headChunk = await readRecordingObjectBytes({
+      objectKey,
+      storageTargetId,
+      range: `bytes=${ranges[0].start}-${ranges[0].end}`,
+      maxBytes: MP4_SEGMENT_SCAN_BYTES + 16,
+    });
+    if (!hasMp4ContainerHeader(headChunk)) {
+      return "Recording segment MP4 is missing a valid container header; retry upload in a moment";
+    }
+    let foundMoovAtom = containsMp4Atom(headChunk, MP4_MOOV_ATOM);
+    let foundMdatAtom = containsMp4Atom(headChunk, MP4_MDAT_ATOM);
+    if (foundMoovAtom && foundMdatAtom) {
+      return null;
+    }
+
+    for (const range of ranges.slice(1)) {
       const chunk = await readRecordingObjectBytes({
         objectKey,
         storageTargetId,
         range: `bytes=${range.start}-${range.end}`,
         maxBytes: MP4_SEGMENT_SCAN_BYTES + 16,
       });
-      if (containsMoovAtom(chunk)) {
+      foundMoovAtom = foundMoovAtom || containsMp4Atom(chunk, MP4_MOOV_ATOM);
+      foundMdatAtom = foundMdatAtom || containsMp4Atom(chunk, MP4_MDAT_ATOM);
+      if (foundMoovAtom && foundMdatAtom) {
         return null;
       }
     }
@@ -180,6 +208,9 @@ async function validateUploadedRecordingSegmentObject({
     return "Recording segment object is not readable yet";
   }
 
+  if (!foundMdatAtom) {
+    return "Recording segment MP4 is missing media data; retry upload in a moment";
+  }
   return "Recording segment MP4 is not finalized yet; retry upload in a moment";
 }
 
