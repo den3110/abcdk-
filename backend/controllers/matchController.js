@@ -1887,7 +1887,6 @@ async function unlinkPreviousFeedForMatchSide(matchId, previousId, side) {
 }
 
 const TEAM_SOURCE_SEED_TYPES = new Set([
-  "groupRank",
   "stageMatchWinner",
   "stageMatchLoser",
   "matchWinner",

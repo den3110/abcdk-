@@ -1138,7 +1138,6 @@ const playerLinkKey = (player, index) =>
 
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
 const TEAM_SOURCE_SEED_TYPES = new Set([
-  "groupRank",
   "stageMatchWinner",
   "stageMatchLoser",
   "matchWinner",
