@@ -39,6 +39,7 @@ import {
   FormGroup, // NEW
   FormControlLabel, // NEW
   Checkbox, // NEW
+  Switch,
   Button,
   DialogActions,
   Skeleton,
@@ -90,6 +91,7 @@ import {
 
 const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
 const GROUP_VIEW_STORAGE_KEY = "pickletour:tournament-bracket:group-view-mode";
+const BRACKET_UI_VERSION_STORAGE_KEY = "pickletour:tournament-bracket:uiVersion";
 const EMPTY_LIST = [];
 
 function readStoredGroupViewMode() {
@@ -612,6 +614,17 @@ function computeChampionGate(allMatches) {
   }
   const champion = fm.winner === "A" ? fm.pairA : fm.pairB;
   return { allowed: true, matchId: fm._id || null, pair: champion };
+}
+
+function readStoredBracketUiVersion() {
+  if (typeof window === "undefined") return "";
+  try {
+    return String(window.localStorage.getItem(BRACKET_UI_VERSION_STORAGE_KEY) || "")
+      .trim()
+      .toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 const CHAMPION_FIREWORKS = [
@@ -3406,6 +3419,376 @@ RoundElimBracketLayout.propTypes = {
   breakpoint: PropTypes.number,
 };
 
+const normalizeBracketTypeValue = (bracket) =>
+  String(bracket?.type || "").trim().toLowerCase();
+
+const isRoundElimBracketType = (bracket) =>
+  ["roundelim", "round_elim", "po", "playoff"].includes(
+    normalizeBracketTypeValue(bracket),
+  );
+
+const isKnockoutBracketType = (bracket) =>
+  normalizeBracketTypeValue(bracket) === "knockout";
+
+const ONE_WAY_CARD_W = ROUND_ELIM_CARD_W;
+const ONE_WAY_CARD_H = ROUND_ELIM_CARD_H;
+const ONE_WAY_COL_GAP = 58;
+const ONE_WAY_SECTION_GAP = 34;
+const ONE_WAY_ROW_GAP = 34;
+const ONE_WAY_HEADER_H = 62;
+const ONE_WAY_SECTION_TITLE_TOP = 0;
+const ONE_WAY_ROUND_TITLE_TOP = 31;
+const ONE_WAY_CONNECTOR_COLOR = "#b8d3ea";
+const ONE_WAY_CONNECTOR_STROKE = 1.2;
+
+function getOneWaySourceRefs(seed) {
+  const match = seed?.__match;
+  if (!match) return [];
+
+  return [match.seedA, match.seedB]
+    .map((source) => {
+      const type = String(source?.type || "");
+      if (
+        type !== "stageMatchWinner" &&
+        type !== "stageMatchLoser" &&
+        type !== "matchWinner" &&
+        type !== "matchLoser"
+      ) {
+        return null;
+      }
+
+      const matchId = String(source?.ref?.matchId || "");
+      const stage = Number(source?.ref?.stageIndex ?? source?.ref?.stage);
+      const round = Number(source?.ref?.round);
+      const order = Number(source?.ref?.order);
+
+      if (
+        !matchId &&
+        (!Number.isFinite(round) || !Number.isFinite(order))
+      ) {
+        return null;
+      }
+
+      return {
+        matchId,
+        stage: Number.isFinite(stage) ? stage : null,
+        round: Number.isFinite(round) ? round : null,
+        order: Number.isFinite(order) ? order : null,
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildOneWayBracketLayout(sections = []) {
+  const columns = [];
+  const sectionBands = [];
+  const connectors = [];
+  const byMatchId = new Map();
+  const byBracketRoundOrder = new Map();
+  const byStageRoundOrder = new Map();
+  let x = 0;
+  let maxBottom = ONE_WAY_HEADER_H + ONE_WAY_CARD_H;
+
+  const lookupSourceNode = (ref, bracketId) => {
+    if (!ref) return null;
+    if (ref.matchId && byMatchId.has(ref.matchId)) {
+      return byMatchId.get(ref.matchId);
+    }
+    if (
+      Number.isFinite(ref.stage) &&
+      Number.isFinite(ref.round) &&
+      Number.isFinite(ref.order)
+    ) {
+      const byStage = byStageRoundOrder.get(
+        `${ref.stage}:${ref.round}:${ref.order}`,
+      );
+      if (byStage) return byStage;
+    }
+    if (
+      bracketId &&
+      Number.isFinite(ref.round) &&
+      Number.isFinite(ref.order)
+    ) {
+      return byBracketRoundOrder.get(`${bracketId}:${ref.round}:${ref.order}`) || null;
+    }
+    return null;
+  };
+
+  (sections || []).forEach((section, sectionIndex) => {
+    const sectionStartX = x;
+    const bracketId = String(section?.bracketId || "");
+    const stage = Number(section?.stage);
+    let previousColumn = null;
+
+    (section?.rounds || []).forEach((round, roundIndex) => {
+      const seeds = Array.isArray(round?.seeds) ? round.seeds : [];
+      const nodes = seeds.map((seed, seedIndex) => {
+        const match = seed?.__match || null;
+        const roundNo = Number(match?.round ?? seed?.__round ?? roundIndex + 1);
+        const orderNo = Number(match?.order ?? seedIndex);
+        const defaultCenterY =
+          ONE_WAY_HEADER_H +
+          seedIndex * (ONE_WAY_CARD_H + ONE_WAY_ROW_GAP) +
+          ONE_WAY_CARD_H / 2;
+        const sourceRefs = getOneWaySourceRefs(seed);
+        let sourceNodes = sourceRefs
+          .map((ref) => lookupSourceNode(ref, bracketId))
+          .filter(Boolean);
+
+        if (!sourceNodes.length && previousColumn) {
+          const sourceIndex = Math.max(0, orderNo * 2);
+          sourceNodes = [
+            previousColumn.nodes[sourceIndex],
+            previousColumn.nodes[sourceIndex + 1],
+          ].filter(Boolean);
+        }
+
+        const centerY = sourceNodes.length
+          ? sourceNodes.reduce((sum, node) => sum + node.centerY, 0) /
+            sourceNodes.length
+          : defaultCenterY;
+        const y = Math.max(ONE_WAY_HEADER_H, centerY - ONE_WAY_CARD_H / 2);
+        const key =
+          String(match?._id || "") ||
+          `${bracketId || sectionIndex}:${roundIndex + 1}:${seedIndex}`;
+        const node = {
+          key,
+          sectionIndex,
+          section,
+          seed,
+          x,
+          y,
+          centerY: y + ONE_WAY_CARD_H / 2,
+          sourceNodes,
+        };
+
+        if (match?._id) byMatchId.set(String(match._id), node);
+        if (
+          bracketId &&
+          Number.isFinite(roundNo) &&
+          Number.isFinite(orderNo)
+        ) {
+          byBracketRoundOrder.set(`${bracketId}:${roundNo}:${orderNo}`, node);
+        }
+        if (
+          Number.isFinite(stage) &&
+          Number.isFinite(roundNo) &&
+          Number.isFinite(orderNo)
+        ) {
+          byStageRoundOrder.set(`${stage}:${roundNo}:${orderNo}`, node);
+        }
+        maxBottom = Math.max(maxBottom, y + ONE_WAY_CARD_H);
+        return node;
+      });
+
+      const column = {
+        key: `${bracketId || sectionIndex}:${roundIndex}`,
+        title: round?.title || "",
+        x,
+        nodes,
+        sectionIndex,
+      };
+      columns.push(column);
+      previousColumn = column;
+      x += ONE_WAY_CARD_W + ONE_WAY_COL_GAP;
+    });
+
+    const sectionWidth = Math.max(ONE_WAY_CARD_W, x - sectionStartX - ONE_WAY_COL_GAP);
+    sectionBands.push({
+      key: String(section?.key || section?.bracketId || sectionIndex),
+      title: section?.title || "",
+      subtitle: section?.subtitle || "",
+      x: sectionStartX,
+      width: sectionWidth,
+    });
+    x += ONE_WAY_SECTION_GAP;
+  });
+
+  columns.forEach((column) => {
+    column.nodes.forEach((target) => {
+      target.sourceNodes.forEach((source) => {
+        if (!source || source.x >= target.x) return;
+
+        const startX = source.x + ONE_WAY_CARD_W - ROUND_ELIM_SEED_PAD_X;
+        const endX = target.x + ROUND_ELIM_SEED_PAD_X;
+        const bendX = startX + Math.max(12, (endX - startX) / 2);
+        connectors.push({
+          key: `${source.key}->${target.key}`,
+          d: buildConnectorPath(
+            startX,
+            source.centerY,
+            endX,
+            target.centerY,
+            bendX,
+          ),
+        });
+      });
+    });
+  });
+
+  return {
+    sectionBands,
+    columns,
+    connectors,
+    width: Math.max(ONE_WAY_CARD_W, x - ONE_WAY_SECTION_GAP),
+    height: maxBottom + ONE_WAY_ROW_GAP,
+  };
+}
+
+function OneWayUnifiedBracketLayout({
+  sections,
+  onOpen,
+  resolveSideLabel,
+  resolveSideHighlightId,
+}) {
+  const layout = useMemo(() => buildOneWayBracketLayout(sections), [sections]);
+  const roundsKey = `one-way-v2:${(sections || [])
+    .map((section) =>
+      [section?.bracketId, ...(section?.rounds || []).map((round) => round?.seeds?.length || 0)].join(
+        ":",
+      ),
+    )
+    .join("|")}`;
+
+  return (
+    <HighlightProvider>
+      <HeightSyncProvider roundsKey={roundsKey}>
+        <Box
+          sx={{
+            position: "relative",
+            width: layout.width,
+            minWidth: layout.width,
+            height: layout.height,
+          }}
+        >
+          <svg
+            width={layout.width}
+            height={layout.height}
+            style={{
+              position: "absolute",
+              inset: 0,
+              overflow: "visible",
+              pointerEvents: "none",
+              zIndex: 0,
+            }}
+          >
+            {layout.connectors.map((connector) => (
+              <path
+                key={connector.key}
+                d={connector.d}
+                fill="none"
+                stroke={ONE_WAY_CONNECTOR_COLOR}
+                strokeWidth={ONE_WAY_CONNECTOR_STROKE}
+                shapeRendering="crispEdges"
+              />
+            ))}
+          </svg>
+
+          {layout.sectionBands.map((section) => (
+            <Box
+              key={section.key}
+              sx={{
+                position: "absolute",
+                left: section.x,
+                top: ONE_WAY_SECTION_TITLE_TOP,
+                width: section.width,
+                zIndex: 1,
+              }}
+            >
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  color: "primary.main",
+                  fontWeight: 900,
+                  textTransform: "uppercase",
+                  letterSpacing: 0,
+                  lineHeight: 1.2,
+                }}
+              >
+                {section.title}
+              </Typography>
+              {section.subtitle ? (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: "block", lineHeight: 1.2 }}
+                >
+                  {section.subtitle}
+                </Typography>
+              ) : null}
+            </Box>
+          ))}
+
+          {layout.columns.map((column) => (
+            <Box key={column.key}>
+              {column.title ? (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    position: "absolute",
+                    left: column.x,
+                    top: ONE_WAY_ROUND_TITLE_TOP,
+                    width: ONE_WAY_CARD_W,
+                    color: "primary.main",
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    letterSpacing: 0,
+                    textAlign: "left",
+                    zIndex: 1,
+                  }}
+                >
+                  {column.title}
+                </Typography>
+              ) : null}
+
+              {column.nodes.map((node) => (
+                <Box
+                  key={node.key}
+                  sx={{
+                    position: "absolute",
+                    left: node.x,
+                    top: node.y,
+                    width: ONE_WAY_CARD_W,
+                    height: ONE_WAY_CARD_H,
+                    zIndex: 2,
+                  }}
+                >
+                  <CustomSeed
+                    seed={{ ...node.seed, __disableConnector: true }}
+                    breakpoint={0}
+                    onOpen={onOpen}
+                    championMatchId={node.section?.championMatchId || null}
+                    resolveSideLabel={resolveSideLabel}
+                    resolveSideHighlightId={resolveSideHighlightId}
+                    baseRoundStart={node.section?.baseRoundStart || 1}
+                  />
+                </Box>
+              ))}
+            </Box>
+          ))}
+        </Box>
+      </HeightSyncProvider>
+    </HighlightProvider>
+  );
+}
+
+OneWayUnifiedBracketLayout.propTypes = {
+  sections: PropTypes.arrayOf(
+    PropTypes.shape({
+      key: PropTypes.string,
+      title: PropTypes.string,
+      subtitle: PropTypes.string,
+      bracketId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      baseRoundStart: PropTypes.number,
+      championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      rounds: PropTypes.array,
+    }),
+  ).isRequired,
+  onOpen: PropTypes.func,
+  resolveSideLabel: PropTypes.func,
+  resolveSideHighlightId: PropTypes.func,
+};
+
 const SYMMETRIC_KO_CARD_W = SEED_CARD_W;
 const SYMMETRIC_KO_COL_GAP = 84;
 const SYMMETRIC_KO_ROW_GAP = 28;
@@ -4773,6 +5156,10 @@ export default function TournamentBracket() {
   const { id: tourId } = useParams();
   const me = useSelector((s) => s.auth?.userInfo); // NEW
   const [searchParams, setSearchParams] = useSearchParams();
+  const bracketUiVersion = String(
+    searchParams.get("ui") || searchParams.get("bracketUi") || "",
+  ).toLowerCase();
+  const isBracketV2 = bracketUiVersion === "v2" || bracketUiVersion === "2";
   const [zoom, setZoom] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const [bracketFullscreenOpen, setBracketFullscreenOpen] = useState(false);
@@ -4811,6 +5198,52 @@ export default function TournamentBracket() {
 
   const loading = l1 || l2 || l3;
   const error = e1 || e2 || e3;
+
+  useEffect(() => {
+    const hasUrlVersion = searchParams.has("ui") || searchParams.has("bracketUi");
+    if (hasUrlVersion) {
+      try {
+        window.localStorage.setItem(
+          BRACKET_UI_VERSION_STORAGE_KEY,
+          isBracketV2 ? "v2" : "v1",
+        );
+      } catch {
+        // ignore storage errors
+      }
+      return;
+    }
+
+    const storedVersion = readStoredBracketUiVersion();
+    if (!["v2", "2", "true"].includes(storedVersion)) return;
+
+    const next = new URLSearchParams(searchParams);
+    next.set("ui", "v2");
+    setSearchParams(next, { replace: true });
+  }, [isBracketV2, searchParams, setSearchParams]);
+
+  const handleBracketV2Switch = useCallback(
+    (event) => {
+      const enabled = Boolean(event.target.checked);
+      try {
+        window.localStorage.setItem(
+          BRACKET_UI_VERSION_STORAGE_KEY,
+          enabled ? "v2" : "v1",
+        );
+      } catch {
+        // ignore storage errors
+      }
+
+      const next = new URLSearchParams(searchParams);
+      if (enabled) {
+        next.set("ui", "v2");
+      } else {
+        next.delete("ui");
+        next.delete("bracketUi");
+      }
+      setSearchParams(next);
+    },
+    [searchParams, setSearchParams],
+  );
 
   /* ===== live layer: Map(id → match) & merge ===== */
   const liveMapRef = useRef(new Map());
@@ -5916,6 +6349,120 @@ export default function TournamentBracket() {
     () => buildGroupIndex(current || {}),
     [current],
   );
+
+  const unifiedBracketV2Sections = useMemo(() => {
+    if (!isBracketV2) return [];
+
+    const sections = [];
+
+    for (const bracket of brackets || []) {
+      if (!isRoundElimBracketType(bracket) && !isKnockoutBracketType(bracket)) {
+        continue;
+      }
+
+      const bracketId = String(bracket?._id || "");
+      const matches = byBracket?.[bracket?._id] || [];
+      const mainMatches = (matches || []).filter((m) => !isThirdPlaceMatch(m));
+      const baseRoundStart = baseRoundStartByBracketId.get(bracketId) || 1;
+      let rounds = [];
+
+      if (isRoundElimBracketType(bracket)) {
+        rounds = buildRoundElimRounds(
+          bracket,
+          matches,
+          resolveSideLabel,
+          pendingTeamLabel,
+        );
+      } else {
+        const scaleForBracket = readBracketScale(bracket);
+        const uniqueRoundsCount = new Set(
+          mainMatches.map((m) => Number(m?.round || 1)).filter(Number.isFinite),
+        ).size;
+        const roundsFromScale = scaleForBracket
+          ? Math.ceil(Math.log2(scaleForBracket))
+          : 0;
+        const minRounds = Math.max(uniqueRoundsCount, roundsFromScale);
+        const expectedFirstRoundPairs =
+          Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length
+            ? bracket.prefill.seeds.length
+            : Array.isArray(bracket?.prefill?.pairs) &&
+                bracket.prefill.pairs.length
+              ? bracket.prefill.pairs.length
+              : scaleForBracket
+                ? Math.floor(scaleForBracket / 2)
+                : 0;
+        const prefillForBracket = bracket?.prefill
+          ? buildRoundsFromPrefill(
+              bracket.prefill,
+              bracket?.ko,
+              resolveSeedReferenceLabel,
+              pendingTeamLabel,
+            )
+          : null;
+
+        rounds =
+          mainMatches.length > 0
+            ? buildRoundsWithPlaceholders(mainMatches, resolveSideLabel, {
+                minRounds,
+                extendForward: true,
+                expectedFirstRoundPairs,
+                pendingTeamLabel,
+              })
+            : prefillForBracket && prefillForBracket.length
+              ? prefillForBracket
+              : bracket?.drawRounds && bracket.drawRounds > 0
+                ? buildEmptyRoundsByScale(2 ** bracket.drawRounds, pendingTeamLabel)
+                : buildEmptyRoundsByScale(
+                    scaleForBracket || Math.max(2, expectedFirstRoundPairs * 2 || 2),
+                    pendingTeamLabel,
+                  );
+      }
+
+      if (!rounds.length) continue;
+
+      const normalizedRounds = rounds.map((round, roundIndex) => {
+        const title = String(round?.title || "").replace(/^Vòng\s+/i, "");
+        return {
+          ...round,
+          title: `Vòng ${baseRoundStart + roundIndex}${
+            title ? `: ${title}` : ""
+          }`,
+        };
+      });
+      const championGate = computeChampionGate(mainMatches);
+      const firstRound = baseRoundStart;
+      const lastRound = baseRoundStart + normalizedRounds.length - 1;
+      const titleRange =
+        lastRound > firstRound
+          ? `VÒNG ${firstRound} - ${lastRound}`
+          : `VÒNG ${firstRound}`;
+      const sectionTitle = isRoundElimBracketType(bracket)
+        ? `PLAYOFF (${titleRange})`
+        : `KNOCKOUT (VÒNG ${firstRound} - CHUNG KẾT)`;
+
+      sections.push({
+        key: bracketId || sectionTitle,
+        title: sectionTitle,
+        subtitle: bracket?.name || "",
+        bracketId,
+        stage: bracket?.stage,
+        baseRoundStart,
+        championMatchId: championGate.allowed ? championGate.matchId : null,
+        rounds: normalizedRounds,
+      });
+    }
+
+    return sections;
+  }, [
+    brackets,
+    byBracket,
+    baseRoundStartByBracketId,
+    isBracketV2,
+    pendingTeamLabel,
+    resolveSeedReferenceLabel,
+    resolveSideLabel,
+  ]);
+
   const matchGroupLabel = useCallback(
     (m) => {
       const aId = m.pairA?._id && String(m.pairA._id);
@@ -7808,6 +8355,98 @@ export default function TournamentBracket() {
     );
   };
 
+  const renderUnifiedBracketV2 = () => (
+    <Paper
+      variant="outlined"
+      sx={{
+        p: { xs: 1.25, md: 1.75 },
+        borderRadius: 2,
+        overflow: "hidden",
+        bgcolor: "background.paper",
+      }}
+    >
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        justifyContent="space-between"
+        sx={{ mb: 1.25 }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            variant="h6"
+            sx={{
+              fontWeight: 800,
+              lineHeight: 1.2,
+              overflowWrap: "anywhere",
+            }}
+          >
+            Sơ đồ giải đấu v2
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block", mt: 0.25 }}
+          >
+            Gộp playoff và knockout trong một màn, hiển thị một chiều từ trái sang phải.
+          </Typography>
+        </Box>
+        <Tooltip title="Đang dùng sơ đồ v2" arrow>
+          <FormControlLabel
+            label="V2"
+            labelPlacement="start"
+            sx={{
+              m: 0,
+              gap: 0.25,
+              flexShrink: 0,
+              "& .MuiFormControlLabel-label": {
+                color: "text.secondary",
+                fontSize: 13,
+                fontWeight: 700,
+              },
+            }}
+            control={
+              <Switch
+                size="small"
+                checked={isBracketV2}
+                onChange={handleBracketV2Switch}
+                inputProps={{ "aria-label": "Chuyển sơ đồ v2" }}
+              />
+            }
+          />
+        </Tooltip>
+      </Stack>
+
+      {!unifiedBracketV2Sections.length ? (
+        <Alert severity="info">
+          Chưa có bracket playoff hoặc knockout để hiển thị ở bản v2.
+        </Alert>
+      ) : (
+        renderDiagramShell(
+          <Box sx={{ overflow: "auto", pb: 1 }}>
+            <Box
+              className="bracket-v2-unified"
+              sx={{
+                display: "inline-block",
+                transform: `scale(${zoom})`,
+                transformOrigin: "0 0",
+                pb: 1,
+              }}
+            >
+              <OneWayUnifiedBracketLayout
+                sections={unifiedBracketV2Sections}
+                onOpen={openMatchModal}
+                resolveSideLabel={resolveSideLabel}
+                resolveSideHighlightId={resolveSideHighlightId}
+              />
+            </Box>
+          </Box>,
+          { controlsInline: true },
+        )
+      )}
+    </Paper>
+  );
+
   return (
     <Box sx={{ width: "100%", pb: { xs: 6, sm: 0 } }}>
       <SEOHead
@@ -8031,40 +8670,44 @@ export default function TournamentBracket() {
         </Stack>
       </Paper>
 
-      <Tabs
-        value={tab}
-        onChange={onTabChange}
-        variant="scrollable"
-        scrollButtons="auto"
-        sx={{
-          mb: 2.25,
-          maxWidth: "100%",
-          minWidth: 0,
-          "& .MuiTabs-indicator": {
-            height: 3,
-            borderRadius: 999,
-          },
-          "& .MuiTabs-scroller": {
-            maxWidth: "100%",
-          },
-          "& .MuiTab-root": {
-            textTransform: "none",
-            fontWeight: 700,
-            minHeight: 46,
-            px: 1.5,
-          },
-        }}
-      >
-        {tabLabels.map((node, i) => (
-          <Tab
-            key={brackets[i]._id}
-            label={node}
-            sx={{ maxWidth: "none", minHeight: 44, px: 1.5 }}
-          />
-        ))}
-      </Tabs>
+      {isBracketV2 ? (
+        renderUnifiedBracketV2()
+      ) : (
+        <>
+          <Tabs
+            value={tab}
+            onChange={onTabChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              mb: 2.25,
+              maxWidth: "100%",
+              minWidth: 0,
+              "& .MuiTabs-indicator": {
+                height: 3,
+                borderRadius: 999,
+              },
+              "& .MuiTabs-scroller": {
+                maxWidth: "100%",
+              },
+              "& .MuiTab-root": {
+                textTransform: "none",
+                fontWeight: 700,
+                minHeight: 46,
+                px: 1.5,
+              },
+            }}
+          >
+            {tabLabels.map((node, i) => (
+              <Tab
+                key={brackets[i]._id}
+                label={node}
+                sx={{ maxWidth: "none", minHeight: 44, px: 1.5 }}
+              />
+            ))}
+          </Tabs>
 
-      {current.type === "group" ? (
+          {current.type === "group" ? (
         <Paper sx={{ p: 2 }}>
           <Stack
             direction={{ xs: "column", md: "row" }}
@@ -8729,6 +9372,8 @@ export default function TournamentBracket() {
             );
           })()}
         </Paper>
+          )}
+        </>
       )}
 
       <ResponsiveMatchViewer
