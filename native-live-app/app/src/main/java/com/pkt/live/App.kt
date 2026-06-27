@@ -167,13 +167,31 @@ class App : Application(), ImageLoaderFactory {
         if (!streamManagerActive) return false
 
         val causes = generateSequence(throwable) { it.cause }.toList()
-        val brokenPipe = causes.any { cause ->
-            cause.message?.contains("Broken pipe", ignoreCase = true) == true
+        val hasKtorTransportFrame = causes.any { cause ->
+            cause.stackTrace.any { frame ->
+                frame.className.startsWith("io.ktor.network.") ||
+                    frame.className.startsWith("io.ktor.utils.io.") ||
+                    frame.className.startsWith("kotlinx.io.")
+            }
         }
-        if (!brokenPipe) return false
+        if (!hasKtorTransportFrame) return false
+
+        val hasKnownSocketAbort = causes.any { cause ->
+            val message = cause.message.orEmpty()
+            message.contains("Broken pipe", ignoreCase = true) ||
+                message.contains("Software caused connection abort", ignoreCase = true) ||
+                message.contains("Connection reset", ignoreCase = true) ||
+                message.contains("Socket closed", ignoreCase = true)
+        }
+        if (hasKnownSocketAbort) return true
 
         return causes.any { cause ->
-            cause.stackTrace.any { frame -> frame.className.startsWith("io.ktor.") }
+            cause is IllegalStateException &&
+                cause.message.equals("Check failed.", ignoreCase = true) &&
+                cause.stackTrace.any { frame ->
+                    frame.className.startsWith("kotlinx.io.") ||
+                        frame.className == "io.ktor.network.tls.RenderKt"
+                }
         }
     }
 }

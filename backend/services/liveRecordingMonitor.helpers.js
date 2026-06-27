@@ -79,6 +79,30 @@ export function getLatestRecordingActivityDate(
   return latestMs > 0 ? new Date(latestMs) : null;
 }
 
+export function buildStaleExportAutoRequeueOptions(
+  pipeline = {},
+  autoRequeueCount = 0,
+  now = new Date()
+) {
+  const currentPipeline =
+    pipeline && typeof pipeline === "object" && !Array.isArray(pipeline)
+      ? { ...pipeline }
+      : {};
+  const retryCount = Number(autoRequeueCount) || 0;
+
+  return {
+    publishReason: "recording_export_auto_requeued",
+    replaceTerminalJob: true,
+    replacePendingJob: true,
+    currentPipeline: {
+      ...currentPipeline,
+      autoRequeueCount: retryCount + 1,
+      lastAutoRequeuedAt: now,
+    },
+    forceReason: "stale_reconciliation",
+  };
+}
+
 export function summarizeSegments(
   segments = [],
   recording = null,

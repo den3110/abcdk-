@@ -54,6 +54,99 @@ function buildFacebookLegacyVideoUrl({ videoId, liveId }) {
   return `https://www.facebook.com/video.php?v=${encodeURIComponent(normalizedVideoId)}`;
 }
 
+function extractFacebookWatchVideoId(url) {
+  const normalized = asTrimmed(url);
+  if (!normalized) return "";
+  try {
+    const parsed = new URL(normalized);
+    const host = parsed.hostname.toLowerCase();
+    if (!host.includes("facebook.com")) return "";
+    const path = parsed.pathname.toLowerCase();
+    if (!path.startsWith("/watch")) return "";
+    return asTrimmed(parsed.searchParams.get("v"));
+  } catch {
+    return "";
+  }
+}
+
+function isFacebookVideoPermalinkUrl(url) {
+  const normalized = asTrimmed(url);
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    const host = parsed.hostname.toLowerCase();
+    if (!host.includes("facebook.com")) return false;
+    const path = parsed.pathname.toLowerCase();
+    return path === "/video.php" || path.includes("/videos/");
+  } catch {
+    return /facebook\.com\/[^/?#]+\/videos\//i.test(normalized) ||
+      /facebook\.com\/video\.php/i.test(normalized);
+  }
+}
+
+function buildFacebookWatchLiveUrl({ liveId, watchUrl } = {}) {
+  const normalizedLiveId =
+    asTrimmed(liveId) || extractFacebookWatchVideoId(watchUrl);
+  if (normalizedLiveId) {
+    return `https://www.facebook.com/watch/live/?v=${encodeURIComponent(normalizedLiveId)}`;
+  }
+
+  const normalizedWatchUrl = asTrimmed(watchUrl);
+  if (
+    normalizedWatchUrl &&
+    isFacebookUrl(normalizedWatchUrl) &&
+    !isFacebookVideoPermalinkUrl(normalizedWatchUrl)
+  ) {
+    return normalizedWatchUrl;
+  }
+
+  return "";
+}
+
+function normalizeFacebookPageUrl(url) {
+  const input = asTrimmed(url);
+  if (!input) return "";
+  try {
+    const parsed = new URL(
+      input.startsWith("http") ? input : `https://${input.replace(/^\/+/, "")}`
+    );
+    const host = parsed.hostname.toLowerCase();
+    if (!host.includes("facebook.com")) return "";
+
+    if (parsed.pathname === "/plugins/video.php") {
+      return normalizeFacebookPageUrl(parsed.searchParams.get("href"));
+    }
+
+    const firstPathPart = parsed.pathname.split("/").filter(Boolean)[0] || "";
+    if (
+      !firstPathPart ||
+      [
+        "watch",
+        "video.php",
+        "plugins",
+        "reel",
+        "share",
+        "story.php",
+      ].includes(firstPathPart.toLowerCase())
+    ) {
+      return "";
+    }
+
+    return `https://www.facebook.com/${encodeURIComponent(firstPathPart)}`;
+  } catch {
+    return "";
+  }
+}
+
+function buildFacebookPageUrl({ pageId, urls = [] } = {}) {
+  const normalizedPageId = asTrimmed(pageId);
+  if (normalizedPageId) {
+    return `https://www.facebook.com/${encodeURIComponent(normalizedPageId)}`;
+  }
+
+  return urls.map(normalizeFacebookPageUrl).find(Boolean) || "";
+}
+
 function buildFacebookPluginEmbedUrl(url) {
   const normalized = asTrimmed(url);
   if (!normalized) return "";
@@ -67,7 +160,7 @@ const PRIVATE_FACEBOOK_LIVE_KEYS = [
   "access_token",
 ];
 
-export function sanitizePublicFacebookLive(facebookLive) {
+export function sanitizePublicFacebookLive(facebookLive, match = {}) {
   if (
     !facebookLive ||
     typeof facebookLive !== "object" ||
@@ -80,6 +173,66 @@ export function sanitizePublicFacebookLive(facebookLive) {
   for (const key of PRIVATE_FACEBOOK_LIVE_KEYS) {
     delete sanitized[key];
   }
+
+  const finishedLike =
+    isFinishedLikeStatus(match?.status) || isFinishedLikeStatus(sanitized?.status);
+  const matchStatus = asTrimmed(match?.status).toLowerCase();
+  const facebookStatus = asTrimmed(sanitized?.status).toLowerCase();
+  const activeLikeStatuses = [
+    "live",
+    "created",
+    "ready",
+    "scheduled",
+    "queued",
+    "assigned",
+  ];
+  const activeLike =
+    activeLikeStatuses.includes(matchStatus) ||
+    activeLikeStatuses.includes(facebookStatus);
+  if (!finishedLike && activeLike) {
+    const metaFb = match?.meta?.facebook || {};
+    const pageId = asTrimmed(
+      sanitized?.pageId || sanitized?.page_id || metaFb?.pageId || metaFb?.page_id
+    );
+    const liveWatchUrl = buildFacebookWatchLiveUrl({
+      liveId:
+        sanitized?.id ||
+        sanitized?.liveId ||
+        sanitized?.liveVideoId ||
+        metaFb?.liveId ||
+        metaFb?.liveVideoId,
+      watchUrl:
+        sanitized?.watch_url ||
+        sanitized?.watchUrl ||
+        metaFb?.watch_url ||
+        metaFb?.watchUrl,
+    });
+    const pageUrl = buildFacebookPageUrl({
+      pageId,
+      urls: [
+        sanitized?.page_url,
+        sanitized?.pageUrl,
+        metaFb?.page_url,
+        metaFb?.pageUrl,
+        sanitized?.raw_permalink_url,
+        sanitized?.rawPermalinkUrl,
+        sanitized?.permalink_url,
+        sanitized?.permalinkUrl,
+        sanitized?.video_permalink_url,
+        sanitized?.videoPermalinkUrl,
+      ],
+    });
+
+    if (liveWatchUrl) {
+      sanitized.watch_url = liveWatchUrl;
+      sanitized.watchUrl = liveWatchUrl;
+    }
+    if (pageUrl) {
+      sanitized.page_url = pageUrl;
+      sanitized.pageUrl = pageUrl;
+    }
+  }
+
   return sanitized;
 }
 
@@ -90,7 +243,7 @@ export function sanitizePublicMatchPayload(match = {}) {
 
   return {
     ...match,
-    facebookLive: sanitizePublicFacebookLive(match?.facebookLive),
+    facebookLive: sanitizePublicFacebookLive(match?.facebookLive, match),
   };
 }
 
@@ -100,8 +253,12 @@ function buildFacebookStreamSource(match = {}) {
   const finishedLike =
     isFinishedLikeStatus(match?.status) || isFinishedLikeStatus(fb?.status);
 
-  const pageId = asTrimmed(fb?.pageId || metaFb?.pageId);
-  const liveId = asTrimmed(fb?.id || metaFb?.liveId);
+  const pageId = asTrimmed(
+    fb?.pageId || fb?.page_id || metaFb?.pageId || metaFb?.page_id
+  );
+  const liveId = asTrimmed(
+    fb?.id || fb?.liveId || fb?.liveVideoId || metaFb?.liveId || metaFb?.liveVideoId
+  );
   const videoId = asTrimmed(fb?.videoId || metaFb?.videoId);
   const rawPermalinkUrl = asTrimmed(
     fb?.raw_permalink_url || fb?.rawPermalinkUrl || metaFb?.rawPermalink
@@ -123,8 +280,31 @@ function buildFacebookStreamSource(match = {}) {
     .find((url) => isFacebookUrl(url)) || "";
   const pageVideoUrl = buildFacebookPageVideoUrl({ pageId, videoId, liveId });
   const legacyVideoUrl = buildFacebookLegacyVideoUrl({ videoId, liveId });
-  const embedHtml = asTrimmed(fb?.embed_html || fb?.embedHtml);
-  const explicitEmbedUrl = asTrimmed(fb?.embed_url || fb?.embedUrl);
+  const liveWatchUrl = finishedLike
+    ? ""
+    : buildFacebookWatchLiveUrl({ liveId, watchUrl });
+  const fallbackLiveWatchUrl = finishedLike
+    ? ""
+    : buildFacebookWatchLiveUrl({ watchUrl: fallbackMatchVideoUrl });
+  const pageUrl = buildFacebookPageUrl({
+    pageId,
+    urls: [
+      fb?.page_url,
+      fb?.pageUrl,
+      metaFb?.page_url,
+      metaFb?.pageUrl,
+      rawPermalinkUrl,
+      permalinkUrl,
+      videoPermalinkUrl,
+      pageVideoUrl,
+      fallbackMatchVideoUrl,
+    ],
+  });
+  const liveOpenUrl = liveWatchUrl || fallbackLiveWatchUrl || pageUrl;
+  const embedHtml = finishedLike ? asTrimmed(fb?.embed_html || fb?.embedHtml) : "";
+  const explicitEmbedUrl = finishedLike
+    ? asTrimmed(fb?.embed_url || fb?.embedUrl)
+    : "";
 
   const openCandidates = finishedLike
     ? [
@@ -136,15 +316,7 @@ function buildFacebookStreamSource(match = {}) {
         legacyVideoUrl,
         fallbackMatchVideoUrl,
       ]
-    : [
-        rawPermalinkUrl,
-        permalinkUrl,
-        pageVideoUrl,
-        videoPermalinkUrl,
-        watchUrl,
-        legacyVideoUrl,
-        fallbackMatchVideoUrl,
-      ];
+    : [liveOpenUrl];
 
   const embedCandidates = finishedLike
     ? [
@@ -156,15 +328,7 @@ function buildFacebookStreamSource(match = {}) {
         watchUrl,
         fallbackMatchVideoUrl,
       ]
-    : [
-        rawPermalinkUrl,
-        pageVideoUrl,
-        videoPermalinkUrl,
-        permalinkUrl,
-        legacyVideoUrl,
-        watchUrl,
-        fallbackMatchVideoUrl,
-      ];
+    : [liveWatchUrl || fallbackLiveWatchUrl || liveOpenUrl];
 
   const openUrl = openCandidates.map(asTrimmed).find(Boolean) || "";
   const embedSourceUrl = embedCandidates.map(asTrimmed).find(Boolean) || "";
@@ -174,7 +338,9 @@ function buildFacebookStreamSource(match = {}) {
     embedSourceUrl,
     embedHtml,
     embedUrl: explicitEmbedUrl || buildFacebookPluginEmbedUrl(embedSourceUrl),
-    watchUrl,
+    watchUrl: finishedLike ? watchUrl : liveWatchUrl || fallbackLiveWatchUrl || watchUrl,
+    liveOpenUrl,
+    pageUrl,
     permalinkUrl,
     rawPermalinkUrl,
     videoPermalinkUrl,
@@ -679,6 +845,8 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
       ready: true,
       meta: {
         watchUrl: facebookStream.watchUrl,
+        liveOpenUrl: facebookStream.liveOpenUrl,
+        pageUrl: facebookStream.pageUrl,
         permalinkUrl: facebookStream.permalinkUrl,
         rawPermalinkUrl: facebookStream.rawPermalinkUrl,
         videoPermalinkUrl: facebookStream.videoPermalinkUrl,
@@ -745,7 +913,7 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
 
     if (!duplicate && !shouldIgnoreLegacyInternalPlayback) {
       const kind = detectLegacyKind(normalizedLegacyUrl);
-      if (kind === "facebook") {
+      if (kind === "facebook" && finishedLike) {
         pushUniqueStream(streams, {
           key: "server1",
           displayLabel: "Server 1",

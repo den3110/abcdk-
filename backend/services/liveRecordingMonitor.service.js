@@ -40,6 +40,7 @@ import {
   getLatestRecordingActivityDate,
   getLatestSegmentActivityDate,
   isPlaceholderSegment,
+  buildStaleExportAutoRequeueOptions,
   summarizeSegments,
 } from "./liveRecordingMonitor.helpers.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
@@ -944,18 +945,10 @@ export async function reconcileStaleLiveRecordingExports({
     // Always try to re-queue the export instead of failing it, up to maxAutoRequeues times
     if (autoRequeueCount < maxAutoRequeues) {
       try {
-        await queueLiveRecordingExport(recording, {
-          publishReason: "recording_export_auto_requeued",
-          replaceTerminalJob: true,
-          replacePendingJob: true,
-          ignoreWindow: true,
-          currentPipeline: {
-            ...pipelineTemp,
-            autoRequeueCount: autoRequeueCount + 1,
-            lastAutoRequeuedAt: new Date()
-          },
-          forceReason: "stale_reconciliation",
-        });
+        await queueLiveRecordingExport(
+          recording,
+          buildStaleExportAutoRequeueOptions(pipelineTemp, autoRequeueCount)
+        );
         autoRequeuedRecordingIds.push(String(recording._id));
         console.log(
           `[live-recording-monitor] auto-requeued stale export for recording ${String(recording._id)} (attempt ${autoRequeueCount + 1}/${maxAutoRequeues})`

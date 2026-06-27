@@ -119,6 +119,55 @@ test("live matches only expose Facebook stream even when recording segments exis
   assert.equal(payload.publicReplayStateHint, "none");
 });
 
+test("live Facebook streams expose watch-live URL instead of stale video permalink", () => {
+  const canonical =
+    "https://www.facebook.com/watch/live/?v=1539770281020226";
+  const staleVideoUrl =
+    "https://www.facebook.com/798598129845131/videos/1983652052293380";
+  const payload = attachPublicStreamsToMatch({
+    _id: "match-live-facebook-url",
+    status: "live",
+    video: staleVideoUrl,
+    facebookLive: {
+      id: "1539770281020226",
+      pageId: "798598129845131",
+      videoId: "1983652052293380",
+      status: "LIVE",
+      permalink_url: staleVideoUrl,
+      video_permalink_url: staleVideoUrl,
+      watch_url: "https://www.facebook.com/watch/?v=1539770281020226",
+      embed_html: `<iframe src="https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(staleVideoUrl)}"></iframe>`,
+      embed_url: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(staleVideoUrl)}`,
+    },
+  });
+
+  assert.deepEqual(
+    payload.streams.map((stream) => stream.key),
+    ["server1"],
+  );
+  const stream = payload.streams[0];
+  assert.equal(stream.openUrl, canonical);
+  assert.equal(stream.playUrl, canonical);
+  assert.equal(stream.embedHtml, "");
+  assert.equal(
+    stream.embedUrl,
+    `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(canonical)}&show_text=false&width=1280`,
+  );
+  assert.equal(stream.meta?.watchUrl, canonical);
+  assert.equal(stream.meta?.pageUrl, "https://www.facebook.com/798598129845131");
+  assert.equal(payload.facebookLive?.watch_url, canonical);
+  assert.equal(payload.facebookLive?.page_url, "https://www.facebook.com/798598129845131");
+  assert.equal(payload.defaultStreamKey, "server1");
+  assert.equal(
+    payload.streams.some(
+      (item) =>
+        String(item?.openUrl || "").includes("/videos/1983652052293380") ||
+        String(item?.playUrl || "").includes("/videos/1983652052293380"),
+    ),
+    false,
+  );
+});
+
 test("finished matches fall back to Facebook when full Drive video is not ready", () => {
   const payload = attachPublicStreamsToMatch(
     {

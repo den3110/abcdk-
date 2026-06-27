@@ -71,6 +71,55 @@ function hostOf(url) {
   }
 }
 
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isFacebookUrl(url) {
+  if (!isNonEmptyString(url)) return false;
+  try {
+    const host = new URL(url.trim()).hostname.toLowerCase();
+    return host.includes("facebook.com") || host.includes("fb.watch");
+  } catch {
+    return false;
+  }
+}
+
+function normalizeFacebookWatchLiveUrl(url) {
+  if (!isNonEmptyString(url)) return "";
+  try {
+    const parsed = new URL(url.trim());
+    const host = parsed.hostname.toLowerCase();
+    const liveId = parsed.searchParams.get("v");
+    if (!host.includes("facebook.com") || !isNonEmptyString(liveId)) return "";
+    if (!parsed.pathname.toLowerCase().startsWith("/watch")) return "";
+    return `https://www.facebook.com/watch/live/?v=${encodeURIComponent(
+      liveId.trim(),
+    )}`;
+  } catch {
+    return "";
+  }
+}
+
+function buildFacebookLiveWatchUrl(fb = {}) {
+  const explicitWatch = normalizeFacebookWatchLiveUrl(
+    fb?.watch_url || fb?.watchUrl,
+  );
+  if (explicitWatch) return explicitWatch;
+
+  const liveId = [
+    fb?.id,
+    fb?.liveId,
+    fb?.liveVideoId,
+    fb?.platformLiveId,
+  ].find(isNonEmptyString);
+  return liveId
+    ? `https://www.facebook.com/watch/live/?v=${encodeURIComponent(
+        String(liveId).trim(),
+      )}`
+    : "";
+}
+
 function isFinishedLikeStatus(status) {
   return ["finished", "ended", "stopped"].includes(
     String(status || "")
@@ -90,6 +139,9 @@ function buildCanonicalSessions(match = {}) {
   const defaultStreamKey =
     typeof match?.defaultStreamKey === "string" ? match.defaultStreamKey : "";
   const streams = Array.isArray(match?.streams) ? match.streams : [];
+  const fb = match?.facebookLive || {};
+  const finishedLike =
+    isFinishedLikeStatus(match?.status) || isFinishedLikeStatus(fb?.status);
 
   return streams
     .filter(
@@ -109,7 +161,60 @@ function buildCanonicalSessions(match = {}) {
         typeof stream?.embedHtml === "string" ? stream.embedHtml.trim() : "";
       const explicitEmbedUrl =
         typeof stream?.embedUrl === "string" ? stream.embedUrl.trim() : "";
-      const url = playUrl || openUrl;
+      const streamMeta = stream?.meta || {};
+      const streamWatchUrl = finishedLike
+        ? ""
+        : buildFacebookLiveWatchUrl({
+            ...fb,
+            id:
+              fb?.id ||
+              stream?.liveId ||
+              stream?.liveVideoId ||
+              stream?.platformLiveId ||
+              streamMeta.liveId ||
+              streamMeta.liveVideoId ||
+              streamMeta.platformLiveId,
+            liveId:
+              fb?.liveId ||
+              stream?.liveId ||
+              streamMeta.liveId ||
+              streamMeta.liveVideoId,
+            liveVideoId:
+              fb?.liveVideoId || stream?.liveVideoId || streamMeta.liveVideoId,
+            platformLiveId:
+              fb?.platformLiveId ||
+              stream?.platformLiveId ||
+              streamMeta.platformLiveId,
+            watch_url:
+              fb?.watch_url ||
+              stream?.watch_url ||
+              stream?.watchUrl ||
+              streamMeta.watch_url ||
+              streamMeta.watchUrl,
+            watchUrl:
+              fb?.watchUrl ||
+              stream?.watchUrl ||
+              streamMeta.watchUrl ||
+              streamMeta.watch_url,
+          });
+      const isFacebookStream =
+        [
+          playUrl,
+          openUrl,
+          explicitEmbedUrl,
+          streamWatchUrl,
+          streamMeta.permalinkUrl,
+          streamMeta.rawPermalinkUrl,
+          streamMeta.videoPermalinkUrl,
+        ].some(isFacebookUrl) ||
+        /facebook/i.test(
+          `${stream?.provider || ""} ${stream?.providerLabel || ""} ${
+            stream?.displayLabel || ""
+          } ${stream?.label || ""}`,
+        );
+      const facebookOpenUrl =
+        streamWatchUrl && isFacebookStream ? streamWatchUrl : "";
+      const url = facebookOpenUrl || playUrl || openUrl;
       const kind = String(stream?.kind || "")
         .trim()
         .toLowerCase();
@@ -117,6 +222,30 @@ function buildCanonicalSessions(match = {}) {
         (defaultStreamKey && String(stream?.key || "") === defaultStreamKey) ||
         Boolean(stream?.primary);
       if (!url) return null;
+
+      if ((kind === "iframe_html" || kind === "facebook") && facebookOpenUrl) {
+        return {
+          key: stream?.key || "server1",
+          provider: "facebook",
+          kind: "iframe",
+          label: stream?.displayLabel || "Server 1",
+          providerLabel: stream?.providerLabel || "Facebook",
+          openUrl: facebookOpenUrl,
+          watchUrl: facebookOpenUrl,
+          embedUrl:
+            explicitEmbedUrl && !isFacebookUrl(explicitEmbedUrl)
+              ? explicitEmbedUrl
+              : `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(
+                  facebookOpenUrl,
+                )}&show_text=false&width=1280`,
+          allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+          canEmbedInline: true,
+          primary: isPrimary,
+          ready: stream?.ready !== false,
+          delaySeconds: Number(stream?.delaySeconds || 0),
+          aspect: stream?.aspect || "16:9",
+        };
+      }
 
       if (kind === "iframe_html" && embedHtml) {
         return {
@@ -232,18 +361,25 @@ export default function LiveMatchCard({ item, onDeleted }) {
 
   // build 1 session từ facebookLive
   const canonicalSessions = React.useMemo(() => buildCanonicalSessions(m), [m]);
-  const fbWatch = React.useMemo(
-    () =>
+  const finishedLike =
+    isFinishedLikeStatus(m.status) || isFinishedLikeStatus(fb.status);
+  const fbWatch = React.useMemo(() => {
+    if (!finishedLike) {
+      return (
+        buildFacebookLiveWatchUrl(fb) ||
+        fb.permalink_url ||
+        fb.video_permalink_url ||
+        ""
+      );
+    }
+    return (
       fb.video_permalink_url ||
       fb.permalink_url ||
+      normalizeFacebookWatchLiveUrl(fb.watch_url) ||
       fb.watch_url ||
-      (fb.videoId
-        ? `https://www.facebook.com/watch/?v=${fb.videoId}`
-        : fb.id
-          ? `https://www.facebook.com/watch/?v=${fb.id}`
-          : ""),
-    [fb.id, fb.permalink_url, fb.videoId, fb.video_permalink_url, fb.watch_url],
-  );
+      ""
+    );
+  }, [fb, finishedLike]);
   const sessions = React.useMemo(
     () =>
       canonicalSessions.length > 0
@@ -285,8 +421,6 @@ export default function LiveMatchCard({ item, onDeleted }) {
       fbWatch,
     ],
   );
-  const finishedLike =
-    isFinishedLikeStatus(m.status) || isFinishedLikeStatus(fb.status);
   const readyServer2 =
     sessions.find((session) => session.key === "server2" && session.ready) ||
     null;

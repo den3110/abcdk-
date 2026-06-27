@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildStaleExportAutoRequeueOptions,
   getLatestRecordingActivityDate,
   getLatestSegmentActivityDate,
   summarizeSegments,
@@ -72,4 +73,29 @@ test("recording activity falls back to startedAt and recording timestamps", () =
     }),
     null
   );
+});
+
+test("stale export auto-requeue respects the configured export window", () => {
+  const now = new Date("2026-06-27T04:30:00.000Z");
+  const options = buildStaleExportAutoRequeueOptions(
+    {
+      stage: "worker_offline",
+      windowStart: "02:00",
+    },
+    1,
+    now
+  );
+
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(options, "ignoreWindow"),
+    false
+  );
+  assert.equal(options.publishReason, "recording_export_auto_requeued");
+  assert.equal(options.replaceTerminalJob, true);
+  assert.equal(options.replacePendingJob, true);
+  assert.equal(options.forceReason, "stale_reconciliation");
+  assert.equal(options.currentPipeline.stage, "worker_offline");
+  assert.equal(options.currentPipeline.windowStart, "02:00");
+  assert.equal(options.currentPipeline.autoRequeueCount, 2);
+  assert.equal(options.currentPipeline.lastAutoRequeuedAt, now);
 });

@@ -30,7 +30,7 @@ function asTrimmed(value) {
 function buildFacebookWatchUrl(liveId) {
   const normalizedLiveId = asTrimmed(liveId);
   return normalizedLiveId
-    ? `https://www.facebook.com/watch/?v=${encodeURIComponent(normalizedLiveId)}`
+    ? `https://www.facebook.com/watch/live/?v=${encodeURIComponent(normalizedLiveId)}`
     : "";
 }
 

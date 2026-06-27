@@ -648,6 +648,131 @@ function isFacebookUrl(url) {
   return host.includes("facebook.com") || host.includes("fb.watch");
 }
 
+function normalizeFacebookWatchLiveUrl(url) {
+  if (!isNonEmptyString(url)) return "";
+  const u = safeURL(url.trim());
+  if (!u) return "";
+  const host = u.hostname.toLowerCase();
+  if (!host.includes("facebook.com")) return "";
+  const liveId = u.searchParams.get("v");
+  if (!isNonEmptyString(liveId)) return "";
+  const path = u.pathname.toLowerCase();
+  if (!path.startsWith("/watch")) return "";
+  return `https://www.facebook.com/watch/live/?v=${encodeURIComponent(
+    liveId.trim(),
+  )}`;
+}
+
+function buildFacebookLiveWatchUrl(fb = {}) {
+  const explicitWatch = normalizeFacebookWatchLiveUrl(
+    fb?.watch_url || fb?.watchUrl,
+  );
+  if (explicitWatch) return explicitWatch;
+
+  const liveId = [
+    fb?.id,
+    fb?.liveId,
+    fb?.liveVideoId,
+    fb?.platformLiveId,
+  ].find(isNonEmptyString);
+  if (liveId) {
+    return `https://www.facebook.com/watch/live/?v=${encodeURIComponent(
+      String(liveId).trim(),
+    )}`;
+  }
+
+  return isNonEmptyString(fb?.watch_url)
+    ? fb.watch_url.trim()
+    : isNonEmptyString(fb?.watchUrl)
+      ? fb.watchUrl.trim()
+      : "";
+}
+
+function normalizeFacebookPageUrl(url) {
+  const input = typeof url === "string" ? url.trim() : "";
+  if (!input) return "";
+
+  try {
+    const parsed = new URL(
+      input.startsWith("http") ? input : `https://${input.replace(/^\/+/, "")}`,
+    );
+    const host = parsed.hostname.toLowerCase();
+    if (!host.includes("facebook.com")) return "";
+
+    if (parsed.pathname === "/plugins/video.php") {
+      return normalizeFacebookPageUrl(parsed.searchParams.get("href") || "");
+    }
+
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const first = parts[0] || "";
+    if (
+      !first ||
+      [
+        "watch",
+        "video.php",
+        "plugins",
+        "reel",
+        "share",
+        "story.php",
+      ].includes(first.toLowerCase())
+    ) {
+      return "";
+    }
+
+    return `https://www.facebook.com/${encodeURIComponent(first)}`;
+  } catch {
+    return "";
+  }
+}
+
+function buildFacebookPageUrl(match = {}, activeStream = null) {
+  const fb = match?.facebookLive || {};
+  const metaFb = match?.meta?.facebook || {};
+  const streamMeta = activeStream?.meta || {};
+  const pageId = [
+    fb?.pageId,
+    fb?.page_id,
+    metaFb?.pageId,
+    metaFb?.page_id,
+    activeStream?.pageId,
+    activeStream?.page_id,
+    streamMeta?.pageId,
+    streamMeta?.page_id,
+  ].find(isNonEmptyString);
+  if (pageId) {
+    return `https://www.facebook.com/${encodeURIComponent(String(pageId).trim())}`;
+  }
+
+  return [
+    fb?.pageUrl,
+    fb?.page_url,
+    fb?.page?.url,
+    fb?.page?.link,
+    metaFb?.pageUrl,
+    metaFb?.page_url,
+    metaFb?.page?.url,
+    metaFb?.page?.link,
+    activeStream?.pageUrl,
+    activeStream?.page_url,
+    streamMeta?.pageUrl,
+    streamMeta?.page_url,
+    fb?.raw_permalink_url,
+    fb?.rawPermalinkUrl,
+    fb?.permalink_url,
+    fb?.permalinkUrl,
+    fb?.video_permalink_url,
+    fb?.videoPermalinkUrl,
+    activeStream?.openUrl,
+    activeStream?.url,
+    activeStream?.embedUrl,
+    streamMeta?.rawPermalinkUrl,
+    streamMeta?.permalinkUrl,
+    streamMeta?.videoPermalinkUrl,
+  ]
+    .map(normalizeFacebookPageUrl)
+    .find(Boolean) || "";
+}
+
 function isTemporaryRecordingPlaybackUrl(url) {
   return /\/api\/live\/recordings\/v2\/[^/]+\/temp(?:\/playlist)?(?:\?|$)/i.test(
     String(url || "").trim(),
@@ -659,10 +784,23 @@ function normalizeStreams(m) {
   const seen = new Set();
   const defaultStreamKey =
     typeof m?.defaultStreamKey === "string" ? m.defaultStreamKey.trim() : "";
+  const fb = m?.facebookLive || {};
+  const normalizedMatchStatus = String(m?.status || "")
+    .trim()
+    .toLowerCase();
+  const normalizedFbStatus = String(fb?.status || "")
+    .trim()
+    .toLowerCase();
+  const finishedLike =
+    ["finished", "ended", "stopped"].includes(normalizedMatchStatus) ||
+    ["finished", "ended", "stopped"].includes(normalizedFbStatus);
+  const facebookLiveOpenUrl = finishedLike ? "" : buildFacebookLiveWatchUrl(fb);
+  const liveFacebookUrlFor = (url) =>
+    facebookLiveOpenUrl && isFacebookUrl(url) ? facebookLiveOpenUrl : url;
 
   const pushUrl = (url, { label, primary = false } = {}) => {
     if (!isNonEmptyString(url)) return;
-    const u = url.trim();
+    const u = liveFacebookUrlFor(url.trim());
     if (isTemporaryRecordingPlaybackUrl(u)) return;
     if (seen.has(u)) return;
     const det = detectEmbed(u);
@@ -695,38 +833,106 @@ function normalizeStreams(m) {
     const explicitEmbedUrl = isNonEmptyString(stream?.embedUrl)
       ? stream.embedUrl.trim()
       : "";
+    const streamMeta = stream?.meta || {};
+    const streamFacebookOpenUrl = finishedLike
+      ? ""
+      : buildFacebookLiveWatchUrl({
+          ...fb,
+          id:
+            fb?.id ||
+            stream?.liveId ||
+            stream?.liveVideoId ||
+            stream?.platformLiveId ||
+            streamMeta.liveId ||
+            streamMeta.liveVideoId ||
+            streamMeta.platformLiveId,
+          liveId:
+            fb?.liveId ||
+            stream?.liveId ||
+            streamMeta.liveId ||
+            streamMeta.liveVideoId,
+          liveVideoId:
+            fb?.liveVideoId || stream?.liveVideoId || streamMeta.liveVideoId,
+          platformLiveId:
+            fb?.platformLiveId ||
+            stream?.platformLiveId ||
+            streamMeta.platformLiveId,
+          watch_url:
+            fb?.watch_url ||
+            stream?.watch_url ||
+            stream?.watchUrl ||
+            streamMeta.watch_url ||
+            streamMeta.watchUrl,
+          watchUrl:
+            fb?.watchUrl ||
+            stream?.watchUrl ||
+            streamMeta.watchUrl ||
+            streamMeta.watch_url,
+        });
+    const isFacebookStream =
+      [
+        playUrl,
+        stream?.openUrl,
+        explicitEmbedUrl,
+        streamFacebookOpenUrl,
+        streamMeta.permalinkUrl,
+        streamMeta.rawPermalinkUrl,
+        streamMeta.videoPermalinkUrl,
+      ].some(isFacebookUrl) ||
+      /facebook/i.test(
+        `${stream?.provider || ""} ${stream?.providerLabel || ""} ${
+          stream?.displayLabel || ""
+        } ${stream?.label || ""}`,
+      );
+    const streamFacebookUrlFor = (url) =>
+      streamFacebookOpenUrl && isFacebookStream && (!url || isFacebookUrl(url))
+        ? streamFacebookOpenUrl
+        : liveFacebookUrlFor(url);
+    const renderEmbedUrl = explicitEmbedUrl
+      ? streamFacebookUrlFor(explicitEmbedUrl)
+      : "";
     const explicitAspect = isNonEmptyString(stream?.aspect)
       ? stream.aspect.trim()
       : "";
+    const renderUrl = streamFacebookUrlFor(playUrl);
+    const openUrl =
+      streamFacebookOpenUrl && isFacebookStream
+        ? streamFacebookOpenUrl
+        : typeof stream?.openUrl === "string" && stream.openUrl.trim()
+          ? streamFacebookUrlFor(stream.openUrl.trim())
+          : "";
+    const usesFacebookLiveUrl =
+      Boolean(streamFacebookOpenUrl || facebookLiveOpenUrl) && isFacebookStream;
+    const embedHtml = usesFacebookLiveUrl ? "" : explicitEmbedHtml;
     let det;
     if (kind === "delayed_manifest") {
       det = {
         kind: "delayed_manifest",
         canEmbed: true,
-        embedUrl: playUrl,
+        embedUrl: renderUrl,
         aspect: explicitAspect || "16:9",
       };
-    } else if (kind === "iframe_html" && explicitEmbedHtml) {
+    } else if (kind === "iframe_html" && embedHtml) {
       det = {
         kind: "iframe_html",
         canEmbed: true,
-        embedHtml: explicitEmbedHtml,
+        embedHtml,
         aspect: explicitAspect || "16:9",
       };
-    } else if (explicitEmbedUrl) {
-      const detected = detectEmbed(explicitEmbedUrl);
+    } else if (renderEmbedUrl) {
+      const detected = detectEmbed(renderEmbedUrl);
       det = {
         ...detected,
         kind: kind || detected.kind,
         canEmbed: true,
-        embedUrl: explicitEmbedUrl,
+        embedUrl: renderEmbedUrl,
         allow:
           (typeof stream?.allow === "string" && stream.allow.trim()) ||
           detected.allow,
         aspect: explicitAspect || detected.aspect || "16:9",
       };
     } else {
-      det = detectEmbed(playUrl);
+      det = detectEmbed(renderUrl);
     }
     out.push({
       key: stream?.key || null,
@@ -734,11 +940,8 @@ function normalizeStreams(m) {
         stream?.displayLabel ||
         stream?.label ||
         providerLabel(det.kind, "Link"),
-      url: playUrl,
-      openUrl:
-        typeof stream?.openUrl === "string" && stream.openUrl.trim()
-          ? stream.openUrl.trim()
-          : "",
+      url: renderUrl,
+      openUrl,
       primary:
         Boolean(stream?.primary) ||
         (defaultStreamKey && String(stream?.key || "") === defaultStreamKey),
@@ -749,8 +952,8 @@ function normalizeStreams(m) {
         typeof stream?.disabledReason === "string" ? stream.disabledReason : "",
       status: typeof stream?.status === "string" ? stream.status : "",
       meta: stream?.meta || {},
-      embedHtml: explicitEmbedHtml || det.embedHtml || "",
-      embedUrl: explicitEmbedUrl || det.embedUrl || "",
+      embedHtml: embedHtml || det.embedHtml || "",
+      embedUrl: renderEmbedUrl || det.embedUrl || "",
       allow:
         (typeof stream?.allow === "string" && stream.allow.trim()) ||
         det.allow ||
@@ -759,6 +962,7 @@ function normalizeStreams(m) {
     });
     seen.add(dedupeKey);
     seen.add(playUrl);
+    seen.add(renderUrl);
     return true;
   };
 
@@ -780,16 +984,6 @@ function normalizeStreams(m) {
     return out;
   }
 
-  const fb = m?.facebookLive || {};
-  const normalizedMatchStatus = String(m?.status || "")
-    .trim()
-    .toLowerCase();
-  const normalizedFbStatus = String(fb?.status || "")
-    .trim()
-    .toLowerCase();
-  const finishedLike =
-    ["finished", "ended", "stopped"].includes(normalizedMatchStatus) ||
-    ["finished", "ended", "stopped"].includes(normalizedFbStatus);
   const primaryVideo = isNonEmptyString(m?.video) ? m.video.trim() : "";
   const preferFinishedFacebookVideo =
     finishedLike &&
@@ -803,8 +997,16 @@ function normalizeStreams(m) {
       primary: true,
     });
   }
+  if (facebookLiveOpenUrl) {
+    pushUrl(facebookLiveOpenUrl, {
+      label: "Facebook Watch",
+      primary: true,
+    });
+  }
   if (primaryVideo)
-    pushUrl(primaryVideo, { primary: !preferFinishedFacebookVideo });
+    pushUrl(primaryVideo, {
+      primary: !preferFinishedFacebookVideo && !facebookLiveOpenUrl,
+    });
   const singles = [
     ["Video", m?.videoUrl],
     ["Stream", m?.stream],
@@ -2337,6 +2539,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     activeStream?.openUrl ||
     (activeStream?.kind === "delayed_manifest" ? "" : activeStream?.url) ||
     "";
+  const facebookPageUrl = useMemo(
+    () =>
+      buildFacebookPageUrl(
+        localPatch ? { ...(mm || {}), ...localPatch } : mm || {},
+        activeStream,
+      ),
+    [activeStream, localPatch, mm],
+  );
   const playerDialogItem = useMemo(() => {
     const displayCode =
       String(
@@ -2968,6 +3178,31 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             >
               Mở link trực tiếp
             </Button>
+            {facebookPageUrl && (
+              <Button
+                variant="outlined"
+                size="small"
+                endIcon={<OpenInNewIcon sx={{ fontSize: "0.9rem !important" }} />}
+                component={MuiLink}
+                href={facebookPageUrl}
+                target="_blank"
+                rel="noreferrer"
+                underline="none"
+                sx={{
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 600,
+                  fontSize: "0.8rem",
+                  px: 2,
+                  borderColor: (theme) =>
+                    theme.palette.mode === "dark"
+                      ? "rgba(255,255,255,0.15)"
+                      : "rgba(0,0,0,0.15)",
+                }}
+              >
+                Xem trên page
+              </Button>
+            )}
           </Stack>
 
         </Stack>

@@ -1484,10 +1484,12 @@ function buildFacebookUrls({ liveId, livePermalink, videoPermalink }) {
   const livePermalinkFull = livePermalink ? toFullUrl(livePermalink) : null;
   const videoPermalinkFull = videoPermalink ? toFullUrl(videoPermalink) : null;
 
-  const watchUrl = `https://www.facebook.com/watch/?v=${liveId}`;
+  const watchUrl = liveId
+    ? `https://www.facebook.com/watch/live/?v=${encodeURIComponent(liveId)}`
+    : null;
 
-  const shareUrl = livePermalinkFull || watchUrl;
-  const canonicalVideoUrl = livePermalinkFull || videoPermalinkFull || watchUrl;
+  const shareUrl = watchUrl || livePermalinkFull || videoPermalinkFull;
+  const canonicalVideoUrl = watchUrl || livePermalinkFull || videoPermalinkFull;
 
   return {
     watchUrl,
