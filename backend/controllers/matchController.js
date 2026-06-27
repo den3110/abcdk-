@@ -2009,27 +2009,6 @@ async function unlinkPreviousFeedForMatchSide(matchId, previousId, side) {
   );
 }
 
-const TEAM_SOURCE_SEED_TYPES = new Set([
-  "stageMatchWinner",
-  "stageMatchLoser",
-  "matchWinner",
-  "matchLoser",
-]);
-
-function seedComesFromPreviousSource(seed) {
-  return TEAM_SOURCE_SEED_TYPES.has(String(seed?.type || ""));
-}
-
-function isOpeningMatchForTeamOverride(match) {
-  if (!match) return false;
-  return (
-    !match?.previousA &&
-    !match?.previousB &&
-    !seedComesFromPreviousSource(match?.seedA) &&
-    !seedComesFromPreviousSource(match?.seedB)
-  );
-}
-
 function sourceSeedForMatch(match, type, stageIndexOverride = null) {
   const round = Number(match?.round || 1);
   const order = Number(match?.order || 0);
@@ -2274,11 +2253,6 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     res.status(409);
     throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");
   }
-  if ((willSetA || willSetB) && !isOpeningMatchForTeamOverride(match)) {
-    res.status(409);
-    throw new Error("Chỉ được chỉnh đội ở trận đầu của nhánh.");
-  }
-
   const newA = willSetA
     ? A.value === null
       ? null

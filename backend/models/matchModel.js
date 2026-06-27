@@ -734,12 +734,25 @@ function nonLoserPreviousSlotQuery(doc, side) {
 }
 
 async function stageIndexForMatch(doc) {
-  let st = doc.stageIndex;
-  if (!st) {
-    const br = await Bracket.findById(doc.bracket).select("stage").lean();
-    if (br?.stage) st = br.stage;
+  const populatedBracket =
+    doc?.bracket && typeof doc.bracket === "object" && doc.bracket.stage != null
+      ? doc.bracket
+      : null;
+  const populatedStage = Number(populatedBracket?.stage);
+  if (Number.isFinite(populatedStage) && populatedStage > 0) {
+    return populatedStage;
   }
-  return st;
+
+  const bracketId = doc?.bracket?._id || doc?.bracket;
+  if (bracketId) {
+    const br = await Bracket.findById(bracketId).select("stage").lean();
+    const bracketStage = Number(br?.stage);
+    if (Number.isFinite(bracketStage) && bracketStage > 0) {
+      return bracketStage;
+    }
+  }
+
+  return doc.stageIndex;
 }
 
 function stageConditions(refPath, stageIndex) {
@@ -1097,11 +1110,18 @@ matchSchema.pre("save", async function (next) {
     }
 
     // stageIndex + format từ bracket
-    if (!this.stageIndex || !this.format) {
+    if (this.bracket) {
       const br = await Bracket.findById(this.bracket)
         .select("stage type")
         .lean();
-      if (!this.stageIndex && br?.stage) this.stageIndex = br.stage;
+      const bracketStage = Number(br?.stage);
+      if (
+        Number.isFinite(bracketStage) &&
+        bracketStage > 0 &&
+        Number(this.stageIndex) !== bracketStage
+      ) {
+        this.stageIndex = bracketStage;
+      }
       if (!this.format && br?.type) this.format = br.type;
     }
 
