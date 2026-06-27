@@ -954,11 +954,7 @@ async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
   try {
     if (!["group", "round_robin", "gsl"].includes(doc.format)) return;
 
-    let st = doc.stageIndex;
-    if (!st) {
-      const br = await Bracket.findById(doc.bracket).select("stage").lean();
-      if (br?.stage) st = br.stage;
-    }
+    const st = await stageIndexForMatch(doc);
 
     const { autoFeedGroupRank } = await import(
       "../services/autoFeedGroupRank.js"
@@ -1192,6 +1188,38 @@ matchSchema.pre("save", async function (next) {
 matchSchema.pre("insertMany", async function (next, docs) {
   try {
     if (!Array.isArray(docs) || docs.length === 0) return next();
+
+    const bracketIds = [
+      ...new Set(
+        docs
+          .map((d) => d?.bracket)
+          .filter((id) => id && mongoose.isValidObjectId(id))
+          .map((id) => String(id))
+      ),
+    ];
+
+    if (bracketIds.length) {
+      const brackets = await Bracket.find({ _id: { $in: bracketIds } })
+        .select("_id stage type tournament")
+        .lean();
+      const bracketMap = new Map(brackets.map((b) => [String(b._id), b]));
+
+      for (const doc of docs) {
+        const br = bracketMap.get(String(doc?.bracket || ""));
+        if (!br) continue;
+
+        const bracketStage = Number(br.stage);
+        if (Number.isFinite(bracketStage) && bracketStage > 0) {
+          doc.stageIndex = bracketStage;
+        }
+        if (!doc.format && br.type) {
+          doc.format = br.type;
+        }
+        if (!doc.tournament && br.tournament) {
+          doc.tournament = br.tournament;
+        }
+      }
+    }
 
     const ids = [
       ...new Set(
