@@ -925,7 +925,9 @@ export default function RefereeScoreDialog({
   onMatchChanged,
 }) {
   const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("md"));
+  const narrowScreen = useMediaQuery(theme.breakpoints.down("md"));
+  const shortScreen = useMediaQuery("(max-height: 760px)");
+  const fullScreen = narrowScreen || shortScreen;
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const fastInteractionTheme = useMemo(
     () =>
@@ -2848,6 +2850,7 @@ export default function RefereeScoreDialog({
         fullScreen={fullScreen}
         fullWidth
         maxWidth="lg"
+        scroll="paper"
         BackdropProps={{
           sx: {
             background:
@@ -2865,6 +2868,12 @@ export default function RefereeScoreDialog({
             borderRadius: fullScreen ? 0 : 4,
             overflow: "hidden",
             width: fullScreen ? "100%" : "min(1240px, calc(100vw - 72px))",
+            maxWidth: fullScreen ? "100%" : "calc(100vw - 32px)",
+            maxHeight: fullScreen ? "100dvh" : "calc(100dvh - 32px)",
+            height: fullScreen ? "100dvh" : "auto",
+            m: fullScreen ? 0 : { xs: 1, sm: 2 },
+            display: "flex",
+            flexDirection: "column",
             border: "1px solid",
             borderColor: alpha("#ffffff", theme.palette.mode === "dark" ? 0.08 : 0.12),
             boxShadow:
@@ -2876,14 +2885,18 @@ export default function RefereeScoreDialog({
       >
       <DialogContent
         sx={{
-          p: { xs: 1.2, sm: 1.6, md: 2 },
+          p: { xs: 1, sm: 1.2, md: fullScreen ? 1.25 : 2 },
           bgcolor: "transparent",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
         }}
       >
         <Box
           sx={{
             position: "relative",
-            p: { xs: 0.9, sm: 1.1, md: 1.25 },
+            p: { xs: 0.75, sm: 1, md: fullScreen ? 1 : 1.25 },
             borderRadius: fullScreen ? 0 : 4.5,
             border: "1px solid",
             borderColor: alpha("#ffffff", theme.palette.mode === "dark" ? 0.06 : 0.1),
@@ -2896,6 +2909,10 @@ export default function RefereeScoreDialog({
                 ? "inset 0 1px 0 rgba(255,255,255,0.04)"
                 : "inset 0 1px 0 rgba(255,255,255,0.55)",
             overflow: "hidden",
+            display: "flex",
+            flex: "1 1 auto",
+            flexDirection: "column",
+            minHeight: 0,
             "&::before": {
               content: '""',
               position: "absolute",
@@ -2908,7 +2925,19 @@ export default function RefereeScoreDialog({
             },
           }}
         >
-          <Stack spacing={1.5} sx={{ position: "relative", zIndex: 1 }}>
+          <Stack
+            spacing={fullScreen ? 1 : 1.5}
+            sx={{
+              position: "relative",
+              zIndex: 1,
+              flex: "1 1 auto",
+              minHeight: 0,
+              overflowX: "hidden",
+              overflowY: "auto",
+              pr: { xs: 0, sm: 0.4 },
+              mr: { xs: 0, sm: -0.4 },
+            }}
+          >
           <Box
             sx={{
               p: { xs: 1.25, md: 1.5 },

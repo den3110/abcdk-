@@ -603,14 +603,63 @@ async function applyDefaultRefereesFromCourt(doc) {
   }
 }
 
+function objectIdStringOrNull(value) {
+  if (!value) return null;
+  if (mongoose.isValidObjectId(value)) return String(value);
+  if (value && typeof value === "object") {
+    const nested = value._id || value.id || value.matchId || value.match;
+    if (nested && nested !== value) return objectIdStringOrNull(nested);
+  }
+  return null;
+}
+
+function sourceDisplayOrderFromSeedLabel(seed) {
+  const label = String(seed?.label || "").trim();
+  if (!label) return NaN;
+  const hit = label.match(/\bT\s*(\d+)\b/i) || label.match(/#\s*(\d+)\b/);
+  if (!hit) return NaN;
+  const value = Number(hit[1]);
+  return Number.isFinite(value) && value > 0 ? value - 1 : NaN;
+}
+
+function sourceOrderCandidatesForSeed(seed) {
+  const rawOrder = Number(seed?.ref?.order);
+  const labelOrder = sourceDisplayOrderFromSeedLabel(seed);
+  const out = [];
+  const push = (value) => {
+    if (!Number.isInteger(value) || value < 0) return;
+    if (!out.includes(value)) out.push(value);
+  };
+  if (Number.isInteger(labelOrder)) {
+    push(labelOrder);
+    return out;
+  }
+  push(rawOrder);
+  if (Number.isInteger(rawOrder) && rawOrder > 0) push(rawOrder - 1);
+  return out;
+}
+
 async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
   const seed = side === "A" ? doc.seedA : doc.seedB;
   if (!seed || !seed.type) return;
+  const directSourceId = objectIdStringOrNull(
+    seed?.ref?.matchId ||
+      seed?.ref?.match ||
+      seed?.ref?.sourceMatchId ||
+      seed?.ref?.sourceMatch
+  );
+  const shouldResolveSourceRef =
+    directSourceId ||
+    seed.type === "matchWinner" ||
+    seed.type === "matchLoser" ||
+    seed.type === "stageMatchWinner" ||
+    seed.type === "stageMatchLoser";
 
   // Nếu đã có resolved value thì thôi
   if (
-    (side === "A" && (doc.pairA || doc.previousA)) ||
-    (side === "B" && (doc.pairB || doc.previousB))
+    !shouldResolveSourceRef &&
+    ((side === "A" && (doc.pairA || doc.previousA)) ||
+      (side === "B" && (doc.pairB || doc.previousB)))
   ) {
     return;
   }
@@ -623,6 +672,51 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
     if (side === "A") doc.previousA = matchId;
     else doc.previousB = matchId;
   };
+  const applySourceMatch = (sourceMatch) => {
+    if (!sourceMatch?._id) return;
+    setPrev(sourceMatch._id);
+
+    if (
+      String(sourceMatch.status || "") !== "finished" ||
+      !["A", "B"].includes(String(sourceMatch.winner || ""))
+    ) {
+      return;
+    }
+
+    const winnerSide = sourceMatch.winner === "A" ? "A" : "B";
+    const sourceSide = isLoserSeedSource(seed)
+      ? winnerSide === "A"
+        ? "B"
+        : "A"
+      : winnerSide;
+    const sourcePair = sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+    const sourceSeed = sourceSide === "A" ? sourceMatch.seedA : sourceMatch.seedB;
+    setPair(sourcePair || null);
+    if (isByeSeedSource(sourceSeed)) {
+      if (side === "A") doc.seedA = { ...MATCH_BYE_SEED };
+      else doc.seedB = { ...MATCH_BYE_SEED };
+    }
+  };
+  const findSourceInBracket = async ({ bracketId, round, orders, branch }) => {
+    const Match = doc.model("Match");
+    for (const order of orders) {
+      const query = { bracket: bracketId, round, order };
+      if (branch) query.branch = branch;
+      const prev = await Match.findOne(query).select(
+        "_id status winner pairA pairB seedA seedB"
+      );
+      if (prev?._id) return prev;
+    }
+    return null;
+  };
+  if (directSourceId) {
+    const Match = doc.model("Match");
+    const sourceMatch = await Match.findById(directSourceId).select(
+      "_id status winner pairA pairB seedA seedB"
+    );
+    applySourceMatch(sourceMatch || { _id: directSourceId });
+    return;
+  }
 
   switch (seed.type) {
     case "registration": {
@@ -634,26 +728,38 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
     }
 
     case "matchWinner": {
-      const Match = doc.model("Match");
       const branch = seed.ref?.branch || doc.branch || "main";
       if (
         Number.isInteger(seed.ref?.round) &&
         Number.isInteger(seed.ref?.order)
       ) {
-        const prev = await Match.findOne({
-          bracket: doc.bracket,
+        const prev = await findSourceInBracket({
+          bracketId: doc.bracket,
           round: seed.ref.round,
-          order: seed.ref.order,
+          orders: sourceOrderCandidatesForSeed(seed),
           branch,
-        }).select("_id");
-        if (prev?._id) setPrev(prev._id);
+        });
+        applySourceMatch(prev);
       }
       break;
     }
 
-    case "matchLoser":
-      // loser propagate sau
+    case "matchLoser": {
+      const branch = seed.ref?.branch || doc.branch || "main";
+      if (
+        Number.isInteger(seed.ref?.round) &&
+        Number.isInteger(seed.ref?.order)
+      ) {
+        const prev = await findSourceInBracket({
+          bracketId: doc.bracket,
+          round: seed.ref.round,
+          orders: sourceOrderCandidatesForSeed(seed),
+          branch,
+        });
+        applySourceMatch(prev);
+      }
       break;
+    }
 
     case "stageMatchWinner": {
       const st = seed.ref?.stageIndex ?? seed.ref?.stage;
@@ -667,21 +773,39 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
           stage: st,
         }).select("_id");
         if (br?._id) {
-          const Match = doc.model("Match");
-          const prev = await Match.findOne({
-            bracket: br._id,
+          const prev = await findSourceInBracket({
+            bracketId: br._id,
             round: seed.ref.round,
-            order: seed.ref.order,
-          }).select("_id");
-          if (prev?._id) setPrev(prev._id);
+            orders: sourceOrderCandidatesForSeed(seed),
+          });
+          applySourceMatch(prev);
         }
       }
       break;
     }
 
-    case "stageMatchLoser":
-      // propagate sau
+    case "stageMatchLoser": {
+      const st = seed.ref?.stageIndex ?? seed.ref?.stage;
+      if (
+        Number.isInteger(st) &&
+        Number.isInteger(seed.ref?.round) &&
+        Number.isInteger(seed.ref?.order)
+      ) {
+        const br = await Bracket.findOne({
+          tournament: doc.tournament,
+          stage: st,
+        }).select("_id");
+        if (br?._id) {
+          const prev = await findSourceInBracket({
+            bracketId: br._id,
+            round: seed.ref.round,
+            orders: sourceOrderCandidatesForSeed(seed),
+          });
+          applySourceMatch(prev);
+        }
+      }
       break;
+    }
 
     case "groupRank":
     case "bye":
@@ -693,10 +817,6 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
 const DEPENDENT_AUTO_SYNC_STATUS = { $nin: ["live", "finished"] };
 const LOSER_SEED_TYPES = new Set(["matchLoser", "stageMatchLoser"]);
 const MATCH_BYE_SEED = { type: "bye", ref: null, label: "BYE" };
-
-function canAutoSyncDependentMatch(match) {
-  return !["live", "finished"].includes(String(match?.status || ""));
-}
 
 function isLoserSeedSource(seed) {
   return LOSER_SEED_TYPES.has(String(seed?.type || ""));
@@ -718,13 +838,67 @@ function setSeedForSlot(match, slot, seed) {
   else match.seedB = seed;
 }
 
-function nonLoserPreviousSlotQuery(doc, side) {
+function setPairForSlot(match, slot, pair) {
+  if (slot === "A") match.pairA = pair || null;
+  else match.pairB = pair || null;
+}
+
+function pairForSlot(match, slot) {
+  return slot === "A" ? match?.pairA : match?.pairB;
+}
+
+function maybeAutoFinishResolvedByeMatch(match) {
+  if (!match) return false;
+  if (["live", "finished"].includes(String(match.status || ""))) return false;
+
+  const openByeA = isByeSeedSource(match.seedA) && !match.pairA;
+  const openByeB = isByeSeedSource(match.seedB) && !match.pairB;
+  if (openByeA === openByeB) return false;
+
+  const winnerSide = openByeA ? "B" : "A";
+  const winnerPair = winnerSide === "A" ? match.pairA : match.pairB;
+  if (!winnerPair) return false;
+
+  match.status = "finished";
+  match.winner = winnerSide;
+  match.startedAt = match.startedAt || new Date();
+  match.finishedAt = match.finishedAt || new Date();
+  match.meta = {
+    ...(match.meta?.toObject?.() || match.meta || {}),
+    autoReason: "bye",
+  };
+  return true;
+}
+
+async function applyResolvedSourceToTargets(MatchModel, query, side, reg, seedIsBye = false) {
+  const targets = await MatchModel.find(query);
+  for (const target of targets) {
+    let changed = false;
+    const currentPair = pairForSlot(target, side);
+    const nextPair = reg || null;
+    if (String(currentPair || "") !== String(nextPair || "")) {
+      setPairForSlot(target, side, nextPair);
+      changed = true;
+    }
+    if (seedIsBye && !isByeSeedSource(seedForSlot(target, side))) {
+      setSeedForSlot(target, side, { ...MATCH_BYE_SEED });
+      changed = true;
+    }
+
+    const autoFinished = maybeAutoFinishResolvedByeMatch(target);
+    if (changed || autoFinished) {
+      await target.save();
+    }
+  }
+}
+
+function nonLoserPreviousSlotQuery(doc, side, { includeLocked = false } = {}) {
   const seedTypePath = side === "A" ? "seedA.type" : "seedB.type";
   const previousPath = side === "A" ? "previousA" : "previousB";
   return {
     tournament: doc.tournament,
     [previousPath]: doc._id,
-    status: DEPENDENT_AUTO_SYNC_STATUS,
+    ...(includeLocked ? {} : { status: DEPENDENT_AUTO_SYNC_STATUS }),
     $or: [
       { [seedTypePath]: { $exists: false } },
       { [seedTypePath]: null },
@@ -767,12 +941,45 @@ function stageConditions(refPath, stageIndex) {
   ];
 }
 
+function sourceLabelRegexForMatchOrder(order) {
+  const displayOrder = Number(order) + 1;
+  if (!Number.isInteger(displayOrder) || displayOrder <= 0) return null;
+  return new RegExp(`(\\bT\\s*${displayOrder}\\b|#\\s*${displayOrder}\\b)`, "i");
+}
+
+const SOURCE_LABEL_ORDER_REGEX = /(\bT\s*\d+\b|#\s*\d+\b)/i;
+
+function labelCompatibleOr(seedPath, order) {
+  const labelPath = `${seedPath}.label`;
+  const labelRegex = sourceLabelRegexForMatchOrder(order);
+  if (!labelRegex) return [];
+  return [
+    { [labelPath]: { $exists: false } },
+    { [labelPath]: null },
+    { [labelPath]: "" },
+    { [labelPath]: labelRegex },
+    { [labelPath]: { $not: SOURCE_LABEL_ORDER_REGEX } },
+  ];
+}
+
+function addSourceBranchGuards(branch, { seedPath, order, stageOr = [] }) {
+  const and = [];
+  if (stageOr.length) and.push({ $or: stageOr });
+
+  const labelOr = labelCompatibleOr(seedPath, order);
+  if (labelOr.length) and.push({ $or: labelOr });
+
+  if (and.length) branch.$and = and;
+  return branch;
+}
+
 function seedSourceQuery({
   doc,
   side,
   type,
   stageIndex,
   sameBracketOnly = false,
+  includeLocked = false,
 }) {
   const seedPath = side === "A" ? "seedA" : "seedB";
   const refPath = `${seedPath}.ref`;
@@ -784,15 +991,32 @@ function seedSourceQuery({
   };
   const stageOr = sameBracketOnly ? [] : stageConditions(refPath, stageIndex);
   if (sameBracketOnly || stageOr.length) {
-    if (stageOr.length) roundOrderBranch.$or = stageOr;
-    sourceBranches.push(roundOrderBranch);
+    sourceBranches.push(
+      addSourceBranchGuards(roundOrderBranch, {
+        seedPath,
+        order: doc.order,
+        stageOr,
+      })
+    );
+
+    const legacyLabelRegex = sourceLabelRegexForMatchOrder(doc.order);
+    const legacyOrder = Number(doc.order) + 1;
+    if (legacyLabelRegex && Number.isInteger(legacyOrder)) {
+      const legacyRoundOrderBranch = {
+        [`${refPath}.round`]: doc.round,
+        [`${refPath}.order`]: legacyOrder,
+        [`${seedPath}.label`]: legacyLabelRegex,
+      };
+      if (stageOr.length) legacyRoundOrderBranch.$or = stageOr;
+      sourceBranches.push(legacyRoundOrderBranch);
+    }
   }
 
   return {
     tournament: doc.tournament,
     ...(sameBracketOnly ? { bracket: doc.bracket } : {}),
     [`${seedPath}.type`]: type,
-    status: DEPENDENT_AUTO_SYNC_STATUS,
+    ...(includeLocked ? {} : { status: DEPENDENT_AUTO_SYNC_STATUS }),
     $or: sourceBranches,
   };
 }
@@ -858,22 +1082,10 @@ async function propagateFromFinishedMatch(doc) {
   const loserSeed = doc.winner === "A" ? doc.seedB : doc.seedA;
   const winnerSeedIsBye = isByeSeedSource(winnerSeed);
   const loserSeedIsBye = isByeSeedSource(loserSeed);
-  const slotSet = (side, reg, seedIsBye = false) => {
-    const pairField = side === "A" ? "pairA" : "pairB";
-    const seedField = side === "A" ? "seedA" : "seedB";
-    return {
-      $set: {
-        [pairField]: reg || null,
-        ...(seedIsBye ? { [seedField]: { ...MATCH_BYE_SEED } } : {}),
-      },
-    };
-  };
-
   // 1) KO chaining
   if (doc.nextMatch && doc.nextSlot) {
     const nm = await MatchModel.findById(doc.nextMatch);
-    if (nm && canAutoSyncDependentMatch(nm)) {
-      const field = doc.nextSlot === "A" ? "pairA" : "pairB";
+    if (nm) {
       const targetSeed = seedForSlot(nm, doc.nextSlot);
       const targetWantsLoser = isLoserSeedSource(targetSeed);
       const sourceReg = targetWantsLoser ? loserReg || null : winnerReg;
@@ -887,66 +1099,93 @@ async function propagateFromFinishedMatch(doc) {
       const sourceIsBye = isByeSeedSource(sourceSeed);
       if (
         (targetWantsLoser || sourceReg || sourceIsBye) &&
-        (String(nm[field] || "") !== String(sourceReg || "") ||
+        (String(pairForSlot(nm, doc.nextSlot) || "") !== String(sourceReg || "") ||
           (sourceIsBye && !isByeSeedSource(targetSeed)))
       ) {
-        nm[field] = sourceReg || null;
+        setPairForSlot(nm, doc.nextSlot, sourceReg || null);
         if (sourceIsBye) {
           setSeedForSlot(nm, doc.nextSlot, { ...MATCH_BYE_SEED });
         }
+        maybeAutoFinishResolvedByeMatch(nm);
         await nm.save();
       }
     }
   }
-  await MatchModel.updateMany(
-    nonLoserPreviousSlotQuery(doc, "A"),
-    slotSet("A", winnerReg, winnerSeedIsBye)
+  await applyResolvedSourceToTargets(
+    MatchModel,
+    nonLoserPreviousSlotQuery(doc, "A", { includeLocked: true }),
+    "A",
+    winnerReg,
+    winnerSeedIsBye
   );
-  await MatchModel.updateMany(
-    nonLoserPreviousSlotQuery(doc, "B"),
-    slotSet("B", winnerReg, winnerSeedIsBye)
+  await applyResolvedSourceToTargets(
+    MatchModel,
+    nonLoserPreviousSlotQuery(doc, "B", { includeLocked: true }),
+    "B",
+    winnerReg,
+    winnerSeedIsBye
   );
 
   // 2) stageMatchWinner
-  await MatchModel.updateMany(
-    seedSourceQuery({ doc, side: "A", type: "stageMatchWinner", stageIndex: st }),
-    slotSet("A", winnerReg, winnerSeedIsBye)
+  await applyResolvedSourceToTargets(
+    MatchModel,
+    seedSourceQuery({ doc, side: "A", type: "stageMatchWinner", stageIndex: st, includeLocked: true }),
+    "A",
+    winnerReg,
+    winnerSeedIsBye
   );
-  await MatchModel.updateMany(
-    seedSourceQuery({ doc, side: "B", type: "stageMatchWinner", stageIndex: st }),
-    slotSet("B", winnerReg, winnerSeedIsBye)
+  await applyResolvedSourceToTargets(
+    MatchModel,
+    seedSourceQuery({ doc, side: "B", type: "stageMatchWinner", stageIndex: st, includeLocked: true }),
+    "B",
+    winnerReg,
+    winnerSeedIsBye
   );
 
   // 3) stageMatchLoser
-  await MatchModel.updateMany(
-    seedSourceQuery({ doc, side: "A", type: "stageMatchLoser", stageIndex: st }),
-    slotSet("A", loserReg, loserSeedIsBye)
+  await applyResolvedSourceToTargets(
+    MatchModel,
+    seedSourceQuery({ doc, side: "A", type: "stageMatchLoser", stageIndex: st, includeLocked: true }),
+    "A",
+    loserReg,
+    loserSeedIsBye
   );
-  await MatchModel.updateMany(
-    seedSourceQuery({ doc, side: "B", type: "stageMatchLoser", stageIndex: st }),
-    slotSet("B", loserReg, loserSeedIsBye)
+  await applyResolvedSourceToTargets(
+    MatchModel,
+    seedSourceQuery({ doc, side: "B", type: "stageMatchLoser", stageIndex: st, includeLocked: true }),
+    "B",
+    loserReg,
+    loserSeedIsBye
   );
 
   // 4) matchLoser trong cùng bracket
-  await MatchModel.updateMany(
+  await applyResolvedSourceToTargets(
+    MatchModel,
     seedSourceQuery({
       doc,
       side: "A",
       type: "matchLoser",
       stageIndex: st,
       sameBracketOnly: true,
+      includeLocked: true,
     }),
-    slotSet("A", loserReg, loserSeedIsBye)
+    "A",
+    loserReg,
+    loserSeedIsBye
   );
-  await MatchModel.updateMany(
+  await applyResolvedSourceToTargets(
+    MatchModel,
     seedSourceQuery({
       doc,
       side: "B",
       type: "matchLoser",
       stageIndex: st,
       sameBracketOnly: true,
+      includeLocked: true,
     }),
-    slotSet("B", loserReg, loserSeedIsBye)
+    "B",
+    loserReg,
+    loserSeedIsBye
   );
 }
 
@@ -1150,6 +1389,7 @@ matchSchema.pre("save", async function (next) {
     // resolve seed
     await resolveSeedToSlots(this, "A");
     await resolveSeedToSlots(this, "B");
+    maybeAutoFinishResolvedByeMatch(this);
 
     try {
       if (
@@ -1580,6 +1820,8 @@ matchSchema.statics.compileSeedsForBracket = async function (bracketId) {
       pairB: m.pairB,
       previousA: m.previousA,
       previousB: m.previousB,
+      seedA: JSON.stringify(m.seedA || null),
+      seedB: JSON.stringify(m.seedB || null),
     };
     await resolveSeedToSlots(m, "A");
     await resolveSeedToSlots(m, "B");
@@ -1588,7 +1830,9 @@ matchSchema.statics.compileSeedsForBracket = async function (bracketId) {
       String(before.pairA || "") !== String(m.pairA || "") ||
       String(before.pairB || "") !== String(m.pairB || "") ||
       String(before.previousA || "") !== String(m.previousA || "") ||
-      String(before.previousB || "") !== String(m.previousB || "");
+      String(before.previousB || "") !== String(m.previousB || "") ||
+      before.seedA !== JSON.stringify(m.seedA || null) ||
+      before.seedB !== JSON.stringify(m.seedB || null);
 
     if (changed) {
       await m.save();

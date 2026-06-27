@@ -2525,6 +2525,82 @@ function buildDraftPlanFromBody(body = {}) {
   };
 }
 
+function seedEntrantKey(seed) {
+  const type = String(seed?.type || "").trim();
+  if (!type || type === "bye") return "";
+  const ref = seed?.ref && typeof seed.ref === "object" ? seed.ref : {};
+
+  if (type === "registration") {
+    const registration = String(
+      ref.registration || ref.reg || seed.registration || seed.reg || ""
+    ).trim();
+    return registration ? `registration:${registration}` : "";
+  }
+
+  if (type === "groupRank") {
+    const stage = Number(ref.stage ?? ref.stageIndex ?? 1) || 1;
+    const groupCode = String(
+      ref.groupCode || ref.group?.name || ref.group || ref.pool || ""
+    )
+      .trim()
+      .toUpperCase();
+    const rank = Number(ref.rank || ref.place || 0) || 0;
+    const wildcardOrder = Number(ref.wildcardOrder || ref.pick || ref.index || 0) || 0;
+    if (!rank) return "";
+    return `groupRank:${stage}:${groupCode}:${rank}:${wildcardOrder}`;
+  }
+
+  if (
+    type === "stageMatchWinner" ||
+    type === "stageMatchLoser" ||
+    type === "matchWinner" ||
+    type === "matchLoser"
+  ) {
+    const matchId = String(
+      ref.matchId || ref.match || ref.sourceMatchId || ref.sourceMatch || ""
+    ).trim();
+    if (matchId) return `${type}:match:${matchId}`;
+
+    const stage = Number(ref.stageIndex ?? ref.stage ?? 0) || 0;
+    const round = Number(ref.round);
+    const order = Number(ref.order);
+    if (!Number.isFinite(round) || !Number.isFinite(order)) return "";
+    return `${type}:${stage}:${round}:${order}`;
+  }
+
+  return "";
+}
+
+function findDuplicateEntrantSeed(plan = {}) {
+  for (const stageKey of ["po", "ko"]) {
+    const seeds = Array.isArray(plan?.[stageKey]?.seeds)
+      ? plan[stageKey].seeds
+      : [];
+    const seen = new Map();
+
+    for (const row of seeds) {
+      const pairNo = Number(row?.pair || 0) || 0;
+      for (const side of ["A", "B"]) {
+        const key = seedEntrantKey(row?.[side]);
+        if (!key) continue;
+        const slot = `${stageKey.toUpperCase()} pair ${pairNo || "?"}${side}`;
+        const first = seen.get(key);
+        if (first) {
+          return { stageKey, key, first, duplicate: slot };
+        }
+        seen.set(key, slot);
+      }
+    }
+  }
+
+  return null;
+}
+
+function duplicateEntrantSeedMessage(hit) {
+  if (!hit) return "";
+  return `Seed nguồn bị trùng trong ${hit.stageKey.toUpperCase()}: ${hit.first} và ${hit.duplicate}`;
+}
+
 async function deletePublishedBlueprintStages({ brackets, stageKeys, session }) {
   const ids = (Array.isArray(brackets) ? brackets : [])
     .filter((bracket) => stageKeys.includes(semanticStageKeyFromBracketType(bracket?.type)))
@@ -2864,6 +2940,12 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
     }
 
     nextPlan.ko = k;
+  }
+
+  const duplicateSeed = findDuplicateEntrantSeed(nextPlan);
+  if (duplicateSeed) {
+    res.status(400);
+    throw new Error(duplicateEntrantSeedMessage(duplicateSeed));
   }
 
   nextPlan.savedAt = new Date();

@@ -106,13 +106,14 @@ export async function buildDesignGraph({ tournament, input }) {
   if (V2) {
     for (const r of V2.rounds) {
       for (let i = 1; i <= r.pairs; i++) {
+        const order = i - 1;
         sourceOptions.push({
           kind: "stageMatchWinner",
           stage: 2,
           code: makeLabelWinner(2, r.r, i),
           source: {
             type: "stageMatchWinner",
-            ref: { stageIndex: 2, round: r.r, order: i },
+            ref: { stageIndex: 2, round: r.r, order },
             label: `Winner V2 R${r.r} #${i}`,
           },
           available: r.pairs >= i, // luôn true khi đã vẽ

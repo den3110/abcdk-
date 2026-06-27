@@ -181,6 +181,12 @@ async function resetBracketSlots(bracketIds) {
   return r.modifiedCount || 0;
 }
 
+function registrationSeed(regId) {
+  return regId
+    ? { type: "registration", ref: { registration: regId }, label: "" }
+    : null;
+}
+
 /** Lấy danh sách entry slots (matchId + slot A/B) cho Round 1 của 1 KO bracket. */
 async function getKOEntrySlotsRound1(bracketId, { entryOrder = "byMatch" } = {}) {
   const r1 = await Match.find({ bracket: bracketId, round: 1 })
@@ -224,10 +230,18 @@ async function fillQualifiersIntoKO(bracketId, qualifiers, { entryOrder = "byMat
   for (let i = 0; i < slots.length && i < qualifiers.length; i++) {
     const { matchId, slot } = slots[i];
     const field = slot === "A" ? "pairA" : "pairB";
+    const seedField = slot === "A" ? "seedA" : "seedB";
+    const previousField = slot === "A" ? "previousA" : "previousB";
     updates.push(
       Match.updateOne(
-        { _id: matchId, [field]: { $in: [null, undefined, ""] } },
-        { $set: { [field]: qualifiers[i] } }
+        { _id: matchId },
+        {
+          $set: {
+            [field]: qualifiers[i],
+            [seedField]: registrationSeed(qualifiers[i]),
+            [previousField]: null,
+          },
+        }
       )
     );
   }
