@@ -53,6 +53,35 @@ const matchCodeForSeed = (match) => {
   return `V${round}-T${order + 1}`;
 };
 
+const seedLabel = (seed) => String(seed?.label || "").trim();
+
+const displayOrderFromSeedLabel = (seed) => {
+  const label = seedLabel(seed);
+  const hit = label.match(/\bT\s*(\d+)\b/i) || label.match(/#\s*(\d+)\b/);
+  if (!hit) return NaN;
+  const value = Number(hit[1]);
+  return Number.isFinite(value) && value > 0 ? value - 1 : NaN;
+};
+
+const roundFromSeedLabel = (seed) => {
+  const label = seedLabel(seed);
+  const hit =
+    label.match(/\bR\s*(\d+)\b/i) ||
+    label.match(/\b[WL]\s*-\s*V\s*(\d+)\s*-\s*T/i);
+  if (!hit) return NaN;
+  const value = Number(hit[1]);
+  return Number.isFinite(value) && value > 0 ? value : NaN;
+};
+
+const sourceOrderCandidatesForSeed = (seed, ref = {}) => {
+  const labelOrder = displayOrderFromSeedLabel(seed);
+  if (Number.isInteger(labelOrder)) return [labelOrder];
+
+  const rawOrder = Number(ref.order ?? seed?.order);
+  if (!Number.isInteger(rawOrder) || rawOrder < 0) return [];
+  return [rawOrder];
+};
+
 async function findSeedSourceMatch({ rawSeed, bracket, targetRound }) {
   const ref = rawSeed?.ref && typeof rawSeed.ref === "object" ? rawSeed.ref : {};
   const rawMatchId =
@@ -69,9 +98,12 @@ async function findSeedSourceMatch({ rawSeed, bracket, targetRound }) {
       "_id tournament bracket round order pairA pairB status winner"
     );
   } else {
-    const round = Number(ref.round ?? rawSeed.round);
-    const order = Number(ref.order ?? rawSeed.order);
-    if (!Number.isInteger(round) || !Number.isInteger(order)) return null;
+    const labelRound = roundFromSeedLabel(rawSeed);
+    const round = Number.isInteger(labelRound)
+      ? labelRound
+      : Number(ref.round ?? rawSeed.round);
+    const orderCandidates = sourceOrderCandidatesForSeed(rawSeed, ref);
+    if (!Number.isInteger(round) || !orderCandidates.length) return null;
 
     let sourceBracketId = bracket._id;
     const stageIndex = Number(ref.stageIndex ?? ref.stage ?? rawSeed.stageIndex ?? rawSeed.stage);
@@ -83,12 +115,15 @@ async function findSeedSourceMatch({ rawSeed, bracket, targetRound }) {
       if (sourceBracket?._id) sourceBracketId = sourceBracket._id;
     }
 
-    source = await Match.findOne({
-      tournament: bracket.tournament,
-      bracket: sourceBracketId,
-      round,
-      order,
-    }).select("_id tournament bracket round order pairA pairB status winner");
+    for (const order of orderCandidates) {
+      source = await Match.findOne({
+        tournament: bracket.tournament,
+        bracket: sourceBracketId,
+        round,
+        order,
+      }).select("_id tournament bracket round order pairA pairB status winner");
+      if (source) break;
+    }
   }
 
   if (!source) return null;

@@ -2002,20 +2002,25 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
         if (sourceMatch?.status === "finished" && sourceMatch?.winner) {
           const winnerSide = sourceMatch.winner === "A" ? "A" : "B";
+          const sourceSide = isLoserSeed
+            ? winnerSide === "A"
+              ? "B"
+              : "A"
+            : winnerSide;
           const winnerPair =
-            winnerSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+            sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
           if (hasResolvedPair(winnerPair)) {
             return pairLabel(winnerPair, isSingle, displayMode);
           }
           const carried = resolvePendingSideLabelInner(
             sourceMatch,
-            winnerSide,
+            sourceSide,
             depth + 1,
           );
           if (isUsefulPendingLabel(carried)) return carried;
         }
 
-        if (sourceCode) return `W-${sourceCode}`;
+        if (sourceCode) return `${isLoserSeed ? "L" : "W"}-${sourceCode}`;
         return resolveSeedReferenceLabel(seed, match);
       }
 

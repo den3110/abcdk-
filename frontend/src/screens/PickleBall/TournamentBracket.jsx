@@ -6085,13 +6085,14 @@ export default function TournamentBracket() {
             : String(prev);
         const pm =
           matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
+        const prevSeedType = String(effectiveSeed?.type || "");
+        const prevIsLoserSeed =
+          prevSeedType === "stageMatchLoser" || prevSeedType === "matchLoser";
+        const prevSourcePrefix = prevIsLoserSeed ? "L" : "W";
 
         // BYE ở trận trước → mang nhãn bên không BYE
         if (pm && isByeMatchObj(pm)) {
-          const isLoserSeed =
-            effectiveSeed?.type === "stageMatchLoser" ||
-            effectiveSeed?.type === "matchLoser";
-          if (isLoserSeed) return "BYE";
+          if (prevIsLoserSeed) return "BYE";
 
           const byeA =
             pm?.seedA?.type === "bye" ||
@@ -6120,23 +6121,28 @@ export default function TournamentBracket() {
           }
 
           const carriedCode = getDisplayCodeForMatch(pm);
-          if (carriedCode) return `W-${carriedCode}`;
+          if (carriedCode) return `${prevSourcePrefix}-${carriedCode}`;
           return resolveSeedReferenceLabel(effectiveSeed, m);
         }
 
         // Trận trước đã xong và có winner → trả tên cặp thắng
         if (pm && pm.status === "finished" && pm.winner) {
           const winnerSide = pm.winner === "A" ? "A" : "B";
-          const wp = winnerSide === "A" ? pm.pairA : pm.pairB;
+          const sourceSide = prevIsLoserSeed
+            ? winnerSide === "A"
+              ? "B"
+              : "A"
+            : winnerSide;
+          const wp = sourceSide === "A" ? pm.pairA : pm.pairB;
           if (wp) return pairLabelWithNick(wp, eventType, displayMode);
 
-          const carried = resolveSideLabel(pm, winnerSide);
+          const carried = resolveSideLabel(pm, sourceSide);
           if (isUsefulResolvedLabel(carried, pendingTeamLabel)) return carried;
         }
 
         // Trận trước chưa xong → nhãn W-V{offset}-T{idx}
         const carriedCode = getDisplayCodeForMatch(pm);
-        if (carriedCode) return `W-${carriedCode}`;
+        if (carriedCode) return `${prevSourcePrefix}-${carriedCode}`;
         return resolveSeedReferenceLabel(effectiveSeed, m);
       }
 
