@@ -2276,7 +2276,17 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     throw new Error("Match not found");
   }
 
-  const { gameScores, winner, status, pairA, pairB } = req.body || {};
+  const {
+    gameScores,
+    winner,
+    status,
+    pairA,
+    pairB,
+    byeA,
+    byeB,
+    seedA: bodySeedA,
+    seedB: bodySeedB,
+  } = req.body || {};
 
   const hasScoresField = Object.prototype.hasOwnProperty.call(
     req.body,
@@ -2293,6 +2303,10 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
 
   const updates = {};
   let touchLive = false;
+  const wantsByeSeed = (flag, seed) =>
+    flag === true ||
+    String(flag || "").toLowerCase() === "true" ||
+    String(seed?.type || "").toLowerCase() === "bye";
 
   const normPairInput = async (val, sideLabel) => {
     if (typeof val === "undefined")
@@ -2345,8 +2359,14 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   // Chuẩn hoá A/B (nếu được gửi)
   let A, B;
   try {
-    A = await normPairInput(pairA, "A");
-    B = await normPairInput(pairB, "B");
+    A = await normPairInput(
+      wantsByeSeed(byeA, bodySeedA) ? { type: "bye" } : pairA,
+      "A"
+    );
+    B = await normPairInput(
+      wantsByeSeed(byeB, bodySeedB) ? { type: "bye" } : pairB,
+      "B"
+    );
   } catch (e) {
     res.status(400);
     throw e;

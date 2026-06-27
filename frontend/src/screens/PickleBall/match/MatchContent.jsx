@@ -1320,9 +1320,22 @@ function EditTeamsDialog({
   };
 
   const handleSave = async () => {
+    const sidePayload = (side, value) => {
+      const pairKey = side === "A" ? "pairA" : "pairB";
+      const byeKey = side === "A" ? "byeA" : "byeB";
+      const seedKey = side === "A" ? "seedA" : "seedB";
+      if (isByeOption(value)) {
+        return {
+          [pairKey]: null,
+          [byeKey]: true,
+          [seedKey]: { type: "bye", ref: null, label: "BYE" },
+        };
+      }
+      return { [pairKey]: idOf(value), [byeKey]: false };
+    };
     const saved = await patchMatch({
-      pairA: idOf(selA),
-      pairB: idOf(selB),
+      ...sidePayload("A", selA),
+      ...sidePayload("B", selB),
     });
     onSaved?.(saved, selA, selB);
     onClose?.();
