@@ -1908,16 +1908,129 @@ function seedForRoundElimSource(regId) {
   return regId ? registrationSeedForMatchTeam(regId) : { ...MATCH_BYE_SEED };
 }
 
-function seedMatchesRegistration(seed, regId) {
-  if (!regId) return !seed || String(seed?.type || "") === "bye";
-  if (String(seed?.type || "") !== "registration") return false;
-  const seedReg =
-    seed?.ref?.registration ||
-    seed?.ref?.registrationId ||
-    seed?.ref?._id ||
-    seed?.ref ||
-    null;
-  return Boolean(seedReg) && String(seedReg) === String(regId);
+function seedSignature(seed) {
+  if (!seed) return "null";
+  const type = String(seed?.type || "").toLowerCase();
+  if (type === "bye") return "bye";
+  if (type === "registration") {
+    const regId =
+      seed?.ref?.registration ||
+      seed?.ref?.registrationId ||
+      seed?.ref?._id ||
+      seed?.ref ||
+      "";
+    return `registration:${String(regId || "")}`;
+  }
+  try {
+    return JSON.stringify(seed);
+  } catch {
+    return String(seed);
+  }
+}
+
+function cloneSeedForSwap(seed) {
+  if (seed == null) return seed;
+  try {
+    return JSON.parse(JSON.stringify(seed));
+  } catch {
+    return seed;
+  }
+}
+
+function readTeamSlotsForSwap(match) {
+  return {
+    pairA: match.pairA || null,
+    pairB: match.pairB || null,
+    seedA: cloneSeedForSwap(match.seedA),
+    seedB: cloneSeedForSwap(match.seedB),
+    previousA: match.previousA || null,
+    previousB: match.previousB || null,
+  };
+}
+
+function applyTeamSlotsForSwap(match, slots) {
+  match.set({
+    pairA: slots.pairA || null,
+    pairB: slots.pairB || null,
+    seedA: slots.seedA ?? null,
+    seedB: slots.seedB ?? null,
+    previousA: slots.previousA || null,
+    previousB: slots.previousB || null,
+    liveVersion: (match.liveVersion || 0) + 1,
+  });
+}
+
+function teamSlotsHaveDuplicatePair(slots) {
+  return Boolean(
+    slots?.pairA &&
+      slots?.pairB &&
+      String(slots.pairA) === String(slots.pairB)
+  );
+}
+
+function dependsDirectlyOn(match, sourceId) {
+  const id = String(sourceId || "");
+  if (!id) return false;
+  return (
+    String(match?.previousA || "") === id ||
+    String(match?.previousB || "") === id ||
+    String(match?.seedA?.ref?.matchId || "") === id ||
+    String(match?.seedB?.ref?.matchId || "") === id
+  );
+}
+
+async function relinkPreviousSourcesForSwap(match) {
+  const updates = [
+    ["A", match.previousA],
+    ["B", match.previousB],
+  ];
+  for (const [side, previousId] of updates) {
+    if (!previousId) continue;
+    await Match.updateOne(
+      { _id: previousId, tournament: match.tournament },
+      { $set: { nextMatch: match._id, nextSlot: side } }
+    );
+  }
+}
+
+async function loadMatchTeamSwapPayload(matchId) {
+  return Match.findById(matchId)
+    .select(
+      "_id tournament bracket status winner gameScores currentGame pairA pairB seedA seedB previousA previousB liveVersion updatedAt"
+    )
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .lean();
 }
 
 async function syncRoundElimDrawSourceForTeamOverride(match) {
@@ -2184,9 +2297,19 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   const normPairInput = async (val, sideLabel) => {
     if (typeof val === "undefined")
       return { provided: false, value: undefined };
-    if (val === null || val === "") return { provided: true, value: null };
+    if (val === null || val === "")
+      return { provided: true, value: null, seed: null };
 
-    const rawId = String(val?._id || val?.id || val || "").trim();
+    const rawType = String(val?.type || val?.kind || "").trim().toLowerCase();
+    const rawId = String(val?._id || val?.id || val?.value || val || "").trim();
+    if (
+      rawType === "bye" ||
+      rawId === "__BYE__" ||
+      rawId.toUpperCase() === "BYE"
+    ) {
+      return { provided: true, value: null, seed: { ...MATCH_BYE_SEED } };
+    }
+
     if (!mongoose.isValidObjectId(rawId)) {
       throw new Error(
         sideLabel === "A"
@@ -2212,7 +2335,11 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
           : "pairB không thuộc cùng giải (tournament)"
       );
     }
-    return { provided: true, value: reg._id };
+    return {
+      provided: true,
+      value: reg._id,
+      seed: registrationSeedForMatchTeam(reg._id),
+    };
   };
 
   // Chuẩn hoá A/B (nếu được gửi)
@@ -2256,6 +2383,8 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
       ? null
       : new mongoose.Types.ObjectId(B.value)
     : match.pairB;
+  const newSeedA = willSetA ? A.seed ?? null : match.seedA;
+  const newSeedB = willSetB ? B.seed ?? null : match.seedB;
 
   if (
     (willSetA || willSetB) &&
@@ -2271,8 +2400,10 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     willSetA && String(newA ?? "") !== String(match.pairA ?? "");
   const pairChangedB =
     willSetB && String(newB ?? "") !== String(match.pairB ?? "");
-  const seedChangedA = willSetA && !seedMatchesRegistration(match.seedA, newA);
-  const seedChangedB = willSetB && !seedMatchesRegistration(match.seedB, newB);
+  const seedChangedA =
+    willSetA && seedSignature(match.seedA) !== seedSignature(newSeedA);
+  const seedChangedB =
+    willSetB && seedSignature(match.seedB) !== seedSignature(newSeedB);
   const changedA = pairChangedA || seedChangedA;
   const changedB = pairChangedB || seedChangedB;
   const teamsChanged = changedA || changedB;
@@ -2283,13 +2414,13 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
       await unlinkPreviousFeedForMatchSide(match._id, match.previousA, "A");
       updates.pairA = newA;
       updates.previousA = null;
-      updates.seedA = registrationSeedForMatchTeam(newA);
+      updates.seedA = newSeedA;
     }
     if (changedB) {
       await unlinkPreviousFeedForMatchSide(match._id, match.previousB, "B");
       updates.pairB = newB;
       updates.previousB = null;
-      updates.seedB = registrationSeedForMatchTeam(newB);
+      updates.seedB = newSeedB;
     }
     if (changedToRealTeam) {
       await restoreDependentSeedRefsForTeamOverride(match);
@@ -2553,6 +2684,115 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     previousB: match.previousB,
     teamsChanged,
     updatedAt: match.updatedAt,
+  });
+});
+
+export const adminSwapMatchTeams = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { targetMatchId } = req.body || {};
+
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid source match id");
+  }
+  if (!mongoose.isValidObjectId(targetMatchId)) {
+    res.status(400);
+    throw new Error("Invalid target match id");
+  }
+  if (String(id) === String(targetMatchId)) {
+    res.status(400);
+    throw new Error("Không thể swap trận với chính nó.");
+  }
+  if (!canEditMatchTeamsFromAdminRoute(req)) {
+    res.status(403);
+    throw new Error("Chỉ quản trị viên hoặc quản lý giải mới được chỉnh đội.");
+  }
+
+  const [sourceMatch, targetMatch] = await Promise.all([
+    Match.findById(id),
+    Match.findById(targetMatchId),
+  ]);
+
+  if (!sourceMatch || !targetMatch) {
+    res.status(404);
+    throw new Error("Không tìm thấy trận để swap.");
+  }
+  if (String(sourceMatch.tournament) !== String(targetMatch.tournament)) {
+    res.status(400);
+    throw new Error("Chỉ được swap hai trận trong cùng giải.");
+  }
+  if (String(sourceMatch.bracket || "") !== String(targetMatch.bracket || "")) {
+    res.status(400);
+    throw new Error("Chỉ được swap hai trận trong cùng nhánh.");
+  }
+  if (
+    dependsDirectlyOn(sourceMatch, targetMatch._id) ||
+    dependsDirectlyOn(targetMatch, sourceMatch._id)
+  ) {
+    res.status(409);
+    throw new Error("Không thể swap hai trận đang phụ thuộc trực tiếp nhau.");
+  }
+
+  const sourceSlots = readTeamSlotsForSwap(sourceMatch);
+  const targetSlots = readTeamSlotsForSwap(targetMatch);
+
+  if (
+    teamSlotsHaveDuplicatePair(sourceSlots) ||
+    teamSlotsHaveDuplicatePair(targetSlots)
+  ) {
+    res.status(400);
+    throw new Error("Dữ liệu đội hiện tại không hợp lệ để swap.");
+  }
+
+  applyTeamSlotsForSwap(sourceMatch, targetSlots);
+  applyTeamSlotsForSwap(targetMatch, sourceSlots);
+
+  if (
+    teamSlotsHaveDuplicatePair(readTeamSlotsForSwap(sourceMatch)) ||
+    teamSlotsHaveDuplicatePair(readTeamSlotsForSwap(targetMatch))
+  ) {
+    res.status(400);
+    throw new Error("Swap sẽ làm trùng đội A/B trong một trận.");
+  }
+
+  await sourceMatch.save();
+  await targetMatch.save();
+  await Promise.all([
+    relinkPreviousSourcesForSwap(sourceMatch),
+    relinkPreviousSourcesForSwap(targetMatch),
+    syncRoundElimDrawSourceForTeamOverride(sourceMatch),
+    syncRoundElimDrawSourceForTeamOverride(targetMatch),
+  ]);
+
+  const tournamentId = String(sourceMatch.tournament);
+  try {
+    const io = req.app.get("io");
+    if (io) {
+      for (const changedMatch of [sourceMatch, targetMatch]) {
+        emitTournamentInvalidate(io, {
+          tournamentId,
+          bracketId: changedMatch.bracket,
+          matchId: changedMatch._id,
+          reason: "match_teams_swapped",
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[adminSwapMatchTeams] socket emit error:", err);
+  }
+
+  const [sourcePayload, targetPayload] = await Promise.all([
+    loadMatchTeamSwapPayload(sourceMatch._id),
+    loadMatchTeamSwapPayload(targetMatch._id),
+  ]);
+
+  res.json({
+    tournament: sourceMatch.tournament,
+    tournamentId,
+    bracket: sourceMatch.bracket,
+    sourceMatch: sourcePayload,
+    targetMatch: targetPayload,
+    teamsChanged: true,
   });
 });
 const ALLOWED_PLATFORMS = new Set([

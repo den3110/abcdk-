@@ -49,7 +49,10 @@ import { toast } from "react-toastify";
 import { seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
 import { FeedStylePlayerDialog } from "../../../components/video";
-import { useAdminPatchMatchMutation } from "../../../slices/matchesApiSlice";
+import {
+  useAdminPatchMatchMutation,
+  useAdminSwapMatchTeamsMutation,
+} from "../../../slices/matchesApiSlice";
 import { useLocation, useParams } from "react-router-dom";
 import { skipToken } from "@reduxjs/toolkit/query";
 import {
@@ -1136,8 +1139,21 @@ const pairHasProfilePlayers = (pair, isSingle = false) =>
 const playerLinkKey = (player, index) =>
   String(profileIdOfPerson(player) || (typeof player === "string" ? player : index));
 
+const BYE_OPTION_ID = "__BYE__";
+const BYE_OPTION = Object.freeze({
+  _id: BYE_OPTION_ID,
+  id: BYE_OPTION_ID,
+  value: BYE_OPTION_ID,
+  label: "BYE",
+  teamName: "BYE",
+  __bye: true,
+});
+
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
+const isByeOption = (x) => Boolean(x?.__bye || idOf(x) === BYE_OPTION_ID);
+
 function pairLabel(reg, isSingle, displayMode = "nickname") {
+  if (isByeOption(reg)) return "BYE";
   return getTournamentPairName(
     reg,
     isSingle ? "single" : "double",
@@ -1190,10 +1206,13 @@ function EditTeamsDialog({
   tournamentId,
   isSingle,
   displayMode = "nickname",
+  currentMatchId,
+  currentBracketId,
   defaultA,
   defaultB,
   onSaved,
   patchMatch,
+  swapMatchTeams,
   patching,
 }) {
   const { tournamentId: tidParam, tid, tId, id: idParam } = useParams();
@@ -1206,13 +1225,17 @@ function EditTeamsDialog({
 
   const [selA, setSelA] = useState(defaultA || null);
   const [selB, setSelB] = useState(defaultB || null);
+  const [swapTarget, setSwapTarget] = useState(null);
   const [q, setQ] = useState("");
   const dq = useDebounced(q, 350);
+  const currentBracketKey = sid(currentBracketId);
+  const currentMatchKey = sid(currentMatchId);
 
   useEffect(() => {
     if (open) {
       setSelA(defaultA || null);
       setSelB(defaultB || null);
+      setSwapTarget(null);
       setQ("");
     }
   }, [open, defaultA, defaultB]);
@@ -1225,7 +1248,65 @@ function EditTeamsDialog({
     triggerSearch({ id: effectiveTid, q: dq, limit: 200 });
   }, [open, effectiveTid, dq, triggerSearch]);
 
-  const options = data;
+  const options = useMemo(() => [BYE_OPTION, ...(data || [])], [data]);
+
+  const { data: swapMatches = [], isFetching: isFetchingSwapMatches } =
+    useListTournamentMatchesQuery(
+      open && effectiveTid
+        ? {
+            tournamentId: effectiveTid,
+            ...(currentBracketKey ? { bracket: currentBracketKey } : {}),
+            limit: 1000,
+          }
+        : skipToken,
+    );
+
+  const swapMatchOptions = useMemo(
+    () =>
+      (swapMatches || [])
+        .filter((match) => {
+          const matchId = sid(match);
+          if (!matchId || matchId === currentMatchKey) return false;
+          const bracketId = sid(match?.bracket?._id || match?.bracket);
+          return !currentBracketKey || bracketId === currentBracketKey;
+        })
+        .sort(
+          (a, b) =>
+            Number(a?.round || 0) - Number(b?.round || 0) ||
+            Number(a?.order || 0) - Number(b?.order || 0) ||
+            String(a?._id || "").localeCompare(String(b?._id || "")),
+        ),
+    [swapMatches, currentMatchKey, currentBracketKey],
+  );
+
+  const matchCodeLabel = (match) => {
+    const direct =
+      match?.displayCode ||
+      match?.code ||
+      match?.matchCode ||
+      match?.slotCode ||
+      match?.labelKey ||
+      "";
+    if (direct) return String(direct);
+    const round = Number(match?.round || 1);
+    const order = Number(match?.order || 0) + 1;
+    return `V${round}-T${order}`;
+  };
+
+  const matchSideLabel = (match, side) => {
+    const pair = side === "A" ? match?.pairA : match?.pairB;
+    if (pair) return pairLabel(pair, isSingle, displayMode);
+    const seed = side === "A" ? match?.seedA : match?.seedB;
+    return seedLabel(seed) || `Đội ${side}`;
+  };
+
+  const matchOptionLabel = (match) => {
+    if (!match) return "";
+    return `${matchCodeLabel(match)} · ${matchSideLabel(
+      match,
+      "A",
+    )} vs ${matchSideLabel(match, "B")}`;
+  };
 
   const handleSwap = () => {
     const a = selA;
@@ -1244,6 +1325,14 @@ function EditTeamsDialog({
       pairB: idOf(selB),
     });
     onSaved?.(saved, selA, selB);
+    onClose?.();
+  };
+
+  const handleSwapMatches = async () => {
+    const targetMatchId = sid(swapTarget);
+    if (!targetMatchId || !swapMatchTeams) return;
+    await swapMatchTeams(targetMatchId);
+    setSwapTarget(null);
     onClose?.();
   };
 
@@ -1336,6 +1425,40 @@ function EditTeamsDialog({
               onClick={handleClear}
             >
               Xoá chọn
+            </Button>
+          </Stack>
+
+          <Divider />
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="flex-start">
+            <Autocomplete
+              disablePortal
+              loading={isFetchingSwapMatches}
+              options={swapMatchOptions}
+              value={swapTarget}
+              onChange={(_, v) => setSwapTarget(v)}
+              getOptionLabel={matchOptionLabel}
+              isOptionEqualToValue={(o, v) => sid(o) === sid(v)}
+              sx={{ flex: 1, width: "100%" }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  size="small"
+                  label="Swap với trận"
+                  placeholder="Chọn trận cùng nhánh"
+                  helperText="Hoán đổi đội A/B của trận hiện tại với trận được chọn."
+                />
+              )}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<SwapIcon />}
+              onClick={handleSwapMatches}
+              disabled={patching || !swapTarget}
+              sx={{ mt: { xs: 0, sm: 0.25 }, whiteSpace: "nowrap" }}
+            >
+              Swap 2 trận
             </Button>
           </Stack>
         </Stack>
@@ -2354,6 +2477,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   const [adminPatchMatch, { isLoading: patching }] =
     useAdminPatchMatchMutation();
+  const [adminSwapMatchTeams, { isLoading: swappingTeams }] =
+    useAdminSwapMatchTeamsMutation();
+  const teamEditorBusy = patching || swappingTeams;
 
   const handleSaveScores = async () => {
     if (!canEdit || !lockedId) return;
@@ -2458,6 +2584,28 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       previousB: saved?.previousB ?? p?.previousB,
       liveVersion: saved?.liveVersion ?? p?.liveVersion,
     }));
+  };
+  const swapMatchTeams = async (targetMatchId) => {
+    try {
+      if (!canEdit || !lockedId) {
+        throw new Error("Chỉ quản trị viên hoặc quản lý giải mới được chỉnh đội.");
+      }
+      const saved = await adminSwapMatchTeams({
+        id: lockedId,
+        targetMatchId,
+      }).unwrap();
+      const current = saved?.sourceMatch || saved?.match;
+      if (current) {
+        handleTeamsSavedLocal(current, current.pairA, current.pairB);
+      }
+      toast.success("Đã swap 2 trận.");
+      debouncedRefresh();
+      return saved;
+    } catch (e) {
+      const msg = e?.data?.message || e?.message || "Lỗi không xác định";
+      toast.error(`Swap 2 trận thất bại: ${msg}`);
+      throw e;
+    }
   };
 
   /* ====================== Socket listeners ====================== */
@@ -3334,11 +3482,22 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         tournamentId={tournamentId}
         isSingle={isSingle}
         displayMode={displayMode}
-        defaultA={localPatch?.pairA ?? mm?.pairA ?? null}
-        defaultB={localPatch?.pairB ?? mm?.pairB ?? null}
+        currentMatchId={lockedId}
+        currentBracketId={mm?.bracket?._id || mm?.bracket || ""}
+        defaultA={
+          localPatch?.pairA ??
+          mm?.pairA ??
+          (isByeSeed(localPatch?.seedA ?? mm?.seedA) ? BYE_OPTION : null)
+        }
+        defaultB={
+          localPatch?.pairB ??
+          mm?.pairB ??
+          (isByeSeed(localPatch?.seedB ?? mm?.seedB) ? BYE_OPTION : null)
+        }
         onSaved={handleTeamsSavedLocal}
         patchMatch={patchTeams}
-        patching={patching}
+        swapMatchTeams={swapMatchTeams}
+        patching={teamEditorBusy}
       />
 
       {/* Popup hồ sơ VĐV */}

@@ -1,6 +1,7 @@
 import express from "express";
 import {
   adminPatchMatch,
+  adminSwapMatchTeams,
   notifyStreamEnded,
   notifyStreamHeartbeat,
   notifyStreamStarted,
@@ -20,6 +21,7 @@ const router = express.Router();
 router.patch("/:id/live", protect, isManagerTournament, setMatchLive);
 
 router.patch("/:id/admin", protect, isManagerTournament, adminPatchMatch);
+router.post("/:id/admin/swap-teams", protect, isManagerTournament, adminSwapMatchTeams);
 
 router.post("/:matchId/live/facebook", createFacebookLiveForMatch);
 router.post("/:matchId/live/create", createFacebookLiveForMatch);
