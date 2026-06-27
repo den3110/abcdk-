@@ -15,6 +15,7 @@ import { getManualAssignmentItems } from "../services/courtManualAssignment.serv
 import {
   buildMatchSideDisplayContextFromMatches,
   resolveMatchSideDisplayName,
+  resolveMatchSideDisplayPair,
 } from "../services/matchSideDisplay.service.js";
 const setNoStoreHeaders = (res) => {
   res.setHeader(
@@ -904,7 +905,21 @@ export async function getOverlayMatch(req, res) {
 
     const hasDisplayableReg = (reg) => {
       if (!reg || typeof reg !== "object") return false;
-      if (reg.player1 || reg.player2) return true;
+      const hasPlayer = (player) =>
+        Boolean(
+          player &&
+            typeof player === "object" &&
+            (player.user ||
+              player._id ||
+              player.id ||
+              player.fullName ||
+              player.name ||
+              player.shortName ||
+              player.nickname ||
+              player.nickName ||
+              player.displayName)
+        );
+      if (hasPlayer(reg.player1) || hasPlayer(reg.player2)) return true;
       return Boolean(
         [
           reg.teamName,
@@ -1000,8 +1015,12 @@ export async function getOverlayMatch(req, res) {
       [m],
       { includeScope: true }
     );
-    const displayPairA = await resolvedPairForSide("A");
-    const displayPairB = await resolvedPairForSide("B");
+    const displayPairA =
+      resolveMatchSideDisplayPair(m, "A", sideDisplayContext) ||
+      (await resolvedPairForSide("A"));
+    const displayPairB =
+      resolveMatchSideDisplayPair(m, "B", sideDisplayContext) ||
+      (await resolvedPairForSide("B"));
     const displayTeamNameA = resolveMatchSideDisplayName(m, "A", {
       ...sideDisplayContext,
       fallback: teamName(displayPairA) || teamName(m?.pairA) || "",

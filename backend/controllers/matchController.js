@@ -29,6 +29,8 @@ import {
   emitTournamentMatchUpdate,
 } from "../socket/tournamentRealtime.js";
 import { buildMatchCodePayload } from "../utils/matchDisplayCode.js";
+import { hydrateMatchResolvedSides } from "../services/matchSideDisplay.service.js";
+import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 // controllers/matchController.js
 
 function isFacebookVideoUrl(url) {
@@ -1481,7 +1483,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   };
 
   // ===== fetch match =====
-  const m = await Match.findById(id)
+  let m = await Match.findById(id)
     // Pairs + players
     .populate({
       path: "pairA",
@@ -1583,6 +1585,10 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     }));
   }
   if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+  m = decorateServeAndSlots(
+    await hydrateMatchResolvedSides(m, { includeScope: true })
+  );
 
   const normalizedMatch = normalizeMatchDisplayShape(m);
   m.pairA = normalizedMatch?.pairA || m.pairA;

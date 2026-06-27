@@ -22,6 +22,7 @@ import {
   liveOwnerMatchesIdentity,
 } from "./matchLiveOwnership.service.js";
 import { loadMatchLiveSnapshot } from "./matchLiveSnapshot.service.js";
+import { hydrateMatchResolvedSides } from "./matchSideDisplay.service.js";
 import { getRefereeMatchControlLockRuntime } from "./systemSettingsRuntime.service.js";
 
 const envValue = (key) =>
@@ -417,8 +418,23 @@ function userIdOfPlayer(player) {
   return String(player?.user?._id || player?.user || player?._id || player?.id || "").trim();
 }
 
+function hasRosterPairPlayers(pair) {
+  return Boolean(
+    pair &&
+      typeof pair === "object" &&
+      (pair.player1 ||
+        pair.player2 ||
+        (Array.isArray(pair.players) && pair.players.length))
+  );
+}
+
 function getTeamPlayerIds(match, team) {
-  const pair = team === "B" ? match?.pairB : match?.pairA;
+  const directPair = team === "B" ? match?.pairB : match?.pairA;
+  const resolvedPair =
+    team === "B"
+      ? match?.$locals?.resolvedPairB || match?.__resolvedPairB
+      : match?.$locals?.resolvedPairA || match?.__resolvedPairA;
+  const pair = hasRosterPairPlayers(directPair) ? directPair : resolvedPair;
   return [pair?.player1, pair?.player2].map(userIdOfPlayer).filter(Boolean);
 }
 
@@ -1194,6 +1210,11 @@ async function syncMatchLiveEventsLocked({
         ],
       },
     ]);
+    const resolvedRoster = await hydrateMatchResolvedSides(match, {
+      includeScope: true,
+    });
+    match.$locals.resolvedPairA = resolvedRoster?.pairA || null;
+    match.$locals.resolvedPairB = resolvedRoster?.pairB || null;
   }
 
   const actorId = user?._id || null;

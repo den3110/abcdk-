@@ -30,6 +30,7 @@ import { loadMatchLiveSnapshot } from "../services/matchLiveSnapshot.service.js"
 import { invalidateMatchSnapshotCache } from "../services/matchSnapshotCache.service.js";
 import {
   buildMatchSideDisplayContextFromMatches,
+  hydrateMatchResolvedSidesWithContext,
   resolveMatchSideDisplayName,
 } from "../services/matchSideDisplay.service.js";
 
@@ -888,10 +889,40 @@ const normalizeRealtimeFacebookLive = (facebookLive) => {
   };
 };
 
+function toPlainRealtimeMatch(matchDoc) {
+  if (matchDoc && typeof matchDoc.toObject === "function") {
+    return matchDoc.toObject({ depopulate: false, virtuals: false });
+  }
+  return matchDoc;
+}
+
 export async function toRealtimePublicMatchDTO(matchDoc) {
   if (!matchDoc) return null;
 
-  const decorated = decorateServeAndSlots(matchDoc);
+  let sideDisplayContext = null;
+  let realtimeSource = toPlainRealtimeMatch(matchDoc);
+  const initialTournamentId =
+    realtimeSource?.tournament?._id || realtimeSource?.tournament || "";
+
+  if (initialTournamentId && !realtimeSource?.isUserMatch) {
+    try {
+      sideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+        [realtimeSource],
+        { includeScope: true }
+      );
+      realtimeSource = hydrateMatchResolvedSidesWithContext(
+        realtimeSource,
+        sideDisplayContext
+      );
+    } catch (error) {
+      console.error(
+        "[socket realtime dto] match side pair resolve error:",
+        error?.message || error
+      );
+    }
+  }
+
+  const decorated = decorateServeAndSlots(realtimeSource);
   const dto = toDTO(decorated);
   const matchId = String(dto?._id || matchDoc?._id || "").trim();
   const tournamentId =
@@ -925,10 +956,11 @@ export async function toRealtimePublicMatchDTO(matchDoc) {
 
     if (!matchDoc?.isUserMatch) {
       try {
-        const sideDisplayContext = await buildMatchSideDisplayContextFromMatches(
-          [decorated],
-          { includeScope: true }
-        );
+        sideDisplayContext =
+          sideDisplayContext ||
+          (await buildMatchSideDisplayContextFromMatches([decorated], {
+            includeScope: true,
+          }));
         const teamAName = resolveMatchSideDisplayName(decorated, "A", {
           ...sideDisplayContext,
           fallback: dto?.teamAName || "",
@@ -1169,14 +1201,24 @@ export async function setServe(matchId, side, server, serverId, by, io, opening 
 
   if (!m) throw new Error("Match not found");
 
+  const plainMatch = m.toObject({ depopulate: false, virtuals: false });
+  const resolvedRoster = hydrateMatchResolvedSidesWithContext(
+    plainMatch,
+    await buildMatchSideDisplayContextFromMatches([plainMatch], {
+      includeScope: true,
+    })
+  );
+
   // --- helpers nhỏ ---
   const uidOf = (p) =>
     String(p?.user?._id || p?.user || p?._id || p?.id || "").trim();
 
-  const playersA = [uidOf(m?.pairA?.player1), uidOf(m?.pairA?.player2)].filter(
+  const rosterA = m?.pairA?.player1 || m?.pairA?.player2 ? m.pairA : resolvedRoster?.pairA;
+  const rosterB = m?.pairB?.player1 || m?.pairB?.player2 ? m.pairB : resolvedRoster?.pairB;
+  const playersA = [uidOf(rosterA?.player1), uidOf(rosterA?.player2)].filter(
     Boolean
   );
-  const playersB = [uidOf(m?.pairB?.player1), uidOf(m?.pairB?.player2)].filter(
+  const playersB = [uidOf(rosterB?.player1), uidOf(rosterB?.player2)].filter(
     Boolean
   );
 

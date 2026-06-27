@@ -220,9 +220,9 @@ function hasResolvedPair(pair) {
   return Boolean(
     pair &&
       typeof pair === "object" &&
-      (pair.player1 ||
-        pair.player2 ||
-        (Array.isArray(pair.players) && pair.players.length) ||
+      (hasPlayerPayload(pair.player1) ||
+        hasPlayerPayload(pair.player2) ||
+        (Array.isArray(pair.players) && pair.players.some(hasPlayerPayload)) ||
         pair.name ||
         pair.teamName ||
         pair.label ||
@@ -244,6 +244,46 @@ function pairDisplayName(pair, match) {
     storedDisplayNameForMode(pair, displayMode) ||
     firstText(pair.teamName, pair.name, pair.label, pair.title, pair.displayName)
   );
+}
+
+function hasPlayerPayload(player) {
+  if (!player || typeof player !== "object") return false;
+  return Boolean(
+    player.user ||
+      player._id ||
+      player.id ||
+      player.uid ||
+      player.fullName ||
+      player.name ||
+      player.shortName ||
+      player.nickname ||
+      player.nickName ||
+      player.nick ||
+      player.displayName
+  );
+}
+
+function hasPairPlayerPayload(pair) {
+  if (!pair || typeof pair !== "object") return false;
+  if (hasPlayerPayload(pair.player1) || hasPlayerPayload(pair.player2)) {
+    return true;
+  }
+  return Array.isArray(pair.players) && pair.players.some(hasPlayerPayload);
+}
+
+function seedRegistrationPair(seed) {
+  if (!seed || typeof seed !== "object") return null;
+  const candidates = [
+    seed.registration,
+    seed.reg,
+    seed.pair,
+    seed.team,
+    seed.ref?.registration,
+    seed.ref?.reg,
+    seed.ref?.pair,
+    seed.ref?.team,
+  ];
+  return candidates.find(hasPairPlayerPayload) || null;
 }
 
 export function isReferenceDisplayName(value) {
@@ -575,6 +615,27 @@ function isByeSide(match, side) {
   return typeKey(seed?.type) === "bye" || /\bBYE\b/i.test(label);
 }
 
+function activeMatchCanCarrySingleSource(match) {
+  const status = typeKey(match?.status);
+  return status === "live" || status === "assigned" || status === "queued";
+}
+
+function singleResolvedSourceSide(source) {
+  const pairA = getSidePair(source, "A");
+  const pairB = getSidePair(source, "B");
+  const hasA = hasResolvedPair(pairA);
+  const hasB = hasResolvedPair(pairB);
+  if (hasA && !hasB) return "A";
+  if (hasB && !hasA) return "B";
+  return "";
+}
+
+function canCarrySingleSourceSide(match, source, sourceSide) {
+  if (!sourceSide) return false;
+  const otherSide = sourceSide === "A" ? "B" : "A";
+  return isByeSide(source, otherSide) || activeMatchCanCarrySingleSource(match);
+}
+
 function isKnockoutMatch(match) {
   const kind = typeKey(match?.bracket?.type || match?.type || match?.format);
   return kind === "knockout" || kind === "ko";
@@ -701,7 +762,21 @@ export function resolveMatchSideDisplayName(match, side, options = {}) {
         fallback: "",
       });
       if (isConcreteTeamLabel(carried)) return carried;
-    } else if (typeKey(source.status) === "finished" && source.winner) {
+    }
+
+    if (!isLoserSeed) {
+      const sourceSide = singleResolvedSourceSide(source);
+      if (canCarrySingleSourceSide(match, source, sourceSide)) {
+        const carried = resolveMatchSideDisplayName(source, sourceSide, {
+          ...options,
+          depth: depth + 1,
+          fallback: "",
+        });
+        if (isConcreteTeamLabel(carried)) return carried;
+      }
+    }
+
+    if (typeKey(source.status) === "finished" && source.winner) {
       const winnerSide = sideKey(source.winner);
       const sourceSide = isLoserSeed ? (winnerSide === "A" ? "B" : "A") : winnerSide;
       const carried = resolveMatchSideDisplayName(source, sourceSide, {
@@ -728,6 +803,153 @@ export function resolveMatchSideDisplayName(match, side, options = {}) {
   if (pairName) return pairName;
   if (seedName) return seedName;
   return fallback;
+}
+
+export function resolveMatchSideDisplayPair(match, side, options = {}) {
+  const normalizedSide = sideKey(side);
+  const depth = Number(options.depth || 0);
+  if (!match || depth > 12) return null;
+
+  const matchesById =
+    options.matchesById instanceof Map ? options.matchesById : new Map();
+  const pair = getSidePair(match, normalizedSide);
+  if (hasPairPlayerPayload(pair)) return pair;
+
+  const seed = seedForSide(match, normalizedSide, matchesById);
+  const seedPair = seedRegistrationPair(seed);
+  if (hasPairPlayerPayload(seedPair)) return seedPair;
+
+  const seedType = typeKey(seed?.type);
+  const isLoserSeed =
+    seedType === "matchloser" || seedType === "stagematchloser";
+  const source =
+    previousSource(match, normalizedSide, matchesById) ||
+    (isSourceReferenceSeed(seed) ? findSourceBySeed(match, seed, matchesById) : null);
+
+  if (!source) return null;
+
+  const sourceByeA = isByeSide(source, "A");
+  const sourceByeB = isByeSide(source, "B");
+  if (sourceByeA || sourceByeB) {
+    if (isLoserSeed || (sourceByeA && sourceByeB)) return null;
+    return resolveMatchSideDisplayPair(source, sourceByeA ? "B" : "A", {
+      ...options,
+      depth: depth + 1,
+    });
+  }
+
+  if (!isLoserSeed) {
+    const sourceSide = singleResolvedSourceSide(source);
+    if (canCarrySingleSourceSide(match, source, sourceSide)) {
+      return resolveMatchSideDisplayPair(source, sourceSide, {
+        ...options,
+        depth: depth + 1,
+      });
+    }
+  }
+
+  if (typeKey(source.status) === "finished" && source.winner) {
+    const winnerSide = sideKey(source.winner);
+    const sourceSide = isLoserSeed
+      ? winnerSide === "A"
+        ? "B"
+        : "A"
+      : winnerSide;
+    return resolveMatchSideDisplayPair(source, sourceSide, {
+      ...options,
+      depth: depth + 1,
+    });
+  }
+
+  return null;
+}
+
+function toPlainMatchSideDisplayObject(match) {
+  if (match && typeof match.toObject === "function") {
+    return match.toObject({ depopulate: false, virtuals: false });
+  }
+  return match;
+}
+
+export function hydrateMatchResolvedSidesWithContext(
+  match,
+  sideDisplayContext,
+  options = {}
+) {
+  if (!match || !sideDisplayContext) return match;
+
+  const base = toPlainMatchSideDisplayObject(match);
+  let next = base;
+  const teams = { ...(base?.teams || {}) };
+  let teamsChanged = false;
+
+  for (const side of ["A", "B"]) {
+    const pairKey = side === "B" ? "pairB" : "pairA";
+    const teamKey = side === "B" ? "teamBName" : "teamAName";
+    const resolvedKey = side === "B" ? "resolvedSideNameB" : "resolvedSideNameA";
+    const sideKeyName = side === "B" ? "sideBName" : "sideAName";
+    const fallback =
+      options?.fallback?.[side] ||
+      base?.[teamKey] ||
+      base?.[resolvedKey] ||
+      base?.[sideKeyName] ||
+      "";
+
+    const resolvedPair = resolveMatchSideDisplayPair(base, side, sideDisplayContext);
+    if (
+      hasPairPlayerPayload(resolvedPair) &&
+      !hasPairPlayerPayload(base?.[pairKey])
+    ) {
+      if (next === base) next = { ...base };
+      next[pairKey] = resolvedPair;
+    }
+
+    const name = resolveMatchSideDisplayName(
+      next === base ? base : next,
+      side,
+      {
+        ...sideDisplayContext,
+        fallback,
+      }
+    );
+    if (isConcreteTeamLabel(name)) {
+      if (next === base) next = { ...base };
+      next[teamKey] = name;
+      next[resolvedKey] = name;
+      teams[side] = {
+        ...(teams[side] || {}),
+        name,
+        displayName: name,
+      };
+      teamsChanged = true;
+      if (next[pairKey] && typeof next[pairKey] === "object") {
+        next[pairKey] = {
+          ...next[pairKey],
+          name,
+          displayName: name,
+        };
+      }
+    }
+  }
+
+  if (teamsChanged) {
+    if (next === base) next = { ...base };
+    next.teams = teams;
+  }
+
+  return next;
+}
+
+export async function hydrateMatchResolvedSides(match, options = {}) {
+  if (!match) return match;
+  const base = toPlainMatchSideDisplayObject(match);
+  const sideDisplayContext =
+    options.sideDisplayContext ||
+    (await buildMatchSideDisplayContextFromMatches(
+      [base, ...(Array.isArray(options.contextMatches) ? options.contextMatches : [])],
+      { includeScope: options.includeScope !== false }
+    ));
+  return hydrateMatchResolvedSidesWithContext(base, sideDisplayContext, options);
 }
 
 function addMatchToMap(matchesById, match) {

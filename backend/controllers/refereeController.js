@@ -23,6 +23,10 @@ import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { dispatchMatchLiveActivityUpdate } from "../services/liveActivityApns.service.js";
 import { invalidateMatchSnapshotCache } from "../services/matchSnapshotCache.service.js";
 import { queueLiveRecordingExportsForEndedMatch } from "../services/liveRecordingV2Transition.service.js";
+import {
+  buildMatchSideDisplayContextFromMatches,
+  hydrateMatchResolvedSidesWithContext,
+} from "../services/matchSideDisplay.service.js";
 const OPENING_DOUBLES_SERVER = 2;
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -2760,7 +2764,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     });
 
     const userIdString = normalizeIdString(userId);
-    const enrichedItems = mapped.map((item) => {
+    let enrichedItems = mapped.map((item) => {
       const matchId = normalizeIdString(item?._id);
       const previousAId = normalizeIdString(item?.previousA?._id || item?.previousA);
       const previousBId = normalizeIdString(item?.previousB?._id || item?.previousB);
@@ -2809,6 +2813,16 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         courtStationReferees: stationRefereeIds,
       };
     });
+
+    const sideDisplayContext = await buildMatchSideDisplayContextFromMatches(
+      enrichedItems,
+      { includeScope: true }
+    );
+    enrichedItems = enrichedItems.map((item) =>
+      decorateServeAndSlots(
+        hydrateMatchResolvedSidesWithContext(item, sideDisplayContext)
+      )
+    );
 
     const visibleMatchIds = new Set(
       enrichedItems

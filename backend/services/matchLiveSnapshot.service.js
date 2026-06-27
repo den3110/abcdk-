@@ -1,4 +1,8 @@
 import Match from "../models/matchModel.js";
+import {
+  hydrateMatchResolvedSides,
+} from "./matchSideDisplay.service.js";
+import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 
 const pickTrim = (value) => (value && String(value).trim()) || "";
 
@@ -113,5 +117,6 @@ export async function loadMatchLiveSnapshot(matchId) {
     match.streams = match.meta.streams;
   }
 
-  return match;
+  const hydrated = await hydrateMatchResolvedSides(match, { includeScope: true });
+  return decorateServeAndSlots(hydrated);
 }
