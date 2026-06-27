@@ -2246,13 +2246,6 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Chỉ quản trị viên hoặc quản lý giải mới được chỉnh đội.");
   }
-  if (
-    (willSetA || willSetB) &&
-    ["live", "finished"].includes(String(match.status || "").toLowerCase())
-  ) {
-    res.status(409);
-    throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");
-  }
   const newA = willSetA
     ? A.value === null
       ? null

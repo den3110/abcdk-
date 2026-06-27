@@ -2055,11 +2055,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [lockedId]);
 
   const status = localPatch?.status || mm?.status || "scheduled";
-  const teamEditStatus = String(status || "").toLowerCase();
   const canEditTeams =
     canEdit &&
-    Boolean(lockedId) &&
-    !["live", "finished"].includes(teamEditStatus);
+    Boolean(lockedId);
   const shownGameScores =
     localPatch?.gameScores ?? mm?.gameScores ?? EMPTY_GAME_SCORES;
 
@@ -2417,9 +2415,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     try {
       if (!canEdit || !lockedId) {
         throw new Error("Chỉ quản trị viên hoặc quản lý giải mới được chỉnh đội.");
-      }
-      if (["live", "finished"].includes(teamEditStatus)) {
-        throw new Error("Chỉ được chỉnh đội khi trận chưa diễn ra.");
       }
       const saved = await adminPatchMatch({ id: lockedId, body }).unwrap();
       toast.success("Đã lưu đội A/B.");
@@ -3355,4 +3350,3 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     </Stack>
   );
 }
-

@@ -4,6 +4,26 @@ import mongoose from "mongoose";
 import Match from "../../models/matchModel.js";
 import Bracket from "../../models/bracketModel.js";
 
+async function matchFilterForBracketStage(tournamentId, stageIndex) {
+  const rawStages = Array.isArray(stageIndex)
+    ? stageIndex
+    : Number.isInteger(stageIndex)
+      ? [stageIndex]
+      : [];
+  const stages = rawStages
+    .map((stage) => Number(stage))
+    .filter((stage) => Number.isInteger(stage));
+  if (!stages.length) return {};
+
+  const brackets = await Bracket.find({
+    tournament: tournamentId,
+    stage: { $in: stages },
+  })
+    .select("_id")
+    .lean();
+  return { bracket: { $in: brackets.map((bracket) => bracket._id) } };
+}
+
 /**
  * Re-trigger propagate cho các trận đã finished trong 1 giải
  * Body:
@@ -15,9 +35,7 @@ export const reapplyPropagation = expressAsyncHandler(async (req, res) => {
   const { stageIndex, dryRun = false } = req.body || {};
 
   const tid = new mongoose.Types.ObjectId(id);
-  const stageCond = Array.isArray(stageIndex)
-    ? { stageIndex: { $in: stageIndex } }
-    : (Number.isInteger(stageIndex) ? { stageIndex } : {});
+  const stageCond = await matchFilterForBracketStage(tid, stageIndex);
 
   const finished = await Match.find({
     tournament: tid,
@@ -91,9 +109,7 @@ export const reapplySeedsForBracket = expressAsyncHandler(async (req, res) => {
   }
 
   // 3) re-trigger propagate từ các trận đã finished (theo sourceStages nếu có)
-  const stageCond = Array.isArray(sourceStages)
-    ? { stageIndex: { $in: sourceStages } }
-    : (Number.isInteger(sourceStages) ? { stageIndex: sourceStages } : {});
+  const stageCond = await matchFilterForBracketStage(tid, sourceStages);
 
   const finished = await Match.find({
     tournament: tid,
