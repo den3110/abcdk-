@@ -8,28 +8,18 @@ import RatingChange from "../models/ratingChangeModel.js";
 /* ===================== Tunables (core) ===================== */
 const DUPR_MIN = 1.6;
 const DUPR_MAX = 8.0;
-const DIFF_SCALE = 0.6; // logistic scale cho expected
+const DIFF_SCALE = 0.8; // logistic scale cho expected
 
-// K factors - đã điều chỉnh để tối đa ~0.12/trận
-const BASE_K_SINGLES = 0.12;
-const BASE_K_DOUBLES = 0.1;
-const FLOOR_K = 0.03;
-const MATCHES_FOR_FULL_RELIABILITY = 25;
+// Smart rating factors; outcome is primary, context scales magnitude.
+const BASE_K_SINGLES = 0.22;
+const BASE_K_DOUBLES = 0.24;
+const FLOOR_K = 0.05;
+const MATCHES_FOR_FULL_RELIABILITY = 40;
+const RELIABILITY_DECAY = 0.65;
 const SYNERGY_WEIGHT = 0.05;
 const FORFEIT_K_SCALE = 0.25;
 
-/* ===================== Tunables (margin/phase/context) ===================== */
-/* === RoundElim phase decay === */
-const RE_PHASE_START_BONUS = 0.08;
-const RE_PHASE_STEP_DEC = 0.06;
-const RE_PHASE_CAP_DEC = 0.3;
-const RE_PHASE_MIN = 0.85;
-const RE_STAGE_BONUS = -0.02;
-
-const MARGIN_MAX_BOOST = 0.2;
-const ROUND_PHASE_STEP = 0.05;
-const ROUND_PHASE_CAP = 0.35;
-const KO_STAGE_BONUS = 0.1;
+const MARGIN_MAX_BOOST = 0.35;
 
 /* ===================== Tunables (form/history) ===================== */
 const FORM_ENABLED = true;
@@ -45,40 +35,163 @@ const FORM_CAP = 0.15;
 const CTX_RATING_DU = 0.15;
 
 /* ===================== Upset ===================== */
-const UPSET_UNDERDOG_MAX_EXPECTED = 0.35;
-const UPSET_DIFF_THRESHOLD = 0.8;
-const UPSET_DIFF_WIDTH = 0.6;
-const UPSET_MAX_BOOST = 0.4;
+const UPSET_MAX_BOOST = 0.55;
 
 /* ===================== Soft cap (TEAM level) ===================== */
-const SOFT_TEAM_CAP = 0.07;
-const SOFT_TEAM_SOFTNESS = 0.65;
-
-const MIN_DELTA_EPS_MIN = 0.001;
-const MIN_DELTA_EPS_MAX = 0.003;
-const MIN_DELTA_EPS_FACTOR = 0.02;
+const SOFT_TEAM_CAP = 0.22;
+const SOFT_TEAM_SOFTNESS = 0.9;
 
 // === Shapers ===
-const MIDLINE_DAMPEN = true;
+const MIDLINE_DAMPEN = false;
 const MIDLINE_BETA = 0.65;
-const EXP_GAMMA = 1.18;
-const DEFAULT_SEED_RATING = 2;
+const EXP_GAMMA = 1;
+const DEFAULT_SEED_RATING = 2.5;
+const NEW_PLAYER_WEIGHT_BONUS = 0.75;
 
 // === Win negative limit ===
 // ⭐ Đội thắng CHỈ bị trừ tối đa 0.001/người, chỉ khi kèo QUÁ LỆCH + thắng yếu
 const MAX_WIN_NEG = -0.001;
 
 // Quality mặc định khi thiếu điểm set
-const QUALITY_DEFAULT_WIN = 0.82;
+const QUALITY_DEFAULT_WIN = 0.5;
+const TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL = 0.14;
 
-// === WIN-TAX (chỉ trừ khi kèo quá lệch) ===
-// ⭐ CHỈ áp dụng khi E_win > 0.85 và giảm mạnh hệ số
-const WIN_TAX_COEF = 0.015; // giảm từ 0.08 xuống 0.015
-const WIN_TAX_THRESHOLD = 0.85; // chỉ trừ khi E_win > 85%
+const RATING_FEATURE_WEIGHTS = Object.freeze({
+  expectedOutcome: 1.0,
+  phaseImportance: 0.2,
+  scoreQuality: 0.16,
+  pointMargin: 0.08,
+  gameControl: 0.08,
+  upset: 0.24,
+  underdog: 0.1,
+  reliabilityVolatility: 0.18,
+  newPlayerSignal: 0.14,
+  favoritePenalty: 0.18,
+  ratingGapPenalty: 0.08,
+  formMomentum: 0.1,
+  partnerBalance: 0.06,
+});
+
+const TOURNAMENT_BUDGET_WEIGHTS = Object.freeze({
+  formatImportance: 0.34,
+  progressionDepth: 0.2,
+  upsetSignal: 0.14,
+  scoreSignal: 0.1,
+  opponentStrength: 0.08,
+  pathPressure: 0.07,
+  formMomentum: 0.05,
+  reliabilitySignal: 0.04,
+  partnerBalance: 0.04,
+  favoriteDrag: 0.08,
+});
+
+// === Favorite drag ===
+const WIN_TAX_COEF = 0.18;
 
 /* ===================== Helpers ===================== */
 const round3 = (x) => Math.round(x * 1000) / 1000;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const smoothstep01 = (x) => {
+  const t = clamp(Number(x) || 0, 0, 1);
+  return t * t * (3 - 2 * t);
+};
+const positiveNumber = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
+function readMatchMaxRounds(match) {
+  return (
+    positiveNumber(match?.bracket?.meta?.maxRounds) ||
+    positiveNumber(match?.bracket?.drawRounds) ||
+    positiveNumber(match?.bracket?.config?.roundElim?.maxRounds) ||
+    positiveNumber(match?.bracket?.config?.roundElim?.cutRounds)
+  );
+}
+
+function readMatchDrawSize(match) {
+  return (
+    positiveNumber(match?.bracket?.meta?.drawSize) ||
+    positiveNumber(match?.bracket?.drawSize) ||
+    positiveNumber(match?.bracket?.config?.blueprint?.drawSize) ||
+    positiveNumber(match?.bracket?.config?.doubleElim?.drawSize) ||
+    positiveNumber(match?.bracket?.config?.roundElim?.drawSize)
+  );
+}
+
+function matchContextSignals(match, bracketType) {
+  const type = String(bracketType || match?.bracket?.type || "").toLowerCase();
+  const round = Math.max(1, Number(match?.round) || 1);
+  const configuredRounds = readMatchMaxRounds(match);
+  const drawSize = readMatchDrawSize(match);
+  const inferredRounds = drawSize > 1 ? Math.ceil(Math.log2(drawSize)) : 0;
+  const maxRounds = Math.max(configuredRounds, inferredRounds, round);
+  const progress = maxRounds > 0 ? clamp(round / maxRounds, 0, 1) : 0;
+  const stage = positiveNumber(match?.bracket?.stage ?? match?.stageIndex);
+  const stagePressure = stage ? clamp(stage / (stage + 2), 0, 1) : 0;
+  const thirdPlaceSignal =
+    match?.isThirdPlace || match?.meta?.thirdPlace ? 1 : 0;
+
+  const knockoutSignal =
+    type === "knockout" ? 1 : type === "double_elim" ? 0.8 : 0;
+  const playoffSignal =
+    type === "roundelim" || type === "playoff" || type === "prequalifying"
+      ? 1
+      : 0;
+  const neutralSignal = clamp(1 - Math.max(knockoutSignal, playoffSignal), 0, 1);
+  const smoothProgress = smoothstep01(progress);
+
+  const survivalPressure = clamp(
+    knockoutSignal * smoothProgress +
+      playoffSignal * (1 - smoothProgress) * 0.72 +
+      neutralSignal * (0.35 + smoothProgress * 0.3) +
+      stagePressure * 0.12 -
+      thirdPlaceSignal * 0.34,
+    0,
+    1
+  );
+  const formatImportance = clamp(
+    knockoutSignal * (0.22 + smoothProgress * 0.78) +
+      playoffSignal * (0.58 - smoothProgress * 0.36) +
+      neutralSignal * (0.38 + smoothProgress * 0.28) +
+      stagePressure * 0.1 -
+      thirdPlaceSignal * 0.24,
+    0,
+    1
+  );
+  const progressionDepth = clamp(
+    knockoutSignal * Math.pow(progress, 1.35) +
+      playoffSignal * Math.pow(1 - progress * 0.62, 1.15) +
+      neutralSignal * smoothProgress * 0.65,
+    0,
+    1
+  );
+  const pathPressure = clamp(
+    survivalPressure * 0.52 +
+      formatImportance * 0.3 +
+      progressionDepth * 0.18,
+    0,
+    1
+  );
+
+  return {
+    type,
+    round,
+    maxRounds,
+    progress,
+    smoothProgress,
+    stagePressure,
+    thirdPlaceSignal,
+    knockoutSignal,
+    playoffSignal,
+    neutralSignal,
+    survivalPressure,
+    formatImportance,
+    progressionDepth,
+    pathPressure,
+    consolationDrag: thirdPlaceSignal * (0.55 + progress * 0.25),
+  };
+}
 
 function harmonicMean(a, b) {
   if (a <= 0 || b <= 0) return Math.max(0, (a + b) / 2);
@@ -116,26 +229,69 @@ function marginBoostFromScores(match, winnerSide /* "A" | "B" */) {
   return MARGIN_MAX_BOOST * m;
 }
 
-function qualityScoreFromScores(match, winnerSide /* "A" | "B" */) {
+function scoreShapeFromScores(match, winnerSide /* "A" | "B" */) {
   const arr = Array.isArray(match.gameScores) ? match.gameScores : [];
-  if (!arr.length) return QUALITY_DEFAULT_WIN;
+  if (!arr.length) {
+    return {
+      qualityScore: QUALITY_DEFAULT_WIN,
+      qualityMultiplier: 1,
+      pointMarginRatio: 0,
+      gameMarginRatio: 0,
+      gameCount: 0,
+      scoreCompleteness: 0,
+    };
+  }
   let winPts = 0,
-    losePts = 0;
+    losePts = 0,
+    winGames = 0,
+    loseGames = 0;
   for (const g of arr) {
     const a = Number(g.a || 0),
       b = Number(g.b || 0);
+    let w = 0,
+      l = 0;
     if (winnerSide === "A") {
-      winPts += a;
-      losePts += b;
+      w = a;
+      l = b;
     } else {
-      winPts += b;
-      losePts += a;
+      w = b;
+      l = a;
     }
+    winPts += w;
+    losePts += l;
+    if (w > l) winGames += 1;
+    else if (l > w) loseGames += 1;
   }
   const total = winPts + losePts;
-  if (total <= 0) return QUALITY_DEFAULT_WIN;
-  const m = clamp((winPts - losePts) / total, -1, 1);
-  return clamp(0.5 + 0.5 * Math.max(0, m), 0.5, 1);
+  if (total <= 0) {
+    return {
+      qualityScore: QUALITY_DEFAULT_WIN,
+      qualityMultiplier: 1,
+      pointMarginRatio: 0,
+      gameMarginRatio: 0,
+      gameCount: 0,
+      scoreCompleteness: 0,
+    };
+  }
+  const pointMarginRatio = clamp((winPts - losePts) / total, 0, 1);
+  const gameTotal = winGames + loseGames;
+  const gameMarginRatio = gameTotal
+    ? clamp((winGames - loseGames) / gameTotal, 0, 1)
+    : 0;
+  const qualityScore = clamp(0.5 + 0.5 * pointMarginRatio, 0.5, 1);
+  const qualityMultiplier = clamp(
+    0.92 + pointMarginRatio * 0.28 + gameMarginRatio * 0.08,
+    0.9,
+    1.28
+  );
+  return {
+    qualityScore,
+    qualityMultiplier,
+    pointMarginRatio,
+    gameMarginRatio,
+    gameCount: gameTotal,
+    scoreCompleteness: 1,
+  };
 }
 
 function isForfeitResult(match) {
@@ -154,18 +310,14 @@ function teamRatingDoubles(r1, r2) {
 }
 
 function phaseMultiplier(match, bracketType) {
-  const r = Math.max(1, Number(match.round) || 1);
-
-  if (bracketType === "roundElim") {
-    const dec = clamp((r - 1) * RE_PHASE_STEP_DEC, 0, RE_PHASE_CAP_DEC);
-    const roundMul = clamp(1 + RE_PHASE_START_BONUS - dec, RE_PHASE_MIN, 1.2);
-    const stageMul = 1 + RE_STAGE_BONUS;
-    return roundMul * stageMul;
-  }
-
-  const roundMul = 1 + clamp((r - 1) * ROUND_PHASE_STEP, 0, ROUND_PHASE_CAP);
-  const koMul = bracketType === "knockout" ? 1 + KO_STAGE_BONUS : 1;
-  return roundMul * koMul;
+  const ctx = matchContextSignals(match, bracketType);
+  const phaseSignal =
+    ctx.survivalPressure * 0.48 +
+    ctx.formatImportance * 0.28 +
+    ctx.pathPressure * 0.18 +
+    ctx.stagePressure * 0.06 -
+    ctx.consolationDrag * 0.28;
+  return clamp(1 + Math.tanh(phaseSignal * 1.65) * 0.42, 0.72, 1.48);
 }
 
 function softCapTeam(delta) {
@@ -179,25 +331,291 @@ function nextRep(current) {
 }
 
 function upsetAmplification(absDiff, E_win) {
-  if (E_win > 0.5) return 0;
-  if (E_win > UPSET_UNDERDOG_MAX_EXPECTED) return 0;
-  if (absDiff < UPSET_DIFF_THRESHOLD) return 0;
-  const underdogDegree = clamp(
-    (UPSET_UNDERDOG_MAX_EXPECTED - E_win) / UPSET_UNDERDOG_MAX_EXPECTED,
-    0,
-    1
+  const underdogDegree = clamp((0.5 - E_win) / 0.5, 0, 1);
+  const gapDegree = clamp(absDiff / (Math.abs(absDiff) + DIFF_SCALE), 0, 1);
+  return (
+    UPSET_MAX_BOOST *
+    Math.pow(underdogDegree, 1.15) *
+    Math.pow(gapDegree, 0.8)
   );
-  const gapDegree = clamp(
-    (absDiff - UPSET_DIFF_THRESHOLD) / UPSET_DIFF_WIDTH,
-    0,
-    1
-  );
-  return UPSET_MAX_BOOST * underdogDegree * gapDegree;
 }
 
 function midlineDampen(E) {
   const closeness = 1 - 4 * Math.pow(E - 0.5, 2);
   return 1 - MIDLINE_BETA * Math.max(0, closeness);
+}
+
+function weightedFeatureMultiplier(features) {
+  const w = RATING_FEATURE_WEIGHTS;
+  const positive =
+    w.phaseImportance * features.phaseImportance +
+    w.scoreQuality * features.scoreQuality +
+    w.pointMargin * features.pointMargin +
+    w.gameControl * features.gameControl +
+    w.upset * features.upset +
+    w.underdog * features.underdog +
+    w.reliabilityVolatility * features.reliabilityVolatility +
+    w.newPlayerSignal * features.newPlayerSignal +
+    w.formMomentum * features.formMomentum +
+    w.partnerBalance * features.partnerBalance;
+  const negative =
+    w.favoritePenalty * features.favoritePenalty +
+    w.ratingGapPenalty * features.ratingGapPenalty;
+  return clamp(1 + positive - negative, 0.55, 1.85);
+}
+
+function computeSmartTeamDelta({
+  baseK,
+  avgReliability,
+  phaseMul,
+  marginBoost,
+  E_win,
+  absDiff,
+  scoreShape,
+  formEdge = 0,
+  winnerTeamSpread = 0,
+  isForfeit = false,
+}) {
+  const reliabilityScale = clamp(
+    1 - RELIABILITY_DECAY * avgReliability,
+    1 - RELIABILITY_DECAY,
+    1
+  );
+  const newPlayerBoost = 1 + NEW_PLAYER_WEIGHT_BONUS * (1 - avgReliability);
+  const kScale =
+    (isForfeit ? FORFEIT_K_SCALE : 1) *
+    phaseMul *
+    (1 + marginBoost) *
+    newPlayerBoost;
+  const K_match = (baseK * reliabilityScale + FLOOR_K) * kScale;
+  const expectedGain = Math.pow(clamp(1 - E_win, 0, 1), EXP_GAMMA);
+  const upsetBoost = upsetAmplification(absDiff, E_win);
+  const favoritePressure = Math.pow(clamp((E_win - 0.5) / 0.5, 0, 1), 1.7);
+  const favoriteTax = clamp(1 - WIN_TAX_COEF * favoritePressure, 0.7, 1);
+  const midFactor = MIDLINE_DAMPEN ? midlineDampen(E_win) : 1;
+  const features = {
+    expectedOutcome: expectedGain,
+    phaseImportance: clamp(phaseMul - 1, -0.35, 0.6),
+    scoreQuality: clamp((scoreShape.qualityMultiplier || 1) - 1, -0.2, 0.35),
+    pointMargin: clamp(scoreShape.pointMarginRatio || 0, 0, 1),
+    gameControl: clamp(scoreShape.gameMarginRatio || 0, 0, 1),
+    upset: clamp(upsetBoost / Math.max(UPSET_MAX_BOOST, 0.001), 0, 1),
+    underdog: clamp((0.5 - E_win) / 0.5, 0, 1),
+    reliabilityVolatility: clamp(1 - avgReliability, 0, 1),
+    newPlayerSignal: clamp(
+      (newPlayerBoost - 1) / Math.max(NEW_PLAYER_WEIGHT_BONUS, 0.001),
+      0,
+      1
+    ),
+    favoritePenalty: favoritePressure,
+    ratingGapPenalty: clamp((E_win - 0.5) / 0.5, 0, 1),
+    formMomentum: clamp(formEdge / 0.3, -1, 1),
+    partnerBalance: clamp(1 - winnerTeamSpread / 1.5, 0, 1),
+  };
+  const weightedMultiplier = weightedFeatureMultiplier(features);
+
+  let raw =
+    K_match *
+    expectedGain *
+    weightedMultiplier *
+    favoriteTax *
+    midFactor;
+
+  return {
+    raw,
+    soft: softCapTeam(raw),
+    K_match,
+    kScale,
+    expectedGain,
+    upsetBoost,
+    favoriteTax,
+    reliabilityScale,
+    newPlayerBoost,
+    weightedMultiplier,
+    features,
+    weights: RATING_FEATURE_WEIGHTS,
+    midFactor,
+    epsDyn: 0,
+  };
+}
+
+function toObjectIdOrNull(value) {
+  const raw = value?._id || value;
+  if (!raw) return null;
+  try {
+    return new mongoose.Types.ObjectId(String(raw));
+  } catch {
+    return null;
+  }
+}
+
+async function getTournamentDeltaMap({
+  userIds,
+  tournamentId,
+  kind,
+  excludeMatchId = null,
+}) {
+  const users = [...new Set((userIds || []).filter(Boolean).map(String))]
+    .map((id) => toObjectIdOrNull(id))
+    .filter(Boolean);
+  const tournamentObjectId = toObjectIdOrNull(tournamentId);
+  if (!users.length || !tournamentObjectId || !kind) return new Map();
+
+  const match = {
+    user: { $in: users },
+    tournament: tournamentObjectId,
+    kind,
+  };
+  const excludeObjectId = toObjectIdOrNull(excludeMatchId);
+  if (excludeObjectId) match.match = { $ne: excludeObjectId };
+
+  const rows = await RatingChange.aggregate([
+    { $match: match },
+    { $group: { _id: "$user", delta: { $sum: "$delta" } } },
+  ]);
+
+  return new Map(rows.map((row) => [String(row._id), Number(row.delta) || 0]));
+}
+
+function capTeamDeltaByTournament({
+  deltaTeam,
+  winnerUserIds,
+  loserUserIds,
+  tournamentDeltaMap,
+  tournamentCap = TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL,
+}) {
+  const cap = clamp(tournamentCap, 0, TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL);
+  const winnerIds = (winnerUserIds || []).map(String);
+  const loserIds = (loserUserIds || []).map(String);
+  if (deltaTeam <= 0 || !winnerIds.length || !loserIds.length) {
+    return {
+      deltaTeam: 0,
+      applied: deltaTeam > 0,
+      winnerRemaining: 0,
+      loserRemaining: 0,
+      cap,
+    };
+  }
+
+  const remainingGain = (uid) =>
+    Math.max(0, cap - (tournamentDeltaMap.get(uid) || 0));
+  const remainingLoss = (uid) =>
+    Math.max(0, cap + (tournamentDeltaMap.get(uid) || 0));
+
+  const winnerRemaining = Math.min(...winnerIds.map(remainingGain));
+  const loserRemaining = Math.min(...loserIds.map(remainingLoss));
+  const maxTeamByWinners = winnerRemaining * winnerIds.length;
+  const maxTeamByLosers = loserRemaining * loserIds.length;
+  const maxTeam = Math.max(0, Math.min(maxTeamByWinners, maxTeamByLosers));
+  const cappedDeltaTeam = Math.min(deltaTeam, maxTeam);
+
+  return {
+    deltaTeam: cappedDeltaTeam,
+    applied: cappedDeltaTeam < deltaTeam,
+    winnerRemaining,
+    loserRemaining,
+    cap,
+  };
+}
+
+function tournamentDeltaCapForMatch({
+  match,
+  bracketType,
+  phaseMul,
+  E_win,
+  ratingCalc,
+  scoreShape,
+}) {
+  const context = matchContextSignals(match, bracketType);
+  const features = ratingCalc?.features || {};
+  const budgetWeights = TOURNAMENT_BUDGET_WEIGHTS;
+  const getFeature = (name, fallback = 0) => {
+    const value = Number(features[name]);
+    return Number.isFinite(value) ? value : fallback;
+  };
+
+  const upsetSignal = clamp(getFeature("upset"), 0, 1);
+  const scoreQuality = clamp(
+    (getFeature(
+      "scoreQuality",
+      (Number(scoreShape?.qualityMultiplier) || 1) - 1
+    ) +
+      0.2) /
+      0.55,
+    0,
+    1
+  );
+  const pointMargin = clamp(
+    getFeature("pointMargin", Number(scoreShape?.pointMarginRatio) || 0),
+    0,
+    1
+  );
+  const gameControl = clamp(
+    getFeature("gameControl", Number(scoreShape?.gameMarginRatio) || 0),
+    0,
+    1
+  );
+  const scoreCompleteness = clamp(Number(scoreShape?.scoreCompleteness) || 0, 0, 1);
+  const scoreSignal = clamp(
+    (scoreQuality * 0.36 + pointMargin * 0.34 + gameControl * 0.3) *
+      (0.45 + scoreCompleteness * 0.55),
+    0,
+    1
+  );
+  const opponentStrength = clamp((0.5 - E_win) / 0.5, 0, 1);
+  const phaseSignal = clamp((phaseMul - 0.72) / 0.76, 0, 1);
+  const formMomentum = clamp(getFeature("formMomentum") * 0.5 + 0.5, 0, 1);
+  const reliabilitySignal = clamp(getFeature("reliabilityVolatility"), 0, 1);
+  const partnerBalance = clamp(getFeature("partnerBalance", 0.5), 0, 1);
+  const favoriteDrag = clamp(
+    getFeature("favoritePenalty") * 0.62 +
+      getFeature("ratingGapPenalty") * 0.38,
+    0,
+    1
+  );
+
+  const budgetScore =
+    budgetWeights.formatImportance * context.formatImportance +
+    budgetWeights.progressionDepth * context.progressionDepth +
+    budgetWeights.upsetSignal * upsetSignal +
+    budgetWeights.scoreSignal * scoreSignal +
+    budgetWeights.opponentStrength * opponentStrength +
+    budgetWeights.pathPressure * context.pathPressure +
+    budgetWeights.formMomentum * formMomentum +
+    budgetWeights.reliabilitySignal * reliabilitySignal +
+    budgetWeights.partnerBalance * partnerBalance -
+    budgetWeights.favoriteDrag * favoriteDrag -
+    context.consolationDrag * 0.14 -
+    context.playoffSignal * context.smoothProgress * 0.08;
+
+  const normalizedBudget = clamp(budgetScore, 0, 1);
+  const raritySignal = clamp(
+    upsetSignal * 0.42 +
+      opponentStrength * 0.2 +
+      scoreSignal * 0.16 +
+      context.pathPressure * 0.14 +
+      phaseSignal * 0.08,
+    0,
+    1
+  );
+  const confidenceSignal = clamp(
+    scoreCompleteness * 0.36 +
+      scoreSignal * 0.28 +
+      reliabilitySignal * 0.2 +
+      partnerBalance * 0.16,
+    0,
+    1
+  );
+  const curvedBudget = Math.pow(
+    normalizedBudget,
+    1.08 + (1 - confidenceSignal) * 0.28
+  );
+  const adaptiveCeiling =
+    TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL *
+    curvedBudget *
+    (0.72 + raritySignal * 0.22 + confidenceSignal * 0.06);
+
+  return clamp(adaptiveCeiling, 0, TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL);
 }
 
 /* ===== ⭐ PHÂN PHỐI ĐIỂM ĐỀU CHO ĐỒNG ĐỘI ===== */
@@ -355,7 +773,7 @@ async function getRecentStats(uid, key, cfg) {
     if (!mm || !inMatch(mm)) continue;
 
     total += 1;
-    if (r.score === 1) {
+    if (Number(r.score) >= 0.5) {
       wins += 1;
       streakSigned = streakSigned >= 0 ? streakSigned + 1 : 1;
     } else {
@@ -499,7 +917,9 @@ export async function applyRatingForFinishedMatch(matchId) {
 
   // team ratings
   let teamA = 0,
-    teamB = 0;
+    teamB = 0,
+    teamSpreadA = 0,
+    teamSpreadB = 0;
   if (kind === "singles") {
     const ua = usersA[0],
       ub = usersB[0];
@@ -510,6 +930,8 @@ export async function applyRatingForFinishedMatch(matchId) {
     const a2 = usersA[1] ? getRating(usersA[1]) : a1;
     const b1 = usersB[0] ? getRating(usersB[0]) : DEFAULT_SEED_RATING;
     const b2 = usersB[1] ? getRating(usersB[1]) : b1;
+    teamSpreadA = Math.abs(a1 - a2);
+    teamSpreadB = Math.abs(b1 - b2);
     teamA = teamRatingDoubles(a1, a2);
     teamB = teamRatingDoubles(b1, b2);
   }
@@ -607,56 +1029,69 @@ export async function applyRatingForFinishedMatch(matchId) {
   // K scale
   const marginBoost = isForfeit ? 0 : marginBoostFromScores(mt, winnerSide);
   const phaseMul = phaseMultiplier(mt, bracketType);
-  const kScale =
-    (isForfeit ? FORFEIT_K_SCALE : 1.0) * phaseMul * (1 + marginBoost);
-
   const relValues = allIds.map((uid) => reliabilityMap.get(uid) ?? 0);
   const avgReliability = relValues.length
     ? relValues.reduce((s, x) => s + x, 0) / relValues.length
     : 0;
 
   const baseK = kind === "singles" ? BASE_K_SINGLES : BASE_K_DOUBLES;
-  const K_match = (baseK * (1 - avgReliability) + FLOOR_K) * kScale;
 
   // quality vs expected
   const E_win = winnerSide === "A" ? expA : expB;
   const absDiff = Math.abs(teamA - teamB);
-  const upsetBoost = upsetAmplification(absDiff, E_win);
-  const S_win = qualityScoreFromScores(mt, winnerSide);
-  const diffS = clamp(S_win - E_win, -1, 1);
+  const scoreShape = isForfeit
+    ? {
+        qualityScore: 0.5,
+        qualityMultiplier: 0,
+        pointMarginRatio: 0,
+        gameMarginRatio: 0,
+        gameCount: 0,
+        scoreCompleteness: 0,
+      }
+    : scoreShapeFromScores(mt, winnerSide);
+  const ratingCalc = computeSmartTeamDelta({
+    baseK,
+    avgReliability,
+    phaseMul,
+    marginBoost,
+    E_win,
+    absDiff,
+    scoreShape,
+    formEdge: winnerSide === "A" ? formA - formB : formB - formA,
+    winnerTeamSpread: winnerSide === "A" ? teamSpreadA : teamSpreadB,
+    isForfeit,
+  });
+  const K_match = ratingCalc.K_match;
+  const S_win = scoreShape.qualityScore;
+  const tournamentCap = tournamentDeltaCapForMatch({
+    match: mt,
+    bracketType,
+    phaseMul,
+    E_win,
+    ratingCalc,
+    scoreShape,
+  });
 
-  // Δ đội thô
-  let D_team_raw =
-    K_match * Math.sign(diffS) * Math.pow(Math.abs(diffS), EXP_GAMMA);
-
-  // khuếch đại upset
-  if (diffS > 0) D_team_raw *= 1 + upsetBoost;
-
-  // midline dampen
-  if (MIDLINE_DAMPEN) D_team_raw *= midlineDampen(E_win);
-
-  // ⭐ WIN-TAX: CHỈ áp dụng khi E_win > 0.85 (kèo quá lệch)
-  if (E_win > WIN_TAX_THRESHOLD) {
-    const winTax = K_match * WIN_TAX_COEF * (E_win - WIN_TAX_THRESHOLD);
-    D_team_raw -= winTax;
-  }
-
-  // epsilon theo K
-  const epsDyn = clamp(
-    K_match * MIN_DELTA_EPS_FACTOR,
-    MIN_DELTA_EPS_MIN,
-    MIN_DELTA_EPS_MAX
-  );
-  if (Math.abs(D_team_raw) > 0 && Math.abs(D_team_raw) < epsDyn) {
-    D_team_raw = Math.sign(D_team_raw) * epsDyn;
-  }
-
-  // soft-cap theo ĐỘI
-  let D_team = softCapTeam(D_team_raw);
+  const D_team_raw = ratingCalc.raw;
+  let D_team = ratingCalc.soft;
 
   // ===== ⭐ PHÂN PHỐI ĐỀU CHO ĐỒNG ĐỘI =====
   const winnerUserIds = winnerSide === "A" ? usersA : usersB;
   const loserUserIds = winnerSide === "A" ? usersB : usersA;
+  const tournamentDeltaMap = await getTournamentDeltaMap({
+    userIds: allIds,
+    tournamentId: mt.tournament?._id || mt.tournament,
+    kind,
+    excludeMatchId: mt._id,
+  });
+  const tournamentCapInfo = capTeamDeltaByTournament({
+    deltaTeam: D_team,
+    winnerUserIds,
+    loserUserIds,
+    tournamentDeltaMap,
+    tournamentCap,
+  });
+  D_team = tournamentCapInfo.deltaTeam;
 
   let winnerDeltas = distributeTeamDeltaEvenly(D_team, winnerUserIds.length);
   let loserDeltas = distributeTeamDeltaEvenly(-D_team, loserUserIds.length);
@@ -710,11 +1145,21 @@ export async function applyRatingForFinishedMatch(matchId) {
         [key]: round3(next),
         scoredAt: when,
         sourceMatch: mt._id,
-        note: `${delta >= 0 ? "+" : ""}${round3(delta)} (S=${round3(
-          noteScore
-        )},E=${round3(noteExp)},K=${round3(K_match)},up=${round3(
-          upsetBoost
-        )},ctxDU=${round3(contextDU)})`,
+        note: `${delta >= 0 ? "+" : ""}${round3(delta)} (result=${
+          isWinner ? 1 : 0
+        },Q=${round3(noteScore)},E=${round3(noteExp)},K=${round3(
+          K_match
+        )},qMul=${round3(scoreShape.qualityMultiplier)},up=${round3(
+          ratingCalc.upsetBoost
+        )},fav=${round3(ratingCalc.favoriteTax)},new=${round3(
+          ratingCalc.newPlayerBoost
+        )},wMul=${round3(ratingCalc.weightedMultiplier)},form=${round3(
+          ratingCalc.features.formMomentum
+        )},bal=${round3(ratingCalc.features.partnerBalance)},rel=${round3(
+          ratingCalc.reliabilityScale
+        )},tCap=${
+          tournamentCapInfo.applied ? 1 : 0
+        },cap=${round3(tournamentCapInfo.cap)},ctxDU=${round3(contextDU)})`,
       });
 
       const prevRep = repMap.get(String(uid)) ?? 0;
@@ -749,7 +1194,7 @@ export async function applyRatingForFinishedMatch(matchId) {
         after: round3(next),
         delta: round3(delta),
         expected: noteExp,
-        score: noteScore,
+        score: isWinner ? 1 : 0,
         reliabilityBefore: relBefore,
         reliabilityAfter: relAfter,
         marginBonus: marginBoost,
@@ -852,7 +1297,10 @@ export async function computeRatingPreviewFromParams({
     return val > 0 ? val : DEFAULT_SEED_RATING;
   };
 
-  let teamA, teamB;
+  let teamA,
+    teamB,
+    teamSpreadA = 0,
+    teamSpreadB = 0;
   if (kind === "singles") {
     teamA = usersA[0] ? getRating(usersA[0]) : DEFAULT_SEED_RATING;
     teamB = usersB[0] ? getRating(usersB[0]) : DEFAULT_SEED_RATING;
@@ -861,6 +1309,8 @@ export async function computeRatingPreviewFromParams({
     const a2 = usersA[1] ? getRating(usersA[1]) : a1;
     const b1 = usersB[0] ? getRating(usersB[0]) : DEFAULT_SEED_RATING;
     const b2 = usersB[1] ? getRating(usersB[1]) : b1;
+    teamSpreadA = Math.abs(a1 - a2);
+    teamSpreadB = Math.abs(b1 - b2);
     teamA = teamRatingDoubles(a1, a2);
     teamB = teamRatingDoubles(b1, b2);
   }
@@ -970,47 +1420,69 @@ export async function computeRatingPreviewFromParams({
     ? 0
     : marginBoostFromScores(fakeMatch, winnerSide);
   const phaseMul = phaseMultiplier(fakeMatch, bracketType);
-  const kScale =
-    (isForfeit ? FORFEIT_K_SCALE : 1.0) * phaseMul * (1 + marginBoost);
-
   const relValues = allIds.map((uid) => reliabilityMap.get(uid) ?? 0);
   const avgReliability = relValues.length
     ? relValues.reduce((s, x) => s + x, 0) / relValues.length
     : 0;
   const baseK = kind === "singles" ? BASE_K_SINGLES : BASE_K_DOUBLES;
-  const K_match = (baseK * (1 - avgReliability) + FLOOR_K) * kScale;
 
   const E_win = winnerSide === "A" ? expA : expB;
   const absDiff = Math.abs(teamA - teamB);
-  const upBoost = upsetAmplification(absDiff, E_win);
+  const scoreShape = isForfeit
+    ? {
+        qualityScore: 0.5,
+        qualityMultiplier: 0,
+        pointMarginRatio: 0,
+        gameMarginRatio: 0,
+        gameCount: 0,
+        scoreCompleteness: 0,
+      }
+    : scoreShapeFromScores(fakeMatch, winnerSide);
+  const ratingCalc = computeSmartTeamDelta({
+    baseK,
+    avgReliability,
+    phaseMul,
+    marginBoost,
+    E_win,
+    absDiff,
+    scoreShape,
+    formEdge: winnerSide === "A" ? formA - formB : formB - formA,
+    winnerTeamSpread: winnerSide === "A" ? teamSpreadA : teamSpreadB,
+    isForfeit,
+  });
+  const kScale = ratingCalc.kScale;
+  const K_match = ratingCalc.K_match;
+  const upBoost = ratingCalc.upsetBoost;
+  const S_win = scoreShape.qualityScore;
+  const epsDyn = ratingCalc.epsDyn;
+  const tournamentCap = tournamentDeltaCapForMatch({
+    match: fakeMatch,
+    bracketType,
+    phaseMul,
+    E_win,
+    ratingCalc,
+    scoreShape,
+  });
+  const matchContext = matchContextSignals(fakeMatch, bracketType);
 
-  const S_win = qualityScoreFromScores(fakeMatch, winnerSide);
-  const diffS = clamp(S_win - E_win, -1, 1);
-
-  let D_team_raw =
-    K_match * Math.sign(diffS) * Math.pow(Math.abs(diffS), EXP_GAMMA);
-  if (diffS > 0) D_team_raw *= 1 + upBoost;
-  if (MIDLINE_DAMPEN) D_team_raw *= midlineDampen(E_win);
-
-  // WIN_TAX chỉ khi E_win > threshold
-  if (E_win > WIN_TAX_THRESHOLD) {
-    const winTax = K_match * WIN_TAX_COEF * (E_win - WIN_TAX_THRESHOLD);
-    D_team_raw -= winTax;
-  }
-
-  const epsDyn = clamp(
-    K_match * MIN_DELTA_EPS_FACTOR,
-    MIN_DELTA_EPS_MIN,
-    MIN_DELTA_EPS_MAX
-  );
-  if (Math.abs(D_team_raw) > 0 && Math.abs(D_team_raw) < epsDyn) {
-    D_team_raw = Math.sign(D_team_raw) * epsDyn;
-  }
-
-  let D_team = softCapTeam(D_team_raw);
+  const D_team_raw = ratingCalc.raw;
+  let D_team = ratingCalc.soft;
 
   const winnerUserIds = winnerSide === "A" ? usersA : usersB;
   const loserUserIds = winnerSide === "A" ? usersB : usersA;
+  const tournamentDeltaMap = await getTournamentDeltaMap({
+    userIds: allIds,
+    tournamentId,
+    kind,
+  });
+  const tournamentCapInfo = capTeamDeltaByTournament({
+    deltaTeam: D_team,
+    winnerUserIds,
+    loserUserIds,
+    tournamentDeltaMap,
+    tournamentCap,
+  });
+  D_team = tournamentCapInfo.deltaTeam;
 
   let winnerDeltas = distributeTeamDeltaEvenly(D_team, winnerUserIds.length);
   let loserDeltas = distributeTeamDeltaEvenly(-D_team, loserUserIds.length);
@@ -1087,8 +1559,36 @@ export async function computeRatingPreviewFromParams({
       marginBoost: round3(marginBoost),
       phaseMul: round3(phaseMul),
       upsetBoost: round3(upBoost),
+      qualityScore: round3(S_win),
+      qualityMultiplier: round3(scoreShape.qualityMultiplier),
+      pointMarginRatio: round3(scoreShape.pointMarginRatio),
+      gameMarginRatio: round3(scoreShape.gameMarginRatio),
+      scoreCompleteness: round3(scoreShape.scoreCompleteness),
+      expectedGain: round3(ratingCalc.expectedGain),
+      favoriteTax: round3(ratingCalc.favoriteTax),
+      reliabilityScale: round3(ratingCalc.reliabilityScale),
+      newPlayerBoost: round3(ratingCalc.newPlayerBoost),
+      weightedMultiplier: round3(ratingCalc.weightedMultiplier),
+      tournamentHardGuardrail: TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL,
+      tournamentCap: round3(tournamentCap),
+      tournamentCapApplied: tournamentCapInfo.applied,
+      winnerRemainingBeforeCap: round3(tournamentCapInfo.winnerRemaining),
+      loserRemainingBeforeCap: round3(tournamentCapInfo.loserRemaining),
       kScale: round3(kScale),
       K_match: round3(K_match),
+      matchContext: Object.fromEntries(
+        Object.entries(matchContext).map(([name, value]) => [
+          name,
+          typeof value === "number" ? round3(value) : value,
+        ])
+      ),
+      features: Object.fromEntries(
+        Object.entries(ratingCalc.features).map(([name, value]) => [
+          name,
+          round3(value),
+        ])
+      ),
+      weights: RATING_FEATURE_WEIGHTS,
       shaper: {
         gamma: EXP_GAMMA,
         midFactor: round3(MIDLINE_DAMPEN ? midlineDampen(E_win) : 1),

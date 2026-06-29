@@ -102,6 +102,23 @@ function toDateSafe(x) {
   const t = ts(x);
   return t ? new Date(t) : null;
 }
+function isStartedMatchStatus(status) {
+  return [
+    "live",
+    "ongoing",
+    "playing",
+    "inprogress",
+    "on_court",
+    "oncourt",
+    "finished",
+    "done",
+    "completed",
+    "final",
+    "ended",
+    "over",
+    "closed",
+  ].includes(String(status || "").toLowerCase());
+}
 function formatClock(d) {
   if (!d) return "";
   const pad = (n) => String(n).padStart(2, "0");
@@ -2505,8 +2522,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const startedAt = toDateSafe(mm?.startedAt);
   const scheduledAt = toDateSafe(mm?.scheduledAt || mm?.assignedAt);
   const finishedAt = toDateSafe(mm?.finishedAt);
+  const isStartedMatch = isStartedMatchStatus(status);
   const startLabel =
-    status === "live"
+    isStartedMatch
       ? startedAt
         ? `Bắt đầu: ${formatClock(startedAt)}`
         : scheduledAt

@@ -383,6 +383,7 @@ export const apiSlice = createApi({
     "LiveCourt",
     "TournamentCourtClusters",
     "TournamentCourtClusterRuntime",
+    "TournamentCourtLiveMonitor",
     "CourtClusterRuntime",
     "TournamentManagers",
     "OverlayTemplates",
@@ -392,6 +393,7 @@ export const apiSlice = createApi({
     "Venue",
     "VenueCourt",
     "Booking",
+    "AssessmentHistory",
   ],
   endpoints: () => ({}),
 });

@@ -63,6 +63,9 @@ import {
   FilterList as FilterListIcon,
   ViewAgenda as ViewAgendaIcon,
   TableRows as TableRowsIcon,
+  MoreVert as MoreVertIcon,
+  KeyboardArrowRight as ChevronRightIcon,
+  ExpandMore as ExpandMoreIcon,
 } from "@mui/icons-material";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -74,6 +77,7 @@ import {
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
+import useFrontendUiVersion from "../../hook/useFrontendUiVersion";
 import { useLanguage } from "../../context/LanguageContext";
 import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import SEOHead from "../../components/SEOHead";
@@ -625,6 +629,13 @@ function readStoredBracketUiVersion() {
   } catch {
     return "";
   }
+}
+
+function normalizeBracketUiVersion(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "v3" || raw === "3") return "v3";
+  if (raw === "v2" || raw === "2" || raw === "true") return "v2";
+  return "v1";
 }
 
 const CHAMPION_FIREWORKS = [
@@ -5155,11 +5166,17 @@ export default function TournamentBracket() {
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const { id: tourId } = useParams();
   const me = useSelector((s) => s.auth?.userInfo); // NEW
+  const { version: frontendUiVersion } = useFrontendUiVersion();
   const [searchParams, setSearchParams] = useSearchParams();
-  const bracketUiVersion = String(
-    searchParams.get("ui") || searchParams.get("bracketUi") || "",
-  ).toLowerCase();
-  const isBracketV2 = bracketUiVersion === "v2" || bracketUiVersion === "2";
+  const storedBracketUiVersion = readStoredBracketUiVersion();
+  const bracketUiVersion = normalizeBracketUiVersion(
+    searchParams.get("ui") ||
+      searchParams.get("bracketUi") ||
+      storedBracketUiVersion ||
+      (frontendUiVersion === "v3" ? "v3" : ""),
+  );
+  const isBracketV3 = bracketUiVersion === "v3";
+  const isBracketV2 = bracketUiVersion === "v2";
   const [zoom, setZoom] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const [bracketFullscreenOpen, setBracketFullscreenOpen] = useState(false);
@@ -5205,7 +5222,7 @@ export default function TournamentBracket() {
       try {
         window.localStorage.setItem(
           BRACKET_UI_VERSION_STORAGE_KEY,
-          isBracketV2 ? "v2" : "v1",
+          bracketUiVersion,
         );
       } catch {
         // ignore storage errors
@@ -5213,36 +5230,51 @@ export default function TournamentBracket() {
       return;
     }
 
-    const storedVersion = readStoredBracketUiVersion();
-    if (!["v2", "2", "true"].includes(storedVersion)) return;
+    const storedRawVersion = readStoredBracketUiVersion();
+    const storedVersion = normalizeBracketUiVersion(storedRawVersion);
+    if (storedVersion === "v1") {
+      if (frontendUiVersion !== "v3" || storedRawVersion === "v1") return;
+      const next = new URLSearchParams(searchParams);
+      next.set("ui", "v3");
+      setSearchParams(next, { replace: true });
+      return;
+    }
 
     const next = new URLSearchParams(searchParams);
-    next.set("ui", "v2");
+    next.set("ui", storedVersion);
     setSearchParams(next, { replace: true });
-  }, [isBracketV2, searchParams, setSearchParams]);
+  }, [bracketUiVersion, frontendUiVersion, searchParams, setSearchParams]);
 
-  const handleBracketV2Switch = useCallback(
-    (event) => {
-      const enabled = Boolean(event.target.checked);
+  const setBracketUiMode = useCallback(
+    (mode) => {
+      const nextMode = normalizeBracketUiVersion(mode);
       try {
         window.localStorage.setItem(
           BRACKET_UI_VERSION_STORAGE_KEY,
-          enabled ? "v2" : "v1",
+          nextMode,
         );
       } catch {
         // ignore storage errors
       }
 
       const next = new URLSearchParams(searchParams);
-      if (enabled) {
-        next.set("ui", "v2");
-      } else {
+      if (nextMode === "v1") {
         next.delete("ui");
+        next.delete("bracketUi");
+      } else {
+        next.set("ui", nextMode);
         next.delete("bracketUi");
       }
       setSearchParams(next);
     },
     [searchParams, setSearchParams],
+  );
+
+  const handleBracketV2Switch = useCallback(
+    (event) => {
+      setBracketUiMode(event.target.checked ? "v2" : "v1");
+    },
+    [setBracketUiMode],
   );
 
   /* ===== live layer: Map(id → match) & merge ===== */
@@ -5541,7 +5573,13 @@ export default function TournamentBracket() {
             : current?.type || "Bracket",
         `Zoom: ${Math.round(zoom * 100)}%`,
         current?.type === "group"
-          ? `Chế độ: ${groupViewMode === "board" ? "Board" : "Classic"}`
+          ? `Chế độ: ${
+              isBracketV3
+                ? "V3"
+                : groupViewMode === "board"
+                  ? "Board"
+                  : "Classic"
+            }`
           : "",
         onlyMine ? "Chỉ xem bảng của tôi" : "",
       ],
@@ -5583,6 +5621,7 @@ export default function TournamentBracket() {
       currentMatches,
       zoom,
       groupViewMode,
+      isBracketV3,
       onlyMine,
       brackets.length,
     ],
@@ -8361,6 +8400,813 @@ export default function TournamentBracket() {
     );
   };
 
+  const renderGroupFilterDialog = () => (
+    <Dialog
+      open={filterOpen}
+      onClose={() => setFilterOpen(false)}
+      fullWidth
+      maxWidth="sm"
+    >
+      <DialogTitle>{t("tournaments.bracket.filterTitle")}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={1.25}>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            <Chip
+              size="small"
+              variant="outlined"
+              label={t("tournaments.bracket.totalGroups", {
+                count: allGroupKeys.length,
+              })}
+            />
+            <Chip
+              size="small"
+              color={groupSelected.size === 0 ? "default" : "primary"}
+              variant="outlined"
+              label={t("tournaments.bracket.selectedGroups", {
+                count: groupSelected.size === 0 ? "0" : groupSelected.size,
+              })}
+            />
+            <Chip
+              size="small"
+              color={myGroupKeys.size ? "success" : "default"}
+              variant="outlined"
+              label={t("tournaments.bracket.myGroupsCount", {
+                count: myGroupKeys.size,
+              })}
+            />
+          </Stack>
+
+          <FormGroup row sx={{ gap: 1 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  indeterminate={
+                    groupSelected.size > 0 &&
+                    groupSelected.size < allGroupKeys.length
+                  }
+                  checked={groupSelected.size === allGroupKeys.length}
+                  onChange={(e) =>
+                    e.target.checked ? handleSelectAll() : handleClearAll()
+                  }
+                />
+              }
+              label={t("tournaments.bracket.selectAll")}
+            />
+          </FormGroup>
+
+          <FormGroup row sx={{ gap: 1, mt: 0.5 }}>
+            {(current?.groups || []).map((g, gi) => {
+              const key = groupKeyOf(g, gi);
+              const checked = groupSelected.has(key);
+              const mine = myGroupKeys.has(key);
+              const label = t("tournaments.bracket.groupLabel", {
+                index: gi + 1,
+              });
+              return (
+                <FormControlLabel
+                  key={key}
+                  control={
+                    <Checkbox
+                      checked={checked}
+                      onChange={() => toggleGroupKey(key)}
+                    />
+                  }
+                  label={
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      <span>{label}</span>
+                      {mine && (
+                        <Chip
+                          size="small"
+                          color="success"
+                          label={t("tournaments.bracket.myGroup")}
+                        />
+                      )}
+                    </Stack>
+                  }
+                />
+              );
+            })}
+          </FormGroup>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleClearAll}>
+          {t("tournaments.bracket.clearAll")}
+        </Button>
+        <Button onClick={handleSelectAll}>
+          {t("tournaments.bracket.selectAll")}
+        </Button>
+        <Button variant="contained" onClick={() => setFilterOpen(false)}>
+          {t("tournaments.bracket.apply")}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  const renderGroupSearchView = () => {
+    if (!(current?.groups || []).length) {
+      return (
+        <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
+          {t("tournaments.bracket.groupConfigMissing")}
+        </Paper>
+      );
+    }
+
+    if (!groupEntries.length) {
+      return (
+        <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
+          {t("tournaments.bracket.noFilteredGroups")}
+        </Paper>
+      );
+    }
+
+    const textPrimary = "#e8eaed";
+    const textMuted = "#bdc1c6";
+    const panelBg = "#303134";
+    const pageBg = "#202124";
+    const lineColor = "#3c4043";
+    const allMatchRows = groupEntries.flatMap((group) =>
+      (group.matchRows || []).map((row) => ({
+        ...row,
+        groupKey: group.key,
+        groupLabel: group.label,
+        groupCodeLabel: group.codeLabel,
+      })),
+    );
+    const visibleMatchRows = allMatchRows.slice(0, isMdUp ? 8 : 6);
+    const matchSummary = allMatchRows.reduce(
+      (acc, row) => {
+        const state = row.state || "planned";
+        acc[state] = (acc[state] || 0) + 1;
+        return acc;
+      },
+      { live: 0, done: 0, ready: 0, planned: 0 },
+    );
+    const totalTeamsVisible = groupEntries.reduce(
+      (sum, group) => sum + Number(group.teamCount || 0),
+      0,
+    );
+    const featuredGroup =
+      groupEntries.find((group) => group.standingRows?.length) ||
+      groupEntries[0];
+    const standingRows = (featuredGroup?.standingRows || []).slice(0, 6);
+    const tournamentImage = tour?.cover || tour?.image || "";
+
+    const splitScore = (score) => {
+      const text = String(score || "").trim();
+      const match = text.match(/(\d+)\s*[-:]\s*(\d+)/);
+      return match ? [match[1], match[2]] : ["", ""];
+    };
+
+    const stateLabel = (row) => {
+      const state = row?.state || matchStateKey(row?.match);
+      if (state === "live") return t("tournaments.bracket.v3Live");
+      if (state === "done") return t("tournaments.bracket.v3Final");
+      if (state === "ready") return t("tournaments.bracket.v3Ready");
+      return t("tournaments.bracket.v3Planned");
+    };
+
+    const renderTeamLine = (name, score, isWinner, isMine) => (
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        spacing={1}
+        sx={{ minWidth: 0 }}
+      >
+        <Typography
+          sx={{
+            color: isMine ? "#8ab4f8" : textPrimary,
+            fontSize: 15,
+            fontWeight: isWinner || isMine ? 700 : 500,
+            lineHeight: 1.35,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={name}
+        >
+          {name}
+        </Typography>
+        <Typography
+          sx={{
+            color: score ? textPrimary : textMuted,
+            fontSize: 16,
+            fontWeight: 700,
+            minWidth: 24,
+            textAlign: "right",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {score || ""}
+        </Typography>
+      </Stack>
+    );
+
+    const navItems = [
+      { label: t("tournaments.bracket.v3Overview"), active: true },
+      { label: t("tournaments.bracket.v3Matches") },
+      { label: t("tournaments.bracket.v3Standings") },
+      {
+        label: t("tournaments.bracket.filterButton"),
+        onClick: () => setFilterOpen(true),
+      },
+      {
+        label: t("tournaments.bracket.v3Bracket"),
+        onClick: () => setBracketUiMode("v1"),
+      },
+    ];
+
+    const metricItems = [
+      {
+        label: t("tournaments.bracket.boardMetricGroups"),
+        value: groupEntries.length,
+      },
+      {
+        label: t("tournaments.bracket.boardMetricTeams"),
+        value: totalTeamsVisible,
+      },
+      {
+        label: t("tournaments.bracket.boardMetricMatches"),
+        value: allMatchRows.length,
+      },
+      {
+        label: t("tournaments.bracket.boardMetricLive"),
+        value: matchSummary.live,
+        tone: "#fbbc04",
+      },
+      {
+        label: t("tournaments.bracket.boardMetricDone"),
+        value: matchSummary.done,
+        tone: "#81c995",
+      },
+    ];
+
+    return (
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 1.25, md: 2 },
+          borderRadius: 3,
+          bgcolor: pageBg,
+          color: textPrimary,
+          border: `1px solid ${lineColor}`,
+          boxShadow: "none",
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={2}
+          alignItems={{ xs: "flex-start", md: "center" }}
+          justifyContent="space-between"
+          sx={{ mb: 2 }}
+        >
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
+            <Box
+              sx={{
+                width: 54,
+                height: 54,
+                borderRadius: 2,
+                bgcolor: "#0f1115",
+                border: `1px solid ${lineColor}`,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <TrophyIcon sx={{ color: "#fbbc04", fontSize: 30 }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
+                variant={isMdUp ? "h5" : "h6"}
+                sx={{
+                  color: textPrimary,
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: { xs: "normal", md: "nowrap" },
+                }}
+              >
+                {tour?.name || current?.name}
+              </Typography>
+              <Typography sx={{ color: textMuted, fontSize: 13, mt: 0.35 }}>
+                {current?.name || t("tournaments.bracket.typeGroup")}
+              </Typography>
+            </Box>
+            <Tooltip title={t("tournaments.bracket.v3BackToCurrent")}>
+              <IconButton
+                size="small"
+                onClick={() => setBracketUiMode("v1")}
+                sx={{ color: textMuted, flexShrink: 0 }}
+              >
+                <MoreVertIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ width: { xs: "100%", md: "auto" } }}
+          >
+            {navItems.map((item) => (
+              <Button
+                key={item.label}
+                size="small"
+                variant={item.active ? "outlined" : "contained"}
+                onClick={item.onClick}
+                disableElevation
+                sx={{
+                  borderRadius: 999,
+                  textTransform: "none",
+                  px: 2,
+                  minHeight: 38,
+                  color: textPrimary,
+                  borderColor: item.active ? "#dadce0" : "transparent",
+                  bgcolor: item.active ? "transparent" : "#303134",
+                  "&:hover": {
+                    borderColor: item.active ? "#dadce0" : "transparent",
+                    bgcolor: item.active ? "rgba(255,255,255,0.06)" : "#3c4043",
+                  },
+                }}
+              >
+                {item.label}
+              </Button>
+            ))}
+            <IconButton
+              size="small"
+              onClick={() => setFilterOpen(true)}
+              aria-label={t("tournaments.bracket.v3More")}
+              sx={{
+                width: 38,
+                height: 38,
+                borderRadius: 999,
+                color: textPrimary,
+                bgcolor: "#303134",
+                "&:hover": { bgcolor: "#3c4043" },
+              }}
+            >
+              <ExpandMoreIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        </Stack>
+
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: {
+              xs: "repeat(2, minmax(0, 1fr))",
+              sm: "repeat(3, minmax(0, 1fr))",
+              lg: "repeat(5, minmax(0, 1fr))",
+            },
+            gap: 1,
+            mb: 1.5,
+          }}
+        >
+          {metricItems.map((item) => (
+            <Box
+              key={item.label}
+              sx={{
+                p: 1.2,
+                borderRadius: 2.5,
+                bgcolor: panelBg,
+                border: `1px solid ${lineColor}`,
+                minWidth: 0,
+              }}
+            >
+              <Typography
+                sx={{
+                  color: textMuted,
+                  fontSize: 12,
+                  lineHeight: 1.15,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {item.label}
+              </Typography>
+              <Typography
+                sx={{
+                  color: item.tone || textPrimary,
+                  fontSize: 22,
+                  fontWeight: 800,
+                  lineHeight: 1.15,
+                  mt: 0.35,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {item.value}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            overflowX: "auto",
+            pb: 1,
+            mb: 1,
+            scrollbarWidth: "thin",
+          }}
+        >
+          {groupEntries.slice(0, 10).map((group) => (
+            <Chip
+              key={group.key}
+              size="small"
+              label={
+                group.codeLabel
+                  ? `${group.label} · ${group.codeLabel}`
+                  : group.label
+              }
+              sx={{
+                flexShrink: 0,
+                borderRadius: 999,
+                bgcolor: group.isMine ? "rgba(138,180,248,0.18)" : "#303134",
+                color: group.isMine ? "#8ab4f8" : textPrimary,
+                border: `1px solid ${
+                  group.isMine ? "rgba(138,180,248,0.45)" : lineColor
+                }`,
+                "& .MuiChip-label": {
+                  px: 1.2,
+                  maxWidth: 180,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                },
+              }}
+            />
+          ))}
+        </Stack>
+
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", lg: "minmax(0, 1.45fr) minmax(320px, 0.95fr)" },
+            gap: 2,
+          }}
+        >
+          <Paper
+            elevation={0}
+            sx={{
+              bgcolor: panelBg,
+              color: textPrimary,
+              borderRadius: 3,
+              border: `1px solid ${lineColor}`,
+              overflow: "hidden",
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${lineColor}` }}
+            >
+              <Typography sx={{ color: textPrimary, fontWeight: 700 }}>
+                {t("tournaments.bracket.v3Matches")}
+              </Typography>
+              <ChevronRightIcon sx={{ color: textMuted }} />
+            </Stack>
+
+            {visibleMatchRows.length ? (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" },
+                }}
+              >
+                {visibleMatchRows.map((row, index) => {
+                  const [scoreA, scoreB] = splitScore(row.score);
+                  const winner = String(row.match?.winner || "").toUpperCase();
+                  return (
+                    <Box
+                      key={`${row.groupKey}-${row._id}`}
+                      onClick={() =>
+                        !row.isPlaceholder && row.match
+                          ? openMatchModal(row.match)
+                          : null
+                      }
+                      sx={{
+                        px: 2,
+                        py: 1.4,
+                        minHeight: 112,
+                        cursor:
+                          !row.isPlaceholder && row.match ? "pointer" : "default",
+                        borderBottom:
+                          index < visibleMatchRows.length - 1
+                            ? `1px solid ${lineColor}`
+                            : "none",
+                        borderRight: {
+                          xs: "none",
+                          md:
+                            index % 2 === 0
+                              ? `1px solid ${lineColor}`
+                              : "none",
+                        },
+                        bgcolor: row.isMine ? "rgba(138,180,248,0.08)" : "transparent",
+                        "&:hover": {
+                          bgcolor:
+                            !row.isPlaceholder && row.match
+                              ? "rgba(255,255,255,0.05)"
+                              : undefined,
+                        },
+                      }}
+                    >
+                      <Stack spacing={0.8}>
+                        <Stack direction="row" alignItems="center" spacing={0.75}>
+                          <Typography
+                            sx={{
+                              color: textMuted,
+                              fontSize: 12,
+                              lineHeight: 1.2,
+                              flex: 1,
+                              minWidth: 0,
+                            }}
+                          >
+                            {row.groupLabel}
+                            {row.groupCodeLabel ? ` · ${row.groupCodeLabel}` : ""}
+                          </Typography>
+                          {row.video ? (
+                            <VideoIcon sx={{ color: "#f28b82", fontSize: 17 }} />
+                          ) : null}
+                        </Stack>
+
+                        {renderTeamLine(
+                          row.aName,
+                          scoreA,
+                          winner === "A",
+                          row.isMineA,
+                        )}
+                        {renderTeamLine(
+                          row.bName,
+                          scoreB,
+                          winner === "B",
+                          row.isMineB,
+                        )}
+
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          justifyContent="space-between"
+                          spacing={1}
+                        >
+                          <Typography sx={{ color: textMuted, fontSize: 12 }}>
+                            {row.timeShort || row.time || t("tournaments.bracket.v3Today")}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              color:
+                                row.state === "live"
+                                  ? "#fbbc04"
+                                  : row.state === "done"
+                                    ? textPrimary
+                                    : textMuted,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {stateLabel(row)}
+                          </Typography>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  );
+                })}
+              </Box>
+            ) : (
+              <Box sx={{ p: 2, color: textMuted }}>
+                {t("tournaments.bracket.noMatches")}
+              </Box>
+            )}
+            {allMatchRows.length > visibleMatchRows.length ? (
+              <Box
+                sx={{
+                  px: 2,
+                  py: 1.4,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  borderTop: `1px solid ${lineColor}`,
+                }}
+              >
+                <Button
+                  size="small"
+                  endIcon={<ChevronRightIcon />}
+                  onClick={() => setBracketUiMode("v1")}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: "none",
+                    px: 1.6,
+                    color: "#aecbfa",
+                    bgcolor: "rgba(138,180,248,0.12)",
+                    "&:hover": {
+                      bgcolor: "rgba(138,180,248,0.18)",
+                    },
+                  }}
+                >
+                  {t("tournaments.bracket.v3FullSchedule")}
+                </Button>
+              </Box>
+            ) : null}
+          </Paper>
+
+          <Stack spacing={2}>
+            <Paper
+              elevation={0}
+              sx={{
+                bgcolor: panelBg,
+                color: textPrimary,
+                borderRadius: 3,
+                border: `1px solid ${lineColor}`,
+                overflow: "hidden",
+              }}
+            >
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                sx={{ px: 2, py: 1.5 }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ color: textPrimary, fontWeight: 700 }}>
+                    {t("tournaments.bracket.v3Standings")}
+                  </Typography>
+                  <Typography sx={{ color: textMuted, fontSize: 13 }}>
+                    {featuredGroup?.label}
+                  </Typography>
+                </Box>
+                <ChevronRightIcon sx={{ color: textMuted }} />
+              </Stack>
+
+              <TableContainer sx={{ px: 2, pb: 1.5 }}>
+                <Table
+                  size="small"
+                  sx={{
+                    "& .MuiTableCell-root": {
+                      color: textPrimary,
+                      borderColor: lineColor,
+                      px: 0.5,
+                      py: 0.8,
+                    },
+                    "& .MuiTableCell-head": {
+                      color: textMuted,
+                      fontSize: 12,
+                      fontWeight: 500,
+                    },
+                  }}
+                >
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ width: 34 }}>#</TableCell>
+                      <TableCell>{t("tournaments.bracket.columns.team")}</TableCell>
+                      <TableCell align="center">{t("tournaments.bracket.columns.played")}</TableCell>
+                      <TableCell align="center">{t("tournaments.bracket.columns.win")}</TableCell>
+                      <TableCell align="center">{t("tournaments.bracket.columns.draw")}</TableCell>
+                      <TableCell align="center">{t("tournaments.bracket.columns.loss")}</TableCell>
+                      <TableCell align="center">{t("tournaments.bracket.columns.diff")}</TableCell>
+                      <TableCell align="center">{t("tournaments.bracket.v3PointsShort")}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {standingRows.length ? (
+                      standingRows.map((row, index) => (
+                        <TableRow key={row.id || `v3-standing-${index}`}>
+                          <TableCell>{index + 1}</TableCell>
+                          <TableCell
+                            sx={{
+                              color: row.isMine ? "#8ab4f8" : textPrimary,
+                              fontWeight: row.isMine ? 700 : 600,
+                              maxWidth: 180,
+                            }}
+                          >
+                            <Box
+                              component="span"
+                              sx={{
+                                display: "block",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                              title={row.name}
+                            >
+                              {row.name}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center">{row.played}</TableCell>
+                          <TableCell align="center">{row.win}</TableCell>
+                          <TableCell align="center">{row.draw}</TableCell>
+                          <TableCell align="center">{row.loss}</TableCell>
+                          <TableCell align="center">
+                            {row.diff > 0 ? `+${row.diff}` : row.diff}
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 800 }}>
+                            {row.pts}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={8} align="center" sx={{ color: textMuted }}>
+                          {t("tournaments.bracket.noStandings")}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+
+            <Paper
+              elevation={0}
+              sx={{
+                p: 1.5,
+                bgcolor: panelBg,
+                color: textPrimary,
+                borderRadius: 3,
+                border: `1px solid ${lineColor}`,
+              }}
+            >
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={{ color: "#f28b82", fontSize: 13, fontWeight: 700 }}>
+                    {t("tournaments.bracket.v3NewsSource")}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: textPrimary,
+                      fontSize: 15,
+                      fontWeight: 700,
+                      lineHeight: 1.3,
+                      mt: 0.4,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {t("tournaments.bracket.v3NewsTitle", {
+                      name: tour?.name || current?.name,
+                    })}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      color: textMuted,
+                      fontSize: 13,
+                      mt: 0.4,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 1,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {t("tournaments.bracket.v3NewsBody")}
+                  </Typography>
+                </Box>
+                {tournamentImage ? (
+                  <Box
+                    component="img"
+                    src={tournamentImage}
+                    alt=""
+                    sx={{
+                      width: 124,
+                      height: 86,
+                      borderRadius: 2,
+                      objectFit: "cover",
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      width: 96,
+                      height: 72,
+                      borderRadius: 2,
+                      bgcolor: "#202124",
+                      border: `1px solid ${lineColor}`,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <TrophyIcon sx={{ color: "#fbbc04", fontSize: 30 }} />
+                  </Box>
+                )}
+              </Stack>
+            </Paper>
+          </Stack>
+        </Box>
+        {renderGroupFilterDialog()}
+      </Paper>
+    );
+  };
+
   const renderUnifiedBracketV2 = () => (
     <Paper
       variant="outlined"
@@ -8714,6 +9560,9 @@ export default function TournamentBracket() {
           </Tabs>
 
           {current.type === "group" ? (
+            isBracketV3 ? (
+              renderGroupSearchView()
+            ) : (
         <Paper sx={{ p: 2 }}>
           <Stack
             direction={{ xs: "column", md: "row" }}
@@ -8901,6 +9750,7 @@ export default function TournamentBracket() {
             ? renderGroupBoardView()
             : renderGroupBlocks()}
         </Paper>
+            )
       ) : current.type === "roundElim" ? (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>

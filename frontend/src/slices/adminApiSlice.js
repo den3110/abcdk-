@@ -65,6 +65,20 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         { type: "Rankings", id: "PODIUM30D" },
       ],
     }),
+    getAssessmentHistory: builder.query({
+      query: (filters = {}) => {
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+          if (value === undefined || value === null || value === "") return;
+          params.set(key, String(value));
+        });
+        if (!params.has("page")) params.set("page", "1");
+        if (!params.has("pageSize")) params.set("pageSize", "25");
+        return `/api/admin/assessment-history?${params.toString()}`;
+      },
+      providesTags: ["AssessmentHistory"],
+      keepUnusedDataFor: 10,
+    }),
 
     // =========================
     // EVALUATOR MANAGEMENT (mới)
@@ -281,6 +295,7 @@ export const {
   useReviewKycMutation,
   useUpdateUserInfoMutation,
   useUpdateRankingMutation,
+  useGetAssessmentHistoryQuery,
   useGetUserAuditQuery,
   // evaluators
   useGetEvaluatorsQuery,

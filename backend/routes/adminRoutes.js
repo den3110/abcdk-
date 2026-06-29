@@ -253,6 +253,7 @@ import {
   getAdminCourtClusterRuntime,
   getAdminCourtStationCurrentMatch,
   getTournamentCourtClusterRuntime,
+  getTournamentCourtLiveMonitor,
   listAdminCourtStationFreeManager,
   listAdminCourtClusters,
   listAdminCourtStations,
@@ -299,6 +300,7 @@ import {
   listSelfAssessments,
   resetSelfAssessments,
 } from "../controllers/admin/adminSelfAssessmentController.js";
+import { listAssessmentHistory } from "../controllers/admin/adminAssessmentHistoryController.js";
 import {
   getAuthLogDetail,
   listAuthLogs,
@@ -390,6 +392,12 @@ router.get(
   isManagerOrTournamentReferee,
   getTournamentCourtClusterRuntime,
 );
+router.get(
+  "/tournaments/:tournamentId/court-live-monitor",
+  protect,
+  isManagerOrTournamentReferee,
+  getTournamentCourtLiveMonitor,
+);
 router.post(
   "/tournaments/:tournamentId/court-stations/:stationId/assign-match",
   protect,
@@ -466,6 +474,7 @@ router.post("/score-history", createScoreHistory); // body { userId, ... }
 
 router.get("/self-assessments", listSelfAssessments);
 router.post("/self-assessments/reset", resetSelfAssessments);
+router.get("/assessment-history", listAssessmentHistory);
 
 router.get("/auth-logs", requireSuperAdmin, listAuthLogs);
 router.get("/auth-logs/:id", requireSuperAdmin, getAuthLogDetail);

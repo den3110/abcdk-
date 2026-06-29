@@ -134,6 +134,9 @@ const ChatBotOpsPage = lazyRoute(() =>
 const IdentitySecurityPage = lazyRoute(() =>
   import("./screens/admin/IdentitySecurityPage.jsx"),
 );
+const AssessmentHistoryPage = lazyRoute(() =>
+  import("./screens/admin/AssessmentHistoryPage.jsx"),
+);
 const Forbidden403 = lazyRoute(() => import("./screens/403.jsx"));
 const ServiceUnavailable = lazyRoute(() => import("./screens/503.jsx"));
 const PublicProfilePage = lazyRoute(() =>
@@ -331,6 +334,7 @@ const router = sentryCreateBrowserRouter(
         <Route index element={<Navigate to="/admin/users" replace />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="identity-security" element={<IdentitySecurityPage />} />
+        <Route path="assessment-history" element={<AssessmentHistoryPage />} />
         <Route path="news" element={<NewsPage />} />
         <Route path="pikora-ops" element={<ChatBotOpsPage />} />
         <Route

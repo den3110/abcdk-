@@ -51,6 +51,9 @@ const assessmentSchema = new mongoose.Schema(
 );
 
 assessmentSchema.index({ user: 1, scoredAt: -1 });
+assessmentSchema.index({ scoredAt: -1 });
+assessmentSchema.index({ scorer: 1, scoredAt: -1 });
 assessmentSchema.index({ "meta.scoreBy": 1 });
+assessmentSchema.index({ "meta.scoreBy": 1, scoredAt: -1 });
 
 export default mongoose.model("Assessment", assessmentSchema);

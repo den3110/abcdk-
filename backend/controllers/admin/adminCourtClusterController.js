@@ -81,6 +81,140 @@ function safeText(value, fallback = "") {
   return text || fallback;
 }
 
+const LIVE_MONITOR_PRESENCE_GRACE_MS = 30_000;
+const LIVE_MONITOR_ACTIVE_MATCH_STATUSES = new Set([
+  "live",
+  "ongoing",
+  "playing",
+  "in_progress",
+  "started",
+]);
+const LIVE_MONITOR_LIVE_SCREEN_STATES = new Set([
+  "live",
+  "connecting",
+  "reconnecting",
+  "starting_countdown",
+  "armed_waiting_for_court",
+  "armed_waiting_for_next_match",
+  "ending_live",
+  "ending_countdown",
+]);
+
+function safeLower(value) {
+  return safeText(value).toLowerCase();
+}
+
+function parseDateOrNull(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function toIsoOrNull(value) {
+  const parsed = parseDateOrNull(value);
+  return parsed ? parsed.toISOString() : null;
+}
+
+function elapsedMsSince(value, now = new Date()) {
+  const parsed = parseDateOrNull(value);
+  if (!parsed) return null;
+  return Math.max(0, now.getTime() - parsed.getTime());
+}
+
+function normalizePresenceForMonitor(station, livePresence, now = new Date()) {
+  const stationPresence = station?.presence || null;
+  const presence =
+    livePresence ||
+    stationPresence?.liveScreenPresence ||
+    (stationPresence?.occupied ? stationPresence : null) ||
+    null;
+  const lastHeartbeatAt =
+    presence?.lastHeartbeatAt ||
+    stationPresence?.lastSeenAt ||
+    stationPresence?.lastHeartbeatAt ||
+    null;
+  const expiresAt = presence?.expiresAt || null;
+  const heartbeatAgeMs = elapsedMsSince(lastHeartbeatAt, now);
+  const expiresDate = parseDateOrNull(expiresAt);
+  const isExpired = expiresDate
+    ? expiresDate.getTime() + 1_000 < now.getTime()
+    : false;
+  const isRecentlySeen =
+    heartbeatAgeMs !== null && heartbeatAgeMs <= LIVE_MONITOR_PRESENCE_GRACE_MS;
+  const isOnline = Boolean(presence?.occupied) && !isExpired && isRecentlySeen;
+
+  return {
+    occupied: Boolean(presence?.occupied),
+    isOnline,
+    status: isOnline ? "online" : presence?.occupied ? "stale" : "offline",
+    source: livePresence ? "redis" : presence ? "station" : "none",
+    screenState: safeText(presence?.screenState),
+    matchId: toIdString(presence?.matchId),
+    startedAt: toIsoOrNull(presence?.startedAt),
+    lastHeartbeatAt: toIsoOrNull(lastHeartbeatAt),
+    expiresAt: toIsoOrNull(expiresAt),
+    offlineForMs: isOnline ? 0 : heartbeatAgeMs,
+  };
+}
+
+function isLiveLikeScreenState(screenState) {
+  return LIVE_MONITOR_LIVE_SCREEN_STATES.has(safeLower(screenState));
+}
+
+function buildStationMonitorStatus(station, presence) {
+  const stationStatus = safeLower(station?.status);
+  const matchStatus = safeLower(station?.currentMatch?.status);
+  const hasLiveWork =
+    stationStatus === "live" ||
+    LIVE_MONITOR_ACTIVE_MATCH_STATUSES.has(matchStatus) ||
+    isLiveLikeScreenState(presence?.screenState);
+  const presenceOfflineWhileLive = hasLiveWork && !presence?.isOnline;
+  const lostSignal = presenceOfflineWhileLive;
+  const stationName = safeText(station?.name, "sân live");
+
+  if (lostSignal) {
+    return {
+      state: "lost_signal",
+      severity: "error",
+      hasLiveWork,
+      lostSignal: true,
+      online: false,
+      message: `Máy live tại ${stationName} mất tín hiệu trên server chính, có dấu hiệu crash hoặc bị đóng app. Hãy kiểm tra thiết bị và mở lại live.`,
+    };
+  }
+
+  if (hasLiveWork) {
+    return {
+      state: "live_ok",
+      severity: "success",
+      hasLiveWork,
+      lostSignal: false,
+      online: Boolean(presence?.isOnline),
+      message: "Live đang có tín hiệu.",
+    };
+  }
+
+  if (presence?.isOnline) {
+    return {
+      state: "standby_online",
+      severity: "info",
+      hasLiveWork: false,
+      lostSignal: false,
+      online: true,
+      message: "Máy live đang online, chưa có trận live.",
+    };
+  }
+
+  return {
+    state: "idle",
+    severity: "default",
+    hasLiveWork: false,
+    lostSignal: false,
+    online: false,
+    message: "Chưa có tín hiệu live đang chạy.",
+  };
+}
+
 function buildClusterManagerSummary(cluster) {
   return {
     _id: toIdString(cluster?._id),
@@ -554,6 +688,148 @@ export const getTournamentCourtClusterRuntime = asyncHandler(
     res.json(payload);
   }
 );
+
+export const getTournamentCourtLiveMonitor = asyncHandler(async (req, res) => {
+  ensureValidObjectId(req.params.tournamentId, "tournamentId");
+
+  const tournament = await Tournament.findById(req.params.tournamentId)
+    .select("_id name code status allowedCourtClusterIds")
+    .lean();
+  if (!tournament) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+
+  const clusterIds = Array.from(
+    new Set(
+      (Array.isArray(tournament.allowedCourtClusterIds)
+        ? tournament.allowedCourtClusterIds
+        : []
+      )
+        .map((value) => toIdString(value))
+        .filter(Boolean)
+    )
+  );
+
+  const [clusterDocs, clusterStationEntries] = await Promise.all([
+    clusterIds.length
+      ? CourtCluster.find({ _id: { $in: clusterIds } })
+          .select("_id name slug venueName description color order isActive")
+          .lean()
+      : Promise.resolve([]),
+    Promise.all(
+      clusterIds.map(async (clusterId) => {
+        const stations = await listCourtStations(clusterId, {
+          includeMatches: true,
+        }).catch(() => []);
+        return [clusterId, stations];
+      })
+    ),
+  ]);
+
+  const clusterDocMap = new Map(
+    clusterDocs.map((cluster) => [toIdString(cluster?._id), cluster])
+  );
+  const stations = clusterStationEntries.flatMap(([clusterId, items]) => {
+    const cluster = clusterDocMap.get(clusterId) || {
+      _id: clusterId,
+      name: `Cluster ${clusterId.slice(0, 6)}`,
+      slug: "",
+      venueName: "",
+      description: "",
+      color: "",
+      order: 0,
+      isActive: true,
+    };
+    return (Array.isArray(items) ? items : [])
+      .filter((station) => station?.isActive !== false)
+      .map((station) => ({
+        ...station,
+        cluster: buildClusterManagerSummary(cluster),
+      }));
+  });
+
+  const stationIds = stations.map((station) => toIdString(station?._id)).filter(Boolean);
+  const presenceMap = await getCourtStationPresenceSummaryMap(stationIds);
+  const now = new Date();
+
+  const monitorStations = stations.map((station) => {
+    const stationId = toIdString(station?._id);
+    const presence = normalizePresenceForMonitor(
+      station,
+      presenceMap.get(stationId),
+      now
+    );
+    const monitor = buildStationMonitorStatus(station, presence);
+
+    return {
+      _id: stationId,
+      name: safeText(station?.name),
+      code: safeText(station?.code),
+      order: Number.isFinite(Number(station?.order)) ? Number(station.order) : 0,
+      status: safeText(station?.status, "idle"),
+      assignmentMode: safeText(station?.assignmentMode, "manual"),
+      clusterId: toIdString(station?.clusterId || station?.cluster?._id),
+      clusterName: safeText(station?.clusterName || station?.cluster?.name),
+      cluster: station.cluster,
+      currentMatch: station.currentMatch || null,
+      currentTournament: station.currentTournament || null,
+      liveConfig: station.liveConfig || null,
+      presence,
+      monitor: {
+        ...monitor,
+        checkedAt: now.toISOString(),
+      },
+    };
+  });
+
+  const counts = monitorStations.reduce(
+    (acc, station) => {
+      acc.total += 1;
+      if (station.monitor?.hasLiveWork) acc.live += 1;
+      if (station.monitor?.online) acc.online += 1;
+      if (station.monitor?.lostSignal) acc.lostSignal += 1;
+      if (station.monitor?.severity === "warning") acc.warning += 1;
+      if (station.monitor?.state === "lost_signal") acc.offline += 1;
+      return acc;
+    },
+    {
+      total: 0,
+      live: 0,
+      online: 0,
+      warning: 0,
+      lostSignal: 0,
+      offline: 0,
+    }
+  );
+
+  res.json({
+    ok: true,
+    tournament: {
+      _id: toIdString(tournament._id),
+      name: safeText(tournament.name),
+      code: safeText(tournament.code),
+      status: safeText(tournament.status),
+    },
+    source: {
+      type: "main_server_presence",
+      heartbeatGraceMs: LIVE_MONITOR_PRESENCE_GRACE_MS,
+    },
+    counts,
+    stations: monitorStations.sort((left, right) => {
+      const leftClusterOrder = Number(left?.cluster?.order || 0);
+      const rightClusterOrder = Number(right?.cluster?.order || 0);
+      if (leftClusterOrder !== rightClusterOrder) {
+        return leftClusterOrder - rightClusterOrder;
+      }
+      const leftOrder = Number(left?.order || 0);
+      const rightOrder = Number(right?.order || 0);
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return safeText(left?.name).localeCompare(safeText(right?.name), "vi");
+    }),
+    updatedAt: now.toISOString(),
+  });
+});
 
 export const updateTournamentCourtStationAssignmentConfigHttp = asyncHandler(
   async (req, res) => {

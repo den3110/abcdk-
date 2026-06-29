@@ -33,6 +33,15 @@ export const courtClustersAdminApiSlice = apiSlice.injectEndpoints({
         { type: "TournamentCourtClusterRuntime", id: `LIST_${tournamentId}` },
       ],
     }),
+    getTournamentCourtLiveMonitor: builder.query({
+      query: ({ tournamentId } = {}) =>
+        `/api/admin/tournaments/${tournamentId}/court-live-monitor`,
+      keepUnusedDataFor: 0,
+      providesTags: (result, error, { tournamentId } = {}) => [
+        { type: "TournamentCourtLiveMonitor", id: tournamentId },
+        { type: "TournamentCourtLiveMonitor", id: "LIST" },
+      ],
+    }),
     assignTournamentMatchToCourtStation: builder.mutation({
       query: ({ tournamentId, stationId, matchId, force = false }) => ({
         url: `/api/admin/tournaments/${tournamentId}/court-stations/${stationId}/assign-match`,
@@ -150,6 +159,7 @@ export const {
   useGetTournamentCourtClusterOptionsQuery,
   useUpdateTournamentAllowedCourtClustersMutation,
   useGetTournamentCourtClusterRuntimeQuery,
+  useGetTournamentCourtLiveMonitorQuery,
   useAssignTournamentMatchToCourtStationMutation,
   useUpdateTournamentCourtStationAssignmentConfigMutation,
   useAppendTournamentCourtStationQueueItemMutation,

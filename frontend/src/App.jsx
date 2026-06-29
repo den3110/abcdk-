@@ -280,6 +280,9 @@ const App = () => {
   const isOverlayStudioPage = /\/tournament\/[^/]+\/overlay-studio$/.test(
     location.pathname,
   );
+  const isTournamentBracketPage = /^\/tournament\/[^/]+\/bracket\/?$/.test(
+    location.pathname,
+  );
   const isModernHomeRoute = isModernVersion && location.pathname === "/";
   const isFullScreenLayout =
     isAuthPage ||
@@ -361,7 +364,7 @@ const App = () => {
       {isFullScreenLayout ? (
         <Outlet />
       ) : (
-        <Container className="app-shell">
+        <Container className="app-shell" fluid={isTournamentBracketPage}>
           <Box
             component="main"
             sx={{

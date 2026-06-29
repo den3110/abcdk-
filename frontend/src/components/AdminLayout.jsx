@@ -24,6 +24,7 @@ import ArticleIcon from "@mui/icons-material/Article";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import SecurityIcon from "@mui/icons-material/Security";
+import HistoryIcon from "@mui/icons-material/History";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import SEOHead from "../components/SEOHead";
@@ -93,6 +94,11 @@ export default function AdminLayout({ children }) {
       label: tx("admin.layout.identitySecurity", "Identity Security"),
       icon: <SecurityIcon />,
       path: "/admin/identity-security",
+    },
+    {
+      label: tx("admin.layout.assessmentHistory", "Lịch sử chấm trình"),
+      icon: <HistoryIcon />,
+      path: "/admin/assessment-history",
     },
     {
       label: t("admin.layout.news"),

@@ -74,6 +74,7 @@ import {
   HowToReg as RefereeIcon,
   SportsScore as ScoreboardIcon,
   Movie as MovieIcon,
+  LiveTv as LiveMonitorIcon,
   Print as PrintIcon,
   AutoAwesome as AutoAwesomeIcon,
   CloudUpload as CloudUploadIcon,
@@ -110,6 +111,7 @@ import TournamentCourtClusterDialog from "../../components/TournamentCourtCluste
 import ManageRefereesDialog from "../../components/RefereeManagerDialog";
 import TournamentManagersDialog from "../../components/TournamentManagersDialog";
 import LiveSetupDialog from "../../components/LiveSetupDialog";
+import TournamentCourtLiveMonitorDialog from "../../components/TournamentCourtLiveMonitorDialog";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
 import SEOHead from "../../components/SEOHead";
@@ -1921,6 +1923,7 @@ export default function TournamentManagePage() {
     initialMatch: null,
   });
   const [refereeDashboardOpen, setRefereeDashboardOpen] = useState(false);
+  const [courtLiveMonitorOpen, setCourtLiveMonitorOpen] = useState(false);
   const closeRefereeMatch = useCallback(
     () =>
       setRefereeViewer({
@@ -1944,6 +1947,14 @@ export default function TournamentManagePage() {
   );
   const openRefereeDashboard = useCallback(() => setRefereeDashboardOpen(true), []);
   const closeRefereeDashboard = useCallback(() => setRefereeDashboardOpen(false), []);
+  const openCourtLiveMonitor = useCallback(
+    () => setCourtLiveMonitorOpen(true),
+    [],
+  );
+  const closeCourtLiveMonitor = useCallback(
+    () => setCourtLiveMonitorOpen(false),
+    [],
+  );
   const canStartRefereeMatch = useCallback(
     (match) => {
       const status = String(match?.status || "").toLowerCase();
@@ -3976,6 +3987,15 @@ export default function TournamentManagePage() {
               Quản lý chấm trận ({refereeDashboardMatches.length})
             </Button>
 
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<LiveMonitorIcon />}
+              onClick={openCourtLiveMonitor}
+            >
+              Quản lý live sân
+            </Button>
+
             {/* Quản lý sân TOÀN GIẢI */}
             <Button
               variant="outlined"
@@ -4311,6 +4331,18 @@ export default function TournamentManagePage() {
                   <ListItemText
                     primary={`Quản lý chấm trận (${refereeDashboardMatches.length})`}
                   />
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
+                    openCourtLiveMonitor();
+                  }}
+                >
+                  <ListItemIcon>
+                    <LiveMonitorIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Quản lý live sân" />
                 </MenuItem>
 
                 <MenuItem
@@ -5257,6 +5289,12 @@ export default function TournamentManagePage() {
         tournament={tour}
         canOverride={isAdmin}
         onUpdated={handleCourtClustersUpdated}
+      />
+
+      <TournamentCourtLiveMonitorDialog
+        open={courtLiveMonitorOpen}
+        onClose={closeCourtLiveMonitor}
+        tournamentId={id}
       />
 
       <ManageRefereesDialog
