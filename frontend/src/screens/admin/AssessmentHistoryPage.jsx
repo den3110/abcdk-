@@ -7,6 +7,8 @@ import {
   Card,
   Chip,
   CircularProgress,
+  Drawer,
+  MenuItem,
   Pagination,
   Stack,
   Table,
@@ -35,6 +37,37 @@ const sourceQuickOptions = [
   { value: "staff", label: "Chính thức" },
   { value: "self", label: "Tự chấm" },
   { value: "unknown", label: "Không rõ" },
+];
+
+const scoreByOptions = [
+  { value: "", label: "Tất cả người chấm" },
+  { value: "staff", label: "BQT / staff" },
+  { value: "admin", label: "Admin" },
+  { value: "mod", label: "Mod" },
+  { value: "moderator", label: "Moderator" },
+  { value: "self", label: "Tự chấm" },
+  { value: "unknown", label: "Không rõ" },
+];
+
+const scorerRoleOptions = [
+  { value: "", label: "Tất cả vai trò" },
+  { value: "admin", label: "Admin" },
+  { value: "mod", label: "Mod" },
+  { value: "moderator", label: "Moderator" },
+  { value: "evaluator", label: "Người chấm trình" },
+  { value: "user", label: "User" },
+  { value: "referee", label: "Referee" },
+];
+
+const sortOptions = [
+  { value: "scoredAt", label: "Ngày chấm" },
+  { value: "createdAt", label: "Ngày tạo" },
+  { value: "singleLevel", label: "Điểm đơn" },
+  { value: "doubleLevel", label: "Điểm đôi" },
+  { value: "targetName", label: "Tên VĐV" },
+  { value: "scorerName", label: "Tên người chấm" },
+  { value: "province", label: "Tỉnh" },
+  { value: "scoreBy", label: "Nguồn chấm" },
 ];
 
 const fmtScore = (value) => {
@@ -96,6 +129,7 @@ export default function AssessmentHistoryPage() {
   const [searchInput, setSearchInput] = useState("");
   const [keyword, setKeyword] = useState("");
   const [filters, setFilters] = useState(initialFilters);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -144,6 +178,23 @@ export default function AssessmentHistoryPage() {
       value: `${fmtScore(summary.avgSingle)} / ${fmtScore(summary.avgDouble)}`,
     },
   ];
+  const activeFilterCount = [
+    filters.scoreBy,
+    filters.sourceType,
+    filters.scorerRole,
+    filters.province,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.singleMin,
+    filters.singleMax,
+    filters.doubleMin,
+    filters.doubleMax,
+    filters.targetUserId,
+    filters.scorerId,
+    filters.sortBy !== initialFilters.sortBy ? filters.sortBy : "",
+    filters.sortDir !== initialFilters.sortDir ? filters.sortDir : "",
+    filters.pageSize !== DEFAULT_PAGE_SIZE ? filters.pageSize : "",
+  ].filter(Boolean).length;
 
   return (
     <Stack spacing={1.5}>
@@ -224,6 +275,13 @@ export default function AssessmentHistoryPage() {
                   "& .MuiButton-root": { flex: { xs: 1, sm: "0 0 auto" } },
                 }}
               >
+                <Button
+                  size="small"
+                  variant={activeFilterCount ? "contained" : "outlined"}
+                  onClick={() => setFilterDrawerOpen(true)}
+                >
+                  Bộ lọc{activeFilterCount ? ` (${activeFilterCount})` : ""}
+                </Button>
                 <Button
                   size="small"
                   variant="outlined"
@@ -402,6 +460,242 @@ export default function AssessmentHistoryPage() {
           </Stack>
         </Box>
       </Card>
+
+      <Drawer
+        anchor="right"
+        open={filterDrawerOpen}
+        onClose={() => setFilterDrawerOpen(false)}
+        slotProps={{
+          paper: {
+            sx: {
+              width: { xs: "100%", sm: 430 },
+              maxWidth: "100%",
+            },
+          },
+        }}
+      >
+        <Stack spacing={2} sx={{ p: 2, height: "100%" }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Box>
+              <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
+                Bộ lọc
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {activeFilterCount ? `${activeFilterCount} bộ lọc đang bật` : "Chưa có bộ lọc nào"}
+              </Typography>
+            </Box>
+            <Button size="small" onClick={() => setFilterDrawerOpen(false)}>
+              Đóng
+            </Button>
+          </Stack>
+
+          <Stack spacing={1}>
+            <Typography variant="caption" color="text.secondary">
+              Nguồn chấm
+            </Typography>
+            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+              {sourceQuickOptions.map((option) => {
+                const active = filters.sourceType === option.value;
+                return (
+                  <Chip
+                    key={option.value || "all"}
+                    size="small"
+                    label={option.label}
+                    color={active ? "primary" : "default"}
+                    variant={active ? "filled" : "outlined"}
+                    onClick={() => setFilter("sourceType", option.value)}
+                    sx={{ borderRadius: 1 }}
+                  />
+                );
+              })}
+            </Stack>
+          </Stack>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "1fr",
+              gap: 1.25,
+            }}
+          >
+            <TextField
+              select
+              fullWidth
+              size="small"
+              label="Người chấm"
+              value={filters.scoreBy}
+              onChange={(e) => setFilter("scoreBy", e.target.value)}
+            >
+              {scoreByOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              label="Vai trò"
+              value={filters.scorerRole}
+              onChange={(e) => setFilter("scorerRole", e.target.value)}
+            >
+              {scorerRoleOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              fullWidth
+              size="small"
+              label="Tỉnh VĐV"
+              value={filters.province}
+              onChange={(e) => setFilter("province", e.target.value)}
+            />
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: 1.25,
+            }}
+          >
+            <TextField
+              fullWidth
+              size="small"
+              type="date"
+              label="Từ ngày"
+              value={filters.dateFrom}
+              onChange={(e) => setFilter("dateFrom", e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              fullWidth
+              size="small"
+              type="date"
+              label="Đến ngày"
+              value={filters.dateTo}
+              onChange={(e) => setFilter("dateTo", e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Đơn từ"
+              value={filters.singleMin}
+              onChange={(e) => setFilter("singleMin", e.target.value)}
+            />
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Đơn đến"
+              value={filters.singleMax}
+              onChange={(e) => setFilter("singleMax", e.target.value)}
+            />
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Đôi từ"
+              value={filters.doubleMin}
+              onChange={(e) => setFilter("doubleMin", e.target.value)}
+            />
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Đôi đến"
+              value={filters.doubleMax}
+              onChange={(e) => setFilter("doubleMax", e.target.value)}
+            />
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "1fr",
+              gap: 1.25,
+            }}
+          >
+            <TextField
+              fullWidth
+              size="small"
+              label="ID VĐV"
+              value={filters.targetUserId}
+              onChange={(e) => setFilter("targetUserId", e.target.value)}
+            />
+            <TextField
+              fullWidth
+              size="small"
+              label="ID người chấm"
+              value={filters.scorerId}
+              onChange={(e) => setFilter("scorerId", e.target.value)}
+            />
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: 1.25,
+            }}
+          >
+            <TextField
+              select
+              fullWidth
+              size="small"
+              label="Sắp xếp"
+              value={filters.sortBy}
+              onChange={(e) => setFilter("sortBy", e.target.value)}
+            >
+              {sortOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              label="Chiều"
+              value={filters.sortDir}
+              onChange={(e) => setFilter("sortDir", e.target.value)}
+            >
+              <MenuItem value="desc">Giảm dần</MenuItem>
+              <MenuItem value="asc">Tăng dần</MenuItem>
+            </TextField>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              label="Số dòng"
+              value={filters.pageSize}
+              onChange={(e) => setFilter("pageSize", Number(e.target.value))}
+            >
+              {[10, 25, 50, 100].map((value) => (
+                <MenuItem key={value} value={value}>
+                  {value}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+
+          <Box sx={{ flexGrow: 1 }} />
+          <Stack direction="row" spacing={1}>
+            <Button fullWidth variant="outlined" color="secondary" onClick={clearFilters}>
+              Xóa lọc
+            </Button>
+            <Button fullWidth variant="contained" onClick={() => setFilterDrawerOpen(false)}>
+              Áp dụng
+            </Button>
+          </Stack>
+        </Stack>
+      </Drawer>
     </Stack>
   );
 }

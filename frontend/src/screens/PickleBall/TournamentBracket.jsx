@@ -77,7 +77,6 @@ import {
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
-import useFrontendUiVersion from "../../hook/useFrontendUiVersion";
 import { useLanguage } from "../../context/LanguageContext";
 import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import SEOHead from "../../components/SEOHead";
@@ -5166,14 +5165,14 @@ export default function TournamentBracket() {
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const { id: tourId } = useParams();
   const me = useSelector((s) => s.auth?.userInfo); // NEW
-  const { version: frontendUiVersion } = useFrontendUiVersion();
   const [searchParams, setSearchParams] = useSearchParams();
+  const explicitBracketUiVersion =
+    searchParams.get("ui") || searchParams.get("bracketUi") || "";
   const storedBracketUiVersion = readStoredBracketUiVersion();
+  const storedBracketUiVersionForDefault =
+    normalizeBracketUiVersion(storedBracketUiVersion) === "v2" ? "v2" : "";
   const bracketUiVersion = normalizeBracketUiVersion(
-    searchParams.get("ui") ||
-      searchParams.get("bracketUi") ||
-      storedBracketUiVersion ||
-      (frontendUiVersion === "v3" ? "v3" : ""),
+    explicitBracketUiVersion || storedBracketUiVersionForDefault,
   );
   const isBracketV3 = bracketUiVersion === "v3";
   const isBracketV2 = bracketUiVersion === "v2";
@@ -5220,10 +5219,14 @@ export default function TournamentBracket() {
     const hasUrlVersion = searchParams.has("ui") || searchParams.has("bracketUi");
     if (hasUrlVersion) {
       try {
-        window.localStorage.setItem(
-          BRACKET_UI_VERSION_STORAGE_KEY,
-          bracketUiVersion,
-        );
+        if (bracketUiVersion === "v3") {
+          window.localStorage.removeItem(BRACKET_UI_VERSION_STORAGE_KEY);
+        } else {
+          window.localStorage.setItem(
+            BRACKET_UI_VERSION_STORAGE_KEY,
+            bracketUiVersion,
+          );
+        }
       } catch {
         // ignore storage errors
       }
@@ -5232,18 +5235,21 @@ export default function TournamentBracket() {
 
     const storedRawVersion = readStoredBracketUiVersion();
     const storedVersion = normalizeBracketUiVersion(storedRawVersion);
-    if (storedVersion === "v1") {
-      if (frontendUiVersion !== "v3" || storedRawVersion === "v1") return;
-      const next = new URLSearchParams(searchParams);
-      next.set("ui", "v3");
-      setSearchParams(next, { replace: true });
+    if (storedVersion !== "v2") {
+      if (storedVersion === "v3") {
+        try {
+          window.localStorage.removeItem(BRACKET_UI_VERSION_STORAGE_KEY);
+        } catch {
+          // ignore storage errors
+        }
+      }
       return;
     }
 
     const next = new URLSearchParams(searchParams);
     next.set("ui", storedVersion);
     setSearchParams(next, { replace: true });
-  }, [bracketUiVersion, frontendUiVersion, searchParams, setSearchParams]);
+  }, [bracketUiVersion, searchParams, setSearchParams]);
 
   const setBracketUiMode = useCallback(
     (mode) => {
@@ -5530,8 +5536,6 @@ export default function TournamentBracket() {
   const closeMatch = () => setOpen(false);
 
   const current = brackets?.[tab] || null;
-  const isUnifiedBracketMode =
-    isBracketV2 || (isBracketV3 && current?.type !== "group");
   const currentMatches = useMemo(
     () => (current ? byBracket[current._id] || [] : []),
     [byBracket, current],
@@ -6398,7 +6402,7 @@ export default function TournamentBracket() {
   );
 
   const unifiedBracketV2Sections = useMemo(() => {
-    if (!isUnifiedBracketMode) return [];
+    if (!isBracketV2) return [];
 
     const sections = [];
 
@@ -6504,7 +6508,7 @@ export default function TournamentBracket() {
     brackets,
     byBracket,
     baseRoundStartByBracketId,
-    isUnifiedBracketMode,
+    isBracketV2,
     pendingTeamLabel,
     resolveSeedReferenceLabel,
     resolveSideLabel,
@@ -9209,8 +9213,6 @@ export default function TournamentBracket() {
     );
   };
 
-  const unifiedBracketModeLabel = isBracketV3 ? "V3" : "V2";
-
   const renderUnifiedBracketV2 = () => (
     <Paper
       variant="outlined"
@@ -9237,7 +9239,7 @@ export default function TournamentBracket() {
               overflowWrap: "anywhere",
             }}
           >
-            {`Sơ đồ giải đấu ${unifiedBracketModeLabel}`}
+            Sơ đồ giải đấu v2
           </Typography>
           <Typography
             variant="caption"
@@ -9247,9 +9249,9 @@ export default function TournamentBracket() {
             Gộp playoff và knockout trong một màn, hiển thị một chiều từ trái sang phải.
           </Typography>
         </Box>
-        <Tooltip title={`Đang dùng sơ đồ ${unifiedBracketModeLabel}`} arrow>
+        <Tooltip title="Đang dùng sơ đồ v2" arrow>
           <FormControlLabel
-            label={unifiedBracketModeLabel}
+            label="V2"
             labelPlacement="start"
             sx={{
               m: 0,
@@ -9264,11 +9266,9 @@ export default function TournamentBracket() {
             control={
               <Switch
                 size="small"
-                checked={isUnifiedBracketMode}
+                checked={isBracketV2}
                 onChange={handleBracketV2Switch}
-                inputProps={{
-                  "aria-label": `Chuyển sơ đồ ${unifiedBracketModeLabel}`,
-                }}
+                inputProps={{ "aria-label": "Chuyển sơ đồ v2" }}
               />
             }
           />
@@ -9277,13 +9277,13 @@ export default function TournamentBracket() {
 
       {!unifiedBracketV2Sections.length ? (
         <Alert severity="info">
-          {`Chưa có bracket playoff hoặc knockout để hiển thị ở bản ${unifiedBracketModeLabel}.`}
+          Chưa có bracket playoff hoặc knockout để hiển thị ở bản v2.
         </Alert>
       ) : (
         renderDiagramShell(
           <Box sx={{ overflow: "auto", pb: 1 }}>
             <Box
-              className={`bracket-${unifiedBracketModeLabel.toLowerCase()}-unified`}
+              className="bracket-v2-unified"
               sx={{
                 display: "inline-block",
                 transform: `scale(${zoom})`,
@@ -9528,7 +9528,7 @@ export default function TournamentBracket() {
         </Stack>
       </Paper>
 
-      {isUnifiedBracketMode ? (
+      {isBracketV2 ? (
         renderUnifiedBracketV2()
       ) : (
         <>
