@@ -7,8 +7,6 @@ import {
   Card,
   Chip,
   CircularProgress,
-  Grid,
-  MenuItem,
   Pagination,
   Stack,
   Table,
@@ -32,42 +30,11 @@ const sourceLabels = {
   unknown: { label: "Không rõ", color: "default" },
 };
 
-const scoreByOptions = [
-  { value: "", label: "Tất cả người chấm" },
-  { value: "staff", label: "BQT / staff" },
-  { value: "admin", label: "Admin" },
-  { value: "mod", label: "Mod" },
-  { value: "moderator", label: "Moderator" },
+const sourceQuickOptions = [
+  { value: "", label: "Tất cả" },
+  { value: "staff", label: "Chính thức" },
   { value: "self", label: "Tự chấm" },
   { value: "unknown", label: "Không rõ" },
-];
-
-const sourceTypeOptions = [
-  { value: "", label: "Tất cả nguồn" },
-  { value: "staff", label: "Chấm chính thức" },
-  { value: "self", label: "Tự chấm" },
-  { value: "unknown", label: "Không rõ" },
-];
-
-const scorerRoleOptions = [
-  { value: "", label: "Tất cả vai trò" },
-  { value: "admin", label: "Admin" },
-  { value: "mod", label: "Mod" },
-  { value: "moderator", label: "Moderator" },
-  { value: "evaluator", label: "Người chấm trình" },
-  { value: "user", label: "User" },
-  { value: "referee", label: "Referee" },
-];
-
-const sortOptions = [
-  { value: "scoredAt", label: "Ngày chấm" },
-  { value: "createdAt", label: "Ngày tạo" },
-  { value: "singleLevel", label: "Điểm đơn" },
-  { value: "doubleLevel", label: "Điểm đôi" },
-  { value: "targetName", label: "Tên VĐV" },
-  { value: "scorerName", label: "Tên người chấm" },
-  { value: "province", label: "Tỉnh" },
-  { value: "scoreBy", label: "Nguồn chấm" },
 ];
 
 const fmtScore = (value) => {
@@ -179,240 +146,145 @@ export default function AssessmentHistoryPage() {
   ];
 
   return (
-    <Stack spacing={3}>
-      <Grid container spacing={2}>
+    <Stack spacing={1.5}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: {
+            xs: "repeat(2, minmax(0, 1fr))",
+            lg: "repeat(4, minmax(0, 1fr))",
+          },
+          gap: 1,
+        }}
+      >
         {summaryCards.map((item) => (
-          <Grid item xs={12} sm={6} lg={3} key={item.label}>
-            <Card sx={{ p: 2, height: "100%" }}>
-              <Typography variant="overline" color="text.secondary">
-                {item.label}
-              </Typography>
-              <Typography variant="h4">{item.value}</Typography>
-            </Card>
-          </Grid>
+          <Box
+            key={item.label}
+            sx={{
+              p: { xs: 1.25, md: 1.5 },
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1,
+              bgcolor: "background.paper",
+              minWidth: 0,
+            }}
+          >
+            <Typography
+              variant="overline"
+              color="text.secondary"
+              sx={{ display: "block", letterSpacing: 0, lineHeight: 1.2 }}
+            >
+              {item.label}
+            </Typography>
+            <Typography
+              variant="h6"
+              sx={{
+                mt: 0.4,
+                fontWeight: 600,
+                lineHeight: 1.15,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.value}
+            </Typography>
+          </Box>
         ))}
-      </Grid>
+      </Box>
 
-      <Card>
-        <Box sx={{ p: { xs: 1.5, md: 3 } }}>
-          <Stack spacing={2.5}>
+      <Card
+        sx={{
+          border: "1px solid",
+          borderColor: "divider",
+          boxShadow: "none",
+        }}
+      >
+        <Box sx={{ p: { xs: 1.5, md: 2 } }}>
+          <Stack spacing={1.5}>
             <Stack
               direction={{ xs: "column", md: "row" }}
               justifyContent="space-between"
               alignItems={{ xs: "stretch", md: "center" }}
-              spacing={2}
+              spacing={1.5}
             >
               <Box>
-                <Typography variant="h5">Lịch sử chấm trình</Typography>
+                <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
+                  Lịch sử chấm trình
+                </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Tổng hợp các lần admin, mod và người dùng tự chấm. Tất cả bộ lọc chạy ở backend.
+                  Tổng {total} bản ghi • Trang {page}/{totalPages}
                 </Typography>
               </Box>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                <Button variant="outlined" onClick={() => refetch()} disabled={isFetching}>
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{
+                  flexShrink: 0,
+                  "& .MuiButton-root": { flex: { xs: 1, sm: "0 0 auto" } },
+                }}
+              >
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => refetch()}
+                  disabled={isFetching}
+                >
                   Tải lại
                 </Button>
-                <Button variant="outlined" color="secondary" onClick={clearFilters}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  onClick={clearFilters}
+                >
                   Xóa lọc
                 </Button>
               </Stack>
             </Stack>
 
-            <Grid container spacing={1.5}>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Tìm kiếm"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Tên, nick, SĐT, email, ghi chú"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={2}>
-                <TextField
-                  select
-                  fullWidth
-                  size="small"
-                  label="Người chấm"
-                  value={filters.scoreBy}
-                  onChange={(e) => setFilter("scoreBy", e.target.value)}
-                >
-                  {scoreByOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12} sm={6} md={2}>
-                <TextField
-                  select
-                  fullWidth
-                  size="small"
-                  label="Loại nguồn"
-                  value={filters.sourceType}
-                  onChange={(e) => setFilter("sourceType", e.target.value)}
-                >
-                  {sourceTypeOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12} sm={6} md={2}>
-                <TextField
-                  select
-                  fullWidth
-                  size="small"
-                  label="Vai trò scorer"
-                  value={filters.scorerRole}
-                  onChange={(e) => setFilter("scorerRole", e.target.value)}
-                >
-                  {scorerRoleOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12} sm={6} md={2}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Tỉnh VĐV"
-                  value={filters.province}
-                  onChange={(e) => setFilter("province", e.target.value)}
-                />
-              </Grid>
-
-              <Grid item xs={6} sm={3} md={2}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="date"
-                  label="Từ ngày"
-                  value={filters.dateFrom}
-                  onChange={(e) => setFilter("dateFrom", e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={6} sm={3} md={2}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="date"
-                  label="Đến ngày"
-                  value={filters.dateTo}
-                  onChange={(e) => setFilter("dateTo", e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Grid>
-              <Grid item xs={6} sm={3} md={1.5}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="number"
-                  label="Đơn từ"
-                  value={filters.singleMin}
-                  onChange={(e) => setFilter("singleMin", e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={6} sm={3} md={1.5}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="number"
-                  label="Đơn đến"
-                  value={filters.singleMax}
-                  onChange={(e) => setFilter("singleMax", e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={6} sm={3} md={1.5}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="number"
-                  label="Đôi từ"
-                  value={filters.doubleMin}
-                  onChange={(e) => setFilter("doubleMin", e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={6} sm={3} md={1.5}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  type="number"
-                  label="Đôi đến"
-                  value={filters.doubleMax}
-                  onChange={(e) => setFilter("doubleMax", e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={2}>
-                <TextField
-                  select
-                  fullWidth
-                  size="small"
-                  label="Sắp xếp"
-                  value={filters.sortBy}
-                  onChange={(e) => setFilter("sortBy", e.target.value)}
-                >
-                  {sortOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={6} sm={3} md={1.5}>
-                <TextField
-                  select
-                  fullWidth
-                  size="small"
-                  label="Chiều"
-                  value={filters.sortDir}
-                  onChange={(e) => setFilter("sortDir", e.target.value)}
-                >
-                  <MenuItem value="desc">Giảm dần</MenuItem>
-                  <MenuItem value="asc">Tăng dần</MenuItem>
-                </TextField>
-              </Grid>
-              <Grid item xs={6} sm={3} md={1.5}>
-                <TextField
-                  select
-                  fullWidth
-                  size="small"
-                  label="Số dòng"
-                  value={filters.pageSize}
-                  onChange={(e) => setFilter("pageSize", Number(e.target.value))}
-                >
-                  {[10, 25, 50, 100].map((value) => (
-                    <MenuItem key={value} value={value}>
-                      {value}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="ID VĐV"
-                  value={filters.targetUserId}
-                  onChange={(e) => setFilter("targetUserId", e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="ID người chấm"
-                  value={filters.scorerId}
-                  onChange={(e) => setFilter("scorerId", e.target.value)}
-                />
-              </Grid>
-            </Grid>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: "minmax(260px, 360px) 1fr" },
+                gap: 1,
+                alignItems: "center",
+              }}
+            >
+              <TextField
+                fullWidth
+                size="small"
+                label="Tìm kiếm"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Tên, nick, SĐT, email, ghi chú"
+              />
+              <Stack
+                direction="row"
+                spacing={0.75}
+                useFlexGap
+                flexWrap="wrap"
+                alignItems="center"
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ mr: 0.25 }}>
+                  Nguồn
+                </Typography>
+                {sourceQuickOptions.map((option) => {
+                  const active = filters.sourceType === option.value;
+                  return (
+                    <Chip
+                      key={option.value || "all"}
+                      size="small"
+                      label={option.label}
+                      color={active ? "primary" : "default"}
+                      variant={active ? "filled" : "outlined"}
+                      onClick={() => setFilter("sourceType", option.value)}
+                      sx={{ borderRadius: 1 }}
+                    />
+                  );
+                })}
+              </Stack>
+            </Box>
 
             {isFetching ? (
               <Stack direction="row" spacing={1} alignItems="center">
@@ -511,21 +383,22 @@ export default function AssessmentHistoryPage() {
               </Table>
             </TableContainer>
 
-            <Grid container alignItems="center" justifyContent="space-between" spacing={2}>
-              <Grid item>
-                <Typography variant="caption" color="text.secondary">
-                  Tổng {total} bản ghi • Trang {page}/{totalPages}
-                </Typography>
-              </Grid>
-              <Grid item>
-                <Pagination
-                  page={page}
-                  count={totalPages}
-                  color="primary"
-                  onChange={(_, nextPage) => setPage(nextPage)}
-                />
-              </Grid>
-            </Grid>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              alignItems={{ xs: "stretch", sm: "center" }}
+              justifyContent="space-between"
+              spacing={2}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Tổng {total} bản ghi • Trang {page}/{totalPages}
+              </Typography>
+              <Pagination
+                page={page}
+                count={totalPages}
+                color="primary"
+                onChange={(_, nextPage) => setPage(nextPage)}
+              />
+            </Stack>
           </Stack>
         </Box>
       </Card>

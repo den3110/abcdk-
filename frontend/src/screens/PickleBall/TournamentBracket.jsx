@@ -5530,6 +5530,8 @@ export default function TournamentBracket() {
   const closeMatch = () => setOpen(false);
 
   const current = brackets?.[tab] || null;
+  const isUnifiedBracketMode =
+    isBracketV2 || (isBracketV3 && current?.type !== "group");
   const currentMatches = useMemo(
     () => (current ? byBracket[current._id] || [] : []),
     [byBracket, current],
@@ -6396,7 +6398,7 @@ export default function TournamentBracket() {
   );
 
   const unifiedBracketV2Sections = useMemo(() => {
-    if (!isBracketV2) return [];
+    if (!isUnifiedBracketMode) return [];
 
     const sections = [];
 
@@ -6502,7 +6504,7 @@ export default function TournamentBracket() {
     brackets,
     byBracket,
     baseRoundStartByBracketId,
-    isBracketV2,
+    isUnifiedBracketMode,
     pendingTeamLabel,
     resolveSeedReferenceLabel,
     resolveSideLabel,
@@ -9207,6 +9209,8 @@ export default function TournamentBracket() {
     );
   };
 
+  const unifiedBracketModeLabel = isBracketV3 ? "V3" : "V2";
+
   const renderUnifiedBracketV2 = () => (
     <Paper
       variant="outlined"
@@ -9233,7 +9237,7 @@ export default function TournamentBracket() {
               overflowWrap: "anywhere",
             }}
           >
-            Sơ đồ giải đấu v2
+            {`Sơ đồ giải đấu ${unifiedBracketModeLabel}`}
           </Typography>
           <Typography
             variant="caption"
@@ -9243,9 +9247,9 @@ export default function TournamentBracket() {
             Gộp playoff và knockout trong một màn, hiển thị một chiều từ trái sang phải.
           </Typography>
         </Box>
-        <Tooltip title="Đang dùng sơ đồ v2" arrow>
+        <Tooltip title={`Đang dùng sơ đồ ${unifiedBracketModeLabel}`} arrow>
           <FormControlLabel
-            label="V2"
+            label={unifiedBracketModeLabel}
             labelPlacement="start"
             sx={{
               m: 0,
@@ -9260,9 +9264,11 @@ export default function TournamentBracket() {
             control={
               <Switch
                 size="small"
-                checked={isBracketV2}
+                checked={isUnifiedBracketMode}
                 onChange={handleBracketV2Switch}
-                inputProps={{ "aria-label": "Chuyển sơ đồ v2" }}
+                inputProps={{
+                  "aria-label": `Chuyển sơ đồ ${unifiedBracketModeLabel}`,
+                }}
               />
             }
           />
@@ -9271,13 +9277,13 @@ export default function TournamentBracket() {
 
       {!unifiedBracketV2Sections.length ? (
         <Alert severity="info">
-          Chưa có bracket playoff hoặc knockout để hiển thị ở bản v2.
+          {`Chưa có bracket playoff hoặc knockout để hiển thị ở bản ${unifiedBracketModeLabel}.`}
         </Alert>
       ) : (
         renderDiagramShell(
           <Box sx={{ overflow: "auto", pb: 1 }}>
             <Box
-              className="bracket-v2-unified"
+              className={`bracket-${unifiedBracketModeLabel.toLowerCase()}-unified`}
               sx={{
                 display: "inline-block",
                 transform: `scale(${zoom})`,
@@ -9522,7 +9528,7 @@ export default function TournamentBracket() {
         </Stack>
       </Paper>
 
-      {isBracketV2 ? (
+      {isUnifiedBracketMode ? (
         renderUnifiedBracketV2()
       ) : (
         <>
