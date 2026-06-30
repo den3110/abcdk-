@@ -289,6 +289,7 @@ import {
 import {
   adminSetRankingSearchConfig,
   aiFillCccdForUser,
+  batchAiFillCccdForUsers,
   backfillUsersFromCccd,
 } from "../controllers/userController.js";
 import {
@@ -1304,6 +1305,13 @@ router.post(
   protect,
   authorize("admin"),
   backfillUsersFromCccd,
+);
+
+router.post(
+  "/users/ai-cccd-batch",
+  protect,
+  authorize("admin"),
+  batchAiFillCccdForUsers,
 );
 
 // NEW: AI CCCD cho từng user

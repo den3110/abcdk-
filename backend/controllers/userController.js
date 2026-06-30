@@ -4964,7 +4964,7 @@ export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
       message: "Dry-run: chỉ liệt kê user sẽ gọi, không cập nhật DB.",
       totalCandidates: users.length,
       users: users.map((u) => ({
-        id: u._id,
+        id: String(u._id),
         name: u.name,
         nickname: u.nickname,
         dob: u.dob,
@@ -5001,13 +5001,13 @@ export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
       }
 
       results.push({
-        id: user._id,
+        id: String(user._id),
         changed,
         extracted,
       });
     } catch (err) {
       results.push({
-        id: user._id,
+        id: String(user._id),
         changed: false,
         error: err.message || String(err),
       });
@@ -5022,36 +5022,24 @@ export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
   });
 });
 
-export const aiFillCccdForUser = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-
-  // chấp nhận cả query ?dryRun=1 lẫn body { dryRun: true }
-  const dryRun =
-    req.query.dryRun === "1" ||
-    req.query.dryRun === "true" ||
-    req.body?.dryRun === true;
-
-  // NEW: chế độ fill đè
-  const overwrite =
-    req.query.overwrite === "1" ||
-    req.query.overwrite === "true" ||
-    req.body?.overwrite === true;
-
+async function runAiCccdFillForUser(id, { dryRun = false, overwrite = false } = {}) {
   const user = await User.findById(id).select(
     "_id name nickname dob gender province cccd cccdImages cccdStatus"
   );
 
   if (!user) {
-    return res.status(404).json({ message: "User không tồn tại" });
+    const err = new Error("User không tồn tại");
+    err.statusCode = 404;
+    throw err;
   }
 
   const frontUrl = user.cccdImages?.front || "";
   const backUrl = user.cccdImages?.back || "";
 
   if (!frontUrl && !backUrl) {
-    return res
-      .status(400)
-      .json({ message: "User này chưa có ảnh CCCD để đọc AI" });
+    const err = new Error("User này chưa có ảnh CCCD để đọc AI");
+    err.statusCode = 400;
+    throw err;
   }
 
   // Gọi Claude đọc CCCD
@@ -5062,12 +5050,12 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
 
   if (dryRun) {
     // CHỈ xem trước → không ghi DB
-    return res.json({
-      id: user._id,
+    return {
+      id: String(user._id),
       dryRun: true,
       extracted, // có cả nickname (nếu có) để UI show gợi ý
       missingFields: getMissingFieldsForUser(user),
-    });
+    };
   }
 
   // Non-dry-run:
@@ -5088,13 +5076,83 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
   // Tính lại missingFields sau khi đã fill
   const missingFieldsAfter = getMissingFieldsForUser(user);
 
-  return res.json({
-    id: user._id,
+  return {
+    id: String(user._id),
     dryRun: false,
     overwrite,
     changed,
     extracted,
     missingFields: missingFieldsAfter,
+  };
+}
+
+const readBooleanFlag = (req, key) =>
+  req.query?.[key] === "1" ||
+  req.query?.[key] === "true" ||
+  req.body?.[key] === true;
+
+const normalizeBatchUserIds = (ids) =>
+  Array.from(
+    new Set(
+      (Array.isArray(ids) ? ids : [])
+        .map((id) => String(id || "").trim())
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    )
+  ).slice(0, 50);
+
+export const aiFillCccdForUser = asyncHandler(async (req, res) => {
+  const result = await runAiCccdFillForUser(req.params.id, {
+    dryRun: readBooleanFlag(req, "dryRun"),
+    overwrite: readBooleanFlag(req, "overwrite"),
+  });
+
+  return res.json(result);
+});
+
+export const batchAiFillCccdForUsers = asyncHandler(async (req, res) => {
+  const ids = normalizeBatchUserIds(req.body?.ids);
+  if (!ids.length) {
+    return res.status(400).json({ message: "Danh sách user không hợp lệ." });
+  }
+
+  const dryRun = readBooleanFlag(req, "dryRun");
+  const overwrite = readBooleanFlag(req, "overwrite");
+  const results = [];
+  let success = 0;
+  let failed = 0;
+  let updated = 0;
+
+  for (const id of ids) {
+    try {
+      const result = await runAiCccdFillForUser(id, { dryRun, overwrite });
+      results.push(result);
+      success += 1;
+      if (!dryRun && result.changed) updated += 1;
+    } catch (err) {
+      failed += 1;
+      results.push({
+        id,
+        dryRun,
+        overwrite,
+        changed: false,
+        error: err.message || String(err),
+      });
+    }
+  }
+
+  return res.json({
+    message: dryRun
+      ? "Đã quét AI batch CCCD."
+      : overwrite
+      ? "Đã fill đè batch CCCD."
+      : "Đã tự fill batch CCCD.",
+    total: ids.length,
+    success,
+    failed,
+    updated,
+    dryRun,
+    overwrite,
+    results,
   });
 });
 
