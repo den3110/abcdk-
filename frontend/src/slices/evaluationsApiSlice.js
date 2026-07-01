@@ -11,6 +11,7 @@ export const evaluationsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (_result, _error, arg) => [
         { type: "Rankings", id: "LIST" },
+        { type: "RatingHistory", id: arg?.targetUser || "LIST" },
         { type: "AssessmentHistory", id: arg?.targetUser || "LIST" },
         "AssessmentHistory",
       ],

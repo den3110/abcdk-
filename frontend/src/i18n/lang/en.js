@@ -2650,17 +2650,10 @@ export default {
       empty: "No rating history for this user yet.",
       loadFailed: "Unable to load rating history.",
       scoredAt: "Rated at",
-      source: "Source",
+      scorer: "Scorer",
       singles: "Singles",
       doubles: "Doubles",
       note: "Note",
-      sources: {
-        admin: "Admin",
-        mod: "Mod",
-        moderator: "Moderator",
-        self: "Self",
-        unknown: "Unknown",
-      },
     },
   },
   levelPoint: {

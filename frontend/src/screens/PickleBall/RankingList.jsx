@@ -59,6 +59,9 @@ import ClearIcon from "@mui/icons-material/Clear";
 import TableRowsIcon from "@mui/icons-material/TableRows";
 import GridViewIcon from "@mui/icons-material/GridView";
 import HistoryIcon from "@mui/icons-material/History";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
+import MilitaryTechIcon from "@mui/icons-material/MilitaryTech";
 
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -71,14 +74,17 @@ import { setKeyword, setPage } from "../../slices/rankingUiSlice";
  */
 import {
   useGetRankingsListQuery,
+  useGetRankingsPodiumAnnouncementsQuery,
   useGetRankingsPodiums30dQuery,
 } from "../../slices/rankingsApiSlice";
 
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 
-import { useGetMeQuery } from "../../slices/usersApiSlice";
+import {
+  useGetMeQuery,
+  useGetRatingHistoryQuery,
+} from "../../slices/usersApiSlice";
 import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
-import { useGetAssessmentHistoryQuery as useGetUserAssessmentHistoryQuery } from "../../slices/assessmentsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 import SponsorMarquee from "../../components/SponsorMarquee";
@@ -88,8 +94,69 @@ import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext"
 import { formatDate } from "../../i18n/format";
 
 /* ================= LAZY LOADING AVATAR COMPONENT ================= */
+const ChampionCrown = memo(({ size = 26 }) => (
+  <Box
+    component="svg"
+    viewBox="0 0 32 28"
+    aria-hidden="true"
+    focusable="false"
+    sx={{
+      position: "absolute",
+      top: -Math.round(size * 0.42),
+      left: -Math.round(size * 0.22),
+      width: size,
+      height: size,
+      zIndex: 5,
+      pointerEvents: "none",
+      transform: "rotate(-16deg)",
+      transformOrigin: "70% 80%",
+      filter:
+        "drop-shadow(0 2px 2px rgba(69,26,3,0.45)) drop-shadow(0 0 8px rgba(250,204,21,0.75))",
+      animation: "championCrownFloat 1.8s ease-in-out infinite alternate",
+    }}
+  >
+    <path
+      d="M5.2 20.4 3.4 7.1l7.2 5.2L16 3.7l5.4 8.6 7.2-5.2-1.8 13.3Z"
+      fill="#facc15"
+      stroke="#fff7ad"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M7.4 18.3 6.6 11l4.8 3.4L16 7.2l4.6 7.2 4.8-3.4-.8 7.3Z"
+      fill="#f59e0b"
+      opacity="0.78"
+    />
+    <path
+      d="M6.2 22.6h19.6"
+      stroke="#b45309"
+      strokeWidth="3.4"
+      strokeLinecap="round"
+    />
+    <path
+      d="M7.1 21.7h17.8"
+      stroke="#fde68a"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    />
+    <circle cx="3.4" cy="7" r="2.1" fill="#fff7ad" stroke="#f59e0b" />
+    <circle cx="16" cy="3.7" r="2.35" fill="#fff7ad" stroke="#f59e0b" />
+    <circle cx="28.6" cy="7" r="2.1" fill="#fff7ad" stroke="#f59e0b" />
+    <path
+      d="M10.3 10.9 16 3.7l5.7 7.2"
+      fill="none"
+      stroke="#fff7ad"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+      opacity="0.75"
+    />
+  </Box>
+));
+
+ChampionCrown.displayName = "ChampionCrown";
+
 const LazyAvatar = memo(
-  ({ src, alt, onClick, size = 44, flameEffect = null }) => {
+  ({ src, alt, onClick, size = 44, flameEffect = null, showCrown = false }) => {
     const [loaded, setLoaded] = useState(false);
     const [isInView, setIsInView] = useState(false);
     const imgRef = useRef(null);
@@ -122,13 +189,16 @@ const LazyAvatar = memo(
         width: size,
         height: size,
         borderRadius: "50%",
-        overflow: "hidden",
+        overflow: showCrown ? "visible" : "hidden",
       }),
-      [flameEffect, size],
+      [flameEffect, showCrown, size],
     );
 
     return (
       <Box ref={imgRef} sx={containerSx}>
+        {showCrown && (
+          <ChampionCrown size={Math.max(22, Math.round(size * 0.66))} />
+        )}
         {!loaded && (
           <Skeleton
             variant="circular"
@@ -433,38 +503,11 @@ const fmtHistoryScore = (value) => {
   return Number.isFinite(n) ? n.toFixed(3) : "--";
 };
 
-const getAssessmentSource = (row, t) => {
-  const scoreBy = String(row?.meta?.scoreBy || "").toLowerCase();
-  const key = row?.meta?.selfScored ? "self" : scoreBy || "unknown";
-
-  switch (key) {
-    case "admin":
-      return {
-        label: t("rankings.gradeHistory.sources.admin"),
-        color: "info",
-      };
-    case "mod":
-      return {
-        label: t("rankings.gradeHistory.sources.mod"),
-        color: "primary",
-      };
-    case "moderator":
-      return {
-        label: t("rankings.gradeHistory.sources.moderator"),
-        color: "primary",
-      };
-    case "self":
-      return {
-        label: t("rankings.gradeHistory.sources.self"),
-        color: "warning",
-      };
-    default:
-      return {
-        label: t("rankings.gradeHistory.sources.unknown"),
-        color: "default",
-      };
-  }
-};
+const getHistoryScorerName = (row) =>
+  row?.scorer?.name ||
+  row?.scorer?.nickname ||
+  row?.scorer?.email ||
+  "--";
 
 const achievementToneSx = {
   blue: {
@@ -598,6 +641,94 @@ const achievementEffectSx = {
       animation: "achievementPulse 1.8s ease-in-out infinite alternate",
     },
   },
+};
+
+const achievementMedalSx = {
+  gold: {
+    color: "#2b1700",
+    backgroundImage:
+      "linear-gradient(135deg, #fff7ad 0%, #facc15 34%, #f59e0b 68%, #fef3c7 100%)",
+    borderColor: "rgba(255, 214, 10, 0.82)",
+    boxShadow:
+      "0 0 0 1px rgba(255,255,255,0.32) inset, 0 0 16px rgba(250, 204, 21, 0.72), 0 6px 16px rgba(120, 53, 15, 0.28)",
+    textShadow: "0 1px 0 rgba(255,255,255,0.35)",
+    "&::before": {
+      background:
+        "linear-gradient(105deg, transparent 16%, rgba(255,255,255,0.76), transparent 42%)",
+      animation: "achievementFlare 1.25s ease-in-out infinite",
+    },
+    "&::after": {
+      background:
+        "radial-gradient(circle at 22% 78%, rgba(255,255,255,0.48) 0 8%, transparent 9%), radial-gradient(circle at 78% 22%, rgba(255,255,255,0.42) 0 7%, transparent 8%)",
+      animation: "achievementPulse 1.05s ease-in-out infinite alternate",
+    },
+    "& .MuiChip-icon": {
+      color: "#7c2d12",
+      filter: "drop-shadow(0 1px 0 rgba(255,255,255,0.45))",
+    },
+  },
+  silver: {
+    color: "#102033",
+    backgroundImage:
+      "linear-gradient(135deg, #ffffff 0%, #dbeafe 28%, #94a3b8 62%, #f8fafc 100%)",
+    borderColor: "rgba(226, 232, 240, 0.9)",
+    boxShadow:
+      "0 0 0 1px rgba(255,255,255,0.42) inset, 0 0 14px rgba(203, 213, 225, 0.62), 0 5px 14px rgba(15, 23, 42, 0.2)",
+    textShadow: "0 1px 0 rgba(255,255,255,0.44)",
+    "&::before": {
+      background:
+        "linear-gradient(112deg, transparent 14%, rgba(255,255,255,0.72), transparent 38%)",
+      animation: "achievementMystic 2.05s ease-in-out infinite",
+    },
+    "&::after": {
+      background:
+        "radial-gradient(circle at 35% 25%, rgba(255,255,255,0.5) 0 8%, transparent 9%), radial-gradient(circle at 75% 75%, rgba(226,232,240,0.4) 0 8%, transparent 9%)",
+      animation: "achievementSnow 2.6s linear infinite",
+    },
+    "& .MuiChip-icon": {
+      color: "#334155",
+      filter: "drop-shadow(0 1px 0 rgba(255,255,255,0.55))",
+    },
+  },
+  bronze: {
+    color: "#fff7ed",
+    backgroundImage:
+      "linear-gradient(135deg, #78350f 0%, #b45309 36%, #f97316 72%, #fed7aa 100%)",
+    borderColor: "rgba(251, 146, 60, 0.78)",
+    boxShadow:
+      "0 0 0 1px rgba(255,255,255,0.2) inset, 0 0 14px rgba(251, 146, 60, 0.58), 0 5px 14px rgba(67, 20, 7, 0.28)",
+    textShadow: "0 1px 1px rgba(67,20,7,0.55)",
+    "&::before": {
+      background:
+        "linear-gradient(105deg, transparent 18%, rgba(255,237,213,0.56), transparent 42%)",
+      animation: "achievementFlare 1.7s ease-in-out infinite",
+    },
+    "&::after": {
+      background:
+        "radial-gradient(circle at 28% 78%, rgba(255,237,213,0.4) 0 8%, transparent 9%), radial-gradient(circle at 76% 28%, rgba(255,255,255,0.25) 0 7%, transparent 8%)",
+      animation: "achievementPulse 1.35s ease-in-out infinite alternate",
+    },
+    "& .MuiChip-icon": {
+      color: "#ffedd5",
+      filter: "drop-shadow(0 1px 1px rgba(67,20,7,0.65))",
+    },
+  },
+};
+
+const getAchievementMedalVariant = (item) => {
+  const id = String(item?.id || "");
+  if (id.startsWith("gold-count")) return "gold";
+  if (id.startsWith("silver-count")) return "silver";
+  if (id.startsWith("bronze-count")) return "bronze";
+  return "";
+};
+
+const getAchievementIcon = (item) => {
+  const medal = getAchievementMedalVariant(item);
+  if (medal === "gold") return <EmojiEventsIcon fontSize="small" />;
+  if (medal === "silver") return <WorkspacePremiumIcon fontSize="small" />;
+  if (medal === "bronze") return <MilitaryTechIcon fontSize="small" />;
+  return null;
 };
 
 const safeScoreNumber = (value) => {
@@ -760,7 +891,7 @@ const buildAchievementRules = () => {
         tone: "yellow",
         priority: 900 + n * 8,
         when: (ctx) => ctx.goldCount >= n,
-        label: n === 1 ? "Vô địch" : `Vô địch +${n} giải`,
+        label: n === 1 ? "Nhà vô địch" : `Vô địch +${n} giải`,
         explain: (ctx) =>
           `Có ${ctx.goldCount} lần vô địch trong dữ liệu podium 30 ngày gần đây.`,
       }),
@@ -800,7 +931,7 @@ const buildAchievementRules = () => {
         tone: "bronze",
         priority: 620 + n * 6,
         when: (ctx) => ctx.bronzeCount >= n,
-        label: n === 1 ? "Hạng ba" : `Hạng ba +${n}`,
+        label: n === 1 ? "Hạng 3" : `Hạng 3 +${n}`,
         explain: (ctx) =>
           `Có ${ctx.bronzeCount} lần hạng ba trong dữ liệu podium 30 ngày gần đây.`,
       }),
@@ -952,6 +1083,11 @@ const normalizeRankingAchievements = (items) =>
     }))
     .filter((item) => item.id && item.label);
 
+const hasTopOneAchievement = (achievements = []) =>
+  (Array.isArray(achievements) ? achievements : []).some(
+    (item) => item?.id === "national-rank-1",
+  );
+
 const buildAchievementContext = ({
   r,
   u,
@@ -1037,9 +1173,10 @@ const buildRankingAchievements = (args) => {
   return Array.from(byFamily.values());
 };
 
-const achievementChipSx = (tone, extra = {}, effect = "glow") => ({
+const achievementChipSx = (tone, extra = {}, effect = "glow", medal = "") => ({
   ...(achievementToneSx[tone] || achievementToneSx.grey),
   ...(achievementEffectSx[effect] || achievementEffectSx.glow),
+  ...(achievementMedalSx[medal] || {}),
   position: "relative",
   overflow: "hidden",
   isolation: "isolate",
@@ -1069,6 +1206,14 @@ const achievementChipSx = (tone, extra = {}, effect = "glow") => ({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
+  "& .MuiChip-icon": {
+    position: "relative",
+    zIndex: 1,
+    ml: 0.75,
+    mr: -0.25,
+    fontSize: 16,
+    ...(achievementMedalSx[medal]?.["& .MuiChip-icon"] || {}),
+  },
   ...extra,
 });
 
@@ -1083,10 +1228,16 @@ function AchievementSummary({ achievements, onOpen, maxWidth = 180 }) {
         <Chip
           key={item.id}
           size="small"
+          icon={getAchievementIcon(item)}
           label={item.label}
           clickable
           onClick={onOpen}
-          sx={achievementChipSx(item.tone, { maxWidth }, item.effect)}
+          sx={achievementChipSx(
+            item.tone,
+            { maxWidth },
+            item.effect,
+            getAchievementMedalVariant(item),
+          )}
         />
       ))}
       {hiddenCount > 0 && (
@@ -1139,11 +1290,13 @@ function AchievementsDialog({ open, user, achievements, onClose }) {
                 >
                   <Chip
                     size="small"
+                    icon={getAchievementIcon(item)}
                     label={item.label}
                     sx={achievementChipSx(
                       item.tone,
                       { maxWidth: 220 },
                       item.effect,
+                      getAchievementMedalVariant(item),
                     )}
                   />
                   <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -1164,6 +1317,204 @@ function AchievementsDialog({ open, user, achievements, onClose }) {
         <Button onClick={onClose}>Đóng</Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+const podiumAnnouncementMeta = {
+  gold: {
+    label: "Vô địch",
+    action: "vô địch giải",
+    Icon: EmojiEventsIcon,
+    accent: "#facc15",
+    text: "#422006",
+    bg:
+      "linear-gradient(135deg, rgba(255,247,173,0.98), rgba(250,204,21,0.92), rgba(245,158,11,0.94))",
+    glow: "rgba(250,204,21,0.38)",
+  },
+  silver: {
+    label: "Hạng nhì",
+    action: "đạt hạng nhì tại giải",
+    Icon: WorkspacePremiumIcon,
+    accent: "#cbd5e1",
+    text: "#102033",
+    bg:
+      "linear-gradient(135deg, rgba(248,250,252,0.98), rgba(203,213,225,0.9), rgba(148,163,184,0.88))",
+    glow: "rgba(203,213,225,0.34)",
+  },
+  bronze: {
+    label: "Đồng hạng ba",
+    action: "đồng hạng ba tại giải",
+    Icon: MilitaryTechIcon,
+    accent: "#fb923c",
+    text: "#fff7ed",
+    bg:
+      "linear-gradient(135deg, rgba(120,53,15,0.98), rgba(180,83,9,0.95), rgba(249,115,22,0.9))",
+    glow: "rgba(251,146,60,0.34)",
+  },
+};
+
+function PodiumCelebrationMarquee({ items = [] }) {
+  const base = useMemo(
+    () =>
+      (Array.isArray(items) ? items : []).filter(
+        (item) => item?.teamLabel && item?.tournamentName && item?.medal,
+      ),
+    [items],
+  );
+  const group = useMemo(() => {
+    if (!base.length) return [];
+    const repeat = Math.max(2, Math.ceil(8 / base.length));
+    return Array.from({ length: repeat }, () => base).flat();
+  }, [base]);
+
+  if (!base.length) return null;
+
+  const duration = Math.max(24, group.length * 5);
+
+  return (
+    <Box
+      sx={{
+        position: "relative",
+        overflow: "hidden",
+        width: "100%",
+        py: 1.5,
+        mt: -1,
+        mb: 1.5,
+        background:
+          "linear-gradient(90deg, rgba(7,14,28,0), rgba(30,41,59,0.38), rgba(7,14,28,0))",
+        "&:hover ._podiumTrack": { animationPlayState: "paused" },
+        "@media (prefers-reduced-motion: reduce)": {
+          "& ._podiumTrack": { animation: "none" },
+        },
+      }}
+    >
+      <Box
+        sx={(theme) => ({
+          pointerEvents: "none",
+          position: "absolute",
+          inset: 0,
+          zIndex: 2,
+          background: `linear-gradient(90deg, ${theme.palette.background.default} 0%, rgba(0,0,0,0) 12%, rgba(0,0,0,0) 88%, ${theme.palette.background.default} 100%)`,
+        })}
+      />
+      <Box
+        className="_podiumTrack"
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          width: "max-content",
+          animation: `podiumAnnouncementScroll ${duration}s linear infinite`,
+          willChange: "transform",
+        }}
+      >
+        {[...group, ...group].map((item, idx) => (
+          <PodiumCelebrationItem
+            key={`${item.id || item.teamLabel}-${idx}`}
+            item={item}
+          />
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+function PodiumCelebrationItem({ item }) {
+  const meta = podiumAnnouncementMeta[item?.medal] || podiumAnnouncementMeta.gold;
+  const Icon = meta.Icon;
+  const href = item?.href || `/tournament/${item?.tournamentId || ""}/bracket`;
+
+  return (
+    <Tooltip
+      title={`${item.teamLabel} ${meta.action} ${item.tournamentName}`}
+      arrow
+      placement="top"
+    >
+      <Box
+        component={Link}
+        to={href}
+        sx={{
+          position: "relative",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 1.1,
+          mx: 1,
+          px: 1.5,
+          py: 0.9,
+          minHeight: 52,
+          maxWidth: { xs: 360, md: 520 },
+          borderRadius: 2,
+          color: "text.primary",
+          textDecoration: "none",
+          border: "1px solid rgba(255,255,255,0.12)",
+          background:
+            "linear-gradient(135deg, rgba(15,23,42,0.86), rgba(30,41,59,0.72))",
+          boxShadow: `0 0 28px ${meta.glow}, inset 0 1px 0 rgba(255,255,255,0.08)`,
+          backdropFilter: "blur(14px) saturate(150%)",
+          overflow: "hidden",
+          transition: "transform 160ms ease, border-color 160ms ease",
+          "&:hover": {
+            transform: "translateY(-2px)",
+            borderColor: meta.accent,
+          },
+          "&::before": {
+            content: '""',
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(110deg, transparent 12%, rgba(255,255,255,0.14), transparent 36%)",
+            animation: "podiumAnnouncementSheen 3.2s ease-in-out infinite",
+            pointerEvents: "none",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            position: "relative",
+            zIndex: 1,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 34,
+            height: 34,
+            flex: "0 0 auto",
+            borderRadius: "50%",
+            color: meta.text,
+            background: meta.bg,
+            boxShadow: `0 0 18px ${meta.glow}`,
+            animation: "podiumAnnouncementPulse 1.8s ease-in-out infinite",
+          }}
+        >
+          <Icon fontSize="small" />
+        </Box>
+        <Box sx={{ position: "relative", zIndex: 1, minWidth: 0 }}>
+          <Typography
+            variant="caption"
+            sx={{
+              display: "block",
+              color: meta.accent,
+              fontWeight: 800,
+              lineHeight: 1.1,
+              textTransform: "uppercase",
+            }}
+          >
+            Chúc mừng {meta.label}
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "#fff",
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: { xs: 270, md: 430 },
+            }}
+          >
+            {item.teamLabel} {meta.action} {item.tournamentName}
+          </Typography>
+        </Box>
+      </Box>
+    </Tooltip>
   );
 }
 
@@ -1378,6 +1729,8 @@ const DesktopCard = memo(
     const openAchievements = useCallback(() => {
       onOpenAchievements?.(u, achievements);
     }, [achievements, onOpenAchievements, u]);
+    const showChampionCrown =
+      Number(r?.globalRank) === 1 || hasTopOneAchievement(achievements);
 
     return (
       <Fade in timeout={500} style={{ transitionDelay: `${staggerDelay}ms` }}>
@@ -1402,6 +1755,7 @@ const DesktopCard = memo(
                   onClick={() => onZoomAvatar(avatarSrc)}
                   size={44}
                   flameEffect={topMedal ? flameRingSx(topMedal) : null}
+                  showCrown={showChampionCrown}
                 />
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography fontWeight={700} noWrap>
@@ -1599,6 +1953,8 @@ export default function RankingList() {
 
   const { data: podiumData, isFetching: isFetchingPod } =
     useGetRankingsPodiums30dQuery();
+  const { data: podiumAnnouncementData } =
+    useGetRankingsPodiumAnnouncementsQuery({ days: 7, limit: 36 });
 
   const list = useMemo(() => listData?.docs || [], [listData?.docs]);
   const totalPages = listData?.totalPages || 0;
@@ -1607,6 +1963,13 @@ export default function RankingList() {
   const podiums30d = useMemo(
     () => podiumData?.podiums30d || podiumData || {},
     [podiumData],
+  );
+  const podiumAnnouncementItems = useMemo(
+    () =>
+      Array.isArray(podiumAnnouncementData?.items)
+        ? podiumAnnouncementData.items
+        : [],
+    [podiumAnnouncementData],
   );
 
   const theme = useTheme();
@@ -1795,14 +2158,14 @@ export default function RankingList() {
     isFetching: fetchingGradeHistory,
     isError: gradeHistoryError,
     refetch: refetchGradeHistory,
-  } = useGetUserAssessmentHistoryQuery(
+  } = useGetRatingHistoryQuery(
     gradeHistoryDlg.open && gradeHistoryDlg.userId
-      ? { userId: gradeHistoryDlg.userId, limit: 30 }
+      ? { id: gradeHistoryDlg.userId, page: 1, limit: 30 }
       : skipToken,
     { refetchOnMountOrArgChange: true },
   );
-  const gradeHistoryRows = Array.isArray(gradeHistoryData)
-    ? gradeHistoryData
+  const gradeHistoryRows = Array.isArray(gradeHistoryData?.history)
+    ? gradeHistoryData.history
     : [];
 
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
@@ -2158,6 +2521,7 @@ export default function RankingList() {
         path="/rankings"
       />
       <SponsorMarquee variant="glass" height={80} gap={24} />
+      <PodiumCelebrationMarquee items={podiumAnnouncementItems} />
 
       {isFetching && !isLoading && (
         <Box
@@ -2206,8 +2570,45 @@ export default function RankingList() {
               "0%": { opacity: 0.2, transform: "scale(0.96)" },
               "100%": { opacity: 0.72, transform: "scale(1.02)" },
             },
+            "@keyframes championCrownFloat": {
+              "0%": {
+                transform: "rotate(-17deg) translateY(0)",
+                filter:
+                  "drop-shadow(0 2px 2px rgba(69,26,3,0.45)) drop-shadow(0 0 6px rgba(250,204,21,0.65))",
+              },
+              "100%": {
+                transform: "rotate(-13deg) translateY(-1.5px)",
+                filter:
+                  "drop-shadow(0 2px 2px rgba(69,26,3,0.45)) drop-shadow(0 0 11px rgba(250,204,21,0.9))",
+              },
+            },
+            "@keyframes podiumAnnouncementScroll": {
+              "0%": { transform: "translateX(0)" },
+              "100%": { transform: "translateX(-50%)" },
+            },
+            "@keyframes podiumAnnouncementSheen": {
+              "0%": { transform: "translateX(-120%)" },
+              "55%": { transform: "translateX(120%)" },
+              "100%": { transform: "translateX(120%)" },
+            },
+            "@keyframes podiumAnnouncementPulse": {
+              "0%,100%": {
+                transform: "scale(1)",
+                filter: "brightness(1)",
+              },
+              "50%": {
+                transform: "scale(1.06)",
+                filter: "brightness(1.12)",
+              },
+            },
             "@media (prefers-reduced-motion: reduce)": {
               ".MuiChip-root::before,.MuiChip-root::after": {
+                animation: "none !important",
+              },
+              "svg[aria-hidden='true']": {
+                animation: "none !important",
+              },
+              "._podiumTrack, ._podiumTrack *": {
                 animation: "none !important",
               },
             },
@@ -2581,6 +2982,9 @@ export default function RankingList() {
                   age,
                   effectiveStatus,
                 });
+                const showChampionCrown =
+                  Number(r?.globalRank) === 1 ||
+                  hasTopOneAchievement(achievements);
 
                 return (
                   <Card
@@ -2601,6 +3005,7 @@ export default function RankingList() {
                           onClick={() => openZoom(avatarSrc)}
                           size={40}
                           flameEffect={topMedal ? flameRingSx(topMedal) : null}
+                          showCrown={showChampionCrown}
                         />
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography fontWeight={600} noWrap>
@@ -2817,6 +3222,9 @@ export default function RankingList() {
                     age,
                     effectiveStatus,
                   });
+                  const showChampionCrown =
+                    Number(r?.globalRank) === 1 ||
+                    hasTopOneAchievement(achievements);
 
                   return (
                     <TableRow key={r?._id || u?._id} hover>
@@ -2828,6 +3236,7 @@ export default function RankingList() {
                           onClick={() => openZoom(avatarSrc)}
                           size={32}
                           flameEffect={topMedal ? flameRingSx(topMedal) : null}
+                          showCrown={showChampionCrown}
                         />
                       </TableCell>
                       <TableCell>
@@ -3203,7 +3612,7 @@ export default function RankingList() {
           maxWidth="xs"
           fullWidth
         >
-          <DialogTitle>
+          <DialogTitle component="div">
             <Stack
               direction="row"
               alignItems="center"
@@ -3292,7 +3701,7 @@ export default function RankingList() {
           maxWidth="sm"
           fullWidth
         >
-          <DialogTitle>
+          <DialogTitle component="div">
             <Stack
               direction="row"
               alignItems="center"
@@ -3300,7 +3709,7 @@ export default function RankingList() {
               spacing={1}
             >
               <Box sx={{ minWidth: 0 }}>
-                <Typography component="span" variant="h6" fontWeight={700} noWrap>
+                <Typography component="div" variant="h6" fontWeight={700} noWrap>
                   {t("rankings.gradeHistory.title", {
                     name: gradeHistoryDlg.nickname || "--",
                   })}
@@ -3332,7 +3741,7 @@ export default function RankingList() {
                   <TableHead>
                     <TableRow>
                       <TableCell>{t("rankings.gradeHistory.scoredAt")}</TableCell>
-                      <TableCell>{t("rankings.gradeHistory.source")}</TableCell>
+                      <TableCell>{t("rankings.gradeHistory.scorer")}</TableCell>
                       <TableCell align="right">
                         {t("rankings.gradeHistory.singles")}
                       </TableCell>
@@ -3343,37 +3752,27 @@ export default function RankingList() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {gradeHistoryRows.map((row) => {
-                      const source = getAssessmentSource(row, t);
-                      return (
-                        <TableRow key={row?._id} hover>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {row?.scoredAt
-                              ? formatDate(row.scoredAt, locale)
-                              : "--"}
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              size="small"
-                              color={source.color}
-                              variant="outlined"
-                              label={source.label}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            {fmtHistoryScore(row?.singleLevel)}
-                          </TableCell>
-                          <TableCell align="right">
-                            {fmtHistoryScore(row?.doubleLevel)}
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 180 }}>
-                            <Typography variant="body2" color="text.secondary">
-                              {row?.note || "--"}
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
+                    {gradeHistoryRows.map((row) => (
+                      <TableRow key={row?._id} hover>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          {row?.scoredAt ? formatDate(row.scoredAt, locale) : "--"}
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 140 }}>
+                          {getHistoryScorerName(row)}
+                        </TableCell>
+                        <TableCell align="right">
+                          {fmtHistoryScore(row?.single)}
+                        </TableCell>
+                        <TableCell align="right">
+                          {fmtHistoryScore(row?.double)}
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 220 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            {row?.note || "--"}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </TableContainer>

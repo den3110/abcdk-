@@ -2638,17 +2638,10 @@ export default {
       empty: "Chưa có lịch sử chấm trình cho user này.",
       loadFailed: "Không tải được lịch sử chấm trình.",
       scoredAt: "Ngày chấm",
-      source: "Nguồn",
+      scorer: "Người chấm",
       singles: "Đơn",
       doubles: "Đôi",
       note: "Ghi chú",
-      sources: {
-        admin: "Admin",
-        mod: "Mod",
-        moderator: "Moderator",
-        self: "Tự chấm",
-        unknown: "Không rõ",
-      },
     },
   },
   levelPoint: {

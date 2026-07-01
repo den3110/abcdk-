@@ -740,7 +740,7 @@ const buildRankingAchievementRules = () => {
         effect: n >= 3 ? "inferno" : "fire",
         priority: 900 + n * 8,
         when: (ctx) => ctx.goldCount >= n,
-        label: n === 1 ? "Vô địch" : `Vô địch +${n} giải`,
+        label: n === 1 ? "Nhà vô địch" : `Vô địch +${n} giải`,
         explain: (ctx) => `Có ${ctx.goldCount} lần vô địch trong 30 ngày gần đây.`,
       }),
     );
@@ -783,7 +783,7 @@ const buildRankingAchievementRules = () => {
         effect: "ember",
         priority: 620 + n * 6,
         when: (ctx) => ctx.bronzeCount >= n,
-        label: n === 1 ? "Hạng ba" : `Hạng ba +${n}`,
+        label: n === 1 ? "Hạng 3" : `Hạng 3 +${n}`,
         explain: (ctx) => `Có ${ctx.bronzeCount} lần hạng ba trong 30 ngày gần đây.`,
       }),
     );
@@ -1275,6 +1275,135 @@ async function buildRecentPodiumsByUser({ days = 30 } = {}) {
 
   return { podiumMapByUserId, rawList: achievementsReg };
 }
+
+const podiumMedalOrder = { gold: 1, silver: 2, bronze: 3 };
+
+const podiumMedalText = (medal) => {
+  if (medal === "gold") return "vô địch";
+  if (medal === "silver") return "hạng nhì";
+  if (medal === "bronze") return "đồng hạng ba";
+  return "đạt giải";
+};
+
+const buildRegistrationTeamName = (reg) => {
+  const faction = String(reg?.teamFactionName || "").trim();
+  if (faction) return faction;
+
+  const playerNames = [reg?.player1, reg?.player2]
+    .map((player) =>
+      String(player?.nickName || player?.fullName || "").trim(),
+    )
+    .filter(Boolean);
+
+  if (playerNames.length) return playerNames.join(" / ");
+  if (reg?.code) return `#${reg.code}`;
+  return "chưa rõ";
+};
+
+const buildRecentPodiumAnnouncements = async ({ days = 7, limit = 36 } = {}) => {
+  const now = nowUtc();
+  const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  const tours = await Tournament.find(
+    {
+      $or: [
+        { status: "finished" },
+        { finishedAt: { $ne: null } },
+        { endAt: { $type: "date" } },
+      ],
+    },
+    { _id: 1, name: 1, title: 1, finishedAt: 1, endAt: 1 },
+  )
+    .lean()
+    .then((all) =>
+      all
+        .map((t) => {
+          const finishedAt = t.finishedAt || t.endAt || null;
+          const finishedDate = finishedAt ? new Date(finishedAt) : null;
+          return { ...t, finishedAt: finishedDate };
+        })
+        .filter(
+          (t) =>
+            t.finishedAt &&
+            Number.isFinite(t.finishedAt.getTime()) &&
+            t.finishedAt >= start &&
+            t.finishedAt <= now,
+        )
+        .sort((a, b) => b.finishedAt.getTime() - a.finishedAt.getTime()),
+    );
+
+  if (!tours.length) return [];
+
+  const podiumRows = [];
+  for (const tour of tours) {
+    const br = await findLastKoBracketForTournament(tour._id);
+    if (!br?._id) continue;
+
+    const { goldReg, silverReg, bronzeRegs } =
+      await computeKoPodiumRegIdsForBracket(br);
+
+    const addRows = (medal, regIds) => {
+      for (const regId of regIds.filter(Boolean)) {
+        podiumRows.push({
+          tournamentId: tour._id,
+          tournamentName: tour.name || tour.title || "Giải đấu",
+          finishedAt: tour.finishedAt,
+          medal,
+          regId,
+        });
+      }
+    };
+
+    addRows("gold", goldReg ? [goldReg] : []);
+    addRows("silver", silverReg ? [silverReg] : []);
+    addRows("bronze", Array.isArray(bronzeRegs) ? bronzeRegs : []);
+  }
+
+  if (!podiumRows.length) return [];
+
+  const regIds = uniq(podiumRows.map((row) => row.regId).filter(isOID));
+  const regs = await Registration.find(
+    { _id: { $in: regIds } },
+    {
+      code: 1,
+      teamFactionName: 1,
+      "player1.fullName": 1,
+      "player1.nickName": 1,
+      "player2.fullName": 1,
+      "player2.nickName": 1,
+    },
+  ).lean();
+  const regById = new Map(regs.map((reg) => [String(reg._id), reg]));
+
+  return podiumRows
+    .map((row) => {
+      const reg = regById.get(String(row.regId));
+      const teamName = buildRegistrationTeamName(reg);
+      const teamLabel = /^đội\b/i.test(teamName) ? teamName : `đội ${teamName}`;
+      const finishedAt = row.finishedAt ? new Date(row.finishedAt) : null;
+      return {
+        id: `${row.tournamentId}-${row.regId}-${row.medal}`,
+        tournamentId: String(row.tournamentId),
+        tournamentName: row.tournamentName,
+        teamName,
+        teamLabel,
+        medal: row.medal,
+        medalText: podiumMedalText(row.medal),
+        finishedAt:
+          finishedAt && Number.isFinite(finishedAt.getTime())
+            ? finishedAt.toISOString()
+            : null,
+        href: `/tournament/${row.tournamentId}/bracket`,
+      };
+    })
+    .sort((a, b) => {
+      const ta = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+      const tb = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return (podiumMedalOrder[a.medal] || 9) - (podiumMedalOrder[b.medal] || 9);
+    })
+    .slice(0, Math.max(1, Math.min(100, Number(limit) || 36)));
+};
 
 /* ============================ getRankings API ============================ */
 /**
@@ -3163,6 +3292,26 @@ export const getPodium30d = asyncHandler(async (req, res) => {
     async () => {
       const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
       return { podiums30d: podiumMapByUserId };
+    },
+  );
+});
+
+export const getWeeklyPodiumAnnouncements = asyncHandler(async (req, res) => {
+  const days = Math.max(1, Math.min(7, Number(req.query.days || 7)));
+  const limit = Math.max(1, Math.min(60, Number(req.query.limit || 36)));
+  const cacheKey = buildCacheKey("rankings:podiumAnnouncements", {
+    days,
+    limit,
+  });
+
+  return sendCachedJsonWithLoader(
+    res,
+    rankingPodiumCache,
+    cacheKey,
+    RANKINGS_CACHE_TTL_MS,
+    async () => {
+      const items = await buildRecentPodiumAnnouncements({ days, limit });
+      return { items, days };
     },
   );
 });

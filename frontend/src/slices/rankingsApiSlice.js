@@ -70,6 +70,17 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
       providesTags: [{ type: "Rankings", id: "PODIUM30D" }],
       keepUnusedDataFor: 30,
     }),
+
+    getRankingsPodiumAnnouncements: builder.query({
+      query: ({ days = 7, limit = 36 } = {}) => ({
+        url: `/api/rankings/podium-announcements?days=${encodeURIComponent(
+          days,
+        )}&limit=${encodeURIComponent(limit)}`,
+        method: "GET",
+      }),
+      providesTags: [{ type: "Rankings", id: "PODIUM_ANNOUNCEMENTS" }],
+      keepUnusedDataFor: 60,
+    }),
   }),
 });
 
@@ -77,4 +88,5 @@ export const {
   useGetRankingsQuery,
   useGetRankingsListQuery,
   useGetRankingsPodiums30dQuery,
+  useGetRankingsPodiumAnnouncementsQuery,
 } = rankingsApiSlice;

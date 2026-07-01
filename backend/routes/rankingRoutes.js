@@ -1,6 +1,7 @@
 import express from "express";
 import {
   getPodium30d,
+  getWeeklyPodiumAnnouncements,
   getRankingOnly,
   getRankings,
   getRankingsV2,
@@ -29,6 +30,7 @@ router.get(
 
 router.get("/rankings", passProtect, getRankingOnly);
 router.get("/podium30d", passProtect, getPodium30d);
+router.get("/podium-announcements", passProtect, getWeeklyPodiumAnnouncements);
 
 // V2 Optimized APIs (uses denormalized fields)
 router.get("/v2", passProtect, getRankingsV2);

@@ -566,7 +566,15 @@ export default function SupportCenter() {
             alignItems: "start",
           }}
         >
-          <Card variant="outlined" sx={{ borderRadius: 2 }}>
+          <Card
+            variant="outlined"
+            sx={{
+              borderRadius: 2,
+              minHeight: { xs: "auto", md: "calc(100vh - 258px)" },
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
             <Stack spacing={1.5} sx={{ p: 2 }}>
               <TextField
                 size="small"
@@ -643,7 +651,8 @@ export default function SupportCenter() {
               spacing={1}
               sx={{
                 p: 1.5,
-                maxHeight: { xs: "none", md: "calc(100vh - 390px)" },
+                flex: 1,
+                minHeight: 0,
                 overflowY: isDesktop ? "auto" : "visible",
               }}
             >
