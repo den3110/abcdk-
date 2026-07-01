@@ -467,15 +467,137 @@ const getAssessmentSource = (row, t) => {
 };
 
 const achievementToneSx = {
-  blue: { bgcolor: HEX.blue, color: "#fff" },
-  yellow: { bgcolor: HEX.yellow, color: "#111" },
-  red: { bgcolor: HEX.red, color: "#fff" },
-  grey: { bgcolor: HEX.grey, color: "#fff" },
-  green: { bgcolor: HEX.green, color: "#fff" },
-  purple: { bgcolor: "#7b1fa2", color: "#fff" },
-  cyan: { bgcolor: "#00838f", color: "#fff" },
-  bronze: { bgcolor: "#bf6d2d", color: "#fff" },
-  navy: { bgcolor: "#1e3a8a", color: "#fff" },
+  blue: {
+    bgcolor: HEX.blue,
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #1f6feb 0%, #35b7ff 100%)",
+  },
+  yellow: {
+    bgcolor: HEX.yellow,
+    color: "#111",
+    backgroundImage: "linear-gradient(135deg, #ffd54f 0%, #ff9800 100%)",
+  },
+  red: {
+    bgcolor: HEX.red,
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #ff1744 0%, #ff6d00 100%)",
+  },
+  grey: {
+    bgcolor: HEX.grey,
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #616161 0%, #9e9e9e 100%)",
+  },
+  green: {
+    bgcolor: HEX.green,
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #0f9d58 0%, #62d26f 100%)",
+  },
+  purple: {
+    bgcolor: "#7b1fa2",
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #5b21b6 0%, #d946ef 100%)",
+  },
+  cyan: {
+    bgcolor: "#00838f",
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #00838f 0%, #22d3ee 100%)",
+  },
+  bronze: {
+    bgcolor: "#bf6d2d",
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #8d4a18 0%, #f59e0b 100%)",
+  },
+  navy: {
+    bgcolor: "#1e3a8a",
+    color: "#fff",
+    backgroundImage: "linear-gradient(135deg, #172554 0%, #2563eb 100%)",
+  },
+};
+
+const achievementEffectSx = {
+  fire: {
+    boxShadow: "0 0 12px rgba(255, 111, 0, 0.55)",
+    "&::before": {
+      background:
+        "linear-gradient(90deg, transparent, rgba(255,255,255,0.46), transparent)",
+      animation: "achievementFlare 1.45s ease-in-out infinite",
+    },
+    "&::after": {
+      background:
+        "radial-gradient(circle at 20% 80%, rgba(255,255,255,0.45) 0 8%, transparent 9%), radial-gradient(circle at 70% 20%, rgba(255,214,10,0.5) 0 10%, transparent 11%)",
+      animation: "achievementPulse 1.15s ease-in-out infinite alternate",
+    },
+  },
+  inferno: {
+    boxShadow: "0 0 16px rgba(255, 61, 0, 0.72)",
+    "&::before": {
+      background:
+        "linear-gradient(120deg, rgba(255,255,255,0), rgba(255,245,157,0.62), rgba(255,255,255,0))",
+      animation: "achievementFlare 1.05s ease-in-out infinite",
+    },
+    "&::after": {
+      background:
+        "radial-gradient(circle at 25% 75%, rgba(255,245,157,0.55) 0 10%, transparent 11%), radial-gradient(circle at 72% 30%, rgba(255,255,255,0.45) 0 8%, transparent 9%)",
+      animation: "achievementPulse 0.95s ease-in-out infinite alternate",
+    },
+  },
+  snow: {
+    boxShadow: "0 0 12px rgba(186, 230, 253, 0.52)",
+    "&::before": {
+      background:
+        "radial-gradient(circle, rgba(255,255,255,0.92) 0 2px, transparent 3px), radial-gradient(circle, rgba(255,255,255,0.7) 0 1px, transparent 2px)",
+      backgroundSize: "16px 16px, 11px 11px",
+      animation: "achievementSnow 2.2s linear infinite",
+    },
+  },
+  mystic: {
+    boxShadow: "0 0 14px rgba(216, 180, 254, 0.62)",
+    "&::before": {
+      background:
+        "linear-gradient(90deg, transparent, rgba(255,255,255,0.48), transparent)",
+      animation: "achievementMystic 2s ease-in-out infinite",
+    },
+  },
+  electric: {
+    boxShadow: "0 0 12px rgba(34, 211, 238, 0.62)",
+    "&::before": {
+      background:
+        "linear-gradient(115deg, transparent 20%, rgba(255,255,255,0.62) 42%, transparent 44%, rgba(255,255,255,0.5) 54%, transparent 60%)",
+      animation: "achievementSpark 1.15s steps(2, end) infinite",
+    },
+  },
+  royal: {
+    boxShadow: "0 0 16px rgba(250, 204, 21, 0.62)",
+    "&::before": {
+      background:
+        "linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent)",
+      animation: "achievementFlare 1.65s ease-in-out infinite",
+    },
+  },
+  ember: {
+    boxShadow: "0 0 12px rgba(251, 146, 60, 0.54)",
+    "&::after": {
+      background:
+        "radial-gradient(circle at 30% 75%, rgba(255,255,255,0.35) 0 8%, transparent 9%), radial-gradient(circle at 68% 25%, rgba(255,221,128,0.4) 0 8%, transparent 9%)",
+      animation: "achievementPulse 1.35s ease-in-out infinite alternate",
+    },
+  },
+  metal: {
+    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.18)",
+    "&::before": {
+      background:
+        "linear-gradient(110deg, transparent 10%, rgba(255,255,255,0.36), transparent 34%)",
+      animation: "achievementMystic 2.8s ease-in-out infinite",
+    },
+  },
+  glow: {
+    boxShadow: "0 0 10px rgba(255,255,255,0.22)",
+    "&::after": {
+      background:
+        "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.24), transparent 60%)",
+      animation: "achievementPulse 1.8s ease-in-out infinite alternate",
+    },
+  },
 };
 
 const safeScoreNumber = (value) => {
@@ -807,6 +929,38 @@ const buildAchievementRules = () => {
 
 const ACHIEVEMENT_RULES = buildAchievementRules();
 
+const achievementFamilyFromId = (id = "") => {
+  const key = String(id);
+  if (key.startsWith("national-rank")) return "national-rank";
+  if (key.startsWith("province-rank")) return "province-rank";
+  if (key.startsWith("tour-count")) return "tour-count";
+  if (key.startsWith("gold-count")) return "gold-count";
+  if (key.startsWith("podium-count")) return "podium-count";
+  if (key.startsWith("silver-count")) return "silver-count";
+  if (key.startsWith("bronze-count")) return "bronze-count";
+  if (key.startsWith("podium-event-count")) return "podium-event-count";
+  if (key.startsWith("fresh-podium")) return "fresh-podium";
+  if (key.startsWith("double-score")) return "double-score";
+  if (key.startsWith("single-score")) return "single-score";
+  if (key.startsWith("balanced-gap")) return "balanced-gap";
+  if (key.startsWith("reputation")) return "reputation";
+  if (key.startsWith("age-")) return "age";
+  return key || "achievement";
+};
+
+const normalizeRankingAchievements = (items) =>
+  (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      id: String(item?.id || item?.label || ""),
+      category: String(item?.category || "Chip nổi bật"),
+      tone: String(item?.tone || "grey"),
+      effect: String(item?.effect || item?.tone || "glow"),
+      label: String(item?.label || "").trim(),
+      explain: String(item?.explain || item?.description || "").trim(),
+      priority: Number(item?.priority || 0),
+    }))
+    .filter((item) => item.id && item.label);
+
 const buildAchievementContext = ({
   r,
   u,
@@ -834,7 +988,7 @@ const buildAchievementContext = ({
     age: Number.isFinite(age) ? age : null,
     province: String(u?.province || "").trim() || "tỉnh",
     provinceRank: Number(r?.provinceRank) || null,
-    globalRank: Number(globalRank) || null,
+    globalRank: Number(globalRank || r?.globalRank) || null,
     totalTours: Number(r?.totalTours || r?.totalFinishedTours || 0),
     hasStaffAssessment: Boolean(r?.hasStaffAssessment),
     kycStatus: String(effectiveStatus || ""),
@@ -857,8 +1011,12 @@ const buildAchievementContext = ({
 };
 
 const buildRankingAchievements = (args) => {
+  const backendAchievements = normalizeRankingAchievements(args?.r?.achievements);
+  if (backendAchievements.length) return backendAchievements;
+  if (!args?.enableFrontendAchievementFallback) return [];
+
   const ctx = buildAchievementContext(args);
-  return ACHIEVEMENT_RULES.filter((rule) => {
+  const matched = ACHIEVEMENT_RULES.filter((rule) => {
     try {
       return rule.when(ctx);
     } catch {
@@ -876,18 +1034,46 @@ const buildRankingAchievements = (args) => {
         typeof rule.explain === "function"
           ? rule.explain(ctx)
           : String(rule.explain),
+      effect: rule.tone,
     }))
     .sort((a, b) => b.priority - a.priority || a.label.localeCompare(b.label));
+
+  const byFamily = new Map();
+  for (const item of matched) {
+    const family = achievementFamilyFromId(item.id);
+    if (!byFamily.has(family)) byFamily.set(family, item);
+  }
+  return Array.from(byFamily.values());
 };
 
-const achievementChipSx = (tone, extra = {}) => ({
+const achievementChipSx = (tone, extra = {}, effect = "glow") => ({
   ...(achievementToneSx[tone] || achievementToneSx.grey),
+  ...(achievementEffectSx[effect] || achievementEffectSx.glow),
+  position: "relative",
+  overflow: "hidden",
+  isolation: "isolate",
   height: 24,
   borderRadius: "999px",
   fontWeight: 700,
   maxWidth: 180,
+  border: "1px solid rgba(255,255,255,0.22)",
+  textShadow: "0 1px 1px rgba(0,0,0,0.35)",
+  transition: "transform 140ms ease, box-shadow 140ms ease",
+  "&:hover": {
+    transform: "translateY(-1px)",
+  },
+  "&::before,&::after": {
+    content: '""',
+    position: "absolute",
+    inset: 0,
+    borderRadius: "inherit",
+    pointerEvents: "none",
+    zIndex: 0,
+  },
   "& .MuiChip-label": {
     display: "block",
+    position: "relative",
+    zIndex: 1,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -909,7 +1095,7 @@ function AchievementSummary({ achievements, onOpen, maxWidth = 180 }) {
           label={item.label}
           clickable
           onClick={onOpen}
-          sx={achievementChipSx(item.tone, { maxWidth })}
+          sx={achievementChipSx(item.tone, { maxWidth }, item.effect)}
         />
       ))}
       {hiddenCount > 0 && (
@@ -918,7 +1104,7 @@ function AchievementSummary({ achievements, onOpen, maxWidth = 180 }) {
           label={`+${hiddenCount}`}
           clickable
           onClick={onOpen}
-          sx={achievementChipSx("grey", { maxWidth: 72 })}
+          sx={achievementChipSx("grey", { maxWidth: 72 }, "metal")}
         />
       )}
     </Stack>
@@ -937,7 +1123,7 @@ function AchievementsDialog({ open, user, achievements, onClose }) {
               Chip nổi bật - {displayName}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {achievements.length} chip phù hợp từ {ACHIEVEMENT_RULES.length} rule
+              {achievements.length} chip nổi bật đã được chọn lọc
             </Typography>
           </Box>
           <IconButton size="small" onClick={onClose} aria-label="Đóng">
@@ -963,7 +1149,11 @@ function AchievementsDialog({ open, user, achievements, onClose }) {
                   <Chip
                     size="small"
                     label={item.label}
-                    sx={achievementChipSx(item.tone, { maxWidth: 220 })}
+                    sx={achievementChipSx(
+                      item.tone,
+                      { maxWidth: 220 },
+                      item.effect,
+                    )}
                   />
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography variant="caption" color="text.secondary">
@@ -1135,8 +1325,6 @@ const DesktopCard = memo(
     topMedalByUser,
     labelFullByUser,
     hrefByUser,
-    podiums,
-    globalRank,
     onOpenProfile,
     onOpenGrade,
     onOpenKyc,
@@ -1193,10 +1381,8 @@ const DesktopCard = memo(
           u,
           age,
           effectiveStatus,
-          podiums,
-          globalRank,
         }),
-      [achievementRanking, age, effectiveStatus, globalRank, podiums, u],
+      [achievementRanking, age, effectiveStatus, u],
     );
     const openAchievements = useCallback(() => {
       onOpenAchievements?.(u, achievements);
@@ -2003,6 +2189,37 @@ export default function RankingList() {
               "0%": { opacity: 0.45, transform: "scale(1)" },
               "100%": { opacity: 0.75, transform: "scale(1.01)" },
             },
+            "@keyframes achievementFlare": {
+              "0%": { transform: "translateX(-120%) skewX(-18deg)" },
+              "100%": { transform: "translateX(120%) skewX(-18deg)" },
+            },
+            "@keyframes achievementSnow": {
+              "0%": { backgroundPosition: "0 0, 0 0", opacity: 0.22 },
+              "50%": { opacity: 0.5 },
+              "100%": {
+                backgroundPosition: "0 18px, 8px 14px",
+                opacity: 0.22,
+              },
+            },
+            "@keyframes achievementMystic": {
+              "0%": { transform: "translateX(-120%)", opacity: 0 },
+              "45%": { opacity: 0.65 },
+              "100%": { transform: "translateX(120%)", opacity: 0 },
+            },
+            "@keyframes achievementSpark": {
+              "0%": { transform: "translateX(-110%)", opacity: 0.18 },
+              "50%": { opacity: 0.8 },
+              "100%": { transform: "translateX(110%)", opacity: 0.22 },
+            },
+            "@keyframes achievementPulse": {
+              "0%": { opacity: 0.2, transform: "scale(0.96)" },
+              "100%": { opacity: 0.72, transform: "scale(1.02)" },
+            },
+            "@media (prefers-reduced-motion: reduce)": {
+              ".MuiChip-root::before,.MuiChip-root::after": {
+                animation: "none !important",
+              },
+            },
           }}
         />
 
@@ -2317,42 +2534,31 @@ export default function RankingList() {
               alignItems: "stretch",
             }}
           >
-            {list?.map((r, idx) => {
-              const uid = r?.user?._id && String(r.user._id);
-              const podiums =
-                uid && Array.isArray(podiums30d?.[uid])
-                  ? podiums30d[uid]
-                  : [];
-              const globalRank = page * RANKING_PAGE_LIMIT + idx + 1;
-
-              return (
-                <DesktopCard
-                  key={r?._id || r?.user?._id || idx}
-                  r={r}
-                  me={me}
-                  cccdPatch={cccdPatch}
-                  patchMap={patchMap}
-                  topMedalByUser={topMedalByUser}
-                  labelFullByUser={labelFullByUser}
-                  hrefByUser={hrefByUser}
-                  podiums={podiums}
-                  globalRank={globalRank}
-                  onOpenProfile={handleOpenProfile}
-                  onOpenGrade={openGrade}
-                  onOpenKyc={openKyc}
-                  onOpenAchievements={openAchievementDialog}
-                  onZoomAvatar={openZoom}
-                  staggerDelay={idx * 30}
-                  locale={locale}
-                  t={t}
-                />
-              );
-            })}
+            {list?.map((r, idx) => (
+              <DesktopCard
+                key={r?._id || r?.user?._id || idx}
+                r={r}
+                me={me}
+                cccdPatch={cccdPatch}
+                patchMap={patchMap}
+                topMedalByUser={topMedalByUser}
+                labelFullByUser={labelFullByUser}
+                hrefByUser={hrefByUser}
+                onOpenProfile={handleOpenProfile}
+                onOpenGrade={openGrade}
+                onOpenKyc={openKyc}
+                onOpenAchievements={openAchievementDialog}
+                onZoomAvatar={openZoom}
+                staggerDelay={idx * 30}
+                locale={locale}
+                t={t}
+              />
+            ))}
           </Box>
         ) : isMobile ? (
           <Fade in timeout={400}>
             <Stack spacing={2}>
-              {list?.map((r, idx) => {
+              {list?.map((r) => {
                 const u = r?.user || {};
                 const effectiveStatus =
                   (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
@@ -2372,11 +2578,6 @@ export default function RankingList() {
 
                 const uid = u?._id && String(u._id);
                 const topMedal = uid ? topMedalByUser.get(uid) : null;
-                const podiums =
-                  uid && Array.isArray(podiums30d?.[uid])
-                    ? podiums30d[uid]
-                    : [];
-                const globalRank = page * RANKING_PAGE_LIMIT + idx + 1;
                 const achievementRanking = {
                   ...r,
                   single: patchedScores.single,
@@ -2388,8 +2589,6 @@ export default function RankingList() {
                   u,
                   age,
                   effectiveStatus,
-                  podiums,
-                  globalRank,
                 });
 
                 return (
@@ -2613,11 +2812,8 @@ export default function RankingList() {
                   const uid = u?._id && String(u._id);
                   const topMedal = uid ? topMedalByUser.get(uid) : null;
                   const label = uid ? labelShortByUser.get(uid) : null;
-                  const podiums =
-                    uid && Array.isArray(podiums30d?.[uid])
-                      ? podiums30d[uid]
-                      : [];
-                  const globalRank = page * RANKING_PAGE_LIMIT + idx + 1;
+                  const displayRank =
+                    Number(r?.globalRank) || page * RANKING_PAGE_LIMIT + idx + 1;
                   const achievementRanking = {
                     ...r,
                     single: patchedScores.single,
@@ -2629,13 +2825,11 @@ export default function RankingList() {
                     u,
                     age,
                     effectiveStatus,
-                    podiums,
-                    globalRank,
                   });
 
                   return (
                     <TableRow key={r?._id || u?._id} hover>
-                      <TableCell>{globalRank}</TableCell>
+                      <TableCell>{displayRank}</TableCell>
                       <TableCell>
                         <LazyAvatar
                           src={avatarSrc}

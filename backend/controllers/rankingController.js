@@ -449,22 +449,17 @@ const buildRankingScoreStatusMatch = (scoreStatus) => {
   }
 };
 
-const attachProvinceRanksToDocs = async (docs = []) => {
+const attachRankingRanksToDocs = async (docs = []) => {
   const targetUserIds = new Set(
     docs
       .map((doc) => doc?.user?._id)
       .filter(isOID)
       .map(String),
   );
-  const provinces = uniq(
-    docs
-      .map((doc) => String(doc?.user?.province || "").trim())
-      .filter(Boolean),
-  );
 
-  if (!targetUserIds.size || !provinces.length) return docs;
+  if (!targetUserIds.size) return docs;
 
-  const provinceRows = await Ranking.aggregate([
+  const rankingRows = await Ranking.aggregate([
     {
       $match: {
         isHiddenFromRankings: { $ne: true },
@@ -494,32 +489,564 @@ const attachProvinceRanksToDocs = async (docs = []) => {
       },
     },
     { $unwind: { path: "$rankUser", preserveNullAndEmptyArrays: false } },
-    { $match: { "rankUser.province": { $in: provinces } } },
     { $addFields: rankingTierSortFields },
     { $sort: rankingDefaultSort },
     { $project: { user: 1, province: "$rankUser.province" } },
   ]);
 
   const provinceCounts = new Map();
+  const globalRankByUser = new Map();
   const provinceRankByUser = new Map();
 
-  for (const row of provinceRows) {
+  for (const [index, row] of rankingRows.entries()) {
     const province = String(row?.province || "").trim();
-    if (!province) continue;
-    const nextRank = (provinceCounts.get(province) || 0) + 1;
-    provinceCounts.set(province, nextRank);
     const uid = String(row?.user || "");
     if (targetUserIds.has(uid)) {
-      provinceRankByUser.set(uid, nextRank);
+      globalRankByUser.set(uid, index + 1);
+    }
+
+    if (!province) continue;
+    const nextProvinceRank = (provinceCounts.get(province) || 0) + 1;
+    provinceCounts.set(province, nextProvinceRank);
+    if (targetUserIds.has(uid)) {
+      provinceRankByUser.set(uid, nextProvinceRank);
     }
   }
 
   return docs.map((doc) => {
     const uid = String(doc?.user?._id || "");
+    const globalRank = globalRankByUser.get(uid) || null;
     const provinceRank = provinceRankByUser.get(uid) || null;
-    return provinceRank ? { ...doc, provinceRank } : doc;
+    return {
+      ...doc,
+      ...(globalRank ? { globalRank } : {}),
+      ...(provinceRank ? { provinceRank } : {}),
+    };
   });
 };
+
+const rankingSafeNumber = (value) => {
+  if (value === null || value === "***") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const fmtRankingAchievementScore = (value) =>
+  Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "--";
+
+const rankingDaysAgo = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+};
+
+const rankingCountMedal = (items, medal) =>
+  (items || []).filter((item) => item?.medal === medal).length;
+
+const rankingHasAnyScore = (r) =>
+  [r?.single, r?.double, r?.mix, r?.points].some((v) => Number(v) > 0);
+
+const rankingLatestScoreActivityAt = (r) => {
+  const dates = [
+    r?.lastFinishedTourAt,
+    r?.lastAssessmentAt,
+    r?.lastStaffAssessmentAt,
+    r?.lastUpdated,
+    r?.updatedAt,
+  ]
+    .map((v) => (v ? new Date(v) : null))
+    .filter((d) => d && Number.isFinite(d.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime());
+  return dates[0] || null;
+};
+
+const rankingIsScoreStale = (r) => {
+  if (!rankingHasAnyScore(r)) return false;
+  const latest = rankingLatestScoreActivityAt(r);
+  if (!latest) return true;
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 4);
+  return latest.getTime() < cutoff.getTime();
+};
+
+const rankingAchievementRule = ({
+  id,
+  family,
+  category,
+  tone = "grey",
+  effect = "glow",
+  priority = 0,
+  when,
+  label,
+  explain,
+}) => ({
+  id,
+  family: family || id,
+  category,
+  tone,
+  effect,
+  priority,
+  when,
+  label,
+  explain,
+});
+
+const buildRankingAchievementRules = () => {
+  const rules = [
+    rankingAchievementRule({
+      id: "national-rank-1",
+      family: "national-rank",
+      category: "Xếp hạng",
+      tone: "purple",
+      effect: "royal",
+      priority: 1200,
+      when: (ctx) => ctx.globalRank === 1,
+      label: "Top 1 BXH",
+      explain: "Đang đứng đầu bảng xếp hạng toàn hệ thống.",
+    }),
+    rankingAchievementRule({
+      id: "national-rank-3",
+      family: "national-rank",
+      category: "Xếp hạng",
+      tone: "purple",
+      effect: "mystic",
+      priority: 1160,
+      when: (ctx) => ctx.globalRank > 0 && ctx.globalRank <= 3,
+      label: "Top 3 BXH",
+      explain: (ctx) => `Đang nằm trong top 3 toàn bảng, hạng ${ctx.globalRank}.`,
+    }),
+    rankingAchievementRule({
+      id: "national-rank-10",
+      family: "national-rank",
+      category: "Xếp hạng",
+      tone: "blue",
+      effect: "electric",
+      priority: 1100,
+      when: (ctx) => ctx.globalRank > 0 && ctx.globalRank <= 10,
+      label: "Top 10 BXH",
+      explain: (ctx) => `Đang nằm trong top 10 toàn bảng, hạng ${ctx.globalRank}.`,
+    }),
+    rankingAchievementRule({
+      id: "national-rank-50",
+      family: "national-rank",
+      category: "Xếp hạng",
+      tone: "navy",
+      effect: "mystic",
+      priority: 900,
+      when: (ctx) => ctx.globalRank > 0 && ctx.globalRank <= 50,
+      label: "Top 50 BXH",
+      explain: (ctx) => `Đang nằm trong top 50 toàn bảng, hạng ${ctx.globalRank}.`,
+    }),
+    rankingAchievementRule({
+      id: "province-rank-1",
+      family: "province-rank",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      effect: "royal",
+      priority: 1150,
+      when: (ctx) => ctx.provinceRank === 1,
+      label: (ctx) => `Top 1 ${ctx.province}`,
+      explain: (ctx) => `Đang đứng hạng 1 tại ${ctx.province}.`,
+    }),
+    rankingAchievementRule({
+      id: "province-rank-3",
+      family: "province-rank",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      effect: "mystic",
+      priority: 1070,
+      when: (ctx) => ctx.provinceRank > 0 && ctx.provinceRank <= 3,
+      label: (ctx) => `Top 3 ${ctx.province}`,
+      explain: (ctx) => `Đang nằm trong top 3 tại ${ctx.province}, hạng ${ctx.provinceRank}.`,
+    }),
+    rankingAchievementRule({
+      id: "province-rank-10",
+      family: "province-rank",
+      category: "Xếp hạng tỉnh",
+      tone: "cyan",
+      effect: "electric",
+      priority: 960,
+      when: (ctx) => ctx.provinceRank > 0 && ctx.provinceRank <= 10,
+      label: "Top 10 tỉnh",
+      explain: (ctx) => `Đang nằm trong top 10 tại ${ctx.province}, hạng ${ctx.provinceRank}.`,
+    }),
+    rankingAchievementRule({
+      id: "province-rank-5",
+      family: "province-rank",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      effect: "electric",
+      priority: 1010,
+      when: (ctx) => ctx.provinceRank > 0 && ctx.provinceRank <= 5,
+      label: "Top 5 tỉnh",
+      explain: (ctx) => `Đang nằm trong top 5 tại ${ctx.province}, hạng ${ctx.provinceRank}.`,
+    }),
+    rankingAchievementRule({
+      id: "staff-scored",
+      category: "Xác thực điểm",
+      tone: "yellow",
+      effect: "glow",
+      priority: 720,
+      when: (ctx) => ctx.hasStaffAssessment,
+      label: "Admin chấm",
+      explain: "Điểm trình đã được admin hoặc người chấm trình xác nhận.",
+    }),
+    rankingAchievementRule({
+      id: "kyc-verified",
+      category: "Xác thực hồ sơ",
+      tone: "green",
+      effect: "snow",
+      priority: 560,
+      when: (ctx) => ctx.kycStatus === "verified",
+      label: "Đã KYC",
+      explain: "Hồ sơ định danh đã được xác thực.",
+    }),
+    rankingAchievementRule({
+      id: "needs-review",
+      category: "Độ mới điểm",
+      tone: "red",
+      effect: "fire",
+      priority: 700,
+      when: (ctx) => ctx.hasScore && ctx.isStale,
+      label: "Cần chấm lại",
+      explain: "Điểm có dấu hiệu cũ, nên cập nhật hoặc chấm lại.",
+    }),
+    rankingAchievementRule({
+      id: "no-score",
+      category: "Điểm trình",
+      tone: "grey",
+      effect: "metal",
+      priority: 120,
+      when: (ctx) => !ctx.hasScore,
+      label: "Chưa có điểm",
+      explain: "Chưa có điểm đơn, đôi, mix hoặc điểm tích lũy.",
+    }),
+  ];
+
+  [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `tour-count-${n}`,
+        family: "tour-count",
+        category: "Kinh nghiệm thi đấu",
+        tone: n >= 10 ? "navy" : "cyan",
+        effect: n >= 10 ? "mystic" : "electric",
+        priority: 430 + n,
+        when: (ctx) => ctx.totalTours >= n,
+        label: n === 1 ? "Đã thi đấu" : `+${n} giải`,
+        explain: (ctx) => `Đã ghi nhận ${ctx.totalTours} giải đã hoàn tất.`,
+      }),
+    );
+  });
+
+  [1, 2, 3, 4, 5, 7, 10].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `gold-count-${n}`,
+        family: "gold-count",
+        category: "Huy chương",
+        tone: "yellow",
+        effect: n >= 3 ? "inferno" : "fire",
+        priority: 900 + n * 8,
+        when: (ctx) => ctx.goldCount >= n,
+        label: n === 1 ? "Vô địch" : `Vô địch +${n} giải`,
+        explain: (ctx) => `Có ${ctx.goldCount} lần vô địch trong 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [1, 2, 3, 5, 7, 10].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `podium-count-${n}`,
+        family: "podium-count",
+        category: "Huy chương",
+        tone: "bronze",
+        effect: "ember",
+        priority: 780 + n * 7,
+        when: (ctx) => ctx.podiumCount >= n,
+        label: n === 1 ? "Có podium" : `Podium +${n}`,
+        explain: (ctx) => `Có ${ctx.podiumCount} lần lên bục trong 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [1, 2, 3, 5].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `silver-count-${n}`,
+        family: "silver-count",
+        category: "Huy chương",
+        tone: "grey",
+        effect: "metal",
+        priority: 650 + n * 6,
+        when: (ctx) => ctx.silverCount >= n,
+        label: n === 1 ? "Á quân" : `Á quân +${n}`,
+        explain: (ctx) => `Có ${ctx.silverCount} lần á quân trong 30 ngày gần đây.`,
+      }),
+      rankingAchievementRule({
+        id: `bronze-count-${n}`,
+        family: "bronze-count",
+        category: "Huy chương",
+        tone: "bronze",
+        effect: "ember",
+        priority: 620 + n * 6,
+        when: (ctx) => ctx.bronzeCount >= n,
+        label: n === 1 ? "Hạng ba" : `Hạng ba +${n}`,
+        explain: (ctx) => `Có ${ctx.bronzeCount} lần hạng ba trong 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [2, 3, 4, 5, 7, 10].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `podium-event-count-${n}`,
+        family: "podium-event-count",
+        category: "Phong độ gần đây",
+        tone: "purple",
+        effect: "mystic",
+        priority: 720 + n * 5,
+        when: (ctx) => ctx.podiumEventCount >= n,
+        label: `Ăn giải +${n} sự kiện`,
+        explain: (ctx) => `Có podium ở ${ctx.podiumEventCount} sự kiện khác nhau trong 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [1, 3, 7, 14, 30].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `fresh-podium-${n}`,
+        family: "fresh-podium",
+        category: "Phong độ gần đây",
+        tone: "green",
+        effect: n <= 3 ? "fire" : "snow",
+        priority: 740 - n,
+        when: (ctx) => ctx.latestPodiumDays !== null && ctx.latestPodiumDays <= n,
+        label: n === 1 ? "Podium hôm nay" : `Podium ${n} ngày`,
+        explain: (ctx) => `Podium gần nhất cách đây ${ctx.latestPodiumDays} ngày.`,
+      }),
+    );
+  });
+
+  [
+    2.0, 2.5, 3.0, 3.3, 3.5, 3.8, 4.0, 4.2, 4.5, 4.8, 5.0, 5.5, 6.0, 6.5,
+    7.0,
+  ].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `double-score-${n}`,
+        family: "double-score",
+        category: "Điểm đôi",
+        tone: n >= 5 ? "purple" : n >= 4 ? "blue" : "cyan",
+        effect: n >= 5 ? "mystic" : "electric",
+        priority: 330 + Math.round(n * 20),
+        when: (ctx) => ctx.doubleScore !== null && ctx.doubleScore >= n,
+        label: `Đôi ${n.toFixed(1)}+`,
+        explain: (ctx) =>
+          `Điểm đôi hiện tại là ${fmtRankingAchievementScore(ctx.doubleScore)}, đạt mốc ${n.toFixed(1)}+.`,
+      }),
+      rankingAchievementRule({
+        id: `single-score-${n}`,
+        family: "single-score",
+        category: "Điểm đơn",
+        tone: n >= 5 ? "purple" : n >= 4 ? "blue" : "cyan",
+        effect: n >= 5 ? "mystic" : "electric",
+        priority: 320 + Math.round(n * 20),
+        when: (ctx) => ctx.singleScore !== null && ctx.singleScore >= n,
+        label: `Đơn ${n.toFixed(1)}+`,
+        explain: (ctx) =>
+          `Điểm đơn hiện tại là ${fmtRankingAchievementScore(ctx.singleScore)}, đạt mốc ${n.toFixed(1)}+.`,
+      }),
+    );
+  });
+
+  [0.05, 0.1, 0.2, 0.3, 0.5].forEach((gap) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `balanced-gap-${gap}`,
+        family: "balanced-gap",
+        category: "Hồ sơ điểm",
+        tone: "green",
+        effect: "snow",
+        priority: 410 - Math.round(gap * 100),
+        when: (ctx) =>
+          ctx.singleScore !== null &&
+          ctx.doubleScore !== null &&
+          Math.abs(ctx.singleScore - ctx.doubleScore) <= gap,
+        label: `Đơn/đôi cân ${gap}`,
+        explain: (ctx) =>
+          `Điểm đơn và đôi chênh ${fmtRankingAchievementScore(Math.abs(ctx.singleScore - ctx.doubleScore))}, trong ngưỡng ${gap}.`,
+      }),
+    );
+  });
+
+  [60, 70, 80, 90, 100].forEach((n) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `reputation-${n}`,
+        family: "reputation",
+        category: "Uy tín",
+        tone: n >= 90 ? "purple" : "green",
+        effect: n >= 90 ? "royal" : "glow",
+        priority: 360 + n,
+        when: (ctx) => ctx.reputation >= n,
+        label: `Uy tín ${n}+`,
+        explain: (ctx) => `Điểm uy tín hiện tại là ${ctx.reputation}.`,
+      }),
+    );
+  });
+
+  [
+    {
+      id: "junior",
+      label: "Tài năng trẻ",
+      when: (ctx) => ctx.age !== null && ctx.age <= 18,
+    },
+    { id: "u23", label: "U23", when: (ctx) => ctx.age !== null && ctx.age <= 23 },
+    {
+      id: "senior35",
+      label: "35+",
+      when: (ctx) => ctx.age !== null && ctx.age >= 35,
+    },
+    {
+      id: "senior45",
+      label: "45+",
+      when: (ctx) => ctx.age !== null && ctx.age >= 45,
+    },
+    {
+      id: "senior55",
+      label: "55+",
+      when: (ctx) => ctx.age !== null && ctx.age >= 55,
+    },
+  ].forEach((item) => {
+    rules.push(
+      rankingAchievementRule({
+        id: `age-${item.id}`,
+        family: "age",
+        category: "Nhóm tuổi",
+        tone: "grey",
+        effect: "metal",
+        priority: 180,
+        when: item.when,
+        label: item.label,
+        explain: (ctx) => `Tuổi hiện tại được tính là ${ctx.age}.`,
+      }),
+    );
+  });
+
+  return rules;
+};
+
+const RANKING_ACHIEVEMENT_RULES = buildRankingAchievementRules();
+
+const buildRankingAchievementContext = (doc, podiums = []) => {
+  const user = doc?.user || {};
+  const podiumItems = Array.isArray(podiums) ? podiums : [];
+  const latestPodiumDays =
+    podiumItems.length > 0
+      ? Math.min(
+          ...podiumItems
+            .map((item) => rankingDaysAgo(item?.finishedAt))
+            .filter((value) => value !== null),
+        )
+      : null;
+
+  const dob =
+    user?.dob ||
+    user?.dateOfBirth ||
+    user?.birthday ||
+    user?.birthdate ||
+    user?.birth_date;
+  const birth = dob ? new Date(dob) : null;
+  const age =
+    birth && Number.isFinite(birth.getTime())
+      ? Math.max(0, Math.floor((Date.now() - birth.getTime()) / 31557600000))
+      : null;
+
+  return {
+    doc,
+    user,
+    age,
+    province: String(user?.province || "").trim() || "tỉnh",
+    provinceRank: Number(doc?.provinceRank) || null,
+    globalRank: Number(doc?.globalRank) || null,
+    totalTours: Number(doc?.totalTours || doc?.totalFinishedTours || 0),
+    hasStaffAssessment: Boolean(doc?.hasStaffAssessment),
+    kycStatus: String(user?.cccdStatus || ""),
+    hasScore: rankingHasAnyScore(doc),
+    isStale: rankingIsScoreStale(doc),
+    singleScore: rankingSafeNumber(doc?.single),
+    doubleScore: rankingSafeNumber(doc?.double),
+    mixScore: rankingSafeNumber(doc?.mix),
+    points: rankingSafeNumber(doc?.points),
+    reputation: Number(doc?.reputation || 0),
+    goldCount: rankingCountMedal(podiumItems, "gold"),
+    silverCount: rankingCountMedal(podiumItems, "silver"),
+    bronzeCount: rankingCountMedal(podiumItems, "bronze"),
+    podiumCount: podiumItems.length,
+    podiumEventCount: new Set(
+      podiumItems.map((item) => item?.tournamentId).filter(Boolean).map(String),
+    ).size,
+    latestPodiumDays: Number.isFinite(latestPodiumDays)
+      ? latestPodiumDays
+      : null,
+  };
+};
+
+const buildRankingAchievementsForDoc = (doc, podiums = []) => {
+  const ctx = buildRankingAchievementContext(doc, podiums);
+  const matched = RANKING_ACHIEVEMENT_RULES.filter((rule) => {
+    try {
+      return rule.when(ctx);
+    } catch {
+      return false;
+    }
+  })
+    .map((rule) => ({
+      id: rule.id,
+      family: rule.family,
+      category: rule.category,
+      tone: rule.tone,
+      effect: rule.effect,
+      priority: rule.priority,
+      label:
+        typeof rule.label === "function" ? rule.label(ctx) : String(rule.label),
+      explain:
+        typeof rule.explain === "function"
+          ? rule.explain(ctx)
+          : String(rule.explain),
+    }))
+    .sort((a, b) => b.priority - a.priority || a.label.localeCompare(b.label));
+
+  const byFamily = new Map();
+  for (const item of matched) {
+    if (!byFamily.has(item.family)) {
+      byFamily.set(item.family, item);
+    }
+  }
+
+  return Array.from(byFamily.values()).map(
+    ({ family, priority, ...publicItem }) => publicItem,
+  );
+};
+
+const attachRankingAchievementsToDocs = (
+  docs = [],
+  { podiumMapByUserId = {} } = {},
+) =>
+  docs.map((doc) => {
+    const uid = String(doc?.user?._id || "");
+    const podiums = Array.isArray(podiumMapByUserId?.[uid])
+      ? podiumMapByUserId[uid]
+      : [];
+    return {
+      ...doc,
+      achievements: buildRankingAchievementsForDoc(doc, podiums),
+    };
+  });
 
 /** Map regIds -> userIds (player1.user / player2.user / users[] / members[].user)  */
 async function mapRegToUsers(regIds) {
@@ -1410,6 +1937,10 @@ export const getRankings = asyncHandler(async (req, res) => {
               colorRank: 1,
               totalTours: 1,
               reputation: 1,
+              hasStaffAssessment: 1,
+              lastFinishedTourAt: 1,
+              lastAssessmentAt: 1,
+              lastStaffAssessmentAt: 1,
             },
           },
         ],
@@ -1434,16 +1965,19 @@ export const getRankings = asyncHandler(async (req, res) => {
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
   const docsRaw = first.docs || [];
-  const docsWithProvinceRanks = await attachProvinceRanksToDocs(docsRaw);
+  const docsWithRanks = await attachRankingRanksToDocs(docsRaw);
 
   const isHidden = await isRatingHiddenGlobal();
-  const docs = isHidden
+  const docsSanitized = isHidden
     ? await Promise.all(
-        docsWithProvinceRanks.map((d) =>
+        docsWithRanks.map((d) =>
           sanitizeRatingsObj(req.user, d.user?._id, d),
         ),
       )
-    : docsWithProvinceRanks;
+    : docsWithRanks;
+  const docs = attachRankingAchievementsToDocs(docsSanitized, {
+    podiumMapByUserId,
+  });
 
   const payload = {
     docs,
@@ -1783,6 +2317,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
               colorRank: 1,
               totalTours: 1,
               reputation: 1,
+              hasStaffAssessment: 1,
               lastFinishedTourAt: 1,
               lastAssessmentAt: 1,
               lastStaffAssessmentAt: 1,
@@ -2086,6 +2621,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
               colorRank: 1,
               totalTours: 1,
               reputation: 1,
+              hasStaffAssessment: 1,
               lastFinishedTourAt: 1,
               lastAssessmentAt: 1,
               lastStaffAssessmentAt: 1,
@@ -2109,17 +2645,23 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
   const docsRaw = first.docs || [];
-  const docsWithProvinceRanks = await attachProvinceRanksToDocs(docsRaw);
+  const docsWithRanks = await attachRankingRanksToDocs(docsRaw);
+  const { podiumMapByUserId } = docsRaw.length
+    ? await buildRecentPodiumsByUser({ days: 30 })
+    : { podiumMapByUserId: {} };
 
   // ✅ Apply privacy sanitization (same as V1)
   const isHidden = await isRatingHiddenGlobal();
-  const docs = isHidden
+  const docsSanitized = isHidden
     ? await Promise.all(
-        docsWithProvinceRanks.map((d) =>
+        docsWithRanks.map((d) =>
           sanitizeRatingsObj(req.user, d.user?._id, d),
         ),
       )
-    : docsWithProvinceRanks;
+    : docsWithRanks;
+  const docs = attachRankingAchievementsToDocs(docsSanitized, {
+    podiumMapByUserId,
+  });
 
   const payload = {
     docs,
