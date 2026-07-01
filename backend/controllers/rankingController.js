@@ -683,16 +683,6 @@ const buildRankingAchievementRules = () => {
       explain: (ctx) => `Đang nằm trong top 5 tại ${ctx.province}, hạng ${ctx.provinceRank}.`,
     }),
     rankingAchievementRule({
-      id: "staff-scored",
-      category: "Xác thực điểm",
-      tone: "yellow",
-      effect: "glow",
-      priority: 720,
-      when: (ctx) => ctx.hasStaffAssessment,
-      label: "Admin chấm",
-      explain: "Điểm trình đã được admin hoặc người chấm trình xác nhận.",
-    }),
-    rankingAchievementRule({
       id: "kyc-verified",
       category: "Xác thực hồ sơ",
       tone: "green",
