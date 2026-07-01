@@ -5,6 +5,7 @@ import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import User from "../models/userModel.js";
 import { normalizeDupr, rawFromDupr, sanitizeMeta } from "../utils/level.js";
+import { assertNoRatingDecreaseForMod } from "../utils/ratingIncreaseGuard.js";
 import Registration from "../models/registrationModel.js";
 import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
 
@@ -54,7 +55,11 @@ export async function createAssessment(req, res) {
 
   const isAdmin = req.user?.isAdmin === true || rawRoles.includes("admin");
 
-  const isMod = rawRoles.includes("mod") || rawRoles.includes("moderator");
+  const isEvaluatorEnabled = req.user?.evaluator?.enabled === true;
+  const isMod =
+    isEvaluatorEnabled ||
+    rawRoles.includes("mod") ||
+    rawRoles.includes("moderator");
 
   // scoreBy khớp với enum: ["admin", "mod", "moderator", "self"]
   let scoreBy = "self";
@@ -62,7 +67,7 @@ export async function createAssessment(req, res) {
     scoreBy = "admin";
   } else if (rawRoles.includes("moderator")) {
     scoreBy = "moderator";
-  } else if (rawRoles.includes("mod")) {
+  } else if (isMod) {
     scoreBy = "mod";
   }
 
@@ -106,7 +111,9 @@ export async function createAssessment(req, res) {
   try {
     let isTargetNormalUser = true;
 
-    const targetUser = await User.findById(userId).select("role roles isAdmin");
+    const targetUser = await User.findById(userId).select(
+      "role roles isAdmin evaluator",
+    );
 
     if (targetUser) {
       const targetRoles = [
@@ -119,7 +126,9 @@ export async function createAssessment(req, res) {
       const targetIsAdmin =
         targetUser.isAdmin === true || targetRoles.includes("admin");
       const targetIsMod =
-        targetRoles.includes("mod") || targetRoles.includes("moderator");
+        targetUser.evaluator?.enabled === true ||
+        targetRoles.includes("mod") ||
+        targetRoles.includes("moderator");
 
       // Nếu không phải admin/mod => coi là user thường
       isTargetNormalUser = !targetIsAdmin && !targetIsMod;
@@ -148,6 +157,22 @@ export async function createAssessment(req, res) {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
+    const isStaffScoring = ["admin", "mod", "moderator"].includes(
+      String(scoreBy).toLowerCase(),
+    );
+
+    if (isStaffScoring && scoreBy !== "admin") {
+      const currentRanking = await Ranking.findOne({ user: userId })
+        .select("single double")
+        .session(session)
+        .lean();
+
+      assertNoRatingDecreaseForMod(currentRanking || {}, {
+        single: sLv,
+        double: dLv,
+      });
+    }
+
     const [assessment] = await Assessment.create(
       [
         {
@@ -167,9 +192,6 @@ export async function createAssessment(req, res) {
     );
 
     // Check if staff is scoring (for hasStaffAssessment field)
-    const isStaffScoring = ["admin", "mod", "moderator"].includes(
-      String(scoreBy).toLowerCase(),
-    );
     console.log(
       "[Assessment] scoreBy:",
       scoreBy,
@@ -228,7 +250,9 @@ export async function createAssessment(req, res) {
   } catch (e) {
     await session.abortTransaction();
     session.endSession();
-    return res.status(500).json({ message: e.message || "Create failed" });
+    return res
+      .status(e.statusCode || 500)
+      .json({ message: e.message || "Create failed" });
   }
 }
 

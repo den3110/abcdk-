@@ -109,6 +109,30 @@ const getRoleSet = (user) => {
   return roles;
 };
 
+const hasFullEvaluatorScope = (user) => {
+  const scope = user?.evaluator?.gradingScopes;
+  if (!scope) return false;
+  if (scope.all === true || scope.isAll === true || scope.full === true) {
+    return true;
+  }
+  if (typeof scope === "string") {
+    return ["all", "*", "__all__"].includes(normalizeRole(scope));
+  }
+  if (typeof scope.provinces === "string") {
+    return ["all", "*", "__all__"].includes(normalizeRole(scope.provinces));
+  }
+  return false;
+};
+
+const canEvaluateProvince = (user, province) => {
+  if (!user?.evaluator?.enabled) return false;
+  if (hasFullEvaluatorScope(user)) return true;
+  const targetProvince = String(province || "").trim();
+  if (!targetProvince) return false;
+  const provinces = user.evaluator?.gradingScopes?.provinces || [];
+  return Array.isArray(provinces) && provinces.includes(targetProvince);
+};
+
 /* --------- Bảo vệ tất cả route yêu cầu đăng nhập --------- */
 export const protect = asyncHandler(async (req, res, next) => {
   const token = extractToken(req);
@@ -258,7 +282,7 @@ export const refereeOnly = asyncHandler(async (req, res, next) => {
   throw new Error("Referee-only endpoint");
 });
 
-// ✅ Admin/Referee chấm bất kỳ; user chỉ chấm chính mình — luôn fetch user từ DB
+// Admin/referee chấm bất kỳ; evaluator chấm theo scope tỉnh; user tự chấm bị tắt.
 export const canScore = asyncHandler(async (req, res, next) => {
   const uid = req.user?._id || req.user?.id;
   if (!uid || !isValidId(String(uid))) {
@@ -267,7 +291,7 @@ export const canScore = asyncHandler(async (req, res, next) => {
   }
 
   const actor = await User.findById(uid)
-    .select("_id role isDeleted deletedAt")
+    .select("_id role roles isAdmin evaluator isDeleted deletedAt")
     .lean();
 
   if (!actor) {
@@ -284,7 +308,8 @@ export const canScore = asyncHandler(async (req, res, next) => {
 
   const isSelf = targetUserId && String(actor._id) === String(targetUserId);
 
-  if (actor.role === "admin" || actor.role === "referee") {
+  const actorRoles = getRoleSet(actor);
+  if (actorRoles.has("admin") || actor.role === "referee") {
     return next();
   }
 
@@ -292,6 +317,38 @@ export const canScore = asyncHandler(async (req, res, next) => {
     return res.status(403).json({
       message:
         "Tính năng tự chấm trình đã tắt. Vui lòng chờ admin hoặc người chấm trình cập nhật điểm.",
+    });
+  }
+
+  if (actor.evaluator?.enabled === true) {
+    if (!targetUserId || !isValidId(String(targetUserId))) {
+      return res.status(400).json({ message: "Thiếu người được chấm trình" });
+    }
+
+    const target = await User.findById(targetUserId)
+      .select("_id province isDeleted deletedAt")
+      .lean();
+
+    if (!target) {
+      return res.status(404).json({
+        message: "Không tìm thấy người được chấm trình",
+      });
+    }
+
+    if (target.isDeleted || target.deletedAt) {
+      return res.status(403).json({
+        message: "Tài khoản người được chấm đã bị vô hiệu hóa",
+      });
+    }
+
+    if (canEvaluateProvince(actor, target.province)) {
+      return next();
+    }
+
+    return res.status(403).json({
+      message: target.province
+        ? "Bạn không có quyền chấm người dùng thuộc tỉnh này"
+        : "Bạn không có quyền chấm người dùng chưa khai báo tỉnh",
     });
   }
 

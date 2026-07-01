@@ -96,6 +96,12 @@ const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
 const GROUP_VIEW_STORAGE_KEY = "pickletour:tournament-bracket:group-view-mode";
 const BRACKET_UI_VERSION_STORAGE_KEY = "pickletour:tournament-bracket:uiVersion";
 const EMPTY_LIST = [];
+const BRACKET_NAV_WIDTH_SX = {
+  width: { xs: "100%", md: "94vw", lg: "88vw" },
+  maxWidth: { lg: "1680px" },
+  mx: "auto",
+  boxSizing: "border-box",
+};
 
 function readStoredGroupViewMode() {
   if (typeof window === "undefined") return "classic";
@@ -9314,6 +9320,7 @@ export default function TournamentBracket() {
         })}
         path={`/tournament/${tourId}/bracket`}
       />
+      <Box sx={BRACKET_NAV_WIDTH_SX}>
       <Typography
         variant="h4"
         sx={{
@@ -9527,11 +9534,13 @@ export default function TournamentBracket() {
           </Stack>
         </Stack>
       </Paper>
+      </Box>
 
       {isBracketV2 ? (
         renderUnifiedBracketV2()
       ) : (
         <>
+          <Box sx={BRACKET_NAV_WIDTH_SX}>
           <Tabs
             value={tab}
             onChange={onTabChange}
@@ -9564,6 +9573,7 @@ export default function TournamentBracket() {
               />
             ))}
           </Tabs>
+          </Box>
 
           {current.type === "group" ? (
             isBracketV3 ? (

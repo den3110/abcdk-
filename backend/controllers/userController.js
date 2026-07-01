@@ -11,6 +11,7 @@ import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import Assessment from "../models/assessmentModel.js";
 import { normalizeDupr, rawFromDupr } from "../utils/level.js";
+import { assertNoRatingDecreaseForMod } from "../utils/ratingIncreaseGuard.js";
 import { notifyNewKyc } from "../services/telegram/telegramNotifyKyc.js";
 import { notifyNewUser } from "../services/telegram/notifyNewUser.js";
 import SportConnectService from "../services/sportconnect.service.js";
@@ -3842,7 +3843,13 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     return true;
   }
 
-  async function updateActiveRegistrations(session, userId, sVal, dVal) {
+  async function updateActiveRegistrations(
+    session,
+    userId,
+    sVal,
+    dVal,
+    { allowDecrease = true } = {},
+  ) {
     if (sVal === undefined && dVal === undefined) {
       return {
         registrationsMatched: 0,
@@ -3863,6 +3870,11 @@ export const createEvaluation = asyncHandler(async (req, res) => {
 
     const ops = [];
     const affectedTournaments = new Set();
+    const canApplyScore = (currentScore, newScore) => {
+      if (allowDecrease) return true;
+      const current = Number(currentScore);
+      return !Number.isFinite(current) || newScore >= current - 1e-9;
+    };
 
     for (const reg of regs) {
       const tour = reg.tournament;
@@ -3874,7 +3886,10 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       if (newScore === undefined) continue;
 
       if (reg.player1?.user && String(reg.player1.user) === String(userId)) {
-        if (reg.player1.score !== newScore) {
+        if (
+          reg.player1.score !== newScore &&
+          canApplyScore(reg.player1.score, newScore)
+        ) {
           ops.push({
             updateOne: {
               filter: { _id: reg._id, "player1.user": userId },
@@ -3885,7 +3900,10 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         }
       }
       if (reg.player2?.user && String(reg.player2.user) === String(userId)) {
-        if (reg.player2.score !== newScore) {
+        if (
+          reg.player2.score !== newScore &&
+          canApplyScore(reg.player2.score, newScore)
+        ) {
           ops.push({
             updateOne: {
               filter: { _id: reg._id, "player2.user": userId },
@@ -3973,6 +3991,19 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         throw e;
       }
 
+      let currentRanking = null;
+      if (!isAdminRole) {
+        currentRanking = await Ranking.findOne({ user: target._id })
+          .select("single double")
+          .session(session)
+          .lean();
+
+        assertNoRatingDecreaseForMod(currentRanking || {}, {
+          single: singles,
+          double: doubles,
+        });
+      }
+
       const rawNote = String(req.body?.notes || "").trim();
       const scorerName =
         (me?.nickname && String(me.nickname).trim()) ||
@@ -4039,8 +4070,21 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       // 4) OFFICIAL Assessment (meta.scoreBy = "mod")
       let sLv, dLv, singleScore, doubleScore;
       if (singles !== undefined || doubles !== undefined) {
-        sLv = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
-        dLv = normalizeDupr(Number(doubles ?? singles ?? MIN_RATING));
+        const currentSingle = Number(currentRanking?.single);
+        const currentDouble = Number(currentRanking?.double);
+        const assessmentSingle =
+          singles ??
+          (currentSingle > 0 ? currentSingle : undefined) ??
+          doubles ??
+          MIN_RATING;
+        const assessmentDouble =
+          doubles ??
+          (currentDouble > 0 ? currentDouble : undefined) ??
+          singles ??
+          MIN_RATING;
+
+        sLv = normalizeDupr(Number(assessmentSingle));
+        dLv = normalizeDupr(Number(assessmentDouble));
         singleScore = rawFromDupr(sLv);
         doubleScore = rawFromDupr(dLv);
       }
@@ -4069,7 +4113,8 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         session,
         target._id,
         singles,
-        doubles
+        doubles,
+        { allowDecrease: isAdminRole },
       );
     });
 

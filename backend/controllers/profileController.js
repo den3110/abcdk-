@@ -8,6 +8,10 @@ import Bracket from "../models/bracketModel.js";
 import User from "../models/userModel.js";
 import mongoose from "mongoose";
 import { shouldHideUserRatings } from "../utils/privacyControl.js";
+import {
+  buildMatchCodePayload,
+  isGroupishBracketType,
+} from "../utils/matchDisplayCode.js";
 
 const MAX_PROFILE_PAGE_SIZE = 1000;
 
@@ -268,10 +272,10 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       .skip(skip)
       .limit(limit)
       .select(
-        "_id code tournament bracket pairA pairB gameScores winner finishedAt scheduledAt round order status video"
+        "_id code displayCode codeResolved globalCode matchCode bracketCode slotCode roundCode labelKey meta tournament bracket pairA pairB gameScores winner finishedAt scheduledAt round order status video branch phase format pool group groupCode groupNo groupIndex rrRound globalRound stageIndex matchNo index"
       )
       .populate("tournament", "name eventType _id")
-      .populate("bracket", "type stage _id createdAt")
+      .populate("bracket", "type stage order _id createdAt meta drawRounds config")
       .lean(),
   ]);
 
@@ -345,11 +349,21 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     ),
   ];
 
+  const isGroupLikeBracket = (bracket) => {
+    const type = String(bracket?.type || "").toLowerCase();
+    return (
+      isGroupishBracketType(type) ||
+      type.includes("group") ||
+      type.includes("roundrobin") ||
+      type.includes("round-robin")
+    );
+  };
+
   // Nạp toàn bộ bracket của mỗi tournament
   const bracketsByTournament = new Map(); // tId -> [brackets]
   for (const tId of tournamentIds) {
     const bks = await Bracket.find({ tournament: tId }) // tId đã chắc chắn hợp lệ
-      .select("_id type stage createdAt")
+      .select("_id type stage order createdAt meta drawRounds config")
       .lean();
     bks.sort((a, b) => {
       const sa = Number(a.stage ?? 0);
@@ -383,8 +397,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     const bks = bracketsByTournament.get(String(tId)) || [];
     for (const b of bks) {
       const brId = String(b._id);
-      const type = String(b.type || "").toLowerCase();
-      if (type === "group") {
+      if (isGroupLikeBracket(b)) {
         countMap.set(brId, 1);
       } else {
         const c = map.get(brId)?.size || 0;
@@ -400,19 +413,93 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     const bks = bracketsByTournament.get(String(tId)) || [];
     const cntMap = roundsCountMapByTournament.get(String(tId)) || new Map();
     const baseMap = new Map();
+    const buckets = [];
+    const groupBrackets = bks.filter((b) => isGroupLikeBracket(b));
+    const nonGroupBrackets = bks.filter((b) => !isGroupLikeBracket(b));
+
+    if (groupBrackets.length) {
+      buckets.push({
+        sortStage: 0,
+        sortOrder: Math.min(
+          ...groupBrackets.map((b) => Number(b?.order ?? 0)),
+        ),
+        spanRounds: 1,
+        brackets: groupBrackets,
+      });
+    }
+
+    const nonGroupByStage = new Map();
+    for (const b of nonGroupBrackets) {
+      const stageKey = Number.isFinite(Number(b?.stage)) ? Number(b.stage) : 9999;
+      const list = nonGroupByStage.get(stageKey) || [];
+      list.push(b);
+      nonGroupByStage.set(stageKey, list);
+    }
+
+    for (const [stageKey, stageBrackets] of nonGroupByStage.entries()) {
+      const spanRounds = stageBrackets.reduce(
+        (sum, b) => sum + (cntMap.get(String(b._id)) || 1),
+        0,
+      );
+      buckets.push({
+        sortStage: stageKey,
+        sortOrder: Math.min(
+          ...stageBrackets.map((b) => Number(b?.order ?? 0)),
+        ),
+        spanRounds: Math.max(1, spanRounds),
+        brackets: stageBrackets,
+      });
+    }
+
+    buckets.sort((a, b) => {
+      if (a.sortStage !== b.sortStage) return a.sortStage - b.sortStage;
+      return a.sortOrder - b.sortOrder;
+    });
+
     let acc = 0;
-    for (const b of bks) {
-      const brId = String(b._id);
-      baseMap.set(brId, acc + 1);
-      acc += cntMap.get(brId) || 1;
+    for (const bucket of buckets) {
+      for (const b of bucket.brackets) {
+        baseMap.set(String(b._id), acc + 1);
+      }
+      acc += bucket.spanRounds;
     }
     baseStartByTournament.set(String(tId), baseMap);
   }
 
   // Helper build mã trận mới: R{globalRound}-T{order+1}
+  const baseByTournament = new Map();
+  for (const [tId, baseStartMap] of baseStartByTournament.entries()) {
+    const baseMap = new Map();
+    for (const [brId, baseStart] of baseStartMap.entries()) {
+      baseMap.set(brId, Math.max(0, Number(baseStart || 1) - 1));
+    }
+    baseByTournament.set(tId, baseMap);
+  }
+
+  const matchesByBracketId = new Map();
+  for (const m of matches) {
+    const bracketId = String(m?.bracket?._id || m?.bracket || "");
+    if (!bracketId) continue;
+    if (!matchesByBracketId.has(bracketId)) {
+      matchesByBracketId.set(bracketId, []);
+    }
+    matchesByBracketId.get(bracketId).push(m);
+  }
+
   const buildGlobalRCode = (m) => {
     const tRaw = m?.tournament?._id || m?.tournament;
     const bRaw = m?.bracket?._id || m?.bracket;
+    const codePayload = buildMatchCodePayload(m, {
+      baseByBracketId: isOID(tRaw)
+        ? baseByTournament.get(String(tRaw)) || new Map()
+        : new Map(),
+      matchesByBracketId,
+      preferComputed: true,
+    });
+    const displayCode = String(
+      codePayload?.displayCode || codePayload?.code || "",
+    ).trim();
+    if (displayCode) return displayCode;
 
     // ✅ FIX: fallback an toàn nếu thiếu tournament/bracket
     if (!isOID(tRaw) || !isOID(bRaw)) {
@@ -459,6 +546,8 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     return {
       _id: m._id,
       code,
+      displayCode: code,
+      codeResolved: code,
       dateTime: m.finishedAt || m.scheduledAt || null,
       tournament: { id: tour?._id, name: tour?.name || "" },
       team1,

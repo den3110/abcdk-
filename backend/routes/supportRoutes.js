@@ -5,7 +5,9 @@ import {
   getMyTicketDetail,
   addMyMessage,
   adminListTickets,
+  adminGetTicketDetail,
   adminReply,
+  adminUpdateTicketStatus,
 } from "../controllers/supportController.js";
 
 import { authorize, protect } from "../middleware/authMiddleware.js";
@@ -20,6 +22,12 @@ router.route("/tickets/:id/messages").post(protect, addMyMessage);
 
 // staff/admin
 router.route("/admin/tickets").get(protect, authorize("admin"), adminListTickets);
-router.route("/admin/tickets/:id/messages").post(protect, authorize("admin"), adminReply);
+router
+  .route("/admin/tickets/:id")
+  .get(protect, authorize("admin"), adminGetTicketDetail)
+  .patch(protect, authorize("admin"), adminUpdateTicketStatus);
+router
+  .route("/admin/tickets/:id/messages")
+  .post(protect, authorize("admin"), adminReply);
 
 export default router;

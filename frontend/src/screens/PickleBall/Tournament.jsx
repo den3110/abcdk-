@@ -744,12 +744,21 @@ export default function TournamentDashboard() {
 
               <Stack
                 direction="row"
-                alignItems="center"
+                alignItems="flex-start"
                 spacing={1}
                 color="text.secondary"
               >
-                <PlaceIcon fontSize="small" color="action" />
-                <Typography variant="body2" noWrap sx={{ maxWidth: "100%" }}>
+                <PlaceIcon fontSize="small" color="action" sx={{ mt: 0.15 }} />
+                <Typography
+                  variant="body2"
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    whiteSpace: "normal",
+                    overflowWrap: "anywhere",
+                  }}
+                >
                   {t.location ||
                     translate("tournaments.dashboard.locationFallback")}
                 </Typography>
