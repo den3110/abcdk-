@@ -8,6 +8,7 @@ import {
   adminGetTicketDetail,
   adminReply,
   adminUpdateTicketStatus,
+  rateMyTicket,
 } from "../controllers/supportController.js";
 
 import { authorize, protect } from "../middleware/authMiddleware.js";
@@ -19,6 +20,7 @@ const router = express.Router();
 router.route("/tickets").get(protect, listMyTickets).post(protect, createTicket);
 router.route("/tickets/:id").get(protect, getMyTicketDetail);
 router.route("/tickets/:id/messages").post(protect, addMyMessage);
+router.route("/tickets/:id/rating").patch(protect, rateMyTicket);
 
 // staff/admin
 router.route("/admin/tickets").get(protect, authorize("admin"), adminListTickets);

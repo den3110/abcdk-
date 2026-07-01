@@ -18,5 +18,7 @@ export const seoNewsApiSlice = apiSlice.injectEndpoints({
   }),
 });
 
-export const { useGetSeoNewsListQuery, useGetSeoNewsBySlugQuery } =
-  seoNewsApiSlice;
+export const {
+  useGetSeoNewsListQuery,
+  useGetSeoNewsBySlugQuery,
+} = seoNewsApiSlice;

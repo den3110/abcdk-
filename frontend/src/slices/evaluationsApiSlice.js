@@ -9,7 +9,11 @@ export const evaluationsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body,
       }),
-      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
+      invalidatesTags: (_result, _error, arg) => [
+        { type: "Rankings", id: "LIST" },
+        { type: "AssessmentHistory", id: arg?.targetUser || "LIST" },
+        "AssessmentHistory",
+      ],
     }),
   }),
 });

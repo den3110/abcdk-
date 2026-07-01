@@ -84,6 +84,9 @@ const SeoNewsListScreen = lazyRoute(() =>
 const SeoNewsDetailScreen = lazyRoute(() =>
   import("./screens/seo-news/SeoNewsDetailScreen.jsx"),
 );
+const BlogPostScreen = lazyRoute(() =>
+  import("./screens/blog/BlogPostScreen.jsx"),
+);
 const ScoreOverlay = lazyRoute(() =>
   import("./screens/PickleBall/ScoreOverlay.jsx"),
 );
@@ -113,6 +116,7 @@ const TournamentRefereePage = lazyRoute(() =>
 const MyTournamentsPage = lazyRoute(() =>
   import("./screens/MyTournaments.jsx"),
 );
+const SupportCenterPage = lazyRoute(() => import("./screens/SupportCenter.jsx"));
 const ForgotPasswordScreen = lazyRoute(() =>
   import("./screens/ForgotPasswordScreen.jsx"),
 );
@@ -262,6 +266,7 @@ const router = sentryCreateBrowserRouter(
         <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
         <Route path="/news" element={<SeoNewsListScreen />} />
         <Route path="/news/:slug" element={<SeoNewsDetailScreen />} />
+        <Route path="/blog/:slug" element={<BlogPostScreen />} />
         <Route
           path="/tournament/:id/brackets/:bracketId/draw"
           element={<AdminDrawPage />}
@@ -299,6 +304,8 @@ const router = sentryCreateBrowserRouter(
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/levelpoint" element={<LevelPointPage />} />
           <Route path="/my-tournaments" element={<MyTournamentsPage />} />
+          <Route path="/support" element={<SupportCenterPage />} />
+          <Route path="/support/:id" element={<SupportCenterPage />} />
           <Route path="/my-bookings" element={<MyBookingsPage />} />
           <Route path="/owner/venues" element={<OwnerVenuesPage />} />
           <Route path="/owner/venues/:id" element={<VenueEditorPage />} />

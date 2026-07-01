@@ -272,6 +272,13 @@ import {
   updateNewsSettings,
 } from "../controllers/newsAdminController.js";
 import {
+  createAdminBlogPost,
+  deleteAdminBlogPost,
+  getAdminBlogPostById,
+  listAdminBlogPosts,
+  updateAdminBlogPost,
+} from "../controllers/blogPostController.js";
+import {
   cleanupSeoNewsGatewaySourceImagesNow,
   createSeoNewsReadyArticlesNow,
   getSeoNewsArticles,
@@ -1279,6 +1286,12 @@ router.get("/news/candidates", getNewsCandidates);
 router.post("/news/run", runNewsSyncNow);
 router.post("/news/run/v2", runNewsSyncNowV2);
 router.post("/news/generate", generateNewsArticlesNow);
+
+router.get("/blog-posts", listAdminBlogPosts);
+router.post("/blog-posts", createAdminBlogPost);
+router.get("/blog-posts/:id([0-9a-fA-F]{24})", getAdminBlogPostById);
+router.put("/blog-posts/:id([0-9a-fA-F]{24})", updateAdminBlogPost);
+router.delete("/blog-posts/:id([0-9a-fA-F]{24})", deleteAdminBlogPost);
 
 router.get("/seo-news/settings", getSeoNewsSettings);
 router.put("/seo-news/settings", updateSeoNewsSettings);

@@ -354,6 +354,173 @@ const rankingDefaultSort = {
   _id: 1,
 };
 
+const rankingHasAnyScoreMatch = {
+  $or: [
+    { single: { $gt: 0 } },
+    { double: { $gt: 0 } },
+    { mix: { $gt: 0 } },
+    { points: { $gt: 0 } },
+  ],
+};
+
+const rankingNoScoreMatch = {
+  $and: ["single", "double", "mix", "points"].map((field) => ({
+    $or: [
+      { [field]: { $exists: false } },
+      { [field]: null },
+      { [field]: { $lte: 0 } },
+    ],
+  })),
+};
+
+const RANKING_SCORE_STATUS_ALIASES = new Map(
+  [
+    ["three_tours", "three_tours"],
+    ["from_3_tours", "three_tours"],
+    ["3_tours", "three_tours"],
+    ["three", "three_tours"],
+    ["blue", "three_tours"],
+    ["staff", "staff"],
+    ["admin", "staff"],
+    ["admin_scored", "staff"],
+    ["staff_assessment", "staff"],
+    ["yellow", "staff"],
+    ["needs_review", "needs_review"],
+    ["needs_rescore", "needs_review"],
+    ["stale", "needs_review"],
+    ["red", "needs_review"],
+    ["no_score", "no_score"],
+    ["unscored", "no_score"],
+    ["none", "no_score"],
+    ["grey", "no_score"],
+    ["gray", "no_score"],
+  ].map(([key, value]) => [key, value]),
+);
+
+const normalizeRankingScoreStatus = (value) => {
+  const key = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return RANKING_SCORE_STATUS_ALIASES.get(key) || "";
+};
+
+const buildRankingScoreStatusMatch = (scoreStatus) => {
+  switch (scoreStatus) {
+    case "three_tours":
+      return {
+        $and: [
+          rankingHasAnyScoreMatch,
+          {
+            $or: [
+              { totalFinishedTours: { $gte: 3 } },
+              { totalTours: { $gte: 3 } },
+              { tierColor: { $in: ["blue", "green"] } },
+              { colorRank: 0 },
+            ],
+          },
+        ],
+      };
+    case "staff":
+      return {
+        $and: [rankingHasAnyScoreMatch, { hasStaffAssessment: true }],
+      };
+    case "needs_review":
+      return {
+        $and: [
+          rankingHasAnyScoreMatch,
+          { $or: [{ tierColor: "red" }, { colorRank: 2 }] },
+        ],
+      };
+    case "no_score":
+      return {
+        $or: [
+          rankingNoScoreMatch,
+          {
+            $and: [
+              { tierColor: { $in: ["grey", "gray"] } },
+              { colorRank: 3 },
+            ],
+          },
+        ],
+      };
+    default:
+      return null;
+  }
+};
+
+const attachProvinceRanksToDocs = async (docs = []) => {
+  const targetUserIds = new Set(
+    docs
+      .map((doc) => doc?.user?._id)
+      .filter(isOID)
+      .map(String),
+  );
+  const provinces = uniq(
+    docs
+      .map((doc) => String(doc?.user?.province || "").trim())
+      .filter(Boolean),
+  );
+
+  if (!targetUserIds.size || !provinces.length) return docs;
+
+  const provinceRows = await Ranking.aggregate([
+    {
+      $match: {
+        isHiddenFromRankings: { $ne: true },
+        user: { $type: "objectId" },
+      },
+    },
+    {
+      $addFields: {
+        points: { $ifNull: ["$points", 0] },
+        single: { $ifNull: ["$single", 0] },
+        double: { $ifNull: ["$double", 0] },
+        mix: { $ifNull: ["$mix", 0] },
+        reputation: { $ifNull: ["$reputation", 0] },
+        totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+        hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+        colorRank: { $ifNull: ["$colorRank", 3] },
+        tierColor: { $ifNull: ["$tierColor", "grey"] },
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "rankUser",
+        pipeline: [{ $project: { province: 1 } }],
+      },
+    },
+    { $unwind: { path: "$rankUser", preserveNullAndEmptyArrays: false } },
+    { $match: { "rankUser.province": { $in: provinces } } },
+    { $addFields: rankingTierSortFields },
+    { $sort: rankingDefaultSort },
+    { $project: { user: 1, province: "$rankUser.province" } },
+  ]);
+
+  const provinceCounts = new Map();
+  const provinceRankByUser = new Map();
+
+  for (const row of provinceRows) {
+    const province = String(row?.province || "").trim();
+    if (!province) continue;
+    const nextRank = (provinceCounts.get(province) || 0) + 1;
+    provinceCounts.set(province, nextRank);
+    const uid = String(row?.user || "");
+    if (targetUserIds.has(uid)) {
+      provinceRankByUser.set(uid, nextRank);
+    }
+  }
+
+  return docs.map((doc) => {
+    const uid = String(doc?.user?._id || "");
+    const provinceRank = provinceRankByUser.get(uid) || null;
+    return provinceRank ? { ...doc, provinceRank } : doc;
+  });
+};
+
 /** Map regIds -> userIds (player1.user / player2.user / users[] / members[].user)  */
 async function mapRegToUsers(regIds) {
   if (!Array.isArray(regIds) || regIds.length === 0) return new Map();
@@ -1267,11 +1434,16 @@ export const getRankings = asyncHandler(async (req, res) => {
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
   const docsRaw = first.docs || [];
+  const docsWithProvinceRanks = await attachProvinceRanksToDocs(docsRaw);
 
   const isHidden = await isRatingHiddenGlobal();
   const docs = isHidden
-    ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
-    : docsRaw;
+    ? await Promise.all(
+        docsWithProvinceRanks.map((d) =>
+          sanitizeRatingsObj(req.user, d.user?._id, d),
+        ),
+      )
+    : docsWithProvinceRanks;
 
   const payload = {
     docs,
@@ -1671,6 +1843,9 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   }
 
   const keywordRaw = String(req.query.keyword ?? "").trim();
+  const scoreStatus = normalizeRankingScoreStatus(
+    req.query.scoreStatus ?? req.query.score_status ?? req.query.tier,
+  );
 
   // ===== Check user roles =====
   const role = String(req.user?.role || "").toLowerCase();
@@ -1838,9 +2013,11 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     }
   }
 
+  const scoreStatusMatch = buildRankingScoreStatusMatch(scoreStatus);
   const matchStage = {
     isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
+    ...(scoreStatusMatch || {}),
   };
 
   // ===== Optimized aggregation using denormalized fields =====
@@ -1932,12 +2109,17 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
   const docsRaw = first.docs || [];
+  const docsWithProvinceRanks = await attachProvinceRanksToDocs(docsRaw);
 
   // ✅ Apply privacy sanitization (same as V1)
   const isHidden = await isRatingHiddenGlobal();
   const docs = isHidden
-    ? await Promise.all(docsRaw.map((d) => sanitizeRatingsObj(req.user, d.user?._id, d)))
-    : docsRaw;
+    ? await Promise.all(
+        docsWithProvinceRanks.map((d) =>
+          sanitizeRatingsObj(req.user, d.user?._id, d),
+        ),
+      )
+    : docsWithProvinceRanks;
 
   const payload = {
     docs,

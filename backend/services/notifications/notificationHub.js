@@ -1134,7 +1134,9 @@ function makeEventKey(eventName, ctx) {
   // ✅ THÊM SUPPORT EVENT KEYS
   if (eventName === EVENTS.SUPPORT_NEW_TICKET) {
     // Mỗi ticket chỉ notify 1 lần khi tạo
-    return `support.newTicket:ticket#${ctx.ticketId}`;
+    return `support.newTicket:ticket#${ctx.ticketId}:msg#${
+      ctx.messageId || "created"
+    }`;
   }
 
   if (eventName === EVENTS.SUPPORT_STAFF_REPLIED) {

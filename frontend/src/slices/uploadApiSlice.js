@@ -41,6 +41,22 @@ export const uploadApiSlice = apiSlice.injectEndpoints({
         return { url: "/api/upload/register-cccd", method: "POST", body: fd };
       },
     }),
+    uploadImageToFolder: builder.mutation({
+      query: ({ folder = "misc", file, options = {} }) => {
+        const fd = new FormData();
+        fd.append("image", file);
+        Object.entries(options).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== "") {
+            fd.append(key, String(value));
+          }
+        });
+        return {
+          url: `/api/upload/${encodeURIComponent(folder)}`,
+          method: "POST",
+          body: fd,
+        };
+      },
+    }),
   }),
 });
 
@@ -49,4 +65,5 @@ export const {
   useUploadCccdMutation,
   useUploadRegisterCccdMutation,
   useUploadRealAvatarMutation,
+  useUploadImageToFolderMutation,
 } = uploadApiSlice;

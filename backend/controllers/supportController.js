@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import SupportTicket from "../models/supportTicketModel.js";
 import SupportMessage from "../models/supportMessageModel.js";
 import User from "../models/userModel.js";
@@ -9,8 +10,22 @@ import {
 } from "../services/notifications/notificationHub.js";
 
 const STATUS_VALUES = new Set(["open", "pending", "closed"]);
+const CATEGORY_VALUES = new Set([
+  "account",
+  "tournament",
+  "payment",
+  "technical",
+  "report",
+  "other",
+]);
+const PRIORITY_VALUES = new Set(["low", "normal", "high", "urgent"]);
 
 const safePreview = (s = "") => String(s || "").trim().slice(0, 140);
+
+const normalizeEnum = (value, allowed, fallback) => {
+  const clean = String(value || "").trim().toLowerCase();
+  return allowed.has(clean) ? clean : fallback;
+};
 
 const cleanAttachmentsOf = (attachments) =>
   Array.isArray(attachments)
@@ -22,6 +37,7 @@ const cleanAttachmentsOf = (attachments) =>
           size: Number(item?.size || 0) || 0,
         }))
         .filter((item) => item.url)
+        .slice(0, 10)
     : [];
 
 const buildFromUserLabel = (u) => {
@@ -32,6 +48,10 @@ const buildFromUserLabel = (u) => {
   } catch {
     return "User";
   }
+};
+
+const publicMessageFilter = {
+  $or: [{ visibility: { $exists: false } }, { visibility: "public" }],
 };
 
 const getAdminAudience = async () => {
@@ -53,14 +73,24 @@ const publishSupportNotification = (eventName, ctx, opts = {}) => {
   });
 };
 
-const buildTicketResponse = async (ticketId, filter = {}) => {
+const buildTicketResponse = async (
+  ticketId,
+  filter = {},
+  { includeInternal = false } = {},
+) => {
   const ticket = await SupportTicket.findOne({ _id: ticketId, ...filter })
     .populate("user", "name email nickname phone avatar")
+    .populate("assignedTo", "name email nickname avatar")
+    .populate("closedBy", "name email nickname avatar")
     .lean();
 
   if (!ticket) return null;
 
-  const messages = await SupportMessage.find({ ticket: ticketId })
+  const messageFilter = includeInternal
+    ? { ticket: ticketId }
+    : { ticket: ticketId, ...publicMessageFilter };
+
+  const messages = await SupportMessage.find(messageFilter)
     .populate("senderUser", "name email nickname avatar role")
     .sort({ createdAt: 1 })
     .lean();
@@ -68,9 +98,65 @@ const buildTicketResponse = async (ticketId, filter = {}) => {
   return { ticket, messages };
 };
 
+const updateTicketLastMessage = (ticket, text, attachments) => {
+  ticket.lastMessageAt = new Date();
+  ticket.lastMessagePreview =
+    safePreview(text) || (attachments?.length ? "[Ảnh đính kèm]" : "");
+};
+
+const notifyAdminsAboutUserMessage = async ({ req, ticket, msg, text }) => {
+  try {
+    notifySupportToTelegram({
+      ticketId: ticket._id,
+      title: ticket.title,
+      fromUserLabel: buildFromUserLabel(req.user),
+      text: msg?.text || text,
+      attachmentsCount: Array.isArray(msg?.attachments)
+        ? msg.attachments.length
+        : 0,
+      attachments: msg?.attachments || [],
+    });
+  } catch (error) {
+    console.warn("[support] notify telegram failed:", error?.message);
+  }
+
+  const adminAudience = await getAdminAudience();
+  if (!adminAudience.length) return;
+
+  publishSupportNotification(
+    EVENTS.SUPPORT_NEW_TICKET,
+    {
+      ticketId: String(ticket._id),
+      title: ticket.title,
+      preview: safePreview(text),
+      overrideAudience: adminAudience,
+      topicType: "support",
+      topicId: String(ticket._id),
+      category: CATEGORY.SUPPORT,
+      messageId: String(msg._id),
+    },
+    {
+      dispatchMeta: {
+        sourceKind: "support_ticket",
+        triggeredBy: req.user?._id || null,
+        scope: "support_admins",
+      },
+    },
+  );
+};
+
 export const createTicket = async (req, res) => {
   try {
-    const { title, text, attachments } = req.body || {};
+    const {
+      title,
+      text,
+      attachments,
+      category,
+      priority,
+      contactEmail,
+      contactPhone,
+      source = "web",
+    } = req.body || {};
     const cleanText = String(text || "").trim();
     const cleanAttachments = cleanAttachmentsOf(attachments);
 
@@ -80,67 +166,37 @@ export const createTicket = async (req, res) => {
       });
     }
 
+    const now = new Date();
     const ticket = await SupportTicket.create({
       user: req.user._id,
-      title: String(title || "Hỗ trợ").trim() || "Hỗ trợ",
+      title: String(title || "Hỗ trợ").trim().slice(0, 160) || "Hỗ trợ",
       status: "open",
-      lastMessageAt: new Date(),
+      category: normalizeEnum(category, CATEGORY_VALUES, "other"),
+      priority: normalizeEnum(priority, PRIORITY_VALUES, "normal"),
+      lastMessageAt: now,
       lastMessagePreview:
         safePreview(cleanText) ||
         (cleanAttachments.length ? "[Ảnh đính kèm]" : ""),
-      userLastReadAt: new Date(),
+      userLastReadAt: now,
       staffLastReadAt: null,
+      meta: {
+        source: String(source || "web").trim().slice(0, 40),
+        contactEmail: String(contactEmail || "").trim().slice(0, 160),
+        contactPhone: String(contactPhone || "").trim().slice(0, 40),
+      },
     });
 
     const msg = await SupportMessage.create({
       ticket: ticket._id,
       senderRole: "user",
       senderUser: req.user._id,
+      visibility: "public",
+      kind: "message",
       text: cleanText,
       attachments: cleanAttachments,
     });
 
-    try {
-      notifySupportToTelegram({
-        ticketId: ticket._id,
-        title: ticket.title,
-        fromUserLabel: buildFromUserLabel(req.user),
-        text: msg?.text || cleanText,
-        attachmentsCount: Array.isArray(msg?.attachments)
-          ? msg.attachments.length
-          : cleanAttachments.length,
-        attachments: msg?.attachments || cleanAttachments,
-      });
-    } catch (error) {
-      console.warn(
-        "[support:createTicket] notify telegram failed:",
-        error?.message,
-      );
-    }
-
-    const adminAudience = await getAdminAudience();
-    if (adminAudience.length) {
-      publishSupportNotification(
-        EVENTS.SUPPORT_NEW_TICKET,
-        {
-          ticketId: String(ticket._id),
-          title: ticket.title,
-          preview: safePreview(cleanText),
-          overrideAudience: adminAudience,
-          topicType: "support",
-          topicId: String(ticket._id),
-          category: CATEGORY.SUPPORT,
-          messageId: String(msg._id),
-        },
-        {
-          dispatchMeta: {
-            sourceKind: "support_ticket",
-            triggeredBy: req.user?._id || null,
-            scope: "support_admins",
-          },
-        },
-      );
-    }
+    await notifyAdminsAboutUserMessage({ req, ticket, msg, text: cleanText });
 
     res.status(201).json(ticket);
   } catch (error) {
@@ -152,7 +208,22 @@ export const createTicket = async (req, res) => {
 
 export const listMyTickets = async (req, res) => {
   try {
-    const items = await SupportTicket.find({ user: req.user._id })
+    const { status = "", category = "", priority = "", keyword = "" } =
+      req.query || {};
+    const filter = { user: req.user._id };
+
+    if (STATUS_VALUES.has(String(status))) filter.status = String(status);
+    if (CATEGORY_VALUES.has(String(category))) filter.category = String(category);
+    if (PRIORITY_VALUES.has(String(priority))) filter.priority = String(priority);
+
+    const q = String(keyword || "").trim();
+    if (q) {
+      const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [{ title: regex }, { lastMessagePreview: regex }];
+    }
+
+    const items = await SupportTicket.find(filter)
+      .populate("assignedTo", "name email nickname avatar")
       .sort({ lastMessageAt: -1 })
       .lean();
     res.json(items);
@@ -209,64 +280,35 @@ export const addMyMessage = async (req, res) => {
         .json({ message: "Không tìm thấy yêu cầu hỗ trợ." });
     }
 
+    const wasClosed = ticket.status === "closed";
     const msg = await SupportMessage.create({
       ticket: id,
       senderRole: "user",
       senderUser: req.user._id,
+      visibility: "public",
+      kind: "message",
       text: cleanText,
       attachments: cleanAttachments,
+      meta: wasClosed ? { reopenedTicket: true } : {},
     });
 
     ticket.status = "open";
-    ticket.lastMessageAt = new Date();
-    ticket.lastMessagePreview =
-      safePreview(cleanText) ||
-      (cleanAttachments.length ? "[Ảnh đính kèm]" : "");
+    updateTicketLastMessage(ticket, cleanText, cleanAttachments);
     ticket.userLastReadAt = new Date();
     ticket.staffLastReadAt = null;
+    if (wasClosed) {
+      ticket.closedAt = null;
+      ticket.closedBy = null;
+      ticket.closeReason = "";
+      ticket.meta = {
+        ...(ticket.meta || {}),
+        reopenedAt: new Date(),
+        reopenedBy: req.user._id,
+      };
+    }
     await ticket.save();
 
-    try {
-      notifySupportToTelegram({
-        ticketId: ticket._id,
-        title: ticket.title,
-        fromUserLabel: buildFromUserLabel(req.user),
-        text: msg?.text || cleanText,
-        attachmentsCount: Array.isArray(msg?.attachments)
-          ? msg.attachments.length
-          : cleanAttachments.length,
-        attachments: msg?.attachments || cleanAttachments,
-      });
-    } catch (error) {
-      console.warn(
-        "[support:addMyMessage] notify telegram failed:",
-        error?.message,
-      );
-    }
-
-    const adminAudience = await getAdminAudience();
-    if (adminAudience.length) {
-      publishSupportNotification(
-        EVENTS.SUPPORT_NEW_TICKET,
-        {
-          ticketId: String(ticket._id),
-          title: ticket.title,
-          preview: safePreview(cleanText),
-          overrideAudience: adminAudience,
-          topicType: "support",
-          topicId: String(ticket._id),
-          category: CATEGORY.SUPPORT,
-          messageId: String(msg._id),
-        },
-        {
-          dispatchMeta: {
-            sourceKind: "support_ticket",
-            triggeredBy: req.user?._id || null,
-            scope: "support_admins",
-          },
-        },
-      );
-    }
+    await notifyAdminsAboutUserMessage({ req, ticket, msg, text: cleanText });
 
     res.status(201).json(msg);
   } catch (error) {
@@ -276,36 +318,113 @@ export const addMyMessage = async (req, res) => {
   }
 };
 
+export const rateMyTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const score = Number(req.body?.score);
+    const comment = String(req.body?.comment || "").trim().slice(0, 800);
+
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      return res.status(400).json({ message: "Điểm đánh giá không hợp lệ." });
+    }
+
+    const ticket = await SupportTicket.findOne({ _id: id, user: req.user._id });
+    if (!ticket) {
+      return res
+        .status(404)
+        .json({ message: "Không tìm thấy yêu cầu hỗ trợ." });
+    }
+    if (ticket.status !== "closed") {
+      return res
+        .status(400)
+        .json({ message: "Chỉ đánh giá sau khi case đã đóng." });
+    }
+
+    ticket.ratingScore = score;
+    ticket.ratingComment = comment;
+    ticket.ratedAt = new Date();
+    await ticket.save();
+
+    res.json(ticket);
+  } catch (error) {
+    res.status(500).json({
+      message: error?.message || "Không thể lưu đánh giá.",
+    });
+  }
+};
+
+const buildAdminFilter = (query = {}) => {
+  const {
+    status = "",
+    category = "",
+    priority = "",
+    assigned = "",
+    keyword = "",
+    unread = "",
+  } = query;
+  const filter = {};
+
+  if (STATUS_VALUES.has(String(status))) filter.status = String(status);
+  if (CATEGORY_VALUES.has(String(category))) filter.category = String(category);
+  if (PRIORITY_VALUES.has(String(priority))) filter.priority = String(priority);
+
+  if (String(assigned) === "unassigned") {
+    filter.assignedTo = null;
+  } else if (mongoose.isValidObjectId(assigned)) {
+    filter.assignedTo = assigned;
+  }
+
+  if (String(unread) === "1" || String(unread) === "true") {
+    filter.$expr = {
+      $gt: ["$lastMessageAt", { $ifNull: ["$staffLastReadAt", new Date(0)] }],
+    };
+  }
+
+  const q = String(keyword || "").trim();
+  if (q) {
+    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [
+      { title: regex },
+      { lastMessagePreview: regex },
+      { closeReason: regex },
+      { "meta.source": regex },
+      { "meta.contactEmail": regex },
+      { "meta.contactPhone": regex },
+    ];
+  }
+
+  return filter;
+};
+
 export const adminListTickets = async (req, res) => {
   try {
-    const { status = "", keyword = "", page = 1, limit = 50 } = req.query || {};
-    const filter = {};
-
-    if (STATUS_VALUES.has(String(status))) {
-      filter.status = String(status);
-    }
-
-    if (String(keyword || "").trim()) {
-      const regex = new RegExp(String(keyword).trim(), "i");
-      filter.$or = [
-        { title: regex },
-        { lastMessagePreview: regex },
-        { "meta.source": regex },
-      ];
-    }
-
+    const { page = 1, limit = 50 } = req.query || {};
+    const filter = buildAdminFilter(req.query);
     const safePage = Math.max(Number(page) || 1, 1);
     const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
     const skip = (safePage - 1) * safeLimit;
 
-    const [items, total] = await Promise.all([
+    const [items, total, open, pending, closed, unread] = await Promise.all([
       SupportTicket.find(filter)
         .populate("user", "name email nickname phone avatar")
+        .populate("assignedTo", "name email nickname avatar")
         .sort({ lastMessageAt: -1 })
         .skip(skip)
         .limit(safeLimit)
         .lean(),
       SupportTicket.countDocuments(filter),
+      SupportTicket.countDocuments({ ...filter, status: "open" }),
+      SupportTicket.countDocuments({ ...filter, status: "pending" }),
+      SupportTicket.countDocuments({ ...filter, status: "closed" }),
+      SupportTicket.countDocuments({
+        ...filter,
+        $expr: {
+          $gt: [
+            "$lastMessageAt",
+            { $ifNull: ["$staffLastReadAt", new Date(0)] },
+          ],
+        },
+      }),
     ]);
 
     res.json({
@@ -313,6 +432,7 @@ export const adminListTickets = async (req, res) => {
       total,
       page: safePage,
       pageSize: safeLimit,
+      stats: { open, pending, closed, unread },
     });
   } catch (error) {
     res.status(500).json({
@@ -333,7 +453,7 @@ export const adminGetTicketDetail = async (req, res) => {
     ticket.staffLastReadAt = new Date();
     await ticket.save();
 
-    const detail = await buildTicketResponse(id);
+    const detail = await buildTicketResponse(id, {}, { includeInternal: true });
     res.json(detail);
   } catch (error) {
     res.status(500).json({
@@ -364,15 +484,15 @@ export const adminReply = async (req, res) => {
       ticket: id,
       senderRole: "staff",
       senderUser: req.user?._id || null,
+      visibility: "public",
+      kind: "message",
       text: cleanText,
       attachments: cleanAttachments,
     });
 
     ticket.status = "pending";
-    ticket.lastMessageAt = new Date();
-    ticket.lastMessagePreview =
-      safePreview(cleanText) ||
-      (cleanAttachments.length ? "[Ảnh đính kèm]" : "");
+    if (!ticket.assignedTo && req.user?._id) ticket.assignedTo = req.user._id;
+    updateTicketLastMessage(ticket, cleanText, cleanAttachments);
     ticket.staffLastReadAt = new Date();
     await ticket.save();
 
@@ -408,11 +528,7 @@ export const adminReply = async (req, res) => {
 export const adminUpdateTicketStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const status = String(req.body?.status || "").trim();
-
-    if (!STATUS_VALUES.has(status)) {
-      return res.status(400).json({ message: "Trạng thái không hợp lệ." });
-    }
+    const body = req.body || {};
 
     const ticket = await SupportTicket.findById(id);
     if (!ticket) {
@@ -420,11 +536,62 @@ export const adminUpdateTicketStatus = async (req, res) => {
     }
 
     const previousStatus = ticket.status;
-    ticket.status = status;
+    const nextStatus = String(body.status || "").trim();
+    if (nextStatus) {
+      if (!STATUS_VALUES.has(nextStatus)) {
+        return res
+          .status(400)
+          .json({ message: "Trạng thái không hợp lệ." });
+      }
+      ticket.status = nextStatus;
+      if (nextStatus === "closed") {
+        ticket.closedAt = new Date();
+        ticket.closedBy = req.user?._id || null;
+        ticket.closeReason = String(body.closeReason || ticket.closeReason || "")
+          .trim()
+          .slice(0, 800);
+      } else if (previousStatus === "closed") {
+        ticket.closedAt = null;
+        ticket.closedBy = null;
+        ticket.closeReason = "";
+      }
+    }
+
+    if (body.category !== undefined) {
+      ticket.category = normalizeEnum(body.category, CATEGORY_VALUES, ticket.category);
+    }
+    if (body.priority !== undefined) {
+      ticket.priority = normalizeEnum(body.priority, PRIORITY_VALUES, ticket.priority);
+    }
+
+    if (body.assignToMe === true || body.assignedTo === "me") {
+      ticket.assignedTo = req.user?._id || null;
+    } else if (body.assignedTo === null || body.assignedTo === "") {
+      ticket.assignedTo = null;
+    } else if (mongoose.isValidObjectId(body.assignedTo)) {
+      ticket.assignedTo = body.assignedTo;
+    }
+
+    const internalNote = String(body.internalNote || "").trim();
+    if (internalNote) {
+      await SupportMessage.create({
+        ticket: id,
+        senderRole: "staff",
+        senderUser: req.user?._id || null,
+        visibility: "internal",
+        kind: "internal_note",
+        text: internalNote.slice(0, 2000),
+      });
+      ticket.meta = {
+        ...(ticket.meta || {}),
+        lastInternalNoteAt: new Date(),
+      };
+    }
+
     ticket.staffLastReadAt = new Date();
     await ticket.save();
 
-    if (status === "closed" && previousStatus !== "closed") {
+    if (ticket.status === "closed" && previousStatus !== "closed") {
       publishSupportNotification(
         EVENTS.SUPPORT_TICKET_CLOSED,
         {
@@ -445,7 +612,8 @@ export const adminUpdateTicketStatus = async (req, res) => {
       );
     }
 
-    res.json(ticket);
+    const detail = await buildTicketResponse(id, {}, { includeInternal: true });
+    res.json(detail?.ticket || ticket);
   } catch (error) {
     res.status(500).json({
       message: error?.message || "Không thể cập nhật trạng thái ticket.",

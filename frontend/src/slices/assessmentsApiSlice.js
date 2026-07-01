@@ -30,6 +30,9 @@ export const assessmentsApiSlice = apiSlice.injectEndpoints({
     getAssessmentHistory: builder.query({
       query: ({ userId, limit = 20 }) =>
         `${ASSESSMENTS_URL}/${userId}/history?limit=${limit}`,
+      providesTags: (_result, _error, arg) => [
+        { type: "AssessmentHistory", id: arg?.userId || "LIST" },
+      ],
     }),
 
     // Cập nhật một bản chấm theo id (simple mode)

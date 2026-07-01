@@ -25,6 +25,7 @@ import {
 } from "@mui/icons-material";
 
 import SEOHead from "../components/SEOHead.jsx";
+import HomeBlogBanner from "../components/HomeBlogBanner.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { useGetHeroContentQuery } from "../slices/cmsApiSlice.js";
 import { useGetHomeSummaryQuery } from "../slices/homeApiSlice.js";
@@ -676,6 +677,12 @@ export default function HomeScreenV2() {
             ) : null}
           </Box>
         </Container>
+
+        <HomeBlogBanner
+          variant="dark"
+          maxWidth="1440px"
+          sx={{ position: "relative", zIndex: 2, mt: { xs: 2, md: 3 } }}
+        />
 
         <Container
           maxWidth={false}

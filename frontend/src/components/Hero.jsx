@@ -10,6 +10,7 @@ import {
 } from "../slices/cmsApiSlice";
 import { useGetHomeSummaryQuery } from "../slices/homeApiSlice";
 import AppInstallBanner from "./AppInstallBanner";
+import HomeBlogBanner from "./HomeBlogBanner";
 import SponsorMarquee from "./SponsorMarquee";
 import SEOHead from "./SEOHead";
 import { useTheme } from "@mui/material/styles";
@@ -351,6 +352,7 @@ export default function Hero() {
           }}
         />
       )}
+      <HomeBlogBanner variant={isDark ? "dark" : "light"} />
       <SponsorMarquee variant="glass" height={80} gap={24} />
 
       {/* ======= RADICAL HERO SECTION ======= */}

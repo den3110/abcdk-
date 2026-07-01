@@ -58,6 +58,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import TableRowsIcon from "@mui/icons-material/TableRows";
 import GridViewIcon from "@mui/icons-material/GridView";
+import HistoryIcon from "@mui/icons-material/History";
 
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -77,6 +78,7 @@ import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 import { useGetMeQuery } from "../../slices/usersApiSlice";
 import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
+import { useGetAssessmentHistoryQuery as useGetUserAssessmentHistoryQuery } from "../../slices/assessmentsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 import SponsorMarquee from "../../components/SponsorMarquee";
@@ -299,6 +301,17 @@ const HEX = {
   red: "#f44336",
   grey: "#616161",
 };
+const RANKING_SCORE_FILTERS = [
+  { value: "three_tours", label: "Từ 3 giải", bg: HEX.blue, color: "#fff" },
+  { value: "staff", label: "Admin chấm", bg: HEX.yellow, color: "#000" },
+  { value: "needs_review", label: "Cần chấm lại", bg: HEX.red, color: "#fff" },
+  { value: "no_score", label: "Chưa có điểm", bg: HEX.grey, color: "#fff" },
+];
+const RANKING_SCORE_FILTER_VALUES = new Set(
+  RANKING_SCORE_FILTERS.map((item) => item.value),
+);
+const ACHIEVEMENT_VISIBLE_LIMIT = 3;
+const RANKING_PAGE_LIMIT = 12;
 const MIN_RATING = 1.6;
 const MAX_RATING = 8.0;
 const fmt3 = (x) => {
@@ -414,12 +427,575 @@ const canViewKycAdmin = (me, status) =>
 
 const numOrUndef = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
 
+const fmtHistoryScore = (value) => {
+  if (value === "***") return "***";
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(3) : "--";
+};
+
+const getAssessmentSource = (row, t) => {
+  const scoreBy = String(row?.meta?.scoreBy || "").toLowerCase();
+  const key = row?.meta?.selfScored ? "self" : scoreBy || "unknown";
+
+  switch (key) {
+    case "admin":
+      return {
+        label: t("rankings.gradeHistory.sources.admin"),
+        color: "info",
+      };
+    case "mod":
+      return {
+        label: t("rankings.gradeHistory.sources.mod"),
+        color: "primary",
+      };
+    case "moderator":
+      return {
+        label: t("rankings.gradeHistory.sources.moderator"),
+        color: "primary",
+      };
+    case "self":
+      return {
+        label: t("rankings.gradeHistory.sources.self"),
+        color: "warning",
+      };
+    default:
+      return {
+        label: t("rankings.gradeHistory.sources.unknown"),
+        color: "default",
+      };
+  }
+};
+
+const achievementToneSx = {
+  blue: { bgcolor: HEX.blue, color: "#fff" },
+  yellow: { bgcolor: HEX.yellow, color: "#111" },
+  red: { bgcolor: HEX.red, color: "#fff" },
+  grey: { bgcolor: HEX.grey, color: "#fff" },
+  green: { bgcolor: HEX.green, color: "#fff" },
+  purple: { bgcolor: "#7b1fa2", color: "#fff" },
+  cyan: { bgcolor: "#00838f", color: "#fff" },
+  bronze: { bgcolor: "#bf6d2d", color: "#fff" },
+  navy: { bgcolor: "#1e3a8a", color: "#fff" },
+};
+
+const safeScoreNumber = (value) => {
+  if (value === null || value === "***") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const fmtAchievementScore = (value) =>
+  Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "--";
+
+const daysAgo = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+};
+
+const countMedal = (items, medal) =>
+  (items || []).filter((item) => item?.medal === medal).length;
+
+const achievementRule = ({
+  id,
+  category,
+  tone = "grey",
+  priority = 0,
+  when,
+  label,
+  explain,
+}) => ({ id, category, tone, priority, when, label, explain });
+
+const buildAchievementRules = () => {
+  const rules = [
+    achievementRule({
+      id: "province-rank-1",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      priority: 980,
+      when: (ctx) => ctx.provinceRank === 1,
+      label: (ctx) => `Top 1 ${ctx.province}`,
+      explain: (ctx) =>
+        `Đang đứng hạng 1 tại ${ctx.province} theo thứ tự xếp hạng hiện tại.`,
+    }),
+    achievementRule({
+      id: "province-rank-2",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      priority: 930,
+      when: (ctx) => ctx.provinceRank === 2,
+      label: (ctx) => `Top 2 ${ctx.province}`,
+      explain: (ctx) =>
+        `Đang đứng hạng 2 tại ${ctx.province} theo thứ tự xếp hạng hiện tại.`,
+    }),
+    achievementRule({
+      id: "province-rank-3",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      priority: 920,
+      when: (ctx) => ctx.provinceRank === 3,
+      label: (ctx) => `Top 3 ${ctx.province}`,
+      explain: (ctx) =>
+        `Đang nằm trong top 3 tại ${ctx.province}.`,
+    }),
+    achievementRule({
+      id: "province-rank-5",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      priority: 850,
+      when: (ctx) => ctx.provinceRank > 0 && ctx.provinceRank <= 5,
+      label: "Top 5 tỉnh",
+      explain: (ctx) =>
+        `Đang đứng hạng ${ctx.provinceRank} tại ${ctx.province}.`,
+    }),
+    achievementRule({
+      id: "province-rank-10",
+      category: "Xếp hạng tỉnh",
+      tone: "blue",
+      priority: 760,
+      when: (ctx) => ctx.provinceRank > 0 && ctx.provinceRank <= 10,
+      label: "Top 10 tỉnh",
+      explain: (ctx) =>
+        `Đang nằm trong top 10 tại ${ctx.province}, hạng ${ctx.provinceRank}.`,
+    }),
+    achievementRule({
+      id: "national-rank-1",
+      category: "Xếp hạng",
+      tone: "purple",
+      priority: 990,
+      when: (ctx) => ctx.globalRank === 1,
+      label: "Top 1 BXH",
+      explain: "Đang đứng đầu bảng xếp hạng theo thứ tự hiện tại.",
+    }),
+    achievementRule({
+      id: "national-rank-3",
+      category: "Xếp hạng",
+      tone: "purple",
+      priority: 960,
+      when: (ctx) => ctx.globalRank > 0 && ctx.globalRank <= 3,
+      label: "Top 3 BXH",
+      explain: (ctx) => `Đang nằm trong top 3 toàn bảng, hạng ${ctx.globalRank}.`,
+    }),
+    achievementRule({
+      id: "national-rank-10",
+      category: "Xếp hạng",
+      tone: "purple",
+      priority: 870,
+      when: (ctx) => ctx.globalRank > 0 && ctx.globalRank <= 10,
+      label: "Top 10 BXH",
+      explain: (ctx) => `Đang nằm trong top 10 toàn bảng, hạng ${ctx.globalRank}.`,
+    }),
+    achievementRule({
+      id: "staff-scored",
+      category: "Xác thực điểm",
+      tone: "yellow",
+      priority: 700,
+      when: (ctx) => ctx.hasStaffAssessment,
+      label: "Admin chấm",
+      explain: "Điểm trình đã từng được admin hoặc người chấm trình xác nhận.",
+    }),
+    achievementRule({
+      id: "kyc-verified",
+      category: "Xác thực hồ sơ",
+      tone: "green",
+      priority: 520,
+      when: (ctx) => ctx.kycStatus === "verified",
+      label: "Đã KYC",
+      explain: "Hồ sơ định danh đã được xác thực.",
+    }),
+    achievementRule({
+      id: "needs-review",
+      category: "Độ mới điểm",
+      tone: "red",
+      priority: 680,
+      when: (ctx) => ctx.hasScore && ctx.isStale,
+      label: "Cần chấm lại",
+      explain: "Điểm có dấu hiệu cũ, nên cập nhật hoặc chấm lại.",
+    }),
+    achievementRule({
+      id: "no-score",
+      category: "Điểm trình",
+      tone: "grey",
+      priority: 120,
+      when: (ctx) => !ctx.hasScore,
+      label: "Chưa có điểm",
+      explain: "Chưa có điểm đơn, đôi, mix hoặc điểm tích lũy.",
+    }),
+  ];
+
+  [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `tour-count-${n}`,
+        category: "Kinh nghiệm thi đấu",
+        tone: n >= 10 ? "navy" : "cyan",
+        priority: 430 + n,
+        when: (ctx) => ctx.totalTours >= n,
+        label: n === 1 ? "Đã thi đấu" : `+${n} giải`,
+        explain: (ctx) =>
+          `Đã ghi nhận ${ctx.totalTours} giải đã hoàn tất trong dữ liệu ranking.`,
+      }),
+    );
+  });
+
+  [1, 2, 3, 4, 5, 7, 10].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `gold-count-${n}`,
+        category: "Huy chương",
+        tone: "yellow",
+        priority: 900 + n * 8,
+        when: (ctx) => ctx.goldCount >= n,
+        label: n === 1 ? "Vô địch" : `Vô địch +${n} giải`,
+        explain: (ctx) =>
+          `Có ${ctx.goldCount} lần vô địch trong dữ liệu podium 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [1, 2, 3, 5, 7, 10].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `podium-count-${n}`,
+        category: "Huy chương",
+        tone: "bronze",
+        priority: 780 + n * 7,
+        when: (ctx) => ctx.podiumCount >= n,
+        label: n === 1 ? "Có podium" : `Podium +${n}`,
+        explain: (ctx) =>
+          `Có ${ctx.podiumCount} lần lên bục trong dữ liệu podium 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [1, 2, 3, 5].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `silver-count-${n}`,
+        category: "Huy chương",
+        tone: "grey",
+        priority: 650 + n * 6,
+        when: (ctx) => ctx.silverCount >= n,
+        label: n === 1 ? "Á quân" : `Á quân +${n}`,
+        explain: (ctx) =>
+          `Có ${ctx.silverCount} lần á quân trong dữ liệu podium 30 ngày gần đây.`,
+      }),
+      achievementRule({
+        id: `bronze-count-${n}`,
+        category: "Huy chương",
+        tone: "bronze",
+        priority: 620 + n * 6,
+        when: (ctx) => ctx.bronzeCount >= n,
+        label: n === 1 ? "Hạng ba" : `Hạng ba +${n}`,
+        explain: (ctx) =>
+          `Có ${ctx.bronzeCount} lần hạng ba trong dữ liệu podium 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [2, 3, 4, 5, 7, 10].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `podium-event-count-${n}`,
+        category: "Phong độ gần đây",
+        tone: "purple",
+        priority: 720 + n * 5,
+        when: (ctx) => ctx.podiumEventCount >= n,
+        label: `Ăn giải +${n} sự kiện`,
+        explain: (ctx) =>
+          `Có podium ở ${ctx.podiumEventCount} sự kiện khác nhau trong 30 ngày gần đây.`,
+      }),
+    );
+  });
+
+  [1, 3, 7, 14, 30].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `fresh-podium-${n}`,
+        category: "Phong độ gần đây",
+        tone: "green",
+        priority: 740 - n,
+        when: (ctx) =>
+          ctx.latestPodiumDays !== null && ctx.latestPodiumDays <= n,
+        label: n === 1 ? "Podium hôm nay" : `Podium ${n} ngày`,
+        explain: (ctx) =>
+          `Podium gần nhất cách đây ${ctx.latestPodiumDays} ngày.`,
+      }),
+    );
+  });
+
+  [2.0, 2.5, 3.0, 3.3, 3.5, 3.8, 4.0, 4.2, 4.5, 4.8, 5.0, 5.5, 6.0, 6.5, 7.0].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `double-score-${n}`,
+        category: "Điểm đôi",
+        tone: n >= 5 ? "purple" : n >= 4 ? "blue" : "cyan",
+        priority: 330 + Math.round(n * 20),
+        when: (ctx) => ctx.doubleScore !== null && ctx.doubleScore >= n,
+        label: `Đôi ${n.toFixed(1)}+`,
+        explain: (ctx) =>
+          `Điểm đôi hiện tại là ${fmtAchievementScore(ctx.doubleScore)}, đạt mốc ${n.toFixed(1)}+.`,
+      }),
+      achievementRule({
+        id: `single-score-${n}`,
+        category: "Điểm đơn",
+        tone: n >= 5 ? "purple" : n >= 4 ? "blue" : "cyan",
+        priority: 320 + Math.round(n * 20),
+        when: (ctx) => ctx.singleScore !== null && ctx.singleScore >= n,
+        label: `Đơn ${n.toFixed(1)}+`,
+        explain: (ctx) =>
+          `Điểm đơn hiện tại là ${fmtAchievementScore(ctx.singleScore)}, đạt mốc ${n.toFixed(1)}+.`,
+      }),
+    );
+  });
+
+  [0.05, 0.1, 0.2, 0.3, 0.5].forEach((gap) => {
+    rules.push(
+      achievementRule({
+        id: `balanced-gap-${gap}`,
+        category: "Hồ sơ điểm",
+        tone: "green",
+        priority: 410 - Math.round(gap * 100),
+        when: (ctx) =>
+          ctx.singleScore !== null &&
+          ctx.doubleScore !== null &&
+          Math.abs(ctx.singleScore - ctx.doubleScore) <= gap,
+        label: `Đơn/đôi cân ${gap}`,
+        explain: (ctx) =>
+          `Điểm đơn và đôi chênh ${fmtAchievementScore(Math.abs(ctx.singleScore - ctx.doubleScore))}, trong ngưỡng ${gap}.`,
+      }),
+    );
+  });
+
+  [60, 70, 80, 90, 100].forEach((n) => {
+    rules.push(
+      achievementRule({
+        id: `reputation-${n}`,
+        category: "Uy tín",
+        tone: n >= 90 ? "purple" : "green",
+        priority: 360 + n,
+        when: (ctx) => ctx.reputation >= n,
+        label: `Uy tín ${n}+`,
+        explain: (ctx) => `Điểm uy tín hiện tại là ${ctx.reputation}.`,
+      }),
+    );
+  });
+
+  [
+    { id: "junior", label: "Tài năng trẻ", when: (ctx) => ctx.age !== null && ctx.age <= 18 },
+    { id: "u23", label: "U23", when: (ctx) => ctx.age !== null && ctx.age <= 23 },
+    { id: "senior35", label: "35+", when: (ctx) => ctx.age !== null && ctx.age >= 35 },
+    { id: "senior45", label: "45+", when: (ctx) => ctx.age !== null && ctx.age >= 45 },
+    { id: "senior55", label: "55+", when: (ctx) => ctx.age !== null && ctx.age >= 55 },
+  ].forEach((item) => {
+    rules.push(
+      achievementRule({
+        id: `age-${item.id}`,
+        category: "Nhóm tuổi",
+        tone: "grey",
+        priority: 180,
+        when: item.when,
+        label: item.label,
+        explain: (ctx) => `Tuổi hiện tại được tính là ${ctx.age}.`,
+      }),
+    );
+  });
+
+  return rules;
+};
+
+const ACHIEVEMENT_RULES = buildAchievementRules();
+
+const buildAchievementContext = ({
+  r,
+  u,
+  age,
+  effectiveStatus,
+  podiums,
+  globalRank,
+}) => {
+  const podiumItems = Array.isArray(podiums) ? podiums : [];
+  const latestPodiumDays =
+    podiumItems.length > 0
+      ? Math.min(
+          ...podiumItems
+            .map((item) => daysAgo(item?.finishedAt))
+            .filter((value) => value !== null),
+        )
+      : null;
+  const podiumEventCount = new Set(
+    podiumItems.map((item) => item?.tournamentId).filter(Boolean).map(String),
+  ).size;
+
+  return {
+    r,
+    u,
+    age: Number.isFinite(age) ? age : null,
+    province: String(u?.province || "").trim() || "tỉnh",
+    provinceRank: Number(r?.provinceRank) || null,
+    globalRank: Number(globalRank) || null,
+    totalTours: Number(r?.totalTours || r?.totalFinishedTours || 0),
+    hasStaffAssessment: Boolean(r?.hasStaffAssessment),
+    kycStatus: String(effectiveStatus || ""),
+    hasScore: hasAnyScore(r),
+    isStale: isScoreStale(r),
+    singleScore: safeScoreNumber(r?.single),
+    doubleScore: safeScoreNumber(r?.double),
+    mixScore: safeScoreNumber(r?.mix),
+    points: safeScoreNumber(r?.points),
+    reputation: Number(r?.reputation || 0),
+    goldCount: countMedal(podiumItems, "gold"),
+    silverCount: countMedal(podiumItems, "silver"),
+    bronzeCount: countMedal(podiumItems, "bronze"),
+    podiumCount: podiumItems.length,
+    podiumEventCount,
+    latestPodiumDays: Number.isFinite(latestPodiumDays)
+      ? latestPodiumDays
+      : null,
+  };
+};
+
+const buildRankingAchievements = (args) => {
+  const ctx = buildAchievementContext(args);
+  return ACHIEVEMENT_RULES.filter((rule) => {
+    try {
+      return rule.when(ctx);
+    } catch {
+      return false;
+    }
+  })
+    .map((rule) => ({
+      id: rule.id,
+      category: rule.category,
+      tone: rule.tone,
+      priority: rule.priority,
+      label:
+        typeof rule.label === "function" ? rule.label(ctx) : String(rule.label),
+      explain:
+        typeof rule.explain === "function"
+          ? rule.explain(ctx)
+          : String(rule.explain),
+    }))
+    .sort((a, b) => b.priority - a.priority || a.label.localeCompare(b.label));
+};
+
+const achievementChipSx = (tone, extra = {}) => ({
+  ...(achievementToneSx[tone] || achievementToneSx.grey),
+  height: 24,
+  borderRadius: "999px",
+  fontWeight: 700,
+  maxWidth: 180,
+  "& .MuiChip-label": {
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  ...extra,
+});
+
+function AchievementSummary({ achievements, onOpen, maxWidth = 180 }) {
+  if (!Array.isArray(achievements) || achievements.length === 0) return null;
+  const visible = achievements.slice(0, ACHIEVEMENT_VISIBLE_LIMIT);
+  const hiddenCount = Math.max(0, achievements.length - visible.length);
+
+  return (
+    <Stack direction="row" flexWrap="wrap" useFlexGap sx={{ gap: 0.75 }}>
+      {visible.map((item) => (
+        <Chip
+          key={item.id}
+          size="small"
+          label={item.label}
+          clickable
+          onClick={onOpen}
+          sx={achievementChipSx(item.tone, { maxWidth })}
+        />
+      ))}
+      {hiddenCount > 0 && (
+        <Chip
+          size="small"
+          label={`+${hiddenCount}`}
+          clickable
+          onClick={onOpen}
+          sx={achievementChipSx("grey", { maxWidth: 72 })}
+        />
+      )}
+    </Stack>
+  );
+}
+
+function AchievementsDialog({ open, user, achievements, onClose }) {
+  const displayName = user?.nickname || user?.name || "--";
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h6" fontWeight={800} noWrap>
+              Chip nổi bật - {displayName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {achievements.length} chip phù hợp từ {ACHIEVEMENT_RULES.length} rule
+            </Typography>
+          </Box>
+          <IconButton size="small" onClick={onClose} aria-label="Đóng">
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent dividers>
+        {achievements.length ? (
+          <Stack spacing={1.25}>
+            {achievements.map((item) => (
+              <Paper
+                key={item.id}
+                variant="outlined"
+                sx={{ p: 1.25, borderRadius: 2 }}
+              >
+                <Stack
+                  direction="row"
+                  alignItems="flex-start"
+                  spacing={1.25}
+                  sx={{ minWidth: 0 }}
+                >
+                  <Chip
+                    size="small"
+                    label={item.label}
+                    sx={achievementChipSx(item.tone, { maxWidth: 220 })}
+                  />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {item.category}
+                    </Typography>
+                    <Typography variant="body2">{item.explain}</Typography>
+                  </Box>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        ) : (
+          <Alert severity="info">Chưa có chip nổi bật phù hợp.</Alert>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Đóng</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 const parsePageFromParams = (sp) => {
   const raw = sp.get("page");
   const n = parseInt(raw ?? "1", 10);
   return Number.isFinite(n) && n > 0 ? n - 1 : 0;
 };
 const parseKeywordFromParams = (sp) => sp.get("q") ?? "";
+const parseScoreStatusFromParams = (sp) => {
+  const raw = String(sp.get("scoreStatus") || "").trim();
+  return RANKING_SCORE_FILTER_VALUES.has(raw) ? raw : "";
+};
 
 /* ================= Flame Effects ================= */
 const FLAME = {
@@ -559,15 +1135,18 @@ const DesktopCard = memo(
     topMedalByUser,
     labelFullByUser,
     hrefByUser,
+    podiums,
+    globalRank,
     onOpenProfile,
     onOpenGrade,
     onOpenKyc,
+    onOpenAchievements,
     onZoomAvatar,
     staggerDelay,
     locale,
     t,
   }) => {
-    const u = r?.user || {};
+    const u = useMemo(() => r?.user || {}, [r?.user]);
     const effectiveStatus = (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
     const badge = useMemo(
       () => cccdBadge(effectiveStatus, t),
@@ -598,6 +1177,30 @@ const DesktopCard = memo(
 
     const uid = u?._id && String(u._id);
     const topMedal = uid ? topMedalByUser.get(uid) : null;
+    const achievementRanking = useMemo(
+      () => ({
+        ...r,
+        single: patched.single,
+        double: patched.double,
+        updatedAt: patched.updatedAt,
+      }),
+      [r, patched.double, patched.single, patched.updatedAt],
+    );
+    const achievements = useMemo(
+      () =>
+        buildRankingAchievements({
+          r: achievementRanking,
+          u,
+          age,
+          effectiveStatus,
+          podiums,
+          globalRank,
+        }),
+      [achievementRanking, age, effectiveStatus, globalRank, podiums, u],
+    );
+    const openAchievements = useCallback(() => {
+      onOpenAchievements?.(u, achievements);
+    }, [achievements, onOpenAchievements, u]);
 
     return (
       <Fade in timeout={500} style={{ transitionDelay: `${staggerDelay}ms` }}>
@@ -671,6 +1274,15 @@ const DesktopCard = memo(
                   </Tooltip>
                 )}
               </Box>
+
+              {achievements.length > 0 && (
+                <Box sx={{ mb: 1 }}>
+                  <AchievementSummary
+                    achievements={achievements}
+                    onOpen={openAchievements}
+                  />
+                </Box>
+              )}
 
               <Stack
                 direction="row"
@@ -791,6 +1403,10 @@ export default function RankingList() {
   });
 
   const [searchInput, setSearchInput] = useState(keyword || "");
+  const scoreStatus = useMemo(
+    () => parseScoreStatusFromParams(searchParams),
+    [searchParams],
+  );
 
   /**
    * ✅ 2 API mới:
@@ -802,16 +1418,19 @@ export default function RankingList() {
     isLoading: isLoadingList,
     isFetching: isFetchingList,
     error: errorList,
-  } = useGetRankingsListQuery({ keyword, page });
+  } = useGetRankingsListQuery({ keyword, page, scoreStatus });
 
   const { data: podiumData, isFetching: isFetchingPod } =
     useGetRankingsPodiums30dQuery();
 
-  const list = listData?.docs || [];
+  const list = useMemo(() => listData?.docs || [], [listData?.docs]);
   const totalPages = listData?.totalPages || 0;
 
   // podiumData có thể là { podiums30d: {...} } hoặc trực tiếp {...}
-  const podiums30d = podiumData?.podiums30d || podiumData || {};
+  const podiums30d = useMemo(
+    () => podiumData?.podiums30d || podiumData || {},
+    [podiumData],
+  );
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
@@ -945,6 +1564,18 @@ export default function RankingList() {
     [dispatch, searchParams, setSearchParams],
   );
 
+  const handleScoreStatusChange = useCallback(
+    (nextStatus) => {
+      const nextParams = new URLSearchParams(searchParams);
+      if (scoreStatus === nextStatus) nextParams.delete("scoreStatus");
+      else nextParams.set("scoreStatus", nextStatus);
+      nextParams.delete("page");
+      dispatch(setPage(0));
+      setSearchParams(nextParams);
+    },
+    [dispatch, scoreStatus, searchParams, setSearchParams],
+  );
+
   const [openProfile, setOpenProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
@@ -977,6 +1608,25 @@ export default function RankingList() {
   const [gradeNotes, setGradeNotes] = useState("");
   const [createEvaluation, { isLoading: creating }] =
     useCreateEvaluationMutation();
+  const [gradeHistoryDlg, setGradeHistoryDlg] = useState({
+    open: false,
+    userId: null,
+    nickname: "",
+  });
+  const {
+    data: gradeHistoryData,
+    isFetching: fetchingGradeHistory,
+    isError: gradeHistoryError,
+    refetch: refetchGradeHistory,
+  } = useGetUserAssessmentHistoryQuery(
+    gradeHistoryDlg.open && gradeHistoryDlg.userId
+      ? { userId: gradeHistoryDlg.userId, limit: 30 }
+      : skipToken,
+    { refetchOnMountOrArgChange: true },
+  );
+  const gradeHistoryRows = Array.isArray(gradeHistoryData)
+    ? gradeHistoryData
+    : [];
 
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
   const showSnack = useCallback(
@@ -1022,6 +1672,19 @@ export default function RankingList() {
     },
     [patchMap],
   );
+
+  const openGradeHistory = useCallback(() => {
+    if (!gradeDlg.userId) return;
+    setGradeHistoryDlg({
+      open: true,
+      userId: gradeDlg.userId,
+      nickname: gradeDlg.nickname || "--",
+    });
+  }, [gradeDlg.nickname, gradeDlg.userId]);
+
+  const closeGradeHistory = useCallback(() => {
+    setGradeHistoryDlg({ open: false, userId: null, nickname: "" });
+  }, []);
 
   const submitGrade = async () => {
     try {
@@ -1081,6 +1744,12 @@ export default function RankingList() {
       }
 
       showSnack("success", t("rankings.feedback.submitSuccess"));
+      if (
+        gradeHistoryDlg.open &&
+        String(gradeHistoryDlg.userId) === String(gradeDlg.userId)
+      ) {
+        refetchGradeHistory?.();
+      }
       setGradeDlg({ open: false, userId: null, nickname: "", province: "" });
     } catch (err) {
       showSnack(
@@ -1095,6 +1764,21 @@ export default function RankingList() {
 
   const openKyc = useCallback((u) => setKycView(u || null), []);
   const closeKyc = useCallback(() => setKycView(null), []);
+  const [achievementDlg, setAchievementDlg] = useState({
+    open: false,
+    user: null,
+    achievements: [],
+  });
+  const openAchievementDialog = useCallback((user, achievements) => {
+    setAchievementDlg({
+      open: true,
+      user: user || null,
+      achievements: Array.isArray(achievements) ? achievements : [],
+    });
+  }, []);
+  const closeAchievementDialog = useCallback(() => {
+    setAchievementDlg({ open: false, user: null, achievements: [] });
+  }, []);
 
   const doReview = async (action) => {
     if (!kycView?._id) return;
@@ -1394,19 +2078,33 @@ export default function RankingList() {
           useFlexGap
           sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
         >
-          <Chip label="Từ 3 giải" sx={{ bgcolor: HEX.blue, color: "#fff" }} />
-          <Chip
-            label="Admin chấm"
-            sx={{ bgcolor: HEX.yellow, color: "#000" }}
-          />
-          <Chip
-            label="Cần chấm lại"
-            sx={{ bgcolor: HEX.red, color: "#fff" }}
-          />
-          <Chip
-            label="Chưa có điểm"
-            sx={{ bgcolor: HEX.grey, color: "#fff" }}
-          />
+          {RANKING_SCORE_FILTERS.map((item) => {
+            const active = scoreStatus === item.value;
+            return (
+              <Chip
+                key={item.value}
+                label={item.label}
+                clickable
+                onClick={() => handleScoreStatusChange(item.value)}
+                aria-pressed={active}
+                sx={{
+                  bgcolor: item.bg,
+                  color: item.color,
+                  border: active
+                    ? "2px solid rgba(255,255,255,0.9)"
+                    : "2px solid transparent",
+                  boxShadow: active
+                    ? "0 0 0 2px rgba(25,118,210,0.25)"
+                    : "none",
+                  opacity: !scoreStatus || active ? 1 : 0.72,
+                  "&:hover": {
+                    bgcolor: item.bg,
+                    opacity: 1,
+                  },
+                }}
+              />
+            );
+          })}
         </Stack>
 
         <TextField
@@ -1619,30 +2317,42 @@ export default function RankingList() {
               alignItems: "stretch",
             }}
           >
-            {list?.map((r, idx) => (
-              <DesktopCard
-                key={r?._id || r?.user?._id || idx}
-                r={r}
-                me={me}
-                cccdPatch={cccdPatch}
-                patchMap={patchMap}
-                topMedalByUser={topMedalByUser}
-                labelFullByUser={labelFullByUser}
-                hrefByUser={hrefByUser}
-                onOpenProfile={handleOpenProfile}
-                onOpenGrade={openGrade}
-                onOpenKyc={openKyc}
-                onZoomAvatar={openZoom}
-                staggerDelay={idx * 30}
-                locale={locale}
-                t={t}
-              />
-            ))}
+            {list?.map((r, idx) => {
+              const uid = r?.user?._id && String(r.user._id);
+              const podiums =
+                uid && Array.isArray(podiums30d?.[uid])
+                  ? podiums30d[uid]
+                  : [];
+              const globalRank = page * RANKING_PAGE_LIMIT + idx + 1;
+
+              return (
+                <DesktopCard
+                  key={r?._id || r?.user?._id || idx}
+                  r={r}
+                  me={me}
+                  cccdPatch={cccdPatch}
+                  patchMap={patchMap}
+                  topMedalByUser={topMedalByUser}
+                  labelFullByUser={labelFullByUser}
+                  hrefByUser={hrefByUser}
+                  podiums={podiums}
+                  globalRank={globalRank}
+                  onOpenProfile={handleOpenProfile}
+                  onOpenGrade={openGrade}
+                  onOpenKyc={openKyc}
+                  onOpenAchievements={openAchievementDialog}
+                  onZoomAvatar={openZoom}
+                  staggerDelay={idx * 30}
+                  locale={locale}
+                  t={t}
+                />
+              );
+            })}
           </Box>
         ) : isMobile ? (
           <Fade in timeout={400}>
             <Stack spacing={2}>
-              {list?.map((r) => {
+              {list?.map((r, idx) => {
                 const u = r?.user || {};
                 const effectiveStatus =
                   (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
@@ -1662,6 +2372,25 @@ export default function RankingList() {
 
                 const uid = u?._id && String(u._id);
                 const topMedal = uid ? topMedalByUser.get(uid) : null;
+                const podiums =
+                  uid && Array.isArray(podiums30d?.[uid])
+                    ? podiums30d[uid]
+                    : [];
+                const globalRank = page * RANKING_PAGE_LIMIT + idx + 1;
+                const achievementRanking = {
+                  ...r,
+                  single: patchedScores.single,
+                  double: patchedScores.double,
+                  updatedAt: patchedScores.updatedAt,
+                };
+                const achievements = buildRankingAchievements({
+                  r: achievementRanking,
+                  u,
+                  age,
+                  effectiveStatus,
+                  podiums,
+                  globalRank,
+                });
 
                 return (
                   <Card
@@ -1727,6 +2456,18 @@ export default function RankingList() {
                               onMouseDown={(e) => e.stopPropagation()}
                             />
                           </Tooltip>
+                        </Box>
+                      )}
+
+                      {achievements.length > 0 && (
+                        <Box sx={{ mb: 1 }}>
+                          <AchievementSummary
+                            achievements={achievements}
+                            onOpen={() =>
+                              openAchievementDialog(u, achievements)
+                            }
+                            maxWidth="100%"
+                          />
                         </Box>
                       )}
 
@@ -1872,10 +2613,29 @@ export default function RankingList() {
                   const uid = u?._id && String(u._id);
                   const topMedal = uid ? topMedalByUser.get(uid) : null;
                   const label = uid ? labelShortByUser.get(uid) : null;
+                  const podiums =
+                    uid && Array.isArray(podiums30d?.[uid])
+                      ? podiums30d[uid]
+                      : [];
+                  const globalRank = page * RANKING_PAGE_LIMIT + idx + 1;
+                  const achievementRanking = {
+                    ...r,
+                    single: patchedScores.single,
+                    double: patchedScores.double,
+                    updatedAt: patchedScores.updatedAt,
+                  };
+                  const achievements = buildRankingAchievements({
+                    r: achievementRanking,
+                    u,
+                    age,
+                    effectiveStatus,
+                    podiums,
+                    globalRank,
+                  });
 
                   return (
                     <TableRow key={r?._id || u?._id} hover>
-                      <TableCell>{page * 10 + idx + 1}</TableCell>
+                      <TableCell>{globalRank}</TableCell>
                       <TableCell>
                         <LazyAvatar
                           src={avatarSrc}
@@ -1914,6 +2674,15 @@ export default function RankingList() {
                                 onMouseDown={(e) => e.stopPropagation()}
                               />
                             </Tooltip>
+                          )}
+                          {achievements.length > 0 && (
+                            <AchievementSummary
+                              achievements={achievements}
+                              onOpen={() =>
+                                openAchievementDialog(u, achievements)
+                              }
+                              maxWidth={160}
+                            />
                           )}
                         </Box>
                       </TableCell>
@@ -1996,6 +2765,13 @@ export default function RankingList() {
           onClose={handleCloseProfile}
           userId={selectedId}
           refreshKey={profileRefreshKey}
+        />
+
+        <AchievementsDialog
+          open={achievementDlg.open}
+          user={achievementDlg.user}
+          achievements={achievementDlg.achievements}
+          onClose={closeAchievementDialog}
         />
 
         <Dialog
@@ -2243,7 +3019,28 @@ export default function RankingList() {
           fullWidth
         >
           <DialogTitle>
-            {t("rankings.gradeDialog.title", { name: gradeDlg.nickname })}
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              spacing={1}
+            >
+              <Typography component="span" variant="h6" fontWeight={700}>
+                {t("rankings.gradeDialog.title", { name: gradeDlg.nickname })}
+              </Typography>
+              <Tooltip title={t("rankings.gradeHistory.openTooltip")}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={openGradeHistory}
+                    disabled={!gradeDlg.userId}
+                    aria-label={t("rankings.gradeHistory.openTooltip")}
+                  >
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
           </DialogTitle>
           <DialogContent
             dividers
@@ -2300,6 +3097,112 @@ export default function RankingList() {
               {creating
                 ? t("rankings.actions.saving")
                 : t("rankings.actions.submitGrade")}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={gradeHistoryDlg.open}
+          onClose={closeGradeHistory}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              spacing={1}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography component="span" variant="h6" fontWeight={700} noWrap>
+                  {t("rankings.gradeHistory.title", {
+                    name: gradeHistoryDlg.nickname || "--",
+                  })}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {t("rankings.gradeHistory.subtitle", {
+                    count: gradeHistoryRows.length,
+                  })}
+                </Typography>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={closeGradeHistory}
+                aria-label={t("common.actions.close")}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          </DialogTitle>
+          <DialogContent dividers sx={{ p: 0 }}>
+            {fetchingGradeHistory ? <LinearProgress /> : null}
+            {gradeHistoryError ? (
+              <Alert severity="error" sx={{ m: 2 }}>
+                {t("rankings.gradeHistory.loadFailed")}
+              </Alert>
+            ) : gradeHistoryRows.length ? (
+              <TableContainer sx={{ maxHeight: 420, overflowX: "auto" }}>
+                <Table size="small" stickyHeader sx={{ minWidth: 620 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>{t("rankings.gradeHistory.scoredAt")}</TableCell>
+                      <TableCell>{t("rankings.gradeHistory.source")}</TableCell>
+                      <TableCell align="right">
+                        {t("rankings.gradeHistory.singles")}
+                      </TableCell>
+                      <TableCell align="right">
+                        {t("rankings.gradeHistory.doubles")}
+                      </TableCell>
+                      <TableCell>{t("rankings.gradeHistory.note")}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {gradeHistoryRows.map((row) => {
+                      const source = getAssessmentSource(row, t);
+                      return (
+                        <TableRow key={row?._id} hover>
+                          <TableCell sx={{ whiteSpace: "nowrap" }}>
+                            {row?.scoredAt
+                              ? formatDate(row.scoredAt, locale)
+                              : "--"}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              color={source.color}
+                              variant="outlined"
+                              label={source.label}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            {fmtHistoryScore(row?.singleLevel)}
+                          </TableCell>
+                          <TableCell align="right">
+                            {fmtHistoryScore(row?.doubleLevel)}
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 180 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              {row?.note || "--"}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Alert severity="info" sx={{ m: 2 }}>
+                {fetchingGradeHistory
+                  ? t("rankings.gradeHistory.loading")
+                  : t("rankings.gradeHistory.empty")}
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeGradeHistory}>
+              {t("common.actions.close")}
             </Button>
           </DialogActions>
         </Dialog>

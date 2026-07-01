@@ -112,6 +112,7 @@ export default function Header() {
         "/pickle-ball/tournaments",
         "/pickle-ball/rankings",
         "/my-tournaments",
+        "/support",
         "/profile",
         "/clubs",
         "/news",
@@ -275,6 +276,10 @@ export default function Header() {
         label: t("header.nav.clubs"),
         path: "/clubs",
         badge: showClubNewBadge ? "NEW" : "",
+      });
+      items.push({
+        label: "Hỗ trợ",
+        path: "/support",
       });
     }
 

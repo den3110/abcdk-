@@ -18,6 +18,7 @@ import EventAvailableIcon from "@mui/icons-material/EventAvailableRounded";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettingsRounded";
 import GroupsIcon from "@mui/icons-material/GroupsRounded";
 import NewspaperIcon from "@mui/icons-material/NewspaperRounded";
+import SupportAgentIcon from "@mui/icons-material/SupportAgentRounded";
 
 import { useLanguage } from "../context/LanguageContext.jsx";
 
@@ -204,6 +205,11 @@ export default function MobileBottomNav() {
         label: t("mobileNav.clubs"),
         icon: clubIcon,
         path: "/clubs",
+      });
+      base.splice(base.length - 1, 0, {
+        label: "Hỗ trợ",
+        icon: <SupportAgentIcon />,
+        path: "/support",
       });
     }
 
