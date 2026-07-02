@@ -25,6 +25,26 @@ import {
 } from "../services/teamTournament.service.js";
 import { sanitizeRatingsObj } from "../utils/privacyControl.js";
 
+const MALE_TOURNAMENT_MIN_SCORE = 2.1;
+const isMaleGender = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "male" || normalized === "nam";
+};
+const hasPositiveScore = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+};
+const effectiveTournamentScoreForUser = (value, user) => {
+  if (isMaleGender(user?.gender)) {
+    return hasPositiveScore(value)
+      ? Math.max(Number(value), MALE_TOURNAMENT_MIN_SCORE)
+      : MALE_TOURNAMENT_MIN_SCORE;
+  }
+  return hasPositiveScore(value) ? Number(value) : 0;
+};
+
 const getRegistrationActorMeta = (req) => ({
   actorId: req.user?._id || null,
   actorKind: isAdminUser(req.user) ? "admin" : req.user?.role || "user",
@@ -330,7 +350,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const userIds = isSingles ? [player1Id] : [player1Id, player2Id];
   const users = await User.find({ _id: { $in: userIds } }).select(
     // cần thêm cccdStatus/cccd để kiểm tra xác thực
-    "name nickname phone avatar province cccd cccdStatus",
+    "name nickname phone avatar province gender cccd cccdStatus",
   );
   if (users.length !== userIds.length) {
     res.status(400);
@@ -424,9 +444,19 @@ export const createRegistration = asyncHandler(async (req, res) => {
     },
   ]);
   const map = Object.fromEntries(scores.map((s) => [String(s._id), s]));
+  const ranks = await getRanksMap(userIds);
   const key = isDoubles ? "double" : "single";
-  const s1 = map[String(player1Id)]?.[key] ?? 0;
-  const s2 = isDoubles ? (map[String(player2Id)]?.[key] ?? 0) : 0;
+  const scoreFor = (userId, user) => {
+    const historyScore = map[String(userId)]?.[key];
+    if (hasPositiveScore(historyScore)) {
+      return effectiveTournamentScoreForUser(historyScore, user);
+    }
+    return effectiveTournamentScoreForUser(ranks.get(String(userId))?.[key], user);
+  };
+  const s1 = scoreFor(player1Id, u1);
+  const s2 = isDoubles
+    ? scoreFor(player2Id, u2)
+    : 0;
 
   /* ─ 9) Validate điểm trình ─ */
   const noPointCap = Number(tour.scoreCap) === 0;
@@ -1341,11 +1371,14 @@ async function getRanksMap(userIds = []) {
 }
 
 // Lấy score hiện tại cho user theo loại giải (single/double).
-async function getCurrentScore(userId, eventType) {
+async function getCurrentScore(userId, eventType, userSnapshot = null) {
   const isSingles =
     String(eventType || "").toLowerCase() === "single" ||
     String(eventType || "").toLowerCase() === "singles";
   const field = isSingles ? "single" : "double";
+  const user =
+    userSnapshot ||
+    (await User.findById(userId).select("gender").lean());
 
   // 1) Ưu tiên lịch sử chấm điểm mới nhất
   const sh = await ScoreHistory.findOne({
@@ -1356,14 +1389,18 @@ async function getCurrentScore(userId, eventType) {
     .select(field)
     .lean();
 
-  if (sh && typeof sh[field] === "number") return sh[field];
+  if (hasPositiveScore(sh?.[field])) {
+    return effectiveTournamentScoreForUser(sh[field], user);
+  }
 
   // 2) Fallback sang Ranking nếu không có lịch sử
   const r = await Ranking.findOne({ user: userId }).select(field).lean();
-  if (r && typeof r[field] === "number") return r[field];
+  if (hasPositiveScore(r?.[field])) {
+    return effectiveTournamentScoreForUser(r[field], user);
+  }
 
-  // 3) Không có gì cả → 0
-  return 0;
+  // 3) No stored score.
+  return effectiveTournamentScoreForUser(null, user);
 }
 
 function buildDuplicateRegistrationMessage(
@@ -1480,14 +1517,14 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
 
   // Lấy user và tính score hiện tại
   const user = await User.findById(userId)
-    .select("name nickname phone avatar")
+    .select("name nickname phone avatar gender")
     .lean();
   if (!user) {
     res.status(404);
     throw new Error("Không tìm thấy User");
   }
 
-  const newScore = await getCurrentScore(user._id, tour.eventType);
+  const newScore = await getCurrentScore(user._id, tour.eventType, user);
 
   // Không cho 2 VĐV trùng nhau theo userId
   const otherUserId =

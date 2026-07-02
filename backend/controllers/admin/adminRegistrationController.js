@@ -8,6 +8,26 @@ import AuditLog from "../../models/auditLogModel.js";
 import { writeAuditLog } from "../../services/audit.service.js";
 import { findTeamFaction, isTeamTournament } from "../../services/teamTournament.service.js";
 
+const MALE_TOURNAMENT_MIN_SCORE = 2.1;
+const isMaleGender = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "male" || normalized === "nam";
+};
+const hasPositiveScore = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+};
+const effectiveTournamentScoreForUser = (value, user) => {
+  if (isMaleGender(user?.gender)) {
+    return hasPositiveScore(value)
+      ? Math.max(Number(value), MALE_TOURNAMENT_MIN_SCORE)
+      : MALE_TOURNAMENT_MIN_SCORE;
+  }
+  return hasPositiveScore(value) ? Number(value) : 0;
+};
+
 function isSinglesEvent(eventType) {
   const normalized = String(eventType || "").trim().toLowerCase();
   return normalized === "single" || normalized === "singles";
@@ -36,8 +56,11 @@ function buildDuplicateFilter({ tournamentId, playerIds, excludeRegId = null }) 
   return filter;
 }
 
-async function getCurrentScore(userId, eventType) {
+async function getCurrentScore(userId, eventType, userSnapshot = null) {
   const scoreField = isSinglesEvent(eventType) ? "single" : "double";
+  const user =
+    userSnapshot ||
+    (await User.findById(userId).select("gender").lean());
 
   const latestScore = await ScoreHistory.findOne({
     user: userId,
@@ -47,21 +70,21 @@ async function getCurrentScore(userId, eventType) {
     .select(scoreField)
     .lean();
 
-  if (latestScore && typeof latestScore?.[scoreField] === "number") {
-    return latestScore[scoreField];
+  if (hasPositiveScore(latestScore?.[scoreField])) {
+    return effectiveTournamentScoreForUser(latestScore[scoreField], user);
   }
 
   const ranking = await Ranking.findOne({ user: userId }).select(scoreField).lean();
-  if (ranking && typeof ranking?.[scoreField] === "number") {
-    return ranking[scoreField];
+  if (hasPositiveScore(ranking?.[scoreField])) {
+    return effectiveTournamentScoreForUser(ranking[scoreField], user);
   }
 
-  return 0;
+  return effectiveTournamentScoreForUser(null, user);
 }
 
 async function buildPlayerSnapshot(userId, eventType) {
   const user = await User.findById(userId)
-    .select("name nickname nickName phone avatar")
+    .select("name nickname nickName phone avatar gender")
     .lean();
 
   if (!user) {
@@ -70,7 +93,7 @@ async function buildPlayerSnapshot(userId, eventType) {
     throw error;
   }
 
-  const score = await getCurrentScore(user._id, eventType);
+  const score = await getCurrentScore(user._id, eventType, user);
 
   return {
     user: user._id,

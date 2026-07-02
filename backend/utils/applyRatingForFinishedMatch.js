@@ -4,6 +4,7 @@ import Match from "../models/matchModel.js";
 import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import RatingChange from "../models/ratingChangeModel.js";
+import User from "../models/userModel.js";
 
 /* ===================== Tunables (core) ===================== */
 const DUPR_MIN = 1.6;
@@ -46,6 +47,7 @@ const MIDLINE_DAMPEN = false;
 const MIDLINE_BETA = 0.65;
 const EXP_GAMMA = 1;
 const DEFAULT_SEED_RATING = 2.5;
+const MALE_DEFAULT_SEED_RATING = 2.1;
 const NEW_PLAYER_WEIGHT_BONUS = 0.75;
 
 // === Win negative limit ===
@@ -55,6 +57,7 @@ const MAX_WIN_NEG = -0.001;
 // Quality mặc định khi thiếu điểm set
 const QUALITY_DEFAULT_WIN = 0.5;
 const TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL = 0.14;
+const MALE_LOW_RATING_LOSS_FLOOR = 2.1;
 
 const RATING_FEATURE_WEIGHTS = Object.freeze({
   expectedOutcome: 1.0,
@@ -91,6 +94,27 @@ const WIN_TAX_COEF = 0.18;
 /* ===================== Helpers ===================== */
 const round3 = (x) => Math.round(x * 1000) / 1000;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const isMaleGender = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "male" || normalized === "nam";
+};
+const hasStoredRating = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+};
+const seedRatingForGender = (gender) =>
+  isMaleGender(gender) ? MALE_DEFAULT_SEED_RATING : DEFAULT_SEED_RATING;
+const effectiveRatingForGender = (value, gender) => {
+  const seed = seedRatingForGender(gender);
+  const rating = hasStoredRating(value) ? Number(value) : seed;
+  return isMaleGender(gender)
+    ? Math.max(rating, MALE_DEFAULT_SEED_RATING)
+    : rating;
+};
+const ratingFloorForGender = (gender) =>
+  isMaleGender(gender) ? MALE_DEFAULT_SEED_RATING : DUPR_MIN;
 const smoothstep01 = (x) => {
   const t = clamp(Number(x) || 0, 0, 1);
   return t * t * (3 - 2 * t);
@@ -447,6 +471,28 @@ function toObjectIdOrNull(value) {
   } catch {
     return null;
   }
+}
+
+async function getUserGenderMap(userIds = []) {
+  const ids = [...new Set((userIds || []).filter(Boolean).map(String))]
+    .map((id) => toObjectIdOrNull(id))
+    .filter(Boolean);
+  if (!ids.length) return new Map();
+
+  const rows = await User.find({ _id: { $in: ids } })
+    .select("_id gender")
+    .lean();
+
+  return new Map(rows.map((row) => [String(row._id), row.gender || ""]));
+}
+
+function shouldProtectMaleLowRatingLoss({ currentRating, delta, gender, isWinner }) {
+  return (
+    !isWinner &&
+    Number(delta) < 0 &&
+    Number(currentRating) <= MALE_LOW_RATING_LOSS_FLOOR &&
+    isMaleGender(gender)
+  );
 }
 
 async function getTournamentDeltaMap({
@@ -897,6 +943,7 @@ export async function applyRatingForFinishedMatch(matchId) {
     .filter(Boolean)
     .map(String);
   const allIds = [...new Set([...usersA, ...usersB])];
+  const genderMap = await getUserGenderMap(allIds);
 
   // ratings & reliability
   const latest = await getLatestRatingsMap(allIds);
@@ -904,7 +951,7 @@ export async function applyRatingForFinishedMatch(matchId) {
   const getRating = (uid) => {
     const r = latest.get(uid) || { single: 0, double: 0 };
     const val = Number(r[key] || 0) || 0;
-    return val > 0 ? val : DEFAULT_SEED_RATING;
+    return effectiveRatingForGender(val, genderMap.get(String(uid)));
   };
 
   // prefetch reputation map
@@ -1129,12 +1176,19 @@ export async function applyRatingForFinishedMatch(matchId) {
   const applySide = (userIds, deltas, isWinner) => {
     userIds.forEach((uid, idx) => {
       const current = latest.get(uid) || { single: 0, double: 0 };
-      const curVal =
-        (Number(current[key]) || 0) > 0
-          ? Number(current[key])
-          : DEFAULT_SEED_RATING;
-      const delta = deltas[idx] ?? 0;
-      const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
+      const gender = genderMap.get(String(uid));
+      const curVal = effectiveRatingForGender(current[key], gender);
+      const rawDelta = deltas[idx] ?? 0;
+      const protectedLoss = shouldProtectMaleLowRatingLoss({
+        currentRating: curVal,
+        delta: rawDelta,
+        gender,
+        isWinner,
+      });
+      const delta = protectedLoss ? 0 : rawDelta;
+      const next = protectedLoss
+        ? curVal
+        : clamp(curVal + delta, ratingFloorForGender(gender), DUPR_MAX);
       perUserDeltasAbs.push(Math.abs(delta));
 
       const noteScore = isWinner ? S_win : 1 - S_win;
@@ -1159,7 +1213,9 @@ export async function applyRatingForFinishedMatch(matchId) {
           ratingCalc.reliabilityScale
         )},tCap=${
           tournamentCapInfo.applied ? 1 : 0
-        },cap=${round3(tournamentCapInfo.cap)},ctxDU=${round3(contextDU)})`,
+        },cap=${round3(tournamentCapInfo.cap)},ctxDU=${round3(contextDU)}${
+          protectedLoss ? ",protected=male_under_2_1_loss" : ""
+        })`,
       });
 
       const prevRep = repMap.get(String(uid)) ?? 0;
@@ -1288,13 +1344,14 @@ export async function computeRatingPreviewFromParams({
     .filter(Boolean)
     .map(String);
   const allIds = [...new Set([...usersA, ...usersB])];
+  const genderMap = await getUserGenderMap(allIds);
 
   const latest = await getLatestRatingsMap(allIds);
   const reliabilityMap = await getReliabilityMap(allIds, key);
   const getRating = (uid) => {
     const r = latest.get(uid) || { single: 0, double: 0 };
     const val = Number(r[key] || 0) || 0;
-    return val > 0 ? val : DEFAULT_SEED_RATING;
+    return effectiveRatingForGender(val, genderMap.get(String(uid)));
   };
 
   let teamA,
@@ -1508,24 +1565,34 @@ export async function computeRatingPreviewFromParams({
   }
 
   const perUser = [];
-  const push = (uid, side, delta) => {
+  const push = (uid, side, delta, isWinner) => {
     const cur = latest.get(uid) || { single: 0, double: 0 };
-    const curVal =
-      (Number(cur[key]) || 0) > 0 ? Number(cur[key]) : DEFAULT_SEED_RATING;
-    const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
+    const gender = genderMap.get(String(uid));
+    const curVal = effectiveRatingForGender(cur[key], gender);
+    const protectedLoss = shouldProtectMaleLowRatingLoss({
+      currentRating: curVal,
+      delta,
+      gender,
+      isWinner,
+    });
+    const effectiveDelta = protectedLoss ? 0 : delta;
+    const next = protectedLoss
+      ? curVal
+      : clamp(curVal + effectiveDelta, ratingFloorForGender(gender), DUPR_MAX);
     perUser.push({
       uid,
       side,
       before: round3(curVal),
-      delta: round3(delta),
+      delta: round3(effectiveDelta),
       after: round3(next),
+      protectedLoss,
     });
   };
   winnerUserIds.forEach((uid, i) =>
-    push(uid, winnerSide, winnerDeltas[i] ?? 0)
+    push(uid, winnerSide, winnerDeltas[i] ?? 0, true)
   );
   loserUserIds.forEach((uid, i) =>
-    push(uid, winnerSide === "A" ? "B" : "A", loserDeltas[i] ?? 0)
+    push(uid, winnerSide === "A" ? "B" : "A", loserDeltas[i] ?? 0, false)
   );
 
   return {
@@ -1602,6 +1669,11 @@ export async function computeRatingPreviewFromParams({
       softness: SOFT_TEAM_SOFTNESS,
     },
     perUser,
+    floorProtection: {
+      maleLossNoDecreaseBelow: MALE_LOW_RATING_LOSS_FLOOR,
+      maleDefaultSeedRating: MALE_DEFAULT_SEED_RATING,
+      appliedCount: perUser.filter((item) => item.protectedLoss).length,
+    },
     zeroSumCheck: round3(perUser.reduce((s, u) => s + u.delta, 0)),
   };
 }

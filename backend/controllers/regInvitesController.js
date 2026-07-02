@@ -18,6 +18,25 @@ const num = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+const MALE_TOURNAMENT_MIN_SCORE = 2.1;
+const isMaleGender = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "male" || normalized === "nam";
+};
+const hasPositiveScore = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+};
+const effectiveTournamentScoreForUser = (value, user) => {
+  if (isMaleGender(user?.gender)) {
+    return hasPositiveScore(value)
+      ? Math.max(Number(value), MALE_TOURNAMENT_MIN_SCORE)
+      : MALE_TOURNAMENT_MIN_SCORE;
+  }
+  return hasPositiveScore(value) ? Number(value) : 0;
+};
 
 async function writeRegistrationCreateAudit({ req, registration, note, actorId }) {
   if (!registration?._id) return;
@@ -76,15 +95,15 @@ async function getRankingScore(userId, eventType) {
   const key = rankingFieldFor(eventType);
   const byET = key ? r[key] : null;
   const candidates = [byET, r?.points];
-  const hit = candidates.find((x) => Number.isFinite(Number(x)));
+  const hit = candidates.find((x) => hasPositiveScore(x));
   return hit != null ? Number(hit) : null;
 }
 
 /** Ưu tiên: rankScore -> pfScore -> userScore */
-function preferScore(rankScore, pfScore, userScore) {
+function preferScore(rankScore, pfScore, userScore, user) {
   const cands = [rankScore, pfScore, userScore];
-  const hit = cands.find((x) => Number.isFinite(Number(x)));
-  return num(hit);
+  const hit = cands.find((x) => hasPositiveScore(x));
+  return effectiveTournamentScoreForUser(hit, user);
 }
 
 async function latestScoresMap(userIds) {
@@ -224,9 +243,29 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
 
   // (4) Tính điểm để kiểm tra cap từ ScoreHistory (không liên quan snapshot)
   const map = await latestScoresMap(ids);
+  const userRows = await User.find({ _id: { $in: ids } })
+    .select("_id gender")
+    .lean();
+  const userMap = new Map(userRows.map((user) => [String(user._id), user]));
+  const [rank1, rank2] = await Promise.all([
+    getRankingScore(p1UserId, eventType),
+    isSingle ? Promise.resolve(null) : getRankingScore(p2UserId, eventType),
+  ]);
   const key = eventType === "double" ? "double" : "single";
-  const s1 = map.get(String(p1UserId))?.[key] ?? 0;
-  const s2 = isSingle ? 0 : map.get(String(p2UserId))?.[key] ?? 0;
+  const s1 = preferScore(
+    rank1,
+    map.get(String(p1UserId))?.[key],
+    null,
+    userMap.get(String(p1UserId))
+  );
+  const s2 = isSingle
+    ? 0
+    : preferScore(
+        rank2,
+        map.get(String(p2UserId))?.[key],
+        null,
+        userMap.get(String(p2UserId))
+      );
 
   // Bật/tắt cap theo giá trị > 0
   const singleCap = Number(tour.singleCap);
@@ -308,8 +347,8 @@ async function finalizeIfReady(invite, req = null) {
       : getRankingScore(invite.player2?.user, invite.eventType),
   ]);
 
-  const p1Score = preferScore(rank1, pf.s1, u1?.score);
-  const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score);
+  const p1Score = preferScore(rank1, pf.s1, u1?.score, u1);
+  const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score, u2);
 
   const reg = await Registration.create({
     tournament: tour._id,
@@ -461,7 +500,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const ids = isDouble ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
     .select(
-      "_id name nickname phone avatar province score cccd cccdStatus verified dob dateOfBirth birthYear"
+      "_id name nickname phone avatar province score gender cccd cccdStatus verified dob dateOfBirth birthYear"
     )
     .lean();
 
@@ -491,8 +530,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
     ]);
 
-    const s1 = preferScore(rank1, null, u1?.score);
-    const s2 = isSingle ? null : preferScore(rank2, null, u2?.score);
+    const s1 = preferScore(rank1, null, u1?.score, u1);
+    const s2 = isSingle ? null : preferScore(rank2, null, u2?.score, u2);
 
     const snap = (u, score) => ({
       user: u._id,
@@ -726,8 +765,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
   ]);
 
-  const p1Score = preferScore(rank1, pf.s1, u1?.score);
-  const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score);
+  const p1Score = preferScore(rank1, pf.s1, u1?.score, u1);
+  const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score, u2);
 
   const snap = (u, score) => ({
     user: u._id,

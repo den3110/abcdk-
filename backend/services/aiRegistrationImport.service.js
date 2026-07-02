@@ -944,6 +944,29 @@ function safeNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 }
+const MALE_TOURNAMENT_MIN_SCORE = 2.1;
+const isMaleGender = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "male" || normalized === "nam";
+};
+const hasPositiveScore = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0;
+};
+const effectiveTournamentScoreForUser = (value, user, fallback = null) => {
+  if (isMaleGender(user?.gender)) {
+    const base = hasPositiveScore(value)
+      ? Number(value)
+      : hasPositiveScore(fallback)
+        ? Number(fallback)
+        : MALE_TOURNAMENT_MIN_SCORE;
+    return Math.max(base, MALE_TOURNAMENT_MIN_SCORE);
+  }
+  if (hasPositiveScore(value)) return Number(value);
+  return hasPositiveScore(fallback) ? Number(fallback) : 2.5;
+};
 
 function hashText(value) {
   const s = String(value || "");
@@ -3499,14 +3522,14 @@ async function findExistingUser({ phone, email }) {
 
   if (normalizedPhone) {
     const user = await User.findOne({ phone: normalizedPhone })
-      .select("_id name nickname phone email localRatings")
+      .select("_id name nickname phone email gender localRatings")
       .lean();
     if (user) return { user, matchedBy: "phone" };
   }
 
   if (normalizedEmail) {
     const user = await User.findOne({ email: normalizedEmail })
-      .select("_id name nickname phone email localRatings")
+      .select("_id name nickname phone email gender localRatings")
       .lean();
     if (user) return { user, matchedBy: "email" };
   }
@@ -3566,14 +3589,20 @@ function getPlannedScore(player, tournament) {
   const ratingFromAi = safeNumber(player.rating, -1);
   if (player.matchedUser && tournament?.eventType === "single") {
     const score = safeNumber(player.matchedUser.localRatings?.singles, NaN);
-    if (Number.isFinite(score)) return score;
+    if (Number.isFinite(score)) {
+      return effectiveTournamentScoreForUser(score, player.matchedUser);
+    }
   }
   if (player.matchedUser && tournament?.eventType !== "single") {
     const score = safeNumber(player.matchedUser.localRatings?.doubles, NaN);
-    if (Number.isFinite(score)) return score;
+    if (Number.isFinite(score)) {
+      return effectiveTournamentScoreForUser(score, player.matchedUser);
+    }
   }
-  if (ratingFromAi >= 0) return ratingFromAi;
-  return 2.5;
+  if (ratingFromAi >= 0) {
+    return effectiveTournamentScoreForUser(ratingFromAi, player.matchedUser);
+  }
+  return effectiveTournamentScoreForUser(null, player.matchedUser);
 }
 
 function validateScoresForTournament(tournament, players) {
@@ -3769,6 +3798,7 @@ async function resolvePreviewPlayer({
       nickname: match.user.nickname || "",
       phone: match.user.phone || "",
       email: match.user.email || "",
+      gender: match.user.gender || "unspecified",
       localRatings: match.user.localRatings || {},
     };
     return {
@@ -4357,7 +4387,7 @@ async function materializePlayer({
   if (player?.matchedUser?._id) {
     const user = await User.findById(player.matchedUser._id)
       .session(session)
-      .select("_id name nickname phone email avatar localRatings");
+      .select("_id name nickname phone email avatar gender localRatings");
     if (!user) {
       throw new Error(
         `Không tìm thấy user match sẵn cho row ${sourceRowNumber}`
@@ -4369,8 +4399,16 @@ async function materializePlayer({
       password: null,
       score:
         String(tournament?.eventType || "double") === "single"
-          ? safeNumber(user.localRatings?.singles, player.score || 2.5)
-          : safeNumber(user.localRatings?.doubles, player.score || 2.5),
+          ? effectiveTournamentScoreForUser(
+              user.localRatings?.singles,
+              user,
+              player.score
+            )
+          : effectiveTournamentScoreForUser(
+              user.localRatings?.doubles,
+              user,
+              player.score
+            ),
     };
   }
 
@@ -4439,7 +4477,7 @@ function buildRegistrationPlayer(user, score) {
     fullName: user.name || user.nickname || user.email || "Temp User",
     nickName: user.nickname || "",
     avatar: user.avatar || "",
-    score: safeNumber(score, 2.5),
+    score: effectiveTournamentScoreForUser(score, user),
   };
 }
 
