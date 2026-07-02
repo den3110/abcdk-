@@ -88,6 +88,10 @@ const SystemSettingsSchema = new mongoose.Schema(
       enabled: { type: Boolean, default: true },
     },
 
+    checkpoint: {
+      enabled: { type: Boolean, default: true },
+    },
+
     kyc: {
       enabled: { type: Boolean, default: true },
       autoApprove: { type: Boolean, default: false },

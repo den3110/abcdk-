@@ -2,6 +2,8 @@ import asyncHandler from "express-async-handler";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import User from "../models/userModel.js";
+import AuditLog from "../models/auditLogModel.js";
+import Complaint from "../models/complaintModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
@@ -22,6 +24,221 @@ import {
   isTeamTournament,
 } from "../services/teamTournament.service.js";
 import { sanitizeRatingsObj } from "../utils/privacyControl.js";
+
+const getRegistrationActorMeta = (req) => ({
+  actorId: req.user?._id || null,
+  actorKind: isAdminUser(req.user) ? "admin" : req.user?.role || "user",
+  ip: req.ip || "",
+  userAgent: req.get("user-agent") || "",
+});
+
+async function writeRegistrationAudit(req, {
+  registrationId,
+  action,
+  before = {},
+  after = {},
+  note = "",
+  extraChanges = [],
+}) {
+  if (!registrationId) return;
+  try {
+    await writeAuditLog({
+      entityType: "Registration",
+      entityId: registrationId,
+      action,
+      before,
+      after,
+      note,
+      extraChanges,
+      ...getRegistrationActorMeta(req),
+    });
+  } catch (err) {
+    console.error("AUDIT_LOG_ERROR(registration):", err?.message || err);
+  }
+}
+
+const asIdString = (value) => {
+  if (!value) return "";
+  if (typeof value === "object") return String(value._id || value.id || value);
+  return String(value);
+};
+
+const actorPayload = (value, fallbackKind = "user") => {
+  const user = value && typeof value === "object" ? value : null;
+  return {
+    id: asIdString(user),
+    kind: fallbackKind || "user",
+    name: user?.name || user?.nickname || user?.email || "",
+    phone: user?.phone || "",
+  };
+};
+
+const auditActorPayload = (audit) => {
+  const actor = audit?.actor || {};
+  const user = actor?.id && typeof actor.id === "object" ? actor.id : null;
+  return {
+    id: asIdString(user || actor.id),
+    kind: actor.kind || "user",
+    name: user?.name || user?.nickname || user?.email || "",
+    phone: user?.phone || "",
+  };
+};
+
+const findAuditChange = (audit, field) =>
+  (audit?.changes || []).find((change) => change?.field === field);
+
+const auditValue = (audit, field, preferred = "to") => {
+  const change = findAuditChange(audit, field);
+  if (!change) return undefined;
+  const first = preferred === "from" ? change.from : change.to;
+  const second = preferred === "from" ? change.to : change.from;
+  return first ?? second;
+};
+
+const auditPlayerValue = (audit, slot, preferred = "to") => {
+  const direct = auditValue(audit, slot, preferred);
+  if (direct) return direct;
+  const fullName = auditValue(audit, `${slot}.fullName`, preferred);
+  const nickName = auditValue(audit, `${slot}.nickName`, preferred);
+  const nickname = auditValue(audit, `${slot}.nickname`, preferred);
+  return { fullName, nickName, nickname };
+};
+
+const normalizePaymentStatusLabel = (status) => {
+  if (status === "Paid") return "Đã thanh toán";
+  if (status === "Unpaid") return "Chưa thanh toán";
+  if (status === "Đã nộp") return "Đã nộp";
+  if (status === "Chưa nộp") return "Chưa nộp";
+  return status || "Chưa rõ";
+};
+
+const playerNameOf = (player) =>
+  String(player?.fullName || player?.name || player?.nickName || player?.nickname || "")
+    .trim();
+
+const formatHistoryDateTime = (value) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleString("vi-VN");
+};
+
+const formatShortValue = (value) => {
+  if (value === undefined || value === null || value === "") return "trống";
+  if (value instanceof Date) return formatHistoryDateTime(value);
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  if (typeof value === "object") {
+    const playerName = playerNameOf(value);
+    if (playerName) return playerName;
+    if (value._id || value.id) return String(value._id || value.id);
+    return "đã cập nhật";
+  }
+  return String(value);
+};
+
+const changedText = (label, change, formatter = formatShortValue) => {
+  const from = formatter(change?.from);
+  const to = formatter(change?.to);
+  if (from === to) return `${label}: ${to}`;
+  return `${label}: ${from} → ${to}`;
+};
+
+const playerChangeText = (label, change) =>
+  changedText(label, change, (value) => playerNameOf(value) || formatShortValue(value));
+
+const registrationPayloadFrom = (registration, audit) => {
+  const code =
+    registration?.code ??
+    auditValue(audit, "code", audit?.action === "DELETE" ? "from" : "to");
+  const p1 =
+    playerNameOf(registration?.player1) ||
+    playerNameOf(auditPlayerValue(audit, "player1", audit?.action === "DELETE" ? "from" : "to")) ||
+    auditValue(audit, "player1.fullName", "from") ||
+    auditValue(audit, "player1.nickName", "from") ||
+    "";
+  const p2 =
+    playerNameOf(registration?.player2) ||
+    playerNameOf(auditPlayerValue(audit, "player2", audit?.action === "DELETE" ? "from" : "to")) ||
+    auditValue(audit, "player2.fullName", "from") ||
+    auditValue(audit, "player2.nickName", "from") ||
+    "";
+  const players = [p1, p2].filter(Boolean).join(" & ");
+
+  return {
+    id: asIdString(registration?._id || audit?.entityId),
+    code: code ?? null,
+    players,
+  };
+};
+
+const auditTitleFor = (audit) => {
+  const note = String(audit?.note || "");
+  const lowerNote = note.toLowerCase();
+  if (audit.action === "CREATE" || note.includes("Create")) return "Tạo đăng ký";
+  if (note.includes("Payment") || findAuditChange(audit, "payment.status")) {
+    return "Cập nhật thanh toán";
+  }
+  if (note.includes("Checkin") || note.includes("checkin")) return "Check-in";
+  if (audit.action === "DELETE" || note.includes("Delete") || note.includes("Cancel")) {
+    return lowerNote.includes("cancel") ? "Hủy đăng ký" : "Xóa đăng ký";
+  }
+  return "Cập nhật đăng ký";
+};
+
+const auditTypeFor = (audit) => {
+  const note = String(audit?.note || "");
+  if (audit.action === "CREATE" || note.includes("Create")) return "registration_created";
+  if (note.includes("Payment") || findAuditChange(audit, "payment.status")) {
+    const to = findAuditChange(audit, "payment.status")?.to;
+    return to === "Paid" ? "payment_paid" : "payment_updated";
+  }
+  if (note.includes("Checkin") || note.includes("checkin")) return "checkin";
+  if (audit.action === "DELETE" || note.includes("Delete") || note.includes("Cancel")) {
+    return "registration_cancelled";
+  }
+  return "registration_updated";
+};
+
+const auditDetailsFor = (audit) => {
+  const details = [];
+  const paymentStatus = findAuditChange(audit, "payment.status");
+  if (paymentStatus) {
+    details.push(
+      `Thanh toán: ${normalizePaymentStatusLabel(paymentStatus.from)} → ${normalizePaymentStatusLabel(paymentStatus.to)}`
+    );
+  }
+  const paidAt = findAuditChange(audit, "payment.paidAt");
+  if (paidAt?.to) details.push(`Thời điểm thanh toán: ${new Date(paidAt.to).toLocaleString("vi-VN")}`);
+  const checkinAt = findAuditChange(audit, "checkinAt");
+  if (checkinAt?.to) details.push(`Check-in lúc: ${new Date(checkinAt.to).toLocaleString("vi-VN")}`);
+  const player1 = findAuditChange(audit, "player1");
+  if (player1) {
+    details.push(playerChangeText("VĐV 1", player1));
+  }
+  const player2 = findAuditChange(audit, "player2");
+  if (player2) {
+    details.push(playerChangeText("VĐV 2", player2));
+  }
+  const player1Name = findAuditChange(audit, "player1.fullName") || findAuditChange(audit, "player1.nickName");
+  if (player1Name) details.push(changedText("Tên VĐV 1", player1Name));
+  const player2Name = findAuditChange(audit, "player2.fullName") || findAuditChange(audit, "player2.nickName");
+  if (player2Name) details.push(changedText("Tên VĐV 2", player2Name));
+  const player1Score = findAuditChange(audit, "player1.score");
+  if (player1Score) details.push(changedText("Điểm VĐV 1", player1Score));
+  const player2Score = findAuditChange(audit, "player2.score");
+  if (player2Score) details.push(changedText("Điểm VĐV 2", player2Score));
+  const player1Avatar = findAuditChange(audit, "player1.avatar");
+  if (player1Avatar) details.push("Ảnh VĐV 1 được cập nhật");
+  const player2Avatar = findAuditChange(audit, "player2.avatar");
+  if (player2Avatar) details.push("Ảnh VĐV 2 được cập nhật");
+  const teamFaction = findAuditChange(audit, "teamFactionName");
+  if (teamFaction) details.push(changedText("Phe/đội", teamFaction));
+  const message = findAuditChange(audit, "message");
+  if (message) details.push(changedText("Ghi chú", message));
+  if (!details.length && audit?.changes?.length) {
+    details.push(`${audit.changes.length} trường được cập nhật`);
+  }
+  return details;
+};
 
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
@@ -278,6 +495,14 @@ export const createRegistration = asyncHandler(async (req, res) => {
     { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
   );
 
+  await writeRegistrationAudit(req, {
+    registrationId: reg._id,
+    action: "CREATE",
+    before: {},
+    after: reg.toObject({ depopulate: true }),
+    note: "createRegistration",
+  });
+
   res.status(201).json(reg);
 });
 
@@ -442,6 +667,178 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   res.json(out);
 });
 
+export const getTournamentRegistrationHistory = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    res.status(400);
+    throw new Error("ID giải đấu không hợp lệ");
+  }
+
+  if (!isAdminUser(req.user)) {
+    res.status(403);
+    throw new Error("Chỉ admin mới được xem lịch sử đăng ký giải này");
+  }
+
+  const limit = Math.min(500, Math.max(20, Number(req.query.limit) || 200));
+  const tournamentObjectId = new mongoose.Types.ObjectId(id);
+
+  const registrations = await Registration.find({ tournament: id })
+    .sort({ createdAt: -1 })
+    .populate("createdBy", "_id name nickname phone email")
+    .lean();
+  const registrationIds = registrations.map((reg) => reg._id);
+  const registrationById = new Map(
+    registrations.map((reg) => [String(reg._id), reg])
+  );
+
+  const auditFilters = [
+    {
+      entityType: "Registration",
+      changes: {
+        $elemMatch: {
+          field: "tournament",
+          $or: [
+            { from: tournamentObjectId },
+            { to: tournamentObjectId },
+            { from: id },
+            { to: id },
+          ],
+        },
+      },
+    },
+  ];
+  if (registrationIds.length) {
+    auditFilters.push({
+      entityType: "Registration",
+      entityId: { $in: registrationIds },
+    });
+  }
+
+  const [audits, complaints] = await Promise.all([
+    AuditLog.find({ $or: auditFilters })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate("actor.id", "_id name nickname phone email")
+      .lean(),
+    Complaint.find({ tournament: id })
+      .sort({ createdAt: -1 })
+      .populate("registration", "_id code player1 player2")
+      .populate("createdBy", "_id name nickname phone email")
+      .lean(),
+  ]);
+
+  const items = [];
+  const createAuditIds = new Set();
+  const paymentAuditIds = new Set();
+
+  for (const audit of audits) {
+    const regId = asIdString(audit.entityId);
+    const reg = registrationById.get(regId);
+    if (audit.action === "CREATE" || String(audit.note || "").includes("Create")) {
+      createAuditIds.add(regId);
+    }
+    if (
+      findAuditChange(audit, "payment.status") ||
+      findAuditChange(audit, "payment.paidAt")
+    ) {
+      paymentAuditIds.add(regId);
+    }
+
+    const registration = registrationPayloadFrom(reg, audit);
+    items.push({
+      id: String(audit._id),
+      type: auditTypeFor(audit),
+      title: auditTitleFor(audit),
+      at: audit.createdAt,
+      actor: auditActorPayload(audit),
+      registration,
+      note: audit.note || "",
+      details: auditDetailsFor(audit),
+      source: "audit",
+    });
+  }
+
+  for (const reg of registrations) {
+    const regId = String(reg._id);
+    const registration = registrationPayloadFrom(reg);
+    if (!createAuditIds.has(regId)) {
+      items.push({
+        id: `registration-created-${regId}`,
+        type: "registration_created",
+        title: "Tạo đăng ký",
+        at: reg.createdAt,
+        actor: actorPayload(reg.createdBy, "user"),
+        registration,
+        note: "",
+        details: ["Dữ liệu lấy từ thời điểm tạo đăng ký"],
+        source: "registration",
+      });
+    }
+
+    if (reg?.payment?.status === "Paid" && reg?.payment?.paidAt && !paymentAuditIds.has(regId)) {
+      items.push({
+        id: `registration-payment-${regId}`,
+        type: "payment_paid",
+        title: "Đã thanh toán",
+        at: reg.payment.paidAt,
+        actor: { id: "", kind: "system", name: "", phone: "" },
+        registration,
+        note: "",
+        details: ["Chưa có dữ liệu người thao tác cho mốc thanh toán cũ"],
+        source: "registration",
+      });
+    }
+  }
+
+  for (const complaint of complaints) {
+    const registration = registrationPayloadFrom(complaint.registration);
+    items.push({
+      id: `complaint-created-${complaint._id}`,
+      type: "complaint_created",
+      title: "Gửi khiếu nại",
+      at: complaint.createdAt,
+      actor: actorPayload(complaint.createdBy, "user"),
+      registration,
+      note: "",
+      details: [
+        complaint.content ? `Nội dung: ${complaint.content}` : "",
+        `Trạng thái: ${complaint.status || "open"}`,
+      ].filter(Boolean),
+      source: "complaint",
+    });
+
+    if (
+      complaint.updatedAt &&
+      complaint.status &&
+      complaint.status !== "open" &&
+      new Date(complaint.updatedAt).getTime() >
+        new Date(complaint.createdAt).getTime() + 1000
+    ) {
+      items.push({
+        id: `complaint-status-${complaint._id}`,
+        type: "complaint_updated",
+        title: "Cập nhật khiếu nại",
+        at: complaint.updatedAt,
+        actor: { id: "", kind: "system", name: "BTC", phone: "" },
+        registration,
+        note: "",
+        details: [`Trạng thái: ${complaint.status}`],
+        source: "complaint",
+      });
+    }
+  }
+
+  items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+  res.json({
+    tournamentId: id,
+    total: items.length,
+    registrationCount: registrations.length,
+    complaintCount: complaints.length,
+    items: items.slice(0, limit),
+  });
+});
+
 /* Cập nhật trạng thái lệ phí */
 export const updatePaymentStatus = asyncHandler(async (req, res) => {
   const { regId } = req.params;
@@ -453,9 +850,17 @@ export const updatePaymentStatus = asyncHandler(async (req, res) => {
     throw new Error("Registration not found");
   }
 
+  const before = reg.toObject({ depopulate: true });
   reg.payment.status = status;
   reg.payment.paidAt = status === "Đã nộp" ? new Date() : undefined;
   await reg.save();
+  await writeRegistrationAudit(req, {
+    registrationId: reg._id,
+    action: "UPDATE",
+    before,
+    after: reg.toObject({ depopulate: true }),
+    note: "updatePaymentStatus",
+  });
 
   res.json(reg);
 });
@@ -469,8 +874,16 @@ export const checkinRegistration = asyncHandler(async (req, res) => {
     throw new Error("Registration not found");
   }
 
+  const before = reg.toObject({ depopulate: true });
   reg.checkinAt = new Date();
   await reg.save();
+  await writeRegistrationAudit(req, {
+    registrationId: reg._id,
+    action: "UPDATE",
+    before,
+    after: reg.toObject({ depopulate: true }),
+    note: "checkinRegistration",
+  });
 
   res.json(reg);
 });
@@ -526,6 +939,13 @@ export const cancelRegistration = asyncHandler(async (req, res) => {
 
   // Xoá registration
   await Registration.deleteOne({ _id: regId });
+  await writeRegistrationAudit(req, {
+    registrationId: reg._id,
+    action: "DELETE",
+    before: reg,
+    after: {},
+    note: "cancelRegistration",
+  });
 
   // Giảm counter registered của giải (nếu có)
   if (reg.tournament) {
@@ -577,6 +997,20 @@ export const updateRegistrationPayment = asyncHandler(async (req, res) => {
   };
 
   await Registration.updateOne({ _id: id }, { $set: update });
+  await writeRegistrationAudit(req, {
+    registrationId: id,
+    action: "UPDATE",
+    before: reg,
+    after: {
+      ...reg,
+      payment: {
+        ...(reg.payment || {}),
+        status,
+        paidAt: update["payment.paidAt"],
+      },
+    },
+    note: "updateRegistrationPayment",
+  });
 
   // 🆕 Nếu đổi sang Paid thì bắn notification
   if (status === "Paid") {
@@ -655,7 +1089,15 @@ export const deleteRegistration = asyncHandler(async (req, res) => {
     throw new Error("Forbidden");
   }
 
+  const before = reg.toObject({ depopulate: true });
   await reg.deleteOne();
+  await writeRegistrationAudit(req, {
+    registrationId: before._id,
+    action: "DELETE",
+    before,
+    after: {},
+    note: "deleteRegistration",
+  });
   res.json({ message: "Registration deleted" });
 });
 
@@ -756,7 +1198,7 @@ export const managerUpdateRegPlayerAvatar = expressAsyncHandler(
     if (!isAdmin && isTournamentFinished(tour)) {
       res.status(403);
       throw new Error(
-        "Qu?n l? ch? ???c s?a avatar ? gi?i s?p di?n ra ho?c ?ang di?n ra"
+        "Quản lý chỉ được sửa avatar ở giải sắp diễn ra hoặc đang diễn ra"
       );
     }
 
@@ -785,6 +1227,22 @@ export const managerUpdateRegPlayerAvatar = expressAsyncHandler(
 
     user.avatar = avatarUrl;
     const updatedUser = await user.save();
+    if (String(previousAvatar || "") !== String(updatedUser.avatar || "")) {
+      await writeRegistrationAudit(req, {
+        registrationId: reg._id,
+        action: "UPDATE",
+        before: {},
+        after: {},
+        note: "managerUpdateRegPlayerAvatar",
+        extraChanges: [
+          {
+            field: slot === "p1" ? "player1.avatar" : "player2.avatar",
+            from: previousAvatar || "",
+            to: updatedUser.avatar || "",
+          },
+        ],
+      });
+    }
 
     if (
       String(previousAvatar || "") !== String(updatedUser.avatar || "") &&
@@ -1008,9 +1466,10 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   if (!isAdmin && isTournamentFinished(tour)) {
     res.status(403);
     throw new Error(
-      "Qu?n l? ch? ???c thay V?V ? gi?i s?p di?n ra ho?c ?ang di?n ra"
+      "Quản lý chỉ được thay VĐV ở giải sắp diễn ra hoặc đang diễn ra"
     );
   }
+  const before = reg.toObject({ depopulate: true });
 
   const evType = String(tour.eventType || "").toLowerCase();
   const isSingles = evType === "single" || evType === "singles";
@@ -1050,6 +1509,13 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
     if (slot === "p1") reg.player1.score = newScore;
     else reg.player2.score = newScore;
     await reg.save();
+    await writeRegistrationAudit(req, {
+      registrationId: reg._id,
+      action: "UPDATE",
+      before,
+      after: reg.toObject({ depopulate: true }),
+      note: "managerReplacePlayerScoreRefresh",
+    });
     return res.json({ message: "Không có thay đổi", registration: reg });
   }
 
@@ -1086,6 +1552,13 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   else reg.player2 = subdoc;
 
   await reg.save();
+  await writeRegistrationAudit(req, {
+    registrationId: reg._id,
+    action: "UPDATE",
+    before,
+    after: reg.toObject({ depopulate: true }),
+    note: "managerReplacePlayer",
+  });
   res.json({ message: "Đã thay VĐV", registration: reg });
 });
 

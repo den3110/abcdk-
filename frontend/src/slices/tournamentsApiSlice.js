@@ -76,6 +76,15 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       query: (tourId) => `/api/tournaments/${tourId}/registrations`,
       keepUnusedDataFor: 0,
     }),
+    getTournamentRegistrationHistory: builder.query({
+      query: ({ tourId, limit = 200 }) =>
+        `/api/tournaments/${tourId}/registration-history?limit=${limit}`,
+      providesTags: (result, error, { tourId }) => [
+        { type: "RegistrationHistory", id: tourId },
+        { type: "RegistrationHistory", id: "LIST" },
+      ],
+      keepUnusedDataFor: 0,
+    }),
     getTeamRoster: builder.query({
       query: (tourId) => `/api/tournaments/${tourId}/team-roster`,
       keepUnusedDataFor: 0,
@@ -98,6 +107,8 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (result, error, { tourId }) => [
         { type: "Registrations", id: tourId },
         { type: "Tournaments", id: tourId },
+        { type: "RegistrationHistory", id: tourId },
+        { type: "RegistrationHistory", id: "LIST" },
       ],
     }),
     createTeamMatch: builder.mutation({
@@ -121,6 +132,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (r, e, arg) => [
         { type: "Registrations", id: arg.regId },
+        { type: "RegistrationHistory", id: "LIST" },
       ],
     }),
 
@@ -132,6 +144,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (r, e, arg) => [
         { type: "Registrations", id: arg.regId },
+        { type: "RegistrationHistory", id: "LIST" },
       ],
     }),
 
@@ -249,7 +262,10 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/registrations/${regId}/cancel`,
         method: "POST",
       }),
-      invalidatesTags: () => [{ type: "Registrations", id: "LIST" }],
+      invalidatesTags: () => [
+        { type: "Registrations", id: "LIST" },
+        { type: "RegistrationHistory", id: "LIST" },
+      ],
     }),
 
     // NEW: tạo lời mời đăng ký
@@ -259,8 +275,12 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body: { message, player1Id, player2Id },
       }),
-      invalidatesTags: (res) =>
-        res?.invite?.status === "finalized" ? ["Registrations"] : [],
+      invalidatesTags: (res, error, { tourId }) => [
+        "Registrations",
+        { type: "Registrations", id: tourId },
+        { type: "RegistrationHistory", id: tourId },
+        { type: "RegistrationHistory", id: "LIST" },
+      ],
     }),
 
     // NEW: list lời mời mình còn pending (theo từng giải)
@@ -276,7 +296,10 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body: { action },
       }),
-      invalidatesTags: ["RegInvites"],
+      invalidatesTags: [
+        "RegInvites",
+        { type: "RegistrationHistory", id: "LIST" },
+      ],
     }),
 
     // ✅ Manager toggle trạng thái thanh toán
@@ -286,7 +309,10 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         method: "PATCH",
         body: { status },
       }),
-      invalidatesTags: ["Registrations"],
+      invalidatesTags: [
+        "Registrations",
+        { type: "RegistrationHistory", id: "LIST" },
+      ],
     }),
 
     // ✅ Manager huỷ (xoá) đăng ký
@@ -295,7 +321,10 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/registrations/${regId}/admin`,
         method: "DELETE",
       }),
-      invalidatesTags: ["Registrations"],
+      invalidatesTags: [
+        "Registrations",
+        { type: "RegistrationHistory", id: "LIST" },
+      ],
     }),
 
     /* ========= SNAPSHOT OVERLAY (giữ) ========= */
@@ -590,6 +619,8 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Registration", id: regId },
         { type: "Tournament", id: tournamentId },
         { type: "Complaints", id: "LIST" },
+        { type: "RegistrationHistory", id: tournamentId },
+        { type: "RegistrationHistory", id: "LIST" },
       ],
     }),
     // Search server-side theo tên VĐV / SĐT / mã đăng ký
@@ -773,6 +804,7 @@ export const {
   // đã có
   useGetTournamentsQuery,
   useGetRegistrationsQuery,
+  useGetTournamentRegistrationHistoryQuery,
   useGetTeamRosterQuery,
   useGetTeamStandingsQuery,
   useCreateRegistrationMutation,

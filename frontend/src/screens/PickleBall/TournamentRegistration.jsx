@@ -48,6 +48,8 @@ import {
   CalendarMonth,
   EmojiEvents,
   PersonAdd,
+  ManageAccounts,
+  History as HistoryIcon,
   CheckCircle,
   ImageOutlined,
   InfoOutlined,
@@ -66,6 +68,7 @@ import {
   useCreateComplaintMutation,
   useSearchRegistrationsQuery,
   useCancelRegistrationMutation,
+  useGetTournamentRegistrationHistoryQuery,
 } from "../../slices/tournamentsApiSlice";
 import { BASE_URL } from "../../slices/apiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
@@ -868,6 +871,183 @@ const ActionButtonsInner = ({
   );
 };
 
+const historyMetaFor = (type) => {
+  if (type === "payment_paid" || type === "payment_updated") {
+    return { color: "#178a45", icon: <MonetizationOn fontSize="small" /> };
+  }
+  if (type === "complaint_created" || type === "complaint_updated") {
+    return { color: "#ed6c02", icon: <ReportProblem fontSize="small" /> };
+  }
+  if (type === "registration_cancelled") {
+    return { color: "#d32f2f", icon: <DeleteOutline fontSize="small" /> };
+  }
+  if (type === "checkin") {
+    return { color: "#0288d1", icon: <CheckCircle fontSize="small" /> };
+  }
+  if (type === "registration_created") {
+    return { color: "#1976d2", icon: <PersonAdd fontSize="small" /> };
+  }
+  return { color: "#64748b", icon: <HistoryIcon fontSize="small" /> };
+};
+
+const actorLabelFor = (actor) => {
+  const name = String(actor?.name || "").trim();
+  const phone = String(actor?.phone || "").trim();
+  if (name && phone) return `${name} · ${phone}`;
+  if (name) return name;
+  if (phone) return phone;
+  if (actor?.kind === "system") return "Hệ thống";
+  return "Chưa rõ người thao tác";
+};
+
+const formatHistoryDate = (value, locale) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Chưa rõ thời gian";
+  return date.toLocaleString(locale || "vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+};
+
+const RegistrationHistoryDialog = ({ open, onClose, data, loading, locale }) => {
+  const items = Array.isArray(data?.items) ? data.items : [];
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ pb: 1.5 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
+            <Box
+              sx={{
+                width: 38,
+                height: 38,
+                borderRadius: 2,
+                display: "grid",
+                placeItems: "center",
+                color: "#fff",
+                bgcolor: BRAND_COLOR,
+                flexShrink: 0,
+              }}
+            >
+              <HistoryIcon />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6" fontWeight={800} noWrap>
+                Lịch sử đăng ký
+              </Typography>
+              <Typography variant="body2" color="text.secondary" noWrap>
+                Theo dõi đăng ký, thanh toán, hủy và khiếu nại
+              </Typography>
+            </Box>
+          </Stack>
+          <IconButton onClick={onClose} size="small">
+            <Clear />
+          </IconButton>
+        </Stack>
+      </DialogTitle>
+
+      <DialogContent
+        dividers
+        sx={{
+          bgcolor: (theme) => alpha(theme.palette.text.primary, 0.03),
+        }}
+      >
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+          <Chip size="small" label={`Tổng mốc: ${data?.total || items.length}`} />
+          <Chip size="small" label={`Đăng ký hiện tại: ${data?.registrationCount || 0}`} />
+          <Chip size="small" label={`Khiếu nại: ${data?.complaintCount || 0}`} />
+        </Stack>
+
+        {loading ? (
+          <Stack spacing={1.5}>
+            {[0, 1, 2].map((idx) => (
+              <Skeleton key={idx} variant="rounded" height={96} />
+            ))}
+          </Stack>
+        ) : items.length ? (
+          <Stack spacing={1.25}>
+            {items.map((item) => {
+              const meta = historyMetaFor(item.type);
+              const reg = item.registration || {};
+              return (
+                <Paper
+                  key={item.id}
+                  variant="outlined"
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    borderColor: alpha(meta.color, 0.28),
+                    bgcolor: (theme) =>
+                      alpha(theme.palette.background.paper, 0.92),
+                  }}
+                >
+                  <Stack direction="row" spacing={1.25} alignItems="flex-start">
+                    <Box
+                      sx={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: "50%",
+                        display: "grid",
+                        placeItems: "center",
+                        color: meta.color,
+                        bgcolor: alpha(meta.color, 0.12),
+                        flexShrink: 0,
+                      }}
+                    >
+                      {meta.icon}
+                    </Box>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={0.75}
+                        justifyContent="space-between"
+                      >
+                        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+                          <Typography fontWeight={800}>{item.title}</Typography>
+                          {reg.code ? <Chip size="small" label={`#${reg.code}`} /> : null}
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">
+                          {formatHistoryDate(item.at, locale)}
+                        </Typography>
+                      </Stack>
+
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                        {reg.players || "Chưa rõ cặp đăng ký"}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Người thao tác: {actorLabelFor(item.actor)}
+                      </Typography>
+
+                      {item.details?.length ? (
+                        <Stack spacing={0.35} sx={{ mt: 1 }}>
+                          {item.details.map((detail, idx) => (
+                            <Typography key={idx} variant="body2">
+                              {detail}
+                            </Typography>
+                          ))}
+                        </Stack>
+                      ) : null}
+                    </Box>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+        ) : (
+          <Alert severity="info">Chưa có lịch sử đăng ký cho giải này.</Alert>
+        )}
+      </DialogContent>
+
+      <DialogActions>
+        <Button onClick={onClose}>Đóng</Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
 const PlayerInfo = memo(
   ({
     player,
@@ -1224,10 +1404,18 @@ export default function TournamentRegistration() {
       );
     return !!tour.isManager;
   }, [isLoggedIn, me, tour]);
+  const normalizedRole = String(me?.role || "").toLowerCase();
+  const normalizedRoles = Array.isArray(me?.roles)
+    ? me.roles.map((role) => String(role || "").toLowerCase())
+    : [];
   const isAdmin = !!(
     me?.isAdmin ||
-    me?.role === "admin" ||
-    (Array.isArray(me?.roles) && me.roles.includes("admin"))
+    me?.isSuperAdmin ||
+    me?.isSuperUser ||
+    ["admin", "superadmin", "superuser"].includes(normalizedRole) ||
+    normalizedRoles.some((role) =>
+      ["admin", "superadmin", "superuser"].includes(role),
+    )
   );
   const canManage = isLoggedIn && (isManager || isAdmin);
   const canEditAvatar =
@@ -1279,6 +1467,7 @@ export default function TournamentRegistration() {
     reg: null,
     text: "",
   });
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [paymentDlg, setPaymentDlg] = useState({ open: false, reg: null });
   const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
   const [avatarDlg, setAvatarDlg] = useState({
@@ -1351,6 +1540,13 @@ export default function TournamentRegistration() {
   );
 
   const displayedItems = useMemo(() => activeList, [activeList]);
+  const {
+    data: registrationHistory,
+    isFetching: historyLoading,
+  } = useGetTournamentRegistrationHistoryQuery(
+    { tourId: id, limit: 200 },
+    { skip: !historyOpen || !isAdmin },
+  );
 
   /* Derived Data */
   const evType = normType(tour?.eventType);
@@ -2509,6 +2705,13 @@ export default function TournamentRegistration() {
                     size="large"
                     type="submit"
                     disabled={saving}
+                    startIcon={
+                      saving ? (
+                        <CircularProgress size={18} color="inherit" />
+                      ) : (
+                        <PersonAdd />
+                      )
+                    }
                     sx={{
                       py: 1.5,
                       borderRadius: 2,
@@ -2544,6 +2747,7 @@ export default function TournamentRegistration() {
                       color="secondary"
                       component={Link}
                       to={`/tournament/${id}/manage`}
+                      startIcon={<ManageAccounts />}
                     >
                       {t("tournaments.registration.actions.manageTournament")}
                     </Button>
@@ -2581,6 +2785,21 @@ export default function TournamentRegistration() {
                 >
                   {t("tournaments.registration.actions.bracket")}
                 </Button>
+                {isAdmin && (
+                  <Button
+                    startIcon={<HistoryIcon />}
+                    fullWidth
+                    variant="outlined"
+                    onClick={() => setHistoryOpen(true)}
+                    sx={{
+                      borderRadius: 2,
+                      justifyContent: "center",
+                      textTransform: "none",
+                    }}
+                  >
+                    Lịch sử đăng ký
+                  </Button>
+                )}
               </Stack>
             </Paper>
           </Grid>
@@ -2715,6 +2934,14 @@ export default function TournamentRegistration() {
       </Container>
 
       {/* --- DIALOGS --- */}
+      <RegistrationHistoryDialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        data={registrationHistory}
+        loading={historyLoading}
+        locale={locale}
+      />
+
       {/* 1. Image Preview */}
       <Dialog
         open={imgPreview.open}

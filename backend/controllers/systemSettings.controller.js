@@ -141,6 +141,16 @@ function sanitizeSettingsPatch(patch = {}) {
     }
   }
 
+  if (next.checkpoint && typeof next.checkpoint === "object") {
+    if (Object.prototype.hasOwnProperty.call(next.checkpoint, "enabled")) {
+      next.checkpoint.enabled = next.checkpoint.enabled !== false;
+    }
+
+    if (!Object.keys(next.checkpoint).length) {
+      delete next.checkpoint;
+    }
+  }
+
   if (next.links && typeof next.links === "object") {
     if (Object.prototype.hasOwnProperty.call(next.links, "guideUrl")) {
       next.links.guideUrl = String(next.links.guideUrl || "").trim();

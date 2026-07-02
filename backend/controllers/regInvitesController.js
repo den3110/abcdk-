@@ -10,6 +10,7 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import Ranking from "../models/rankingModel.js";
 import { notifyNewPair } from "../services/telegram/telegramNotifyRegistration.js";
 import { EVENTS, publishNotification } from "../services/notifications/notificationHub.js";
+import { writeAuditLog } from "../services/audit.service.js";
 
 /* ----------------- Utils ----------------- */
 const oid = (x) => new mongoose.Types.ObjectId(String(x));
@@ -17,6 +18,32 @@ const num = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+
+async function writeRegistrationCreateAudit({ req, registration, note, actorId }) {
+  if (!registration?._id) return;
+  try {
+    await writeAuditLog({
+      entityType: "Registration",
+      entityId: registration._id,
+      action: "CREATE",
+      actorId: actorId || req?.user?._id || registration.createdBy || null,
+      actorKind:
+        req?.user?.isAdmin || req?.user?.isSuperAdmin || req?.user?.isSuperUser
+          ? "admin"
+          : req?.user?.role || "user",
+      ip: req?.ip || "",
+      userAgent: req?.get?.("user-agent") || "",
+      before: {},
+      after:
+        typeof registration.toObject === "function"
+          ? registration.toObject({ depopulate: true })
+          : registration,
+      note,
+    });
+  } catch (err) {
+    console.error("AUDIT_LOG_ERROR(registration invite):", err?.message || err);
+  }
+}
 
 const normET = (et) => {
   const s = String(et || "").toLowerCase();
@@ -236,7 +263,7 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
 }
 
 /* ---------- Finalize nếu đủ xác nhận ---------- */
-async function finalizeIfReady(invite) {
+async function finalizeIfReady(invite, req = null) {
   if (!invite || invite.status !== "pending") return invite;
 
   const isSingle = invite.eventType === "single";
@@ -316,6 +343,12 @@ async function finalizeIfReady(invite) {
   invite.status = "finalized";
   invite.registrationId = reg._id;
   await invite.save();
+  await writeRegistrationCreateAudit({
+    req,
+    registration: reg,
+    note: "registrationInviteFinalized",
+    actorId: req?.user?._id || invite.createdBy,
+  });
 
   // tăng đếm an toàn
   await Tournament.updateOne({ _id: tour._id }, { $inc: { registered: 1 } });
@@ -480,6 +513,12 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       createdBy: me._id,
       payment: buildFreeTournamentPayment(tour),
       meta: { createdByAdmin: true },
+    });
+    await writeRegistrationCreateAudit({
+      req,
+      registration: reg,
+      note: "adminCreateRegistrationInviteDirect",
+      actorId: me._id,
     });
 
     notifyNewPair({
@@ -710,6 +749,12 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     payment: buildFreeTournamentPayment(tour),
     meta: { autoByKyc: requireKyc === true, ageChecked: !!ar.enabled },
   });
+  await writeRegistrationCreateAudit({
+    req,
+    registration: reg,
+    note: "createRegistrationInviteDirect",
+    actorId: me._id,
+  });
 
   const regObj = typeof reg.toObject === "function" ? reg.toObject() : reg;
 
@@ -837,6 +882,6 @@ export const respondInvite = asyncHandler(async (req, res) => {
   }
 
   await invite.save();
-  const after = await finalizeIfReady(invite);
+  const after = await finalizeIfReady(invite, req);
   res.json({ ok: true, invite: after });
 });

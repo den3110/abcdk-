@@ -13,6 +13,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   captcha: {
     enabled: true,
   },
+  checkpoint: {
+    enabled: true,
+  },
   kyc: { enabled: true, autoApprove: false, faceMatchThreshold: 0.78 },
   security: { enforce2FAForAdmins: false, sessionTTLHours: 72 },
   uploads: {
@@ -168,6 +171,10 @@ export function normalizeSystemSettings(doc = {}) {
       ...DEFAULT_SYSTEM_SETTINGS.captcha,
       ...(source.captcha || {}),
     },
+    checkpoint: {
+      ...DEFAULT_SYSTEM_SETTINGS.checkpoint,
+      ...(source.checkpoint || {}),
+    },
     kyc: {
       ...DEFAULT_SYSTEM_SETTINGS.kyc,
       ...(source.kyc || {}),
@@ -312,4 +319,9 @@ export async function getRefereeMatchControlLockRuntime(options = {}) {
 export async function getRefereeMatchControlLockEnabled(options = {}) {
   const runtime = await getRefereeMatchControlLockRuntime(options);
   return runtime.enabled;
+}
+
+export async function getCheckpointSystemEnabled(options = {}) {
+  const settings = await getSystemSettingsRuntime(options);
+  return settings?.checkpoint?.enabled !== false;
 }

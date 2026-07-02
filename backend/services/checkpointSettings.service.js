@@ -10,30 +10,31 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
   sessionTtlMinutes: 30,
   codeTtlMinutes: 5,
   resendCooldownSeconds: 60,
-  trustDays: 15,
+  trustDays: 45,
   maxAttempts: 5,
   primaryContactPriority: ["email_otp", "phone_otp"],
   thresholds: {
-    level1Score: 25,
-    level2Score: 55,
-    level3Score: 85,
-    minSignalsForLevel1: 2,
+    level1Score: 40,
+    level2Score: 75,
+    level3Score: 110,
+    minSignalsForLevel1: 3,
+    minCategoriesForLevel1: 2,
     minCategoriesForLevel2: 2,
     minCategoriesForLevel3: 3,
   },
   hardSignals: {
-    checkpointFailedWeek: 8,
-    abuseWeek: 2,
-    criticalMonth: 1,
-    authFailedDay: 20,
-    rateLimitedDay: 8,
+    checkpointFailedWeek: 10,
+    abuseWeek: 3,
+    criticalMonth: 2,
+    authFailedDay: 30,
+    rateLimitedDay: 16,
   },
   rules: {
     authFailedDay: {
       enabled: true,
       category: "auth",
-      threshold: 5,
-      points: 25,
+      threshold: 10,
+      points: 18,
       levelHint: 1,
       window: "24h",
       reason: "Nhiều lần đăng nhập sai trong 24 giờ",
@@ -41,8 +42,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     authFailedDayBurst: {
       enabled: true,
       category: "auth",
-      threshold: 12,
-      points: 25,
+      threshold: 20,
+      points: 22,
       levelHint: 2,
       window: "24h",
       reason: "Burst đăng nhập sai trong ngày",
@@ -50,8 +51,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     authFailedWeek: {
       enabled: true,
       category: "auth",
-      threshold: 25,
-      points: 25,
+      threshold: 45,
+      points: 20,
       levelHint: 2,
       window: "7d",
       reason: "Đăng nhập sai lặp lại nhiều ngày",
@@ -59,8 +60,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     adminDeniedDay: {
       enabled: true,
       category: "admin_route",
-      threshold: 6,
-      points: 20,
+      threshold: 12,
+      points: 12,
       levelHint: 1,
       window: "24h",
       reason: "Truy cập route quản trị bị từ chối nhiều lần",
@@ -68,8 +69,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     adminDeniedWeek: {
       enabled: true,
       category: "admin_route",
-      threshold: 18,
-      points: 25,
+      threshold: 36,
+      points: 18,
       levelHint: 2,
       window: "7d",
       reason: "Thử route quản trị lặp lại nhiều ngày",
@@ -77,8 +78,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     spamHour: {
       enabled: true,
       category: "spam",
-      threshold: 25,
-      points: 20,
+      threshold: 80,
+      points: 12,
       levelHint: 1,
       window: "1h",
       reason: "Tần suất thao tác ghi bất thường trong 1 giờ",
@@ -86,8 +87,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     spamDay: {
       enabled: true,
       category: "spam",
-      threshold: 80,
-      points: 25,
+      threshold: 240,
+      points: 18,
       levelHint: 2,
       window: "24h",
       reason: "Tần suất thao tác ghi bất thường trong ngày",
@@ -95,8 +96,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     rateLimitedDay: {
       enabled: true,
       category: "rate_limit",
-      threshold: 4,
-      points: 25,
+      threshold: 12,
+      points: 20,
       levelHint: 2,
       window: "24h",
       reason: "Bị rate limit nhiều lần",
@@ -104,8 +105,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     checkpointFailedWeek: {
       enabled: true,
       category: "checkpoint",
-      threshold: 3,
-      points: 30,
+      threshold: 5,
+      points: 25,
       levelHint: 2,
       window: "7d",
       reason: "Nhập sai checkpoint nhiều lần",
@@ -113,7 +114,7 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     abuseWeek: {
       enabled: true,
       category: "abuse",
-      threshold: 2,
+      threshold: 3,
       points: 35,
       levelHint: 2,
       window: "7d",
@@ -122,8 +123,8 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     clientSuspiciousDay: {
       enabled: true,
       category: "client_signal",
-      threshold: 10,
-      points: 20,
+      threshold: 20,
+      points: 12,
       levelHint: 1,
       window: "24h",
       reason: "Tín hiệu client bất thường lặp lại",
@@ -131,7 +132,7 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     criticalMonth: {
       enabled: true,
       category: "critical",
-      threshold: 1,
+      threshold: 2,
       points: 35,
       levelHint: 3,
       window: "30d",
@@ -142,25 +143,25 @@ export const DEFAULT_CHECKPOINT_SETTINGS = Object.freeze({
     authSuccessWeek: {
       enabled: true,
       threshold: 3,
-      points: -10,
+      points: -16,
       reason: "Có đăng nhập thành công gần đây",
     },
     checkpointPassedMonth: {
       enabled: true,
       threshold: 1,
-      points: -12,
+      points: -24,
       reason: "Đã vượt checkpoint gần đây",
     },
     verifiedIdentity: {
       enabled: true,
       threshold: 1,
-      points: -8,
+      points: -14,
       reason: "Tài khoản đã xác minh CCCD",
     },
     agedAccount: {
       enabled: true,
       threshold: 30,
-      points: -6,
+      points: -10,
       reason: "Tài khoản đã hoạt động trên 30 ngày",
     },
   },
@@ -226,7 +227,7 @@ export function normalizeCheckpointSettings(input = {}) {
   merged.sessionTtlMinutes = clampInt(merged.sessionTtlMinutes, 30, 5, 240);
   merged.codeTtlMinutes = clampInt(merged.codeTtlMinutes, 5, 1, 60);
   merged.resendCooldownSeconds = clampInt(merged.resendCooldownSeconds, 60, 10, 600);
-  merged.trustDays = clampInt(merged.trustDays, 15, 1, 365);
+  merged.trustDays = clampInt(merged.trustDays, 45, 1, 365);
   merged.maxAttempts = clampInt(merged.maxAttempts, 5, 1, 20);
   merged.primaryContactPriority = (Array.isArray(merged.primaryContactPriority)
     ? merged.primaryContactPriority
@@ -236,20 +237,68 @@ export function normalizeCheckpointSettings(input = {}) {
     merged.primaryContactPriority = [...DEFAULT_CHECKPOINT_SETTINGS.primaryContactPriority];
   }
 
-  merged.thresholds.level1Score = clampInt(merged.thresholds.level1Score, 25, 0, 200);
-  merged.thresholds.level2Score = clampInt(merged.thresholds.level2Score, 55, 0, 200);
-  merged.thresholds.level3Score = clampInt(merged.thresholds.level3Score, 85, 0, 240);
-  merged.thresholds.minSignalsForLevel1 = clampInt(merged.thresholds.minSignalsForLevel1, 2, 1, 12);
-  merged.thresholds.minCategoriesForLevel2 = clampInt(merged.thresholds.minCategoriesForLevel2, 2, 1, 12);
-  merged.thresholds.minCategoriesForLevel3 = clampInt(merged.thresholds.minCategoriesForLevel3, 3, 1, 12);
+  merged.thresholds.level1Score = Math.max(
+    clampInt(merged.thresholds.level1Score, 40, 0, 200),
+    DEFAULT_CHECKPOINT_SETTINGS.thresholds.level1Score
+  );
+  merged.thresholds.level2Score = Math.max(
+    clampInt(merged.thresholds.level2Score, 75, 0, 200),
+    DEFAULT_CHECKPOINT_SETTINGS.thresholds.level2Score
+  );
+  merged.thresholds.level3Score = Math.max(
+    clampInt(merged.thresholds.level3Score, 110, 0, 240),
+    DEFAULT_CHECKPOINT_SETTINGS.thresholds.level3Score
+  );
+  merged.thresholds.minSignalsForLevel1 = Math.max(
+    clampInt(merged.thresholds.minSignalsForLevel1, 3, 1, 12),
+    DEFAULT_CHECKPOINT_SETTINGS.thresholds.minSignalsForLevel1
+  );
+  merged.thresholds.minCategoriesForLevel1 = Math.max(
+    clampInt(merged.thresholds.minCategoriesForLevel1, 2, 1, 12),
+    DEFAULT_CHECKPOINT_SETTINGS.thresholds.minCategoriesForLevel1
+  );
+  merged.thresholds.minCategoriesForLevel2 = Math.max(
+    clampInt(merged.thresholds.minCategoriesForLevel2, 2, 1, 12),
+    DEFAULT_CHECKPOINT_SETTINGS.thresholds.minCategoriesForLevel2
+  );
+  merged.thresholds.minCategoriesForLevel3 = Math.max(
+    clampInt(merged.thresholds.minCategoriesForLevel3, 3, 1, 12),
+    DEFAULT_CHECKPOINT_SETTINGS.thresholds.minCategoriesForLevel3
+  );
+
+  merged.hardSignals = {
+    ...DEFAULT_CHECKPOINT_SETTINGS.hardSignals,
+    ...(merged.hardSignals || {}),
+  };
+  Object.keys(DEFAULT_CHECKPOINT_SETTINGS.hardSignals).forEach((key) => {
+    merged.hardSignals[key] = Math.max(
+      clampInt(
+        merged.hardSignals[key],
+        DEFAULT_CHECKPOINT_SETTINGS.hardSignals[key],
+        0,
+        10000
+      ),
+      DEFAULT_CHECKPOINT_SETTINGS.hardSignals[key]
+    );
+  });
 
   Object.keys(DEFAULT_CHECKPOINT_SETTINGS.rules).forEach((key) => {
     const rule = merged.rules[key] || DEFAULT_CHECKPOINT_SETTINGS.rules[key];
+    const threshold = clampInt(
+      rule.threshold,
+      DEFAULT_CHECKPOINT_SETTINGS.rules[key].threshold,
+      0,
+      10000
+    );
+    const points = clampInt(rule.points, DEFAULT_CHECKPOINT_SETTINGS.rules[key].points, -200, 240);
     merged.rules[key] = {
       ...DEFAULT_CHECKPOINT_SETTINGS.rules[key],
       ...rule,
-      threshold: clampInt(rule.threshold, DEFAULT_CHECKPOINT_SETTINGS.rules[key].threshold, 0, 10000),
-      points: clampInt(rule.points, DEFAULT_CHECKPOINT_SETTINGS.rules[key].points, -200, 240),
+      threshold: Math.max(threshold, DEFAULT_CHECKPOINT_SETTINGS.rules[key].threshold),
+      points:
+        DEFAULT_CHECKPOINT_SETTINGS.rules[key].points >= 0
+          ? Math.min(points, DEFAULT_CHECKPOINT_SETTINGS.rules[key].points)
+          : points,
       levelHint: clampInt(rule.levelHint, DEFAULT_CHECKPOINT_SETTINGS.rules[key].levelHint, 1, 3),
       reason: String(rule.reason || DEFAULT_CHECKPOINT_SETTINGS.rules[key].reason || ""),
     };
@@ -257,16 +306,18 @@ export function normalizeCheckpointSettings(input = {}) {
 
   Object.keys(DEFAULT_CHECKPOINT_SETTINGS.dampeners).forEach((key) => {
     const item = merged.dampeners[key] || DEFAULT_CHECKPOINT_SETTINGS.dampeners[key];
+    const threshold = clampInt(
+      item.threshold,
+      DEFAULT_CHECKPOINT_SETTINGS.dampeners[key].threshold,
+      0,
+      10000
+    );
+    const points = clampInt(item.points, DEFAULT_CHECKPOINT_SETTINGS.dampeners[key].points, -200, 0);
     merged.dampeners[key] = {
       ...DEFAULT_CHECKPOINT_SETTINGS.dampeners[key],
       ...item,
-      threshold: clampInt(
-        item.threshold,
-        DEFAULT_CHECKPOINT_SETTINGS.dampeners[key].threshold,
-        0,
-        10000
-      ),
-      points: clampInt(item.points, DEFAULT_CHECKPOINT_SETTINGS.dampeners[key].points, -200, 0),
+      threshold: Math.min(threshold, DEFAULT_CHECKPOINT_SETTINGS.dampeners[key].threshold),
+      points: Math.min(points, DEFAULT_CHECKPOINT_SETTINGS.dampeners[key].points),
       reason: String(item.reason || DEFAULT_CHECKPOINT_SETTINGS.dampeners[key].reason || ""),
     };
   });

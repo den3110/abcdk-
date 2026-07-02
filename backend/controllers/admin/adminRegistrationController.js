@@ -375,8 +375,18 @@ export const adminCheckin = asyncHandler(async (req, res) => {
     throw new Error("Registration not found");
   }
 
+  const before = reg.toObject({ depopulate: true });
   reg.checkinAt = new Date();
   await reg.save();
+
+  await writeRegistrationAudit({
+    req,
+    registrationId: reg._id,
+    action: "UPDATE",
+    before,
+    after: reg.toObject({ depopulate: true }),
+    note: "adminCheckin",
+  });
 
   res.json(reg);
 });

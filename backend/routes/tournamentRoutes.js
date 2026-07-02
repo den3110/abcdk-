@@ -13,6 +13,7 @@ import {
 import {
   createRegistration,
   getRegistrations,
+  getTournamentRegistrationHistory,
 } from "../controllers/registrationController.js";
 import {
   getMatchesByTournament,
@@ -54,6 +55,7 @@ router
   .route("/:id/registrations")
   .post(protect, createRegistration)
   .get(optionalAuth, getRegistrations);
+router.get("/:id/registration-history", protect, getTournamentRegistrationHistory);
 router.get(
   "/:id/registrations/:regId/poster/players",
   optionalAuth,

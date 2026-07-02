@@ -16,11 +16,12 @@ import {
 } from "./checkpointMandate.service.js";
 import { sendCheckpointOtpEmail } from "./emailService.js";
 import { sendTingTingOtp } from "./tingtingZns.service.js";
+import { getCheckpointSystemEnabled } from "./systemSettingsRuntime.service.js";
 
 const DEFAULT_SESSION_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_CODE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_RESEND_COOLDOWN_MS = 60 * 1000;
-const DEFAULT_TRUST_MS = 15 * 24 * 60 * 60 * 1000;
+const DEFAULT_TRUST_MS = 45 * 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_MANUAL_REVIEW_LEVEL = 3;
 
@@ -164,10 +165,39 @@ const getRequiredFactorsForLevel = (level, primaryFactorKey = "phone_otp") => {
   return [primaryFactorKey];
 };
 
+const disabledCheckpointDecision = (confidence = "system_disabled") => ({
+  required: false,
+  level: 0,
+  score: 0,
+  rawScore: 0,
+  confidence,
+  reasons: [],
+  signals: [],
+  dampeners: [],
+  counters: {},
+});
+
+async function isCheckpointRuntimeEnabled() {
+  if (!checkpointEnabled()) return false;
+
+  try {
+    return await getCheckpointSystemEnabled();
+  } catch (error) {
+    console.error("[checkpoint] cannot load system checkpoint flag:", error?.message || error);
+    return true;
+  }
+}
+
 export async function getCheckpointPolicySummary() {
-  const settings = await getCheckpointSettings();
+  const [settings, systemEnabled] = await Promise.all([
+    getCheckpointSettings(),
+    isCheckpointRuntimeEnabled(),
+  ]);
   return {
-    enabled: settings.enabled !== false && checkpointEnabled(),
+    enabled: systemEnabled && settings.enabled !== false,
+    systemEnabled,
+    engineEnabled: settings.enabled !== false,
+    envEnabled: checkpointEnabled(),
     roleBypassEnabled: settings.roleBypassEnabled !== false && roleBypassEnabled(),
     primaryContactPriority: settings.primaryContactPriority || ["email_otp", "phone_otp"],
     levels: [
@@ -198,6 +228,7 @@ export async function getCheckpointPolicySummary() {
       windows: ["1h", "24h", "7d", "30d"],
       usesDampeners: true,
       requiresMultipleSignalsForLowRiskActions: true,
+      requiresHardSignalForAutoCheckpoint: true,
       trustedDeviceWindowMs: trustMs(settings),
     },
     thresholds: settings.thresholds,
@@ -411,11 +442,13 @@ async function countRiskSignals({ user, req }) {
     countEvents({
       ...scoped,
       category: "spam",
+      outcome: { $in: ["failed", "blocked", "suspicious", "rate_limited"] },
       createdAt: { $gte: hour },
     }),
     countEvents({
       ...scoped,
       category: "spam",
+      outcome: { $in: ["failed", "blocked", "suspicious", "rate_limited"] },
       createdAt: { $gte: day },
     }),
     countEvents({
@@ -449,6 +482,8 @@ async function countRiskSignals({ user, req }) {
     }),
     countEvents({
       ...scoped,
+      category: { $nin: ["checkpoint"] },
+      outcome: { $nin: ["success", "observed"] },
       severity: { $in: ["critical", "high"] },
       createdAt: { $gte: month },
     }),
@@ -589,11 +624,11 @@ function buildRiskDecision({ counters, user, intent, settings = null }) {
     0
   );
   const hasHardSignal =
-    counters.checkpointFailedWeek >= Number(hardSignals.checkpointFailedWeek || 8) ||
-    counters.abuseWeek >= Number(hardSignals.abuseWeek || 2) ||
-    counters.criticalMonth >= Number(hardSignals.criticalMonth || 1) ||
-    counters.authFailedDay >= Number(hardSignals.authFailedDay || 20) ||
-    counters.rateLimitedDay >= Number(hardSignals.rateLimitedDay || 8);
+    counters.checkpointFailedWeek >= Number(hardSignals.checkpointFailedWeek || 10) ||
+    counters.abuseWeek >= Number(hardSignals.abuseWeek || 3) ||
+    counters.criticalMonth >= Number(hardSignals.criticalMonth || 2) ||
+    counters.authFailedDay >= Number(hardSignals.authFailedDay || 30) ||
+    counters.rateLimitedDay >= Number(hardSignals.rateLimitedDay || 16);
   const categoryCount = categories.size;
   const score = Math.max(0, rawScore + dampenerTotal);
   const maxLevelHint = signals.reduce(
@@ -602,25 +637,22 @@ function buildRiskDecision({ counters, user, intent, settings = null }) {
   );
 
   let level = 0;
-  if (
-    score >= Number(thresholds.level3Score || 85) &&
-    (hasHardSignal ||
-      categoryCount >= Number(thresholds.minCategoriesForLevel3 || 3) ||
-      maxLevelHint >= 3)
-  ) {
-    level = 3;
-  } else if (
-    score >= Number(thresholds.level2Score || 55) &&
-    (hasHardSignal ||
-      categoryCount >= Number(thresholds.minCategoriesForLevel2 || 2) ||
-      maxLevelHint >= 2)
-  ) {
-    level = 2;
-  } else if (
-    score >= Number(thresholds.level1Score || 25) &&
-    (signals.length >= Number(thresholds.minSignalsForLevel1 || 2) || hasHardSignal)
-  ) {
-    level = 1;
+  if (hasHardSignal) {
+    if (
+      score >= Number(thresholds.level3Score || 110) &&
+      (categoryCount >= Number(thresholds.minCategoriesForLevel3 || 3) ||
+        maxLevelHint >= 3)
+    ) {
+      level = 3;
+    } else if (
+      score >= Number(thresholds.level2Score || 75) &&
+      (categoryCount >= Number(thresholds.minCategoriesForLevel2 || 2) ||
+        maxLevelHint >= 2)
+    ) {
+      level = 2;
+    } else {
+      level = 1;
+    }
   }
 
   if (intent === "login" && level > 0 && !getPrimaryOtpFactor(user, settings)) {
@@ -660,21 +692,12 @@ function buildRiskDecision({ counters, user, intent, settings = null }) {
 }
 
 export async function evaluateCheckpointRisk({ user, req, intent = "login" }) {
+  const systemEnabled = await isCheckpointRuntimeEnabled();
   const settings = await getCheckpointSettings();
   const ctx = getClientContext(req);
 
-  if (!checkpointEnabled() || settings.enabled === false) {
-    return {
-      required: false,
-      level: 0,
-      score: 0,
-      rawScore: 0,
-      confidence: "disabled",
-      reasons: [],
-      signals: [],
-      dampeners: [],
-      counters: {},
-    };
+  if (!systemEnabled || settings.enabled === false) {
+    return disabledCheckpointDecision("disabled");
   }
 
   const allowlistMatch = findCheckpointAllowlistMatch({
@@ -799,6 +822,10 @@ export async function shouldRequireLoginCheckpoint(user, req) {
 }
 
 export async function shouldRequireManualLoginCheckpoint(user) {
+  if (!(await isCheckpointRuntimeEnabled())) {
+    return disabledCheckpointDecision("system_disabled");
+  }
+
   const mandate = await getActiveCheckpointMandateForUser(user?._id || user?.id);
   if (!mandate) {
     return {
@@ -918,6 +945,16 @@ export async function getCurrentCheckpointRequirementForUser({
   createSession = false,
   includeRisk = false,
 } = {}) {
+  if (!(await isCheckpointRuntimeEnabled())) {
+    return {
+      ...disabledCheckpointDecision("system_disabled"),
+      reason: "",
+      checkpoint: null,
+      mandate: null,
+      mandateId: "",
+    };
+  }
+
   const existing = await getActiveCheckpointSessionForUser(user?._id || user?.id);
   if (existing) {
     const manualDecision = await syncSessionWithManualMandate(existing);
@@ -1248,6 +1285,12 @@ export async function startLoginCheckpoint({
   reason = "login_risk",
   mandate = null,
 }) {
+  if (!(await isCheckpointRuntimeEnabled())) {
+    const error = new Error("Hệ thống checkpoint đang tắt.");
+    error.statusCode = 409;
+    throw error;
+  }
+
   const settings = await getCheckpointSettings();
   const risk =
     decision || (await shouldRequireLoginCheckpoint(user, req));
