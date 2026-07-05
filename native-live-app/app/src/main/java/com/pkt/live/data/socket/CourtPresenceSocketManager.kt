@@ -117,10 +117,12 @@ class CourtPresenceSocketManager(
                         cancelReconnect()
                         manualDisconnect.set(false)
                         _connected.value = true
-                        emit(
-                            "court-live:watch",
-                            JSONObject().put("tournamentId", tournamentId)
-                        )
+                        runCatching {
+                            emit(
+                                "court-live:watch",
+                                JSONObject().put("tournamentId", tournamentId)
+                            )
+                        }.onFailure { Log.e(TAG, "court-live:watch emit failed", it) }
                     }
 
                     on(Socket.EVENT_DISCONNECT) { args ->
@@ -165,14 +167,16 @@ class CourtPresenceSocketManager(
                 is String -> payload
                 else -> return
             }
+        // gson.fromJson có thể trả null, và field có thể null khi server gửi null tường minh — guard hết
         runCatching {
-            gson.fromJson(raw, CourtLiveWatchSnapshot::class.java)
-        }.onSuccess { snapshot ->
-            if (snapshot.tournamentId.isBlank() || snapshot.tournamentId != expectedTournamentId) return@onSuccess
+            val snapshot = gson.fromJson(raw, CourtLiveWatchSnapshot::class.java) ?: return@runCatching
+            val tournamentId = snapshot.tournamentId.orEmpty()
+            if (tournamentId.isBlank() || tournamentId != expectedTournamentId) return@runCatching
             _presenceByCourtId.value =
                 snapshot.courts
+                    .orEmpty()
                     .mapNotNull { item ->
-                        val courtId = item.courtId.trim()
+                        val courtId = item.courtId.orEmpty().trim()
                         if (courtId.isBlank()) return@mapNotNull null
                         courtId to (item.liveScreenPresence ?: CourtLiveScreenPresence())
                     }

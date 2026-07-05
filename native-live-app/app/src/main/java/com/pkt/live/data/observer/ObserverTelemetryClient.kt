@@ -117,7 +117,17 @@ class ObserverTelemetryClient(
         private const val EVENT_QUEUE_MAX_SIZE = 24
     }
 
-    private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Chặn exception nền chưa bắt để không crash app (mirror coordinatorExceptionHandler)
+    private val observerExceptionHandler =
+        kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+            if (throwable is kotlinx.coroutines.CancellationException) return@CoroutineExceptionHandler
+            Log.e(TAG, "Unhandled observer coroutine exception", throwable)
+            runCatching {
+                com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(throwable)
+            }
+        }
+
+    private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + observerExceptionHandler)
     private val queueLock = Any()
     private val pendingEventQueue = mutableListOf<LiveDeviceEventRequest>()
     private val crashMarkerStore = ObserverCrashMarkerStore(appContext)

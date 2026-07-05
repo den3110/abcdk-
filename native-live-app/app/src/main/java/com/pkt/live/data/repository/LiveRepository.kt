@@ -54,7 +54,17 @@ class LiveRepository(
         private const val MATCH_SOCKET_HEALTHCHECK_INTERVAL_MS = 5_000L
     }
 
-    private val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Chặn exception nền chưa bắt để không crash app (mirror coordinatorExceptionHandler)
+    private val repoExceptionHandler =
+        kotlinx.coroutines.CoroutineExceptionHandler { _, throwable ->
+            if (throwable is kotlinx.coroutines.CancellationException) return@CoroutineExceptionHandler
+            Log.e(TAG, "Unhandled repo coroutine exception", throwable)
+            runCatching {
+                com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().recordException(throwable)
+            }
+        }
+
+    private val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + repoExceptionHandler)
     private var matchPollJob: Job? = null
     private var polledMatchId: String? = null
 

@@ -54,9 +54,21 @@ const NEW_PLAYER_WEIGHT_BONUS = 0.75;
 // ⭐ Đội thắng CHỈ bị trừ tối đa 0.001/người, chỉ khi kèo QUÁ LỆCH + thắng yếu
 const MAX_WIN_NEG = -0.001;
 
+// === ⭐ Giảm độ lớn thay đổi điểm trình cho các vòng KHÔNG phải knockout ===
+// Chỉ vòng loại trực tiếp (knockout / loại kép) giữ nguyên độ lớn (= 1.0);
+// vòng bảng, playoff, roundelim, prequalifying, swiss/gsl... cộng/trừ NHẸ hơn
+// (vẫn zero-sum: giảm đều cả điểm cộng của người thắng lẫn điểm trừ của người thua).
+// Muốn nặng/nhẹ hơn: chỉ đổi đúng 1 số NON_KNOCKOUT_DELTA_SCALE (1.0 = như knockout, càng nhỏ càng nhẹ).
+const NON_KNOCKOUT_DELTA_SCALE = 0.6;
+const KNOCKOUT_FAMILY_TYPES = new Set(["knockout", "double_elim"]);
+function formatDeltaScale(bracketType) {
+  const type = String(bracketType || "").toLowerCase();
+  return KNOCKOUT_FAMILY_TYPES.has(type) ? 1 : NON_KNOCKOUT_DELTA_SCALE;
+}
+
 // Quality mặc định khi thiếu điểm set
 const QUALITY_DEFAULT_WIN = 0.5;
-const TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL = 0.14;
+const TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL = 0.1;
 const MALE_LOW_RATING_LOSS_FLOOR = 2.1;
 
 const RATING_FEATURE_WEIGHTS = Object.freeze({
@@ -1122,6 +1134,10 @@ export async function applyRatingForFinishedMatch(matchId) {
   const D_team_raw = ratingCalc.raw;
   let D_team = ratingCalc.soft;
 
+  // ⭐ Giảm độ lớn cho các vòng KHÔNG phải knockout (giữ zero-sum: nhân đều nên
+  // cả điểm cộng của người thắng lẫn điểm trừ của người thua đều nhẹ đi cùng tỉ lệ).
+  D_team = D_team * formatDeltaScale(bracketType);
+
   // ===== ⭐ PHÂN PHỐI ĐỀU CHO ĐỒNG ĐỘI =====
   const winnerUserIds = winnerSide === "A" ? usersA : usersB;
   const loserUserIds = winnerSide === "A" ? usersB : usersA;
@@ -1524,6 +1540,9 @@ export async function computeRatingPreviewFromParams({
 
   const D_team_raw = ratingCalc.raw;
   let D_team = ratingCalc.soft;
+
+  // ⭐ Giảm độ lớn cho các vòng KHÔNG phải knockout (khớp với applyRatingForFinishedMatch để preview đúng)
+  D_team = D_team * formatDeltaScale(bracketType);
 
   const winnerUserIds = winnerSide === "A" ? usersA : usersB;
   const loserUserIds = winnerSide === "A" ? usersB : usersA;

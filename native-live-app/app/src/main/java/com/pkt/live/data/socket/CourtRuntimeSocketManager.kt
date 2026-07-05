@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import java.net.URI
-import java.util.LinkedHashSet
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 
 class CourtRuntimeSocketManager(
@@ -29,8 +29,9 @@ class CourtRuntimeSocketManager(
 
     private var socket: Socket? = null
     private var currentToken: String? = null
-    private val watchedClusterIds = LinkedHashSet<String>()
-    private val watchedStationIds = LinkedHashSet<String>()
+    // CopyOnWriteArraySet: add/remove từ thread UI trong khi socket thread iterate (emitCurrentWatchers/disconnect)
+    private val watchedClusterIds = CopyOnWriteArraySet<String>()
+    private val watchedStationIds = CopyOnWriteArraySet<String>()
     private val handler = Handler(Looper.getMainLooper())
     private val manualDisconnect = AtomicBoolean(false)
     private val reconnectScheduled = AtomicBoolean(false)
@@ -275,14 +276,14 @@ class CourtRuntimeSocketManager(
                 is String -> payload
                 else -> return
             }
-        runCatching {
+        // gson.fromJson có thể trả null (payload "null"/"") — guard trước khi deref
+        val snapshot = runCatching {
             gson.fromJson(raw, CourtClusterRuntimeResponse::class.java)
-        }.onSuccess { snapshot ->
-            if (snapshot.cluster?.id.isNullOrBlank()) return@onSuccess
-            _clusterUpdates.tryEmit(snapshot)
         }.onFailure {
             Log.e(TAG, "Failed to parse cluster update", it)
-        }
+        }.getOrNull() ?: return
+        if (snapshot.cluster?.id.isNullOrBlank()) return
+        _clusterUpdates.tryEmit(snapshot)
     }
 
     private fun parseStationUpdate(payload: Any?) {
@@ -292,14 +293,13 @@ class CourtRuntimeSocketManager(
                 is String -> payload
                 else -> return
             }
-        runCatching {
+        val snapshot = runCatching {
             gson.fromJson(raw, CourtStationRuntimeResponse::class.java)
-        }.onSuccess { snapshot ->
-            if (snapshot.station?.id.isNullOrBlank()) return@onSuccess
-            _stationUpdates.tryEmit(snapshot)
         }.onFailure {
             Log.e(TAG, "Failed to parse station update", it)
-        }
+        }.getOrNull() ?: return
+        if (snapshot.station?.id.isNullOrBlank()) return
+        _stationUpdates.tryEmit(snapshot)
     }
 
     private fun scheduleReconnect(reason: String) {
