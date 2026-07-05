@@ -1427,7 +1427,7 @@ function PodiumCelebrationItem({ item }) {
     <Tooltip
       title={`${item.teamLabel} ${meta.action} ${item.tournamentName}`}
       arrow
-      placement="top"
+      placement="bottom"
     >
       <Box
         component={Link}
