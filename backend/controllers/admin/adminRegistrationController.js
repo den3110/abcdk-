@@ -8,23 +8,11 @@ import AuditLog from "../../models/auditLogModel.js";
 import { writeAuditLog } from "../../services/audit.service.js";
 import { findTeamFaction, isTeamTournament } from "../../services/teamTournament.service.js";
 
-const MALE_TOURNAMENT_MIN_SCORE = 2.1;
-const isMaleGender = (value) => {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  return normalized === "male" || normalized === "nam";
-};
 const hasPositiveScore = (value) => {
   const n = Number(value);
   return Number.isFinite(n) && n > 0;
 };
-const effectiveTournamentScoreForUser = (value, user) => {
-  if (isMaleGender(user?.gender)) {
-    return hasPositiveScore(value)
-      ? Math.max(Number(value), MALE_TOURNAMENT_MIN_SCORE)
-      : MALE_TOURNAMENT_MIN_SCORE;
-  }
+const effectiveTournamentScoreForUser = (value) => {
   return hasPositiveScore(value) ? Number(value) : 0;
 };
 

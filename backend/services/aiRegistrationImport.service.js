@@ -944,28 +944,13 @@ function safeNumber(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 }
-const MALE_TOURNAMENT_MIN_SCORE = 2.1;
-const isMaleGender = (value) => {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  return normalized === "male" || normalized === "nam";
-};
 const hasPositiveScore = (value) => {
   const num = Number(value);
   return Number.isFinite(num) && num > 0;
 };
-const effectiveTournamentScoreForUser = (value, user, fallback = null) => {
-  if (isMaleGender(user?.gender)) {
-    const base = hasPositiveScore(value)
-      ? Number(value)
-      : hasPositiveScore(fallback)
-        ? Number(fallback)
-        : MALE_TOURNAMENT_MIN_SCORE;
-    return Math.max(base, MALE_TOURNAMENT_MIN_SCORE);
-  }
+const effectiveTournamentScoreForUser = (value, _user, fallback = null) => {
   if (hasPositiveScore(value)) return Number(value);
-  return hasPositiveScore(fallback) ? Number(fallback) : 2.5;
+  return hasPositiveScore(fallback) ? Number(fallback) : 0;
 };
 
 function hashText(value) {

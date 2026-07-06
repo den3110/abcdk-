@@ -48,15 +48,16 @@ const seedRatingForUser = (user) =>
   isMaleGender(user?.gender) ? MALE_DEFAULT_SEED_RATING : DEFAULT_SEED_RATING;
 const effectiveRatingForUser = (value, user) => {
   const seed = seedRatingForUser(user);
-  const rating = hasStoredRating(value) ? Number(value) : seed;
-  return isMaleGender(user?.gender)
-    ? Math.max(rating, MALE_DEFAULT_SEED_RATING)
-    : rating;
+  return hasStoredRating(value) ? Number(value) : seed;
 };
-const ratingFloorForUser = (user, fallbackMin = DUPR_MIN) =>
-  isMaleGender(user?.gender)
-    ? Math.max(fallbackMin, MALE_DEFAULT_SEED_RATING)
-    : fallbackMin;
+const ratingFloorForUser = (user, fallbackMin = DUPR_MIN, currentRating = null) => {
+  if (!isMaleGender(user?.gender)) return fallbackMin;
+  const current = Number(currentRating);
+  if (Number.isFinite(current) && current > 0 && current < MALE_LOW_RATING_LOSS_FLOOR) {
+    return fallbackMin;
+  }
+  return Math.max(fallbackMin, MALE_LOW_RATING_LOSS_FLOOR);
+};
 
 function shouldProtectMaleLowRatingLoss({ user, before, delta, score }) {
   return (
@@ -149,7 +150,7 @@ async function ensureSeedFromAssessment(userIds, kind, session) {
       ...lr,
       [field]: clamp(
         Number(seed) || seedRatingForUser(u),
-        ratingFloorForUser(u),
+        ratingFloorForUser(u, DUPR_MIN, seed),
         DUPR_MAX
       ),
     };
@@ -212,7 +213,7 @@ async function applyForUser({
     ? before
     : clamp(
         before + delta,
-        ratingFloorForUser(user, lr.minBound ?? DUPR_MIN),
+        ratingFloorForUser(user, lr.minBound ?? DUPR_MIN, before),
         lr.maxBound ?? DUPR_MAX
       );
   const nextMatches = (lr[matchesField] ?? 0) + 1;

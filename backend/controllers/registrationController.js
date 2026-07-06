@@ -25,23 +25,17 @@ import {
 } from "../services/teamTournament.service.js";
 import { sanitizeRatingsObj } from "../utils/privacyControl.js";
 
-const MALE_TOURNAMENT_MIN_SCORE = 2.1;
+const hasPositiveScore = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+};
 const isMaleGender = (value) => {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
   return normalized === "male" || normalized === "nam";
 };
-const hasPositiveScore = (value) => {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0;
-};
-const effectiveTournamentScoreForUser = (value, user) => {
-  if (isMaleGender(user?.gender)) {
-    return hasPositiveScore(value)
-      ? Math.max(Number(value), MALE_TOURNAMENT_MIN_SCORE)
-      : MALE_TOURNAMENT_MIN_SCORE;
-  }
+const effectiveTournamentScoreForUser = (value) => {
   return hasPositiveScore(value) ? Number(value) : 0;
 };
 
@@ -545,7 +539,9 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   // 0) Quyền xem full số: admin hoặc quản lý giải
   const isAdmin = isAdminUser(req.user);
 
-  const visibilityTour = await Tournament.findById(tourId).select("_id isTest").lean();
+  const visibilityTour = await Tournament.findById(tourId)
+    .select("_id isTest eventType")
+    .lean();
   if (!visibilityTour) {
     res.status(404);
     throw new Error("Tournament not found");
@@ -609,10 +605,38 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   // 3) query User: lấy thêm verified & cccdStatus
   const users = await User.find({ _id: { $in: [...uids] } })
     .select(
-      "_id avatar fullName name nickName nickname phone verified cccdStatus",
+      "_id avatar fullName name nickName nickname phone gender verified cccdStatus",
     )
     .lean();
   const userById = new Map(users.map((u) => [String(u._id), u]));
+
+  const rankingRows = await Ranking.find({ user: { $in: [...uids] } })
+    .select(
+      "user single double mix points totalFinishedTours hasStaffAssessment tierColor tierLabel colorRank updatedAt lastUpdated lastFinishedTourAt lastAssessmentAt lastStaffAssessmentAt",
+    )
+    .lean();
+  const rankingByUserId = new Map(
+    rankingRows.map((ranking) => [String(ranking.user), ranking]),
+  );
+  const scoreUserIds = [...uids]
+    .filter((id) => mongoose.isValidObjectId(id))
+    .map((id) => new mongoose.Types.ObjectId(String(id)));
+  const latestScoreRows = scoreUserIds.length
+    ? await ScoreHistory.aggregate([
+        { $match: { user: { $in: scoreUserIds } } },
+        { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+        {
+          $group: {
+            _id: "$user",
+            single: { $first: "$single" },
+            double: { $first: "$double" },
+          },
+        },
+      ])
+    : [];
+  const latestScoreByUserId = new Map(
+    latestScoreRows.map((row) => [String(row._id), row]),
+  );
 
   // Helper quyết định trạng thái xác thực cuối cùng (ưu tiên cccdStatus)
   const finalKycStatusOf = (u) => {
@@ -642,6 +666,80 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     return `${s.slice(0, 3)}****${s.slice(-3)}`;
   };
 
+  const eventType = String(visibilityTour?.eventType || "").toLowerCase();
+  const registrationScoreField =
+    eventType === "single" || eventType === "singles" ? "single" : "double";
+
+  const displayScoreOf = (pl, user) => {
+    const uid = String(pl?.user || "");
+    const latestScore = latestScoreByUserId.get(uid);
+    const latestValue = latestScore?.[registrationScoreField];
+    if (hasPositiveScore(latestValue)) return Number(latestValue);
+
+    const ranking = rankingByUserId.get(uid);
+    const rankingValue = ranking?.[registrationScoreField];
+    if (hasPositiveScore(rankingValue)) return Number(rankingValue);
+
+    const snapshot = Number(pl?.score);
+    const isOldMaleFallback =
+      isMaleGender(user?.gender) && Math.abs(snapshot - 2.1) < 0.0005;
+    if (isOldMaleFallback) return 0;
+
+    return hasPositiveScore(snapshot) ? snapshot : 0;
+  };
+
+  const scoreTierOf = (pl) => {
+    const ranking = rankingByUserId.get(String(pl?.user || ""));
+    const hasAnyRankingScore = [
+      ranking?.single,
+      ranking?.double,
+      ranking?.mix,
+      ranking?.points,
+    ].some(hasPositiveScore);
+    const hasAnyScore = hasAnyRankingScore || hasPositiveScore(pl?.score);
+    const totalTours = Number(ranking?.totalFinishedTours || 0);
+    const tierColor = String(ranking?.tierColor || "").toLowerCase();
+    const hasStaffAssessment = Boolean(ranking?.hasStaffAssessment);
+
+    if (!hasAnyScore) {
+      return {
+        scoreTierColor: "grey",
+        scoreTierLabel: "Chưa có điểm",
+        scoreColorRank: 3,
+        scoreHasStaffAssessment: hasStaffAssessment,
+        scoreTotalTours: totalTours,
+      };
+    }
+
+    if (tierColor === "blue" || totalTours >= 3) {
+      return {
+        scoreTierColor: "blue",
+        scoreTierLabel: ranking?.tierLabel || "Đã thi đấu từ 3 giải",
+        scoreColorRank: 0,
+        scoreHasStaffAssessment: hasStaffAssessment,
+        scoreTotalTours: totalTours,
+      };
+    }
+
+    if (tierColor === "yellow" || totalTours > 0 || hasStaffAssessment) {
+      return {
+        scoreTierColor: "yellow",
+        scoreTierLabel: ranking?.tierLabel || "Điểm uy tín / admin đã chấm",
+        scoreColorRank: 1,
+        scoreHasStaffAssessment: hasStaffAssessment,
+        scoreTotalTours: totalTours,
+      };
+    }
+
+    return {
+      scoreTierColor: "red",
+      scoreTierLabel: ranking?.tierLabel || "Tự chấm / chưa được admin chấm",
+      scoreColorRank: 2,
+      scoreHasStaffAssessment: hasStaffAssessment,
+      scoreTotalTours: totalTours,
+    };
+  };
+
   // 5) hợp nhất từ User + gán kycStatus
   const enrichPlayer = (pl) => {
     if (!pl) return pl;
@@ -658,6 +756,8 @@ export const getRegistrations = asyncHandler(async (req, res) => {
 
     const phoneSource = u?.phone ?? pl.phone ?? "";
     const maskedPhone = maskPhone(phoneSource);
+    const score = displayScoreOf(pl, u);
+    const scoreMeta = scoreTierOf({ ...pl, score });
 
     // ✅ Trạng thái xác thực cuối cùng
     const kycStatus = finalKycStatusOf(u);
@@ -673,11 +773,13 @@ export const getRegistrations = asyncHandler(async (req, res) => {
         (pl.nickname && String(pl.nickname).trim()) ||
         "",
       phone: maskedPhone,
+      score,
 
       // 👇 Thêm các field để FE dùng hiển thị badge
       cccdStatus: u?.cccdStatus || "unverified",
       verifiedLegacy: u?.verified || "pending",
       kycStatus, // 'verified' | 'pending' | 'rejected' | 'unverified'
+      ...scoreMeta,
       isVerified, // boolean nhanh gọn
     };
   };

@@ -320,6 +320,34 @@ const VerifyBadge = memo(({ status }) => {
 
 const kycOf = (pl) => pl?.cccdStatus || "unverified";
 
+const SCORE_TIER_HEX = {
+  blue: "#1976d2",
+  yellow: "#ff9800",
+  red: "#f44336",
+  grey: "#616161",
+  gray: "#616161",
+};
+
+const scoreTierTitle = (player) => {
+  if (player?.scoreTierLabel) return player.scoreTierLabel;
+  const tier = String(player?.scoreTierColor || "").toLowerCase();
+  if (tier === "blue") return "Đã thi đấu từ 3 giải";
+  if (tier === "yellow") return "Điểm uy tín / admin đã chấm";
+  if (tier === "red") return "Tự chấm / chưa được admin chấm";
+  return "Chưa có điểm";
+};
+
+const scoreTierChipSx = (player) => {
+  const tier = String(player?.scoreTierColor || "").toLowerCase();
+  const color = SCORE_TIER_HEX[tier] || SCORE_TIER_HEX.grey;
+  return {
+    color,
+    borderColor: alpha(color, 0.55),
+    bgcolor: alpha(color, 0.08),
+    fontWeight: 700,
+  };
+};
+
 /* Lazy Avatar */
 const LazyAvatar = memo(({ src, alt, size = 40, onClick, sx }) => {
   const [imgSrc, setImgSrc] = useState(PLACE);
@@ -1133,12 +1161,19 @@ const PlayerInfo = memo(
               >
                 {player?.phone || "—"}
               </Typography>
-              <Chip
-                label={fmt3(player?.score)}
-                size="small"
-                variant="outlined"
-                sx={{ height: 16, fontSize: "0.65rem", borderRadius: 1 }}
-              />
+              <Tooltip title={scoreTierTitle(player)} arrow>
+                <Chip
+                  label={fmt3(player?.score)}
+                  size="small"
+                  variant="outlined"
+                  sx={{
+                    height: 16,
+                    fontSize: "0.65rem",
+                    borderRadius: 1,
+                    ...scoreTierChipSx(player),
+                  }}
+                />
+              </Tooltip>
             </Stack>
             {canReplacePlayer && (
               <Button

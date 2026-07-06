@@ -120,13 +120,16 @@ const seedRatingForGender = (gender) =>
   isMaleGender(gender) ? MALE_DEFAULT_SEED_RATING : DEFAULT_SEED_RATING;
 const effectiveRatingForGender = (value, gender) => {
   const seed = seedRatingForGender(gender);
-  const rating = hasStoredRating(value) ? Number(value) : seed;
-  return isMaleGender(gender)
-    ? Math.max(rating, MALE_DEFAULT_SEED_RATING)
-    : rating;
+  return hasStoredRating(value) ? Number(value) : seed;
 };
-const ratingFloorForGender = (gender) =>
-  isMaleGender(gender) ? MALE_DEFAULT_SEED_RATING : DUPR_MIN;
+const ratingFloorForGender = (gender, currentRating) => {
+  if (!isMaleGender(gender)) return DUPR_MIN;
+  const current = Number(currentRating);
+  if (Number.isFinite(current) && current > 0 && current < MALE_LOW_RATING_LOSS_FLOOR) {
+    return DUPR_MIN;
+  }
+  return MALE_LOW_RATING_LOSS_FLOOR;
+};
 const smoothstep01 = (x) => {
   const t = clamp(Number(x) || 0, 0, 1);
   return t * t * (3 - 2 * t);
@@ -1204,7 +1207,7 @@ export async function applyRatingForFinishedMatch(matchId) {
       const delta = protectedLoss ? 0 : rawDelta;
       const next = protectedLoss
         ? curVal
-        : clamp(curVal + delta, ratingFloorForGender(gender), DUPR_MAX);
+        : clamp(curVal + delta, ratingFloorForGender(gender, curVal), DUPR_MAX);
       perUserDeltasAbs.push(Math.abs(delta));
 
       const noteScore = isWinner ? S_win : 1 - S_win;
@@ -1597,7 +1600,11 @@ export async function computeRatingPreviewFromParams({
     const effectiveDelta = protectedLoss ? 0 : delta;
     const next = protectedLoss
       ? curVal
-      : clamp(curVal + effectiveDelta, ratingFloorForGender(gender), DUPR_MAX);
+      : clamp(
+          curVal + effectiveDelta,
+          ratingFloorForGender(gender, curVal),
+          DUPR_MAX
+        );
     perUser.push({
       uid,
       side,
