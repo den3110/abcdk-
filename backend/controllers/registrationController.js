@@ -82,7 +82,7 @@ const actorPayload = (value, fallbackKind = "user") => {
   return {
     id: asIdString(user),
     kind: fallbackKind || "user",
-    name: user?.name || user?.nickname || user?.email || "",
+    name: user?.nickname || user?.name || user?.email || "",
     phone: user?.phone || "",
   };
 };
@@ -93,7 +93,7 @@ const auditActorPayload = (audit) => {
   return {
     id: asIdString(user || actor.id),
     kind: actor.kind || "user",
-    name: user?.name || user?.nickname || user?.email || "",
+    name: user?.nickname || user?.name || user?.email || "",
     phone: user?.phone || "",
   };
 };
@@ -127,7 +127,7 @@ const normalizePaymentStatusLabel = (status) => {
 };
 
 const playerNameOf = (player) =>
-  String(player?.fullName || player?.name || player?.nickName || player?.nickname || "")
+  String(player?.nickName || player?.nickname || player?.fullName || player?.name || "")
     .trim();
 
 const formatHistoryDateTime = (value) => {
@@ -166,14 +166,16 @@ const registrationPayloadFrom = (registration, audit) => {
   const p1 =
     playerNameOf(registration?.player1) ||
     playerNameOf(auditPlayerValue(audit, "player1", audit?.action === "DELETE" ? "from" : "to")) ||
-    auditValue(audit, "player1.fullName", "from") ||
     auditValue(audit, "player1.nickName", "from") ||
+    auditValue(audit, "player1.nickname", "from") ||
+    auditValue(audit, "player1.fullName", "from") ||
     "";
   const p2 =
     playerNameOf(registration?.player2) ||
     playerNameOf(auditPlayerValue(audit, "player2", audit?.action === "DELETE" ? "from" : "to")) ||
-    auditValue(audit, "player2.fullName", "from") ||
     auditValue(audit, "player2.nickName", "from") ||
+    auditValue(audit, "player2.nickname", "from") ||
+    auditValue(audit, "player2.fullName", "from") ||
     "";
   const players = [p1, p2].filter(Boolean).join(" & ");
 
@@ -232,9 +234,15 @@ const auditDetailsFor = (audit) => {
   if (player2) {
     details.push(playerChangeText("VĐV 2", player2));
   }
-  const player1Name = findAuditChange(audit, "player1.fullName") || findAuditChange(audit, "player1.nickName");
+  const player1Name =
+    findAuditChange(audit, "player1.nickName") ||
+    findAuditChange(audit, "player1.nickname") ||
+    findAuditChange(audit, "player1.fullName");
   if (player1Name) details.push(changedText("Tên VĐV 1", player1Name));
-  const player2Name = findAuditChange(audit, "player2.fullName") || findAuditChange(audit, "player2.nickName");
+  const player2Name =
+    findAuditChange(audit, "player2.nickName") ||
+    findAuditChange(audit, "player2.nickname") ||
+    findAuditChange(audit, "player2.fullName");
   if (player2Name) details.push(changedText("Tên VĐV 2", player2Name));
   const player1Score = findAuditChange(audit, "player1.score");
   if (player1Score) details.push(changedText("Điểm VĐV 1", player1Score));
