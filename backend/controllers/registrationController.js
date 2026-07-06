@@ -714,7 +714,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     if (tierColor === "blue" || totalTours >= 3) {
       return {
         scoreTierColor: "blue",
-        scoreTierLabel: ranking?.tierLabel || "Đã thi đấu từ 3 giải",
+        scoreTierLabel: "Đã tham gia 3 giải",
         scoreColorRank: 0,
         scoreHasStaffAssessment: hasStaffAssessment,
         scoreTotalTours: totalTours,
@@ -724,7 +724,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     if (tierColor === "yellow" || totalTours > 0 || hasStaffAssessment) {
       return {
         scoreTierColor: "yellow",
-        scoreTierLabel: ranking?.tierLabel || "Điểm uy tín / admin đã chấm",
+        scoreTierLabel: "Mod/Admin chấm trình",
         scoreColorRank: 1,
         scoreHasStaffAssessment: hasStaffAssessment,
         scoreTotalTours: totalTours,

@@ -331,8 +331,8 @@ const SCORE_TIER_HEX = {
 const scoreTierTitle = (player) => {
   if (player?.scoreTierLabel) return player.scoreTierLabel;
   const tier = String(player?.scoreTierColor || "").toLowerCase();
-  if (tier === "blue") return "Đã thi đấu từ 3 giải";
-  if (tier === "yellow") return "Điểm uy tín / admin đã chấm";
+  if (tier === "blue") return "Đã tham gia 3 giải";
+  if (tier === "yellow") return "Mod/Admin chấm trình";
   if (tier === "red") return "Tự chấm / chưa được admin chấm";
   return "Chưa có điểm";
 };
