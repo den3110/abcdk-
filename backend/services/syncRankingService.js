@@ -5,6 +5,91 @@ import Ranking from "../models/rankingModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Assessment from "../models/assessmentModel.js";
+import ScoreHistory from "../models/scoreHistoryModel.js";
+
+const STAFF_SCORE_BY_VALUES = ["admin", "mod", "moderator"];
+
+async function getLatestStaffScoreHistoryForUser(userId) {
+  const rows = await ScoreHistory.aggregate([
+    { $match: { user: userId } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "scorer",
+        foreignField: "_id",
+        as: "scorerDoc",
+        pipeline: [
+          {
+            $project: {
+              role: 1,
+              roles: 1,
+              isAdmin: 1,
+              evaluator: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $addFields: {
+        scorerDoc: { $arrayElemAt: ["$scorerDoc", 0] },
+        noteLower: { $toLower: { $ifNull: ["$note", ""] } },
+      },
+    },
+    {
+      $addFields: {
+        scorerRole: {
+          $toLower: { $ifNull: ["$scorerDoc.role", ""] },
+        },
+        scorerRoles: {
+          $map: {
+            input: {
+              $cond: [
+                { $isArray: "$scorerDoc.roles" },
+                "$scorerDoc.roles",
+                [],
+              ],
+            },
+            as: "role",
+            in: { $toLower: { $ifNull: ["$$role", ""] } },
+          },
+        },
+      },
+    },
+    {
+      $match: {
+        $expr: {
+          $or: [
+            {
+              $regexMatch: {
+                input: "$noteLower",
+                regex: /\b(admin|mod|moderator)\b/i,
+              },
+            },
+            { $eq: ["$scorerDoc.isAdmin", true] },
+            { $in: ["$scorerRole", STAFF_SCORE_BY_VALUES] },
+            {
+              $gt: [
+                {
+                  $size: {
+                    $setIntersection: ["$scorerRoles", STAFF_SCORE_BY_VALUES],
+                  },
+                },
+                0,
+              ],
+            },
+            { $eq: ["$scorerDoc.evaluator.enabled", true] },
+          ],
+        },
+      },
+    },
+    { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+    { $limit: 1 },
+    { $project: { scoredAt: 1, updatedAt: 1 } },
+  ]);
+
+  return rows[0] || null;
+}
 
 /**
  * Tính số giải đã finished mà user tham gia
@@ -70,9 +155,14 @@ async function getFinishedTournamentStatsForUser(userId) {
 async function getAssessmentStatsForUser(userId) {
   const staffQuery = {
     user: userId,
-    "meta.scoreBy": { $in: ["admin", "mod", "moderator"] },
+    "meta.scoreBy": { $in: STAFF_SCORE_BY_VALUES },
   };
-  const [latestAssessment, latestStaffAssessment, staffExists] =
+  const [
+    latestAssessment,
+    latestStaffAssessment,
+    staffExists,
+    latestStaffScoreHistory,
+  ] =
     await Promise.all([
       Assessment.findOne({ user: userId })
         .sort({ scoredAt: -1, updatedAt: -1 })
@@ -83,16 +173,21 @@ async function getAssessmentStatsForUser(userId) {
         .select("scoredAt updatedAt")
         .lean(),
       Assessment.exists(staffQuery),
+      getLatestStaffScoreHistoryForUser(userId),
     ]);
 
+  const staffScoreAt =
+    latestStaffAssessment?.scoredAt ||
+    latestStaffAssessment?.updatedAt ||
+    latestStaffScoreHistory?.scoredAt ||
+    latestStaffScoreHistory?.updatedAt ||
+    null;
+
   return {
-    hasStaffAssessment: !!staffExists,
+    hasStaffAssessment: !!staffExists || !!latestStaffScoreHistory,
     lastAssessmentAt:
       latestAssessment?.scoredAt || latestAssessment?.updatedAt || null,
-    lastStaffAssessmentAt:
-      latestStaffAssessment?.scoredAt ||
-      latestStaffAssessment?.updatedAt ||
-      null,
+    lastStaffAssessmentAt: staffScoreAt,
   };
 }
 

@@ -280,7 +280,6 @@ export async function getLeaderboard(req, res) {
         hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
       },
     },
-    ...buildRankingStaffScoreSourceStages("$user"),
     { $addFields: rankingEffectiveTierStateFields },
     { $addFields: rankingEffectiveTierFlagFields },
     { $addFields: rankingEffectiveTierFields },
@@ -397,143 +396,6 @@ const rankingNoFinishedToursMatch = {
     ],
   })),
 };
-
-const STAFF_SCORE_BY_VALUES = ["admin", "mod", "moderator"];
-
-const buildRankingStaffScoreSourceStages = (userExpr = "$user") => [
-  {
-    $lookup: {
-      from: "assessments",
-      let: { uid: userExpr },
-      pipeline: [
-        { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-        {
-          $match: {
-            $expr: {
-              $in: [
-                { $toLower: { $ifNull: ["$meta.scoreBy", ""] } },
-                STAFF_SCORE_BY_VALUES,
-              ],
-            },
-          },
-        },
-        { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
-        { $limit: 1 },
-        { $project: { _id: 1, scoredAt: 1, updatedAt: 1 } },
-      ],
-      as: "_staffAssessmentLive",
-    },
-  },
-  {
-    $lookup: {
-      from: "scorehistories",
-      let: { uid: userExpr },
-      pipeline: [
-        { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-        {
-          $lookup: {
-            from: "users",
-            localField: "scorer",
-            foreignField: "_id",
-            as: "_scoreHistoryScorer",
-            pipeline: [
-              {
-                $project: {
-                  role: 1,
-                  roles: 1,
-                  isAdmin: 1,
-                  evaluator: 1,
-                },
-              },
-            ],
-          },
-        },
-        {
-          $addFields: {
-            _scorerDoc: { $arrayElemAt: ["$_scoreHistoryScorer", 0] },
-            _noteLower: { $toLower: { $ifNull: ["$note", ""] } },
-          },
-        },
-        {
-          $addFields: {
-            _scorerRole: {
-              $toLower: { $ifNull: ["$_scorerDoc.role", ""] },
-            },
-            _scorerRoles: {
-              $map: {
-                input: {
-                  $cond: [
-                    { $isArray: "$_scorerDoc.roles" },
-                    "$_scorerDoc.roles",
-                    [],
-                  ],
-                },
-                as: "role",
-                in: { $toLower: { $ifNull: ["$$role", ""] } },
-              },
-            },
-          },
-        },
-        {
-          $match: {
-            $expr: {
-              $or: [
-                {
-                  $regexMatch: {
-                    input: "$_noteLower",
-                    regex: /\b(admin|mod|moderator)\b/i,
-                  },
-                },
-                { $eq: ["$_scorerDoc.isAdmin", true] },
-                { $in: ["$_scorerRole", STAFF_SCORE_BY_VALUES] },
-                {
-                  $gt: [
-                    {
-                      $size: {
-                        $setIntersection: [
-                          "$_scorerRoles",
-                          STAFF_SCORE_BY_VALUES,
-                        ],
-                      },
-                    },
-                    0,
-                  ],
-                },
-                { $eq: ["$_scorerDoc.evaluator.enabled", true] },
-              ],
-            },
-          },
-        },
-        { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
-        { $limit: 1 },
-        { $project: { _id: 1, scoredAt: 1, updatedAt: 1 } },
-      ],
-      as: "_staffScoreHistoryLive",
-    },
-  },
-  {
-    $addFields: {
-      hasStaffAssessment: {
-        $or: [
-          { $ifNull: ["$hasStaffAssessment", false] },
-          { $gt: [{ $size: "$_staffAssessmentLive" }, 0] },
-          { $gt: [{ $size: "$_staffScoreHistoryLive" }, 0] },
-        ],
-      },
-      lastStaffAssessmentAt: {
-        $ifNull: [
-          "$lastStaffAssessmentAt",
-          {
-            $ifNull: [
-              { $arrayElemAt: ["$_staffAssessmentLive.scoredAt", 0] },
-              { $arrayElemAt: ["$_staffScoreHistoryLive.scoredAt", 0] },
-            ],
-          },
-        ],
-      },
-    },
-  },
-];
 
 const rankingEffectiveTierStateFields = {
   _rankingHasAnyScore: {
@@ -708,7 +570,6 @@ const attachRankingRanksToDocs = async (docs = []) => {
         tierColor: { $ifNull: ["$tierColor", "grey"] },
       },
     },
-    ...buildRankingStaffScoreSourceStages("$user"),
     { $addFields: rankingEffectiveTierStateFields },
     { $addFields: rankingEffectiveTierFlagFields },
     { $addFields: rankingEffectiveTierFields },
@@ -1275,6 +1136,237 @@ const attachRankingAchievementsToDocs = (
       achievements: buildRankingAchievementsForDoc(doc, podiums),
     };
   });
+
+const STAFF_SCORE_BY_VALUES = ["admin", "mod", "moderator"];
+
+const getRankingUserId = (doc) => String(doc?.user?._id || doc?.user || "");
+
+const rankingDocHasAnyScore = (doc) =>
+  ["single", "double", "mix", "points"].some((field) => {
+    const value = Number(doc?.[field]);
+    return Number.isFinite(value) && value > 0;
+  });
+
+const computeRankingTierPatch = (doc) => {
+  const totalTours = Number(doc?.totalTours || doc?.totalFinishedTours || 0);
+  const hasAnyScore = rankingDocHasAnyScore(doc);
+  const hasStaffAssessment = Boolean(doc?.hasStaffAssessment);
+
+  if (!hasAnyScore) {
+    return {
+      colorRank: 3,
+      tierColor: "grey",
+      tierLabel: "0 điểm / Chưa đấu",
+    };
+  }
+
+  if (totalTours >= 3) {
+    return {
+      colorRank: 0,
+      tierColor: "blue",
+      tierLabel: "Đã thi đấu >= 3 giải",
+    };
+  }
+
+  if (totalTours > 0 || hasStaffAssessment) {
+    return {
+      colorRank: 1,
+      tierColor: "yellow",
+      tierLabel: "Official/Đã duyệt",
+    };
+  }
+
+  return {
+    colorRank: 2,
+    tierColor: "red",
+    tierLabel: "Tự chấm",
+  };
+};
+
+const setLatestStaffSource = (map, user, dateValue = null) => {
+  const uid = String(user || "");
+  if (!uid) return;
+  const date = dateValue ? new Date(dateValue) : null;
+  const time = date && Number.isFinite(date.getTime()) ? date.getTime() : 0;
+  const current = map.get(uid);
+  if (!current || time > current.time) {
+    map.set(uid, { date: time ? date : null, time });
+  }
+};
+
+async function findStaffScoreSourcesByUserIds(userIds = []) {
+  const objectIds = [...new Set(userIds)]
+    .filter(isOID)
+    .map((id) => new mongoose.Types.ObjectId(String(id)));
+
+  const staffByUserId = new Map();
+  if (!objectIds.length) return staffByUserId;
+
+  const [assessmentRows, scoreHistoryRows] = await Promise.all([
+    Assessment.find(
+      {
+        user: { $in: objectIds },
+        "meta.scoreBy": { $in: STAFF_SCORE_BY_VALUES },
+      },
+      { user: 1, scoredAt: 1, updatedAt: 1 },
+    )
+      .sort({ scoredAt: -1, updatedAt: -1, _id: -1 })
+      .lean(),
+    ScoreHistory.aggregate([
+      { $match: { user: { $in: objectIds } } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "scorer",
+          foreignField: "_id",
+          as: "scorerDoc",
+          pipeline: [
+            {
+              $project: {
+                role: 1,
+                roles: 1,
+                isAdmin: 1,
+                evaluator: 1,
+              },
+            },
+          ],
+        },
+      },
+      {
+        $addFields: {
+          scorerDoc: { $arrayElemAt: ["$scorerDoc", 0] },
+          noteLower: { $toLower: { $ifNull: ["$note", ""] } },
+        },
+      },
+      {
+        $addFields: {
+          scorerRole: {
+            $toLower: { $ifNull: ["$scorerDoc.role", ""] },
+          },
+          scorerRoles: {
+            $map: {
+              input: {
+                $cond: [
+                  { $isArray: "$scorerDoc.roles" },
+                  "$scorerDoc.roles",
+                  [],
+                ],
+              },
+              as: "role",
+              in: { $toLower: { $ifNull: ["$$role", ""] } },
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          $expr: {
+            $or: [
+              {
+                $regexMatch: {
+                  input: "$noteLower",
+                  regex: /\b(admin|mod|moderator)\b/i,
+                },
+              },
+              { $eq: ["$scorerDoc.isAdmin", true] },
+              { $in: ["$scorerRole", STAFF_SCORE_BY_VALUES] },
+              {
+                $gt: [
+                  {
+                    $size: {
+                      $setIntersection: [
+                        "$scorerRoles",
+                        STAFF_SCORE_BY_VALUES,
+                      ],
+                    },
+                  },
+                  0,
+                ],
+              },
+              { $eq: ["$scorerDoc.evaluator.enabled", true] },
+            ],
+          },
+        },
+      },
+      { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+      {
+        $group: {
+          _id: "$user",
+          scoredAt: { $first: "$scoredAt" },
+          updatedAt: { $first: "$updatedAt" },
+        },
+      },
+    ]),
+  ]);
+
+  for (const row of assessmentRows) {
+    setLatestStaffSource(staffByUserId, row.user, row.scoredAt || row.updatedAt);
+  }
+  for (const row of scoreHistoryRows) {
+    setLatestStaffSource(staffByUserId, row._id, row.scoredAt || row.updatedAt);
+  }
+
+  return staffByUserId;
+}
+
+async function hydratePageStaffAssessmentDocs(docs = []) {
+  const candidates = docs.filter((doc) => {
+    const totalTours = Number(doc?.totalTours || doc?.totalFinishedTours || 0);
+    return (
+      !doc?.hasStaffAssessment &&
+      totalTours < 3 &&
+      rankingDocHasAnyScore(doc) &&
+      isOID(getRankingUserId(doc))
+    );
+  });
+
+  if (!candidates.length) return docs;
+
+  const staffByUserId = await findStaffScoreSourcesByUserIds(
+    candidates.map(getRankingUserId),
+  );
+  if (!staffByUserId.size) return docs;
+
+  const updatedAt = new Date();
+  const bulkOps = [];
+  const nextDocs = docs.map((doc) => {
+    const uid = getRankingUserId(doc);
+    const staffSource = staffByUserId.get(uid);
+    if (!staffSource) return doc;
+
+    const hydrated = {
+      ...doc,
+      hasStaffAssessment: true,
+      lastStaffAssessmentAt:
+        doc.lastStaffAssessmentAt || staffSource.date || updatedAt,
+    };
+    const tierPatch = computeRankingTierPatch(hydrated);
+    const updateSet = {
+      hasStaffAssessment: true,
+      lastStaffAssessmentAt: hydrated.lastStaffAssessmentAt,
+      ...tierPatch,
+      tierUpdatedAt: updatedAt,
+    };
+
+    bulkOps.push({
+      updateOne: {
+        filter: { user: new mongoose.Types.ObjectId(uid) },
+        update: { $set: updateSet },
+      },
+    });
+
+    return {
+      ...hydrated,
+      ...tierPatch,
+    };
+  });
+
+  if (bulkOps.length) {
+    await Ranking.bulkWrite(bulkOps, { ordered: false });
+  }
+
+  return nextDocs;
+}
 
 /** Map regIds -> userIds (player1.user / player2.user / users[] / members[].user)  */
 async function mapRegToUsers(regIds) {
@@ -2188,11 +2280,14 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           {
             $addFields: {
-              hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
+              hasStaffAssessment: {
+                $or: [
+                  { $ifNull: ["$hasStaffAssessment", false] },
+                  { $gt: [{ $size: "$assess_staff" }, 0] },
+                ],
+              },
             },
           },
-          ...buildRankingStaffScoreSourceStages("$user._id"),
-
           // ======= Điểm xám: 0 điểm & chưa từng tham gia giải =======
           {
             $addFields: {
@@ -2327,7 +2422,7 @@ export const getRankings = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docsRaw = first.docs || [];
+  const docsRaw = await hydratePageStaffAssessmentDocs(first.docs || []);
   const docsWithRanks = await attachRankingRanksToDocs(docsRaw);
 
   const isHidden = await isRatingHiddenGlobal();
@@ -2651,7 +2746,6 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
-          ...buildRankingStaffScoreSourceStages("$user"),
           { $addFields: rankingEffectiveTierStateFields },
           { $addFields: rankingEffectiveTierFlagFields },
           { $addFields: rankingEffectiveTierFields },
@@ -2703,7 +2797,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
 
   const first = agg[0] || { docs: [], total: 0 };
   const totalPages = Math.ceil(first.total / limit);
-  const docs = first.docs || [];
+  const docs = await hydratePageStaffAssessmentDocs(first.docs || []);
 
   const payload = {
     docs,
@@ -2919,29 +3013,8 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   const matchStage = {
     isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
+    ...(scoreStatusMatch || {}),
   };
-  const scoreStatusPipeline = scoreStatusMatch
-    ? [
-        {
-          $addFields: {
-            points: { $ifNull: ["$points", 0] },
-            single: { $ifNull: ["$single", 0] },
-            double: { $ifNull: ["$double", 0] },
-            mix: { $ifNull: ["$mix", 0] },
-            reputation: { $ifNull: ["$reputation", 0] },
-            totalTours: { $ifNull: ["$totalFinishedTours", 0] },
-            hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
-            colorRank: { $ifNull: ["$colorRank", 3] },
-            tierColor: { $ifNull: ["$tierColor", "grey"] },
-          },
-        },
-        ...buildRankingStaffScoreSourceStages("$user"),
-        { $addFields: rankingEffectiveTierStateFields },
-        { $addFields: rankingEffectiveTierFlagFields },
-        { $addFields: rankingEffectiveTierFields },
-        { $match: scoreStatusMatch },
-      ]
-    : [];
 
   // ===== Optimized aggregation using denormalized fields =====
   const agg = await Ranking.aggregate([
@@ -2958,7 +3031,6 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     },
     { $match: { "u_chk.0": { $exists: true } } },
     { $project: { u_chk: 0 } },
-    ...scoreStatusPipeline,
     {
       $facet: {
         total: [{ $count: "n" }],
@@ -2981,7 +3053,6 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
-          ...buildRankingStaffScoreSourceStages("$user"),
           { $addFields: rankingEffectiveTierStateFields },
           { $addFields: rankingEffectiveTierFlagFields },
           { $addFields: rankingEffectiveTierFields },
@@ -3037,7 +3108,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docsRaw = first.docs || [];
+  const docsRaw = await hydratePageStaffAssessmentDocs(first.docs || []);
   const docsWithRanks = await attachRankingRanksToDocs(docsRaw);
   const { podiumMapByUserId } = docsRaw.length
     ? await buildRecentPodiumsByUser({ days: 30 })
@@ -3412,11 +3483,14 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
           },
           {
             $addFields: {
-              hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
+              hasStaffAssessment: {
+                $or: [
+                  { $ifNull: ["$hasStaffAssessment", false] },
+                  { $gt: [{ $size: "$assess_staff" }, 0] },
+                ],
+              },
             },
           },
-          ...buildRankingStaffScoreSourceStages("$user._id"),
-
           {
             $addFields: {
               zeroPoints: {
@@ -3541,7 +3615,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docsRaw = first.docs || [];
+  const docsRaw = await hydratePageStaffAssessmentDocs(first.docs || []);
 
   const isHidden = await isRatingHiddenGlobal();
   const docs = isHidden

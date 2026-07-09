@@ -5,7 +5,6 @@ import User from "../models/userModel.js";
 import AuditLog from "../models/auditLogModel.js";
 import Complaint from "../models/complaintModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
-import Assessment from "../models/assessmentModel.js";
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import { canManageTournament } from "../utils/tournamentAuth.js";
@@ -30,7 +29,6 @@ const hasPositiveScore = (value) => {
   const n = Number(value);
   return Number.isFinite(n) && n > 0;
 };
-const STAFF_SCORE_BY_VALUES = ["admin", "mod", "moderator"];
 const normalizeTournamentScore = (value) => {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : 0;
@@ -655,99 +653,6 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   const latestScoreByUserId = new Map(
     latestScoreRows.map((row) => [String(row._id), row]),
   );
-  const staffAssessmentRows = scoreUserIds.length
-    ? await Assessment.find(
-        {
-          user: { $in: scoreUserIds },
-          "meta.scoreBy": { $in: STAFF_SCORE_BY_VALUES },
-        },
-        { user: 1 },
-      ).lean()
-    : [];
-  const staffScoreHistoryRows = scoreUserIds.length
-    ? await ScoreHistory.aggregate([
-        { $match: { user: { $in: scoreUserIds } } },
-        {
-          $lookup: {
-            from: "users",
-            localField: "scorer",
-            foreignField: "_id",
-            as: "scorerDoc",
-            pipeline: [
-              {
-                $project: {
-                  role: 1,
-                  roles: 1,
-                  isAdmin: 1,
-                  evaluator: 1,
-                },
-              },
-            ],
-          },
-        },
-        {
-          $addFields: {
-            scorerDoc: { $arrayElemAt: ["$scorerDoc", 0] },
-            noteLower: { $toLower: { $ifNull: ["$note", ""] } },
-          },
-        },
-        {
-          $addFields: {
-            scorerRole: {
-              $toLower: { $ifNull: ["$scorerDoc.role", ""] },
-            },
-            scorerRoles: {
-              $map: {
-                input: {
-                  $cond: [
-                    { $isArray: "$scorerDoc.roles" },
-                    "$scorerDoc.roles",
-                    [],
-                  ],
-                },
-                as: "role",
-                in: { $toLower: { $ifNull: ["$$role", ""] } },
-              },
-            },
-          },
-        },
-        {
-          $match: {
-            $expr: {
-              $or: [
-                {
-                  $regexMatch: {
-                    input: "$noteLower",
-                    regex: /\b(admin|mod|moderator)\b/i,
-                  },
-                },
-                { $eq: ["$scorerDoc.isAdmin", true] },
-                { $in: ["$scorerRole", STAFF_SCORE_BY_VALUES] },
-                {
-                  $gt: [
-                    {
-                      $size: {
-                        $setIntersection: [
-                          "$scorerRoles",
-                          STAFF_SCORE_BY_VALUES,
-                        ],
-                      },
-                    },
-                    0,
-                  ],
-                },
-                { $eq: ["$scorerDoc.evaluator.enabled", true] },
-              ],
-            },
-          },
-        },
-        { $group: { _id: "$user" } },
-      ])
-    : [];
-  const staffScoreUserIds = new Set([
-    ...staffAssessmentRows.map((row) => String(row.user)),
-    ...staffScoreHistoryRows.map((row) => String(row._id)),
-  ]);
 
   // Helper quyết định trạng thái xác thực cuối cùng (ưu tiên cccdStatus)
   const finalKycStatusOf = (u) => {
@@ -813,8 +718,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
       ranking?.totalFinishedTours || ranking?.totalTours || 0,
     );
     const tierColor = String(ranking?.tierColor || "").toLowerCase();
-    const hasStaffAssessment =
-      Boolean(ranking?.hasStaffAssessment) || staffScoreUserIds.has(uid);
+    const hasStaffAssessment = Boolean(ranking?.hasStaffAssessment);
 
     if (!hasAnyScore) {
       return {
