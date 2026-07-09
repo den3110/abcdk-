@@ -1,4 +1,5 @@
 import Match from "../models/matchModel.js";
+import Ranking from "../models/rankingModel.js";
 import Registration from "../models/registrationModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 
@@ -57,7 +58,10 @@ export async function buildPublicProfileSummary(user = null) {
 
   const fallback = buildFallbackPublicProfileSummary(user);
 
-  const [lastScore, regs] = await Promise.all([
+  const [ranking, lastScore, regs] = await Promise.all([
+    Ranking.findOne({ user: userId })
+      .select("single double updatedAt lastUpdated")
+      .lean(),
     ScoreHistory.findOne({ user: userId })
       .sort({ scoredAt: -1, _id: -1 })
       .select("single double scoredAt")
@@ -107,9 +111,17 @@ export async function buildPublicProfileSummary(user = null) {
 
   return {
     score: {
-      single: toNumberOrZero(lastScore?.single ?? fallback.score.single),
-      double: toNumberOrZero(lastScore?.double ?? fallback.score.double),
-      scoredAt: lastScore?.scoredAt ?? fallback.score.scoredAt,
+      single: ranking
+        ? toNumberOrZero(ranking.single)
+        : toNumberOrZero(lastScore?.single ?? fallback.score.single),
+      double: ranking
+        ? toNumberOrZero(ranking.double)
+        : toNumberOrZero(lastScore?.double ?? fallback.score.double),
+      scoredAt:
+        ranking?.updatedAt ??
+        ranking?.lastUpdated ??
+        lastScore?.scoredAt ??
+        fallback.score.scoredAt,
     },
     matches,
   };
