@@ -280,6 +280,7 @@ export async function getLeaderboard(req, res) {
         hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
       },
     },
+    ...buildRankingStaffScoreSourceStages("$user"),
     { $addFields: rankingEffectiveTierStateFields },
     { $addFields: rankingEffectiveTierFlagFields },
     { $addFields: rankingEffectiveTierFields },
@@ -396,6 +397,143 @@ const rankingNoFinishedToursMatch = {
     ],
   })),
 };
+
+const STAFF_SCORE_BY_VALUES = ["admin", "mod", "moderator"];
+
+const buildRankingStaffScoreSourceStages = (userExpr = "$user") => [
+  {
+    $lookup: {
+      from: "assessments",
+      let: { uid: userExpr },
+      pipeline: [
+        { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+        {
+          $match: {
+            $expr: {
+              $in: [
+                { $toLower: { $ifNull: ["$meta.scoreBy", ""] } },
+                STAFF_SCORE_BY_VALUES,
+              ],
+            },
+          },
+        },
+        { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+        { $limit: 1 },
+        { $project: { _id: 1, scoredAt: 1, updatedAt: 1 } },
+      ],
+      as: "_staffAssessmentLive",
+    },
+  },
+  {
+    $lookup: {
+      from: "scorehistories",
+      let: { uid: userExpr },
+      pipeline: [
+        { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "scorer",
+            foreignField: "_id",
+            as: "_scoreHistoryScorer",
+            pipeline: [
+              {
+                $project: {
+                  role: 1,
+                  roles: 1,
+                  isAdmin: 1,
+                  evaluator: 1,
+                },
+              },
+            ],
+          },
+        },
+        {
+          $addFields: {
+            _scorerDoc: { $arrayElemAt: ["$_scoreHistoryScorer", 0] },
+            _noteLower: { $toLower: { $ifNull: ["$note", ""] } },
+          },
+        },
+        {
+          $addFields: {
+            _scorerRole: {
+              $toLower: { $ifNull: ["$_scorerDoc.role", ""] },
+            },
+            _scorerRoles: {
+              $map: {
+                input: {
+                  $cond: [
+                    { $isArray: "$_scorerDoc.roles" },
+                    "$_scorerDoc.roles",
+                    [],
+                  ],
+                },
+                as: "role",
+                in: { $toLower: { $ifNull: ["$$role", ""] } },
+              },
+            },
+          },
+        },
+        {
+          $match: {
+            $expr: {
+              $or: [
+                {
+                  $regexMatch: {
+                    input: "$_noteLower",
+                    regex: /\b(admin|mod|moderator)\b/i,
+                  },
+                },
+                { $eq: ["$_scorerDoc.isAdmin", true] },
+                { $in: ["$_scorerRole", STAFF_SCORE_BY_VALUES] },
+                {
+                  $gt: [
+                    {
+                      $size: {
+                        $setIntersection: [
+                          "$_scorerRoles",
+                          STAFF_SCORE_BY_VALUES,
+                        ],
+                      },
+                    },
+                    0,
+                  ],
+                },
+                { $eq: ["$_scorerDoc.evaluator.enabled", true] },
+              ],
+            },
+          },
+        },
+        { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+        { $limit: 1 },
+        { $project: { _id: 1, scoredAt: 1, updatedAt: 1 } },
+      ],
+      as: "_staffScoreHistoryLive",
+    },
+  },
+  {
+    $addFields: {
+      hasStaffAssessment: {
+        $or: [
+          { $ifNull: ["$hasStaffAssessment", false] },
+          { $gt: [{ $size: "$_staffAssessmentLive" }, 0] },
+          { $gt: [{ $size: "$_staffScoreHistoryLive" }, 0] },
+        ],
+      },
+      lastStaffAssessmentAt: {
+        $ifNull: [
+          "$lastStaffAssessmentAt",
+          {
+            $ifNull: [
+              { $arrayElemAt: ["$_staffAssessmentLive.scoredAt", 0] },
+              { $arrayElemAt: ["$_staffScoreHistoryLive.scoredAt", 0] },
+            ],
+          },
+        ],
+      },
+    },
+  },
+];
 
 const rankingEffectiveTierStateFields = {
   _rankingHasAnyScore: {
@@ -570,6 +708,7 @@ const attachRankingRanksToDocs = async (docs = []) => {
         tierColor: { $ifNull: ["$tierColor", "grey"] },
       },
     },
+    ...buildRankingStaffScoreSourceStages("$user"),
     { $addFields: rankingEffectiveTierStateFields },
     { $addFields: rankingEffectiveTierFlagFields },
     { $addFields: rankingEffectiveTierFields },
@@ -2052,6 +2191,7 @@ export const getRankings = asyncHandler(async (req, res) => {
               hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
             },
           },
+          ...buildRankingStaffScoreSourceStages("$user._id"),
 
           // ======= Điểm xám: 0 điểm & chưa từng tham gia giải =======
           {
@@ -2511,6 +2651,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
+          ...buildRankingStaffScoreSourceStages("$user"),
           { $addFields: rankingEffectiveTierStateFields },
           { $addFields: rankingEffectiveTierFlagFields },
           { $addFields: rankingEffectiveTierFields },
@@ -2778,8 +2919,29 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   const matchStage = {
     isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
-    ...(scoreStatusMatch || {}),
   };
+  const scoreStatusPipeline = scoreStatusMatch
+    ? [
+        {
+          $addFields: {
+            points: { $ifNull: ["$points", 0] },
+            single: { $ifNull: ["$single", 0] },
+            double: { $ifNull: ["$double", 0] },
+            mix: { $ifNull: ["$mix", 0] },
+            reputation: { $ifNull: ["$reputation", 0] },
+            totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+            hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+            colorRank: { $ifNull: ["$colorRank", 3] },
+            tierColor: { $ifNull: ["$tierColor", "grey"] },
+          },
+        },
+        ...buildRankingStaffScoreSourceStages("$user"),
+        { $addFields: rankingEffectiveTierStateFields },
+        { $addFields: rankingEffectiveTierFlagFields },
+        { $addFields: rankingEffectiveTierFields },
+        { $match: scoreStatusMatch },
+      ]
+    : [];
 
   // ===== Optimized aggregation using denormalized fields =====
   const agg = await Ranking.aggregate([
@@ -2796,6 +2958,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     },
     { $match: { "u_chk.0": { $exists: true } } },
     { $project: { u_chk: 0 } },
+    ...scoreStatusPipeline,
     {
       $facet: {
         total: [{ $count: "n" }],
@@ -2818,6 +2981,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
+          ...buildRankingStaffScoreSourceStages("$user"),
           { $addFields: rankingEffectiveTierStateFields },
           { $addFields: rankingEffectiveTierFlagFields },
           { $addFields: rankingEffectiveTierFields },
@@ -3251,6 +3415,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
               hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
             },
           },
+          ...buildRankingStaffScoreSourceStages("$user._id"),
 
           {
             $addFields: {
