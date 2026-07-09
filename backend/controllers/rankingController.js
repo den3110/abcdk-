@@ -1263,6 +1263,12 @@ async function findStaffScoreSourcesByUserIds(userIds = []) {
           $expr: {
             $or: [
               {
+                $and: [
+                  { $ne: ["$scorer", null] },
+                  { $ne: ["$scorer", "$user"] },
+                ],
+              },
+              {
                 $regexMatch: {
                   input: "$noteLower",
                   regex: /\b(admin|mod|moderator)\b/i,
