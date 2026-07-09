@@ -3250,6 +3250,21 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
   for (const k of allow) {
     if (k in req.body) t.overlay[k] = req.body[k];
   }
+  // Widgets overlay cho app native live — sanitize: mảng object có type string, tối đa 12
+  if ("widgets" in req.body) {
+    const rawWidgets = Array.isArray(req.body.widgets) ? req.body.widgets : [];
+    t.overlay.widgets = rawWidgets
+      .filter(
+        (w) =>
+          w &&
+          typeof w === "object" &&
+          !Array.isArray(w) &&
+          typeof w.type === "string" &&
+          w.type.trim()
+      )
+      .slice(0, 12);
+    t.markModified("overlay.widgets");
+  }
   await t.save();
   await Promise.all([
     clearTournamentPresentationCaches(),

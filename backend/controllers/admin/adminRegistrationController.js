@@ -12,8 +12,12 @@ const hasPositiveScore = (value) => {
   const n = Number(value);
   return Number.isFinite(n) && n > 0;
 };
+const normalizeTournamentScore = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+};
 const effectiveTournamentScoreForUser = (value) => {
-  return hasPositiveScore(value) ? Number(value) : 0;
+  return normalizeTournamentScore(value);
 };
 
 function isSinglesEvent(eventType) {
@@ -50,6 +54,11 @@ async function getCurrentScore(userId, eventType, userSnapshot = null) {
     userSnapshot ||
     (await User.findById(userId).select("gender").lean());
 
+  const rankingScore = await Ranking.findOne({ user: userId }).select(scoreField).lean();
+  if (hasPositiveScore(rankingScore?.[scoreField])) {
+    return effectiveTournamentScoreForUser(rankingScore[scoreField], user);
+  }
+
   const latestScore = await ScoreHistory.findOne({
     user: userId,
     [scoreField]: { $ne: null },
@@ -60,11 +69,6 @@ async function getCurrentScore(userId, eventType, userSnapshot = null) {
 
   if (hasPositiveScore(latestScore?.[scoreField])) {
     return effectiveTournamentScoreForUser(latestScore[scoreField], user);
-  }
-
-  const ranking = await Ranking.findOne({ user: userId }).select(scoreField).lean();
-  if (hasPositiveScore(ranking?.[scoreField])) {
-    return effectiveTournamentScoreForUser(ranking[scoreField], user);
   }
 
   return effectiveTournamentScoreForUser(null, user);

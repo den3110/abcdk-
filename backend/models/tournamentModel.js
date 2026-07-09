@@ -159,6 +159,10 @@ const tournamentSchema = new mongoose.Schema(
       },
       customCss: { type: String, default: "" },
       logoUrl: { type: String, default: "" },
+      // Server-driven overlay widgets cho app native live:
+      // [{ id, type: "image"|"text", enabled, url, text, x, y, w, size, opacity, color, bg }]
+      // Mixed để linh hoạt thêm type mới — app cũ tự bỏ qua type lạ, không crash.
+      widgets: { type: [mongoose.Schema.Types.Mixed], default: [] },
     },
 
     noRankDelta: { type: Boolean, default: false },

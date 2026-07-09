@@ -29,6 +29,10 @@ const hasPositiveScore = (value) => {
   const n = Number(value);
   return Number.isFinite(n) && n > 0;
 };
+const normalizeTournamentScore = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+};
 const isMaleGender = (value) => {
   const normalized = String(value || "")
     .trim()
@@ -36,7 +40,7 @@ const isMaleGender = (value) => {
   return normalized === "male" || normalized === "nam";
 };
 const effectiveTournamentScoreForUser = (value) => {
-  return hasPositiveScore(value) ? Number(value) : 0;
+  return normalizeTournamentScore(value);
 };
 
 const getRegistrationActorMeta = (req) => ({
@@ -449,11 +453,15 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const ranks = await getRanksMap(userIds);
   const key = isDoubles ? "double" : "single";
   const scoreFor = (userId, user) => {
+    const rankingScore = ranks.get(String(userId))?.[key];
+    if (hasPositiveScore(rankingScore)) {
+      return effectiveTournamentScoreForUser(rankingScore, user);
+    }
     const historyScore = map[String(userId)]?.[key];
     if (hasPositiveScore(historyScore)) {
       return effectiveTournamentScoreForUser(historyScore, user);
     }
-    return effectiveTournamentScoreForUser(ranks.get(String(userId))?.[key], user);
+    return effectiveTournamentScoreForUser(null, user);
   };
   const s1 = scoreFor(player1Id, u1);
   const s2 = isDoubles
@@ -680,20 +688,20 @@ export const getRegistrations = asyncHandler(async (req, res) => {
 
   const displayScoreOf = (pl, user) => {
     const uid = String(pl?.user || "");
-    const latestScore = latestScoreByUserId.get(uid);
-    const latestValue = latestScore?.[registrationScoreField];
-    if (hasPositiveScore(latestValue)) return Number(latestValue);
-
     const ranking = rankingByUserId.get(uid);
     const rankingValue = ranking?.[registrationScoreField];
-    if (hasPositiveScore(rankingValue)) return Number(rankingValue);
+    if (hasPositiveScore(rankingValue)) return effectiveTournamentScoreForUser(rankingValue);
+
+    const latestScore = latestScoreByUserId.get(uid);
+    const latestValue = latestScore?.[registrationScoreField];
+    if (hasPositiveScore(latestValue)) return effectiveTournamentScoreForUser(latestValue);
 
     const snapshot = Number(pl?.score);
     const isOldMaleFallback =
       isMaleGender(user?.gender) && Math.abs(snapshot - 2.1) < 0.0005;
     if (isOldMaleFallback) return 0;
 
-    return hasPositiveScore(snapshot) ? snapshot : 0;
+    return effectiveTournamentScoreForUser(snapshot);
   };
 
   const scoreTierOf = (pl) => {
@@ -1490,7 +1498,12 @@ async function getCurrentScore(userId, eventType, userSnapshot = null) {
     userSnapshot ||
     (await User.findById(userId).select("gender").lean());
 
-  // 1) Ưu tiên lịch sử chấm điểm mới nhất
+  const rankingScore = await Ranking.findOne({ user: userId }).select(field).lean();
+  if (hasPositiveScore(rankingScore?.[field])) {
+    return effectiveTournamentScoreForUser(rankingScore[field], user);
+  }
+
+  // Ranking là nguồn hiển thị chính; ScoreHistory chỉ là fallback.
   const sh = await ScoreHistory.findOne({
     user: userId,
     [field]: { $ne: null },
@@ -1503,13 +1516,6 @@ async function getCurrentScore(userId, eventType, userSnapshot = null) {
     return effectiveTournamentScoreForUser(sh[field], user);
   }
 
-  // 2) Fallback sang Ranking nếu không có lịch sử
-  const r = await Ranking.findOne({ user: userId }).select(field).lean();
-  if (hasPositiveScore(r?.[field])) {
-    return effectiveTournamentScoreForUser(r[field], user);
-  }
-
-  // 3) No stored score.
   return effectiveTournamentScoreForUser(null, user);
 }
 
@@ -1740,6 +1746,16 @@ export const searchRegistrations = async (req, res, next) => {
       if (isMgr) canSeeFullPhone = true;
     }
 
+    const scoreTour = await Tournament.findById(id)
+      .select("_id eventType")
+      .lean();
+    if (!scoreTour) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+    const eventType = String(scoreTour?.eventType || "").toLowerCase();
+    const registrationScoreField =
+      eventType === "single" || eventType === "singles" ? "single" : "double";
+
     // ===== Helpers giống getRegistrations =====
     const maskPhone = (val) => {
       if (!val) return val;
@@ -1766,21 +1782,81 @@ export const searchRegistrations = async (req, res, next) => {
       return "unverified";
     };
 
+    let currentScoreByUserId = new Map();
+
     const enrichPlayerAfterAgg = (pl, uMeta = {}) => {
       if (!pl) return pl;
       // pl: { avatar, fullName, nickName, phone, score, user }
       // uMeta: { cccdStatus, verified }
       const kycStatus = finalKycStatusOf(uMeta);
       const isVerified = kycStatus === "verified";
+      const uid = String(pl?.user || "");
+      const currentScore = currentScoreByUserId.get(uid);
 
       return {
         ...pl,
+        score: hasPositiveScore(currentScore)
+          ? currentScore
+          : effectiveTournamentScoreForUser(pl.score),
         phone: maskPhone(pl.phone ?? ""), // mask sau khi đã merge phone (user > snapshot)
         cccdStatus: uMeta?.cccdStatus || "unverified",
         verifiedLegacy: uMeta?.verified || "pending",
         kycStatus,
         isVerified,
       };
+    };
+
+    const buildCurrentScoreMapForRows = async (rows = []) => {
+      const ids = [
+        ...new Set(
+          rows
+            .flatMap((row) => [row?.player1?.user, row?.player2?.user])
+            .filter(Boolean)
+            .map(String),
+        ),
+      ];
+      if (!ids.length) return new Map();
+
+      const validObjectIds = ids
+        .filter((uid) => mongoose.isValidObjectId(uid))
+        .map((uid) => new mongoose.Types.ObjectId(uid));
+
+      const [rankingRows, latestScoreRows] = await Promise.all([
+        Ranking.find({ user: { $in: ids } })
+          .select("user single double")
+          .lean(),
+        validObjectIds.length
+          ? ScoreHistory.aggregate([
+              { $match: { user: { $in: validObjectIds } } },
+              { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+              {
+                $group: {
+                  _id: "$user",
+                  single: { $first: "$single" },
+                  double: { $first: "$double" },
+                },
+              },
+            ])
+          : Promise.resolve([]),
+      ]);
+
+      const scoreMap = new Map();
+      for (const ranking of rankingRows) {
+        const value = ranking?.[registrationScoreField];
+        if (hasPositiveScore(value)) {
+          scoreMap.set(String(ranking.user), effectiveTournamentScoreForUser(value));
+        }
+      }
+      for (const row of latestScoreRows) {
+        const uid = String(row._id);
+        if (scoreMap.has(uid)) continue;
+        const value = row?.[registrationScoreField];
+        if (hasPositiveScore(value)) {
+          scoreMap.set(uid, effectiveTournamentScoreForUser(value));
+        }
+      }
+
+      return scoreMap;
     };
 
     // Helper
@@ -1895,6 +1971,7 @@ export const searchRegistrations = async (req, res, next) => {
       ]).collation({ locale: "vi", strength: 1 });
 
       // Post-process: mask phone + gán KYC
+      currentScoreByUserId = await buildCurrentScoreMapForRows(rows);
       const out = rows.map((r) => ({
         ...r,
         player1: enrichPlayerAfterAgg(r.player1, {
@@ -2231,6 +2308,7 @@ export const searchRegistrations = async (req, res, next) => {
     });
 
     // Post-process: mask phone + gán KYC (giống nhánh không-q)
+    currentScoreByUserId = await buildCurrentScoreMapForRows(rows);
     const out = rows.map((r) => ({
       ...r,
       player1: enrichPlayerAfterAgg(r.player1, {

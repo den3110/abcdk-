@@ -6,6 +6,7 @@ import android.os.HandlerThread
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.pkt.live.data.model.OverlayData
+import com.pkt.live.data.model.OverlayWidgetData
 import com.pkt.live.data.model.SetScore
 import com.pkt.live.util.hasMatchIdentityData
 import com.pkt.live.util.isLightweightMatchPayload
@@ -46,6 +47,7 @@ class MatchSocketManager(
         private const val SNAPSHOT_KEEPALIVE_INTERVAL_MS = 15_000L
         private const val SNAPSHOT_STALE_AFTER_MS = 12_000L
         private val JOIN_BOOTSTRAP_BURST_DELAYS_MS = listOf(250L, 900L, 1_800L)
+        private const val MAX_OVERLAY_WIDGETS = 6
     }
 
     private var socket: Socket? = null
@@ -344,8 +346,15 @@ class MatchSocketManager(
                 return
             }
             val current = _overlayData.value
-            if (current != data) {
-                _overlayData.value = data
+            // Seed từ REST không mang widgets (chỉ socket payload có) — giữ lại widgets đang hiển thị
+            val merged =
+                if (data.widgets.isEmpty() && current.widgets.isNotEmpty()) {
+                    data.copy(widgets = current.widgets)
+                } else {
+                    data
+                }
+            if (current != merged) {
+                _overlayData.value = merged
             }
             val normalizedStatus = status?.trim()?.takeIf { it.isNotBlank() }
             if (!normalizedStatus.isNullOrBlank() && _matchStatus.value != normalizedStatus) {
@@ -553,6 +562,7 @@ class MatchSocketManager(
                 courtName = extractCourtName(match) ?: current.courtName,
                 sets = extractSets(match) ?: current.sets,
                 overlayNameStyle = extractOverlayNameStyle(match) ?: current.overlayNameStyle,
+                widgets = extractOverlayWidgets(match) ?: current.widgets,
             )
             if (updated != current) _overlayData.value = updated
             if (!nextStatus.isNullOrBlank() && nextStatus != _matchStatus.value) {
@@ -683,6 +693,58 @@ class MatchSocketManager(
                 obj.getObj("tournament")?.getObj("overlay")?.getStr("overlayNameStyle"),
             )
         return raw?.takeIf { it in setOf("1", "2", "3", "4") }
+    }
+
+    /**
+     * Parse danh sách widget overlay từ payload (overlay.widgets / tournament.overlay.widgets).
+     * Trả về null khi payload KHÔNG mang key widgets (giữ nguyên state hiện tại);
+     * trả về list (có thể rỗng = admin đã tắt hết) khi key có mặt.
+     * Mọi item lỗi/thiếu field/type lạ đều bị bỏ qua — không bao giờ throw.
+     */
+    private fun extractOverlayWidgets(obj: JsonObject): List<OverlayWidgetData>? {
+        return try {
+            val overlayObj = obj.getObj("overlay") ?: obj.getObj("tournament")?.getObj("overlay")
+            val arrElement = overlayObj?.takeIf { it.has("widgets") }?.get("widgets") ?: return null
+            if (!arrElement.isJsonArray) return null
+            val result = mutableListOf<OverlayWidgetData>()
+            for (element in arrElement.asJsonArray) {
+                if (result.size >= MAX_OVERLAY_WIDGETS) break
+                val widget = runCatching { parseOverlayWidget(element) }.getOrNull() ?: continue
+                result.add(widget)
+            }
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "extractOverlayWidgets failed (non-fatal)", e)
+            null
+        }
+    }
+
+    private fun parseOverlayWidget(element: com.google.gson.JsonElement): OverlayWidgetData? {
+        if (!element.isJsonObject) return null
+        val w = element.asJsonObject
+        if (w.getBool("enabled") == false) return null
+        val type = w.getStr("type")?.trim()?.lowercase().orEmpty()
+        val url = w.getStr("url")?.trim()
+        val text = w.getStr("text")?.trim()
+        // Chỉ nhận type đã biết + đủ data; type lạ (server mới hơn app) bị bỏ qua an toàn
+        val valid =
+            (type == "image" && !url.isNullOrBlank()) ||
+                (type == "text" && !text.isNullOrBlank()) ||
+                type == "stats"
+        if (!valid) return null
+        return OverlayWidgetData(
+            id = w.getStr("id")?.trim().orEmpty(),
+            type = type,
+            url = url,
+            text = text,
+            x = (w.getFloat("x") ?: 0.02f).coerceIn(0f, 1f),
+            y = (w.getFloat("y") ?: 0.72f).coerceIn(0f, 1f),
+            w = (w.getFloat("w") ?: 0.25f).coerceIn(0.01f, 1f),
+            size = (w.getFloat("size") ?: 0.035f).coerceIn(0.01f, 0.2f),
+            opacity = (w.getFloat("opacity") ?: 1f).coerceIn(0f, 1f),
+            color = w.getStr("color")?.trim()?.takeIf { it.isNotBlank() },
+            bg = w.getStr("bg")?.trim()?.takeIf { it.isNotBlank() },
+        )
     }
 
     private fun chooseTeamName(next: String?, current: String, side: String): String {
@@ -989,4 +1051,11 @@ class MatchSocketManager(
 
     private fun JsonObject.getObj(key: String): JsonObject? =
         if (has(key) && get(key).isJsonObject) get(key).asJsonObject else null
+
+    private fun JsonObject.getFloat(key: String): Float? =
+        if (has(key) && !get(key).isJsonNull) {
+            try { get(key).asFloat.takeIf { it.isFinite() } } catch (_: Exception) { null }
+        } else {
+            null
+        }
 }

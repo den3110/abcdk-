@@ -364,6 +364,30 @@ data class OverlayData(
     // Branding
     val webLogoUrl: String? = null,
     val sponsorLogos: List<String> = emptyList(),
+
+    // Server-driven overlay widgets (bật/tắt + data từ server; type lạ sẽ bị bỏ qua khi vẽ)
+    val widgets: List<OverlayWidgetData> = emptyList(),
+)
+
+/**
+ * Widget overlay điều khiển từ server (tournament.overlay.widgets).
+ * - type "image": tải PNG (nền trong suốt) từ [url] rồi vẽ đè lên stream — đường "thiết kế rồi ném qua app".
+ * - type "text": vẽ chữ native (caption / lower-third đơn giản).
+ * Tọa độ x/y/w là TỈ LỆ 0..1 theo khung hình output (resolution-independent).
+ * Type không nhận diện được sẽ bị bỏ qua an toàn (forward compatible — app cũ không crash).
+ */
+data class OverlayWidgetData(
+    val id: String = "",
+    val type: String = "",
+    val url: String? = null,
+    val text: String? = null,
+    val x: Float = 0.02f,
+    val y: Float = 0.72f,
+    val w: Float = 0.25f,
+    val size: Float = 0.035f,
+    val opacity: Float = 1f,
+    val color: String? = null,
+    val bg: String? = null,
 )
 
 /* ===================== API Request/Response wrappers ===================== */

@@ -3087,9 +3087,24 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
     .select("single double scoredAt")
     .lean();
 
-  let s =
-    last?.single ?? user?.levelPoint?.single ?? user?.levelPoint?.score ?? 0;
-  let d = last?.double ?? user?.levelPoint?.double ?? 0;
+  const ranking = await Ranking.findOne({ user: user._id })
+    .select("single double updatedAt lastUpdated")
+    .lean();
+  const pickScore = (...values) => {
+    for (const value of values) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) return Math.round(n * 100) / 100;
+    }
+    return 0;
+  };
+
+  let s = pickScore(
+    ranking?.single,
+    last?.single,
+    user?.levelPoint?.single,
+    user?.levelPoint?.score,
+  );
+  let d = pickScore(ranking?.double, last?.double, user?.levelPoint?.double);
 
   const hide = await shouldHideUserRatings(req.user, user._id);
   if (hide) {
@@ -3100,7 +3115,7 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
   const score = {
     single: s,
     double: d,
-    scoredAt: last?.scoredAt ?? null,
+    scoredAt: ranking?.updatedAt ?? ranking?.lastUpdated ?? last?.scoredAt ?? null,
   };
 
   // Chuẩn hoá role/roles & isAdmin

@@ -57,6 +57,11 @@ class OverlayBitmapRenderer(
         private const val MAX_BRANDING_DOWNLOAD_BYTES = 4 * 1024 * 1024
         // Anti-crash: prevent bitmap allocation larger than 4K to avoid OOM on low-RAM devices
         private const val MAX_BITMAP_DIMENSION = 3840
+
+        // Server-driven overlay widgets
+        private const val MAX_OVERLAY_WIDGETS = 6
+        private const val WIDGET_IMAGE_MAX_PX = 640
+        private const val WIDGET_PENDING_RETRY_MS = 15_000L
     }
 
     private val renderThread = HandlerThread("OverlayRender").also { it.start() }
@@ -85,6 +90,12 @@ class OverlayBitmapRenderer(
     private var pendingBrandingKey = ""
     private var logoBitmap: Bitmap? = null
     private var sponsorBarBitmap: Bitmap? = null
+
+    // Widget overlay điều khiển từ server — cache ảnh theo url (guard bởi bitmapLock)
+    private var cachedWidgetKey = ""
+    private var pendingWidgetKey = ""
+    private var pendingWidgetSinceMs = 0L
+    private val widgetBitmaps = HashMap<String, Bitmap>()
     private val _brandingLoadState = MutableStateFlow(BrandingLoadState())
     val brandingLoadState: StateFlow<BrandingLoadState> = _brandingLoadState.asStateFlow()
 
@@ -130,6 +141,14 @@ class OverlayBitmapRenderer(
     private val logoBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(90, 0, 0, 0)
     }
+    private val widgetImagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        isFilterBitmap = true
+    }
+    private val widgetTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.LEFT
+    }
+    private val widgetBgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private data class RenderSize(
         val width: Int,
@@ -149,6 +168,7 @@ class OverlayBitmapRenderer(
     fun updateData(data: OverlayData) {
         val previous = currentData.getAndSet(data)
         requestBrandingAssets(data)
+        requestWidgetAssets(data)
         // Skip render if data hasn't changed — prevents flickering from duplicate socket payloads
         if (previous == data) return
         lastRenderedData.set(null) // invalidate cache so next renderFrame() actually pushes
@@ -293,6 +313,7 @@ class OverlayBitmapRenderer(
                 drawScoreboardLayer(canvas, scoreboard, margin, uiScale)
                 drawLogoLayer(canvas, margin, uiScale)
                 drawSponsorsLayer(canvas, margin, uiScale)
+                drawWidgetsLayer(canvas, data)
 
                 val temp = frontBitmap
                 frontBitmap = backBitmap
@@ -394,6 +415,274 @@ class OverlayBitmapRenderer(
             canvas.height - margin,
         )
         canvas.drawBitmap(bitmap, null, dst, imagePaint)
+    }
+
+    /* ===================== Server-driven overlay widgets ===================== */
+
+    /**
+     * Nạp ảnh cho widget type "image" (pipeline TÁCH RIÊNG khỏi branding —
+     * không đụng branding state machine / BrandingLoadState).
+     * Mọi lỗi chỉ làm widget đó không hiển thị, stream không bị ảnh hưởng.
+     */
+    private fun requestWidgetAssets(data: OverlayData) {
+        try {
+            val urls = data.widgets.asSequence()
+                .filter { it.type == "image" }
+                .mapNotNull { it.url?.trim()?.takeIf(String::isNotEmpty) }
+                .distinct()
+                .take(MAX_OVERLAY_WIDGETS)
+                .toList()
+            val key = urls.joinToString("|")
+            synchronized(bitmapLock) {
+                if (key == cachedWidgetKey) {
+                    pendingWidgetKey = ""
+                    return
+                }
+                val pendingFresh = pendingWidgetKey == key &&
+                    System.currentTimeMillis() - pendingWidgetSinceMs < WIDGET_PENDING_RETRY_MS
+                if (pendingFresh) return
+                pendingWidgetKey = key
+                pendingWidgetSinceMs = System.currentTimeMillis()
+            }
+            runCatching {
+                brandingHandler.post { loadWidgetImages(urls, key) }
+            }.onFailure {
+                Log.e(TAG, "Failed to queue widget image load", it)
+                synchronized(bitmapLock) { if (pendingWidgetKey == key) pendingWidgetKey = "" }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "requestWidgetAssets failed (non-fatal)", e)
+        }
+    }
+
+    private fun loadWidgetImages(urls: List<String>, key: String) {
+        if (isReleased.get()) return
+        val newlyDownloaded = mutableListOf<Bitmap>()
+        try {
+            val reusable = synchronized(bitmapLock) { HashMap(widgetBitmaps) }
+            val loaded = HashMap<String, Bitmap>()
+            for (url in urls) {
+                val stale = synchronized(bitmapLock) { pendingWidgetKey != key }
+                if (stale) break
+                val existing = reusable[url]?.takeIf { !it.isRecycled }
+                if (existing != null) {
+                    loaded[url] = existing
+                    continue
+                }
+                val bitmap = downloadBitmap(url, WIDGET_IMAGE_MAX_PX) ?: continue
+                newlyDownloaded.add(bitmap)
+                loaded[url] = bitmap
+            }
+            synchronized(bitmapLock) {
+                if (pendingWidgetKey != key) {
+                    newlyDownloaded.forEach { recycleBitmap(it) }
+                    return
+                }
+                val keep = HashSet<Bitmap>(loaded.values)
+                widgetBitmaps.values.forEach { old ->
+                    if (old !in keep) recycleBitmap(old)
+                }
+                widgetBitmaps.clear()
+                widgetBitmaps.putAll(loaded)
+                cachedWidgetKey = key
+                pendingWidgetKey = ""
+            }
+            scheduleRender()
+        } catch (oom: OutOfMemoryError) {
+            Log.e(TAG, "Widget image load OOM - skipping widgets", oom)
+            newlyDownloaded.forEach { runCatching { recycleBitmap(it) } }
+            synchronized(bitmapLock) { if (pendingWidgetKey == key) pendingWidgetKey = "" }
+        } catch (e: Exception) {
+            Log.e(TAG, "loadWidgetImages failed (non-fatal)", e)
+            synchronized(bitmapLock) { if (pendingWidgetKey == key) pendingWidgetKey = "" }
+        }
+    }
+
+    /** Vẽ các widget server-driven. Được gọi bên trong renderFrame (đã có try/catch + bitmapLock). */
+    private fun drawWidgetsLayer(canvas: Canvas, data: OverlayData) {
+        val widgets = data.widgets
+        if (widgets.isEmpty()) return
+        val cw = canvas.width.toFloat()
+        val ch = canvas.height.toFloat()
+        if (cw <= 0f || ch <= 0f) return
+        var drawn = 0
+        for (widget in widgets) {
+            if (drawn >= MAX_OVERLAY_WIDGETS) break
+            val ok = runCatching { drawSingleWidget(canvas, widget, data, cw, ch) }
+                .onFailure { Log.e(TAG, "Widget '${widget.id}' draw failed (skipped)", it) }
+                .getOrDefault(false)
+            if (ok) drawn++
+        }
+    }
+
+    private fun drawSingleWidget(
+        canvas: Canvas,
+        widget: com.pkt.live.data.model.OverlayWidgetData,
+        data: OverlayData,
+        cw: Float,
+        ch: Float,
+    ): Boolean {
+        val alpha = (widget.opacity.coerceIn(0f, 1f) * 255f).toInt()
+        if (alpha <= 0) return false
+        when (widget.type) {
+            "image" -> {
+                val url = widget.url?.trim().orEmpty()
+                if (url.isEmpty()) return false
+                val bitmap = widgetBitmaps[url]?.takeIf { !it.isRecycled } ?: return false
+                if (bitmap.width <= 0 || bitmap.height <= 0) return false
+                val width = widget.w.coerceIn(0.01f, 1f) * cw
+                val height = width * bitmap.height / bitmap.width
+                val left = widget.x.coerceIn(0f, 1f) * cw
+                val top = widget.y.coerceIn(0f, 1f) * ch
+                widgetImagePaint.alpha = alpha
+                canvas.drawBitmap(bitmap, null, RectF(left, top, left + width, top + height), widgetImagePaint)
+                return true
+            }
+            "text" -> {
+                val raw = widget.text?.trim().orEmpty()
+                if (raw.isEmpty()) return false
+                val display = if (raw.length > 120) raw.substring(0, 120) else raw
+                val textSize = (widget.size.coerceIn(0.01f, 0.2f) * ch).coerceIn(10f, 160f)
+                widgetTextPaint.textSize = textSize
+                widgetTextPaint.color = parseColorSafely(widget.color, Color.WHITE)
+                widgetTextPaint.alpha = alpha
+                val x = widget.x.coerceIn(0f, 1f) * cw
+                val yTop = widget.y.coerceIn(0f, 1f) * ch
+                val fm = widgetTextPaint.fontMetrics
+                val bgColor = parseColorSafely(widget.bg, 0)
+                if (bgColor != 0) {
+                    val pad = textSize * 0.35f
+                    widgetBgPaint.color = bgColor
+                    val textWidth = widgetTextPaint.measureText(display)
+                    canvas.drawRoundRect(
+                        RectF(
+                            x - pad,
+                            yTop - pad * 0.6f,
+                            x + textWidth + pad,
+                            yTop + (fm.bottom - fm.top) + pad * 0.6f,
+                        ),
+                        textSize * 0.25f,
+                        textSize * 0.25f,
+                        widgetBgPaint,
+                    )
+                }
+                canvas.drawText(display, x, yTop - fm.top, widgetTextPaint)
+                return true
+            }
+            "stats" -> return drawStatsWidget(canvas, widget, data, cw, ch, alpha)
+            else -> return false // type lạ (server mới hơn app) — bỏ qua an toàn
+        }
+    }
+
+    /** Bảng set-score native: tên đội + điểm từng set + điểm hiện tại (data đã có sẵn trong OverlayData). */
+    private fun drawStatsWidget(
+        canvas: Canvas,
+        widget: com.pkt.live.data.model.OverlayWidgetData,
+        data: OverlayData,
+        cw: Float,
+        ch: Float,
+        alpha: Int,
+    ): Boolean {
+        val width = (widget.w.coerceIn(0.05f, 1f) * cw).coerceAtLeast(120f)
+        val left = widget.x.coerceIn(0f, 1f) * cw
+        val top = widget.y.coerceIn(0f, 1f) * ch
+        val sets = data.sets.take(5)
+        val rowH = (width * 0.085f).coerceIn(18f, 64f)
+        val pad = rowH * 0.35f
+        val headerH = rowH * 0.8f
+        val height = headerH + rowH * 2 + pad * 2
+
+        // Nền
+        widgetBgPaint.color = parseColorSafely(widget.bg, Color.argb(205, 15, 23, 42))
+        val bgRect = RectF(left, top, left + width, top + height)
+        canvas.drawRoundRect(bgRect, rowH * 0.3f, rowH * 0.3f, widgetBgPaint)
+
+        // Chia cột: tên | các set | điểm hiện tại
+        val curColW = width * 0.16f
+        val setColW = if (sets.isEmpty()) 0f else ((width * 0.4f) / sets.size).coerceAtMost(width * 0.14f)
+        val nameColW = width - curColW - setColW * sets.size - pad * 2
+        if (nameColW <= 0f) return false
+
+        val textPaint = widgetTextPaint
+        val headerSize = headerH * 0.55f
+        val rowSize = rowH * 0.52f
+        val textColor = parseColorSafely(widget.color, Color.WHITE)
+
+        fun colCenterX(setIndex: Int): Float =
+            left + pad + nameColW + setColW * setIndex + setColW / 2f
+
+        val curCenterX = left + width - pad - curColW / 2f
+
+        // Header
+        textPaint.textSize = headerSize
+        textPaint.color = Color.argb(200, 255, 255, 255)
+        textPaint.alpha = (alpha * 0.75f).toInt()
+        textPaint.textAlign = Paint.Align.CENTER
+        val headerBaseline = top + pad + headerH * 0.7f
+        sets.forEachIndexed { i, set ->
+            canvas.drawText("S${set.index.takeIf { it > 0 } ?: (i + 1)}", colCenterX(i), headerBaseline, textPaint)
+        }
+        canvas.drawText("ĐIỂM", curCenterX, headerBaseline, textPaint)
+
+        // 2 hàng đội
+        val rows = listOf(
+            Triple(data.teamAName, sets.map { it.a }, data.scoreA) to (data.serveSide == "A"),
+            Triple(data.teamBName, sets.map { it.b }, data.scoreB) to (data.serveSide == "B"),
+        )
+        rows.forEachIndexed { rowIndex, (row, serving) ->
+            val (name, setScores, currentScore) = row
+            val rowTop = top + pad + headerH + rowH * rowIndex
+            val baseline = rowTop + rowH * 0.68f
+
+            // Chấm giao bóng (dùng widgetBgPaint — không đụng serveDotPaint của scoreboard)
+            if (serving) {
+                widgetBgPaint.color = Color.parseColor("#22C55E")
+                widgetBgPaint.alpha = alpha
+                canvas.drawCircle(left + pad + rowSize * 0.3f, rowTop + rowH / 2f, rowSize * 0.22f, widgetBgPaint)
+            }
+
+            textPaint.textSize = rowSize
+            textPaint.color = textColor
+            textPaint.alpha = alpha
+            textPaint.textAlign = Paint.Align.LEFT
+            val nameStartX = left + pad + rowSize * 0.7f
+            val display = ellipsizeText(textPaint, name.ifBlank { if (rowIndex == 0) "Đội A" else "Đội B" }, nameColW - rowSize * 0.7f)
+            canvas.drawText(display, nameStartX, baseline, textPaint)
+
+            textPaint.textAlign = Paint.Align.CENTER
+            setScores.forEachIndexed { i, score ->
+                textPaint.alpha = (alpha * 0.85f).toInt()
+                canvas.drawText(score?.toString() ?: "–", colCenterX(i), baseline, textPaint)
+            }
+            textPaint.textSize = rowSize * 1.15f
+            textPaint.alpha = alpha
+            canvas.drawText(currentScore.toString(), curCenterX, baseline, textPaint)
+        }
+        // Trả paint dùng chung về mặc định
+        textPaint.textAlign = Paint.Align.LEFT
+        return true
+    }
+
+    private fun ellipsizeText(paint: Paint, text: String, maxWidth: Float): String {
+        if (maxWidth <= 0f) return ""
+        if (paint.measureText(text) <= maxWidth) return text
+        var end = text.length
+        while (end > 1 && paint.measureText(text.substring(0, end) + "…") > maxWidth) end--
+        return text.substring(0, end) + "…"
+    }
+
+    /** Parse màu an toàn; hỗ trợ cả #RRGGBBAA (web) lẫn #AARRGGBB (Android). Lỗi → fallback. */
+    private fun parseColorSafely(value: String?, fallback: Int): Int {
+        val v = value?.trim().orEmpty()
+        if (v.isEmpty()) return fallback
+        return runCatching {
+            if (v.startsWith("#") && v.length == 9) {
+                // Quy ước web #RRGGBBAA → Android #AARRGGBB
+                Color.parseColor("#" + v.substring(7, 9) + v.substring(1, 7))
+            } else {
+                Color.parseColor(v)
+            }
+        }.getOrDefault(fallback)
     }
 
     private fun requestBrandingAssets(data: OverlayData) {
@@ -681,6 +970,10 @@ class OverlayBitmapRenderer(
             cachedSponsorKey = ""
             pendingBrandingKey = ""
             _brandingLoadState.value = BrandingLoadState()
+            widgetBitmaps.values.forEach { recycleBitmap(it) }
+            widgetBitmaps.clear()
+            cachedWidgetKey = ""
+            pendingWidgetKey = ""
         }
     }
 

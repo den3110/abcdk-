@@ -116,6 +116,7 @@ import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
 import SEOHead from "../../components/SEOHead";
 import RefereeScoreDialog from "../../components/referee/RefereeScoreDialog";
+import OverlayWidgetsPanel from "../../components/overlay/OverlayWidgetsPanel";
 import {
   ActionChipsLocalized,
   BulkVideoDialogLocalized,
@@ -3339,6 +3340,15 @@ export default function TournamentManagePage() {
           {savingOverlaySettings ? (
             <Chip size="small" color="info" label="Đang lưu..." />
           ) : null}
+
+          <Divider sx={{ my: 1 }} />
+
+          <OverlayWidgetsPanel
+            tournamentId={id}
+            overlay={tour?.overlay}
+            canManage={canManage}
+            onSaved={() => refetchTour?.()}
+          />
         </Stack>
       );
     }
