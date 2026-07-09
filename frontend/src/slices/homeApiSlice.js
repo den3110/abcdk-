@@ -9,8 +9,14 @@ export const homeApiSlice = apiSlice.injectEndpoints({
         params,
       }),
     }),
+    getHomePulse: builder.query({
+      query: () => ({
+        url: "/api/public/home/pulse",
+      }),
+      keepUnusedDataFor: 30,
+    }),
   }),
   overrideExisting: false,
 });
 
-export const { useGetHomeSummaryQuery } = homeApiSlice;
+export const { useGetHomeSummaryQuery, useGetHomePulseQuery } = homeApiSlice;

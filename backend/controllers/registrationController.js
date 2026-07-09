@@ -713,7 +713,9 @@ export const getRegistrations = asyncHandler(async (req, res) => {
       ranking?.points,
     ].some(hasPositiveScore);
     const hasAnyScore = hasAnyRankingScore || hasPositiveScore(pl?.score);
-    const totalTours = Number(ranking?.totalFinishedTours || 0);
+    const totalTours = Number(
+      ranking?.totalFinishedTours || ranking?.totalTours || 0,
+    );
     const tierColor = String(ranking?.tierColor || "").toLowerCase();
     const hasStaffAssessment = Boolean(ranking?.hasStaffAssessment);
 
@@ -749,7 +751,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
 
     return {
       scoreTierColor: "red",
-      scoreTierLabel: ranking?.tierLabel || "Tự chấm / chưa được admin chấm",
+      scoreTierLabel: "Tự chấm / chưa được admin chấm",
       scoreColorRank: 2,
       scoreHasStaffAssessment: hasStaffAssessment,
       scoreTotalTours: totalTours,

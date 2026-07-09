@@ -3,6 +3,7 @@ import User from "../models/userModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Match from "../models/matchModel.js";
 import Club from "../models/clubModel.js";
+import RatingChange from "../models/ratingChangeModel.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 
@@ -112,5 +113,130 @@ export const getHomeSummary = async (req, res) => {
   } catch (err) {
     console.error("getHomeSummary error:", err);
     return res.status(500).json({ message: "Failed to load home summary" });
+  }
+};
+
+/* =========================================================================
+ * PULSE — dữ liệu "sống" cho trang chủ v2 (Astryx style):
+ *  - liveNow: số trận đang live
+ *  - todayMatches: số trận đã kết thúc hôm nay
+ *  - activeTournaments: số giải đang diễn ra
+ *  - weekClimbers: VĐV leo hạng mạnh nhất 7 ngày qua (tổng delta điểm trình)
+ * Chỉ đọc, cache ngắn, không bao giờ 500 — lỗi phần nào trả phần đó rỗng.
+ * ========================================================================= */
+const PULSE_CACHE_TTL_MS = Math.max(
+  5000,
+  Number(process.env.PUBLIC_HOME_PULSE_TTL_MS || 20000)
+);
+const pulseCache = createShortTtlCache(PULSE_CACHE_TTL_MS, {
+  id: CACHE_GROUP_IDS.publicHome,
+  label: "Public home pulse",
+  category: "public",
+  scope: "public",
+});
+
+const safeCount = (promise) =>
+  Promise.resolve(promise).catch((e) => {
+    console.error("[homePulse] count error:", e?.message || e);
+    return 0;
+  });
+
+async function computeWeekClimbers(limit = 5) {
+  try {
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const rows = await RatingChange.aggregate([
+      { $match: { createdAt: { $gte: since } } },
+      {
+        $group: {
+          _id: "$user",
+          delta: { $sum: "$delta" },
+          matches: { $sum: 1 },
+        },
+      },
+      { $match: { delta: { $gt: 0.0001 } } },
+      { $sort: { delta: -1 } },
+      { $limit: Math.max(1, Math.min(10, limit)) },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "_id",
+          as: "u",
+        },
+      },
+      { $unwind: "$u" },
+      { $match: { "u.isDeleted": { $ne: true } } },
+      {
+        $project: {
+          _id: 0,
+          userId: "$_id",
+          delta: { $round: ["$delta", 3] },
+          matches: 1,
+          nickname: { $ifNull: ["$u.nickname", { $ifNull: ["$u.name", ""] }] },
+          avatar: { $ifNull: ["$u.avatar", ""] },
+          province: { $ifNull: ["$u.province", ""] },
+        },
+      },
+    ]);
+    return rows;
+  } catch (e) {
+    console.error("[homePulse] weekClimbers error:", e?.message || e);
+    return [];
+  }
+}
+
+export const getHomePulse = async (req, res) => {
+  try {
+    const cacheKey = "pulse:v1";
+    const cached = pulseCache.get(cacheKey);
+    if (cached) {
+      res.setHeader("Cache-Control", "public, max-age=20, stale-while-revalidate=20");
+      res.setHeader("X-PKT-Cache", "HIT");
+      return res.json(cached);
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const [liveNow, todayMatches, activeTournaments, weekClimbers] =
+      await Promise.all([
+        safeCount(Match.countDocuments({ status: "live" })),
+        safeCount(
+          Match.countDocuments({
+            status: "finished",
+            finishedAt: { $gte: startOfDay },
+          })
+        ),
+        safeCount(
+          Tournament.countDocuments({
+            status: "ongoing",
+            isTest: { $ne: true },
+          })
+        ),
+        computeWeekClimbers(5),
+      ]);
+
+    const payload = {
+      liveNow,
+      todayMatches,
+      activeTournaments,
+      weekClimbers,
+      asOf: new Date().toISOString(),
+    };
+
+    pulseCache.set(cacheKey, payload);
+    res.setHeader("Cache-Control", "public, max-age=20, stale-while-revalidate=20");
+    res.setHeader("X-PKT-Cache", "MISS");
+    return res.json(payload);
+  } catch (err) {
+    console.error("getHomePulse error:", err);
+    // Không chặn trang chủ: trả rỗng thay vì 500
+    return res.json({
+      liveNow: 0,
+      todayMatches: 0,
+      activeTournaments: 0,
+      weekClimbers: [],
+      asOf: new Date().toISOString(),
+    });
   }
 };

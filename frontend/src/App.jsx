@@ -284,17 +284,25 @@ const App = () => {
     location.pathname,
   );
   const isModernHomeRoute = isModernVersion && location.pathname === "/";
+  // 🧪 Trang chủ thử nghiệm Astryx: chỉ khi có ?ui=v2 (full-bleed, ẩn chrome global)
+  const isAstryxHomeRoute =
+    location.pathname === "/" &&
+    String(new URLSearchParams(location.search).get("ui") || "")
+      .trim()
+      .toLowerCase() === "v2";
   const isFullScreenLayout =
     isAuthPage ||
     isImmersiveLiveFeedPage ||
     isModernHomeRoute ||
+    isAstryxHomeRoute ||
     isOverlayStudioPage;
-  const hideMobileBottomNav = isModernHomeRoute;
+  const hideMobileBottomNav = isModernHomeRoute || isAstryxHomeRoute;
   const shouldShowPikora =
     pikoraEnabled &&
     !isAuthPage &&
     !isImmersiveLiveFeedPage &&
     !isModernHomeRoute &&
+    !isAstryxHomeRoute &&
     !isOverlayStudioPage;
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)

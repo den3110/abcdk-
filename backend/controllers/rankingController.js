@@ -271,6 +271,20 @@ export async function getLeaderboard(req, res) {
     { $addFields: { latest: { $arrayElemAt: ["$latest", 0] } } },
     {
       $addFields: {
+        points: { $ifNull: ["$points", 0] },
+        single: { $ifNull: ["$single", 0] },
+        double: { $ifNull: ["$double", 0] },
+        mix: { $ifNull: ["$mix", 0] },
+        reputation: { $ifNull: ["$reputation", 0] },
+        totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+        hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+      },
+    },
+    { $addFields: rankingEffectiveTierStateFields },
+    { $addFields: rankingEffectiveTierFlagFields },
+    { $addFields: rankingEffectiveTierFields },
+    {
+      $addFields: {
         isSelfScoredLatest: {
           $cond: [
             {
@@ -373,6 +387,82 @@ const rankingNoScoreMatch = {
   })),
 };
 
+const rankingNoFinishedToursMatch = {
+  $and: ["totalFinishedTours", "totalTours"].map((field) => ({
+    $or: [
+      { [field]: { $exists: false } },
+      { [field]: null },
+      { [field]: { $lte: 0 } },
+    ],
+  })),
+};
+
+const rankingEffectiveTierStateFields = {
+  _rankingHasAnyScore: {
+    $or: [
+      { $gt: ["$single", 0] },
+      { $gt: ["$double", 0] },
+      { $gt: ["$mix", 0] },
+      { $gt: ["$points", 0] },
+    ],
+  },
+  _rankingTotalTours: {
+    $ifNull: ["$totalTours", { $ifNull: ["$totalFinishedTours", 0] }],
+  },
+  _rankingHasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+};
+
+const rankingEffectiveTierFlagFields = {
+  _rankingIsBlue: {
+    $and: ["$_rankingHasAnyScore", { $gte: ["$_rankingTotalTours", 3] }],
+  },
+  _rankingIsYellow: {
+    $and: [
+      "$_rankingHasAnyScore",
+      { $lt: ["$_rankingTotalTours", 3] },
+      {
+        $or: [
+          { $gt: ["$_rankingTotalTours", 0] },
+          "$_rankingHasStaffAssessment",
+        ],
+      },
+    ],
+  },
+};
+
+const rankingEffectiveTierFields = {
+  colorRank: {
+    $switch: {
+      branches: [
+        { case: "$_rankingIsBlue", then: 0 },
+        { case: "$_rankingIsYellow", then: 1 },
+        { case: "$_rankingHasAnyScore", then: 2 },
+      ],
+      default: 3,
+    },
+  },
+  tierLabel: {
+    $switch: {
+      branches: [
+        { case: "$_rankingIsBlue", then: "Đã thi đấu >= 3 giải" },
+        { case: "$_rankingIsYellow", then: "Official/Đã duyệt" },
+        { case: "$_rankingHasAnyScore", then: "Tự chấm" },
+      ],
+      default: "0 điểm / Chưa đấu",
+    },
+  },
+  tierColor: {
+    $switch: {
+      branches: [
+        { case: "$_rankingIsBlue", then: "blue" },
+        { case: "$_rankingIsYellow", then: "yellow" },
+        { case: "$_rankingHasAnyScore", then: "red" },
+      ],
+      default: "grey",
+    },
+  },
+};
+
 const RANKING_SCORE_STATUS_ALIASES = new Map(
   [
     ["three_tours", "three_tours"],
@@ -429,7 +519,8 @@ const buildRankingScoreStatusMatch = (scoreStatus) => {
       return {
         $and: [
           rankingHasAnyScoreMatch,
-          { $or: [{ tierColor: "red" }, { colorRank: 2 }] },
+          { hasStaffAssessment: { $ne: true } },
+          rankingNoFinishedToursMatch,
         ],
       };
     case "no_score":
@@ -479,6 +570,9 @@ const attachRankingRanksToDocs = async (docs = []) => {
         tierColor: { $ifNull: ["$tierColor", "grey"] },
       },
     },
+    { $addFields: rankingEffectiveTierStateFields },
+    { $addFields: rankingEffectiveTierFlagFields },
+    { $addFields: rankingEffectiveTierFields },
     {
       $lookup: {
         from: "users",
@@ -698,9 +792,9 @@ const buildRankingAchievementRules = () => {
       tone: "red",
       effect: "fire",
       priority: 700,
-      when: (ctx) => ctx.hasScore && ctx.isStale,
+      when: (ctx) => ctx.needsReview,
       label: "Cần chấm lại",
-      explain: "Điểm có dấu hiệu cũ, nên cập nhật hoặc chấm lại.",
+      explain: "Điểm chưa có nguồn xác thực từ giải đấu hoặc admin/mod.",
     }),
     rankingAchievementRule({
       id: "no-score",
@@ -956,6 +1050,10 @@ const buildRankingAchievementContext = (doc, podiums = []) => {
       ? Math.max(0, Math.floor((Date.now() - birth.getTime()) / 31557600000))
       : null;
 
+  const totalTours = Number(doc?.totalTours || doc?.totalFinishedTours || 0);
+  const hasScore = rankingHasAnyScore(doc);
+  const hasOfficialScoreSource = totalTours > 0 || Boolean(doc?.hasStaffAssessment);
+
   return {
     doc,
     user,
@@ -963,11 +1061,12 @@ const buildRankingAchievementContext = (doc, podiums = []) => {
     province: String(user?.province || "").trim() || "tỉnh",
     provinceRank: Number(doc?.provinceRank) || null,
     globalRank: Number(doc?.globalRank) || null,
-    totalTours: Number(doc?.totalTours || doc?.totalFinishedTours || 0),
+    totalTours,
     hasStaffAssessment: Boolean(doc?.hasStaffAssessment),
     kycStatus: String(user?.cccdStatus || ""),
-    hasScore: rankingHasAnyScore(doc),
+    hasScore,
     isStale: rankingIsScoreStale(doc),
+    needsReview: hasScore && !hasOfficialScoreSource,
     singleScore: rankingSafeNumber(doc?.single),
     doubleScore: rankingSafeNumber(doc?.double),
     mixScore: rankingSafeNumber(doc?.mix),
@@ -1973,13 +2072,20 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
 
-          // ======= Tier/màu với precedence: Grey > Gold > Red > Default =======
+          // ======= Tier/màu với precedence: Grey > Blue > Yellow > Red =======
           {
             $addFields: {
-              // Vàng chỉ khi KHÔNG xám và (đã từng đấu giải KẾT THÚC hoặc có staff assessment)
+              isBlue: {
+                $and: [{ $not: ["$isGrey"] }, { $gte: ["$totalTours", 3] }],
+              },
+            },
+          },
+          {
+            $addFields: {
               isGold: {
                 $and: [
                   { $not: ["$isGrey"] },
+                  { $not: ["$isBlue"] },
                   { $or: [{ $gt: ["$totalTours", 0] }, "$hasStaffAssessment"] },
                 ],
               },
@@ -1989,7 +2095,7 @@ export const getRankings = asyncHandler(async (req, res) => {
             $addFields: {
               isRed: {
                 $and: [
-                  { $eq: ["$totalTours", 0] },
+                  { $not: ["$isBlue"] },
                   { $not: ["$isGold"] },
                   { $not: ["$isGrey"] },
                 ],
@@ -1999,23 +2105,20 @@ export const getRankings = asyncHandler(async (req, res) => {
           {
             $addFields: {
               colorRank: {
-                $cond: [
-                  "$isGold",
-                  0,
-                  {
-                    $cond: [
-                      "$isRed",
-                      1,
-                      {
-                        $cond: ["$isGrey", 2, 3],
-                      },
-                    ],
-                  },
-                ],
+                $switch: {
+                  branches: [
+                    { case: "$isBlue", then: 0 },
+                    { case: "$isGold", then: 1 },
+                    { case: "$isRed", then: 2 },
+                    { case: "$isGrey", then: 3 },
+                  ],
+                  default: 3,
+                },
               },
               tierLabel: {
                 $switch: {
                   branches: [
+                    { case: "$isBlue", then: "Đã thi đấu >= 3 giải" },
                     { case: "$isGold", then: "Official/Đã duyệt" },
                     { case: "$isRed", then: "Tự chấm" },
                     { case: "$isGrey", then: "0 điểm / Chưa đấu" },
@@ -2026,6 +2129,7 @@ export const getRankings = asyncHandler(async (req, res) => {
               tierColor: {
                 $switch: {
                   branches: [
+                    { case: "$isBlue", then: "blue" },
                     { case: "$isGold", then: "yellow" },
                     { case: "$isRed", then: "red" },
                     { case: "$isGrey", then: "grey" },
@@ -2407,6 +2511,9 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
+          { $addFields: rankingEffectiveTierStateFields },
+          { $addFields: rankingEffectiveTierFlagFields },
+          { $addFields: rankingEffectiveTierFields },
           { $addFields: rankingTierSortFields },
           {
             $sort: rankingDefaultSort,
@@ -2711,6 +2818,9 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
               tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
             },
           },
+          { $addFields: rankingEffectiveTierStateFields },
+          { $addFields: rankingEffectiveTierFlagFields },
+          { $addFields: rankingEffectiveTierFields },
           { $addFields: rankingTierSortFields },
           {
             $sort: rankingDefaultSort,
@@ -3162,9 +3272,17 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
 
           {
             $addFields: {
+              isBlue: {
+                $and: [{ $not: ["$isGrey"] }, { $gte: ["$totalTours", 3] }],
+              },
+            },
+          },
+          {
+            $addFields: {
               isGold: {
                 $and: [
                   { $not: ["$isGrey"] },
+                  { $not: ["$isBlue"] },
                   { $or: [{ $gt: ["$totalTours", 0] }, "$hasStaffAssessment"] },
                 ],
               },
@@ -3174,7 +3292,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
             $addFields: {
               isRed: {
                 $and: [
-                  { $eq: ["$totalTours", 0] },
+                  { $not: ["$isBlue"] },
                   { $not: ["$isGold"] },
                   { $not: ["$isGrey"] },
                 ],
@@ -3184,23 +3302,20 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
           {
             $addFields: {
               colorRank: {
-                $cond: [
-                  "$isGold",
-                  0,
-                  {
-                    $cond: [
-                      "$isRed",
-                      1,
-                      {
-                        $cond: ["$isGrey", 2, 3],
-                      },
-                    ],
-                  },
-                ],
+                $switch: {
+                  branches: [
+                    { case: "$isBlue", then: 0 },
+                    { case: "$isGold", then: 1 },
+                    { case: "$isRed", then: 2 },
+                    { case: "$isGrey", then: 3 },
+                  ],
+                  default: 3,
+                },
               },
               tierLabel: {
                 $switch: {
                   branches: [
+                    { case: "$isBlue", then: "Đã thi đấu >= 3 giải" },
                     { case: "$isGold", then: "Official/Đã duyệt" },
                     { case: "$isRed", then: "Tự chấm" },
                     { case: "$isGrey", then: "0 điểm / Chưa đấu" },
@@ -3211,6 +3326,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
               tierColor: {
                 $switch: {
                   branches: [
+                    { case: "$isBlue", then: "blue" },
                     { case: "$isGold", then: "yellow" },
                     { case: "$isRed", then: "red" },
                     { case: "$isGrey", then: "grey" },

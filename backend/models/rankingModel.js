@@ -153,27 +153,6 @@ rankingSchema.virtual("isZeroPoints").get(function () {
 // ========== METHODS ==========
 // Method để recalculate tier
 rankingSchema.methods.recalculateTier = function () {
-  const now = new Date();
-  const staleCutoff = new Date(now);
-  staleCutoff.setMonth(staleCutoff.getMonth() - 4);
-
-  const asDate = (value) => {
-    if (!value) return null;
-    const date = value instanceof Date ? value : new Date(value);
-    return Number.isFinite(date.getTime()) ? date : null;
-  };
-
-  const latestActivityAt = [
-    this.lastFinishedTourAt,
-    this.lastAssessmentAt,
-    this.lastStaffAssessmentAt,
-    this.lastUpdated,
-    this.updatedAt,
-  ]
-    .map(asDate)
-    .filter(Boolean)
-    .sort((a, b) => b.getTime() - a.getTime())[0];
-
   const zeroPoints =
     this.points === 0 &&
     this.single === 0 &&
@@ -181,14 +160,10 @@ rankingSchema.methods.recalculateTier = function () {
     this.mix === 0;
 
   const hasAnyScore = !zeroPoints;
-  const isStale =
-    hasAnyScore &&
-    (!latestActivityAt || latestActivityAt.getTime() < staleCutoff.getTime());
   const isGrey = zeroPoints;
-  const isBlue = !isGrey && !isStale && this.totalFinishedTours >= 3;
+  const isBlue = !isGrey && this.totalFinishedTours >= 3;
   const isGold =
     !isGrey &&
-    !isStale &&
     !isBlue &&
     (this.totalFinishedTours > 0 || this.hasStaffAssessment);
   const isRed = !isGrey && !isBlue && !isGold;
@@ -205,7 +180,7 @@ rankingSchema.methods.recalculateTier = function () {
   } else if (isRed) {
     this.colorRank = 2;
     this.tierColor = "red";
-    this.tierLabel = isStale ? "Cần cập nhật điểm" : "Tự chấm";
+    this.tierLabel = "Tự chấm";
   } else if (isGrey) {
     this.colorRank = 3;
     this.tierColor = "grey";
