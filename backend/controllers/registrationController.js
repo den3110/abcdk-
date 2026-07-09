@@ -31,7 +31,7 @@ const hasPositiveScore = (value) => {
 };
 const normalizeTournamentScore = (value) => {
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : 0;
 };
 const isMaleGender = (value) => {
   const normalized = String(value || "")
